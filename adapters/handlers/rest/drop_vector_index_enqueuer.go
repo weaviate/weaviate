@@ -26,7 +26,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entschema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -505,9 +507,11 @@ type dropVectorReconcileClient interface {
 // reconcileDroppedVectorIndexes enqueues cleanup for every "none" marker with no
 // in-flight task — recovery for a crash between marker apply and enqueue, an
 // upgrade with pre-existing markers, or a restore. Idempotent: the active-task
-// check + the ConflictDetector dedupe across nodes running it at startup.
+// check + the ConflictDetector dedupe across nodes running it at startup. It
+// skips a class whose namespace is not active and leaves its markers for a round
+// after resume.
 func reconcileDroppedVectorIndexes(ctx context.Context, classes []*models.Class,
-	enq dropVectorReconcileClient, logger logrus.FieldLogger,
+	enq dropVectorReconcileClient, namespacesExister namespaces.Exister, logger logrus.FieldLogger,
 ) {
 	tasks, err := enq.ListDistributedTasks(ctx)
 	if err != nil {
@@ -516,6 +520,9 @@ func reconcileDroppedVectorIndexes(ctx context.Context, classes []*models.Class,
 	}
 	for _, class := range classes {
 		if class == nil {
+			continue
+		}
+		if err := namespaces.RequireActive(namespacesExister, namespacing.NamespaceFromQualified(class.Class)); err != nil {
 			continue
 		}
 		for name, cfg := range class.VectorConfig {
@@ -539,8 +546,8 @@ func reconcileDroppedVectorIndexes(ctx context.Context, classes []*models.Class,
 // goroutine. lister reads the local schema: eventually consistent is fine for
 // this idempotent safety net.
 func runDropVectorIndexReconciliation(ctx context.Context, lister local.ClassReader,
-	enq dropVectorReconcileClient, logger logrus.FieldLogger, interval time.Duration,
-	isLeader func() bool, nudge <-chan struct{},
+	enq dropVectorReconcileClient, namespacesExister namespaces.Exister, logger logrus.FieldLogger,
+	interval time.Duration, isLeader func() bool, nudge <-chan struct{},
 ) {
 	const attempts = 30
 	for i := 0; i < attempts; i++ {
@@ -580,7 +587,7 @@ func runDropVectorIndexReconciliation(ctx context.Context, lister local.ClassRea
 				return
 			}
 			if classes := lister.ReadOnlySchema().Classes; len(classes) > 0 {
-				reconcileDroppedVectorIndexes(ctx, classes, enq, logger)
+				reconcileDroppedVectorIndexes(ctx, classes, enq, namespacesExister, logger)
 			}
 		}()
 		select {

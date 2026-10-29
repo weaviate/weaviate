@@ -468,8 +468,7 @@ func (s *Searcher) buildPropValuePair(
 
 	switch filter.Operator {
 	case filters.ContainsAll, filters.ContainsAny, filters.ContainsNone:
-		pv, err := s.extractContains(ctx, filter.On, filter.Value.Type,
-			filter.Value.Value, filter.Operator, class)
+		pv, err := s.extractContains(ctx, filter.On, filter.Value, filter.Operator, class)
 		if err != nil {
 			s.logContainsFault(string(filter.On.Property), err)
 			return nil, fmt.Errorf("extract contains values: %w", err)
@@ -990,15 +989,15 @@ const (
 	containsBatchUUID
 	// containsBatchTextField: string values encode via FIELD tokenization.
 	containsBatchTextField
-	// containsBatchPrimitive: values encode via the primitive encoder of
-	// the value type (int/number/boolean/date).
-	containsBatchPrimitive
+	containsBatchInt
+	containsBatchNumber
+	containsBatchBool
+	containsBatchDate
 )
 
 // containsDecline* are the reasons surfaced in the "contains_desugared"
-// slow-query annotation when classifyContainsBatch (or the value-count gate
-// in extractContains) routes a Contains filter through the desugared
-// per-value path instead of the batched fold.
+// slow-query annotation when classifyContainsBatch routes a Contains filter
+// through the desugared per-value path instead of the batched fold.
 const (
 	containsDeclineNonContainsOperator  = "non-contains-operator"
 	containsDeclineNotEnabled           = "not-enabled"
@@ -1033,9 +1032,14 @@ const (
 // batching is only safe when every leaf would have been a plain 1-key
 // roaringset lookup. TestDocIDs_BatchedMatchesDesugared pins that agreement
 // end-to-end.
-func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.DataType,
+//
+// It also declines fewer than 2 values, because a single desugared leaf
+// applies the query limit while resolving and the batched fold does not.
+func (s *Searcher) classifyContainsBatch(path *filters.Path, value *filters.Value,
 	operator filters.Operator, class *models.Class,
 ) (*models.Property, containsBatchType, string) {
+	propType := value.Type
+
 	if !operator.IsContains() {
 		return nil, containsNotBatchable, containsDeclineNonContainsOperator
 	}
@@ -1080,12 +1084,13 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 		return nil, containsNotBatchable, containsDeclineNoRoaringSetBucket
 	}
 
+	var batchType containsBatchType
 	switch {
 	case s.onUUIDProp(property):
 		if propType != schema.DataTypeText {
 			return nil, containsNotBatchable, containsDeclineValueTypeMismatch
 		}
-		return property, containsBatchUUID, ""
+		batchType = containsBatchUUID
 	case s.onTokenizableProp(property):
 		if propType != schema.DataTypeText {
 			return nil, containsNotBatchable, containsDeclineValueTypeMismatch
@@ -1100,15 +1105,26 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 		if s.isFallbackToSearchable() {
 			return nil, containsNotBatchable, containsDeclineFallbackToSearchable
 		}
-		return property, containsBatchTextField, ""
+		batchType = containsBatchTextField
 	default:
 		switch propType {
-		case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
-			return property, containsBatchPrimitive, ""
+		case schema.DataTypeInt:
+			batchType = containsBatchInt
+		case schema.DataTypeNumber:
+			batchType = containsBatchNumber
+		case schema.DataTypeBoolean:
+			batchType = containsBatchBool
+		case schema.DataTypeDate:
+			batchType = containsBatchDate
 		default:
 			return nil, containsNotBatchable, containsDeclineValueTypeMismatch
 		}
 	}
+
+	if containsValueCount(value.Value) < 2 {
+		return nil, containsNotBatchable, containsDeclineFewerThanTwoValues
+	}
+	return property, batchType, ""
 }
 
 // newBatchedContainsPair builds the batched Contains leaf from pre-encoded
@@ -1149,38 +1165,87 @@ func (s *Searcher) logContainsFault(prop string, err error) {
 	}
 }
 
-// batchedContainsUUID builds the batched leaf for string values on a UUID
-// property. A value that fails to encode is an error, not a fall-through:
-// the shape already matched, so desugaring would only re-derive the
-// identical failure per value. The same applies to every batchedContains*
-// method below.
-func (s *Searcher) batchedContainsUUID(property *models.Property, operator filters.Operator,
-	class *models.Class, values []string,
-) (*propValuePair, error) {
-	keys, err := encodeUUIDKeys(values)
-	if err != nil {
-		return nil, err
+// containsValueCount is the number of values in a Contains filter's raw
+// value, or 0 for a shape the extract*Array helpers reject.
+func containsValueCount(value interface{}) int {
+	switch v := value.(type) {
+	case []string:
+		return len(v)
+	case []int:
+		return len(v)
+	case []float64:
+		return len(v)
+	case []bool:
+		return len(v)
+	case []interface{}:
+		return len(v)
+	default:
+		return 0
 	}
-	return newBatchedContainsPair(property, operator, class, keys)
 }
 
-// batchedContainsTextField builds the batched leaf for string values on a
-// FIELD-tokenized text property: one batched analysis for all values —
-// per-batch metrics and a shared token backing array instead of per-value
-// Analyze calls — yielding one key per value. classifyContainsBatch has
-// already confirmed the property's effective tokenization is FIELD.
-func (s *Searcher) batchedContainsTextField(property *models.Property, operator filters.Operator,
-	class *models.Class, values []string,
-) (*propValuePair, error) {
+// buildContainsKeys extracts the typed values and encodes them for the batch
+// type classifyContainsBatch chose. A value that fails to encode is an error
+// rather than a desugar, which would only fail again per value.
+func (s *Searcher) buildContainsKeys(batchType containsBatchType, value interface{},
+	property *models.Property, class *models.Class,
+) (inverted.SortedKeys, error) {
+	switch batchType {
+	case containsBatchUUID:
+		values, err := s.extractStringArray(value)
+		if err != nil {
+			return inverted.SortedKeys{}, err
+		}
+		return encodeUUIDKeys(values)
+	case containsBatchTextField:
+		values, err := s.extractStringArray(value)
+		if err != nil {
+			return inverted.SortedKeys{}, err
+		}
+		return encodeTextFieldKeys(property, class, values)
+	case containsBatchInt:
+		values, err := s.extractIntArray(value)
+		if err != nil {
+			return inverted.SortedKeys{}, err
+		}
+		return encodeIntKeys(values)
+	case containsBatchNumber:
+		values, err := s.extractFloat64Array(value)
+		if err != nil {
+			return inverted.SortedKeys{}, err
+		}
+		return encodeNumberKeys(values)
+	case containsBatchBool:
+		values, err := s.extractBoolArray(value)
+		if err != nil {
+			return inverted.SortedKeys{}, err
+		}
+		return encodeBoolKeys(values)
+	case containsBatchDate:
+		values, err := s.extractStringArray(value)
+		if err != nil {
+			return inverted.SortedKeys{}, err
+		}
+		return encodeDateKeys(values)
+	default:
+		return inverted.SortedKeys{}, fmt.Errorf("%w: no batched contains encoding for batch type %d",
+			inverted.ErrInternal, batchType)
+	}
+}
+
+// encodeTextFieldKeys encodes string values on a FIELD-tokenized text property,
+// one key per value. One batched analysis replaces per-value Analyze calls, so
+// metrics are recorded once and the tokens share one backing array.
+func encodeTextFieldKeys(property *models.Property, class *models.Class, values []string) (inverted.SortedKeys, error) {
 	prepared := tokenizer.NewPreparedAnalyzer(property.TextAnalyzer)
 	batch, err := tokenizer.AnalyzeBatch(values, models.PropertyTokenizationField, class.Class, prepared, nil)
 	if err != nil {
-		return nil, err
+		return inverted.SortedKeys{}, err
 	}
 	// FIELD gives one token per value, and the key is that token's bytes.
 	total, err := batch.SingleTokenBytes()
 	if err != nil {
-		return nil, err
+		return inverted.SortedKeys{}, err
 	}
 
 	// Fill first, order in Build: ordering the tokens here instead would mean a
@@ -1190,131 +1255,63 @@ func (s *Searcher) batchedContainsTextField(property *models.Property, operator 
 	for _, valueTokens := range batch.All() {
 		kb.AppendString(valueTokens[0])
 	}
-	keys, err := kb.Build()
-	if err != nil {
-		return nil, err
-	}
-	return newBatchedContainsPair(property, operator, class, keys)
-}
-
-func (s *Searcher) batchedContainsInt(property *models.Property, operator filters.Operator,
-	class *models.Class, values []int,
-) (*propValuePair, error) {
-	keys, err := encodeIntKeys(values)
-	if err != nil {
-		return nil, err
-	}
-	return newBatchedContainsPair(property, operator, class, keys)
-}
-
-func (s *Searcher) batchedContainsNumber(property *models.Property, operator filters.Operator,
-	class *models.Class, values []float64,
-) (*propValuePair, error) {
-	keys, err := encodeNumberKeys(values)
-	if err != nil {
-		return nil, err
-	}
-	return newBatchedContainsPair(property, operator, class, keys)
-}
-
-func (s *Searcher) batchedContainsBool(property *models.Property, operator filters.Operator,
-	class *models.Class, values []bool,
-) (*propValuePair, error) {
-	keys, err := encodeBoolKeys(values)
-	if err != nil {
-		return nil, err
-	}
-	return newBatchedContainsPair(property, operator, class, keys)
-}
-
-func (s *Searcher) batchedContainsDate(property *models.Property, operator filters.Operator,
-	class *models.Class, values []string,
-) (*propValuePair, error) {
-	keys, err := encodeDateKeys(values)
-	if err != nil {
-		return nil, err
-	}
-	return newBatchedContainsPair(property, operator, class, keys)
+	return kb.Build()
 }
 
 // extractContains resolves a ContainsAny/ContainsAll/ContainsNone filter.
-// classifyContainsBatch decides once whether the batched fast path applies
-// and with which key encoding; each value-type arm then extracts its typed
-// values once and either builds the batched leaf or desugars the same slice
-// into per-value Equal operands.
-//
-// Batching additionally requires len(values) >= 2: a single desugared leaf
-// applies the query limit while resolving, which the batched fold does
-// not — and one value has no per-value overhead to amortize anyway.
+// Local shards that batch it share one key build through the filter value.
 func (s *Searcher) extractContains(ctx context.Context,
-	path *filters.Path, propType schema.DataType, value interface{},
+	path *filters.Path, value *filters.Value,
 	operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
-	property, batchType, declineReason := s.classifyContainsBatch(path, propType, operator, class)
-	if declineReason == "" {
-		// the classifier approved the shape; if the filter still desugars in
-		// the arms below, the value count is the only remaining cause
-		declineReason = containsDeclineFewerThanTwoValues
+	property, batchType, declineReason := s.classifyContainsBatch(path, value, operator, class)
+	if batchType == containsNotBatchable {
+		operands, err := s.extractContainsOperands(path, value, operator)
+		if err != nil {
+			return nil, err
+		}
+		return s.desugaredContains(ctx, operator, class, path, operands, declineReason)
 	}
 
-	switch propType {
-	case schema.DataTypeText, schema.DataTypeTextArray:
-		values, err := s.extractStringArray(value)
+	keys, err := value.ContainsKeys(func() (inverted.SortedKeys, error) {
+		return s.buildContainsKeys(batchType, value.Value, property, class)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return newBatchedContainsPair(property, operator, class, keys)
+}
+
+// extractContainsOperands turns a Contains filter's values into one Equal
+// clause per value.
+func (s *Searcher) extractContainsOperands(path *filters.Path, value *filters.Value,
+	operator filters.Operator,
+) ([]filters.Clause, error) {
+	switch propType := value.Type; propType {
+	case schema.DataTypeText, schema.DataTypeTextArray, schema.DataTypeDate, schema.DataTypeDateArray:
+		values, err := s.extractStringArray(value.Value)
 		if err != nil {
 			return nil, err
 		}
-		if len(values) >= 2 {
-			switch batchType {
-			case containsBatchUUID:
-				return s.batchedContainsUUID(property, operator, class, values)
-			case containsBatchTextField:
-				return s.batchedContainsTextField(property, operator, class, values)
-			default:
-				// containsNotBatchable: desugar below
-			}
-		}
-		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
-
+		return getContainsOperands(propType, path, values), nil
 	case schema.DataTypeInt, schema.DataTypeIntArray:
-		values, err := s.extractIntArray(value)
+		values, err := s.extractIntArray(value.Value)
 		if err != nil {
 			return nil, err
 		}
-		if batchType == containsBatchPrimitive && len(values) >= 2 {
-			return s.batchedContainsInt(property, operator, class, values)
-		}
-		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
-
+		return getContainsOperands(propType, path, values), nil
 	case schema.DataTypeNumber, schema.DataTypeNumberArray:
-		values, err := s.extractFloat64Array(value)
+		values, err := s.extractFloat64Array(value.Value)
 		if err != nil {
 			return nil, err
 		}
-		if batchType == containsBatchPrimitive && len(values) >= 2 {
-			return s.batchedContainsNumber(property, operator, class, values)
-		}
-		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
-
+		return getContainsOperands(propType, path, values), nil
 	case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
-		values, err := s.extractBoolArray(value)
+		values, err := s.extractBoolArray(value.Value)
 		if err != nil {
 			return nil, err
 		}
-		if batchType == containsBatchPrimitive && len(values) >= 2 {
-			return s.batchedContainsBool(property, operator, class, values)
-		}
-		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
-
-	case schema.DataTypeDate, schema.DataTypeDateArray:
-		values, err := s.extractStringArray(value)
-		if err != nil {
-			return nil, err
-		}
-		if batchType == containsBatchPrimitive && len(values) >= 2 {
-			return s.batchedContainsDate(property, operator, class, values)
-		}
-		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
-
+		return getContainsOperands(propType, path, values), nil
 	default:
 		return nil, fmt.Errorf("unsupported type '%T' for '%v' operator", propType, operator)
 	}

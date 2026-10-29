@@ -1913,9 +1913,11 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 			// There might be module settings that need to be migrated to new names, for example
 			// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
 			// and migrate baseUrl to baseURL
-			if modulesProvider.MigrateVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			// initial shares its maps with the stored schema, so the migration runs on a copy.
+			initialVectorizer := structToMap(initial.VectorConfig[k].Vectorizer)
+			if modulesProvider.MigrateVectorizerSettings(initialVectorizer, v.Vectorizer) {
 				// Module settings have been migrated, let's recheck vectorizer settings
-				if deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+				if deepEqualVectorizerSettings(initialVectorizer, v.Vectorizer) {
 					continue
 				}
 			}

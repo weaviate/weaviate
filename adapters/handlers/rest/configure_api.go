@@ -76,6 +76,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/cluster/usage"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -168,6 +169,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/cron"
 	exportusecase "github.com/weaviate/weaviate/usecases/export"
 	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -188,6 +190,7 @@ import (
 	wldbusers "github.com/weaviate/weaviate/wl/dbusers"
 	wldbusershandlers "github.com/weaviate/weaviate/wl/dbusers/handlers"
 	wlnshandlers "github.com/weaviate/weaviate/wl/namespaces/handlers"
+	"github.com/weaviate/weaviate/wl/namespaces/suspendsweep"
 	"github.com/weaviate/weaviate/wl/selfrecovery"
 	srhandlers "github.com/weaviate/weaviate/wl/selfrecovery/handlers"
 )
@@ -491,6 +494,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		TrackVectorDimensionsInterval:       appState.ServerConfig.Config.TrackVectorDimensionsInterval,
 		MigrateDimensionsToRoaringSet:       appState.ServerConfig.Config.ReindexVectorDimensionsToRoaringsetAtStartup,
 		ReindexVectorDimensions:             appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup,
+		RecountPropertiesAtStartup:          appState.ServerConfig.Config.RecountPropertiesAtStartup,
 		UsageEnabled:                        appState.Modules.UsageEnabled(),
 		ResourceUsage:                       appState.ServerConfig.Config.ResourceUsage,
 		AvoidMMap:                           appState.ServerConfig.Config.AvoidMmap,
@@ -695,6 +699,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		},
 		DrainSleep:                             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
 		MaxTenantsPerCollection:                appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
+		MaxCollections:                         appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount,
 		UsageLimitsErrorMessage:                appState.ServerConfig.Config.UsageLimits.ErrorMessage,
 		ReplicaMovementCleanupEnabled:          appState.ServerConfig.Config.Replication.ReplicaMovementCleanupEnabled,
 		ReplicaMovementCleanupMaxAge:           appState.ServerConfig.Config.Replication.ReplicaMovementCleanupMaxAge,
@@ -996,6 +1001,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.ClusterService.IsLeader,
 		appState.Logger,
 	)
+	newSuspendSweep := suspendSweepFor(namespaceModeFor(appState.ServerConfig.Config), func(logger *logrus.Entry) cron.SuspendSweep {
+		return suspendsweep.New(logger, appState.DB, concurrency.CurrentGOMAXPROCSx2())
+	})
 
 	enterrors.GoWrapper(func() {
 		l := appState.Logger.WithField("action", "startup")
@@ -1004,7 +1012,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			return
 		}
 		l.Info("Configuring crons")
-		if err := appState.Crons.Init(appState.ClusterService, appState.ObjectTTLCoordinator, namespaceCleanupCoordinator); err != nil {
+		// Keep this after waitForMetaStore, because the suspend reconcile job's tick gate, cron.RunOnEveryNode, never waits for the meta store.
+		if err := appState.Crons.Init(appState.ClusterService, appState.ObjectTTLCoordinator, namespaceCleanupCoordinator, newSuspendSweep); err != nil {
 			l.Fatalf("Configuring crons failed: %v", err)
 		}
 	}, appState.Logger)
@@ -1070,9 +1079,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}, appState.Logger)
 	}
 
-	// Add recount properties of all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
-		migrator.RecountProperties(ctx)
+		enterrors.GoWrapper(func() {
+			l := appState.Logger.WithField("action", "startup")
+			if err := metaStoreReady.waitForMetaStore(); err != nil {
+				l.Errorf("Recounting property lengths not reported: %v", err)
+				return
+			}
+			if err := migrator.ReportPropertyLengthsRecount(serverShutdownCtx); err != nil {
+				l.Errorf("Recounting property lengths incomplete, keep environment variable "+
+					"RECOUNT_PROPERTIES_AT_STARTUP set: %v", err)
+			}
+		}, appState.Logger)
 	}
 
 	providers := map[string]distributedtask.Provider{}
@@ -1261,7 +1279,7 @@ func initReindexAndDistributedTasks(
 	// is missing (crash, upgrade, or restore).
 	enterrors.GoWrapper(func() {
 		runDropVectorIndexReconciliation(
-			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.Logger,
+			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.NamespacesController, appState.Logger,
 			appState.ServerConfig.Config.DistributedTasks.DropVectorReconcileInterval,
 			appState.ClusterService.IsLeader, dropVectorReconcileNudge)
 	}, appState.Logger)
@@ -1584,6 +1602,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
+	// nothing else polls the readiness check, so time to ready is measured here
+	enterrors.GoWrapper(func() {
+		monitoring.GetStartupMetrics().TrackReady(serverShutdownCtx,
+			func() bool { return nodeReady(appState) }, readyPollInterval)
+	}, appState.Logger)
+
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)
 	if telemetryEnabled(appState) {
 		enterrors.GoWrapper(func() {

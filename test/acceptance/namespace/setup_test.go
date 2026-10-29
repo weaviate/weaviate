@@ -114,6 +114,9 @@ func TestMain(m *testing.M) {
 		// purpose. The 120s default would hold the apply loop for two minutes;
 		// 20s stays well clear of a healthy one-object upload.
 		WithWeaviateEnv("OFFLOAD_TIMEOUT", "20").
+		// With this, the sweep releases a suspended namespace's shards within about
+		// a second of the suspend, so the suspend tests can wait for the release.
+		WithWeaviateEnv("SUSPEND_RECONCILE_INTERVAL", "1s").
 		// backup-s3 + export share the MinIO sidecar; the "backups" bucket backs
 		// both. REPLICA_MOVEMENT_ENABLED ensures the Replicate handler reaches the
 		// auth check (it 501s before authz when movement is off), so the RBAC deny

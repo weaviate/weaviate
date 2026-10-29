@@ -390,9 +390,6 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	// count as runs
 	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessTombstoneCleanup)()
 
-	h.metrics.StartCleanup(tombstoneDeletionConcurrency())
-	defer h.metrics.EndCleanup(tombstoneDeletionConcurrency())
-
 	h.metrics.SetTombstoneDeleteListSize(deleteList.Len())
 
 	h.tombstoneLock.Lock()
@@ -662,7 +659,6 @@ func (h *hnsw) reassignNeighbor(
 		return false, errors.Wrap(err, "find and connect neighbors")
 	}
 
-	h.metrics.CleanedUp()
 	return true, nil
 }
 
@@ -810,8 +806,6 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList,
 		return 0, 0, false
 	}
 
-	h.metrics.TombstoneFindGlobalEntrypoint()
-
 	// Find the node with the highest level that is not in the denyList. This
 	// handles cases where nodes may have higher levels than
 	// currentMaximumLayer (e.g., due to corrupt commit log replay or
@@ -873,8 +867,6 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, oldEntrypoint 
 		// currently available level
 		return entryPointID, nil
 	}
-
-	h.metrics.TombstoneFindLocalEntrypoint()
 
 	h.RLock()
 	maxNodes := len(h.nodes)
@@ -973,8 +965,12 @@ func (h *hnsw) addTombstone(ids ...uint64) error {
 	}
 
 	for _, id := range ids {
-		h.metrics.AddTombstone()
-		h.tombstones[id] = struct{}{}
+		// an id deleted again, e.g. by a replayed async-indexing delete, is
+		// already counted in vector_index_tombstones
+		if _, ok := h.tombstones[id]; !ok {
+			h.metrics.AddTombstone()
+			h.tombstones[id] = struct{}{}
+		}
 		if err := h.commitLog.AddTombstone(id); err != nil {
 			return err
 		}
@@ -997,9 +993,13 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 			// tombstone that no cycle would ever revisit
 			continue
 		}
-		h.metrics.RemoveTombstone()
 		h.tombstoneLock.Lock()
-		delete(h.tombstones, id)
+		// a resetUnlocked during this cycle already cleared h.tombstones and
+		// vector_index_tombstones
+		if _, ok := h.tombstones[id]; ok {
+			h.metrics.RemoveTombstone()
+			delete(h.tombstones, id)
+		}
 		h.tombstoneLock.Unlock()
 
 		h.resetLock.Lock()

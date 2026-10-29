@@ -502,7 +502,7 @@ func newBatchDeleteRepoAt(t *testing.T, rootDir string, class *models.Class,
 
 	return setupTestDBWithShardState(t, rootDir, shardState, func(cfg *Config) {
 		cfg.QueryMaximumResults = queryMaximumResults
-	}, class)
+	}, nil, class)
 }
 
 // TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot pins that a doc id with no object row costs a read, not a limit slot.
@@ -654,9 +654,9 @@ func TestFindUUIDs_ResolvesTheFilterOnce(t *testing.T) {
 				require.NoError(t, err)
 				require.Len(t, uuids, limit, "call %d fills the window past the dead ids", call)
 
-				resolves, ok := helpers.ExtractSlowQueryDetails(callCtx)["build_allow_list_doc_bitmap"].([]map[string]any)
+				resolves, ok := helpers.ExtractSlowQueryDetails(callCtx)["build_allow_list_doc_bitmap"].(helpers.SlowestEntries)
 				require.True(t, ok, "call %d: the searcher records each leaf it resolves", call)
-				require.Len(t, resolves, 1, "call %d resolves the filter once", call)
+				require.Equal(t, 1, resolves.Count, "call %d resolves the filter once", call)
 			}
 		})
 	}
@@ -848,7 +848,7 @@ func TestObjectsTTLSweepResolvesPastDeadDocIDs(t *testing.T) {
 			newTTLRepo := func() *DB {
 				return setupTestDBWithShardState(t, rootDir, shardState, func(cfg *Config) {
 					cfg.ObjectsTTLBatchSize = configRuntime.NewDynamicValue(sweepBatch)
-				}, class)
+				}, nil, class)
 			}
 
 			repo := newTTLRepo()

@@ -17,6 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 var (
@@ -74,4 +75,10 @@ func IsGRPCRead(method string) bool {
 
 func IsGRPCWrite(method string) bool {
 	return !IsGRPCRead(method)
+}
+
+func IsGPRCHealthCheck(method string) bool {
+	return method == grpc_health_v1.Health_Check_FullMethodName ||
+		method == grpc_health_v1.Health_Watch_FullMethodName ||
+		method == grpc_health_v1.Health_List_FullMethodName
 }

@@ -292,7 +292,7 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 	rec, ok, err := s.mapping.Get("")
 	require.NoError(t, err)
 	require.True(t, ok)
-	assert.Equal(t, vectorIndexRecord{PhysicalID: "main", IndexType: "hnsw", State: "ready"}, rec)
+	assert.Equal(t, recorded(s, "", "main", "ready"), rec)
 	assert.True(t, storageExistsFor(t, s, rec))
 
 	require.Nil(t, idx.drop())

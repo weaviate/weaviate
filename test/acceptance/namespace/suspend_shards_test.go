@@ -113,8 +113,10 @@ func uriForNode(t *testing.T, nodeName string) string {
 func requireShardsEventually(t *testing.T, qualifiedClass string, want ...string) {
 	t.Helper()
 
-	// Sorted on a copy: want aliases the caller's slice when spread with "...".
-	want = append([]string(nil), want...)
+	// want is sorted on a copy, because it aliases the caller's slice when spread
+	// with "...". The copy is non-nil, so a call with no names matches
+	// shardsForClass's empty listing.
+	want = append([]string{}, want...)
 	sort.Strings(want)
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		got, err := shardsForClass(t, qualifiedClass)
@@ -201,8 +203,8 @@ func TestNamespaces_SuspendRefusesTenantShardMaterialization(t *testing.T) {
 	setupMTClassInNs1(t, ns1, class, user1Key)
 	qualified := ns1 + ":" + class
 
-	// Baseline while active: the HOT tenant materializes and the COLD one does
-	// not. Everything below is read against this.
+	// While the namespace is active, the HOT tenant materializes and the COLD one
+	// does not.
 	require.NoError(t, addTenantsAuth(t, qualified, []*models.Tenant{
 		{Name: "warm", ActivityStatus: models.TenantActivityStatusHOT},
 		{Name: "chilled", ActivityStatus: models.TenantActivityStatusCOLD},
@@ -231,7 +233,6 @@ func TestNamespaces_SuspendRefusesTenantShardMaterialization(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotContains(t, tenantNames(tenants), "added")
 		assert.NotContains(t, tenantNames(tenants), "addedcold")
-		requireShardAbsent(t, qualified, "added", presentShard{qualified, "warm"})
 	})
 
 	// The node running a status change holds no shard for either a COLD or a HOT
@@ -244,24 +245,23 @@ func TestNamespaces_SuspendRefusesTenantShardMaterialization(t *testing.T) {
 		require.Error(t, err)
 
 		requireTenantEventually(t, qualified, "chilled", models.TenantActivityStatusCOLD)
-		requireShardAbsent(t, qualified, "chilled", presentShard{qualified, "warm"})
 	})
 
-	// The shard that was already open when the suspend landed stays open: the
-	// guards refuse new materialization but unload nothing.
-	t.Run("a shard open before the suspend stays open", func(t *testing.T) {
-		got, err := shardsForClass(t, qualified)
-		require.NoError(t, err)
-		assert.Equal(t, []string{"warm"}, got)
-	})
-
+	// Only the new tenant is waited for, because the resume can apply before or
+	// after the sweep releases warm, so warm may be listed or not.
 	t.Run("resuming lets a tenant materialize again", func(t *testing.T) {
 		helper.ResumeNamespace(t, ns1, adminKey)
 
 		require.NoError(t, addTenantsAuth(t, qualified, []*models.Tenant{
 			{Name: "afterresume", ActivityStatus: models.TenantActivityStatusHOT},
 		}, adminKey))
-		requireShardsEventually(t, qualified, "afterresume", "warm")
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			got, err := shardsForClass(t, qualified)
+			if !assert.NoError(c, err) {
+				return
+			}
+			assert.Contains(c, got, "afterresume")
+		}, 30*time.Second, 200*time.Millisecond, "the tenant created after the resume never materialized")
 	})
 }
 
@@ -358,10 +358,15 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 	// against the resume the test does itself.
 	t.Cleanup(func() { helper.ResumeNamespace(t, dropNS, adminKey) })
 
-	t.Run("suspending leaves an already-open shard open", func(t *testing.T) {
-		got, err := shardsForClass(t, dropSTQualified)
+	// Kept shares the home node, so its shard staying listed shows that the sweep
+	// released only the suspended namespace.
+	t.Run("suspending releases the namespace's shards", func(t *testing.T) {
+		requireShardsEventually(t, dropSTQualified)
+		requireShardsEventually(t, dropMTQualified)
+
+		got, err := shardsForClass(t, keepQualified)
 		require.NoError(t, err)
-		assert.Equal(t, dropSTShards, got)
+		assert.Equal(t, keepShards, got)
 	})
 
 	// A failed stop or start would leave the node down for every later test in
@@ -370,31 +375,22 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 		require.NoError(t, sharedCompose.EnsureRunning(ctx, restartNodeIndex))
 	})
 
-	// The kill runs first, while the suspended namespace's shards are still open
-	// and its data still unflushed: that is the boot with something to recover.
-	// The graceful pass afterwards starts from shards already closed, so it only
-	// re-checks that the decision holds.
-	zero := time.Duration(0)
-	for _, tc := range []struct {
-		name    string
-		timeout *time.Duration
-	}{
-		{"after a crash the suspended namespace loads no shards", &zero},
-		{"after a graceful restart the suspended namespace loads no shards", nil},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			require.NoError(t, sharedCompose.StopNode(ctx, restartNodeIndex, tc.timeout))
-			require.NoError(t, sharedCompose.StartNode(ctx, restartNodeIndex))
+	// The kill meets shards the sweep released or is still flushing, as a kill
+	// during a tenant deactivation can. adapters/repos/db's
+	// TestSuspendedNamespace_UnflushedWriteSurvivesACrash crashes before the sweep.
+	t.Run("after a crash the suspended namespace loads no shards", func(t *testing.T) {
+		zero := time.Duration(0)
+		require.NoError(t, sharedCompose.StopNode(ctx, restartNodeIndex, &zero))
+		require.NoError(t, sharedCompose.StartNode(ctx, restartNodeIndex))
 
-			// The active namespace's shard coming back is what says the node is
-			// answering again; requireShardAbsent keeps checking it below.
-			requireShardsEventually(t, keepQualified, keepShards...)
+		// The active namespace's shard coming back says the node is answering
+		// again, and requireShardAbsent keeps checking it below.
+		requireShardsEventually(t, keepQualified, keepShards...)
 
-			live := presentShard{keepQualified, keepShards[0]}
-			requireShardAbsent(t, dropSTQualified, dropSTShards[0], live)
-			requireShardAbsent(t, dropMTQualified, tenant, live)
-		})
-	}
+		live := presentShard{keepQualified, keepShards[0]}
+		requireShardAbsent(t, dropSTQualified, dropSTShards[0], live)
+		requireShardAbsent(t, dropMTQualified, tenant, live)
+	})
 
 	// These writes name a collection the boot skipped, and the gate refuses them
 	// before any shard is consulted. They run as the global operator, because the

@@ -44,6 +44,7 @@ import (
 	backupUC "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -287,13 +288,14 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 // setupTestDBWithConfig builds a single-node DB on a single shard. override, when
 // non-nil, adjusts the Config before the DB is created.
 func setupTestDBWithConfig(t *testing.T, rootDir string, override func(*Config), classes ...*models.Class) *DB {
-	return setupTestDBWithShardState(t, rootDir, singleShardState(), override, classes...)
+	return setupTestDBWithShardState(t, rootDir, singleShardState(), override, nil, classes...)
 }
 
 // setupTestDBWithShardState builds a single-node DB that holds the given shards.
-// override, when non-nil, adjusts the Config before the DB is created.
+// override, when non-nil, adjusts the Config before the DB is created. exister
+// answers the namespace of a <ns>:<Class> name, and may be nil without one.
 func setupTestDBWithShardState(t *testing.T, rootDir string, shardState *sharding.State,
-	override func(*Config), classes ...*models.Class,
+	override func(*Config), exister namespaces.Exister, classes ...*models.Class,
 ) *DB {
 	logger, _ := test.NewNullLogger()
 
@@ -335,7 +337,7 @@ func setupTestDBWithShardState(t *testing.T, rootDir string, shardState *shardin
 		override(&cfg)
 	}
 	db, err := New(logger, "node1", cfg, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, exister)
 	require.Nil(t, err)
 	db.SetSchemaGetter(schemaGetter)
 	require.Nil(t, db.WaitForStartup(testCtx()))

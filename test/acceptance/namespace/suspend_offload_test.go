@@ -122,7 +122,8 @@ func TestNamespaces_SuspendDuringOffloadAbort(t *testing.T) {
 	<-freezeReturned
 
 	// A tenant the report put back to HOT has to be usable again once the namespace
-	// is back, off the files the abort left behind.
+	// is back, off the files the abort left behind. The sweep may release its shard
+	// after the abort applies, and the write after the resume succeeds either way.
 	//
 	// Retried: the resume is confirmed by reading the namespace back, which is
 	// answered by the leader, while a namespaced key is authenticated against the

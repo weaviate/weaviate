@@ -165,3 +165,16 @@ func TestSchemaManager_UpdateClass_MutableSettings(t *testing.T) {
 		})
 	}
 }
+
+func TestSchemaManager_UpdateClass_WithoutModuleConfigKeepsStoredModuleConfig(t *testing.T) {
+	sm := newSchemaManagerWithModules(t)
+	stored := classShapes[1].build(moduleSettings("a", "m"))
+	stored.ModuleConfig = map[string]any{"generative-fake": map[string]any{"model": "g"}}
+	require.NoError(t, sm.AddClass(addClassRequest(t, stored), "node1", true, false))
+
+	update := classShapes[1].build(moduleSettings("a", "m"))
+	update.Description = "new description"
+	require.NoError(t, sm.UpdateClass(updateClassRequest(t, update, 2), "node1", true, false))
+	require.Equal(t, map[string]any{"generative-fake": map[string]any{"model": "g"}},
+		sm.NewSchemaReader().ReadOnlyClass(className).ModuleConfig)
+}

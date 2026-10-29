@@ -75,7 +75,8 @@ type DB struct {
 	shutdownOnce              sync.Once
 	startupComplete           atomic.Bool
 	startupShards             startupShardCounters
-	dimensionsReindex         dimensionsReindex
+	dimensionsReindex         startupRebuild
+	propLengthsRecount        startupRebuild
 	resourceScanState         *resourceScanState
 	memMonitor                *memwatch.Monitor
 
@@ -389,7 +390,8 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		logger:                    logger,
 		localNodeName:             localNodeName,
 		config:                    config,
-		dimensionsReindex:         dimensionsReindex{enabled: config.ReindexVectorDimensions && config.TrackVectorDimensions},
+		dimensionsReindex:         startupRebuild{enabled: config.ReindexVectorDimensions && config.TrackVectorDimensions},
+		propLengthsRecount:        startupRebuild{enabled: config.RecountPropertiesAtStartup},
 		indices:                   map[string]*Index{},
 		remoteIndex:               remoteIndex,
 		nodeResolver:              nodeResolver,
@@ -486,6 +488,11 @@ type Config struct {
 	ServerVersion                  string
 	GitHash                        string
 	AvoidMMap                      bool
+
+	// RecountPropertiesAtStartup rebuilds the property lengths of every shard once
+	// per process, before the shard loads or, if that fails, as it loads.
+	RecountPropertiesAtStartup bool
+
 	// EnableLazyLoadShards controls lazy shard loading.
 	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
 	EnableLazyLoadShards                *bool
@@ -610,6 +617,7 @@ func (db *DB) shuttingDown() bool {
 
 // LocalIndexClassNames returns the sorted class names this node holds an index for,
 // closed ones included, qualified as <ns>:<Class> where the class has a namespace.
+// It covers every namespace, so a caller serving one namespace must drop the rest.
 // Its only error wraps ErrIndexClosing, which it returns after DB.Shutdown has begun.
 // A call that finds DB.Shutdown holding indexLock waits for DB.Shutdown to return.
 func (db *DB) LocalIndexClassNames() ([]string, error) {
@@ -643,16 +651,18 @@ var errIndexClosingForShutdown = fmt.Errorf("%w: %w", ErrIndexClosing, errIndexS
 // node stop or a collection delete.
 var ErrIndexClosing = stderrors.New("collection index is closing")
 
-// GetLocalShardNames returns the names of every shard of the collection on this
-// node, including a lazy shard that never loaded, without loading it. A shard
-// added or removed during the call may or may not be listed. ([]string{}, nil)
-// means this node holds no shard of the collection.
+// OpenLocalShardNames returns the names of the collection's shards this node
+// holds open, without loading any. A lazy shard that never loaded and a shard
+// recovering from a peer are listed. A COLD tenant and a shard DB.UnloadShard
+// closed are not. A shard added or removed during the call may or may not be
+// listed. ([]string{}, nil) means this node holds none of the collection's
+// shards open.
 //
 // ErrIndexClosing means the index is closing for a delete, or DB.Shutdown has
 // begun. A call that finds DB.Shutdown holding indexLock waits for DB.Shutdown to
 // return. cluster/schema.ErrClassNotFound means this node holds no index for the
 // class, and comes back after about 150 ms of DB.GetIndex retries.
-func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
+func (db *DB) OpenLocalShardNames(collection string) ([]string, error) {
 	if db.shuttingDown() {
 		return nil, errIndexClosingForShutdown
 	}
@@ -691,6 +701,8 @@ func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
 
 // UnloadShard skips the namespace check, which would refuse the suspended
 // namespaces it is called for. It blocks while DB.Shutdown holds indexLock.
+// It keeps a self-recovery placeholder in the map, because a request would
+// otherwise create an empty shard before the copy from a peer finishes.
 func (db *DB) UnloadShard(ctx context.Context, className, shardName string) (ShardUnloadOutcome, error) {
 	if db.shuttingDown() {
 		return ShardUnloadOutcomeIndexClosing, fmt.Errorf("%w: %w", ErrIndexClosing, errIndexShutdown)
@@ -700,7 +712,7 @@ func (db *DB) UnloadShard(ctx context.Context, className, shardName string) (Sha
 	if index == nil {
 		return ShardUnloadOutcomeFailed, fmt.Errorf("%w: collection %q", clusterSchema.ErrClassNotFound, className)
 	}
-	return index.UnloadLocalShard(ctx, shardName)
+	return index.unloadLocalShard(ctx, shardName, true)
 }
 
 // IndexExists returns if an index exists
