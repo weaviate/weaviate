@@ -995,18 +995,10 @@ func TestDocIDs_GoroutinePeak(t *testing.T) {
 
 	t.Logf("goroutine peak: baseline=%d peak=%d (delta=%d) during %d concurrent DocIDs(100K), GOMAXPROCS=%d",
 		baseline, peak, peak-int64(baseline), concurrentCallers, runtime.GOMAXPROCS(0))
-	// Structural bound per caller: its own goroutine, one fetch worker per
-	// share up to what the memory budget affords a window, and sroar's merge
-	// workers, whose total runWorkers keeps inside the query budget by dividing
-	// the per-worker allowance by the fetch worker count.
-	//
-	// Derived from the constants rather than written out, so raising the fold's
-	// budget or widening its window has to move this bound with it. Each term is
-	// already a worst case sroar's own work-sizing rarely reaches — a measured
-	// run sits near 50 against a bound above 500 — so the headroom is 2x rather
-	// than the 4x this carried when the structural term omitted fetch workers.
-	maxWorkers := int64(containsFoldMemoryBudget / lsmkv.BatchReaderWindowBytes)
-	perCaller := 1 + maxWorkers + int64(concurrency.GOMAXPROCSx2)
+	// Each caller adds its own goroutine, one fetch worker per share up to
+	// GOMAXPROCS, and sroar's merge workers within the query budget. Each term
+	// is a worst case a run stays far below, so 2x headroom is enough.
+	perCaller := 1 + int64(concurrency.GOMAXPROCS) + int64(concurrency.GOMAXPROCSx2)
 	bound := int64(baseline) + 2*concurrentCallers*perCaller
 	require.LessOrEqual(t, peak, bound,
 		"peak goroutines must stay within the bounded merge fan-out (per-value fan-out would exceed this by orders of magnitude)")
