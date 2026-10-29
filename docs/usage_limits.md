@@ -46,7 +46,7 @@ On namespace-enabled clusters the chokepoint passes the (namespace-qualified) cl
 
 We deliberately don't route through `UsageForIndex` — that path triggers other usage-module computations beyond a count.
 
-The collection count is **schema/RAFT-backed**: the limit check in `AddClass()` calls `schemaManager.QueryCollectionsCount(namespace)`, which goes through RAFT to the leader. When `NAMESPACES_ENABLED=false` the namespace selector is empty and the response is the cluster-global `len(s.classes)`. When `NAMESPACES_ENABLED=true` the selector is the caller's `principal.Namespace` (namespaced creates already require a namespaced principal) and the count is restricted to stored class names whose `<namespace>:` prefix matches. Aliases live outside this map and do not consume the cap.
+The collection count is **schema/RAFT-backed** and checked twice. `AddClass()` fails fast on the node-local schema via `schemaReader.CollectionsCount(namespace)`, which can lag the leader. The authoritative check runs in the schema FSM's `PreApplyFilter` before the `AddClass` commits. When `NAMESPACES_ENABLED=false` the namespace selector is empty and the response is the cluster-global `len(s.classes)`. When `NAMESPACES_ENABLED=true` the selector is the caller's `principal.Namespace` (namespaced creates already require a namespaced principal) and the count is restricted to stored class names whose `<namespace>:` prefix matches. Aliases live outside this map and do not consume the cap.
 
 ## Error response
 

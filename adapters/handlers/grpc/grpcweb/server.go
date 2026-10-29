@@ -33,15 +33,16 @@ import (
 // NewHandler transcodes grpc-web/Connect requests into calls against the
 // existing gRPC server. It carries its own CORS layer (grpc-web is routed
 // outside the REST middleware chain; see Mount) and exposes the gRPC trailer
-// headers so browsers can read the RPC status.
-func NewHandler(grpcServer *grpc.Server, state *state.State) (http.Handler, error) {
+// headers so browsers can read the RPC status. tracker sits under the CORS
+// layer, so the 503 it returns while draining carries CORS headers.
+func NewHandler(grpcServer *grpc.Server, state *state.State, tracker *Tracker) (http.Handler, error) {
 	opts := []vanguard.ServiceOption{}
 	opts = append(opts, vanguard.WithMaxMessageBufferBytes(msgBufferLimit(state.ServerConfig.Config.GRPC.MaxMsgSize)))
 	transcoder, err := vanguardgrpc.NewTranscoder(grpcServer, vanguard.WithDefaultServiceOptions(opts...))
 	if err != nil {
 		return nil, fmt.Errorf("build grpc-web transcoder: %w", err)
 	}
-	return cors.New(corsOptions(state.ServerConfig.Config.CORS)).Handler(transcoder), nil
+	return cors.New(corsOptions(state.ServerConfig.Config.CORS)).Handler(tracker.wrap(transcoder)), nil
 }
 
 // corsOptions builds the CORS config for the grpc-web handler: the
