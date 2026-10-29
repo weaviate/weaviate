@@ -1130,7 +1130,10 @@ type Persistence struct {
 	LSMCycleManagerRoutinesFactor       int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
 	// Properties whose rangeable index keeps its segments in memory, per
 	// collection, or under AllCollections for every collection.
-	IndexRangeableInMemoryProps    map[string][]string `json:"indexRangeableInMemoryProps" yaml:"indexRangeableInMemoryProps"`
+	IndexRangeableInMemoryProps map[string][]string `json:"indexRangeableInMemoryProps" yaml:"indexRangeableInMemoryProps"`
+	// IndexFilterableMMapProps lists, keyed as IndexRangeableInMemoryProps, the properties
+	// whose filterable bucket reads through mmap when PERSISTENCE_LSM_ACCESS_STRATEGY=pread.
+	IndexFilterableMMapProps       map[string][]string `json:"indexFilterableMMapProps" yaml:"indexFilterableMMapProps"`
 	MinMMapSize                    int64               `json:"minMMapSize" yaml:"minMMapSize"`
 	LazySegmentsDisabled           bool                `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
 	SegmentInfoIntoFileNameEnabled bool                `json:"segmentFileInfoEnabled" yaml:"segmentFileInfoEnabled"`
@@ -1197,9 +1200,13 @@ func (p Persistence) Validate() error {
 		return fmt.Errorf("persistence.dataPath must be set")
 	}
 
-	// A config file writes this field past the environment parser's refusals.
-	return validateCollectionProps("persistence.indexRangeableInMemoryProps",
-		p.IndexRangeableInMemoryProps)
+	// A config file writes these fields past the environment parser's refusals.
+	if err := validateCollectionProps("persistence.indexRangeableInMemoryProps",
+		p.IndexRangeableInMemoryProps); err != nil {
+		return err
+	}
+	return validateCollectionProps("persistence.indexFilterableMMapProps",
+		p.IndexFilterableMMapProps)
 }
 
 func validateCollectionProps(field string, collectionProps map[string][]string) error {
