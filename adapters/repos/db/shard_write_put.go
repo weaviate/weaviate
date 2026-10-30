@@ -265,6 +265,45 @@ func (s *Shard) requireVectorIndexes(vectors map[string][]float32, multiVectors 
 	return nil
 }
 
+// validateVectorQueuesBeforeInsert reserves the dimensions of every vector
+// about to be stored in the async queues. The queue's Insert runs after the
+// object is persisted, too late to keep a refused write out of the store.
+func (s *Shard) validateVectorQueuesBeforeInsert(obj *storobj.Object) error {
+	validate := func(targetVector string, length int) error {
+		found, err := s.WithVectorIndexQueue(targetVector, func(queue *VectorIndexQueue) error {
+			if queue == nil {
+				return nil
+			}
+			return queue.ValidateDims(length)
+		})
+		if !found {
+			return fmt.Errorf("vector index not found for %q", targetVector)
+		}
+		return err
+	}
+
+	for targetVector, vector := range obj.Vectors {
+		if err := validate(targetVector, len(vector)); err != nil {
+			return errors.Wrapf(err, "Validate vector index queue %s for target vector %s", targetVector, obj.ID())
+		}
+	}
+	for targetVector, vector := range obj.MultiVectors {
+		length := 0
+		if len(vector) > 0 {
+			length = len(vector[0])
+		}
+		if err := validate(targetVector, length); err != nil {
+			return errors.Wrapf(err, "Validate vector index queue %s for target multi vector %s", targetVector, obj.ID())
+		}
+	}
+	if len(obj.Vector) > 0 && s.index.GetVectorIndexConfig("") != nil {
+		if err := validate("", len(obj.Vector)); err != nil {
+			return errors.Wrapf(err, "Validate vector index queue for %s", obj.ID())
+		}
+	}
+	return nil
+}
+
 func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes []byte,
 ) (status objectInsertStatus, err error) {
 	before := time.Now()
@@ -319,6 +358,16 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		}
 		if err != nil {
 			return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
+		}
+	}
+
+	// With async indexing the index has no dimensions until the queue drains,
+	// so the index validation above cannot see a mismatch against vectors still
+	// waiting in the queue. Validate against the queue before storing anything;
+	// otherwise Insert refuses the write after the object is already persisted.
+	if s.index.AsyncIndexingEnabled {
+		if err := s.validateVectorQueuesBeforeInsert(obj); err != nil {
+			return status, err
 		}
 	}
 
