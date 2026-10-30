@@ -531,7 +531,7 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	}
 
 	var sd backup.ShardDescriptor
-	err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot, newReindexGate(idx.db))
+	err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot, newReindexGate(idx.db, reindexGateMaxAge))
 	require.NoError(t, err)
 
 	// Helper to get inode number.
@@ -696,14 +696,14 @@ func TestBackupFrozenShardOmitted(t *testing.T) {
 
 	t.Run("hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
 		var sd backup.ShardDescriptor
-		err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot, newReindexGate(idx.db))
+		err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot, newReindexGate(idx.db, reindexGateMaxAge))
 		require.Error(t, err)
 		require.True(t, errors.Is(err, errShardNoLocalData), "expected errShardNoLocalData, got %v", err)
 	})
 
 	t.Run("non-hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
 		var sd backup.ShardDescriptor
-		err := idx.backupInactiveShardWithoutHardlinks(shardName, &sd, nil, newReindexGate(idx.db))
+		err := idx.backupInactiveShardWithoutHardlinks(shardName, &sd, nil, newReindexGate(idx.db, reindexGateMaxAge))
 		require.Error(t, err)
 		require.True(t, errors.Is(err, errShardNoLocalData), "expected errShardNoLocalData, got %v", err)
 	})
@@ -777,7 +777,7 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 	// FROZEN tenant: no directory at all.
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(ctx, "test-backup", &desc, nil, newReindexGate(idx.db, reindexGateMaxAge))
 	require.NoError(t, err)
 
 	// Only COLD should be in desc.Shards — FROZEN is omitted.
@@ -824,7 +824,7 @@ func TestDescriptorColdShardMutableFilesCopied(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(clDir, "1709203400.condensed"), []byte("condensed"), 0o644))
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(ctx, "test-backup", &desc, nil, newReindexGate(idx.db, reindexGateMaxAge))
 	require.NoError(t, err)
 	require.Len(t, desc.Shards, 1)
 
@@ -876,7 +876,7 @@ func TestDescriptorAllFrozenTenants(t *testing.T) {
 	// No directories, no shards in map.
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(ctx, "test-backup", &desc, nil, newReindexGate(idx.db, reindexGateMaxAge))
 	require.NoError(t, err)
 	assert.Empty(t, desc.Shards, "all-FROZEN collection should have no shard descriptors")
 
@@ -902,7 +902,7 @@ func TestDescriptorConcurrentBackupBlocked(t *testing.T) {
 
 	// Second backup: should fail.
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(context.Background(), "backup-2", &desc, nil)
+	err := idx.descriptor(context.Background(), "backup-2", &desc, nil, newReindexGate(idx.db, reindexGateMaxAge))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not yet released")
 }
@@ -922,7 +922,7 @@ func TestDescriptorReleaseCleansUpStagingDir(t *testing.T) {
 
 	var desc backup.ClassDescriptor
 	backupID := "test-backup"
-	err := idx.descriptor(ctx, backupID, &desc, nil)
+	err := idx.descriptor(ctx, backupID, &desc, nil, newReindexGate(idx.db, reindexGateMaxAge))
 	require.NoError(t, err)
 
 	stagingDir := desc.StagingDir
@@ -986,7 +986,7 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 	}
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(ctx, "test-backup", &desc, nil, newReindexGate(idx.db, reindexGateMaxAge))
 	require.NoError(t, err)
 
 	require.Len(t, desc.Shards, len(hotTenants)+len(coldTenants),
@@ -1067,7 +1067,7 @@ func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
 	}
 	backupDone := make(chan backupResult, 1)
 	go func() {
-		sd, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), newReindexGate(idx.db))
+		sd, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), newReindexGate(idx.db, reindexGateMaxAge))
 		backupDone <- backupResult{sd: sd, err: err}
 	}()
 
@@ -1166,7 +1166,7 @@ func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
 				}}
 			}
 
-			_, err := idx.backupShardWithHardlinks(ctx, shardName, baseDescrs, t.TempDir(), newReindexGate(idx.db))
+			_, err := idx.backupShardWithHardlinks(ctx, shardName, baseDescrs, t.TempDir(), newReindexGate(idx.db, reindexGateMaxAge))
 			if tt.expectedErr != "" {
 				require.ErrorContains(t, err, tt.expectedErr)
 			} else {
@@ -1199,7 +1199,7 @@ func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T
 	mockShard.EXPECT().preventShutdown().Return(func() {}, errors.New("shard is shutting down"))
 	idx.shards.Store(shardName, mockShard)
 
-	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), newReindexGate(idx.db))
+	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), newReindexGate(idx.db, reindexGateMaxAge))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "prevent shutdown")
 
@@ -1275,11 +1275,12 @@ func TestBackupDescriptorsClosesChannelOnPanic(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond, "the producer goroutine never recovered a panic")
 }
 
-// Regression: a task-list fetch per shard scaled backup time with shard count.
-// COLD tenants take the inactive-shard path; HOT ones halt each loaded shard.
+// Regression: a task-list fetch per shard, then per collection, scaled backup
+// time with tenant and collection count. COLD tenants take the inactive-shard
+// path; HOT ones halt each loaded shard.
 func TestBackupFetchesReindexTasksOncePerPass(t *testing.T) {
-	const className = "TestClass"
-	tenants := []string{"tenant-1", "tenant-2", "tenant-3", "tenant-4", "tenant-5"}
+	classes := []string{"ClassA", "ClassB", "ClassC"}
+	tenants := []string{"tenant-1", "tenant-2", "tenant-3"}
 
 	for _, status := range []string{models.TenantActivityStatusCOLD, models.TenantActivityStatusHOT} {
 		for _, tc := range []struct {
@@ -1288,7 +1289,7 @@ func TestBackupFetchesReindexTasksOncePerPass(t *testing.T) {
 			refused bool
 		}{
 			{name: "no reindex running"},
-			{name: "reindex running on one tenant", live: map[[2]string]bool{{className, "tenant-3"}: true}, refused: true},
+			{name: "reindex running on one tenant", live: map[[2]string]bool{{"ClassB", "tenant-2"}: true}, refused: true},
 		} {
 			t.Run(status+"/"+tc.name, func(t *testing.T) {
 				// One replica per node puts every tenant on this node.
@@ -1298,9 +1299,9 @@ func TestBackupFetchesReindexTasksOncePerPass(t *testing.T) {
 				}
 				var db *DB
 				if status == models.TenantActivityStatusCOLD {
-					db = backupTestDBWithColdTenants(t, className, tenants, builder.Build())
+					db = backupTestDBWithColdTenants(t, classes, tenants, builder.Build())
 				} else {
-					db = backupTestDBWithLoadedShards(t, className, builder.Build())
+					db = backupTestDBWithLoadedShards(t, classes, builder.Build())
 				}
 
 				var fetches atomic.Int64
@@ -1309,7 +1310,7 @@ func TestBackupFetchesReindexTasksOncePerPass(t *testing.T) {
 					return makeActivityBuilder(tc.live)()
 				})
 
-				err := db.Backupable(context.Background(), []string{className})
+				err := db.Backupable(context.Background(), classes)
 				if tc.refused {
 					require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
 				} else {
@@ -1319,16 +1320,19 @@ func TestBackupFetchesReindexTasksOncePerPass(t *testing.T) {
 
 				fetches.Store(0)
 				var descs []backup.ClassDescriptor
-				for d := range db.BackupDescriptors(context.Background(), "backup-1", []string{className}, nil) {
+				for d := range db.BackupDescriptors(context.Background(), "backup-1", classes, nil) {
 					descs = append(descs, d)
 				}
-				require.Len(t, descs, 1)
 				if tc.refused {
-					require.ErrorIs(t, descs[0].Error, backup.ErrBackupBlockedByInFlightReindex)
+					require.NotEmpty(t, descs)
+					require.ErrorIs(t, descs[len(descs)-1].Error, backup.ErrBackupBlockedByInFlightReindex)
 				} else {
-					require.NoError(t, descs[0].Error)
-					require.Len(t, descs[0].Shards, len(tenants))
-					require.NoError(t, db.ReleaseBackup(context.Background(), "backup-1", className))
+					require.Len(t, descs, len(classes))
+					for _, d := range descs {
+						require.NoError(t, d.Error)
+						require.Len(t, d.Shards, len(tenants))
+						require.NoError(t, db.ReleaseBackup(context.Background(), "backup-1", d.Name))
+					}
 				}
 				assert.EqualValues(t, 1, fetches.Load(), "BackupDescriptors")
 			})
@@ -1336,36 +1340,44 @@ func TestBackupFetchesReindexTasksOncePerPass(t *testing.T) {
 	}
 }
 
-func backupTestDBWithColdTenants(t *testing.T, className string, tenants []string, state *sharding.State) *DB {
+func backupTestDBWithColdTenants(t *testing.T, classes, tenants []string, state *sharding.State) *DB {
 	t.Helper()
-	rootDir := t.TempDir()
-	for _, name := range tenants {
-		createColdShardFiles(t, rootDir, className, name)
+	logger, _ := tlog.NewNullLogger()
+	db := &DB{logger: logger, indices: map[string]*Index{}}
+	for _, className := range classes {
+		rootDir := t.TempDir()
+		for _, name := range tenants {
+			createColdShardFiles(t, rootDir, className, name)
+		}
+		idx := newDescriptorTestIndex(t, rootDir, className, state)
+		idx.db = db
+		db.indices[indexID(schema.ClassName(className))] = idx
 	}
-	idx := newDescriptorTestIndex(t, rootDir, className, state)
-	db := idx.db
-	db.logger = idx.logger
-	db.indices = map[string]*Index{indexID(schema.ClassName(className)): idx}
 	return db
 }
 
-func backupTestDBWithLoadedShards(t *testing.T, className string, state *sharding.State) *DB {
+func backupTestDBWithLoadedShards(t *testing.T, classNames []string, state *sharding.State) *DB {
 	t.Helper()
-	class := &models.Class{
-		Class:               className,
-		MultiTenancyConfig:  &models.MultiTenancyConfig{Enabled: true},
-		VectorIndexConfig:   enthnsw.UserConfig{Skip: true},
-		InvertedIndexConfig: invertedConfig(),
+	var classes []*models.Class
+	for _, className := range classNames {
+		classes = append(classes, &models.Class{
+			Class:               className,
+			MultiTenancyConfig:  &models.MultiTenancyConfig{Enabled: true},
+			VectorIndexConfig:   enthnsw.UserConfig{Skip: true},
+			InvertedIndexConfig: invertedConfig(),
+		})
 	}
-	db := openTestDatabase(t, t.TempDir(), state, monitoring.GetMetrics(), nil, nil, class)
+	db := openTestDatabase(t, t.TempDir(), state, monitoring.GetMetrics(), nil, nil, classes...)
 	t.Cleanup(func() { require.NoError(t, db.Shutdown(context.Background())) })
-	idx := db.GetIndex(schema.ClassName(className))
-	require.NotNil(t, idx)
-	for _, name := range state.AllPhysicalShards() {
-		require.NoError(t, idx.LoadLocalShardForTenantAdd(context.Background(), name))
-		// An unloaded shard would take the inactive-shard path.
-		if lazy, ok := idx.shards.Load(name).(*LazyLoadShard); ok {
-			require.NoError(t, lazy.Load(context.Background()))
+	for _, className := range classNames {
+		idx := db.GetIndex(schema.ClassName(className))
+		require.NotNil(t, idx)
+		for _, name := range state.AllPhysicalShards() {
+			require.NoError(t, idx.LoadLocalShardForTenantAdd(context.Background(), name))
+			// An unloaded shard would take the inactive-shard path.
+			if lazy, ok := idx.shards.Load(name).(*LazyLoadShard); ok {
+				require.NoError(t, lazy.Load(context.Background()))
+			}
 		}
 	}
 	return db

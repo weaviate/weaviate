@@ -698,6 +698,7 @@ func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, in
 	return l.shard.HaltForTransfer(ctx, offloading, inactivityTimeout)
 }
 
+// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 func (l *LazyLoadShard) haltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration, gate reindexGate) error {
 	if err := l.Load(ctx); err != nil {
 		return err

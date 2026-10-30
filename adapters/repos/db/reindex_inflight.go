@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
@@ -30,17 +31,40 @@ import (
 // the lookup installed.
 var unwiredGateWarnOnce sync.Once
 
-// reindexGate memoizes the cluster task-list fetch, so a backup pass costs
-// one leader round trip rather than one per shard.
+// reindexGateMaxAge bounds how long a reindex submitted mid-backup goes unseen.
+const reindexGateMaxAge = 5 * time.Second
+
+// reindexGate reuses one task-list fetch, and its error, for every shard it
+// checks until the fetch is older than maxAge, so a backup costs one leader
+// round trip per maxAge rather than one per shard.
 type reindexGate func(collection, shardName string) (bool, error)
 
-func newReindexGate(db *DB) reindexGate {
-	fetch := sync.OnceValues(db.reindexActivityLookup)
+func newReindexGate(db *DB, maxAge time.Duration) reindexGate {
+	var (
+		mu        sync.Mutex
+		lookup    ShardReindexActivityLookup
+		err       error
+		fetchedAt time.Time
+	)
+	// Holding mu across the fetch makes concurrent shard workers share it.
+	fetch := func() (ShardReindexActivityLookup, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if fetchedAt.IsZero() || time.Since(fetchedAt) > maxAge {
+			lookup, err = db.reindexActivityLookup()
+			fetchedAt = time.Now()
+		}
+		return lookup, err
+	}
 	return func(collection, shardName string) (bool, error) {
 		return db.anyLiveReindexForShard(collection, shardName, fetch)
 	}
 }
 
+// reindexActivityLookup defaults to "no live reindex" when the lookup is
+// unwired (with a one-time WARN). Refusing instead broke every module-test
+// fixture that skips the post-bootstrap install; production HTTP gates on
+// bootstrap completion, so external traffic cannot reach the unwired window.
 func (db *DB) reindexActivityLookup() (ShardReindexActivityLookup, error) {
 	db.reindexAuditMu.RLock()
 	activityBuilder := db.shardReindexActivityLookupBuilder
@@ -67,13 +91,6 @@ func (db *DB) reindexActivityLookup() (ShardReindexActivityLookup, error) {
 // and lagged DTM's actual state. The lookup builder is installed by
 // [DB.SetShardReindexActivityLookup] from the post-bootstrap goroutine
 // in configure_api.go.
-//
-// Default to "no live reindex" when the lookup is unwired (with a
-// one-time WARN). The original conservative default (refuse) was
-// correct in isolation but broke every module-test fixture that
-// spins up Weaviate without going through the post-bootstrap
-// install path; production HTTP gates on bootstrap completion so the
-// unwired window is unreachable by external traffic.
 func (db *DB) anyLiveReindexForShard(collection, shardName string,
 	fetch func() (ShardReindexActivityLookup, error),
 ) (bool, error) {
@@ -132,7 +149,7 @@ func (db *DB) anyLiveReindexForShard(collection, shardName string,
 }
 
 // SetReindexCleanupInProgressLookup installs the builder used by
-// the backup gate to detect terminal-task cleanup that has
+// [DB.anyLiveReindexForShard] to detect terminal-task cleanup that has
 // not yet finished tearing __reindex / __ingest sidecar dirs. Wired in
 // post-bootstrap alongside [DB.SetShardReindexActivityLookup].
 func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupBuilder) {
@@ -148,9 +165,9 @@ const noDatabaseBackReference = "this index has no database back-reference, so t
 
 // refuseIfReindexInFlight is the per-shard backup-gate check used by
 // [DB.Backupable], [Index.backupInactiveShardWithHardlinks],
-// [Index.backupInactiveShardWithoutHardlinks], and [Shard.HaltForTransfer].
+// [Index.backupInactiveShardWithoutHardlinks], and [Shard.haltForTransfer].
 //
-// If i.db is nil the gate is conservative: it refuses the backup.
+// If i.db is nil it refuses the backup without calling gate.
 func (i *Index) refuseIfReindexInFlight(shardName string, gate reindexGate) error {
 	collection := i.Config.ClassName.String()
 	if i.db == nil {

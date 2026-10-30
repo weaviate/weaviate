@@ -76,7 +76,7 @@ var nonVectorShardDirs = map[string]struct{}{
 // circuit the whole loop; other classes still get checked.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
-	gate := newReindexGate(db)
+	gate := newReindexGate(db, reindexGateMaxAge)
 	var errs []error
 	for _, c := range classes {
 		className := schema.ClassName(c)
@@ -116,6 +116,7 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 		// The caller drains this channel to close before it releases any index, so
 		// every way out of this goroutine has to leave the channel closed.
 		defer close(ds)
+		gate := newReindexGate(db, reindexGateMaxAge)
 		for _, c := range classes {
 			if err := ctx.Err(); err != nil {
 				ds <- backup.ClassDescriptor{Name: c, BackupID: bakid, Error: err}
@@ -143,7 +144,7 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 					}
 					classBaseDescr = append(classBaseDescr, classbaseDescrTmp)
 				}
-				if err := idx.descriptor(ctx, bakid, &desc, classBaseDescr); err != nil {
+				if err := idx.descriptor(ctx, bakid, &desc, classBaseDescr, gate); err != nil {
 					desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
 				}
 			}()
@@ -261,7 +262,7 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 }
 
 // descriptor record everything needed to restore a class
-func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.BaseClassDescriptor) (err error) {
+func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.BaseClassDescriptor, gate reindexGate) (err error) {
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
@@ -269,7 +270,6 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	useHardlinks := file.ProbeHardlinkSupport(i.Config.RootPath)
 	i.logger.WithField("hardlinks_supported", useHardlinks).Info("backup: probed filesystem hardlink support")
 
-	gate := newReindexGate(i.db)
 	if useHardlinks {
 		return i.descriptorWithHardlinks(ctx, backupID, desc, classBaseDescrs, gate)
 	}

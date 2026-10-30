@@ -40,10 +40,10 @@ func (s *Shard) haltedForTransfer() bool {
 // is additionally bounded by `HaltForTransferTimeout`, independent of `inactivityTimeout`;
 // a zeroed `HaltForTransferTimeout` implies no bound.
 func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
-	return s.haltForTransfer(ctx, offloading, inactivityTimeout, newReindexGate(s.index.db))
+	return s.haltForTransfer(ctx, offloading, inactivityTimeout, newReindexGate(s.index.db, reindexGateMaxAge))
 }
 
-// haltForTransfer lets a backup share one gate across all its shards.
+// haltForTransfer lets a backup share one gate, and so its task-list fetch, across all its shards.
 func (s *Shard) haltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration, gate reindexGate) (err error) {
 	innerCtx := ctx
 	if timeout := s.index.Config.HaltForTransferTimeout; timeout > 0 {
