@@ -265,6 +265,55 @@ func runBatch(ctx context.Context, shard ShardLike, objs []*storobj.Object) []er
 	return errs
 }
 
+func putEach(ctx context.Context, shard ShardLike, objs []*storobj.Object) []error {
+	errs := make([]error, len(objs))
+	for i, obj := range objs {
+		errs[i] = shard.PutObject(ctx, obj)
+	}
+	return errs
+}
+
+func mergeVectors(ctx context.Context, shard ShardLike, flavor consistencyFlavor, objs []*storobj.Object) {
+	for _, obj := range objs {
+		doc := objects.MergeDocument{
+			Class: obj.Class().String(), ID: obj.ID(),
+			UpdateTime: obj.Object.LastUpdateTimeUnix,
+		}
+		if flavor.target == "" {
+			doc.Vector = obj.Vector
+		} else {
+			doc.Vectors = models.Vectors{flavor.target: flavor.get(obj)}
+		}
+		_ = shard.MergeObject(ctx, doc)
+	}
+}
+
+func mergeTitles(t *testing.T, shard ShardLike, objs []*storobj.Object) {
+	t.Helper()
+
+	for i, obj := range objs {
+		require.NoError(t, shard.MergeObject(t.Context(), objects.MergeDocument{
+			Class: obj.Class().String(), ID: obj.ID(), UpdateTime: 100,
+			PrimitiveSchema: map[string]interface{}{"title": fmt.Sprintf("merged %d", i)},
+		}))
+	}
+}
+
+func prepareAndCommitEach(t *testing.T, ctx context.Context, cancel context.CancelFunc, shard *Shard,
+	objs []*storobj.Object,
+) {
+	t.Helper()
+
+	for i, obj := range objs {
+		requestID := fmt.Sprintf("put-%d", i)
+		require.Empty(t, shard.preparePutObject(t.Context(), requestID, obj).Errors)
+	}
+	cancel()
+	for i := range objs {
+		shard.commitReplication(ctx, fmt.Sprintf("put-%d", i))
+	}
+}
+
 // TestCancelledWriteLeavesNoObjectOutsideTheVectorIndex pins issue #13609 at its
 // source. The object store and the vector index are written one after the other,
 // so a write that stops in between leaves a readable object that search can't
@@ -318,9 +367,7 @@ func TestCancelledWriteLeavesNoObjectOutsideTheVectorIndex(t *testing.T) {
 				_ consistencyFlavor, objs []*storobj.Object,
 			) []*storobj.Object {
 				cancel()
-				for _, obj := range objs {
-					_ = shard.PutObject(ctx, obj)
-				}
+				putEach(ctx, shard, objs)
 				return objs
 			},
 		},
@@ -332,9 +379,7 @@ func TestCancelledWriteLeavesNoObjectOutsideTheVectorIndex(t *testing.T) {
 			) []*storobj.Object {
 				updated := withNewVectors(flavor, objs, count)
 				cancel()
-				for _, obj := range updated {
-					_ = shard.PutObject(ctx, obj)
-				}
+				putEach(ctx, shard, updated)
 				return updated
 			},
 		},
@@ -346,18 +391,7 @@ func TestCancelledWriteLeavesNoObjectOutsideTheVectorIndex(t *testing.T) {
 			) []*storobj.Object {
 				updated := withNewVectors(flavor, objs, count)
 				cancel()
-				for _, obj := range updated {
-					doc := objects.MergeDocument{
-						Class: obj.Class().String(), ID: obj.ID(),
-						UpdateTime: obj.Object.LastUpdateTimeUnix,
-					}
-					if flavor.target == "" {
-						doc.Vector = obj.Vector
-					} else {
-						doc.Vectors = models.Vectors{flavor.target: flavor.get(obj)}
-					}
-					_ = shard.MergeObject(ctx, doc)
-				}
+				mergeVectors(ctx, shard, flavor, updated)
 				return updated
 			},
 		},
@@ -366,15 +400,7 @@ func TestCancelledWriteLeavesNoObjectOutsideTheVectorIndex(t *testing.T) {
 			write: func(t *testing.T, ctx context.Context, cancel context.CancelFunc, shard ShardLike,
 				_ consistencyFlavor, objs []*storobj.Object,
 			) []*storobj.Object {
-				local := underlyingShard(t, shard)
-				for i, obj := range objs {
-					requestID := fmt.Sprintf("put-%d", i)
-					require.Empty(t, local.preparePutObject(t.Context(), requestID, obj).Errors)
-				}
-				cancel()
-				for i := range objs {
-					local.commitReplication(ctx, fmt.Sprintf("put-%d", i))
-				}
+				prepareAndCommitEach(t, ctx, cancel, underlyingShard(t, shard), objs)
 				return objs
 			},
 		},
@@ -489,30 +515,21 @@ func TestRewriteRestoresObjectMissingFromVectorIndex(t *testing.T) {
 			name:    "single put with the same update time",
 			indexed: 1,
 			rewrite: func(t *testing.T, shard ShardLike, _ consistencyFlavor, objs []*storobj.Object) {
-				for _, obj := range objs {
-					require.NoError(t, shard.PutObject(t.Context(), obj))
-				}
+				require.Empty(t, nonNilErrs(putEach(t.Context(), shard, objs)))
 			},
 		},
 		{
 			name:    "single put with a newer update time",
 			indexed: 1,
 			rewrite: func(t *testing.T, shard ShardLike, _ consistencyFlavor, objs []*storobj.Object) {
-				for _, obj := range newerVersions(objs, 10) {
-					require.NoError(t, shard.PutObject(t.Context(), obj))
-				}
+				require.Empty(t, nonNilErrs(putEach(t.Context(), shard, newerVersions(objs, 10))))
 			},
 		},
 		{
 			name:    "merge that leaves the vector alone",
 			indexed: 1,
 			rewrite: func(t *testing.T, shard ShardLike, _ consistencyFlavor, objs []*storobj.Object) {
-				for i, obj := range objs {
-					require.NoError(t, shard.MergeObject(t.Context(), objects.MergeDocument{
-						Class: obj.Class().String(), ID: obj.ID(), UpdateTime: 100,
-						PrimitiveSchema: map[string]interface{}{"title": fmt.Sprintf("merged %d", i)},
-					}))
-				}
+				mergeTitles(t, shard, objs)
 			},
 		},
 	}
