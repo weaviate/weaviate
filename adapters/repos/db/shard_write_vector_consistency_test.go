@@ -728,17 +728,18 @@ func TestAsyncBatchReportsVectorErrorsOnTheirOwnObjects(t *testing.T) {
 		enthnsw.NewDefaultUserConfig(), false, true)
 
 	objs := consistencyObjects(flavor, className, count)
+	require.Empty(t, nonNilErrs(shard.PutObjectBatch(t.Context(), objs[:1])))
 	objs[refused].Vector = []float32{1, 2, 3}
 
-	errs := shard.PutObjectBatch(t.Context(), objs)
+	errs := shard.PutObjectBatch(t.Context(), objs[1:])
 
-	indexed := make([]*storobj.Object, 0, count-1)
-	for i, obj := range objs {
-		if i == refused {
-			require.Errorf(t, errs[i], "object %d", i)
+	indexed := objs[:1:1]
+	for i, obj := range objs[1:] {
+		if i+1 == refused {
+			require.Errorf(t, errs[i], "object %d", i+1)
 			continue
 		}
-		require.NoErrorf(t, errs[i], "object %d", i)
+		require.NoErrorf(t, errs[i], "object %d", i+1)
 		indexed = append(indexed, obj)
 	}
 

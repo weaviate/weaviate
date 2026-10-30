@@ -17,32 +17,43 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // TestRefusedVectorLeavesNoObjectBehind pins that a write reported as failed stores
-// nothing. The index validates a vector before the LSM write, but it knows the
-// dimensions only once it holds a vector.
+// nothing. An empty index can't validate a length, so the length of the first vector
+// has to count from the moment that vector is accepted, not from when it is indexed.
 func TestRefusedVectorLeavesNoObjectBehind(t *testing.T) {
+	writeBatch := func(t *testing.T, shard ShardLike, objs []*storobj.Object) []error {
+		return shard.PutObjectBatch(t.Context(), objs)
+	}
+	writeOneByOne := func(t *testing.T, shard ShardLike, objs []*storobj.Object) []error {
+		errs := make([]error, len(objs))
+		for i, obj := range objs {
+			errs[i] = shard.PutObject(t.Context(), obj)
+		}
+		return errs
+	}
+
 	tests := []struct {
-		name  string
-		async bool
-		skip  string
+		name   string
+		async  bool
+		seeded bool
+		write  func(t *testing.T, shard ShardLike, objs []*storobj.Object) []error
 	}{
-		{name: "sync indexing"},
-		{
-			name:  "async indexing, index still empty",
-			async: true,
-			skip:  "https://github.com/weaviate/weaviate/issues/13687",
-		},
+		{name: "sync, index holds a vector, batch", seeded: true, write: writeBatch},
+		{name: "sync, index holds a vector, single", seeded: true, write: writeOneByOne},
+		{name: "sync, empty index, batch", write: writeBatch},
+		{name: "sync, empty index, single", write: writeOneByOne},
+		{name: "async, first vector accepted, batch", async: true, seeded: true, write: writeBatch},
+		{name: "async, first vector accepted, single", async: true, seeded: true, write: writeOneByOne},
+		{name: "async, empty index, batch", async: true, write: writeBatch},
+		{name: "async, empty index, single", async: true, write: writeOneByOne},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if test.skip != "" {
-				t.Skip(test.skip)
-			}
-
 			className := "RefusedVector"
 			flavor := consistencyFlavors()[0]
 			shard, _ := testShardWithSettings(t, t.Context(), consistencyClass(className),
@@ -51,19 +62,38 @@ func TestRefusedVectorLeavesNoObjectBehind(t *testing.T) {
 			objs := consistencyObjects(flavor, className, 2)
 			objs[1].Vector = []float32{1, 2, 3}
 
-			if !test.async {
-				// the first vector has to be indexed for the index to validate the next
+			if test.seeded {
 				require.Empty(t, nonNilErrs(shard.PutObjectBatch(t.Context(), objs[:1])))
 				objs = objs[1:]
 			}
 
-			errs := shard.PutObjectBatch(t.Context(), objs)
-			refused := objs[len(objs)-1]
-			require.Error(t, errs[len(errs)-1])
+			errs := test.write(t, shard, objs)
 
-			stored, err := shard.Exists(t.Context(), refused.ID())
-			require.NoError(t, err)
-			assert.False(t, stored, "a write reported as failed must not leave the object behind")
+			refused := 0
+			for i, obj := range objs {
+				stored, err := shard.Exists(t.Context(), obj.ID())
+				require.NoError(t, err)
+				if errs[i] != nil {
+					refused++
+					assert.Falsef(t, stored, "object %d: a write reported as failed must leave nothing behind", i)
+				} else {
+					assert.Truef(t, stored, "object %d", i)
+				}
+			}
+			assert.Equal(t, 1, refused, "exactly one of the two lengths has to lose")
 		})
 	}
+}
+
+// A skipped index holds no vectors, so nothing ties them to one length.
+func TestSkippedIndexTakesVectorsOfAnyLength(t *testing.T) {
+	className := "SkippedIndexLengths"
+	flavor := consistencyFlavors()[0]
+	shard, _ := testShardWithSettings(t, t.Context(), consistencyClass(className),
+		enthnsw.UserConfig{Skip: true}, false, false)
+
+	objs := consistencyObjects(flavor, className, 2)
+	objs[1].Vector = []float32{1, 2, 3}
+
+	require.Empty(t, nonNilErrs(shard.PutObjectBatch(t.Context(), objs)))
 }

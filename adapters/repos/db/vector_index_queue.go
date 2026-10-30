@@ -163,6 +163,16 @@ func (iq *VectorIndexQueue) insertSync(ctx context.Context, vectors []common.Vec
 	}
 }
 
+// claimDimensions makes sure the first vectors of an index are consistent: an empty
+// index has no dimensions to validate against, so the first length accepted stands
+// in for them.
+func (iq *VectorIndexQueue) claimDimensions(length int) error {
+	if !iq.dims.CompareAndSwap(0, int32(length)) && iq.dims.Load() != int32(length) {
+		return errors.Errorf("inconsistent vector lengths: %d != %d", length, iq.dims.Load())
+	}
+	return nil
+}
+
 func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.VectorRecord) error {
 	if !iq.asyncEnabled {
 		return iq.insertSync(ctx, vectors)
@@ -180,12 +190,8 @@ func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.Vector
 			return errors.Wrap(err, "failed to validate")
 		}
 
-		// if the index is still empty, ensure the first batch is consistent
-		// by keeping track of the dimensions of the vectors.
-		if !iq.dims.CompareAndSwap(0, int32(v.Len())) {
-			if iq.dims.Load() != int32(v.Len()) {
-				return errors.Errorf("inconsistent vector lengths: %d != %d", v.Len(), iq.dims.Load())
-			}
+		if err := iq.claimDimensions(v.Len()); err != nil {
+			return err
 		}
 
 		// encode vector

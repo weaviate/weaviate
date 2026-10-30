@@ -276,6 +276,22 @@ func (s *Shard) requireVectorIndexes(vectors map[string][]float32, multiVectors 
 	return nil
 }
 
+// claimVectorDimensions covers what an index can't validate while it is empty.
+func (s *Shard) claimVectorDimensions(targetVector string, length int) error {
+	if length == 0 {
+		return nil
+	}
+
+	_, err := s.WithVectorIndexQueue(targetVector, func(queue *VectorIndexQueue) error {
+		// the vectors of a skipped index aren't indexed, they can have any length
+		if queue == nil || queue.vectorIndex.Type() == common.IndexTypeNoop {
+			return nil
+		}
+		return queue.claimDimensions(length)
+	})
+	return err
+}
+
 func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes []byte,
 ) (status objectInsertStatus, err error) {
 	before := time.Now()
@@ -295,6 +311,9 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		if !found {
 			return status, fmt.Errorf("vector index not found for %q", targetVector)
 		}
+		if err == nil {
+			err = s.claimVectorDimensions(targetVector, len(vector))
+		}
 		if err != nil {
 			return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
 		}
@@ -310,6 +329,9 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		})
 		if !found {
 			return status, fmt.Errorf("vector index not found for %q", targetVector)
+		}
+		if err == nil && len(vector) > 0 {
+			err = s.claimVectorDimensions(targetVector, len(vector[0]))
 		}
 		if err != nil {
 			return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
@@ -327,6 +349,9 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		})
 		if !found {
 			return status, fmt.Errorf(`vector index not found for ""`)
+		}
+		if err == nil {
+			err = s.claimVectorDimensions("", len(obj.Vector))
 		}
 		if err != nil {
 			return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
