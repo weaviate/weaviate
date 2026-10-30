@@ -387,46 +387,43 @@ func (n *neighborFinderConnector) pruneNeighborAtLevel(neighbor *vertex, neighbo
 ) error {
 	// we need to run the heuristic
 
-	dist, err := n.graph.distBetweenNodes(n.nodeID, neighborID)
-	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
-			// it seems either the node or the neighbor were deleted in the meantime,
-			// there is nothing we can do now
-			return nil
-		}
-		return errors.Wrapf(err, "dist between %d and %d", n.nodeID, neighborID)
-	}
-
 	candidates := priorityqueue.NewMax[any](len(currentConnections) + 1)
-	candidates.Insert(n.nodeID, dist)
 
 	// tombstones don't compete with live nodes for a slot: pruned down to them, a
 	// node leaves the live part of the graph behind. They only get what's left,
-	// until cleanup they can still be the one way to reach another node.
+	// until cleanup they can still be the one way to reach another node. That goes
+	// for this node too, if its delete has overtaken its insert.
 	var tombstoned []uint64
+	if n.graph.hasTombstone(n.nodeID) {
+		tombstoned = append(tombstoned, n.nodeID)
+	} else {
+		dist, found, err := n.distToNeighbor(n.nodeID, neighborID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			// there is nothing we can do now
+			return nil
+		}
+		candidates.Insert(n.nodeID, dist)
+	}
+
 	for _, existingConnection := range currentConnections {
 		if n.graph.hasTombstone(existingConnection) {
 			tombstoned = append(tombstoned, existingConnection)
 			continue
 		}
 
-		dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
+		dist, found, err := n.distToNeighbor(existingConnection, neighborID)
 		if err != nil {
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
-				// was deleted in the meantime
-				continue
-			}
-			return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
+			return err
 		}
-
-		candidates.Insert(existingConnection, dist)
+		if found {
+			candidates.Insert(existingConnection, dist)
+		}
 	}
 
-	err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)
+	err := n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)
 	if err != nil {
 		return errors.Wrap(err, "connect neighbors")
 	}
@@ -449,6 +446,21 @@ func (n *neighborFinderConnector) pruneNeighborAtLevel(neighbor *vertex, neighbo
 	neighbor.appendConnectionsAtLevelNoLock(level, ids, maximumConnections)
 
 	return nil
+}
+
+// distToNeighbor reports found=false if one of the two was deleted in the meantime.
+func (n *neighborFinderConnector) distToNeighbor(id, neighborID uint64) (dist float32, found bool, err error) {
+	dist, err = n.graph.distBetweenNodes(id, neighborID)
+	if err == nil {
+		return dist, true, nil
+	}
+
+	var e storobj.ErrNotFound
+	if errors.As(err, &e) {
+		n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
+		return 0, false, nil
+	}
+	return 0, false, errors.Wrapf(err, "dist between %d and %d", id, neighborID)
 }
 
 func (n *neighborFinderConnector) skipNeighbor(neighborID uint64, neighbor *vertex) bool {

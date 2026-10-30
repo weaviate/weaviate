@@ -698,17 +698,17 @@ func TestConcurrentUpdatesOfTheSameObjects(t *testing.T) {
 
 	for _, flavor := range consistencyFlavors() {
 		t.Run(flavor.name, func(t *testing.T) {
+			className := "ConcurrentUpdates"
+			shard, idx := testShardWithSettings(t, t.Context(), consistencyClass(className),
+				enthnsw.NewDefaultUserConfig(), false, false, flavor.opts...)
+
+			objs := consistencyObjects(flavor, className, count)
+			require.Empty(t, nonNilErrs(shard.PutObjectBatch(t.Context(), objs)))
+
 			for round := range rounds {
-				className := "ConcurrentUpdates"
-				shard, idx := testShardWithSettings(t, t.Context(), consistencyClass(className),
-					enthnsw.NewDefaultUserConfig(), false, false, flavor.opts...)
-
-				objs := consistencyObjects(flavor, className, count)
-				require.Empty(t, nonNilErrs(shard.PutObjectBatch(t.Context(), objs)))
-
 				eg := enterrors.NewErrorGroupWrapper(idx.logger)
 				for writer := range writers {
-					batch := withNewVectors(flavor, objs, (writer+1)*count)
+					batch := withNewVectors(flavor, objs, (round+1)*count+(writer+1)*count*rounds)
 					eg.Go(func() error {
 						return errors.Join(shard.PutObjectBatch(t.Context(), batch)...)
 					})
@@ -811,42 +811,77 @@ func TestSupersededDocIsRetracted(t *testing.T) {
 		},
 	}
 
+	overtakers := []struct {
+		name string
+		// with async indexing a resend can't tell a queued vector from a missing one
+		syncOnly bool
+		object   func(flavor consistencyFlavor, objs []*storobj.Object, first *storobj.Object) *storobj.Object
+	}{
+		{
+			name: "an update",
+			object: func(flavor consistencyFlavor, objs []*storobj.Object, _ *storobj.Object) *storobj.Object {
+				return withNewVectors(flavor, newerVersions(objs, 10), 2)[0]
+			},
+		},
+		{
+			name:     "an unchanged resend",
+			syncOnly: true,
+			object: func(_ consistencyFlavor, _ []*storobj.Object, first *storobj.Object) *storobj.Object {
+				resend := *first
+				return &resend
+			},
+		},
+	}
+
 	for _, flavor := range consistencyFlavors() {
 		for _, test := range tests {
-			t.Run(flavor.name+"/"+test.name, func(t *testing.T) {
-				className := "SupersededDoc"
-				shard, _ := testShardWithSettings(t, t.Context(), consistencyClass(className),
-					enthnsw.NewDefaultUserConfig(), false, test.async, flavor.opts...)
+			for _, overtaker := range overtakers {
+				if test.async && overtaker.syncOnly {
+					continue
+				}
 
-				objs := consistencyObjects(flavor, className, 1)
-				require.Empty(t, nonNilErrs(shard.PutObjectBatch(t.Context(), objs)))
-
-				first := withNewVectors(flavor, objs, 1)[0]
-				second := withNewVectors(flavor, newerVersions(objs, 10), 2)[0]
-
-				test.write(t, shard, flavor, first, func() {
-					assert.Empty(t, nonNilErrs(shard.PutObjectBatch(t.Context(), []*storobj.Object{second})))
+				t.Run(flavor.name+"/"+test.name+"/"+overtaker.name, func(t *testing.T) {
+					testSupersededDoc(t, flavor, test.async, test.write, overtaker.object)
 				})
-
-				stored, err := shard.ObjectByID(t.Context(), objs[0].ID(), nil, additional.Properties{})
-				require.NoError(t, err)
-
-				_, err = shard.WithVectorIndexQueue(flavor.target, func(queue *VectorIndexQueue) error {
-					return queue.Wait(t.Context())
-				})
-				require.NoError(t, err)
-
-				_, err = shard.WithVectorIndex(flavor.target, func(index VectorIndex) error {
-					require.Eventually(t, func() bool {
-						return !index.ContainsDoc(first.DocID) && index.ContainsDoc(stored.DocID)
-					}, 5*time.Second, 10*time.Millisecond, "the superseded doc %d has to go, doc %d has to stay",
-						first.DocID, stored.DocID)
-					return nil
-				})
-				require.NoError(t, err)
-			})
+			}
 		}
 	}
+}
+
+func testSupersededDoc(t *testing.T, flavor consistencyFlavor, async bool,
+	write func(t *testing.T, shard ShardLike, flavor consistencyFlavor, first *storobj.Object, overtake func()),
+	overtaker func(flavor consistencyFlavor, objs []*storobj.Object, first *storobj.Object) *storobj.Object,
+) {
+	className := "SupersededDoc"
+	shard, _ := testShardWithSettings(t, t.Context(), consistencyClass(className),
+		enthnsw.NewDefaultUserConfig(), false, async, flavor.opts...)
+
+	objs := consistencyObjects(flavor, className, 1)
+	require.Empty(t, nonNilErrs(shard.PutObjectBatch(t.Context(), objs)))
+
+	first := withNewVectors(flavor, objs, 1)[0]
+	second := overtaker(flavor, objs, first)
+
+	write(t, shard, flavor, first, func() {
+		assert.Empty(t, nonNilErrs(shard.PutObjectBatch(t.Context(), []*storobj.Object{second})))
+	})
+
+	stored, err := shard.ObjectByID(t.Context(), objs[0].ID(), nil, additional.Properties{})
+	require.NoError(t, err)
+
+	_, err = shard.WithVectorIndexQueue(flavor.target, func(queue *VectorIndexQueue) error {
+		return queue.Wait(t.Context())
+	})
+	require.NoError(t, err)
+
+	_, err = shard.WithVectorIndex(flavor.target, func(index VectorIndex) error {
+		require.Eventually(t, func() bool {
+			return !index.ContainsDoc(first.DocID) && index.ContainsDoc(stored.DocID)
+		}, 5*time.Second, 10*time.Millisecond, "the superseded doc %d has to go, doc %d has to stay",
+			first.DocID, stored.DocID)
+		return nil
+	})
+	require.NoError(t, err)
 }
 
 // noVectorQueues is a shard whose vector queues are gone, as they are mid-drop.
