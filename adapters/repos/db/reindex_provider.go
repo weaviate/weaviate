@@ -1366,7 +1366,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 // remain un-swapped.
 func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
-		WithField("localGroupUnitIDs", localGroupUnitIDs)
+		WithField("localGroupUnitCount", len(localGroupUnitIDs))
 
 	// Recovery-replay short-circuit. The scheduler can invoke
 	// OnGroupCompleted for a task whose terminal state was reached in a
@@ -1496,7 +1496,7 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 // PostCompletionAck flip-to-FAILED prevents the cluster-wide schema flip.
 func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
-		WithField("localGroupUnitIDs", localGroupUnitIDs)
+		WithField("localGroupUnitCount", len(localGroupUnitIDs))
 
 	if task.Status.IsTerminal() {
 		logger.WithField("status", task.Status).
