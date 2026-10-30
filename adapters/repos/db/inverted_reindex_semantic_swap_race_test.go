@@ -192,9 +192,13 @@ func runSwapUnderWriteLoad(t *testing.T, ctx context.Context, shard *Shard,
 	}
 
 	started.Wait()
-	swap()
-	stop.Store(true)
-	done.Wait()
+	func() {
+		defer func() {
+			stop.Store(true)
+			done.Wait()
+		}()
+		swap()
+	}()
 	close(errs)
 	for err := range errs {
 		require.NoError(t, err)
