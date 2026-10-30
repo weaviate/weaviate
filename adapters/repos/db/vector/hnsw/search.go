@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
@@ -185,13 +186,36 @@ func (h *hnsw) initMuveraEncoder(vectors [][]float32) error {
 	return nil
 }
 
-func (h *hnsw) shouldRescore() bool {
-	if h.compressed.Load() {
-		if (h.sqConfig.Enabled && h.sqConfig.RescoreLimit == 0) || (h.rqConfig.Enabled && h.rqConfig.RescoreLimit == 0) {
-			return false
-		}
+// rescorePolicy resolves the rescore settings of the current config. The
+// caller holds compressActionLock (every search entry point takes its read
+// lock), which UpdateUserConfig holds while it swaps the configs.
+func (h *hnsw) rescorePolicy() ent.RescorePolicy {
+	return resolveRescorePolicy(h.pqConfig, h.bqConfig, h.sqConfig, h.rqConfig)
+}
+
+// resolveRescorePolicy picks the quantizer compress() picks, in the same
+// precedence order, and resolves its automatic values. A compressed index
+// whose config no longer names a quantizer keeps every candidate, as it
+// always has.
+func resolveRescorePolicy(pq ent.PQConfig, bq ent.BQConfig, sq ent.SQConfig, rq ent.RQConfig) ent.RescorePolicy {
+	switch {
+	case rq.Enabled && rq.Centering:
+		return rq.RescorePolicy()
+	case pq.Enabled:
+		return pq.RescorePolicy()
+	case sq.Enabled:
+		return sq.RescorePolicy()
+	case bq.Enabled:
+		return bq.RescorePolicy()
+	case rq.Enabled:
+		return rq.RescorePolicy()
+	default:
+		return ent.RescorePolicy{Limit: math.MaxInt, Factor: 1}
 	}
-	return h.compressed.Load() && !h.doNotRescore
+}
+
+func (h *hnsw) shouldRescore() bool {
+	return h.compressed.Load() && !h.doNotRescore && h.rescorePolicy().Limit != ent.RescoreLimitDisabled
 }
 
 func (h *hnsw) cacheSize() int64 {
@@ -1455,16 +1479,15 @@ func (h *hnsw) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVe
 	return common.QueryVectorDistancer{DistanceFunc: f}
 }
 
+// rescore re-ranks the best min(ef, max(k, rescoreLimit, ceil(k *
+// rescoreFactor))) candidates of res with their uncompressed vectors and
+// leaves the top k in res. Every candidate is one random read of the objects
+// bucket, so scaling with k rather than ef is what keeps a large ef from
+// turning the whole candidate list into disk reads.
 func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int, compressorDistancer compressionhelpers.CompressorDistancer) error {
-	if h.sqConfig.Enabled && h.sqConfig.RescoreLimit >= k {
-		for res.Len() > h.sqConfig.RescoreLimit {
-			res.Pop()
-		}
-	}
-	if h.rqConfig.Enabled && h.rqConfig.RescoreLimit >= k {
-		for res.Len() > h.rqConfig.RescoreLimit {
-			res.Pop()
-		}
+	limit := h.rescorePolicy().Candidates(k)
+	for res.Len() > limit {
+		res.Pop()
 	}
 	ids := make([]uint64, res.Len())
 	i := len(ids) - 1
@@ -1516,8 +1539,7 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 						WithField("id", h.id).
 						WithField("class", h.className).
 						WithField("shard", h.shardName).
-						WithError(err).
-						Warnf("could not rescore node %d", id)
+						Warnf("could not rescore node %d: %v", id, err)
 				}
 			}
 			return nil

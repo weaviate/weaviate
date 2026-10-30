@@ -36,6 +36,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	vectorindexcommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
@@ -62,7 +63,9 @@ type flat struct {
 	logger            logrus.FieldLogger
 	distancerProvider distancer.Provider
 	initOnce          sync.Once
-	rescore           int64
+	// rescore is swapped whole on config updates, so a search never pairs a
+	// new limit with an old factor
+	rescore atomic.Pointer[vectorindexcommon.RescorePolicy]
 
 	compressed      atomic.Bool
 	compressionType CompressionType
@@ -100,13 +103,13 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		logger:               cfg.Logger,
 		distancerProvider:    cfg.DistanceProvider,
 		metadataLock:         &sync.RWMutex{},
-		rescore:              extractCompressionRescore(uc),
 		pqResults:            common.NewPqMaxPool(100),
 		compressionType:      extractCompression(uc),
 		pool:                 newPools(),
 		store:                store,
 		concurrentCacheReads: runtime.GOMAXPROCS(0) * 2,
 	}
+	index.rescore.Store(extractRescorePolicy(uc))
 	if err := index.initBuckets(context.Background(), cfg); err != nil {
 		return nil, fmt.Errorf("init flat index buckets: %w", err)
 	}
@@ -210,16 +213,19 @@ func extractCompression(uc flatent.UserConfig) CompressionType {
 	return CompressionNone
 }
 
-func extractCompressionRescore(uc flatent.UserConfig) int64 {
-	compression := extractCompression(uc)
-	switch compression {
+// extractRescorePolicy resolves the rescore settings of the configured
+// quantizer. An uncompressed index never rescores; its policy is unused.
+func extractRescorePolicy(uc flatent.UserConfig) *vectorindexcommon.RescorePolicy {
+	var policy vectorindexcommon.RescorePolicy
+	switch extractCompression(uc) {
 	case CompressionBQ:
-		return int64(uc.BQ.RescoreLimit)
+		policy = uc.BQ.RescorePolicy()
 	case CompressionRQ1, CompressionRQ8:
-		return int64(uc.RQ.RescoreLimit)
+		policy = uc.RQ.RescorePolicy()
 	default:
-		return 0
+		policy = vectorindexcommon.RescorePolicy{Factor: 1}
 	}
+	return &policy
 }
 
 func extractCache(uc flatent.UserConfig) (bool, QuantizerType) {
@@ -482,14 +488,12 @@ func (index *flat) deleteFromBuckets(idBytes []byte) error {
 	return compressed.Delete(idBytes)
 }
 
+// searchTimeRescore returns how many of the best candidates by compressed
+// distance a quantized search rescores: max(k, rescoreLimit,
+// ceil(k * rescoreFactor)). The policy is loaded atomically, so config updates
+// need no lock on a path every search takes.
 func (index *flat) searchTimeRescore(k int) int {
-	// load atomically, so we can get away with concurrent updates of the
-	// userconfig without having to set a lock each time we try to read - which
-	// can be so common that it would cause considerable overhead
-	if rescore := int(atomic.LoadInt64(&index.rescore)); rescore > k {
-		return rescore
-	}
-	return k
+	return index.rescore.Load().Candidates(k)
 }
 
 func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
@@ -863,7 +867,7 @@ func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, call
 
 	// Store atomically as a lock here would be very expensive, this value is
 	// read on every single user-facing search, which can be highly concurrent
-	atomic.StoreInt64(&index.rescore, extractCompressionRescore(parsed))
+	index.rescore.Store(extractRescorePolicy(parsed))
 
 	callback()
 	return nil

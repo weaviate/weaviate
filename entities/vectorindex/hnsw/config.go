@@ -101,23 +101,29 @@ func (u *UserConfig) SetDefaults() {
 		Segments:       DefaultPQSegments,
 		Centroids:      DefaultPQCentroids,
 		TrainingLimit:  DefaultPQTrainingLimit,
+		RescoreLimit:   RescoreLimitAuto,
+		RescoreFactor:  RescoreFactorAuto,
 		Encoder: PQEncoder{
 			Type:         DefaultPQEncoderType,
 			Distribution: DefaultPQEncoderDistribution,
 		},
 	}
 	u.BQ = BQConfig{
-		Enabled: DefaultBQEnabled,
+		Enabled:       DefaultBQEnabled,
+		RescoreLimit:  RescoreLimitAuto,
+		RescoreFactor: RescoreFactorAuto,
 	}
 	u.SQ = SQConfig{
 		Enabled:       DefaultSQEnabled,
 		TrainingLimit: DefaultSQTrainingLimit,
-		RescoreLimit:  DefaultSQRescoreLimit,
+		RescoreLimit:  RescoreLimitAuto,
+		RescoreFactor: RescoreFactorAuto,
 	}
 	u.RQ = RQConfig{
 		Enabled:       DefaultRQEnabled,
 		Bits:          DefaultRQBits,
-		RescoreLimit:  DefaultRQRescoreLimit,
+		RescoreLimit:  RescoreLimitAuto,
+		RescoreFactor: RescoreFactorAuto,
 		Centering:     DefaultRQCentering,
 		TrainingLimit: DefaultRQTrainingLimit,
 	}
@@ -363,15 +369,12 @@ func ParseDefaultQuantization(vectorIndexConfig config.VectorIndexConfig, compre
 	case "rq-1":
 		hnswConfig.RQ.Enabled = true
 		hnswConfig.RQ.Bits = 1
-		hnswConfig.RQ.RescoreLimit = DefaultBRQRescoreLimit
 	case "rq-4":
 		hnswConfig.RQ.Enabled = true
 		hnswConfig.RQ.Bits = 4
-		hnswConfig.RQ.RescoreLimit = DefaultRQRescoreLimit
 	case "rq-8":
 		hnswConfig.RQ.Enabled = true
 		hnswConfig.RQ.Bits = 8
-		hnswConfig.RQ.RescoreLimit = DefaultRQRescoreLimit
 	case "bq":
 		hnswConfig.BQ.Enabled = true
 	default:
