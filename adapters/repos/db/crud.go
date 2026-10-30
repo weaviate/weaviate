@@ -212,7 +212,10 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
 	props search.SelectProperties, addl additional.Properties,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*search.Result, error) {
-	idx := db.GetIndex(schema.ClassName(class))
+	idx, err := db.indexForRead(ctx, schema.ClassName(class))
+	if err != nil {
+		return nil, err
+	}
 	if idx == nil {
 		return nil, nil
 	}
@@ -255,7 +258,10 @@ func (db *DB) Exists(ctx context.Context, class string, id strfmt.UUID,
 	if class == "" {
 		return db.anyExists(ctx, id, repl)
 	}
-	index := db.GetIndex(schema.ClassName(class))
+	index, err := db.indexForRead(ctx, schema.ClassName(class))
+	if err != nil {
+		return false, err
+	}
 	if index == nil {
 		return false, nil
 	}

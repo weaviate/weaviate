@@ -40,7 +40,7 @@ import (
 )
 
 type RemoteIncomingRepo interface {
-	GetIndexForIncomingSharding(className schema.ClassName) RemoteIndexIncomingRepo
+	GetIndexForIncomingSharding(ctx context.Context, className schema.ClassName) RemoteIndexIncomingRepo
 }
 
 type RemoteIncomingSchema interface {
@@ -174,7 +174,7 @@ func (rii *RemoteIndexIncoming) GetObject(ctx context.Context, indexName,
 	shardName string, id strfmt.UUID, selectProperties search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
@@ -185,7 +185,7 @@ func (rii *RemoteIndexIncoming) GetObject(ctx context.Context, indexName,
 func (rii *RemoteIndexIncoming) Exists(ctx context.Context, indexName,
 	shardName string, id strfmt.UUID,
 ) (bool, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return false, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
@@ -218,7 +218,7 @@ func (rii *RemoteIndexIncoming) MergeObject(ctx context.Context, indexName,
 func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
 	shardName string, ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
@@ -232,7 +232,7 @@ func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName
 	groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
 	properties []string,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return nil, nil, nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
@@ -244,7 +244,7 @@ func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName
 func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardName string,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
@@ -255,7 +255,7 @@ func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardN
 func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardName string,
 	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
@@ -277,7 +277,7 @@ func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName
 func (rii *RemoteIndexIncoming) GetShardQueueSize(ctx context.Context,
 	indexName, shardName string,
 ) (int64, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return 0, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
@@ -288,7 +288,7 @@ func (rii *RemoteIndexIncoming) GetShardQueueSize(ctx context.Context,
 func (rii *RemoteIndexIncoming) GetShardStatus(ctx context.Context,
 	indexName, shardName string,
 ) (string, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return "", enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
@@ -310,7 +310,7 @@ func (rii *RemoteIndexIncoming) UpdateShardStatus(ctx context.Context,
 func (rii *RemoteIndexIncoming) FilePutter(ctx context.Context,
 	indexName, shardName, filePath string,
 ) (io.WriteCloser, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return nil, errors.Errorf("local index %q not found", indexName)
 	}
@@ -321,7 +321,7 @@ func (rii *RemoteIndexIncoming) FilePutter(ctx context.Context,
 func (rii *RemoteIndexIncoming) CreateShard(ctx context.Context,
 	indexName, shardName string,
 ) error {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return errors.Errorf("local index %q not found", indexName)
 	}
@@ -332,7 +332,7 @@ func (rii *RemoteIndexIncoming) CreateShard(ctx context.Context,
 func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 	indexName, shardName string,
 ) error {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return errors.Errorf("local index %q not found", indexName)
 	}
@@ -343,7 +343,7 @@ func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 func (rii *RemoteIndexIncoming) OverwriteObjects(ctx context.Context,
 	indexName, shardName string, vobjects []*objects.VObject,
 ) ([]types.RepairResponse, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return nil, fmt.Errorf("local index %q not found", indexName)
 	}
@@ -354,7 +354,7 @@ func (rii *RemoteIndexIncoming) OverwriteObjects(ctx context.Context,
 func (rii *RemoteIndexIncoming) DigestObjects(ctx context.Context,
 	indexName, shardName string, ids []strfmt.UUID,
 ) ([]types.RepairResponse, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local index %q not found", indexName))
 	}
@@ -369,7 +369,7 @@ func (rii *RemoteIndexIncoming) IndexForIncomingWrite(ctx context.Context, index
 	if _, err := rii.schema.ReadOnlyClassWithVersion(ctx, indexName, schemaVersion); err != nil {
 		return nil, fmt.Errorf("local index %q not found: %w", indexName, err)
 	}
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return nil, fmt.Errorf("local index %q not found", indexName)
 	}
@@ -380,7 +380,7 @@ func (rii *RemoteIndexIncoming) IndexForIncomingWrite(ctx context.Context, index
 func (rii *RemoteIndexIncoming) DigestObjectsInRange(ctx context.Context,
 	indexName, shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
 ) ([]types.RepairDigest, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return nil, fmt.Errorf("local index %q not found", indexName)
 	}
@@ -391,7 +391,7 @@ func (rii *RemoteIndexIncoming) DigestObjectsInRange(ctx context.Context,
 func (rii *RemoteIndexIncoming) HashTreeLevel(ctx context.Context,
 	indexName, shardName string, level int, discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return nil, fmt.Errorf("local index %q not found", indexName)
 	}
@@ -400,7 +400,7 @@ func (rii *RemoteIndexIncoming) HashTreeLevel(ctx context.Context,
 }
 
 func (rii *RemoteIndexIncoming) CountObjects(ctx context.Context, indexName, shardName string) (int, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return 0, fmt.Errorf("local index %q not found", indexName)
 	}
@@ -427,7 +427,7 @@ func (rii *RemoteIndexIncoming) RemoveAsyncReplicationTargetNode(
 	indexName, shardName string,
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
 ) error {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return fmt.Errorf("local index %q not found", indexName)
 	}

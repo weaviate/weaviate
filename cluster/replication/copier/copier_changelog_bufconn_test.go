@@ -71,7 +71,7 @@ type bufconnFakeRepo struct {
 	idx *bufconnFakeIndex
 }
 
-func (r *bufconnFakeRepo) GetIndexForIncomingSharding(schema.ClassName) sharding.RemoteIndexIncomingRepo {
+func (r *bufconnFakeRepo) GetIndexForIncomingSharding(context.Context, schema.ClassName) sharding.RemoteIndexIncomingRepo {
 	return r.idx
 }
 
