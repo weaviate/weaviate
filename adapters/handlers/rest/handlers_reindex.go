@@ -319,9 +319,10 @@ func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSp
 
 // validateTenants checks that all specified tenants exist in the collection's
 // sharding state and are in a status that has local data (HOT, ACTIVE, COLD,
-// INACTIVE). Returns an error for nonexistent or OFFLOADED/FROZEN tenants.
+// INACTIVE). Returns an error for nonexistent tenants and for tenants without
+// local data (any other status, such as FROZEN, FREEZING or UNFREEZING).
 func validateTenants(database *db.DB, ctx context.Context, collection string, tenants []string) error {
-	// Unfiltered so a frozen tenant gets the status error below, not "does not exist".
+	// ShardReplicaOwnership keeps tenants of every status, so a frozen tenant counts as known and gets the status error below.
 	allOwnership, err := database.ShardReplicaOwnership(ctx, collection)
 	if err != nil {
 		return fmt.Errorf("reading shard state: %w", err)
@@ -352,7 +353,7 @@ func validateTenants(database *db.DB, ctx context.Context, collection string, te
 			return fmt.Errorf("tenant %q does not exist", tenant)
 		}
 		if _, ok := activeTenants[tenant]; !ok {
-			return fmt.Errorf("tenant %q is not in an active status (OFFLOADED/FROZEN tenants cannot be reindexed)", tenant)
+			return fmt.Errorf("tenant %q has no local data (status is not HOT or COLD); frozen tenants and tenants being frozen or unfrozen cannot be reindexed", tenant)
 		}
 	}
 	return nil
