@@ -1513,11 +1513,11 @@ func expandWildcards(patterns, candidates []string) []string {
 	return result
 }
 
-// withReindexRefusalHint exists because the storage-layer text only says to wait.
+// withReindexRefusalHint lives here, not in the storage-layer text, because replica movement reuses that text.
 func withReindexRefusalHint(err error) error {
 	if !errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) {
 		return err
 	}
-	return fmt.Errorf("%w; a runtime reindex is running on a collection in this backup: exclude that collection "+
-		"(other collections may be refused too) or retry after the reindex finishes", err)
+	return fmt.Errorf("%w; for the runtime-reindex refusals: if a reindex is running on a refused collection, "+
+		"exclude that collection (other collections may be refused too); otherwise retry later", err)
 }
