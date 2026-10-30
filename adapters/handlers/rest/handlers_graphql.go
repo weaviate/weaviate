@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -140,6 +141,12 @@ func setupGraphQLHandlers(
 
 		result := graphQL.Resolve(ctx, query,
 			operationName, variables)
+
+		// A single NaN/Inf value (for example an overflowing distance) cannot
+		// be encoded and would otherwise discard every row of the response.
+		if result != nil {
+			result.Data = sanitizeNonFinite(result.Data)
+		}
 
 		// Marshal the JSON
 		resultJSON, jsonErr := json.Marshal(result)
@@ -281,6 +288,12 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 		}
 
 		result := graphQL.Resolve(ctx, query, operationName, variables)
+
+		// A single NaN/Inf value (for example an overflowing distance) cannot
+		// be encoded and would otherwise discard every row of the response.
+		if result != nil {
+			result.Data = sanitizeNonFinite(result.Data)
+		}
 
 		// Marshal the JSON
 		resultJSON, jsonErr := json.Marshal(result)
@@ -500,6 +513,35 @@ func addDocsLinks(result *tailorincgraphql.Result, response *models.GraphQLRespo
 			continue
 		}
 		response.Errors[i].Message = enterrors.AppendDocsLink(response.Errors[i].Message, resolverError(result.Errors[i]))
+	}
+}
+
+// sanitizeNonFinite replaces NaN and +/-Inf with nil so that one unencodable
+// value cannot fail the entire GraphQL response.
+func sanitizeNonFinite(v interface{}) interface{} {
+	switch x := v.(type) {
+	case map[string]interface{}:
+		for k, val := range x {
+			x[k] = sanitizeNonFinite(val)
+		}
+		return x
+	case []interface{}:
+		for i, val := range x {
+			x[i] = sanitizeNonFinite(val)
+		}
+		return x
+	case float32:
+		if math.IsNaN(float64(x)) || math.IsInf(float64(x), 0) {
+			return nil
+		}
+		return x
+	case float64:
+		if math.IsNaN(x) || math.IsInf(x, 0) {
+			return nil
+		}
+		return x
+	default:
+		return v
 	}
 }
 
