@@ -233,6 +233,15 @@ type Config struct {
 	ReplicaMovementCleanupInterval         *runtime.DynamicValue[time.Duration]
 	ReplicaMovementCleanupIncludeCancelled *runtime.DynamicValue[bool]
 
+	// The rebalance planner runs only when both flags are on. It re-reads them
+	// on every pass, so a change takes effect without a restart.
+	ReplicaMovementEnabled  *runtime.DynamicValue[bool]
+	ReplicaRebalanceEnabled *runtime.DynamicValue[bool]
+
+	// RebalanceMeasure reads one node's resources for the rebalance planner.
+	// When nil, every planning run ends PLANNING_FAILED.
+	RebalanceMeasure func(ctx context.Context, node string) (replicationTypes.RebalanceNodeMeasurement, error)
+
 	// DBLoadProgress reports local shard-loading progress (loaded,
 	// total) while the DB is being restored on startup.
 	DBLoadProgress func() *db.StartupProgressSnapshot
