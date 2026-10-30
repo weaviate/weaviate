@@ -1924,7 +1924,7 @@ func TestStoreWaitForAppliedIndexDeadlineBranch(t *testing.T) {
 }
 
 func TestAdmitPropose_TaskBuiltAgainstOtherReplicas(t *testing.T) {
-	// node2 holds shard1 because a copy finished after the payloads below were built.
+	// placement is the sharding state the leader reads when it admits the task. Each case's taskReplicas stands for a payload built from an earlier read.
 	placement := map[string]sharding.Physical{
 		"shard1": {BelongsToNodes: []string{"node1", "node2"}},
 		"shard2": {BelongsToNodes: []string{"node1"}},
@@ -1946,17 +1946,20 @@ func TestAdmitPropose_TaskBuiltAgainstOtherReplicas(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := replicasAdmissionStore(t, placement)
-			payload, err := json.Marshal(tc.taskReplicas)
-			require.NoError(t, err)
-			task := &cmd.AddDistributedTaskRequest{Namespace: exclusionNamespace, Id: "task1", Payload: payload}
-			sub, err := json.Marshal(task)
-			require.NoError(t, err)
-
-			collection := exclusionCollection
+			payload := replicasPayload{Collection: exclusionCollection, Replicas: tc.taskReplicas}
 			if tc.collection != "" {
-				collection = tc.collection
+				payload.Collection = tc.collection
 			}
-			err = s.admitPropose(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}, collection, task)
+			payloadBytes, err := json.Marshal(payload)
+			require.NoError(t, err)
+			sub, err := json.Marshal(&cmd.AddDistributedTaskRequest{Namespace: exclusionNamespace, Id: "task1", Payload: payloadBytes})
+			require.NoError(t, err)
+			req := &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}
+
+			// Execute's own sequence, so the check sees the task as decoded from the proposal.
+			collection, task, err := s.taskOrMovementCollection(req)
+			require.NoError(t, err)
+			err = s.admitPropose(req, collection, task)
 			if !tc.wantRefused {
 				require.NoError(t, err)
 				return
@@ -1968,13 +1971,24 @@ func TestAdmitPropose_TaskBuiltAgainstOtherReplicas(t *testing.T) {
 	}
 }
 
+type replicasPayload struct {
+	Collection string
+	Replicas   map[string][]string
+}
+
 func replicasAdmissionStore(t *testing.T, placement map[string]sharding.Physical) *Store {
 	t.Helper()
 	m := NewMockStore(t, "node1", 0, func(c *Config) {
+		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+			exclusionNamespace: func(payload []byte) (string, bool) {
+				var p replicasPayload
+				return p.Collection, json.Unmarshal(payload, &p) == nil
+			},
+		}
 		c.DistributedTaskShardReplicasExtractors = map[string]distributedtask.ShardReplicasExtractor{
 			exclusionNamespace: func(payload []byte) (map[string][]string, bool) {
-				var nodesByShard map[string][]string
-				return nodesByShard, json.Unmarshal(payload, &nodesByShard) == nil
+				var p replicasPayload
+				return p.Replicas, json.Unmarshal(payload, &p) == nil
 			},
 		}
 	})
