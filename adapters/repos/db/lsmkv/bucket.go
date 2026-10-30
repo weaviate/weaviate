@@ -2225,17 +2225,8 @@ func (b *Bucket) flushAndSwitchLocked() error {
 	// restart's WAL replay (and, mid-drop, leave pre-arm bytes outside every
 	// snapshot). Write the leftover out first; if that fails again, this
 	// attempt fails too and the data stays readable where it is.
-	if b.flushing != nil {
-		b.logger.WithField("action", "lsm_memtable_flush_start").
-			WithField("path", bucketPath).
-			Warn("writing out the memtable of a failed flush before switching")
-		segmentPath, err := b.flushing.flushAfterFailedFlush()
-		if err != nil {
-			return fmt.Errorf("write out memtable of a failed flush: %w", err)
-		}
-		if err := b.addFlushedSegment(segmentPath); err != nil {
-			return fmt.Errorf("write out memtable of a failed flush: %w", err)
-		}
+	if err := b.drainFailedFlush(bucketPath, b.atomicallyAddDiskSegmentAndRemoveFlushing); err != nil {
+		return err
 	}
 
 	switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
@@ -2252,7 +2243,7 @@ func (b *Bucket) flushAndSwitchLocked() error {
 		return nil
 	}
 
-	if err := b.flushFlushingLocked(); err != nil {
+	if err := b.flushFlushingLocked(b.atomicallyAddDiskSegmentAndRemoveFlushing); err != nil {
 		return err
 	}
 
@@ -2275,7 +2266,7 @@ func (b *Bucket) flushAndSwitchLocked() error {
 // clearing b.flushing. The caller must hold flushAndSwitchMu. A memtable a
 // FAILED earlier flush left behind is drained by flushAndSwitchLocked through
 // flushAfterFailedFlush instead, since its commit log may already be gone.
-func (b *Bucket) flushFlushingLocked() error {
+func (b *Bucket) flushFlushingLocked(addSegment func(Segment) error) error {
 	// Before we can start the actual flush, we need to make sure that all
 	// ongoing writers have finished their write, otherwise we could lose the
 	// write.
@@ -2294,12 +2285,49 @@ func (b *Bucket) flushFlushingLocked() error {
 	if err != nil {
 		return fmt.Errorf("flush: %w", err)
 	}
-	return b.addFlushedSegment(segmentPath)
+	return b.addFlushedSegment(segmentPath, addSegment)
+}
+
+// drainFailedFlush writes out the memtable a failed earlier flush left in
+// b.flushing, if any. The caller must hold flushAndSwitchMu.
+func (b *Bucket) drainFailedFlush(bucketPath string, addSegment func(Segment) error) error {
+	if b.flushing == nil {
+		return nil
+	}
+	b.logger.WithField("action", "lsm_memtable_flush_start").
+		WithField("path", bucketPath).
+		Warn("writing out the memtable of a failed flush before switching")
+	segmentPath, err := b.flushing.flushAfterFailedFlush()
+	if err != nil {
+		return fmt.Errorf("write out memtable of a failed flush: %w", err)
+	}
+	if err := b.addFlushedSegment(segmentPath, addSegment); err != nil {
+		return fmt.Errorf("write out memtable of a failed flush: %w", err)
+	}
+	return nil
+}
+
+// flushBeforeMoveLocked keeps in-memory writes a move would drop with the
+// memtable it replaces. The caller holds flushAndSwitchMu, so b.flushing is a
+// failed flush's leftover, and flushLock, so no write lands before the move.
+func (b *Bucket) flushBeforeMoveLocked() error {
+	if err := b.drainFailedFlush(b.dir, b.addDiskSegmentAndRemoveFlushingLocked); err != nil {
+		return err
+	}
+	if b.active.Size() == 0 {
+		return nil
+	}
+	mt, err := b.createNewActiveMemtable()
+	if err != nil {
+		return fmt.Errorf("switch active memtable: %w", err)
+	}
+	b.flushing, b.active = b.active, mt
+	return b.flushFlushingLocked(b.addDiskSegmentAndRemoveFlushingLocked)
 }
 
 // addFlushedSegment adds the segment b.flushing was written to and clears
 // b.flushing. The caller must hold flushAndSwitchMu.
-func (b *Bucket) addFlushedSegment(segmentPath string) error {
+func (b *Bucket) addFlushedSegment(segmentPath string, addSegment func(Segment) error) error {
 	var err error
 
 	var tombstones *sroar.Bitmap
@@ -2314,7 +2342,7 @@ func (b *Bucket) addFlushedSegment(segmentPath string) error {
 		return fmt.Errorf("precompute metadata: %w", err)
 	}
 
-	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {
+	if err := addSegment(segment); err != nil {
 		return fmt.Errorf("add segment and remove flushing: %w", err)
 	}
 
@@ -2434,6 +2462,11 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 
+	return b.addDiskSegmentAndRemoveFlushingLocked(seg)
+}
+
+// addDiskSegmentAndRemoveFlushingLocked must be called with flushLock held.
+func (b *Bucket) addDiskSegmentAndRemoveFlushingLocked(seg Segment) error {
 	if b.flushing.Size() == 0 {
 		b.flushing = nil
 		return nil

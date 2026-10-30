@@ -328,7 +328,7 @@ func (s *Shard) fillDimensionsBucket(name string, rows dimensionsRows) error {
 			return fmt.Errorf("write dimensions key %x: %w", key, err)
 		}
 	}
-	// replacing a bucket drops what it has not flushed
+	// flushed here so ReplaceBuckets does not flush under the store-wide lock
 	if err := replacement.FlushAndSwitch(); err != nil {
 		return fmt.Errorf("flush bucket %q: %w", name, err)
 	}
