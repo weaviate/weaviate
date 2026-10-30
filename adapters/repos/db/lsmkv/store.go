@@ -613,10 +613,10 @@ func claimDirForMove(bucket *Bucket, newDir string) (finish func(moved bool), er
 	}, nil
 }
 
-// freezeAndSwapForReplace swaps replacementBucket into bucketsByName and
-// returns holding its flushLock, so a by-name writer racing ReplaceBuckets'
-// tail blocks instead of landing in the memtable the tail discards (lost
-// write).
+// freezeAndSwapForReplace makes the replacement name-visible while frozen:
+// flushLock is taken before the map swap and held on success, so a by-name
+// writer landing before ReplaceBuckets' tail completes blocks instead of
+// writing into the memtable the tail discards (lost write).
 func (s *Store) freezeAndSwapForReplace(bucketName, replacementBucketName string, replacementBucket *Bucket) (bucket *Bucket, err error) {
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
@@ -635,11 +635,9 @@ func (s *Store) freezeAndSwapForReplace(bucketName, replacementBucketName string
 	return bucket, nil
 }
 
-// flushThenMove flushes b, then runs move until move finds nothing left in
-// memory. The flush runs outside bucketAccessLock because it can call back
-// into the store (a skip-key function looking up another bucket). move takes
-// that lock and returns moved=false if writes landed after the flush; its
-// callers only move buckets that take no new writes, so the retries end.
+// A flush can look up other buckets (skip-key functions), so it runs outside
+// bucketAccessLock. Lock order: flushAndSwitchMu, bucketAccessLock, flushLock.
+// Retries end because callers only move buckets that take no new writes.
 func flushThenMove(b *Bucket, move func() (moved bool, err error)) error {
 	b.flushAndSwitchMu.Lock()
 	defer b.flushAndSwitchMu.Unlock()
@@ -676,8 +674,6 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	if replacementBucket == nil {
 		return fmt.Errorf("replacement bucket '%s' not found", replacementBucketName)
 	}
-	// Flushed outside bucketAccessLock, see flushThenMove. A failure here
-	// leaves both buckets as they were.
 	replacementBucket.flushAndSwitchMu.Lock()
 	if err := replacementBucket.flushAndSwitchLocked(); err != nil {
 		replacementBucket.flushAndSwitchMu.Unlock()
@@ -691,10 +687,8 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	}
 	defer replacementBucket.flushLock.Unlock()
 
-	// The replacement may take writes until the swap, unlike a renamed
-	// bucket, so what landed since the flush above is flushed here.
-	// flushAndSwitchMu is released before the displaced bucket's drain below:
-	// a Shutdown of the replacement waits on it.
+	// The replacement takes writes until the swap. flushAndSwitchMu goes
+	// before the drain below, since a Shutdown of the replacement waits on it.
 	err = replacementBucket.flushBeforeMoveLocked()
 	replacementBucket.flushAndSwitchMu.Unlock()
 	if err != nil {
