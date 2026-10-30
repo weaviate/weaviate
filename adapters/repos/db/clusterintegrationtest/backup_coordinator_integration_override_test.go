@@ -124,6 +124,7 @@ func TestDistributedBackupsOverride(t *testing.T) {
 				req := &backup.BackupRequest{
 					ID: backupID, Backend: "fake-backend",
 					Include: []string{distributedClass},
+					Bucket:  overrideBucket, Path: overridePath,
 				}
 
 				resp, err := node.scheduler.Backup(ctx, &models.Principal{}, req)
@@ -161,6 +162,7 @@ func TestDistributedBackupsOverride(t *testing.T) {
 				req := &backup.BackupRequest{
 					ID: backupID, Backend: "fake-backend",
 					Include: []string{distributedClass},
+					Bucket:  overrideBucket, Path: overridePath,
 				}
 
 				resp, err := node.scheduler.Restore(ctx, &models.Principal{}, req, false)
