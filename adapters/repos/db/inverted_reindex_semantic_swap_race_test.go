@@ -163,6 +163,11 @@ func runSwapUnderWriteLoad(t *testing.T, ctx context.Context, shard *Shard,
 		enterrors.GoWrapper(func() {
 			defer done.Done()
 			first := true
+			defer func() {
+				if first {
+					started.Done()
+				}
+			}()
 			for i := 0; !stop.Load(); i++ {
 				obj := createTestObjectWithText(className, text)
 				if err := shard.PutObject(ctx, obj); err != nil {
