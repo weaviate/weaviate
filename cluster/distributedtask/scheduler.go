@@ -651,20 +651,10 @@ func (s *Scheduler) tick() {
 		suProvider, providerIsUnitAware := provider.(UnitAwareProvider)
 		if providerIsUnitAware {
 			for desc, task := range tasks {
-				// effectiveStatus carries the per-tick state-machine view: it
-				// starts at task.Status (what ListDistributedTasks returned)
-				// and the PREP-ack / SWAP-ack failure paths advance it to
-				// FAILED so PHASE B and Phase 2 can react inside the same
-				// tick without overwriting the FSM clone. The clone stays
-				// equal to the RAFT-replicated state for the entire tick;
-				// any downstream code that re-reads from `tasks` sees the
-				// authoritative status, not a hidden in-tick mutation.
-				effectiveStatus := task.Status
-
-				// State-machine dispatch by effectiveStatus. CANCELLED skips
+				// State-machine dispatch by task.Status. CANCELLED skips
 				// the ack barriers: [Manager.CancelTask] accepts a cancel
 				// only from STARTED, so the barriers cannot have opened.
-				switch effectiveStatus {
+				switch task.Status {
 				case TaskStatusCancelled:
 					// Skip PHASE A / PHASE B / ack barriers; Phase 2
 					// below still fires OnTaskCompleted exactly once
@@ -685,10 +675,8 @@ func (s *Scheduler) tick() {
 					// per-task state with the load-bearing state re-fetch
 					// (local cleanup may have deleted the entry while we
 					// ran callbacks — a nil state means "nothing to record").
-					if task.NeedsPreparationBarrier && effectiveStatus == TaskStatusPreparing {
-						if newStatus := s.runPreparationPhase(namespace, desc, task, suProvider, effectiveStatus); newStatus != effectiveStatus {
-							effectiveStatus = newStatus
-						}
+					if task.NeedsPreparationBarrier && task.Status == TaskStatusPreparing {
+						s.runPreparationPhase(namespace, desc, task, suProvider)
 					}
 
 					// PHASE B: SWAP-phase callback firing. Barrier tasks fire
@@ -702,10 +690,8 @@ func (s *Scheduler) tick() {
 					// whole phase (provider callbacks + the per-node
 					// post-completion ack RAFT-write), re-acquire and
 					// commit with the load-bearing state re-fetch.
-					if newStatus := s.runSwapPhase(namespace, desc, task, suProvider, effectiveStatus); newStatus != effectiveStatus {
-						effectiveStatus = newStatus
-					}
-				} // end switch effectiveStatus
+					s.runSwapPhase(namespace, desc, task, suProvider)
+				} // end switch task.Status
 
 				// Phase 2: fire OnTaskCompleted on SWAPPING/FAILED/FINISHED/
 				// CANCELLED. FINISHED is included because the first node to
@@ -717,7 +703,7 @@ func (s *Scheduler) tick() {
 				// A non-nil OnTaskCompleted error on the SWAPPING path withholds
 				// FINISHED and retries or fails the task; see
 				// runCompletedCallbackPhase (weaviate/0-weaviate-issues#297).
-				s.runCompletedCallbackPhase(namespace, desc, task, suProvider, effectiveStatus)
+				s.runCompletedCallbackPhase(namespace, desc, task, suProvider)
 			}
 		}
 
@@ -883,17 +869,15 @@ type preparationGroupWork struct {
 //     have deleted the entry).
 //   - Lock again to snapshot ack eligibility (success/joined identity),
 //     unlock for the ack RAFT-write, lock to commit ack-emitted + the
-//     effectiveStatus advance.
+//     FAILED flip onto task.
 //
-// Returns the new effectiveStatus (may advance to TaskStatusFailed if
-// the ack RAFT-write reports success=false). No outer lock inherited.
+// No outer lock inherited.
 func (s *Scheduler) runPreparationPhase(
 	namespace string,
 	desc TaskDescriptor,
 	task *Task,
 	suProvider UnitAwareProvider,
-	effectiveStatus TaskStatus,
-) TaskStatus {
+) {
 	// Snapshot: collect per-group work + pre-set fired marks, under a
 	// deferred-Unlock closure for panic safety.
 	worklist := func() []preparationGroupWork {
@@ -964,7 +948,7 @@ func (s *Scheduler) runPreparationPhase(
 		return prepAckSnapshot{eligible: true, success: success, joined: joined}
 	}()
 	if !ackSnap.eligible {
-		return effectiveStatus
+		return
 	}
 	success, joined := ackSnap.success, ackSnap.joined
 
@@ -980,7 +964,7 @@ func (s *Scheduler) runPreparationPhase(
 	if ackErr != nil {
 		s.loggerWithTask(namespace, desc).
 			Warnf("failed to record distributed task prep-complete ack; will retry on next tick or wake: %v", ackErr)
-		return effectiveStatus
+		return
 	}
 	if afterAckState := s.perTaskStateLocked(desc); afterAckState != nil {
 		afterAckState.preparationAckEmitted = true
@@ -993,12 +977,11 @@ func (s *Scheduler) runPreparationPhase(
 		Error:   joined,
 		AckedAt: s.clock.Now(),
 	}
-	// Advance effectiveStatus to FAILED (in lieu of overwriting task.Status)
-	// so PHASE B and Phase 2 react inside this same tick.
-	if !success && effectiveStatus == TaskStatusPreparing {
-		effectiveStatus = TaskStatusFailed
+	// Mirror the FSM's FAILED flip: the callbacks later in this tick decide
+	// whether to swap or clean up from task.Status.
+	if !success && task.Status == TaskStatusPreparing {
+		task.markTerminal(TaskStatusFailed, s.clock.Now())
 	}
-	return effectiveStatus
 }
 
 // swapGroupWork captures one PHASE-B per-group work item. Populated
@@ -1024,11 +1007,10 @@ func (s *Scheduler) runSwapPhase(
 	desc TaskDescriptor,
 	task *Task,
 	suProvider UnitAwareProvider,
-	effectiveStatus TaskStatus,
-) TaskStatus {
-	postStarted := effectiveStatus == TaskStatusSwapping ||
-		effectiveStatus == TaskStatusFailed ||
-		effectiveStatus == TaskStatusFinished
+) {
+	postStarted := task.Status == TaskStatusSwapping ||
+		task.Status == TaskStatusFailed ||
+		task.Status == TaskStatusFinished
 
 	// Snapshot: per-group eligibility + pre-set fired marks under a
 	// deferred-Unlock closure.
@@ -1114,7 +1096,7 @@ func (s *Scheduler) runSwapPhase(
 		ackState := s.perTaskStateLocked(desc)
 		if s.ackRecorder == nil ||
 			(ackState != nil && ackState.postCompletionAckEmitted) ||
-			effectiveStatus == TaskStatusStarted ||
+			task.Status == TaskStatusStarted ||
 			!s.allLocalGroupsFiredLocked(task, desc) {
 			return swapAckSnapshot{}
 		}
@@ -1122,7 +1104,7 @@ func (s *Scheduler) runSwapPhase(
 		return swapAckSnapshot{eligible: true, success: success, joined: joined}
 	}()
 	if !ackSnap.eligible {
-		return effectiveStatus
+		return
 	}
 	success, joined := ackSnap.success, ackSnap.joined
 
@@ -1142,15 +1124,14 @@ func (s *Scheduler) runSwapPhase(
 			s.loggerWithTask(namespace, desc).
 				Warnf("failed to record distributed task post-completion ack; will retry on next tick or wake: %v", ackErr)
 		})
-		return effectiveStatus
+		return
 	}
 	if afterAckState := s.perTaskStateLocked(desc); afterAckState != nil {
 		afterAckState.postCompletionAckEmitted = true
 	}
-	// Reflect the ack on the per-tick local clone's ack map (mirror of
-	// what the FSM apply path records) so the Phase 2 gate has the
-	// up-to-date view without re-listing. Status itself stays on
-	// effectiveStatus; the clone's Status field is never overwritten.
+	// Reflect the ack on the per-tick local clone (mirror of what the FSM
+	// apply path records) so the Phase 2 gate and OnTaskCompleted's
+	// schema-flip decision see the up-to-date view without re-listing.
 	if task.PostCompletionAcks == nil {
 		task.PostCompletionAcks = map[string]PostCompletionAck{}
 	}
@@ -1159,10 +1140,9 @@ func (s *Scheduler) runSwapPhase(
 		Error:   joined,
 		AckedAt: s.clock.Now(),
 	}
-	if !success && effectiveStatus == TaskStatusSwapping {
-		effectiveStatus = TaskStatusFailed
+	if !success && task.Status == TaskStatusSwapping {
+		task.markTerminal(TaskStatusFailed, s.clock.Now())
 	}
-	return effectiveStatus
 }
 
 // runCompletedCallbackPhase fires OnTaskCompleted for a single task in
@@ -1183,16 +1163,15 @@ func (s *Scheduler) runCompletedCallbackPhase(
 	desc TaskDescriptor,
 	task *Task,
 	suProvider UnitAwareProvider,
-	effectiveStatus TaskStatus,
 ) {
-	readyForFinalize := effectiveStatus == TaskStatusSwapping ||
-		effectiveStatus == TaskStatusFailed ||
-		effectiveStatus == TaskStatusFinished ||
-		effectiveStatus == TaskStatusCancelled
+	readyForFinalize := task.Status == TaskStatusSwapping ||
+		task.Status == TaskStatusFailed ||
+		task.Status == TaskStatusFinished ||
+		task.Status == TaskStatusCancelled
 	if !readyForFinalize {
 		return
 	}
-	if s.ackRecorder != nil && effectiveStatus == TaskStatusSwapping {
+	if s.ackRecorder != nil && task.Status == TaskStatusSwapping {
 		if len(task.MissingPostCompletionAckNodes()) > 0 {
 			return
 		}
@@ -1222,9 +1201,9 @@ func (s *Scheduler) runCompletedCallbackPhase(
 
 	// Only the SWAPPING cutover retries/fails; a terminal-status error is
 	// best-effort cleanup — leave the fired mark set so it doesn't re-fire.
-	if effectiveStatus != TaskStatusSwapping {
+	if task.Status != TaskStatusSwapping {
 		s.loggerWithTask(namespace, desc).
-			Warnf("OnTaskCompleted returned an error on terminal status %s; ignoring (best-effort cleanup): %v", effectiveStatus, cbErr)
+			Warnf("OnTaskCompleted returned an error on terminal status %s; ignoring (best-effort cleanup): %v", task.Status, cbErr)
 		return
 	}
 
