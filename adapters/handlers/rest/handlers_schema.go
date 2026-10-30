@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
@@ -68,6 +69,7 @@ type reindexSubmitLockProvider interface {
 
 type schemaHandlers struct {
 	manager             *schemaUC.Manager
+	authorizer          authorization.Authorizer
 	metricRequestsTotal restApiRequestsTotal
 	reindexTaskLister   reindexInFlightChecker
 	reindexSubmitLocks  reindexSubmitLockProvider
@@ -217,6 +219,24 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 		s.metricRequestsTotal.logError(params.ClassName, qErr)
 		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, qErr))
+	}
+
+	// Authorize BEFORE the conflict pre-flight below: its refusal reveals an
+	// in-flight reindex task, and manager.DeleteClassPropertyIndex only
+	// authorizes deep inside its own body. Same verb+resource the manager
+	// enforces (UPDATE + CollectionsMetadata), so no legitimate caller is newly
+	// rejected; nil-safe for unit tests that construct schemaHandlers directly.
+	if s.authorizer != nil {
+		if err := s.authorizer.Authorize(ctx, principal, authorization.UPDATE,
+			authorization.CollectionsMetadata(qualifiedClass)...); err != nil {
+			s.metricRequestsTotal.logError(params.ClassName, err)
+			if errors.As(err, &authzerrors.Forbidden{}) {
+				return schema.NewSchemaObjectsPropertiesDeleteForbidden().
+					WithPayload(errPayloadFromSingleErr(principal, err))
+			}
+			return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(principal, err))
+		}
 	}
 
 	// Serialize with the reindex-submit REST handler on the same
@@ -606,9 +626,10 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 	return schema.NewTenantExistsOK()
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider, namespacesEnabled bool) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, authorizer authorization.Authorizer, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider, namespacesEnabled bool) {
 	h := &schemaHandlers{
 		manager:             manager,
+		authorizer:          authorizer,
 		metricRequestsTotal: newSchemaRequestsTotal(metrics, logger),
 		reindexTaskLister:   reindexTaskLister,
 		reindexSubmitLocks:  reindexSubmitLocks,
