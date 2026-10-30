@@ -279,15 +279,14 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 }
 
 func TestBuildRecoveryTasksStampsTheIdentity(t *testing.T) {
-	require.Len(t, allKnownMigrationTypes(), len(recoverableDirOwnershipCases())+1,
-		"a new migration type has to be classified here: either the recovery switch "+
-			"dispatches it and it belongs in this table, or it joins the one type that has no arm")
+	require.Len(t, allKnownMigrationTypes(), len(dirOwnershipCases()),
+		"a new migration type belongs in this table")
 
 	p, _ := newTestProvider(t)
 	logger, _ := logrustest.NewNullLogger()
 	desc := taskDescAt(11)
 
-	for _, tc := range recoverableDirOwnershipCases() {
+	for _, tc := range dirOwnershipCases() {
 		minted, err := p.createReindexTasks(desc, dirOwnershipUnit, tc.payload())
 		require.NoError(t, err)
 		for _, original := range minted {

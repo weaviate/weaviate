@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -215,96 +214,22 @@ func buildRecoveryTasks(
 	if payload.Collection == "" {
 		return nil, fmt.Errorf("record names no collection")
 	}
-	version := subject.Key.TaskVersion
-	if version < 1 || version > math.MaxInt {
-		return nil, fmt.Errorf("task version %d cannot name a migration generation (must be 1..%d)",
-			version, math.MaxInt)
+	// A record for a filterable half exists only because the live path built that half.
+	hasFilterableBucket := func(string, string) bool { return true }
+	built, err := buildMigrationTasks(logger, schemaManager, subject.Key.TaskVersion, &payload, hasFilterableBucket)
+	if err != nil {
+		return nil, err
 	}
-	generation := int(version)
-	var raw []*ShardReindexTaskGeneric
-	switch payload.MigrationType {
-	case ReindexTypeChangeAlgorithm:
-		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeMapToBlockmaxTask(logger, schemaManager, payload.Properties, payload.Collection, generation),
+	desc := distributedtask.TaskDescriptor{ID: subject.TaskID, Version: subject.Key.TaskVersion}
+	for _, t := range built {
+		if t.strategy.StrategyCode() != subject.Key.StrategyCode {
+			continue
 		}
-	case ReindexTypeRepairFilterable:
-		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeRoaringSetRefreshTask(logger, payload.Properties, payload.Collection, generation),
-		}
-	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
-		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeFilterableToRangeableTask(logger, payload.Properties, payload.Collection, generation),
-		}
-	case ReindexTypeEnableFilterable:
-		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeEnableFilterableTask(logger, payload.Properties, payload.Collection, generation),
-		}
-	case ReindexTypeEnableSearchable:
-		if payload.TargetTokenization == "" {
-			return nil, fmt.Errorf("%s requires targetTokenization", payload.MigrationType)
-		}
-		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeEnableSearchableTask(logger, payload.Properties, payload.Collection, payload.TargetTokenization, generation),
-		}
-	case ReindexTypeChangeTokenization:
-		if len(payload.Properties) != 1 {
-			return nil, fmt.Errorf("change-tokenization requires exactly one property")
-		}
-		if payload.TargetTokenization == "" {
-			return nil, fmt.Errorf("change-tokenization requires targetTokenization")
-		}
-		if payload.BucketStrategy == "" {
-			return nil, fmt.Errorf("change-tokenization requires bucketStrategy")
-		}
-		propName := payload.Properties[0]
-		switch subject.Key.StrategyCode {
-		case StrategyCodeSearchableRetokenize:
-			raw = []*ShardReindexTaskGeneric{
-				NewRuntimeSearchableRetokenizeTask(
-					logger, propName, payload.TargetTokenization,
-					payload.Collection, payload.BucketStrategy, payload.Collection,
-					generation,
-				),
-			}
-		case StrategyCodeFilterableRetokenize:
-			raw = []*ShardReindexTaskGeneric{
-				NewRuntimeFilterableRetokenizeTask(
-					logger,
-					propName, payload.TargetTokenization,
-					payload.Collection, payload.Collection,
-					generation,
-				),
-			}
-		default:
-			return nil, fmt.Errorf(
-				"strategy %q names neither half of a change-tokenization migration", subject.Key.StrategyCode)
-		}
-	case ReindexTypeChangeTokenizationFilterable:
-		if len(payload.Properties) != 1 {
-			return nil, fmt.Errorf("change-tokenization-filterable requires exactly one property")
-		}
-		if payload.TargetTokenization == "" {
-			return nil, fmt.Errorf("change-tokenization-filterable requires targetTokenization")
-		}
-		propName := payload.Properties[0]
-		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeFilterableRetokenizeTask(
-				logger,
-				propName, payload.TargetTokenization,
-				payload.Collection, payload.Collection,
-				generation,
-			),
-		}
-	default:
-		return nil, fmt.Errorf("unknown migration type %q", payload.MigrationType)
-	}
-
-	desc := distributedtask.TaskDescriptor{ID: subject.TaskID, Version: version}
-	for _, t := range raw {
 		t.constrainToShard(payload.Collection, shardName)
 		t.setMigrationIdentity(desc, subject.Key.UnitID, &payload)
+		return []*ShardReindexTaskGeneric{t}, nil
 	}
-	return raw, nil
+	return nil, fmt.Errorf("strategy %q names no task of a %s migration", subject.Key.StrategyCode, payload.MigrationType)
 }
 
 // NewShardReindexerV3FromRecovered wires recovered tasks into a

@@ -693,7 +693,7 @@ const maxReindexPropertiesPerTask = 1024
 func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor, unitID string,
 	payload *ReindexTaskPayload,
 ) ([]*ShardReindexTaskGeneric, error) {
-	tasks, err := p.buildReindexTasks(desc, payload)
+	tasks, err := buildMigrationTasks(p.logger, p.schemaManager, desc.Version, payload, p.propertyHasFilterableBucket)
 	if err != nil {
 		return nil, err
 	}
@@ -703,8 +703,9 @@ func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor
 	return tasks, nil
 }
 
-func (p *ReindexProvider) buildReindexTasks(desc distributedtask.TaskDescriptor,
-	payload *ReindexTaskPayload,
+// hasFilterableBucket is passed in because recovery shares this builder and runs before the schema loads.
+func buildMigrationTasks(logger logrus.FieldLogger, schemaManager *schema.Manager, version uint64,
+	payload *ReindexTaskPayload, hasFilterableBucket func(className, propName string) bool,
 ) ([]*ShardReindexTaskGeneric, error) {
 	// Every migration type requires at least one property — repair-* / enable-*
 	// because they're per-property migrations, change-tokenization because it
@@ -718,27 +719,27 @@ func (p *ReindexProvider) buildReindexTasks(desc distributedtask.TaskDescriptor,
 			payload.MigrationType, len(payload.Properties), maxReindexPropertiesPerTask)
 	}
 
-	if desc.Version < 1 || desc.Version > math.MaxInt {
+	if version < 1 || version > math.MaxInt {
 		return nil, fmt.Errorf("task version %d cannot name a migration generation (must be 1..%d); a migration named from it would never be promoted to its canonical bucket",
-			desc.Version, math.MaxInt)
+			version, math.MaxInt)
 	}
 
-	gen := int(desc.Version)
+	gen := int(version)
 
 	switch payload.MigrationType {
 	case ReindexTypeChangeAlgorithm:
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeMapToBlockmaxTask(p.logger, p.schemaManager, payload.Properties, payload.Collection, gen),
+			NewRuntimeMapToBlockmaxTask(logger, schemaManager, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeRebuildSearchable:
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeRebuildSearchableTask(p.logger, payload.Properties, payload.Collection, gen),
+			NewRuntimeRebuildSearchableTask(logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeRepairFilterable:
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeRoaringSetRefreshTask(p.logger, payload.Properties, payload.Collection, gen),
+			NewRuntimeRoaringSetRefreshTask(logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
@@ -747,12 +748,12 @@ func (p *ReindexProvider) buildReindexTasks(desc distributedtask.TaskDescriptor,
 		// way. The validator at submit time gates which one is allowed
 		// based on the property's current IndexRangeFilters state.
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeFilterableToRangeableTask(p.logger, payload.Properties, payload.Collection, gen),
+			NewRuntimeFilterableToRangeableTask(logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeEnableFilterable:
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeEnableFilterableTask(p.logger, payload.Properties, payload.Collection, gen),
+			NewRuntimeEnableFilterableTask(logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeEnableSearchable:
@@ -760,7 +761,7 @@ func (p *ReindexProvider) buildReindexTasks(desc distributedtask.TaskDescriptor,
 			return nil, fmt.Errorf("enable-searchable requires targetTokenization")
 		}
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeEnableSearchableTask(p.logger, payload.Properties, payload.Collection, payload.TargetTokenization, gen),
+			NewRuntimeEnableSearchableTask(logger, payload.Properties, payload.Collection, payload.TargetTokenization, gen),
 		}, nil
 
 	case ReindexTypeChangeTokenization:
@@ -785,13 +786,13 @@ func (p *ReindexProvider) buildReindexTasks(desc distributedtask.TaskDescriptor,
 		// retokenize sub-task when the property actually has a filterable
 		// index.
 		tasks := []*ShardReindexTaskGeneric{NewRuntimeSearchableRetokenizeTask(
-			p.logger, propName, payload.TargetTokenization,
+			logger, propName, payload.TargetTokenization,
 			payload.Collection, payload.BucketStrategy, payload.Collection,
 			gen,
 		)}
-		if p.propertyHasFilterableBucket(payload.Collection, propName) {
+		if hasFilterableBucket(payload.Collection, propName) {
 			tasks = append(tasks, NewRuntimeFilterableRetokenizeTask(
-				p.logger,
+				logger,
 				propName, payload.TargetTokenization,
 				payload.Collection, payload.Collection,
 				gen,
@@ -808,7 +809,7 @@ func (p *ReindexProvider) buildReindexTasks(desc distributedtask.TaskDescriptor,
 			return nil, fmt.Errorf("change-tokenization-filterable requires targetTokenization")
 		}
 		filterableTask := NewRuntimeFilterableRetokenizeTask(
-			p.logger,
+			logger,
 			propName, payload.TargetTokenization,
 			payload.Collection, payload.Collection,
 			gen,

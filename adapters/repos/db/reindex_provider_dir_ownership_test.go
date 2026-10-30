@@ -62,21 +62,6 @@ func dirOwnershipCases() []dirOwnershipCase {
 	}
 }
 
-// recoverableDirOwnershipCases drops rebuild-searchable, the one migration
-// type [buildRecoveryTasks] has no arm for. That gap is older than the
-// generation question these tests are about, and it is not this file's to
-// pin.
-func recoverableDirOwnershipCases() []dirOwnershipCase {
-	var out []dirOwnershipCase
-	for _, c := range dirOwnershipCases() {
-		if c.migration == ReindexTypeRebuildSearchable {
-			continue
-		}
-		out = append(out, c)
-	}
-	return out
-}
-
 func (c dirOwnershipCase) payload() *ReindexTaskPayload {
 	return &ReindexTaskPayload{
 		MigrationType:      c.migration,
