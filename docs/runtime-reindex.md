@@ -690,7 +690,7 @@ in the node's state, the node:
   `CheckClassMutation`, `CheckTenantMutation`, `CheckConflict`);
 - refuses backups on the shards the task lists
   (`db.NewShardReindexActivityLookup` feeding
-  `DB.AnyLiveReindexForShard`);
+  `Index.refuseIfReindexInFlight` through a `newReindexGate` gate);
 - reports the property's index as `indexing` on `GET .../indexes` rather
   than `ready` or `pending`, since the per-unit progress does not prove
   that no shard has started;
@@ -1582,7 +1582,7 @@ v1.38 Preview merge does not fix it. The fixes live on
 `backup-runtime-reindex-fixes` and land as a follow-up PR. Tracking:
 weaviate/0-weaviate-issues#215.
 
-Backups are covered: `DB.AnyLiveReindexForShard`
+Backups are covered: `Index.refuseIfReindexInFlight`
 ([`reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go))
 refuses a backup on any shard DTM reports a live reindex on, and
 [`test/acceptance/reindex_backup/`](../test/acceptance/reindex_backup/)
@@ -1655,7 +1655,7 @@ already GC'd) resolves as WAND on the older binary until a re-migration.
 - [`adapters/repos/db/reindex_orphan_audit.go`](../adapters/repos/db/reindex_orphan_audit.go) — `NewLiveReindexTrackerLookup`, the orphan audit's snapshot.
 - [`adapters/repos/db/reindex_recovery.go`](../adapters/repos/db/reindex_recovery.go) — `DiscoverInFlightReindexTasks`, `buildRecoveryTasks`, recovery-only `ShardReindexerV3`.
 - [`adapters/repos/db/reindex_cancel_cleanup.go`](../adapters/repos/db/reindex_cancel_cleanup.go) — `DB.NewStalePartialReindexSweep`.
-- [`adapters/repos/db/reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go) — `DB.AnyLiveReindexForShard`, the backup gate.
+- [`adapters/repos/db/reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go) — `Index.refuseIfReindexInFlight` and `newReindexGate`, the backup gate.
 
 **Strategy + finalize**
 

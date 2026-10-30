@@ -58,8 +58,8 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 }
 
 // SetShardReindexActivityLookup installs the builder used by the backup
-// gate ([DB.AnyLiveReindexForShard]). The builder is invoked per backup
-// precheck to obtain a fresh DTM snapshot.
+// gate ([Index.refuseIfReindexInFlight]). A gate calls it at most once per
+// [reindexGateMaxAge], so one backup costs a bounded number of DTM fetches.
 //
 // Calls before installation default to "no live reindex" with a one-time
 // WARN: production HTTP gates on bootstrap completion (the lookup is
@@ -67,7 +67,7 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 // backup request cannot land before this builder is installed. The WARN
 // is the operator-facing signal if startup ordering ever breaks the
 // wiring; the prior conservative-refuse default broke every module-test
-// fixture that bypassed the bootstrap path. See [DB.AnyLiveReindexForShard].
+// fixture that bypassed the bootstrap path. See [DB.reindexActivityLookup].
 func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()

@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -47,7 +48,7 @@ func unreachableActivityBuilder() (ShardReindexActivityLookup, error) {
 
 func anyLiveReindex(t *testing.T, db *DB, collection, shardName string) bool {
 	t.Helper()
-	live, err := db.AnyLiveReindexForShard(collection, shardName)
+	live, err := newReindexGate(db, reindexGateMaxAge)(collection, shardName)
 	require.NoError(t, err)
 	return live
 }
@@ -185,7 +186,7 @@ func TestRefuseIfReindexInFlight_ErrorShape(t *testing.T) {
 		Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")},
 	}
 
-	err := idx.refuseIfReindexInFlight("ABC123")
+	err := idx.refuseIfReindexInFlight("ABC123", newReindexGate(db, reindexGateMaxAge))
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex),
 		"error must wrap the sentinel so REST handlers can map via errors.Is")
@@ -203,7 +204,7 @@ func TestRefuseIfReindexInFlight_AllowsWhenNoLiveTask(t *testing.T) {
 		db:     db,
 		Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")},
 	}
-	require.NoError(t, idx.refuseIfReindexInFlight("ABC123"))
+	require.NoError(t, idx.refuseIfReindexInFlight("ABC123", newReindexGate(db, reindexGateMaxAge)))
 }
 
 // A missing DB or a failed task-list fetch still refuses and counts as a movement error, since a reindex could be running unseen.
@@ -229,7 +230,8 @@ func TestRefuseIfReindexInFlight_CannotCheck(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.index().refuseIfReindexInFlight("ABC123")
+			idx := tc.index()
+			err := idx.refuseIfReindexInFlight("ABC123", newReindexGate(idx.db, reindexGateMaxAge))
 			require.ErrorIs(t, err, ErrReindexGateUnavailable)
 			require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
 				"the backup path answers the same whether the gate saw a task or could not look")
@@ -374,4 +376,53 @@ func TestReplicaSnapshotDefersOnlyForALiveReindex(t *testing.T) {
 func TestAsShardBusyIfReindexInFlight_ReturnsOtherErrorsUnchanged(t *testing.T) {
 	plain := errors.New("pause compaction: context deadline exceeded")
 	require.Same(t, plain, (&Index{}).asShardBusyIfReindexInFlight(plain))
+}
+
+// The gate reuses a fetch, failed or not, only while it is younger than maxAge.
+func TestReindexGate_RefetchesOnlyAfterMaxAge(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		fetchErr    error
+		maxAge      time.Duration
+		pause       time.Duration
+		wantFetches int64
+	}{
+		{name: "within max age", maxAge: time.Minute, wantFetches: 1},
+		{name: "past max age", maxAge: time.Millisecond, pause: 50 * time.Millisecond, wantFetches: 2},
+		{name: "failed fetch within max age", fetchErr: errTaskManagerUnreachable, maxAge: time.Minute, wantFetches: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var fetches atomic.Int64
+			db := &DB{}
+			db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+				fetches.Add(1)
+				if tc.fetchErr != nil {
+					return nil, tc.fetchErr
+				}
+				return makeActivityBuilder(nil)()
+			})
+			gate := newReindexGate(db, tc.maxAge)
+
+			for _, shard := range []string{"shard1", "shard2"} {
+				_, err := gate("MyClass", shard)
+				require.ErrorIs(t, err, tc.fetchErr)
+				time.Sleep(tc.pause)
+			}
+			require.Equal(t, tc.wantFetches, fetches.Load())
+		})
+	}
+}
+
+// A reindex submitted after the gate's first fetch refuses the backup once that fetch ages out.
+func TestReindexGate_SeesReindexStartedMidBackup(t *testing.T) {
+	db := &DB{}
+	db.SetShardReindexActivityLookup(makeActivityBuilder(nil))
+	idx := &Index{db: db, Config: IndexConfig{ClassName: schema.ClassName("MyClass")}}
+	gate := newReindexGate(db, time.Millisecond)
+
+	require.NoError(t, idx.refuseIfReindexInFlight("shard1", gate))
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{{"MyClass", "shard2"}: true}))
+	time.Sleep(50 * time.Millisecond)
+
+	require.ErrorIs(t, idx.refuseIfReindexInFlight("shard2", gate), entitiesbackup.ErrBackupBlockedByInFlightReindex)
 }
