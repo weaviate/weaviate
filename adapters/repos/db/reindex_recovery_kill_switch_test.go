@@ -36,7 +36,7 @@ func TestDiscoverInFlightReindexTasks_RuntimeReindexDisabled(t *testing.T) {
 			root := t.TempDir()
 			lsm := filepath.Join(root, "books", "shard-1", "lsm")
 			require.NoError(t, os.MkdirAll(lsm, 0o777))
-			seedInFlightMigration(t, p, lsm, dirOwnershipCases()[0], 3, 3)
+			seedInFlightMigration(t, p, lsm, recoverableDirOwnershipCases()[0], 3, 3)
 
 			recovered, err := DiscoverInFlightReindexTasks(root, tt.enabled, p.logger, nil)
 			require.NoError(t, err)

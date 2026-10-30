@@ -221,12 +221,73 @@ func buildRecoveryTasks(
 	if payload.Collection == "" {
 		return nil, fmt.Errorf("payload missing collection")
 	}
-	genFor := func(string, string) (int, bool) { return generation, true }
-	// Recovery has no schema to check yet; a tracker dir exists only for a half the live path built.
-	hasFilterableBucket := func(string, string) bool { return true }
-	raw, err := buildMigrationTasks(logger, schemaManager, &payload, genFor, hasFilterableBucket)
-	if err != nil {
-		return nil, err
+	var raw []*ShardReindexTaskGeneric
+	switch payload.MigrationType {
+	case ReindexTypeChangeAlgorithm:
+		raw = []*ShardReindexTaskGeneric{
+			NewRuntimeMapToBlockmaxTask(logger, schemaManager, payload.Properties, payload.Collection, generation),
+		}
+	case ReindexTypeRepairFilterable:
+		raw = []*ShardReindexTaskGeneric{
+			NewRuntimeRoaringSetRefreshTask(logger, payload.Properties, payload.Collection, generation),
+		}
+	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		raw = []*ShardReindexTaskGeneric{
+			NewRuntimeFilterableToRangeableTask(logger, payload.Properties, payload.Collection, generation),
+		}
+	case ReindexTypeEnableFilterable:
+		raw = []*ShardReindexTaskGeneric{
+			NewRuntimeEnableFilterableTask(logger, payload.Properties, payload.Collection, generation),
+		}
+	case ReindexTypeEnableSearchable:
+		if payload.TargetTokenization == "" {
+			return nil, fmt.Errorf("%s requires targetTokenization", payload.MigrationType)
+		}
+		raw = []*ShardReindexTaskGeneric{
+			NewRuntimeEnableSearchableTask(logger, payload.Properties, payload.Collection, payload.TargetTokenization, generation),
+		}
+	case ReindexTypeChangeTokenization:
+		if len(payload.Properties) != 1 {
+			return nil, fmt.Errorf("change-tokenization requires exactly one property")
+		}
+		if payload.TargetTokenization == "" {
+			return nil, fmt.Errorf("change-tokenization requires targetTokenization")
+		}
+		if payload.BucketStrategy == "" {
+			return nil, fmt.Errorf("change-tokenization requires bucketStrategy")
+		}
+		propName := payload.Properties[0]
+		raw = []*ShardReindexTaskGeneric{
+			NewRuntimeSearchableRetokenizeTask(
+				logger, propName, payload.TargetTokenization,
+				payload.Collection, payload.BucketStrategy, payload.Collection,
+				generation,
+			),
+			NewRuntimeFilterableRetokenizeTask(
+				logger,
+				propName, payload.TargetTokenization,
+				payload.Collection, payload.Collection,
+				generation,
+			),
+		}
+	case ReindexTypeChangeTokenizationFilterable:
+		if len(payload.Properties) != 1 {
+			return nil, fmt.Errorf("change-tokenization-filterable requires exactly one property")
+		}
+		if payload.TargetTokenization == "" {
+			return nil, fmt.Errorf("change-tokenization-filterable requires targetTokenization")
+		}
+		propName := payload.Properties[0]
+		raw = []*ShardReindexTaskGeneric{
+			NewRuntimeFilterableRetokenizeTask(
+				logger,
+				propName, payload.TargetTokenization,
+				payload.Collection, payload.Collection,
+				generation,
+			),
+		}
+	default:
+		return nil, fmt.Errorf("unknown migration type %q", payload.MigrationType)
 	}
 
 	// Constrain each task to exactly this shard so multiple recovered
