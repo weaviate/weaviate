@@ -156,23 +156,26 @@ func preferredNode(directCandidate string, localNodeName string) string {
 }
 
 // buildReplicas constructs a slice of replicas from node names, resolving hostnames
-// for each node and filtering out nodes that cannot be resolved.
-func buildReplicas(nodeNames []string, shard string, hostnameResolver func(nodeName string) (string, bool)) []types.Replica {
+// for each node. Nodes that cannot be resolved are returned as unreachable.
+func buildReplicas(nodeNames []string, shard string, hostnameResolver func(nodeName string) (string, bool)) (replicas, unreachable []types.Replica) {
 	if len(nodeNames) == 0 {
-		return []types.Replica{}
+		return []types.Replica{}, nil
 	}
 
-	replicas := make([]types.Replica, 0, len(nodeNames))
+	replicas = make([]types.Replica, 0, len(nodeNames))
 	for _, nodeName := range nodeNames {
-		if hostAddr, ok := hostnameResolver(nodeName); ok {
-			replicas = append(replicas, types.Replica{
-				NodeName:  nodeName,
-				ShardName: shard,
-				HostAddr:  hostAddr,
-			})
+		hostAddr, ok := hostnameResolver(nodeName)
+		if !ok {
+			unreachable = append(unreachable, types.Replica{NodeName: nodeName, ShardName: shard})
+			continue
 		}
+		replicas = append(replicas, types.Replica{
+			NodeName:  nodeName,
+			ShardName: shard,
+			HostAddr:  hostAddr,
+		})
 	}
-	return replicas
+	return replicas, unreachable
 }
 
 // validateTenant for a single-tenant router checks the tenant is empty and returns an error if it is not.
@@ -241,18 +244,19 @@ func (r *singleTenantRouter) getReadReplicasLocation(collection string, tenant s
 		return types.ReadReplicaSet{}, err
 	}
 
-	var replicas []types.Replica
+	var replicas, unreachable []types.Replica
 
 	for _, shardName := range targetShards {
-		readReplica, err := r.readReplicasForShard(collection, tenant, shardName)
+		readReplica, shardUnreachable, err := r.readReplicasForShard(collection, tenant, shardName)
 		if err != nil {
 			return types.ReadReplicaSet{}, err
 		}
 
 		replicas = append(replicas, readReplica...)
+		unreachable = append(unreachable, shardUnreachable...)
 	}
 
-	return types.ReadReplicaSet{Replicas: replicas}, nil
+	return types.ReadReplicaSet{Replicas: replicas, Unreachable: unreachable}, nil
 }
 
 // getWriteReplicasLocation returns only write replicas for single-tenant collections.
@@ -262,18 +266,19 @@ func (r *singleTenantRouter) getWriteReplicasLocation(collection string, tenant 
 		return types.WriteReplicaSet{}, err
 	}
 
-	var replicas []types.Replica
+	var replicas, unreachable []types.Replica
 
 	for _, shardName := range targetShards {
-		writeReplica, err := r.writeReplicasForShard(collection, tenant, shardName)
+		writeReplica, shardUnreachable, err := r.writeReplicasForShard(collection, tenant, shardName)
 		if err != nil {
 			return types.WriteReplicaSet{}, err
 		}
 
 		replicas = append(replicas, writeReplica...)
+		unreachable = append(unreachable, shardUnreachable...)
 	}
 
-	return types.WriteReplicaSet{Replicas: replicas}, nil
+	return types.WriteReplicaSet{Replicas: replicas, Unreachable: unreachable}, nil
 }
 
 // targetShards returns either all shards or a single one, depending on the value of the shard parameter.
@@ -298,25 +303,27 @@ func (r *singleTenantRouter) targetShards(collection, shardName string) ([]strin
 }
 
 // readReplicasForShard gathers only read replicas for one shard.
-func (r *singleTenantRouter) readReplicasForShard(collection, tenant, shard string) ([]types.Replica, error) {
+func (r *singleTenantRouter) readReplicasForShard(collection, tenant, shard string) ([]types.Replica, []types.Replica, error) {
 	replicas, err := r.schemaReader.ShardReplicas(collection, shard)
 	if err != nil {
-		return nil, fmt.Errorf("error while getting replicas for collection %q shard %q: %w", collection, shard, err)
+		return nil, nil, fmt.Errorf("error while getting replicas for collection %q shard %q: %w", collection, shard, err)
 	}
 
 	readNodeNames := r.replicationFSMReader.FilterOneShardReplicasRead(collection, shard, replicas)
-	return buildReplicas(readNodeNames, shard, r.nodeSelector.NodeHostname), nil
+	reachable, unreachable := buildReplicas(readNodeNames, shard, r.nodeSelector.NodeHostname)
+	return reachable, unreachable, nil
 }
 
 // writeReplicasForShard gathers the write replicas for one shard.
-func (r *singleTenantRouter) writeReplicasForShard(collection, tenant, shard string) ([]types.Replica, error) {
+func (r *singleTenantRouter) writeReplicasForShard(collection, tenant, shard string) ([]types.Replica, []types.Replica, error) {
 	replicas, err := r.schemaReader.ShardReplicas(collection, shard)
 	if err != nil {
-		return nil, fmt.Errorf("error while getting replicas for collection %q shard %q: %w", collection, shard, err)
+		return nil, nil, fmt.Errorf("error while getting replicas for collection %q shard %q: %w", collection, shard, err)
 	}
 
 	writeNodeNames := r.replicationFSMReader.FilterOneShardReplicasWrite(collection, shard, replicas)
-	return buildReplicas(writeNodeNames, shard, r.nodeSelector.NodeHostname), nil
+	reachable, unreachable := buildReplicas(writeNodeNames, shard, r.nodeSelector.NodeHostname)
+	return reachable, unreachable, nil
 }
 
 // BuildReadRoutingPlan constructs a read routing plan for single-tenant collections.
@@ -503,9 +510,9 @@ func (r *multiTenantRouter) readReplicasFromLocalSchema(collection, shard string
 	}
 
 	readNodeNames := r.replicationFSMReader.FilterOneShardReplicasRead(collection, shard, replicas)
-	readReplicas := buildReplicas(readNodeNames, shard, r.nodeSelector.NodeHostname)
+	readReplicas, unreachable := buildReplicas(readNodeNames, shard, r.nodeSelector.NodeHostname)
 
-	return types.ReadReplicaSet{Replicas: readReplicas}, nil
+	return types.ReadReplicaSet{Replicas: readReplicas, Unreachable: unreachable}, nil
 }
 
 // getWriteReplicasLocation returns only write replicas for multi-tenant collections.
@@ -525,9 +532,9 @@ func (r *multiTenantRouter) getWriteReplicasLocation(collection string, tenant, 
 	}
 
 	writeNodeNames := r.replicationFSMReader.FilterOneShardReplicasWrite(collection, shard, replicas)
-	writeReplicas := buildReplicas(writeNodeNames, shard, r.nodeSelector.NodeHostname)
+	writeReplicas, unreachable := buildReplicas(writeNodeNames, shard, r.nodeSelector.NodeHostname)
 
-	return types.WriteReplicaSet{Replicas: writeReplicas}, nil
+	return types.WriteReplicaSet{Replicas: writeReplicas, Unreachable: unreachable}, nil
 }
 
 // tenantExistsAndIsActive validates that the tenant exists and is in HOT status.
