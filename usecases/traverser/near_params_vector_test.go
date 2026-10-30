@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -616,13 +617,15 @@ func Test_nearParamsVector_vectorFromModules_TypedError(t *testing.T) {
 // fixedObjectSearcher answers every source-object lookup with the same
 // result, so the near-object failure modes can be staged.
 type fixedObjectSearcher struct {
-	res *search.Result
+	res   *search.Result
+	repls []*additional.ReplicationProperties
 }
 
 func (f *fixedObjectSearcher) Object(ctx context.Context, className string, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*search.Result, error) {
+	f.repls = append(f.repls, repl)
 	return f.res, nil
 }
 
@@ -672,4 +675,41 @@ func Test_nearParamsVector_vectorFromNearObjectParams_TypedErrors(t *testing.T) 
 			"a missing target vector on the source object must carry entities/errors.ErrSourceObjectNoVector, got: %v", err)
 		assert.Equal(t, "nearObject params: vector not found for target: title_vec", err.Error())
 	})
+}
+
+// The source-object lookup must read at ONE: a nil level defaults to QUORUM in
+// the db layer, which the router rejects when most replicas are unreachable.
+func Test_nearParamsVector_findVectorForNearObject(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		res       *search.Result
+		wantCalls int // The multi-vector lookup runs first; a single-vector source falls back to the single-vector lookup.
+	}{
+		{
+			name:      "single-vector source object reads at ONE on both lookups",
+			res:       &search.Result{Vector: []float32{1, 2, 3}},
+			wantCalls: 2,
+		},
+		{
+			name:      "multi-vector source object reads at ONE",
+			res:       &search.Result{Vectors: models.Vectors{"colbert": [][]float32{{1, 2}, {3, 4}}}},
+			wantCalls: 1,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			searcher := &fixedObjectSearcher{res: tt.res}
+			v := newNearParamsVector(&fakeModulesProvider{}, searcher)
+
+			vec, _, err := v.findVectorForNearObject(context.Background(), "Movie",
+				"73f2eb5f-5abf-447a-81ca-74b1dd168247", "", "")
+			require.NoError(t, err)
+			require.NotNil(t, vec)
+
+			require.Len(t, searcher.repls, tt.wantCalls, "source-object lookups")
+			for _, repl := range searcher.repls {
+				require.NotNil(t, repl, "replication properties")
+				assert.Equal(t, string(types.ConsistencyLevelOne), repl.ConsistencyLevel)
+			}
+		})
+	}
 }

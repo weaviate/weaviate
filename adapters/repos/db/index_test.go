@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"maps"
@@ -25,17 +26,34 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/clients"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestIndex_aggregateCount(t *testing.T) {
@@ -198,6 +216,334 @@ func TestIndex_aggregateCount(t *testing.T) {
 			require.Equal(t, tt.want, res.Groups[0].Count, "object count")
 		})
 	}
+}
+
+func TestIndex_aggregateCount_UnreachableReplicas(t *testing.T) {
+	const (
+		className     = "Abc"
+		shardName     = "abc"
+		downShardName = "xyz"
+	)
+
+	logger, _ := test.NewNullLogger()
+	metrics, err := NewMetrics(logger, monitoring.GetMetrics(), className, "n/a")
+	require.NoError(t, err, "create index metrics")
+
+	replicaMetrics, err := replica.NewMetrics(monitoring.GetMetrics())
+	require.NoError(t, err, "create replica metrics")
+
+	// startReplica starts a replica server reporting count and returns its address,
+	// which is also its node name.
+	startReplica := func(t *testing.T, count int) string {
+		t.Helper()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, strconv.Itoa(count))
+		}))
+		t.Cleanup(srv.Close)
+		return srv.URL[7:]
+	}
+
+	for _, tt := range []struct {
+		name         string
+		counts       []int    // Counts reported by each reachable replica.
+		unreachable  []string // Replicas of the shard that the node selector does not know.
+		downReplicas []string // Replicas of a second shard, all unknown to the node selector; nil means no second shard.
+		want         int
+		wantErr      error
+	}{
+		{
+			name:        "rf3_one_unreachable",
+			counts:      []int{92, 92},
+			unreachable: []string{"down-1"},
+			want:        92,
+		},
+		{
+			name:        "rf3_two_unreachable",
+			counts:      []int{92},
+			unreachable: []string{"down-1", "down-2"},
+			want:        92,
+		},
+		{
+			name:        "rf2_one_unreachable",
+			counts:      []int{92},
+			unreachable: []string{"down-1"},
+			want:        92,
+		},
+		{
+			name:         "second_shard_all_unreachable",
+			counts:       []int{92, 92, 92},
+			downReplicas: []string{"down-1", "down-2", "down-3"},
+			wantErr:      replicaerrors.ErrReplicas,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			var reachable []string
+			for _, count := range tt.counts {
+				reachable = append(reachable, startReplica(t, count))
+			}
+			replicas := append(slices.Clone(reachable), tt.unreachable...)
+
+			state := &sharding.State{Physical: map[string]sharding.Physical{
+				shardName: {Name: shardName, BelongsToNodes: replicas},
+			}}
+			shards := []string{shardName}
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			fsmReader := replicationTypes.NewMockReplicationFSMReader(t)
+			if tt.downReplicas != nil {
+				state.Physical[downShardName] = sharding.Physical{Name: downShardName, BelongsToNodes: tt.downReplicas}
+				shards = append(shards, downShardName)
+				schemaReader.EXPECT().ShardReplicas(className, downShardName).Return(tt.downReplicas, nil)
+				fsmReader.EXPECT().FilterOneShardReplicasRead(className, downShardName, tt.downReplicas).Return(tt.downReplicas)
+			}
+			schemaReader.EXPECT().Shards(className).Return(shards, nil)
+			// Only the per-shard counts read the sharding state. A rejected plan never runs them.
+			schemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+				func(className string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
+					return readFunc(&models.Class{Class: className}, state)
+				}).Maybe()
+			schemaReader.EXPECT().ShardReplicas(className, shardName).Return(replicas, nil)
+			fsmReader.EXPECT().FilterOneShardReplicasRead(className, shardName, replicas).Return(replicas)
+
+			indexRouter := router.NewBuilder(className, false, clusterMocks.NewMockNodeSelector(reachable...),
+				schemaUC.NewMockSchemaGetter(t), schemaReader, fsmReader).Build()
+
+			index := Index{
+				router: indexRouter,
+				replicator: &replica.Replicator{
+					Finder: replica.NewFinder(
+						className,
+						indexRouter,
+						cluster.NewMockNodeResolver(t),
+						"node-1",
+						func() replica.Client {
+							c, err := clients.NewReplicationClient(&http.Client{})
+							require.NoError(t, err)
+							return c
+						}(),
+						replicaMetrics,
+						logger,
+						func() string { return "Delete" }),
+				},
+				shardCreateLocks: esync.NewKeyRWLocker(),
+				Config:           IndexConfig{ClassName: schema.ClassName(className)},
+				metrics:          metrics,
+				logger:           logger,
+			}
+
+			// Act
+			res, err := index.aggregate(t.Context(), nil, aggregation.Params{IncludeMetaCount: true}, nil)
+
+			// Assert
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr, "aggregate")
+				return
+			}
+			require.NoError(t, err, "aggregate")
+			require.Len(t, res.Groups, 1, "number of groups")
+			require.Equal(t, tt.want, res.Groups[0].Count, "object count")
+		})
+	}
+}
+
+// unreachableShardFixture is the shared arrange for tests that drive one shard
+// through the real router while some of its replicas are missing from the node
+// selector. Callers add the expectations their path needs on the mocks.
+type unreachableShardFixture struct {
+	schemaGetter *schemaUC.MockSchemaGetter
+	schemaReader *schemaUC.MockSchemaReader
+	fsmReader    *replicationTypes.MockReplicationFSMReader
+	router       types.Router
+}
+
+func newUnreachableShardFixture(t *testing.T, className, shardName string,
+	replicas []string, nodeSelector cluster.NodeSelector,
+) *unreachableShardFixture {
+	schemaGetter := schemaUC.NewMockSchemaGetter(t)
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+		func(className string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
+			return readFunc(&models.Class{Class: className}, &sharding.State{Physical: map[string]sharding.Physical{
+				shardName: {Name: shardName, BelongsToNodes: replicas},
+			}})
+		})
+	schemaReader.EXPECT().ShardReplicas(className, shardName).Return(replicas, nil)
+	fsmReader := replicationTypes.NewMockReplicationFSMReader(t)
+	fsmReader.EXPECT().FilterOneShardReplicasRead(className, shardName, replicas).Return(replicas)
+
+	return &unreachableShardFixture{
+		schemaGetter: schemaGetter,
+		schemaReader: schemaReader,
+		fsmReader:    fsmReader,
+		router:       router.NewBuilder(className, false, nodeSelector, schemaGetter, schemaReader, fsmReader).Build(),
+	}
+}
+
+func TestIndex_objectSearch_UnreachableReplicas(t *testing.T) {
+	const (
+		className = "Abc"
+		shardName = "abc"
+		objectID  = strfmt.UUID("6ae8f8e1-39b4-4a5c-a8a1-91d5b01c5a7e")
+	)
+	// The coordinator holds no replica, so the search reaches node1 remotely.
+	replicas := []string{"node1", "node2", "node3"}
+	nodeSelector := clusterMocks.NewMockNodeSelector("coordinator", "node1")
+
+	replicaMetrics, err := replica.NewMetrics(monitoring.GetMetrics())
+	require.NoError(t, err, "create replica metrics")
+
+	for _, level := range []types.ConsistencyLevel{types.ConsistencyLevelQuorum, types.ConsistencyLevelAll} {
+		t.Run(string(level), func(t *testing.T) {
+			// Arrange
+			logger, hook := test.NewNullLogger()
+			f := newUnreachableShardFixture(t, className, shardName, replicas, nodeSelector)
+			f.schemaReader.EXPECT().Shards(className).Return([]string{shardName}, nil)
+
+			index := Index{
+				router: f.router,
+				remote: sharding.NewRemoteIndex(className, fakeShardReplicas(replicas), nodeSelector,
+					&searchRemoteClient{objects: []*storobj.Object{
+						storobj.FromObject(&models.Object{Class: className, ID: objectID}, nil, nil, nil),
+					}}),
+				replicator: &replica.Replicator{
+					Finder: replica.NewFinder(className, f.router, cluster.NewMockNodeResolver(t), "coordinator",
+						nil, replicaMetrics, logger, func() string { return "Delete" }),
+				},
+				Config: IndexConfig{ClassName: schema.ClassName(className), ReplicationFactor: 3},
+				logger: logger,
+			}
+
+			// Act
+			objs, _, err := index.objectSearch(t.Context(), 10, nil, nil, nil, nil, additional.Properties{},
+				&additional.ReplicationProperties{ConsistencyLevel: string(level)}, "", 0, nil)
+
+			// Assert
+			require.NoError(t, err, "object search")
+			require.Len(t, objs, 1, "number of objects")
+			require.Equal(t, objectID, objs[0].ID(), "object id")
+			require.False(t, objs[0].IsConsistent, "object marked consistent")
+
+			var readRepairLogged bool
+			for _, entry := range hook.AllEntries() {
+				if entry.Level == logrus.ErrorLevel && strings.Contains(entry.Message, "failed to check consistency of search results") {
+					require.Contains(t, entry.Message, "cannot reach enough replicas", "read repair error")
+					readRepairLogged = true
+				}
+			}
+			require.True(t, readRepairLogged, "read repair failure is logged")
+		})
+	}
+}
+
+// TestIndex_objectByID runs the near-object source lookup through the real router
+// with a majority of the shard's replicas missing from the node selector.
+func TestIndex_objectByID(t *testing.T) {
+	const (
+		className = "Abc"
+		shardName = "abc"
+		objectID  = strfmt.UUID("6ae8f8e1-39b4-4a5c-a8a1-91d5b01c5a7e")
+	)
+	one := &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)}
+
+	logger, _ := test.NewNullLogger()
+	replicaMetrics, err := replica.NewMetrics(monitoring.GetMetrics())
+	require.NoError(t, err, "create replica metrics")
+
+	for _, tt := range []struct {
+		name     string
+		replicas []string // Only node1 is known to the node selector.
+		repl     *additional.ReplicationProperties
+		wantErr  error
+	}{
+		{
+			name:     "rf3 with two unreachable replicas reads at ONE",
+			replicas: []string{"node1", "down-1", "down-2"},
+			repl:     one,
+		},
+		{
+			name:     "rf2 with one unreachable replica reads at ONE",
+			replicas: []string{"node1", "down-1"},
+			repl:     one,
+		},
+		{
+			name:     "rf3 with two unreachable replicas rejects the QUORUM default",
+			replicas: []string{"node1", "down-1", "down-2"},
+			wantErr:  replicaerrors.ErrReplicas,
+		},
+		{
+			name:     "rf2 with one unreachable replica rejects the QUORUM default",
+			replicas: []string{"node1", "down-1"},
+			wantErr:  replicaerrors.ErrReplicas,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			f := newUnreachableShardFixture(t, className, shardName, tt.replicas, clusterMocks.NewMockNodeSelector("node1"))
+			f.schemaGetter.EXPECT().ShardFromUUID(className, mock.Anything).Return(shardName)
+
+			index := Index{
+				router:        f.router,
+				shardResolver: resolver.NewShardResolver(className, false, f.schemaGetter),
+				replicator: &replica.Replicator{
+					Finder: replica.NewFinder(className, f.router, cluster.NewMockNodeResolver(t), "node1",
+						&objectReplicaClient{obj: storobj.FromObject(&models.Object{Class: className, ID: objectID}, nil, nil, nil)},
+						replicaMetrics, logger, func() string { return "Delete" }),
+				},
+				Config: IndexConfig{ClassName: schema.ClassName(className), ReplicationFactor: int64(len(tt.replicas))},
+				logger: logger,
+			}
+
+			// Act
+			obj, err := index.objectByID(t.Context(), objectID, nil, additional.Properties{}, tt.repl, "")
+
+			// Assert
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr, "object by id")
+				return
+			}
+			require.NoError(t, err, "object by id")
+			require.NotNil(t, obj, "object")
+			require.Equal(t, objectID, obj.ID(), "object id")
+		})
+	}
+}
+
+// objectReplicaClient answers every replica fetch with obj.
+type objectReplicaClient struct {
+	FakeReplicationClient
+	obj *storobj.Object
+}
+
+func (c *objectReplicaClient) FetchObject(ctx context.Context, hostName, indexName,
+	shardName string, id strfmt.UUID, props search.SelectProperties,
+	additional additional.Properties, numRetries int,
+) (replica.Replica, error) {
+	return replica.Replica{ID: c.obj.ID(), Object: c.obj, LastUpdateTimeUnixMilli: c.obj.LastUpdateTimeUnix()}, nil
+}
+
+type fakeShardReplicas []string
+
+func (f fakeShardReplicas) ShardOwner(class, shard string) (string, error) {
+	return f[0], nil
+}
+
+func (f fakeShardReplicas) ShardReplicas(class, shard string) ([]string, error) {
+	return f, nil
+}
+
+// searchRemoteClient answers every remote shard search with objects.
+type searchRemoteClient struct {
+	FakeRemoteClient
+	objects []*storobj.Object
+}
+
+func (c *searchRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
+	shardName string, vector []models.Vector, targetVector []string, distance float32, limit int,
+	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
+	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
+	properties []string,
+) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
+	return c.objects, make([]float32, len(c.objects)), nil, nil
 }
 
 type fakeRouter struct {

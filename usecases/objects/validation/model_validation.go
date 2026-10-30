@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/config"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 type exists func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error)
@@ -130,6 +131,12 @@ func (v *Validator) ValidateExistence(ctx context.Context, ref *crossref.Ref, er
 		// (use empty tenant, if previously was given)
 		ok2, err2 := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, "")
 		if err2 != nil {
+			// A target class without multi-tenancy fails the tenant call with a
+			// tenant error. Only this retry reaches the target shard, so only it
+			// can report a replica shortage.
+			if errors.Is(err2, replicaerrors.ErrReplicas) {
+				return err2
+			}
 			// return orig error
 			return err
 		}

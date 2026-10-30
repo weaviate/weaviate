@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -205,7 +206,8 @@ func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 		}
 
 		if isMultiVector {
-			vector, err := v.modulesProvider.MultiVectorFromSearchParam(ctx,
+			vector, err := v.modulesProvider.MultiVectorFromSearchParam(
+				ctx,
 				className, targetVector, tenant, paramName, paramValue, v.findMultiVector,
 			)
 			if err != nil {
@@ -213,7 +215,8 @@ func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 			}
 			return vector, nil
 		} else {
-			vector, err := v.modulesProvider.VectorFromSearchParam(ctx,
+			vector, err := v.modulesProvider.VectorFromSearchParam(
+				ctx,
 				className, targetVector, tenant, paramName, paramValue, v.findVector,
 			)
 			if err != nil {
@@ -255,13 +258,18 @@ func (v *nearParamsVector) findMultiVector(ctx context.Context, className string
 	}
 }
 
+// sourceObjectReplProps returns the replication properties of the source-object lookup
+func sourceObjectReplProps() *additional.ReplicationProperties {
+	return &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)}
+}
+
 // classFindVector resolves the stored vector a near-object search anchors at.
 // Failures are typed for API status mapping: ErrSourceObjectNotFound (no such
 // object), ErrSourceObjectNoVector (no usable vector for the request).
 func (v *nearParamsVector) classFindVector(ctx context.Context, className string,
 	id strfmt.UUID, tenant, targetVector string,
 ) ([]float32, string, error) {
-	res, err := v.search.Object(ctx, className, id, search.SelectProperties{}, additional.Properties{}, nil, tenant)
+	res, err := v.search.Object(ctx, className, id, search.SelectProperties{}, additional.Properties{}, sourceObjectReplProps(), tenant)
 	if err != nil {
 		return nil, "", err
 	}
@@ -308,7 +316,7 @@ func (v *nearParamsVector) classFindVector(ctx context.Context, className string
 func (v *nearParamsVector) classFindMultiVector(ctx context.Context, className string,
 	id strfmt.UUID, tenant, targetVector string,
 ) ([][]float32, string, error) {
-	res, err := v.search.Object(ctx, className, id, search.SelectProperties{}, additional.Properties{}, nil, tenant)
+	res, err := v.search.Object(ctx, className, id, search.SelectProperties{}, additional.Properties{}, sourceObjectReplProps(), tenant)
 	if err != nil {
 		return nil, "", err
 	}
