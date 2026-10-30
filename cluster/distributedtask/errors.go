@@ -104,7 +104,7 @@ func NewBlockedByReplicaMovementError(collection string) error {
 
 func NewReplicasChangedError(collection string) error {
 	return wrapPermanent(ErrTaskReplicasChanged,
-		fmt.Sprintf("the shards or replicas of collection %q changed while the task was submitted; retry the submit", collection))
+		fmt.Sprintf("the shards or replicas of collection %q changed while the task was submitted; resubmit it against the current state", collection))
 }
 
 // ErrTaskCompletionPermanent marks an [UnitAwareProvider.OnTaskCompleted]

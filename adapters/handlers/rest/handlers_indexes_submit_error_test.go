@@ -59,7 +59,7 @@ func TestMapSubmitTaskError(t *testing.T) {
 		code, body := statusOf(t, resp)
 		require.Equal(t, http.StatusConflict, code)
 		require.Len(t, body.Error, 1)
-		assert.Contains(t, body.Error[0].Message, "retry the submit")
+		assert.Contains(t, body.Error[0].Message, "resubmit it against the current state")
 	})
 
 	t.Run("generic infra error -> 500", func(t *testing.T) {

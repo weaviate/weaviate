@@ -41,7 +41,7 @@ type SchedulerNotifier interface {
 // weaviate/0-weaviate-issues#231.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
 
-// ShardReplicasExtractor lets the leader refuse a task built against a replica set that has since changed.
+// ShardReplicasExtractor lets the leader refuse a task built against a replica set that has since changed; ok=false admits the task unchecked.
 type ShardReplicasExtractor func(payload []byte) (nodesByShard map[string][]string, ok bool)
 
 // TargetVectorExtractor reads a task payload's (collection, target vectors) binding

@@ -1843,10 +1843,10 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 			}
 
 			command := tc.command(t)
-			collection, err := s.taskOrMovementCollection(command)
+			collection, task, err := s.taskOrMovementCollection(command)
 			require.NoError(t, err)
 
-			err = s.admitPropose(command, collection)
+			err = s.admitPropose(command, collection, task)
 			if len(tc.wantErrs) == 0 {
 				require.NoError(t, err)
 				return
@@ -1941,26 +1941,28 @@ func TestAdmitPropose_TaskBuiltAgainstOtherReplicas(t *testing.T) {
 		{name: "a replica added after the payload was built is refused", taskReplicas: map[string][]string{"shard1": {"node1"}}, wantRefused: true},
 		{name: "a replica removed after the payload was built is refused", taskReplicas: map[string][]string{"shard2": {"node1", "node2"}}, wantRefused: true},
 		{name: "a shard deleted after the payload was built is refused", taskReplicas: map[string][]string{"shard3": {"node1"}}, wantRefused: true},
+		{name: "one stale shard among several is still refused", taskReplicas: map[string][]string{"shard1": {"node1"}, "shard2": {"node1"}}, wantRefused: true},
 		{name: "a collection deleted after the payload was built is refused", taskReplicas: map[string][]string{"shard1": {"node1"}}, collection: "Deleted", wantRefused: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := replicasAdmissionStore(t, placement)
 			payload, err := json.Marshal(tc.taskReplicas)
 			require.NoError(t, err)
-			sub, err := json.Marshal(&cmd.AddDistributedTaskRequest{Namespace: exclusionNamespace, Id: "task1", Payload: payload})
+			task := &cmd.AddDistributedTaskRequest{Namespace: exclusionNamespace, Id: "task1", Payload: payload}
+			sub, err := json.Marshal(task)
 			require.NoError(t, err)
 
 			collection := exclusionCollection
 			if tc.collection != "" {
 				collection = tc.collection
 			}
-			err = s.admitPropose(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}, collection)
+			err = s.admitPropose(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}, collection, task)
 			if !tc.wantRefused {
 				require.NoError(t, err)
 				return
 			}
 			require.ErrorIs(t, err, distributedtask.ErrTaskReplicasChanged)
-			// Lets a follower recover the sentinel after the gRPC hop, so it still answers 409.
+			// ErrPermanentRejection lets a follower recover the sentinel after the gRPC hop, so it still answers 409.
 			require.ErrorIs(t, err, distributedtask.ErrPermanentRejection)
 		})
 	}
