@@ -30,9 +30,8 @@ import (
 // the lookup installed.
 var unwiredGateWarnOnce sync.Once
 
-// reindexGate reports whether a live reindex covers a shard. One gate
-// fetches the cluster's task list at most once, so a pass over many shards
-// pays one leader round trip rather than one per shard.
+// reindexGate memoizes the cluster task-list fetch, so a backup pass costs
+// one leader round trip rather than one per shard.
 type reindexGate func(collection, shardName string) (bool, error)
 
 func newReindexGate(db *DB) reindexGate {
@@ -149,9 +148,7 @@ const noDatabaseBackReference = "this index has no database back-reference, so t
 
 // refuseIfReindexInFlight is the per-shard backup-gate check used by
 // [DB.Backupable], [Index.backupInactiveShardWithHardlinks],
-// [Index.backupInactiveShardWithoutHardlinks], and
-// [Shard.HaltForTransfer]. Consults DTM via gate; the filesystem-marker
-// variant it replaced only saw the local node and lagged DTM's actual state.
+// [Index.backupInactiveShardWithoutHardlinks], and [Shard.HaltForTransfer].
 //
 // If i.db is nil the gate is conservative: it refuses the backup.
 func (i *Index) refuseIfReindexInFlight(shardName string, gate reindexGate) error {

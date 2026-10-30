@@ -1273,8 +1273,7 @@ func TestBackupDescriptorsClosesChannelOnPanic(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond, "the producer goroutine never recovered a panic")
 }
 
-// Each task-list request is a cluster-wide round trip, so one per shard made a
-// backup of a 10k-tenant collection take hours.
+// Regression: a task-list fetch per shard scaled backup time with shard count.
 func TestBackupFetchesReindexTasksOncePerPass(t *testing.T) {
 	const className = "TestClass"
 	tenants := []string{"tenant-1", "tenant-2", "tenant-3", "tenant-4", "tenant-5"}
