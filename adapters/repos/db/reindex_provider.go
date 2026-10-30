@@ -1352,15 +1352,15 @@ func (p *ReindexProvider) runPerUnitPhase(
 	// of acking a permanent failure that would flip the task to FAILED.
 	if agg.SawContextCanceled {
 		return fmt.Errorf("%s: %d unit(s) failed: %s: %w",
-			callbackName, len(agg.Errs), joinUnitErrors(agg.Errs), context.Canceled)
+			callbackName, len(agg.Errs), p.joinUnitErrors(agg.Errs), context.Canceled)
 	}
 	return fmt.Errorf("%s: %d unit(s) failed: %s",
-		callbackName, len(agg.Errs), joinUnitErrors(agg.Errs))
+		callbackName, len(agg.Errs), p.joinUnitErrors(agg.Errs))
 }
 
 // joinUnitErrors caps the message because it becomes this node's ack error
 // in the RAFT log. Sorting keeps the reported subset stable across runs.
-func joinUnitErrors(msgs []string) string {
+func (p *ReindexProvider) joinUnitErrors(msgs []string) string {
 	ec := errorcompounder.New()
 	for _, msg := range slices.Sorted(slices.Values(msgs)) {
 		ec.Addf("%s", msg)

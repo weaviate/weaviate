@@ -1429,7 +1429,7 @@ func (s *Scheduler) aggregateAckErrorsLocked(task *Task, desc TaskDescriptor) (b
 	if state == nil {
 		return true, ""
 	}
-	return joinGroupErrors(state.postCompletionGroupErrors)
+	return s.joinGroupErrors(state.postCompletionGroupErrors)
 }
 
 // aggregatePreparationAckErrorsLocked — PREP counterpart to aggregateAckErrorsLocked.
@@ -1439,7 +1439,7 @@ func (s *Scheduler) aggregatePreparationAckErrorsLocked(task *Task, desc TaskDes
 	if state == nil {
 		return true, ""
 	}
-	return joinGroupErrors(state.preparationCompletionGroupErrors)
+	return s.joinGroupErrors(state.preparationCompletionGroupErrors)
 }
 
 // maxReportedGroupErrors bounds the ack error (stored in the RAFT log and
@@ -1448,7 +1448,7 @@ const maxReportedGroupErrors = 10
 
 // joinGroupErrors returns false and the failing groups' errors when any group
 // failed. Sorting keeps the reported subset the same on every call.
-func joinGroupErrors(errs map[string]error) (bool, string) {
+func (s *Scheduler) joinGroupErrors(errs map[string]error) (bool, string) {
 	ec := errorcompounder.New()
 	for _, groupID := range slices.Sorted(maps.Keys(errs)) {
 		if err := errs[groupID]; err != nil {
