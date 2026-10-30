@@ -370,77 +370,83 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	currentConnections := n.connectionsBuf
 
 	maximumConnections := n.maximumConnections(level)
-	if len(currentConnections) < maximumConnections {
-		// we can simply append
-		// updatedConnections = append(currentConnections, n.nodeID)
-		neighbor.appendConnectionAtLevelNoLock(level, n.nodeID, maximumConnections)
-		if err := n.graph.commitLog.AddLinkAtLevel(neighborID, level, n.nodeID); err != nil {
-			return err
-		}
-	} else {
-		// we need to run the heuristic
+	if len(currentConnections) >= maximumConnections {
+		return n.pruneNeighborAtLevel(neighbor, neighborID, level, currentConnections, maximumConnections)
+	}
 
-		dist, err := n.graph.distBetweenNodes(n.nodeID, neighborID)
+	// we can simply append
+	// updatedConnections = append(currentConnections, n.nodeID)
+	neighbor.appendConnectionAtLevelNoLock(level, n.nodeID, maximumConnections)
+	return n.graph.commitLog.AddLinkAtLevel(neighborID, level, n.nodeID)
+}
+
+// pruneNeighborAtLevel makes room for the node in a full list of connections. The
+// caller holds the lock of the neighbor.
+func (n *neighborFinderConnector) pruneNeighborAtLevel(neighbor *vertex, neighborID uint64,
+	level int, currentConnections []uint64, maximumConnections int,
+) error {
+	// we need to run the heuristic
+
+	dist, err := n.graph.distBetweenNodes(n.nodeID, neighborID)
+	if err != nil {
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
+			// it seems either the node or the neighbor were deleted in the meantime,
+			// there is nothing we can do now
+			return nil
+		}
+		return errors.Wrapf(err, "dist between %d and %d", n.nodeID, neighborID)
+	}
+
+	candidates := priorityqueue.NewMax[any](len(currentConnections) + 1)
+	candidates.Insert(n.nodeID, dist)
+
+	// tombstones don't compete with live nodes for a slot: pruned down to them, a
+	// node leaves the live part of the graph behind. They only get what's left,
+	// until cleanup they can still be the one way to reach another node.
+	var tombstoned []uint64
+	for _, existingConnection := range currentConnections {
+		if n.graph.hasTombstone(existingConnection) {
+			tombstoned = append(tombstoned, existingConnection)
+			continue
+		}
+
+		dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
 				n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
-				// it seems either the node or the neighbor were deleted in the meantime,
-				// there is nothing we can do now
-				return nil
-			}
-			return errors.Wrapf(err, "dist between %d and %d", n.nodeID, neighborID)
-		}
-
-		candidates := priorityqueue.NewMax[any](len(currentConnections) + 1)
-		candidates.Insert(n.nodeID, dist)
-
-		// tombstones don't compete with live nodes for a slot: pruned down to them, a
-		// node leaves the live part of the graph behind. They only get what's left,
-		// until cleanup they can still be the one way to reach another node.
-		var tombstoned []uint64
-		for _, existingConnection := range currentConnections {
-			if n.graph.hasTombstone(existingConnection) {
-				tombstoned = append(tombstoned, existingConnection)
+				// was deleted in the meantime
 				continue
 			}
-
-			dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
-			if err != nil {
-				var e storobj.ErrNotFound
-				if errors.As(err, &e) {
-					n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
-					// was deleted in the meantime
-					continue
-				}
-				return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
-			}
-
-			candidates.Insert(existingConnection, dist)
+			return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
 		}
 
-		err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)
-		if err != nil {
-			return errors.Wrap(err, "connect neighbors")
-		}
+		candidates.Insert(existingConnection, dist)
+	}
 
-		neighbor.resetConnectionsAtLevelNoLock(level)
-		if err := n.graph.commitLog.ClearLinksAtLevel(neighborID, uint16(level)); err != nil {
+	err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)
+	if err != nil {
+		return errors.Wrap(err, "connect neighbors")
+	}
+
+	neighbor.resetConnectionsAtLevelNoLock(level)
+	if err := n.graph.commitLog.ClearLinksAtLevel(neighborID, uint16(level)); err != nil {
+		return err
+	}
+
+	ids := make([]uint64, 0, candidates.Len()+len(tombstoned))
+	for candidates.Len() > 0 {
+		ids = append(ids, candidates.Pop().ID)
+	}
+	ids = append(ids, tombstoned[:min(len(tombstoned), maximumConnections-len(ids))]...)
+	for _, id := range ids {
+		if err := n.graph.commitLog.AddLinkAtLevel(neighborID, level, id); err != nil {
 			return err
 		}
-
-		ids := make([]uint64, 0, candidates.Len()+len(tombstoned))
-		for candidates.Len() > 0 {
-			ids = append(ids, candidates.Pop().ID)
-		}
-		ids = append(ids, tombstoned[:min(len(tombstoned), maximumConnections-len(ids))]...)
-		for _, id := range ids {
-			if err := n.graph.commitLog.AddLinkAtLevel(neighborID, level, id); err != nil {
-				return err
-			}
-		}
-		neighbor.appendConnectionsAtLevelNoLock(level, ids, maximumConnections)
 	}
+	neighbor.appendConnectionsAtLevelNoLock(level, ids, maximumConnections)
 
 	return nil
 }

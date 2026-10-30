@@ -606,37 +606,37 @@ func (s *Shard) vectorMissingFromIndex(obj *storobj.Object) bool {
 		return false
 	}
 
-	missing := func(targetVector string) bool {
-		index, release, ok := s.AcquireVectorIndex(targetVector)
-		if !ok {
-			return false
-		}
-		defer release()
-
-		// neither can tell: noop contains nothing, hfresh's add records no version
-		if t := index.Type(); t == common.IndexTypeNoop || t == common.IndexTypeHFresh {
-			return false
-		}
-		if ghosts, ok := index.(ghostReporter); ok && ghosts.HasGhost(obj.DocID) {
-			return true
-		}
-		return !index.ContainsDoc(obj.DocID)
-	}
-
-	if len(obj.Vector) > 0 && missing("") {
+	if len(obj.Vector) > 0 && s.docMissingFromIndex("", obj.DocID) {
 		return true
 	}
 	for targetVector, vector := range obj.Vectors {
-		if len(vector) > 0 && missing(targetVector) {
+		if len(vector) > 0 && s.docMissingFromIndex(targetVector, obj.DocID) {
 			return true
 		}
 	}
 	for targetVector, vector := range obj.MultiVectors {
-		if len(vector) > 0 && missing(targetVector) {
+		if len(vector) > 0 && s.docMissingFromIndex(targetVector, obj.DocID) {
 			return true
 		}
 	}
 	return false
+}
+
+func (s *Shard) docMissingFromIndex(targetVector string, docID uint64) bool {
+	index, release, ok := s.AcquireVectorIndex(targetVector)
+	if !ok {
+		return false
+	}
+	defer release()
+
+	// neither can tell: noop contains nothing, hfresh's add records no version
+	if t := index.Type(); t == common.IndexTypeNoop || t == common.IndexTypeHFresh {
+		return false
+	}
+	if ghosts, ok := index.(ghostReporter); ok && ghosts.HasGhost(docID) {
+		return true
+	}
+	return !index.ContainsDoc(docID)
 }
 
 // determineMutableInsertStatus is a special version of determineInsertStatus
