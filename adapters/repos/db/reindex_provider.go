@@ -2017,9 +2017,7 @@ func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
 // terminal-cleanup is still running.
 type CleanupInProgressLookup func(collection, shard string) bool
 
-// CleanupInProgressLookupBuilder returns a fresh snapshot. Mirrors the
-// builder pattern used by [ShardReindexActivityLookupBuilder] so the
-// wiring in configure_api.go can install both lookups identically.
+// CleanupInProgressLookupBuilder returns a fresh snapshot.
 type CleanupInProgressLookupBuilder func() CleanupInProgressLookup
 
 // CleanupInProgressLookupBuilder returns a builder whose closures
@@ -2027,8 +2025,7 @@ type CleanupInProgressLookupBuilder func() CleanupInProgressLookup
 // Use to wire the backup gate into the provider without coupling the
 // DB struct to the concrete *ReindexProvider type.
 //
-// Returning the closure (rather than a direct method handle) keeps
-// the contract symmetric with [ShardReindexActivityLookupBuilder] and
+// Returning the closure (rather than a direct method handle)
 // lets the gate take a snapshot per probe rather than caching the
 // underlying state.
 func (p *ReindexProvider) CleanupInProgressLookupBuilder() CleanupInProgressLookupBuilder {

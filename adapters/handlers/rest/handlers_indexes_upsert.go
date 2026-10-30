@@ -815,9 +815,7 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 	return nil
 }
 
-// mapSubmitTaskError classifies an AddDistributedTask error: an FSM conflict
-// (racing concurrent submit) maps to 409 with the task ID logged server-side,
-// not returned; everything else is a 500.
+// mapSubmitTaskError logs an ErrTaskConflict error but leaves it out of the 409, so the caller never sees the in-flight task's ID it names.
 func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collection, taskID string, err error) middleware.Responder {
 	if errors.Is(err, distributedtask.ErrTaskConflict) {
 		h.appState.Logger.WithFields(logrus.Fields{
@@ -827,6 +825,10 @@ func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collec
 		return jsonResponder(http.StatusConflict, errorResponse(principal,
 			"a conflicting reindex task on the same property is already in flight "+
 				"(a concurrent submit won the race); wait for it to finish or cancel it before retrying"))
+	}
+	if errors.Is(err, distributedtask.ErrTaskBlockedByReplicaMovement) {
+		return jsonResponder(http.StatusConflict, errorResponse(principal,
+			fmt.Sprintf("collection %q has a replica movement in flight; retry after it completes", collection)))
 	}
 	return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 		fmt.Sprintf("submitting task: %v", err)))
