@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,10 +51,10 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_ChangeTokenizationBoth
 	}
 	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T1"), payload, distributedtask.TaskStatusFailed)
 
-	require.Len(t, hook.Entries, 1)
+	require.Len(t, hook.Entries, 1, "expected one error entry per property")
 	entry := hook.Entries[0]
 	require.Equal(t, logrus.ErrorLevel, entry.Level)
-	require.Equal(t, []string{"name"}, entry.Data["properties"])
+	require.Equal(t, "name", entry.Data["property"])
 	require.Equal(t, ReindexTypeChangeTokenization, entry.Data["migration_type"])
 	// change-tokenization can tear either inverted index; guidance must
 	// instruct the operator to rebuild both via the GA rebuild route.
@@ -90,55 +89,26 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_ChangeTokenizationFilt
 		entry.Data["repair_command"])
 }
 
-// Property lists can run to hundreds; guidance stays one line regardless.
-func TestLogOperatorRepairGuidanceOnTornSemanticMigration_OneLineForAllProperties(t *testing.T) {
-	for _, tc := range []struct {
-		name           string
-		properties     []string
-		wantProperties []string
-		wantCommands   int
-	}{
-		{
-			name:           "under the cap",
-			properties:     []string{"c", "a", "b"},
-			wantProperties: []string{"a", "b", "c"},
-			wantCommands:   3,
-		},
-		{
-			name:       "over the cap",
-			properties: propertyNames(50),
-			wantProperties: append(propertyNames(maxReportedErrors),
-				fmt.Sprintf("(and %d more)", 50-maxReportedErrors)),
-			wantCommands: maxReportedErrors,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			logger, hook := logrustest.NewNullLogger()
-			logOperatorRepairGuidanceOnPartialSwap(logger, &ReindexTaskPayload{
-				Collection:    "Products",
-				MigrationType: ReindexTypeEnableFilterable,
-				Properties:    tc.properties,
-			}, distributedtask.TaskStatusFailed)
+func TestLogOperatorRepairGuidanceOnTornSemanticMigration_MultipleProperties(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
 
-			require.Len(t, hook.Entries, 1)
-			entry := hook.Entries[0]
-			require.Equal(t, len(tc.properties), entry.Data["property_count"])
-			require.Equal(t, tc.wantProperties, entry.Data["properties"])
-			require.Len(t, strings.Split(entry.Data["repair_command"].(string), " && "), tc.wantCommands)
-		})
+	payload := &ReindexTaskPayload{
+		Collection:    "Products",
+		MigrationType: ReindexTypeEnableFilterable,
+		Properties:    []string{"a", "b", "c"},
 	}
+	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T3"), payload, distributedtask.TaskStatusFailed)
+
+	// One entry per property — easier for log scrapers to alert per-prop.
+	require.Len(t, hook.Entries, 3)
+	gotProps := make([]string, len(hook.Entries))
+	for i, entry := range hook.Entries {
+		gotProps[i] = entry.Data["property"].(string)
+	}
+	require.ElementsMatch(t, []string{"a", "b", "c"}, gotProps)
 }
 
-// propertyNames returns n names that sort in the order they are generated.
-func propertyNames(n int) []string {
-	names := make([]string, n)
-	for i := range names {
-		names[i] = fmt.Sprintf("p%03d", i)
-	}
-	return names
-}
-
-// Tenant counts can run into the thousands, so the field logs a count, not the ID list.
+// Tenant counts can run into the thousands.
 func TestGroupHandlersLogUnitCountNotUnitIDs(t *testing.T) {
 	unitIDs := make([]string, 1000)
 	for i := range unitIDs {
