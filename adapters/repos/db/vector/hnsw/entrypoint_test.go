@@ -273,3 +273,67 @@ func TestEntrypoint_BootstrapLastLiveNode(t *testing.T) {
 		})
 	}
 }
+
+// A ghost is in the graph but out of reach of any search, which ContainsDoc doesn't
+// tell: whatever decides from it that a document needs no work leaves it
+// unsearchable for good.
+func TestHasGhost(t *testing.T) {
+	t.Run("a ghost is reported", func(t *testing.T) {
+		f := newBootstrapFixture(t, false)
+		f.leaveGhost(t, 3)
+
+		require.True(t, f.index.HasGhost(3))
+		require.True(t, f.index.ContainsDoc(3))
+	})
+
+	t.Run("connected nodes are no ghosts", func(t *testing.T) {
+		f := newBootstrapFixture(t, false)
+
+		for id := range uint64(3) {
+			require.False(t, f.index.HasGhost(id))
+		}
+	})
+
+	t.Run("an unknown doc is no ghost", func(t *testing.T) {
+		f := newBootstrapFixture(t, false)
+
+		require.False(t, f.index.HasGhost(1000))
+	})
+
+	t.Run("an entrypoint needs no edges", func(t *testing.T) {
+		f := newBootstrapFixture(t, false)
+		f.leaveGhost(t, 3)
+
+		require.NoError(t, f.index.Delete(0, 1, 2))
+		require.Equal(t, uint64(3), f.index.getEntrypoint())
+		require.False(t, f.index.HasGhost(3))
+	})
+
+	t.Run("a node being inserted is no ghost", func(t *testing.T) {
+		f := newBootstrapFixture(t, false)
+		f.leaveGhost(t, 3)
+
+		f.index.nodeByID(3).markAsMaintenance()
+		require.False(t, f.index.HasGhost(3))
+	})
+
+	t.Run("a ghost replaced under a new id is gone after cleanup", func(t *testing.T) {
+		f := newBootstrapFixture(t, false)
+		f.leaveGhost(t, 3)
+
+		require.NoError(t, f.index.Delete(3))
+		f.addWithin(t, 4, 10*time.Second)
+		require.NoError(t, f.index.CleanUpTombstonedNodes(neverStop))
+
+		f.requireReachable(t, 0, 1, 2, 4)
+		require.False(t, f.index.ContainsDoc(3))
+	})
+
+	t.Run("a ghost is still reported after a restart", func(t *testing.T) {
+		f := newBootstrapFixture(t, false)
+		f.leaveGhost(t, 3)
+		f.restart(t)
+
+		require.True(t, f.index.HasGhost(3))
+	})
+}

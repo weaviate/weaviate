@@ -263,20 +263,37 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		// use dynamic max connections only during tombstone cleanup
 		maxConnections = n.maximumConnections(level)
 	} else {
-		if err := n.pickEntrypoint(); err != nil {
-			return errors.Wrap(err, "pick entrypoint at level beginning")
-		}
-		if n.bootstrapped {
-			return nil
-		}
-		eps := priorityqueue.NewMin[any](1)
-		eps.Insert(n.entryPointID, n.entryPointDist)
-		var err error
+		for {
+			if err := n.ctx.Err(); err != nil {
+				return err
+			}
+			if err := n.pickEntrypoint(); err != nil {
+				return errors.Wrap(err, "pick entrypoint at level beginning")
+			}
+			if n.bootstrapped {
+				return nil
+			}
+			eps := priorityqueue.NewMin[any](1)
+			eps.Insert(n.entryPointID, n.entryPointDist)
+			var err error
 
-		results, err = n.graph.searchLayerByVectorWithDistancer(ctx, n.nodeVec, eps, n.graph.efConstruction,
-			level, nil, n.distancer)
-		if err != nil {
-			return errors.Wrapf(err, "search layer at level %d", level)
+			results, err = n.graph.searchLayerByVectorWithDistancer(ctx, n.nodeVec, eps, n.graph.efConstruction,
+				level, nil, n.distancer)
+			if err != nil {
+				return errors.Wrapf(err, "search layer at level %d", level)
+			}
+
+			if level > 0 || results.Len() > 0 {
+				break
+			}
+
+			n.graph.pools.pqResults.Put(results)
+			if err := n.leaveTombstones(); err != nil {
+				return err
+			}
+			if n.bootstrapped {
+				return nil
+			}
 		}
 
 		n.graph.insertMetrics.findAndConnectSearch(before)
@@ -378,7 +395,16 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		candidates := priorityqueue.NewMax[any](len(currentConnections) + 1)
 		candidates.Insert(n.nodeID, dist)
 
+		// tombstones don't compete with live nodes for a slot: pruned down to them, a
+		// node leaves the live part of the graph behind. They only get what's left,
+		// until cleanup they can still be the one way to reach another node.
+		var tombstoned []uint64
 		for _, existingConnection := range currentConnections {
+			if n.graph.hasTombstone(existingConnection) {
+				tombstoned = append(tombstoned, existingConnection)
+				continue
+			}
+
 			dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
 			if err != nil {
 				var e storobj.ErrNotFound
@@ -403,10 +429,12 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			return err
 		}
 
-		ids := make([]uint64, 0, candidates.Len())
+		ids := make([]uint64, 0, candidates.Len()+len(tombstoned))
 		for candidates.Len() > 0 {
-			id := candidates.Pop().ID
-			ids = append(ids, id)
+			ids = append(ids, candidates.Pop().ID)
+		}
+		ids = append(ids, tombstoned[:min(len(tombstoned), maximumConnections-len(ids))]...)
+		for _, id := range ids {
 			if err := n.graph.commitLog.AddLinkAtLevel(neighborID, level, id); err != nil {
 				return err
 			}
@@ -512,6 +540,21 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 		// while being inserted), so it can be perfectly usable by now
 		candidate = alternative
 	}
+}
+
+// leaveTombstones gets an insert out of a part of the graph with nothing but
+// tombstones in reach. It can't link to any of them, and a node without edges is
+// out of reach of every search for good: tombstone cleanup only visits nodes that
+// have tombstoned neighbors. So the node takes over from the dead entrypoint or, if
+// a concurrent insert was first, starts over from that one.
+func (n *neighborFinderConnector) leaveTombstones() error {
+	tookOver, err := n.graph.takeOverDeadEntrypoint(n.nodeID, n.node)
+	if err != nil {
+		return err
+	}
+	n.bootstrapped = tookOver
+	n.entryPointID = n.graph.getEntrypoint()
+	return nil
 }
 
 func (n *neighborFinderConnector) bootstrapOrFail(cause error) error {

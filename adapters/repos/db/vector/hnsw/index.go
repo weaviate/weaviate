@@ -17,6 +17,7 @@ import (
 	"math"
 	"math/rand"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -904,6 +905,33 @@ func (h *hnsw) ContainsDoc(docID uint64) bool {
 	h.RUnlock()
 
 	return exists && !h.hasTombstone(docID)
+}
+
+// HasGhost reports whether a search can't reach the doc although ContainsDoc says
+// it is there: an insert that failed after publishing a node leaves it in the graph
+// without edges.
+func (h *hnsw) HasGhost(docID uint64) bool {
+	if h.Multivector() && !h.muvera.Load() {
+		h.RLock()
+		vecIDs := h.docIDVectors[docID]
+		h.RUnlock()
+		return slices.ContainsFunc(vecIDs, h.isGhost)
+	}
+
+	return h.isGhost(docID)
+}
+
+// isGhost tells a node without edges from the two kinds that need none: the
+// entrypoint, and a node that is still being connected.
+func (h *hnsw) isGhost(id uint64) bool {
+	node := h.nodeByID(id)
+	if node == nil || id == h.getEntrypoint() || node.isUnderMaintenance() {
+		return false
+	}
+
+	node.Lock()
+	defer node.Unlock()
+	return node.connections.LenAtLayer(0) == 0
 }
 
 func (h *hnsw) Iterate(fn func(docID uint64) bool) {
