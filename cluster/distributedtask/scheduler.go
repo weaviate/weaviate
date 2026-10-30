@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -24,6 +26,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -1421,32 +1424,12 @@ func (s *Scheduler) allLocalGroupsPreparationFiredLocked(task *Task, desc TaskDe
 // aggregateAckErrorsLocked returns (success, joined-error-message) for
 // THIS node's OnGroupCompleted results captured in
 // postCompletionGroupErrors[desc]. Caller must hold s.mu.
-//
-// success is true iff every group's OnGroupCompleted returned nil.
-// joined is the semicolon-joined error messages from the failing groups,
-// empty when success==true. Order is unspecified (map iteration); the
-// FSM persists the joined string as-is on PostCompletionAck.Error for
-// forensic visibility.
 func (s *Scheduler) aggregateAckErrorsLocked(task *Task, desc TaskDescriptor) (bool, string) {
 	state := s.perTaskStateLocked(desc)
 	if state == nil {
 		return true, ""
 	}
-	errs := state.postCompletionGroupErrors
-	if len(errs) == 0 {
-		return true, ""
-	}
-	var msgs []string
-	for groupID, err := range errs {
-		if err == nil {
-			continue
-		}
-		msgs = append(msgs, fmt.Sprintf("group=%q: %v", groupID, err))
-	}
-	if len(msgs) == 0 {
-		return true, ""
-	}
-	return false, strings.Join(msgs, "; ")
+	return joinGroupErrors(state.postCompletionGroupErrors)
 }
 
 // aggregatePreparationAckErrorsLocked — PREP counterpart to aggregateAckErrorsLocked.
@@ -1456,21 +1439,25 @@ func (s *Scheduler) aggregatePreparationAckErrorsLocked(task *Task, desc TaskDes
 	if state == nil {
 		return true, ""
 	}
-	errs := state.preparationCompletionGroupErrors
-	if len(errs) == 0 {
-		return true, ""
-	}
-	var msgs []string
-	for groupID, err := range errs {
-		if err == nil {
-			continue
+	return joinGroupErrors(state.preparationCompletionGroupErrors)
+}
+
+// maxReportedGroupErrors bounds the ack error (stored in the RAFT log and
+// snapshots) so it can't grow with the tenant count.
+const maxReportedGroupErrors = 10
+
+// Sorting the groups keeps the reported subset the same on every call.
+func joinGroupErrors(errs map[string]error) (bool, string) {
+	ec := errorcompounder.New()
+	for _, groupID := range slices.Sorted(maps.Keys(errs)) {
+		if err := errs[groupID]; err != nil {
+			ec.Addf("group=%q: %v", groupID, err)
 		}
-		msgs = append(msgs, fmt.Sprintf("group=%q: %v", groupID, err))
 	}
-	if len(msgs) == 0 {
+	if ec.Empty() {
 		return true, ""
 	}
-	return false, strings.Join(msgs, "; ")
+	return false, fmt.Sprintf("%d group(s) failed: %v", ec.Len(), ec.ToErrorLimited(maxReportedGroupErrors))
 }
 
 // perTaskStateLocked returns the per-task scheduler state for desc, or

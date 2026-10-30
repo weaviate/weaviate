@@ -12,8 +12,11 @@
 package db
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
@@ -86,6 +89,42 @@ func TestOnGroupCompleted_TerminalStatusShortCircuit(t *testing.T) {
 					"OnGroupCompleted should NOT short-circuit for non-terminal status %q (expected payload load error)",
 					tc.status)
 			}
+		})
+	}
+}
+
+// Ack error (stored in the RAFT log) must not grow with the number of failing tenants.
+func TestRunPerUnitPhase_CapsTheErrorAcrossManyFailingUnits(t *testing.T) {
+	tests := []struct {
+		name        string
+		units       int
+		wantCount   string
+		wantOmitted string
+	}{
+		{name: "one unit", units: 1, wantCount: "1 unit(s) failed"},
+		{name: "1000 units", units: 1000, wantCount: "1000 unit(s) failed", wantOmitted: "(and 990 more)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := logrustest.NewNullLogger()
+			p := NewReindexProvider(nil, nil, nil, logger, "node1", nil, context.Background())
+			payload := &ReindexTaskPayload{UnitToShard: map[string]string{}}
+			unitIDs := make([]string, tt.units)
+			for i := range unitIDs {
+				unitIDs[i] = fmt.Sprintf("unit-%04d", i)
+				payload.UnitToShard[unitIDs[i]] = fmt.Sprintf("tenant-%04d", i)
+			}
+
+			// No shard exists, so every unit fails its lookup before the phase runs.
+			err := p.runPerUnitPhase(&distributedtask.Task{}, payload, unitIDs, &Index{},
+				logger, "swap-requested", false,
+				func(string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult {
+					return phaseResult{}
+				})
+
+			require.ErrorContains(t, err, tt.wantCount)
+			require.ErrorContains(t, err, tt.wantOmitted)
+			require.Less(t, len(err.Error()), 1500)
 		})
 	}
 }

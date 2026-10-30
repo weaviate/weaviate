@@ -19,6 +19,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -30,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 
@@ -1350,10 +1352,20 @@ func (p *ReindexProvider) runPerUnitPhase(
 	// of acking a permanent failure that would flip the task to FAILED.
 	if agg.SawContextCanceled {
 		return fmt.Errorf("%s: %d unit(s) failed: %s: %w",
-			callbackName, len(agg.Errs), strings.Join(agg.Errs, "; "), context.Canceled)
+			callbackName, len(agg.Errs), joinUnitErrors(agg.Errs), context.Canceled)
 	}
 	return fmt.Errorf("%s: %d unit(s) failed: %s",
-		callbackName, len(agg.Errs), strings.Join(agg.Errs, "; "))
+		callbackName, len(agg.Errs), joinUnitErrors(agg.Errs))
+}
+
+// joinUnitErrors caps the message because it becomes this node's ack error
+// in the RAFT log; sorting keeps the reported subset stable across runs.
+func joinUnitErrors(msgs []string) string {
+	ec := errorcompounder.New()
+	for _, msg := range slices.Sorted(slices.Values(msgs)) {
+		ec.Addf("%s", msg)
+	}
+	return ec.ToErrorLimited(maxReportedErrors).Error()
 }
 
 // OnGroupCompleted fires after all units in a group reach terminal state.
