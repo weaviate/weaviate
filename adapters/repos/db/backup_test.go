@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -528,7 +529,7 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	}
 
 	var sd backup.ShardDescriptor
-	err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot)
+	err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot, newReindexGate(idx.db))
 	require.NoError(t, err)
 
 	// Helper to get inode number.
@@ -693,14 +694,14 @@ func TestBackupFrozenShardOmitted(t *testing.T) {
 
 	t.Run("hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
 		var sd backup.ShardDescriptor
-		err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot)
+		err := idx.backupInactiveShardWithHardlinks(shardName, &sd, nil, stagingRoot, newReindexGate(idx.db))
 		require.Error(t, err)
 		require.True(t, errors.Is(err, errShardNoLocalData), "expected errShardNoLocalData, got %v", err)
 	})
 
 	t.Run("non-hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
 		var sd backup.ShardDescriptor
-		err := idx.backupInactiveShardWithoutHardlinks(shardName, &sd, nil)
+		err := idx.backupInactiveShardWithoutHardlinks(shardName, &sd, nil, newReindexGate(idx.db))
 		require.Error(t, err)
 		require.True(t, errors.Is(err, errShardNoLocalData), "expected errShardNoLocalData, got %v", err)
 	})
@@ -968,8 +969,8 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 		// path before releasing shardCreateLocks. See weaviate/0-weaviate-issues#234.
 		mockShard.EXPECT().preventShutdown().Return(func() {}, nil)
 		mockShard.EXPECT().
-			CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
-			RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
+			CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string, _ reindexGate) ([]string, error) {
 				sd.Name = name
 				sd.Node = "node1"
 				return files, nil
@@ -1048,8 +1049,8 @@ func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
 		close(releaseCalled)
 	}, nil)
 	mockShard.EXPECT().
-		CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
+		CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string, _ reindexGate) ([]string, error) {
 			sd.Name = shardName
 			sd.Node = "node1"
 			close(snapshotStarted)
@@ -1064,7 +1065,7 @@ func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
 	}
 	backupDone := make(chan backupResult, 1)
 	go func() {
-		sd, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir())
+		sd, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), newReindexGate(idx.db))
 		backupDone <- backupResult{sd: sd, err: err}
 	}()
 
@@ -1141,8 +1142,8 @@ func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
 				}
 			}, nil)
 			mockShard.EXPECT().
-				CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
-				RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
+				CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string, _ reindexGate) ([]string, error) {
 					if tt.snapshotErr != nil {
 						return nil, tt.snapshotErr
 					}
@@ -1163,7 +1164,7 @@ func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
 				}}
 			}
 
-			_, err := idx.backupShardWithHardlinks(ctx, shardName, baseDescrs, t.TempDir())
+			_, err := idx.backupShardWithHardlinks(ctx, shardName, baseDescrs, t.TempDir(), newReindexGate(idx.db))
 			if tt.expectedErr != "" {
 				require.ErrorContains(t, err, tt.expectedErr)
 			} else {
@@ -1196,7 +1197,7 @@ func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T
 	mockShard.EXPECT().preventShutdown().Return(func() {}, errors.New("shard is shutting down"))
 	idx.shards.Store(shardName, mockShard)
 
-	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir())
+	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir(), newReindexGate(idx.db))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "prevent shutdown")
 
@@ -1270,4 +1271,62 @@ func TestBackupDescriptorsClosesChannelOnPanic(t *testing.T) {
 		}
 		return false
 	}, 5*time.Second, 10*time.Millisecond, "the producer goroutine never recovered a panic")
+}
+
+// Each task-list request is a cluster-wide round trip, so one per shard made a
+// backup of a 10k-tenant collection take hours.
+func TestBackupFetchesReindexTasksOncePerPass(t *testing.T) {
+	const className = "TestClass"
+	tenants := []string{"tenant-1", "tenant-2", "tenant-3", "tenant-4", "tenant-5"}
+
+	for _, tc := range []struct {
+		name    string
+		live    map[[2]string]bool
+		refused bool
+	}{
+		{name: "no reindex running"},
+		{name: "reindex running on one tenant", live: map[[2]string]bool{{className, "tenant-3"}: true}, refused: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rootDir := t.TempDir()
+			// One replica per node puts every tenant on this node.
+			builder := NewMultiTenantShardingStateBuilder().WithReplicationFactor(int64(len(tenants)))
+			for _, name := range tenants {
+				builder.AddTenant(name, models.TenantActivityStatusCOLD)
+				createColdShardFiles(t, rootDir, className, name)
+			}
+			idx := newDescriptorTestIndex(t, rootDir, className, builder.Build())
+			db := idx.db
+			db.logger = idx.logger
+			db.indices = map[string]*Index{indexID(className): idx}
+
+			var fetches atomic.Int64
+			db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+				fetches.Add(1)
+				return makeActivityBuilder(tc.live)()
+			})
+
+			err := db.Backupable(context.Background(), []string{className})
+			if tc.refused {
+				require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.EqualValues(t, 1, fetches.Load(), "Backupable")
+
+			fetches.Store(0)
+			var descs []backup.ClassDescriptor
+			for d := range db.BackupDescriptors(context.Background(), "backup-1", []string{className}, nil) {
+				descs = append(descs, d)
+			}
+			require.Len(t, descs, 1)
+			if tc.refused {
+				require.ErrorIs(t, descs[0].Error, backup.ErrBackupBlockedByInFlightReindex)
+			} else {
+				require.NoError(t, descs[0].Error)
+				require.Len(t, descs[0].Shards, len(tenants))
+			}
+			assert.EqualValues(t, 1, fetches.Load(), "BackupDescriptors")
+		})
+	}
 }

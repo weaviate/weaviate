@@ -39,7 +39,12 @@ func (s *Shard) haltedForTransfer() bool {
 // The preparation work (pausing compaction, flushing memtables, readying vector indexes and queues)
 // is additionally bounded by `HaltForTransferTimeout`, independent of `inactivityTimeout`;
 // a zeroed `HaltForTransferTimeout` implies no bound.
-func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) (err error) {
+func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
+	return s.haltForTransfer(ctx, offloading, inactivityTimeout, newReindexGate(s.index.db))
+}
+
+// haltForTransfer lets a backup share one gate across all its shards.
+func (s *Shard) haltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration, gate reindexGate) (err error) {
 	innerCtx := ctx
 	if timeout := s.index.Config.HaltForTransferTimeout; timeout > 0 {
 		var cancel context.CancelFunc
@@ -54,7 +59,7 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	// leave the counter incremented; the error path would not run a
 	// matching resume.
 	if !offloading {
-		if blockedErr := s.index.refuseIfReindexInFlight(s.name); blockedErr != nil {
+		if blockedErr := s.index.refuseIfReindexInFlight(s.name, gate); blockedErr != nil {
 			return blockedErr
 		}
 		if busy, reason := s.structuralVectorOpInFlight(); busy {
@@ -290,8 +295,8 @@ func (s *Shard) handleInactivityFire(ctx context.Context, timer *time.Timer) (ke
 // a staging directory, then immediately resumes compaction. This minimizes the
 // compaction pause to just the time needed for enumeration and hardlink creation
 // (typically 2-5s), rather than blocking for the entire upload duration.
-func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
-	if err := s.HaltForTransfer(ctx, false, 0); err != nil {
+func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate reindexGate) ([]string, error) {
+	if err := s.haltForTransfer(ctx, false, 0, gate); err != nil {
 		return nil, fmt.Errorf("halt for snapshot: %w", err)
 	}
 	defer s.resumeMaintenanceCycles(ctx)

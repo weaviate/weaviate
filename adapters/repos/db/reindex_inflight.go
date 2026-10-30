@@ -30,7 +30,38 @@ import (
 // the lookup installed.
 var unwiredGateWarnOnce sync.Once
 
-// AnyLiveReindexForShard answers the cluster-wide question: does DTM
+// reindexGate reports whether a live reindex covers a shard. One gate
+// fetches the cluster's task list at most once, so a pass over many shards
+// pays one leader round trip rather than one per shard.
+type reindexGate func(collection, shardName string) (bool, error)
+
+func newReindexGate(db *DB) reindexGate {
+	fetch := sync.OnceValues(db.reindexActivityLookup)
+	return func(collection, shardName string) (bool, error) {
+		return db.anyLiveReindexForShard(collection, shardName, fetch)
+	}
+}
+
+func (db *DB) reindexActivityLookup() (ShardReindexActivityLookup, error) {
+	db.reindexAuditMu.RLock()
+	activityBuilder := db.shardReindexActivityLookupBuilder
+	db.reindexAuditMu.RUnlock()
+	if activityBuilder == nil {
+		unwiredGateWarnOnce.Do(func() {
+			logger := db.logger
+			if logger == nil {
+				logger = logrus.New()
+			}
+			logger.WithField("action", "backup_reindex_gate").
+				Warn("backup-reindex gate: ShardReindexActivityLookup not yet installed; allowing backup. " +
+					"Expected briefly during startup; if this persists past bootstrap, check the SetShardReindexActivityLookup wiring in configure_api.go.")
+		})
+		return nil, nil
+	}
+	return activityBuilder()
+}
+
+// anyLiveReindexForShard answers the cluster-wide question: does DTM
 // have any LIVE reindex task targeting (collection, shardName)?
 //
 // Replaces the prior filesystem-marker check, which only saw this node
@@ -44,30 +75,16 @@ var unwiredGateWarnOnce sync.Once
 // spins up Weaviate without going through the post-bootstrap
 // install path; production HTTP gates on bootstrap completion so the
 // unwired window is unreachable by external traffic.
-func (db *DB) AnyLiveReindexForShard(collection, shardName string) (bool, error) {
+func (db *DB) anyLiveReindexForShard(collection, shardName string,
+	fetch func() (ShardReindexActivityLookup, error),
+) (bool, error) {
 	if db.config.RuntimeReindexDisabled {
 		// Runtime reindex is off, so no new task can start. Return before
 		// consulting the lookup so the backup path makes no reindex check
 		// at all — the pre-gate behavior this restores.
 		return false, nil
 	}
-	db.reindexAuditMu.RLock()
-	activityBuilder := db.shardReindexActivityLookupBuilder
-	cleanupBuilder := db.reindexCleanupInProgressLookupBldr
-	db.reindexAuditMu.RUnlock()
-	if activityBuilder == nil {
-		unwiredGateWarnOnce.Do(func() {
-			logger := db.logger
-			if logger == nil {
-				logger = logrus.New()
-			}
-			logger.WithField("action", "backup_reindex_gate").
-				Warn("backup-reindex gate: ShardReindexActivityLookup not yet installed; allowing backup. " +
-					"Expected briefly during startup; if this persists past bootstrap, check the SetShardReindexActivityLookup wiring in configure_api.go.")
-		})
-		return false, nil
-	}
-	lookup, err := activityBuilder()
+	lookup, err := fetch()
 	if err != nil {
 		return false, err
 	}
@@ -92,6 +109,9 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) (bool, error)
 	// sidecar buckets. The cleanup builder is optional — older
 	// wiring paths and test fixtures that install only the activity
 	// lookup keep the prior semantics.
+	db.reindexAuditMu.RLock()
+	cleanupBuilder := db.reindexCleanupInProgressLookupBldr
+	db.reindexAuditMu.RUnlock()
 	if cleanupBuilder == nil {
 		return false, nil
 	}
@@ -113,7 +133,7 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) (bool, error)
 }
 
 // SetReindexCleanupInProgressLookup installs the builder used by
-// [DB.AnyLiveReindexForShard] to detect terminal-task cleanup that has
+// the backup gate to detect terminal-task cleanup that has
 // not yet finished tearing __reindex / __ingest sidecar dirs. Wired in
 // post-bootstrap alongside [DB.SetShardReindexActivityLookup].
 func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupBuilder) {
@@ -130,19 +150,18 @@ const noDatabaseBackReference = "this index has no database back-reference, so t
 // refuseIfReindexInFlight is the per-shard backup-gate check used by
 // [DB.Backupable], [Index.backupInactiveShardWithHardlinks],
 // [Index.backupInactiveShardWithoutHardlinks], and
-// [Shard.HaltForTransfer]. Consults DTM via
-// [DB.AnyLiveReindexForShard]; the filesystem-marker variant it
-// replaced only saw the local node and lagged DTM's actual state.
+// [Shard.HaltForTransfer]. Consults DTM via gate; the filesystem-marker
+// variant it replaced only saw the local node and lagged DTM's actual state.
 //
 // If i.db is nil the gate is conservative: it refuses the backup.
-func (i *Index) refuseIfReindexInFlight(shardName string) error {
+func (i *Index) refuseIfReindexInFlight(shardName string, gate reindexGate) error {
 	collection := i.Config.ClassName.String()
 	if i.db == nil {
 		// Index was constructed without a back-reference (test
 		// fixtures, partial init). Be conservative.
 		return reindexGateUnavailableError(collection, shardName, noDatabaseBackReference)
 	}
-	live, err := i.db.AnyLiveReindexForShard(collection, shardName)
+	live, err := gate(collection, shardName)
 	if err != nil {
 		return reindexGateUnavailableError(collection, shardName, err.Error())
 	}

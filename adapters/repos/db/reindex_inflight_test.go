@@ -47,7 +47,7 @@ func unreachableActivityBuilder() (ShardReindexActivityLookup, error) {
 
 func anyLiveReindex(t *testing.T, db *DB, collection, shardName string) bool {
 	t.Helper()
-	live, err := db.AnyLiveReindexForShard(collection, shardName)
+	live, err := newReindexGate(db)(collection, shardName)
 	require.NoError(t, err)
 	return live
 }
@@ -185,7 +185,7 @@ func TestRefuseIfReindexInFlight_ErrorShape(t *testing.T) {
 		Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")},
 	}
 
-	err := idx.refuseIfReindexInFlight("ABC123")
+	err := idx.refuseIfReindexInFlight("ABC123", newReindexGate(db))
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex),
 		"error must wrap the sentinel so REST handlers can map via errors.Is")
@@ -203,7 +203,7 @@ func TestRefuseIfReindexInFlight_AllowsWhenNoLiveTask(t *testing.T) {
 		db:     db,
 		Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")},
 	}
-	require.NoError(t, idx.refuseIfReindexInFlight("ABC123"))
+	require.NoError(t, idx.refuseIfReindexInFlight("ABC123", newReindexGate(db)))
 }
 
 // A missing DB or a failed task-list fetch still refuses and counts as a movement error, since a reindex could be running unseen.
@@ -229,7 +229,8 @@ func TestRefuseIfReindexInFlight_CannotCheck(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.index().refuseIfReindexInFlight("ABC123")
+			idx := tc.index()
+			err := idx.refuseIfReindexInFlight("ABC123", newReindexGate(idx.db))
 			require.ErrorIs(t, err, ErrReindexGateUnavailable)
 			require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
 				"the backup path answers the same whether the gate saw a task or could not look")
