@@ -545,6 +545,13 @@ function run_unit_tests() {
     non-adapters) packages=$(echo "$packages" | grep -vE "/adapters/|$adapters_extra");;
   esac
   go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $packages | grep -v '\[no test files\]'
+
+  # Release binaries are built with -trimpath. The gse tokenizer used to find its
+  # dictionaries through runtime.Caller, which only works untrimmed, so run its tests
+  # the way the shipped binary is built.
+  if [[ "$unit_shard" != adapters ]]; then
+    go test -trimpath -count 1 -run Gse ./entities/tokenizer/
+  fi
 }
 
 function run_integration_tests() {

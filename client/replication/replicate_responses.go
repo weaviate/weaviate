@@ -58,6 +58,12 @@ func (o *ReplicateReader) ReadResponse(response runtime.ClientResponse, consumer
 			return nil, err
 		}
 		return nil, result
+	case 409:
+		result := NewReplicateConflict()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewReplicateUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -330,6 +336,74 @@ func (o *ReplicateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ReplicateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewReplicateConflict creates a ReplicateConflict with default headers values
+func NewReplicateConflict() *ReplicateConflict {
+	return &ReplicateConflict{}
+}
+
+/*
+ReplicateConflict describes a response with status code 409, with default header values.
+
+The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status.
+*/
+type ReplicateConflict struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this replicate conflict response has a 2xx status code
+func (o *ReplicateConflict) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this replicate conflict response has a 3xx status code
+func (o *ReplicateConflict) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this replicate conflict response has a 4xx status code
+func (o *ReplicateConflict) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this replicate conflict response has a 5xx status code
+func (o *ReplicateConflict) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this replicate conflict response a status code equal to that given
+func (o *ReplicateConflict) IsCode(code int) bool {
+	return code == 409
+}
+
+// Code gets the status code for the replicate conflict response
+func (o *ReplicateConflict) Code() int {
+	return 409
+}
+
+func (o *ReplicateConflict) Error() string {
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateConflict  %+v", 409, o.Payload)
+}
+
+func (o *ReplicateConflict) String() string {
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateConflict  %+v", 409, o.Payload)
+}
+
+func (o *ReplicateConflict) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ReplicateConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

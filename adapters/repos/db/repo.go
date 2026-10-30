@@ -70,6 +70,8 @@ type DB struct {
 	shutdownOnce              sync.Once
 	startupComplete           atomic.Bool
 	startupShards             startupShardCounters
+	dimensionsReindex         startupRebuild
+	propLengthsRecount        startupRebuild
 	resourceScanState         *resourceScanState
 	memMonitor                *memwatch.Monitor
 
@@ -326,6 +328,8 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		logger:                    logger,
 		localNodeName:             localNodeName,
 		config:                    config,
+		dimensionsReindex:         startupRebuild{enabled: config.ReindexVectorDimensions && config.TrackVectorDimensions},
+		propLengthsRecount:        startupRebuild{enabled: config.RecountPropertiesAtStartup},
 		indices:                   map[string]*Index{},
 		remoteIndex:               remoteIndex,
 		nodeResolver:              nodeResolver,
@@ -416,10 +420,17 @@ type Config struct {
 	MaxSegmentSize                 int64
 	TrackVectorDimensions          bool
 	TrackVectorDimensionsInterval  time.Duration
+	MigrateDimensionsToRoaringSet  bool
+	ReindexVectorDimensions        bool
 	UsageEnabled                   bool
 	ServerVersion                  string
 	GitHash                        string
 	AvoidMMap                      bool
+
+	// RecountPropertiesAtStartup rebuilds the property lengths of every shard once
+	// per process, before the shard loads or, if that fails, as it loads.
+	RecountPropertiesAtStartup bool
+
 	// EnableLazyLoadShards controls lazy shard loading.
 	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
 	EnableLazyLoadShards                *bool
@@ -503,6 +514,32 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 	return index
 }
 
+// registeredIndex returns the index registered for className, or nil, without
+// GetIndex's retries.
+func (db *DB) registeredIndex(className schema.ClassName) *Index {
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
+	return db.indices[indexID(className)]
+}
+
+// indexForRead returns className's index, or nil and no error if this node has
+// none. On a miss for a class the local schema holds, it first waits until this
+// node has applied that class version. Never call it from SchemaManager.apply,
+// which would wait for its own version.
+func (db *DB) indexForRead(ctx context.Context, className schema.ClassName) (*Index, error) {
+	if index := db.registeredIndex(className); index != nil {
+		return index, nil
+	}
+	version := db.schemaReader.ReadOnlyVersionedClass(className.String()).Version
+	if version == 0 {
+		return nil, nil
+	}
+	if err := db.schemaReader.WaitForUpdate(ctx, version); err != nil {
+		return nil, fmt.Errorf("wait for class %s to be applied locally: %w", className, err)
+	}
+	return db.registeredIndex(className), nil
+}
+
 // WaitForLocalInflightWrites blocks until this node's in-flight coordinated
 // writes to the given shard have drained, or ctx is done.
 //
@@ -567,11 +604,15 @@ func (db *DB) IndexExists(className schema.ClassName) bool {
 // for both sharding and replica usage. With a refactor of the interfaces this can be done and we can remove the
 // deduplication
 
-// GetIndexForIncomingSharding returns the index if it exists or nil if it doesn't
-// by default it will retry 3 times between 0-150 ms to get the index
-// to handle the eventual consistency.
-func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
-	index := db.GetIndex(className)
+// GetIndexForIncomingSharding returns the index indexForRead finds, or nil. A
+// failed wait is logged here and also returns nil, so callers report it as a
+// missing index.
+func (db *DB) GetIndexForIncomingSharding(ctx context.Context, className schema.ClassName) sharding.RemoteIndexIncomingRepo {
+	index, err := db.indexForRead(ctx, className)
+	if err != nil {
+		db.logger.WithField("class", className).Warnf("look up index for incoming request: %v", err)
+		return nil
+	}
 	if index == nil {
 		return nil
 	}
@@ -593,24 +634,19 @@ func (db *DB) droppingIndex(id string) *Index {
 // DropOrphanedClass removes the data of a class the schema already dropped.
 // Unlike DeleteIndex it removes files with no index loaded, the state a
 // schema-only delete leaves behind, so callers must know this node held it.
-func (db *DB) DropOrphanedClass(className schema.ClassName) error {
-	if idx := db.GetIndex(className); idx != nil {
-		if err := db.DeleteIndex(className); err != nil {
-			return err
-		}
+// It reports a live class that shares the lowercased index ID; that class's
+// data, offloaded included, is not the orphan's to drop.
+func (db *DB) DropOrphanedClass(className schema.ClassName) (collided bool, err error) {
+	if collided, err = db.deleteIndex(className); err != nil || collided {
+		return collided, err
 	}
 
 	// The caller knows the class was ours; only the directory knows the path is.
 	path := filepath.Join(db.config.RootPath, indexID(className))
 	if !hasShardStore(path) {
-		db.logger.WithFields(logrus.Fields{
-			"action": "drop_orphaned_class",
-			"class":  className.String(),
-			"path":   path,
-		}).Warn("left class data in place: no shard store, so not our index")
-		return nil
+		return false, nil
 	}
-	return db.dropIndexData(className)
+	return false, db.dropIndexData(className)
 }
 
 // hasShardStore reports whether path holds a shard directory: a child with the
@@ -651,9 +687,25 @@ func (db *DB) dropIndexData(className schema.ClassName) error {
 
 // DeleteIndex deletes the index
 func (db *DB) DeleteIndex(className schema.ClassName) error {
+	_, err := db.deleteIndex(className)
+	return err
+}
+
+// deleteIndex reports a live class that shares the lowercased index ID and
+// leaves it alone: DELETE_CLASS validates nothing, so a name differing only by
+// case reaches the store while the schema keeps the live class.
+func (db *DB) deleteIndex(className schema.ClassName) (collided bool, err error) {
 	index := db.GetIndex(className)
 	if index == nil {
-		return nil
+		return false, nil
+	}
+	if live := index.Config.ClassName; live != className {
+		db.logger.WithFields(logrus.Fields{
+			"action":     "delete_index",
+			"class":      className.String(),
+			"live_class": live.String(),
+		}).Warn("left class data in place: index belongs to a live class that differs only by case")
+		return true, nil
 	}
 	id := indexID(className)
 
@@ -679,7 +731,7 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 	if err := db.promMetrics.DeleteClass(className.String()); err != nil {
 		db.logger.Errorf("can't delete prometheus metrics: %v", err)
 	}
-	return nil
+	return false, nil
 }
 
 func (db *DB) Shutdown(ctx context.Context) error {

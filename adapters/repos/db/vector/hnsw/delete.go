@@ -390,9 +390,6 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	// count as runs
 	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessTombstoneCleanup)()
 
-	h.metrics.StartCleanup(tombstoneDeletionConcurrency())
-	defer h.metrics.EndCleanup(tombstoneDeletionConcurrency())
-
 	h.metrics.SetTombstoneDeleteListSize(deleteList.Len())
 
 	h.tombstoneLock.Lock()
@@ -662,7 +659,6 @@ func (h *hnsw) reassignNeighbor(
 		return false, errors.Wrap(err, "find and connect neighbors")
 	}
 
-	h.metrics.CleanedUp()
 	return true, nil
 }
 
@@ -737,6 +733,69 @@ func (h *hnsw) repairGlobalEntrypoint(oldEntrypoint uint64, denyList helpers.All
 	return newEntrypoint, nil
 }
 
+// bootstrapEntrypoint makes the inserting node the entrypoint if every other
+// node is nil or tombstoned; nodes under maintenance count as live.
+func (h *hnsw) bootstrapEntrypoint(id uint64, node *vertex) (bool, error) {
+	if h.hasOtherLiveNode(id) {
+		return false, nil
+	}
+
+	h.Lock()
+	defer h.Unlock()
+
+	if ep := h.entryPointID; ep != id {
+		h.shardedNodeLocks.RLock(ep)
+		live := ep < uint64(len(h.nodes)) && h.nodes[ep] != nil
+		h.shardedNodeLocks.RUnlock(ep)
+		if live && !h.hasTombstone(ep) {
+			return false, nil
+		}
+	}
+
+	node.Lock()
+	level := int(node.level)
+	node.Unlock()
+
+	if err := h.commitLog.SetEntryPointWithMaxLayer(id, level); err != nil {
+		return false, fmt.Errorf("persist entrypoint: %w", err)
+	}
+	// nothing left to connect, so the node is usable as soon as it is published
+	node.unmarkAsMaintenance()
+	h.entryPointID = id
+	h.currentMaximumLayer = level
+	h.logger.WithFields(logrus.Fields{
+		"action": "bootstrap_entrypoint",
+		"class":  h.className,
+		"shard":  h.shardName,
+		"id":     id,
+		"level":  level,
+	}).Infof("class %s: shard %s: node %d is the last live node, made it the entrypoint",
+		h.className, h.shardName, id)
+	return true, nil
+}
+
+func (h *hnsw) hasOtherLiveNode(id uint64) bool {
+	h.RLock()
+	maxNodes := len(h.nodes)
+	h.RUnlock()
+
+	for i := range maxNodes {
+		if uint64(i) == id {
+			continue
+		}
+
+		h.shardedNodeLocks.RLock(uint64(i))
+		candidate := h.nodes[i]
+		h.shardedNodeLocks.RUnlock(uint64(i))
+
+		if candidate != nil && !h.hasTombstone(uint64(i)) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // returns entryPointID, level and whether a change occurred
 func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList,
 	oldEntrypoint uint64,
@@ -746,8 +805,6 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList,
 		// for example, nothing to do for us
 		return 0, 0, false
 	}
-
-	h.metrics.TombstoneFindGlobalEntrypoint()
 
 	// Find the node with the highest level that is not in the denyList. This
 	// handles cases where nodes may have higher levels than
@@ -810,8 +867,6 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, oldEntrypoint 
 		// currently available level
 		return entryPointID, nil
 	}
-
-	h.metrics.TombstoneFindLocalEntrypoint()
 
 	h.RLock()
 	maxNodes := len(h.nodes)
@@ -910,8 +965,12 @@ func (h *hnsw) addTombstone(ids ...uint64) error {
 	}
 
 	for _, id := range ids {
-		h.metrics.AddTombstone()
-		h.tombstones[id] = struct{}{}
+		// an id deleted again, e.g. by a replayed async-indexing delete, is
+		// already counted in vector_index_tombstones
+		if _, ok := h.tombstones[id]; !ok {
+			h.metrics.AddTombstone()
+			h.tombstones[id] = struct{}{}
+		}
 		if err := h.commitLog.AddTombstone(id); err != nil {
 			return err
 		}
@@ -934,9 +993,13 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 			// tombstone that no cycle would ever revisit
 			continue
 		}
-		h.metrics.RemoveTombstone()
 		h.tombstoneLock.Lock()
-		delete(h.tombstones, id)
+		// a resetUnlocked during this cycle already cleared h.tombstones and
+		// vector_index_tombstones
+		if _, ok := h.tombstones[id]; ok {
+			h.metrics.RemoveTombstone()
+			delete(h.tombstones, id)
+		}
 		h.tombstoneLock.Unlock()
 
 		h.resetLock.Lock()

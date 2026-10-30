@@ -52,8 +52,18 @@ func validateRegexTarget(field, value string) error {
 	return nil
 }
 
-func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*models.Permission) error {
-	if !allowEmpty && len(permissions) == 0 {
+// permissionCheck is the request a permission list comes from, which decides how
+// strictly validatePermissions checks it.
+type permissionCheck int
+
+const (
+	checkCreate permissionCheck = iota // create accepts an empty list and checks the stored form
+	checkAdd                           // add needs one or more and checks the stored form
+	checkLookup                        // remove and has-permission accept rows already stored
+)
+
+func validatePermissions(namespacesEnabled bool, check permissionCheck, permissions ...*models.Permission) error {
+	if check != checkCreate && len(permissions) == 0 {
 		return fmt.Errorf("role has to have at least 1 permission")
 	}
 
@@ -77,6 +87,18 @@ func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*mod
 		tenantName := func(name string) {
 			add(schema.ValidateTenantNameIncludesRegex(name))
 			add(validateRegexTarget("tenant", name))
+		}
+		// aliasName checks the pattern as conv stores it, uppercased, against the
+		// class-name rule. That refuses "ålias.*", which matches no alias, and
+		// "[[:alpha:]]", stored as "[[:Alpha:]]", which panics casbin on every alias
+		// check. checkLookup skips the rule so remove can drop such stored rows.
+		aliasName := func(name string) {
+			if check == checkLookup {
+				return
+			}
+			if validatePermissionClassName(namespacesEnabled, schema.UppercaseClassName(name)) != nil {
+				add(fmt.Errorf("'%s' is not a valid alias name", name))
+			}
 		}
 
 		if p := perm.Collections; p != nil && p.Collection != nil {
@@ -130,6 +152,7 @@ func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*mod
 			}
 			if p.Alias != nil {
 				add(validateRegexTarget("alias", *p.Alias))
+				aliasName(*p.Alias)
 			}
 		}
 		if p := perm.Namespaces; p != nil && p.Namespace != nil {

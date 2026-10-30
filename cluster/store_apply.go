@@ -21,7 +21,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -41,11 +43,30 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.tenantAddLocks.Unlock(req.Class)
 	}
 
+	// Serialize AddClass per namespace for the same reason, keyed by the
+	// namespace the collection cap counts against.
+	if req.Type == api.ApplyRequest_TYPE_ADD_CLASS && st.schemaManager.CollectionLimitEnforced() {
+		ns := namespacing.NamespaceFromQualified(req.Class)
+		st.collectionAddLocks.Lock(ns)
+		defer st.collectionAddLocks.Unlock(ns)
+	}
+
+	// taskMovementLocks is held until the apply returns, so a second submit on the same collection is checked only after the first has applied. Like tenantAddLocks and collectionAddLocks it is taken before waitLeaderFSMCaughtUp, and none of them nest.
+	collection, err := st.taskOrMovementCollection(req)
+	if err != nil {
+		return 0, err
+	}
+	if collection != "" {
+		st.taskMovementLocks.Lock(collection)
+		defer st.taskMovementLocks.Unlock(collection)
+	}
+
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
-	// has not drained what it inherited must not judge yet. After the tenant
-	// lock, not before: that lock is held across the apply, so a caller can wait
-	// on it long enough for leadership to turn over, and a term confirmed before
-	// the wait says nothing about the term it wakes up in.
+	// has not drained what it inherited must not judge yet. After the tenant,
+	// collection and task-movement locks, not before: each is held across the
+	// apply, so a caller can wait on it long enough for leadership to turn over,
+	// and a term confirmed before the wait says nothing about the term it wakes
+	// up in.
 	if err := st.waitLeaderFSMCaughtUp(); err != nil {
 		return 0, err
 	}
@@ -60,7 +81,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	// Namespace admission runs before the schema-shape filter so a suspended
 	// namespace answers with its own state rather than a complaint about the
 	// entity the caller named.
-	if err := st.admitPropose(req); err != nil {
+	if err := st.admitPropose(req, collection); err != nil {
 		return 0, err
 	}
 
@@ -108,14 +129,60 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // apply whose schema half has committed. An Apply-side check would not close
 // that window either: the DB half runs after the schema half commits, so a flip
 // landing in between produces the same state.
-func (st *Store) admitPropose(req *api.ApplyRequest) error {
+// admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
+func (st *Store) admitPropose(req *api.ApplyRequest, collection string) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
 	}
 	if err := st.admitCreateLike(req); err != nil {
 		return err
 	}
-	return st.admitShardStatus(req)
+	if err := st.admitShardStatus(req); err != nil {
+		return err
+	}
+	return st.admitTaskOrMovement(req.Type, collection)
+}
+
+func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, error) {
+	switch req.Type {
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+		sub := &api.ReplicationReplicateShardRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return "", fmt.Errorf("unmarshal replicate subcommand: %w", err)
+		}
+		return sub.SourceCollection, nil
+
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
+		sub := &api.AddDistributedTaskRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return "", fmt.Errorf("unmarshal add-task subcommand: %w", err)
+		}
+		return st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload), nil
+
+	default:
+		return "", nil
+	}
+}
+
+// admitTaskOrMovement keeps a task and a movement from running on the same collection at once, since a reindex rewrites the files a movement copies.
+func (st *Store) admitTaskOrMovement(cmdType api.ApplyRequest_Type, collection string) error {
+	switch cmdType {
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+		if !st.distributedTasksManager.HasActiveTaskForCollection(collection) {
+			return nil
+		}
+		return fmt.Errorf("%w: collection %q has a running background task; retry after it completes",
+			replicationTypes.ErrMovementBlockedByTask, collection)
+
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
+		if !st.replicationManager.GetReplicationFSM().HasActiveReplicationForCollection(collection) {
+			return nil
+		}
+		return distributedtask.NewBlockedByReplicaMovementError(collection)
+
+	default:
+		return nil
+	}
 }
 
 // admitShardStatus refuses a manual shard status change outside the active
@@ -178,6 +245,11 @@ func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 		sub := &api.AddRolesForUsersRequest{}
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
 			return fmt.Errorf("unmarshal add-roles-for-user subcommand: %w", err)
+		}
+		// With namespaces off, a ':' in a subject is part of the user id, as in
+		// the OIDC subject "urn:example:alice", and names no namespace.
+		if !st.cfg.NamespacesEnabled {
+			return nil
 		}
 		ns, err := subjectNamespace(sub.User)
 		if err != nil {
@@ -250,10 +322,12 @@ func (st *Store) Apply(l *raft.Log) any {
 	ret := Response{Version: l.Index}
 
 	start := time.Now()
+	// Resolved once the command is unmarshalled below; the closure reads it then.
+	cmdType := "unknown"
 	defer func() {
 		// this defer is final one that called before returning and thus capturing the
 		// applyDuration correctly.
-		st.metrics.applyDuration.Observe(float64(time.Since(start).Seconds()))
+		st.metrics.applyDuration.WithLabelValues(cmdType).Observe(time.Since(start).Seconds())
 	}()
 
 	if l.Type != raft.LogCommand {
@@ -323,6 +397,8 @@ func (st *Store) Apply(l *raft.Log) any {
 		st.metrics.fsmLastAppliedIndex.Set(float64(l.Index))
 		st.metrics.raftLastAppliedIndex.Set(float64(l.Index))
 	}()
+
+	cmdType = cmd.Type.String()
 
 	cmd.Version = l.Index
 	// Report only when not ready the progress made on applying log entries. This help users with big schema and long

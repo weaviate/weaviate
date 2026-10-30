@@ -14,8 +14,10 @@ package objects
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -911,6 +913,133 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	require.NotNil(t, getProperty(schemaAfter.Objects.Classes[0].Properties, "numberArray"))
 	assert.Equal(t, "numberArray", getProperty(schemaAfter.Objects.Classes[0].Properties, "numberArray").Name)
 	assert.Equal(t, "int[]", getProperty(schemaAfter.Objects.Classes[0].Properties, "numberArray").DataType[0])
+}
+
+// laggingSchemaManager holds one class on a node whose local schema lags the
+// leader. Its AddClassProperty reads the class as of the last version
+// WaitForUpdate caught up to.
+type laggingSchemaManager struct {
+	fakeSchemaManager
+	snapshots []*models.Class // the class after each write; version i+1 wrote snapshots[i]
+	applied   uint64
+}
+
+func (l *laggingSchemaManager) write(class *models.Class) uint64 {
+	l.snapshots = append(l.snapshots, class)
+	return uint64(len(l.snapshots))
+}
+
+func (l *laggingSchemaManager) AddClass(_ context.Context, _ *models.Principal,
+	class *models.Class,
+) (*models.Class, uint64, error) {
+	return class, l.write(class), nil
+}
+
+func (l *laggingSchemaManager) AddClassProperty(_ context.Context, _ *models.Principal,
+	className string, _ bool, props ...*models.Property,
+) (*models.Class, uint64, error) {
+	if l.applied == 0 {
+		return nil, 0, fmt.Errorf("class %q: not found", className)
+	}
+	local := *l.snapshots[l.applied-1]
+	local.Properties = append(slices.Clone(local.Properties), props...)
+	leader := *l.snapshots[len(l.snapshots)-1]
+	leader.Properties = append(slices.Clone(leader.Properties), props...)
+	return &local, l.write(&leader), nil
+}
+
+func (l *laggingSchemaManager) WaitForUpdate(_ context.Context, version uint64) error {
+	if version > l.applied && l.WaitForUpdateErr != nil {
+		return l.WaitForUpdateErr
+	}
+	l.applied = max(l.applied, version)
+	return nil
+}
+
+func Test_autoSchemaManager_autoSchema_laggingLocalSchema(t *testing.T) {
+	const className = "Movie"
+	errNeverApplied := errors.New("local schema never reaches the version")
+	tests := []struct {
+		name string
+		// classOnLeader creates the class with a title property before the
+		// batch. classApplied says whether this node has applied it.
+		classOnLeader, classApplied bool
+		waitErr                     error
+		objects                     []map[string]interface{}
+		wantProps                   []string
+	}{
+		{
+			name:          "class fetched from the leader, not applied here",
+			classOnLeader: true,
+			objects:       []map[string]interface{}{{"title": "Heat", "director": "Mann"}},
+			wantProps:     []string{"title", "director"},
+		},
+		{
+			name:          "property added by an earlier object in the batch",
+			classOnLeader: true,
+			classApplied:  true,
+			objects: []map[string]interface{}{
+				{"title": "Heat", "director": "Mann"},
+				{"title": "Ronin", "genre": "thriller"},
+			},
+			wantProps: []string{"title", "director", "genre"},
+		},
+		{
+			name:          "class never applied here before the wait gives up",
+			classOnLeader: true,
+			waitErr:       errNeverApplied,
+			objects:       []map[string]interface{}{{"title": "Heat", "director": "Mann"}},
+			wantProps:     []string{"title"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm := &laggingSchemaManager{}
+			sm.WaitForUpdateErr = tt.waitErr
+			classes := map[string]versioned.Class{}
+			if tt.classOnLeader {
+				class := &models.Class{
+					Class:      className,
+					Properties: []*models.Property{{Name: "title", DataType: schema.DataTypeText.PropString()}},
+				}
+				version := sm.write(class)
+				classes[className] = versioned.Class{Class: class, Version: version}
+				if tt.classApplied {
+					sm.applied = version
+				}
+			}
+			logger, _ := test.NewNullLogger()
+			m := &AutoSchemaManager{
+				schemaManager: sm,
+				objectFinder:  &fakeObjectFinder{},
+				config: config.AutoSchema{
+					Enabled:       runtime.NewDynamicValue(true),
+					DefaultString: schema.DataTypeText.String(),
+				},
+				logger: logger,
+			}
+
+			// validateAndGetVector calls autoSchema once per object.
+			var err error
+			for _, props := range tt.objects {
+				if _, err = m.autoSchema(context.Background(), &models.Principal{}, true, classes,
+					&models.Object{Class: className, Properties: props}); err != nil {
+					break
+				}
+			}
+			if tt.waitErr != nil {
+				require.ErrorIs(t, err, tt.waitErr)
+			} else {
+				require.NoError(t, err)
+			}
+
+			var gotProps []string
+			for _, p := range classes[className].Properties {
+				gotProps = append(gotProps, p.Name)
+			}
+			assert.ElementsMatch(t, tt.wantProps, gotProps)
+		})
+	}
 }
 
 func Test_autoSchemaManager_getProperties(t *testing.T) {

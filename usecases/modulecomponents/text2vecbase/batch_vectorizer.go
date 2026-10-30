@@ -35,7 +35,7 @@ func newBatchVectorizer[T dto.Embedding](client BatchClient[T], batchVectorizer 
 		objectVectorizer: objectsvectorizer.New(),
 		batchVectorizer:  batchVectorizer,
 		tokenizerFunc:    tokenizerFunc,
-		encoderCache:     batch.NewEncoderCache(),
+		encoderCache:     batch.NewEncoderCache(batchVectorizer.Logger()),
 	}
 
 	return vec

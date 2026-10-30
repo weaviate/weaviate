@@ -36,6 +36,6 @@ type Sourcer interface { // implemented by the index
 	// release leaves that class marked in progress.
 	//
 	// BackupDescriptors acquires resources so that a call to ReleaseBackup() is mandatory to free acquired resources.
-	BackupDescriptors(_ context.Context, bakid string, classes []string, baseDescr []*backup.BackupDescriptor,
+	BackupDescriptors(_ context.Context, bakid string, classes []string, baseDescr []*backup.BaseBackupDescriptor,
 	) <-chan backup.ClassDescriptor
 }
