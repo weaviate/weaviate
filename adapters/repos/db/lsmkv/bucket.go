@@ -2313,7 +2313,7 @@ func (b *Bucket) flushBeforeMoveLocked() error {
 	if err := b.drainFailedFlush(b.dir, b.addDiskSegmentAndRemoveFlushingLocked); err != nil {
 		return err
 	}
-	if b.active.Size() == 0 {
+	if !b.hasUnflushedWritesLocked() {
 		return nil
 	}
 	mt, err := b.createNewActiveMemtable()
@@ -2322,6 +2322,15 @@ func (b *Bucket) flushBeforeMoveLocked() error {
 	}
 	b.flushing, b.active = b.active, mt
 	return b.flushFlushingLocked(b.addDiskSegmentAndRemoveFlushingLocked)
+}
+
+// hasUnflushedWritesLocked first waits out writers that took the active
+// memtable before flushLock was taken: their write is not in Size() yet, and
+// a move would drop the memtable they write into. The caller must hold
+// flushLock.
+func (b *Bucket) hasUnflushedWritesLocked() bool {
+	b.waitForZeroWriters(b.active)
+	return b.flushing != nil || b.active.Size() > 0
 }
 
 // addFlushedSegment adds the segment b.flushing was written to and clears

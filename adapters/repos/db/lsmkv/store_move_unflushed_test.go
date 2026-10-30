@@ -19,6 +19,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -175,4 +176,70 @@ func TestStore_ReplaceBucketsKeepsConcurrentWrites(t *testing.T) {
 
 	requireKeys(t, store.Bucket("target"), keys...)
 	requireKeys(t, reopenStore(t, store).Bucket("target"), keys...)
+}
+
+// A writer that took the active memtable before the move but inserts only
+// after the move looked at it must not write into a memtable the move drops.
+func TestStore_MoveWaitsForPinnedWriter(t *testing.T) {
+	for _, mv := range bucketMoves {
+		t.Run(mv.name, func(t *testing.T) {
+			ctx := context.Background()
+			store := newStoreForMove(t, mv.targetExists)
+			active, err := store.Bucket("moved").getActiveMemtableForWrite()
+			require.NoError(t, err)
+
+			moveErr := make(chan error, 1)
+			go func() { moveErr <- mv.move(ctx, store) }()
+			select {
+			case err := <-moveErr:
+				moveErr <- err
+			case <-time.After(500 * time.Millisecond):
+			}
+			require.NoError(t, active.put([]byte("pinned"), []byte("pinned")))
+			active.decWriterCount()
+			require.NoError(t, <-moveErr)
+
+			requireKeys(t, reopenStore(t, store).Bucket("target"), "pinned")
+		})
+	}
+}
+
+// A flush can call back into the store (a skip-key function looking up
+// another bucket), so a move must not flush while holding the store's lock.
+func TestStore_MoveFlushesBucketWhoseSkipKeyLooksUpBuckets(t *testing.T) {
+	for _, mv := range bucketMoves {
+		t.Run(mv.name, func(t *testing.T) {
+			ctx := context.Background()
+			store := newTestStoreForDrain(t)
+			require.NoError(t, store.CreateOrLoadBucket(ctx, "other", WithStrategy(StrategyReplace)))
+			opts := []BucketOption{
+				WithStrategy(StrategySetCollection),
+				WithShouldSkipKeyFunction(func(key []byte, ctx context.Context) (bool, error) {
+					_, release := store.AcquireBucketForRead("other")
+					release()
+					return false, nil
+				}),
+			}
+			require.NoError(t, store.CreateOrLoadBucket(ctx, "moved", opts...))
+			if mv.targetExists {
+				require.NoError(t, store.CreateOrLoadBucket(ctx, "target", opts...))
+			}
+			require.NoError(t, store.Bucket("moved").SetAdd([]byte("key"), [][]byte{[]byte("value")}))
+
+			moveErr := make(chan error, 1)
+			go func() { moveErr <- mv.move(ctx, store) }()
+			select {
+			case err := <-moveErr:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				// the store stays locked, so it is not shut down
+				t.Fatal("move deadlocked")
+			}
+			t.Cleanup(func() { _ = store.Shutdown(ctx) })
+
+			values, err := store.Bucket("target").SetList([]byte("key"))
+			require.NoError(t, err)
+			require.Equal(t, [][]byte{[]byte("value")}, values)
+		})
+	}
 }
