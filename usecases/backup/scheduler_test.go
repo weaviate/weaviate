@@ -5054,20 +5054,24 @@ func TestSchedulerCancelDuringDedupePlanning(t *testing.T) {
 	const id = "cancel-mid-planning"
 	cases := []struct {
 		name   string
-		cancel func(t *testing.T, s *Scheduler)
+		cancel func(t *testing.T, s *Scheduler, planner *fakeDedupePlanner)
 	}{
-		{name: "user cancel requests it", cancel: func(t *testing.T, s *Scheduler) {
+		{name: "user cancel requests it", cancel: func(t *testing.T, s *Scheduler, planner *fakeDedupePlanner) {
+			release := planner.holdAfterCancel()
+			defer release()
 			require.NoError(t, s.Cancel(context.Background(), nil, "s3", id, "", ""))
-			require.True(t, s.backupper.lastOp.get().CancelRequested)
+			st := s.backupper.lastOp.get()
+			require.True(t, st.CancelRequested)
+			require.Equal(t, backup.Started, st.Status, "a user cancel leaves the status until the CANCELED descriptor is durable")
 		}},
-		{name: "slot status cancelled", cancel: func(t *testing.T, s *Scheduler) {
+		{name: "slot status cancelled", cancel: func(t *testing.T, s *Scheduler, _ *fakeDedupePlanner) {
 			s.backupper.lastOp.set(backup.Cancelled)
 		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s, fs, planner, errCh := startPlanningBackup(t, id)
-			tc.cancel(t, s)
+			tc.cancel(t, s, planner)
 			expectPlanningCancelled(t, s, fs, planner, errCh)
 		})
 	}

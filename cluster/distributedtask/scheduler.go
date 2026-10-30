@@ -147,6 +147,7 @@ type Scheduler struct {
 	// sharing sampledLogger's budget would crowd out its one-off errors.
 	unrecognizedStatusLogger *logrusext.Sampler
 	postCompletionAckLogger  *logrusext.Sampler
+	completionAwaitingLogger *logrusext.Sampler
 
 	tasksRunning *prometheus.GaugeVec
 
@@ -260,6 +261,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 
 		unrecognizedStatusLogger: logrusext.NewSampler(params.Logger, 3, unrecognizedStatusWarnWindow),
 		postCompletionAckLogger:  logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
+		completionAwaitingLogger: logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
 
 		tasksRunning: promauto.With(params.MetricsRegisterer).NewGaugeVec(prometheus.GaugeOpts{
 			Name: "weaviate_distributed_tasks_running",
@@ -392,11 +394,12 @@ func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]m
 			}
 			// A [RecoveryAwareProvider] that reports local callback work
 			// as not done skips the pre-mark, so the next tick
-			// re-dispatches this task's callbacks. That recovers
-			// nothing: every callback is a no-op at terminal status. The
-			// one durable effect is a re-issued post-completion ack, once
-			// per process start, until the completed-task TTL drops the
-			// task (see [RecoveryAwareProvider.LocalCallbacksDone]). Only
+			// re-dispatches this task's callbacks. They may re-run
+			// durable terminal work, so they must be idempotent at
+			// terminal status. The post-completion ack is also
+			// re-issued, once per process start, until the
+			// completed-task TTL drops the task (see
+			// [RecoveryAwareProvider.LocalCallbacksDone]). Only
 			// FINISHED tasks are asked: a failed or cancelled task has no
 			// completed swap that could be missing.
 			if task.Status == TaskStatusFinished {
@@ -1222,6 +1225,8 @@ func (s *Scheduler) runSwapPhase(
 // error withholds FINISHED and retries next tick; [ErrTaskCompletionPermanent]
 // or exhausting [maxCompletedCallbackAttempts] fails the task instead.
 // Terminal-status errors are best-effort cleanup and never reopen the task.
+// [ErrTaskCompletionAwaiting] on any status retries next tick without
+// counting an attempt and without failing the task.
 func (s *Scheduler) runCompletedCallbackPhase(
 	namespace string,
 	desc TaskDescriptor,
@@ -1261,6 +1266,20 @@ func (s *Scheduler) runCompletedCallbackPhase(
 	// note at the matching rollback site in runFinalizePhase.
 	cbErr := suProvider.OnTaskCompleted(task)
 	if cbErr == nil {
+		return
+	}
+
+	if errors.Is(cbErr, ErrTaskCompletionAwaiting) {
+		s.completionAwaitingLogger.WithSampling(func(l logrus.FieldLogger) {
+			s.loggerWithTask(namespace, desc).Infof("OnTaskCompleted is awaiting another node on status %s; will retry next tick: %v", effectiveStatus, cbErr)
+		})
+		func() {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if state := s.perTaskStateLocked(desc); state != nil {
+				state.completedCallbackFired = false
+			}
+		}()
 		return
 	}
 
