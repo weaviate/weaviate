@@ -479,6 +479,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		CycleManagerRoutinesFactor:          appState.ServerConfig.Config.Persistence.LSMCycleManagerRoutinesFactor,
 		IndexRangeableInMemory:              appState.ServerConfig.Config.Persistence.IndexRangeableInMemory,
 		IndexRangeableInMemoryProps:         appState.ServerConfig.Config.Persistence.IndexRangeableInMemoryProps,
+		IndexFilterableKeyDocColumn:         appState.ServerConfig.Config.Persistence.IndexFilterableKeyDocColumn,
 		RootPath:                            appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                          appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:                 appState.ServerConfig.Config.QueryMaximumResults,

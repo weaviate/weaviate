@@ -60,7 +60,9 @@ var ErrPrependWouldDesyncInMemoryRep = errors.New(
 //	Replace                          -> rejected (countNetAdditions)
 //	Inverted                         -> maintained (avgPropertyLengths, below)
 //	RoaringSetRange                  -> guarded (in-memory rep can't be spliced)
-//	RoaringSet/SetCollection/MapCollection -> no derived state to maintain
+//	RoaringSet                       -> guarded (the key/doc column is
+//	                                    detached, below)
+//	SetCollection/MapCollection      -> no derived state to maintain
 func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
 	// Step 1: Validate strategy — Replace is not supported.
 	if sg.strategy == StrategyReplace {
@@ -123,6 +125,20 @@ func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir st
 		cleanupCopiedFiles(sg.dir, copiedDBPaths)
 		return fmt.Errorf("prepend segments: init segments: %w", err)
 	}
+
+	// The key/doc column was read from the segments this group held at the time,
+	// and nothing rebuilds it for segments spliced in later — it would answer
+	// without the prepended documents. Detaching lets the prepend go ahead:
+	// ContainsAny then uses the standard fold, which is slower and right.
+	//
+	// Here rather than at the top, because everything above this line can fail
+	// and leave the segments untouched — a discovery error, an empty source, a
+	// compaction that will not pause, a failed copy. Detaching before those
+	// would cost the property its column for the life of the process on a
+	// prepend that never happened, with nothing to rebuild it. Below the last of
+	// them and above the splice is the only placement that is neither.
+	sg.dropKeyDocColumn()
+	sg.reportKeyDocColumnSize()
 
 	// Step 5: Atomic prepend under maintenanceLock.
 	func() {

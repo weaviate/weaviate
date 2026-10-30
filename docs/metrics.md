@@ -64,6 +64,7 @@ This document is the single source of truth for Prometheus metrics exposed by We
 |---|---|---|---|---|
 | `lsm_active_segments` | Number of currently present segments per shard | `Gauge` | `class_name, path, shard_name, strategy` | ❌ High 
 | `lsm_memtable_size` | Size of memtable by path. For `strategy="roaringset"` this is the heap the memtable holds; every other strategy reports an estimate of the bytes written to it, so the two are not comparable and an alert band fits only one. | `Gauge` | `class_name, path, shard_name, strategy` | ❌ High 
+| `lsm_key_doc_column_size` | Resident bytes held by key/doc columns across this node, for the properties named by `INDEX_FILTERABLE_KEY_DOC_COLUMN`. Counts the columns, the documents beyond the first under a value, and the flushes not yet folded into a base. Unlabeled: one column exists per configured property per shard, so a per-shard series would be one per tenant. Which property holds it is in the logs. | `Gauge` | none | ✅ Low 
 
 #### System Metrics
 | Name | Description | Type | Labels | High Cardinality |

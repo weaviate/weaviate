@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset/keydoccolumn"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -112,7 +113,25 @@ type SegmentGroup struct {
 	editOps *SegmentEditOps
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
-	bitmapBufPool                  roaringset.BitmapBufPool
+
+	// keyDocColumn is an optional resident index over these segments and the
+	// flushes absorbed since it was built. Atomic so a flush can detach it —
+	// when what it was built over stops holding — concurrently with lock-free
+	// reads.
+	keyDocColumn atomic.Pointer[keydoccolumn.Index]
+	// keyDocColumnSizeReported is what this group last added to the node's
+	// total, in the parts the gauge is split into, so the next report can move
+	// each by its difference.
+	//
+	// Under a mutex rather than atomics because reporting is read-then-write and
+	// both halves have to be one step: a flattening reports from its own
+	// goroutine while a flush reports from the flush path, and interleaved they
+	// can leave the gauge crediting bytes to a column that has since been
+	// dropped. Off every hot path — this runs on build, flush, flatten, detach
+	// and shutdown.
+	keyDocColumnSizeMu       sync.Mutex
+	keyDocColumnSizeReported keydoccolumn.Info
+	bitmapBufPool            roaringset.BitmapBufPool
 	// bitmapBufPool wrapped with baseLayerHeadroomFactor for roaringSetGet's
 	// base layer; built once at construction
 	bitmapBufPoolWithHeadroom    roaringset.BitmapBufPool
@@ -152,6 +171,8 @@ type sgConfig struct {
 	cleanupInterval              time.Duration
 	enableChecksumValidation     bool
 	keepSegmentsInMemory         bool
+	buildKeyDocColumn            bool
+	docIDCountGetter             roaringset.DocIDCountGetterFunc
 	MinMMapSize                  int64
 	bm25config                   *models.BM25Config
 	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
@@ -619,6 +640,20 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 				"bucket":  filepath.Base(cfg.dir),
 				"size_mb": fmt.Sprintf("%.3f", float64(sg.roaringSetRangeSegmentInMemory.Size())/1024/1024),
 			}).Debug("rangeable segment-in-memory built")
+		}
+
+	case StrategyRoaringSet:
+		if cfg.buildKeyDocColumn {
+			if err := sg.initKeyDocColumn(cfg.docIDCountGetter); err != nil {
+				// A column not being there does not fail the bucket: it only
+				// accelerates ContainsAny, which returns the same documents through
+				// the standard fold without it. Silence is what would make a
+				// property that quietly fell back hard to notice.
+				logger.WithFields(logrus.Fields{
+					"action": "keydoccolumn_build",
+					"bucket": filepath.Base(cfg.dir),
+				}).Warnf("key/doc column not built, ContainsAny queries stay on the standard path: %v", err)
+			}
 		}
 	}
 
@@ -1334,6 +1369,10 @@ func (sg *SegmentGroup) countWithSegmentList(segments []Segment) int {
 }
 
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {
+	// Before anything that waits, so a flattening in flight gives up while this
+	// is still shutting down rather than after.
+	sg.dropKeyDocColumn()
+
 	if err := sg.compactionCallbackCtrl.Unregister(ctx); err != nil {
 		return fmt.Errorf("long-running compaction in progress: %w", ctx.Err())
 	}

@@ -62,9 +62,34 @@ type containsFixture struct {
 	searcher *Searcher
 	store    *lsmkv.Store
 	numDocs  int
+	bucket   *lsmkv.Bucket
+	bufPool  roaringset.BitmapBufPool
+}
+
+// writeUniqueTextCorpus writes the strictly unique corpus both this file's
+// fixture and the wiring tests' are built on: value i ("val_%08d") held by docID
+// i and no other. Uniqueness is the condition a key/doc column is eligible
+// under, so the two must not drift apart in what they mean by it.
+//
+// Unflushed: a caller decides what else belongs in the same segment.
+func writeUniqueTextCorpus(tb testing.TB, bucket *lsmkv.Bucket, numDocs int) {
+	tb.Helper()
+	for i := 0; i < numDocs; i++ {
+		require.NoError(tb, bucket.RoaringSetAddList([]byte(benchValue(i)), []uint64{uint64(i)}))
+	}
 }
 
 func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
+	return newContainsFixtureOpt(tb, numDocs, true)
+}
+
+// newContainsFixtureNoIndex builds the same corpus without a key/doc column, for
+// comparing the two query paths over identical data.
+func newContainsFixtureNoIndex(tb testing.TB, numDocs int) *containsFixture {
+	return newContainsFixtureOpt(tb, numDocs, false)
+}
+
+func newContainsFixtureOpt(tb testing.TB, numDocs int, withIndex bool) *containsFixture {
 	tb.Helper()
 	dir := tb.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -92,10 +117,7 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 	))
 	bucket := store.Bucket(bucketName)
 
-	// value i ("val_%08d") maps to exactly docID i: strictly unique, 1:1.
-	for i := 0; i < numDocs; i++ {
-		require.NoError(tb, bucket.RoaringSetAddList([]byte(benchValue(i)), []uint64{uint64(i)}))
-	}
+	writeUniqueTextCorpus(tb, bucket, numDocs)
 	// A few multi-doc values on top of the unique corpus: each shared value
 	// is held by the same two docs, so ContainsAll over them is non-empty;
 	// the padded value is stored trimmed, as the FIELD write path would
@@ -210,7 +232,32 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 		func(string) bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
-	return &containsFixture{searcher: searcher, store: store, numDocs: numDocs}
+	f := &containsFixture{
+		searcher: searcher, store: store, numDocs: numDocs,
+		bucket: bucket, bufPool: bufPool,
+	}
+	if withIndex {
+		// The corpus is in segments now, so reopening builds the index over all of
+		// it — the same path a restart takes.
+		f.reopenBucket(tb)
+	}
+	return f
+}
+
+// reopenBucket closes the value bucket and opens it again, asking for a key/doc
+// column. Opening is where that index is built.
+func (f *containsFixture) reopenBucket(tb testing.TB) {
+	tb.Helper()
+	ctx := context.Background()
+	name := helpers.BucketFromPropNameLSM(benchPropName)
+
+	require.NoError(tb, f.store.ShutdownBucket(ctx, name))
+	require.NoError(tb, f.store.CreateOrLoadBucket(ctx, name,
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithBitmapBufPool(f.bufPool),
+		lsmkv.WithKeyDocColumn(true),
+		lsmkv.WithDocIDCountGetter(newFakeMaxIDGetter(uint64(f.numDocs+1)))))
+	f.bucket = f.store.Bucket(name)
 }
 
 func benchValue(i int) string { return fmt.Sprintf("val_%08d", i) }
@@ -382,22 +429,23 @@ func (f *containsFixture) resolveDocIDsBatched(t *testing.T, ctx context.Context
 	got := f.resolveDocIDs(t, ctx, filter)
 	require.Empty(t, extractContainsDesugaredReason(t, ctx),
 		"the row must compare the batched path, not the desugared path with itself")
-	require.True(t, containsFoldRan(t, ctx),
-		"no fold was recorded, so the row compared the desugared path with itself")
+	require.True(t, containsBatchedReadRan(t, ctx),
+		"no batched read was recorded, so the row compared the desugared path with itself")
 	return got
 }
 
-// containsFoldRan reports whether a batched fold recorded its plan in ctx. Only
-// the batched path writes fold_workers, so an absent annotation and an absent
-// fold are distinguishable.
-func containsFoldRan(t *testing.T, ctx context.Context) bool {
+// containsBatchedReadRan reports whether a batched read answered in ctx. Only
+// the batched path names the read that served it, and it names "none" where
+// neither did. Which read answered is not pinned here, since a fold and a
+// key/doc column resolve the same documents.
+func containsBatchedReadRan(t *testing.T, ctx context.Context) bool {
 	t.Helper()
 	summary, ok := helpers.ExtractSlowQueryDetails(ctx)[docBitmapSlowLogKey].(helpers.SlowestEntries)
 	if !ok {
 		return false
 	}
 	for _, entry := range summary.Slowest {
-		if _, ok := entry["fold_workers"]; ok {
+		if servedBy, ok := entry["served_by"].(string); ok && servedBy != "none" {
 			return true
 		}
 	}

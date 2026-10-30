@@ -322,6 +322,41 @@ func FromEnv(config *Config) error {
 		config.ReindexIndexesAtStartup = asClassesWithProps
 	}
 
+	// same "Class1:prop11,prop12;Class2:*" shape. Every property of a collection
+	// is written "*" rather than by leaving the list empty, because the reindex
+	// variable above shares this parser and reads an empty list as no properties
+	// — one value copied between them should not mean opposite things, least of
+	// all when one of them commits memory for the life of the process.
+	//
+	// The two shapes this refuses rather than interprets are a collection named
+	// with no properties, which nobody writes meaning nothing, and a tenant,
+	// which cannot narrow anything: a column is built per shard, so naming one
+	// would silently give every shard of the collection instead. Both cost
+	// resident memory for the life of the process if guessed wrong, which is
+	// worth a failed startup and a message saying what to write.
+	if v := os.Getenv(KeyDocColumnEnv); v != "" {
+		cpts, err := cptParser.parse(v)
+		if err != nil {
+			return fmt.Errorf("parse %s as class with props: %w", KeyDocColumnEnv, err)
+		}
+
+		indexes := make(map[string][]string, len(cpts))
+		for _, cpt := range cpts {
+			if len(cpt.Tenants) > 0 {
+				return fmt.Errorf("%s takes no tenants, and %q names %d: a key/doc column "+
+					"is built per shard, so it covers every tenant of a collection or none",
+					KeyDocColumnEnv, cpt.Collection, len(cpt.Tenants))
+			}
+			if len(cpt.Props) == 0 {
+				return fmt.Errorf("%s names %q with no properties: list them, or write %q "+
+					"for every property it has", KeyDocColumnEnv, cpt.Collection,
+					cpt.Collection+":"+AllProperties)
+			}
+			indexes[cpt.Collection] = cpt.Props
+		}
+		config.Persistence.IndexFilterableKeyDocColumn = indexes
+	}
+
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
@@ -2308,6 +2343,26 @@ of the collection or refuses it.
 // AllProperties stands for every property of the collection carrying it. No
 // property can be named this, so it is never ambiguous.
 const AllProperties = "*"
+
+// KeyDocColumnEnv selects the properties that get a resident key/doc column.
+// Exported so that what consumes the parsed configuration can name the variable
+// an operator actually set, instead of repeating the string.
+//
+// A column accelerates ContainsAny and ContainsNone carrying two or more values.
+// Nothing else reaches it: one value resolves as a plain Equal, which applies the
+// query limit while it reads, and ContainsAll is answered by a fold that stops as
+// soon as its running intersection empties. A query that did not use it says so
+// in the "contains_desugared" slow-query annotation, which names the reason.
+//
+// Namespaced collections cannot be named here: ":" separates a collection from
+// its properties, so a qualified name has nowhere to go. A cluster running with
+// NAMESPACES_ENABLED cannot configure a column until that is given a spelling.
+//
+// Read once, at startup: changing which properties carry a column takes a
+// restart. QUERY_BATCHED_CONTAINS_ENABLED does take effect live, but it stops
+// the column being read rather than built — the columns go on absorbing every
+// flush and rebuilding themselves, so turning it off frees no memory.
+const KeyDocColumnEnv = "INDEX_FILTERABLE_KEY_DOC_COLUMN"
 
 type collectionPropsTenantsParser struct {
 	regexpCollection *regexp.Regexp

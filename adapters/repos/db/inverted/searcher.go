@@ -101,7 +101,10 @@ func (s *Searcher) WithTokenizationResolver(r TokenizationResolver) *Searcher {
 //
 // Nil (the default) reads as on, so a gate holding true changes exactly one
 // thing: the searcher then honours a later SetValue on that gate. One holding
-// false sends every Contains filter down the desugared per-value path.
+// false sends every Contains filter down the desugared per-value path, a
+// property carrying a key/doc column included: the gate covers everything the
+// batched path serves, so turning it off costs slower queries rather than
+// leaving one class of property on the newest code.
 func (s *Searcher) WithBatchedContainsEnabled(v *runtime.DynamicValue[bool]) *Searcher {
 	s.batchedContainsEnabled = v
 	return s
@@ -1072,6 +1075,53 @@ func (s *Searcher) classifyContainsBatchLength(property *models.Property, value 
 	return approveContainsBatch(&lengthProp, containsBatchPropertyLength, value)
 }
 
+// WhyNoKeyDocColumn reports why a property can never be answered from a key/doc
+// column, as one of the decline reasons the slow-query annotation carries, or ""
+// where it can.
+//
+// One function for two callers that used to decide this apart: the query path,
+// which routes a filter, and the startup report, which tells an operator what
+// their configuration got them. Disagreeing, they produce the case this exists
+// to prevent — a column built and held resident for the life of the process,
+// for a property no query will ever route to it.
+//
+// tokenization is the caller's to supply, because the two know different
+// things: a query resolves it through any retokenization in flight, while
+// startup has only what the schema stores.
+func WhyNoKeyDocColumn(prop *models.Property, tokenization string) string {
+	if _, ok := schema.AsNested(prop.DataType); ok {
+		return containsDeclineNestedObjectProperty
+	}
+	if schema.IsRefDataType(prop.DataType) {
+		return containsDeclineReferenceProperty
+	}
+	if len(prop.DataType) > 0 && schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates {
+		return containsDeclineGeoProperty
+	}
+	if !HasFilterableIndex(prop) {
+		return containsDeclineNoFilterableIndex
+	}
+	// tokenizeField always produces exactly one token (a TrimFunc of the input,
+	// never zero, never more than one), so FIELD is provably a 1-value-to-1-key
+	// tokenization; any other tokenization can turn one value into zero or
+	// several tokens and must desugar.
+	if isTokenizableProp(prop) && tokenization != models.PropertyTokenizationField {
+		return containsDeclineTokenizationNotField
+	}
+	return ""
+}
+
+// isTokenizableProp is [Searcher.onTokenizableProp] without the receiver, which
+// it never used.
+func isTokenizableProp(prop *models.Property) bool {
+	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
+	case schema.DataTypeText, schema.DataTypeTextArray:
+		return true
+	default:
+		return false
+	}
+}
+
 // classifyContainsBatch runs every shape check for the batched flat
 // ContainsAny/ContainsAll/ContainsNone fast path and reconciles the property
 // with the filter's value type, in one place. Array value types decline: the
@@ -1123,17 +1173,9 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, value *filters.Valu
 	if isLength {
 		return s.classifyContainsBatchLength(property, value, class)
 	}
-	if _, ok := schema.AsNested(property.DataType); ok {
-		return nil, containsNotBatchable, containsDeclineNestedObjectProperty
-	}
-	if s.onRefProp(property) {
-		return nil, containsNotBatchable, containsDeclineReferenceProperty
-	}
-	if s.onGeoProp(property) {
-		return nil, containsNotBatchable, containsDeclineGeoProperty
-	}
-	if !HasFilterableIndex(property) {
-		return nil, containsNotBatchable, containsDeclineNoFilterableIndex
+	if reason := WhyNoKeyDocColumn(property,
+		ResolveTokenization(s.tokResolver, property.Name, property.Tokenization)); reason != "" {
+		return nil, containsNotBatchable, reason
 	}
 	// readFromBucket refuses a name carrying the length suffix when lengths are
 	// unindexed, and panics when InvertedIndexConfig is nil. Declining holds
@@ -1158,13 +1200,6 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, value *filters.Valu
 	case s.onTokenizableProp(property):
 		if propType != schema.DataTypeText {
 			return nil, containsNotBatchable, containsDeclineValueTypeMismatch
-		}
-		// tokenizeField always produces exactly one token (a TrimFunc of the
-		// input, never zero, never more than one), so FIELD is provably a
-		// 1-value-to-1-key tokenization; any other tokenization can turn one
-		// value into zero or several tokens and must desugar.
-		if ResolveTokenization(s.tokResolver, property.Name, property.Tokenization) != models.PropertyTokenizationField {
-			return nil, containsNotBatchable, containsDeclineTokenizationNotField
 		}
 		if s.isFallbackToSearchable() {
 			return nil, containsNotBatchable, containsDeclineFallbackToSearchable
@@ -1557,12 +1592,7 @@ func (s *Searcher) onInternalProp(propName string) bool {
 }
 
 func (s *Searcher) onTokenizableProp(prop *models.Property) bool {
-	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
-	case schema.DataTypeText, schema.DataTypeTextArray:
-		return true
-	default:
-		return false
-	}
+	return isTokenizableProp(prop)
 }
 
 func (s *Searcher) extractStringArray(value interface{}) ([]string, error) {

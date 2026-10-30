@@ -2035,6 +2035,30 @@ func (t *ShardReindexTaskGeneric) loadIngestBuckets(ctx context.Context,
 		props = onDisk
 	}
 
+	// TODO aliszka:keydoccolumn restore the column after the swap, the way
+	// rebuildRangeableInMemoryReps does for the rangeable representation above.
+	// The ingest bucket is not opened with the option — building a resident index
+	// over a bucket being bulk-written would be rebuilt on every flush — and it
+	// becomes the main bucket, so the property has no column afterwards and only
+	// a restart builds one. Deferred while the feature's shape is still moving;
+	// the warning is so the loss is visible meanwhile.
+	if strategy == lsmkv.StrategyRoaringSet {
+		var withColumn []string
+		for _, propName := range props {
+			if shard.keyDocColumnConfigured(propName) {
+				withColumn = append(withColumn, propName)
+			}
+		}
+		if len(withColumn) > 0 {
+			logger.WithField("props", withColumn).Warn(
+				"key/doc columns are dropped by this migration and are not rebuilt when it " +
+					"finalizes; ContainsAny on these properties returns the same documents " +
+					"through the standard fold until the node restarts, the shard reloads, " +
+					"or the tenant is reactivated.",
+			)
+		}
+	}
+
 	return t.loadBuckets(ctx, logger, shard, props, t.ingestBucketName, bucketOpts)
 }
 

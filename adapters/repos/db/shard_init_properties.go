@@ -631,9 +631,22 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			}
 		}
 
+		valueBucketOpts := makeBucketOptions(lsmkv.StrategyRoaringSet)
+		// Asked for, and answerable. The build reads the bucket and declines
+		// values that turn out not to be near-unique, which is what the
+		// structure requires — but it cannot see what the query path will route,
+		// and a column the query path declines is memory held for the life of
+		// the process and never read. The startup report names the same
+		// properties, from the same function.
+		if s.keyDocColumnConfigured(prop.Name) &&
+			inverted.WhyNoKeyDocColumn(prop, prop.Tokenization) == "" {
+			valueBucketOpts = append(valueBucketOpts,
+				lsmkv.WithKeyDocColumn(true),
+				lsmkv.WithDocIDCountGetter(s.counter.Get))
+		}
 		if err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(prop.Name),
-			makeBucketOptions(lsmkv.StrategyRoaringSet)...,
+			valueBucketOpts...,
 		); err != nil {
 			return err
 		}

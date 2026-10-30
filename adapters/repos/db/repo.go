@@ -467,6 +467,7 @@ type Config struct {
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
 	IndexRangeableInMemoryProps         map[string][]string
+	IndexFilterableKeyDocColumn         map[string][]string
 	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]

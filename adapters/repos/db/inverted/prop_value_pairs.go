@@ -392,21 +392,29 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 	before := time.Now()
 	var dbm docBitmap
 
-	view := b.GetConsistentView()
+	// The roaring set view, because it takes the key/doc column's state under
+	// the same lock as the layers: the column path answers this view rather than
+	// the column as it stands when it gets there, so it cannot disagree with the
+	// fold below over a flush that landed in between.
+	view := b.GetConsistentRoaringSetView()
 	defer view.ReleaseView()
 
-	// Narrowed once, so every worker's reader sees the same memtables. Built
-	// before the annotation reads it, so the closure never sees nil.
-	source := &roaringSetBatchReaderSource{
-		view: view.WithoutEmptyActiveMemtable(),
-		// Sized at what the budget affords, since the plan is not made yet and
-		// the annotation below must not read a nil source. A test override can
-		// ask for more, which append handles.
-		readers: make([]*lsmkv.RoaringSetBatchReader, 0, maxContainsFoldWorkers),
-	}
+	// Narrowed once, so the column's reader and every fold worker's reader see
+	// the same memtables.
+	nv := view.WithoutEmptyActiveMemtable()
+	// Fold-only, so it is left zero until the column has had its turn: a zero
+	// source holds no readers, which the annotation below already reads as a
+	// fold that never ran.
+	var source roaringSetBatchReaderSource
 	// Zero until the fold has planned, so a filter rejected before then is timed
 	// without inventing a strategy it never chose.
 	var plan containsFoldPlan
+	// Nil until the column path opens one, so a filter rejected before then is
+	// timed without inventing counts for work that never happened.
+	var colReader *lsmkv.RoaringSetKeyDocColumnReader
+	// Which read answered. Both can, and what they spend is not comparable, so
+	// the counts say little without it.
+	servedBy := "none"
 	// Deferred so a filter that fails partway is timed and reports what it did
 	// before it stopped.
 	defer func() {
@@ -425,6 +433,7 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 			// Distinct keys, not filter values: dedup means a boolean
 			// filter reports at most two regardless of value count.
 			"batched_keys": pv.containsKeys.Len(),
+			"served_by":    servedBy,
 		}
 		// A planned fold always takes at least one worker, so this reports
 		// the plan whenever there is one — a fold that failed to open a
@@ -434,8 +443,22 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 			fields["fold_strategy"] = plan.strategy.String()
 		}
 		// What the batching itself did, so a slow batched filter can be told
-		// from a filter that was merely slow.
-		if st, ok := source.stats(); ok {
+		// from a filter that was merely slow. Whichever read ran: the two
+		// report the same shape, so the fields do not change with the path and
+		// served_by is what says which one they describe.
+		//
+		// The fold reports because a reader was opened, even one that read
+		// nothing — that is what tells a filter which failed mid-fold from one
+		// rejected before a reader existed. The column reports only once it has
+		// read, because its reader is opened before there is anything to
+		// decline with, so its mere existence says nothing.
+		st, ok := source.stats()
+		if !ok && colReader != nil {
+			if colSt := colReader.Stats(); colSt.Fills > 0 {
+				st, ok = colSt, true
+			}
+		}
+		if ok {
 			fields["window_fills"] = st.Fills
 			fields["window_narrowed_fills"] = st.NarrowedFills
 			fields["batch_keys_served"] = st.KeysServed
@@ -451,7 +474,47 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 		helpers.AnnotateSlowQueryLogAppendReducible(ctx, docBitmapSlowLogKey, fields, helpers.ReduceToSlowest)
 	}()
 
-	dbm, plan, err = s.docBitmapContainsBatch(ctx, source, pv)
+	// Serve the union from the resident key/doc column when the property was
+	// configured for one; a property that was not simply has no column attached.
+	// Any miss — no column, a build that declined, a flush that detached it —
+	// falls through to the fold below, which returns the same documents either
+	// way.
+	//
+	// ContainsNone wants that same union, denied: the column answers which
+	// documents hold one of the values, and whether that set is the answer or its
+	// complement is the caller's flag, not the column's work.
+	//
+	// Its own reader, opened on the same narrowed view: it reads the memtables
+	// the fold would, and never the segments.
+	if servedByKeyDocColumn(pv.operator) {
+		colReader, err = nv.NewRoaringSetKeyDocColumnReader(pv.containsKeys)
+		if err != nil {
+			return nil, err
+		}
+		// Named before the read, not after it: the reader records every window it
+		// walked even when the read then fails, and those counts belong to this
+		// path rather than to a fold that never ran. A decline falls through to
+		// the fold below and is renamed there, having read nothing to report.
+		servedBy = "key_doc_column"
+		colDBM, served, err := s.docBitmapContainsColumn(ctx, colReader,
+			pv.operator == filters.ContainsNone)
+		if err != nil {
+			return nil, err
+		}
+		if served {
+			dbm = colDBM
+			return &dbm, nil
+		}
+	}
+	servedBy = "fold"
+	source = roaringSetBatchReaderSource{
+		view: nv.NarrowedConsistentView,
+		// Sized at what the budget affords, since the plan is not made yet. A
+		// test override can ask for more, which append handles.
+		readers: make([]*lsmkv.RoaringSetBatchReader, 0, maxContainsFoldWorkers),
+	}
+
+	dbm, plan, err = s.docBitmapContainsBatch(ctx, &source, pv)
 	if err != nil {
 		return nil, err
 	}

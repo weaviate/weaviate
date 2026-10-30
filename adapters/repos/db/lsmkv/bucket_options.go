@@ -302,6 +302,28 @@ func WithKeepSegmentsInMemory(keep bool) BucketOption {
 	}
 }
 
+// WithKeyDocColumn requests a resident key/doc column over this bucket, built at
+// open. False, and omitting the option, both mean no column: ContainsAny on the
+// property uses the standard fold.
+//
+// Requires [WithDocIDCountGetter]; without one the bucket cannot size the index
+// and declines to build it, which is a warning rather than a failure to open.
+func WithKeyDocColumn(enabled bool) BucketOption {
+	return func(b *Bucket) error {
+		b.buildKeyDocColumn = enabled
+		return nil
+	}
+}
+
+// WithDocIDCountGetter supplies how many document IDs the shard has issued, read
+// when a structure needs to size itself to the range they are drawn from.
+func WithDocIDCountGetter(getter roaringset.DocIDCountGetterFunc) BucketOption {
+	return func(b *Bucket) error {
+		b.docIDCountGetter = getter
+		return nil
+	}
+}
+
 // WithRangeableInMemoryDeferred marks a bucket whose in-memory rep was left
 // unbuilt intentionally. Enables a diagnostic log line only; never affects
 // read-path selection.
