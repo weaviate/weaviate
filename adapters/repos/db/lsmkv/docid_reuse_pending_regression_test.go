@@ -24,20 +24,22 @@ import "testing"
 // TestDocIDReuse_C1_Jero_RealShard is Jero's verbatim C1 repro
 // (docid_reuse_repro_integration_test.go, "drop into f03e86a0fd, no production
 // changes"; real shard lifecycle + rescore-path interleaving; audit recorded
-// RED 30/30, losses 38-63/100, mode 48). PENDING: the verbatim source lives in
-// Jero's review markdown (~/Downloads/pr13036-docid-reuse-review.md), which is
-// currently unreadable (macOS Downloads TCC blocks terminal + tool access).
-// Real home: package db (integrationTest), not lsmkv.
+// RED 30/30, losses 38-63/100, mode 48). It needs the reuse stack
+// (#12894/#13029/#12886/#13036), which is not merged into this branch's base
+// yet, so it lives verbatim (package db, integrationTest) on the stack-based
+// branch tests/docid-reuse-regression-stack (off f03e86a0fd), verified RED
+// there. Fold it in here once the stack merges into integration.
 func TestDocIDReuse_C1_Jero_RealShard(t *testing.T) {
-	t.Skip("PENDING verbatim source (C1) — awaiting readable copy of Jero's review md; see docid-reuse-jero-audit")
+	t.Skip("MOVED: lives on branch tests/docid-reuse-regression-stack (needs the reuse stack, absent from this base); verified RED there as TestDocIDReuseRepro_DuplicateSecondaryKeyHidesReusedObject. Verbatim source in audit/pr13036-docid-reuse-review.md")
 }
 
 // TestDocIDReuse_C2_Jero_Retombstone is Jero's verbatim C2 repro
 // (docid_reuse_retombstone_repro_test.go; audit recorded RED 20/20 both modes:
-// dirty-freed-id + destroyed-new-owner). PENDING: same blocked source as above.
-// Real home: package hnsw.
+// dirty-freed-id + destroyed-new-owner). Same stack dependency as C1 above; it
+// lives verbatim (package hnsw) on tests/docid-reuse-regression-stack, verified
+// RED there. Fold it in here once the stack merges into integration.
 func TestDocIDReuse_C2_Jero_Retombstone(t *testing.T) {
-	t.Skip("PENDING verbatim source (C2) — awaiting readable copy of Jero's review md; see docid-reuse-jero-audit")
+	t.Skip("MOVED: lives on branch tests/docid-reuse-regression-stack (needs the reuse stack, absent from this base); verified RED there as TestDocIDReuseRepro_StaleRescoreRetombstonesFreedID. Verbatim source in audit/pr13036-docid-reuse-review.md")
 }
 
 // TestDocIDReuse_H1_ChunkWatermarkEscape pins H1 (CONFIRMED by the audit): an
