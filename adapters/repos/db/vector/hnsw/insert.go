@@ -536,8 +536,10 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 	if targetLevel > h.currentMaximumLayer {
 		h.RUnlock()
 		h.Lock()
-		// check again to avoid changes from RUnlock to Lock again
-		if targetLevel > h.currentMaximumLayer {
+		// check again to avoid changes from RUnlock to Lock again. The delete of a
+		// doc can overtake its insert, and nothing moves an entrypoint that was
+		// tombstoned before it became one.
+		if targetLevel > h.currentMaximumLayer && !h.hasTombstone(nodeId) {
 			if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
 				h.Unlock()
 				return err

@@ -740,6 +740,12 @@ func (h *hnsw) bootstrapEntrypoint(id uint64, node *vertex) (bool, error) {
 		return false, nil
 	}
 
+	return h.takeOverDeadEntrypoint(id, node)
+}
+
+// takeOverDeadEntrypoint makes the inserting node the entrypoint, unless the
+// current one is live.
+func (h *hnsw) takeOverDeadEntrypoint(id uint64, node *vertex) (bool, error) {
 	h.Lock()
 	defer h.Unlock()
 
@@ -769,7 +775,7 @@ func (h *hnsw) bootstrapEntrypoint(id uint64, node *vertex) (bool, error) {
 		"shard":  h.shardName,
 		"id":     id,
 		"level":  level,
-	}).Infof("class %s: shard %s: node %d is the last live node, made it the entrypoint",
+	}).Infof("class %s: shard %s: no live node in reach of node %d, made it the entrypoint",
 		h.className, h.shardName, id)
 	return true, nil
 }
