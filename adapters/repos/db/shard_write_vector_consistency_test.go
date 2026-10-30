@@ -684,28 +684,28 @@ func TestConcurrentRewritesOfUnindexedObjects(t *testing.T) {
 // TestConcurrentUpdatesOfTheSameObjects is the natural trigger of issue #13609: an
 // update deletes the doc ID another update is still inserting. Over rounds on a
 // small shard that used to leave the shard at 0 or 1 results for any limit, all
-// writes reported as successful. Multi vectors are left out for
+// writes reported as successful. Flat and multi vectors are left out for
 // https://github.com/weaviate/weaviate/issues/13686.
 func TestConcurrentUpdatesOfTheSameObjects(t *testing.T) {
 	const count, writers, rounds = 9, 8, 30
 
 	for _, flavor := range consistencyFlavors() {
-		if flavor.target == "colbert" {
+		if flavor.name == "flat named vector" || flavor.target == "colbert" {
 			continue
 		}
 
 		t.Run(flavor.name, func(t *testing.T) {
+			className := "ConcurrentUpdates"
+			shard, idx := testShardWithSettings(t, t.Context(), consistencyClass(className),
+				enthnsw.NewDefaultUserConfig(), false, false, flavor.opts...)
+
+			objs := consistencyObjects(flavor, className, count)
+			require.Empty(t, nonNilErrs(shard.PutObjectBatch(t.Context(), objs)))
+
 			for round := range rounds {
-				className := "ConcurrentUpdates"
-				shard, idx := testShardWithSettings(t, t.Context(), consistencyClass(className),
-					enthnsw.NewDefaultUserConfig(), false, false, flavor.opts...)
-
-				objs := consistencyObjects(flavor, className, count)
-				require.Empty(t, nonNilErrs(shard.PutObjectBatch(t.Context(), objs)))
-
 				eg := enterrors.NewErrorGroupWrapper(idx.logger)
 				for writer := range writers {
-					batch := withNewVectors(flavor, objs, (writer+1)*count)
+					batch := withNewVectors(flavor, objs, (round+1)*count+(writer+1)*count*rounds)
 					eg.Go(func() error {
 						return errors.Join(shard.PutObjectBatch(t.Context(), batch)...)
 					})

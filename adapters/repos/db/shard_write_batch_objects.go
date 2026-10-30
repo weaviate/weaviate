@@ -340,13 +340,13 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 	for targetVector, vectors := range targetVectors {
 		positions := targetPositions[targetVector]
 		found, _ := ob.shard.WithVectorIndexQueue(targetVector, func(queue *VectorIndexQueue) error {
-			// one at a time: a vector the queue refuses has to fail its own object,
-			// not the one at the start of the batch, and leave the rest indexed
-			for i, vector := range vectors {
-				if err := queue.Insert(ctx, vector); err != nil {
+			// a vector the queue refuses has to fail its own object, not the one at the
+			// start of the batch, and leave the rest indexed
+			queue.InsertEach(vectors, func(i int, err error) {
+				if err != nil {
 					ob.setErrorAtIndex(err, positions[i])
 				}
-			}
+			})
 			return nil
 		})
 		if !found {

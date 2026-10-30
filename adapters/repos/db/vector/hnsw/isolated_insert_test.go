@@ -141,3 +141,31 @@ func TestPruningKeepsLiveNeighborsOverTombstones(t *testing.T) {
 	require.Len(t, connections, 2, "the spare slot stays with a tombstone, it may be a bridge")
 	f.requireReachable(t, 0, 3)
 }
+
+// The delete of a doc can overtake its insert, and the node that goes in then is just
+// another tombstone: it must not push a live neighbor out of a full list either.
+func TestPruningKeepsLiveNeighborsOverTombstonedInsert(t *testing.T) {
+	f := newBootstrapFixture(t, false)
+	f.index.maximumConnectionsLayerZero = 2
+
+	// node 3 sits right next to node 0 and takes the first slot, and being closer to
+	// node 1 than node 1 is to node 0, it would prune node 1
+	place := func(id uint64, position ...float32) {
+		vector := make([]float32, len(f.vectors[0]))
+		copy(vector, position)
+		f.vectors[id] = vector
+		f.index.cache.Preload(id, vector)
+	}
+	place(0)
+	place(1, 1)
+	place(2, -1)
+	place(3, 0.01)
+
+	require.ElementsMatch(t, []uint64{1, 2}, f.index.nodeByID(0).connections.GetLayer(0))
+
+	require.NoError(t, f.index.Delete(3))
+	require.NoError(t, f.index.Add(f.ctx, 3, f.vectors[3]))
+
+	require.ElementsMatch(t, []uint64{1, 2}, f.index.nodeByID(0).connections.GetLayer(0))
+	f.requireReachable(t, 0, 1, 2)
+}

@@ -909,7 +909,8 @@ func (h *hnsw) ContainsDoc(docID uint64) bool {
 
 // HasGhost reports whether a search can't reach the doc although ContainsDoc says
 // it is there: an insert that failed after publishing a node leaves it in the graph
-// without edges.
+// with no edges, or with links nobody returns. It doesn't walk the graph, so it can't
+// see a part of the graph that is cut off from the entrypoint as a whole.
 func (h *hnsw) HasGhost(docID uint64) bool {
 	if h.Multivector() && !h.muvera.Load() {
 		h.RLock()
@@ -921,8 +922,9 @@ func (h *hnsw) HasGhost(docID uint64) bool {
 	return h.isGhost(docID)
 }
 
-// isGhost tells a node without edges from the two kinds that need none: the
-// entrypoint, and a node that is still being connected.
+// isGhost tells a node nobody links to from the two kinds that need no links: the
+// entrypoint, and a node that is still being connected. Links are mutual when they
+// are made, so looking at the neighbors of the node is enough.
 func (h *hnsw) isGhost(id uint64) bool {
 	node := h.nodeByID(id)
 	if node == nil || id == h.getEntrypoint() || node.isUnderMaintenance() {
@@ -930,8 +932,19 @@ func (h *hnsw) isGhost(id uint64) bool {
 	}
 
 	node.Lock()
-	defer node.Unlock()
-	return node.connections.LenAtLayer(0) == 0
+	neighbors := node.connections.GetLayer(0)
+	node.Unlock()
+
+	return !slices.ContainsFunc(neighbors, func(neighborID uint64) bool {
+		neighbor := h.nodeByID(neighborID)
+		if neighbor == nil {
+			return false
+		}
+
+		neighbor.Lock()
+		defer neighbor.Unlock()
+		return slices.Contains(neighbor.connections.GetLayer(0), id)
+	})
 }
 
 func (h *hnsw) Iterate(fn func(docID uint64) bool) {

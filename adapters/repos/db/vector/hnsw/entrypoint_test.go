@@ -309,6 +309,28 @@ func TestHasGhost(t *testing.T) {
 		require.False(t, f.index.HasGhost(3))
 	})
 
+	t.Run("links nobody returns don't help", func(t *testing.T) {
+		// an insert that failed after it set its own links
+		f := newBootstrapFixture(t, false)
+		f.leaveGhost(t, 3)
+
+		f.index.nodeByID(3).setConnectionsAtLevel(0, []uint64{0, 1})
+
+		require.True(t, f.index.HasGhost(3))
+	})
+
+	t.Run("a part of the graph cut off from the entrypoint", func(t *testing.T) {
+		t.Skip("https://github.com/weaviate/weaviate/issues/13698")
+
+		f := newBootstrapFixture(t, false)
+		require.Equal(t, uint64(0), f.index.getEntrypoint())
+
+		f.index.nodeByID(0).setConnectionsAtLevel(0, nil)
+
+		require.True(t, f.index.HasGhost(1))
+		require.True(t, f.index.HasGhost(2))
+	})
+
 	t.Run("a node being inserted is no ghost", func(t *testing.T) {
 		f := newBootstrapFixture(t, false)
 		f.leaveGhost(t, 3)
