@@ -26,7 +26,8 @@ func newPropertyDeleteIndexHelper() *propertyDeleteIndexHelper {
 	return &propertyDeleteIndexHelper{}
 }
 
-// Shared with [schemaAuthorizesFinalization] so both read the flag the same.
+// propertyIndexRemoved reports whether an index setting was explicitly set to
+// false. A nil setting is the default, which keeps the index.
 func propertyIndexRemoved(propertyIndexSetting *bool) bool {
 	return propertyIndexSetting != nil && !*propertyIndexSetting
 }

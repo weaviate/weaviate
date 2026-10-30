@@ -318,8 +318,12 @@ func TestAFilterOnAWithheldRangeIndexDoesNotBlameTheSchema(t *testing.T) {
 		name      string
 		rangeable bool
 		wantMsg   string
+		notMsg    string
 	}{
-		{name: "the schema has the range index this shard withholds", rangeable: true, wantMsg: "migration"},
+		{
+			name: "the schema has the range index this shard withholds", rangeable: true,
+			wantMsg: "rangeFilters rebuild", notMsg: "indexFilterable",
+		},
 		{name: "the schema has no index to filter on", wantMsg: "indexFilterable"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -342,6 +346,9 @@ func TestAFilterOnAWithheldRangeIndexDoesNotBlameTheSchema(t *testing.T) {
 			var missing entinverted.MissingIndexError
 			require.ErrorAs(t, err, &missing, "the API keeps answering it as a missing index")
 			require.Contains(t, err.Error(), tt.wantMsg)
+			if tt.notMsg != "" {
+				require.NotContains(t, err.Error(), tt.notMsg)
+			}
 		})
 	}
 }

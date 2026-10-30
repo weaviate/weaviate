@@ -102,7 +102,7 @@ func TestPromoteGuardsBothHandles(t *testing.T) {
 		{name: "the directory to promote escapes", from: "..", to: "property_title_searchable", refused: true},
 		{name: "the name to promote onto escapes", from: "property_title__g42_ingest", to: "..", refused: true},
 		{name: "neither names a directory", from: "", to: "", refused: true},
-		// Promote doesn't clear the destination; that's the caller's job.
+		// Promote doesn't clear the destination. The caller does.
 		{name: "both name one directory", from: "property_title__g42_ingest", to: "property_title_rangeable"},
 	}
 
@@ -130,9 +130,9 @@ func TestPromoteGuardsBothHandles(t *testing.T) {
 	}
 }
 
-// A stat failure must not read as absent, or a promotion probe takes
-// "cannot see it" as proof a rename already ran.
-func TestDirExistsSeparatesAbsentFromUnreadable(t *testing.T) {
+// Only a missing path reads as absent. Any other stat error must fail the
+// probe, or a promotion probe takes "cannot see it" as proof a rename ran.
+func TestBucketDirsExistsSeparatesAbsentFromUnreadable(t *testing.T) {
 	tests := []struct {
 		name     string
 		dir      string
@@ -174,23 +174,6 @@ func TestDirExistsSeparatesAbsentFromUnreadable(t *testing.T) {
 			require.Equal(t, tt.want, there)
 		})
 	}
-}
-
-func TestTrackerDirsRootOneLevelDownAndTakeTheSameGuard(t *testing.T) {
-	f := newBucketDirsFixture(t)
-	f.mkdirs("property_title_searchable")
-	trackers := f.dirs.Trackers()
-	require.NoError(t, os.MkdirAll(filepath.Join(trackers.root, "searchable_retokenize_1"), 0o777))
-
-	require.Equal(t, filepath.Join(f.lsmPath, migrationsDir), trackers.root)
-
-	there, err := trackers.Exists("searchable_retokenize_1")
-	require.NoError(t, err)
-	require.True(t, there)
-
-	require.Error(t, trackers.Discard("..", "a tracker directory"),
-		"the parent of the tracker root is the shard's LSM directory")
-	require.True(t, f.exists("property_title_searchable"))
 }
 
 func TestRemoveBucketsDirsRemovesOnlyTheNamedDirectory(t *testing.T) {

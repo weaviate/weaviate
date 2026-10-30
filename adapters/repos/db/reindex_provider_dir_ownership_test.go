@@ -21,7 +21,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // One property is the only shape a submission can carry: the upsert handler
@@ -218,20 +222,12 @@ func seedInFlightMigration(t *testing.T, p *ReindexProvider, lsmPath string,
 	return dirs
 }
 
-// recoveredMigrationDirs is every tracker directory the recovered strategy
-// instances name, deduplicated: a semantic migration rebuilds both of its
-// tasks from each of its directories.
+// recoveredMigrationDirs is the tracker directory of every recovered task.
 func recoveredMigrationDirs(recovered []RecoveredReindex) []string {
-	seen := map[string]bool{}
 	var out []string
 	for _, r := range recovered {
 		for _, task := range r.Tasks {
-			name := task.strategy.MigrationDirName()
-			if seen[name] {
-				continue
-			}
-			seen[name] = true
-			out = append(out, name)
+			out = append(out, task.strategy.MigrationDirName())
 		}
 	}
 	sort.Strings(out)
@@ -262,6 +258,68 @@ func TestRecoveryNamesTheDirectoriesItRecoveredFrom(t *testing.T) {
 				require.Equal(t, uint64(41), r.Descriptor.Version,
 					"the descriptor still carries the version the cluster knows the task by")
 			}
+		})
+	}
+}
+
+// A change-tokenization writes one tracker dir per half it built. Recovery
+// must rebuild the same halves: a duplicate keeps its double-write mirror past
+// the swap, and a filterable half the live path never built fails the swap.
+func TestRecoveryRebuildsOnlyTheHalvesTheLivePathBuilt(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		filterable bool
+	}{
+		{name: "filterable index present", filterable: true},
+		{name: "no filterable index", filterable: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			class := newTestClassWithProps("Books", []string{dirOwnershipProp})
+			class.Properties[0].IndexFilterable = &tc.filterable
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
+			for _, obj := range makeConvergenceTestObjects(t, 10, class.Class) {
+				require.NoError(t, shard.PutObject(ctx, obj))
+			}
+
+			p, _ := newTestProvider(t)
+			p.serverCtx = ctx
+			payload := &ReindexTaskPayload{
+				MigrationType: ReindexTypeChangeTokenization, Collection: class.Class,
+				Properties: []string{dirOwnershipProp}, TargetTokenization: models.PropertyTokenizationField,
+				BucketStrategy: lsmkv.StrategyMapCollection,
+			}
+			desc := taskDescAt(1)
+			live, err := buildMigrationTasks(p.logger, nil, payload,
+				func(string, string) (int, bool) { return 1, true },
+				func(string, string) bool { return tc.filterable })
+			require.NoError(t, err)
+			dtmTask := &distributedtask.Task{Namespace: ReindexNamespace, TaskDescriptor: desc}
+			require.NoError(t, p.persistRecoveryRecord(dtmTask, payload, "unit-1", shard, live, &selectedPropsFailures{}))
+			var liveDirs []string
+			for _, task := range live {
+				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+				// A restart drops the live instances' callbacks.
+				task.disableCallbacks()
+				liveDirs = append(liveDirs, task.strategy.MigrationDirName())
+			}
+			sort.Strings(liveDirs)
+
+			recovered, err := DiscoverInFlightReindexTasks(idx.Config.RootPath, true, idx.logger, nil)
+			require.NoError(t, err)
+			require.Equal(t, liveDirs, recoveredMigrationDirs(recovered))
+
+			require.NoError(t, NewShardReindexerV3FromRecovered(recovered, idx.logger).RunAfterLsmInit(ctx, shard))
+			var tasks []*ShardReindexTaskGeneric
+			for _, r := range recovered {
+				tasks = append(tasks, r.Tasks...)
+			}
+			ok, prep := p.runShardPrepPhase(ctx, "unit-1", shard, tasks, false, p.logger)
+			require.True(t, ok, prep.Errs)
+			require.Empty(t, p.runShardSwapPhase(ctx, payload, "unit-1", shard.Name(), shard, tasks, p.logger).Errs)
+			require.Empty(t, shard.loadPropValueIndexState().add, "the double-write mirror must end with the swap")
 		})
 	}
 }

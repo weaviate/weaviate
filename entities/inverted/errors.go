@@ -22,7 +22,8 @@ func NewMissingFilterableIndexError(propName string) error {
 	return MissingIndexError{missingFilterableFormat, []any{propName, propName}}
 }
 
-// The schema already has this index, so the message must not send the user to change it.
+// NewWithheldRangeableIndexError reports a range index the schema has but this
+// shard does not serve yet, so its message does not send the user to the schema.
 func NewWithheldRangeableIndexError(propName string) error {
 	return MissingIndexError{withheldRangeableFormat, []any{propName}}
 }
@@ -43,9 +44,9 @@ const (
 	missingFilterableFormat = "Filtering by property '%s' requires inverted index. " +
 		"Is `indexFilterable` option of property '%s' enabled? " +
 		"Set it to `true` or leave empty"
-	withheldRangeableFormat = "Filtering by property '%s' needs its range index, which the schema has " +
-		"but this shard does not serve yet, because a range index migration on this shard has not " +
-		"finished. Retry once the migration completes"
+	withheldRangeableFormat = "Filtering by property '%s' needs its range index (`indexRangeFilters`). " +
+		"The schema has it, but this shard does not serve it until a range index migration on this " +
+		"shard finishes. If no migration is running for this property, run a rangeFilters rebuild"
 	missingSearchableFormat = "Searching by property '%s' requires inverted index. " +
 		"Is `indexSearchable` option of property '%s' enabled? " +
 		"Set it to `true` or leave empty"

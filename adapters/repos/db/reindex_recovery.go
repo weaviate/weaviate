@@ -68,8 +68,8 @@ type RecoveredReindex struct {
 // (in-memory swap complete), tidied.mig (swap fully tidied; no
 // recovery needed).
 //
-// Returns a flat slice; deduplication across sibling migration dirs
-// belonging to the same task is the caller's job.
+// Returns one entry per migration dir, each holding only the task that dir
+// belongs to.
 func DiscoverInFlightReindexTasks(
 	rootPath string,
 	runtimeReindexEnabled bool,
@@ -131,7 +131,7 @@ func DiscoverInFlightReindexTasks(
 					continue
 				}
 
-				tasks, err := buildRecoveryTasks(rec, shardName, generation, logger, schemaManager)
+				tasks, err := buildRecoveryTasks(rec, shardName, migEntry.Name(), generation, logger, schemaManager)
 				if err != nil {
 					logger.WithField("migrationDir", migDir).
 						Warnf("reindex recovery: skipping migration; cannot build tasks: %v", err)
@@ -203,9 +203,9 @@ func loadReindexRecoveryRecord(migDir string, logger logrus.FieldLogger) (reinde
 	return rec, true
 }
 
-// buildRecoveryTasks reconstructs the [ShardReindexTaskGeneric]
-// instances that processOneUnit would have created for this migration
-// type, but scoped to exactly the named shard. The scope is what makes
+// buildRecoveryTasks reconstructs the [ShardReindexTaskGeneric] that
+// processOneUnit created for the tracker dir dirName, scoped to exactly
+// the named shard. The scope is what makes
 // per-instance callbackDisableFuncs safe to share with [runtimeSwap]
 // later: the static reindexer iterates all registered tasks on every
 // shard init, but each task's isShardSelected filter drops everything
@@ -213,6 +213,7 @@ func loadReindexRecoveryRecord(migDir string, logger logrus.FieldLogger) (reinde
 func buildRecoveryTasks(
 	rec reindexRecoveryRecord,
 	shardName string,
+	dirName string,
 	generation int,
 	logger logrus.FieldLogger,
 	schemaManager *schema.Manager,
@@ -221,8 +222,12 @@ func buildRecoveryTasks(
 	if payload.Collection == "" {
 		return nil, fmt.Errorf("payload missing collection")
 	}
-	genFor := func(string, string) (int, bool) { return generation, true }
-	// Recovery has no schema to check yet; a tracker dir exists only for a half the live path built.
+	// Recovery has no schema to check yet. genFor builds only the half this
+	// tracker dir belongs to, so a filterable half exists only where the live
+	// path built one.
+	genFor := func(prefix, propSuffix string) (int, bool) {
+		return generation, prefix+propSuffix+genSuffix(generation) == dirName
+	}
 	hasFilterableBucket := func(string, string) bool { return true }
 	raw, err := buildMigrationTasks(logger, schemaManager, &payload, genFor, hasFilterableBucket)
 	if err != nil {
