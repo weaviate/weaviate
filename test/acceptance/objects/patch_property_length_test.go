@@ -31,7 +31,9 @@ import (
 // TestObjects_PatchKeepsPropertyLengthFilterCurrent proves that a PATCH whose
 // analyzed terms are unchanged but whose raw value length changes still
 // updates the len() where-filter, rather than leaving it pointing at the
-// pre-patch value.
+// pre-patch value. It also proves that an object lacking a property matches
+// len() == 0 with only IndexPropertyLength on, through a PATCH that adds the
+// property and a PUT that drops it.
 func TestObjects_PatchKeepsPropertyLengthFilterCurrent(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().WithWeaviate().Start(ctx)
@@ -43,6 +45,18 @@ func TestObjects_PatchKeepsPropertyLengthFilterCurrent(t *testing.T) {
 	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
 	helper.SetupClient(compose.GetWeaviate().URI())
 
+	properties := []*models.Property{
+		{
+			Name:         "text",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWord,
+		},
+		{
+			Name:     "counts",
+			DataType: schema.DataTypeIntArray.PropString(),
+		},
+	}
+
 	className := "PatchLengthFilter"
 	helper.CreateClass(t, &models.Class{
 		Class:      className,
@@ -51,19 +65,22 @@ func TestObjects_PatchKeepsPropertyLengthFilterCurrent(t *testing.T) {
 			IndexNullState:      true,
 			IndexPropertyLength: true,
 		},
-		Properties: []*models.Property{
-			{
-				Name:         "text",
-				DataType:     schema.DataTypeText.PropString(),
-				Tokenization: models.PropertyTokenizationWord,
-			},
-			{
-				Name:     "counts",
-				DataType: schema.DataTypeIntArray.PropString(),
-			},
-		},
+		Properties: properties,
 	})
 	defer helper.DeleteClass(t, className)
+
+	// Without IndexNullState, so a missing property gets its length-0 entry
+	// from IndexPropertyLength alone.
+	missingClassName := "MissingLengthFilter"
+	helper.CreateClass(t, &models.Class{
+		Class:      missingClassName,
+		Vectorizer: "none",
+		InvertedIndexConfig: &models.InvertedIndexConfig{
+			IndexPropertyLength: true,
+		},
+		Properties: properties,
+	})
+	defer helper.DeleteClass(t, missingClassName)
 
 	tests := []struct {
 		name      string
@@ -122,9 +139,59 @@ func TestObjects_PatchKeepsPropertyLengthFilterCurrent(t *testing.T) {
 			assertLenFilterCount(t, className, tc.property, tc.beforeLen, 0)
 		})
 	}
+
+	t.Run("missing property matches len() == 0 with only IndexPropertyLength", func(t *testing.T) {
+		missingID := strfmt.UUID(uuid.New().String())
+		emptyID := strfmt.UUID(uuid.New().String())
+		presentID := strfmt.UUID(uuid.New().String())
+
+		create := func(id strfmt.UUID, props map[string]interface{}) {
+			t.Helper()
+			require.NoError(t, helper.CreateObject(t, &models.Object{
+				Class:      missingClassName,
+				ID:         id,
+				Properties: props,
+			}))
+			t.Cleanup(func() { helper.DeleteObject(t, &models.Object{Class: missingClassName, ID: id}) })
+		}
+		create(missingID, map[string]interface{}{"text": "missing"})
+		create(emptyID, map[string]interface{}{"text": "empty", "counts": []int{}})
+		create(presentID, map[string]interface{}{"text": "present", "counts": []int{1}})
+
+		require.ElementsMatch(t, []strfmt.UUID{missingID, emptyID},
+			lenFilterIDs(t, missingClassName, "counts", 0), "after insert")
+		require.ElementsMatch(t, []strfmt.UUID{presentID},
+			lenFilterIDs(t, missingClassName, "counts", 1), "after insert")
+
+		// PATCH merges, so it can add counts but not drop it.
+		require.NoError(t, helper.PatchObject(t, &models.Object{
+			Class:      missingClassName,
+			ID:         missingID,
+			Properties: map[string]interface{}{"counts": []int{2}},
+		}))
+		// PUT replaces, so leaving counts out drops it.
+		require.NoError(t, helper.UpdateObject(t, &models.Object{
+			Class:      missingClassName,
+			ID:         presentID,
+			Properties: map[string]interface{}{"text": "present"},
+		}))
+
+		require.ElementsMatch(t, []strfmt.UUID{presentID, emptyID},
+			lenFilterIDs(t, missingClassName, "counts", 0),
+			"after a PATCH adds counts and a PUT drops it")
+		require.ElementsMatch(t, []strfmt.UUID{missingID},
+			lenFilterIDs(t, missingClassName, "counts", 1),
+			"after a PATCH adds counts and a PUT drops it")
+	})
 }
 
 func assertLenFilterCount(t *testing.T, className, property string, length, expectedCount int) {
+	t.Helper()
+	require.Len(t, lenFilterIDs(t, className, property, length), expectedCount,
+		"len(%s) = %d should match %d object(s)", property, length, expectedCount)
+}
+
+func lenFilterIDs(t *testing.T, className, property string, length int) []strfmt.UUID {
 	t.Helper()
 	query := fmt.Sprintf(`{
 		Get {
@@ -135,6 +202,10 @@ func assertLenFilterCount(t *testing.T, className, property string, length, expe
 	}`, className, property, length)
 
 	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
-	require.Len(t, result.Get("Get", className).AsSlice(), expectedCount,
-		"len(%s) = %d should match %d object(s)", property, length, expectedCount)
+	objs := result.Get("Get", className).AsSlice()
+	ids := make([]strfmt.UUID, len(objs))
+	for i, obj := range objs {
+		ids[i] = strfmt.UUID(obj.(map[string]interface{})["_additional"].(map[string]interface{})["id"].(string))
+	}
+	return ids
 }

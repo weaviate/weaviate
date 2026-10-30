@@ -46,9 +46,6 @@ type SchemaReader interface {
 type ClassReader interface {
 	ReadOnlyClassesFromLeader(classes ...string) (map[string]versioned.Class, error)
 	SchemaFromLeader() (models.Schema, error)
-	// CollectionsCountFromLeader counts collections. An empty namespace counts the
-	// whole cluster; a non-empty one restricts the count to that namespace.
-	CollectionsCountFromLeader(namespace string) (int, error)
 	ClassVersionsFromLeader(classes ...string) (map[string]uint64, error)
 }
 

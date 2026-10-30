@@ -72,7 +72,7 @@ type bufconnFakeRepo struct {
 	idx *bufconnFakeIndex
 }
 
-func (r *bufconnFakeRepo) GetIndexForIncomingSharding(schema.ClassName) remote.IndexIncomingRepo {
+func (r *bufconnFakeRepo) GetIndexForIncomingSharding(context.Context, schema.ClassName) remote.IndexIncomingRepo {
 	return r.idx
 }
 
