@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 )
 
 func TestQuantizationDataSurvivesRestart(t *testing.T) {
@@ -154,4 +155,161 @@ func TestStartupDeletesLegacyReassignBucketKey(t *testing.T) {
 	data, err = mustBucket(t, index.IndexMetadata.bucket).Get(unrelatedKey)
 	require.NoError(t, err)
 	require.Equal(t, unrelatedValue, data)
+}
+
+// singlePostingRestartConfig wires a real centroid commit logger and a
+// vector store, so the bootstrap split can run after a restart.
+func singlePostingRestartConfig(t *testing.T, threshold uint32) (*Config, ent.UserConfig, *testVectorStore) {
+	cfg, uc := makeHFreshConfig(t)
+	cfg.BootstrapThreshold = threshold
+	uc.MaxPostingSizeKB = ent.MaxPostingSizeKBFloor
+	vectors := &testVectorStore{m: make(map[uint64][]float32)}
+	cfg.VectorForIDThunk = vectors.get
+	return cfg, uc, vectors
+}
+
+func addRestartVectors(t *testing.T, index *HFresh, store *testVectorStore, from, to int) [][]float32 {
+	t.Helper()
+	all, _ := testinghelpers.RandomVecsFixedSeed(to, 0, singlePostingDims)
+	for i := from; i < to; i++ {
+		store.put(uint64(i), all[i])
+		require.NoError(t, index.Add(t.Context(), uint64(i), all[i]))
+	}
+	return all
+}
+
+func requireSelfSearchExcept(t *testing.T, index *HFresh, vectors [][]float32, skip int) {
+	t.Helper()
+	for i, v := range vectors {
+		if i == skip {
+			continue
+		}
+		ids, _, err := index.SearchByVector(t.Context(), v, 1, nil)
+		require.NoError(t, err)
+		require.Equal(t, []uint64{uint64(i)}, ids, "vector %d", i)
+	}
+}
+
+// inMemoryVersion reads a version without faulting it in from the store.
+func inMemoryVersion(v *VersionMap, id uint64) VectorVersion {
+	page, slot := v.data.GetPageFor(id)
+	if page == nil {
+		return 0
+	}
+	v.locks.RLock(id)
+	defer v.locks.RUnlock(id)
+	return page[slot]
+}
+
+func TestSinglePostingSurvivesRestart(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	all := addRestartVectors(t, index, vectors, 0, 300)
+	require.NoError(t, index.Delete(7))
+	require.NoError(t, index.Shutdown(t.Context()))
+
+	index = makeHFreshWithConfig(t, store, cfg, uc)
+	require.False(t, index.Centroids.Built())
+	size, err := index.PostingSizes.Get(t.Context(), 1)
+	require.NoError(t, err)
+	require.EqualValues(t, 300, size)
+	meta, err := index.PostingMap.Get(t.Context(), 1)
+	require.NoError(t, err)
+	require.EqualValues(t, 300, meta.Count())
+
+	// the version warmup walks the rebuilt posting map entry, after the
+	// persisted versions, so the delete wins over the default
+	require.Eventually(t, func() bool {
+		for id := range uint64(300) {
+			if inMemoryVersion(index.VersionMap, id) == 0 {
+				return false
+			}
+		}
+		return true
+	}, 10*time.Second, 10*time.Millisecond, "every version must be warmed up")
+	for id := range uint64(300) {
+		require.Equal(t, id == 7, inMemoryVersion(index.VersionMap, id).Deleted(), "vector %d", id)
+	}
+
+	ids, _, err := index.SearchByVector(t.Context(), all[7], 1, nil)
+	require.NoError(t, err)
+	require.NotEqual(t, []uint64{7}, ids, "delete must survive the restart")
+	requireSelfSearchExcept(t, index, all, 7)
+
+	// the restored posting keeps counting towards the threshold
+	all = addRestartVectors(t, index, vectors, 300, singlePostingThreshold+1)
+	require.True(t, index.Centroids.Built())
+	index.waitForMaintenance(t)
+	require.Greater(t, index.PostingSizes.Count(), uint64(2))
+	requireSelfSearchExcept(t, index, all, 7)
+}
+
+func TestSinglePostingRecoveredWithoutRecord(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	all := addRestartVectors(t, index, vectors, 0, 300)
+
+	// an index written before the record existed has posting 1 on disk only
+	bucket, release, err := index.IndexMetadata.bucket.acquire()
+	require.NoError(t, err)
+	require.NoError(t, bucket.Delete(index.IndexMetadata.key(singlePostingKey)))
+	release()
+	require.NoError(t, index.Shutdown(t.Context()))
+
+	index = makeHFreshWithConfig(t, store, cfg, uc)
+	require.False(t, index.Centroids.Built())
+	size, err := index.PostingSizes.Get(t.Context(), 1)
+	require.NoError(t, err)
+	require.EqualValues(t, 300, size)
+	requireSelfSearchExcept(t, index, all, -1)
+
+	all = addRestartVectors(t, index, vectors, 300, singlePostingThreshold+1)
+	require.True(t, index.Centroids.Built())
+	index.waitForMaintenance(t)
+	require.Greater(t, index.PostingSizes.Count(), uint64(2))
+	requireSelfSearchExcept(t, index, all, -1)
+}
+
+func TestInterruptedTransitionSurvivesRestart(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	addRestartVectors(t, index, vectors, 0, 300)
+	// the graph was built and logged, but the transition stopped before the
+	// posting map and the built flag were written
+	require.NoError(t, index.Centroids.Build())
+	require.NoError(t, index.Shutdown(t.Context()))
+
+	index = makeHFreshWithConfig(t, store, cfg, uc)
+	require.False(t, index.Centroids.Built())
+
+	all := addRestartVectors(t, index, vectors, 300, singlePostingThreshold+1)
+	require.True(t, index.Centroids.Built())
+	index.waitForMaintenance(t)
+	require.Greater(t, index.PostingSizes.Count(), uint64(2))
+	requireSelfSearchExcept(t, index, all, -1)
+}
+
+func TestBuiltCentroidIndexSurvivesRestart(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	all := addRestartVectors(t, index, vectors, 0, singlePostingThreshold+1)
+	require.True(t, index.Centroids.Built())
+	index.waitForMaintenance(t)
+	postings := index.PostingSizes.Count()
+	require.Greater(t, postings, uint64(2))
+	require.NoError(t, index.Shutdown(t.Context()))
+
+	index = makeHFreshWithConfig(t, store, cfg, uc)
+	require.True(t, index.Centroids.Built(), "a built centroid index must be reloaded")
+	require.Greater(t, index.PostingMap.Size(), 2)
+	require.Equal(t, postings, index.PostingSizes.Count())
+	requireSelfSearchExcept(t, index, all, -1)
 }
