@@ -619,18 +619,6 @@ const maxReindexPropertiesPerTask = 1024
 func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor,
 	payload *ReindexTaskPayload, lsmPath string, rehydrate bool,
 ) ([]*ShardReindexTaskGeneric, error) {
-	// Every migration type requires at least one property — repair-* / enable-*
-	// because they're per-property migrations, change-tokenization because it
-	// needs exactly one property. Check up front so each arm only deals with
-	// its unique constraints.
-	if len(payload.Properties) == 0 {
-		return nil, fmt.Errorf("%s requires at least one property", payload.MigrationType)
-	}
-	if len(payload.Properties) > maxReindexPropertiesPerTask {
-		return nil, fmt.Errorf("%s payload has %d properties; max is %d",
-			payload.MigrationType, len(payload.Properties), maxReindexPropertiesPerTask)
-	}
-
 	// genSuffix reserves 0 for the post-finalize bucket; a version outside
 	// [1, MaxInt] would name a dir FinalizeCompletedMigrations never
 	// promotes, so the rebuild would silently never go live.
@@ -646,6 +634,26 @@ func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor
 		}
 		return gen, true
 	}
+	return buildMigrationTasks(p.logger, p.schemaManager, payload, genFor, p.propertyHasFilterableBucket)
+}
+
+// buildMigrationTasks is shared by the live and recovery paths so they cannot
+// diverge on migration types. genFor returns false to skip a task.
+func buildMigrationTasks(logger logrus.FieldLogger, schemaManager *schema.Manager,
+	payload *ReindexTaskPayload, genFor func(prefix, propSuffix string) (int, bool),
+	hasFilterableBucket func(className, propName string) bool,
+) ([]*ShardReindexTaskGeneric, error) {
+	// Every migration type requires at least one property — repair-* / enable-*
+	// because they're per-property migrations, change-tokenization because it
+	// needs exactly one property. Check up front so each arm only deals with
+	// its unique constraints.
+	if len(payload.Properties) == 0 {
+		return nil, fmt.Errorf("%s requires at least one property", payload.MigrationType)
+	}
+	if len(payload.Properties) > maxReindexPropertiesPerTask {
+		return nil, fmt.Errorf("%s payload has %d properties; max is %d",
+			payload.MigrationType, len(payload.Properties), maxReindexPropertiesPerTask)
+	}
 
 	switch payload.MigrationType {
 	case ReindexTypeChangeAlgorithm:
@@ -654,7 +662,7 @@ func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor
 			return nil, nil
 		}
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeMapToBlockmaxTask(p.logger, p.schemaManager, payload.Properties, payload.Collection, gen),
+			NewRuntimeMapToBlockmaxTask(logger, schemaManager, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeRebuildSearchable:
@@ -663,7 +671,7 @@ func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor
 			return nil, nil
 		}
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeRebuildSearchableTask(p.logger, payload.Properties, payload.Collection, gen),
+			NewRuntimeRebuildSearchableTask(logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeRepairFilterable:
@@ -672,7 +680,7 @@ func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor
 			return nil, nil
 		}
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeRoaringSetRefreshTask(p.logger, payload.Properties, payload.Collection, gen),
+			NewRuntimeRoaringSetRefreshTask(logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
@@ -685,7 +693,7 @@ func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor
 			return nil, nil
 		}
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeFilterableToRangeableTask(p.logger, payload.Properties, payload.Collection, gen),
+			NewRuntimeFilterableToRangeableTask(logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeEnableFilterable:
@@ -694,7 +702,7 @@ func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor
 			return nil, nil
 		}
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeEnableFilterableTask(p.logger, payload.Properties, payload.Collection, gen),
+			NewRuntimeEnableFilterableTask(logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeEnableSearchable:
@@ -706,7 +714,7 @@ func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor
 			return nil, nil
 		}
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeEnableSearchableTask(p.logger, payload.Properties, payload.Collection, payload.TargetTokenization, gen),
+			NewRuntimeEnableSearchableTask(logger, payload.Properties, payload.Collection, payload.TargetTokenization, gen),
 		}, nil
 
 	case ReindexTypeChangeTokenization:
@@ -733,15 +741,15 @@ func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor
 		var tasks []*ShardReindexTaskGeneric
 		if searchableGen, ok := genFor(MigrationDirPrefixSearchableRetokenize, "_"+propName); ok {
 			tasks = append(tasks, NewRuntimeSearchableRetokenizeTask(
-				p.logger, propName, payload.TargetTokenization,
+				logger, propName, payload.TargetTokenization,
 				payload.Collection, payload.BucketStrategy, payload.Collection,
 				searchableGen,
 			))
 		}
-		if p.propertyHasFilterableBucket(payload.Collection, propName) {
+		if hasFilterableBucket(payload.Collection, propName) {
 			if filterableGen, ok := genFor(MigrationDirPrefixFilterableRetokenize, "_"+propName); ok {
 				tasks = append(tasks, NewRuntimeFilterableRetokenizeTask(
-					p.logger,
+					logger,
 					propName, payload.TargetTokenization,
 					payload.Collection, payload.Collection,
 					filterableGen,
@@ -763,7 +771,7 @@ func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor
 			return nil, nil
 		}
 		filterableTask := NewRuntimeFilterableRetokenizeTask(
-			p.logger,
+			logger,
 			propName, payload.TargetTokenization,
 			payload.Collection, payload.Collection,
 			filterableGen,

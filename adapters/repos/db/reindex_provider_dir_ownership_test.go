@@ -56,21 +56,6 @@ func dirOwnershipCases() []dirOwnershipCase {
 	}
 }
 
-// recoverableDirOwnershipCases drops rebuild-searchable, the one migration
-// type [buildRecoveryTasks] has no arm for. That gap is older than the
-// generation question these tests are about, and it is not this file's to
-// pin.
-func recoverableDirOwnershipCases() []dirOwnershipCase {
-	var out []dirOwnershipCase
-	for _, c := range dirOwnershipCases() {
-		if c.migration == ReindexTypeRebuildSearchable {
-			continue
-		}
-		out = append(out, c)
-	}
-	return out
-}
-
 func (c dirOwnershipCase) payload() *ReindexTaskPayload {
 	return &ReindexTaskPayload{
 		MigrationType:      c.migration,
@@ -257,7 +242,7 @@ func recoveredMigrationDirs(recovered []RecoveredReindex) []string {
 // other reader — payload.mig is copied into every tracker dir for a task
 // and can't tell them apart.
 func TestRecoveryNamesTheDirectoriesItRecoveredFrom(t *testing.T) {
-	for _, tc := range recoverableDirOwnershipCases() {
+	for _, tc := range dirOwnershipCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			p, _ := newTestProvider(t)
 			root := t.TempDir()
@@ -285,7 +270,7 @@ func TestRecoveryNamesTheDirectoriesItRecoveredFrom(t *testing.T) {
 // invented one — that would name sidecar buckets that don't exist and
 // leave the dir reported in-flight forever.
 func TestRecoverySkipsATrackerDirectoryThatNamesNoGeneration(t *testing.T) {
-	for _, tc := range recoverableDirOwnershipCases() {
+	for _, tc := range dirOwnershipCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			p, _ := newTestProvider(t)
 			root := t.TempDir()
