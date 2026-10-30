@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 const (
@@ -33,6 +35,11 @@ const (
 	vectorIndexQueueDeleteOp
 	vectorIndexQueueMultiInsertOp
 	vectorIndexQueueMultiDeleteOp
+)
+
+const (
+	vectorIndexInsertAttempts = 5
+	vectorIndexInsertBackoff  = 5 * time.Millisecond
 )
 
 type VectorIndexQueue struct {
@@ -143,9 +150,32 @@ func (iq *VectorIndexQueue) Close(ctx context.Context) error {
 	return iq.DiskQueue.Close(ctx)
 }
 
+// insertSync retries an insert that found no entrypoint, like the queue worker
+// does with async indexing. Inserts into a graph that is deleted down to nothing
+// can hold each other off, and the one that gives up clears the way for the rest.
+func (iq *VectorIndexQueue) insertSync(ctx context.Context, vectors []common.VectorRecord) error {
+	for attempt := 1; ; attempt++ {
+		err := common.AddVectorsToIndex(ctx, vectors, iq.vectorIndex)
+		if attempt == vectorIndexInsertAttempts || !errors.Is(err, enterrors.ErrNoUsableEntrypoint) {
+			return err
+		}
+		time.Sleep(rand.N(time.Duration(attempt) * vectorIndexInsertBackoff))
+	}
+}
+
+// claimDimensions makes sure the first vectors of an index are consistent: an empty
+// index has no dimensions to validate against, so the first length accepted stands
+// in for them.
+func (iq *VectorIndexQueue) claimDimensions(length int) error {
+	if !iq.dims.CompareAndSwap(0, int32(length)) && iq.dims.Load() != int32(length) {
+		return errors.Errorf("inconsistent vector lengths: %d != %d", length, iq.dims.Load())
+	}
+	return nil
+}
+
 func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.VectorRecord) error {
 	if !iq.asyncEnabled {
-		return common.AddVectorsToIndex(ctx, vectors, iq.vectorIndex)
+		return iq.insertSync(ctx, vectors)
 	}
 
 	start := time.Now()
@@ -155,33 +185,52 @@ func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.Vector
 	var err error
 
 	for _, v := range vectors {
-		// validate vector
-		if err := v.Validate(iq.vectorIndex); err != nil {
-			return errors.Wrap(err, "failed to validate")
-		}
-
-		// if the index is still empty, ensure the first batch is consistent
-		// by keeping track of the dimensions of the vectors.
-		if !iq.dims.CompareAndSwap(0, int32(v.Len())) {
-			if iq.dims.Load() != int32(v.Len()) {
-				return errors.Errorf("inconsistent vector lengths: %d != %d", v.Len(), iq.dims.Load())
-			}
-		}
-
-		// encode vector
-		buf = buf[:0]
-		buf, err = encodeVector(buf, v)
+		buf, err = iq.push(buf, v)
 		if err != nil {
-			return errors.Wrap(err, "failed to encode record")
-		}
-
-		err = iq.DiskQueue.Push(buf)
-		if err != nil {
-			return errors.Wrap(err, "failed to push record to queue")
+			return err
 		}
 	}
 
 	return nil
+}
+
+// InsertEach queues vectors that stand on their own: a refused one doesn't stop the
+// others, and report gets the outcome of each. It needs async indexing.
+func (iq *VectorIndexQueue) InsertEach(vectors []common.VectorRecord, report func(i int, err error)) {
+	start := time.Now()
+	defer iq.metrics.Insert(start, len(vectors))
+
+	var buf []byte
+	var err error
+
+	for i, v := range vectors {
+		buf, err = iq.push(buf, v)
+		report(i, err)
+	}
+}
+
+// push queues a vector. It returns buf for the next one to reuse.
+func (iq *VectorIndexQueue) push(buf []byte, v common.VectorRecord) ([]byte, error) {
+	// validate vector
+	if err := v.Validate(iq.vectorIndex); err != nil {
+		return buf, errors.Wrap(err, "failed to validate")
+	}
+
+	if err := iq.claimDimensions(v.Len()); err != nil {
+		return buf, err
+	}
+
+	// encode vector
+	buf, err := encodeVector(buf[:0], v)
+	if err != nil {
+		return buf, errors.Wrap(err, "failed to encode record")
+	}
+
+	if err := iq.DiskQueue.Push(buf); err != nil {
+		return buf, errors.Wrap(err, "failed to push record to queue")
+	}
+
+	return buf, nil
 }
 
 func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
