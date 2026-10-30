@@ -33,6 +33,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/sharding"
 
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -1274,58 +1276,97 @@ func TestBackupDescriptorsClosesChannelOnPanic(t *testing.T) {
 }
 
 // Regression: a task-list fetch per shard scaled backup time with shard count.
+// COLD tenants take the inactive-shard path; HOT ones halt each loaded shard.
 func TestBackupFetchesReindexTasksOncePerPass(t *testing.T) {
 	const className = "TestClass"
 	tenants := []string{"tenant-1", "tenant-2", "tenant-3", "tenant-4", "tenant-5"}
 
-	for _, tc := range []struct {
-		name    string
-		live    map[[2]string]bool
-		refused bool
-	}{
-		{name: "no reindex running"},
-		{name: "reindex running on one tenant", live: map[[2]string]bool{{className, "tenant-3"}: true}, refused: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			rootDir := t.TempDir()
-			// One replica per node puts every tenant on this node.
-			builder := NewMultiTenantShardingStateBuilder().WithReplicationFactor(int64(len(tenants)))
-			for _, name := range tenants {
-				builder.AddTenant(name, models.TenantActivityStatusCOLD)
-				createColdShardFiles(t, rootDir, className, name)
-			}
-			idx := newDescriptorTestIndex(t, rootDir, className, builder.Build())
-			db := idx.db
-			db.logger = idx.logger
-			db.indices = map[string]*Index{indexID(className): idx}
+	for _, status := range []string{models.TenantActivityStatusCOLD, models.TenantActivityStatusHOT} {
+		for _, tc := range []struct {
+			name    string
+			live    map[[2]string]bool
+			refused bool
+		}{
+			{name: "no reindex running"},
+			{name: "reindex running on one tenant", live: map[[2]string]bool{{className, "tenant-3"}: true}, refused: true},
+		} {
+			t.Run(status+"/"+tc.name, func(t *testing.T) {
+				// One replica per node puts every tenant on this node.
+				builder := NewMultiTenantShardingStateBuilder().WithReplicationFactor(int64(len(tenants)))
+				for _, name := range tenants {
+					builder.AddTenant(name, status)
+				}
+				var db *DB
+				if status == models.TenantActivityStatusCOLD {
+					db = backupTestDBWithColdTenants(t, className, tenants, builder.Build())
+				} else {
+					db = backupTestDBWithLoadedShards(t, className, builder.Build())
+				}
 
-			var fetches atomic.Int64
-			db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
-				fetches.Add(1)
-				return makeActivityBuilder(tc.live)()
+				var fetches atomic.Int64
+				db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+					fetches.Add(1)
+					return makeActivityBuilder(tc.live)()
+				})
+
+				err := db.Backupable(context.Background(), []string{className})
+				if tc.refused {
+					require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
+				} else {
+					require.NoError(t, err)
+				}
+				assert.EqualValues(t, 1, fetches.Load(), "Backupable")
+
+				fetches.Store(0)
+				var descs []backup.ClassDescriptor
+				for d := range db.BackupDescriptors(context.Background(), "backup-1", []string{className}, nil) {
+					descs = append(descs, d)
+				}
+				require.Len(t, descs, 1)
+				if tc.refused {
+					require.ErrorIs(t, descs[0].Error, backup.ErrBackupBlockedByInFlightReindex)
+				} else {
+					require.NoError(t, descs[0].Error)
+					require.Len(t, descs[0].Shards, len(tenants))
+					require.NoError(t, db.ReleaseBackup(context.Background(), "backup-1", className))
+				}
+				assert.EqualValues(t, 1, fetches.Load(), "BackupDescriptors")
 			})
-
-			err := db.Backupable(context.Background(), []string{className})
-			if tc.refused {
-				require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
-			} else {
-				require.NoError(t, err)
-			}
-			assert.EqualValues(t, 1, fetches.Load(), "Backupable")
-
-			fetches.Store(0)
-			var descs []backup.ClassDescriptor
-			for d := range db.BackupDescriptors(context.Background(), "backup-1", []string{className}, nil) {
-				descs = append(descs, d)
-			}
-			require.Len(t, descs, 1)
-			if tc.refused {
-				require.ErrorIs(t, descs[0].Error, backup.ErrBackupBlockedByInFlightReindex)
-			} else {
-				require.NoError(t, descs[0].Error)
-				require.Len(t, descs[0].Shards, len(tenants))
-			}
-			assert.EqualValues(t, 1, fetches.Load(), "BackupDescriptors")
-		})
+		}
 	}
+}
+
+func backupTestDBWithColdTenants(t *testing.T, className string, tenants []string, state *sharding.State) *DB {
+	t.Helper()
+	rootDir := t.TempDir()
+	for _, name := range tenants {
+		createColdShardFiles(t, rootDir, className, name)
+	}
+	idx := newDescriptorTestIndex(t, rootDir, className, state)
+	db := idx.db
+	db.logger = idx.logger
+	db.indices = map[string]*Index{indexID(schema.ClassName(className)): idx}
+	return db
+}
+
+func backupTestDBWithLoadedShards(t *testing.T, className string, state *sharding.State) *DB {
+	t.Helper()
+	class := &models.Class{
+		Class:               className,
+		MultiTenancyConfig:  &models.MultiTenancyConfig{Enabled: true},
+		VectorIndexConfig:   enthnsw.UserConfig{Skip: true},
+		InvertedIndexConfig: invertedConfig(),
+	}
+	db := openTestDatabase(t, t.TempDir(), state, monitoring.GetMetrics(), nil, nil, class)
+	t.Cleanup(func() { require.NoError(t, db.Shutdown(context.Background())) })
+	idx := db.GetIndex(schema.ClassName(className))
+	require.NotNil(t, idx)
+	for _, name := range state.AllPhysicalShards() {
+		require.NoError(t, idx.LoadLocalShardForTenantAdd(context.Background(), name))
+		// An unloaded shard would take the inactive-shard path.
+		if lazy, ok := idx.shards.Load(name).(*LazyLoadShard); ok {
+			require.NoError(t, lazy.Load(context.Background()))
+		}
+	}
+	return db
 }
