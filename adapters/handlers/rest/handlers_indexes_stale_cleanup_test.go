@@ -26,14 +26,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 )
 
-// fakeStaleCleaner records the index types it was asked to scrub and returns a
-// canned error.
 type fakeStaleCleaner struct {
-	calls []string
-	err   error
+	tenants []string
+	calls   []string
+	err     error
 }
 
-func (f *fakeStaleCleaner) NewStalePartialReindexSweep() db.StalePartialReindexSweep {
+func (f *fakeStaleCleaner) NewStalePartialReindexSweep(tenants []string) db.StalePartialReindexSweep {
+	f.tenants = tenants
 	return func(_ context.Context, _, _, indexType string) error {
 		f.calls = append(f.calls, indexType)
 		return f.err
@@ -51,7 +51,7 @@ func TestCleanStalePartialStateOrFail(t *testing.T) {
 	t.Run("unknown migration type fails closed with 500 and scrubs nothing", func(t *testing.T) {
 		cleaner := &fakeStaleCleaner{}
 		resp := h.cleanStalePartialStateOrFail(context.Background(), nil, cleaner,
-			"C", "p", db.ReindexMigrationType("not-a-real-type"))
+			"C", "p", nil, db.ReindexMigrationType("not-a-real-type"))
 		code, _ := statusOf(t, resp)
 		require.Equal(t, http.StatusInternalServerError, code,
 			"an unknown migration type must fail closed, not silently skip cleanup")
@@ -61,7 +61,7 @@ func TestCleanStalePartialStateOrFail(t *testing.T) {
 	t.Run("scrub error fails closed with 500", func(t *testing.T) {
 		cleaner := &fakeStaleCleaner{err: errors.New("disk unavailable")}
 		resp := h.cleanStalePartialStateOrFail(context.Background(), nil, cleaner,
-			"C", "p", db.ReindexTypeEnableFilterable)
+			"C", "p", nil, db.ReindexTypeEnableFilterable)
 		code, _ := statusOf(t, resp)
 		require.Equal(t, http.StatusInternalServerError, code)
 	})
@@ -71,7 +71,7 @@ func TestCleanStalePartialStateOrFail(t *testing.T) {
 			err: fmt.Errorf("%w: shards skipped mid-walk: tenant-a", db.ErrCleanupSweepTruncated),
 		}
 		resp := h.cleanStalePartialStateOrFail(context.Background(), nil, cleaner,
-			"C", "p", db.ReindexTypeChangeTokenization)
+			"C", "p", nil, db.ReindexTypeChangeTokenization)
 		require.Nil(t, resp,
 			"unvisited shards are unverified rather than known stale, so the submit must proceed")
 		require.Equal(t, []string{"searchable", "filterable"}, cleaner.calls,
@@ -81,9 +81,17 @@ func TestCleanStalePartialStateOrFail(t *testing.T) {
 	t.Run("change-tokenization scrubs BOTH searchable and filterable then proceeds", func(t *testing.T) {
 		cleaner := &fakeStaleCleaner{}
 		resp := h.cleanStalePartialStateOrFail(context.Background(), nil, cleaner,
-			"C", "p", db.ReindexTypeChangeTokenization)
+			"C", "p", nil, db.ReindexTypeChangeTokenization)
 		require.Nil(t, resp, "a clean scrub returns nil to proceed")
 		require.Equal(t, []string{"searchable", "filterable"}, cleaner.calls,
 			"the coupled migration must scrub both inverted index dirs")
+	})
+
+	t.Run("a tenant-scoped submit scrubs only the tenants it targets", func(t *testing.T) {
+		cleaner := &fakeStaleCleaner{}
+		resp := h.cleanStalePartialStateOrFail(context.Background(), nil, cleaner,
+			"C", "p", []string{"t1"}, db.ReindexTypeEnableFilterable)
+		require.Nil(t, resp)
+		require.Equal(t, []string{"t1"}, cleaner.tenants)
 	})
 }

@@ -48,6 +48,7 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 		// shard's disk, which is the only reason to pay for loading it.
 		staleOnUnloadedShard bool
 		cancelBeforeWalk     bool
+		onlyLoadedShardNamed bool
 		wantUnloadedLoaded   bool
 		wantUnloadedTracker  bool
 		// wantHotTracker proves the walk stopped: a reached shard's tracker dir
@@ -62,6 +63,12 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 			name:                 "an unloaded shard with stale state is loaded and cleaned",
 			staleOnUnloadedShard: true,
 			wantUnloadedLoaded:   true,
+		},
+		{
+			name:                 "a stale unloaded shard outside the named tenants is not loaded",
+			staleOnUnloadedShard: true,
+			onlyLoadedShardNamed: true,
+			wantUnloadedTracker:  true,
 		},
 		{
 			name:                 "a cancelled context stops the walk at the first shard",
@@ -106,7 +113,11 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 				sweepCtx = cancelled
 			}
 
-			err := idx.cleanStalePartialReindexState(sweepCtx, propName, indexType, nil)
+			var tenants []string
+			if tc.onlyLoadedShardNamed {
+				tenants = []string{hot.Name()}
+			}
+			err := idx.cleanStalePartialReindexState(sweepCtx, propName, indexType, tenants, nil)
 
 			assert.Equalf(t, tc.wantUnloadedLoaded, unloaded.isLoaded(),
 				"unloaded shard loaded=%v, want %v: the sweep blocks its caller for its whole "+
@@ -237,7 +248,7 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 				}
 			}()
 
-			require.NoError(t, idx.cleanStalePartialReindexState(ctx, tc.propName, tc.indexType, nil))
+			require.NoError(t, idx.cleanStalePartialReindexState(ctx, tc.propName, tc.indexType, nil, nil))
 
 			assert.FileExists(t, filepath.Join(residueLSM, tc.canonical, promoted),
 				"the ingest dir is the migration's own data, so reclaiming it means "+
@@ -885,7 +896,7 @@ func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *
 	require.False(t, staleAfterArrival,
 		"the stale listing is the point: the gate cannot see what arrived after it")
 
-	require.NoError(t, idx.cleanStalePartialReindexState(ctx, propName, indexType, dirs))
+	require.NoError(t, idx.cleanStalePartialReindexState(ctx, propName, indexType, nil, dirs))
 
 	require.False(t, dirExistsAt(t, lsm, ".migrations/"+tracker),
 		"a loaded shard is swept whatever the gate would have said about it")
@@ -919,7 +930,7 @@ func TestIndexCleanStalePartialReindexStateReportsAnUnlistableMigrationsDir(t *t
 		t.Skip("this user can list a directory with no permissions, so the failure cannot be staged")
 	}
 
-	sweepErr := idx.cleanStalePartialReindexState(ctx, propName, indexType, nil)
+	sweepErr := idx.cleanStalePartialReindexState(ctx, propName, indexType, nil, nil)
 
 	require.ErrorIs(t, sweepErr, ErrCleanupShardFailed)
 	outcome, _ := ClassifyCleanupSweep(sweepErr)
@@ -1189,7 +1200,7 @@ func TestIndexCleanStalePartialReindexStateRefusesAnUnknownIndexType(t *testing.
 		false, idx.bitmapBufPool)
 	idx.shards.Store(tenant, unloaded)
 
-	err := idx.cleanStalePartialReindexState(ctx, propName, "an-index-type-this-build-does-not-know", nil)
+	err := idx.cleanStalePartialReindexState(ctx, propName, "an-index-type-this-build-does-not-know", nil, nil)
 
 	require.ErrorIs(t, err, ErrCleanupSweepTruncated)
 	require.False(t, unloaded.isLoaded(),
@@ -1325,7 +1336,7 @@ func TestIndexCleanStalePartialReindexStateLogsGateSkippedShards(t *testing.T) {
 	}()
 
 	hook.Reset() // drop whatever shard startup logged
-	require.NoError(t, idx.cleanStalePartialReindexState(ctx, propName, indexType, nil))
+	require.NoError(t, idx.cleanStalePartialReindexState(ctx, propName, indexType, nil, nil))
 
 	var counts []int
 	for _, entry := range hook.AllEntries() {
