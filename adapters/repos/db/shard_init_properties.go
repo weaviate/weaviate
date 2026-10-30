@@ -253,8 +253,8 @@ func migrationRecordSetUnreadable(faults []MigrationRecordUnreadable) bool {
 
 // CleanStalePartialReindexState removes the on-disk state of a previously
 // cancelled (or otherwise abandoned) runtime-reindex for the named
-// (propName, indexType), so a retry cannot resume against a partial bucket and
-// report success (same Sev 1 family as 6b7dc23768).
+// (propName, indexType), so a retry cannot resume against a partial bucket
+// and silently report success.
 //
 // Crash safety: sidecar buckets shut down before their dirs go (open lsmkv
 // handles); the .migrations/records/ record stays, still naming the run's dirs.

@@ -207,31 +207,19 @@ type ConflictDetector interface {
 // the schema FSM's UpdateProperty apply path can reject external schema
 // mutations that would race with one of the provider's in-flight tasks.
 //
-// Motivating failure mode: a `change-tokenization` reindex spawns
-// separate per-shard sub-tasks for the searchable and filterable
-// indexes. A DELETE `/index/searchable` arriving mid-flight sweeps the
-// property's stale searchable sidecars, which wipes the sub-task's working
-// copy under the still-running sub-task. That sub-unit FAILs; the sibling filterable
-// sub-unit keeps going and commits its local bucket swap; the
-// per-shard ack barrier sees mixed acks → task FAILED →
-// `flipSemanticMigrationSchema` skipped → schema stays at OLD
-// tokenization while the filterable bucket on disk now holds
-// NEW-tokenized data. Bucket↔schema inversion — same family as the
-// ack-barrier failure mode but triggered by an external schema
-// mutation instead of a crash.
+// Without it, a mutation landing mid-migration can let the FSM apply a
+// schema flip while the migration's own sub-task is still writing,
+// producing a bucket↔schema inversion — same family as the ack-barrier
+// failure mode, triggered externally instead of by a crash.
 //
-// Putting the check inside the schema FSM's UpdateProperty apply makes
-// it RAFT-deterministic: every node sees the same distributed-task FSM
-// snapshot at the same applyIndex and reaches the same accept/reject
-// decision. Symmetric to [ConflictDetector] (which protects in-flight
-// tasks from new conflicting tasks); this protects them from out-of-band
-// schema mutations during their flight.
+// The check runs inside the FSM apply so every node reaches the same
+// accept/reject decision from the same applyIndex. Symmetric to
+// [ConflictDetector] (protects in-flight tasks from new conflicting tasks);
+// this protects them from out-of-band schema mutations during their flight.
 //
-// FSM-determinism contract: CheckPropertyUpdate MUST be a pure function
-// of (className, propertyName, existingTasks). It must not read mutable
-// process state (clocks, network, schema, RNG) — different nodes
-// applying the same log entry must reach the same accept/reject
-// decision.
+// CheckPropertyUpdate MUST be a pure function of (className, propertyName,
+// existingTasks) — no clocks, network, schema, or RNG — so every node
+// applying the same log entry reaches the same decision.
 type SchemaMutationDetector interface {
 	Provider
 

@@ -351,10 +351,9 @@ func encodeMigrationRecord(rec MigrationRecord) ([]byte, error) {
 	if err := validateMigrationEnvelope(env); err != nil {
 		return nil, err
 	}
-	// Writer-side only, so neither freezes the rest of the shard at decode. A
-	// record naming no properties can do nothing. One naming no collection cannot
-	// be re-put: the file stays, the canonical bucket keeps serving, and an
-	// operator removes the file by hand.
+	// Writer-side only, so neither check freezes the rest of the shard at decode.
+	// A record naming no properties can do nothing; one naming no collection
+	// can't be re-put — the file stays and an operator removes it by hand.
 	if len(env.Subject.Props) == 0 {
 		return nil, fmt.Errorf("record %q names no properties, so nothing could ever act on it", env.Subject.Key)
 	}

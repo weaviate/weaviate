@@ -110,10 +110,8 @@ func (sc swapWindowScenario) run(t *testing.T) *lsmkv.Bucket {
 }
 
 // TestReindex_ConcurrentWriteDuringSwapWindow_NotLost pins
-// weaviate/weaviate#11688: a write landing between SwapBucketPointer
-// (unregisters the ingest name) and the mirror disarm must not be lost —
-// pre-fix the double-write callback dereferenced a nil bucket. The write is
-// an UPDATE, exercising both the delete-old and add-new callback legs.
+// weaviate/weaviate#11688: a write landing between the bucket-pointer swap
+// and the mirror disarm must not be lost.
 func TestReindex_ConcurrentWriteDuringSwapWindow_NotLost(t *testing.T) {
 	// Outside the corpus so its posting list is unambiguously this write.
 	const mark = int64(999999)

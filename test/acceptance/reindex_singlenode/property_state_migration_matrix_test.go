@@ -12,70 +12,28 @@
 package reindex_singlenode
 
 // testPropertyStateMigrationMatrix enumerates the cartesian product of
+// property data type (one representative per dispatch class), property
+// pre-state (the meaningful IndexFilterable/IndexSearchable/
+// IndexRangeFilters/Tokenization combinations), and request shape
+// (declarative PUT vs. a .../rebuild POST).
 //
-//  1. property data type (text, int, boolean, uuid, geoCoordinates, blob —
-//     one representative per dispatch class),
-//  2. property pre-state (the meaningful combinations of IndexFilterable /
-//     IndexSearchable / IndexRangeFilters / Tokenization that the schema
-//     manager accepts for that data type), and
-//  3. the GA request shape: PUT
-//     /v1/schema/{class}/properties/{prop}/index/{indexType} with a
-//     declarative body, or a POST .../rebuild sub-resource.
+// Each cell checks structural invariants, not the precise validation rules
+// in handlers_reindex.go — those stay in api_validation_test.go and the
+// per-migration-type tests, so this matrix can't drift into a second,
+// competing rulebook:
 //
-// For every cell the test asserts a small set of *structural* invariants —
-// the things we never want the server to do regardless of input:
-//
-//   - **No 5xx.** Validation/dispatch errors must be 4xx, never internal
-//     server errors. A 5xx on a syntactically valid request body that
-//     points at an existing class+property is a bug, even when the
-//     combination is nonsensical (e.g. enable-rangeable on a text
-//     property).
-//
-//   - **No 4xx with empty / unstructured body.** Every 4xx must be a JSON
-//     `{"error":[{"message":"..."}]}` envelope with at least one
-//     non-empty message. A bare 4xx tells the user nothing.
-//
-//   - **No silent FINISHED-with-empty-bucket.** When a cell returns 202,
-//     the task must reach FINISHED, the targeted schema flag must flip
-//     (or for rebuilds, stay flipped), AND a query against the resulting
-//     index must return at least one row from the small corpus inserted
-//     before the PUT. A FINISHED task with a queryable bucket that
-//     returns zero rows is the Sev 1 failure mode we keep getting bitten
-//     by (DELETE→re-enable finishes over an emptied bucket, CANCEL→retry
-//     hits a half-written sidecar, etc.). Catching it here on a
-//     wide combinatorial sweep is cheaper than discovering it in
-//     production.
-//
-//   - **No silent 202 on an already-satisfied request.** A declarative
-//     upsert whose desired configuration already holds must return 200 with
-//     body `{"status":"NO_OP"}` and spawn no task — never a 202 that spawns
-//     a no-op task, or a 200 without the NO_OP status.
-//
-// The matrix does NOT try to encode the precise validation rules from
-// handlers_reindex.go (which tokenization is rejected, which body shape
-// pairs are compatible, etc.). Those are covered by the dedicated
-// api_validation_test.go and per-migration-type tests, where the
-// expectations are stable enough to keep in lock-step. Re-encoding them
-// here would just create a parallel rulebook that drifts. The structural
-// invariants above are robust to validator refactors and still catch the
-// real bug shapes we care about.
-//
-// Failure modes the matrix has caught in the past (a non-exhaustive list,
-// kept up-to-date as new bugs appear):
-//
-//   - PUT `{"filterable":{"tokenization":"X"}}` was silently ignored
-//     (model carried the field but the dispatcher never read it). Fixed
-//     by adding ReindexTypeChangeTokenizationFilterable as a first-class
-//     verb in handlers_indexes.go. The matrix would now catch a
-//     regression where the verb is removed: the cell would either return
-//     "no actionable change" (which is no longer the right answer for a
-//     property with a filterable index) or silently 202 a no-op task.
-//
-//   - PUT `{"searchable":{"tokenization":"X"}}` on a filterable-only
-//     text property used to return "searchable bucket not found", which
-//     does not point the user at the right body shape. Fixed by
-//     intercepting that path in handlers_indexes.go and returning a
-//     message that explicitly names both alternative body shapes.
+//   - No 5xx: a syntactically valid request against an existing
+//     class+property must get a 4xx, never an internal error, however
+//     nonsensical the combination.
+//   - No 4xx with an empty body: every 4xx is a JSON error envelope with a
+//     non-empty message.
+//   - No silent FINISHED-with-empty-bucket: a 202 cell must reach FINISHED
+//     with its schema flag flipped (or, for rebuilds, still flipped) and a
+//     query against the result returning at least one row from the seeded
+//     corpus.
+//   - No silent 202 on an already-satisfied request: an upsert whose
+//     desired config already holds returns 200 {"status":"NO_OP"} and
+//     spawns no task.
 
 import (
 	"bytes"

@@ -76,12 +76,9 @@ type ShardReindexTaskGeneric struct {
 	// runs in production — the field is always set.
 	processOneSwapPropFn func(ctx context.Context, store *lsmkv.Store, propIdx int, propName string) (*lsmkv.Bucket, error)
 
-	// registerDoubleWriteCallbacksFn dispatches OnAfterLsmInit's ingest-window
-	// double-write registration. Defaults to [registerDoubleWriteCallbacks] in
-	// [NewShardReindexTaskGeneric]; tests wrap it to drive a write into the
-	// arm→record window the production ordering must not lose
-	// (weaviate/weaviate#11688). Always set — no test-only branch runs in
-	// production.
+	// registerDoubleWriteCallbacksFn dispatches ingest-window double-write
+	// registration; tests wrap it to probe the arm→record ordering
+	// (weaviate/weaviate#11688).
 	registerDoubleWriteCallbacksFn func(shard *Shard, props []string,
 		bucketNamer func(string) string) (func(), error)
 

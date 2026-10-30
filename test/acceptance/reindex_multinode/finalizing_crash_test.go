@@ -22,32 +22,14 @@ import (
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 )
 
-// TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency
-// asserts that a rolling restart landing inside the FINALIZING window
-// of a change-tokenization migration does not produce per-replica
-// divergent on-disk bucket state.
+// TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency asserts
+// that a rolling restart during a change-tokenization's FINALIZING window
+// never leaves replicas with divergent bucket state: the ack barrier holds
+// MarkTaskFinalized until every node's swap has acked, so a node that dies
+// mid-swap simply re-fires it via rehydrate rather than diverging.
 //
-// The ack barrier gates MarkTaskFinalized on every node's OnGroupCompleted
-// having returned and acked, so the schema flip cannot commit ahead of any
-// node. A node going down between local swap and ack emission either:
-//   - already finished the swap (the flip is recorded on disk; the
-//     post-restart reconciliation + RecoveryAwareProvider
-//     path re-emits the ack on the next scheduler tick), OR
-//   - died mid-swap (LocalCallbacksDone reports false; OnGroupCompleted
-//     re-fires via the rehydrate path; ack emitted after rehydrate +
-//     swap completes).
-//
-// What this test asserts:
-//
-//   - The task transitions to FINISHED only after every replica's
-//     bucket-pointer state matches the new tokenization.
-//   - Per-replica histogram across 30 polls per replica is all the
-//     expected count for the migrated property (no flap, no
-//     divergence).
-//
-// Dataset size: 50k objects. Smaller datasets keep most data in the
-// memtable and hide the LSM-segment-layout race regime where the bug
-// originally manifested in production.
+// 50k objects keeps data out of the memtable, exercising the LSM
+// segment-layout race this guards against.
 func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
@@ -191,33 +173,14 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 	}
 }
 
-// TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency
-// asserts that a SIGKILL on a single node during the FINALIZING
-// window does not produce per-replica divergent on-disk bucket state.
+// TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency asserts
+// that a SIGKILL on one node during FINALIZING never leaves replicas
+// diverged. Unlike the graceful rolling-restart variant above, the
+// ungraceful stop skips the flush path, so recovery finds the node's
+// migration record at Merged with its local process state lost.
 //
-// Where the rolling-restart test (above) catches the cluster mid-swap
-// with a graceful shutdown sequence (testcontainers' Stop sends
-// SIGTERM first), this variant uses an ungraceful 0-second-timeout
-// Stop on a SINGLE node. That bypasses the on-shutdown flush path and
-// leaves the post-restart RecoveryAwareProvider and reconciliation to
-// handle a node whose migration record says Merged, with the local
-// process state lost.
-//
-// The expected behavior with the ack barrier:
-//  1. SIGKILL on the targeted node either lands before its ack was
-//     emitted (LocalCallbacksDone reports the half-finalized state on
-//     restart, OnGroupCompleted re-fires via rehydrate, swap completes,
-//     ack emitted) OR after its ack was emitted (the FSM already has
-//     the ack persisted via RAFT, the post-restart scheduler sees the
-//     ack in the snapshot/log and does not re-emit).
-//  2. The cluster-wide FINISHED transition waits until every node has
-//     acked (per-node MissingPostCompletionAckNodes empty).
-//  3. Per-replica histogram is uniform after FINISHED — no divergence.
-//
-// We target the LAST node in the cluster index (node 2 / index 2) so
-// the surviving majority continues serving RAFT while node 2 is down,
-// which mirrors the production single-pod failure case (one pod gets
-// OOM-killed, the other two stay up).
+// Target the last node (index 2) so the surviving majority keeps serving
+// RAFT while it's down — mirroring a single-pod OOM-kill in production.
 func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
