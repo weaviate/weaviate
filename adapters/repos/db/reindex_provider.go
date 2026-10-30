@@ -1359,7 +1359,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 }
 
 // joinUnitErrors caps the message because it becomes this node's ack error
-// in the RAFT log; sorting keeps the reported subset stable across runs.
+// in the RAFT log. Sorting keeps the reported subset stable across runs.
 func joinUnitErrors(msgs []string) string {
 	ec := errorcompounder.New()
 	for _, msg := range slices.Sorted(slices.Values(msgs)) {

@@ -1446,12 +1446,13 @@ func (s *Scheduler) aggregatePreparationAckErrorsLocked(task *Task, desc TaskDes
 // snapshots) so it can't grow with the tenant count.
 const maxReportedGroupErrors = 10
 
-// Sorting the groups keeps the reported subset the same on every call.
+// joinGroupErrors returns false and the failing groups' errors when any group
+// failed. Sorting keeps the reported subset the same on every call.
 func joinGroupErrors(errs map[string]error) (bool, string) {
 	ec := errorcompounder.New()
 	for _, groupID := range slices.Sorted(maps.Keys(errs)) {
 		if err := errs[groupID]; err != nil {
-			ec.Addf("group=%q: %v", groupID, err)
+			ec.Addf("group=%q: {%v}", groupID, err)
 		}
 	}
 	if ec.Empty() {

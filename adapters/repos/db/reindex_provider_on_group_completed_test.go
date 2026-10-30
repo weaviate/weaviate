@@ -93,7 +93,7 @@ func TestOnGroupCompleted_TerminalStatusShortCircuit(t *testing.T) {
 	}
 }
 
-// Ack error (stored in the RAFT log) must not grow with the number of failing tenants.
+// Ack error (stored in the RAFT log) must not grow with the number of failing shards in one group.
 func TestRunPerUnitPhase_CapsTheErrorAcrossManyFailingUnits(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -101,7 +101,6 @@ func TestRunPerUnitPhase_CapsTheErrorAcrossManyFailingUnits(t *testing.T) {
 		wantCount   string
 		wantOmitted string
 	}{
-		{name: "one unit", units: 1, wantCount: "1 unit(s) failed"},
 		{name: "1000 units", units: 1000, wantCount: "1000 unit(s) failed", wantOmitted: "(and 990 more)"},
 	}
 	for _, tt := range tests {

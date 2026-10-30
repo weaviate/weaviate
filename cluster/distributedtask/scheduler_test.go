@@ -2266,7 +2266,7 @@ func TestScheduler_AckErrorIsCappedAcrossManyFailingGroups(t *testing.T) {
 			require.False(t, success)
 			require.Less(t, len(msg), 1000)
 			require.Contains(t, msg, "1000 group(s) failed")
-			require.Contains(t, msg, `group="tenant-0000": swap failed`)
+			require.Contains(t, msg, `group="tenant-0000": {swap failed}`)
 			require.Contains(t, msg, "(and 990 more)")
 		})
 	}
