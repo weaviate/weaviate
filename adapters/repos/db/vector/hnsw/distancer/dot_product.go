@@ -12,6 +12,8 @@
 package distancer
 
 import (
+	"math"
+
 	"github.com/pkg/errors"
 )
 
@@ -30,7 +32,46 @@ var dotProductImplementation func(a, b []float32) float32 = func(a, b []float32)
 }
 
 func DotProductFloatGo(a, b []float32) float32 {
-	return -dotProductGo[float32, float32](a, b)
+	return clampDotProduct(-dotProductFloat64(a, b))
+}
+
+// dotProductFloat64 accumulates in float64 so that finite float32 inputs cannot
+// overflow the intermediate sum. Dot products of float32 vectors fit in
+// float64 even when the float32 result does not.
+func dotProductFloat64(a, b []float32) float64 {
+	var sum float64
+	for i := range a {
+		sum += float64(a[i]) * float64(b[i])
+	}
+
+	return sum
+}
+
+// safeDotProduct uses the optimized float32 implementation and only falls back
+// to float64 accumulation when the fast path overflows or loses the result to
+// float32 cancellation.
+func safeDotProduct(a, b []float32) float64 {
+	sum := dotProductImplementation(a, b)
+	if math.IsInf(float64(sum), 0) || math.IsNaN(float64(sum)) {
+		return dotProductFloat64(a, b)
+	}
+
+	return float64(sum)
+}
+
+// clampDotProduct saturates values that are outside the float32 range. The
+// distancer and all API distance fields are float32, and returning +/-Inf for
+// finite inputs makes JSON serialization fail. Saturation keeps the value
+// representable while preserving the ordering of finite vectors.
+func clampDotProduct(v float64) float32 {
+	if v > math.MaxFloat32 {
+		return math.MaxFloat32
+	}
+	if v < -math.MaxFloat32 {
+		return -math.MaxFloat32
+	}
+
+	return float32(v)
 }
 
 func DotProductByteGo(a, b []uint8) uint32 {
@@ -55,7 +96,7 @@ func (d *DotProduct) Distance(b []float32) (float32, error) {
 			len(d.a), len(b))
 	}
 
-	dist := -dotProductImplementation(d.a, b)
+	dist := clampDotProduct(-safeDotProduct(d.a, b))
 	return dist, nil
 }
 
@@ -71,7 +112,7 @@ func (d DotProductProvider) SingleDist(a, b []float32) (float32, error) {
 			len(a), len(b))
 	}
 
-	prod := -dotProductImplementation(a, b)
+	prod := clampDotProduct(-safeDotProduct(a, b))
 
 	return prod, nil
 }
@@ -85,14 +126,9 @@ func (d DotProductProvider) New(a []float32) Distancer {
 }
 
 func (d DotProductProvider) Step(x, y []float32) float32 {
-	var sum float32
-	for i := range x {
-		sum += x[i] * y[i]
-	}
-
-	return sum
+	return clampDotProduct(dotProductFloat64(x, y))
 }
 
 func (d DotProductProvider) Wrap(x float32) float32 {
-	return -x
+	return clampDotProduct(-float64(x))
 }
