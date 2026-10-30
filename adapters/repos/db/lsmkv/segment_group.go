@@ -29,13 +29,13 @@ import (
 	bolterrors "go.etcd.io/bbolt/errors"
 
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -1266,13 +1266,13 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 // deletions and additions onto it in place. Disk reads produce additions
 // only — the base segment's own deletions are never read, as they cannot
 // mask anything older. If no segment has the key, a nil bitmap and noop
-// release are returned.
-func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc int) (bm *sroar.Bitmap, release func(), err error) {
+// release are returned. h must be bloomhash.Sum(key).
+func (sg *SegmentGroup) roaringSetGet(key []byte, h inverted.BloomHash, segments []Segment, maxConc int,
+) (bm *sroar.Bitmap, release func(), err error) {
 	ln := len(segments)
 	if ln == 0 {
 		return nil, noopRelease, nil
 	}
-	h := bloomhash.Sum(key)
 
 	// acquired (not the named return, which error paths overwrite with
 	// noopRelease) is what the defer frees, so a mid-merge disk read error
