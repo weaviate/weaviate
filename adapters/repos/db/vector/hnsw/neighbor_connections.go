@@ -393,7 +393,7 @@ func (n *neighborFinderConnector) pruneNeighborAtLevel(neighbor *vertex, neighbo
 	// node leaves the live part of the graph behind. They only get what's left,
 	// until cleanup they can still be the one way to reach another node. That goes
 	// for this node too, if its delete has overtaken its insert.
-	var tombstoned []uint64
+	live, tombstoned := n.graph.splitOffTombstones(currentConnections)
 	if n.graph.hasTombstone(n.nodeID) {
 		tombstoned = append(tombstoned, n.nodeID)
 	} else {
@@ -408,12 +408,7 @@ func (n *neighborFinderConnector) pruneNeighborAtLevel(neighbor *vertex, neighbo
 		candidates.Insert(n.nodeID, dist)
 	}
 
-	for _, existingConnection := range currentConnections {
-		if n.graph.hasTombstone(existingConnection) {
-			tombstoned = append(tombstoned, existingConnection)
-			continue
-		}
-
+	for _, existingConnection := range live {
 		dist, found, err := n.distToNeighbor(existingConnection, neighborID)
 		if err != nil {
 			return err
@@ -564,8 +559,14 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 // tombstones in reach. It can't link to any of them, and a node without edges is
 // out of reach of every search for good: tombstone cleanup only visits nodes that
 // have tombstoned neighbors. So the node takes over from the dead entrypoint or, if
-// a concurrent insert was first, starts over from that one.
+// a concurrent insert was first, starts over from that one. The search may have come
+// from a local entrypoint, in which case the global one gets its turn first.
 func (n *neighborFinderConnector) leaveTombstones() error {
+	if global := n.graph.getEntrypoint(); global != n.entryPointID {
+		n.entryPointID = global
+		return nil
+	}
+
 	tookOver, err := n.graph.takeOverDeadEntrypoint(n.nodeID, n.node)
 	if err != nil {
 		return err

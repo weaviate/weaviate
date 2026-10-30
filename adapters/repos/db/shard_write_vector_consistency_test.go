@@ -547,6 +547,33 @@ func TestRewriteRestoresObjectMissingFromVectorIndex(t *testing.T) {
 	}
 }
 
+// TestRepairDoesNotMoveUpdateTimeBack guards timestamp based reconciliation: async
+// replication and read repair compare update times, so a late copy of an object must
+// not take it back in time, even if the object needs repairing.
+func TestRepairDoesNotMoveUpdateTimeBack(t *testing.T) {
+	const newer, older = 200, 100
+
+	className := "RepairUpdateTime"
+	flavor := consistencyFlavors()[0]
+	shard, _ := testShardWithSettings(t, t.Context(), consistencyClass(className),
+		enthnsw.NewDefaultUserConfig(), false, false)
+
+	objs := consistencyObjects(flavor, className, 1)
+	objs[0].Object.LastUpdateTimeUnix = newer
+	storeWithoutVector(t, shard, objs[0])
+
+	late := newerVersions(objs, older-newer)
+	require.Empty(t, nonNilErrs(shard.PutObjectBatch(t.Context(), late)))
+
+	stored, err := shard.ObjectByID(t.Context(), objs[0].ID(), nil, additional.Properties{})
+	require.NoError(t, err)
+	assert.EqualValues(t, newer, stored.LastUpdateTimeUnix())
+
+	// a copy that isn't behind still repairs it
+	require.Empty(t, nonNilErrs(shard.PutObjectBatch(t.Context(), newerVersions(objs, 0))))
+	requireSelfHits(t, shard, flavor, objs)
+}
+
 // ghostingIndex stands in for an hnsw index holding a ghost, which only a failed
 // insert can create.
 type ghostingIndex struct {

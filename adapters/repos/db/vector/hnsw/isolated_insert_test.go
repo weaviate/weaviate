@@ -12,10 +12,12 @@
 package hnsw
 
 import (
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // An insert only ever links to live nodes: search drops tombstones from its results
@@ -74,18 +76,16 @@ func TestInsertWithOnlyTombstonesInReach(t *testing.T) {
 					f := newBootstrapFixture(t, variant.compressed)
 					onlyTombstones(t, f)
 
-					var wg sync.WaitGroup
+					eg := enterrors.NewErrorGroupWrapper(f.cfg.Logger)
 					start := make(chan struct{})
 					for id := uint64(3); id < 8; id++ {
-						wg.Add(1)
-						go func() {
-							defer wg.Done()
+						eg.Go(func() error {
 							<-start
-							require.NoError(t, f.index.Add(f.ctx, id, f.vectors[id]))
-						}()
+							return f.index.Add(f.ctx, id, f.vectors[id])
+						})
 					}
 					close(start)
-					wg.Wait()
+					require.NoError(t, eg.Wait())
 
 					f.requireReachable(t, 3, 4, 5, 6, 7)
 				}
@@ -168,4 +168,50 @@ func TestPruningKeepsLiveNeighborsOverTombstonedInsert(t *testing.T) {
 
 	require.ElementsMatch(t, []uint64{1, 2}, f.index.nodeByID(0).connections.GetLayer(0))
 	f.requireReachable(t, 0, 1, 2)
+}
+
+// A node whose delete has overtaken its insert needs no links. With only tombstones
+// in reach it must not take over the entrypoint either: nothing would move it again.
+func TestTombstonedInsertDoesNotTakeOverEntrypoint(t *testing.T) {
+	f := newBootstrapFixture(t, false)
+	require.NoError(t, f.index.addTombstone(0, 1, 2))
+	entrypoint := f.index.getEntrypoint()
+
+	require.NoError(t, f.index.Delete(3))
+	require.NoError(t, f.index.Add(f.ctx, 3, f.vectors[3]))
+
+	require.Equal(t, entrypoint, f.index.getEntrypoint())
+
+	require.NoError(t, f.index.Add(f.ctx, 4, f.vectors[4]))
+	f.requireReachable(t, 4)
+}
+
+// An insert searches from a local entrypoint it found on its way down. That one can
+// sit among tombstones in a split graph while the dead global entrypoint still leads
+// to live nodes: only an empty search from the global one means none are in reach.
+func TestInsertRetriesFromGlobalEntrypointBeforeTakingOver(t *testing.T) {
+	f := newBootstrapFixture(t, false)
+
+	publish := func(id uint64) *vertex {
+		node := &vertex{}
+		node.connections.GrowLayersTo(0)
+		f.index.shardedNodeLocks.Lock(id)
+		f.index.nodes[id] = node
+		f.index.shardedNodeLocks.Unlock(id)
+		f.index.cache.Preload(id, f.vectors[id])
+		return node
+	}
+
+	// a tombstone with no links, and a dead global entrypoint with live neighbors
+	publish(5)
+	require.NoError(t, f.index.addTombstone(5, 0))
+	require.Equal(t, uint64(0), f.index.getEntrypoint())
+
+	node := publish(3)
+	require.NoError(t, f.index.findAndConnectNeighbors(f.ctx, 3, node, 5, f.vectors[3], nil, 0, 0,
+		helpers.NewAllowList()))
+
+	require.Equal(t, uint64(0), f.index.getEntrypoint(), "live nodes are in reach of the entrypoint")
+	require.NotEmpty(t, node.connections.GetLayer(0))
+	f.requireReachable(t, 1, 2, 3)
 }

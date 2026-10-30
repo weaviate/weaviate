@@ -541,7 +541,7 @@ func (s *Shard) determineInsertStatus(prevObj, nextObj *storobj.Object) (objectI
 	// Neither applies to an object whose vector isn't in the index: it takes the
 	// regular update path below, which is what indexes it.
 	if preserve, skip := compareObjsForInsertStatus(prevObj, nextObj); (preserve || skip) &&
-		!s.vectorMissingFromIndex(prevObj) {
+		!s.needsVectorRepair(prevObj, nextObj) {
 		out.docID = prevObj.DocID
 		// Content unchanged, but if the update time advanced, take the docID-preserved
 		// path instead of skipping: it refreshes the object row, hashtree leaf and
@@ -564,6 +564,12 @@ func (s *Shard) determineInsertStatus(prevObj, nextObj *storobj.Object) (objectI
 	out.docIDChanged = true
 
 	return out, nil
+}
+
+// needsVectorRepair reports whether a write of an unchanged object has to index it.
+// A write that is behind the stored object can't: it would take its update time back.
+func (s *Shard) needsVectorRepair(prevObj, nextObj *storobj.Object) bool {
+	return nextObj.LastUpdateTimeUnix() >= prevObj.LastUpdateTimeUnix() && s.vectorMissingFromIndex(prevObj)
 }
 
 // ghostReporter is implemented by indexes in which a document can be present
