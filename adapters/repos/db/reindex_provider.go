@@ -643,10 +643,8 @@ func buildMigrationTasks(logger logrus.FieldLogger, schemaManager *schema.Manage
 	payload *ReindexTaskPayload, genFor func(prefix, propSuffix string) (int, bool),
 	hasFilterableBucket func(className, propName string) bool,
 ) ([]*ShardReindexTaskGeneric, error) {
-	// Every migration type requires at least one property — repair-* / enable-*
-	// because they're per-property migrations, change-tokenization because it
-	// needs exactly one property. Check up front so each arm only deals with
-	// its unique constraints.
+	// Every migration type needs at least one property. Checked up front so
+	// each arm below doesn't have to.
 	if len(payload.Properties) == 0 {
 		return nil, fmt.Errorf("%s requires at least one property", payload.MigrationType)
 	}
