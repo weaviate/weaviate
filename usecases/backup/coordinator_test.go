@@ -1015,12 +1015,14 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 				// typed sentinel — keep the two paths cleanly separable.
 				assert.False(t, errors.Is(err, errCannotCommit),
 					"in-flight-reindex error must not also match errCannotCommit, got: %v", err)
+				assert.Contains(t, err.Error(), `"exclude"`)
 			}
 			if tc.expectCanCommit {
 				assert.True(t, errors.Is(err, errCannotCommit),
 					"expected errors.Is(err, errCannotCommit), got: %v", err)
 				assert.False(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
 					"generic refusal must not match the typed sentinel, got: %v", err)
+				assert.NotContains(t, err.Error(), `"exclude"`)
 			}
 			if tc.expectContain != "" {
 				assert.Contains(t, err.Error(), tc.expectContain)
