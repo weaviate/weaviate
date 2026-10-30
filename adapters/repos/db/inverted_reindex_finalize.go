@@ -349,7 +349,6 @@ func schemaAuthorizesFinalization(class *models.Class, lsmPath, migName string) 
 	for _, prop := range class.Properties {
 		byName[prop.Name] = prop
 	}
-	sweep := newPropertyDeleteIndexHelper()
 	for _, propName := range props {
 		prop, listed := byName[propName]
 		if !listed {
@@ -364,7 +363,7 @@ func schemaAuthorizesFinalization(class *models.Class, lsmPath, migName string) 
 		case helpers.BucketRangeableFromPropNameLSM(propName):
 			index = prop.IndexRangeFilters
 		}
-		if sweep.isPropertyIndexRemoved(index) {
+		if propertyIndexRemoved(index) {
 			return false
 		}
 	}
