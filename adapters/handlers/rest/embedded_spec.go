@@ -1927,6 +1927,13 @@ func init() {
             "description": "Optional: Specifies the path within the bucket/container/volume if the backup is not at the root.",
             "name": "path",
             "in": "query"
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Optional: If true, force-terminates a SWAPPING distributed-task backup, which a plain cancel refuses.",
+            "name": "force",
+            "in": "query"
           }
         ],
         "responses": {
@@ -14631,6 +14638,13 @@ func init() {
             "type": "string",
             "description": "Optional: Specifies the path within the bucket/container/volume if the backup is not at the root.",
             "name": "path",
+            "in": "query"
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Optional: If true, force-terminates a SWAPPING distributed-task backup, which a plain cancel refuses.",
+            "name": "force",
             "in": "query"
           }
         ],

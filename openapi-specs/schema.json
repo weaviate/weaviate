@@ -11346,6 +11346,14 @@
             "required": false,
             "type": "string",
             "description": "Optional: Specifies the path within the bucket/container/volume if the backup is not at the root."
+          },
+          {
+            "name": "force",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "default": false,
+            "description": "Optional: If true, force-terminates a SWAPPING distributed-task backup, which a plain cancel refuses."
           }
         ],
         "responses": {

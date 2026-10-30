@@ -743,14 +743,12 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, err
 	}
 
-	if s.dtm != nil {
+	if s.dtmEnabled() {
 		dtmTask, dtmErr := s.dtm.GetDistributedTask(ctx, BackupTaskNamespace, backupID)
 		if dtmErr != nil {
-			// Falling back to the legacy path is safe: the rollout gate means no
-			// DTM backup exists while an old node could be leader.
-			s.logger.WithField("backup_id", backupID).
-				Warnf("DTM status query failed, falling back to legacy path: %v", dtmErr)
-		} else if dtmTask != nil {
+			return nil, fmt.Errorf("backup status: DTM query failed: %w", dtmErr)
+		}
+		if dtmTask != nil {
 			// The authorize above reads the global descriptor, which does not
 			// exist until the first node writes it. Until then, the task
 			// record's own classes scope this read.
@@ -836,7 +834,7 @@ func (s *Scheduler) CancelWithForce(ctx context.Context, principal *models.Princ
 		return backup.NewErrUnprocessable(idErr)
 	}
 
-	if s.dtm != nil {
+	if s.dtmEnabled() {
 		dtmTask, dtmErr := s.dtm.GetDistributedTask(ctx, BackupTaskNamespace, backupID)
 		if dtmErr != nil {
 			return fmt.Errorf("cancel: DTM query failed: %w", dtmErr)

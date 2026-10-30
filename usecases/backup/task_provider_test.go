@@ -2230,6 +2230,7 @@ func TestBackupStatusMapping(t *testing.T) {
 			authorizer:   &noopAuthorizer{},
 			backends:     &fakeBackupBackendProvider{backend: be},
 			dtm:          dtm,
+			backupCfg:    config.Backup{DistributedTasksEnabled: true},
 			taskProvider: provider,
 			backupper:    newCoordinator(&fakeSelector{}, &fakeClient{}, &fakeSchemaManger{}, logger, &fakeNodeResolver{}, &fakeBackupBackendProvider{backend: be}, nil, nil),
 		}
@@ -2239,7 +2240,7 @@ func TestBackupStatusMapping(t *testing.T) {
 		assert.Equal(t, backup.Success, st.Status)
 	})
 
-	t.Run("accessor error falls back to the legacy path, never treated as a miss", func(t *testing.T) {
+	t.Run("accessor error is returned, never served from the legacy path", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		be := newFakeBackend()
 		descr := backup.DistributedBackupDescriptor{
@@ -2263,13 +2264,16 @@ func TestBackupStatusMapping(t *testing.T) {
 			authorizer:   &noopAuthorizer{},
 			backends:     &fakeBackupBackendProvider{backend: be},
 			dtm:          dtm,
+			backupCfg:    config.Backup{DistributedTasksEnabled: true},
 			taskProvider: provider,
 			backupper:    newCoordinator(&fakeSelector{}, &fakeClient{}, &fakeSchemaManger{}, logger, &fakeNodeResolver{}, &fakeBackupBackendProvider{backend: be}, nil, nil),
 		}
 
+		// The legacy descriptor reads SUCCESS, so a fallback would answer with it.
 		st, err := s.BackupStatus(context.Background(), nil, "fakeBackend", "b1", "", "")
-		require.NoError(t, err, "BackupStatus must not error on DTM accessor failure")
-		assert.Equal(t, backup.Success, st.Status, "must fall back to legacy descriptor")
+		assert.Nil(t, st)
+		require.ErrorIs(t, err, dtmErr)
+		assert.ErrorContains(t, err, "backup status")
 	})
 }
 
@@ -2600,6 +2604,7 @@ func TestBackupRetryClassification(t *testing.T) {
 		{"broken pipe mid-upload", fmt.Errorf("upload: %w", syscall.EPIPE), true},
 		{"truncated response body", fmt.Errorf("read meta: %w", io.ErrUnexpectedEOF), true},
 		{"backend client deadline", fmt.Errorf("put object: %w", context.DeadlineExceeded), true},
+		{"provider answered 503", fmt.Errorf("consumer: %w", backup.NewErrTransient(errors.New("503 Service Unavailable"))), true},
 		{"operator cancel", fmt.Errorf("upload: %w", context.Canceled), false},
 		{"access denied", errors.New("AccessDenied: not authorized"), false},
 		{"class no longer exists", errors.New("class Article not found"), false},
@@ -2633,6 +2638,7 @@ func TestBackupStatusAuthorization(t *testing.T) {
 			authorizer:   authorizer,
 			backends:     &fakeBackupBackendProvider{backend: be},
 			dtm:          &fakeDTMClient{getTask: makeTask("b1", distributedtask.TaskStatusStarted, makePayload("b1"))},
+			backupCfg:    config.Backup{DistributedTasksEnabled: true},
 			taskProvider: provider,
 			backupper:    newCoordinator(&fakeSelector{}, &fakeClient{}, &fakeSchemaManger{}, logger, &fakeNodeResolver{}, &fakeBackupBackendProvider{backend: be}, nil, nil),
 		}
@@ -2733,12 +2739,57 @@ func TestBackupGateDispatch(t *testing.T) {
 			authorizer: &noopAuthorizer{},
 			backends:   &fakeBackupBackendProvider{backend: be},
 			dtm:        dtm,
+			backupCfg:  config.Backup{DistributedTasksEnabled: true},
 			backupper:  newCoordinator(&fakeSelector{}, &fakeClient{}, &fakeSchemaManger{}, logger, &fakeNodeResolver{}, &fakeBackupBackendProvider{backend: be}, nil, nil),
 		}
 
 		cancelErr := s.CancelWithForce(context.Background(), nil, "fakeBackend", "b1", "", "", false)
 		require.Error(t, cancelErr, "Cancel must surface the DTM accessor error")
 		assert.Contains(t, cancelErr.Error(), "DTM query failed")
+	})
+
+	// With the flag off, the node sends no DTM query. So a leader that cannot
+	// answer one never affects the caller. SetDTMClient wires the client as
+	// production does.
+	flagOffScheduler := func(t *testing.T) (*Scheduler, *fakeDTMClient, *fakeBackend) {
+		t.Helper()
+		logger, _ := test.NewNullLogger()
+		be := newFakeBackend()
+		descrBytes, err := json.Marshal(backup.DistributedBackupDescriptor{ID: "b1", Status: backup.Success})
+		require.NoError(t, err)
+		be.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(descrBytes, nil)
+		be.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("/backups/b1")
+		be.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+
+		dtm := &fakeDTMClient{getError: fmt.Errorf("simulated DTM accessor error")}
+		s := &Scheduler{
+			logger:     logger,
+			authorizer: &noopAuthorizer{},
+			backends:   &fakeBackupBackendProvider{backend: be},
+			backupper:  newCoordinator(&fakeSelector{}, &fakeClient{}, &fakeSchemaManger{}, logger, &fakeNodeResolver{}, &fakeBackupBackendProvider{backend: be}, nil, nil),
+		}
+		s.SetDTMClient(dtm, config.Backup{DistributedTasksEnabled: false}, nil)
+		return s, dtm, be
+	}
+
+	t.Run("status with the flag off serves the legacy descriptor without a DTM query", func(t *testing.T) {
+		s, dtm, _ := flagOffScheduler(t)
+
+		st, err := s.BackupStatus(context.Background(), nil, "fakeBackend", "b1", "", "")
+		require.NoError(t, err)
+		assert.Equal(t, backup.Success, st.Status)
+		assert.Zero(t, dtm.getCalls)
+	})
+
+	t.Run("cancel with the flag off takes the legacy path without a DTM query", func(t *testing.T) {
+		s, dtm, be := flagOffScheduler(t)
+
+		err := s.CancelWithForce(context.Background(), nil, "fakeBackend", "b1", "", "", false)
+		// Only the legacy path calls Initialize, then rejects the SUCCESS descriptor.
+		require.ErrorAs(t, err, &backup.ErrUnprocessable{})
+		assert.ErrorContains(t, err, "already succeeded")
+		be.AssertCalled(t, "Initialize", mock.Anything, mock.Anything)
+		assert.Zero(t, dtm.getCalls)
 	})
 }
 
@@ -2815,6 +2866,7 @@ type fakeDTMClient struct {
 	cancelErr      error
 	forceTermErr   error
 	proposeErr     error
+	getCalls       int
 
 	// proposedPayload is the last payload the propose path marshaled.
 	proposedPayload []byte
@@ -2823,6 +2875,7 @@ type fakeDTMClient struct {
 }
 
 func (f *fakeDTMClient) GetDistributedTask(_ context.Context, _, _ string) (*distributedtask.Task, error) {
+	f.getCalls++
 	return f.getTask, f.getError
 }
 

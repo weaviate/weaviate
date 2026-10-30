@@ -854,3 +854,102 @@ func TestGetObjectAllocatesOnce(t *testing.T) {
 	require.Equal(t, payload, got)
 	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(len(payload))*3/2, "bytes allocated")
 }
+
+// The DTM scheduler retries only errors that isRetryableUploadError accepts.
+// For provider responses, it accepts only backup.ErrTransient.
+func TestProviderErrorClassification(t *testing.T) {
+	calls := []struct {
+		name string
+		call func(*testing.T, *gcsClient, context.Context) error
+	}{
+		{"GetObject", func(_ *testing.T, g *gcsClient, ctx context.Context) error {
+			_, err := g.GetObject(ctx, "backup-1", ubak.BackupFile, "", "")
+			return err
+		}},
+		{"PutObject", func(_ *testing.T, g *gcsClient, ctx context.Context) error {
+			return g.PutObject(ctx, "backup-1", ubak.BackupFile, "", "", []byte("{}"))
+		}},
+		{"Write", func(t *testing.T, g *gcsClient, ctx context.Context) error {
+			return writeAndSignal(t, g, ctx, []byte("payload"))
+		}},
+		{"Read", func(_ *testing.T, g *gcsClient, ctx context.Context) error {
+			_, err := g.Read(ctx, "backup-1", "chunk-1", "", "", discardWriteCloser{})
+			return err
+		}},
+	}
+	httpStatuses := []struct {
+		status    int
+		transient bool
+	}{
+		{http.StatusRequestTimeout, true},
+		{http.StatusTooManyRequests, true},
+		{http.StatusInternalServerError, true},
+		{http.StatusBadGateway, true},
+		{http.StatusServiceUnavailable, true},
+		{http.StatusGatewayTimeout, true},
+		{http.StatusBadRequest, false},
+		{http.StatusUnauthorized, false},
+		{http.StatusForbidden, false},
+		{http.StatusNotFound, false},
+	}
+	grpcCodes := []struct {
+		code      codes.Code
+		transient bool
+	}{
+		{codes.ResourceExhausted, true},
+		{codes.Internal, true},
+		{codes.Unavailable, true},
+		{codes.DeadlineExceeded, true},
+		{codes.InvalidArgument, false},
+		{codes.Unauthenticated, false},
+		{codes.PermissionDenied, false},
+		{codes.NotFound, false},
+	}
+	for _, c := range calls {
+		for _, s := range httpStatuses {
+			t.Run(fmt.Sprintf("http/%s answered %d", c.name, s.status), func(t *testing.T) {
+				g := newFakeGCSClient(t, "test-bucket", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(s.status)
+					fmt.Fprintf(w, `{"error":{"code":%d,"message":"injected"}}`, s.status)
+				}))
+
+				err := c.call(t, g, context.Background())
+				require.Error(t, err)
+				assert.Equal(t, s.transient, errors.As(err, &backup.ErrTransient{}), "error %v reports transient", err)
+			})
+		}
+		for _, s := range grpcCodes {
+			t.Run(fmt.Sprintf("grpc/%s answered %s", c.name, s.code), func(t *testing.T) {
+				g := newClientOnFailingGRPC(t, s.code)
+
+				err := c.call(t, g, context.Background())
+				require.Error(t, err)
+				assert.Equal(t, s.transient, errors.As(err, &backup.ErrTransient{}), "error %v reports transient", err)
+			})
+		}
+	}
+}
+
+// newClientOnFailingGRPC returns a gRPC client with retries off. Its fake
+// server answers every call with code.
+func newClientOnFailingGRPC(t *testing.T, code codes.Code) *gcsClient {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	srv := grpc.NewServer(grpc.UnknownServiceHandler(func(any, grpc.ServerStream) error {
+		return status.Error(code, "injected")
+	}))
+	enterrors.GoWrapper(func() { _ = srv.Serve(listener) }, discardLogger())
+	t.Cleanup(srv.Stop)
+
+	t.Setenv("BACKUP_GCS_USE_AUTH", "false")
+	t.Setenv("BACKUP_GCS_AUTH_PROXY_ENDPOINT", "")
+	t.Setenv("STORAGE_EMULATOR_HOST_GRPC", listener.Addr().String())
+	config := &clientConfig{Bucket: "test-bucket", Transport: ucfg.BackupGCS{UseGRPC: new(true), GRPCConnPool: 1}}
+	g, err := newClient(context.Background(), config, t.TempDir(), discardLogger())
+	require.NoError(t, err)
+	t.Cleanup(func() { g.client.Close() })
+	g.client.SetRetry(storage.WithPolicy(storage.RetryNever))
+	return g
+}

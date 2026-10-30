@@ -1278,12 +1278,16 @@ func errBackupFailed(task *distributedtask.Task) string {
 }
 
 // isRetryableUploadError returns true for transport-level object-store failures
-// that the DTM scheduler may retry. Anything unclassified is permanent, matching
-// the 2PC path. Backend SDKs wrap errors, so checks use errors.Is/errors.As.
+// and transient provider responses that the DTM scheduler may retry. Anything
+// unclassified is permanent, matching the 2PC path. Backend SDKs wrap errors, so
+// checks use errors.Is/errors.As.
 func isRetryableUploadError(err error) bool {
 	// Cancellation is the operator's decision, not a transient backend fault.
 	if errors.Is(err, context.Canceled) {
 		return false
+	}
+	if errors.As(err, &backup.ErrTransient{}) {
+		return true
 	}
 	if errors.Is(err, io.ErrUnexpectedEOF) ||
 		errors.Is(err, syscall.ECONNRESET) ||

@@ -23,14 +23,22 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // NewBackupsCancelParams creates a new BackupsCancelParams object
-//
-// There are no default values defined in the spec.
+// with the default values initialized.
 func NewBackupsCancelParams() BackupsCancelParams {
 
-	return BackupsCancelParams{}
+	var (
+		// initialize parameters with default values
+
+		forceDefault = bool(false)
+	)
+
+	return BackupsCancelParams{
+		Force: &forceDefault,
+	}
 }
 
 // BackupsCancelParams contains all the bound params for the backups cancel operation
@@ -51,6 +59,11 @@ type BackupsCancelParams struct {
 	  In: query
 	*/
 	Bucket *string
+	/*Optional: If true, force-terminates a SWAPPING distributed-task backup, which a plain cancel refuses.
+	  In: query
+	  Default: false
+	*/
+	Force *bool
 	/*The unique identifier of the backup to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).
 	  Required: true
 	  In: path
@@ -80,6 +93,11 @@ func (o *BackupsCancelParams) BindRequest(r *http.Request, route *middleware.Mat
 
 	qBucket, qhkBucket, _ := qs.GetOK("bucket")
 	if err := o.bindBucket(qBucket, qhkBucket, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qForce, qhkForce, _ := qs.GetOK("force")
+	if err := o.bindForce(qForce, qhkForce, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -126,6 +144,30 @@ func (o *BackupsCancelParams) bindBucket(rawData []string, hasKey bool, formats 
 		return nil
 	}
 	o.Bucket = &raw
+
+	return nil
+}
+
+// bindForce binds and validates parameter Force from query.
+func (o *BackupsCancelParams) bindForce(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		// Default values have been previously initialized by NewBackupsCancelParams()
+		return nil
+	}
+
+	value, err := swag.ConvertBool(raw)
+	if err != nil {
+		return errors.InvalidType("force", "query", "bool", raw)
+	}
+	o.Force = &value
 
 	return nil
 }

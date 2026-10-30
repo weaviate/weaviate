@@ -25,6 +25,7 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // NewBackupsCancelParams creates a new BackupsCancelParams object,
@@ -84,6 +85,12 @@ type BackupsCancelParams struct {
 	*/
 	Bucket *string
 
+	/* Force.
+
+	   Optional: If true, force-terminates a SWAPPING distributed-task backup, which a plain cancel refuses.
+	*/
+	Force *bool
+
 	/* ID.
 
 	   The unique identifier of the backup to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).
@@ -113,7 +120,18 @@ func (o *BackupsCancelParams) WithDefaults() *BackupsCancelParams {
 //
 // All values with no default are reset to their zero value.
 func (o *BackupsCancelParams) SetDefaults() {
-	// no default values defined for this parameter
+	var (
+		forceDefault = bool(false)
+	)
+
+	val := BackupsCancelParams{
+		Force: &forceDefault,
+	}
+
+	val.timeout = o.timeout
+	val.Context = o.Context
+	val.HTTPClient = o.HTTPClient
+	*o = val
 }
 
 // WithTimeout adds the timeout to the backups cancel params
@@ -171,6 +189,17 @@ func (o *BackupsCancelParams) SetBucket(bucket *string) {
 	o.Bucket = bucket
 }
 
+// WithForce adds the force to the backups cancel params
+func (o *BackupsCancelParams) WithForce(force *bool) *BackupsCancelParams {
+	o.SetForce(force)
+	return o
+}
+
+// SetForce adds the force to the backups cancel params
+func (o *BackupsCancelParams) SetForce(force *bool) {
+	o.Force = force
+}
+
 // WithID adds the id to the backups cancel params
 func (o *BackupsCancelParams) WithID(id string) *BackupsCancelParams {
 	o.SetID(id)
@@ -218,6 +247,23 @@ func (o *BackupsCancelParams) WriteToRequest(r runtime.ClientRequest, reg strfmt
 		if qBucket != "" {
 
 			if err := r.SetQueryParam("bucket", qBucket); err != nil {
+				return err
+			}
+		}
+	}
+
+	if o.Force != nil {
+
+		// query param force
+		var qrForce bool
+
+		if o.Force != nil {
+			qrForce = *o.Force
+		}
+		qForce := swag.FormatBool(qrForce)
+		if qForce != "" {
+
+			if err := r.SetQueryParam("force", qForce); err != nil {
 				return err
 			}
 		}

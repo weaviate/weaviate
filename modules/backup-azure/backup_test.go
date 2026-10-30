@@ -14,7 +14,9 @@ package modstgazure
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -31,6 +33,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -427,3 +430,67 @@ func newFakeAzureClient(t *testing.T, containerName string, handler http.Handler
 	require.NoError(t, err)
 	return &azureClient{client: client, config: clientConfig{Container: containerName}, logger: logrus.New()}
 }
+
+// The DTM scheduler retries only errors that isRetryableUploadError accepts.
+// For provider responses, it accepts only backup.ErrTransient.
+func TestProviderErrorClassification(t *testing.T) {
+	ctx := context.Background()
+	calls := []struct {
+		name string
+		call func(*azureClient) error
+	}{
+		{"GetObject", func(a *azureClient) error {
+			_, err := a.GetObject(ctx, "backup-1", ubak.BackupFile, "", "")
+			return err
+		}},
+		{"PutObject", func(a *azureClient) error {
+			return a.PutObject(ctx, "backup-1", ubak.BackupFile, "", "", []byte("{}"))
+		}},
+		{"Write", func(a *azureClient) error {
+			_, err := a.Write(ctx, "backup-1", "chunk-1", "", "", payloadReader{strings.NewReader("payload")})
+			return err
+		}},
+		{"Read", func(a *azureClient) error {
+			_, err := a.Read(ctx, "backup-1", "chunk-1", "", "", nopWriteCloser{io.Discard})
+			return err
+		}},
+	}
+	statuses := []struct {
+		status    int
+		transient bool
+	}{
+		{http.StatusRequestTimeout, true},
+		{http.StatusTooManyRequests, true},
+		{http.StatusInternalServerError, true},
+		{http.StatusBadGateway, true},
+		{http.StatusServiceUnavailable, true},
+		{http.StatusGatewayTimeout, true},
+		{http.StatusBadRequest, false},
+		{http.StatusUnauthorized, false},
+		{http.StatusForbidden, false},
+		{http.StatusNotFound, false},
+	}
+	for _, c := range calls {
+		for _, s := range statuses {
+			t.Run(fmt.Sprintf("%s answered %d", c.name, s.status), func(t *testing.T) {
+				a := newFakeAzureClient(t, "test-container", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(s.status)
+				}))
+
+				err := c.call(a)
+				require.Error(t, err)
+				assert.Equal(t, s.transient, errors.As(err, &backup.ErrTransient{}), "error %v reports transient", err)
+			})
+		}
+	}
+}
+
+type payloadReader struct{ io.Reader }
+
+func (payloadReader) Close() error { return nil }
+
+func (payloadReader) CloseWithError(error) error { return nil }
+
+type nopWriteCloser struct{ io.Writer }
+
+func (nopWriteCloser) Close() error { return nil }

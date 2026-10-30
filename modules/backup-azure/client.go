@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
@@ -198,7 +199,7 @@ func (a *azureClient) getObject(ctx context.Context, containerName, objectName s
 		if bloberror.HasCode(err, bloberror.BlobNotFound) {
 			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object %s", objectName))
 		}
-		return nil, backup.NewErrInternal(errors.Wrapf(err, "download stream for object %s", objectName))
+		return nil, markTransient(err, backup.NewErrInternal(errors.Wrapf(err, "download stream for object %s", objectName)))
 	}
 
 	size := int64(-1)
@@ -236,7 +237,7 @@ func (a *azureClient) PutObject(ctx context.Context, backupID, key, overrideBuck
 			BlockSize:   a.getBlockSize(ctx),
 			Concurrency: a.getConcurrency(ctx),
 		}); err != nil {
-		return backup.NewErrInternal(errors.Wrapf(err, "upload stream for object %s", objectName))
+		return markTransient(err, backup.NewErrInternal(errors.Wrapf(err, "upload stream for object %s", objectName)))
 	}
 
 	return nil
@@ -330,7 +331,7 @@ func (a *azureClient) Write(ctx context.Context, backupID, key, overrideBucket, 
 			BlockSize:   a.getBlockSize(ctx),
 			Concurrency: a.getConcurrency(ctx),
 		}); err != nil {
-		err = fmt.Errorf("upload stream %q: %w", path, err)
+		err = markTransient(err, fmt.Errorf("upload stream %q: %w", path, err))
 	}
 
 	return written, err
@@ -347,17 +348,17 @@ func (a *azureClient) Read(ctx context.Context, backupID, key, overrideBucket, o
 	path := a.makeObjectName(overridePath, []string{backupID, key})
 	resp, err := a.client.DownloadStream(ctx, containerName, path, nil)
 	if err != nil {
-		err = fmt.Errorf("find object %q: %w", path, err)
+		wrapped := fmt.Errorf("find object %q: %w", path, err)
 		if bloberror.HasCode(err, bloberror.BlobNotFound) {
-			err = backup.NewErrNotFound(err)
+			return 0, backup.NewErrNotFound(wrapped)
 		}
-		return 0, err
+		return 0, markTransient(err, wrapped)
 	}
 	defer resp.Body.Close()
 
 	read, err := io.Copy(w, resp.Body)
 	if err != nil {
-		return read, fmt.Errorf("io.copy %q: %w", path, err)
+		return read, markTransient(err, fmt.Errorf("io.copy %q: %w", path, err))
 	}
 
 	return read, nil
@@ -365,6 +366,17 @@ func (a *azureClient) Read(ctx context.Context, backupID, key, overrideBucket, o
 
 func (a *azureClient) SourceDataPath() string {
 	return a.dataPath
+}
+
+// markTransient returns err wrapped in backup.ErrTransient when cause carries an
+// Azure response with a transient status, and err unchanged otherwise.
+// cause is the raw SDK error: err may be an ErrInternal, which does not unwrap.
+func markTransient(cause, err error) error {
+	var respErr *azcore.ResponseError
+	if errors.As(cause, &respErr) && backup.IsTransientHTTPStatus(respErr.StatusCode) {
+		return backup.NewErrTransient(err)
+	}
+	return err
 }
 
 // reader is a wrapper used to count number of written bytes
