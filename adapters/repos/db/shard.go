@@ -109,8 +109,6 @@ type ShardLike interface {
 	ID() string // Get the shard id
 	drop(keepFiles bool) error
 	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
-	// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
-	haltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration, gate reindexGate) error
 	// MayResetTransferInactivityTimer counts external transfer activity
 	// against the halt watchdog. No-op on unhalted shards.
 	MayResetTransferInactivityTimer()

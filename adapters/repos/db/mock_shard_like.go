@@ -4605,55 +4605,6 @@ func (_c *MockShardLike_getAsyncReplicationStats_Call) RunAndReturn(run func(con
 	return _c
 }
 
-// haltForTransfer provides a mock function with given fields: ctx, offloading, inactivityTimeout, gate
-func (_m *MockShardLike) haltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration, gate reindexGate) error {
-	ret := _m.Called(ctx, offloading, inactivityTimeout, gate)
-
-	if len(ret) == 0 {
-		panic("no return value specified for haltForTransfer")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, bool, time.Duration, reindexGate) error); ok {
-		r0 = rf(ctx, offloading, inactivityTimeout, gate)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockShardLike_haltForTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'haltForTransfer'
-type MockShardLike_haltForTransfer_Call struct {
-	*mock.Call
-}
-
-// haltForTransfer is a helper method to define mock.On call
-//   - ctx context.Context
-//   - offloading bool
-//   - inactivityTimeout time.Duration
-//   - gate reindexGate
-func (_e *MockShardLike_Expecter) haltForTransfer(ctx interface{}, offloading interface{}, inactivityTimeout interface{}, gate interface{}) *MockShardLike_haltForTransfer_Call {
-	return &MockShardLike_haltForTransfer_Call{Call: _e.mock.On("haltForTransfer", ctx, offloading, inactivityTimeout, gate)}
-}
-
-func (_c *MockShardLike_haltForTransfer_Call) Run(run func(ctx context.Context, offloading bool, inactivityTimeout time.Duration, gate reindexGate)) *MockShardLike_haltForTransfer_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(bool), args[2].(time.Duration), args[3].(reindexGate))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_haltForTransfer_Call) Return(_a0 error) *MockShardLike_haltForTransfer_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_haltForTransfer_Call) RunAndReturn(run func(context.Context, bool, time.Duration, reindexGate) error) *MockShardLike_haltForTransfer_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // hasGeoIndex provides a mock function with no fields
 func (_m *MockShardLike) hasGeoIndex() bool {
 	ret := _m.Called()

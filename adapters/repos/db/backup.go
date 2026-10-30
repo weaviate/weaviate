@@ -578,7 +578,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 
 	// Active path => halt compaction (stays paused until ReleaseBackup).
 	// backupLock.Lock is released on return (unlockOnReturn=true).
-	if err := shard.haltForTransfer(ctx, false, 0, gate); err != nil {
+	if err := shard.HaltForTransfer(ctx, false, 0); err != nil {
 		return nil, fmt.Errorf("halt shard %v for backup: %w", name, err)
 	}
 
