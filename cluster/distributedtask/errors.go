@@ -93,11 +93,18 @@ var (
 	ErrTaskConflict = errors.New("task conflicts with an in-flight task")
 
 	ErrTaskBlockedByReplicaMovement = errors.New("task blocked by an in-flight replica movement")
+
+	ErrTaskReplicasChanged = errors.New("task built against replicas that have since changed")
 )
 
 func NewBlockedByReplicaMovementError(collection string) error {
 	return wrapPermanent(ErrTaskBlockedByReplicaMovement,
 		fmt.Sprintf("collection %q has a replica movement in flight", collection))
+}
+
+func NewReplicasChangedError(collection string) error {
+	return wrapPermanent(ErrTaskReplicasChanged,
+		fmt.Sprintf("the shards or replicas of collection %q changed while the task was submitted; retry the submit", collection))
 }
 
 // ErrTaskCompletionPermanent marks an [UnitAwareProvider.OnTaskCompleted]
@@ -133,6 +140,7 @@ var permanentMarkers = []permanentMarker{
 	{ErrTaskNotInFinalizingState, "task-not-finalizing"},
 	{ErrTaskConflict, "task-conflict"},
 	{ErrTaskBlockedByReplicaMovement, "task-blocked-by-movement"},
+	{ErrTaskReplicasChanged, "task-replicas-changed"},
 }
 
 // markerByID looks up a sentinel by its on-wire id.

@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Pins the DELETE_CLASS cascade extractor for the reindex namespace
@@ -61,4 +62,31 @@ func TestExtractReindexTaskCollection(t *testing.T) {
 		assert.True(t, ok)
 		assert.Equal(t, "Foo", got)
 	})
+}
+
+func TestExtractReindexTaskReplicas(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		payload []byte
+		want    map[string][]string
+		wantOK  bool
+	}{
+		{
+			name: "units group by shard",
+			payload: []byte(`{"unitToShard":{"s1__n1":"s1","s1__n2":"s1","s2__n1":"s2"},` +
+				`"unitToNode":{"s1__n1":"n1","s1__n2":"n2","s2__n1":"n1"}}`),
+			want:   map[string][]string{"s1": {"n1", "n2"}, "s2": {"n1"}},
+			wantOK: true,
+		},
+		{name: "unparseable payload is rejected", payload: []byte("not json")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := ExtractReindexTaskReplicas(tc.payload)
+			require.Equal(t, tc.wantOK, ok)
+			require.Len(t, got, len(tc.want))
+			for shard, nodes := range tc.want {
+				require.ElementsMatch(t, nodes, got[shard])
+			}
+		})
+	}
 }

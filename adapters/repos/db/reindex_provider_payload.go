@@ -28,6 +28,19 @@ func ExtractReindexTaskCollection(payload []byte) (string, bool) {
 	return p.Collection, p.Collection != ""
 }
 
+// ExtractReindexTaskReplicas lets the leader refuse a reindex task whose units no longer match the collection's replicas.
+func ExtractReindexTaskReplicas(payload []byte) (map[string][]string, bool) {
+	var p ReindexTaskPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return nil, false
+	}
+	nodesByShard := make(map[string][]string, len(p.UnitToShard))
+	for unit, shard := range p.UnitToShard {
+		nodesByShard[shard] = append(nodesByShard[shard], p.UnitToNode[unit])
+	}
+	return nodesByShard, true
+}
+
 // ReindexMigrationType identifies which migration strategy a reindex task uses.
 type ReindexMigrationType string
 

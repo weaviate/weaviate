@@ -13,7 +13,9 @@ package cluster
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -24,9 +26,12 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
@@ -129,7 +134,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // apply whose schema half has committed. An Apply-side check would not close
 // that window either: the DB half runs after the schema half commits, so a flip
 // landing in between produces the same state.
-// admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
+// admitPropose also refuses a replicate while a task is active on its collection, a task while a movement is, and a task whose units name other replicas than the collection now has. collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
 func (st *Store) admitPropose(req *api.ApplyRequest, collection string) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
@@ -140,7 +145,56 @@ func (st *Store) admitPropose(req *api.ApplyRequest, collection string) error {
 	if err := st.admitShardStatus(req); err != nil {
 		return err
 	}
-	return st.admitTaskOrMovement(req.Type, collection)
+	if err := st.admitTaskOrMovement(req.Type, collection); err != nil {
+		return err
+	}
+	return st.admitTaskReplicas(req, collection)
+}
+
+// admitTaskReplicas refuses a task whose units no longer cover every current replica of the shards it names, since an uncovered replica is never reindexed.
+// A copy that finishes between the REST handler's read and this check has already changed the sharding state read here.
+func (st *Store) admitTaskReplicas(req *api.ApplyRequest, collection string) error {
+	if req.Type != api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD || collection == "" {
+		return nil
+	}
+	sub := &api.AddDistributedTaskRequest{}
+	if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+		return fmt.Errorf("unmarshal add-task subcommand: %w", err)
+	}
+	extract := st.cfg.DistributedTaskShardReplicasExtractors[sub.Namespace]
+	if extract == nil {
+		return nil
+	}
+	taskReplicas, _ := extract(sub.Payload)
+
+	changed := false
+	if err := st.schemaManager.NewSchemaReader().Read(collection, false, func(_ *models.Class, state *sharding.State) error {
+		for shard, nodes := range taskReplicas {
+			if !sameNodes(nodes, state.Physical[shard].BelongsToNodes) {
+				changed = true
+				return nil
+			}
+		}
+		return nil
+	}); errors.Is(err, schema.ErrClassNotFound) {
+		changed = true
+	} else if err != nil {
+		return fmt.Errorf("read sharding state of collection %q: %w", collection, err)
+	}
+	if changed {
+		return distributedtask.NewReplicasChangedError(collection)
+	}
+	return nil
+}
+
+func sameNodes(a, b []string) bool {
+	// The submit path skips empty node names, so the comparison must too.
+	notEmpty := func(nodes []string) []string {
+		nodes = slices.DeleteFunc(slices.Clone(nodes), func(n string) bool { return n == "" })
+		slices.Sort(nodes)
+		return slices.Compact(nodes)
+	}
+	return slices.Equal(notEmpty(a), notEmpty(b))
 }
 
 func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, error) {

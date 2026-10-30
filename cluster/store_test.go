@@ -1922,3 +1922,71 @@ func TestStoreWaitForAppliedIndexDeadlineBranch(t *testing.T) {
 		require.Zero(t, gapCount(t, gap), "a wait that caught up has no gap to report")
 	})
 }
+
+func TestAdmitPropose_TaskBuiltAgainstOtherReplicas(t *testing.T) {
+	// node2 holds shard1 because a copy finished after the payloads below were built.
+	placement := map[string]sharding.Physical{
+		"shard1": {BelongsToNodes: []string{"node1", "node2"}},
+		"shard2": {BelongsToNodes: []string{"node1"}},
+	}
+
+	for _, tc := range []struct {
+		name         string
+		taskReplicas map[string][]string
+		collection   string
+		wantRefused  bool
+	}{
+		{name: "matching replicas are admitted", taskReplicas: map[string][]string{"shard1": {"node2", "node1"}, "shard2": {"node1"}}},
+		{name: "a subset of shards with matching replicas is admitted", taskReplicas: map[string][]string{"shard2": {"node1"}}},
+		{name: "a replica added after the payload was built is refused", taskReplicas: map[string][]string{"shard1": {"node1"}}, wantRefused: true},
+		{name: "a replica removed after the payload was built is refused", taskReplicas: map[string][]string{"shard2": {"node1", "node2"}}, wantRefused: true},
+		{name: "a shard deleted after the payload was built is refused", taskReplicas: map[string][]string{"shard3": {"node1"}}, wantRefused: true},
+		{name: "a collection deleted after the payload was built is refused", taskReplicas: map[string][]string{"shard1": {"node1"}}, collection: "Deleted", wantRefused: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := replicasAdmissionStore(t, placement)
+			payload, err := json.Marshal(tc.taskReplicas)
+			require.NoError(t, err)
+			sub, err := json.Marshal(&cmd.AddDistributedTaskRequest{Namespace: exclusionNamespace, Id: "task1", Payload: payload})
+			require.NoError(t, err)
+
+			collection := exclusionCollection
+			if tc.collection != "" {
+				collection = tc.collection
+			}
+			err = s.admitPropose(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}, collection)
+			if !tc.wantRefused {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, distributedtask.ErrTaskReplicasChanged)
+			// Lets a follower recover the sentinel after the gRPC hop, so it still answers 409.
+			require.ErrorIs(t, err, distributedtask.ErrPermanentRejection)
+		})
+	}
+}
+
+func replicasAdmissionStore(t *testing.T, placement map[string]sharding.Physical) *Store {
+	t.Helper()
+	m := NewMockStore(t, "node1", 0, func(c *Config) {
+		c.DistributedTaskShardReplicasExtractors = map[string]distributedtask.ShardReplicasExtractor{
+			exclusionNamespace: func(payload []byte) (map[string][]string, bool) {
+				var nodesByShard map[string][]string
+				return nodesByShard, json.Unmarshal(payload, &nodesByShard) == nil
+			},
+		}
+	})
+	m.parser.On("ParseClass", mock.Anything).Return(nil)
+	addClass, err := json.Marshal(cmd.AddClassRequest{
+		Class: &models.Class{Class: exclusionCollection},
+		State: &sharding.State{
+			Physical: placement,
+			Virtual:  []sharding.Virtual{{Name: "v1", AssignedToPhysical: "shard1"}},
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, m.store.schemaManager.AddClass(&cmd.ApplyRequest{
+		Type: cmd.ApplyRequest_TYPE_ADD_CLASS, Class: exclusionCollection, SubCommand: addClass,
+	}, m.store.cfg.NodeID, true, false))
+	return m.store
+}
