@@ -203,10 +203,13 @@ func loadReindexRecoveryRecord(migDir string, logger logrus.FieldLogger) (reinde
 	return rec, true
 }
 
-// buildRecoveryTasks reconstructs the [ShardReindexTaskGeneric] built for
-// tracker dir dirName, scoped to shardName so callbackDisableFuncs can be
-// shared safely with [runtimeSwap]. The reindexer runs every task on every
-// shard init, and isShardSelected keeps each task to its own shard.
+// buildRecoveryTasks reconstructs the [ShardReindexTaskGeneric] that
+// processOneUnit created for the tracker dir dirName, scoped to exactly
+// the named shard. The scope is what makes
+// per-instance callbackDisableFuncs safe to share with [runtimeSwap]
+// later: the static reindexer iterates all registered tasks on every
+// shard init, but each task's isShardSelected filter drops everything
+// except the one shard the record came from.
 func buildRecoveryTasks(
 	rec reindexRecoveryRecord,
 	shardName string,
