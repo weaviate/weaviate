@@ -100,11 +100,11 @@ func (c realFSMCanceller) CancelDistributedTask(_ context.Context, namespace, ta
 // seedReindexTask drives a task through the real FSM to target: PREPARING
 // via the barrier path, SWAPPING via the no-barrier path, STARTED as-is.
 func seedReindexTask(t *testing.T, mgr *distributedtask.Manager, id, collection, property string,
-	mt db.ReindexMigrationType, target distributedtask.TaskStatus,
+	mt db.ReindexMigrationType, target distributedtask.TaskStatus, tenants []string,
 ) {
 	t.Helper()
 	payload, err := json.Marshal(db.ReindexTaskPayload{
-		Collection: collection, MigrationType: mt, Properties: []string{property},
+		Collection: collection, MigrationType: mt, Properties: []string{property}, Tenants: tenants,
 	})
 	require.NoError(t, err)
 
@@ -168,7 +168,7 @@ func TestCancelReindexTask_CoordinationPhaseIsConflict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{Logger: logrus.New()})
 			seedReindexTask(t, mgr, "C:enable-filterable:p:aaaa", "C", "p",
-				db.ReindexTypeEnableFilterable, tc.target)
+				db.ReindexTypeEnableFilterable, tc.target, nil)
 
 			h := &indexesHandlers{appState: &state.State{Logger: logrus.New()}}
 			resp := h.cancelReindexTask(context.Background(), realFSMCanceller{mgr},
@@ -187,7 +187,7 @@ func TestCancelReindexTask_CoordinationPhaseIsConflict(t *testing.T) {
 func TestCancelReindexTask_StartedTaskCancels(t *testing.T) {
 	mgr := distributedtask.NewManager(distributedtask.ManagerParameters{Logger: logrus.New()})
 	seedReindexTask(t, mgr, "C:enable-filterable:p:aaaa", "C", "p",
-		db.ReindexTypeEnableFilterable, distributedtask.TaskStatusStarted)
+		db.ReindexTypeEnableFilterable, distributedtask.TaskStatusStarted, nil)
 
 	h := &indexesHandlers{appState: &state.State{Logger: logrus.New()}}
 	resp := h.cancelReindexTask(context.Background(), realFSMCanceller{mgr},
