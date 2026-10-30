@@ -12,7 +12,6 @@
 package rbac
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,7 +33,6 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
-	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -62,33 +60,8 @@ const (
 `
 )
 
-func createStorage(filePath string) error {
-	if err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create directories: %w", err)
-	}
-
-	_, err := os.Stat(filePath)
-	if err == nil { // file exists
-		return nil
-	}
-
-	if os.IsNotExist(err) {
-		file, err := os.Create(filePath)
-		if err != nil {
-			return fmt.Errorf("failed to create file: %w", err)
-		}
-		defer file.Close()
-		return nil
-	}
-
-	return err
-}
-
+// Init builds the in-memory enforcer. It attaches no persistence adapter: RAFT snapshot restore and log replay rebuild the RBAC state on every start.
 func Init(conf rbacconf.Config, policyPath string, authNconf config.Authentication, namespacesEnabled bool) (*casbin.SyncedCachedEnforcer, error) {
-	if !conf.Enabled {
-		return nil, nil
-	}
-
 	m, err := model.NewModelFromString(MODEL)
 	if err != nil {
 		return nil, fmt.Errorf("load rbac model: %w", err)
@@ -105,38 +78,10 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 	// explicitly invalidating the cache.
 	enforcer.SetExpireTime(1 * time.Hour)
 
-	rbacStoragePath := fmt.Sprintf("%s/rbac", policyPath)
-	rbacStorageFilePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)
-
-	if err := createStorage(rbacStorageFilePath); err != nil {
-		return nil, errors.Wrapf(err, "create storage path: %v", rbacStorageFilePath)
-	}
-
-	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStorageFilePath))
-
-	if err := enforcer.LoadPolicy(); err != nil {
-		return nil, err
-	}
-	// parse version string to check if upgrade is needed
-	policyVersion, err := getVersion(rbacStoragePath)
-	if err != nil {
-		return nil, err
-	}
-	versionParts := strings.Split(policyVersion, ".")
-	minorVersion, err := strconv.Atoi(versionParts[1])
-	if err != nil {
+	if err := seedFromLegacyPolicyFile(enforcer, rbacDirIn(policyPath), authNconf); err != nil {
 		return nil, err
 	}
 
-	if versionParts[0] == "1" && minorVersion < 30 {
-		if err := upgradePoliciesFrom129(enforcer, false); err != nil {
-			return nil, err
-		}
-
-		if err := upgradeGroupingsFrom129(enforcer, authNconf); err != nil {
-			return nil, err
-		}
-	}
 	// docs: https://casbin.org/docs/function/
 	enforcer.AddFunction("namespaceAwareMatcher", makeNamespaceAwareMatcherFunc(namespacesEnabled))
 
@@ -144,12 +89,58 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 		return nil, errors.Wrapf(err, "apply env config")
 	}
 
-	// update version after casbin policy has been written
-	if err := writeVersion(rbacStoragePath, build.Version); err != nil {
-		return nil, err
+	return enforcer, nil
+}
+
+// rbacDirIn returns the dir under storagePath where earlier releases wrote policy.csv and version.
+func rbacDirIn(storagePath string) string {
+	return filepath.Join(storagePath, "rbac")
+}
+
+// seedFromLegacyPolicyFile loads the policy.csv that earlier releases wrote
+// under rbacDir, so a cluster upgraded from them keeps its roles until a RAFT
+// snapshot carries RBAC state. A missing file is a no-op. The seed never writes:
+// the file and its version stay as the earlier release left them, so the <1.30
+// upgrade sees the same rows on every boot.
+func seedFromLegacyPolicyFile(enforcer *casbin.SyncedCachedEnforcer, rbacDir string, authNconf config.Authentication) error {
+	policyFile := filepath.Join(rbacDir, "policy.csv")
+	if _, err := os.Stat(policyFile); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("stat legacy policy file %s: %w", policyFile, err)
 	}
 
-	return enforcer, nil
+	enforcer.SetAdapter(fileadapter.NewAdapter(policyFile))
+	err := enforcer.LoadPolicy()
+	// casbin writes every mutation through an attached adapter, so detaching
+	// it keeps all later changes in memory.
+	enforcer.SetAdapter(nil)
+	if err != nil {
+		return fmt.Errorf("load legacy policy file %s: %w", policyFile, err)
+	}
+
+	// parse version string to check if upgrade is needed
+	policyVersion, err := getVersion(rbacDir)
+	if err != nil {
+		return err
+	}
+	versionParts := strings.Split(policyVersion, ".")
+	minorVersion, err := strconv.Atoi(versionParts[1])
+	if err != nil {
+		return err
+	}
+
+	if versionParts[0] == "1" && minorVersion < 30 {
+		if err := upgradePoliciesFrom129(enforcer, false); err != nil {
+			return err
+		}
+
+		if err := upgradeGroupingsFrom129(enforcer, authNconf); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // applyPredefinedRoles adds pre-defined roles (admin/viewer/root) and assigns them to the users provided in the
@@ -162,8 +153,8 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 	}
 
 	// Wipe all built-in role policies before re-registering. The
-	// canonical shape lives in code; rebuilding from scratch on every boot
-	// keeps the on-disk policy CSV honest.
+	// canonical shape lives in code, so rows from a legacy seed or a
+	// restored snapshot are replaced by it on every boot and restore.
 	for _, role := range authorization.BuiltInRoles {
 		if _, err := enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(role)); err != nil {
 			return err
@@ -235,40 +226,11 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 	}
 
-	// temporary to enable import of existing keys to WCD (Admin + readonly)
-	for i := range conf.AdminUsers {
-		if strings.TrimSpace(conf.AdminUsers[i]) == "" {
-			continue
-		}
-
-		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.AdminUsers[i]) {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.AdminUsers[i], authentication.AuthTypeDb), conv.PrefixRoleName(authorization.Admin)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
-			}
-		}
-
-		if authNconf.OIDC.Enabled {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.AdminUsers[i], authentication.AuthTypeOIDC), conv.PrefixRoleName(authorization.Admin)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
-			}
-		}
-	}
-
-	for i := range conf.ViewerUsers {
-		if strings.TrimSpace(conf.ViewerUsers[i]) == "" {
-			continue
-		}
-
-		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.ViewerUsers[i]) {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.ViewerUsers[i], authentication.AuthTypeDb), conv.PrefixRoleName(authorization.Viewer)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
-			}
-		}
-
-		if authNconf.OIDC.Enabled {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.ViewerUsers[i], authentication.AuthTypeOIDC), conv.PrefixRoleName(authorization.Viewer)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
-			}
+	// The boot writer in adapters/handlers/rest submits the same grants as RAFT
+	// entries. This in-memory add makes them effective before RAFT is up.
+	for _, g := range AdminViewerGrants(conf, authNconf) {
+		if _, err := enforcer.AddRoleForUser(g.Subject, conv.PrefixRoleName(g.Role)); err != nil {
+			return fmt.Errorf("add role for user: %w", err)
 		}
 	}
 
@@ -299,11 +261,43 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 	}
 
-	if err := enforcer.SavePolicy(); err != nil {
-		return errors.Wrapf(err, "save policy")
-	}
-
 	return nil
+}
+
+// RoleGrant assigns the built-in role Role (unprefixed) to Subject (a
+// db: or oidc: prefixed user name).
+type RoleGrant struct {
+	Subject string
+	Role    string
+}
+
+// AdminViewerGrants returns the admin and viewer assignments conf.AdminUsers
+// and conf.ViewerUsers configure: a db: subject for each user listed in an
+// enabled APIKey config, and an oidc: subject for each user when OIDC is
+// enabled. Blank entries grant nothing.
+func AdminViewerGrants(conf rbacconf.Config, authNconf config.Authentication) []RoleGrant {
+	var grants []RoleGrant
+	// temporary to enable import of existing keys to WCD (Admin + readonly)
+	for _, byRole := range []struct {
+		role  string
+		users []string
+	}{
+		{authorization.Admin, conf.AdminUsers},
+		{authorization.Viewer, conf.ViewerUsers},
+	} {
+		for _, user := range byRole.users {
+			if strings.TrimSpace(user) == "" {
+				continue
+			}
+			if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, user) {
+				grants = append(grants, RoleGrant{Subject: conv.UserNameWithTypeFromId(user, authentication.AuthTypeDb), Role: byRole.role})
+			}
+			if authNconf.OIDC.Enabled {
+				grants = append(grants, RoleGrant{Subject: conv.UserNameWithTypeFromId(user, authentication.AuthTypeOIDC), Role: byRole.role})
+			}
+		}
+	}
+	return grants
 }
 
 var (
@@ -521,35 +515,4 @@ func getVersion(path string) (string, error) {
 		return "", err
 	}
 	return string(b), nil
-}
-
-func writeVersion(path, version string) error {
-	tmpFile, err := os.CreateTemp(path, "policy-temp-*.tmp")
-	if err != nil {
-		return err
-	}
-	tempFilename := tmpFile.Name()
-
-	defer func() {
-		tmpFile.Close()
-		os.Remove(tempFilename) // Remove temp file if it still exists
-	}()
-
-	writer := bufio.NewWriter(tmpFile)
-	if _, err := fmt.Fprint(writer, version); err != nil {
-		return err
-	}
-
-	// Flush the writer to ensure all data is written, then sync and flush tmpfile and atomically rename afterwards
-	if err := writer.Flush(); err != nil {
-		return err
-	}
-	if err := tmpFile.Sync(); err != nil {
-		return err
-	}
-	if err := tmpFile.Close(); err != nil {
-		return err
-	}
-
-	return os.Rename(tempFilename, path+"/version")
 }

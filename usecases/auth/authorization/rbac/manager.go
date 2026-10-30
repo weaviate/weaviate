@@ -17,6 +17,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -61,12 +63,17 @@ type Manager struct {
 	namespacesEnabled bool
 	namespaces        NamespaceLister
 	restoreLock       sync.RWMutex
+	// rbacDir holds the policy.csv and version files of earlier releases.
+	rbacDir string
 }
 
 // New builds the RBAC manager. namespaces must be non-nil when namespacesEnabled is
 // true, because the first namespace-qualified class reads its state.
 // configureAuthorizer refuses to boot without it.
 func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, namespaces NamespaceLister, logger logrus.FieldLogger) (*Manager, error) {
+	if !rbacConf.Enabled {
+		rbacConf = rbacconf.Config{}
+	}
 	csbin, err := Init(rbacConf, rbacStoragePath, authNconf, namespacesEnabled)
 	if err != nil {
 		return nil, err
@@ -79,6 +86,7 @@ func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Auth
 		rbacConf:          rbacConf,
 		namespacesEnabled: namespacesEnabled,
 		namespaces:        namespaces,
+		rbacDir:           rbacDirIn(rbacStoragePath),
 	}, nil
 }
 
@@ -170,9 +178,6 @@ func (m *Manager) upsertRolesPermissions(roles map[string][]authorization.Policy
 				return fmt.Errorf("AddNamedPolicy: %w", err)
 			}
 		}
-	}
-	if err := m.casbin.SavePolicy(); err != nil {
-		return fmt.Errorf("SavePolicy: %w", err)
 	}
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("InvalidateCache: %w", err)
@@ -354,9 +359,6 @@ func (m *Manager) RemovePermissions(roleName string, permissions []*authorizatio
 	if !changed {
 		return nil
 	}
-	if err := m.casbin.SavePolicy(); err != nil {
-		return fmt.Errorf("SavePolicy: %w", err)
-	}
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("InvalidateCache: %w", err)
 	}
@@ -401,9 +403,6 @@ func (m *Manager) DeleteRoles(roles ...string) error {
 	if !changed {
 		return nil
 	}
-	if err := m.casbin.SavePolicy(); err != nil {
-		return fmt.Errorf("SavePolicy: %w", err)
-	}
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("InvalidateCache: %w", err)
 	}
@@ -431,9 +430,6 @@ func (m *Manager) AddRolesForUser(user string, roles []string) error {
 		if _, err := m.casbin.AddRoleForUser(user, conv.PrefixRoleName(role)); err != nil {
 			return fmt.Errorf("AddRoleForUser: %w", err)
 		}
-	}
-	if err := m.casbin.SavePolicy(); err != nil {
-		return fmt.Errorf("SavePolicy: %w", err)
 	}
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("InvalidateCache: %w", err)
@@ -510,9 +506,6 @@ func (m *Manager) RevokeRolesForUser(userName string, roles ...string) error {
 		if _, err := m.casbin.DeleteRoleForUser(userName, conv.PrefixRoleName(roleName)); err != nil {
 			return fmt.Errorf("DeleteRoleForUser: %w", err)
 		}
-	}
-	if err := m.casbin.SavePolicy(); err != nil {
-		return fmt.Errorf("SavePolicy: %w", err)
 	}
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("InvalidateCache: %w", err)
@@ -761,7 +754,7 @@ type snapshot struct {
 // come along too. A selection of custom roles carries no admin or viewer assignments
 // ([Manager.BuiltInAssignments] and [Manager.OIDCBuiltInAssignments] carry those).
 func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
-	// snapshot isn't always initialized, e.g. when RBAC is disabled
+	// Defensive nil guard: a nil Manager returns an empty snapshot instead of panicking.
 	if m == nil {
 		return []byte{}, nil
 	}
@@ -850,8 +843,9 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 		snapshot = stripped
 	}
 
-	// Like the strip above, refuse before ClearPolicy. Rows the policy file can't
-	// hold would fail the next load, or load as rows the snapshot never had.
+	// Like the strip above, refuse before ClearPolicy. The previous release stores
+	// rows in a CSV file, and a row it can't hold fails its next load, or loads as
+	// rows the snapshot never had.
 	if err := validateStorableRows("p", snapshot.Policy); err != nil {
 		return fmt.Errorf("%w: %w", ErrRestoreRefused, err)
 	}
@@ -863,11 +857,13 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 }
 
 // RestoreRaftSnapshot replaces the policy store with a RAFT snapshot. It drops
-// and logs each row the policy file cannot store, since refusing the snapshot
-// keeps the node from starting or catching up. Dropping a row only removes a grant.
+// and logs each row the previous release's CSV policy file cannot store, since
+// refusing the snapshot keeps the node from starting or catching up. Dropping a
+// row only removes a grant.
 func (m *Manager) RestoreRaftSnapshot(b []byte) error {
-	// don't overwrite with empty snapshot to avoid overwriting recovery from file
-	// with a non-existent RBAC snapshot when coming from old versions
+	// An empty payload comes from a snapshot taken before RAFT carried RBAC.
+	// Returning keeps the current state, including roles seeded from the legacy
+	// policy file, until a snapshot carries RBAC.
 	if m == nil || len(b) == 0 || m.casbin == nil {
 		return nil
 	}
@@ -879,7 +875,33 @@ func (m *Manager) RestoreRaftSnapshot(b []byte) error {
 	snapshot.Policy = m.dropUnstorableRows("p", snapshot.Policy)
 	snapshot.GroupingPolicy = m.dropUnstorableRows("g", snapshot.GroupingPolicy)
 
-	return m.replacePolicies(snapshot)
+	if err := m.replacePolicies(snapshot); err != nil {
+		return err
+	}
+	m.removeLegacyFiles()
+	return nil
+}
+
+// removeLegacyFiles deletes the policy.csv and version files of earlier
+// releases. Callers run it only after a RAFT snapshot carrying RBAC was
+// restored, so the files hold nothing the node still needs. A failed removal
+// is logged and does not fail the restore.
+func (m *Manager) removeLegacyFiles() {
+	var removed []string
+	for _, name := range []string{"policy.csv", "version"} {
+		p := filepath.Join(m.rbacDir, name)
+		if err := os.Remove(p); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				m.logger.WithField("path", p).Warnf("failed to remove legacy rbac file: %v", err)
+				return
+			}
+			continue
+		}
+		removed = append(removed, p)
+	}
+	if len(removed) > 0 {
+		m.logger.WithField("paths", removed).Info("removed legacy rbac files: the restored RAFT snapshot carries the RBAC state")
+	}
 }
 
 // replacePolicies clears the policy store and loads snapshot into it.
@@ -904,6 +926,13 @@ func (m *Manager) replacePolicies(snapshot snapshot) error {
 		return fmt.Errorf("add grouping policies: %w", err)
 	}
 
+	// ClearPolicy clears the model but not the role manager, so links for
+	// assignments the snapshot lacks still grant access until this rebuild. It
+	// runs before the V0 upgrade, which reads the links.
+	if err := m.casbin.BuildRoleLinks(); err != nil {
+		return fmt.Errorf("build role links: %w", err)
+	}
+
 	if snapshot.Version == SnapshotVersionV0 {
 		if err := upgradePoliciesFrom129(m.casbin, true); err != nil {
 			return fmt.Errorf("upgrade policies: %w", err)
@@ -919,13 +948,8 @@ func (m *Manager) replacePolicies(snapshot snapshot) error {
 		return fmt.Errorf("apply env config: %w", err)
 	}
 
-	// Load the policies to ensure they are in memory
-	if err := m.casbin.LoadPolicy(); err != nil {
-		return fmt.Errorf("load policies: %w", err)
-	}
-
 	// Invalidate the cache so the first Enforce() after the lock is released
-	// evaluates against the freshly loaded policies. ClearPolicy() is not
+	// evaluates against the restored policies. ClearPolicy() is not
 	// overridden by SyncedCachedEnforcer and does not invalidate on its own.
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("restore snapshot: InvalidateCache: %w", err)

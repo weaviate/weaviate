@@ -67,7 +67,7 @@ func newDynUserQueryStore(t *testing.T) (*Store, string, string) {
 		DynamicUserController:  dynUser,
 		TelemetryEnabled:       true,
 	}
-	s := NewFSM(cfg, nil, prometheus.NewPedanticRegistry())
+	s := NewFSM(cfg, prometheus.NewPedanticRegistry())
 	return &s, userID, identifier
 }
 

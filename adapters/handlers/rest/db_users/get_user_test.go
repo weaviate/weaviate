@@ -46,6 +46,7 @@ func TestSuccessGetUser(t *testing.T) {
 		isRoot       bool
 		addLastUsed  bool
 		importStatic bool
+		rbacDisabled bool
 		userType     models.UserTypeOutput
 	}{
 		{name: "dynamic user - non-root", userId: "dynamic", userType: models.UserTypeOutputDbUser, isRoot: false},
@@ -53,6 +54,7 @@ func TestSuccessGetUser(t *testing.T) {
 		{name: "dynamic user with last used - root", userId: "dynamic", userType: models.UserTypeOutputDbUser, isRoot: true, addLastUsed: true},
 		{name: "static user", userId: "static", userType: models.UserTypeOutputDbEnvUser, isRoot: true},
 		{name: "dynamic user after import - root", userId: "static", userType: models.UserTypeOutputDbUser, isRoot: true, importStatic: true},
+		{name: "rbac disabled - no roles read or shown", userId: "dynamic", userType: models.UserTypeOutputDbUser, isRoot: true, rbacDisabled: true},
 	}
 
 	for _, test := range tests {
@@ -71,8 +73,13 @@ func TestSuccessGetUser(t *testing.T) {
 			} else {
 				dynUser.On("GetUsers", test.userId).Return(map[string]apikey.UserView{}, nil)
 			}
-			dynUser.On("GetRolesForUserOrGroup", test.userId, authentication.AuthTypeDb, false).Return(
-				map[string][]authorization.Policy{"role": {}}, nil)
+			// With RBAC disabled dynUser has no role expectation, so a role read fails the test.
+			wantRoles := []string{}
+			if !test.rbacDisabled {
+				dynUser.On("GetRolesForUserOrGroup", test.userId, authentication.AuthTypeDb, false).Return(
+					map[string][]authorization.Policy{"role": {}}, nil)
+				wantRoles = []string{"role"}
+			}
 
 			if test.addLastUsed {
 				nodeLister = clustermocks.NewMockNodeSelector("node1")
@@ -82,7 +89,7 @@ func TestSuccessGetUser(t *testing.T) {
 				dbUsers:              dynUser,
 				authorizer:           authorizer,
 				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static"}, AllowedKeys: []string{"static"}},
-				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}}, dbUserEnabled: true,
+				rbacConfig:           rbacconf.Config{Enabled: !test.rbacDisabled, RootUsers: []string{"root"}}, dbUserEnabled: true,
 				nodesGetter: nodeLister,
 			}
 
@@ -92,7 +99,7 @@ func TestSuccessGetUser(t *testing.T) {
 			assert.NotNil(t, parsed)
 
 			require.Equal(t, *parsed.Payload.UserID, test.userId)
-			require.Equal(t, parsed.Payload.Roles, []string{"role"})
+			require.Equal(t, wantRoles, parsed.Payload.Roles)
 			require.Equal(t, *parsed.Payload.DbUserType, string(test.userType))
 
 			if test.isRoot && test.userType == models.UserTypeOutputDbUser {
@@ -302,7 +309,7 @@ func TestGetUserInternalServerError(t *testing.T) {
 			}
 
 			h := dynUserHandler{
-				dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true,
+				dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, rbacConfig: rbacconf.Config{Enabled: true},
 			}
 
 			res := h.getUser(users.GetUserInfoParams{UserID: "user", HTTPRequest: req}, principal)
@@ -355,7 +362,6 @@ func TestGetUserWithNoPrincipal(t *testing.T) {
 	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(userID)[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", userID).Return(map[string]apikey.UserView{userID: {Id: userID, ApiKeyFirstLetters: "abc"}}, nil)
-	dynUser.On("GetRolesForUserOrGroup", userID, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
 
 	h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true}
 
@@ -417,9 +423,6 @@ func TestGetUser_Namespaces(t *testing.T) {
 
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers", tt.authzKey).Return(tt.storedUser, nil)
-			if _, ok := tt.wantStatus.(*users.GetUserInfoOK); ok {
-				dynUser.On("GetRolesForUserOrGroup", tt.authzKey, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
-			}
 
 			h := dynUserHandler{
 				dbUsers:           dynUser,
@@ -447,7 +450,6 @@ func TestGetUser_ResolveThenAuthorize(t *testing.T) {
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "customer1:bob").Return(map[string]apikey.UserView{"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true}}, nil)
-	dynUser.On("GetRolesForUserOrGroup", "customer1:bob", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
 
 	h := dynUserHandler{
 		dbUsers:           dynUser,

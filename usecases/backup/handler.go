@@ -173,8 +173,9 @@ type dynUserSnapshotter interface {
 
 // RBACSnapshotter is the backup-side contract for the RBAC FSM. The variadic
 // Snapshot filters to a role subset for backups; zero args is the full snapshot.
-// It is exported so the wiring can hold one as a genuinely nil interface when
-// RBAC is off, rather than boxing a nil *rbac.Manager into a non-nil interface.
+// It is exported so the wiring can declare one and leave it nil when RBAC is
+// disabled. With a nil RBACSnapshotter a backup carries no roles and an
+// includeRoles request fails.
 type RBACSnapshotter interface {
 	Snapshot(roles ...string) ([]byte, error)
 }

@@ -13,8 +13,6 @@ package cluster
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -26,6 +24,7 @@ import (
 	clusterdynusers "github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterrbac "github.com/weaviate/weaviate/cluster/rbac"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -42,9 +41,6 @@ type rolesAndUsersStores struct {
 	dynManager   *clusterdynusers.Manager
 	authZ        *rbac.Manager
 	dynUser      *apikey.DBUser
-	// policyDir holds policy.csv. Tests delete it to force a store-level failure
-	// in the role apply.
-	policyDir string
 }
 
 // staticLister reports each named namespace as existing, for the source side
@@ -70,10 +66,9 @@ func newRolesAndUsersStores(t *testing.T, ns usecasesNamespaces.Exister) *rolesA
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 
-	policyDir := t.TempDir()
 	// The lister makes snapshots carry ns1 in their Namespaces list, as a real
 	// source with namespaces on would. Nothing else reads it.
-	authZ, err := rbac.New(filepath.Join(policyDir, "policy.csv"),
+	authZ, err := rbac.New(t.TempDir(),
 		rbacconf.Config{Enabled: true}, config.Authentication{}, true, staticLister{"ns1"}, logger)
 	require.NoError(t, err)
 	// enabled is false so the one-minute storeToFile ticker cannot mask a
@@ -86,7 +81,6 @@ func newRolesAndUsersStores(t *testing.T, ns usecasesNamespaces.Exister) *rolesA
 		dynManager:   clusterdynusers.NewManager(dynUser, ns, false, logger),
 		authZ:        authZ,
 		dynUser:      dynUser,
-		policyDir:    policyDir,
 	}
 }
 
@@ -262,16 +256,26 @@ func TestApplyRestoreRolesAndUsersLeavesUsersOnRoleFailure(t *testing.T) {
 	source := newRolesAndUsersStores(t, ns)
 	source.createRole(t, "restored")
 	source.createUser(t, "restored-user", "")
-	roles, err := source.authZ.Snapshot("restored")
+	sourceRoles, err := source.authZ.Snapshot("restored")
 	require.NoError(t, err)
 	users, err := source.dynUser.Snapshot("restored-user")
 	require.NoError(t, err)
 
+	// A one-field grouping row passes validation. casbin adds every row to the
+	// model and then fails building its role link, so the role apply fails
+	// after ClearPolicy.
+	oneFieldRow := []string{"db:malformed"}
+	var blob rolesBlob
+	require.NoError(t, json.Unmarshal(sourceRoles, &blob))
+	require.NotEmpty(t, blob.GroupingPolicy)
+	blob.GroupingPolicy = append(blob.GroupingPolicy,
+		[]string{"db:linked", "role:restored"}, oneFieldRow, []string{"db:unlinked", "role:restored"})
+	roles, err := json.Marshal(blob)
+	require.NoError(t, err)
+
 	target := newRolesAndUsersStores(t, ns)
+	target.createRole(t, "incumbent")
 	target.createUser(t, "incumbent-user", "")
-	// The casbin file adapter writes policy.csv on every change. With the
-	// directory gone, the role apply fails after ClearPolicy.
-	require.NoError(t, os.RemoveAll(target.policyDir))
 
 	err = applyRestoreRolesAndUsers(mustApplyRequest(t, api.RestoreRolesAndUsersRequest{Roles: roles, Users: users}),
 		target.authZManager, target.dynManager, ns)
@@ -279,4 +283,31 @@ func TestApplyRestoreRolesAndUsersLeavesUsersOnRoleFailure(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, []string{"incumbent-user"}, target.userIDs(t),
 		"a failed role apply must not have replaced the user store")
+
+	// GetRoles indexes field 1 of every grouping row and panics on the
+	// one-field row, so the role store is read through its snapshot.
+	held, err := target.authZ.Snapshot()
+	require.NoError(t, err)
+	var heldBlob rolesBlob
+	require.NoError(t, json.Unmarshal(held, &heldBlob))
+	for _, row := range blob.Policy {
+		assert.Contains(t, heldBlob.Policy, row, "the role store must hold the blob's rows")
+	}
+	for _, row := range blob.GroupingPolicy {
+		assert.Contains(t, heldBlob.GroupingPolicy, row, "the role store must hold the blob's rows")
+	}
+	for _, row := range heldBlob.Policy {
+		assert.NotEqual(t, "role:incumbent", row[0], "the clear must have removed the target's roles")
+	}
+
+	linked, err := target.authZ.GetUsersOrGroupForRole("restored", authentication.AuthTypeDb, false)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"linked"}, linked, "role links must stop at the one-field row")
+}
+
+// rolesBlob is the part of an RBAC snapshot these tests rewrite.
+type rolesBlob struct {
+	Policy         [][]string `json:"roles_policies"`
+	GroupingPolicy [][]string `json:"grouping_policies"`
+	Version        int        `json:"version"`
 }

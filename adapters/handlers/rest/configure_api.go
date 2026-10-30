@@ -686,7 +686,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LoadLegacySchema:            schemaRepo.LoadLegacySchema,
 		SentryEnabled:               appState.ServerConfig.Config.Sentry.Enabled,
 		TelemetryEnabled:            telemetryEnabled(appState),
-		AuthzController:             appState.AuthzController,
 		RBAC:                        appState.RBAC,
 		DynamicUserController:       appState.APIKey.Dynamic,
 		NamespacesController:        namespacesController,
@@ -719,7 +718,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 	}
 
-	appState.ClusterService = rCluster.New(rConfig, appState.AuthzController, appState.GRPCServerMetrics)
+	appState.ClusterService = rCluster.New(rConfig, appState.GRPCServerMetrics)
 	migrator.SetCluster(appState.ClusterService.Raft)
 	appState.ClusterService.SetInflightDrainer(repo.WaitForLocalInflightWrites)
 
@@ -865,11 +864,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.RemoteIndexIncoming = remote.NewIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 
-	// Assign only when RBAC is on. A nil *rbac.Manager put into this interface
-	// leaves rbacSourcer non-nil, so the backupper's nil check misses it and an
-	// includeRoles request produces an empty RBAC blob instead of being rejected.
+	// Assigned only when RBAC is enabled. With a nil rbacSourcer a backup carries
+	// no roles and an includeRoles request is refused.
 	var rbacSourcer backup.RBACSnapshotter
-	if appState.RBAC != nil {
+	if appState.ServerConfig.Config.Authorization.Rbac.Enabled {
 		rbacSourcer = appState.RBAC
 	}
 	backupManager := backup.NewHandler(appState.Logger, appState.ServerConfig.Config.Backup, appState.Authorizer,
@@ -938,6 +936,20 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 	}, appState.Logger)
 
+	if appState.ServerConfig.Config.Authorization.Rbac.Enabled {
+		envGrants := rbac.AdminViewerGrants(appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.Authentication)
+		if len(envGrants) > 0 {
+			enterrors.GoWrapper(func() {
+				l := appState.Logger.WithField("action", "rbac_env_grants")
+				if err := metaStoreReady.waitForMetaStore(); err != nil {
+					l.Errorf("writing env admin/viewer grants to RAFT skipped: %v", err)
+					return
+				}
+				writeEnvRoleGrants(appState.ClusterService.Raft, envGrants, envGrantBackoff(serverShutdownCtx), l)
+			}, appState.Logger)
+		}
+	}
+
 	// TODO-RAFT: refactor remove this wait
 	// it blocks GraphQL for up to 2s to give RAFT time to start.
 	for deadline := time.Now().Add(2 * time.Second); !appState.ClusterService.Ready() && time.Now().Before(deadline); {
@@ -992,18 +1004,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.NamespacesController, appState.DB, appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor,
 		appState.Logger, appState.ClusterHttpClient, appState.Cluster, appState.ObjectTTLLocalStatus)
 
-	// appState.RBAC is a typed nil when RBAC is disabled; pass an untyped-nil
-	// interface so the cleanup's nil check holds.
-	var rbacLister namespacecleanup.RBACLister
-	if appState.RBAC != nil {
-		rbacLister = appState.RBAC
-	}
 	namespaceCleanupCoordinator := namespacecleanup.NewCoordinator(
 		appState.NamespacesController,
 		rCluster.NewSchemaNamespaceLister(appState.ClusterService.SchemaReader()),
 		appState.APIKey.Dynamic,
 		appState.ClusterService.Raft,
-		rbacLister,
+		appState.RBAC,
 		appState.ClusterService.IsLeader,
 		appState.Logger,
 	)
@@ -1044,7 +1050,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// must fail closed, rather than crashing an NS-enabled node that never
 		// inspects this data.
 		var roleNames, groupingSubjects []string
-		if !appState.ServerConfig.Config.Namespaces.Enabled && appState.RBAC != nil {
+		if !appState.ServerConfig.Config.Namespaces.Enabled {
 			roles, err := appState.RBAC.GetRoles()
 			if err != nil {
 				l.Fatalf("namespace startup invariants: GetRoles: %v", err)
@@ -1531,7 +1537,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ServerConfig.Config.Authentication.DBUsers.Enabled,
 		appState.Logger)
 	authz.SetupHandlers(api,
-		appState.ClusterService.Raft,
+		roleAPIController(appState.ServerConfig.Config.Authorization.Rbac.Enabled, appState.ClusterService.Raft),
 		appState.ServerConfig.Config.Authentication.APIKey,
 		appState.ServerConfig.Config.Authentication.OIDC,
 		appState.ServerConfig.Config.Authorization.Rbac,
@@ -1544,7 +1550,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	dbUserExpirationMode := dbUserExpirationModeFor(appState.ServerConfig.Config)
-	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.APIKey.Dynamic, appState.AuthzController, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.Cluster, appState.ServerConfig.Config.Namespaces, appState.NamespacesController, dbUserExpiryResolver(dbUserExpirationMode), appState.Logger)
+	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.APIKey.Dynamic, appState.RBAC, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.Cluster, appState.ServerConfig.Config.Namespaces, appState.NamespacesController, dbUserExpiryResolver(dbUserExpirationMode), appState.Logger)
 	setupDBUserExpirationHandlers(api, dbUserExpirationMode, func(api *operations.WeaviateAPI) {
 		wldbusershandlers.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, wldbusers.NewValidatingExpiry(),
 			appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.Authentication.APIKey, appState.ServerConfig.Config.Namespaces.Enabled)
@@ -1827,12 +1833,11 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	if appState.ServerConfig.Config.Authentication.DBUsers.Enabled && appState.APIKey != nil && appState.APIKey.Dynamic != nil {
 		userLister = appState.APIKey.Dynamic
 	}
-	// roleLister lets the scheduler resolve includeRoles selectors. Assign it only
-	// when RBAC is on: putting a nil *rbac.Manager into the interface would leave
-	// roleLister non-nil, so the scheduler's nil check would miss it and an
-	// includeRoles request would panic instead of being rejected with a clear error.
+	// roleLister lets the scheduler resolve includeRoles selectors. It stays nil
+	// when RBAC is disabled, in which case includeRoles requests are rejected
+	// with a clear error.
 	var roleLister backup.RoleLister
-	if appState.RBAC != nil {
+	if appState.ServerConfig.Config.Authorization.Rbac.Enabled {
 		roleLister = appState.RBAC
 	}
 	dedupeMode := dedupeModeFor(appState.ServerConfig.Config)

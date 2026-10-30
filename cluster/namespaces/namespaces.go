@@ -172,7 +172,7 @@ func (m *Manager) RemoveEntity(c *cmd.ApplyRequest) error {
 			return fmt.Errorf("%w: %d user(s) remain in %q", usecasesNamespaces.ErrNamespaceNotEmpty, len(users), req.Name)
 		}
 	}
-	// rbac is nil when RBAC is disabled.
+	// Defensive nil guard: a nil rbac skips the RBAC-row emptiness check.
 	if m.rbac != nil {
 		rbacRows, err := m.rbac.CountNamespaceLocalRBAC(req.Name)
 		if err != nil {
