@@ -25,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/replication/types"
 )
 
 const (
@@ -591,12 +592,35 @@ func TestRebalancePlan_SnapshotRoundTrip(t *testing.T) {
 	}
 
 	t.Run("plan and ops survive Snapshot and Restore", func(t *testing.T) {
+		nodes := func() []types.RebalanceNodeMeasurement {
+			return []types.RebalanceNodeMeasurement{
+				{
+					Node: "node-0", DiskTotalBytes: 1 << 40, DiskAvailableBytes: 1 << 38,
+					DiskWarningPercentage: 80, MemoryLimitBytes: 1 << 34, ReplicationWorkers: 10,
+				},
+				{Node: "node-1", Error: "context deadline exceeded"},
+			}
+		}
 		src, _ := newPlanFSM()
 		seedOps(t, src)
 		require.NoError(t, src.CreatePlan(createReq(seededPlanID)))
-		require.NoError(t, src.CompletePlanning(runTerm, completeReq(replication.PlanStateProposed)))
+		req := completeReq(replication.PlanStateProposed)
+		req.MeasuredAtUnixMs = createdAtMs + 7
+		req.Nodes = nodes()
+		req.Reason = "count ratios imbalanced"
+		require.NoError(t, src.CompletePlanning(runTerm, req))
+
+		// Writes through the request or a returned plan do not reach FSM state.
+		req.Nodes[0].DiskTotalBytes = 0
+		leaked, ok := src.GetPlan()
+		require.True(t, ok)
+		leaked.Nodes[1].Error = ""
+
 		wantPlan, ok := src.GetPlan()
 		require.True(t, ok)
+		require.Equal(t, createdAtMs+7, wantPlan.MeasuredAtUnixMs)
+		require.Equal(t, nodes(), wantPlan.Nodes)
+		require.Equal(t, "count ratios imbalanced", wantPlan.Reason)
 
 		b, err := src.Snapshot()
 		require.NoError(t, err)
