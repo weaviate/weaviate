@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -85,15 +86,21 @@ func (ua unfilteredAggregator) properties(
 	}
 
 	out := map[string]aggregation.Property{}
+	var scans []*objectScan
 
 	for _, prop := range ua.params.Properties {
 		if err := ctx.Err(); err != nil {
 			return nil, errors.Wrapf(err, "start property %s", prop.Name)
 		}
 
-		analyzed, err := ua.property(ctx, prop)
+		analyzed, scan, err := ua.property(ctx, prop)
 		if err != nil {
 			return nil, errors.Wrapf(err, "property %s", prop.Name)
+		}
+
+		if scan != nil {
+			scans = append(scans, scan)
+			continue
 		}
 
 		if analyzed == nil {
@@ -103,47 +110,92 @@ func (ua unfilteredAggregator) properties(
 		out[prop.Name.String()] = *analyzed
 	}
 
+	if err := ua.scanObjects(ctx, scans); err != nil {
+		return nil, err
+	}
+	for _, scan := range scans {
+		out[scan.name.String()] = scan.result()
+	}
+
 	return out, nil
 }
 
+// property aggregates a property that has an index to read, or returns the
+// scan to run over the objects bucket for one that has none.
 func (ua unfilteredAggregator) property(ctx context.Context,
 	prop aggregation.ParamProperty,
-) (*aggregation.Property, error) {
+) (*aggregation.Property, *objectScan, error) {
 	aggType, dt, err := ua.aggTypeOfProperty(prop.Name)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
+	var analyzed *aggregation.Property
 	switch aggType {
 	case aggregation.PropertyTypeNumerical:
 		switch dt {
 		case schema.DataTypeNumber:
-			return ua.floatProperty(ctx, prop)
+			analyzed, err = ua.floatProperty(ctx, prop)
 		case schema.DataTypeNumberArray, schema.DataTypeIntArray:
-			return ua.numberArrayProperty(ctx, prop)
+			return nil, ua.numberArrayScan(prop), nil
 		default:
-			return ua.intProperty(ctx, prop)
+			analyzed, err = ua.intProperty(ctx, prop)
 		}
 	case aggregation.PropertyTypeBoolean:
 		switch dt {
 		case schema.DataTypeBooleanArray:
-			return ua.boolArrayProperty(ctx, prop)
+			return nil, ua.boolArrayScan(prop), nil
 		default:
-			return ua.boolProperty(ctx, prop)
+			analyzed, err = ua.boolProperty(ctx, prop)
 		}
 	case aggregation.PropertyTypeText:
-		return ua.textProperty(ctx, prop)
+		return nil, ua.textScan(prop), nil
 	case aggregation.PropertyTypeDate:
 		switch dt {
 		case schema.DataTypeDateArray:
-			return ua.dateArrayProperty(ctx, prop)
+			return nil, ua.dateArrayScan(prop), nil
 		default:
-			return ua.dateProperty(ctx, prop)
+			analyzed, err = ua.dateProperty(ctx, prop)
 		}
 	case aggregation.PropertyTypeReference:
 		// ignore, as this is handled outside the repo in the uc
-		return nil, nil
+		return nil, nil, nil
 	default:
-		return nil, fmt.Errorf("aggreation type %s not supported yet", aggType)
+		return nil, nil, fmt.Errorf("aggreation type %s not supported yet", aggType)
 	}
+	return analyzed, nil, err
+}
+
+// objectScan aggregates one property that is read from the stored objects.
+// Its aggregator is safe for concurrent use, as the scan feeds it from
+// several goroutines.
+type objectScan struct {
+	name   schema.PropertyName
+	add    func(object []byte) error
+	result func() aggregation.Property
+}
+
+// scanObjects reads the objects bucket once and feeds every object to all
+// scans, so the cost of a query does not grow with the number of properties
+// that have to be read from the objects.
+func (ua unfilteredAggregator) scanObjects(ctx context.Context, scans []*objectScan) error {
+	if len(scans) == 0 {
+		return nil
+	}
+
+	b := ua.store.Bucket(helpers.ObjectsBucketLSM)
+	if b == nil {
+		return errors.Errorf("could not find bucket %s", helpers.ObjectsBucketLSM)
+	}
+
+	extract := func(_ []byte, v []byte, _ [][]byte, _ *sroar.Bitmap) error {
+		for _, scan := range scans {
+			if err := scan.add(v); err != nil {
+				return errors.Wrapf(err, "property %s", scan.name)
+			}
+		}
+		return nil
+	}
+
+	return iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.CursorReplaceReusable()} }, extract, ua.logger)
 }
