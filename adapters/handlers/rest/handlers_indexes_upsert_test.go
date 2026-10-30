@@ -659,7 +659,7 @@ func TestValidateTenants(t *testing.T) {
 		wantErr string
 	}{
 		{tenant: "hot"},
-		{tenant: "frozen", wantErr: `tenant "frozen" has no local data`},
+		{tenant: "frozen", wantErr: `tenant "frozen" is frozen, freezing or unfreezing`},
 		{tenant: "missing", wantErr: `tenant "missing" does not exist`},
 	}
 	for _, tc := range cases {
