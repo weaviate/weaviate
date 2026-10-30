@@ -1709,7 +1709,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	// One sweep for the whole loop: every tuple asks the same unloaded shards.
 	// A loaded shard is read again per tuple, since each deletion changes what
 	// the next one would list.
-	sweep := p.db.NewStalePartialReindexSweep()
+	sweep := p.db.NewStalePartialReindexSweep(payload.Tenants)
 	worst := sweepEachPropertyIndexType(payload.Properties, indexTypes,
 		func(propName, indexType string) error {
 			return sweep(cleanupCtx, payload.Collection, propName, indexType)
@@ -2205,7 +2205,7 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 	if len(hosted) == 0 {
 		return true
 	}
-	if err := idx.forEachShardStrict(func(name string, _ ShardLike) error {
+	if err := idx.forEachShardStrict(nil, func(name string, _ ShardLike) error {
 		if _, wanted := hosted[name]; wanted {
 			hosted[name] = true
 		}

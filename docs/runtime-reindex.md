@@ -849,7 +849,7 @@ types so a new `ReindexMigrationType` cannot silently be treated as
 instances are registered before any post-restart write can reach the
 shard. See §6 crash safety.
 
-**`reindex_cancel_cleanup.go`** — `DB.NewStalePartialReindexSweep()`
+**`reindex_cancel_cleanup.go`** — `DB.NewStalePartialReindexSweep(tenants)`
 returns a `func(ctx, collection, prop, indexType) error` that fans out to
 `Shard.CleanStalePartialReindexState` per shard. Called from the cancel
 handler (after `WaitForLocalTaskDrain`), from the submit handler
@@ -1546,7 +1546,7 @@ source, the other is a copy that outlives it.
 4. Wait for the local reindex goroutine to drain
    (`WaitForLocalTaskDrain`, 10s timeout). Bounded so a stuck
    goroutine doesn't turn the HTTP request into a hang.
-5. `DB.NewStalePartialReindexSweep()` — wipe sidecars + migration dir
+5. `DB.NewStalePartialReindexSweep(tenants)` — wipe sidecars + migration dir
    so the next submit starts from a clean slate. Runs for every index
    type the migration touches, not just the one named in the URL:
    `change-tokenization` spawns a searchable and a filterable strategy
