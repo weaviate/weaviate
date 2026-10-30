@@ -98,6 +98,9 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	model string, url string,
 ) (*modulecomponents.VectorizationResult[[]float32], int, error) {
+	if err := modulecomponents.ValidateBaseURL(url); err != nil {
+		return nil, 0, err
+	}
 	body, err := json.Marshal(embeddingsRequest{
 		Input: input,
 		Model: model,

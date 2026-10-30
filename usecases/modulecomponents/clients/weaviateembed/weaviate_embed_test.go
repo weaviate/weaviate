@@ -230,3 +230,13 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Write(outBytes)
 }
+
+func TestGetWeaviateEmbedURLValidatesBaseURL(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	c := New[[]float32](0, 0, 0)
+
+	_, err := c.getWeaviateEmbedURL(context.Background(), "http://embedding.example.com")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "baseURL must use HTTPS")
+}
