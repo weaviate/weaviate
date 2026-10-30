@@ -902,9 +902,7 @@ func applyStateNamed(t *testing.T, name string) applyState {
 // drives. A committed entry of those types has to apply in every namespace
 // state, live and on replay, or one binary carries out what another refuses.
 //
-// One table for all three buckets, because they now answer alike: before the
-// checks moved ahead of the append the shard-materializing arms were the
-// exception, and they no longer are.
+// One table covers all three buckets, because every one of them answers alike.
 func TestApplyGate_GatedTypesIgnoreNamespaceState(t *testing.T) {
 	const target = "alpha:Foo"
 
