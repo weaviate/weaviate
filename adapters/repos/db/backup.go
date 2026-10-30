@@ -97,12 +97,14 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 		}
 		// One error per class: per-shard errors would multiply with the tenant count.
 		blocked := map[string]struct{}{}
+		var firstName string
 		var firstErr error
 		for _, shardName := range shards {
 			if err := idx.refuseIfReindexInFlight(shardName, gate); err != nil {
 				blocked[shardName] = struct{}{}
-				if firstErr == nil {
-					firstErr = err
+				// Keep the smallest name so "first" matches the sorted list below.
+				if firstErr == nil || shardName < firstName {
+					firstName, firstErr = shardName, err
 				}
 			}
 		}

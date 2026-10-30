@@ -1360,24 +1360,28 @@ func TestBackupableRefusalSizeDoesNotGrowWithTenants(t *testing.T) {
 		lookup    ShardReindexActivityLookupBuilder
 		wantErr   error
 		wantCount string
+		wantFirst string
 	}{
 		{
 			name:      "reindex running on every tenant",
 			lookup:    makeActivityBuilder(everyTenant),
 			wantErr:   backup.ErrBackupBlockedByInFlightReindex,
 			wantCount: "1000 of 1000 shards",
+			wantFirst: "tenant-0000",
 		},
 		{
 			name:      "reindex running on one tenant",
 			lookup:    makeActivityBuilder(map[[2]string]bool{{className, "tenant-0500"}: true}),
 			wantErr:   backup.ErrBackupBlockedByInFlightReindex,
 			wantCount: "1 of 1000 shards blocked (tenant-0500)",
+			wantFirst: "tenant-0500",
 		},
 		{
 			name:      "task manager unreachable",
 			lookup:    unreachableActivityBuilder,
 			wantErr:   ErrReindexGateUnavailable,
 			wantCount: "1000 of 1000 shards",
+			wantFirst: "tenant-0000",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1386,6 +1390,7 @@ func TestBackupableRefusalSizeDoesNotGrowWithTenants(t *testing.T) {
 			err := db.Backupable(context.Background(), []string{className})
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Contains(t, err.Error(), tc.wantCount)
+			assert.Contains(t, err.Error(), fmt.Sprintf("shard %q", tc.wantFirst))
 			assert.Less(t, len(err.Error()), maxErrLen)
 		})
 	}
