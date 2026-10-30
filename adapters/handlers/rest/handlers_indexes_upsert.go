@@ -699,7 +699,7 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		return resp
 	}
 
-	if resp := h.cleanStalePartialStateOrFail(ctx, principal, h.appState.DB, collection, propertyName, migrationType); resp != nil {
+	if resp := h.cleanStalePartialStateOrFail(ctx, principal, h.appState.DB, collection, propertyName, tenants, migrationType); resp != nil {
 		return resp
 	}
 
@@ -766,7 +766,7 @@ func buildReindexPayload(class *models.Class, collection string, properties []st
 // stalePartialStateCleaner opens a sweep over a property's partial reindex
 // sidecar dirs. *db.DB satisfies it.
 type stalePartialStateCleaner interface {
-	NewStalePartialReindexSweep() db.StalePartialReindexSweep
+	NewStalePartialReindexSweep(tenants []string) db.StalePartialReindexSweep
 }
 
 // cleanStalePartialStateOrFail scrubs pre-submit stale state for every index
@@ -779,7 +779,7 @@ type stalePartialStateCleaner interface {
 // produces that from a tenant leaving the shard map mid-walk. Refusing the
 // submit on it would turn ordinary tenant movement into a 500.
 func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, principal *models.Principal,
-	cleaner stalePartialStateCleaner, collection, propertyName string, migrationType db.ReindexMigrationType,
+	cleaner stalePartialStateCleaner, collection, propertyName string, tenants []string, migrationType db.ReindexMigrationType,
 ) middleware.Responder {
 	indexTypesForCleanup, known := indexTypesFromMigrationType(migrationType)
 	if !known {
@@ -792,7 +792,7 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 			"internal error: unknown migration type; refusing submit (would skip stale-state cleanup)"))
 	}
 	// One sweep across the loop: every index type asks the same unloaded shards.
-	sweep := cleaner.NewStalePartialReindexSweep()
+	sweep := cleaner.NewStalePartialReindexSweep(tenants)
 	for _, it := range indexTypesForCleanup {
 		err := sweep(ctx, collection, propertyName, it)
 		if err == nil {

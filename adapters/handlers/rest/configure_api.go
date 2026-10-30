@@ -1086,6 +1086,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// That cancellation propagates into Store.PauseCompaction and
 		// surfaces as a misleading "context canceled" error.
 		auditCtx := serverShutdownCtx
+		listTaskTimeout := appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout
+		listTasks := func() (map[string][]*distributedtask.Task, error) {
+			listCtx, cancel := context.WithTimeout(auditCtx, listTaskTimeout)
+			defer cancel()
+			return appState.ClusterService.ListDistributedTasks(listCtx)
+		}
 		// buildKnownTask returns an error on ListDistributedTasks
 		// failure. Callers MUST propagate the error rather than
 		// substitute a soft default — prior versions returned a
@@ -1093,7 +1099,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// misclassified orphans during a DTM partition. Explicit
 		// error makes the failure path operator-observable.
 		buildKnownTask := func() (db.KnownReindexTaskLookup, error) {
-			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
+			tasksByNamespace, err := listTasks()
 			if err != nil {
 				return nil, fmt.Errorf("ListDistributedTasks: %w", err)
 			}
@@ -1109,7 +1115,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		auditReadyBackoff := 100 * time.Millisecond
 		auditReadyDeadline := time.Now().Add(60 * time.Second)
 		for {
-			_, listErr := appState.ClusterService.ListDistributedTasks(auditCtx)
+			_, listErr := listTasks()
 			if listErr == nil {
 				break
 			}
@@ -1147,7 +1153,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// avoid races against in-flight reindexes that the local node
 		// cannot see.
 		repo.SetShardReindexActivityLookup(shardReindexActivityBuilder(auditCtx,
-			appState.ClusterService.ListDistributedTasks, appState.Logger))
+			listTaskTimeout, appState.ClusterService.ListDistributedTasks, appState.Logger))
 		// S1: the DTM-activity lookup flips a shard "free" the moment a
 		// task lands in a terminal status; autoCleanupAfterTerminal then
 		// tears the sidecar __reindex / __ingest dirs over the next
@@ -1160,11 +1166,14 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	return appState
 }
 
-func shardReindexActivityBuilder(ctx context.Context,
+func shardReindexActivityBuilder(ctx context.Context, timeout time.Duration,
 	listTasks func(context.Context) (map[string][]*distributedtask.Task, error), logger logrus.FieldLogger,
 ) db.ShardReindexActivityLookupBuilder {
 	return func() (db.ShardReindexActivityLookup, error) {
-		tasksByNamespace, err := listTasks(ctx)
+		// listTasks waits on the known leader's connection with no deadline of its own.
+		listCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		tasksByNamespace, err := listTasks(listCtx)
 		if err != nil {
 			return nil, fmt.Errorf("cannot list the cluster's distributed tasks: %w", err)
 		}

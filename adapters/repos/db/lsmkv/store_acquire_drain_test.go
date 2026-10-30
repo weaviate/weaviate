@@ -207,7 +207,8 @@ func TestReplaceBuckets_ConcurrentWriteSurvives(t *testing.T) {
 
 	// Reproduce ReplaceBuckets' body white-box so the mid-swap window (after
 	// the registry swap, before the tail completes) is reachable via real entry points.
-	bucket, replacementBucket, err := store.freezeAndSwapForReplace("target", "replacement")
+	replacementBucket := store.Bucket("replacement")
+	bucket, err := store.freezeAndSwapForReplace("target", "replacement", replacementBucket)
 	require.NoError(t, err)
 	// Once-wrapped: a mid-tail FailNow must still release, or it wedges the Cleanup Shutdown.
 	var unlockOnce sync.Once

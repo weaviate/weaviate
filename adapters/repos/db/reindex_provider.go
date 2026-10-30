@@ -19,6 +19,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -30,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 
@@ -1350,10 +1352,20 @@ func (p *ReindexProvider) runPerUnitPhase(
 	// of acking a permanent failure that would flip the task to FAILED.
 	if agg.SawContextCanceled {
 		return fmt.Errorf("%s: %d unit(s) failed: %s: %w",
-			callbackName, len(agg.Errs), strings.Join(agg.Errs, "; "), context.Canceled)
+			callbackName, len(agg.Errs), p.joinUnitErrors(agg.Errs), context.Canceled)
 	}
 	return fmt.Errorf("%s: %d unit(s) failed: %s",
-		callbackName, len(agg.Errs), strings.Join(agg.Errs, "; "))
+		callbackName, len(agg.Errs), p.joinUnitErrors(agg.Errs))
+}
+
+// joinUnitErrors caps the message because it becomes this node's ack error
+// in the RAFT log. Sorting keeps the reported subset stable across runs.
+func (p *ReindexProvider) joinUnitErrors(msgs []string) string {
+	ec := errorcompounder.New()
+	for _, msg := range slices.Sorted(slices.Values(msgs)) {
+		ec.Addf("%s", msg)
+	}
+	return ec.ToErrorLimited(maxReportedErrors).Error()
 }
 
 // OnGroupCompleted fires after all units in a group reach terminal state.
@@ -1366,7 +1378,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 // remain un-swapped.
 func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
-		WithField("localGroupUnitIDs", localGroupUnitIDs)
+		WithField("localGroupUnitCount", len(localGroupUnitIDs))
 
 	// Recovery-replay short-circuit. The scheduler can invoke
 	// OnGroupCompleted for a task whose terminal state was reached in a
@@ -1496,7 +1508,7 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 // PostCompletionAck flip-to-FAILED prevents the cluster-wide schema flip.
 func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
-		WithField("localGroupUnitIDs", localGroupUnitIDs)
+		WithField("localGroupUnitCount", len(localGroupUnitIDs))
 
 	if task.Status.IsTerminal() {
 		logger.WithField("status", task.Status).
@@ -1697,7 +1709,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	// One sweep for the whole loop: every tuple asks the same unloaded shards.
 	// A loaded shard is read again per tuple, since each deletion changes what
 	// the next one would list.
-	sweep := p.db.NewStalePartialReindexSweep()
+	sweep := p.db.NewStalePartialReindexSweep(payload.Tenants)
 	worst := sweepEachPropertyIndexType(payload.Properties, indexTypes,
 		func(propName, indexType string) error {
 			return sweep(cleanupCtx, payload.Collection, propName, indexType)
@@ -2193,7 +2205,7 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 	if len(hosted) == 0 {
 		return true
 	}
-	if err := idx.forEachShardStrict(func(name string, _ ShardLike) error {
+	if err := idx.forEachShardStrict(nil, func(name string, _ ShardLike) error {
 		if _, wanted := hosted[name]; wanted {
 			hosted[name] = true
 		}

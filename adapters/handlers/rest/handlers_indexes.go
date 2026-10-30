@@ -533,7 +533,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 				indexTypesToClean = []string{indexType}
 			}
 			// One cache for the whole loop; see the submit path for why.
-			sweep := h.appState.DB.NewStalePartialReindexSweep()
+			sweep := h.appState.DB.NewStalePartialReindexSweep(targetPayload.Tenants)
 			cleanupFailures, cleanupDropped := sweepStaleReindexState(indexTypesToClean, func(it string) error {
 				return sweep(ctx, collection, propertyName, it)
 			})

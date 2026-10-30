@@ -67,6 +67,9 @@ type barrierRecordingProvider struct {
 	taskCallsBy    map[string]int
 	groupCompErr   error
 	swapRequestErr error
+	// Status each callback was handed: the provider's only view of the task.
+	swapStatuses []TaskStatus
+	taskStatuses []TaskStatus
 }
 
 func newBarrierRecordingProvider(t *testing.T) *barrierRecordingProvider {
@@ -94,6 +97,7 @@ func (p *barrierRecordingProvider) OnSwapRequested(task *Task, _ string, _ []str
 	defer p.mu.Unlock()
 	p.swapCalls = append(p.swapCalls, task.ID)
 	p.swapCallsBy[task.ID]++
+	p.swapStatuses = append(p.swapStatuses, task.Status)
 	if p.swapRequestErr != nil {
 		return p.swapRequestErr
 	}
@@ -105,6 +109,7 @@ func (p *barrierRecordingProvider) OnTaskCompleted(task *Task) error {
 	defer p.mu.Unlock()
 	p.taskCalls = append(p.taskCalls, task.ID)
 	p.taskCallsBy[task.ID]++
+	p.taskStatuses = append(p.taskStatuses, task.Status)
 	return nil
 }
 
@@ -249,6 +254,11 @@ func (h *barrierHarness) getTask(t *testing.T, taskID string) *Task {
 // tests use for the non-barrier path, but with NeedsPreparationBarrier=true.
 func barrierAddTaskOneUnitPerNode(t *testing.T, h *barrierHarness, taskID string) {
 	t.Helper()
+	addTaskOneUnitPerNode(t, h, taskID, true)
+}
+
+func addTaskOneUnitPerNode(t *testing.T, h *barrierHarness, taskID string, needsBarrier bool) {
+	t.Helper()
 	units := make([]string, 0, len(h.nodes))
 	for _, n := range h.nodes {
 		units = append(units, "u-"+n.id)
@@ -258,7 +268,7 @@ func barrierAddTaskOneUnitPerNode(t *testing.T, h *barrierHarness, taskID string
 		Id:                      taskID,
 		SubmittedAtUnixMillis:   h.clock.Now().UnixMilli(),
 		UnitIds:                 units,
-		NeedsPreparationBarrier: true,
+		NeedsPreparationBarrier: needsBarrier,
 	}), 1))
 }
 
@@ -267,6 +277,14 @@ func barrierAddTaskOneUnitPerNode(t *testing.T, h *barrierHarness, taskID string
 // to tick on any node fires PHASE A (OnGroupCompleted) and PHASE A.5
 // (prep-complete ack emission).
 func barrierDriveToPreparing(t *testing.T, h *barrierHarness, taskID string) {
+	t.Helper()
+	completeAllUnits(t, h, taskID)
+	task := h.getTask(t, taskID)
+	require.Equal(t, TaskStatusPreparing, task.Status,
+		"barrier task with all units terminal MUST land in PREPARING")
+}
+
+func completeAllUnits(t *testing.T, h *barrierHarness, taskID string) {
 	t.Helper()
 	for _, n := range h.nodes {
 		require.NoError(t, h.completionRec.UpdateDistributedTaskUnitProgress(
@@ -280,9 +298,6 @@ func barrierDriveToPreparing(t *testing.T, h *barrierHarness, taskID string) {
 			context.Background(), h.namespace, taskID, 1, n.id, "u-"+n.id,
 		))
 	}
-	task := h.getTask(t, taskID)
-	require.Equal(t, TaskStatusPreparing, task.Status,
-		"barrier task with all units terminal MUST land in PREPARING")
 }
 
 // barrierDriveAllAcksAndAssertSwapping ticks every node so each fires
@@ -1078,4 +1093,74 @@ func TestBarrier_G9_CancelRefusedOnceANodeHasSwapped(t *testing.T) {
 		"node-2 must still run its swap after the refused cancel")
 	require.Equal(t, TaskStatusFinished, h.getTask(t, "T9").Status,
 		"both replicas swapped, so the task must finalize rather than stay stuck")
+}
+
+// Regression: a node's own failed PREP/SWAP ack must hand callbacks FAILED, not a stale PREPARING/SWAPPING.
+func TestBarrier_FailedPhaseHandsCallbacksFailedStatus(t *testing.T) {
+	groupErr := func(p *barrierRecordingProvider) {
+		p.SetGroupCompletedError(fmt.Errorf("synthetic EIO on node-2"))
+	}
+	tests := []struct {
+		name         string
+		needsBarrier bool
+		// inject makes node-2's own phase fail.
+		inject func(p *barrierRecordingProvider)
+		// liftBarrier drives every prep ack so the task reaches SWAPPING.
+		liftBarrier bool
+		// swapStatuses is what node-2's OnSwapRequested may be handed.
+		swapStatuses []TaskStatus
+	}{
+		{
+			name:         "prep failure",
+			needsBarrier: true,
+			inject:       groupErr,
+			swapStatuses: []TaskStatus{TaskStatusFailed},
+		},
+		{
+			name:         "swap failure",
+			needsBarrier: true,
+			inject: func(p *barrierRecordingProvider) {
+				p.SetSwapRequestedError(fmt.Errorf("synthetic ENOSPC during swap on node-2"))
+			},
+			liftBarrier:  true,
+			swapStatuses: []TaskStatus{TaskStatusSwapping},
+		},
+		{
+			name:   "non-barrier group failure",
+			inject: groupErr,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer leaktest.Check(t)()
+
+			h := newBarrierHarness(t, []string{"node-1", "node-2", "node-3"})
+			defer h.close()
+
+			taskID := "barrier-failed-phase-status"
+			addTaskOneUnitPerNode(t, h, taskID, tt.needsBarrier)
+			completeAllUnits(t, h, taskID)
+			if tt.liftBarrier {
+				barrierDriveAllAcksAndAssertSwapping(t, h, taskID)
+			}
+			failing := h.nodes[1].provider
+			tt.inject(failing)
+
+			h.tick(0)
+			h.tick(1)
+			require.Equal(t, TaskStatusFailed, h.getTask(t, taskID).Status,
+				"node-2's failed ack must fail the task")
+			require.Equal(t, tt.swapStatuses, failing.swapStatuses,
+				"node-2 must not run a swap the barrier did not lift")
+			require.Equal(t, []TaskStatus{TaskStatusFailed}, failing.taskStatuses,
+				"node-2 must run FAILED cleanup, never the SWAPPING schema flip")
+
+			h.tickAll()
+			h.tickAll()
+			for _, n := range h.nodes {
+				require.Equal(t, []TaskStatus{TaskStatusFailed}, n.provider.taskStatuses,
+					"node %s: OnTaskCompleted must fire once, on FAILED", n.id)
+			}
+		})
+	}
 }

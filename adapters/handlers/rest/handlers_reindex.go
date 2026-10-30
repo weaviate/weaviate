@@ -230,8 +230,8 @@ func validateEnableSearchableProperty(prop *models.Property, tokenization string
 // validateFilterableTokenizationChange validates the body for
 // `PUT /v1/schema/{class}/properties/{prop}/index/filterable` with a
 // diverging `{"tokenization":X}`.
-// Distinct from validateTokenizationChange: does NOT require a searchable
-// bucket — this is the filterable-only retokenize variant. The caller
+// Distinct from validateTokenizationChange: the property must NOT have a
+// searchable index — this is the filterable-only retokenize variant. The caller
 // dispatches to ReindexTypeChangeTokenizationFilterable which runs only
 // the filterable retokenize task.
 func validateFilterableTokenizationChange(prop *models.Property, targetTokenization string) error {
@@ -250,6 +250,14 @@ func validateFilterableTokenizationChange(prop *models.Property, targetTokenizat
 	}
 	if prop.Tokenization == targetTokenization {
 		return fmt.Errorf("property %q already uses tokenization %q", prop.Name, targetTokenization)
+	}
+	// Both indexes are queried with the property's one tokenization, so
+	// retokenizing only the filterable one leaves the searchable one unreadable.
+	if searchableIndexOn(prop) {
+		return fmt.Errorf("property %q also has a searchable index built with tokenization %q; "+
+			"retokenizing only the filterable index would silently desynchronize the searchable index. "+
+			"Change the tokenization of both indexes via PUT /v1/schema/{className}/properties/%s/index/searchable",
+			prop.Name, prop.Tokenization, prop.Name)
 	}
 	return nil
 }
@@ -310,11 +318,13 @@ func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSp
 }
 
 // validateTenants checks that all specified tenants exist in the collection's
-// sharding state and are in a status that has local data (HOT, ACTIVE, COLD,
-// INACTIVE). Returns an error for nonexistent or OFFLOADED/FROZEN tenants.
+// sharding state and are HOT or COLD (ACTIVE or INACTIVE). Returns an error for
+// nonexistent tenants and for tenants in any other status (FROZEN, FREEZING or
+// UNFREEZING).
 func validateTenants(database *db.DB, ctx context.Context, collection string, tenants []string) error {
-	// Get all shard ownership including all statuses.
-	allOwnership, err := database.ShardReplicaOwnershipForMT(ctx, collection, nil)
+	// Unfiltered: a frozen tenant must still count as known, so it fails
+	// with the status error below, not the unknown-tenant one.
+	allOwnership, err := database.ShardReplicaOwnership(ctx, collection)
 	if err != nil {
 		return fmt.Errorf("reading shard state: %w", err)
 	}
@@ -344,7 +354,7 @@ func validateTenants(database *db.DB, ctx context.Context, collection string, te
 			return fmt.Errorf("tenant %q does not exist", tenant)
 		}
 		if _, ok := activeTenants[tenant]; !ok {
-			return fmt.Errorf("tenant %q is not in an active status (OFFLOADED/FROZEN tenants cannot be reindexed)", tenant)
+			return fmt.Errorf("tenant %q is frozen, freezing or unfreezing and cannot be reindexed; set it to HOT first", tenant)
 		}
 	}
 	return nil

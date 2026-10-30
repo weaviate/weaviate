@@ -16,6 +16,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -997,12 +998,23 @@ func (i *Index) closeRequestedCause() error {
 // captured before the walk, reported as [errShardsSkipped]. A shard added
 // mid-walk is out of scope either way: Range makes no consistent-snapshot
 // guarantee.
-func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) error {
+//
+// A non-empty scope limits the walk to those names, so a shard outside it
+// that is removed mid-walk is not reported as skipped.
+func (i *Index) forEachShardStrict(scope map[string]struct{}, f func(name string, shard ShardLike) error) error {
 	if cause := i.closeRequestedCause(); cause != nil {
 		return cause
 	}
+	inScope := func(name string) bool {
+		_, ok := scope[name]
+		return len(scope) == 0 || ok
+	}
 	unvisited := i.shardNameSet()
+	maps.DeleteFunc(unvisited, func(name string, _ struct{}) bool { return !inScope(name) })
 	err := i.shards.Range(func(name string, shard ShardLike) error {
+		if !inScope(name) {
+			return nil
+		}
 		delete(unvisited, name)
 		return f(name, shard)
 	})

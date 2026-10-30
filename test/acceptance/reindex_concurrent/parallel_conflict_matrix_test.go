@@ -437,9 +437,8 @@ func testParallel_ChangeTokBothEnableRangeableOnText(t *testing.T, restURI strin
 // Scenario 6: change-tok-filterable + change-tok-both in parallel
 // =============================================================================
 //
-// Both touch filterable on the same property. Either order is legal: whichever
-// request loses the submit lock either 409s or converges on the winner's
-// target, so only two distinct writers on the bucket is a failure.
+// The property also has a searchable index, so change-tok-filterable 400s
+// unless it converges on change-tok-both's in-flight target.
 func testParallel_ChangeTokFilterableChangeTokBoth(t *testing.T, restURI string) {
 	const class = "ParallelChangeTokFiltBoth"
 	trueVal := true
