@@ -186,69 +186,47 @@ func TestReplicationReplicate(t *testing.T) {
 		assert.IsType(t, &replication.ReplicateBadRequest{}, response)
 	})
 
-	t.Run("unprocessable entity error", func(t *testing.T) {
-		// GIVEN
-		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+	for _, tc := range []struct {
+		name       string
+		managerErr error
+		want       middleware.Responder
+	}{
+		{"unprocessable entity error", types.ErrInvalidRequest, &replication.ReplicateUnprocessableEntity{}},
+		{"conflict when a task is running on the collection", types.ErrMovementBlockedByTask, &replication.ReplicateConflict{}},
+		{"internal server error", errors.New("target node does not exist"), &replication.ReplicateInternalServerError{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// GIVEN
+			handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
 
-		collection := fmt.Sprintf("Collection%d", randomInt(10))
-		shard := fmt.Sprintf("shard-%d", randomInt(10))
-		sourceNode := fmt.Sprintf("node-%d", randomInt(5)*2)
-		targetNode := fmt.Sprintf("node-%d", randomInt(5)*2+1)
-		replicationType := randomReplicationType()
-		params := replication.ReplicateParams{
-			HTTPRequest: &http.Request{},
-			Body: &models.ReplicationReplicateReplicaRequest{
-				Collection: &collection,
-				TargetNode: &targetNode,
-				Shard:      &shard,
-				SourceNode: &sourceNode,
-				Type:       &replicationType,
-			},
-		}
+			collection := fmt.Sprintf("Collection%d", randomInt(10))
+			shard := fmt.Sprintf("shard-%d", randomInt(10))
+			sourceNode := fmt.Sprintf("node-%d", randomInt(5)*2)
+			targetNode := fmt.Sprintf("node-%d", randomInt(5)*2+1)
+			replicationType := randomReplicationType()
+			params := replication.ReplicateParams{
+				HTTPRequest: &http.Request{},
+				Body: &models.ReplicationReplicateReplicaRequest{
+					Collection: &collection,
+					TargetNode: &targetNode,
+					Shard:      &shard,
+					SourceNode: &sourceNode,
+					Type:       &replicationType,
+				},
+			}
 
-		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.EXPECT().ReplicationReplicateReplica(mock.Anything, mock.AnythingOfType("strfmt.UUID"), sourceNode, collection, shard, targetNode, replicationType).Return(types.ErrInvalidRequest)
+			mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			mockReplicationManager.EXPECT().ReplicationReplicateReplica(mock.Anything, mock.AnythingOfType("strfmt.UUID"), sourceNode, collection, shard, targetNode, replicationType).Return(tc.managerErr)
 
-		// WHEN
-		response := handler.replicate(params, &models.Principal{})
+			// WHEN
+			response := handler.replicate(params, &models.Principal{})
 
-		// THEN
-		assert.IsType(t, &replication.ReplicateUnprocessableEntity{}, response)
-		mockAuthorizer.AssertExpectations(t)
-		mockReplicationManager.AssertExpectations(t)
-	})
-
-	t.Run("internal server error", func(t *testing.T) {
-		// GIVEN
-		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
-
-		collection := fmt.Sprintf("Collection%d", randomInt(10))
-		shard := fmt.Sprintf("shard-%d", randomInt(10))
-		sourceNode := fmt.Sprintf("node-%d", randomInt(5)*2)
-		targetNode := fmt.Sprintf("node-%d", randomInt(5)*2+1)
-		replicationType := randomReplicationType()
-		params := replication.ReplicateParams{
-			HTTPRequest: &http.Request{},
-			Body: &models.ReplicationReplicateReplicaRequest{
-				Collection: &collection,
-				TargetNode: &targetNode,
-				Shard:      &shard,
-				SourceNode: &sourceNode,
-				Type:       &replicationType,
-			},
-		}
-
-		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.EXPECT().ReplicationReplicateReplica(mock.Anything, mock.AnythingOfType("strfmt.UUID"), sourceNode, collection, shard, targetNode, replicationType).Return(errors.New("target node does not exist"))
-
-		// WHEN
-		response := handler.replicate(params, &models.Principal{})
-
-		// THEN
-		assert.IsType(t, &replication.ReplicateInternalServerError{}, response)
-		mockAuthorizer.AssertExpectations(t)
-		mockReplicationManager.AssertExpectations(t)
-	})
+			// THEN
+			assert.IsType(t, tc.want, response)
+			mockAuthorizer.AssertExpectations(t)
+			mockReplicationManager.AssertExpectations(t)
+		})
+	}
 
 	t.Run("authorization error", func(t *testing.T) {
 		// GIVEN
@@ -704,51 +682,42 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 		mockAuthorizer.AssertExpectations(t)
 	})
 
-	t.Run("not found error", func(t *testing.T) {
-		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
-		body := &models.ReplicationScalePlan{
-			PlanID:     "plan-123",
-			Collection: "MissingCollection",
-		}
-		params := replication.ApplyReplicationScalePlanParams{
-			HTTPRequest: &http.Request{},
-			Body:        body,
-		}
-		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.EXPECT().ApplyReplicationScalePlan(
-			mock.Anything,
-			mock.MatchedBy(func(plan api.ReplicationScalePlan) bool {
-				return plan.PlanID == "plan-123" && plan.Collection == "MissingCollection"
-			}),
-		).Return([]strfmt.UUID{}, types.ErrNotFound)
-		response := handler.applyReplicationScalePlan(params, &models.Principal{})
-		assert.IsType(t, &replication.ApplyReplicationScalePlanNotFound{}, response)
-		mockAuthorizer.AssertExpectations(t)
-		mockReplicationManager.AssertExpectations(t)
-	})
-
-	t.Run("internal error", func(t *testing.T) {
-		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
-		body := &models.ReplicationScalePlan{
-			PlanID:     "plan-123",
-			Collection: "TestCollection",
-		}
-		params := replication.ApplyReplicationScalePlanParams{
-			HTTPRequest: &http.Request{},
-			Body:        body,
-		}
-		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.EXPECT().ApplyReplicationScalePlan(
-			mock.Anything,
-			mock.MatchedBy(func(plan api.ReplicationScalePlan) bool {
-				return plan.PlanID == "plan-123" && plan.Collection == "TestCollection"
-			}),
-		).Return([]strfmt.UUID{}, errors.New("internal error"))
-		response := handler.applyReplicationScalePlan(params, &models.Principal{})
-		assert.IsType(t, &replication.ApplyReplicationScalePlanInternalServerError{}, response)
-		mockAuthorizer.AssertExpectations(t)
-		mockReplicationManager.AssertExpectations(t)
-	})
+	for _, tc := range []struct {
+		name       string
+		managerErr error
+		want       middleware.Responder
+	}{
+		{"not found error", types.ErrNotFound, &replication.ApplyReplicationScalePlanNotFound{}},
+		{
+			"conflict when a task is running on the collection",
+			types.ErrMovementBlockedByTask,
+			&replication.ApplyReplicationScalePlanConflict{},
+		},
+		{"internal error", errors.New("internal error"), &replication.ApplyReplicationScalePlanInternalServerError{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+			body := &models.ReplicationScalePlan{
+				PlanID:     "plan-123",
+				Collection: "TestCollection",
+			}
+			params := replication.ApplyReplicationScalePlanParams{
+				HTTPRequest: &http.Request{},
+				Body:        body,
+			}
+			mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			mockReplicationManager.EXPECT().ApplyReplicationScalePlan(
+				mock.Anything,
+				mock.MatchedBy(func(plan api.ReplicationScalePlan) bool {
+					return plan.PlanID == "plan-123" && plan.Collection == "TestCollection"
+				}),
+			).Return([]strfmt.UUID{}, tc.managerErr)
+			response := handler.applyReplicationScalePlan(params, &models.Principal{})
+			assert.IsType(t, tc.want, response)
+			mockAuthorizer.AssertExpectations(t)
+			mockReplicationManager.AssertExpectations(t)
+		})
+	}
 
 	t.Run("successful application", func(t *testing.T) {
 		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))

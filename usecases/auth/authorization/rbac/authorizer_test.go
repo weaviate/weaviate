@@ -828,7 +828,7 @@ func TestAudit_NamespaceFields(t *testing.T) {
 				// Grant a permissive READ in the data domain to the principal so
 				// the success path runs and emits one info-level entry.
 				_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("audit-role"),
-					"*", authorization.READ, authorization.DataDomain)
+					conv.CasbinData("*", "*"), authorization.READ, authorization.DataDomain)
 				require.NoError(t, err)
 				_, err = m.casbin.AddRoleForUser(
 					conv.UserNameWithTypeFromId(pc.principal.Username, authentication.AuthTypeDb),
