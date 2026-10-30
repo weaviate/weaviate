@@ -506,7 +506,9 @@ func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {
 		closeCause error
 		// deleteSiblings drops the shards the walk has not reached yet.
 		deleteSiblings bool
-		wantErr        error
+		// scope limits the walk to these shards; nil walks them all.
+		scope   map[string]struct{}
+		wantErr error
 	}{
 		{
 			name: "a walk nothing interrupted is clean",
@@ -527,6 +529,11 @@ func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {
 			name:           "a tenant deleted mid-walk explains nothing and is still not swept",
 			deleteSiblings: true,
 			wantErr:        errShardsSkipped,
+		},
+		{
+			name:           "a tenant deleted mid-walk outside the scope is not reported",
+			deleteSiblings: true,
+			scope:          map[string]struct{}{"shard-a": {}},
 		},
 	}
 
@@ -552,8 +559,13 @@ func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {
 				})
 			}
 
+			wantVisited := len(shardNames)
+			if tc.scope != nil {
+				wantVisited = len(tc.scope)
+			}
+
 			var visited int
-			err := idx.forEachShardStrict(func(name string, _ ShardLike) error {
+			err := idx.forEachShardStrict(tc.scope, func(name string, _ ShardLike) error {
 				visited++
 				if visited > 1 || !tc.deleteSiblings {
 					return nil
@@ -573,7 +585,7 @@ func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {
 
 			if tc.wantErr == nil {
 				require.NoError(t, err)
-				require.Equal(t, len(shardNames), visited)
+				require.Equal(t, wantVisited, visited)
 				return
 			}
 			require.ErrorIs(t, err, tc.wantErr,

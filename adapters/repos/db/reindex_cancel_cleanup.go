@@ -27,7 +27,8 @@ import (
 )
 
 // StalePartialReindexSweep wipes on-disk runtime-reindex state for one
-// (collection, property, indexType) tuple across every local shard.
+// (collection, property, indexType) tuple across the local shards its
+// constructor scoped it to: every local shard when given no tenants.
 //
 // One value belongs to one goroutine and must not outlive the request or
 // timeout window that built it: it caches directory listings across calls
@@ -192,10 +193,7 @@ func (i *Index) cleanStalePartialReindexState(
 	}
 	// forEachShardStrict, not ForEachShard: a closing index must not read as a
 	// sweep that reached every shard.
-	walkErr := i.forEachShardStrict(func(name string, shardLike ShardLike) error {
-		if _, ok := inScope[name]; len(inScope) > 0 && !ok {
-			return nil
-		}
+	walkErr := i.forEachShardStrict(inScope, func(name string, shardLike ShardLike) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("%w: stopped before shard %q: %w", ErrCleanupSweepTruncated, name, ctxErr)
 		}

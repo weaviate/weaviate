@@ -93,7 +93,8 @@ type ReindexTaskPayload struct {
 	OriginalTokenization string `json:"originalTokenization,omitempty"`
 	BucketStrategy       string `json:"bucketStrategy,omitempty"`
 
-	// Tenants records which tenants were targeted (informational, for MT collections).
+	// Tenants records which tenants were targeted (MT only); the cancel and
+	// terminal sweeps are scoped to them.
 	Tenants []string `json:"tenants,omitempty"`
 
 	// UnitToNode maps unit IDs to the node name that should process them.

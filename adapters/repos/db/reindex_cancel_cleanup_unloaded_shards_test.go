@@ -29,6 +29,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -49,6 +51,7 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 		staleOnUnloadedShard bool
 		cancelBeforeWalk     bool
 		onlyLoadedShardNamed bool
+		viaTerminalCleanup   bool
 		wantUnloadedLoaded   bool
 		wantUnloadedTracker  bool
 		// wantHotTracker proves the walk stopped: a reached shard's tracker dir
@@ -68,6 +71,13 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 			name:                 "a stale unloaded shard outside the named tenants is not loaded",
 			staleOnUnloadedShard: true,
 			onlyLoadedShardNamed: true,
+			wantUnloadedTracker:  true,
+		},
+		{
+			name:                 "a scoped task's terminal cleanup does not load a stale unloaded shard outside it",
+			staleOnUnloadedShard: true,
+			onlyLoadedShardNamed: true,
+			viaTerminalCleanup:   true,
 			wantUnloadedTracker:  true,
 		},
 		{
@@ -117,7 +127,25 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 			if tc.onlyLoadedShardNamed {
 				tenants = []string{hot.Name()}
 			}
-			err := idx.cleanStalePartialReindexState(sweepCtx, propName, indexType, tenants, nil)
+			var err error
+			if tc.viaTerminalCleanup {
+				p := NewReindexProvider(
+					&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+					nil, nil, logrus.New(), "n1", nil, sweepCtx)
+				p.autoCleanupAfterTerminal(&distributedtask.Task{
+					Namespace:      ReindexNamespace,
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_terminal", Version: 1},
+					Status:         distributedtask.TaskStatusCancelled,
+				}, &ReindexTaskPayload{
+					MigrationType: ReindexTypeRepairFilterable,
+					Collection:    className,
+					Properties:    []string{propName},
+					Tenants:       tenants,
+					UnitToShard:   map[string]string{"u1": hot.Name()},
+				}, logrus.New())
+			} else {
+				err = idx.cleanStalePartialReindexState(sweepCtx, propName, indexType, tenants, nil)
+			}
 
 			assert.Equalf(t, tc.wantUnloadedLoaded, unloaded.isLoaded(),
 				"unloaded shard loaded=%v, want %v: the sweep blocks its caller for its whole "+

@@ -87,7 +87,7 @@ func TestCleanStalePartialStateOrFail(t *testing.T) {
 			"the coupled migration must scrub both inverted index dirs")
 	})
 
-	t.Run("a tenant-scoped submit scrubs only the tenants it targets", func(t *testing.T) {
+	t.Run("forwards its tenants to the sweep", func(t *testing.T) {
 		cleaner := &fakeStaleCleaner{}
 		resp := h.cleanStalePartialStateOrFail(context.Background(), nil, cleaner,
 			"C", "p", []string{"t1"}, db.ReindexTypeEnableFilterable)
