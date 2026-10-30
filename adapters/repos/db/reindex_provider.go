@@ -1366,7 +1366,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 // remain un-swapped.
 func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
-		WithField("localGroupUnitIDs", localGroupUnitIDs)
+		WithField("localGroupUnitCount", len(localGroupUnitIDs))
 
 	// Recovery-replay short-circuit. The scheduler can invoke
 	// OnGroupCompleted for a task whose terminal state was reached in a
@@ -1496,7 +1496,7 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 // PostCompletionAck flip-to-FAILED prevents the cluster-wide schema flip.
 func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
-		WithField("localGroupUnitIDs", localGroupUnitIDs)
+		WithField("localGroupUnitCount", len(localGroupUnitIDs))
 
 	if task.Status.IsTerminal() {
 		logger.WithField("status", task.Status).
@@ -2081,23 +2081,30 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 			payload.MigrationType, payload.Collection, outcome)
 		return
 	}
-	for _, propName := range payload.Properties {
-		repairCommands := repairCommandsForFailedMigration(payload, propName)
-		logger.WithFields(map[string]any{
-			"property":       propName,
-			"migration_type": payload.MigrationType,
-			"repair_command": strings.Join(repairCommands, " && "),
-		}).Errorf(
-			"reindex provider: %s on %s.%s %s; per-shard sub-tasks that "+
-				"committed before it stopped may have left the canonical "+
-				"inverted bucket inconsistent with the schema (which reverted "+
-				"to the pre-migration state) — issue the repair_command above "+
-				"to recover the affected index(es); an affected tenant still "+
-				"unloaded finalizes its own deferred swap the next time it is "+
-				"read, so try one read there before the repair_command's "+
-				"cluster-wide rebuild",
-			payload.MigrationType, payload.Collection, propName, outcome)
+	// The last entry is an "(and N more)" marker once the cap is hit, so it
+	// gets no command.
+	reported := migrationReportedNames(payload.Properties)
+	var repairCommands []string
+	for _, propName := range reported[:min(len(reported), maxReportedErrors)] {
+		repairCommands = append(repairCommands, repairCommandsForFailedMigration(payload, propName)...)
 	}
+	logger.WithFields(map[string]any{
+		"property_count": len(payload.Properties),
+		"properties":     reported,
+		"migration_type": payload.MigrationType,
+		"repair_command": strings.Join(repairCommands, " && "),
+	}).Errorf(
+		"reindex provider: %s on %s %s; per-shard sub-tasks that "+
+			"committed before it stopped may have left the canonical "+
+			"inverted bucket inconsistent with the schema (which reverted "+
+			"to the pre-migration state) — issue the repair_command above "+
+			"to recover the affected index(es), and the same commands for any "+
+			"property past the listed ones (full list in the task payload at "+
+			"/v1/tasks); an affected tenant still "+
+			"unloaded finalizes its own deferred swap the next time it is "+
+			"read, so try one read there before the repair_command's "+
+			"cluster-wide rebuild",
+		payload.MigrationType, payload.Collection, outcome)
 }
 
 // repairCommandsForFailedMigration returns the operator command(s) to recover
