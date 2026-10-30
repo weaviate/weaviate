@@ -325,6 +325,7 @@ func openTestDatabase(t *testing.T, dir string, shardState *sharding.State, metr
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	mockNodeSelector.EXPECT().ClusterHealthScore().Return(0).Maybe()
 	config := Config{
 		RootPath:                  dir,
 		QueryMaximumResults:       10000,

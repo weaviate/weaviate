@@ -152,9 +152,9 @@ func (f *fakeSchemaManager) SchemaFromLeader() (models.Schema, error) {
 	return args.Get(0).(models.Schema), args.Error(1)
 }
 
-func (f *fakeSchemaManager) CollectionsCountFromLeader(namespace string) (int, error) {
+func (f *fakeSchemaManager) CollectionsCount(namespace string) int {
 	args := f.Called(namespace)
-	return args.Get(0).(int), args.Error(1)
+	return args.Int(0)
 }
 
 func (f *fakeSchemaManager) ReadOnlyClassesFromLeader(classes ...string) (map[string]versioned.Class, error) {

@@ -30,12 +30,14 @@ import (
 
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/schema/local"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	clustermocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -386,8 +388,9 @@ func TestLocalNodeShardStats(t *testing.T) {
 	}
 }
 
-// TestGetOneNodeStatusLocal pins how a local scan that cannot finish is reported:
-// running out of time times out this node alone, a shutdown fails the request.
+// TestGetOneNodeStatusLocal pins how this node reports a status it cannot finish,
+// to itself and to a node that asks it. Running out of time times out this node
+// alone, and a shutdown fails the request.
 func TestGetOneNodeStatusLocal(t *testing.T) {
 	const className = "Local"
 
@@ -395,9 +398,13 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 		name        string
 		expiredCtx  bool
 		closedCause error
-		wantStatus  string
-		wantShards  int
-		wantErr     error
+		// classWaitErr leaves the index unregistered and fails the wait for its
+		// class version with this error.
+		classWaitErr error
+		incoming     bool
+		wantStatus   string
+		wantShards   int
+		wantErr      error
 	}{
 		{
 			name: "healthy node", wantStatus: models.NodeStatusStatusHEALTHY, wantShards: 1,
@@ -407,8 +414,24 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 			wantStatus: models.NodeStatusStatusTIMEOUT, wantShards: 0,
 		},
 		{
+			name:         "class version wait ran out of time",
+			classWaitErr: fmt.Errorf("%w: version got=6 want=7", types.ErrDeadlineExceeded),
+			wantStatus:   models.NodeStatusStatusTIMEOUT, wantShards: 0,
+		},
+		{
+			name:         "class version wait ran out of time, asked by another node",
+			classWaitErr: fmt.Errorf("%w: version got=6 want=7", types.ErrDeadlineExceeded),
+			incoming:     true,
+			wantStatus:   models.NodeStatusStatusTIMEOUT, wantShards: 0,
+		},
+		{
 			name: "node shutting down", closedCause: errIndexShutdown,
 			wantErr: errIndexShutdown,
+		},
+		{
+			name: "node shutting down, asked by another node", closedCause: errIndexShutdown,
+			incoming: true,
+			wantErr:  errIndexShutdown,
 		},
 	}
 
@@ -427,6 +450,17 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 				indices:       map[string]*Index{idx.ID(): idx},
 				schemaGetter:  &fakeSchemaGetter{},
 			}
+			statusClass := ""
+			if tt.classWaitErr != nil {
+				const version = 7
+				schemaReader := local.NewMockSchemaReader(t)
+				schemaReader.EXPECT().ReadOnlyVersionedClass(className).
+					Return(versioned.Class{Class: &models.Class{Class: className}, Version: version})
+				schemaReader.EXPECT().WaitForUpdate(mock.Anything, uint64(version)).Return(tt.classWaitErr)
+				db.indices = map[string]*Index{}
+				db.schemaReader = schemaReader
+				statusClass = className
+			}
 
 			ctx := context.Background()
 			if tt.expiredCtx {
@@ -435,8 +469,14 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 				defer cancel()
 			}
 
-			status, err := db.GetOneNodeStatus(ctx, db.localNodeName,
-				"", "", verbosity.OutputVerbose)
+			var status *models.NodeStatus
+			var err error
+			if tt.incoming {
+				status, err = db.IncomingGetNodeStatus(ctx, statusClass, "", verbosity.OutputVerbose)
+			} else {
+				status, err = db.GetOneNodeStatus(ctx, db.localNodeName,
+					statusClass, "", verbosity.OutputVerbose)
+			}
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -446,6 +486,7 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, status.Status)
 			assert.Equal(t, tt.wantStatus, *status.Status)
+			assert.Equal(t, db.localNodeName, status.Name)
 			assert.Len(t, status.Shards, tt.wantShards)
 		})
 	}

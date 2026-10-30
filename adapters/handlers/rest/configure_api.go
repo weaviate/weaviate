@@ -405,7 +405,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	grpcDialOpts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
 	if authConfig.BasicAuth.Enabled() {
 		authHeader := grpcconn.BasicAuthHeader(authConfig.BasicAuth.Username, authConfig.BasicAuth.Password)
-		grpcDialOpts = append(grpcDialOpts,
+		grpcDialOpts = append(
+			grpcDialOpts,
 			grpc.WithChainUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)),
 			grpc.WithChainStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
 		)
@@ -413,7 +414,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	maxSize := clusterapigrpc.GetMaxMessageSize(appState)
 	initialConnWindowSize := clusterapigrpc.GetInitialConnWindowSize(appState)
-	grpcDialOpts = append(grpcDialOpts,
+	grpcDialOpts = append(
+		grpcDialOpts,
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(maxSize),
 			grpc.MaxCallSendMsgSize(maxSize),
@@ -427,7 +429,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	grpcConnManager, err := grpcconn.NewConnManager(
 		appState.ServerConfig.Config.GRPC.MaxOpenConns,
 		appState.ServerConfig.Config.GRPC.IdleConnTimeout,
-		metricsRegisterer, appState.Logger, grpcDialOpts...)
+		metricsRegisterer, appState.Logger, grpcDialOpts...,
+	)
 	if err != nil {
 		appState.Logger.WithField("action", "startup").
 			Fatalf("failed to create gRPC connection manager: %v", err)
@@ -450,7 +453,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	replConnManager, err := grpcconn.NewConnManager(
 		appState.ServerConfig.Config.GRPC.MaxOpenConns,
 		appState.ServerConfig.Config.GRPC.IdleConnTimeout,
-		replMetricsReg, appState.Logger, replDialOpts...)
+		replMetricsReg, appState.Logger, replDialOpts...,
+	)
 	if err != nil {
 		appState.Logger.WithField("action", "startup").
 			Fatalf("failed to create replication gRPC connection manager: %v", err)
@@ -606,7 +610,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	localClassifierRepo, err := classifications.NewRepo(
-		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
+		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger,
+	)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").
@@ -810,7 +815,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	dropVectorEnqueuer := newDropVectorIndexEnqueuer(appState.ClusterService, appState.ClusterService.Raft, appState.Logger)
 	editops.SetLivenessProvider(dropVectorEnqueuer.LiveOpIDs)
 
-	schemaManager, err := schema.NewManager(migrator,
+	schemaManager, err := schema.NewManager(
+		migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
@@ -1287,7 +1293,8 @@ func initReindexAndDistributedTasks(
 		runDropVectorIndexReconciliation(
 			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.NamespacesController, appState.Logger,
 			appState.ServerConfig.Config.DistributedTasks.DropVectorReconcileInterval,
-			appState.ClusterService.IsLeader, dropVectorReconcileNudge)
+			appState.ClusterService.IsLeader, dropVectorReconcileNudge,
+		)
 	}, appState.Logger)
 
 	if appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL == 0 {
@@ -1512,7 +1519,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.OidcAuth = composer.New(
 		appState.ServerConfig.Config.Authentication,
 		appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger,
-		appState.APIKey, appState.OIDC)
+		appState.APIKey, appState.OIDC,
+	)
 
 	api.Logger = func(msg string, args ...interface{}) {
 		appState.Logger.WithFields(logrus.Fields{"action": "restapi_management", "version": build.Version}).Infof(msg, args...)
@@ -1601,7 +1609,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), telemeter.GetIntegrationTracker(), grpcInstrument...)
-	grpcWebHandler, err := grpcweb.NewHandler(grpcServer, appState)
+	grpcWebTracker := &grpcweb.Tracker{}
+	grpcWebHandler, err := grpcweb.NewHandler(grpcServer, appState, grpcWebTracker)
 	if err != nil {
 		appState.Logger.WithField("action", "grpc_web_startup").
 			Fatalf("init grpc-web handler: %v", err)
@@ -1640,10 +1649,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
 				backupScheduler.CleanupUnfinishedBackups(ctx)
-			}, appState.Logger)
+			}, appState.Logger,
+		)
 	}
 
-	api.PreServerShutdown = func() {
+	preServerShutdown := func() {
 		// Reject new export requests and signal in-flight exports to stop
 		// early, while the server can still serve other requests. The actual
 		// wait for export drain happens in ServerShutdown.
@@ -1652,8 +1662,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		batchDrain()
 	}
 
-	api.ServerShutdown = func() {
-		// leave memberlist first to announce node graceful departure
+	serverShutdown := func() {
+		// Leave announces the node's departure before internal infrastructure
+		// closes. Public HTTP has stopped by now; it waits up to
+		// GracefulTimeout. gRPC then gets up to 20s to stop. After that, gRPC
+		// may still be stopping in the background (see shutdownHooks).
 		if err := appState.Cluster.Leave(); err != nil {
 			appState.Logger.WithError(err).Error("leave node from cluster")
 		}
@@ -1688,7 +1701,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Shutdown OTEL tracing
-		if err := opentelemetry.Shutdown(ctx); err != nil {
+		otelCtx, otelCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer otelCancel()
+		if err := opentelemetry.Shutdown(otelCtx); err != nil {
 			appState.Logger.WithField("action", "stop_opentelemetry").
 				Errorf("failed to stop opentelemetry: %s", err.Error())
 		}
@@ -1702,20 +1717,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// close grpc client connections
 		appState.ReplGRPCConnManager.Close()
 		appState.GRPCConnManager.Close()
-
-		// stop the gRPC server gracefully, but cap the wait so a stuck
-		// request can't block shutdown.
-		grpcStopped := make(chan struct{})
-		enterrors.GoWrapper(func() {
-			grpcServer.GracefulStop()
-			close(grpcStopped)
-		}, appState.Logger)
-		select {
-		case <-grpcStopped:
-		case <-time.After(20 * time.Second):
-			appState.Logger.Warn("grpc graceful stop timed out, forcing stop")
-			grpcServer.Stop()
-		}
 
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)
@@ -1757,6 +1758,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 	}
 
+	conf := shutdownHooksConfig{
+		Server:      grpcServer,
+		Timeout:     20 * time.Second,
+		Logger:      appState.Logger,
+		Wait:        grpcWebTracker.Drain,
+		PreShutdown: preServerShutdown,
+		Shutdown:    serverShutdown,
+	}
+	api.PreServerShutdown, api.ServerShutdown = shutdownHooks(conf)
+
 	startGrpcServer(grpcServer, appState)
 	setupMCPHandlers(api, appState, objectsManager)
 
@@ -1764,6 +1775,54 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// Serve grpc-web on the REST port under /v1/grpc-web/ rather than a dedicated listener
 	return grpcweb.Mount("/v1/grpc-web", grpcWebHandler, restHandler,
 		func() bool { return appState.ServerConfig.Config.GRPC.GrpcWebEnabledOrDefault() })
+}
+
+type shutdownHooksConfig struct {
+	Server      *grpc.Server
+	Timeout     time.Duration // cap on GracefulStop before Stop
+	Logger      logrus.FieldLogger
+	Wait        func(stop <-chan struct{}) bool
+	PreShutdown func()
+	Shutdown    func()
+}
+
+// shutdownHooks builds the PreServerShutdown and ServerShutdown hooks.
+// Shutdown runs once the public gRPC server has stopped or Timeout passes,
+// whichever comes first. After Timeout, Stop runs in the background and
+// Shutdown does not wait for it, so RPCs may still be running.
+// Wait must return once its stop channel closes.
+// If preShutdownHook never runs, shutdownHook waits Timeout, then starts Stop.
+// The shutdown hook runs at most once (ServeAndShutdown wraps it in sync.OnceFunc).
+func shutdownHooks(d shutdownHooksConfig) (func(), func()) {
+	joining := make(chan struct{})
+	stopped := make(chan struct{})
+
+	preShutdownHook := func() {
+		d.PreShutdown()
+		enterrors.GoWrapper(func() {
+			if !d.Wait(joining) {
+				d.Logger.Warn("grpc-web requests still in flight at shutdown, stopping grpc server anyway")
+			}
+			d.Server.GracefulStop()
+			close(stopped)
+		}, d.Logger)
+	}
+
+	shutdownHook := func() {
+		close(joining)
+		select {
+		case <-stopped:
+		case <-time.After(d.Timeout):
+			// Stop is not awaited: it blocks while GracefulStop waits on a
+			// handler that ignores ctx after its client disconnected
+			// (grpc/grpc-go#9393; fix #9394 targets v1.85.0).
+			d.Logger.Warn("grpc graceful stop timed out, forcing stop without waiting")
+			enterrors.GoWrapper(d.Server.Stop, d.Logger)
+		}
+		d.Shutdown()
+	}
+
+	return preShutdownHook, shutdownHook
 }
 
 func startBackupScheduler(appState *state.State) *backup.Scheduler {
@@ -1803,7 +1862,8 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 		rbac.StaticAPIKeyUsers(appState.ServerConfig.Config.Authentication),
 		appState.ClusterService.Raft,
 		appState.NamespacesController,
-		appState.Logger)
+		appState.Logger,
+	)
 	return backupScheduler
 }
 
@@ -2861,7 +2921,8 @@ func initRuntimeOverrides(appState *state.State, registerer prometheus.Registere
 			registered,
 			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
 			appState.Logger,
-			registerer)
+			registerer,
+		)
 		if err != nil {
 			appState.Logger.WithField("action", "runtime_overrides_parse").Errorf("could not create runtime config manager: %v", err)
 		}
