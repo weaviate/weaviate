@@ -9,9 +9,14 @@ help:
 
 GO_VERSION         := $(shell go version | cut -d' ' -f3 | sed 's/^go//')
 
-# Git tags
-GIT_REVISION       := $(shell git rev-parse --short HEAD)
-GIT_BRANCH         := $(shell git rev-parse --abbrev-ref HEAD)
+# Git tags. Overridable so a verifier can rebuild a binary with the exact values
+# recorded in it (`go version -m weaviate` shows the -ldflags that were used).
+GIT_REVISION       ?= $(shell git rev-parse --short HEAD)
+GIT_BRANCH         ?= $(shell git rev-parse --abbrev-ref HEAD)
+# Build stamps. BUILD_DATE defaults to the commit's timestamp, not the wall clock, so
+# two builds of the same commit are byte-identical (see docs/reproducible-builds.md).
+BUILD_USER         ?= $(shell whoami)@$(shell hostname)
+BUILD_DATE         ?= $(shell TZ=UTC git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd)
 
 # Golang environment
 GOOS               ?= $(shell go env GOOS)
@@ -27,12 +32,14 @@ GOTEST             ?= go test
 VPREFIX            := github.com/weaviate/weaviate/usecases/build
 GO_LDFLAGS         := -X $(VPREFIX).Branch=$(GIT_BRANCH) \
                       -X $(VPREFIX).Revision=$(GIT_REVISION) \
-                      -X $(VPREFIX).BuildUser=$(shell whoami)@$(shell hostname) \
-                      -X $(VPREFIX).BuildDate=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
-GO_FLAGS           := -ldflags "-extldflags \"-static\" -s -w $(GO_LDFLAGS)" -tags netgo
-DYN_GO_FLAGS       := -ldflags "-s -w $(GO_LDFLAGS)" -tags netgo
+                      -X $(VPREFIX).BuildUser=$(BUILD_USER) \
+                      -X $(VPREFIX).BuildDate=$(BUILD_DATE)
+# -trimpath keeps the checkout's absolute path out of the binary (file names in
+# pclntab and panic traces), so builds from different directories match.
+GO_FLAGS           := -trimpath -ldflags "-extldflags \"-static\" -s -w $(GO_LDFLAGS)" -tags netgo
+DYN_GO_FLAGS       := -trimpath -ldflags "-s -w $(GO_LDFLAGS)" -tags netgo
 
-# Debug build flags
+# Debug build flags. No -trimpath: delve needs the real source paths.
 DEBUG_GO_FLAGS     := -gcflags "all=-N -l" -ldflags "-extldflags \"-static\" $(GO_LDFLAGS)" -tags netgo
 DEBUG_DYN_GO_FLAGS := -gcflags "all=-N -l" -ldflags "$(GO_LDFLAGS)" -tags netgo
 

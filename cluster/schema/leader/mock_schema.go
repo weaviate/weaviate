@@ -418,62 +418,6 @@ func (_c *MockSchema_ClassVersionsFromLeader_Call) RunAndReturn(run func(...stri
 	return _c
 }
 
-// CollectionsCountFromLeader provides a mock function with given fields: namespace
-func (_m *MockSchema) CollectionsCountFromLeader(namespace string) (int, error) {
-	ret := _m.Called(namespace)
-
-	if len(ret) == 0 {
-		panic("no return value specified for CollectionsCountFromLeader")
-	}
-
-	var r0 int
-	var r1 error
-	if rf, ok := ret.Get(0).(func(string) (int, error)); ok {
-		return rf(namespace)
-	}
-	if rf, ok := ret.Get(0).(func(string) int); ok {
-		r0 = rf(namespace)
-	} else {
-		r0 = ret.Get(0).(int)
-	}
-
-	if rf, ok := ret.Get(1).(func(string) error); ok {
-		r1 = rf(namespace)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockSchema_CollectionsCountFromLeader_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CollectionsCountFromLeader'
-type MockSchema_CollectionsCountFromLeader_Call struct {
-	*mock.Call
-}
-
-// CollectionsCountFromLeader is a helper method to define mock.On call
-//   - namespace string
-func (_e *MockSchema_Expecter) CollectionsCountFromLeader(namespace interface{}) *MockSchema_CollectionsCountFromLeader_Call {
-	return &MockSchema_CollectionsCountFromLeader_Call{Call: _e.mock.On("CollectionsCountFromLeader", namespace)}
-}
-
-func (_c *MockSchema_CollectionsCountFromLeader_Call) Run(run func(namespace string)) *MockSchema_CollectionsCountFromLeader_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
-	})
-	return _c
-}
-
-func (_c *MockSchema_CollectionsCountFromLeader_Call) Return(_a0 int, _a1 error) *MockSchema_CollectionsCountFromLeader_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockSchema_CollectionsCountFromLeader_Call) RunAndReturn(run func(string) (int, error)) *MockSchema_CollectionsCountFromLeader_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // CreateAlias provides a mock function with given fields: ctx, alias, class
 func (_m *MockSchema) CreateAlias(ctx context.Context, alias string, class *models.Class) (uint64, error) {
 	ret := _m.Called(ctx, alias, class)

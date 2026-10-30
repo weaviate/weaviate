@@ -227,62 +227,6 @@ func (_c *MockSchemaReader_ClassVersionsFromLeader_Call) RunAndReturn(run func(.
 	return _c
 }
 
-// CollectionsCountFromLeader provides a mock function with given fields: namespace
-func (_m *MockSchemaReader) CollectionsCountFromLeader(namespace string) (int, error) {
-	ret := _m.Called(namespace)
-
-	if len(ret) == 0 {
-		panic("no return value specified for CollectionsCountFromLeader")
-	}
-
-	var r0 int
-	var r1 error
-	if rf, ok := ret.Get(0).(func(string) (int, error)); ok {
-		return rf(namespace)
-	}
-	if rf, ok := ret.Get(0).(func(string) int); ok {
-		r0 = rf(namespace)
-	} else {
-		r0 = ret.Get(0).(int)
-	}
-
-	if rf, ok := ret.Get(1).(func(string) error); ok {
-		r1 = rf(namespace)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockSchemaReader_CollectionsCountFromLeader_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CollectionsCountFromLeader'
-type MockSchemaReader_CollectionsCountFromLeader_Call struct {
-	*mock.Call
-}
-
-// CollectionsCountFromLeader is a helper method to define mock.On call
-//   - namespace string
-func (_e *MockSchemaReader_Expecter) CollectionsCountFromLeader(namespace interface{}) *MockSchemaReader_CollectionsCountFromLeader_Call {
-	return &MockSchemaReader_CollectionsCountFromLeader_Call{Call: _e.mock.On("CollectionsCountFromLeader", namespace)}
-}
-
-func (_c *MockSchemaReader_CollectionsCountFromLeader_Call) Run(run func(namespace string)) *MockSchemaReader_CollectionsCountFromLeader_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
-	})
-	return _c
-}
-
-func (_c *MockSchemaReader_CollectionsCountFromLeader_Call) Return(_a0 int, _a1 error) *MockSchemaReader_CollectionsCountFromLeader_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockSchemaReader_CollectionsCountFromLeader_Call) RunAndReturn(run func(string) (int, error)) *MockSchemaReader_CollectionsCountFromLeader_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // ReadOnlyClassesFromLeader provides a mock function with given fields: classes
 func (_m *MockSchemaReader) ReadOnlyClassesFromLeader(classes ...string) (map[string]versioned.Class, error) {
 	_va := make([]interface{}, len(classes))
