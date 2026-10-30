@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 const (
@@ -33,6 +35,11 @@ const (
 	vectorIndexQueueDeleteOp
 	vectorIndexQueueMultiInsertOp
 	vectorIndexQueueMultiDeleteOp
+)
+
+const (
+	vectorIndexInsertAttempts = 5
+	vectorIndexInsertBackoff  = 5 * time.Millisecond
 )
 
 type VectorIndexQueue struct {
@@ -143,9 +150,22 @@ func (iq *VectorIndexQueue) Close(ctx context.Context) error {
 	return iq.DiskQueue.Close(ctx)
 }
 
+// insertSync retries an insert that found no entrypoint, like the queue worker
+// does with async indexing. Inserts into a graph that is deleted down to nothing
+// can hold each other off, and the one that gives up clears the way for the rest.
+func (iq *VectorIndexQueue) insertSync(ctx context.Context, vectors []common.VectorRecord) error {
+	for attempt := 1; ; attempt++ {
+		err := common.AddVectorsToIndex(ctx, vectors, iq.vectorIndex)
+		if attempt == vectorIndexInsertAttempts || !errors.Is(err, enterrors.ErrNoUsableEntrypoint) {
+			return err
+		}
+		time.Sleep(rand.N(time.Duration(attempt) * vectorIndexInsertBackoff))
+	}
+}
+
 func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.VectorRecord) error {
 	if !iq.asyncEnabled {
-		return common.AddVectorsToIndex(ctx, vectors, iq.vectorIndex)
+		return iq.insertSync(ctx, vectors)
 	}
 
 	start := time.Now()

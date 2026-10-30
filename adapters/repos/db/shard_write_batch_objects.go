@@ -78,6 +78,7 @@ func (s *Shard) putBatchAsync(ctx context.Context, objects []*storobj.Object) []
 
 	batcher.init(objects)
 	batcher.storeInObjectStore(ctx)
+	ctx = committedWriteContext(ctx)
 	batcher.markDeletedInVectorStorage(ctx)
 	batcher.storeAdditionalStorageWithAsyncQueue(ctx)
 	batcher.flushWALs(ctx)
@@ -113,6 +114,7 @@ func (ob *objectsBatcher) Objects(ctx context.Context,
 
 	ob.init(objects)
 	ob.storeInObjectStore(ctx)
+	ctx = committedWriteContext(ctx)
 	ob.markDeletedInVectorStorage(ctx)
 	ob.storeAdditionalStorageWithWorkers(ctx)
 	ob.flushWALs(ctx)
@@ -206,16 +208,18 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 		return err
 	}
 
+	// checked before the write: a stored object has to reach the vector index,
+	// see committedWriteContext
+	if err := ctx.Err(); err != nil {
+		return errors.Wrapf(err, "store object %d of batch", objectIndex)
+	}
+
 	status, err := ob.shard.putObjectLSM(ctx, object, idBytes)
 	if err != nil {
 		return err
 	}
 
 	ob.setStatusForID(status, object.ID())
-
-	if err := ctx.Err(); err != nil {
-		return errors.Wrapf(err, "end store object %d of batch", objectIndex)
-	}
 
 	return nil
 }
@@ -266,12 +270,6 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 // stores, such as the main vector index as well as the property-specific
 // indices, such as the geo-index.
 func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context) {
-	if ok := ob.checkContext(ctx); !ok {
-		// if the context is no longer OK, there's no point in continuing - abort
-		// early
-		return
-	}
-
 	ob.batchStartTime = time.Now()
 
 	for i, object := range ob.objects {
@@ -292,16 +290,16 @@ func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context)
 }
 
 func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Context) {
-	if ok := ob.checkContext(ctx); !ok {
-		// if the context is no longer OK, there's no point in continuing - abort
-		// early
-		return
-	}
-
 	ob.batchStartTime = time.Now()
 	shouldGeoIndex := ob.shard.hasGeoIndex()
 
 	targetVectors := make(map[string][]common.VectorRecord)
+	targetPositions := make(map[string][]int)
+	add := func(targetVector string, position int, record common.VectorRecord) {
+		targetVectors[targetVector] = append(targetVectors[targetVector], record)
+		targetPositions[targetVector] = append(targetPositions[targetVector], position)
+	}
+
 	for i, object := range ob.objects {
 		status := ob.statuses[object.ID()]
 
@@ -327,35 +325,34 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 		}
 
 		for targetVector, vector := range object.Vectors {
-			targetVectors[targetVector] = append(targetVectors[targetVector], &common.Vector[[]float32]{
-				ID:     status.docID,
-				Vector: vector,
-			})
+			add(targetVector, i, &common.Vector[[]float32]{ID: status.docID, Vector: vector})
 		}
 		for targetVector, vector := range object.MultiVectors {
-			targetVectors[targetVector] = append(targetVectors[targetVector], &common.Vector[[][]float32]{
-				ID:     status.docID,
-				Vector: vector,
-			})
+			add(targetVector, i, &common.Vector[[][]float32]{ID: status.docID, Vector: vector})
 		}
 
 		if len(object.Vector) > 0 {
 			// use empty string for legacy vector, downstream code will handle that appropriately
-			targetVectors[""] = append(targetVectors[""], &common.Vector[[]float32]{
-				ID:     status.docID,
-				Vector: object.Vector,
-			})
+			add("", i, &common.Vector[[]float32]{ID: status.docID, Vector: object.Vector})
 		}
 	}
 
 	for targetVector, vectors := range targetVectors {
-		found, err := ob.shard.WithVectorIndexQueue(targetVector, func(queue *VectorIndexQueue) error {
-			return queue.Insert(ctx, vectors...)
+		positions := targetPositions[targetVector]
+		found, _ := ob.shard.WithVectorIndexQueue(targetVector, func(queue *VectorIndexQueue) error {
+			// one at a time: a vector the queue refuses has to fail its own object,
+			// not the one at the start of the batch, and leave the rest indexed
+			for i, vector := range vectors {
+				if err := queue.Insert(ctx, vector); err != nil {
+					ob.setErrorAtIndex(err, positions[i])
+				}
+			}
+			return nil
 		})
 		if !found {
-			ob.setErrorAtIndex(fmt.Errorf("queue not found for target vector %s", targetVector), 0)
-		} else if err != nil {
-			ob.setErrorAtIndex(err, 0)
+			for _, position := range positions {
+				ob.setErrorAtIndex(fmt.Errorf("queue not found for target vector %s", targetVector), position)
+			}
 		}
 	}
 }
@@ -394,11 +391,6 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 			enterrors.PrintStack(ob.logger)
 		}
 	}()
-
-	if err := ctx.Err(); err != nil {
-		ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
-		return
-	}
 
 	if len(object.Vector) > 0 || len(object.Vectors) > 0 || len(object.MultiVectors) > 0 {
 		// By this time all required deletes (e.g. because of DocID changes) have
@@ -460,27 +452,6 @@ func (ob *objectsBatcher) setErrorAtIndex(err error, index int) {
 	ob.Lock()
 	defer ob.Unlock()
 	ob.errs[index] = err
-}
-
-// checkContext does nothing if the context is still active. But if the context
-// has error'd, it marks all objects which have not previously error'd yet with
-// the ctx error
-func (ob *objectsBatcher) checkContext(ctx context.Context) bool {
-	if err := ctx.Err(); err != nil {
-		for i, err := range ob.errs {
-			if err == nil {
-				// already has an error, ignore
-				continue
-			}
-
-			ob.errs[i] = errors.Wrapf(err,
-				"inverted indexing complete, about to start vector indexing")
-		}
-
-		return false
-	}
-
-	return true
 }
 
 func (ob *objectsBatcher) flushWALs(ctx context.Context) {
