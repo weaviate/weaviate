@@ -617,28 +617,38 @@ func claimDirForMove(bucket *Bucket, newDir string) (finish func(moved bool), er
 // flushLock is taken before the map swap and held on success, so a by-name
 // writer landing before ReplaceBuckets' tail completes blocks instead of
 // writing into the memtable the tail discards (lost write).
-func (s *Store) freezeAndSwapForReplace(bucketName, replacementBucketName string) (bucket, replacementBucket *Bucket, err error) {
+func (s *Store) freezeAndSwapForReplace(bucketName, replacementBucketName string, replacementBucket *Bucket) (bucket *Bucket, err error) {
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
 
 	bucket = s.bucketsByName[bucketName]
-	replacementBucket = s.bucketsByName[replacementBucketName]
 	if bucket == nil {
-		return nil, nil, fmt.Errorf("bucket '%s' not found", bucketName)
+		return nil, fmt.Errorf("bucket '%s' not found", bucketName)
 	}
-	if replacementBucket == nil {
-		return nil, nil, fmt.Errorf("replacement bucket '%s' not found", replacementBucketName)
+	if s.bucketsByName[replacementBucketName] != replacementBucket {
+		return nil, fmt.Errorf("replacement bucket '%s' not found", replacementBucketName)
 	}
 
 	replacementBucket.flushLock.Lock()
-	if replacementBucket.flushing != nil {
-		replacementBucket.flushLock.Unlock() // lock escapes this scope only on success
-		return nil, nil, fmt.Errorf("bucket '%s' can not be renamed before flushing", replacementBucketName)
-	}
-
 	s.bucketsByName[bucketName] = replacementBucket
 	delete(s.bucketsByName, replacementBucketName)
-	return bucket, replacementBucket, nil
+	return bucket, nil
+}
+
+// A flush can look up other buckets (skip-key functions), so it runs outside
+// bucketAccessLock. Lock order: flushAndSwitchMu, bucketAccessLock, flushLock.
+// Retries end because callers only move buckets that take no new writes.
+func flushThenMove(b *Bucket, move func() (moved bool, err error)) error {
+	b.flushAndSwitchMu.Lock()
+	defer b.flushAndSwitchMu.Unlock()
+	for {
+		if err := b.flushAndSwitchLocked(); err != nil {
+			return fmt.Errorf("flush memtable before move: %w", err)
+		}
+		if moved, err := move(); moved || err != nil {
+			return err
+		}
+	}
 }
 
 // Replaces 1st bucket with 2nd one. Both buckets have to registered in bucketsByName.
@@ -660,11 +670,30 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	// displaced bucket (inside replaceBucket) OUTSIDE bucketAccessLock
 	// (TEARDOWN INVARIANT on AcquireBucketForRead). By-name access to the
 	// replacement blocks on its held flushLock until the move completes.
-	bucket, replacementBucket, err := s.freezeAndSwapForReplace(bucketName, replacementBucketName)
+	replacementBucket := s.Bucket(replacementBucketName)
+	if replacementBucket == nil {
+		return fmt.Errorf("replacement bucket '%s' not found", replacementBucketName)
+	}
+	replacementBucket.flushAndSwitchMu.Lock()
+	if err := replacementBucket.flushAndSwitchLocked(); err != nil {
+		replacementBucket.flushAndSwitchMu.Unlock()
+		return fmt.Errorf("flush bucket '%s' before replacing: %w", replacementBucketName, err)
+	}
+
+	bucket, err := s.freezeAndSwapForReplace(bucketName, replacementBucketName, replacementBucket)
 	if err != nil {
+		replacementBucket.flushAndSwitchMu.Unlock()
 		return err
 	}
 	defer replacementBucket.flushLock.Unlock()
+
+	// The replacement takes writes until the swap. flushAndSwitchMu goes
+	// before the drain below, since a Shutdown of the replacement waits on it.
+	err = replacementBucket.flushBeforeMoveLocked()
+	replacementBucket.flushAndSwitchMu.Unlock()
+	if err != nil {
+		return fmt.Errorf("flush bucket '%s' before replacing: %w", replacementBucketName, err)
+	}
 
 	currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, err := s.replaceBucket(ctx, replacementBucket, replacementBucketName, bucket, bucketName)
 	if err != nil {
@@ -697,20 +726,29 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 		return fmt.Errorf("%w: renaming bucket %q for %q in store %q", ErrAlreadyClosed, bucketName, newBucketName, s.dir)
 	}
 
-	s.bucketAccessLock.Lock()
-	defer s.bucketAccessLock.Unlock()
-
-	currBucket := s.bucketsByName[bucketName]
+	currBucket := s.Bucket(bucketName)
 	if currBucket == nil {
 		return fmt.Errorf("bucket '%s' not found", bucketName)
 	}
+	return flushThenMove(currBucket, func() (bool, error) {
+		return s.renameFlushedBucket(currBucket, bucketName, newBucketName)
+	})
+}
+
+func (s *Store) renameFlushedBucket(currBucket *Bucket, bucketName, newBucketName string) (moved bool, err error) {
+	s.bucketAccessLock.Lock()
+	defer s.bucketAccessLock.Unlock()
+
+	if s.bucketsByName[bucketName] != currBucket {
+		return false, fmt.Errorf("bucket '%s' not found", bucketName)
+	}
 	newBucket := s.bucketsByName[newBucketName]
 	if newBucket != nil {
-		return fmt.Errorf("bucket '%s' already exists", newBucketName)
+		return false, fmt.Errorf("bucket '%s' already exists", newBucketName)
 	}
 
 	if !currBucket.isReadOnly() {
-		return fmt.Errorf("bucket '%s' must be in %s mode to be renamed", bucketName, storagestate.StatusReadOnly)
+		return false, fmt.Errorf("bucket '%s' must be in %s mode to be renamed", bucketName, storagestate.StatusReadOnly)
 	}
 
 	currBucketDir := currBucket.dir
@@ -719,26 +757,25 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 	currBucket.flushLock.Lock()
 	defer currBucket.flushLock.Unlock()
 
-	if currBucket.flushing != nil {
-		return fmt.Errorf("bucket '%s' can not be renamed before flushing", bucketName)
+	if currBucket.hasUnflushedWritesLocked() {
+		return false, nil
 	}
 
 	finishClaim, err := claimDirForMove(currBucket, newBucketDir)
 	if err != nil {
-		return err
+		return false, err
 	}
-	moved := false
 	defer func() { finishClaim(moved) }()
 
 	// Nothing in memory changes until the dir is renamed, so a failed rename
 	// leaves the bucket as it was.
 	mt, err := currBucket.newActiveMemtableIn(newBucketDir)
 	if err != nil {
-		return fmt.Errorf("switch active memtable: %w", err)
+		return false, fmt.Errorf("switch active memtable: %w", err)
 	}
 
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
-		return errors.Wrapf(err, "failed renaming bucket dir '%s' to '%s'", currBucketDir, newBucketDir)
+		return false, errors.Wrapf(err, "failed renaming bucket dir '%s' to '%s'", currBucketDir, newBucketDir)
 	}
 	moved = true
 
@@ -748,7 +785,7 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 	delete(s.bucketsByName, bucketName)
 	s.updateBucketDir(currBucket, currBucketDir, newBucketDir)
 
-	return nil
+	return true, nil
 }
 
 // SwapBucketPointer atomically redirects all future Store.Bucket(targetName)
@@ -850,37 +887,43 @@ func (s *Store) FinalizeBucketSwap(ctx context.Context, bucketName, canonicalDir
 			ErrAlreadyClosed, bucketName, s.dir)
 	}
 
+	bucket := s.Bucket(bucketName)
+	if bucket == nil {
+		return fmt.Errorf("bucket %q not found in store %q", bucketName, s.dir)
+	}
+	return flushThenMove(bucket, func() (bool, error) {
+		return s.finalizeFlushedBucketSwap(bucket, bucketName, canonicalDir, currentDir, backupDir)
+	})
+}
+
+func (s *Store) finalizeFlushedBucketSwap(bucket *Bucket, bucketName, canonicalDir, currentDir, backupDir string) (bool, error) {
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
 
-	bucket, ok := s.bucketsByName[bucketName]
-	if !ok {
-		return fmt.Errorf("bucket %q not found in store %q", bucketName, s.dir)
-	}
-
-	// Flush any in-memory data (e.g. from WAL replay at startup) to a segment
-	// before renaming directories. FlushAndSwitch is a no-op for empty
-	// memtables.
-	if err := bucket.FlushAndSwitch(); err != nil {
-		return fmt.Errorf("flush memtable before dir rename: %w", err)
+	if s.bucketsByName[bucketName] != bucket {
+		return false, fmt.Errorf("bucket %q not found in store %q", bucketName, s.dir)
 	}
 
 	bucket.flushLock.Lock()
 	defer bucket.flushLock.Unlock()
 
+	if bucket.hasUnflushedWritesLocked() {
+		return false, nil
+	}
+
 	finishClaim, err := claimDirForMove(bucket, canonicalDir)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if err := os.RemoveAll(backupDir); err != nil {
 		finishClaim(false)
-		return fmt.Errorf("remove backup dir %q: %w", backupDir, err)
+		return false, fmt.Errorf("remove backup dir %q: %w", backupDir, err)
 	}
 
 	if err := os.Rename(currentDir, canonicalDir); err != nil {
 		finishClaim(false)
-		return fmt.Errorf("rename %q to %q: %w", currentDir, canonicalDir, err)
+		return false, fmt.Errorf("rename %q to %q: %w", currentDir, canonicalDir, err)
 	}
 	finishClaim(true)
 
@@ -889,11 +932,11 @@ func (s *Store) FinalizeBucketSwap(ctx context.Context, bucketName, canonicalDir
 
 	mt, err := bucket.createNewActiveMemtable()
 	if err != nil {
-		return fmt.Errorf("create new active memtable after dir rename: %w", err)
+		return false, fmt.Errorf("create new active memtable after dir rename: %w", err)
 	}
 	bucket.active = mt
 
-	return nil
+	return true, nil
 }
 
 func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) {
