@@ -543,14 +543,15 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	status objectInsertStatus, prevObject *storobj.Object,
 ) error {
+	// One snapshot for the whole write, loaded before analysis: the swap
+	// publishes the overlay before it disarms, so a disarmed snapshot means
+	// the analysis below already sees the overlay.
+	st := s.loadPropValueIndexState()
+
 	props, nilprops, nestedProps, err := s.AnalyzeObject(object)
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
 	}
-
-	// One snapshot for the whole write, so the double-write pass below sees
-	// the same {add,del,scope} as the inline suppression above.
-	st := s.loadPropValueIndexState()
 
 	var prevProps []inverted.Property
 	var prevNilprops []inverted.NilProperty
