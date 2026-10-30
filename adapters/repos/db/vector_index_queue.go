@@ -185,29 +185,52 @@ func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.Vector
 	var err error
 
 	for _, v := range vectors {
-		// validate vector
-		if err := v.Validate(iq.vectorIndex); err != nil {
-			return errors.Wrap(err, "failed to validate")
-		}
-
-		if err := iq.claimDimensions(v.Len()); err != nil {
+		buf, err = iq.push(buf, v)
+		if err != nil {
 			return err
-		}
-
-		// encode vector
-		buf = buf[:0]
-		buf, err = encodeVector(buf, v)
-		if err != nil {
-			return errors.Wrap(err, "failed to encode record")
-		}
-
-		err = iq.DiskQueue.Push(buf)
-		if err != nil {
-			return errors.Wrap(err, "failed to push record to queue")
 		}
 	}
 
 	return nil
+}
+
+// InsertEach queues vectors that stand on their own: a refused one doesn't stop the
+// others, and report gets the outcome of each. It needs async indexing.
+func (iq *VectorIndexQueue) InsertEach(vectors []common.VectorRecord, report func(i int, err error)) {
+	start := time.Now()
+	defer iq.metrics.Insert(start, len(vectors))
+
+	var buf []byte
+	var err error
+
+	for i, v := range vectors {
+		buf, err = iq.push(buf, v)
+		report(i, err)
+	}
+}
+
+// push queues a vector. It returns buf for the next one to reuse.
+func (iq *VectorIndexQueue) push(buf []byte, v common.VectorRecord) ([]byte, error) {
+	// validate vector
+	if err := v.Validate(iq.vectorIndex); err != nil {
+		return buf, errors.Wrap(err, "failed to validate")
+	}
+
+	if err := iq.claimDimensions(v.Len()); err != nil {
+		return buf, err
+	}
+
+	// encode vector
+	buf, err := encodeVector(buf[:0], v)
+	if err != nil {
+		return buf, errors.Wrap(err, "failed to encode record")
+	}
+
+	if err := iq.DiskQueue.Push(buf); err != nil {
+		return buf, errors.Wrap(err, "failed to push record to queue")
+	}
+
+	return buf, nil
 }
 
 func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
