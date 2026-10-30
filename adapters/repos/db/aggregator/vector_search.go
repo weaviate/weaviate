@@ -48,8 +48,8 @@ func (a *Aggregator) searchByVector(ctx context.Context, searchVector models.Vec
 			i++
 		}
 
-		return idsFound[:i], dists, nil
-
+		// trim the distances with the ids: callers pair dists[i] with idsFound[i]
+		return idsFound[:i], dists[:i], nil
 	}
 	return idsFound, dists, nil
 }
@@ -81,7 +81,9 @@ func (a *Aggregator) objectVectorSearch(ctx context.Context, searchVector models
 	if bucket == nil {
 		return nil, nil, fmt.Errorf("objects bucket not available (store shutting down)")
 	}
-	objs, err := storobj.ObjectsByDocID(bucket, ids, additional.Properties{}, nil, a.logger)
+	// hybrid fusion pairs objs[i] with dists[i], so a doc ID the index still
+	// knows but the bucket no longer has must take its distance with it
+	objs, dists, err := storobj.ObjectsByDocIDWithDists(bucket, ids, dists, additional.Properties{}, nil, a.logger)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get objects by doc id: %w", err)
 	}
