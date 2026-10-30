@@ -100,6 +100,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if err := ic.BaseClassSettings.Validate(class); err != nil {
 		errorMessages = append(errorMessages, err.Error())
 	}
+	if err := ic.BaseClassSettings.ValidateIntegers(dimensionsProperty); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
 
 	apiEndpoint := ic.ApiEndpoint()
 	if err := modulecomponents.ValidateGoogleApiEndpoint(apiEndpoint); err != nil {

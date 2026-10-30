@@ -55,7 +55,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
-	return nil
+	return ic.propertyValuesHelper.ValidateIntegers(ic.cfg, maxTokensProperty)
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
