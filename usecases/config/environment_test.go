@@ -12,6 +12,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"math"
 	"os"
@@ -30,6 +31,16 @@ import (
 )
 
 const DefaultGoroutineFactor = 1.5
+
+// wellFormedLicenseKey returns a key with the correct form for tests. It is
+// not a real license.
+func wellFormedLicenseKey() string {
+	seed := make([]byte, 32)
+	for i := range seed {
+		seed[i] = byte(i)
+	}
+	return "wv8.lic_01ARZ3NDEKTSV4RRFFQ69G5FAV." + base64.RawURLEncoding.EncodeToString(seed)
+}
 
 func TestEnvironmentImportGoroutineFactor(t *testing.T) {
 	factors := []struct {
