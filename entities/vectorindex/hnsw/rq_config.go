@@ -25,16 +25,21 @@ const (
 	// RescoreLimitAuto resolves to for 4/8-bit and 1-bit codes.
 	DefaultRQRescoreLimit  = 20
 	DefaultBRQRescoreLimit = 256
-	DefaultRQCentering     = false
-	DefaultRQTrainingLimit = 10000
+	// DefaultRQRescoreFactor and DefaultBRQRescoreFactor are what
+	// RescoreFactorAuto resolves to for 4/8-bit and 1-bit codes.
+	DefaultRQRescoreFactor  = 2.0
+	DefaultBRQRescoreFactor = 4.0
+	DefaultRQCentering      = false
+	DefaultRQTrainingLimit  = 10000
 )
 
 type RQConfig struct {
-	Enabled       bool  `json:"enabled"`
-	Bits          int16 `json:"bits"`
-	RescoreLimit  int   `json:"rescoreLimit"`
-	Centering     bool  `json:"centering"`
-	TrainingLimit int   `json:"trainingLimit"`
+	Enabled       bool    `json:"enabled"`
+	Bits          int16   `json:"bits"`
+	RescoreLimit  int     `json:"rescoreLimit"`
+	RescoreFactor float64 `json:"rescoreFactor"`
+	Centering     bool    `json:"centering"`
+	TrainingLimit int     `json:"trainingLimit"`
 }
 
 func ValidateRQConfig(cfg RQConfig) error {
@@ -79,6 +84,12 @@ func parseRQMap(in map[string]interface{}, rq *RQConfig) error {
 
 	if err := parseRescoreLimit(rqConfigMap, "rq", func(v int) {
 		rq.RescoreLimit = v
+	}); err != nil {
+		return err
+	}
+
+	if err := common.ParseRescoreFactor(rqConfigMap, "rq", func(v float64) {
+		rq.RescoreFactor = v
 	}); err != nil {
 		return err
 	}

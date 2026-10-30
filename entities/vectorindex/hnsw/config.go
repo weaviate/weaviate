@@ -102,24 +102,28 @@ func (u *UserConfig) SetDefaults() {
 		Centroids:      DefaultPQCentroids,
 		TrainingLimit:  DefaultPQTrainingLimit,
 		RescoreLimit:   RescoreLimitAuto,
+		RescoreFactor:  RescoreFactorAuto,
 		Encoder: PQEncoder{
 			Type:         DefaultPQEncoderType,
 			Distribution: DefaultPQEncoderDistribution,
 		},
 	}
 	u.BQ = BQConfig{
-		Enabled:      DefaultBQEnabled,
-		RescoreLimit: RescoreLimitAuto,
+		Enabled:       DefaultBQEnabled,
+		RescoreLimit:  RescoreLimitAuto,
+		RescoreFactor: RescoreFactorAuto,
 	}
 	u.SQ = SQConfig{
 		Enabled:       DefaultSQEnabled,
 		TrainingLimit: DefaultSQTrainingLimit,
 		RescoreLimit:  RescoreLimitAuto,
+		RescoreFactor: RescoreFactorAuto,
 	}
 	u.RQ = RQConfig{
 		Enabled:       DefaultRQEnabled,
 		Bits:          DefaultRQBits,
 		RescoreLimit:  RescoreLimitAuto,
+		RescoreFactor: RescoreFactorAuto,
 		Centering:     DefaultRQCentering,
 		TrainingLimit: DefaultRQTrainingLimit,
 	}
