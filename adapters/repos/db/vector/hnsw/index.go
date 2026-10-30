@@ -924,7 +924,8 @@ func (h *hnsw) HasGhost(docID uint64) bool {
 
 // isGhost tells a node nobody links to from the two kinds that need no links: the
 // entrypoint, and a node that is still being connected. Links are mutual when they
-// are made, so looking at the neighbors of the node is enough.
+// are made, so it only looks at the neighbors of the node. Pruning can make that a
+// false alarm, which costs the doc a new ID when it is resent, once.
 func (h *hnsw) isGhost(id uint64) bool {
 	node := h.nodeByID(id)
 	if node == nil || id == h.getEntrypoint() || node.isUnderMaintenance() {
