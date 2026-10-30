@@ -274,6 +274,46 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		assert.Equal(t, id2, repoCalledWithObjects[1].UUID, "the user-specified uuid was used")
 	})
 
+	t.Run("with duplicate user-specified IDs in one batch", func(t *testing.T) {
+		reset()
+		objectFinder.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+		duplicate := strfmt.UUID("2d3942c3-b412-4d80-9dfa-99a646629cd2")
+		unique := strfmt.UUID("cf918366-3d3b-4b90-9bc6-bc5ea8762ff6")
+		objects := []*models.Object{
+			{
+				ID:     duplicate,
+				Class:  "Foo",
+				Vector: []float32{0.1, 0.1, 0.1111},
+			},
+			{
+				ID:     unique,
+				Class:  "Foo",
+				Vector: []float32{0.2, 0.2, 0.2222},
+			},
+			{
+				ID:     duplicate,
+				Class:  "Foo",
+				Vector: []float32{0.3, 0.3, 0.3333},
+			},
+		}
+
+		for range objects {
+			modulesProvider.On("BatchUpdateVector").
+				Return(nil, nil)
+		}
+
+		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
+		repoCalledWithObjects := objectFinder.Calls[0].Arguments[0].(BatchObjects)
+
+		assert.Nil(t, err)
+		require.Len(t, repoCalledWithObjects, 3)
+		require.Error(t, repoCalledWithObjects[0].Err)
+		assert.Contains(t, repoCalledWithObjects[0].Err.Error(), "duplicate object id")
+		assert.Nil(t, repoCalledWithObjects[1].Err, "the object with a unique ID is unaffected")
+		require.Error(t, repoCalledWithObjects[2].Err)
+		assert.Contains(t, repoCalledWithObjects[2].Err.Error(), "duplicate object id")
+	})
+
 	t.Run("without any vectors", func(t *testing.T) {
 		// prior to v1.10 this was the desired behavior:
 		// note that this should fail on class Foo, but be accepted on class

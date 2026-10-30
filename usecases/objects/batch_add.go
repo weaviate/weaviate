@@ -187,6 +187,10 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		originalIndexPerClass = make(map[string][]int)
 		validator             = validation.New(b.vectorRepo.Exists, b.config, repl,
 			principal, b.qualifier)
+
+		// Object IDs are unique per class and tenant. Repeated IDs in one
+		// request are rejected instead of silently applying last-write-wins.
+		duplicateIDs = duplicateObjectIDs(objects)
 	)
 
 	// validate each object and sort by class (==vectorizer)
@@ -235,6 +239,13 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			batchObjects[i].Err = fmt.Errorf("class '%v' not present in schema", obj.Class)
 			continue
 		}
+
+		if _, duplicate := duplicateIDs[batchObjectID{obj.Class, obj.Tenant, obj.ID.String()}]; duplicate {
+			batchObjects[i].Err = NewErrInvalidUserInput(
+				"duplicate object id '%s' in batch for class '%s'", obj.ID, obj.Class)
+			continue
+		}
+
 		class := fetchedClasses[obj.Class].Class
 
 		if err := validator.Object(ctx, class, obj, nil); err != nil {
@@ -270,4 +281,36 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 	}
 
 	return batchObjects, maxSchemaVersion
+}
+
+// batchObjectID identifies an object the way the store does: IDs must be
+// unique within a class, and each tenant has its own shard.
+type batchObjectID struct {
+	class  string
+	tenant string
+	id     string
+}
+
+// duplicateObjectIDs returns the IDs that occur more than once in a single
+// request. Objects with an unparsable ID are skipped; they are rejected by the
+// per-object validation instead.
+func duplicateObjectIDs(objects []*models.Object) map[batchObjectID]struct{} {
+	counts := make(map[batchObjectID]int, len(objects))
+	for _, obj := range objects {
+		if obj == nil || obj.Class == "" || obj.ID == "" {
+			continue
+		}
+		if _, err := uuid.Parse(obj.ID.String()); err != nil {
+			continue
+		}
+		counts[batchObjectID{obj.Class, obj.Tenant, obj.ID.String()}]++
+	}
+
+	duplicates := make(map[batchObjectID]struct{})
+	for id, count := range counts {
+		if count > 1 {
+			duplicates[id] = struct{}{}
+		}
+	}
+	return duplicates
 }
