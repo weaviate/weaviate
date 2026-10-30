@@ -56,7 +56,8 @@ func TestManager_Replicate(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			request: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -89,7 +90,8 @@ func TestManager_Replicate(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard2": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			request: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -110,7 +112,8 @@ func TestManager_Replicate(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			request: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -131,7 +134,8 @@ func TestManager_Replicate(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1", "node2"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			request: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -152,7 +156,8 @@ func TestManager_Replicate(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			request: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -215,7 +220,8 @@ func TestManager_ReplicateMultipleOps(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			requests: []*api.ReplicationReplicateShardRequest{
 				{
@@ -246,7 +252,8 @@ func TestManager_ReplicateMultipleOps(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			requests: []*api.ReplicationReplicateShardRequest{
 				{
@@ -277,7 +284,8 @@ func TestManager_ReplicateMultipleOps(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			requests: []*api.ReplicationReplicateShardRequest{
 				{
@@ -358,7 +366,8 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			replicaRequest: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -383,7 +392,8 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			replicaRequest: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -412,7 +422,8 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			replicaRequest: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -440,7 +451,8 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			replicaRequest: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -481,7 +493,8 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			replicaRequest: &api.ReplicationReplicateShardRequest{
 				Uuid:             uuid4(),
@@ -602,7 +615,8 @@ func TestManager_SnapshotRestore(t *testing.T) {
 								"shard2": {BelongsToNodes: []string{"node1"}},
 							},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			snapshotRequests: []*api.ApplyRequest{
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE, api.ReplicationReplicateShardRequest{
@@ -639,7 +653,8 @@ func TestManager_SnapshotRestore(t *testing.T) {
 								"shard2": {BelongsToNodes: []string{"node1"}},
 							},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			snapshotRequests:       []*api.ApplyRequest{},
 			nonSnapshottedRequests: []*api.ApplyRequest{},
@@ -656,7 +671,8 @@ func TestManager_SnapshotRestore(t *testing.T) {
 								"shard2": {BelongsToNodes: []string{"node1"}},
 							},
 						},
-					}), "node1", true, false)
+					}), "node1", true, false,
+				)
 			},
 			snapshotRequests: []*api.ApplyRequest{
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE, api.ReplicationReplicateShardRequest{
@@ -1116,7 +1132,8 @@ func TestReplicationFSM_HasActiveReplicationForShard(t *testing.T) {
 					State: &sharding.State{
 						Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 					},
-				}), "node1", true, false)
+				}), "node1", true, false,
+			)
 
 			// Create ApplyRequest
 			subCommand, _ := json.Marshal(&api.ReplicationReplicateShardRequest{
@@ -1764,7 +1781,8 @@ func TestReplicationDetails_ReportsOpAndStateStartTimes(t *testing.T) {
 			State: &sharding.State{
 				Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 			},
-		}), "node1", true, false))
+		}), "node1", true, false,
+	))
 
 	manager := replication.NewManager(schemaManager.NewSchemaReader(), mocks.NewMockNodeSelector("localhost"), prometheus.NewPedanticRegistry())
 
