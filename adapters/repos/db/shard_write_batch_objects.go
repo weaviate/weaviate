@@ -62,9 +62,6 @@ func (s *Shard) putBatch(ctx context.Context,
 	// When the last batch finishes, all workers receive a shutdown signal and exit
 	batcher := newObjectsBatcher(s, s.index.logger)
 	err := batcher.Objects(ctx, objects)
-
-	// block until all objects of batch have been added
-	batcher.wg.Wait()
 	s.metrics.VectorIndex(batcher.batchStartTime)
 
 	return err
@@ -115,6 +112,11 @@ func (ob *objectsBatcher) Objects(ctx context.Context,
 	ob.storeInObjectStore(ctx)
 	ob.markDeletedInVectorStorage(ctx)
 	ob.storeAdditionalStorageWithWorkers(ctx)
+	// The workers write the vector index and property-specific indices (geo)
+	// of this batch. Wait for them before flushing, otherwise their commit log
+	// entries stay in memory after the batch is acknowledged and a crash loses
+	// them, and nothing rebuilds the vector index from the objects at start-up.
+	ob.wg.Wait()
 	ob.flushWALs(ctx)
 	return ob.errs
 }
