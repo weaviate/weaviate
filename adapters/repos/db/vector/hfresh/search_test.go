@@ -221,9 +221,10 @@ func TestSearchCosineDistanceRescore(t *testing.T) {
 //
 // For limit == nDocs the assertion allows a small tolerance: centroid
 // retrieval is approximate (HNSW) and may transiently miss a posting while
-// background splits run, so demanding all 500 documents is a recall
-// guarantee the index does not make. The pinned regression — results capped
-// at rescoreLimit — is still caught, as it would return only 350.
+// background splits run, so the searches wait for those to settle, and demanding
+// all 500 documents is a recall guarantee the index does not make. The pinned
+// regression — results capped at rescoreLimit — is still caught, as it would
+// return only 350.
 func TestSearchLimitNotCappedByRescoreLimit(t *testing.T) {
 	const (
 		nDocs        = 500
@@ -244,6 +245,7 @@ func TestSearchLimitNotCappedByRescoreLimit(t *testing.T) {
 
 	t.Run("single vector path", func(t *testing.T) {
 		tf, probe := populateRandomSingleVectorIndex(t, nDocs, dim, 42)
+		tf.Index.waitForMaintenance(t)
 		for _, limit := range limits {
 			ids, dists, err := tf.Index.SearchByVector(t.Context(), probe, limit, nil)
 			require.NoError(t, err)
@@ -258,6 +260,7 @@ func TestSearchLimitNotCappedByRescoreLimit(t *testing.T) {
 		for i := 0; i < nDocs; i++ {
 			addMultiVectorToIndex(t, &tf, uint64(i), randomMultiVector(rng, 2, dim))
 		}
+		tf.Index.waitForMaintenance(t)
 
 		probe := randomMultiVector(rng, 2, dim)
 		for _, limit := range limits {
