@@ -108,16 +108,6 @@ func (db *DB) anyLiveReindexForShard(collection, shardName string,
 		return false, nil
 	}
 	if lookup(collection, shardName) {
-		// Debug-level so flag-on operators get visibility into which
-		// side of the OR fired the gate refusal. The matching cleanup
-		// branch below logs at the same level.
-		if db.logger != nil {
-			db.logger.WithField("action", "backup_reindex_gate").
-				WithField("collection", collection).
-				WithField("shard", shardName).
-				WithField("reason", "activity_lookup_live_task").
-				Debug("backup-reindex gate: refusing — DTM lists a live reindex task on this shard")
-		}
 		return true, nil
 	}
 	// Cleanup lookup is OR-d in: the DTM task may have flipped to
@@ -135,17 +125,7 @@ func (db *DB) anyLiveReindexForShard(collection, shardName string,
 	if cleanupLookup == nil {
 		return false, nil
 	}
-	if cleanupLookup(collection, shardName) {
-		if db.logger != nil {
-			db.logger.WithField("action", "backup_reindex_gate").
-				WithField("collection", collection).
-				WithField("shard", shardName).
-				WithField("reason", "cleanup_in_progress").
-				Debug("backup-reindex gate: refusing — autoCleanupAfterTerminal still draining sidecars on this shard")
-		}
-		return true, nil
-	}
-	return false, nil
+	return cleanupLookup(collection, shardName), nil
 }
 
 // SetReindexCleanupInProgressLookup installs the builder used by

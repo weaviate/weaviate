@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -63,7 +64,7 @@ var nonVectorShardDirs = map[string]struct{}{
 // the coordinator's canCommit phase so no staging dir is created on
 // rejection.
 //
-// All per-class / per-shard failures are accumulated and joined into a
+// All per-class failures are accumulated and joined into a
 // single error rather than short-circuiting on the first one. Joining
 // ensures that when several classes are blocked at once, the operator sees
 // the full list in a single canCommit round instead of fixing one,
@@ -94,10 +95,20 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			errs = append(errs, fmt.Errorf("%s/%s: enumerating local shards for backup-precheck: %w", nodeName, c, err))
 			continue
 		}
+		// One error per class: per-shard errors would multiply with the tenant count.
+		blocked := map[string]struct{}{}
+		var firstErr error
 		for _, shardName := range shards {
 			if err := idx.refuseIfReindexInFlight(shardName, gate); err != nil {
-				errs = append(errs, fmt.Errorf("%s/%s: %w", nodeName, c, err))
+				blocked[shardName] = struct{}{}
+				if firstErr == nil {
+					firstErr = err
+				}
 			}
+		}
+		if firstErr != nil {
+			errs = append(errs, fmt.Errorf("%s/%s: %d of %d shards blocked (%s); first: %w", nodeName, c,
+				len(blocked), len(shards), strings.Join(reportedShardNames(blocked), ", "), firstErr))
 		}
 	}
 	if len(errs) > 0 {

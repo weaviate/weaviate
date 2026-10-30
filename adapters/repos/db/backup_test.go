@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -1337,6 +1338,56 @@ func TestBackupFetchesReindexTasksOncePerPass(t *testing.T) {
 				assert.EqualValues(t, 1, fetches.Load(), "BackupDescriptors")
 			})
 		}
+	}
+}
+
+func TestBackupableRefusalSizeDoesNotGrowWithTenants(t *testing.T) {
+	const className = "ClassA"
+	// One shard's refusal is about 600 characters; ten sampled names fit in the rest.
+	const maxErrLen = 2000
+	tenants := make([]string, 1000)
+	everyTenant := map[[2]string]bool{}
+	builder := NewMultiTenantShardingStateBuilder().WithReplicationFactor(int64(len(tenants)))
+	for i := range tenants {
+		tenants[i] = fmt.Sprintf("tenant-%04d", i)
+		everyTenant[[2]string{className, tenants[i]}] = true
+		builder.AddTenant(tenants[i], models.TenantActivityStatusCOLD)
+	}
+	db := backupTestDBWithColdTenants(t, []string{className}, tenants, builder.Build())
+
+	for _, tc := range []struct {
+		name      string
+		lookup    ShardReindexActivityLookupBuilder
+		wantErr   error
+		wantCount string
+	}{
+		{
+			name:      "reindex running on every tenant",
+			lookup:    makeActivityBuilder(everyTenant),
+			wantErr:   backup.ErrBackupBlockedByInFlightReindex,
+			wantCount: "1000 of 1000 shards",
+		},
+		{
+			name:      "reindex running on one tenant",
+			lookup:    makeActivityBuilder(map[[2]string]bool{{className, "tenant-0500"}: true}),
+			wantErr:   backup.ErrBackupBlockedByInFlightReindex,
+			wantCount: "1 of 1000 shards blocked (tenant-0500)",
+		},
+		{
+			name:      "task manager unreachable",
+			lookup:    unreachableActivityBuilder,
+			wantErr:   ErrReindexGateUnavailable,
+			wantCount: "1000 of 1000 shards",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db.SetShardReindexActivityLookup(tc.lookup)
+
+			err := db.Backupable(context.Background(), []string{className})
+			require.ErrorIs(t, err, tc.wantErr)
+			assert.Contains(t, err.Error(), tc.wantCount)
+			assert.Less(t, len(err.Error()), maxErrLen)
+		})
 	}
 }
 
