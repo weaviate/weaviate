@@ -62,7 +62,7 @@ func TestObjectVectorSearch_MissingObjectKeepsDistancesAligned(t *testing.T) {
 			ctx := context.Background()
 			className := fmt.Sprintf("MissingObjRank%d", tc.missingRank)
 			shard, index := testShardWithSettings(t, ctx, &models.Class{Class: className},
-				enthnsw.NewDefaultUserConfig(), false, false, false)
+				enthnsw.NewDefaultUserConfig(), false, false)
 			defer func() {
 				require.NoError(t, index.drop())
 			}()
