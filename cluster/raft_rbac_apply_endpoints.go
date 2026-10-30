@@ -34,7 +34,7 @@ func (s *Raft) upsertRolesPermissions(roles map[string][]authorization.Policy, r
 		return fmt.Errorf("no roles to create: %w", schema.ErrBadRequest)
 	}
 
-	req := cmd.CreateRolesRequest{Roles: roles, Version: cmd.RBACLatestCommandPolicyVersion, RoleCreation: roleCreation}
+	req := cmd.CreateRolesRequest{Roles: roles, Version: cmd.RBACLatestCommandPolicyVersion, RoleCreation: roleCreation, BackupPrincipalsAware: true}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
@@ -72,7 +72,7 @@ func (s *Raft) RemovePermissions(role string, permissions []*authorization.Polic
 	if role == "" {
 		return fmt.Errorf("no roles to remove permissions from: %w", schema.ErrBadRequest)
 	}
-	req := cmd.RemovePermissionsRequest{Role: role, Permissions: permissions, Version: cmd.RBACLatestCommandPolicyVersion}
+	req := cmd.RemovePermissionsRequest{Role: role, Permissions: permissions, Version: cmd.RBACLatestCommandPolicyVersion, BackupPrincipalsAware: true}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)

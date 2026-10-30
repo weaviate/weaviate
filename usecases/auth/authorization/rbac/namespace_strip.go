@@ -368,6 +368,32 @@ func ReferencedNamespaces(blob []byte, staticAPIKeyUsers []string) ([]string, er
 	return slices.Sorted(maps.Keys(seen)), nil
 }
 
+// SnapshotRoleNames returns, sorted and without the role prefix, every role
+// name the rows of blob carry: p[0] of each policy row and g[1] of each
+// grouping row. Built-in roles are included.
+func SnapshotRoleNames(blob []byte) ([]string, error) {
+	if len(blob) == 0 {
+		return nil, nil
+	}
+	snap := snapshot{}
+	if err := json.Unmarshal(blob, &snap); err != nil {
+		return nil, fmt.Errorf("restore snapshot: decode json: %w", err)
+	}
+
+	seen := map[string]struct{}{}
+	for _, p := range snap.Policy {
+		if len(p) > 0 {
+			seen[conv.TrimRoleNamePrefix(p[0])] = struct{}{}
+		}
+	}
+	for _, g := range snap.GroupingPolicy {
+		if len(g) > 1 {
+			seen[conv.TrimRoleNamePrefix(g[1])] = struct{}{}
+		}
+	}
+	return slices.Sorted(maps.Keys(seen)), nil
+}
+
 // RequireReferencedNamespacesExist returns an error when any namespace the
 // snapshot names is missing or deleting on this cluster. See
 // [ReferencedNamespaces] for which names the snapshot carries and

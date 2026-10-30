@@ -38,6 +38,7 @@ import (
 
 const (
 	SnapshotVersionV0 = iota
+	SnapshotVersionV1
 	SnapshotVersionLatest
 )
 
@@ -882,7 +883,37 @@ func (m *Manager) RestoreRaftSnapshot(b []byte) error {
 	return m.replacePolicies(snapshot)
 }
 
-// replacePolicies clears the policy store and loads snapshot into it.
+// ResetForReplay replaces the policy store with an empty snapshot at the
+// current version, so a raft log replay starts from an empty base instead of
+// from the results it is about to re-apply. It re-applies the predefined and
+// env-config roles, and logs the dropped custom role names at Warn.
+func (m *Manager) ResetForReplay() error {
+	if m == nil || m.casbin == nil {
+		return nil
+	}
+
+	roles, err := m.GetRoles()
+	if err != nil {
+		return fmt.Errorf("reset for replay: %w", err)
+	}
+	var custom []string
+	for name := range roles {
+		if !slices.Contains(authorization.BuiltInRoles, name) {
+			custom = append(custom, name)
+		}
+	}
+	if len(custom) > 0 {
+		slices.Sort(custom)
+		m.logger.WithField("action", "rbac_reset_for_replay").WithField("roles", custom).
+			Warn("clearing custom roles before raft log replay; the replay rebuilds those the log holds, recreate any other by hand")
+	}
+
+	return m.replacePolicies(snapshot{Version: SnapshotVersionLatest})
+}
+
+// replacePolicies clears the policy store and loads snapshot into it. A
+// snapshot that predates backups/users and backups/roles is migrated on the
+// way in.
 func (m *Manager) replacePolicies(snapshot snapshot) error {
 	// Hold the write lock only for the casbin mutation and cache invalidation
 	// so that concurrent Enforce() calls (which hold RLock) are blocked.
@@ -894,13 +925,11 @@ func (m *Manager) replacePolicies(snapshot snapshot) error {
 	// we need to clear the policies before adding the new ones
 	m.casbin.ClearPolicy()
 
-	_, err := m.casbin.AddPolicies(snapshot.Policy)
-	if err != nil {
+	if _, err := m.casbin.AddPolicies(snapshot.Policy); err != nil {
 		return fmt.Errorf("add policies: %w", err)
 	}
 
-	_, err = m.casbin.AddGroupingPolicies(snapshot.GroupingPolicy)
-	if err != nil {
+	if _, err := m.casbin.AddGroupingPolicies(snapshot.GroupingPolicy); err != nil {
 		return fmt.Errorf("add grouping policies: %w", err)
 	}
 
@@ -911,6 +940,14 @@ func (m *Manager) replacePolicies(snapshot snapshot) error {
 
 		if err := upgradeGroupingsFrom129(m.casbin, m.authNconf); err != nil {
 			return fmt.Errorf("upgrade groupings: %w", err)
+		}
+	}
+
+	// applyPredefinedRoles saves and LoadPolicy reloads from that save, so the
+	// grants must be added before it or the reload discards them.
+	if snapshot.Version <= SnapshotVersionV1 {
+		if err := addBackupPrincipalGrants(m.casbin); err != nil {
+			return fmt.Errorf("add backup principal grants: %w", err)
 		}
 	}
 
@@ -932,6 +969,78 @@ func (m *Manager) replacePolicies(snapshot snapshot) error {
 	}
 
 	return nil
+}
+
+// addBackupPrincipalGrants gives every role the rows conv.BackupPrincipalGrants
+// derives from its backups collections grants. Casbin ignores a row it already
+// holds, so running it twice changes nothing.
+func addBackupPrincipalGrants(enforcer *casbin.SyncedCachedEnforcer) error {
+	// The filtered read is a copy; the loop adds rows while it iterates.
+	rows, err := enforcer.GetFilteredNamedPolicy("p", 0)
+	if err != nil {
+		return fmt.Errorf("GetFilteredNamedPolicy: %w", err)
+	}
+	for _, row := range rows {
+		if len(row) < 4 {
+			continue
+		}
+		for _, g := range conv.BackupPrincipalGrants(authorization.Policy{Resource: row[1], Verb: row[2], Domain: row[3]}) {
+			if _, err := enforcer.AddNamedPolicy("p", row[0], g.Resource, g.Verb, g.Domain); err != nil {
+				return fmt.Errorf("AddNamedPolicy: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+// OrphanedBackupPrincipalGrants returns the users/roles backup wildcards to
+// drop alongside the removed permissions. The migration derives each wildcard
+// from a role's collections backup grants with the same verb, so a wildcard
+// goes when the removal takes the last row deriving it, and stays while a
+// surviving row derives it. Replay then matches what migrating a later
+// snapshot derives. It judges raw casbin rows, so rows the permission
+// converter rejects cannot fail it.
+func (m *Manager) OrphanedBackupPrincipalGrants(role string, removing []*authorization.Policy) ([]*authorization.Policy, error) {
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
+	rows, err := m.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(role))
+	if err != nil {
+		return nil, fmt.Errorf("GetFilteredNamedPolicy: %w", err)
+	}
+	removed := make(map[authorization.Policy]struct{}, len(removing))
+	for _, p := range removing {
+		if p != nil {
+			removed[*p] = struct{}{}
+		}
+	}
+
+	// keep holds every grant a surviving row derives, then each orphan once
+	// it is added.
+	keep := map[authorization.Policy]struct{}{}
+	var candidates []authorization.Policy
+	for _, row := range rows {
+		if len(row) < 4 {
+			continue
+		}
+		held := authorization.Policy{Resource: row[1], Verb: row[2], Domain: row[3]}
+		grants := conv.BackupPrincipalGrants(held)
+		if _, ok := removed[held]; ok {
+			candidates = append(candidates, grants...)
+			continue
+		}
+		for _, g := range grants {
+			keep[g] = struct{}{}
+		}
+	}
+	var orphaned []*authorization.Policy
+	for _, g := range candidates {
+		if _, ok := keep[g]; !ok {
+			keep[g] = struct{}{}
+			orphaned = append(orphaned, &g)
+		}
+	}
+	return orphaned, nil
 }
 
 func validateStorableRows(ptype string, rows [][]string) error {
@@ -1002,6 +1111,12 @@ func prettyPermissionsResources(principal *models.Principal, perm *models.Permis
 		s := fmt.Sprintf("Domain: %s,", authorization.BackupsDomain)
 		if perm.Backups.Collection != nil && *perm.Backups.Collection != "" {
 			s += fmt.Sprintf("Collection: %s", strip(*perm.Backups.Collection))
+		}
+		if perm.Backups.User != nil && *perm.Backups.User != "" {
+			s += fmt.Sprintf(" User: %s", strip(*perm.Backups.User))
+		}
+		if perm.Backups.Role != nil && *perm.Backups.Role != "" {
+			s += fmt.Sprintf(" Role: %s", strip(*perm.Backups.Role))
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)

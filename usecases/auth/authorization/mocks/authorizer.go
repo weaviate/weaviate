@@ -13,6 +13,7 @@ package mocks
 
 import (
 	"context"
+	"fmt"
 
 	models "github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -72,9 +73,16 @@ func (a *FakeAuthorizer) Deny(resources ...string) {
 	}
 }
 
+// errNoResources is the error rbac.Manager.authorize returns for a call
+// carrying no resources, whatever roles the principal holds.
+var errNoResources = fmt.Errorf("at least 1 resource is required")
+
 // record logs the call and applies SetErr/SetErrAfter. Its callers apply Deny.
 func (a *FakeAuthorizer) record(req AuthZReq) error {
 	a.requests = append(a.requests, req)
+	if len(req.Resources) == 0 {
+		return errNoResources
+	}
 	if a.err != nil && len(a.requests) > a.allowedCalls {
 		return a.err
 	}

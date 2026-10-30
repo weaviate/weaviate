@@ -166,6 +166,8 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			}
 		}
 
+		// A snapshot without an RBAC section leaves policy.csv as the base: it
+		// alone holds the roles written before that snapshot.
 		if snap.RBAC != nil {
 			if err := st.authZManager.Restore(snap.RBAC); err != nil {
 				st.log.WithError(err).Error("restoring rbac from snapshot")

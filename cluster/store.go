@@ -584,6 +584,9 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if err := st.init(); err != nil {
 		return fmt.Errorf("initialize raft store: %w", err)
 	}
+	if err := st.resetRBACIfNoSnapshot(); err != nil {
+		return err
+	}
 
 	li := st.lastIndex()
 	st.lastAppliedIndexToDB.Store(li)
@@ -610,7 +613,6 @@ func (st *Store) Open(ctx context.Context) (err error) {
 			return err
 		}
 	}
-
 	snapIndex := lastSnapshotIndex(st.snapshotStore)
 	if st.lastAppliedIndexToDB.Load() == 0 && snapIndex == 0 {
 		// Empty node reports ready immediately; readiness is NOT deferred.
@@ -1463,6 +1465,35 @@ func lastSnapshotIndex(snapshotStore *raft.FileSnapshotStore) uint64 {
 	return ls[0].Index
 }
 
+// resetRBACIfNoSnapshot wipes the RBAC store, casbin memory and policy.csv
+// both, down to the predefined roles. It runs when no raft snapshot exists:
+// raft then replays the whole log, and each replayed write saves the file
+// again, so replay rebuilds exactly what the wipe removed.
+func (st *Store) resetRBACIfNoSnapshot() error {
+	if st.cfg.RBAC == nil {
+		return nil
+	}
+	snaps, err := st.snapshotStore.List()
+	if err != nil {
+		return fmt.Errorf("list raft snapshots before rbac reset: %w", err)
+	}
+	if len(snaps) != 0 {
+		return nil
+	}
+	first, err := st.logStore.FirstIndex()
+	if err != nil {
+		return fmt.Errorf("read first raft log index before rbac reset: %w", err)
+	}
+	if first > 1 {
+		st.log.Warnf("rbac reset skipped: no raft snapshot but the log starts at index %d, keeping policy.csv", first)
+		return nil
+	}
+	if err := st.cfg.RBAC.ResetForReplay(); err != nil {
+		return fmt.Errorf("reset rbac before raft log replay: %w", err)
+	}
+	return nil
+}
+
 // recoverSingleNode is used to manually force a new configuration in order to
 // recover from a loss of quorum where the current configuration cannot be
 // WARNING! This operation implicitly commits all entries in the Raft log, so
@@ -1504,6 +1535,11 @@ func (st *Store) recoverSingleNode(force bool) error {
 
 	fut := st.raft.Load().Shutdown()
 	if err := fut.Error(); err != nil {
+		return err
+	}
+	// The Store started by Open may have applied entries onto a cleared store
+	// before Shutdown, so RecoverCluster's full replay needs a second clear.
+	if err := st.resetRBACIfNoSnapshot(); err != nil {
 		return err
 	}
 
