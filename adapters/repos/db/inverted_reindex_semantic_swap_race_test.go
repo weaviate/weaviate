@@ -33,9 +33,8 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// A write is lost if its analysis spans the whole swap. Analysis time grows
-// with the text, so a long text keeps writers inside that window often enough
-// that a few swaps reliably hit it.
+// A write is lost if its analysis spans the whole swap; a long filler text
+// widens that window enough to hit it reliably.
 const (
 	swapRaceFillerWords = 200_000
 	swapRaceWriters     = 6
@@ -62,8 +61,7 @@ func TestWritesRacingSemanticSwapStayIndexed(t *testing.T) {
 		newTask   func(*testing.T, *Index, string, string) *ShardReindexTaskGeneric
 		flip      func(prop *models.Property)
 		find      func(*testing.T, context.Context, *Shard, string, string, int) []*storobj.Object
-		// Only the filterable bitmap can show a deleted docID; a search
-		// drops it once the object itself is gone.
+		// Search drops deleted docs; only the bitmap can leak one.
 		checkDeletes bool
 	}{
 		{
@@ -146,8 +144,6 @@ func TestWritesRacingSemanticSwapStayIndexed(t *testing.T) {
 	}
 }
 
-// runSwapUnderWriteLoad runs swap while writers put objects and delete every
-// other one, and returns the objects still stored and those deleted.
 func runSwapUnderWriteLoad(t *testing.T, ctx context.Context, shard *Shard,
 	className, propName, text string, swap func(),
 ) (kept, deleted []*storobj.Object) {
