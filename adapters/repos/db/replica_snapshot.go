@@ -41,45 +41,56 @@ type replicaSnapshotState struct {
 	isSnapshot bool
 }
 
-// IncomingProbeShardData reports whether this node holds shard data; hosted means a usable copy answered. ErrShardRecovering means "not usable now".
+// IncomingProbeShardData reports whether this node holds shard data, with hosted true when a usable copy answered. ErrShardRecovering means "not usable now".
+// It reads no namespace state, because it only counts the objects of a shard this node already holds and loads none.
 func (i *Index) IncomingProbeShardData(ctx context.Context, shardName string) (hasData, hosted bool, err error) {
-	if s := i.shards.Load(shardName); s != nil {
-		if rec, ok := s.(*RecoveringShard); ok && rec.IsRecovering() {
-			return false, false, fmt.Errorf("incoming probe shard data for shard %s: %w", shardName, enterrors.ErrShardRecovering)
-		}
-		if lazy, ok := asLazyLoadShard(s); ok && !lazy.isLoaded() {
-			// A cold shard without its folder lost its copy; it must not confirm the shard as empty.
-			if _, err := os.Stat(shardPath(i.path(), shardName)); err != nil {
-				if errors.Is(err, fs.ErrNotExist) {
-					return false, false, nil
-				}
-				return false, false, fmt.Errorf("incoming probe shard data stat %s: %w", shardName, err)
-			}
-			count, err := indexcounter.Read(shardPath(i.path(), shardName)) // a load here would plant a dir
-			if err != nil {
-				return false, false, fmt.Errorf("incoming probe shard data read counter %s: %w", shardName, err)
-			}
-			return count > 0, true, nil
-		}
-	} else if _, err := os.Stat(shardPath(i.path(), shardName)); err == nil {
-		// Deactivated (or mid-activation) tenant: not in the map, but its data is on disk; "not found" would read as "no data".
-		count, err := indexcounter.Read(shardPath(i.path(), shardName))
-		if err != nil {
-			return false, false, fmt.Errorf("incoming probe shard data read counter %s: %w", shardName, err)
-		}
-		return count > 0, true, nil
+	s := i.shards.Load(shardName)
+	if rec, ok := s.(*RecoveringShard); ok && rec.IsRecovering() {
+		return false, false, fmt.Errorf("incoming probe shard data for shard %s: %w", shardName, enterrors.ErrShardRecovering)
 	}
-	shard, release, err := i.GetShard(ctx, shardName)
+	if lazy, ok := asLazyLoadShard(s); ok && !lazy.isLoaded() {
+		return i.probeShardDataOnDisk(shardName)
+	}
+	if s == nil {
+		// A deactivated tenant is missing from the map but can still hold data on disk.
+		if hasData, onDisk, err := i.probeShardDataOnDisk(shardName); err != nil || onDisk {
+			return hasData, onDisk, err
+		}
+	}
+	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
 		return false, false, fmt.Errorf("incoming probe shard data get shard %s: %w", shardName, err)
 	}
 	defer release()
 	if shard == nil {
+		// A shard unloaded since the map read above can still hold data on disk,
+		// which a "not found" answer would report as none.
+		if hasData, onDisk, err := i.probeShardDataOnDisk(shardName); err != nil || onDisk {
+			return hasData, onDisk, err
+		}
 		return false, false, fmt.Errorf("incoming probe shard data get shard is nil: %s", shardName)
 	}
 	count, err := shard.ObjectCount(ctx)
 	if err != nil {
 		return false, false, fmt.Errorf("incoming probe shard data object count %s: %w", shardName, err)
+	}
+	return count > 0, true, nil
+}
+
+// probeShardDataOnDisk reads the shard's object counter from its folder rather
+// than loading the shard, which would create the folder. A missing folder answers
+// onDisk false, so a shard that lost its copy is not confirmed empty.
+func (i *Index) probeShardDataOnDisk(shardName string) (hasData, onDisk bool, err error) {
+	dir := shardPath(i.path(), shardName)
+	if _, err := os.Stat(dir); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, false, nil
+		}
+		return false, false, fmt.Errorf("incoming probe shard data stat %s: %w", shardName, err)
+	}
+	count, err := indexcounter.Read(dir)
+	if err != nil {
+		return false, false, fmt.Errorf("incoming probe shard data read counter %s: %w", shardName, err)
 	}
 	return count > 0, true, nil
 }

@@ -29,53 +29,42 @@ import (
 )
 
 // shardOnNode returns what node reports for one shard of a class, or nil when it
-// holds no such shard. Node status walks each index's shard map rather than the
-// schema, so a node a movement never materialized the shard on reports nothing
-// here while still being named as that movement's target.
-func shardOnNode(t *testing.T, qualifiedClass, shardName, node string) (*models.NodeShardStatus, error) {
+// holds no such shard. answered is false when node is missing from the reply or
+// reports TIMEOUT or UNAVAILABLE, which list no shards. Node status walks each
+// index's shard map rather than the schema, so a node a movement never
+// materialized the shard on reports nothing here while still being named as that
+// movement's target.
+func shardOnNode(t *testing.T, qualifiedClass, shardName, node string) (shard *models.NodeShardStatus, answered bool, err error) {
 	t.Helper()
 
 	verbose := "verbose"
 	params := nodes.NewNodesGetClassParams().WithClassName(qualifiedClass).WithOutput(&verbose)
 	resp, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(adminKey))
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	for _, n := range resp.Payload.Nodes {
 		if n.Name != node {
 			continue
 		}
-		for _, shard := range n.Shards {
-			if shard.Name == shardName {
-				return shard, nil
+		if status := n.Status; status != nil &&
+			(*status == models.NodeStatusStatusTIMEOUT || *status == models.NodeStatusStatusUNAVAILABLE) {
+			return nil, false, nil
+		}
+		for _, s := range n.Shards {
+			if s.Name == shardName {
+				return s, true, nil
 			}
 		}
+		return nil, true, nil
 	}
-	return nil, nil
+	return nil, false, nil
 }
 
-// requireShardAbsentOnNode holds for a window asserting node never reports the
-// shard. Same two counters as requireShardAbsent, for the same reason:
-// require.Never returns true on its own deadline even if no check finished, and
-// a node that did not answer is reported as a node with no shards and no error.
-func requireShardAbsentOnNode(t *testing.T, qualifiedClass, shardName, node string) {
-	t.Helper()
-
-	var listed, failed atomic.Int64
-	require.Never(t, func() bool {
-		shard, err := shardOnNode(t, qualifiedClass, shardName, node)
-		if err != nil {
-			failed.Add(1)
-			return false
-		}
-		listed.Add(1)
-		return shard != nil
-	}, 5*time.Second, 250*time.Millisecond, "shard %q must not be materialized on %q", shardName, node)
-
-	require.Zero(t, failed.Load(), "listing shards for %q failed", qualifiedClass)
-	require.Positive(t, listed.Load(), "no shard listing finished for %q", qualifiedClass)
-}
+// sweepWindow is three SUSPEND_RECONCILE_INTERVALs of the shared cluster, so every
+// node runs a sweep pass inside it.
+const sweepWindow = 3 * time.Second
 
 // requireShardReleasedOnNode waits until node has listed no such shard for three
 // seconds in a row. A shard the node opens and its sweep closes during the wait
@@ -84,31 +73,24 @@ func requireShardAbsentOnNode(t *testing.T, qualifiedClass, shardName, node stri
 func requireShardReleasedOnNode(t *testing.T, qualifiedClass, shardName, node string, live presentShard) {
 	t.Helper()
 
-	const window = 3 * time.Second
 	var absentSince time.Time
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		anchor, err := shardOnNode(t, live.qualifiedClass, live.name, node)
-		if !assert.NoError(c, err) || !assert.NotNil(c, anchor, "%q stopped listing %q", node, live.name) {
-			absentSince = time.Time{}
-			return
-		}
-		shard, err := shardOnNode(t, qualifiedClass, shardName, node)
-		if !assert.NoError(c, err) || !assert.Nil(c, shard, "%q still lists shard %q", node, shardName) {
+		listed, answered, err := shardListedOnLiveNode(t, qualifiedClass, shardName, node, live)
+		if !assert.NoError(c, err) || !assert.True(c, answered, "%q stopped listing %q", node, live.name) ||
+			!assert.False(c, listed, "%q still lists shard %q", node, shardName) {
 			absentSince = time.Time{}
 			return
 		}
 		if absentSince.IsZero() {
 			absentSince = time.Now()
 		}
-		assert.GreaterOrEqual(c, time.Since(absentSince), window)
-	}, 30*time.Second, 250*time.Millisecond, "%q never went %v without listing shard %q", node, window, shardName)
+		assert.GreaterOrEqual(c, time.Since(absentSince), sweepWindow)
+	}, 30*time.Second, 250*time.Millisecond, "%q never went %v without listing shard %q", node, sweepWindow, shardName)
 }
 
-// requireNoMovementErrors holds for a window asserting the op records no error.
-// The FSM cancels a movement at 50 and drops the files its target already
-// copied, so a suspension charged here would destroy a movement that only had to
-// wait for the namespace. Same two counters as requireShardAbsentOnNode, for the
-// same reason.
+// requireNoMovementErrors holds for 20 s asserting the op records no error,
+// because the FSM cancels a movement after 50 errors and drops its target's copy.
+// Its read and failed counters keep a window in which no read finished from passing.
 func requireNoMovementErrors(t *testing.T, opID strfmt.UUID) {
 	t.Helper()
 
@@ -127,28 +109,38 @@ func requireNoMovementErrors(t *testing.T, opID strfmt.UUID) {
 	require.Positive(t, read.Load(), "no movement state was read")
 }
 
-// startCopyMovement registers a COPY of one shard onto targetNode and returns the
-// op id. Registered by the global operator against the qualified class name: a
-// suspended namespace rejects its own key, and the handler resolves no short
-// names of its own.
-func startCopyMovement(t *testing.T, qualifiedClass, shardName, sourceNode, targetNode string) strfmt.UUID {
+// registerMovement returns the op id of a movement of one shard onto targetNode,
+// or the error its registration answered with. It registers with adminKey,
+// because the replicate endpoint forbids every namespaced key.
+func registerMovement(t *testing.T, qualifiedClass, shardName, sourceNode, targetNode, transferType string) (strfmt.UUID, error) {
 	t.Helper()
 
-	copyType := api.COPY.String()
 	resp, err := helper.Client(t).Replication.Replicate(
 		replication.NewReplicateParams().WithBody(&models.ReplicationReplicateReplicaRequest{
 			Collection: &qualifiedClass,
 			Shard:      &shardName,
 			SourceNode: &sourceNode,
 			TargetNode: &targetNode,
-			Type:       &copyType,
+			Type:       &transferType,
 		}),
 		helper.CreateAuth(adminKey),
 	)
-	require.NoError(t, err, "failed to register COPY of %q %s->%s", shardName, sourceNode, targetNode)
+	if err != nil {
+		return "", err
+	}
 	require.NotNil(t, resp.Payload)
 	require.NotNil(t, resp.Payload.ID)
-	return *resp.Payload.ID
+	return *resp.Payload.ID, nil
+}
+
+// startCopyMovement registers a COPY of one shard onto targetNode and returns the
+// op id.
+func startCopyMovement(t *testing.T, qualifiedClass, shardName, sourceNode, targetNode string) strfmt.UUID {
+	t.Helper()
+
+	opID, err := registerMovement(t, qualifiedClass, shardName, sourceNode, targetNode, api.COPY.String())
+	require.NoError(t, err, "failed to register COPY of %q %s->%s", shardName, sourceNode, targetNode)
+	return opID
 }
 
 // movementState returns an op's current state and the messages it has recorded.
@@ -192,36 +184,20 @@ func TestNamespaces_SuspendAcceptsEmptyReplicaAdd(t *testing.T) {
 	const (
 		// The namespace pins its shards to its home node, so the addition lands
 		// on a node that holds nothing of this class.
-		homeNode    = docker.Weaviate1
-		targetNode  = docker.Weaviate0
-		class       = "EmptyReplicaShard"
-		anchorClass = "Anchor"
-		planID      = strfmt.UUID("6f1c9d84-2a70-4c1e-8b53-9e0d17a4c6b2")
+		homeNode   = docker.Weaviate1
+		targetNode = docker.Weaviate0
+		class      = "EmptyReplicaShard"
+		planID     = strfmt.UUID("6f1c9d84-2a70-4c1e-8b53-9e0d17a4c6b2")
 	)
 
-	ns := uniqueNS()
-	helper.CreateNamespaceWithHomeNode(t, ns, homeNode, adminKey)
-	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
-
-	userKey := createNamespacedUser(t, "u1", ns, adminKey)
-	t.Cleanup(func() { helper.DeleteUser(t, ns+":u1", adminKey) })
-
-	setupClassInNs1(t, ns, class, userKey)
-	qualified := ns + ":" + class
+	ns, userKey := newNamespaceOnNode(t, homeNode)
 
 	// Read before the suspend: a suspended namespace reports no shards.
-	shardName := requireShardCountEventually(t, qualified, 1)[0]
+	qualified, shardName := newSingleShardClass(t, ns, class, userKey)
 
 	// The anchor's namespace is active and homed on the target, so its shard stays
 	// open there.
-	anchorNS := uniqueNS()
-	helper.CreateNamespaceWithHomeNode(t, anchorNS, targetNode, adminKey)
-	t.Cleanup(func() { helper.DeleteNamespace(t, anchorNS, adminKey) })
-	anchorKey := createNamespacedUser(t, "u1", anchorNS, adminKey)
-	t.Cleanup(func() { helper.DeleteUser(t, anchorNS+":u1", adminKey) })
-	setupClassInNs1(t, anchorNS, anchorClass, anchorKey)
-	anchorQualified := anchorNS + ":" + anchorClass
-	anchor := presentShard{anchorQualified, requireShardCountEventually(t, anchorQualified, 1)[0]}
+	anchor := newPresentShard(t, targetNode)
 
 	helper.SuspendNamespace(t, ns, adminKey)
 	t.Cleanup(func() { helper.ResumeNamespace(t, ns, adminKey) })
@@ -246,14 +222,10 @@ func TestNamespaces_SuspendAcceptsEmptyReplicaAdd(t *testing.T) {
 
 	t.Run("the schema names the target as a replica", func(t *testing.T) {
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			state, err := helper.Client(t).Replication.GetCollectionShardingState(
-				replication.NewGetCollectionShardingStateParams().WithCollection(&qualified).WithShard(&shardName),
-				helper.CreateAuth(adminKey),
-			)
-			if !assert.NoError(c, err) || !assert.Len(c, state.Payload.ShardingState.Shards, 1) {
-				return
+			replicas, err := shardReplicas(t, qualified, shardName)
+			if assert.NoError(c, err) {
+				assert.Contains(c, replicas, targetNode)
 			}
-			assert.Contains(c, state.Payload.ShardingState.Shards[0].Replicas, targetNode)
 		}, 30*time.Second, 250*time.Millisecond, "the scale plan never named %q a replica of %q", targetNode, shardName)
 	})
 
@@ -262,20 +234,8 @@ func TestNamespaces_SuspendAcceptsEmptyReplicaAdd(t *testing.T) {
 	})
 }
 
-// A replica movement started while its collection's namespace is suspended is
-// refused, and finishes once the namespace is back.
-//
-// The refusal comes from the source node: a movement opens change capture through
-// the request path, which a suspend refuses, so it stops there — before the target
-// has materialized anything. It re-reads the source on every dispatch, so a
-// movement that was already copying files is refused the same way once its next
-// dispatch lands. Neither spends the op's error budget, which is what lets a
-// suspend of any length pause a movement rather than cancel it.
-//
-// What this does NOT cover: the target-side exemption itself, which a movement
-// reaches once it starts finalizing. Getting there with the namespace suspended
-// needs a suspend landing inside that window, which no hook here makes
-// deterministic.
+// A replica movement registered while its collection's namespace is suspended is
+// refused with 422. The same registration succeeds once the namespace is back.
 func TestNamespaces_SuspendRefusesReplicaMovement(t *testing.T) {
 	t.Parallel()
 
@@ -288,15 +248,8 @@ func TestNamespaces_SuspendRefusesReplicaMovement(t *testing.T) {
 		title      = "written before the movement"
 	)
 
-	ns := uniqueNS()
-	helper.CreateNamespaceWithHomeNode(t, ns, sourceNode, adminKey)
-	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
-
-	userKey := createNamespacedUser(t, "u1", ns, adminKey)
-	t.Cleanup(func() { helper.DeleteUser(t, ns+":u1", adminKey) })
-
-	setupClassInNs1(t, ns, class, userKey)
-	qualified := ns + ":" + class
+	ns, userKey := newNamespaceOnNode(t, sourceNode)
+	qualified, shardName := newSingleShardClass(t, ns, class, userKey)
 
 	// One object, so the movement has something to copy and the replica it lands
 	// can be told apart from an empty shard.
@@ -306,9 +259,8 @@ func TestNamespaces_SuspendRefusesReplicaMovement(t *testing.T) {
 	}, userKey)
 	require.NoError(t, err)
 
-	shardName := requireShardCountEventually(t, qualified, 1)[0]
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		shard, err := shardOnNode(t, qualified, shardName, sourceNode)
+		shard, _, err := shardOnNode(t, qualified, shardName, sourceNode)
 		if !assert.NoError(c, err) {
 			return
 		}
@@ -320,50 +272,22 @@ func TestNamespaces_SuspendRefusesReplicaMovement(t *testing.T) {
 	// against the resume the test does itself.
 	t.Cleanup(func() { helper.ResumeNamespace(t, ns, adminKey) })
 
-	opID := startCopyMovement(t, qualified, shardName, sourceNode, targetNode)
-
-	t.Run("the movement stops on the source's namespace check", func(t *testing.T) {
-		// Asserting where it stops, not just that it stalls: a movement that
-		// never ran at all would also never reach READY, and would still read
-		// REGISTERED here.
-		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			state, messages, err := movementState(t, opID)
-			if !assert.NoError(c, err) {
-				return
-			}
-			assert.Equal(c, "HYDRATING", state, "the movement stopped elsewhere; errors %v", messages)
-		}, 60*time.Second, 1*time.Second, "the movement never reached the source's refusal")
+	t.Run("the registration is refused with 422", func(t *testing.T) {
+		_, err := registerMovement(t, qualified, shardName, sourceNode, targetNode, api.COPY.String())
+		var unprocessable *replication.ReplicateUnprocessableEntity
+		require.ErrorAs(t, err, &unprocessable)
 	})
 
-	t.Run("the refusal is not charged to the movement", func(t *testing.T) {
-		requireNoMovementErrors(t, opID)
-	})
-
-	t.Run("the target materializes no shard", func(t *testing.T) {
-		requireShardAbsentOnNode(t, qualified, shardName, targetNode)
-
-		// The op still reads HYDRATING, because the target opens its shard only in
-		// FINALIZING and its own sweep would close it before the check above.
-		state, _, err := movementState(t, opID)
-		require.NoError(t, err)
-		require.Equal(t, "HYDRATING", state, "the movement got past the source's refusal")
-	})
-
-	t.Run("resuming lets the movement finish", func(t *testing.T) {
+	t.Run("resuming admits the movement and lets it finish", func(t *testing.T) {
 		helper.ResumeNamespace(t, ns, adminKey)
+		opID := startCopyMovement(t, qualified, shardName, sourceNode, targetNode)
 
-		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			state, messages, err := movementState(t, opID)
-			if !assert.NoError(c, err) {
-				return
-			}
-			assert.Equal(c, "READY", state, "movement still %q; errors %v", state, messages)
-		}, 180*time.Second, 2*time.Second, "the movement never finished after the resume")
+		waitMovementState(t, opID, api.READY)
 	})
 
 	t.Run("the new replica carries the shard's data", func(t *testing.T) {
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			shard, err := shardOnNode(t, qualified, shardName, targetNode)
+			shard, _, err := shardOnNode(t, qualified, shardName, targetNode)
 			if !assert.NoError(c, err) {
 				return
 			}

@@ -3776,9 +3776,10 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) (ShardUn
 	return i.unloadLocalShard(ctx, shardName, false)
 }
 
-// unloadLocalShard with keepRecovering returns recovering for a self-recovery
-// placeholder, checked under the create lock that promotion takes.
-func (i *Index) unloadLocalShard(ctx context.Context, shardName string, keepRecovering bool) (ShardUnloadOutcome, error) {
+// unloadLocalShard with forSweep, which DB.UnloadShard passes for the suspend
+// sweep, keeps a self-recovery placeholder and a shard heldForMovement names,
+// both checked under the create lock that promotion takes.
+func (i *Index) unloadLocalShard(ctx context.Context, shardName string, forSweep bool) (ShardUnloadOutcome, error) {
 	// enterRead refuses only after beginClose, so a refusal means the index is closing.
 	if err := i.enterRead(); err != nil {
 		return ShardUnloadOutcomeIndexClosing, fmt.Errorf("%w: %w", ErrIndexClosing, err)
@@ -3788,8 +3789,14 @@ func (i *Index) unloadLocalShard(ctx context.Context, shardName string, keepReco
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
 
-	if rec, ok := i.shards.Load(shardName).(*RecoveringShard); ok && keepRecovering && rec.IsRecovering() {
+	loaded := i.shards.Load(shardName)
+	if rec, ok := loaded.(*RecoveringShard); ok && forSweep && rec.IsRecovering() {
 		return ShardUnloadOutcomeRecovering, fmt.Errorf("shard %q: %w", shardName, enterrors.ErrShardRecovering)
+	}
+	if forSweep && loaded != nil {
+		if outcome, held := i.heldForMovement(shardName); held {
+			return outcome, nil
+		}
 	}
 
 	shardLike, ok := i.shards.LoadAndDelete(shardName)
@@ -3829,6 +3836,24 @@ func (i *Index) unloadLocalShard(ctx context.Context, shardName string, keepReco
 	}
 
 	return outcome, nil
+}
+
+// heldForMovement reports whether a non-terminal replication op copies out of or
+// into this node's replica of the shard, and the outcome unloadLocalShard returns
+// for it.
+func (i *Index) heldForMovement(shardName string) (ShardUnloadOutcome, bool) {
+	fsm := i.getReplicationFSMReader()
+	if fsm == nil {
+		return "", false
+	}
+	className, node := i.Config.ClassName.String(), i.Config.NodeName
+	if fsm.HasActiveSourceReplicationForShard(className, shardName, node) {
+		return ShardUnloadOutcomeMovementSource, true
+	}
+	if fsm.HasActiveTargetReplicationForShard(className, shardName, node) {
+		return ShardUnloadOutcomeMovementTarget, true
+	}
+	return "", false
 }
 
 func (i *Index) GetShard(ctx context.Context, shardName string) (

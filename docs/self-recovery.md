@@ -37,7 +37,7 @@ transfer type and reject it). Same caveat as `REPLICA_MOVEMENT_ENABLED`.
 | `GET /nodes?output=verbose` | shard reports `status: "RECOVERING"`, `loaded: false` |
 | `GET /replication/replicate/list?targetNode=<self>` | in-flight `SELF_RECOVERY` op with state `REGISTERED`/`HYDRATING`/`FINALIZING`/`INTEGRATING`/`READY`; `uncancelable: true` from FINALIZING on |
 | `/metrics` (Prometheus) | series listed below |
-| Structured logs | `event=self_recovery.{started\|peer_probe\|op_registered\|completed\|failed\|empty_fallback\|accept_empty\|restart}` |
+| Structured logs | `event=self_recovery.{started\|peer_probe\|op_registered\|parked\|completed\|failed\|empty_fallback\|accept_empty\|restart}` |
 
 ### Metrics
 
@@ -110,6 +110,11 @@ If retries are exhausted (`weaviate_self_recovery_giveup_total` ticks),
 the shard is left in `RECOVERING`; use `restart` to try again from
 scratch, or `accept-empty` to accept the loss. (Recoveries are also
 retried automatically on the next node restart.)
+
+A recovery whose op RAFT refuses because the shard's namespace is
+`suspended` or `resuming` is parked and logs `event=self_recovery.parked`.
+A parked shard stays `RECOVERING` with no op and no give-up, and holds no
+worker. It is resubmitted within 5 s of its namespace reading `active`.
 
 The in-process submission queue is unbounded and never drops: a node
 missing thousands of shards queues them all, and `SELF_RECOVERY_CONCURRENCY`

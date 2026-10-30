@@ -117,6 +117,10 @@ func TestMain(m *testing.M) {
 		// With this, the sweep releases a suspended namespace's shards within about
 		// a second of the suspend, so the suspend tests can wait for the release.
 		WithWeaviateEnv("SUSPEND_RECONCILE_INTERVAL", "1s").
+		// A node that boots missing a shard's directory recovers the shard from a
+		// peer, so TestNamespaces_SuspendKeepsSelfRecovery can suspend the shard's
+		// namespace while that recovery runs.
+		WithWeaviateEnv("SELF_RECOVERY_ENABLED", "true").
 		// backup-s3 + export share the MinIO sidecar; the "backups" bucket backs
 		// both. REPLICA_MOVEMENT_ENABLED ensures the Replicate handler reaches the
 		// auth check (it 501s before authz when movement is off), so the RBAC deny

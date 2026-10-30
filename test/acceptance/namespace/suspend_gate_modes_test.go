@@ -87,16 +87,17 @@ func newGatePair(t *testing.T, suspendedHome, activeHome string) gatePair {
 	return pair
 }
 
-// withHomeNodeStopped stops homeNode gracefully while body runs. It must never
-// run in parallel, because the package's other top-level tests share this
-// cluster. For Mode A, pass the suspended namespace's home node. With any other
-// node stopped, the shard guard refuses in the gate's place and every row passes.
-func withHomeNodeStopped(t *testing.T, homeNode string, body func(t *testing.T)) {
+// withNodeStopped stops node while body runs, then starts it. A nil timeout stops
+// it gracefully, and a zero one kills it. It must never run in parallel, because
+// the package's other top-level tests share this cluster. For Mode A, pass the
+// suspended namespace's home node. With any other node stopped, the shard guard
+// refuses in the gate's place and every row passes.
+func withNodeStopped(t *testing.T, node string, timeout *time.Duration, body func(t *testing.T)) {
 	t.Helper()
 	ctx := context.Background()
 	// StopNode counts from 0, matching the container name, where GetWeaviateNode
 	// counts from 1.
-	index := nodeIndexFromName(t, homeNode) - 1
+	index := nodeIndexFromName(t, node) - 1
 
 	// A failed stop or start would leave the node down for every later test in
 	// the package, so put it back whatever happens here.

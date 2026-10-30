@@ -15,6 +15,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -22,6 +25,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
@@ -42,8 +46,9 @@ const (
 // lifecycle commands stay ungated, so a suspended namespace can still be resumed
 // or deleted.
 //
-// No type is gated in the apply switch. Every check runs before the append, so a
-// committed entry applies on every binary; see Store.admitPropose.
+// Only the types in bothSidesApplyTypes and selfGatedApplyTypes are gated in
+// the apply switch. Every other check runs before the append, so a committed
+// entry applies on every binary. Store.admitPropose says why.
 //
 // The maps record intent, not behaviour. The switch in store_apply.go is the
 // authority, so a type listed here but wired to a different check still leaves
@@ -65,6 +70,12 @@ var requireActiveProposeTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPSERT_USER:              {},
 	api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS: {},
 	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:       {},
+}
+
+// Commands gated by namespaces.RequireActive in store.admitReplicaMovement, both
+// at propose time and in their Store.Apply case.
+var bothSidesApplyTypes = map[api.ApplyRequest_Type]struct{}{
+	api.ApplyRequest_TYPE_REPLICATION_REPLICATE: {},
 }
 
 // Commands gated by namespaces.AdmitDestructiveApply, in store.admitDestructive
@@ -105,7 +116,6 @@ var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPDATE_NAMESPACE:                                           {},
 	api.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE:                                     {},
 	api.ApplyRequest_TYPE_REMOVE_NAMESPACE_ENTITY:                                    {},
-	api.ApplyRequest_TYPE_REPLICATION_REPLICATE:                                      {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE:                         {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR:                       {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCEL:                               {},
@@ -152,6 +162,7 @@ var applyTypeBuckets = []struct {
 	types map[api.ApplyRequest_Type]struct{}
 }{
 	{"requireActiveProposeTypes", requireActiveProposeTypes},
+	{"bothSidesApplyTypes", bothSidesApplyTypes},
 	{"destructiveApplyTypes", destructiveApplyTypes},
 	{"ungatedApplyTypes", ungatedApplyTypes},
 	{"selfGatedApplyTypes", selfGatedApplyTypes},
@@ -412,6 +423,50 @@ func shardStatusCommand() gatedCommand {
 				}
 			}
 			return false
+		},
+	}
+}
+
+// replicaMovementUUID names the op replicaMovementRequest registers.
+const replicaMovementUUID = strfmt.UUID("5b0e3c1a-8d2f-4f6b-9a47-1c3e5d7f9b20")
+
+// replicaMovementRequest copies seededTenant of collection off the node seedClass
+// places it on, to a node holding no replica.
+func replicaMovementRequest(collection string) api.ReplicationReplicateShardRequest {
+	return api.ReplicationReplicateShardRequest{
+		Version:          api.ReplicationCommandVersionV0,
+		Uuid:             replicaMovementUUID,
+		SourceNode:       "Node-1",
+		SourceCollection: collection,
+		SourceShard:      seededTenant,
+		TargetNode:       "Node-2",
+		TransferType:     api.COPY.String(),
+	}
+}
+
+// replicaMovementCommand drives a COPY registration through Apply. It writes no
+// schema, so an op in the replication FSM is what says the apply took effect.
+func replicaMovementCommand() gatedCommand {
+	return gatedCommand{
+		cmdType: api.ApplyRequest_TYPE_REPLICATION_REPLICATE,
+		build: func(target string) *api.ApplyRequest {
+			sub, err := json.Marshal(replicaMovementRequest(target))
+			if err != nil {
+				panic(err)
+			}
+			return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_REPLICATION_REPLICATE, SubCommand: sub}
+		},
+		seedEntity: func(t *testing.T, ms *MockStore, target string) {
+			// setupApplyTest swaps the schema manager, and Manager.Replicate
+			// validates against the schema reader it was built over.
+			ms.store.replicationManager = replication.NewManager(
+				ms.store.schemaManager.NewSchemaReader(), ms.cfg.NodeSelector, prometheus.NewPedanticRegistry())
+			seedClass(t, ms, target)
+		},
+		expectApplied: func(t *testing.T, ms *MockStore, _ string) {},
+		landed: func(ms *MockStore, _ string) bool {
+			_, ok := ms.store.replicationManager.GetReplicationFSM().GetOpByUuid(replicaMovementUUID)
+			return ok
 		},
 	}
 }
@@ -754,9 +809,9 @@ func TestExecuteGate_RefusesBeforeTheAppend(t *testing.T) {
 }
 
 // applyState is one namespace state the FSM has to apply through, seeded onto
-// alpha. The missing case is deliberate: an entry can commit before the
-// namespace it names is known locally, and refusing it in Apply would diverge
-// from a node that already has it.
+// alpha. The missing case is deliberate. An entry admitted before its namespace
+// is removed can commit after the removal, and the commands gatedCommands
+// drives still apply then.
 type applyState struct {
 	name string
 	seed func(*testing.T, *namespaces.Controller)
@@ -786,11 +841,10 @@ func applyStateNamed(t *testing.T, name string) applyState {
 	return applyState{}
 }
 
-// TestApplyGate_GatedTypesIgnoreNamespaceState is the guard that keeps every
-// namespace check out of the FSM. Apply must be a pure function of the log, so a
-// committed entry has to apply in every namespace state, live and on replay.
-// Re-adding a gate to any arm fails this test, and would otherwise have one
-// binary carry out what another refuses.
+// TestApplyGate_GatedTypesIgnoreNamespaceState keeps a check that refuses a
+// suspended namespace out of the Store.Apply arms of the commands gatedCommands
+// drives. A committed entry of those types has to apply in every namespace
+// state, live and on replay, or one binary carries out what another refuses.
 //
 // One table for all three buckets, because they now answer alike: before the
 // checks moved ahead of the append the shard-materializing arms were the
@@ -852,10 +906,10 @@ var applyUndrivableGatedTypes = map[api.ApplyRequest_Type]string{
 	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:       "cluster/rbac.TestAddRolesForUserIgnoresTheNamespace",
 }
 
-// TestApplyGate_CoversEveryGatedType fails when a gated type has no apply-side
-// case and no recorded reason for lacking one. Without it, adding a type to a
-// gate map would silently gain propose-side coverage and no guard against the
-// check being put in Apply as well.
+// TestApplyGate_CoversEveryGatedType fails when a type gated only at propose
+// time has no apply-side case and no recorded reason for lacking one. Without
+// it, adding a type to requireActiveProposeTypes or destructiveApplyTypes would
+// gain propose-side coverage and no guard against the check being put in Apply.
 func TestApplyGate_CoversEveryGatedType(t *testing.T) {
 	covered := make(map[api.ApplyRequest_Type]struct{}, len(applyUndrivableGatedTypes))
 	for _, c := range gatedCommands() {
@@ -901,6 +955,28 @@ func TestApplyGate_DestructiveTypesApplyDuringReplay(t *testing.T) {
 	require.NoError(t, resp.Error)
 	require.Empty(t, ms.store.SchemaReader().ClassEqual("alpha:Foo"),
 		"replay must not resurrect a class the committed entry deleted")
+}
+
+// TestApplyGate_RefusesReplicaMovementAfterSuspend applies a replica movement
+// after alpha's suspend. A movement commits in that order when it is proposed
+// while the suspend is appended but not yet applied.
+func TestApplyGate_RefusesReplicaMovementAfterSuspend(t *testing.T) {
+	const target = "alpha:Foo"
+
+	ms, log := setupApplyTest(t)
+	seedNamespaceInState(t, ms.cfg.NamespacesController, "alpha", api.NamespaceStateSuspended)
+	movement := replicaMovementCommand()
+	movement.seedEntity(t, &ms, target)
+
+	data, err := gproto.Marshal(movement.build(target))
+	require.NoError(t, err)
+	log.Data = data
+
+	resp, ok := ms.store.Apply(log).(Response)
+	require.True(t, ok)
+	require.ErrorIs(t, resp.Error, namespaces.ErrNamespaceSuspended)
+	require.False(t, movement.landed(&ms, target), "a refused movement must store no op")
+	require.Equal(t, float64(1), testutil.ToFloat64(ms.store.metrics.applyFailures))
 }
 
 func TestSubjectNamespace(t *testing.T) {
@@ -1085,6 +1161,27 @@ func TestExecuteGate_RejectsShardStatusApplyType(t *testing.T) {
 	// admitted whatever the namespace map holds.
 	t.Run("an unqualified class is admitted", func(t *testing.T) {
 		assertProposeAdmits(t, statusCmd("Foo"), alphaAt(api.NamespaceStateSuspended))
+	})
+}
+
+// TestExecuteGate_RefusesReplicaMovement drives a replica movement through the
+// propose-time check. The command carries no Class, so a suspended alpha refuses
+// it only when the check reads the subcommand's collection.
+func TestExecuteGate_RefusesReplicaMovement(t *testing.T) {
+	movementCmd := proposeCommand{
+		name:    "TYPE_REPLICATION_REPLICATE",
+		cmdType: api.ApplyRequest_TYPE_REPLICATION_REPLICATE,
+		jsonSub: replicaMovementRequest("alpha:Books"),
+	}
+
+	for _, c := range inactiveNamespaceCases() {
+		t.Run(c.name, func(t *testing.T) {
+			assertProposeRefuses(t, movementCmd, c)
+		})
+	}
+
+	t.Run("active namespace admitted", func(t *testing.T) {
+		assertProposeAdmits(t, movementCmd, alphaAt(api.NamespaceStateActive))
 	})
 }
 
