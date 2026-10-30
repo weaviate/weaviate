@@ -32,12 +32,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// The pre-submit cleanup sweep walks the shards a submit names (every shard
-// when it names none) to wipe the on-disk leftovers of a cancelled reindex.
-// On a multi-tenant collection most of those shards are tenants that hold
-// nothing to wipe, and hydrating them just to find that out costs a full shard
-// load each. The sweep therefore answers "is there anything here?" from the
-// tenant's directory listing and leaves a clean, unloaded tenant unloaded.
+// The pre-submit sweep walks the shards a submit names (all, if none). It
+// skips an unloaded shard whose directory listing shows nothing to sweep,
+// since hydrating it just to find that out costs a full shard load.
 //
 // This journey pins all three populations that answer differently, in one
 // run against one collection:

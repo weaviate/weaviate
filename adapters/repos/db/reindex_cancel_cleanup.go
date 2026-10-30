@@ -27,8 +27,8 @@ import (
 )
 
 // StalePartialReindexSweep wipes on-disk runtime-reindex state for one
-// (collection, property, indexType) tuple across the local shards its
-// constructor scoped it to: every local shard when given no tenants.
+// (collection, property, indexType) tuple across the shards named at
+// construction, or every local shard if none were.
 //
 // One value belongs to one goroutine and must not outlive the request or
 // timeout window that built it: it caches directory listings across calls
@@ -49,8 +49,7 @@ type StalePartialReindexSweep func(ctx context.Context, collection, propName, in
 // ([autoCleanupAfterTerminal]).
 //
 // A missing local collection reports [ErrCleanupCollectionDropped], not a
-// clean sweep. Non-empty tenants scopes the sweep to those shards, so a
-// tenant-scoped task skips tenants it never touched.
+// clean sweep.
 func (db *DB) NewStalePartialReindexSweep(tenants []string) StalePartialReindexSweep {
 	dirs := &dirNamesCache{}
 	return func(ctx context.Context, collection, propName, indexType string) error {
