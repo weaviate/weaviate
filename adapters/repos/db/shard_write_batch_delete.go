@@ -66,6 +66,11 @@ func (b *deleteObjectsBatcher) delete(ctx context.Context, uuids []strfmt.UUID, 
 	b.objects = b.deleteSingleBatchInLSM(ctx, uuids, deletionTime, dryRun)
 }
 
+// errBatchSlotNotProcessed marks a batch slot no delete ever wrote to. A delete that
+// died mid-way may still have written its tombstone, so the message claims
+// only that no outcome was reported.
+var errBatchSlotNotProcessed = errors.New("no delete reported an outcome for this object")
+
 func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
 	batch []strfmt.UUID, deletionTime time.Time, dryRun bool,
 ) objects.BatchSimpleObjects {
@@ -75,10 +80,16 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
 	result := make(objects.BatchSimpleObjects, len(batch))
 	objLock := &sync.Mutex{}
 
+	// seed each slot so a goroutine that panics before writing it reads as failed,
+	// since every caller takes a nil Err for a deleted object. The uuid names the object.
+	for i := range result {
+		result[i] = objects.BatchSimpleObject{UUID: batch[i], Err: errBatchSlotNotProcessed}
+	}
+
 	// if the context is expired fail all
 	if err := ctx.Err(); err != nil {
 		for i := range result {
-			result[i] = objects.BatchSimpleObject{Err: errors.Wrap(err, "begin batch")}
+			result[i].Err = errors.Wrap(err, "begin batch")
 		}
 		return result
 	}
@@ -107,7 +118,8 @@ outer:
 		lastDeleted = i
 
 	}
-	// safe to ignore error, as the internal routines never return an error
+	// each slot carries its own outcome; the only error Wait can report is a
+	// recovered panic, whose slot still holds errBatchSlotNotProcessed
 	eg.Wait()
 
 	ctxErr := ctx.Err()

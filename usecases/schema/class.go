@@ -185,9 +185,9 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	// Read the limit before the count: no cap is the default, and the count
-	// costs a round trip to the leader whose answer an uncapped cluster
-	// discards.
+	// This check fails fast on the local schema, which can lag the leader.
+	// The authoritative cap check runs in the schema FSM's PreApplyFilter
+	// before the AddClass commits.
 	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
 	if limit != config.DefaultMaximumAllowedCollectionsCount {
 		// On namespace-enabled clusters the cap is enforced per namespace.
@@ -198,12 +198,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 			countNamespace = principal.Namespace
 		}
 
-		existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount(countNamespace)
-		if err != nil {
-			h.logger.WithField("namespace", countNamespace).Errorf("could not query the collections count: %v", err)
-		}
-
-		if existingCollectionsCount >= limit {
+		if h.schemaReader.CollectionsCount(countNamespace) >= limit {
 			// Migrated from a free-text 422 to a typed 429 / RESOURCE_EXHAUSTED
 			// in the usage-limits work; see docs/usage_limits.md for the wire
 			// contract.
@@ -639,7 +634,13 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 			}
 		}
 
-		if err := validateImmutableFields(initial, updated, h.parser.modules); err != nil {
+		allowed, err := mutableSettingsChanges(h.parser.modules, initial, updated, func(module, targetVector string) error {
+			return h.moduleConfig.ValidateModuleConfig(ctx, updated, module, targetVector)
+		})
+		if err != nil {
+			return err
+		}
+		if err := validateImmutableFields(initial, updated, h.parser.modules, allowed); err != nil {
 			return err
 		}
 	}
@@ -1808,7 +1809,7 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 	return enabled, err
 }
 
-func validateImmutableFields(initial, updated *models.Class, modulesProvider modulesProvider) error {
+func validateImmutableFields(initial, updated *models.Class, modulesProvider modulesProvider, allowed map[string][]string) error {
 	immutableFields := []immutableText{
 		{
 			name:     "class name",
@@ -1853,12 +1854,18 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 		updated.VectorConfig[k] = v
 
 		if !deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			if _, ok := allowed[k]; ok {
+				continue
+			}
+
 			// There might be module settings that need to be migrated to new names, for example
 			// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
 			// and migrate baseUrl to baseURL
-			if modulesProvider.MigrateVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			// initial shares its maps with the stored schema, so the migration runs on a copy.
+			initialVectorizer := structToMap(initial.VectorConfig[k].Vectorizer)
+			if modulesProvider.MigrateVectorizerSettings(initialVectorizer, v.Vectorizer) {
 				// Module settings have been migrated, let's recheck vectorizer settings
-				if deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+				if deepEqualVectorizerSettings(initialVectorizer, v.Vectorizer) {
 					continue
 				}
 			}
@@ -1891,6 +1898,42 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 
 func deepEqualVectorizerSettings(initial, updated any) bool {
 	return reflect.DeepEqual(structToMap(initial), structToMap(updated))
+}
+
+// mutableSettingsChanges returns the modules whose settings changed in a way the module allows, keyed by target
+// vector ("" for the class-level moduleConfig), and stops at the first error validate returns for one of them.
+// It must run before MigrateVectorizerSettings overwrites initial.
+func mutableSettingsChanges(modulesProvider modulesProvider, initial, updated *models.Class,
+	validate func(module, targetVector string) error,
+) (map[string][]string, error) {
+	changes := map[string][]string{}
+	collect := func(targetVector string, initialConfig, updatedConfig map[string]any) error {
+		for module := range updatedConfig {
+			initialSettings, _ := initialConfig[module].(map[string]any)
+			updatedSettings, _ := updatedConfig[module].(map[string]any)
+			if initialSettings != nil && updatedSettings != nil && !reflect.DeepEqual(initialSettings, updatedSettings) &&
+				modulesProvider.MutableSettings(module, initialSettings, updatedSettings) {
+				if err := validate(module, targetVector); err != nil {
+					return err
+				}
+				changes[targetVector] = append(changes[targetVector], module)
+			}
+		}
+		return nil
+	}
+
+	if err := collect("", structToMap(initial.ModuleConfig), structToMap(updated.ModuleConfig)); err != nil {
+		return nil, err
+	}
+	for name, vectorConfig := range updated.VectorConfig {
+		initialVectorizer, updatedVectorizer := structToMap(initial.VectorConfig[name].Vectorizer), structToMap(vectorConfig.Vectorizer)
+		if len(initialVectorizer) == 1 && len(updatedVectorizer) == 1 {
+			if err := collect(name, initialVectorizer, updatedVectorizer); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return changes, nil
 }
 
 func structToMap(obj any) (objMap map[string]any) {

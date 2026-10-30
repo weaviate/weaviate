@@ -152,9 +152,9 @@ func (f *fakeSchemaManager) QuerySchema() (models.Schema, error) {
 	return args.Get(0).(models.Schema), args.Error(1)
 }
 
-func (f *fakeSchemaManager) QueryCollectionsCount(namespace string) (int, error) {
+func (f *fakeSchemaManager) CollectionsCount(namespace string) int {
 	args := f.Called(namespace)
-	return args.Get(0).(int), args.Error(1)
+	return args.Int(0)
 }
 
 func (f *fakeSchemaManager) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
@@ -372,6 +372,10 @@ func (f *fakeStore) UpdateClass(cls *models.Class) error {
 
 	cls.VectorIndexConfig = u.VectorIndexConfig
 	cls.InvertedIndexConfig = u.InvertedIndexConfig
+	cls.VectorConfig = u.VectorConfig
+	if u.ModuleConfig != nil {
+		cls.ModuleConfig = u.ModuleConfig
+	}
 	return nil
 }
 

@@ -611,6 +611,16 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		startupShards = &startupShardCounters{}
 	}
 
+	var withDirs []string
+	for _, shard := range localShards {
+		// a frozen tenant has no dir, it is prepared when it loads after unfreezing
+		if shard.activityStatus == models.TenantActivityStatusHOT ||
+			shard.activityStatus == models.TenantActivityStatusCOLD {
+			withDirs = append(withDirs, shard.name)
+		}
+	}
+	i.rebuildShardsBeforeLoad(ctx, class, withDirs)
+
 	hotShardNames := make([]string, 0, len(localShards))
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
@@ -930,25 +940,6 @@ func (i *Index) maintenanceModeEnabled() bool {
 	return i.Config.MaintenanceModeEnabled != nil && i.Config.MaintenanceModeEnabled()
 }
 
-// Iterate over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
-func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard ShardLike, object *storobj.Object) error) (err error) {
-	return i.ForEachShard(func(_ string, shard ShardLike) error {
-		wrapper := func(object *storobj.Object) error {
-			return cb(i, shard, object)
-		}
-		// pinned for the whole iteration: the cursor underneath reads the
-		// bucket's segments, and an unpinned pointer can be shut down between
-		// the lookup and the scan
-		bucket, release := shard.Store().AcquireBucketForRead(helpers.ObjectsBucketLSM)
-		if bucket == nil {
-			return fmt.Errorf("objects bucket of shard %q: %w", shard.Name(), lsmkv.ErrBucketNotFound)
-		}
-		defer release()
-
-		return bucket.IterateObjects(ctx, wrapper)
-	})
-}
-
 // cancelOnCloseRequested derives a context cancelled on close request, so a teardown
 // does not wait behind a lock the caller holds. Call the returned func when done.
 // The derived context is cancelled with the same cause, so a caller can tell a
@@ -1111,13 +1102,6 @@ func (i *Index) ForEachLoadedShardConcurrently(f func(name string, shard ShardLi
 			return nil
 		}
 		return f(name, shard)
-	})
-}
-
-// Iterate over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
-func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard ShardLike) error) (err error) {
-	return i.ForEachShard(func(key string, shard ShardLike) error {
-		return cb(i, shard)
 	})
 }
 
@@ -1498,6 +1482,9 @@ type IndexConfig struct {
 	SkipWriteClassNameOnDisk            bool
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
+	MigrateDimensionsToRoaringSet       bool
+	DimensionsReindex                   *startupRebuild
+	PropertyLengthsRecount              *startupRebuild
 	UsageEnabled                        bool
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
 	StartupShards                       *startupShardCounters
@@ -3341,13 +3328,15 @@ func (i *Index) LoadLocalShardForTenantAdd(ctx context.Context, shardName string
 	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, false, false, callerTenantAdd, "tenant added")
 }
 
-// LoadLocalShardForTenantActivation loads a shard for the apply that records a
-// tenant turning HOT. It skips and returns nil for the same reason
-// [Index.LoadLocalShardForTenantAdd] does.
+// LoadLocalShardForTenantActivation registers a shard for the apply that records
+// a tenant turning HOT. It skips and returns nil for the same reason
+// [Index.LoadLocalShardForTenantAdd] does. Lazy loading opens it on first touch,
+// since a shard opened in the serial apply delays every entry behind it; with
+// lazy loading off it opens regardless, because nothing else would.
 func (i *Index) LoadLocalShardForTenantActivation(ctx context.Context, shardName string,
 	implicitShardLoading bool,
 ) error {
-	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, true, implicitShardLoading,
+	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, !i.Config.EnableLazyLoadShards, implicitShardLoading,
 		callerTenantActivation, "tenant activated")
 }
 
@@ -3359,14 +3348,17 @@ func (i *Index) LoadLocalShardForTenantProcess(ctx context.Context, shardName st
 	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, true, false, callerTenantProcess, "tenant status applied")
 }
 
-// loadLocalShardForReload opens a shard for the reload replaying committed
+// loadLocalShardForReload registers a shard for the reload replaying committed
 // schema. A namespace that keeps no shards open opens none and returns nil: an
 // error here would skip the tenant drops and property adds the same reload
 // owes, and nothing re-runs a reload. The skip is silent, like
 // initAndStoreShards', since a suspended namespace reaches this once per
-// tenant. mustLoad preserves the eager load each call site did before.
-func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string, mustLoad bool) error {
-	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, false, callerReload)
+// tenant. The reload runs from the serial apply, so lazy loading opens the
+// shard on first touch; with lazy loading off it opens regardless, because
+// nothing else would.
+func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string) error {
+	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName,
+		!i.Config.EnableLazyLoadShards, false, callerReload)
 	if stderrors.Is(err, errShardNamespaceClosed) {
 		return nil
 	}
@@ -3814,6 +3806,8 @@ func (i *Index) drop() error {
 	if err := i.beginClose(); err != nil {
 		return err
 	}
+	i.Config.DimensionsReindex.forget(i.ID())
+	i.Config.PropertyLengthsRecount.forget(i.ID())
 
 	// Check if a backup is in progress. Dont delete files in this case so the backup process can complete successfully
 	// The files will be deleted after the backup is completed and in case of a crash on next startup.
@@ -3976,6 +3970,8 @@ func (i *Index) dropShards(names []string) error {
 	ec.Add(eg.Wait())
 
 	i.purgeUnloadedShardRegistry(unloadedNames)
+	i.Config.DimensionsReindex.forget(i.ID(), names...)
+	i.Config.PropertyLengthsRecount.forget(i.ID(), names...)
 
 	return ec.ToErrorLimited(maxReportedErrors)
 }
@@ -4052,8 +4048,12 @@ func (i *Index) Shutdown(ctx context.Context) error {
 		return err
 	}
 
-	ec := errorcompounder.NewSafe()
+	// requestCycleStops runs first so the cycles start no compaction or flush
+	// during the shard shutdown. waitForCycleStops runs after the shards, so a
+	// callback that ignores the abort cannot use up their ctx.
+	cycleStops := i.requestCycleStops()
 
+	ec := errorcompounder.NewSafe()
 	ec.Add(i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
 		i.backupLock.RLock(name)
 		defer i.backupLock.RUnlock(name)
@@ -4067,18 +4067,26 @@ func (i *Index) Shutdown(ctx context.Context) error {
 		}
 		return nil
 	}))
-
-	// the cycle managers must stop even when a shard failed to shut down
-	ec.Add(i.stopCycleManagers(ctx, "shutdown"))
+	ec.Add(waitForCycleStops(ctx, "shutdown", cycleStops))
 
 	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 // stopCycleManagers asks every cycle to stop before waiting for any of them, so
-// one slow cycle cannot use up ctx before the others were asked. The index is
-// being closed or deleted, so the cycles are stopped even when ctx already
-// expired; ctx only bounds how long we wait. Joining keeps each failure matchable.
+// one slow cycle cannot use up ctx before the others were asked.
 func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
+	return waitForCycleStops(ctx, usecase, i.requestCycleStops())
+}
+
+// cycleStop is a cycle's pending stop result, named for the error that reports it.
+type cycleStop struct {
+	name   string
+	result chan bool
+}
+
+// requestCycleStops asks every cycle to stop without waiting. The index is being
+// closed or deleted, so the request outlives any ctx.
+func (i *Index) requestCycleStops() []cycleStop {
 	// which data each compaction cycle covers depends on SeparateObjectsCompactions
 	compaction, compactionAux := "compaction", "auxiliary compaction"
 	if i.Config.SeparateObjectsCompactions {
@@ -4098,38 +4106,23 @@ func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
 		{"geo props tombstone cleanup", i.cycleCallbacks.geoPropsTombstoneCleanupCycle},
 	}
 
-	stopResults := make([]chan bool, len(cycles))
+	stops := make([]cycleStop, len(cycles))
 	for j, c := range cycles {
-		stopResults[j] = c.cycle.Stop(context.Background())
+		stops[j] = cycleStop{name: c.name, result: c.cycle.Stop(context.Background())}
 	}
+	return stops
+}
 
+// waitForCycleStops reports every cycle that kept running or had not stopped when
+// ctx expired. Joining keeps each failure matchable.
+func waitForCycleStops(ctx context.Context, usecase string, stops []cycleStop) error {
 	var errs []error
-	for j, c := range cycles {
-		if err := waitForCycleStop(ctx, stopResults[j]); err != nil {
-			errs = append(errs, fmt.Errorf("%s: stop %s cycle: %w", usecase, c.name, err))
+	for _, stop := range stops {
+		if err := cyclemanager.WaitForStop(ctx, stop.result); err != nil {
+			errs = append(errs, fmt.Errorf("%s: stop %s cycle: %w", usecase, stop.name, err))
 		}
 	}
 	return stderrors.Join(errs...)
-}
-
-// waitForCycleStop waits for a stop result, preferring it over an expired ctx when
-// both are ready, so a cycle that did stop is not reported as a failure.
-func waitForCycleStop(ctx context.Context, stopResult chan bool) error {
-	var stopped bool
-	select {
-	case stopped = <-stopResult:
-	case <-ctx.Done():
-		// select picks randomly when both are ready, so the result is checked again
-		select {
-		case stopped = <-stopResult:
-		default:
-			return ctx.Err()
-		}
-	}
-	if !stopped {
-		return stderrors.New("cycle kept running")
-	}
-	return nil
 }
 
 func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[string]int64, error) {

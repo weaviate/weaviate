@@ -18,10 +18,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -33,6 +33,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -91,8 +92,8 @@ type Segment interface {
 	quantileKeys(q int) [][]byte
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	replaceStratParseData(in []byte) ([]byte, []byte, error)
-	roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (*sroar.Bitmap, func(), error)
-	roaringSetMergeWith(key []byte, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error
+	roaringSetGet(key []byte, h bloomhash.Hash, bitmapBufPool roaringset.BitmapBufPool) (*sroar.Bitmap, func(), error)
+	roaringSetMergeWith(key []byte, h bloomhash.Hash, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error
 
 	// map/bmw specific
 	getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool)
@@ -526,6 +527,19 @@ func (s *segment) close() error {
 	return nil
 }
 
+// segmentSidecarExtensions lists the extensions of the files a segment writes beside
+// its .db, the same set sidecarPaths builds per-segment paths for.
+var segmentSidecarExtensions = []string{".bloom", CountNetAdditionsFileSuffix, MetadataFileSuffix}
+
+// isSegmentSidecarName reports whether a file name is one of those files. It reads
+// the extension alone, because what sits before it varies: a secondary bloom
+// carries its index, and writeSegmentInfoIntoFileName adds a level and a strategy.
+func isSegmentSidecarName(name string) bool {
+	return slices.ContainsFunc(segmentSidecarExtensions, func(ext string) bool {
+		return strings.HasSuffix(name, ext)
+	})
+}
+
 // sidecarPaths returns the paths of the files derived from the segment: bloom
 // filters, count net additions and metadata.
 func (s *segment) sidecarPaths() []string {
@@ -794,13 +808,13 @@ type meteredOffsetReader struct {
 }
 
 func (r *meteredOffsetReader) Read(p []byte) (int, error) {
-	start := time.Now()
 	n, err := r.ra.ReadAt(p, r.off)
 	r.off += int64(n)
 	if err != nil {
 		return n, err
 	}
-	r.observe(int64(n), time.Since(start).Nanoseconds())
+	// the observer records bytes only, so the read is not timed
+	r.observe(int64(n), 0)
 	return n, nil
 }
 
@@ -900,14 +914,14 @@ func (s *segment) preadInto(b []byte, off uint64, operation string) error {
 		return fmt.Errorf("%s: nil contentFile for segment at %s", operation, s.path)
 	}
 
-	readStart := time.Now()
 	// ReadAt errors on a short read; all io.ReadFull adds is io.ErrUnexpectedEOF in place of io.EOF
 	n, err := s.contentFile.ReadAt(b, int64(off))
 	if err != nil {
 		return fmt.Errorf("%s: %w", operation, err)
 	}
 	observe := readObserver.GetOrCreate(readMetricName(operation), s.metrics)
-	observe(int64(n), time.Since(readStart).Nanoseconds())
+	// the observer records bytes only, so the read is not timed
+	observe(int64(n), 0)
 	return nil
 }
 

@@ -671,4 +671,36 @@ func TestPostingMetadataStore(t *testing.T) {
 		_, err = NewPostingMapStore(bucket, postingMapBucketPrefixV2).Get(ctx, 42)
 		require.ErrorIs(t, err, ErrPostingNotFound)
 	})
+
+	t.Run("legacy batch does not allocate without legacy rows", func(t *testing.T) {
+		bucket := makePostingMetadataBucket(t)
+		err := NewPostingMapStore(bucket, postingMapBucketPrefixV2).Set(ctx, 42, NewPackedPostingMetadata([]uint64{1, 2}))
+		require.NoError(t, err)
+
+		batch, err := legacyPostingMapBatch(ctx, bucket, postingMapMigrationBatchSize)
+		require.NoError(t, err)
+		require.Empty(t, batch)
+		require.Zero(t, cap(batch))
+	})
+
+	t.Run("legacy batch limit counts empty rows", func(t *testing.T) {
+		bucket := makePostingMetadataBucket(t)
+		for postingID := range uint64(5) {
+			err := mustBucket(t, bucket).Put(postingMapKey(postingMapBucketPrefixV1, postingID), nil)
+			require.NoError(t, err)
+		}
+		for postingID := uint64(5); postingID < 7; postingID++ {
+			err := mustBucket(t, bucket).Put(postingMapKey(postingMapBucketPrefixV1, postingID), legacyPackedPostingMetadata(postingID))
+			require.NoError(t, err)
+		}
+
+		batch, err := legacyPostingMapBatch(ctx, bucket, 3)
+		require.NoError(t, err)
+		require.Len(t, batch, 3)
+
+		err = migratePostingMapV1ToV2(ctx, bucket, logrus.New())
+		require.NoError(t, err)
+		require.Equal(t, 0, countKeysWithPrefix(mustBucket(t, bucket), postingMapBucketPrefixV1))
+		require.Equal(t, 2, countKeysWithPrefix(mustBucket(t, bucket), postingMapBucketPrefixV2))
+	})
 }

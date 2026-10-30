@@ -151,9 +151,11 @@ func (h *hnsw) checkAndCompress() error {
 								h.compressor.PreloadPassage(index, docID, relativeID, data[index])
 							})
 					}
+					// the field stays set: readers that checked h.compressed
+					// before the flip hold no lock against us and must find a
+					// dropped cache, not nil
 					h.cache.Drop()
 				}
-				h.cache = nil
 				h.compressor.PersistCompression(h.commitLog)
 			}
 		})

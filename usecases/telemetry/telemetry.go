@@ -22,6 +22,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -39,6 +40,10 @@ const (
 	DefaultTelemetryConsumerURL = "aHR0cHM6Ly90ZWxlbWV0cnkud2Vhdmlh" +
 		"dGUuaW8vd2VhdmlhdGUtdGVsZW1ldHJ5"
 	DefaultTelemetryPushInterval = 24 * time.Hour
+
+	// defaultPushTimeout bounds each push, so an unresponsive consumer cannot
+	// block the update loop or Stop.
+	defaultPushTimeout = 10 * time.Second
 )
 
 type nodesStatusGetter interface {
@@ -52,9 +57,10 @@ type Telemeter struct {
 	schemaManager      schema.SchemaGetter
 	logger             logrus.FieldLogger
 	shutdown           chan struct{}
-	failedToStart      bool
+	failedToStart      atomic.Bool
 	consumer           string
 	pushInterval       time.Duration
+	pushTimeout        time.Duration
 	clientTracker      *ClientTracker
 	integrationTracker *IntegrationTracker
 	cloudInfoHelper    *cloudInfoHelper
@@ -105,6 +111,7 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schema.SchemaGetter,
 		shutdown:             make(chan struct{}),
 		consumer:             consumerURL,
 		pushInterval:         pushInterval,
+		pushTimeout:          defaultPushTimeout,
 		clientTracker:        NewClientTracker(logger),
 		cloudInfoHelper:      newCloudInfoHelper(logger, cfg.Enabled),
 		nodeID:               cfg.NodeID,
@@ -136,7 +143,7 @@ func (tel *Telemeter) GetIntegrationTracker() *IntegrationTracker {
 func (tel *Telemeter) Start(ctx context.Context) error {
 	payload, err := tel.push(ctx, PayloadType.Init)
 	if err != nil {
-		tel.failedToStart = true
+		tel.failedToStart.Store(true)
 		return fmt.Errorf("push: %w", err)
 	}
 	f := func() {
@@ -147,7 +154,14 @@ func (tel *Telemeter) Start(ctx context.Context) error {
 			case <-tel.shutdown:
 				return
 			case <-t.C:
-				payload, err = tel.push(ctx, PayloadType.Update)
+				// After a push longer than the interval a tick is always ready,
+				// and select could keep choosing it over a waiting Stop.
+				select {
+				case <-tel.shutdown:
+					return
+				default:
+				}
+				payload, err := tel.push(ctx, PayloadType.Update)
 				if err != nil {
 					tel.logger.
 						WithField("action", "telemetry_push").
@@ -185,7 +199,7 @@ func (tel *Telemeter) Stop(ctx context.Context) error {
 		}
 	}()
 
-	if tel.failedToStart {
+	if tel.failedToStart.Load() {
 		return nil
 	}
 
@@ -227,7 +241,14 @@ func (tel *Telemeter) push(ctx context.Context, payloadType string) (*Payload, e
 		return nil, fmt.Errorf("decode url: %w", err)
 	}
 
-	resp, err := http.Post(string(url), "application/json", bytes.NewReader(b))
+	ctx, cancel := context.WithTimeout(ctx, tel.pushTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, string(url), bytes.NewReader(b))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

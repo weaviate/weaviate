@@ -210,8 +210,13 @@ type Config struct {
 	// unlimited), enforced pre-commit on the leader.
 	MaxTenantsPerCollection *runtime.DynamicValue[int]
 
+	// MaxCollections caps collections per namespace, or in total on a
+	// non-namespaced cluster (nil/negative = unlimited), enforced pre-commit on
+	// the leader.
+	MaxCollections *runtime.DynamicValue[int]
+
 	// UsageLimitsErrorMessage (USAGE_LIMITS_ERROR_MESSAGE) is rendered into the
-	// tenant-cap rejection, matching the handler fast-path.
+	// tenant-cap and collection-cap rejections, matching the handler fast-path.
 	UsageLimitsErrorMessage *runtime.DynamicValue[string]
 
 	// Replica-movement cleanup knobs. The sweeper re-reads them every tick, so
@@ -300,6 +305,11 @@ type Store struct {
 	// pre-commit tenant-cap check cannot race the apply that increments the count.
 	tenantAddLocks *entsync.KeyLocker
 
+	// collectionAddLocks serializes AddClass per namespace on the leader so the
+	// pre-commit collection-cap check cannot race the apply that increments the
+	// count.
+	collectionAddLocks *entsync.KeyLocker
+
 	taskMovementLocks *entsync.KeyLocker
 
 	// authZController is the authz controller for the store
@@ -313,8 +323,15 @@ type Store struct {
 
 // storeMetrics exposes RAFT store related prometheus metrics
 type storeMetrics struct {
-	applyDuration prometheus.Histogram
+	applyDuration *prometheus.HistogramVec
 	applyFailures prometheus.Counter
+
+	// waitForIndex times every wait for a schema version, by outcome.
+	waitForIndex *prometheus.HistogramVec
+
+	// waitForIndexGap is how many entries short a wait was when it gave up: a couple points at
+	// something other than lag, thousands at a node still catching up.
+	waitForIndexGap prometheus.Histogram
 
 	// raftLastAppliedIndex represents current applied index of a raft cluster in local node.
 	// This includes every commands including config changes
@@ -338,12 +355,14 @@ type storeMetrics struct {
 func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 	r := promauto.With(reg)
 	return &storeMetrics{
-		applyDuration: r.NewHistogram(prometheus.HistogramOpts{
+		applyDuration: r.NewHistogramVec(prometheus.HistogramOpts{
 			Name:        "weaviate_cluster_store_fsm_apply_duration_seconds",
-			Help:        "Time to apply cluster store FSM state in local node",
+			Help:        "Time to apply cluster store FSM state in local node, by command type",
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
-			Buckets:     prometheus.ExponentialBuckets(0.001, 5, 5), // 1ms, 5ms, 25ms, 125ms, 625ms
-		}),
+			// The first five bounds are the original ones, kept so history still compares.
+			// The rest reach past a second, which the old cap could not.
+			Buckets: []float64{0.001, 0.005, 0.025, 0.125, 0.625, 2.5, 10, 30, 60},
+		}, []string{"cmd_type"}),
 		applyFailures: r.NewCounter(prometheus.CounterOpts{
 			Name:        "weaviate_cluster_store_fsm_apply_failures_total",
 			Help:        "Total failure count of cluster store FSM state apply in local node",
@@ -369,6 +388,20 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 			Help:        "Catch-up barriers issued by this node after winning an election",
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
 		}),
+		waitForIndex: r.NewHistogramVec(prometheus.HistogramOpts{
+			Name:        "weaviate_cluster_store_wait_for_index_duration_seconds",
+			Help:        "Time spent waiting for the local FSM to reach a schema version, by outcome",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+			Buckets: []float64{
+				0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 60,
+			},
+		}, []string{"outcome"}),
+		waitForIndexGap: r.NewHistogram(prometheus.HistogramOpts{
+			Name:        "weaviate_cluster_store_wait_for_index_gap_entries",
+			Help:        "Entries still missing when a wait for a schema version gave up",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+			Buckets:     []float64{1, 2, 5, 10, 25, 50, 100, 500, 1000, 5000, 10000, 100000},
+		}),
 	}
 }
 
@@ -377,12 +410,16 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 	schemaManager.SetMetadataOnly(cfg.MetadataOnlyVoters)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
+	errTemplate := func() string { return "" }
+	if t := cfg.UsageLimitsErrorMessage; t != nil {
+		errTemplate = t.Get
+	}
 	if dv := cfg.MaxTenantsPerCollection; dv != nil {
-		errTemplate := func() string { return "" }
-		if t := cfg.UsageLimitsErrorMessage; t != nil {
-			errTemplate = t.Get
-		}
 		schemaManager.SetTenantLimit(dv.Get, errTemplate)
+	}
+	// Guarded: a nil DynamicValue's Get returns 0, which would cap at zero.
+	if dv := cfg.MaxCollections; dv != nil {
+		schemaManager.SetCollectionLimit(dv.Get, errTemplate)
 	}
 
 	// Two-way wiring: mutation-guard (prevents schema↔reindex races) and
@@ -433,6 +470,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		}),
 		schemaManager:           schemaManager,
 		tenantAddLocks:          entsync.NewKeyLocker(),
+		collectionAddLocks:      entsync.NewKeyLocker(),
 		taskMovementLocks:       entsync.NewKeyLocker(),
 		authZController:         authZController,
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
@@ -823,22 +861,50 @@ func (st *Store) trackDBLoadProgress() func() {
 	return func() { close(done) }
 }
 
+// Outcomes of a wait for a schema version, as the waitForIndex label.
+const (
+	waitOutcomeImmediate = "immediate"
+	waitOutcomeCaughtUp  = "caught_up"
+	waitOutcomeDeadline  = "deadline"
+	waitOutcomeCanceled  = "canceled"
+)
+
 // WaitForAppliedIndex waits until the update with the given version is propagated to this follower node
 func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, version uint64) error {
-	if idx := st.lastAppliedIndex.Load(); idx >= version {
+	start := time.Now()
+	outcome := waitOutcomeDeadline
+	defer func() {
+		st.metrics.waitForIndex.WithLabelValues(outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	idx := st.lastAppliedIndex.Load()
+	if idx >= version {
+		outcome = waitOutcomeImmediate
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, st.cfg.ConsistencyWaitTimeout)
 	defer cancel()
 	ticker := time.NewTicker(period)
 	defer ticker.Stop()
-	var idx uint64
 	for {
 		select {
 		case <-ctx.Done():
+			// Re-read rather than trust the last tick: the FSM can advance in the gap before the
+			// deadline, and reporting that stale value records too large a gap and fails a wait
+			// that has in fact caught up.
+			if idx = st.lastAppliedIndex.Load(); idx >= version {
+				outcome = waitOutcomeCaughtUp
+				return nil
+			}
+			if errors.Is(ctx.Err(), context.Canceled) {
+				outcome = waitOutcomeCanceled
+				return fmt.Errorf("%w: version got=%d  want=%d", ctx.Err(), idx, version)
+			}
+			st.metrics.waitForIndexGap.Observe(float64(version - idx))
 			return fmt.Errorf("%w: version got=%d  want=%d", types.ErrDeadlineExceeded, idx, version)
 		case <-ticker.C:
 			if idx = st.lastAppliedIndex.Load(); idx >= version {
+				outcome = waitOutcomeCaughtUp
 				return nil
 			} else {
 				st.log.WithFields(logrus.Fields{
@@ -1110,10 +1176,11 @@ func (st *Store) FSMHasCaughtUp() bool {
 	return st.lastAppliedIndex.Load() >= st.lastAppliedIndexToDB.Load()
 }
 
-// shouldLogSlowApply reports whether slow RAFT apply diagnostics should be
-// emitted: current leader, store ready, and past startup FSM catch-up.
+// shouldLogSlowApply reports whether slow RAFT apply diagnostics should be emitted. Not gated on
+// leadership: a follower's apply loop is serial too, and it is the follower that rejects a read
+// for a version it has not reached.
 func (st *Store) shouldLogSlowApply() bool {
-	return st.IsLeader() && st.Ready() && st.FSMHasCaughtUp()
+	return st.Ready() && st.FSMHasCaughtUp()
 }
 
 type Response struct {

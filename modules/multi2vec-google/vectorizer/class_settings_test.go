@@ -238,6 +238,29 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "should not pass with a projectId carrying path segments",
+			fields: fields{
+				cfg: newConfigBuilder().
+					addSetting("location", "us-central1").
+					addSetting("projectId", "a/../../other").
+					addSetting("imageFields", []any{"image1"}).
+					build(),
+			},
+			wantErr: true,
+		},
+		{
+			name: "should not pass with a model that is a dot segment",
+			fields: fields{
+				cfg: newConfigBuilder().
+					addSetting("location", "us-central1").
+					addSetting("projectId", "projectId").
+					addSetting("model", "..").
+					addSetting("imageFields", []any{"image1"}).
+					build(),
+			},
+			wantErr: true,
+		},
+		{
 			name: "should not pass with a location carrying a host",
 			fields: fields{
 				cfg: newConfigBuilder().

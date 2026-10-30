@@ -303,11 +303,11 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		// capture the base descriptors passed to the uploader to prove this
 		// node deduplicates against nothing (full upload)
-		var gotBaseDescrs []*backup.BackupDescriptor
+		var gotBaseDescrs []*backup.BaseBackupDescriptor
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
 		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch).Run(func(a mock.Arguments) {
-			gotBaseDescrs = a.Get(3).([]*backup.BackupDescriptor)
+			gotBaseDescrs = a.Get(3).([]*backup.BaseBackupDescriptor)
 		})
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 

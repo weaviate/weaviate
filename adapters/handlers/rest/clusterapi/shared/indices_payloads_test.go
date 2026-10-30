@@ -876,3 +876,48 @@ func TestObjectListUnmarshalDoesNotAliasInput(t *testing.T) {
 		})
 	}
 }
+
+// TestBatchDeleteResultsCarriesAFailedSlot pins that a failed slot crosses the wire with its message
+// instead of failing the whole decode.
+func TestBatchDeleteResultsCarriesAFailedSlot(t *testing.T) {
+	const (
+		okID     = strfmt.UUID("11111111-1111-1111-1111-111111111111")
+		failedID = strfmt.UUID("22222222-2222-2222-2222-222222222222")
+	)
+	payload := IndicesPayloads.BatchDeleteResults
+
+	in := objects.BatchSimpleObjects{
+		{UUID: okID},
+		{UUID: failedID, Err: stderrors.New("shard is read-only")},
+	}
+
+	encoded, err := payload.Marshal(in)
+	require.NoError(t, err)
+
+	out, err := payload.Unmarshal(encoded)
+	require.NoError(t, err)
+	require.Len(t, out, 2)
+
+	assert.Equal(t, okID, out[0].UUID)
+	assert.NoError(t, out[0].Err, "a slot that deleted stays a success across the wire")
+
+	assert.Equal(t, failedID, out[1].UUID,
+		"the failed slot names its object, so a caller can say which one")
+	require.Error(t, out[1].Err)
+	assert.Contains(t, out[1].Err.Error(), "shard is read-only")
+}
+
+// TestBatchDeleteResultsReadsAnOlderPeersFailure covers a coordinator on this build decoding a
+// shard still on the build before the slot codec, which wrote a failure as an empty object.
+func TestBatchDeleteResultsReadsAnOlderPeersFailure(t *testing.T) {
+	legacy := []byte(`[{"UUID":"11111111-1111-1111-1111-111111111111","Err":null},` +
+		`{"UUID":"22222222-2222-2222-2222-222222222222","Err":{}}]`)
+
+	out, err := IndicesPayloads.BatchDeleteResults.Unmarshal(legacy)
+	require.NoError(t, err)
+	require.Len(t, out, 2)
+
+	assert.NoError(t, out[0].Err)
+	require.Error(t, out[1].Err, "an older peer's failure must not read as a success")
+	assert.ErrorIs(t, out[1].Err, objects.ErrRemoteDeleteUnreadable)
+}

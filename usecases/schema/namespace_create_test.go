@@ -164,6 +164,13 @@ func TestAddClass(t *testing.T) {
 			class:      "C" + strings.Repeat("x", 254),
 			wantErrMsg: "namespaced names must be at most",
 		},
+		{
+			name:       "first letter whose uppercase is ASCII rejected",
+			enabled:    false,
+			principal:  globalPrincipal(),
+			class:      "\u017fovies",
+			wantErrMsg: "is not a valid class name",
+		},
 	}
 
 	for _, tt := range casts {
@@ -690,6 +697,14 @@ func TestAddAlias(t *testing.T) {
 			class:      "Movies",
 			wantErrMsg: "is not a valid alias name",
 		},
+		{
+			name:       "alias first letter whose uppercase is ASCII rejected",
+			enabled:    false,
+			principal:  globalPrincipal(),
+			alias:      "\u0131tems",
+			class:      "Movies",
+			wantErrMsg: "is not a valid alias name",
+		},
 	}
 
 	for _, tt := range cases {
@@ -902,7 +917,7 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 // MAXIMUM_ALLOWED_COLLECTIONS_COUNT cap is enforced per namespace when
 // namespaces are enabled, using principal.Namespace as the selector.
 //
-// The mock matcher on QueryCollectionsCount(<principalNS>) is what proves
+// The mock matcher on CollectionsCount(<principalNS>) is what proves
 // the selector: a row only passes if AddClass requested the count for the
 // caller's namespace.
 func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
@@ -943,7 +958,7 @@ func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
 			handler, sm := newTestHandlerWithNamespaces(t, true)
 			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(tt.limit)
 
-			sm.On("QueryCollectionsCount", tt.principalNS).Return(tt.existingCount, nil)
+			sm.On("CollectionsCount", tt.principalNS).Return(tt.existingCount)
 			if !tt.wantErr {
 				sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
 					return c.Class == tt.principalNS+":Movies"

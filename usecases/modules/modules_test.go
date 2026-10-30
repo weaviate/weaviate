@@ -582,3 +582,41 @@ func TestBatchUpdateVector_VectorlessClassIsNoop(t *testing.T) {
 		})
 	}
 }
+
+type dummyMutableSettingsModule struct {
+	dummyText2VecModuleNoCapabilities
+}
+
+func (m dummyMutableSettingsModule) AltNames() []string {
+	return []string{"text2vec-old"}
+}
+
+func (m dummyMutableSettingsModule) MutableSettings(current, updated moduletools.ClassConfig) bool {
+	return current.Class()["model"] == updated.Class()["model"]
+}
+
+func TestProviderMutableSettings(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	p := NewProvider(logger, config.Config{})
+	p.Register(dummyMutableSettingsModule{newDummyText2VecModule("text2vec-mutable", nil)})
+	p.Register(newDummyText2VecModule("text2vec-fixed", nil))
+
+	current := map[string]any{"endpoint": "a", "model": "m"}
+	tests := []struct {
+		name    string
+		module  string
+		updated map[string]any
+		want    bool
+	}{
+		{name: "change the module allows", module: "text2vec-mutable", updated: map[string]any{"endpoint": "b", "model": "m"}, want: true},
+		{name: "change the module rejects", module: "text2vec-mutable", updated: map[string]any{"endpoint": "b", "model": "other"}},
+		{name: "alt name", module: "text2vec-old", updated: map[string]any{"endpoint": "b", "model": "m"}, want: true},
+		{name: "module without the capability", module: "text2vec-fixed", updated: map[string]any{"endpoint": "b", "model": "m"}},
+		{name: "unknown module", module: "text2vec-unknown", updated: map[string]any{"endpoint": "b", "model": "m"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, p.MutableSettings(tt.module, current, tt.updated))
+		})
+	}
+}

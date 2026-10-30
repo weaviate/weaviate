@@ -12,8 +12,12 @@
 package lsmkv
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -34,6 +38,43 @@ func BenchmarkCommitlogWriter(b *testing.B) {
 				err := cl.writeEntry(CommitTypeReplace, data)
 				require.NoError(b, err)
 			}
+		})
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, errors.New("no space left on device")
+}
+
+// close releases the file whether or not the buffered writes reach it.
+func TestCommitLogger_CloseReleasesFile(t *testing.T) {
+	tests := []struct {
+		name        string
+		failFlush   bool
+		expectError bool
+	}{
+		{name: "flush succeeds"},
+		{name: "flush fails", failFlush: true, expectError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cl, err := newCommitLogger(filepath.Join(t.TempDir(), "segment"), StrategyReplace, 0)
+			require.NoError(t, err)
+			if tt.failFlush {
+				cl.writer = bufio.NewWriter(failingWriter{})
+			}
+			require.NoError(t, cl.writeEntry(CommitTypeReplace, []byte("value")))
+
+			err = cl.close()
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.ErrorIs(t, cl.file.Close(), os.ErrClosed)
 		})
 	}
 }

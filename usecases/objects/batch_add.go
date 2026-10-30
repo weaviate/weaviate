@@ -97,6 +97,12 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 		maxSchemaVersion = max(maxSchemaVersion, vc.Version)
 	}
 
+	// Wait once here, outside the auto-schema lock, so that a node whose schema
+	// stays behind fails the batch instead of waiting again for every object.
+	if err := b.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
+	}
+
 	batchObjects, schemaVersion := b.validateAndGetVector(ctx, principal, objects, repl, fetchedClasses)
 	maxSchemaVersion = max(maxSchemaVersion, schemaVersion)
 

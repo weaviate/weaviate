@@ -548,11 +548,11 @@ func TestLocalSweepKeepsTheCounterMapOffTheDeleteGoroutines(t *testing.T) {
 		"the collection is credited with what its own closure counted")
 }
 
-// logEntry returns the first entry logged with msg, which is how a test reads a
-// value the code under test reports to an operator and nowhere else.
+// logEntry returns the first entry whose message starts with msg, which is how a
+// test reads a value the code under test reports to an operator and nowhere else.
 func logEntry(hook *logrustest.Hook, msg string) *logrus.Entry {
 	for _, entry := range hook.AllEntries() {
-		if entry.Message == msg {
+		if strings.HasPrefix(entry.Message, msg) {
 			return entry
 		}
 	}
@@ -717,7 +717,11 @@ func TestCoordinatorAbortReportsRecoveredPanics(t *testing.T) {
 		report.Data["nodes"], "a node the abort asked must be named whether or not it answered")
 
 	require.Error(t, err, "a node the abort never reached must not read as one it did")
-	assert.ErrorContains(t, err, "\"node3\": {panic occurred")
-	assert.ErrorContains(t, err, "resolving node3")
-	assert.ErrorContains(t, err, "\"node4\": {unable to resolve hostname for node4")
+	for _, want := range []string{
+		"\"node3\": {panic occurred", "resolving node3",
+		"\"node4\": {unable to resolve hostname for node4",
+	} {
+		assert.ErrorContains(t, err, want)
+		assert.Contains(t, report.Message, want, "the operator's log must carry the abort's error")
+	}
 }

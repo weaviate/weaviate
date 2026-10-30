@@ -43,7 +43,15 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.tenantAddLocks.Unlock(req.Class)
 	}
 
-	// taskMovementLocks is held until the apply returns, so a second submit on the same collection is checked only after the first has applied. Like tenantAddLocks it is taken before waitLeaderFSMCaughtUp, and the two never nest.
+	// Serialize AddClass per namespace for the same reason, keyed by the
+	// namespace the collection cap counts against.
+	if req.Type == api.ApplyRequest_TYPE_ADD_CLASS && st.schemaManager.CollectionLimitEnforced() {
+		ns := namespacing.NamespaceFromQualified(req.Class)
+		st.collectionAddLocks.Lock(ns)
+		defer st.collectionAddLocks.Unlock(ns)
+	}
+
+	// taskMovementLocks is held until the apply returns, so a second submit on the same collection is checked only after the first has applied. Like tenantAddLocks and collectionAddLocks it is taken before waitLeaderFSMCaughtUp, and none of them nest.
 	collection, err := st.taskOrMovementCollection(req)
 	if err != nil {
 		return 0, err
@@ -54,10 +62,11 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	}
 
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
-	// has not drained what it inherited must not judge yet. After the tenant
-	// lock, not before: that lock is held across the apply, so a caller can wait
-	// on it long enough for leadership to turn over, and a term confirmed before
-	// the wait says nothing about the term it wakes up in.
+	// has not drained what it inherited must not judge yet. After the tenant,
+	// collection and task-movement locks, not before: each is held across the
+	// apply, so a caller can wait on it long enough for leadership to turn over,
+	// and a term confirmed before the wait says nothing about the term it wakes
+	// up in.
 	if err := st.waitLeaderFSMCaughtUp(); err != nil {
 		return 0, err
 	}
@@ -237,6 +246,11 @@ func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
 			return fmt.Errorf("unmarshal add-roles-for-user subcommand: %w", err)
 		}
+		// With namespaces off, a ':' in a subject is part of the user id, as in
+		// the OIDC subject "urn:example:alice", and names no namespace.
+		if !st.cfg.NamespacesEnabled {
+			return nil
+		}
 		ns, err := subjectNamespace(sub.User)
 		if err != nil {
 			return fmt.Errorf("resolve namespace of subject %q: %w", sub.User, err)
@@ -308,10 +322,12 @@ func (st *Store) Apply(l *raft.Log) any {
 	ret := Response{Version: l.Index}
 
 	start := time.Now()
+	// Resolved once the command is unmarshalled below; the closure reads it then.
+	cmdType := "unknown"
 	defer func() {
 		// this defer is final one that called before returning and thus capturing the
 		// applyDuration correctly.
-		st.metrics.applyDuration.Observe(float64(time.Since(start).Seconds()))
+		st.metrics.applyDuration.WithLabelValues(cmdType).Observe(time.Since(start).Seconds())
 	}()
 
 	if l.Type != raft.LogCommand {
@@ -381,6 +397,8 @@ func (st *Store) Apply(l *raft.Log) any {
 		st.metrics.fsmLastAppliedIndex.Set(float64(l.Index))
 		st.metrics.raftLastAppliedIndex.Set(float64(l.Index))
 	}()
+
+	cmdType = cmd.Type.String()
 
 	cmd.Version = l.Index
 	// Report only when not ready the progress made on applying log entries. This help users with big schema and long

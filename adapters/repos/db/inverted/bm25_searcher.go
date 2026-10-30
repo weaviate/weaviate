@@ -471,17 +471,17 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	// Success: the caller now owns the pins; disarm the error-path release.
 	failed = false
 	return queryTerms{
-			propNamesByTokenization:       propNamesByTokenization,
-			queryTermsByTokenization:      queryTermsByTokenization,
-			duplicateBoostsByTokenization: duplicateBoostsByTokenization,
-			propertyBoosts:                propertyBoosts,
-			crossPropQueryTerms:           crossPropQueryTerms,
-			crossPropDuplicateBoosts:      crossPropDuplicateBoosts,
-		}, queryStats{
-			allBucketsAreInverted: allBucketsAreInverted,
-			n:                     N,
-			averagePropLength:     averagePropLength,
-		}, pins, nil
+		propNamesByTokenization:       propNamesByTokenization,
+		queryTermsByTokenization:      queryTermsByTokenization,
+		duplicateBoostsByTokenization: duplicateBoostsByTokenization,
+		propertyBoosts:                propertyBoosts,
+		crossPropQueryTerms:           crossPropQueryTerms,
+		crossPropDuplicateBoosts:      crossPropDuplicateBoosts,
+	}, queryStats{
+		allBucketsAreInverted: allBucketsAreInverted,
+		n:                     N,
+		averagePropLength:     averagePropLength,
+	}, pins, nil
 }
 
 // analyzerFingerprint identifies the settings that decide how a property tokenizes
