@@ -31,7 +31,8 @@ import (
 // version that had no rescoreLimit on PQ and BQ, which is what every upgraded
 // node replays on startup. The restored class must resolve the missing key to
 // the quantizer's default and not to the disabled zero value, while a limit
-// that was frozen into the schema stays as stored.
+// that was frozen into the schema stays as stored. No older version wrote a
+// rescoreFactor, so every restored class must land on the automatic factor.
 func TestRestoreLegacyQuantizerRescoreLimit(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -40,6 +41,8 @@ func TestRestoreLegacyQuantizerRescoreLimit(t *testing.T) {
 		effective func(uc hnswent.UserConfig) int
 		expect    int
 		expectEff int
+		policy    func(uc hnswent.UserConfig) hnswent.RescorePolicy
+		factor    float64
 	}{
 		{
 			name:      "pq stored without rescoreLimit",
@@ -48,6 +51,8 @@ func TestRestoreLegacyQuantizerRescoreLimit(t *testing.T) {
 			effective: func(uc hnswent.UserConfig) int { return uc.PQ.EffectiveRescoreLimit() },
 			expect:    hnswent.RescoreLimitAuto,
 			expectEff: hnswent.DefaultPQRescoreLimit,
+			policy:    func(uc hnswent.UserConfig) hnswent.RescorePolicy { return uc.PQ.RescorePolicy() },
+			factor:    hnswent.DefaultPQRescoreFactor,
 		},
 		{
 			name:      "bq stored without rescoreLimit",
@@ -56,6 +61,8 @@ func TestRestoreLegacyQuantizerRescoreLimit(t *testing.T) {
 			effective: func(uc hnswent.UserConfig) int { return uc.BQ.EffectiveRescoreLimit() },
 			expect:    hnswent.RescoreLimitAuto,
 			expectEff: hnswent.DefaultBQRescoreLimit,
+			policy:    func(uc hnswent.UserConfig) hnswent.RescorePolicy { return uc.BQ.RescorePolicy() },
+			factor:    hnswent.DefaultBQRescoreFactor,
 		},
 		{
 			name:      "sq stored with its old default",
@@ -64,6 +71,18 @@ func TestRestoreLegacyQuantizerRescoreLimit(t *testing.T) {
 			effective: func(uc hnswent.UserConfig) int { return uc.SQ.EffectiveRescoreLimit() },
 			expect:    20,
 			expectEff: 20,
+			policy:    func(uc hnswent.UserConfig) hnswent.RescorePolicy { return uc.SQ.RescorePolicy() },
+			factor:    hnswent.DefaultSQRescoreFactor,
+		},
+		{
+			name:      "rq 8 bit stored with its old default",
+			legacy:    `{"rq":{"enabled":true,"bits":8,"rescoreLimit":20,"centering":false,"trainingLimit":10000}}`,
+			stored:    func(uc hnswent.UserConfig) int { return uc.RQ.RescoreLimit },
+			effective: func(uc hnswent.UserConfig) int { return uc.RQ.EffectiveRescoreLimit() },
+			expect:    20,
+			expectEff: 20,
+			policy:    func(uc hnswent.UserConfig) hnswent.RescorePolicy { return uc.RQ.RescorePolicy() },
+			factor:    hnswent.DefaultRQRescoreFactor,
 		},
 		{
 			name:      "rq 1 bit stored with its old default",
@@ -72,6 +91,8 @@ func TestRestoreLegacyQuantizerRescoreLimit(t *testing.T) {
 			effective: func(uc hnswent.UserConfig) int { return uc.RQ.EffectiveRescoreLimit() },
 			expect:    512,
 			expectEff: 512,
+			policy:    func(uc hnswent.UserConfig) hnswent.RescorePolicy { return uc.RQ.RescorePolicy() },
+			factor:    hnswent.DefaultBRQRescoreFactor,
 		},
 	}
 
@@ -98,6 +119,10 @@ func TestRestoreLegacyQuantizerRescoreLimit(t *testing.T) {
 			require.True(t, ok, "restored config is %T", cls.VectorIndexConfig)
 			require.Equal(t, test.expect, test.stored(uc), "stored")
 			require.Equal(t, test.expectEff, test.effective(uc), "effective")
+			require.Equal(t, hnswent.RescorePolicy{Limit: test.expectEff, Factor: test.factor}, test.policy(uc), "policy")
+			for _, stored := range []float64{uc.PQ.RescoreFactor, uc.BQ.RescoreFactor, uc.SQ.RescoreFactor, uc.RQ.RescoreFactor} {
+				require.Equal(t, hnswent.RescoreFactorAuto, stored, "stored rescoreFactor")
+			}
 		})
 	}
 }

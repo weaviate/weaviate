@@ -689,11 +689,13 @@ var (
 		"hnsw.DynamicEFMin", "hnsw.DynamicEFMax", "hnsw.DynamicEFFactor", "hnsw.VectorCacheMaxObjects", "hnsw.FlatSearchCutoff",
 		"hnsw.FilterStrategy", "hnsw.SkipDefaultQuantization", "hnsw.TrackDefaultQuantization",
 		"hnsw.PQ.RescoreLimit", "hnsw.BQ.RescoreLimit", "hnsw.SQ.RescoreLimit", "hnsw.RQ.RescoreLimit",
+		"hnsw.PQ.RescoreFactor", "hnsw.BQ.RescoreFactor", "hnsw.SQ.RescoreFactor", "hnsw.RQ.RescoreFactor",
 		"hnsw.Multivector.Enabled", "hnsw.Multivector.Aggregation", "hnsw.Multivector.MuveraConfig.Enabled",
 		"hnsw.Multivector.MuveraConfig.KSim", "hnsw.Multivector.MuveraConfig.DProjections", "hnsw.Multivector.MuveraConfig.Repetitions",
 		"flat.VectorCacheMaxObjects", "flat.SkipDefaultQuantization", "flat.TrackDefaultQuantization",
 		"flat.PQ.RescoreLimit", "flat.PQ.Cache", "flat.BQ.RescoreLimit", "flat.BQ.Cache",
 		"flat.SQ.RescoreLimit", "flat.SQ.Cache", "flat.RQ.RescoreLimit", "flat.RQ.Cache", "dynamic.Threshold",
+		"flat.PQ.RescoreFactor", "flat.BQ.RescoreFactor", "flat.SQ.RescoreFactor", "flat.RQ.RescoreFactor",
 	}
 	structuralLeaves = []string{
 		"hnsw.Distance", "hnsw.PQ.Enabled", "hnsw.PQ.BitCompression", "hnsw.PQ.Segments", "hnsw.PQ.Centroids",
@@ -781,6 +783,8 @@ func fillNonZero(v reflect.Value) {
 			f.SetInt(1)
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 			f.SetUint(1)
+		case reflect.Float32, reflect.Float64:
+			f.SetFloat(1)
 		default:
 			panic(fmt.Sprintf("fillNonZero: unhandled leaf kind %s (add a case)", f.Kind()))
 		}

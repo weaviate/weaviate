@@ -272,6 +272,18 @@ func TestUserConfigUpdates(t *testing.T) {
 				update:        ent.UserConfig{SQ: ent.SQConfig{Enabled: true, RescoreLimit: 200}},
 				expectedError: nil,
 			},
+			{
+				name:          "changing sq rescore factor is accepted",
+				initial:       ent.UserConfig{SQ: ent.SQConfig{Enabled: true, RescoreFactor: ent.RescoreFactorAuto}},
+				update:        ent.UserConfig{SQ: ent.SQConfig{Enabled: true, RescoreFactor: 3}},
+				expectedError: nil,
+			},
+			{
+				name:          "changing rq rescore factor is accepted",
+				initial:       ent.UserConfig{RQ: ent.RQConfig{Enabled: true, Bits: 8, RescoreFactor: 2}},
+				update:        ent.UserConfig{RQ: ent.RQConfig{Enabled: true, Bits: 8, RescoreFactor: ent.RescoreFactorAuto}},
+				expectedError: nil,
+			},
 		}
 
 		for _, test := range tests {

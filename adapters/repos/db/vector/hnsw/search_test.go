@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand"
 	"sync/atomic"
 	"testing"
@@ -441,14 +442,17 @@ func TestShouldRescore(t *testing.T) {
 // result is the exact top k of that set. A limit below k must not fall back to
 // rescoring every candidate, and must not return fewer than k results either.
 // Automatic resolves to the quantizer's own default before the bound applies.
-func TestRescoreLimitBoundsCandidates(t *testing.T) {
+func TestRescoreBoundsCandidates(t *testing.T) {
 	type test struct {
 		name      string
-		configure func(h *hnsw, limit int)
-		// limit is what the config carries, effective what it resolves to
-		limit      int
-		effective  int
-		k          int
+		configure func(h *hnsw, limit int, factor float64)
+		// limit and factor are what the config carries, effective what
+		// rescore must read: min(candidates, max(k, limit, ceil(k * factor)))
+		limit     int
+		factor    float64
+		effective int
+		k         int
+		// candidates is what the graph search returned, at most ef
 		candidates int
 		// keepAll marks the compressed-without-quantizer case, which rescores
 		// every candidate regardless of limit
@@ -456,43 +460,67 @@ func TestRescoreLimitBoundsCandidates(t *testing.T) {
 	}
 
 	quantizers := []struct {
-		name      string
-		configure func(h *hnsw, limit int)
-		auto      int
+		name       string
+		configure  func(h *hnsw, limit int, factor float64)
+		autoLimit  int
+		autoFactor float64
 	}{
-		{"pq", func(h *hnsw, limit int) { h.pqConfig = ent.PQConfig{Enabled: true, RescoreLimit: limit} }, ent.DefaultPQRescoreLimit},
-		{"bq", func(h *hnsw, limit int) { h.bqConfig = ent.BQConfig{Enabled: true, RescoreLimit: limit} }, ent.DefaultBQRescoreLimit},
-		{"sq", func(h *hnsw, limit int) { h.sqConfig = ent.SQConfig{Enabled: true, RescoreLimit: limit} }, ent.DefaultSQRescoreLimit},
-		{"rq 8 bit", func(h *hnsw, limit int) { h.rqConfig = ent.RQConfig{Enabled: true, Bits: 8, RescoreLimit: limit} }, ent.DefaultRQRescoreLimit},
-		{"rq 1 bit", func(h *hnsw, limit int) { h.rqConfig = ent.RQConfig{Enabled: true, Bits: 1, RescoreLimit: limit} }, ent.DefaultBRQRescoreLimit},
+		{"pq", func(h *hnsw, limit int, factor float64) {
+			h.pqConfig = ent.PQConfig{Enabled: true, RescoreLimit: limit, RescoreFactor: factor}
+		}, ent.DefaultPQRescoreLimit, ent.DefaultPQRescoreFactor},
+		{"bq", func(h *hnsw, limit int, factor float64) {
+			h.bqConfig = ent.BQConfig{Enabled: true, RescoreLimit: limit, RescoreFactor: factor}
+		}, ent.DefaultBQRescoreLimit, ent.DefaultBQRescoreFactor},
+		{"sq", func(h *hnsw, limit int, factor float64) {
+			h.sqConfig = ent.SQConfig{Enabled: true, RescoreLimit: limit, RescoreFactor: factor}
+		}, ent.DefaultSQRescoreLimit, ent.DefaultSQRescoreFactor},
+		{"rq 8 bit", func(h *hnsw, limit int, factor float64) {
+			h.rqConfig = ent.RQConfig{Enabled: true, Bits: 8, RescoreLimit: limit, RescoreFactor: factor}
+		}, ent.DefaultRQRescoreLimit, ent.DefaultRQRescoreFactor},
+		{"rq 1 bit", func(h *hnsw, limit int, factor float64) {
+			h.rqConfig = ent.RQConfig{Enabled: true, Bits: 1, RescoreLimit: limit, RescoreFactor: factor}
+		}, ent.DefaultBRQRescoreLimit, ent.DefaultBRQRescoreFactor},
 	}
+	auto := ent.RescoreFactorAuto
 	shapes := []struct {
 		name       string
 		limit      int
+		factor     float64
 		k          int
 		candidates int
 	}{
-		{name: "limit above k trims to limit", limit: 20, k: 10, candidates: 100},
-		{name: "limit below k rescores exactly k", limit: 20, k: 30, candidates: 100},
-		{name: "limit equal to k", limit: 10, k: 10, candidates: 100},
-		{name: "limit above candidates keeps all", limit: 512, k: 10, candidates: 100},
-		{name: "k above candidates keeps all", limit: 20, k: 150, candidates: 100},
-		{name: "automatic resolves to the quantizer default", limit: ent.RescoreLimitAuto, k: 10, candidates: 100},
-		{name: "automatic with k above the default rescores k", limit: ent.RescoreLimitAuto, k: 60, candidates: 100},
+		{name: "limit above scaled k trims to limit", limit: 20, factor: 1.5, k: 10, candidates: 100},
+		{name: "scaled k above limit trims to scaled k", limit: 20, factor: 3, k: 10, candidates: 100},
+		{name: "factor 1 with limit below k rescores exactly k", limit: 20, factor: 1, k: 30, candidates: 100},
+		{name: "fractional factor rounds up", limit: 1, factor: 1.25, k: 10, candidates: 100},
+		{name: "limit equal to k", limit: 10, factor: 1, k: 10, candidates: 100},
+		{name: "limit above candidates keeps all", limit: 512, factor: auto, k: 10, candidates: 100},
+		{name: "scaled k above candidates keeps all", limit: 20, factor: 4, k: 30, candidates: 100},
+		{name: "k above candidates keeps all", limit: 20, factor: auto, k: 150, candidates: 100},
+		{name: "automatic factor", limit: 20, factor: auto, k: 30, candidates: 100},
+		{name: "zero factor resolves to automatic", limit: 20, factor: 0, k: 30, candidates: 100},
+		{name: "automatic limit resolves to the quantizer default", limit: ent.RescoreLimitAuto, factor: 1, k: 10, candidates: 100},
+		{name: "automatic limit and factor", limit: ent.RescoreLimitAuto, factor: auto, k: 10, candidates: 100},
+		{name: "automatic limit and factor at large k", limit: ent.RescoreLimitAuto, factor: auto, k: 60, candidates: 500},
 	}
 
 	var tests []test
 	for _, q := range quantizers {
 		for _, shape := range shapes {
-			limit := shape.limit
+			limit, factor := shape.limit, shape.factor
 			if limit == ent.RescoreLimitAuto {
-				limit = q.auto
+				limit = q.autoLimit
 			}
+			if factor < 1 {
+				factor = q.autoFactor
+			}
+			scaled := int(math.Ceil(float64(shape.k) * factor))
 			tests = append(tests, test{
 				name:       q.name + " " + shape.name,
 				configure:  q.configure,
 				limit:      shape.limit,
-				effective:  limit,
+				factor:     shape.factor,
+				effective:  min(shape.candidates, max(shape.k, limit, scaled)),
 				k:          shape.k,
 				candidates: shape.candidates,
 			})
@@ -500,8 +528,9 @@ func TestRescoreLimitBoundsCandidates(t *testing.T) {
 	}
 	tests = append(tests, test{
 		name:       "no quantizer in config keeps every candidate",
-		configure:  func(h *hnsw, limit int) {},
+		configure:  func(h *hnsw, limit int, factor float64) {},
 		limit:      20,
+		factor:     2,
 		k:          10,
 		candidates: 100,
 		keepAll:    true,
@@ -524,7 +553,7 @@ func TestRescoreLimitBoundsCandidates(t *testing.T) {
 				res.Insert(uint64(i), float32(i))
 			}
 
-			expectedReads := min(test.candidates, max(test.k, test.effective))
+			expectedReads := test.effective
 			if test.keepAll {
 				expectedReads = test.candidates
 			}
@@ -546,7 +575,7 @@ func TestRescoreLimitBoundsCandidates(t *testing.T) {
 				pools:             newPools(32, 1),
 				distancerProvider: d,
 			}
-			test.configure(h, test.limit)
+			test.configure(h, test.limit, test.factor)
 
 			err := h.rescore(context.Background(), res, test.k, newFakeCompressionDistancer(queries[0], distFn))
 			require.NoError(t, err)

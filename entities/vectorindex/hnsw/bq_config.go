@@ -17,11 +17,15 @@ const (
 	DefaultBQEnabled = false
 	// DefaultBQRescoreLimit is what RescoreLimitAuto resolves to.
 	DefaultBQRescoreLimit = 256
+	// DefaultBQRescoreFactor is what RescoreFactorAuto resolves to. One bit
+	// per dimension ranks candidates coarsely, so BQ keeps more headroom.
+	DefaultBQRescoreFactor = 4.0
 )
 
 type BQConfig struct {
-	Enabled      bool `json:"enabled"`
-	RescoreLimit int  `json:"rescoreLimit"`
+	Enabled       bool    `json:"enabled"`
+	RescoreLimit  int     `json:"rescoreLimit"`
+	RescoreFactor float64 `json:"rescoreFactor"`
 }
 
 func parseBQMap(in map[string]interface{}, bq *BQConfig) error {
@@ -43,6 +47,12 @@ func parseBQMap(in map[string]interface{}, bq *BQConfig) error {
 
 	if err := parseRescoreLimit(bqConfigMap, "bq", func(v int) {
 		bq.RescoreLimit = v
+	}); err != nil {
+		return err
+	}
+
+	if err := common.ParseRescoreFactor(bqConfigMap, "bq", func(v float64) {
+		bq.RescoreFactor = v
 	}); err != nil {
 		return err
 	}

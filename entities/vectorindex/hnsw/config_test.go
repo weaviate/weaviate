@@ -56,23 +56,27 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
 					RescoreLimit:   RescoreLimitAuto,
+					RescoreFactor:  RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					RescoreLimit: RescoreLimitAuto,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       DefaultRQEnabled,
 					Bits:          DefaultRQBits,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
@@ -112,23 +116,27 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
 					RescoreLimit:   RescoreLimitAuto,
+					RescoreFactor:  RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					RescoreLimit: RescoreLimitAuto,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       DefaultRQEnabled,
 					Bits:          DefaultRQBits,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
@@ -179,23 +187,27 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
 					RescoreLimit:   RescoreLimitAuto,
+					RescoreFactor:  RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					RescoreLimit: RescoreLimitAuto,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       DefaultRQEnabled,
 					Bits:          DefaultRQBits,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
@@ -246,23 +258,27 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
 					RescoreLimit:   RescoreLimitAuto,
+					RescoreFactor:  RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					RescoreLimit: RescoreLimitAuto,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       DefaultRQEnabled,
 					Bits:          DefaultRQBits,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
@@ -314,23 +330,27 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
 					RescoreLimit:   RescoreLimitAuto,
+					RescoreFactor:  RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					RescoreLimit: RescoreLimitAuto,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       DefaultRQEnabled,
 					Bits:          DefaultRQBits,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: FilterStrategySweeping,
@@ -379,23 +399,27 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
 					RescoreLimit:   RescoreLimitAuto,
+					RescoreFactor:  RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					RescoreLimit: RescoreLimitAuto,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       DefaultRQEnabled,
 					Bits:          DefaultRQBits,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
@@ -453,23 +477,27 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:     DefaultPQCentroids,
 					TrainingLimit: DefaultPQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         "tile",
 						Distribution: "normal",
 					},
 				},
 				BQ: BQConfig{
-					RescoreLimit: RescoreLimitAuto,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       DefaultRQEnabled,
 					Bits:          DefaultRQBits,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
@@ -526,23 +554,27 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:     DefaultPQCentroids,
 					TrainingLimit: DefaultPQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					RescoreLimit: RescoreLimitAuto,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       DefaultRQEnabled,
 					Bits:          DefaultRQBits,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
@@ -631,23 +663,27 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
 					RescoreLimit:   RescoreLimitAuto,
+					RescoreFactor:  RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					RescoreLimit: RescoreLimitAuto,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       DefaultRQEnabled,
 					Bits:          DefaultRQBits,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
@@ -732,24 +768,28 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:     DefaultPQCentroids,
 					TrainingLimit: DefaultPQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					Enabled:      true,
-					RescoreLimit: RescoreLimitAuto,
+					Enabled:       true,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       DefaultRQEnabled,
 					Bits:          DefaultRQBits,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
@@ -798,23 +838,27 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:     DefaultPQCentroids,
 					TrainingLimit: DefaultPQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					RescoreLimit: RescoreLimitAuto,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       true,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       DefaultRQEnabled,
 					Bits:          DefaultRQBits,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
@@ -878,23 +922,27 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
 					RescoreLimit:   RescoreLimitAuto,
+					RescoreFactor:  RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					RescoreLimit: RescoreLimitAuto,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       DefaultRQEnabled,
 					Bits:          DefaultRQBits,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: FilterStrategyAcorn,
@@ -934,23 +982,27 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
 					RescoreLimit:   RescoreLimitAuto,
+					RescoreFactor:  RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					RescoreLimit: RescoreLimitAuto,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       DefaultRQEnabled,
 					Bits:          DefaultRQBits,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: FilterStrategyPathseer,
@@ -990,23 +1042,27 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
 					RescoreLimit:   RescoreLimitAuto,
+					RescoreFactor:  RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					RescoreLimit: RescoreLimitAuto,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       DefaultRQEnabled,
 					Bits:          DefaultRQBits,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
@@ -1056,23 +1112,27 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
 					RescoreLimit:   RescoreLimitAuto,
+					RescoreFactor:  RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					RescoreLimit: RescoreLimitAuto,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       true,
 					Bits:          DefaultRQBits,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
@@ -1116,23 +1176,27 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
 					RescoreLimit:   RescoreLimitAuto,
+					RescoreFactor:  RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					RescoreLimit: RescoreLimitAuto,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       true,
 					Bits:          DefaultRQBits,
 					RescoreLimit:  0,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
@@ -1175,23 +1239,27 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
 					RescoreLimit:   RescoreLimitAuto,
+					RescoreFactor:  RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					RescoreLimit: RescoreLimitAuto,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       true,
 					Bits:          1,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
@@ -1235,23 +1303,27 @@ func Test_UserConfig(t *testing.T) {
 					Centroids:      DefaultPQCentroids,
 					TrainingLimit:  DefaultPQTrainingLimit,
 					RescoreLimit:   RescoreLimitAuto,
+					RescoreFactor:  RescoreFactorAuto,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
 				BQ: BQConfig{
-					RescoreLimit: RescoreLimitAuto,
+					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  RescoreLimitAuto,
+					RescoreFactor: RescoreFactorAuto,
 				},
 				RQ: RQConfig{
 					Enabled:       true,
 					Bits:          1,
 					RescoreLimit:  100,
+					RescoreFactor: RescoreFactorAuto,
 					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
@@ -1407,6 +1479,135 @@ func Test_QuantizerRescoreLimit(t *testing.T) {
 			stored, effective := limitsOf(cfg.(UserConfig), test.quantizer)
 			assert.Equal(t, test.stored, stored, "stored")
 			assert.Equal(t, test.effective, effective, "effective")
+		})
+	}
+}
+
+func Test_QuantizerRescoreFactor(t *testing.T) {
+	type test struct {
+		name      string
+		quantizer string
+		extra     map[string]interface{}
+		input     interface{}
+		stored    float64
+		effective float64
+		expectErr string
+	}
+
+	factorsOf := func(cfg UserConfig, quantizer string) (float64, float64) {
+		switch quantizer {
+		case "pq":
+			return cfg.PQ.RescoreFactor, cfg.PQ.RescorePolicy().Factor
+		case "bq":
+			return cfg.BQ.RescoreFactor, cfg.BQ.RescorePolicy().Factor
+		case "sq":
+			return cfg.SQ.RescoreFactor, cfg.SQ.RescorePolicy().Factor
+		case "rq":
+			return cfg.RQ.RescoreFactor, cfg.RQ.RescorePolicy().Factor
+		}
+		t.Fatalf("unknown quantizer %q", quantizer)
+		return 0, 0
+	}
+
+	var tests []test
+	for _, q := range []struct {
+		name  string
+		extra map[string]interface{}
+		auto  float64
+	}{
+		{name: "pq", auto: DefaultPQRescoreFactor},
+		{name: "bq", auto: DefaultBQRescoreFactor},
+		{name: "sq", auto: DefaultSQRescoreFactor},
+		{name: "rq", auto: DefaultRQRescoreFactor},
+		{name: "rq", extra: map[string]interface{}{"bits": float64(4)}, auto: DefaultRQRescoreFactor},
+		{name: "rq", extra: map[string]interface{}{"bits": float64(1)}, auto: DefaultBRQRescoreFactor},
+	} {
+		label := q.name
+		if bits, ok := q.extra["bits"]; ok {
+			label = fmt.Sprintf("%s %v bit", q.name, bits)
+		}
+		mustBe := q.name + " rescoreFactor must be -1 (automatic) or a number of at least 1"
+		tests = append(tests,
+			test{name: label + " absent is automatic", quantizer: q.name, extra: q.extra, stored: RescoreFactorAuto, effective: q.auto},
+			test{name: label + " -1 is automatic", quantizer: q.name, extra: q.extra, input: float64(-1), stored: RescoreFactorAuto, effective: q.auto},
+			test{name: label + " 1 is kept", quantizer: q.name, extra: q.extra, input: float64(1), stored: 1, effective: 1},
+			test{name: label + " fraction is kept", quantizer: q.name, extra: q.extra, input: 1.5, stored: 1.5, effective: 1.5},
+			test{name: label + " json number is kept", quantizer: q.name, extra: q.extra, input: json.Number("3"), stored: 3, effective: 3},
+			test{name: label + " 0 is automatic", quantizer: q.name, extra: q.extra, input: float64(0), stored: 0, effective: q.auto},
+			test{name: label + " below 1 is rejected", quantizer: q.name, extra: q.extra, input: 0.5, expectErr: mustBe + ", got 0.5"},
+			test{name: label + " below -1 is rejected", quantizer: q.name, extra: q.extra, input: float64(-2), expectErr: mustBe + ", got -2"},
+			test{name: label + " overflow is rejected", quantizer: q.name, extra: q.extra, input: json.Number("1e400"), expectErr: q.name + " rescoreFactor:"},
+			test{name: label + " string is rejected", quantizer: q.name, extra: q.extra, input: "2", expectErr: q.name + " rescoreFactor must be a number, got string"},
+		)
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			quantizerMap := map[string]interface{}{"enabled": true}
+			for k, v := range test.extra {
+				quantizerMap[k] = v
+			}
+			if test.input != nil {
+				quantizerMap["rescoreFactor"] = test.input
+			}
+			cfg, err := ParseAndValidateConfig(map[string]interface{}{test.quantizer: quantizerMap}, false)
+			if test.expectErr != "" {
+				require.ErrorContains(t, err, test.expectErr)
+				return
+			}
+			require.NoError(t, err)
+			stored, effective := factorsOf(cfg.(UserConfig), test.quantizer)
+			assert.Equal(t, test.stored, stored, "stored")
+			assert.Equal(t, test.effective, effective, "effective")
+		})
+	}
+}
+
+// Test_RescoreFactorRoundTrip stores a config the way the schema does and
+// reads it back: the factor must survive, automatic included.
+func Test_RescoreFactorRoundTrip(t *testing.T) {
+	for _, factor := range []float64{RescoreFactorAuto, 0, 1, 2.5} {
+		t.Run(fmt.Sprintf("factor %v", factor), func(t *testing.T) {
+			uc := NewDefaultUserConfig()
+			uc.SQ.Enabled = true
+			uc.SQ.RescoreFactor = factor
+			uc.RQ.RescoreFactor = factor
+			uc.PQ.RescoreFactor = factor
+			uc.BQ.RescoreFactor = factor
+
+			raw, err := json.Marshal(uc)
+			require.NoError(t, err)
+			var asMap map[string]interface{}
+			require.NoError(t, json.Unmarshal(raw, &asMap))
+
+			parsed, err := ParseAndValidateConfig(asMap, false)
+			require.NoError(t, err)
+			got := parsed.(UserConfig)
+			assert.Equal(t, factor, got.SQ.RescoreFactor)
+			assert.Equal(t, factor, got.RQ.RescoreFactor)
+			assert.Equal(t, factor, got.PQ.RescoreFactor)
+			assert.Equal(t, factor, got.BQ.RescoreFactor)
+		})
+	}
+}
+
+func Test_RescorePolicyCandidates(t *testing.T) {
+	tests := []struct {
+		name     string
+		policy   RescorePolicy
+		k        int
+		expected int
+	}{
+		{name: "limit is the minimum", policy: RescorePolicy{Limit: 20, Factor: 2}, k: 10, expected: 20},
+		{name: "factor scales past the limit", policy: RescorePolicy{Limit: 20, Factor: 2}, k: 100, expected: 200},
+		{name: "fraction rounds up", policy: RescorePolicy{Limit: 1, Factor: 1.5}, k: 15, expected: 23},
+		{name: "never below k", policy: RescorePolicy{Limit: 1, Factor: 1}, k: 30, expected: 30},
+		{name: "huge factor does not overflow", policy: RescorePolicy{Limit: 1, Factor: 1e300}, k: 10, expected: math.MaxInt32},
+		{name: "keep all", policy: RescorePolicy{Limit: math.MaxInt, Factor: 1}, k: 10, expected: math.MaxInt},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.expected, test.policy.Candidates(test.k))
 		})
 	}
 }
