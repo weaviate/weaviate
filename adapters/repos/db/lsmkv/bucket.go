@@ -2288,8 +2288,7 @@ func (b *Bucket) flushFlushingLocked(addSegment func(Segment) error) error {
 	return b.addFlushedSegment(segmentPath, addSegment)
 }
 
-// drainFailedFlush writes out the memtable a failed earlier flush left in
-// b.flushing, if any. The caller must hold flushAndSwitchMu.
+// drainFailedFlush must be called with flushAndSwitchMu held.
 func (b *Bucket) drainFailedFlush(bucketPath string, addSegment func(Segment) error) error {
 	if b.flushing == nil {
 		return nil
@@ -2307,9 +2306,9 @@ func (b *Bucket) drainFailedFlush(bucketPath string, addSegment func(Segment) er
 	return nil
 }
 
-// flushBeforeMoveLocked keeps in-memory writes a move would drop with the
-// memtable it replaces. The caller holds flushAndSwitchMu, so b.flushing is a
-// failed flush's leftover, and flushLock, so no write lands before the move.
+// flushBeforeMoveLocked flushes writes a move would drop with the memtable
+// it replaces. Caller holds flushAndSwitchMu (b.flushing is only a failed
+// flush's leftover) and flushLock (no write lands before the move).
 func (b *Bucket) flushBeforeMoveLocked() error {
 	if err := b.drainFailedFlush(b.dir, b.addDiskSegmentAndRemoveFlushingLocked); err != nil {
 		return err

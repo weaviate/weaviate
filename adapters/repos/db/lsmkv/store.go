@@ -613,11 +613,10 @@ func claimDirForMove(bucket *Bucket, newDir string) (finish func(moved bool), er
 	}, nil
 }
 
-// freezeAndSwapForReplace makes the replacement name-visible while frozen:
-// the replacement is flushed under flushLock before the map swap and the lock
-// is held on success, so a by-name writer landing before ReplaceBuckets' tail
-// completes blocks instead of writing into the memtable the tail discards
-// (lost write).
+// freezeAndSwapForReplace flushes the replacement under flushLock, then swaps
+// it into bucketsByName while still holding the lock, so a by-name writer
+// racing ReplaceBuckets' tail blocks instead of landing in the memtable the
+// tail discards (lost write).
 func (s *Store) freezeAndSwapForReplace(bucketName, replacementBucketName string) (bucket, replacementBucket *Bucket, err error) {
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
