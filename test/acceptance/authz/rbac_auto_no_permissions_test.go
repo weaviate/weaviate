@@ -97,11 +97,10 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/namespaces/{namespace_id}/resume",
 	}
 
-	// These leak 404 on a non-existent backup ID because the meta is read
-	// before class-aware authz runs. RBAC for them is covered in backups_test.go.
+	// Restore leaks 404 on a non-existent backup ID because the meta is read
+	// before class-aware authz runs. RBAC for restore is covered in backups_test.go.
 	ignoreEndpointMethods := map[string]map[string]bool{
-		"/backups/{backend}/{id}":         {http.MethodGet: true},
-		"/backups/{backend}/{id}/restore": {http.MethodGet: true, http.MethodPost: true},
+		"/backups/{backend}/{id}/restore": {http.MethodPost: true},
 	}
 
 	ignoreGetAll := []string{

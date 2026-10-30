@@ -413,22 +413,24 @@ func backupsForbidden(pr *models.Principal, verb string) error {
 }
 
 // authorizeBackupByID authorizes the caller against the classes recorded in the
-// backup meta. A missing meta is a no-op (the 404 may leak the id); any other
-// backend error fails closed.
+// backup meta. Without a readable meta the caller needs the wildcard backup
+// permission, and only such a caller gets a backend error other than not-found.
 func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.Principal, verb string,
 	store coordStore, filename, overrideBucket, overridePath string,
 ) error {
-	meta, err := store.Meta(ctx, filename, overrideBucket, overridePath)
-	if err != nil {
-		// A read concurrent with a write yields a partial file that fails to
-		// unmarshal; treat it as not-found so a mid-write status poll retries.
-		var syntaxErr *json.SyntaxError
-		if errors.As(err, &backup.ErrNotFound{}) || errors.As(err, &syntaxErr) {
-			return nil
-		}
+	var classes []string
+	meta, err := metaWithRetry(ctx, store, filename, overrideBucket, overridePath)
+	if err == nil {
+		classes = meta.Classes()
+	}
+	if authErr := s.authorizeBackupClasses(ctx, principal, verb, classes); authErr != nil {
+		return authErr
+	}
+	var syntaxErr *json.SyntaxError
+	if err != nil && !errors.As(err, &backup.ErrNotFound{}) && !errors.As(err, &syntaxErr) {
 		return err
 	}
-	return s.authorizeBackupClasses(ctx, principal, verb, meta.Classes())
+	return nil
 }
 
 const metaReadAttempts = 3

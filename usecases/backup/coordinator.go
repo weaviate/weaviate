@@ -502,9 +502,12 @@ func (c *coordinator) restoreRolesAndUsers(ctx context.Context, blobs rolesAndUs
 }
 
 func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *StatusRequest) (*Status, error) {
-	// check if backup is still active
+	// OnStatus serves lastOp only for the backend, bucket and path it runs under,
+	// since the same id can exist under another. HomeDir tells backends apart, and
+	// the raw pair tells apart GCS locations that share a HomeDir.
 	st := c.lastOp.get()
-	if st.ID == req.ID {
+	if st.ID == req.ID && st.Path == store.HomeDir(store.bucket, store.path) &&
+		st.OverrideBucket == store.bucket && st.OverridePath == store.path {
 		return &Status{Path: st.Path, StartedAt: st.Starttime, Status: st.Status, Err: st.Err}, nil
 	}
 	filename := GlobalBackupFile
@@ -515,11 +518,10 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	// The backup might have been already created.
 	meta, err := store.Meta(ctx, filename, store.bucket, store.path)
 	if err != nil {
-		path := st.Path
 		if errors.As(err, &backup.ErrNotFound{}) {
-			return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %w store: %v", errMetaNotFound, path, err, st)
+			return nil, fmt.Errorf("coordinator cannot get status: %w: %w", errMetaNotFound, err)
 		}
-		return nil, fmt.Errorf("coordinator cannot get status: %q: %w store: %v", path, err, st)
+		return nil, fmt.Errorf("coordinator cannot get status: %w", err)
 	}
 
 	status := &Status{

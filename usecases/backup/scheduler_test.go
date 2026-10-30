@@ -759,6 +759,7 @@ func TestSchedulerBackupStatus(t *testing.T) {
 
 	t.Run("ActiveState", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		s := fs.scheduler()
 		s.backupper.lastOp.reqState = reqState{
 			Starttime: starTime,
@@ -766,9 +767,9 @@ func TestSchedulerBackupStatus(t *testing.T) {
 			Status:    backup.Transferring,
 			Path:      path,
 		}
-		// In-flight backup: meta has not yet been persisted, so the meta read
-		// that backs authorizeBackupByID returns ErrNotFound and is a no-op.
-		// OnStatus then short-circuits on lastOp.
+		// The meta of an in-flight backup is not persisted yet, so authorizeBackupByID
+		// requires the wildcard permission, which the fake authorizer grants, and
+		// OnStatus answers from lastOp.
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 		st, err := s.BackupStatus(ctx, nil, backendName, id, "", "")
@@ -778,6 +779,7 @@ func TestSchedulerBackupStatus(t *testing.T) {
 
 	t.Run("ActiveStatePartialMeta", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		s := fs.scheduler()
 		s.backupper.lastOp.reqState = reqState{
 			Starttime: starTime,
@@ -901,6 +903,7 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 
 	t.Run("ActiveState", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		s := fs.scheduler()
 		s.restorer.lastOp.reqState = reqState{
 			Starttime: starTime,
@@ -908,9 +911,9 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 			Status:    backup.Transferring,
 			Path:      path,
 		}
-		// In-flight restore: meta has not yet been persisted, so the meta read
-		// that backs authorizeBackupByID returns ErrNotFound and is a no-op.
-		// OnStatus then short-circuits on lastOp.
+		// The meta of an in-flight restore is not persisted yet, so authorizeBackupByID
+		// requires the wildcard permission, which the fake authorizer grants, and
+		// OnStatus answers from lastOp.
 		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
 		st, err := s.RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
@@ -919,6 +922,7 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 
 	t.Run("ActiveStatePartialMeta", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		s := fs.scheduler()
 		s.restorer.lastOp.reqState = reqState{
 			Starttime: starTime,
@@ -991,6 +995,163 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 		require.Len(t, calls, 1)
 		assert.Equal(t, authorization.Backups(), calls[0].Resources)
 	})
+}
+
+// A status poll whose descriptor is missing or partial must not reveal the
+// operation this node runs to a caller who may not read every backup. It must
+// not serve that operation for a bucket or path it does not run under either.
+func TestSchedulerStatusWithoutDescriptor(t *testing.T) {
+	t.Parallel()
+	const (
+		backendName = "s3"
+		runningID   = "nightly-2026-10-29"
+		runningBkt  = "ops-backups"
+		runningPath = "prod/eu1"
+	)
+	ctx := context.Background()
+	running := reqState{
+		Starttime:      time.Date(2022, 1, 1, 1, 0, 0, 0, time.UTC),
+		ID:             runningID,
+		Status:         backup.Transferring,
+		Path:           runningBkt + "/" + runningPath + "/" + runningID,
+		OverrideBucket: runningBkt,
+		OverridePath:   runningPath,
+	}
+
+	ops := []struct {
+		name   string
+		file   string
+		lastOp func(*Scheduler) *backupStat
+		status func(s *Scheduler, id, bucket, path string) (*Status, error)
+	}{
+		{
+			name:   "backup",
+			file:   GlobalBackupFile,
+			lastOp: func(s *Scheduler) *backupStat { return &s.backupper.lastOp },
+			status: func(s *Scheduler, id, bucket, path string) (*Status, error) {
+				return s.BackupStatus(ctx, &models.Principal{Username: "bob"}, backendName, id, bucket, path)
+			},
+		},
+		{
+			name:   "restore",
+			file:   GlobalRestoreFile,
+			lastOp: func(s *Scheduler) *backupStat { return &s.restorer.lastOp },
+			status: func(s *Scheduler, id, bucket, path string) (*Status, error) {
+				return s.RestorationStatus(ctx, &models.Principal{Username: "bob"}, backendName, id, bucket, path)
+			},
+		},
+	}
+
+	cases := []struct {
+		name             string
+		id, bucket, path string
+		descriptor       []byte // nil reads as not found
+		partialFirst     bool   // the first read of descriptor is partial
+		readErr          error
+		denyWildcard     bool
+		wantForbidden    bool
+		wantNotFound     bool
+		wantOtherErr     bool
+	}{
+		{
+			name: "caller without the wildcard permission is forbidden for an unknown id",
+			id:   "x", denyWildcard: true, wantForbidden: true,
+		},
+		{
+			name: "caller without the wildcard permission is forbidden for the running id at another path",
+			id:   runningID, path: "nothing-here", denyWildcard: true, wantForbidden: true,
+		},
+		{
+			name: "caller without the wildcard permission is forbidden while the descriptor is partial",
+			id:   runningID, bucket: runningBkt, path: runningPath, descriptor: []byte("{"),
+			denyWildcard: true, wantForbidden: true,
+		},
+		{
+			name: "caller without the wildcard permission is forbidden on a backend read error",
+			id:   "x", readErr: ErrAny, denyWildcard: true, wantForbidden: true,
+		},
+		{
+			name: "caller holding the descriptor's class is served from memory once a partial read heals",
+			id:   runningID, bucket: runningBkt, path: runningPath, partialFirst: true,
+			descriptor: []byte(`{"nodes":{"N1":{"classes":["C1"]}}}`), denyWildcard: true,
+		},
+		{
+			name: "a partial descriptor at another path fails without naming the running operation",
+			id:   runningID, path: "nothing-here", descriptor: []byte("{"), wantOtherErr: true,
+		},
+		{
+			name: "an unknown id is not found",
+			id:   "x", wantNotFound: true,
+		},
+		{
+			name: "the running id at another path is not found",
+			id:   runningID, bucket: runningBkt, path: "nothing-here", wantNotFound: true,
+		},
+		{
+			name: "the running id at another location that shares its home dir is not found",
+			id:   runningID, path: runningBkt + "/" + runningPath, wantNotFound: true,
+		},
+		{
+			name: "the running id in another bucket is not found",
+			id:   runningID, bucket: "other-bucket", path: runningPath, wantNotFound: true,
+		},
+		{
+			name: "the running id at its own bucket and path is served from memory",
+			id:   runningID, bucket: runningBkt, path: runningPath,
+		},
+	}
+
+	for _, op := range ops {
+		for _, tc := range cases {
+			t.Run(op.name+"/"+tc.name, func(t *testing.T) {
+				fs := newFakeScheduler(nil)
+				if tc.denyWildcard {
+					fs.auth.(*mocks.FakeAuthorizer).Deny(authorization.Backups()...)
+				}
+				if tc.partialFirst {
+					fs.backend.On("GetObject", ctx, tc.id, op.file).Return([]byte("{"), nil).Once()
+				}
+				switch {
+				case tc.readErr != nil:
+					fs.backend.On("GetObject", ctx, tc.id, op.file).Return(nil, tc.readErr)
+				case tc.descriptor == nil:
+					fs.backend.On("GetObject", ctx, tc.id, op.file).Return(nil, backup.ErrNotFound{})
+				default:
+					fs.backend.On("GetObject", ctx, tc.id, op.file).Return(tc.descriptor, nil)
+				}
+				fs.backend.On("GetObject", ctx, tc.id, BackupFile).Return(nil, backup.ErrNotFound{}).Maybe()
+				fs.backend.On("HomeDir", runningBkt, runningPath, runningID).Return(running.Path).Maybe()
+				fs.backend.On("HomeDir", "", runningBkt+"/"+runningPath, runningID).Return(running.Path).Maybe()
+				fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/elsewhere").Maybe()
+				s := fs.scheduler()
+				op.lastOp(s).reqState = running
+
+				st, err := op.status(s, tc.id, tc.bucket, tc.path)
+
+				switch {
+				case tc.wantForbidden:
+					require.ErrorAs(t, err, &authzerrors.Forbidden{})
+				case tc.wantNotFound:
+					require.ErrorAs(t, err, &backup.ErrNotFound{})
+				case tc.wantOtherErr:
+					require.Error(t, err)
+					require.NotErrorAs(t, err, &backup.ErrNotFound{})
+				default:
+					require.NoError(t, err)
+					require.Equal(t, &Status{Path: running.Path, StartedAt: running.Starttime, Status: running.Status}, st)
+					return
+				}
+				require.NotContains(t, err.Error(), running.Path)
+				if tc.bucket != runningBkt && tc.path != runningPath {
+					require.NotContains(t, err.Error(), runningBkt)
+					require.NotContains(t, err.Error(), runningPath)
+				}
+				if tc.id != runningID {
+					require.NotContains(t, err.Error(), runningID)
+				}
+			})
+		}
+	}
 }
 
 func TestSchedulerCreateBackup(t *testing.T) {
