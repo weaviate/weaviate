@@ -143,6 +143,24 @@ func (iq *VectorIndexQueue) Close(ctx context.Context) error {
 	return iq.DiskQueue.Close(ctx)
 }
 
+// ValidateDims checks a pending vector's length against the dimensions the
+// queue has already accepted, and reserves them for the first vector. It runs
+// before the object is written to the LSM store: Insert alone sees a mismatch
+// only after the object is already persisted, leaving a refused object stored
+// but unindexed while the vector index is still empty.
+func (iq *VectorIndexQueue) ValidateDims(length int) error {
+	if !iq.asyncEnabled || length == 0 {
+		return nil
+	}
+	if iq.dims.CompareAndSwap(0, int32(length)) {
+		return nil
+	}
+	if dims := iq.dims.Load(); dims != int32(length) {
+		return errors.Errorf("inconsistent vector lengths: %d != %d", length, dims)
+	}
+	return nil
+}
+
 func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.VectorRecord) error {
 	if !iq.asyncEnabled {
 		return common.AddVectorsToIndex(ctx, vectors, iq.vectorIndex)
@@ -160,12 +178,8 @@ func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.Vector
 			return errors.Wrap(err, "failed to validate")
 		}
 
-		// if the index is still empty, ensure the first batch is consistent
-		// by keeping track of the dimensions of the vectors.
-		if !iq.dims.CompareAndSwap(0, int32(v.Len())) {
-			if iq.dims.Load() != int32(v.Len()) {
-				return errors.Errorf("inconsistent vector lengths: %d != %d", v.Len(), iq.dims.Load())
-			}
+		if err := iq.ValidateDims(v.Len()); err != nil {
+			return err
 		}
 
 		// encode vector
