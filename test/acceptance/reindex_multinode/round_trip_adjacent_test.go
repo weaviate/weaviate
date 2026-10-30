@@ -757,9 +757,8 @@ func testEnableSearchableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 		baselinesBM25[q] = perNodeBM25Counts(t, compose, className, q)
 	}
 
-	// Step 2: change-tokenization word→field. With both indexes present
-	// this goes through the searchable endpoint, which rebuilds both
-	// buckets (a filterable-only retokenize is refused here).
+	// Step 2: both indexes exist, so retokenizing goes through the
+	// searchable endpoint — filterable-only retokenize is now refused.
 	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
 		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))

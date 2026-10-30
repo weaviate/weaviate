@@ -452,10 +452,8 @@ func testChangeTokFilterableBackToBack(t *testing.T, restURI string) {
 // =============================================================================
 // Journey 6: change-tok-both → cancel mid-run → change-tok-both
 // =============================================================================
-// Submits change-tok-both, cancels it mid-iteration, then submits it
-// again. The cancel cleanup for the both-indexes migration must leave
-// the filterable side in a state where the retry can rebuild it. (A
-// filterable-only retokenize is refused while a searchable index exists.)
+// Resubmits change-tok-both after a mid-run cancel — a filterable-only
+// retry is refused since the property also has a searchable index.
 //
 // Both cleanups sweep every index type the migration touches:
 // indexTypesFromMigrationType returns "searchable" and "filterable" for
