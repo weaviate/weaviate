@@ -1982,13 +1982,15 @@ func replicasAdmissionStore(t *testing.T, placement map[string]sharding.Physical
 		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
 			exclusionNamespace: func(payload []byte) (string, bool) {
 				var p replicasPayload
-				return p.Collection, json.Unmarshal(payload, &p) == nil
+				err := json.Unmarshal(payload, &p)
+				return p.Collection, err == nil
 			},
 		}
 		c.DistributedTaskShardReplicasExtractors = map[string]distributedtask.ShardReplicasExtractor{
 			exclusionNamespace: func(payload []byte) (map[string][]string, bool) {
 				var p replicasPayload
-				return p.Replicas, json.Unmarshal(payload, &p) == nil
+				err := json.Unmarshal(payload, &p)
+				return p.Replicas, err == nil
 			},
 		}
 	})
