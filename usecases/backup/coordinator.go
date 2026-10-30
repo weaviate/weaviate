@@ -229,11 +229,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	nodes, err := c.canCommit(ctx, req)
 	if err != nil {
 		c.lastOp.reset()
-		if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) {
-			return fmt.Errorf("%w; to back up the other collections now, leave the refused collections "+
-				"out of the request (list them in \"exclude\", or drop them from \"include\"), or retry later", err)
-		}
-		return err
+		return withReindexRefusalHint(err)
 	}
 
 	overrideBucket := req.Bucket

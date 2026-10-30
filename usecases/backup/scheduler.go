@@ -181,7 +181,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		if errors.As(err, &authzerrors.Forbidden{}) {
 			return nil, err
 		}
-		return nil, backup.NewErrUnprocessable(err)
+		return nil, backup.NewErrUnprocessable(withReindexRefusalHint(err))
 	}
 
 	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
@@ -1511,4 +1511,13 @@ func expandWildcards(patterns, candidates []string) []string {
 	}
 
 	return result
+}
+
+// withReindexRefusalHint exists because the storage-layer text only says to wait.
+func withReindexRefusalHint(err error) error {
+	if !errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) {
+		return err
+	}
+	return fmt.Errorf("%w; a runtime reindex is running on a collection in this backup: exclude that collection "+
+		"(other collections may be refused too) or retry after the reindex finishes", err)
 }

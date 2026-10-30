@@ -25,9 +25,8 @@ import (
 // (adapters/repos/db) and the coordinator layer (usecases/backup) can
 // share a single value without an import cycle. Match it across RPC
 // boundaries with errors.Is, not substring comparison. The per-shard
-// operator-visible text is owned by adapters/repos/db/reindex_inflight.go;
-// the backup coordinator appends how to leave the collection out of a backup,
-// which does not apply to replica movement.
+// operator-visible text lives in adapters/repos/db/reindex_inflight.go;
+// backup creation layers on an exclusion hint that replica movement doesn't need.
 var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight on this shard")
 
 // ReadCloserWithError extends io.ReadCloser with CloseWithError method.

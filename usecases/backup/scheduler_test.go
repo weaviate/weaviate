@@ -168,6 +168,7 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 			{name: "no permitted class", exclude: []string{"*"}, wantErr: "forbidden", wantForbidden: true},
 			{name: "every permitted class excluded", permitted: []string{"Allowed"}, exclude: []string{"Allowed"}, wantErr: "no collections, users, or roles: available collections: [Allowed]"},
 			{name: "permitted class not backupable", permitted: []string{"Allowed"}, backupableErr: ErrAny, wantErr: ErrAny.Error()},
+			{name: "permitted class blocked by reindex", permitted: []string{"Allowed"}, backupableErr: fmt.Errorf("Allowed: %w", backup.ErrBackupBlockedByInFlightReindex), wantErr: "exclude that collection"},
 			{name: "authorizer fails", authErr: ErrAny, wantErr: ErrAny.Error()},
 			// adminlist refuses a list it does not wholly permit.
 			{name: "authorizer refuses the whole list", authErr: fmt.Errorf("adminlist: %w", authzerrors.NewForbidden(&models.Principal{}, authorization.CREATE, authorization.Backups("Allowed", "Hidden")...)), wantErr: "forbidden", wantForbidden: true},

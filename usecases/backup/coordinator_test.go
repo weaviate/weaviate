@@ -1015,20 +1015,24 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 				// typed sentinel — keep the two paths cleanly separable.
 				assert.False(t, errors.Is(err, errCannotCommit),
 					"in-flight-reindex error must not also match errCannotCommit, got: %v", err)
-				assert.Contains(t, err.Error(), `"exclude"`)
+				assert.Contains(t, err.Error(), "exclude that collection")
 			}
 			if tc.expectCanCommit {
 				assert.True(t, errors.Is(err, errCannotCommit),
 					"expected errors.Is(err, errCannotCommit), got: %v", err)
 				assert.False(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
 					"generic refusal must not match the typed sentinel, got: %v", err)
-				assert.NotContains(t, err.Error(), `"exclude"`)
+				assert.NotContains(t, err.Error(), "exclude that collection")
 			}
 			if tc.expectContain != "" {
 				assert.Contains(t, err.Error(), tc.expectContain)
 			}
 			// Surface the offending node so the operator knows where to look.
 			assert.Contains(t, err.Error(), nodes[1])
+
+			// A refusal must free the one-backup-at-a-time slot.
+			err = coordinator.Backup(ctx, store, &req)
+			assert.NotContains(t, err.Error(), "already in progress")
 		})
 	}
 }
