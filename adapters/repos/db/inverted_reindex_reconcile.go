@@ -144,22 +144,10 @@ func (r *migrationReconciler) leftStanding(subject MigrationSubject, why string)
 // the life of the shard.
 func (r *migrationReconciler) freezeNotice() {
 	unreadable := r.store.Unreadable()
-	// A store-scope fault read no record, so a count and a per-file remedy would
-	// both name something that does not exist.
-	for _, u := range unreadable {
-		if u.Scope == MigrationRecordFaultStore {
-			r.logger.WithField("path", r.store.Dir()).Errorf(
-				"the migration record store cannot answer for this shard (%s): withholding every "+
-					"destructive and promoting action this migration-record pass takes here until the cause is cleared",
-				u.Reason)
-			return
-		}
-	}
 	r.logger.WithField("path", r.store.Dir()).Errorf(
-		"%d migration record(s) not understood: withholding every destructive and promoting action "+
-			"this migration-record pass takes on this shard. This is normally a downgrade: run the build "+
-			"that wrote them, or remove the files the record store named once you have confirmed what they claim",
-		len(unreadable))
+		"%d migration record fault(s): withholding every destructive and promoting action "+
+			"this migration-record pass takes on this shard. First, %q: %s",
+		len(unreadable), unreadable[0].FileName, unreadable[0].Reason)
 }
 
 func (r *migrationReconciler) WedgedCount() int { return len(r.wedgedKeys) }

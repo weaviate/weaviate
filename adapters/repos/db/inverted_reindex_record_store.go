@@ -14,6 +14,7 @@ package db
 import (
 	"bytes"
 	"cmp"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -58,14 +59,37 @@ const maxMigrationFaultReasonBytes = 512
 // Both ends, because the quoted handle sits in the middle: the head says which
 // record and which role, the tail says what is wrong with it.
 func migrationFaultReason(err error) string {
-	reason := err.Error()
-	if len(reason) <= maxMigrationFaultReasonBytes {
-		return reason
+	reason, advice := err.Error(), ""
+	var advised *migrationAdvisedError
+	if errors.As(err, &advised) {
+		reason, advice = advised.err.Error(), ". "+advised.advice
 	}
-	const half = maxMigrationFaultReasonBytes / 2
-	return strings.ToValidUTF8(reason[:half], "") + "…(truncated)…" +
-		strings.ToValidUTF8(reason[len(reason)-half:], "")
+	if len(reason) > maxMigrationFaultReasonBytes {
+		const half = maxMigrationFaultReasonBytes / 2
+		reason = strings.ToValidUTF8(reason[:half], "") + "…(truncated)…" +
+			strings.ToValidUTF8(reason[len(reason)-half:], "")
+	}
+	return reason + advice
 }
+
+// Only the code that detects a fault knows its cause, so it states the remedy.
+const (
+	migrationAdviceClearAndRestart = "clear that error, then restart the node"
+	migrationAdviceOverBound       = "this build reads no record over that bound: run the build that wrote it, " +
+		"or remove it once you have confirmed what it claims"
+	migrationAdviceDowngrade = "normally a downgrade: run the build that wrote it, " +
+		"or remove it once you have confirmed what it claims"
+)
+
+// Kept apart from the reason so the length cut never drops the remedy.
+type migrationAdvisedError struct {
+	err    error
+	advice string
+}
+
+func (e *migrationAdvisedError) Error() string { return e.err.Error() + ". " + e.advice }
+
+func (e *migrationAdvisedError) Unwrap() error { return e.err }
 
 // Readers are served from the map: activating a tenant loads its shard on
 // the RAFT apply loop, where a read that went to disk would hold up the log.
@@ -181,7 +205,7 @@ func (s *MigrationRecordStore) Load() error {
 		}
 		s.publish(map[MigrationRecordKey]MigrationRecord{}, []MigrationRecordUnreadable{{
 			FileName: migrationRecordsDirName,
-			Reason:   fmt.Sprintf("read migration records dir: %v", err),
+			Reason:   fmt.Sprintf("read migration records dir: %v. %s", err, migrationAdviceClearAndRestart),
 			Scope:    MigrationRecordFaultStore,
 		}})
 		return fmt.Errorf("read migration records dir %q: %w", s.dir, err)
@@ -202,7 +226,7 @@ func (s *MigrationRecordStore) Load() error {
 			if got := rec.Subject().Key.fileName(); got != name {
 				unreadable = append(unreadable, MigrationRecordUnreadable{
 					FileName: name,
-					Reason:   fmt.Sprintf("content names record file %q", got),
+					Reason:   fmt.Sprintf("content names record file %q. give it back that name, or remove it", got),
 					Scope:    MigrationRecordFaultFile,
 				})
 				continue
@@ -452,10 +476,6 @@ func (s *MigrationRecordStore) removeSynced(key MigrationRecordKey, sync func(st
 	return nil
 }
 
-const migrationFrozenStoreRemedy = "The named file under <shard>/lsm/.migrations/records/ is the only " +
-	"thing that attributes the directories it names, so nothing here may write past it. " +
-	"Run the build that wrote it, or remove that file by hand once you have confirmed what it claims"
-
 // Any fault at all holds back every write, not only one naming this record's
 // own file. A record this build could not read may name the same directories,
 // so a write decided without it is decided on a state nobody here can see.
@@ -465,17 +485,9 @@ func (s *MigrationRecordStore) mayWrite(key MigrationRecordKey) error {
 	if len(s.unreadable) == 0 {
 		return nil
 	}
-	name := key.fileName()
-	for _, u := range s.unreadable {
-		if u.Scope == MigrationRecordFaultFile && u.FileName == name {
-			return fmt.Errorf("refusing to write migration record %q over a file this build could not read: %s. "+
-				"%s", key, u.Reason, migrationFrozenStoreRemedy)
-		}
-	}
 	u := s.unreadable[0]
-	return fmt.Errorf("refusing to write migration record %q: this build could not read %q, "+
-		"so it cannot tell what is already recorded here: %s. "+
-		"%s", key, u.FileName, u.Reason, migrationFrozenStoreRemedy)
+	return fmt.Errorf("refusing to write migration record %q: the record store cannot answer for %q, "+
+		"so it cannot tell what is already recorded here: %s", key, u.FileName, u.Reason)
 }
 
 func (s *MigrationRecordStore) Get(key MigrationRecordKey) (MigrationRecord, bool) {
@@ -544,11 +556,16 @@ func loadMigrationRecordFile(path string) (MigrationRecord, MigrationRecordLoadO
 		if os.IsNotExist(err) {
 			return nil, MigrationRecordAbsent, nil
 		}
-		return nil, MigrationRecordNotUnderstood, fmt.Errorf("stat %q: %w", filepath.Base(path), err)
+		return nil, MigrationRecordNotUnderstood, &migrationAdvisedError{
+			fmt.Errorf("stat %q: %w", filepath.Base(path), err), migrationAdviceClearAndRestart,
+		}
 	}
 	if info.Size() > maxMigrationRecordBytes {
-		return nil, MigrationRecordNotUnderstood, fmt.Errorf(
-			"record %q holds %d bytes, bound is %d", filepath.Base(path), info.Size(), maxMigrationRecordBytes)
+		return nil, MigrationRecordNotUnderstood, &migrationAdvisedError{
+			fmt.Errorf(
+				"record %q holds %d bytes, bound is %d", filepath.Base(path), info.Size(), maxMigrationRecordBytes),
+			migrationAdviceOverBound,
+		}
 	}
 
 	data, err := os.ReadFile(path)
@@ -556,12 +573,14 @@ func loadMigrationRecordFile(path string) (MigrationRecord, MigrationRecordLoadO
 		if os.IsNotExist(err) {
 			return nil, MigrationRecordAbsent, nil
 		}
-		return nil, MigrationRecordNotUnderstood, fmt.Errorf("read %q: %w", filepath.Base(path), err)
+		return nil, MigrationRecordNotUnderstood, &migrationAdvisedError{
+			fmt.Errorf("read %q: %w", filepath.Base(path), err), migrationAdviceClearAndRestart,
+		}
 	}
 
 	rec, err := decodeMigrationRecord(data)
 	if err != nil {
-		return nil, MigrationRecordNotUnderstood, err
+		return nil, MigrationRecordNotUnderstood, &migrationAdvisedError{err, migrationAdviceDowngrade}
 	}
 	return rec, MigrationRecordLoaded, nil
 }

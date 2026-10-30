@@ -854,8 +854,11 @@ func TestMigrationRecordStore(t *testing.T) {
 				committed, err := migrationPreservedStateAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
 				require.NoError(t, err)
 				require.True(t, committed.preservesBucket("a directory no record names"))
-				require.Error(t, s.Put(merged(43, StrategyCodeEnableFilterable)),
+				err = s.Put(merged(43, StrategyCodeEnableFilterable))
+				require.Error(t, err,
 					"a frozen store must not take a write it cannot place among the records it could not attribute")
+				require.NotContains(t, strings.ToLower(err.Error()), "run the build",
+					"no build wrote this fault, so the refusal must not send the operator to one")
 			},
 		},
 		{
@@ -1308,7 +1311,8 @@ func TestAnUnreadableRecordsReasonIsBounded(t *testing.T) {
 
 	require.Len(t, store.Unreadable(), 1, "fixture: the handle has to be one this build refuses")
 	reason := store.Unreadable()[0].Reason
-	require.Less(t, len(reason), maxMigrationFaultReasonBytes+32)
+	require.Less(t, len(reason), maxMigrationFaultReasonBytes+32+len(". "+migrationAdviceDowngrade))
+	require.True(t, strings.HasSuffix(reason, ". "+migrationAdviceDowngrade), "the cut must never drop the remedy")
 	require.Contains(t, reason, "names staged directory",
 		"the bound must keep the part of the reason that says which record and which role")
 	require.Contains(t, reason, "not shaped like a sidecar",
