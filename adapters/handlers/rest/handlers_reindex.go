@@ -230,8 +230,8 @@ func validateEnableSearchableProperty(prop *models.Property, tokenization string
 // validateFilterableTokenizationChange validates the body for
 // `PUT /v1/schema/{class}/properties/{prop}/index/filterable` with a
 // diverging `{"tokenization":X}`.
-// Distinct from validateTokenizationChange: does NOT require a searchable
-// bucket — this is the filterable-only retokenize variant. The caller
+// Distinct from validateTokenizationChange: the property must NOT have a
+// searchable index — this is the filterable-only retokenize variant. The caller
 // dispatches to ReindexTypeChangeTokenizationFilterable which runs only
 // the filterable retokenize task.
 func validateFilterableTokenizationChange(prop *models.Property, targetTokenization string) error {
@@ -250,6 +250,14 @@ func validateFilterableTokenizationChange(prop *models.Property, targetTokenizat
 	}
 	if prop.Tokenization == targetTokenization {
 		return fmt.Errorf("property %q already uses tokenization %q", prop.Name, targetTokenization)
+	}
+	// Both indexes are queried with the property's one tokenization, so
+	// retokenizing only the filterable one leaves the searchable one unreadable.
+	if searchableIndexOn(prop) {
+		return fmt.Errorf("property %q also has a searchable index built with tokenization %q; "+
+			"retokenizing only the filterable index would silently desynchronize the searchable index. "+
+			"Change the tokenization of both indexes via PUT /v1/schema/{className}/properties/%s/index/searchable",
+			prop.Name, prop.Tokenization, prop.Name)
 	}
 	return nil
 }

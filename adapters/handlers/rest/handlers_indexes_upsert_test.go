@@ -431,10 +431,16 @@ func TestResolveUpsertPlan_Filterable(t *testing.T) {
 			wantNoop: true,
 		},
 		{
-			name:   "present + different tokenization -> filterable retokenize",
-			prop:   textProp("t", "word", boolPtr(true), boolPtr(true)),
+			name:   "present + different tokenization, no searchable index -> filterable retokenize",
+			prop:   textProp("t", "word", boolPtr(false), boolPtr(true)),
 			body:   &models.IndexUpsertRequest{Tokenization: "lowercase"},
 			wantMT: db.ReindexTypeChangeTokenizationFilterable,
+		},
+		{
+			name:    "present + different tokenization, searchable index too -> 400",
+			prop:    textProp("t", "word", boolPtr(true), boolPtr(true)),
+			body:    &models.IndexUpsertRequest{Tokenization: "lowercase"},
+			wantErr: "would silently desynchronize the searchable index",
 		},
 		{
 			name:    "algorithm on filterable -> 400",
