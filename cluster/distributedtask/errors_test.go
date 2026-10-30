@@ -102,6 +102,18 @@ func TestToRPCError(t *testing.T) {
 // sentinel must survive, including when the leader wraps the FSM error
 // before it crosses the wire.
 func TestRehydratePermanentRejection_RoundTripsEverySentinel(t *testing.T) {
+	// The round-trip loop visits only permanentMarkers, so this list catches a sentinel missing from it.
+	registered := make(map[error]bool, len(permanentMarkers))
+	for _, marker := range permanentMarkers {
+		registered[marker.sentinel] = true
+	}
+	for _, sentinel := range []error{
+		ErrTaskNotRunning, ErrTaskDoesNotExist, ErrUnitAlreadyTerminal, ErrUnitWrongNode,
+		ErrTaskNotInFinalizingState, ErrTaskConflict, ErrTaskBlockedByReplicaMovement,
+	} {
+		require.True(t, registered[sentinel], "%v is not registered in permanentMarkers", sentinel)
+	}
+
 	wraps := []struct {
 		name string
 		wrap func(error) error

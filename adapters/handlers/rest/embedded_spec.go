@@ -5053,6 +5053,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
@@ -5581,6 +5587,12 @@ func init() {
           },
           "404": {
             "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6144,7 +6156,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has either a conflicting in-flight reindex task or a replica movement in flight. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6409,7 +6421,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has either a conflicting in-flight reindex task or a replica movement in flight. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -17887,6 +17899,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
@@ -18415,6 +18433,12 @@ func init() {
           },
           "404": {
             "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18978,7 +19002,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has either a conflicting in-flight reindex task or a replica movement in flight. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19243,7 +19267,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has either a conflicting in-flight reindex task or a replica movement in flight. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
