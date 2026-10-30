@@ -60,31 +60,16 @@ func newMultiVectorIndex(t *testing.T) *hnsw {
 }
 
 // Doc IDs are never reused, so a delete is final even if it overtakes the insert:
-// two concurrent updates of an object can do that, one deleting the doc ID the
-// other one is still inserting.
+// two concurrent updates of an object can do that, one deleting the doc ID the other
+// one is still inserting. This only covers what a tombstone can: the shard takes care
+// of the rest, see retractIfSuperseded.
 func TestDeleteBeforeInsertKeepsTheDocDeleted(t *testing.T) {
-	vectors := [][]float32{{0.1, 0.2, 0.3, 0.4}, {0.2, 0.3, 0.4, 0.5}}
+	f := newBootstrapFixture(t, false)
 
-	t.Run("single vector", func(t *testing.T) {
-		f := newBootstrapFixture(t, false)
+	require.NoError(t, f.index.Delete(5))
+	require.NoError(t, f.index.Add(f.ctx, 5, f.vectors[5]))
 
-		require.NoError(t, f.index.Delete(5))
-		require.NoError(t, f.index.Add(f.ctx, 5, f.vectors[5]))
-
-		require.False(t, f.index.ContainsDoc(5))
-	})
-
-	t.Run("multi vector", func(t *testing.T) {
-		t.Skip("https://github.com/weaviate/weaviate/issues/13686")
-
-		ctx := context.Background()
-		index := newMultiVectorIndex(t)
-
-		require.NoError(t, index.DeleteMulti(5))
-		require.NoError(t, index.AddMulti(ctx, 5, vectors))
-
-		require.False(t, index.ContainsDoc(5))
-	})
+	require.False(t, f.index.ContainsDoc(5))
 }
 
 func TestHasGhost_MultiVector(t *testing.T) {

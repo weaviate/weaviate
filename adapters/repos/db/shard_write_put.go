@@ -127,7 +127,10 @@ func (s *Shard) updateVectorIndexIgnoreDelete(ctx context.Context, vector []floa
 	}
 
 	_, err := s.WithVectorIndexQueue("", func(queue *VectorIndexQueue) error {
-		return queue.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vector})
+		if err := queue.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vector}); err != nil {
+			return err
+		}
+		return retractIfSuperseded(ctx, s.store, queue, status.docID)
 	})
 	if err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
@@ -157,7 +160,10 @@ func (s *Shard) updateVectorIndexesIgnoreDelete(ctx context.Context,
 
 	for targetVector, vector := range vectors {
 		_, err := s.WithVectorIndexQueue(targetVector, func(q *VectorIndexQueue) error {
-			return q.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vector})
+			if err := q.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vector}); err != nil {
+				return err
+			}
+			return retractIfSuperseded(ctx, s.store, q, status.docID)
 		})
 		if err != nil {
 			return errors.Wrapf(err, "insert doc id %d to vector index for target vector %s", status.docID, targetVector)
@@ -187,7 +193,10 @@ func (s *Shard) updateMultiVectorIndexesIgnoreDelete(ctx context.Context,
 
 	for targetVector, vector := range multiVectors {
 		_, err := s.WithVectorIndexQueue(targetVector, func(q *VectorIndexQueue) error {
-			return q.Insert(ctx, &common.Vector[[][]float32]{ID: status.docID, Vector: vector})
+			if err := q.Insert(ctx, &common.Vector[[][]float32]{ID: status.docID, Vector: vector}); err != nil {
+				return err
+			}
+			return retractIfSuperseded(ctx, s.store, q, status.docID)
 		})
 		if err != nil {
 			return errors.Wrapf(err, "insert doc id %d to multi vector index for target vector %s", status.docID, targetVector)
@@ -1007,9 +1016,45 @@ func updateVectorInVectorIndex[T dto.Embedding](ctx context.Context, shard *Shar
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
+	if err := retractIfSuperseded(ctx, shard.store, queue, status.docID); err != nil {
+		return errors.Wrapf(err, "retract doc id %d from vector index", status.docID)
+	}
+
 	if err := queue.Flush(); err != nil {
 		return errors.Wrap(err, "flush all vector index buffered WALs")
 	}
 
 	return nil
+}
+
+// retractIfSuperseded finishes an insert. When two updates of an object overlap, the
+// delete of a doc ID can overtake its insert, and an index can't be relied on to
+// remember that: a multi vector index only knows a doc by its vectors, flat has no
+// tombstones and an hnsw reset drops them. An update stores its own doc before it
+// deletes the one it replaces, so a doc ID that is still current here has its delete
+// yet to come, and that one finds the vectors. Otherwise the delete may have come too
+// early, and the insert has to undo itself.
+func retractIfSuperseded(ctx context.Context, store *lsmkv.Store, queue *VectorIndexQueue, docID uint64) error {
+	if queue.vectorIndex.Type() == common.IndexTypeNoop {
+		return nil
+	}
+
+	bucket, release := store.AcquireBucketForRead(helpers.ObjectsBucketLSM)
+	defer release()
+	if bucket == nil {
+		return fmt.Errorf("objects bucket: %w", lsmkv.ErrBucketNotFound)
+	}
+
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
+
+	current, err := bucket.GetBySecondary(ctx, helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)
+	if err != nil {
+		return errors.Wrap(err, "look up current doc")
+	}
+	if current != nil {
+		return nil
+	}
+
+	return queue.Delete(docID)
 }

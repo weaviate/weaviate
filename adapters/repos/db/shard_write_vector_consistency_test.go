@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -178,6 +179,19 @@ func requireSelfHits(t *testing.T, shard ShardLike, flavor consistencyFlavor, ob
 		}
 		assert.Containsf(t, ids, obj.ID().String(),
 			"object %d is readable but its own vector does not find it", i)
+	}
+}
+
+// requireFullResults catches what requireSelfHits can't: docs without an object take
+// slots of the limit, and are dropped once the search looks their objects up.
+func requireFullResults(t *testing.T, shard ShardLike, flavor consistencyFlavor, objs []*storobj.Object) {
+	t.Helper()
+
+	for _, obj := range objs {
+		res, _, err := shard.ObjectVectorSearch(t.Context(), []models.Vector{flavor.get(obj)},
+			[]string{flavor.target}, 0, len(objs), nil, nil, nil, additional.Properties{}, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, res, len(objs))
 	}
 }
 
@@ -627,17 +641,11 @@ func TestRewriteKeepsDocIDOfUnchangedObject(t *testing.T) {
 }
 
 // TestConcurrentRewritesOfUnindexedObjects guards the repair against itself:
-// every write sees the same missing vector and replaces the doc ID. Multi vectors
-// are left out for https://github.com/weaviate/weaviate/issues/13686, which any
-// concurrent update runs into, repair or not.
+// every write sees the same missing vector and replaces the doc ID.
 func TestConcurrentRewritesOfUnindexedObjects(t *testing.T) {
 	const count, writers = 9, 8
 
 	for _, flavor := range consistencyFlavors() {
-		if flavor.target == "colbert" {
-			continue
-		}
-
 		t.Run(flavor.name, func(t *testing.T) {
 			className := "ConcurrentRewrite"
 			shard, idx := testShardWithSettings(t, t.Context(), consistencyClass(className),
@@ -667,16 +675,11 @@ func TestConcurrentRewritesOfUnindexedObjects(t *testing.T) {
 // TestConcurrentUpdatesOfTheSameObjects is the natural trigger of issue #13609: an
 // update deletes the doc ID another update is still inserting. Over rounds on a
 // small shard that used to leave the shard at 0 or 1 results for any limit, all
-// writes reported as successful. Multi vectors are left out for
-// https://github.com/weaviate/weaviate/issues/13686.
+// writes reported as successful.
 func TestConcurrentUpdatesOfTheSameObjects(t *testing.T) {
 	const count, writers, rounds = 9, 8, 30
 
 	for _, flavor := range consistencyFlavors() {
-		if flavor.target == "colbert" {
-			continue
-		}
-
 		t.Run(flavor.name, func(t *testing.T) {
 			for round := range rounds {
 				className := "ConcurrentUpdates"
@@ -696,13 +699,136 @@ func TestConcurrentUpdatesOfTheSameObjects(t *testing.T) {
 				require.NoError(t, eg.Wait())
 
 				requireSelfHits(t, shard, flavor, objs)
+				requireFullResults(t, shard, flavor, objs)
 				cleanUpTombstones(t, shard, flavor)
 				requireSelfHits(t, shard, flavor, objs)
+				requireFullResults(t, shard, flavor, objs)
 				if t.Failed() {
 					t.Fatalf("round %d", round)
 				}
 			}
 		})
+	}
+}
+
+// overtakingUpdate runs another update of the object right before the vector of
+// this one goes in.
+type overtakingUpdate struct {
+	ShardLike
+	overtake func()
+	once     sync.Once
+}
+
+func (s *overtakingUpdate) updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32,
+	status objectInsertStatus,
+) error {
+	s.once.Do(s.overtake)
+	return s.ShardLike.updateVectorIndexIgnoreDelete(ctx, vector, status)
+}
+
+func (s *overtakingUpdate) updateVectorIndexesIgnoreDelete(ctx context.Context,
+	vectors map[string][]float32, status objectInsertStatus,
+) error {
+	s.once.Do(s.overtake)
+	return s.ShardLike.updateVectorIndexesIgnoreDelete(ctx, vectors, status)
+}
+
+func (s *overtakingUpdate) updateMultiVectorIndexesIgnoreDelete(ctx context.Context,
+	vectors map[string][][]float32, status objectInsertStatus,
+) error {
+	s.once.Do(s.overtake)
+	return s.ShardLike.updateMultiVectorIndexesIgnoreDelete(ctx, vectors, status)
+}
+
+// TestSupersededDocIsRetracted pins issue #13686. The delete of a doc can overtake
+// its insert, and not every index remembers it: the doc went live with no object
+// behind it and took slots of the limit from then on.
+func TestSupersededDocIsRetracted(t *testing.T) {
+	tests := []struct {
+		name  string
+		async bool
+		// write stores first, runs overtake, then lets first reach the vector index
+		write func(t *testing.T, shard ShardLike, flavor consistencyFlavor, first *storobj.Object, overtake func())
+	}{
+		{
+			name: "batch",
+			write: func(t *testing.T, shard ShardLike, _ consistencyFlavor, first *storobj.Object, overtake func()) {
+				wrapped := &overtakingUpdate{ShardLike: shard, overtake: overtake}
+				require.Empty(t, nonNilErrs(runBatch(t.Context(), wrapped, []*storobj.Object{first})))
+			},
+		},
+		{
+			name: "single",
+			write: func(t *testing.T, shard ShardLike, flavor consistencyFlavor, first *storobj.Object, overtake func()) {
+				id, err := uuid.Parse(first.ID().String())
+				require.NoError(t, err)
+				idBytes, err := id.MarshalBinary()
+				require.NoError(t, err)
+
+				local := underlyingShard(t, shard)
+				status, err := local.putObjectLSM(t.Context(), first, idBytes)
+				require.NoError(t, err)
+				overtake()
+
+				if multi, ok := first.MultiVectors[flavor.target]; ok {
+					require.NoError(t, local.updateMultiVectorIndex(t.Context(), multi, status, flavor.target))
+					return
+				}
+				vector, ok := flavor.get(first).([]float32)
+				require.True(t, ok)
+				require.NoError(t, local.updateVectorIndex(t.Context(), vector, status, flavor.target))
+			},
+		},
+		{
+			name:  "async batch",
+			async: true,
+			write: func(t *testing.T, shard ShardLike, _ consistencyFlavor, first *storobj.Object, overtake func()) {
+				batcher := newObjectsBatcher(shard, shard.Index().logger)
+				batcher.init([]*storobj.Object{first})
+				batcher.storeInObjectStore(t.Context())
+				overtake()
+				batcher.markDeletedInVectorStorage(t.Context())
+				batcher.storeAdditionalStorageWithAsyncQueue(t.Context())
+				require.Empty(t, nonNilErrs(batcher.errs))
+			},
+		},
+	}
+
+	for _, flavor := range consistencyFlavors() {
+		for _, test := range tests {
+			t.Run(flavor.name+"/"+test.name, func(t *testing.T) {
+				className := "SupersededDoc"
+				shard, _ := testShardWithSettings(t, t.Context(), consistencyClass(className),
+					enthnsw.NewDefaultUserConfig(), false, test.async, flavor.opts...)
+
+				objs := consistencyObjects(flavor, className, 1)
+				require.Empty(t, nonNilErrs(shard.PutObjectBatch(t.Context(), objs)))
+
+				first := withNewVectors(flavor, objs, 1)[0]
+				second := withNewVectors(flavor, newerVersions(objs, 10), 2)[0]
+
+				test.write(t, shard, flavor, first, func() {
+					assert.Empty(t, nonNilErrs(shard.PutObjectBatch(t.Context(), []*storobj.Object{second})))
+				})
+
+				stored, err := shard.ObjectByID(t.Context(), objs[0].ID(), nil, additional.Properties{})
+				require.NoError(t, err)
+
+				_, err = shard.WithVectorIndexQueue(flavor.target, func(queue *VectorIndexQueue) error {
+					return queue.Wait(t.Context())
+				})
+				require.NoError(t, err)
+
+				_, err = shard.WithVectorIndex(flavor.target, func(index VectorIndex) error {
+					require.Eventually(t, func() bool {
+						return !index.ContainsDoc(first.DocID) && index.ContainsDoc(stored.DocID)
+					}, 5*time.Second, 10*time.Millisecond, "the superseded doc %d has to go, doc %d has to stay",
+						first.DocID, stored.DocID)
+					return nil
+				})
+				require.NoError(t, err)
+			})
+		}
 	}
 }
 

@@ -343,7 +343,12 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 			// one at a time: a vector the queue refuses has to fail its own object,
 			// not the one at the start of the batch, and leave the rest indexed
 			for i, vector := range vectors {
-				if err := queue.Insert(ctx, vector); err != nil {
+				err := queue.Insert(ctx, vector)
+				if err == nil {
+					docID := ob.statuses[ob.objects[positions[i]].ID()].docID
+					err = retractIfSuperseded(ctx, ob.shard.Store(), queue, docID)
+				}
+				if err != nil {
 					ob.setErrorAtIndex(err, positions[i])
 				}
 			}
