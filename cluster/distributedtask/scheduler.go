@@ -651,9 +651,7 @@ func (s *Scheduler) tick() {
 		suProvider, providerIsUnitAware := provider.(UnitAwareProvider)
 		if providerIsUnitAware {
 			for desc, task := range tasks {
-				// State-machine dispatch by task.Status. CANCELLED skips
-				// the ack barriers: [Manager.CancelTask] accepts a cancel
-				// only from STARTED, so the barriers cannot have opened.
+				// CANCELLED skips the ack barriers: [Manager.CancelTask] only cancels from STARTED, before any barrier opens.
 				switch task.Status {
 				case TaskStatusCancelled:
 					// Skip PHASE A / PHASE B / ack barriers; Phase 2
@@ -691,7 +689,7 @@ func (s *Scheduler) tick() {
 					// post-completion ack RAFT-write), re-acquire and
 					// commit with the load-bearing state re-fetch.
 					s.runSwapPhase(namespace, desc, task, suProvider)
-				} // end switch task.Status
+				}
 
 				// Phase 2: fire OnTaskCompleted on SWAPPING/FAILED/FINISHED/
 				// CANCELLED. FINISHED is included because the first node to
@@ -977,8 +975,7 @@ func (s *Scheduler) runPreparationPhase(
 		Error:   joined,
 		AckedAt: s.clock.Now(),
 	}
-	// Mirror the FSM's FAILED flip: the callbacks later in this tick decide
-	// whether to swap or clean up from task.Status.
+	// Mirrors the FSM's FAILED flip so later phases this tick see it on task.Status.
 	if !success && task.Status == TaskStatusPreparing {
 		task.markTerminal(TaskStatusFailed, s.clock.Now())
 	}
@@ -1129,9 +1126,7 @@ func (s *Scheduler) runSwapPhase(
 	if afterAckState := s.perTaskStateLocked(desc); afterAckState != nil {
 		afterAckState.postCompletionAckEmitted = true
 	}
-	// Reflect the ack on the per-tick local clone (mirror of what the FSM
-	// apply path records) so the Phase 2 gate and OnTaskCompleted's
-	// schema-flip decision see the up-to-date view without re-listing.
+	// Mirrors the FSM's ack record onto the per-tick clone so later phases see it without re-listing.
 	if task.PostCompletionAcks == nil {
 		task.PostCompletionAcks = map[string]PostCompletionAck{}
 	}

@@ -1095,10 +1095,7 @@ func TestBarrier_G9_CancelRefusedOnceANodeHasSwapped(t *testing.T) {
 		"both replicas swapped, so the task must finalize rather than stay stuck")
 }
 
-// A node whose own PREP or SWAP failed must hand its callbacks the FAILED
-// status it acted on: providers skip the swap and the schema flip only on
-// a terminal status, so a stale PREPARING or SWAPPING there swaps or flips
-// on the one node whose data is not migrated.
+// Regression: a node's own failed PREP/SWAP ack must hand callbacks FAILED, not a stale PREPARING/SWAPPING.
 func TestBarrier_FailedPhaseHandsCallbacksFailedStatus(t *testing.T) {
 	groupErr := func(p *barrierRecordingProvider) {
 		p.SetGroupCompletedError(fmt.Errorf("synthetic EIO on node-2"))
