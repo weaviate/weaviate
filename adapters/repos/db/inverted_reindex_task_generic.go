@@ -659,8 +659,30 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 	if !rec.FlipDecided() && shard.migrationRecordStore().Wedged(t.migrationRecordKey()) {
 		return nil
 	}
-	_, err := t.onAfterLsmInit(ctx, shard)
-	return err
+	if _, err := t.onAfterLsmInit(ctx, shard); err != nil {
+		return err
+	}
+	return t.serveStagedWhileFrozen(ctx, shard, rec)
+}
+
+// An unreadable record withholds every promotion, and the canonical name then
+// opens empty. Pointing it at the staged data in memory renames nothing. When
+// this migration's own record is the unreadable one, nothing reaches here.
+func (t *ShardReindexTaskGeneric) serveStagedWhileFrozen(ctx context.Context, shard *Shard,
+	rec MigrationRecord,
+) error {
+	if len(shard.migrationRecords.Unreadable()) == 0 {
+		return nil
+	}
+	props := rec.Subject().Properties()
+	pending, err := t.swapStillToRun(t.logger, shard, rec, props)
+	if err != nil || !pending {
+		return err
+	}
+	if err := t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
+		return err
+	}
+	return t.runtimeSwap(ctx, t.logger, shard, props)
 }
 
 func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Shard,
