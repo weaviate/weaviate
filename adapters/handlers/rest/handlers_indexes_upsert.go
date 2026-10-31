@@ -675,6 +675,9 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	} else {
 		shardOwnership, err = h.appState.DB.ShardReplicaOwnership(ctx, collection)
 	}
+	if errors.Is(err, db.ErrTenantsNotHot) {
+		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
+	}
 	if err != nil {
 		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 			fmt.Sprintf("getting shard ownership: %v", err)))

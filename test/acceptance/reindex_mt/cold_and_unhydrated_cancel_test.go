@@ -181,8 +181,8 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	clearReindexResidue(ctx, t, container,
 		tenantNames(tenants, func(tn sweepTenant) bool { return !tn.cold && !tn.stale }))
 
-	// Step 5: re-submit, naming the HOT tenants — an unnamed COLD tenant would
-	// get a task unit and fail on a shard the index map no longer has.
+	// Step 5: re-submit, naming the HOT tenants — a submit that targets a COLD
+	// tenant is refused.
 	//
 	// A filterable rebuild, not enable-rangeable: the latter is semantic and
 	// cannot be tenant-scoped. The (score, filterable) cleanup still owns the

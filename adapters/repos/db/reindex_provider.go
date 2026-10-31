@@ -2662,12 +2662,12 @@ func (h *reindexTaskHandle) Done() <-chan struct{} {
 	return h.doneCh
 }
 
-// ShardReplicaOwnershipForMT returns shard ownership filtered for multi-tenant
-// collections. It filters by the given tenant names (or all tenants if empty)
-// and skips tenants whose activity status indicates no local data (OFFLOADED,
-// OFFLOADING, FROZEN, FREEZING, UNFREEZING, ONLOADING).
+// ShardReplicaOwnershipForMT returns shard ownership for the named tenants
+// (all, if empty), or [ErrTenantsNotHot] if any isn't HOT: a COLD
+// tenant has no loaded shard, and a frozen or offloaded one holds a stale index.
 func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, tenantNames []string) (map[string][]string, error) {
 	result := make(map[string][]string)
+	notHot := false
 	tenantSet := make(map[string]struct{}, len(tenantNames))
 	for _, tn := range tenantNames {
 		tenantSet[tn] = struct{}{}
@@ -2686,16 +2686,10 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 				}
 			}
 
-			// Skip tenants without local data.
-			status := entschema.ActivityStatus(shard.Status)
-			switch status {
-			case models.TenantActivityStatusHOT,
-				models.TenantActivityStatusACTIVE,
-				models.TenantActivityStatusCOLD,
-				models.TenantActivityStatusINACTIVE:
-				// These have local data — include them.
+			switch entschema.ActivityStatus(shard.Status) {
+			case models.TenantActivityStatusHOT, models.TenantActivityStatusACTIVE:
 			default:
-				// OFFLOADED, OFFLOADING, FROZEN, FREEZING, UNFREEZING, ONLOADING — skip.
+				notHot = true
 				continue
 			}
 
@@ -2711,6 +2705,9 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", className, err)
 	}
+	if notHot {
+		return nil, ErrTenantsNotHot
+	}
 
 	// Sort shard names per node for determinism.
 	for _, shards := range result {
@@ -2719,6 +2716,12 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 
 	return result, nil
 }
+
+// ErrTenantsNotHot refuses a reindex that targets tenants which are not HOT.
+// It names no tenant: a collection-wide caller may lack permission to read
+// tenants. A tenant mid freeze or unfreeze rejects a HOT update until done.
+var ErrTenantsNotHot = errors.New("some target tenants are not HOT and cannot be reindexed; " +
+	"once any freeze or unfreeze in progress finishes, set them to HOT")
 
 // ShardReplicaOwnership returns a map of node name to shard names, with one
 // entry per replica. Unlike ShardOwnership (which assigns each shard to one

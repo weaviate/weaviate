@@ -1226,7 +1226,8 @@ tenant class. The handler validates:
   (`AddDistributedTaskWithGroupsBarrier`); see below.
 - `tenants` with a semantic migration → 400 ("all tenants must be
   targeted").
-- Tenant in `OFFLOADED` / `FROZEN` → 400 with the named tenant.
+- Any targeted tenant that is not HOT → 400, with a fixed message that
+  names no tenant.
 
 Per-tenant unit groups (Journey 4 from the DTM doc): one
 `UnitSpec.GroupID` per tenant, so `OnGroupCompleted` fires per-tenant
