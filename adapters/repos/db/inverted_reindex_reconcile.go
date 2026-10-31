@@ -803,12 +803,8 @@ func (r *migrationReconciler) repromoteWhatTheRecordOutran(ctx context.Context, 
 
 const migrationTaskMapUnreadable = "this node's task map cannot be read yet"
 
-// Not installed and installed-but-not-applied-yet read the same here: neither
-// licenses a decision.
+// A task list not yet applied licenses no decision.
 func (r *migrationReconciler) localTasks() ([]distributedtask.TaskStatusEntry, bool) {
-	if r.deps.LocalTasks == nil {
-		return nil, false
-	}
 	return r.deps.LocalTasks()
 }
 
@@ -832,9 +828,6 @@ func (r *migrationReconciler) clusterVerdict(subject MigrationSubject, tasks []d
 }
 
 func (r *migrationReconciler) sealUnit(subject MigrationSubject) (func(), bool) {
-	if r.deps.SealUnit == nil {
-		return func() {}, false
-	}
 	return r.deps.SealUnit(
 		distributedtask.TaskDescriptor{ID: subject.TaskID, Version: subject.Key.TaskVersion},
 		subject.Key.UnitID)
@@ -982,9 +975,6 @@ func (r *migrationReconciler) reclaimRecordAndDirs(ctx context.Context, subject 
 }
 
 func (r *migrationReconciler) closeStagedBuckets(ctx context.Context, dirs ...string) error {
-	if r.deps.Buckets == nil {
-		return nil
-	}
 	if err := r.deps.Buckets.ShutdownStagedBucketsAt(ctx, dirs); err != nil {
 		return fmt.Errorf("shut down the staged buckets at %s: %w",
 			strings.Join(migrationReportedNames(dirs), ", "), err)
