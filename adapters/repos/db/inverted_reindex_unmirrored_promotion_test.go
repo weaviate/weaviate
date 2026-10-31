@@ -135,6 +135,18 @@ func TestRecoveryWalkStampsAMigrationItCouldNotArm(t *testing.T) {
 			wantUnmirrored: true,
 		},
 		{
+			name:           "iterated, record builds no task, so no mirror",
+			rec:            func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterated(noTokenization(s)) },
+			wantUnmirrored: true,
+		},
+		{
+			name: "swapped, record builds no task, so no mirror",
+			rec: func(s MigrationSubject) MigrationRecord {
+				return NewMigrationRecordSwapped(noTokenization(s), s.Properties(), map[string]string{"title": s.Props["title"].Canonical})
+			},
+			wantUnmirrored: true,
+		},
+		{
 			name: "promoted: the canonical name already holds the migrated data",
 			rec: func(s MigrationSubject) MigrationRecord {
 				return NewMigrationRecordPromoted(s, s.Properties(), map[string]string{"title": s.Props["title"].Canonical})
