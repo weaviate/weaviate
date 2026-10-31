@@ -2663,11 +2663,11 @@ func (h *reindexTaskHandle) Done() <-chan struct{} {
 }
 
 // ShardReplicaOwnershipForMT returns shard ownership for the named tenants
-// (all, if empty), or a [*TenantsNotHotError] if any isn't HOT: a COLD
+// (all, if empty), or [ErrTenantsNotHot] if any isn't HOT: a COLD
 // tenant has no loaded shard, and a frozen or offloaded one holds a stale index.
 func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, tenantNames []string) (map[string][]string, error) {
 	result := make(map[string][]string)
-	notHot := make(map[string]struct{})
+	notHot := false
 	tenantSet := make(map[string]struct{}, len(tenantNames))
 	for _, tn := range tenantNames {
 		tenantSet[tn] = struct{}{}
@@ -2689,7 +2689,7 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 			switch entschema.ActivityStatus(shard.Status) {
 			case models.TenantActivityStatusHOT, models.TenantActivityStatusACTIVE:
 			default:
-				notHot[shardName] = struct{}{}
+				notHot = true
 				continue
 			}
 
@@ -2705,8 +2705,8 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", className, err)
 	}
-	if len(notHot) > 0 {
-		return nil, &TenantsNotHotError{tenants: notHot, named: len(tenantNames) > 0}
+	if notHot {
+		return nil, ErrTenantsNotHot
 	}
 
 	// Sort shard names per node for determinism.
@@ -2717,30 +2717,11 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 	return result, nil
 }
 
-// TenantsNotHotError refuses a reindex that targets tenants which are not HOT.
-type TenantsNotHotError struct {
-	tenants map[string]struct{}
-	named   bool
-}
-
-func (e *TenantsNotHotError) Error() string {
-	// A collection-wide caller may lack permission to read tenants, so it
-	// gets a count; only tenants it named itself are listed.
-	subject, verb, pronoun := "", "are", "them"
-	switch {
-	case !e.named && len(e.tenants) == 1:
-		subject, verb, pronoun = "1 tenant", "is", "it"
-	case !e.named:
-		subject = fmt.Sprintf("%d tenants", len(e.tenants))
-	case len(e.tenants) == 1:
-		subject, verb, pronoun = fmt.Sprintf("tenant %q", reportedShardNames(e.tenants)[0]), "is", "it"
-	default:
-		subject = "tenants " + strings.Join(reportedShardNames(e.tenants), ", ")
-	}
-	// A tenant mid freeze or unfreeze rejects a HOT update until that finishes.
-	return fmt.Sprintf("%s %s not HOT and cannot be reindexed; once any freeze or unfreeze in progress finishes, set %s to HOT",
-		subject, verb, pronoun)
-}
+// ErrTenantsNotHot refuses a reindex that targets tenants which are not HOT.
+// It names no tenant: a collection-wide caller may lack permission to read
+// tenants. A tenant mid freeze or unfreeze rejects a HOT update until done.
+var ErrTenantsNotHot = errors.New("some target tenants are not HOT and cannot be reindexed; " +
+	"once any freeze or unfreeze in progress finishes, set them to HOT")
 
 // ShardReplicaOwnership returns a map of node name to shard names, with one
 // entry per replica. Unlike ShardOwnership (which assigns each shard to one

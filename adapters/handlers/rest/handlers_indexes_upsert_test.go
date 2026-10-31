@@ -14,7 +14,6 @@ package rest
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"testing"
 
@@ -690,14 +689,6 @@ func TestValidateTenants(t *testing.T) {
 // TestSubmitReindexTask_RefusesNonHotTenants pins that a submit targeting a
 // non-HOT tenant starts no task.
 func TestSubmitReindexTask_RefusesNonHotTenants(t *testing.T) {
-	manyCold := map[string]string{}
-	var manyColdNames []string
-	for i := 0; i < 12; i++ {
-		name := fmt.Sprintf("t%02d", i)
-		manyCold[name] = models.TenantActivityStatusCOLD
-		manyColdNames = append(manyColdNames, name)
-	}
-
 	cases := []struct {
 		name     string
 		statuses map[string]string
@@ -711,38 +702,25 @@ func TestSubmitReindexTask_RefusesNonHotTenants(t *testing.T) {
 			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "cold": models.TenantActivityStatusCOLD},
 			tenants:  []string{"cold"},
 			plan:     upsertPlan{migrationType: db.ReindexTypeRepairFilterable},
-			wantErr:  `tenant "cold" is not HOT and cannot be reindexed; once any freeze or unfreeze in progress finishes, set it to HOT`,
+			wantErr:  db.ErrTenantsNotHot.Error(),
 		},
 		{
 			name:     "collection-wide with a COLD tenant",
 			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "cold": models.TenantActivityStatusCOLD},
 			plan:     upsertPlan{migrationType: db.ReindexTypeEnableFilterable},
-			wantErr:  "1 tenant is not HOT and cannot be reindexed; once any freeze or unfreeze in progress finishes, set it to HOT",
+			wantErr:  db.ErrTenantsNotHot.Error(),
 		},
 		{
 			name:     "collection-wide with a FROZEN tenant",
 			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "frozen": models.TenantActivityStatusFROZEN},
 			plan:     upsertPlan{migrationType: db.ReindexTypeEnableFilterable},
-			wantErr:  "1 tenant is not HOT and cannot be reindexed; once any freeze or unfreeze in progress finishes, set it to HOT",
+			wantErr:  db.ErrTenantsNotHot.Error(),
 		},
 		{
 			name:     "collection-wide format-only with an OFFLOADED tenant",
 			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "off": models.TenantActivityStatusOFFLOADED},
 			plan:     upsertPlan{migrationType: db.ReindexTypeRepairFilterable},
-			wantErr:  "1 tenant is not HOT and cannot be reindexed; once any freeze or unfreeze in progress finishes, set it to HOT",
-		},
-		{
-			name:     "named tenants are capped",
-			statuses: manyCold,
-			tenants:  manyColdNames,
-			plan:     upsertPlan{migrationType: db.ReindexTypeRepairFilterable},
-			wantErr:  "tenants t00, t01, t02, t03, t04, t05, t06, t07, t08, t09, (and 2 more) are not HOT and cannot be reindexed; once any freeze or unfreeze in progress finishes, set them to HOT",
-		},
-		{
-			name:     "collection-wide counts tenants without naming them",
-			statuses: manyCold,
-			plan:     upsertPlan{migrationType: db.ReindexTypeEnableFilterable},
-			wantErr:  "12 tenants are not HOT and cannot be reindexed; once any freeze or unfreeze in progress finishes, set them to HOT",
+			wantErr:  db.ErrTenantsNotHot.Error(),
 		},
 		{
 			// Past the tenant check, the stale-state sweep stops the submit
