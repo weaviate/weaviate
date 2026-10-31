@@ -88,7 +88,7 @@ func sweepStoppedInABucketShutdown(t *testing.T,
 func TestACleanupBudgetThatExpiresInABucketShutdownIsTruncatedNotFailed(t *testing.T) {
 	hook, err := sweepStoppedInABucketShutdown(t,
 		func(ctx context.Context, idx *Index, _ *Shard) error {
-			return idx.cleanStalePartialReindexState(ctx, "category", "filterable", nil)
+			return idx.cleanStalePartialReindexState(ctx, "category", "filterable", nil, nil)
 		})
 
 	require.Error(t, err)

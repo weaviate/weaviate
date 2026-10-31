@@ -18,24 +18,38 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/entities/models"
+	entschema "github.com/weaviate/weaviate/entities/schema"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/memwatch"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// fakeStaleCleaner records the index types it was asked to scrub and returns a
-// canned error.
 type fakeStaleCleaner struct {
-	calls []string
-	err   error
+	tenants []string
+	calls   []string
+	err     error
 }
 
-func (f *fakeStaleCleaner) NewStalePartialReindexSweep() db.StalePartialReindexSweep {
+func (f *fakeStaleCleaner) NewStalePartialReindexSweep(tenants []string) db.StalePartialReindexSweep {
+	f.tenants = tenants
 	return func(_ context.Context, _, _, indexType string) error {
 		f.calls = append(f.calls, indexType)
 		return f.err
@@ -85,6 +99,7 @@ func TestCleanStalePartialStateOrFail(t *testing.T) {
 		name       string
 		sweepErr   error
 		mtype      db.ReindexMigrationType
+		tenants    []string
 		tasks      func(t *testing.T) []*distributedtask.Task
 		stuck      map[string]bool
 		wantCode   int // 0 means the submit proceeds
@@ -143,6 +158,12 @@ func TestCleanStalePartialStateOrFail(t *testing.T) {
 			wantCode: http.StatusServiceUnavailable,
 			because:  "sweeping under a live worker takes the directories out from under writes it already acknowledged",
 		},
+		{
+			name:      "forwards its tenants to the sweep",
+			mtype:     db.ReindexTypeEnableFilterable,
+			tenants:   []string{"t1"},
+			wantCalls: []string{"filterable"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -153,16 +174,15 @@ func TestCleanStalePartialStateOrFail(t *testing.T) {
 			if tt.tasks != nil {
 				tasks = tt.tasks(t)
 			}
-
 			resp := h.cleanStalePartialStateOrFail(context.Background(), nil, cleaner, sealer,
-				"Books", "price", tt.mtype, tasks)
-
+				"Books", "price", tt.tenants, tt.mtype, tasks)
 			if tt.wantCode == 0 {
 				require.Nil(t, resp, tt.because)
 			} else {
 				code, _ := statusOf(t, resp)
 				require.Equal(t, tt.wantCode, code, tt.because)
 			}
+			require.Equal(t, tt.tenants, cleaner.tenants)
 			require.Equal(t, tt.wantCalls, cleaner.calls, tt.because)
 			require.Equal(t, tt.wantSealed, sealer.sealed)
 			require.Equal(t, len(sealer.sealed), sealer.released,
@@ -171,6 +191,113 @@ func TestCleanStalePartialStateOrFail(t *testing.T) {
 				require.Equal(t, len(cleaner.calls), swept,
 					"the seal is held until the sweep is done, not just until it starts")
 			}
+		})
+	}
+}
+
+// TestHandlersScopeStaleSweepToRequestTenants pins that the stale sweep never
+// touches a tenant outside the request.
+func TestHandlersScopeStaleSweepToRequestTenants(t *testing.T) {
+	const (
+		node       = "node-1"
+		collection = "ScopedSweep"
+		prop       = "p"
+		requested  = "requested"
+		other      = "other"
+	)
+	class := &models.Class{
+		Class:              collection,
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		Properties:         []*models.Property{{Name: prop, DataType: []string{"text"}}},
+		VectorIndexType:    "hnsw",
+		VectorIndexConfig:  enthnsw.UserConfig{Skip: true},
+	}
+	shardingState := &sharding.State{
+		PartitioningEnabled: true,
+		Physical: map[string]sharding.Physical{
+			requested: {Name: requested, BelongsToNodes: []string{node}, Status: models.TenantActivityStatusHOT},
+			other:     {Name: other, BelongsToNodes: []string{node}, Status: models.TenantActivityStatusHOT},
+		},
+	}
+	shardingState.SetLocalName(node)
+
+	tests := []struct {
+		name     string
+		call     func(h *indexesHandlers) middleware.Responder
+		wantCode int
+	}{
+		{
+			name: "submit",
+			call: func(h *indexesHandlers) middleware.Responder {
+				return h.submitReindexTask(context.Background(), nil, class, collection, prop,
+					upsertPlan{migrationType: db.ReindexTypeRepairFilterable}, []string{requested}, nil)
+			},
+			wantCode: http.StatusInternalServerError,
+		},
+		{
+			name: "cancel",
+			call: func(h *indexesHandlers) middleware.Responder {
+				mgr := distributedtask.NewManager(distributedtask.ManagerParameters{Logger: logrus.New()})
+				seedReindexTask(t, mgr, collection+":repair-filterable:p:aaaa", collection, prop,
+					db.ReindexTypeRepairFilterable, distributedtask.TaskStatusStarted, []string{requested})
+				return h.cancelReindexTask(context.Background(), realFSMCanceller{mgr},
+					collection, prop, "filterable", nil)
+			},
+			wantCode: http.StatusAccepted,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			nodeSelector := cluster.NewMockNodeSelector(t)
+			nodeSelector.EXPECT().LocalName().Return(node).Maybe()
+			nodeSelector.EXPECT().NodeHostname(mock.Anything).Return(node, true).Maybe()
+			fsmReader := replicationTypes.NewMockReplicationFSMReader(t)
+			fsmReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			schemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+				func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
+					return fn(class, shardingState)
+				}).Maybe()
+			schemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{node}, nil).Maybe()
+			schemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{requested, other}, nil).Maybe()
+			schemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(2, nil).Maybe()
+			schemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
+			schemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
+			schemaGetter := schemaUC.NewMockSchemaGetter(t)
+			schemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
+				Objects: &models.Schema{Classes: []*models.Class{class}},
+			}).Maybe()
+			schemaGetter.EXPECT().NodeName().Return(node).Maybe()
+			schemaGetter.EXPECT().ReadOnlyClass(collection).Return(class).Maybe()
+
+			logger := logrus.New()
+			logger.SetOutput(io.Discard)
+			root := t.TempDir()
+			repo, err := db.New(logger, node, db.Config{RootPath: root, MaxImportGoroutinesFactor: 1},
+				&db.FakeRemoteClient{}, nodeSelector, &db.FakeRemoteNodeClient{}, &db.FakeReplicationClient{},
+				nil, memwatch.NewDummyMonitor(), nodeSelector, schemaReader, fsmReader, nil)
+			require.NoError(t, err)
+			repo.SetSchemaGetter(schemaGetter)
+			require.NoError(t, repo.WaitForStartup(context.Background()))
+			t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
+			migrator := db.NewMigrator(repo, logger, node)
+			for _, tenant := range []string{requested, other} {
+				require.NoError(t, migrator.LoadShardForMovement(context.Background(), collection, tenant))
+			}
+
+			// Failing the requested tenant's sweep (an unreadable record set) stops
+			// submit before it needs a real cluster service.
+			lsm := func(tenant string) string { return filepath.Join(root, strings.ToLower(collection), tenant, "lsm") }
+			require.NoError(t, os.WriteFile(filepath.Join(lsm(requested), ".migrations"), nil, 0o644))
+			otherSidecar := filepath.Join(lsm(other), "property_p__enable_filterable_ingest_1")
+			require.NoError(t, os.MkdirAll(otherSidecar, 0o755))
+
+			h := &indexesHandlers{appState: &state.State{
+				Logger: logger, DB: repo, ClusterService: &rCluster.Service{}, ReindexProvider: &db.ReindexProvider{},
+			}}
+			code, _ := statusOf(t, tc.call(h))
+			require.Equal(t, tc.wantCode, code)
+			require.DirExists(t, otherSidecar, "a tenant outside the request must keep its state")
 		})
 	}
 }

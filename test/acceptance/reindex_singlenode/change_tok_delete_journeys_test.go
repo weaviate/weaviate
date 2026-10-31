@@ -64,8 +64,8 @@ func testChangeTokDeleteJourneys(t *testing.T, restURI string) {
 		testChangeTokFilterableBackToBack(t, restURI)
 	})
 
-	t.Run("change_tok_both__cancel__change_tok_filterable", func(t *testing.T) {
-		testChangeTokBothCancelThenChangeTokFilterable(t, restURI)
+	t.Run("change_tok_both__cancel__retry", func(t *testing.T) {
+		testChangeTokBothCancelThenRetry(t, restURI)
 	})
 
 	t.Run("change_tok_filterable__enable_searchable__change_tok_both", func(t *testing.T) {
@@ -449,12 +449,10 @@ func testChangeTokFilterableBackToBack(t *testing.T, restURI string) {
 }
 
 // =============================================================================
-// Journey 6: change-tok-both → cancel mid-run → change-tok-filterable
+// Journey 6: change-tok-both → cancel mid-run → change-tok-both
 // =============================================================================
-// Submits change-tok-both, cancels it mid-iteration, then submits
-// change-tok-filterable. The cancel cleanup for the both-indexes
-// migration must leave the filterable side in a state where the
-// filterable-only retokenize can proceed.
+// Resubmits change-tok-both after a mid-run cancel — a filterable-only
+// retry is refused since the property also has a searchable index.
 //
 // Both cleanups sweep every index type the migration touches:
 // indexTypesFromMigrationType returns "searchable" and "filterable" for
@@ -462,10 +460,9 @@ func testChangeTokFilterableBackToBack(t *testing.T, restURI string) {
 // the indexName in the cancel path and submitReindexTask's pre-submit
 // cleanup runs for both sides. This journey pins that: cancelling
 // change-tok-both via POST .../index/searchable/cancel must leave no
-// filterable-side state behind to corrupt the change-tok-filterable
-// that follows.
-func testChangeTokBothCancelThenChangeTokFilterable(t *testing.T, restURI string) {
-	const class = "ChangeTokBothCancelThenFilterable"
+// filterable-side state behind to corrupt the retry that follows.
+func testChangeTokBothCancelThenRetry(t *testing.T, restURI string) {
+	const class = "ChangeTokBothCancelThenRetry"
 	trueVal := true
 	helper.CreateClass(t, &models.Class{
 		Class: class,
@@ -496,11 +493,11 @@ func testChangeTokBothCancelThenChangeTokFilterable(t *testing.T, restURI string
 	requestBody := `{"tokenization":"field"}`
 	cancelInFlightOrSkip(t, restURI, class, "name", "searchable", requestBody)
 
-	// Step 2: submit change-tok-filterable. The cancel left state behind
+	// Step 2: submit change-tok-both again. The cancel left state behind
 	// for the filterable side that was being retokenized. If that state
 	// isn't cleaned up, this submit either short-circuits or fails.
-	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "filterable",
-		`{"tokenization":"field"}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "searchable",
+		requestBody)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireTokenizationEquals(t, class, "name", "field")
 
@@ -509,8 +506,8 @@ func testChangeTokBothCancelThenChangeTokFilterable(t *testing.T, restURI string
 	// matches doc_0; Equal('shared') matches none.
 	hits := equalFilterHits(t, class, "name", "doc_0 shared")
 	require.Equal(t, 1, hits,
-		"post-cancel-then-filterable: Equal('doc_0 shared') must hit 1; got %d. "+
-			"If 0, the change-tok-filterable submitted against torn state from the "+
+		"post-cancel-then-retry: Equal('doc_0 shared') must hit 1; got %d. "+
+			"If 0, the retried change-tok-both submitted against torn state from the "+
 			"cancelled change-tok-both run produced an empty bucket (Sev 1)", hits)
 }
 

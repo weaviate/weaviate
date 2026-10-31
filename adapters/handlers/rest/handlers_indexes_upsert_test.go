@@ -18,11 +18,14 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // boolPtr is defined in handlers_indexes_gaps_test.go (same package).
@@ -431,10 +434,16 @@ func TestResolveUpsertPlan_Filterable(t *testing.T) {
 			wantNoop: true,
 		},
 		{
-			name:   "present + different tokenization -> filterable retokenize",
-			prop:   textProp("t", "word", boolPtr(true), boolPtr(true)),
+			name:   "present + different tokenization, no searchable index -> filterable retokenize",
+			prop:   textProp("t", "word", boolPtr(false), boolPtr(true)),
 			body:   &models.IndexUpsertRequest{Tokenization: "lowercase"},
 			wantMT: db.ReindexTypeChangeTokenizationFilterable,
+		},
+		{
+			name:    "present + different tokenization, searchable index too -> 400",
+			prop:    textProp("t", "word", boolPtr(true), boolPtr(true)),
+			body:    &models.IndexUpsertRequest{Tokenization: "lowercase"},
+			wantErr: "would silently desynchronize the searchable index",
 		},
 		{
 			name:    "algorithm on filterable -> 400",
@@ -630,4 +639,38 @@ func TestValidateTenantScope(t *testing.T) {
 		require.Len(t, body.Error, 1)
 		assert.Contains(t, body.Error[0].Message, "cannot be used with semantic migrations")
 	})
+}
+
+func TestValidateTenants(t *testing.T) {
+	state := &sharding.State{Physical: map[string]sharding.Physical{
+		"hot":    {BelongsToNodes: []string{"node1"}, Status: models.TenantActivityStatusHOT},
+		"frozen": {BelongsToNodes: []string{"node1"}, Status: models.TenantActivityStatusFROZEN},
+	}}
+	reader := schema.NewMockSchemaReader(t)
+	reader.EXPECT().Read("C", true, mock.Anything).RunAndReturn(
+		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
+			return fn(nil, state)
+		})
+	database := &db.DB{}
+	database.SetSchemaReader(reader)
+
+	cases := []struct {
+		tenant  string
+		wantErr string
+	}{
+		{tenant: "hot"},
+		{tenant: "frozen", wantErr: `tenant "frozen" is frozen, freezing or unfreezing`},
+		{tenant: "missing", wantErr: `tenant "missing" does not exist`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.tenant, func(t *testing.T) {
+			err := validateTenants(database, context.Background(), "C", []string{tc.tenant})
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
 }

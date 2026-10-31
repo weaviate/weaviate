@@ -2239,3 +2239,35 @@ func TestWarnOnUnrecognizedStatuses_PointsAtTheTerminalStateNotACancel(t *testin
 	require.Contains(t, warned, "the nodes that do recognize the status",
 		"the only exit is a terminal state written by a node that can classify the status")
 }
+
+// Ack error (stored in the RAFT log) must not grow with the number of failing groups.
+func TestScheduler_AckErrorIsCappedAcrossManyFailingGroups(t *testing.T) {
+	groupErrs := map[string]error{"succeeded": nil}
+	for i := range 1000 {
+		groupErrs[fmt.Sprintf("tenant-%04d", i)] = errors.New("swap failed")
+	}
+	desc := TaskDescriptor{ID: "T", Version: 1}
+	s := &Scheduler{perTaskState: map[TaskDescriptor]*taskSchedulerState{desc: {
+		postCompletionGroupErrors:        groupErrs,
+		preparationCompletionGroupErrors: groupErrs,
+	}}}
+
+	tests := []struct {
+		name      string
+		aggregate func(*Task, TaskDescriptor) (bool, string)
+	}{
+		{name: "post-completion", aggregate: s.aggregateAckErrorsLocked},
+		{name: "preparation", aggregate: s.aggregatePreparationAckErrorsLocked},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			success, msg := tt.aggregate(nil, desc)
+
+			require.False(t, success)
+			require.Less(t, len(msg), 1000)
+			require.Contains(t, msg, "1000 group(s) failed")
+			require.Contains(t, msg, `group="tenant-0000": {swap failed}`)
+			require.Contains(t, msg, "(and 990 more)")
+		})
+	}
+}

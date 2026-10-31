@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1312,10 +1313,20 @@ func (p *ReindexProvider) runPerUnitPhase(
 	}
 	if agg.Transient {
 		return fmt.Errorf("%s: %d unit(s) failed: %s: %w",
-			callbackName, len(agg.Errs), strings.Join(agg.Errs, "; "), context.Canceled)
+			callbackName, len(agg.Errs), p.joinUnitErrors(agg.Errs), context.Canceled)
 	}
 	return fmt.Errorf("%s: %d unit(s) failed: %s",
-		callbackName, len(agg.Errs), strings.Join(agg.Errs, "; "))
+		callbackName, len(agg.Errs), p.joinUnitErrors(agg.Errs))
+}
+
+// joinUnitErrors caps the message because it becomes this node's ack error
+// in the RAFT log. Sorting keeps the reported subset stable across runs.
+func (p *ReindexProvider) joinUnitErrors(msgs []string) string {
+	ec := errorcompounder.New()
+	for _, msg := range slices.Sorted(slices.Values(msgs)) {
+		ec.Addf("%s", msg)
+	}
+	return ec.ToErrorLimited(maxReportedErrors).Error()
 }
 
 // OnGroupCompleted fires after all units in a group reach terminal state.
@@ -1328,7 +1339,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 // remain un-swapped.
 func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
-		WithField("localGroupUnitIDs", localGroupUnitIDs)
+		WithField("localGroupUnitCount", len(localGroupUnitIDs))
 
 	if task.Status.IsTerminal() {
 		logger.WithField("status", task.Status).
@@ -1416,7 +1427,7 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 // PostCompletionAck flip-to-FAILED prevents the cluster-wide schema flip.
 func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
-		WithField("localGroupUnitIDs", localGroupUnitIDs)
+		WithField("localGroupUnitCount", len(localGroupUnitIDs))
 
 	if task.Status.IsTerminal() {
 		logger.WithField("status", task.Status).
@@ -1884,7 +1895,7 @@ func (p *ReindexProvider) unregisterCleanup(collection, shard string) {
 // IsCleanupInProgress reports whether [autoCleanupAfterTerminal] is
 // currently tearing partial sidecar state on (collection, shard).
 //
-// Backup gate consumer: the cluster-wide [DB.AnyLiveReindexForShard]
+// Backup gate consumer: the cluster-wide [DB.anyLiveReindexForShard]
 // answer must include this signal — the DTM activity lookup it wraps
 // flips a task to terminal as soon as the FSM lands, but the
 // node-local sidecar buckets are still being shut down for tens of
@@ -1893,7 +1904,7 @@ func (p *ReindexProvider) unregisterCleanup(collection, shard string) {
 //
 // Wiring: install [CleanupInProgressLookupBuilder] (returns a closure
 // over this method) on the DB alongside [DB.SetShardReindexActivity
-// Lookup] so [DB.AnyLiveReindexForShard] consults both. Returns false
+// Lookup] so [DB.anyLiveReindexForShard] consults both. Returns false
 // if the registry is nil (test fixtures that construct the provider
 // without going through [NewReindexProvider]).
 func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
@@ -2068,7 +2079,7 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 	if len(hosted) == 0 {
 		return true
 	}
-	if err := idx.forEachShardStrict(func(name string, _ ShardLike) error {
+	if err := idx.forEachShardStrict(nil, func(name string, _ ShardLike) error {
 		if _, wanted := hosted[name]; wanted {
 			hosted[name] = true
 		}

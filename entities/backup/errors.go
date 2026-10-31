@@ -24,9 +24,9 @@ import (
 // This sentinel lives in entities/backup so both the storage layer
 // (adapters/repos/db) and the coordinator layer (usecases/backup) can
 // share a single value without an import cycle. Match it across RPC
-// boundaries with errors.Is, not substring comparison. The operator-visible
-// error text wrapping this sentinel is owned by the storage layer in
-// adapters/repos/db/reindex_inflight.go.
+// boundaries with errors.Is, not substring comparison. The per-shard
+// operator-visible text lives in adapters/repos/db/reindex_inflight.go;
+// backup creation layers on an exclusion hint that replica movement doesn't need.
 var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight on this shard")
 
 // ReadCloserWithError extends io.ReadCloser with CloseWithError method.

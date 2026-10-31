@@ -26,7 +26,8 @@ import (
 )
 
 // StalePartialReindexSweep wipes on-disk runtime-reindex state for one
-// (collection, property, indexType) tuple across every local shard.
+// (collection, property, indexType) tuple across the shards named at
+// construction, or every local shard if none were.
 //
 // One value belongs to one goroutine and must not outlive the request or
 // timeout window that built it: it caches directory listings across calls
@@ -45,10 +46,10 @@ type StalePartialReindexSweep func(ctx context.Context, collection, propName, in
 //
 // A missing local collection reports [ErrCleanupCollectionDropped], not a
 // clean sweep.
-func (db *DB) NewStalePartialReindexSweep() StalePartialReindexSweep {
+func (db *DB) NewStalePartialReindexSweep(tenants []string) StalePartialReindexSweep {
 	dirs := &dirNamesCache{}
 	return func(ctx context.Context, collection, propName, indexType string) error {
-		return db.cleanStalePartialReindexState(ctx, collection, propName, indexType, dirs)
+		return db.cleanStalePartialReindexState(ctx, collection, propName, indexType, tenants, dirs)
 	}
 }
 
@@ -58,6 +59,7 @@ func (db *DB) NewStalePartialReindexSweep() StalePartialReindexSweep {
 func (db *DB) cleanStalePartialReindexState(
 	ctx context.Context,
 	collection, propName, indexType string,
+	tenants []string,
 	dirs *dirNamesCache,
 ) error {
 	idx := db.GetIndex(schema.ClassName(collection))
@@ -66,7 +68,7 @@ func (db *DB) cleanStalePartialReindexState(
 		return fmt.Errorf("%w: no local index for collection %q",
 			ErrCleanupCollectionDropped, collection)
 	}
-	return idx.cleanStalePartialReindexState(ctx, propName, indexType, dirs)
+	return idx.cleanStalePartialReindexState(ctx, propName, indexType, tenants, dirs)
 }
 
 // ErrCleanupSweepTruncated marks a sweep that didn't get through every shard —
@@ -148,7 +150,7 @@ func classifyIncompleteWalk(err error) error {
 	}
 }
 
-// cleanStalePartialReindexState iterates every local shard, collecting
+// cleanStalePartialReindexState iterates the local shards in scope, collecting
 // per-shard errors (capped at [maxReportedErrors]) so the caller can decide
 // whether to refuse the submit or proceed with a warning.
 //
@@ -167,6 +169,7 @@ func classifyIncompleteWalk(err error) error {
 func (i *Index) cleanStalePartialReindexState(
 	ctx context.Context,
 	propName, indexType string,
+	tenants []string,
 	dirs *dirNamesCache,
 ) error {
 	// Refused before the walk, not per shard: per-shard refusal would
@@ -180,9 +183,13 @@ func (i *Index) cleanStalePartialReindexState(
 	// this one; its running total would re-report the first sweep's refusals.
 	refusedBefore := dirs.refusedListings()
 	unreadableBefore, _ := dirs.unreadableRecordSets()
+	inScope := make(map[string]struct{}, len(tenants))
+	for _, tenant := range tenants {
+		inScope[tenant] = struct{}{}
+	}
 	// forEachShardStrict, not ForEachShard: a closing index must not read as a
 	// sweep that reached every shard.
-	walkErr := i.forEachShardStrict(func(name string, shardLike ShardLike) error {
+	walkErr := i.forEachShardStrict(inScope, func(name string, shardLike ShardLike) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("%w: stopped before shard %q: %w", ErrCleanupSweepTruncated, name, ctxErr)
 		}

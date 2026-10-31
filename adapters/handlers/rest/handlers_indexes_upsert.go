@@ -700,7 +700,7 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	}
 
 	if resp := h.cleanStalePartialStateOrFail(ctx, principal, h.appState.DB, h.reindexDrainSealer(),
-		collection, propertyName, migrationType, reindexTasks); resp != nil {
+		collection, propertyName, tenants, migrationType, reindexTasks); resp != nil {
 		return resp
 	}
 
@@ -767,7 +767,7 @@ func buildReindexPayload(class *models.Class, collection string, properties []st
 // stalePartialStateCleaner opens a sweep over a property's partial reindex
 // sidecar dirs. *db.DB satisfies it.
 type stalePartialStateCleaner interface {
-	NewStalePartialReindexSweep() db.StalePartialReindexSweep
+	NewStalePartialReindexSweep(tenants []string) db.StalePartialReindexSweep
 }
 
 type localReindexDrainSealer interface {
@@ -831,7 +831,7 @@ func (h *indexesHandlers) sealLocalReindexWorkers(ctx context.Context, principal
 // submit on it would turn ordinary tenant movement into a 500.
 func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, principal *models.Principal,
 	cleaner stalePartialStateCleaner, sealer localReindexDrainSealer,
-	collection, propertyName string, migrationType db.ReindexMigrationType,
+	collection, propertyName string, tenants []string, migrationType db.ReindexMigrationType,
 	reindexTasks []*distributedtask.Task,
 ) middleware.Responder {
 	indexTypesForCleanup, known := indexTypesFromMigrationType(migrationType)
@@ -851,7 +851,7 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 	defer release()
 
 	// One sweep across the loop: every index type asks the same unloaded shards.
-	sweep := cleaner.NewStalePartialReindexSweep()
+	sweep := cleaner.NewStalePartialReindexSweep(tenants)
 	for _, it := range indexTypesForCleanup {
 		err := sweep(ctx, collection, propertyName, it)
 		if err == nil {

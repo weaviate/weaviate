@@ -1052,8 +1052,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// fall back to refusing every backup until DTM is reachable, to
 		// avoid races against in-flight reindexes that the local node
 		// cannot see.
+		listTaskTimeout := appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout
 		repo.SetShardReindexActivityLookup(shardReindexActivityBuilder(serverShutdownCtx,
-			appState.ClusterService.ListDistributedTasks, appState.Logger))
+			listTaskTimeout, appState.ClusterService.ListDistributedTasks, appState.Logger))
 		// S1: the DTM-activity lookup flips a shard "free" the moment a
 		// task lands in a terminal status; autoCleanupAfterTerminal then
 		// tears the sidecar __reindex / __ingest dirs over the next
@@ -1066,11 +1067,14 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	return appState
 }
 
-func shardReindexActivityBuilder(ctx context.Context,
+func shardReindexActivityBuilder(ctx context.Context, timeout time.Duration,
 	listTasks func(context.Context) (map[string][]*distributedtask.Task, error), logger logrus.FieldLogger,
 ) db.ShardReindexActivityLookupBuilder {
 	return func() (db.ShardReindexActivityLookup, error) {
-		tasksByNamespace, err := listTasks(ctx)
+		// listTasks waits on the known leader's connection with no deadline of its own.
+		listCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		tasksByNamespace, err := listTasks(listCtx)
 		if err != nil {
 			return nil, fmt.Errorf("cannot list the cluster's distributed tasks: %w", err)
 		}

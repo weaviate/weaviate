@@ -157,9 +157,8 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 
 	backupID := "reindex-backup-refuse"
 
-	// The Backupable precheck refuses during canCommit before the
-	// coordinator writes backup_config.json, so the HTTP call returns
-	// a synchronous 422 — no async status poll required.
+	// The scheduler's Backupable precheck refuses before the coordinator
+	// writes backup_config.json, so the HTTP call returns a synchronous 422.
 	_, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), className, "filesystem", backupID)
 	require.Error(t, err, "create-backup must be refused synchronously while reindex is in flight")
 	var refusal *clientbackups.BackupsCreateUnprocessableEntity
@@ -182,6 +181,8 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	// task is past STARTED at a cancel that answers 409.
 	require.Contains(t, errMsg, "accepted only while the task is STARTED",
 		"the cancel remedy must state its precondition; got: %s", errMsg)
+	require.Contains(t, errMsg, "exclude",
+		"error body must say how to back up the other collections now; got: %s", errMsg)
 
 	// A leaked staging dir would block a same-id retry (checkIfBackupExists,
 	// "Status != Cancelled"). The 422 fires before any write so none exists;

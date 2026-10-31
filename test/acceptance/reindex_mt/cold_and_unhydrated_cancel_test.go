@@ -33,12 +33,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// The pre-submit cleanup sweep walks every shard of a collection to wipe the
-// on-disk leftovers of a cancelled reindex. On a multi-tenant collection most
-// of those shards are tenants that hold nothing to wipe, and hydrating them
-// just to find that out costs a full shard load each. The sweep therefore
-// answers "is there anything here?" from the tenant's directory listing and
-// leaves a clean, unloaded tenant unloaded.
+// The pre-submit sweep walks the shards a submit names (all, if none). It
+// skips an unloaded shard whose directory listing shows nothing to sweep,
+// since hydrating it just to find that out costs a full shard load.
 //
 // This journey pins all three populations that answer differently, in one
 // run against one collection:
@@ -186,9 +183,7 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 		tenantNames(tenants, func(tn sweepTenant) bool { return !tn.cold && !tn.stale }))
 
 	// Step 5: re-submit, naming the HOT tenants — an unnamed COLD tenant would
-	// get a task unit and fail on a shard the index map no longer has. The
-	// sweep itself is collection-wide regardless: it walks the shard map, not
-	// the tenant filter.
+	// get a task unit and fail on a shard the index map no longer has.
 	//
 	// A filterable rebuild, not enable-rangeable: the latter is semantic and
 	// cannot be tenant-scoped. The (score, filterable) cleanup still owns the
@@ -240,7 +235,7 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	assert.GreaterOrEqual(t, skipped, coldCancelCleanTenants/2,
 		"the sweep hydrated most unloaded tenants: only %d were skipped, of %d clean HOT tenants that "+
 			"had nothing to sweep. Those loads run inside the submit handler, so its latency grows with "+
-			"tenant count, and tenants the submit does not name get loaded too",
+			"tenant count",
 		skipped, coldCancelCleanTenants)
 
 	// Second reading, from a subsystem the sweep does not write: shard-scoped

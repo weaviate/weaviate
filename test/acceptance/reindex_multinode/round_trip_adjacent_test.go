@@ -747,21 +747,15 @@ func testEnableSearchableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 		baselinesBM25[q] = perNodeBM25Counts(t, compose, className, q)
 	}
 
-	// Step 2: change-tokenization word→field via filterable. The
-	// property's `tokenization` field is per-property, not per-index, so
-	// a single change-tok-filterable updates the cluster-wide schema and
-	// rebuilds the filterable bucket. The searchable bucket is left at
-	// the old tokenization for now — exercising the divergent-bucket
-	// state. A second PUT .../index/searchable {"tokenization":"field"}
-	// would be rejected by validateTokenizationChange ("already uses
-	// tokenization X") because the schema flip from step 2 already landed.
-	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "filterable",
+	// Step 2: both indexes exist, so retokenizing goes through the
+	// searchable endpoint — filterable-only retokenize is now refused.
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
 		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
-	// Step 3: back to word via filterable. Same single-request shape.
-	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "filterable",
+	// Step 3: back to word. Same single-request shape.
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
 		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
