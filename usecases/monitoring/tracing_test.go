@@ -217,12 +217,14 @@ func setupOpenTelemetryForTest(t *testing.T, enableOpenTelemetry bool) (logrus.F
 	logger, _ := logrusTest.NewNullLogger()
 	if enableOpenTelemetry {
 		os.Setenv("EXPERIMENTAL_OTEL_ENABLED", "true")
+		os.Setenv("EXPERIMENTAL_OTEL_TLS_INSECURE", "true")
 	}
 	err := opentelemetry.Init(logger)
 	require.NoError(t, err)
 	return logger, func() {
 		if enableOpenTelemetry {
 			os.Unsetenv("EXPERIMENTAL_OTEL_ENABLED")
+			os.Unsetenv("EXPERIMENTAL_OTEL_TLS_INSECURE")
 		}
 		// Use a context with timeout to prevent hanging on shutdown
 		// The provider's Shutdown has a 30s timeout, but we use a shorter timeout
