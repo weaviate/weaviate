@@ -53,7 +53,7 @@ func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	if target == nil {
 		return false // the status endpoint cannot read it either
 	}
-	newestOn := indexTypesNotRunSince(task, target, namespaceTasks, targets)
+	newestOn := p.indexTypesNotRunSince(task, target, namespaceTasks, targets)
 	if len(newestOn) == 0 {
 		return false
 	}
@@ -71,7 +71,7 @@ func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 			continue
 		}
 		olderIndexTypes, _ := ReindexIndexTypes(olderTarget.MigrationType)
-		if slices.ContainsFunc(indexTypesRunOnSameProperties(target, olderTarget), func(indexType string) bool {
+		if slices.ContainsFunc(p.indexTypesRunOnSameProperties(target, olderTarget), func(indexType string) bool {
 			return slices.Contains(newestOn, indexType) && slices.Contains(olderIndexTypes, indexType)
 		}) {
 			return true
@@ -107,7 +107,7 @@ func (ts reindexTargets) of(task *distributedtask.Task) *reindexTarget {
 
 // indexTypesNotRunSince returns task's index types that no newer run on the
 // same properties has covered.
-func indexTypesNotRunSince(task *distributedtask.Task, target *reindexTarget,
+func (p *ReindexProvider) indexTypesNotRunSince(task *distributedtask.Task, target *reindexTarget,
 	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task, targets reindexTargets,
 ) []string {
 	remaining, _ := ReindexIndexTypes(target.MigrationType)
@@ -119,7 +119,7 @@ func indexTypesNotRunSince(task *distributedtask.Task, target *reindexTarget,
 		if otherTarget == nil {
 			continue
 		}
-		covered := indexTypesRunOnSameProperties(otherTarget, target)
+		covered := p.indexTypesRunOnSameProperties(otherTarget, target)
 		remaining = slices.DeleteFunc(remaining, func(indexType string) bool {
 			return slices.Contains(covered, indexType)
 		})
@@ -129,7 +129,7 @@ func indexTypesNotRunSince(task *distributedtask.Task, target *reindexTarget,
 
 // indexTypesRunOnSameProperties returns other's index types when other runs on
 // target's collection and every property in target, and nil otherwise.
-func indexTypesRunOnSameProperties(other, target *reindexTarget) []string {
+func (p *ReindexProvider) indexTypesRunOnSameProperties(other, target *reindexTarget) []string {
 	if !strings.EqualFold(other.Collection, target.Collection) {
 		return nil
 	}
@@ -157,7 +157,7 @@ func (p *ReindexProvider) indexDroppedSince(target *reindexTarget, indexType str
 	}
 	for _, name := range target.Properties {
 		i := slices.IndexFunc(class.Properties, func(prop *models.Property) bool { return prop.Name == name })
-		if i < 0 || indexEnabled(class.Properties[i], indexType) {
+		if i < 0 || p.indexEnabled(class.Properties[i], indexType) {
 			return false
 		}
 	}
@@ -165,7 +165,7 @@ func (p *ReindexProvider) indexDroppedSince(target *reindexTarget, indexType str
 }
 
 // indexEnabled reads the schema flags with the defaults the status endpoint uses.
-func indexEnabled(prop *models.Property, indexType string) bool {
+func (p *ReindexProvider) indexEnabled(prop *models.Property, indexType string) bool {
 	switch indexType {
 	case "filterable":
 		return prop.IndexFilterable == nil || *prop.IndexFilterable
