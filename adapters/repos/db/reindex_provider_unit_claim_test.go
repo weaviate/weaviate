@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -27,7 +28,9 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/additional"
 	entschema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -266,4 +269,111 @@ func TestUnitsHeldByATeardownReportAtASampledRate(t *testing.T) {
 	require.LessOrEqual(t, held, maxReportedErrors,
 		"sampled per window, not emitted once per unit")
 	require.Less(t, held, units)
+}
+
+// A boot with an unreadable record must not let a unit rerun the swap that deletes the canonical directory.
+func TestAUnitDoesNotRunWhileAMigrationRecordIsUnreadable(t *testing.T) {
+	bm25 := func(ctx context.Context, s *Shard, query string) int {
+		found, _, err := s.ObjectSearch(ctx, 100, nil,
+			&searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: query},
+			nil, nil, additional.Properties{}, []string{"title"})
+		require.NoError(t, err)
+		return len(found)
+	}
+	// The write after the stamp reaches only the canonical directory.
+	unmirrored := func(t *testing.T, ctx context.Context, s *Shard, boot func(ShardReindexerV3) *Shard) int {
+		stamped, ok := migrationRecordStampedUnmirrored(s.migrationRecords.Records()[0])
+		require.True(t, ok)
+		require.NoError(t, s.migrationRecords.Put(stamped))
+		require.NoError(t, s.Shutdown(ctx))
+		u := boot(NewShardReindexerV3Noop())
+		require.NoError(t, u.PutObject(ctx, createTestObjectWithText(s.index.Config.ClassName.String(), "betaword")))
+		require.NoError(t, u.Shutdown(ctx))
+		return 1
+	}
+	// A newer migration already promoted its data into the canonical directory.
+	superseded := func(t *testing.T, ctx context.Context, s *Shard, _ func(ShardReindexerV3) *Shard) int {
+		want := bm25(ctx, s, "alpha")
+		older := s.migrationRecords.Records()[0].Subject()
+		dirs := older.Props["title"]
+		newer := older
+		newer.Key.TaskVersion++
+		newer.TaskID += "-newer"
+		newer.Props = map[string]MigrationPropertyDirs{"title": {
+			Staged: dirs.Canonical + "__newer_ingest", Sidecar: dirs.Canonical + "__newer_reindex", Canonical: dirs.Canonical,
+		}}
+		require.NoError(t, s.migrationRecords.Put(NewMigrationRecordPromoted(newer, []string{"title"},
+			map[string]string{"title": dirs.Canonical})))
+		require.NoError(t, s.Shutdown(ctx))
+		canonical := filepath.Join(s.pathLSM(), dirs.Canonical)
+		require.NoError(t, os.RemoveAll(canonical))
+		require.NoError(t, os.CopyFS(canonical, os.DirFS(filepath.Join(s.pathLSM(), dirs.Staged))))
+		return want
+	}
+	tests := []struct {
+		name       string
+		query      string
+		unreadable bool
+		arrange    func(t *testing.T, ctx context.Context, s *Shard, boot func(ShardReindexerV3) *Shard) int
+	}{
+		{"unmirrored swapped record, another record unreadable", "betaword", true, unmirrored},
+		{"superseded swapped record, another record unreadable", "alpha", true, superseded},
+		{"unmirrored swapped record, every record readable", "betaword", false, unmirrored},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "Frozen_" + uuid.NewString()[:8]
+			class := newRebuildSearchableTestClass(className, []string{"title"})
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, true, false, false)
+			shard := shd.(*Shard)
+			for _, obj := range makeConvergenceTestObjects(t, 25, className) {
+				require.NoError(t, shard.PutObject(ctx, obj))
+			}
+			name := shard.Name()
+			unit := testMigrationUnitFor(idx, name)
+			newTask := func() *ShardReindexTaskGeneric {
+				task, _ := newRebuildSearchableTask(t, idx, className, "title", unit)
+				return task
+			}
+			task := newTask()
+			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+			require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+			require.NoError(t, task.RunSwapOnShard(ctx, shard))
+			boot := func(reindexer ShardReindexerV3) *Shard {
+				idx.shardReindexer = reindexer
+				reloaded, err := idx.initShard(ctx, name, class, nil, true, true)
+				require.NoError(t, err)
+				idx.shards.Store(name, reloaded)
+				return reloaded.(*Shard)
+			}
+			bad := filepath.Join(shard.migrationRecords.Dir(), "99_searchable_retokenize_"+shard.migrationUnit()+".json")
+			if tc.unreadable {
+				require.NoError(t, os.WriteFile(bad, []byte("{"), 0o600))
+			}
+			want := tc.arrange(t, ctx, shard, boot)
+
+			frozen := boot(&testShardReindexer{task: newTask()})
+			logger, _ := logrustest.NewNullLogger()
+			p := NewReindexProvider(idx.db, nil, nil, logger, "node1", nil, ctx)
+			payload := &ReindexTaskPayload{
+				Collection: className, MigrationType: ReindexTypeRebuildSearchable, Properties: []string{"title"},
+				UnitToShard: map[string]string{unit: name}, UnitToNode: map[string]string{unit: "node1"},
+			}
+			rec := newFakeRecorder()
+			p.processOneUnit(ctx, &distributedtask.Task{
+				Namespace: ReindexNamespace, Status: distributedtask.TaskStatusStarted,
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "test-rebuild-searchable", Version: 1},
+			}, payload, idx, unit, rec)
+			require.NoError(t, frozen.Shutdown(ctx))
+
+			if tc.unreadable {
+				require.NoError(t, os.Remove(bad))
+			}
+			clean := boot(&testShardReindexer{task: newTask()})
+			defer clean.Shutdown(ctx)
+			require.Equal(t, want, bm25(ctx, clean, tc.query))
+			require.Equal(t, !tc.unreadable, slices.Contains(rec.completed, unit), rec.failed)
+		})
+	}
 }

@@ -517,10 +517,19 @@ func (p *ReindexProvider) processOneUnit(
 	}
 
 	// Load up front, so a shard that cannot load fails the unit before it is claimed.
-	if _, unwrapErr := unwrapShard(ctx, shard); unwrapErr != nil {
+	concreteShard, unwrapErr := unwrapShard(ctx, shard)
+	if unwrapErr != nil {
 		p.failUnit(ctx, task, unitID, recorder,
 			fmt.Sprintf("unwrap shard: %v", unwrapErr))
 		return
+	}
+	// A rerun swap deletes the canonical directory, which an unreadable record
+	// may still need: it could hold writes the staged copy never saw.
+	if store := concreteShard.migrationRecordStore(); store != nil {
+		if fault := unreadableRecordFault(unitID, store); fault != "" {
+			p.failUnit(ctx, task, unitID, recorder, fault)
+			return
+		}
 	}
 
 	release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
@@ -1062,13 +1071,9 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	}
 	// Get reads only decoded records, so an unreadable one would read as a
 	// migration already finalized, and the schema would flip over an unrebuilt bucket.
-	if unreadable := store.Unreadable(); len(unreadable) > 0 {
-		logger.WithField("unit", unitID).WithField("file", unreadable[0].FileName).
-			Errorf("reindex provider: resolveUnitForPhase: a migration record could not be read: %s", unreadable[0].Reason)
-		return phaseUnitResolution{
-			Errs: []string{fmt.Sprintf("unit %s: migration record %q could not be read, so whether this unit "+
-				"is still in flight is unknown: %s", unitID, unreadable[0].FileName, unreadable[0].Reason)},
-		}
+	if fault := unreadableRecordFault(unitID, store); fault != "" {
+		logger.WithField("unit", unitID).Errorf("reindex provider: resolveUnitForPhase: %s", fault)
+		return phaseUnitResolution{Errs: []string{fault}}
 	}
 	built, err := p.createReindexTasks(task.TaskDescriptor, unitID, payload)
 	if err != nil {
@@ -1098,6 +1103,17 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	logger.WithField("unit", unitID).
 		Info("reindex provider: resolveUnitForPhase: rebuilding tasks from disk (node likely restarted); cached for subsequent phase callbacks")
 	return phaseUnitResolution{Shard: resolvedShard, UnitTasks: fresh, Rehydrate: true}
+}
+
+// unreadableRecordFault returns why a unit must not run, or "" when every
+// migration record on its shard is readable.
+func unreadableRecordFault(unitID string, store *MigrationRecordStore) string {
+	unreadable := store.Unreadable()
+	if len(unreadable) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("unit %s: migration record %q could not be read, so whether this unit "+
+		"is still in flight is unknown: %s", unitID, unreadable[0].FileName, unreadable[0].Reason)
 }
 
 // runShardPrepPhase runs the disk-I/O PREP phase for one unit on one shard.
