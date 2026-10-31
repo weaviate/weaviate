@@ -374,6 +374,7 @@ func TestAUnitDoesNotRunWhileAMigrationRecordIsUnreadable(t *testing.T) {
 			defer clean.Shutdown(ctx)
 			require.Equal(t, want, bm25(ctx, clean, tc.query))
 			require.Equal(t, !tc.unreadable, slices.Contains(rec.completed, unit), rec.failed)
+			require.Equal(t, tc.unreadable, strings.Contains(rec.failed[unit], "could not be read"), rec.failed)
 		})
 	}
 }

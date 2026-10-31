@@ -76,9 +76,9 @@ func migrationFaultReason(err error) string {
 const (
 	migrationAdviceClearAndRestart = "clear that error, then restart the node"
 	migrationAdviceOverBound       = "this build reads no record over that bound: run the build that wrote it, " +
-		"or remove it once you have confirmed what it claims"
+		"or remove it once you have confirmed what it claims, then restart the node (or deactivate and reactivate the tenant)"
 	migrationAdviceDowngrade = "normally a downgrade: run the build that wrote it, " +
-		"or remove it once you have confirmed what it claims"
+		"or remove it once you have confirmed what it claims, then restart the node (or deactivate and reactivate the tenant)"
 )
 
 // Kept apart from the reason so the length cut never drops the remedy.
@@ -226,7 +226,7 @@ func (s *MigrationRecordStore) Load() error {
 			if got := rec.Subject().Key.fileName(); got != name {
 				unreadable = append(unreadable, MigrationRecordUnreadable{
 					FileName: name,
-					Reason:   fmt.Sprintf("content names record file %q. give it back that name, or remove it", got),
+					Reason:   fmt.Sprintf("content names record file %q. give it back that name or remove it, then restart the node (or deactivate and reactivate the tenant)", got),
 					Scope:    MigrationRecordFaultFile,
 				})
 				continue
@@ -360,7 +360,7 @@ func refuseRecordsOfDuplicateClaims(records map[MigrationRecordKey]MigrationReco
 			Reason: fmt.Sprintf(
 				"this record and %q both claim directory %q, and this node cannot tell which one holds "+
 					"its data. Confirm which migration the directory belongs to, then move or remove the "+
-					"record file of the other one",
+					"record file of the other one, then restart the node (or deactivate and reactivate the tenant)",
 				against[key].fileName(), claim),
 			Scope: MigrationRecordFaultFile,
 		})
