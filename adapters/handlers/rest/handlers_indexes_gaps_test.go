@@ -850,6 +850,23 @@ func TestBuildUnitMaps_DeterministicSortAndCorrectMappings(t *testing.T) {
 	require.Equal(t, "node-2", unitToNode["shard-b__node-2"])
 }
 
+func TestReindexPayload_LeaderReadsItsReplicas(t *testing.T) {
+	_, unitToShard, unitToNode := buildUnitMaps(map[string][]string{
+		"node-2": {"shard-b", "shard-a"},
+		"node-1": {"shard-a"},
+	})
+	raw, err := json.Marshal(buildReindexPayload(nil, "C", nil, upsertPlan{}, nil, unitToShard, unitToNode))
+	require.NoError(t, err)
+
+	extract := distributedTaskShardReplicasExtractors()[db.ReindexNamespace]
+	require.NotNil(t, extract, "without it the leader admits a reindex built against stale replicas")
+	got, ok := extract(raw)
+	require.True(t, ok)
+	require.Len(t, got, 2)
+	require.ElementsMatch(t, []string{"node-1", "node-2"}, got["shard-a"])
+	require.ElementsMatch(t, []string{"node-2"}, got["shard-b"])
+}
+
 func TestBuildUnitSpecs_GroupIDIsShardName(t *testing.T) {
 	// Critical contract: GroupID == shardName so OnGroupCompleted fires
 	// per-tenant for MT semantic migrations.

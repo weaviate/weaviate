@@ -830,6 +830,10 @@ func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collec
 		return jsonResponder(http.StatusConflict, errorResponse(principal,
 			fmt.Sprintf("collection %q has a replica movement in flight; retry after it completes", collection)))
 	}
+	if errors.Is(err, distributedtask.ErrTaskReplicasChanged) {
+		return jsonResponder(http.StatusConflict, errorResponse(principal,
+			fmt.Sprintf("the shards or replicas of collection %q changed while the reindex was submitted; resubmit it against the current state", collection)))
+	}
 	return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 		fmt.Sprintf("submitting task: %v", err)))
 }

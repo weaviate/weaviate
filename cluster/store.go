@@ -201,6 +201,10 @@ type Config struct {
 	// DistributedTaskTargetVectorExtractors mirror the collection extractors for
 	// per-target cascade deletion (drop-vector marker introduction).
 	DistributedTaskTargetVectorExtractors map[string]distributedtask.TargetVectorExtractor
+	// DistributedTaskShardReplicasExtractors let admitTaskReplicas refuse a task
+	// whose units no longer match the current replicas of the shards they name.
+	// A namespace without a collection extractor is never checked.
+	DistributedTaskShardReplicasExtractors map[string]distributedtask.ShardReplicasExtractor
 
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.

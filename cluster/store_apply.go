@@ -13,7 +13,9 @@ package cluster
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -24,9 +26,12 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
@@ -52,7 +57,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	}
 
 	// taskMovementLocks is held until the apply returns, so a second submit on the same collection is checked only after the first has applied. Like tenantAddLocks and collectionAddLocks it is taken before waitLeaderFSMCaughtUp, and none of them nest.
-	collection, err := st.taskOrMovementCollection(req)
+	collection, task, err := st.taskOrMovementCollection(req)
 	if err != nil {
 		return 0, err
 	}
@@ -81,7 +86,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	// Namespace admission runs before the schema-shape filter so a suspended
 	// namespace answers with its own state rather than a complaint about the
 	// entity the caller named.
-	if err := st.admitPropose(req, collection); err != nil {
+	if err := st.admitPropose(req, collection, task); err != nil {
 		return 0, err
 	}
 
@@ -129,8 +134,8 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // apply whose schema half has committed. An Apply-side check would not close
 // that window either: the DB half runs after the schema half commits, so a flip
 // landing in between produces the same state.
-// admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
-func (st *Store) admitPropose(req *api.ApplyRequest, collection string) error {
+// admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. It also refuses a task whose units no longer match the current replicas of the shards they name. collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
+func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *api.AddDistributedTaskRequest) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
 	}
@@ -140,27 +145,77 @@ func (st *Store) admitPropose(req *api.ApplyRequest, collection string) error {
 	if err := st.admitShardStatus(req); err != nil {
 		return err
 	}
-	return st.admitTaskOrMovement(req.Type, collection)
+	if err := st.admitTaskOrMovement(req.Type, collection); err != nil {
+		return err
+	}
+	return st.admitTaskReplicas(task, collection)
 }
 
-func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, error) {
+// admitTaskReplicas refuses a task whose units no longer match the current replicas of the shards they name, since a replica with no unit is never reindexed.
+// A copy that finishes between the REST handler's read and this check has already changed the sharding state read here.
+// A payload the extractor cannot parse is admitted unchecked, because the reindex conflict check in Apply parses the same payload and rejects it.
+func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collection string) error {
+	if task == nil || collection == "" {
+		return nil
+	}
+	extract := st.cfg.DistributedTaskShardReplicasExtractors[task.Namespace]
+	if extract == nil {
+		return nil
+	}
+	taskReplicas, ok := extract(task.Payload)
+	if !ok {
+		return nil
+	}
+
+	changed := false
+	if err := st.schemaManager.NewSchemaReader().Read(collection, false, func(_ *models.Class, state *sharding.State) error {
+		for shard, nodes := range taskReplicas {
+			if !sameNodes(nodes, state.Physical[shard].BelongsToNodes) {
+				changed = true
+				return nil
+			}
+		}
+		return nil
+	}); errors.Is(err, schema.ErrClassNotFound) {
+		changed = true
+	} else if err != nil {
+		return fmt.Errorf("read sharding state of collection %q: %w", collection, err)
+	}
+	if changed {
+		return distributedtask.NewReplicasChangedError(collection)
+	}
+	return nil
+}
+
+func sameNodes(a, b []string) bool {
+	// The submit path skips empty node names, so the comparison must too.
+	notEmpty := func(nodes []string) []string {
+		nodes = slices.DeleteFunc(slices.Clone(nodes), func(n string) bool { return n == "" })
+		slices.Sort(nodes)
+		return slices.Compact(nodes)
+	}
+	return slices.Equal(notEmpty(a), notEmpty(b))
+}
+
+// taskOrMovementCollection also returns the decoded task of a task add, so admitPropose need not decode it again.
+func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, *api.AddDistributedTaskRequest, error) {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		sub := &api.ReplicationReplicateShardRequest{}
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
-			return "", fmt.Errorf("unmarshal replicate subcommand: %w", err)
+			return "", nil, fmt.Errorf("unmarshal replicate subcommand: %w", err)
 		}
-		return sub.SourceCollection, nil
+		return sub.SourceCollection, nil, nil
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		sub := &api.AddDistributedTaskRequest{}
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
-			return "", fmt.Errorf("unmarshal add-task subcommand: %w", err)
+			return "", nil, fmt.Errorf("unmarshal add-task subcommand: %w", err)
 		}
-		return st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload), nil
+		return st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload), sub, nil
 
 	default:
-		return "", nil
+		return "", nil, nil
 	}
 }
 
