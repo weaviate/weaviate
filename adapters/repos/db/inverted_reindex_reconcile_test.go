@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -75,11 +76,27 @@ type reconcileFixture struct {
 	disarmed      []migrationMirrorKey
 	// unsealed counts disarms and closes made while no seal was held.
 	unsealed int
+	// lateDisarms are mirrors first disarmed after a bucket of their property was shut down.
+	lateDisarms []migrationMirrorKey
 }
 
 func (f *reconcileFixture) DisarmMigrationMirror(key MigrationRecordKey, prop string) {
-	f.disarmed = append(f.disarmed, migrationMirrorKey{key, prop})
+	mirror := migrationMirrorKey{key, prop}
+	if !slices.Contains(f.disarmed, mirror) && f.closedAnOwnCopy(key, prop) {
+		f.lateDisarms = append(f.lateDisarms, mirror)
+	}
+	f.disarmed = append(f.disarmed, mirror)
 	f.countUnsealed()
+}
+
+func (f *reconcileFixture) closedAnOwnCopy(key MigrationRecordKey, prop string) bool {
+	for _, subject := range f.planted {
+		if subject.Key == key && slices.ContainsFunc(migrationOwnCopyDirs(subject, prop),
+			func(dir string) bool { return slices.Contains(f.buckets.closed, dir) }) {
+			return true
+		}
+	}
+	return false
 }
 
 func (f *reconcileFixture) countUnsealed() {
@@ -1508,6 +1525,7 @@ func TestEveryTeardownArmSealsTheUnit(t *testing.T) {
 			require.Equal(t, len(free.sealed), free.sealsReleased,
 				"and lets it go again: a leaked seal refuses this unit for the life of the process")
 			require.Zero(t, free.unsealed, "disarmed or closed without the unit's seal")
+			require.Empty(t, free.lateDisarms, "an armed mirror writes through a bucket already shut down")
 			if tt.disarms || tt.wedges {
 				require.Contains(t, free.disarmed, migrationMirrorKey{free.planted[0].Key, "title"},
 					"a mirror left armed copies every write to the property until restart")
