@@ -24,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	entinverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
@@ -307,4 +308,47 @@ func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
 		wantStrategy: lsmkv.StrategyRoaringSetRange,
 		fingerprint:  filterableToRangeableFingerprint,
 	}.run(t)
+}
+
+func TestAFilterOnAWithheldRangeIndexDoesNotBlameTheSchema(t *testing.T) {
+	const propName = filterableToRangeablePropName
+	off := false
+
+	for _, tt := range []struct {
+		name      string
+		rangeable bool
+		wantMsg   string
+		notMsg    string
+	}{
+		{
+			name: "the schema has the range index this shard withholds", rangeable: true,
+			wantMsg: "rangeFilters rebuild", notMsg: "indexFilterable",
+		},
+		{name: "the schema has no index to filter on", wantMsg: "indexFilterable"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "WithheldRangeIndex_" + uuid.NewString()[:8]
+			class := newFilterableToRangeableTestClass(className)
+			class.Properties[0].IndexFilterable = &off
+			class.Properties[0].IndexRangeFilters = &tt.rangeable
+			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
+			shard.setRangeableLocallyReady(propName, false)
+
+			_, _, err := shard.ObjectSearch(ctx, 10, &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(propName)},
+				Value:    &filters.Value{Value: 1, Type: schema.DataTypeInt},
+			}}, nil, nil, nil, additional.Properties{}, nil)
+
+			var missing entinverted.MissingIndexError
+			require.ErrorAs(t, err, &missing, "the API keeps answering it as a missing index")
+			require.Contains(t, err.Error(), tt.wantMsg)
+			if tt.notMsg != "" {
+				require.NotContains(t, err.Error(), tt.notMsg)
+			}
+		})
+	}
 }
