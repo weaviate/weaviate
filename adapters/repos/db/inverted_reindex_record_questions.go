@@ -19,9 +19,8 @@ type migrationRecordQuestions interface {
 	// FlipDecided reports whether the flip DECISION is durable, not that the flip ran.
 	FlipDecided() bool
 
-	// Both read by the cutover: the first before it hands a shard's writes to
-	// the staged copy, the second before it opens a bucket at a directory a
-	// record may be about to rename or remove.
+	// IterationComplete is read before a shard's writes go to the staged copy.
+	// OwnsBucket is read by the end-of-swap trim, which keeps every directory a record owns.
 	IterationComplete() bool
 	OwnsBucket(dir string) bool
 }

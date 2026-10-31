@@ -919,9 +919,7 @@ Of particular note is `OnMigrationComplete`'s phase contract — it
 fires in Phase 2c, AFTER the per-prop `SwapBucketPointer` tight loop
 and AFTER the inline `oldMain.Shutdown` + `oldMain → backup` rename
 loop, but still INSIDE the per-shard property-overlay window on a
-semantic migration. The godoc enumerates what's allowed and
-forbidden in that position and is the authoritative spec for adding
-a new strategy.
+semantic migration.
 
 **Semantic vs format-only.** `IsSemanticMigration` is the predicate:
 `change-tokenization`, `change-tokenization-filterable`,
@@ -1126,7 +1124,7 @@ produce a noisy apply failure).
 ### 6.4 The three-phase swap
 
 `OnGroupCompleted` runs a strict prep / atomic / defer split per local
-shard. The contract is enumerated verbatim at the top of
+shard. The contract is summarized at the top of
 [`inverted_reindex_task_generic.go`](../adapters/repos/db/inverted_reindex_task_generic.go);
 in short:
 

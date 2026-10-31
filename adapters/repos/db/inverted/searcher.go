@@ -43,10 +43,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-// IsRangeableLocallyReady reports whether this shard's rangeable bucket for
-// the property is safe to query; true when no migration is in flight. False
-// makes the filter resolver fall back to the filterable bucket walk on THIS
-// shard only — slow but correct while a repair-rangeable rebuild runs.
+// IsRangeableLocallyReady reports whether this shard's rangeable bucket for the
+// property is safe to query. False while a migration on it is not promoted here,
+// or while a migration record on the shard cannot be read; the resolver then walks
+// the filterable bucket, and a property without one fails the filter.
 type IsRangeableLocallyReady func(propName string) bool
 
 type Searcher struct {

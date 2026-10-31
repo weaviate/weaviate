@@ -19,7 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
-// bucketDirs guards every handle→path join: an empty or escaping one resolves to the root.
+// bucketDirs refuses an empty or escaping handle, which filepath.Join would resolve to the root that callers then remove.
 type bucketDirs struct {
 	root string
 }

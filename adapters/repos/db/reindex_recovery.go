@@ -33,9 +33,9 @@ type RecoveredReindex struct {
 	Tasks      []*ShardReindexTaskGeneric
 }
 
-// DiscoverInFlightReindexTasks rebuilds each migration's tasks from its
-// on-disk records so shard load re-arms double-write mirrors before writes
-// arrive. Runs before Raft opens, so records are the only source; a
+// DiscoverInFlightReindexTasks rebuilds, from on-disk records, the tasks of
+// each migration whose iteration finished and is not promoted, so shard load
+// re-arms their double-write mirrors before writes arrive. Runs before Raft opens, so records are the only source; a
 // change-tokenization's two halves are separate entries.
 func DiscoverInFlightReindexTasks(
 	rootPath string,

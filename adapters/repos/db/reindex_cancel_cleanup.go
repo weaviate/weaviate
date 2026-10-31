@@ -294,8 +294,8 @@ func hasStalePartialReindexState(
 // filesystem instead.
 const maxCachedDirNames = 100_000
 
-// dirNamesCache remembers directory listings across a run of sweeps over the
-// same shards, so each is read once instead of once per sweep. A nil cache
+// dirNamesCache remembers directory listings and each unloaded shard's parsed
+// record set across a run of sweeps over the same shards, so each is read once. A nil cache
 // reads the filesystem every time; the zero value caches. Not safe for
 // concurrent use.
 //
