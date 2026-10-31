@@ -14,8 +14,10 @@ package db
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -322,20 +324,6 @@ func TestAFailedRemovalKeepsTheRecordThatNamesTheDirectory(t *testing.T) {
 			},
 		},
 		{
-			name: "a superseded record whose tracker directory cannot be removed",
-			arrange: func(f *reconcileFixture) MigrationRecordKey {
-				f.mkdirs("property_title__g10_ingest", "property_title__s10_reindex",
-					"property_title__g20_ingest", "property_title_searchable")
-				f.put(swappedOn(10, "title"))
-				f.put(swappedOn(20, "title"))
-				f.blockTrackerRemoval(f.planted[0])
-				return f.planted[0].Key
-			},
-			assert: func(t *testing.T, f *reconcileFixture) {
-				require.True(t, f.trackerDirExists(f.planted[0]), "the directory is still there to attribute")
-			},
-		},
-		{
 			name: "a superseded record whose own record file cannot be removed",
 			arrange: func(f *reconcileFixture) MigrationRecordKey {
 				f.mkdirs("property_title__g10_ingest", "property_title__s10_reindex",
@@ -353,20 +341,6 @@ func TestAFailedRemovalKeepsTheRecordThatNamesTheDirectory(t *testing.T) {
 				f.reconcile()
 				_, present := f.state(MigrationRecordKey{TaskVersion: 10, StrategyCode: StrategyCodeSearchableRetokenize, UnitID: "shard-1__node-0"})
 				require.False(t, present, "the next pass finishes the removal the blocked one could not")
-			},
-		},
-		{
-			name: "a promoted record whose tracker directory cannot be removed",
-			arrange: func(f *reconcileFixture) MigrationRecordKey {
-				subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
-				f.class = testClassWithTokenization(models.PropertyTokenizationLowercase, "title")
-				f.mkdirs("property_title_searchable")
-				f.put(NewMigrationRecordPromoted(subject, []string{"title"}, map[string]string{"title": "property_title_searchable"}))
-				f.blockTrackerRemoval(subject)
-				return subject.Key
-			},
-			assert: func(t *testing.T, f *reconcileFixture) {
-				require.True(t, f.trackerDirExists(f.planted[0]), "the directory is still there to attribute")
 			},
 		},
 	}
@@ -585,6 +559,56 @@ func TestARecordRemovedEarlierInThePassStopsSupersedingAnything(t *testing.T) {
 	_, present = f.state(newer.Key)
 	require.False(t, present,
 		"the record it was the sole supersessor of is gone, so this one has nothing left to hold it back")
-	require.False(t, f.trackerDirExists(newer),
-		"and its tracker directory goes with it, instead of hydrating this tenant on every load")
+}
+
+// One line per record, not per property: an unretired property keeps the record
+// Swapped, so every pass would repeat the whole set.
+func TestUnretiredSupersededPropertiesReportOncePerRecord(t *testing.T) {
+	taken := []string{"alpha", "beta", "gamma", "delta"}
+
+	f := newReconcileFixture(t)
+	f.class = testClassWithTokenization(models.PropertyTokenizationWord, taken...)
+
+	// Matching canonical dirs are what make the newer record supersede this one.
+	// Staged dirs differ and are still on disk, so retirement has not run.
+	old := testMigrationSubject(10, StrategyCodeFilterableToRangeable, taken...)
+	successor := testMigrationSubject(20, StrategyCodeFilterableToRangeable, taken...)
+
+	dirs := []string{}
+	canonical := map[string]string{}
+	for _, prop := range taken {
+		dirs = append(dirs, old.Props[prop].Staged, old.Props[prop].Canonical)
+		canonical[prop] = old.Props[prop].Canonical
+	}
+	f.mkdirs(dirs...)
+
+	oldRec := NewMigrationRecordSwapped(old, taken, canonical)
+	successorRec := NewMigrationRecordSwapped(successor, taken, canonical)
+	f.put(oldRec)
+	f.put(successorRec)
+
+	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
+	require.NoError(t, r.promoteSealed(testCtx(), oldRec))
+
+	state, present := f.state(old.Key)
+	require.True(t, present)
+	require.Equal(t, MigrationStateSwapped, state,
+		"an unretired superseded property keeps the record short of Promoted")
+
+	require.Equal(t, 1, countWarnsContaining(f, "still hold their staged directory"),
+		"one line for the record, whatever the property count")
+	for _, prop := range taken {
+		require.Equal(t, 1, countWarnsContaining(f, prop),
+			"the single line still names every property it is about")
+	}
+}
+
+func countWarnsContaining(f *reconcileFixture, want string) int {
+	n := 0
+	for _, entry := range f.logs.AllEntries() {
+		if entry.Level == logrus.WarnLevel && strings.Contains(entry.Message, want) {
+			n++
+		}
+	}
+	return n
 }

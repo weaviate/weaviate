@@ -22,43 +22,14 @@ import (
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 )
 
-// TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency
-// asserts that a rolling restart landing inside the FINALIZING window
-// of a change-tokenization migration does not produce per-replica
-// divergent on-disk bucket state.
+// TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency asserts
+// that a rolling restart during a change-tokenization's FINALIZING window
+// never leaves replicas with divergent bucket state: the ack barrier holds
+// MarkTaskFinalized until every node's swap has acked, so a node that dies
+// mid-swap simply re-fires it via rehydrate rather than diverging.
 //
-// History: surfaced as
-// https://github.com/weaviate/0-weaviate-issues/issues/214 (Gap A,
-// "Repro 2: rolling-restart during FINALIZING"). The production
-// reproduction was a per-replica `path = 7×32, 3×30, 2×23, 6×5`
-// histogram on a steady probe after the cluster had reported the task
-// FINISHED. Fixed by the per-shard post-completion ack barrier in
-// https://github.com/weaviate/weaviate/pull/11318 (the ack-barrier
-// commits), which gates MarkTaskFinalized on every node's
-// OnGroupCompleted having returned and acked.
-//
-// With the ack barrier in place, no node can let the schema flip
-// commit before its OnGroupCompleted has returned and its ack has
-// landed in RAFT. A node that goes down between local swap and ack
-// emission either:
-//   - already finished the swap (sentinels present on disk; the
-//     post-restart FinalizeCompletedMigrations + RecoveryAwareProvider
-//     path re-emits the ack on the next scheduler tick), OR
-//   - died mid-swap (LocalCallbacksDone reports false; OnGroupCompleted
-//     re-fires via the rehydrate path; ack emitted after rehydrate +
-//     swap completes).
-//
-// What this test asserts:
-//
-//   - The task transitions to FINISHED only after every replica's
-//     bucket-pointer state matches the new tokenization.
-//   - Per-replica histogram across 30 polls per replica is all the
-//     expected count for the migrated property (no flap, no
-//     divergence).
-//
-// Dataset size: 50k objects. Smaller datasets keep most data in the
-// memtable and hide the LSM-segment-layout race regime where the bug
-// originally manifested in production.
+// 50k objects keeps data out of the memtable, exercising the LSM
+// segment-layout race this guards against.
 func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
@@ -145,7 +116,7 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 	// Poll until every replica converges to expectedPathCount, then sample
 	// stability below. AwaitReindexFinished only confirms node-1; a
 	// just-restarted node may still be loading buckets
-	// (FinalizeCompletedMigrations). A node that never converges fails here
+	// (reconciliation). A node that never converges fails here
 	// loudly instead of being slept past. testcontainers reallocates ports
 	// on stop+start, so restURIOf re-resolves on every call.
 	require.Eventually(t, func() bool {
@@ -202,39 +173,14 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 	}
 }
 
-// TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency
-// asserts that a SIGKILL on a single node during the FINALIZING
-// window does not produce per-replica divergent on-disk bucket state.
+// TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency asserts
+// that a SIGKILL on one node during FINALIZING never leaves replicas
+// diverged. Unlike the graceful rolling-restart variant above, the
+// ungraceful stop skips the flush path, so recovery finds the node's
+// migration record at Merged with its local process state lost.
 //
-// History: surfaced as
-// https://github.com/weaviate/0-weaviate-issues/issues/214 (Gap A,
-// "Repro 1: SIGKILL during FINALIZING"), fixed by the same
-// post-completion ack barrier as the rolling-restart variant above.
-//
-// Where the rolling-restart test (above) catches the cluster mid-swap
-// with a graceful shutdown sequence (testcontainers' Stop sends
-// SIGTERM first), this variant uses an ungraceful 0-second-timeout
-// Stop on a SINGLE node. That bypasses the on-shutdown flush path and
-// lets the post-restart RecoveryAwareProvider +
-// FinalizeCompletedMigrations have to handle a node whose
-// .migrations/ directory is at the half-merged stage (no tidied.mig,
-// no swapped.mig) with the local process state lost.
-//
-// The expected behavior with the ack barrier:
-//  1. SIGKILL on the targeted node either lands before its ack was
-//     emitted (LocalCallbacksDone reports the half-finalized state on
-//     restart, OnGroupCompleted re-fires via rehydrate, swap completes,
-//     ack emitted) OR after its ack was emitted (the FSM already has
-//     the ack persisted via RAFT, the post-restart scheduler sees the
-//     ack in the snapshot/log and does not re-emit).
-//  2. The cluster-wide FINISHED transition waits until every node has
-//     acked (per-node MissingPostCompletionAckNodes empty).
-//  3. Per-replica histogram is uniform after FINISHED — no divergence.
-//
-// We target the LAST node in the cluster index (node 2 / index 2) so
-// the surviving majority continues serving RAFT while node 2 is down,
-// which mirrors the production single-pod failure case (one pod gets
-// OOM-killed, the other two stay up).
+// Target the last node (index 2) so the surviving majority keeps serving
+// RAFT while it's down — mirroring a single-pod OOM-kill in production.
 func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
@@ -296,7 +242,7 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 	// Poll until every replica converges to expectedPathCount, then sample
 	// stability below. AwaitReindexFinished only confirms node-1; the
 	// SIGKILL'd-and-restarted node may still be loading buckets
-	// (FinalizeCompletedMigrations). A node that never converges fails here
+	// (reconciliation). A node that never converges fails here
 	// loudly instead of being slept past.
 	require.Eventually(t, func() bool {
 		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {

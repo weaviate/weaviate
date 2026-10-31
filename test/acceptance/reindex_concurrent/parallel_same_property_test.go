@@ -30,36 +30,11 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestParallelEnableFilterableAndRangeable mirrors the frontend repro on
-// https://github.com/weaviate/weaviate/issues/10675: parallel enable-filterable + enable-rangeFilters
-// on the same numeric property both end up FAILED with
-// "progress.mig.000000001: no such file or directory".
-//
-// Root cause. Once a property has IndexFilterable=false and
-// IndexRangeFilters=false (e.g. after DELETE filterable + DELETE
-// rangeFilters), submitting both enable-filterable and enable-rangeFilters in
-// parallel races on shared on-disk migration state. Whichever migration
-// finishes first calls UpdateProperty; MergeProps preserves the
-// still-false sibling flag (the other migration hasn't flipped it yet),
-// so the RAFT-applied schema carries the in-progress migration's flag as
-// false. On apply, Migrator.UpdateProperty → Shard.updatePropertyBuckets
-// cleans the migration dirs for any index whose flag is now false —
-// which removes the in-flight migration's working directory and the
-// next markProgress fails with ENOENT.
-//
-// The fix gates this at submit time: any two reindex migrations on the
-// same (collection, property) tuple conflict and the second submit gets
-// a clean 409. Callers are expected to serialize the operations.
-//
-// The test asserts the contract:
-//  1. At least one of the two parallel PUTs returns 202 (accepted).
-//  2. The other PUT returns either 202 (if it slipped in before the first
-//     task was visible in ListDistributedTasks) or 409 (rejected as a
-//     conflict).
-//  3. Whichever submits are accepted MUST FINISH (not FAIL). The frontend
-//     repro had BOTH FAILED, which is the regression we are pinning.
-//  4. After both migrations complete (serially if needed via retry on
-//     409), both buckets must be queryable.
+// TestParallelEnableFilterableAndRangeable pins weaviate/weaviate#10675:
+// parallel enable-filterable + enable-rangeFilters on the same property both
+// ended up FAILED, because MergeProps let the winner's stale-state sweep
+// remove the other's in-flight working directory. Submit-time conflict
+// detection (409) now closes the race; this asserts both migrations finish.
 func TestParallelEnableFilterableAndRangeable(t *testing.T) {
 	ctx := context.Background()
 

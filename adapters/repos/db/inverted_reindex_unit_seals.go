@@ -18,8 +18,7 @@ import (
 )
 
 // migrationUnitSeals holds the seal every teardown takes before it removes a
-// migration's directories. With no builder installed, SealUnit grants every
-// seal until the cutover installs one.
+// migration's directories, so SealUnit refuses while a worker holds the unit.
 type migrationUnitSeals struct {
 	mu      sync.RWMutex
 	builder ReindexUnitSealBuilder

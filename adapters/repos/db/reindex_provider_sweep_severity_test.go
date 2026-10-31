@@ -22,32 +22,37 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	entschema "github.com/weaviate/weaviate/entities/schema"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// The per-tuple line and the run summary report the same failure, so a
-// per-tuple line ranked on its own splits one event across two severities: an
-// operator alerting on Error sees half of it and one alerting on Warn sees the
-// other half, and neither can tell that both halves are the same shard.
+// The walk ranks its outcome by the sweep's taxonomy, so an operator alerting
+// on one level sees every cleanup that left the same thing behind.
 //
 // Two rows, because they land on opposite sides of the taxonomy: a level
 // hardcoded to either one fails on the other.
-func TestTerminalCleanupRanksATupleFailureLikeTheSweepDoes(t *testing.T) {
+func TestTerminalCleanupRanksAWalkFailureLikeTheSweepDoes(t *testing.T) {
 	tests := []struct {
 		name string
-		// fixture returns a collection whose sweep produces wantOutcome, plus
+		// fixture returns a collection whose walk produces wantOutcome, plus
 		// the shard the payload names.
 		fixture     func(t *testing.T) (idx *Index, shardName string)
 		wantOutcome CleanupSweepOutcome
 	}{
 		{
-			name:        "a shard the sweep reached and could not sweep",
-			fixture:     shardWithAnUnsweepableMigrationsDir,
+			name:        "a shard the walk reached and could not settle",
+			fixture:     shardWithAnUnreadableRecordStore,
 			wantOutcome: CleanupSweepFailed,
 		},
 		{
 			name:        "a walk that stopped before it reached every shard",
 			fixture:     closingIndexWithAnUnvisitedShard,
+			wantOutcome: CleanupSweepUnknown,
+		},
+		{
+			name:        "an unloaded shard its suspended namespace may not load",
+			fixture:     unloadedShardOfASuspendedNamespace,
 			wantOutcome: CleanupSweepUnknown,
 		},
 	}
@@ -77,55 +82,65 @@ func TestTerminalCleanupRanksATupleFailureLikeTheSweepDoes(t *testing.T) {
 
 			wantMsg, wantLevel := CleanupSweepSummary(sweepPhaseTerminalCleanup, tc.wantOutcome)
 
-			var perTuple, summary []*logrus.Entry
+			var summary []*logrus.Entry
 			for _, entry := range hook.AllEntries() {
-				switch {
-				case entry.Data["property"] != nil:
-					perTuple = append(perTuple, entry)
-				case entry.Data["operation"] == "autoCleanupAfterTerminal":
+				if entry.Data["operation"] == "autoCleanupAfterTerminal" {
 					summary = append(summary, entry)
 				}
 			}
 
-			// Every tuple the migration sweeps fails on the same broken shard,
-			// so each one has to report the outcome the summary folds them into.
-			indexTypes := semanticMigrationIndexTypesForAudit(ReindexTypeChangeTokenization)
-			require.Len(t, perTuple, len(indexTypes),
-				"every (property, index type) failure reaches the operator on its own")
 			require.Len(t, summary, 1)
-
-			for _, entry := range append(perTuple, summary...) {
-				require.Equal(t, wantLevel, entry.Level,
-					"ranked %s, but the sweep ranks this outcome %s: %s",
-					entry.Level, wantLevel, entry.Message)
-				require.Contains(t, entry.Message, wantMsg,
-					"the operator has to read one wording for one outcome")
-			}
-			for _, entry := range perTuple {
-				require.Contains(t, entry.Message, "partial-reindex cleanup",
-					"the summary says what happened; only this line says on which shard")
-			}
+			require.Equal(t, wantLevel, summary[0].Level,
+				"ranked %s, but the sweep ranks this outcome %s: %s",
+				summary[0].Level, wantLevel, summary[0].Message)
+			require.Contains(t, summary[0].Message, wantMsg,
+				"the operator has to read one wording for one outcome")
 		})
 	}
 }
 
-// shardWithAnUnsweepableMigrationsDir replaces .migrations with a regular file,
-// so the sweep reaches the shard and then cannot list what it has to remove.
-func shardWithAnUnsweepableMigrationsDir(t *testing.T) (*Index, string) {
+// shardWithAnUnreadableRecordStore replaces .migrations with a regular file and
+// reloads the shard's store, so the walk reaches a shard whose records it may
+// not act on.
+func shardWithAnUnreadableRecordStore(t *testing.T) (*Index, string) {
 	t.Helper()
 	ctx := testCtx()
-	shard, idx := testShard(t, ctx, "UnsweepableShard"+uuid.NewString()[:8])
+	shard, idx := testShard(t, ctx, "UnreadableRecords"+uuid.NewString()[:8])
 	concrete, err := unwrapShard(ctx, shard)
 	require.NoError(t, err)
 
 	migrations := filepath.Join(concrete.pathLSM(), ".migrations")
 	require.NoError(t, os.RemoveAll(migrations))
 	require.NoError(t, os.WriteFile(migrations, []byte("not a directory"), 0o600))
+	require.Error(t, concrete.migrationRecords.Load())
 	return idx, shard.Name()
 }
 
+// unloadedShardOfASuspendedNamespace holds the task's record on an unloaded
+// shard, so only the namespace check keeps the walk from loading it.
+func unloadedShardOfASuspendedNamespace(t *testing.T) (*Index, string) {
+	t.Helper()
+	const tenant = "suspended-tenant"
+	ctx := testCtx()
+	class := newTestClassWithProps("SuspendedCleanup"+uuid.NewString()[:8], []string{"title"})
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	t.Cleanup(func() { shd.Shutdown(context.Background()) })
+
+	subject := testMigrationSubject(1, StrategyCodeSearchableRetokenize, "title")
+	subject.TaskID, subject.Key.UnitID = "T_terminal", testMigrationUnitFor(idx, tenant)
+	lsm := shardPathLSM(idx.path(), tenant)
+	require.NoError(t, os.MkdirAll(lsm, 0o777))
+	logger, _ := logrustest.NewNullLogger()
+	require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordIterated(subject)))
+	idx.shards.Store(tenant, NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
+		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		false, idx.bitmapBufPool))
+	idx.namespace, idx.namespacesExister = "alpha", existerWithState(t, api.NamespaceStateSuspended)
+	return idx, tenant
+}
+
 // closingIndexWithAnUnvisitedShard builds an index already past its close, so
-// the strict walk refuses to answer for the tenant it holds. Built bare rather
+// the walk stops before the tenant it holds. Built bare rather
 // than closed after the fact: nothing else may be reading these fields while
 // the test writes them.
 func closingIndexWithAnUnvisitedShard(t *testing.T) (*Index, string) {

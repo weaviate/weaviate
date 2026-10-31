@@ -19,7 +19,7 @@ import (
 // ErrBackupBlockedByInFlightReindex is the canonical sentinel returned when
 // a backup attempt races a runtime-reindex on the same shard. The DTM unit
 // driving the migration is not part of the backup payload, so a captured
-// tracker dir cannot be safely restored.
+// migration record cannot be safely restored.
 //
 // This sentinel lives in entities/backup so both the storage layer
 // (adapters/repos/db) and the coordinator layer (usecases/backup) can
