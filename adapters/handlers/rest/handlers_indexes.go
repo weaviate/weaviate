@@ -698,25 +698,7 @@ func logCancelCleanupOutcome(entry *logrus.Entry, failures []staleSweepFailure, 
 // indexType returned. Safe when no stale state exists — missing
 // directories and unloaded buckets are silently skipped.
 func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
-	switch mt {
-	case db.ReindexTypeEnableSearchable, db.ReindexTypeChangeAlgorithm, db.ReindexTypeRebuildSearchable:
-		return []string{"searchable"}, true
-	case db.ReindexTypeEnableFilterable, db.ReindexTypeRepairFilterable:
-		return []string{"filterable"}, true
-	case db.ReindexTypeEnableRangeable, db.ReindexTypeRepairRangeable:
-		return []string{"rangeable"}, true
-	case db.ReindexTypeChangeTokenization:
-		// change-tokenization-both runs ONE task per inverted index
-		// (searchable + filterable). Each leaves its own per-property
-		// migration dir on disk. Pre-cleanup must wipe both, otherwise a
-		// stale tidied.mig from a previous single-index retokenize on the
-		// same prop short-circuits the sub-task and produces a schema /
-		// bucket state mismatch (Sev 1 silent data loss).
-		return []string{"searchable", "filterable"}, true
-	case db.ReindexTypeChangeTokenizationFilterable:
-		return []string{"filterable"}, true
-	}
-	return nil, false
+	return db.ReindexIndexTypes(mt)
 }
 
 // migrationTypeTargetsIndex returns:
@@ -724,25 +706,13 @@ func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
 //   - matches: true if the migration type writes to the named index bucket.
 //   - isKnown: true if the migration type is one this function knows about.
 //
-// A new ReindexType added to the codebase without being mapped here would
+// A new ReindexType added without being mapped in db.ReindexIndexTypes would
 // return (false, false). Callers that need to log/alert on that case can
 // check the second return; cancel-path callers can ignore it because a
 // (false, false) result still means "this task is not a cancel target".
 func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (matches, isKnown bool) {
-	switch mt {
-	case db.ReindexTypeEnableSearchable, db.ReindexTypeChangeAlgorithm, db.ReindexTypeRebuildSearchable:
-		return indexType == "searchable", true
-	case db.ReindexTypeEnableFilterable, db.ReindexTypeRepairFilterable:
-		return indexType == "filterable", true
-	case db.ReindexTypeEnableRangeable, db.ReindexTypeRepairRangeable:
-		return indexType == "rangeable", true
-	case db.ReindexTypeChangeTokenization:
-		// touches both searchable and filterable buckets
-		return indexType == "searchable" || indexType == "filterable", true
-	case db.ReindexTypeChangeTokenizationFilterable:
-		return indexType == "filterable", true
-	}
-	return false, false
+	indexTypes, known := db.ReindexIndexTypes(mt)
+	return slices.Contains(indexTypes, indexType), known
 }
 
 // decodeErrorPolicy controls how firstActiveReindexTask treats a task whose
