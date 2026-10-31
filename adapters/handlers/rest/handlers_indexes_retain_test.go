@@ -25,9 +25,9 @@ import (
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
-// TestIndexStatusAfterTaskTTL keeps each record, all past the TTL, that is
-// active or that ShouldRetainCompletedTask retains, then reads C.foo's
-// index status from the kept records.
+// TestIndexStatusAfterTaskTTL treats every record as past the TTL, then
+// checks C.foo's index status against only the ones still active or kept
+// by ShouldRetainCompletedTask.
 func TestIndexStatusAfterTaskTTL(t *testing.T) {
 	type rec struct {
 		status     distributedtask.TaskStatus
@@ -53,8 +53,7 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 		name     string
 		records  []rec // oldest first
 		wantKept []int // indexes into records
-		// failedCleanup runs a second sweep in which only these released
-		// records' cleanup writes failed.
+		// failedCleanup: these released records' cleanup write fails on a second sweep.
 		failedCleanup []int
 		filterableOff bool // the schema has C.foo's filterable index dropped
 		filterable    string

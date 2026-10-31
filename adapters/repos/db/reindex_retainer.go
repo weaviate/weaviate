@@ -40,11 +40,11 @@ func ReindexIndexTypes(mt ReindexMigrationType) (indexTypes []string, known bool
 
 // ShouldRetainCompletedTask keeps a FAILED record until newer runs on its
 // property cover all its index types, so the status endpoint still reads
-// "failed". A newer run that hides that failure on an index type is kept until
-// the failed record is gone, so the failure cannot resurface on that type.
-// A newer cancelled run counts too: "failed" lasts until a newer run of that
-// index type, a collection delete, or for a non-enable run, dropping the index.
-// The rule assumes one property per payload, as every submit path builds today.
+// "failed". A newer run that hides the failure is kept until the failed record
+// is gone, so the failure cannot resurface. "failed" lasts until a newer run of
+// that index type (even a cancelled one), a collection delete, or, for a
+// non-enable run, dropping the index.
+// Assumes one property per payload, as every submit path builds today.
 func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task,
 ) bool {
@@ -80,9 +80,9 @@ func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	return false
 }
 
-// reindexTarget is the part of ReindexTaskPayload the retainer reads. Leaving
-// out the per-unit maps keeps decoding a large multi-tenant payload cheap, as
-// every node runs this on every scheduler tick.
+// reindexTarget is the subset of ReindexTaskPayload the retainer reads.
+// Skipping the per-unit maps keeps decoding cheap, since every node decodes
+// this on every scheduler tick.
 type reindexTarget struct {
 	MigrationType ReindexMigrationType `json:"migrationType"`
 	Collection    string               `json:"collection"`
@@ -143,9 +143,9 @@ func indexTypesRunOnSameProperties(other, target *reindexTarget) []string {
 }
 
 // indexDroppedSince reports whether indexType is off on all of target's
-// properties. Only an enable run leaves its index off when it fails; for any
-// other run an index that is off was dropped afterwards, and no run can cover
-// a dropped index, so the failure would otherwise be kept forever.
+// properties. Only an enable run leaves its index off on failure; any other
+// run found off had it dropped afterward, and no run can cover a dropped
+// index, so its failure would otherwise be kept forever.
 func (p *ReindexProvider) indexDroppedSince(target *reindexTarget, indexType string) bool {
 	enable := []ReindexMigrationType{ReindexTypeEnableSearchable, ReindexTypeEnableFilterable, ReindexTypeEnableRangeable}
 	if slices.Contains(enable, target.MigrationType) || p.schemaManager == nil || len(target.Properties) == 0 {
