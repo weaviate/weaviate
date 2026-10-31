@@ -59,10 +59,7 @@ func migrationPreservedStateFromRecords(records []MigrationRecord, someRecordsUn
 		subject := rec.Subject()
 		for _, prop := range subject.Properties() {
 			canAct := migrationPropertyLoadCanStillAct(rec, prop)
-			if dir := subject.Props[prop].Staged; dir != "" {
-				state.buckets[dir] = canAct
-			}
-			if dir := subject.Props[prop].Sidecar; dir != "" {
+			for _, dir := range migrationOwnCopyDirs(subject, prop) {
 				state.buckets[dir] = canAct
 			}
 		}
