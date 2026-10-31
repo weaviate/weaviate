@@ -14,14 +14,18 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -641,11 +645,12 @@ func TestValidateTenantScope(t *testing.T) {
 	})
 }
 
-func TestValidateTenants(t *testing.T) {
-	state := &sharding.State{Physical: map[string]sharding.Physical{
-		"hot":    {BelongsToNodes: []string{"node1"}, Status: models.TenantActivityStatusHOT},
-		"frozen": {BelongsToNodes: []string{"node1"}, Status: models.TenantActivityStatusFROZEN},
-	}}
+// dbWithTenants returns a DB whose collection "C" has the given tenant statuses.
+func dbWithTenants(t *testing.T, statuses map[string]string) *db.DB {
+	state := &sharding.State{Physical: map[string]sharding.Physical{}}
+	for name, status := range statuses {
+		state.Physical[name] = sharding.Physical{BelongsToNodes: []string{"node1"}, Status: status}
+	}
 	reader := schema.NewMockSchemaReader(t)
 	reader.EXPECT().Read("C", true, mock.Anything).RunAndReturn(
 		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
@@ -653,13 +658,27 @@ func TestValidateTenants(t *testing.T) {
 		})
 	database := &db.DB{}
 	database.SetSchemaReader(reader)
+	return database
+}
+
+func TestValidateTenants(t *testing.T) {
+	database := dbWithTenants(t, map[string]string{
+		"hot":      models.TenantActivityStatusHOT,
+		"cold":     models.TenantActivityStatusCOLD,
+		"frozen":   models.TenantActivityStatusFROZEN,
+		"active":   models.TenantActivityStatusACTIVE,
+		"inactive": models.TenantActivityStatusINACTIVE,
+	})
 
 	cases := []struct {
 		tenant  string
 		wantErr string
 	}{
 		{tenant: "hot"},
-		{tenant: "frozen", wantErr: `tenant "frozen" is frozen, freezing or unfreezing`},
+		{tenant: "cold", wantErr: `tenant "cold" is not HOT and cannot be reindexed; set it to HOT first`},
+		{tenant: "frozen", wantErr: `tenant "frozen" is not HOT and cannot be reindexed; set it to HOT first`},
+		{tenant: "active"},
+		{tenant: "inactive", wantErr: `tenant "inactive" is not HOT and cannot be reindexed; set it to HOT first`},
 		{tenant: "missing", wantErr: `tenant "missing" does not exist`},
 	}
 	for _, tc := range cases {
@@ -670,7 +689,88 @@ func TestValidateTenants(t *testing.T) {
 				return
 			}
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), tc.wantErr)
+			assert.Equal(t, tc.wantErr, err.Error())
+		})
+	}
+}
+
+// TestSubmitReindexTask_RefusesNonHotTenants pins that a submit targeting any
+// tenant that is not HOT starts no task, so the schema is never changed over it.
+func TestSubmitReindexTask_RefusesNonHotTenants(t *testing.T) {
+	manyCold := map[string]string{}
+	for i := 0; i < 12; i++ {
+		manyCold[fmt.Sprintf("t%02d", i)] = models.TenantActivityStatusCOLD
+	}
+
+	cases := []struct {
+		name     string
+		statuses map[string]string
+		tenants  []string
+		plan     upsertPlan
+		wantCode int
+		wantErr  string
+	}{
+		{
+			name:     "named COLD tenant",
+			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "cold": models.TenantActivityStatusCOLD},
+			tenants:  []string{"cold"},
+			plan:     upsertPlan{migrationType: db.ReindexTypeRepairFilterable},
+			wantErr:  `tenant "cold" is not HOT and cannot be reindexed; set it to HOT first`,
+		},
+		{
+			name:     "collection-wide with a COLD tenant",
+			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "cold": models.TenantActivityStatusCOLD},
+			plan:     upsertPlan{migrationType: db.ReindexTypeEnableFilterable},
+			wantErr:  `tenant "cold" is not HOT and cannot be reindexed; set it to HOT first`,
+		},
+		{
+			name:     "collection-wide with a FROZEN tenant",
+			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "frozen": models.TenantActivityStatusFROZEN},
+			plan:     upsertPlan{migrationType: db.ReindexTypeEnableFilterable},
+			wantErr:  `tenant "frozen" is not HOT and cannot be reindexed; set it to HOT first`,
+		},
+		{
+			name:     "collection-wide format-only with an OFFLOADED tenant",
+			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "off": models.TenantActivityStatusOFFLOADED},
+			plan:     upsertPlan{migrationType: db.ReindexTypeRepairFilterable},
+			wantErr:  `tenant "off" is not HOT and cannot be reindexed; set it to HOT first`,
+		},
+		{
+			name:     "names are capped",
+			statuses: manyCold,
+			plan:     upsertPlan{migrationType: db.ReindexTypeEnableFilterable},
+			wantErr:  "tenants t00, t01, t02, t03, t04, t05, t06, t07, t08, t09, (and 2 more) are not HOT and cannot be reindexed; set them to HOT first",
+		},
+		{
+			// Past the tenant check, the stale-state sweep stops the submit
+			// because the collection has no local index here.
+			name:     "collection-wide with all tenants HOT",
+			statuses: map[string]string{"a": models.TenantActivityStatusHOT, "b": models.TenantActivityStatusHOT},
+			plan:     upsertPlan{migrationType: db.ReindexTypeEnableFilterable},
+			wantCode: http.StatusInternalServerError,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := &indexesHandlers{appState: &state.State{
+				Logger: logrus.New(), DB: dbWithTenants(t, tc.statuses), ClusterService: &rCluster.Service{},
+			}}
+			class := &models.Class{
+				Class:              "C",
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				Properties:         []*models.Property{{Name: "p", DataType: []string{"text"}}},
+			}
+
+			resp := h.submitReindexTask(context.Background(), nil, class, "C", "p", tc.plan, tc.tenants, nil)
+
+			code, body := statusOf(t, resp)
+			if tc.wantErr == "" {
+				require.Equal(t, tc.wantCode, code)
+				return
+			}
+			require.Equal(t, http.StatusBadRequest, code)
+			require.Len(t, body.Error, 1)
+			assert.Equal(t, tc.wantErr, body.Error[0].Message)
 		})
 	}
 }

@@ -318,9 +318,7 @@ func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSp
 }
 
 // validateTenants checks that all specified tenants exist in the collection's
-// sharding state and are HOT or COLD (ACTIVE or INACTIVE). Returns an error for
-// nonexistent tenants and for tenants in any other status (FROZEN, FREEZING or
-// UNFREEZING).
+// sharding state and are HOT.
 func validateTenants(database *db.DB, ctx context.Context, collection string, tenants []string) error {
 	// Unfiltered: a frozen tenant must still count as known, so it fails
 	// with the status error below, not the unknown-tenant one.
@@ -336,26 +334,12 @@ func validateTenants(database *db.DB, ctx context.Context, collection string, te
 			knownTenants[shard] = struct{}{}
 		}
 	}
-
-	// Get the filtered ownership (only HOT/ACTIVE/COLD/INACTIVE).
-	activeOwnership, err := database.ShardReplicaOwnershipForMT(ctx, collection, tenants)
-	if err != nil {
-		return fmt.Errorf("reading shard state: %w", err)
-	}
-	activeTenants := make(map[string]struct{})
-	for _, shards := range activeOwnership {
-		for _, shard := range shards {
-			activeTenants[shard] = struct{}{}
-		}
-	}
-
 	for _, tenant := range tenants {
 		if _, ok := knownTenants[tenant]; !ok {
 			return fmt.Errorf("tenant %q does not exist", tenant)
 		}
-		if _, ok := activeTenants[tenant]; !ok {
-			return fmt.Errorf("tenant %q is frozen, freezing or unfreezing and cannot be reindexed; set it to HOT first", tenant)
-		}
 	}
-	return nil
+
+	_, err = database.ShardReplicaOwnershipForMT(ctx, collection, tenants)
+	return err
 }
