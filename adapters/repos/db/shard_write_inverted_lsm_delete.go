@@ -24,6 +24,10 @@ import (
 func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
 	docID uint64, st *propValueIndexState,
 ) error {
+	if err := s.requireDeleteBuckets(props, nilProps); err != nil {
+		return err
+	}
+
 	for _, prop := range props {
 		if prop.HasFilterableIndex {
 			bucket := s.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
@@ -76,7 +80,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 		}
 
 		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
-		if isMetaCountProperty(prop) || isInternalProperty(prop) || prop.OverlayForcedOnly {
+		if skipsLengthAndNullIndex(prop) {
 			continue
 		}
 
@@ -110,6 +114,65 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 	}
 
 	return nil
+}
+
+// requireDeleteBuckets checks buckets up front so a missing one aborts
+// before any entries are removed, avoiding a partially applied delete.
+func (s *Shard) requireDeleteBuckets(props []inverted.Property, nilProps []inverted.NilProperty) error {
+	for i := range props {
+		prop := &props[i]
+		if prop.HasFilterableIndex {
+			if err := s.requireBucket(helpers.BucketFromPropNameLSM(prop.Name)); err != nil {
+				return err
+			}
+		}
+		if prop.HasSearchableIndex {
+			if err := s.requireBucket(helpers.BucketSearchableFromPropNameLSM(prop.Name)); err != nil {
+				return err
+			}
+		}
+		if prop.HasRangeableIndex {
+			if err := s.requireBucket(helpers.BucketRangeableFromPropNameLSM(prop.Name)); err != nil {
+				return err
+			}
+		}
+		if skipsLengthAndNullIndex(*prop) {
+			continue
+		}
+		if err := s.requireLengthAndNullBuckets(prop.Name, prop.Length >= 0); err != nil {
+			return err
+		}
+	}
+	for _, nilProp := range nilProps {
+		if err := s.requireLengthAndNullBuckets(nilProp.Name, nilProp.AddToPropertyLength); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Shard) requireLengthAndNullBuckets(propName string, hasLength bool) error {
+	cfg := s.index.invertedIndexConfig
+	if cfg.IndexPropertyLength && hasLength {
+		if err := s.requireBucket(helpers.BucketFromPropNameLengthLSM(propName)); err != nil {
+			return err
+		}
+	}
+	if cfg.IndexNullState {
+		return s.requireBucket(helpers.BucketFromPropNameNullLSM(propName))
+	}
+	return nil
+}
+
+func (s *Shard) requireBucket(name string) error {
+	if s.store.Bucket(name) == nil {
+		return fmt.Errorf("bucket %q not found, no index entries were removed", name)
+	}
+	return nil
+}
+
+func skipsLengthAndNullIndex(prop inverted.Property) bool {
+	return isMetaCountProperty(prop) || isInternalProperty(prop) || prop.OverlayForcedOnly
 }
 
 func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket *lsmkv.Bucket,
