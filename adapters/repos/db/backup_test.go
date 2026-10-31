@@ -1355,6 +1355,24 @@ func TestBackupableRefusalSizeDoesNotGrowWithTenants(t *testing.T) {
 	}
 	db := backupTestDBWithColdTenants(t, []string{className}, tenants, builder.Build())
 
+	// The gate refreshes only after reindexGateMaxAge, so a mixed pass needs a real wait.
+	// Shard order is random: if tenant-0000 is checked last, no later shard sees the outage.
+	var outageUnseen bool
+	fetches, checked := 0, 0
+	outageAfterFirstTenant := func() (ShardReindexActivityLookup, error) {
+		if fetches++; fetches > 1 {
+			return nil, errTaskManagerUnreachable
+		}
+		return func(_, shardName string) bool {
+			checked++
+			if shardName == "tenant-0000" {
+				outageUnseen = checked == len(tenants)
+				time.Sleep(reindexGateMaxAge + 100*time.Millisecond)
+			}
+			return true
+		}, nil
+	}
+
 	for _, tc := range []struct {
 		name      string
 		lookup    ShardReindexActivityLookupBuilder
@@ -1383,11 +1401,22 @@ func TestBackupableRefusalSizeDoesNotGrowWithTenants(t *testing.T) {
 			wantCount: "1000 of 1000 shards",
 			wantFirst: "tenant-0000",
 		},
+		{
+			name:      "task manager lost after the first tenant",
+			lookup:    outageAfterFirstTenant,
+			wantErr:   ErrReindexGateUnavailable,
+			wantCount: "1000 of 1000 shards",
+			wantFirst: "tenant-0000",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db.SetShardReindexActivityLookup(tc.lookup)
 
 			err := db.Backupable(context.Background(), []string{className})
+			if outageUnseen {
+				t.Skip("tenant-0000 was checked last, so no shard saw the outage")
+			}
+			require.ErrorIs(t, err, backup.ErrBackupBlockedByInFlightReindex)
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Contains(t, err.Error(), tc.wantCount)
 			assert.Contains(t, err.Error(), fmt.Sprintf("shard %q", tc.wantFirst))

@@ -98,10 +98,13 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 		// One error per class: per-shard errors would multiply with the tenant count.
 		blocked := map[string]struct{}{}
 		var firstName string
-		var firstErr error
+		var firstErr, gateErr error
 		for _, shardName := range shards {
 			if err := idx.refuseIfReindexInFlight(shardName, gate); err != nil {
 				blocked[shardName] = struct{}{}
+				if gateErr == nil && stderrors.Is(err, ErrReindexGateUnavailable) {
+					gateErr = err
+				}
 				// Keep the smallest name so "first" matches the sorted list below.
 				if firstErr == nil || shardName < firstName {
 					firstName, firstErr = shardName, err
@@ -109,6 +112,10 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			}
 		}
 		if firstErr != nil {
+			// A gate refresh can fail mid-class; keep that outage visible next to a live-task first error.
+			if gateErr != nil && !stderrors.Is(firstErr, ErrReindexGateUnavailable) {
+				firstErr = stderrors.Join(firstErr, gateErr)
+			}
 			errs = append(errs, fmt.Errorf("%s/%s: %d of %d shards blocked (%s); first: %w", nodeName, c,
 				len(blocked), len(shards), strings.Join(reportedShardNames(blocked), ", "), firstErr))
 		}
