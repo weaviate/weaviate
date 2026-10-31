@@ -729,20 +729,8 @@ func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
 // check the second return; cancel-path callers can ignore it because a
 // (false, false) result still means "this task is not a cancel target".
 func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (matches, isKnown bool) {
-	switch mt {
-	case db.ReindexTypeEnableSearchable, db.ReindexTypeChangeAlgorithm, db.ReindexTypeRebuildSearchable:
-		return indexType == "searchable", true
-	case db.ReindexTypeEnableFilterable, db.ReindexTypeRepairFilterable:
-		return indexType == "filterable", true
-	case db.ReindexTypeEnableRangeable, db.ReindexTypeRepairRangeable:
-		return indexType == "rangeable", true
-	case db.ReindexTypeChangeTokenization:
-		// touches both searchable and filterable buckets
-		return indexType == "searchable" || indexType == "filterable", true
-	case db.ReindexTypeChangeTokenizationFilterable:
-		return indexType == "filterable", true
-	}
-	return false, false
+	indexTypes, known := db.ReindexIndexTypes(mt)
+	return slices.Contains(indexTypes, indexType), known
 }
 
 // decodeErrorPolicy controls how firstActiveReindexTask treats a task whose
