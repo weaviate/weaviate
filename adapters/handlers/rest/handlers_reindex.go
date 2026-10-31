@@ -317,11 +317,11 @@ func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSp
 	return specs
 }
 
-// validateTenants checks that all specified tenants exist in the collection's
-// sharding state and are HOT.
+// validateTenants checks that every named tenant exists in the collection's
+// sharding state. submitReindexTask refuses a named tenant that is not HOT.
 func validateTenants(database *db.DB, ctx context.Context, collection string, tenants []string) error {
-	// Unfiltered: a frozen tenant must still count as known, so it fails
-	// with the status error below, not the unknown-tenant one.
+	// Unfiltered: a frozen tenant must count as known, so it fails with the
+	// not-HOT error, not the unknown-tenant one.
 	allOwnership, err := database.ShardReplicaOwnership(ctx, collection)
 	if err != nil {
 		return fmt.Errorf("reading shard state: %w", err)
@@ -339,7 +339,5 @@ func validateTenants(database *db.DB, ctx context.Context, collection string, te
 			return fmt.Errorf("tenant %q does not exist", tenant)
 		}
 	}
-
-	_, err = database.ShardReplicaOwnershipForMT(ctx, collection, tenants)
-	return err
+	return nil
 }
