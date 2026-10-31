@@ -17,11 +17,12 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 var _ distributedtask.CompletedTaskRetainer = (*ReindexProvider)(nil)
 
-// ReindexIndexTypes reports which index types a migration type affects;
+// ReindexIndexTypes reports which index types a migration type affects.
 // known is false for a migration type this build doesn't recognize.
 func ReindexIndexTypes(mt ReindexMigrationType) (indexTypes []string, known bool) {
 	switch mt {
@@ -37,54 +38,88 @@ func ReindexIndexTypes(mt ReindexMigrationType) (indexTypes []string, known bool
 	return nil, false
 }
 
-// ShouldRetainCompletedTask keeps a FAILED task's record until newer runs on
-// the same property cover every index type it reports on; without it the
-// status endpoint reports "ready". Such a newer run is kept while that failure
-// is, so the failure does not resurface on the index type the run fixed.
+// ShouldRetainCompletedTask keeps a FAILED record until newer runs on its
+// property cover all its index types, so the status endpoint still reads
+// "failed". A newer run that hides that failure on an index type is kept until
+// the failed record is gone, so the failure cannot resurface on that type.
+// A newer cancelled run counts too: "failed" lasts until a newer run of that
+// index type, a collection delete, or for a non-enable run, dropping the index.
+// The rule assumes one property per payload, as every submit path builds today.
 func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task,
 ) bool {
-	var payload ReindexTaskPayload
-	if err := json.Unmarshal(task.Payload, &payload); err != nil {
+	targets := reindexTargets{}
+	target := targets.of(task)
+	if target == nil {
 		return false // the status endpoint cannot read it either
 	}
-	newestOn := indexTypesNotRunSince(task, payload, namespaceTasks)
+	newestOn := indexTypesNotRunSince(task, target, namespaceTasks, targets)
 	if len(newestOn) == 0 {
 		return false
 	}
 	if task.Status == distributedtask.TaskStatusFailed {
-		return true
+		return slices.ContainsFunc(newestOn, func(indexType string) bool {
+			return !p.indexDroppedSince(target, indexType)
+		})
 	}
 	for _, older := range namespaceTasks {
 		if older.Version >= task.Version || older.Status != distributedtask.TaskStatusFailed {
 			continue
 		}
-		var olderPayload ReindexTaskPayload
-		if err := json.Unmarshal(older.Payload, &olderPayload); err != nil {
+		olderTarget := targets.of(older)
+		if olderTarget == nil {
 			continue
 		}
-		olderIndexTypes, _ := ReindexIndexTypes(olderPayload.MigrationType)
-		hidesOlderFailure := slices.ContainsFunc(indexTypesRunOnSameProperties(task, olderPayload), func(indexType string) bool {
+		olderIndexTypes, _ := ReindexIndexTypes(olderTarget.MigrationType)
+		if slices.ContainsFunc(indexTypesRunOnSameProperties(target, olderTarget), func(indexType string) bool {
 			return slices.Contains(newestOn, indexType) && slices.Contains(olderIndexTypes, indexType)
-		})
-		if hidesOlderFailure && len(indexTypesNotRunSince(older, olderPayload, namespaceTasks)) > 0 {
+		}) {
 			return true
 		}
 	}
 	return false
 }
 
+// reindexTarget is the part of ReindexTaskPayload the retainer reads. Leaving
+// out the per-unit maps keeps decoding a large multi-tenant payload cheap, as
+// every node runs this on every scheduler tick.
+type reindexTarget struct {
+	MigrationType ReindexMigrationType `json:"migrationType"`
+	Collection    string               `json:"collection"`
+	Properties    []string             `json:"properties"`
+}
+
+// reindexTargets decodes each task at most once per retention decision; nil
+// marks an unreadable payload.
+type reindexTargets map[distributedtask.TaskDescriptor]*reindexTarget
+
+func (ts reindexTargets) of(task *distributedtask.Task) *reindexTarget {
+	if target, ok := ts[task.TaskDescriptor]; ok {
+		return target
+	}
+	target := &reindexTarget{}
+	if err := json.Unmarshal(task.Payload, target); err != nil {
+		target = nil
+	}
+	ts[task.TaskDescriptor] = target
+	return target
+}
+
 // indexTypesNotRunSince returns task's index types that no newer run on the
 // same properties has covered.
-func indexTypesNotRunSince(task *distributedtask.Task, payload ReindexTaskPayload,
-	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task,
+func indexTypesNotRunSince(task *distributedtask.Task, target *reindexTarget,
+	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task, targets reindexTargets,
 ) []string {
-	remaining, _ := ReindexIndexTypes(payload.MigrationType)
+	remaining, _ := ReindexIndexTypes(target.MigrationType)
 	for _, other := range namespaceTasks {
 		if other.Version <= task.Version {
 			continue
 		}
-		covered := indexTypesRunOnSameProperties(other, payload)
+		otherTarget := targets.of(other)
+		if otherTarget == nil {
+			continue
+		}
+		covered := indexTypesRunOnSameProperties(otherTarget, target)
 		remaining = slices.DeleteFunc(remaining, func(indexType string) bool {
 			return slices.Contains(covered, indexType)
 		})
@@ -92,21 +127,52 @@ func indexTypesNotRunSince(task *distributedtask.Task, payload ReindexTaskPayloa
 	return remaining
 }
 
-// indexTypesRunOnSameProperties returns task's index types, or nil unless
-// task covers payload's collection and every one of its properties.
-func indexTypesRunOnSameProperties(task *distributedtask.Task, payload ReindexTaskPayload) []string {
-	var other ReindexTaskPayload
-	if err := json.Unmarshal(task.Payload, &other); err != nil {
+// indexTypesRunOnSameProperties returns other's index types when other runs on
+// target's collection and every property in target, and nil otherwise.
+func indexTypesRunOnSameProperties(other, target *reindexTarget) []string {
+	if !strings.EqualFold(other.Collection, target.Collection) {
 		return nil
 	}
-	if !strings.EqualFold(other.Collection, payload.Collection) {
-		return nil
-	}
-	for _, prop := range payload.Properties {
+	for _, prop := range target.Properties {
 		if !slices.Contains(other.Properties, prop) {
 			return nil
 		}
 	}
 	indexTypes, _ := ReindexIndexTypes(other.MigrationType)
 	return indexTypes
+}
+
+// indexDroppedSince reports whether indexType is off on all of target's
+// properties. Only an enable run leaves its index off when it fails; for any
+// other run an index that is off was dropped afterwards, and no run can cover
+// a dropped index, so the failure would otherwise be kept forever.
+func (p *ReindexProvider) indexDroppedSince(target *reindexTarget, indexType string) bool {
+	enable := []ReindexMigrationType{ReindexTypeEnableSearchable, ReindexTypeEnableFilterable, ReindexTypeEnableRangeable}
+	if slices.Contains(enable, target.MigrationType) || p.schemaManager == nil || len(target.Properties) == 0 {
+		return false
+	}
+	class := p.schemaManager.ReadOnlyClass(target.Collection)
+	if class == nil {
+		return false
+	}
+	for _, name := range target.Properties {
+		i := slices.IndexFunc(class.Properties, func(prop *models.Property) bool { return prop.Name == name })
+		if i < 0 || indexEnabled(class.Properties[i], indexType) {
+			return false
+		}
+	}
+	return true
+}
+
+// indexEnabled reads the schema flags with the defaults the status endpoint uses.
+func indexEnabled(prop *models.Property, indexType string) bool {
+	switch indexType {
+	case "filterable":
+		return prop.IndexFilterable == nil || *prop.IndexFilterable
+	case "searchable":
+		return prop.IndexSearchable == nil || *prop.IndexSearchable
+	case "rangeable":
+		return prop.IndexRangeFilters != nil && *prop.IndexRangeFilters
+	}
+	return true
 }
