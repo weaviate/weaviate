@@ -26,8 +26,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// An unrelated unreadable record withholds promotion at boot; queries on the
-// migrated property must still see its data.
+// An unreadable record elsewhere must not block queries on an already-migrated property.
 func TestFrozenBootServesSwappedMigration(t *testing.T) {
 	tests := []struct {
 		name  string
