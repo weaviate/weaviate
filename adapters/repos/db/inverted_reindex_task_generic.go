@@ -665,27 +665,16 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 	return t.serveStagedWhileFrozen(ctx, shard, rec)
 }
 
-// An unreadable record blocks every promotion, so the canonical name would
-// open empty. Only the in-memory flip runs here; every other destructive step
-// stays frozen. A migration's own unreadable record never reaches this path.
+// An unreadable record withholds every promotion, and the canonical name then
+// opens empty. Pointing it at the staged data in memory renames nothing. When
+// this migration's own record is the unreadable one, nothing reaches here.
 func (t *ShardReindexTaskGeneric) serveStagedWhileFrozen(ctx context.Context, shard *Shard,
 	rec MigrationRecord,
 ) error {
 	if len(shard.migrationRecords.Unreadable()) == 0 {
 		return nil
 	}
-	subject := rec.Subject()
-	// Unmirrored: the canonical directory already holds data newer than the staged copy.
-	if subject.Unmirrored {
-		return nil
-	}
-	all := shard.migrationRecords.Records()
-	props := slices.DeleteFunc(subject.Properties(), func(prop string) bool {
-		return migrationPropertySuperseded(all, subject, prop)
-	})
-	if len(props) == 0 {
-		return nil
-	}
+	props := rec.Subject().Properties()
 	pending, err := t.swapStillToRun(t.logger, shard, rec, props)
 	if err != nil || !pending {
 		return err
@@ -693,18 +682,7 @@ func (t *ShardReindexTaskGeneric) serveStagedWhileFrozen(ctx context.Context, sh
 	if err := t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
 		return err
 	}
-	displaced, err := t.flipBucketPointers(ctx, shard.store, props)
-	if err != nil {
-		return err
-	}
-	// The mirror would apply each write a second time to the bucket now serving it.
-	shard.migrationMirrorRegistry().DisarmMigrationMirrors(t.migrationRecordKey())
-	for propName, bucket := range displaced {
-		if err := bucket.Shutdown(ctx); err != nil {
-			return fmt.Errorf("shutting down the canonical bucket of %q: %w", propName, err)
-		}
-	}
-	return nil
+	return t.runtimeSwap(ctx, t.logger, shard, props)
 }
 
 func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Shard,
@@ -1131,9 +1109,30 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		}
 	}
 
-	oldMainBuckets, err := t.flipBucketPointers(ctx, store, props)
-	if err != nil {
-		return err
+	oldMainBuckets := make(map[string]*lsmkv.Bucket, len(props))
+	for propIdx, propName := range props {
+		var (
+			oldMainBucket *lsmkv.Bucket
+			err           error
+		)
+		if t.swapPropAtomic != nil {
+			oldMainBucket, err = t.swapPropAtomic(ctx, store, propIdx, propName)
+			if err != nil {
+				return err
+			}
+		} else {
+			oldMainBucket, err = t.processOneSwapPropFn(ctx, store, propIdx, propName)
+			if err != nil {
+				return err
+			}
+			// Fire even on an already-swapped prop, so a resumed swap re-establishes the overlay.
+			if t.onPropSwapped != nil {
+				t.onPropSwapped(propName)
+			}
+		}
+		if oldMainBucket != nil {
+			oldMainBuckets[propName] = oldMainBucket
+		}
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")
 
@@ -1189,37 +1188,6 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	logger.Info("runtime swap: migration complete (ingest→main rename deferred to next restart)")
 
 	return nil
-}
-
-// flipBucketPointers returns the buckets the flip displaced; an already-flipped property displaces none.
-func (t *ShardReindexTaskGeneric) flipBucketPointers(ctx context.Context, store *lsmkv.Store, props []string,
-) (map[string]*lsmkv.Bucket, error) {
-	displaced := make(map[string]*lsmkv.Bucket, len(props))
-	for propIdx, propName := range props {
-		var (
-			oldMainBucket *lsmkv.Bucket
-			err           error
-		)
-		if t.swapPropAtomic != nil {
-			oldMainBucket, err = t.swapPropAtomic(ctx, store, propIdx, propName)
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			oldMainBucket, err = t.processOneSwapPropFn(ctx, store, propIdx, propName)
-			if err != nil {
-				return nil, err
-			}
-			// Fire even on an already-swapped prop, so a resumed swap re-establishes the overlay.
-			if t.onPropSwapped != nil {
-				t.onPropSwapped(propName)
-			}
-		}
-		if oldMainBucket != nil {
-			displaced[propName] = oldMainBucket
-		}
-	}
-	return displaced, nil
 }
 
 func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
