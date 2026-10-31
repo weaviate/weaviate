@@ -110,7 +110,7 @@ type ReindexProvider struct {
 
 	// sealedUnits/sealedTasks count teardowns, guarded by [mu]. A seal, not a [liveUnits] read, which is stale on return.
 	sealedUnits unitClaims
-	sealedTasks map[distributedtask.TaskDescriptor]int
+	sealedTasks unitClaims
 
 	// cleanupInProgressMu guards [cleanupInProgress]. Held only for the
 	// register/unregister/lookup increment/decrement; never held across
@@ -323,7 +323,7 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 func (p *ReindexProvider) enterLocalUnit(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.sealedUnits[desc][unitID] > 0 || p.sealedTasks[desc] > 0 {
+	if p.sealedUnits[desc][unitID] > 0 || len(p.sealedTasks[desc]) > 0 {
 		return nil, false
 	}
 	return p.releaseOf(p.liveUnits.take(desc, unitID)), true
@@ -2451,21 +2451,7 @@ func (p *ReindexProvider) sealLocalTask(desc distributedtask.TaskDescriptor) (fu
 	if len(p.liveUnits[desc]) > 0 {
 		return nil, false
 	}
-	if p.sealedTasks == nil {
-		p.sealedTasks = map[distributedtask.TaskDescriptor]int{}
-	}
-	p.sealedTasks[desc]++
-
-	dropped := false
-	return p.releaseOf(func() {
-		if dropped {
-			return
-		}
-		dropped = true
-		if p.sealedTasks[desc]--; p.sealedTasks[desc] <= 0 {
-			delete(p.sealedTasks, desc)
-		}
-	}), true
+	return p.releaseOf(p.sealedTasks.take(desc, "")), true
 }
 
 // reindexTaskHandle implements distributedtask.TaskHandle.

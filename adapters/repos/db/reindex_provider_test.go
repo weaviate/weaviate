@@ -595,7 +595,7 @@ func TestASealReleaseNeverFreesASealItDoesNotHold(t *testing.T) {
 	releaseFirst()
 	releaseFirst()
 
-	require.Equal(t, 1, p.sealedTasks[desc], "the teardown holding it now still does")
+	require.Equal(t, 1, p.sealedTasks[desc][""], "the teardown holding it now still does")
 	_, entered := p.enterLocalUnit(desc, unit)
 	require.False(t, entered, "a worker must not enter a unit a teardown still holds")
 }
