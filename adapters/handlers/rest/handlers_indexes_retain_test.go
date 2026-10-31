@@ -53,6 +53,10 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 		name     string
 		records  []rec // oldest first
 		wantKept []int // indexes into records
+		// wantKeptFirst, if set, is checked after the first sweep.
+		wantKeptFirst []int
+		// resweep: sweep again once the records released by the first sweep are deleted.
+		resweep bool
 		// failedCleanup: these released records' cleanup write fails on a second sweep.
 		failedCleanup []int
 		filterableOff bool // the schema has C.foo's filterable index dropped
@@ -62,6 +66,7 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 		{name: "a failed migration still reads failed", records: []rec{filterable}, wantKept: []int{0}, filterable: "failed", searchable: "ready"},
 		{name: "a newer failed run replaces it", records: []rec{filterable, filterable}, wantKept: []int{1}, filterable: "failed", searchable: "ready"},
 		{name: "a newer successful run releases it", records: []rec{filterable, withStatus(filterable, distributedtask.TaskStatusFinished)}, wantKept: []int{1}, filterable: "ready", searchable: "ready"},
+		{name: "a newer run kept for it is released once it is deleted", records: []rec{filterable, withStatus(filterable, distributedtask.TaskStatusFinished)}, wantKeptFirst: []int{1}, resweep: true, filterable: "ready", searchable: "ready"},
 		{name: "a running retry releases it", records: []rec{filterable, withStatus(filterable, distributedtask.TaskStatusStarted)}, wantKept: []int{1}, filterable: "pending", searchable: "ready"},
 		{name: "a run on another property keeps it", records: []rec{filterable, failed(db.ReindexTypeEnableFilterable, "bar")}, wantKept: []int{0, 1}, filterable: "failed", searchable: "ready"},
 		{name: "a run on another collection keeps it", records: []rec{filterable, withStatus(onD, distributedtask.TaskStatusFinished)}, wantKept: []int{0}, filterable: "failed", searchable: "ready"},
@@ -98,7 +103,6 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 			reader.EXPECT().ReadOnlyClass("C").Return(&models.Class{Class: "C", Properties: []*models.Property{
 				{Name: "foo", IndexFilterable: boolPtr(!tt.filterableOff)},
 			}}).Maybe()
-			reader.EXPECT().ReadOnlyClass("D").Return(nil).Maybe()
 			retainer := db.NewReindexProvider(nil, &schemaUC.Manager{SchemaReader: reader}, nil, logrus.New(), "", nil, nil)
 			sweep := func(present []int) []int {
 				namespace := map[distributedtask.TaskDescriptor]*distributedtask.Task{}
@@ -118,7 +122,10 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 				present = append(present, i)
 			}
 			keptIdx := sweep(present)
-			if tt.failedCleanup != nil {
+			if tt.wantKeptFirst != nil {
+				require.Equal(t, tt.wantKeptFirst, keptIdx, "first sweep")
+			}
+			if tt.resweep || tt.failedCleanup != nil {
 				keptIdx = sweep(append(keptIdx, tt.failedCleanup...))
 				slices.Sort(keptIdx)
 			}
