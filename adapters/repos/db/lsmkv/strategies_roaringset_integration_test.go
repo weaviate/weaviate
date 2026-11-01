@@ -173,7 +173,7 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("extend some, delete some, keep some", func(t *testing.T) {

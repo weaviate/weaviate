@@ -229,7 +229,7 @@ func TestBackup_BucketLevel(t *testing.T) {
 		err := shard.Store().PauseCompaction(ctx)
 		require.Nil(t, err)
 
-		err = objBucket.FlushMemtable()
+		err = objBucket.FlushMemtable(context.Background())
 		require.Nil(t, err)
 
 		files, err := objBucket.ListFiles(ctx, shard.Index().Config.RootPath)

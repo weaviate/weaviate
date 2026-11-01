@@ -163,13 +163,13 @@ func TestCalculateUnloadedObjectsMetrics(t *testing.T) {
 			defer b.Shutdown(ctx)
 
 			require.NoError(t, b.Put([]byte("hello1"), []byte("world1")))
-			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.FlushMemtable(context.Background()))
 			require.NoError(t, b.Put([]byte("hello2"), []byte("world2")))
-			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.FlushMemtable(context.Background()))
 			require.NoError(t, b.Put([]byte("hello3"), []byte("world3")))
-			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.FlushMemtable(context.Background()))
 			require.NoError(t, b.Put([]byte("hello4"), []byte("world4")))
-			require.NoError(t, b.FlushMemtable())
+			require.NoError(t, b.FlushMemtable(context.Background()))
 
 			fileTypes := getFileTypeCount(t, bucketFolder)
 			require.Equal(t, 4, fileTypes[".db"])
@@ -452,7 +452,7 @@ func TestCalculateUnloadedDimensionsUsage_Concurrent(t *testing.T) {
 	copy(key, "text")
 	binary.LittleEndian.PutUint32(key[4:], 128)
 	require.NoError(t, b.RoaringSetAddOne(key, 1))
-	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.FlushMemtable(ctx))
 	require.NoError(t, b.Shutdown(ctx))
 
 	var wg sync.WaitGroup

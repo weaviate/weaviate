@@ -109,7 +109,7 @@ func cleanupReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketOpti
 			put(t, "key114_deleted3_updated4", "created")
 			put(t, "key115_deleted4_updated5", "created")
 
-			require.NoError(t, bucket.FlushAndSwitch())
+			require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("segment 2", func(t *testing.T) {
@@ -131,7 +131,7 @@ func cleanupReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketOpti
 			delete(t, "key106_deleted2")
 			delete(t, "key113_deleted2_updated3")
 
-			require.NoError(t, bucket.FlushAndSwitch())
+			require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("segment 3", func(t *testing.T) {
@@ -155,7 +155,7 @@ func cleanupReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketOpti
 			delete(t, "key205_deleted3")
 			delete(t, "key210_deleted3_updated4")
 
-			require.NoError(t, bucket.FlushAndSwitch())
+			require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("segment 4", func(t *testing.T) {
@@ -181,7 +181,7 @@ func cleanupReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketOpti
 			delete(t, "key304_deleted4")
 			delete(t, "key307_deleted4_updated5")
 
-			require.NoError(t, bucket.FlushAndSwitch())
+			require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("segment 5", func(t *testing.T) {
@@ -203,7 +203,7 @@ func cleanupReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketOpti
 			delete(t, "key306_updated4_deleted5")
 			delete(t, "key403_deleted5")
 
-			require.NoError(t, bucket.FlushAndSwitch())
+			require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 		})
 	})
 
@@ -499,7 +499,7 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			putWithSecondaryKeys(t, "key114_deleted3_updated4", "created")
 			putWithSecondaryKeys(t, "key115_deleted4_updated5", "created")
 
-			require.NoError(t, bucket.FlushAndSwitch())
+			require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("segment 2", func(t *testing.T) {
@@ -521,7 +521,7 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			deleteWithSecondaryKeys(t, "key106_deleted2")
 			deleteWithSecondaryKeys(t, "key113_deleted2_updated3")
 
-			require.NoError(t, bucket.FlushAndSwitch())
+			require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("segment 3", func(t *testing.T) {
@@ -545,7 +545,7 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			deleteWithSecondaryKeys(t, "key205_deleted3")
 			deleteWithSecondaryKeys(t, "key210_deleted3_updated4")
 
-			require.NoError(t, bucket.FlushAndSwitch())
+			require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("segment 4", func(t *testing.T) {
@@ -571,7 +571,7 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			deleteWithSecondaryKeys(t, "key304_deleted4")
 			deleteWithSecondaryKeys(t, "key307_deleted4_updated5")
 
-			require.NoError(t, bucket.FlushAndSwitch())
+			require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("segment 5", func(t *testing.T) {
@@ -593,7 +593,7 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			deleteWithSecondaryKeys(t, "key306_updated4_deleted5")
 			deleteWithSecondaryKeys(t, "key403_deleted5")
 
-			require.NoError(t, bucket.FlushAndSwitch())
+			require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 		})
 	})
 

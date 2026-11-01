@@ -447,7 +447,7 @@ func TestSearcher_ResolveDocIds(t *testing.T) {
 		for _, entry := range fakeInvertedIndex {
 			require.NoError(tt, bucket.RoaringSetAddList([]byte(entry.val), entry.ids))
 		}
-		require.Nil(tt, bucket.FlushAndSwitch())
+		require.Nil(tt, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	equalOperand := func(val string) filters.Clause {

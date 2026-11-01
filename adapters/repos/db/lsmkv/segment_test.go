@@ -203,7 +203,7 @@ func createSegmentFilesUsingBucket(t *testing.T, ctx context.Context, logger log
 		err = b.Put([]byte("key"), []byte("value"), WithSecondaryKey(0, []byte("seckey0")), WithSecondaryKey(1, []byte("seckey1")))
 		require.NoError(t, err)
 
-		err = b.FlushMemtable()
+		err = b.FlushMemtable(context.Background())
 		require.NoError(t, err)
 	}()
 

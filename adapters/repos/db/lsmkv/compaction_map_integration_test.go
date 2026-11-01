@@ -315,7 +315,7 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 			}
 		}
 
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 
 		for _, kvs := range previous2 {
 			for _, pair := range kvs.values {
@@ -324,7 +324,7 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 			}
 		}
 
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("import segment 1", func(t *testing.T) {
@@ -337,7 +337,7 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("import segment 2", func(t *testing.T) {
@@ -350,7 +350,7 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("within control make sure map keys are sorted", func(t *testing.T) {
@@ -449,11 +449,11 @@ func compactionMapStrategy_HugeEntries(ctx context.Context, t *testing.T, opts [
 
 	// first segment
 	require.NoError(t, b.MapSet(key, MapPair{Key: byteKey, Value: byteVal}))
-	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.FlushMemtable(context.Background()))
 
 	// second segment
 	require.NoError(t, b.MapSet(key, MapPair{Key: byteKey, Value: byteVal}))
-	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.FlushMemtable(context.Background()))
 
 	// compact and check that value is the same
 	once, err := b.disk.compactOnce(context.Background())
@@ -526,7 +526,7 @@ func compactionMapStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, 
 			err := bucket.MapSet(key, pair)
 			require.Nil(t, err)
 
-			require.Nil(t, bucket.FlushAndSwitch())
+			require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 		}
 	})
 
@@ -645,7 +645,7 @@ func compactionMapStrategy_FrequentPutDeleteOperations(ctx context.Context, t *t
 						require.Nil(t, err)
 					}
 
-					require.Nil(t, bucket.FlushAndSwitch())
+					require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 				}
 			})
 

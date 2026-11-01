@@ -124,7 +124,7 @@ func TestScanObjectVectorsParallel(t *testing.T) {
 			putTestObject(t, bucket, i, vec, nil)
 			exp[i] = vec
 		}
-		require.NoError(t, bucket.FlushAndSwitch())
+		require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 		assertVectorsEqual(t, exp, collectScan(t, bucket, ""))
 	})
 
@@ -164,7 +164,7 @@ func TestScanObjectVectorsParallel(t *testing.T) {
 		for i := uint64(0); i < 3000; i++ {
 			putTestObject(t, bucket, i, []float32{float32(i)}, nil)
 		}
-		require.NoError(t, bucket.FlushAndSwitch())
+		require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
@@ -222,7 +222,7 @@ func prefillParallelIntoCache(t *testing.T, vecs map[uint64][]float32, preGrown 
 	for id, v := range vecs {
 		putTestObject(t, bucket, id, v, nil)
 	}
-	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 
 	logger, _ := test.NewNullLogger()
 	mustHit := func(_ context.Context, id uint64) ([]float32, error) {
@@ -285,9 +285,9 @@ func TestScanObjectVectorsParallelLatestWinsAcrossSegments(t *testing.T) {
 	bucket := newTestObjectsBucket(t)
 
 	putTestObject(t, bucket, 7, []float32{1, 1}, nil)
-	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 	putTestObject(t, bucket, 7, []float32{2, 2}, nil) // same key, newer segment
-	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 
 	got := collectScan(t, bucket, "")
 	require.Len(t, got, 1)
@@ -302,10 +302,10 @@ func TestScanObjectVectorsParallelSkipsDeleted(t *testing.T) {
 	putTestObject(t, bucket, 1, []float32{1}, nil)
 	putTestObject(t, bucket, 2, []float32{2}, nil)
 	putTestObject(t, bucket, 3, []float32{3}, nil)
-	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 
 	require.NoError(t, bucket.Delete(keyForDocID(2)))
-	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 
 	assertVectorsEqual(t, map[uint64][]float32{
 		1: {1},
@@ -363,7 +363,7 @@ func TestPrefillCacheParallelNormalizesForCosine(t *testing.T) {
 		putTestObject(t, bucket, i, vec, nil)
 		raw[i] = vec
 	}
-	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 
 	logger, _ := test.NewNullLogger()
 	mustHit := func(_ context.Context, id uint64) ([]float32, error) {

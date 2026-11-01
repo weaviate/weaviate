@@ -78,7 +78,7 @@ func (s *Store) FlushMemtables(ctx context.Context) error {
 	defer s.cycleCallbacks.flushCallbacksCtrl.Activate()
 
 	flushMemtable := func(ctx context.Context, b *Bucket) (interface{}, error) {
-		return nil, b.FlushMemtable()
+		return nil, b.FlushMemtable(ctx)
 	}
 	_, err := s.runJobOnBuckets(ctx, flushMemtable, nil)
 	return err

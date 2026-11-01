@@ -71,7 +71,7 @@ func TestLSMKV_ChecksumsCatchCorruptedFiles(t *testing.T) {
 	bucket, err := newTestBucket(dataDir, true)
 	require.NoError(t, err)
 	require.NoError(t, bucket.Put(key, val))
-	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 	require.NoError(t, bucket.Shutdown(context.Background()))
 
 	entries, err := os.ReadDir(dataDir)

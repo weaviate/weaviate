@@ -124,7 +124,7 @@ func buildMultiRowRoaringSetBucket(t *testing.T, ctx context.Context) *lsmkv.Buc
 		}
 		require.NoError(t, b.RoaringSetAddList([]byte(fmt.Sprintf("k%03d", row)), values))
 	}
-	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.FlushAndSwitch(ctx))
 
 	return b
 }

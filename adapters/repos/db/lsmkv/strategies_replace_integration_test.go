@@ -175,7 +175,7 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 		})
 
 		t.Run("flush memtable to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("count only objects on disk segment", func(t *testing.T) {
@@ -257,7 +257,7 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 		})
 
 		t.Run("flush memtable to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("replace some, keep one", func(t *testing.T) {
@@ -274,7 +274,7 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 			require.Nil(t, err)
 
 			// Flush before verifying!
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 
 			res, err := b.Get(key1)
 			require.Nil(t, err)
@@ -506,7 +506,7 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 		})
 
 		t.Run("flush memtable to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("replace the secondary keys on an update", func(t *testing.T) {
@@ -567,7 +567,7 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 		})
 
 		t.Run("flush memtable to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("replace the secondary keys on an update", func(t *testing.T) {
@@ -585,7 +585,7 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 		})
 
 		t.Run("flush memtable to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("verify again", func(t *testing.T) {
@@ -770,7 +770,7 @@ func replaceInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOpti
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("delete some, keep one", func(t *testing.T) {
@@ -833,7 +833,7 @@ func replaceInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOpti
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("delete some, keep one", func(t *testing.T) {
@@ -848,7 +848,7 @@ func replaceInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOpti
 			require.Nil(t, err)
 
 			// Flush again!
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 
 			res, err := b.Get(key1)
 			require.Nil(t, err)
@@ -1143,7 +1143,7 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("seek from somewhere in the middle", func(t *testing.T) {
@@ -1239,7 +1239,7 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("second third (%3==1)", func(t *testing.T) {
@@ -1272,7 +1272,7 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("third third (%3==2) memtable only", func(t *testing.T) {
@@ -1427,7 +1427,7 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("perform a final flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("seek from somewhere in the middle", func(t *testing.T) {
@@ -1514,7 +1514,7 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			err := b.Put([]byte("key-8"), []byte("value-8"))
 			require.Nil(t, err)
 
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("delete datapoint and flush", func(t *testing.T) {
@@ -1525,7 +1525,7 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			// correct by coincidence
 			require.Nil(t, err)
 
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("verify", func(t *testing.T) {

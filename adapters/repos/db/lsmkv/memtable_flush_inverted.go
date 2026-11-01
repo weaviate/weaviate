@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -26,7 +27,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.MeteredWriter, bufw *bufio.Writer) ([]segmentindex.Key, *sroar.Bitmap, error) {
+func (m *Memtable) flushDataInverted(ctx context.Context, f *segmentindex.SegmentFile, ogF *diskio.MeteredWriter, bufw *bufio.Writer) ([]segmentindex.Key, *sroar.Bitmap, error) {
 	m.RLock()
 	flatA := m.keyMap.flattenInOrder()
 	m.RUnlock()
@@ -44,6 +45,11 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 	propLengthCount := uint64(0)
 
 	for i, mapNode := range flatA {
+		if i%compactor.AbortCheckEveryN == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, nil, fmt.Errorf("flush inverted memtable: %w", err)
+			}
+		}
 		flat[i] = &binarySearchNodeMap{
 			key:    mapNode.key,
 			values: make([]MapPair, 0, len(mapNode.values)),
@@ -128,7 +134,12 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 		return nil, nil, fmt.Errorf("segment file body writer is nil, cannot write inverted index")
 	}
 
-	for _, mapNode := range flat {
+	for i, mapNode := range flat {
+		if i%compactor.AbortCheckEveryN == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, nil, fmt.Errorf("flush inverted memtable: %w", err)
+			}
+		}
 		if len(mapNode.values) > 0 {
 
 			ki := segmentindex.Key{

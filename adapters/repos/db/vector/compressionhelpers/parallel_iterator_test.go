@@ -244,7 +244,7 @@ func buildCompressedBucketForTest(t *testing.T, totalVecs int, flush bool) *lsmk
 	}
 
 	if flush {
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(ctx))
 	}
 
 	return bucket

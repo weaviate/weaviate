@@ -211,7 +211,7 @@ func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 	const numSegments = 12
 	for s := 0; s < numSegments; s++ {
 		require.NoError(t, b.RoaringSetAddList(key, values))
-		require.NoError(t, b.FlushAndSwitch())
+		require.NoError(t, b.FlushAndSwitch(ctx))
 	}
 
 	budget1 := concurrency.CtxWithBudget(ctx, 1)

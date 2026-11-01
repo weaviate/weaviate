@@ -151,7 +151,7 @@ func compactionReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketO
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(ctx))
 	})
 
 	t.Run("import segment 2", func(t *testing.T) {
@@ -168,7 +168,7 @@ func compactionReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketO
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(ctx))
 	})
 
 	t.Run("verify control before compaction", func(t *testing.T) {
@@ -379,7 +379,7 @@ func compactionReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(ctx))
 	})
 
 	t.Run("import segment 2", func(t *testing.T) {
@@ -398,7 +398,7 @@ func compactionReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(ctx))
 	})
 
 	t.Run("verify control before compaction", func(t *testing.T) {
@@ -487,7 +487,7 @@ func compactionReplaceStrategy_RemoveUnnecessaryDeletes(ctx context.Context, t *
 			err := bucket.Put(key, []byte(fmt.Sprintf("set in round %d", i)))
 			require.Nil(t, err)
 
-			require.Nil(t, bucket.FlushAndSwitch())
+			require.Nil(t, bucket.FlushAndSwitch(ctx))
 		}
 	})
 
@@ -572,7 +572,7 @@ func compactionReplaceStrategy_RemoveUnnecessaryUpdates(ctx context.Context, t *
 			err := bucket.Put(key, []byte(fmt.Sprintf("set in round %d", i)))
 			require.Nil(t, err)
 
-			require.Nil(t, bucket.FlushAndSwitch())
+			require.Nil(t, bucket.FlushAndSwitch(ctx))
 		}
 	})
 
@@ -659,7 +659,7 @@ func compactionReplaceStrategy_FrequentPutDeleteOperations(ctx context.Context, 
 				require.Nil(t, err)
 			}
 
-			require.Nil(t, bucket.FlushAndSwitch())
+			require.Nil(t, bucket.FlushAndSwitch(ctx))
 		}
 	})
 
@@ -728,7 +728,7 @@ func compactionReplaceStrategy_FrequentPutDeleteOperations_WithSecondaryKeys(ctx
 						require.Nil(t, err)
 					}
 
-					require.Nil(t, bucket.FlushAndSwitch())
+					require.Nil(t, bucket.FlushAndSwitch(ctx))
 				}
 			})
 
@@ -788,7 +788,7 @@ func compactionReplaceStrategy_MismatchedSecondaryIndexCount(ctx context.Context
 	require.NoError(t, b.Put([]byte("key-01"), []byte("value-01-seg1"),
 		WithSecondaryKey(0, []byte("sec0-key-01"))))
 
-	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.FlushAndSwitch(ctx))
 	require.NoError(t, b.Shutdown(ctx))
 
 	// --- Step 2: reopen the same directory with 2 secondary indices, write, flush, close ---
@@ -812,7 +812,7 @@ func compactionReplaceStrategy_MismatchedSecondaryIndexCount(ctx context.Context
 		WithSecondaryKey(1, []byte("sec1-key-02")),
 	))
 
-	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.FlushAndSwitch(ctx))
 	require.NoError(t, b.Shutdown(ctx))
 
 	// --- Step 3: reopen with 1 secondary index (matching the older segment) ---
@@ -899,7 +899,7 @@ func compactionReplaceStrategy_MismatchedSecondaryIndexCount_LeftMoreThanRight(c
 		WithSecondaryKey(1, []byte("sec1-key-01")),
 	))
 
-	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.FlushAndSwitch(ctx))
 	require.NoError(t, b.Shutdown(ctx))
 
 	// --- Step 2: reopen with 1 secondary index, write, flush, close ---
@@ -918,7 +918,7 @@ func compactionReplaceStrategy_MismatchedSecondaryIndexCount_LeftMoreThanRight(c
 	require.NoError(t, b.Put([]byte("key-02"), []byte("value-02-seg2"),
 		WithSecondaryKey(0, []byte("sec0-key-02"))))
 
-	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.FlushAndSwitch(ctx))
 	require.NoError(t, b.Shutdown(ctx))
 
 	// --- Step 3: reopen with 2 secondary indices (matching the older segment) ---

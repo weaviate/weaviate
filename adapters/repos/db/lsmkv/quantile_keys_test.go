@@ -37,7 +37,7 @@ func TestQuantileKeysSingleSegment(t *testing.T) {
 
 	// all cyclemmanagers are noops, so we need to explicitly flush if we want a
 	// segment to be built
-	require.Nil(t, b.FlushAndSwitch())
+	require.Nil(t, b.FlushAndSwitch(context.Background()))
 
 	quantiles := b.QuantileKeys(10)
 
@@ -79,13 +79,13 @@ func TestQuantileKeysMultipleSegmentsUniqueEntries(t *testing.T) {
 
 	// all cyclemmanagers are noops, so we need to explicitly flush if we want a
 	// segment to be built
-	require.Nil(t, b.FlushAndSwitch())
+	require.Nil(t, b.FlushAndSwitch(context.Background()))
 
 	importConsecutiveKeys(t, b, 1000, 2000)
 
 	// all cyclemmanagers are noops, so we need to explicitly flush if we want a
 	// segment to be built
-	require.Nil(t, b.FlushAndSwitch())
+	require.Nil(t, b.FlushAndSwitch(context.Background()))
 
 	quantiles := b.QuantileKeys(10)
 
