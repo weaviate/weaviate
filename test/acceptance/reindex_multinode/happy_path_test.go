@@ -508,7 +508,10 @@ func testQueryConsistencyDuringReindex(t *testing.T, compose *docker.DockerCompo
 	}
 }
 
-// importObjectWithScore imports an object with text and score fields.
+// importObjectWithScore imports an object with text and score fields, with
+// consistency_level=ALL (like importObjects): a later enable-* reindex must run
+// against a fully-replicated corpus, or a lagging replica reindexes a store
+// missing the write and permanently diverges from its peers.
 func importObjectWithScore(t *testing.T, restURI, className, text string, score int) {
 	t.Helper()
 
@@ -524,7 +527,7 @@ func importObjectWithScore(t *testing.T, restURI, className, text string, score 
 	require.NoError(t, err)
 
 	resp, err := http.Post(
-		fmt.Sprintf("http://%s/v1/objects", restURI),
+		fmt.Sprintf("http://%s/v1/objects?consistency_level=ALL", restURI),
 		"application/json",
 		bytes.NewReader(body),
 	)
