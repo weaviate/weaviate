@@ -33,7 +33,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/runtime"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -1220,14 +1219,6 @@ func TestShardReindexActivityBuilder(t *testing.T) {
 			wantErr: errNoLeader,
 		},
 		{
-			name: "the task list call hangs",
-			list: func(ctx context.Context) (map[string][]*distributedtask.Task, error) {
-				<-ctx.Done()
-				return nil, ctx.Err()
-			},
-			wantErr: context.DeadlineExceeded,
-		},
-		{
 			name: "a reindex task is running",
 			list: func(context.Context) (map[string][]*distributedtask.Task, error) {
 				return map[string][]*distributedtask.Task{
@@ -1248,7 +1239,7 @@ func TestShardReindexActivityBuilder(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			lookup, err := shardReindexActivityBuilder(context.Background(), 50*time.Millisecond, tc.list, logger)()
+			lookup, err := shardReindexActivityBuilder(context.Background(), tc.list, logger)()
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 				return
