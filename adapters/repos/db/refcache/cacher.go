@@ -25,6 +25,13 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 )
 
+// Log-action values asserted by tests (adapters/repos/db/resolve_references_skip_test.go)
+// to detect whether the cacher ran; do not change the string values.
+const (
+	ActionDedupJoblistStart = "request_cacher_dedup_joblist_start"
+	ActionFetchJobsSkip     = "request_cacher_fetch_jobs_skip"
+)
+
 type repo interface {
 	MultiGet(ctx context.Context, query []multi.Identifier,
 		additional additional.Properties, tenant string) ([]search.Result, error)
@@ -284,7 +291,7 @@ func (c *Cacher) dedupJobList() {
 
 	c.logger.
 		WithFields(logrus.Fields{
-			"action": "request_cacher_dedup_joblist_start",
+			"action": ActionDedupJoblistStart,
 			"jobs":   before,
 		}).
 		Debug("starting job list deduplication")
@@ -338,7 +345,7 @@ func (c *Cacher) logSkipFetchJobs() {
 	c.logger.
 		WithFields(
 			logrus.Fields{
-				"action": "request_cacher_fetch_jobs_skip",
+				"action": ActionFetchJobsSkip,
 			}).
 		Trace("skip fetch jobs, have no incomplete jobs")
 }
