@@ -95,6 +95,15 @@ func (m *Manager) CheckObjects(ctx context.Context, n int64) error {
 	return nil
 }
 
+// HasObjectCap reports whether MaxObjectsCount is configured (>= 0) at
+// the moment of the call.
+func (m *Manager) HasObjectCap() bool {
+	if m == nil {
+		return false
+	}
+	return readLimit(m.cfg.MaxObjectsCount) >= 0
+}
+
 func (m *Manager) template() string {
 	if m == nil || m.cfg.ErrorMessage == nil {
 		return ""
