@@ -74,7 +74,21 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 				},
 			}
 
+			// assertHandle selects the assertion sink for the *near* helpers below.
+			// Inside an assert.EventuallyWithT closure the caller passes a non-nil ct,
+			// so a not-ready state (e.g. empty results right after a bulk update) fails
+			// only the current tick via ct.FailNow() and the poll retries. Outside a
+			// closure ct is nil and we fall back to t, so direct callers keep the
+			// original fail-the-test behavior.
+			assertHandle := func(t *testing.T, ct *assert.CollectT) require.TestingT {
+				if ct != nil {
+					return ct
+				}
+				return t
+			}
+
 			performNearVector := func(t *testing.T, ct *assert.CollectT, client *wvt.Client, className string) {
+				tt := assertHandle(t, ct)
 				nearVector := client.GraphQL().NearVectorArgBuilder().
 					WithVector([][]float32{{-0.000001, -0.000001}, {-0.000001, -0.000001}, {-0.000001, -0.000001}}).
 					WithTargetVectors(byoc)
@@ -83,18 +97,14 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 					WithNearVector(nearVector).
 					WithFields(_additional_byoc).
 					Do(ctx)
-				require.NoError(t, err)
+				require.NoError(tt, err)
 				ids := acceptance_with_go_client.GetIds(t, resp, className)
-				require.NotEmpty(t, ids)
-				if ct != nil {
-					// adds ability to be used with assert.EventuallyWithT(...)
-					assert.Len(ct, ids, len(objects))
-				} else {
-					assert.Len(t, ids, len(objects))
-				}
+				require.NotEmpty(tt, ids)
+				assert.Len(tt, ids, len(objects))
 			}
 
 			performNearObject := func(t *testing.T, ct *assert.CollectT, client *wvt.Client, className string) {
+				tt := assertHandle(t, ct)
 				nearObject := client.GraphQL().NearObjectArgBuilder().
 					WithID(objects[0].ID).
 					WithTargetVectors(byoc)
@@ -103,15 +113,10 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 					WithNearObject(nearObject).
 					WithFields(_additional_byoc).
 					Do(ctx)
-				require.NoError(t, err)
+				require.NoError(tt, err)
 				ids := acceptance_with_go_client.GetIds(t, resp, className)
-				require.NotEmpty(t, ids)
-				if ct != nil {
-					// adds ability to be used with assert.EventuallyWithT(...)
-					assert.Len(ct, ids, len(objects))
-				} else {
-					assert.Len(t, ids, len(objects))
-				}
+				require.NotEmpty(tt, ids)
+				assert.Len(tt, ids, len(objects))
 			}
 
 			t.Run("create schema", func(t *testing.T) {

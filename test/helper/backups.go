@@ -228,6 +228,7 @@ func ExpectBackupEventuallyCreated(t *testing.T, backupID, backend string, authz
 
 		status := *resp.Payload.Status
 		if status == "FAILED" {
+			// Intentional terminal abort: a FAILED backup never becomes SUCCESS, so fail on t (not c) to stop polling instead of retrying to the deadline.
 			t.Fatalf("backup %s creation failed with error: %s", backupID, resp.Payload.Error)
 		}
 		require.Equal(c, "SUCCESS", status, "backup create status")

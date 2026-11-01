@@ -115,10 +115,10 @@ func CreateGCSBucket(ctx context.Context, t *testing.T, projectID, bucketName st
 			opts = append(opts, option.WithEndpoint(emulatorHost))
 		}
 		client, err := storage.NewClient(ctx, opts...)
-		assert.Nil(t, err)
+		require.Nil(collect, err)
 		defer client.Close()
 
-		assert.Nil(t, client.Bucket(bucketName).Create(ctx, projectID, nil))
+		assert.Nil(collect, client.Bucket(bucketName).Create(ctx, projectID, nil))
 	}, 10*time.Second, 500*time.Millisecond)
 }
 
@@ -129,7 +129,7 @@ func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
 			opts = append(opts, option.WithEndpoint(emulatorHost))
 		}
 		client, err := storage.NewClient(ctx, opts...)
-		assert.Nil(t, err)
+		require.Nil(collect, err)
 		defer client.Close()
 
 		bucket := client.Bucket(bucketName)
@@ -140,13 +140,13 @@ func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
 			if errors.Is(err, iterator.Done) {
 				break
 			}
-			assert.Nil(t, err)
+			require.Nil(collect, err)
 
 			obj := bucket.Object(objAttrs.Name)
 			err = obj.Delete(ctx)
-			assert.Nil(t, err)
+			assert.Nil(collect, err)
 		}
-		assert.Nil(t, bucket.Delete(ctx))
+		assert.Nil(collect, bucket.Delete(ctx))
 	}, 5*time.Second, 500*time.Millisecond)
 }
 

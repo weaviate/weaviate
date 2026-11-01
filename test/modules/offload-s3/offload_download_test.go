@@ -137,7 +137,7 @@ func Test_DownloadS3Journey(t *testing.T) {
 		t.Run("verify tenant status", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenantsGRPC(t, className)
-				require.Nil(t, err)
+				require.Nil(at, err)
 				for _, tn := range resp.Tenants {
 					if tn.Name == tenantNames[0] {
 						assert.Equal(at, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FROZEN, tn.ActivityStatus)
@@ -164,7 +164,7 @@ func Test_DownloadS3Journey(t *testing.T) {
 		t.Run("verify tenant status HOT", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenantsGRPC(t, className)
-				require.Nil(t, err)
+				require.Nil(at, err)
 				for _, tn := range resp.Tenants {
 					if tn.Name == tenantNames[0] {
 						assert.Equal(at, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT, tn.ActivityStatus)
@@ -314,7 +314,7 @@ func Test_DownloadS3Journey(t *testing.T) {
 		t.Run("verify tenant status", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenantsGRPC(t, className)
-				require.Nil(t, err)
+				require.Nil(at, err)
 				for _, tn := range resp.Tenants {
 					if tn.Name == tenantNames[0] {
 						assert.Equal(at, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FROZEN, tn.ActivityStatus)
@@ -341,7 +341,7 @@ func Test_DownloadS3Journey(t *testing.T) {
 		t.Run("verify tenant status COLD", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenantsGRPC(t, className)
-				require.Nil(t, err)
+				require.Nil(at, err)
 				for _, tn := range resp.Tenants {
 					if tn.Name == tenantNames[0] {
 						assert.Equal(at, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_COLD, tn.ActivityStatus)
