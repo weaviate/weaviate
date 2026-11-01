@@ -374,6 +374,12 @@ func (fc FinderClient) fullReadChunk(ctx context.Context,
 			return nil, fmt.Errorf("malformed full read response: object %d is %q, expected %q",
 				offset+i, part[i].ID, chunk[i])
 		}
+		// The envelope id is not what gets written: the repairer takes the
+		// carried object. A tombstone carries none, hence the nil check.
+		if part[i].Object != nil && part[i].Object.ID() != chunk[i] {
+			return nil, fmt.Errorf("malformed full read response: object %d carries content for %q, expected %q",
+				offset+i, part[i].Object.ID(), chunk[i])
+		}
 	}
 	return part, nil
 }

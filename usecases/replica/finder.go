@@ -229,7 +229,8 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 		}
 		return nil
 	}
-	// check shard consistency concurrently
+	// One group over every shard of the request, so the first shard to report an
+	// error cancels the context the others are still reading and repairing on.
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(f.logger, ctx)
 	for _, part := range clusterObjectByShard(createBatch(xs)) {
 		part := part
