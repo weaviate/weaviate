@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/client/distributed_tasks"
 	clschema "github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
@@ -64,6 +65,12 @@ func TestAuthzListTasksFiltersByCollection(t *testing.T) {
 		}
 		return found
 	}
+	// down() can't delete a collection whose reindex task is still active, and doesn't retry.
+	defer assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		for _, task := range reindexTasks(collect, sharedRootKey) {
+			assert.True(collect, distributedtask.TaskStatus(task.Status).IsTerminal(), "task %s is %s", task.ID, task.Status)
+		}
+	}, time.Minute, 500*time.Millisecond)
 
 	startReindex(readable)
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
