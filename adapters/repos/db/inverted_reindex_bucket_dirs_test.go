@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
@@ -171,6 +172,43 @@ func TestDirExistsSeparatesAbsentFromUnreadable(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, tt.want, there)
+		})
+	}
+}
+
+// removeBucketsDirs is the task-level caller of Discard; this pins that the
+// guard still holds one level up, through the task's bucket namer.
+func TestRemoveBucketsDirsRemovesOnlyTheNamedDirectory(t *testing.T) {
+	tests := []struct {
+		name        string
+		bucket      string
+		wantErr     bool
+		wantRemoved bool
+	}{
+		{name: "a namer that names nothing", bucket: ""},
+		{name: "a namer that names the root", bucket: ".", wantErr: true},
+		{name: "a namer that names one directory", bucket: "property_title_searchable", wantRemoved: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newBucketDirsFixture(t)
+			f.mkdirs(helpers.ObjectsBucketLSM, "property_title_searchable")
+			shard := NewMockShardLike(t)
+			shard.EXPECT().pathLSM().Return(f.lsmPath)
+			logger, _ := test.NewNullLogger()
+			task := newTestTask(logger, &MapToBlockmaxStrategy{generation: 1}, "test-unit")
+
+			err := task.removeBucketsDirs(testCtx(), logger, shard, []string{"title"},
+				func(string) string { return tt.bucket })
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.True(t, f.exists(helpers.ObjectsBucketLSM), "the shard's object store")
+			require.Equal(t, tt.wantRemoved, !f.exists("property_title_searchable"))
 		})
 	}
 }
