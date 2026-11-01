@@ -187,6 +187,9 @@ type commitLogger struct {
 	// e.g. when recovering from an existing log, we do not want to write into a
 	// new log again
 	paused bool
+
+	// closed makes close() idempotent and terminal; see close()'s doc.
+	closed bool
 }
 
 // commit log entry data format
@@ -391,18 +394,35 @@ func (cl *commitLogger) sync() error {
 	return cl.file.Sync()
 }
 
+// close is terminal: once called, this logger stays "closed" even if the
+// flush/sync/close sequence below errors out. bufio.Writer errors are
+// sticky (every later Flush call on the same writer keeps failing) and a
+// failed os.File.Close still leaves the fd unusable, so a retry can never
+// make this file descriptor usable again — every step below runs
+// best-effort instead of stopping at the first error, since a later step
+// (e.g. Sync) can still make already-written bytes durable even after an
+// earlier one failed.
 func (cl *commitLogger) close() error {
+	if cl.closed {
+		return nil
+	}
+	cl.closed = true
+
+	var firstErr error
 	if !cl.paused {
 		if err := cl.writer.Flush(); err != nil {
-			return err
+			firstErr = err
 		}
-
-		if err := cl.file.Sync(); err != nil {
-			return err
+		if err := cl.file.Sync(); err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
 
-	return cl.file.Close()
+	if err := cl.file.Close(); err != nil && firstErr == nil {
+		firstErr = err
+	}
+
+	return firstErr
 }
 
 func (cl *commitLogger) pause() {
@@ -414,7 +434,10 @@ func (cl *commitLogger) unpause() {
 }
 
 func (cl *commitLogger) delete() error {
-	return os.Remove(cl.path)
+	if err := os.Remove(cl.path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func (cl *commitLogger) flushBuffers() error {

@@ -66,14 +66,18 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 		m.metrics.observeFlushingDuration(m.strategy, time.Since(start))
 	}()
 
-	// close the commit log first, this also forces it to be fsynced. If
-	// something fails there, don't proceed with flushing. The commit log will
-	// only be deleted at the very end, if the flush was successful
-	// (indicated by a successful close of the flush file - which indicates a
-	// successful fsync)
-
+	// Close the commit log first, this also forces it to be fsynced. A close
+	// failure does not abort the flush: the memtable itself is the source of
+	// truth here, and the fsynced segment written below is what makes this
+	// data durable. bufio.Writer errors are sticky (every later Flush call
+	// on the same writer keeps failing), and a failed file.Close still
+	// leaves the fd unusable, so there is no way to recover the WAL's
+	// unwritten tail after this point in-process either way. Aborting would
+	// only leave the data memory-only indefinitely across retries.
 	if err := m.commitlog.close(); err != nil {
-		return "", errors.Wrap(err, "close commit log file")
+		m.logger.WithField("action", "lsm_memtable_flush").
+			WithField("path", m.path).
+			Warnf("close commit log file: %v", err)
 	}
 
 	if m.Size() == 0 {
