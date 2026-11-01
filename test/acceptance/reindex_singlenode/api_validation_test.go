@@ -174,7 +174,7 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 			collection: mtClass, property: "text_word", indexType: "filterable", verb: "rebuild",
 			tenantsQS:   "?tenants=nonexistent_tenant_xyz",
 			wantStatus:  http.StatusBadRequest,
-			wantBodyHas: "does not exist",
+			wantBodyHas: "do not exist or are not HOT",
 		},
 		{
 			// Declarative upsert: same tokenization is now a NO_OP, not a 400.

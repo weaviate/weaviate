@@ -319,10 +319,10 @@ func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSp
 
 // validateTenants checks that every named tenant exists in the collection's
 // sharding state. submitReindexTask refuses a named tenant that is not HOT.
-func validateTenants(database *db.DB, ctx context.Context, collection string, tenants []string) error {
-	// Unfiltered: a frozen tenant must count as known, so it fails with the
-	// not-HOT error, not the unknown-tenant one.
-	allOwnership, err := database.ShardReplicaOwnership(ctx, collection)
+// A missing tenant gets the same error, hiding tenant names from callers
+// who lack read access.
+func (h *indexesHandlers) validateTenants(ctx context.Context, collection string, tenants []string) error {
+	allOwnership, err := h.appState.DB.ShardReplicaOwnership(ctx, collection)
 	if err != nil {
 		return fmt.Errorf("reading shard state: %w", err)
 	}
@@ -336,7 +336,7 @@ func validateTenants(database *db.DB, ctx context.Context, collection string, te
 	}
 	for _, tenant := range tenants {
 		if _, ok := knownTenants[tenant]; !ok {
-			return fmt.Errorf("tenant %q does not exist", tenant)
+			return db.ErrTenantsNotHot
 		}
 	}
 	return nil

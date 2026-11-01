@@ -636,7 +636,7 @@ func (h *indexesHandlers) validateTenantScope(ctx context.Context, principal *mo
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal,
 			"tenants parameter cannot be used with semantic migrations; all tenants must be targeted"))
 	}
-	if err := validateTenants(h.appState.DB, ctx, collection, tenants); err != nil {
+	if err := h.validateTenants(ctx, collection, tenants); err != nil {
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
 	}
 	return nil

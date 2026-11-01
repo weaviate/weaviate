@@ -660,10 +660,10 @@ func dbWithTenants(t *testing.T, statuses map[string]string) *db.DB {
 }
 
 func TestValidateTenants(t *testing.T) {
-	database := dbWithTenants(t, map[string]string{
+	h := &indexesHandlers{appState: &state.State{DB: dbWithTenants(t, map[string]string{
 		"hot":  models.TenantActivityStatusHOT,
 		"cold": models.TenantActivityStatusCOLD,
-	})
+	})}}
 
 	cases := []struct {
 		tenant  string
@@ -671,11 +671,11 @@ func TestValidateTenants(t *testing.T) {
 	}{
 		{tenant: "hot"},
 		{tenant: "cold"},
-		{tenant: "missing", wantErr: `tenant "missing" does not exist`},
+		{tenant: "missing", wantErr: db.ErrTenantsNotHot.Error()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.tenant, func(t *testing.T) {
-			err := validateTenants(database, context.Background(), "C", []string{tc.tenant})
+			err := h.validateTenants(context.Background(), "C", []string{tc.tenant})
 			if tc.wantErr == "" {
 				require.NoError(t, err)
 				return
@@ -701,6 +701,21 @@ func TestSubmitReindexTask_RefusesNonHotTenants(t *testing.T) {
 			name:     "named COLD tenant",
 			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "cold": models.TenantActivityStatusCOLD},
 			tenants:  []string{"cold"},
+			plan:     upsertPlan{migrationType: db.ReindexTypeRepairFilterable},
+			wantErr:  db.ErrTenantsNotHot.Error(),
+		},
+		{
+			name:     "named FROZEN tenant",
+			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "frozen": models.TenantActivityStatusFROZEN},
+			tenants:  []string{"frozen"},
+			plan:     upsertPlan{migrationType: db.ReindexTypeRepairFilterable},
+			wantErr:  db.ErrTenantsNotHot.Error(),
+		},
+		{
+			// Must match the frozen case: hides tenant existence from unauthorized callers.
+			name:     "named missing tenant",
+			statuses: map[string]string{"hot": models.TenantActivityStatusHOT},
+			tenants:  []string{"missing"},
 			plan:     upsertPlan{migrationType: db.ReindexTypeRepairFilterable},
 			wantErr:  db.ErrTenantsNotHot.Error(),
 		},

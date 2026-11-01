@@ -2717,11 +2717,11 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 	return result, nil
 }
 
-// ErrTenantsNotHot refuses a reindex that targets tenants which are not HOT.
-// It names no tenant: a collection-wide caller may lack permission to read
-// tenants. A tenant mid freeze or unfreeze rejects a HOT update until done.
-var ErrTenantsNotHot = errors.New("some target tenants are not HOT and cannot be reindexed; " +
-	"once any freeze or unfreeze in progress finishes, set them to HOT")
+// ErrTenantsNotHot means a target tenant is missing or not HOT (including
+// mid freeze/unfreeze). It never says which, so a caller without tenant-read
+// permission can't probe for names via the error.
+var ErrTenantsNotHot = errors.New("some target tenants do not exist or are not HOT and cannot be reindexed; " +
+	"once any freeze or unfreeze in progress finishes, set existing ones to HOT")
 
 // ShardReplicaOwnership returns a map of node name to shard names, with one
 // entry per replica. Unlike ShardOwnership (which assigns each shard to one
