@@ -139,6 +139,7 @@ type Config struct {
 	BootstrapExpect int
 
 	// ConsistencyWaitTimeout is the duration we will wait for a schema version to land on that node
+	// and the default bound on a follower's task-list query, including its leader lookup.
 	ConsistencyWaitTimeout time.Duration
 	// NodeSelector is the memberlist interface to RAFT
 	NodeSelector cluster.NodeSelector
