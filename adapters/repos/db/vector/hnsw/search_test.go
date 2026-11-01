@@ -151,14 +151,82 @@ func TestQueryMultiVectorDistancer(t *testing.T) {
 		{{0.3, 0.1}, {1, 0}},
 	}
 
+	index := newTestMultiVectorDistancerIndex(t, "bug-2155", distancer.NewDotProductProvider(), vectors)
+
+	err := index.AddMulti(context.TODO(), uint64(0), vectors[0])
+	require.Nil(t, err)
+
+	dist := index.QueryMultiVectorDistancer([][]float32{{0.2, 0}, {1, 0}})
+	require.NotNil(t, dist)
+	distance, err := dist.DistanceToNode(0)
+	require.Nil(t, err)
+	require.Equal(t, float32(-1.2), distance)
+
+	// get distance for non-existing node
+	_, err = dist.DistanceToNode(1032)
+	require.NotNil(t, err)
+}
+
+func TestQueryMultiVectorDistancerUsesConfiguredDistanceProvider(t *testing.T) {
+	vectors := [][][]float32{
+		{{2, 2}},
+		{{1, 0}},
+	}
+
+	index := newTestMultiVectorDistancerIndex(t, "multi-vector-cosine", distancer.NewCosineDistanceProvider(), vectors)
+
+	for id, vector := range vectors {
+		err := index.AddMulti(context.TODO(), uint64(id), vector)
+		require.Nil(t, err)
+	}
+
+	dist := index.QueryMultiVectorDistancer([][]float32{{1, 0}})
+	require.NotNil(t, dist)
+	distance, err := dist.DistanceToNode(0)
+	require.Nil(t, err)
+	require.InDelta(t, float32(0.29289323), distance, 1e-6)
+	distance, err = dist.DistanceToNode(1)
+	require.Nil(t, err)
+	require.InDelta(t, float32(0), distance, 1e-6)
+
+	ids, distances, err := index.SearchByMultiVector(context.TODO(), [][]float32{{1, 0}}, 2, nil)
+	require.Nil(t, err)
+	require.Equal(t, []uint64{1, 0}, ids)
+	require.InDelta(t, float32(0), distances[0], 1e-6)
+	require.InDelta(t, float32(0.29289323), distances[1], 1e-6)
+}
+
+func TestMultiVectorScoringWithViewUsesConfiguredDistanceProvider(t *testing.T) {
+	vectors := [][][]float32{
+		{{2, 2}},
+		{{1, 0}},
+	}
+	index := newTestMultiVectorDistancerIndex(t, "multi-vector-cosine-view", distancer.NewCosineDistanceProvider(), vectors)
+	index.TempMultiVectorForIDWithViewThunk = func(
+		ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView,
+	) ([][]float32, error) {
+		return [][]float32{append([]float32(nil), vectors[id][0]...)}, nil
+	}
+
+	distance, err := index.computeScoreWithView(
+		context.TODO(), [][]float32{{1, 0}}, 0, &common.VectorSlice{}, &noopBucketView{},
+	)
+	require.NoError(t, err)
+	require.InDelta(t, float32(0.29289323), distance, 1e-6)
+}
+
+func newTestMultiVectorDistancerIndex(t *testing.T, id string, provider distancer.Provider, vectors [][][]float32) *hnsw {
+	t.Helper()
+	store := testinghelpers.NewDummyStore(t)
+
 	index, err := New(Config{
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:                    "bug-2155",
+		ID:                    id,
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewDotProductProvider(),
+		DistanceProvider:      provider,
 		AllocChecker:          memwatch.NewDummyMonitor(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			return vectors[0][int(id)], nil
+			return []float32{0}, errors.New("can not use VectorForIDThunk with multivector")
 		},
 		MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
 			return vectors[int(id)], nil
@@ -172,20 +240,13 @@ func TestQueryMultiVectorDistancer(t *testing.T) {
 		Multivector: ent.MultivectorConfig{
 			Enabled: true,
 		},
-	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	}, cyclemanager.NewCallbackGroupNoop(), store)
 	require.Nil(t, err)
-
-	index.AddMulti(context.TODO(), uint64(0), vectors[0])
-
-	dist := index.QueryMultiVectorDistancer([][]float32{{0.2, 0}, {1, 0}})
-	require.NotNil(t, dist)
-	distance, err := dist.DistanceToNode(0)
-	require.Nil(t, err)
-	require.Equal(t, float32(-1.2), distance)
-
-	// get distance for non-existing node
-	_, err = dist.DistanceToNode(1032)
-	require.NotNil(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, index.Shutdown(context.Background()))
+		store.Shutdown(context.Background())
+	})
+	return index
 }
 
 func TestAcornPercentage(t *testing.T) {
