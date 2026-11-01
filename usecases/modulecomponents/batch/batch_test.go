@@ -362,7 +362,8 @@ func TestBatchRequestMissingRLValues(t *testing.T) {
 }
 
 func TestEncoderCache(t *testing.T) {
-	cache := NewEncoderCache()
+	logger, _ := test.NewNullLogger()
+	cache := NewEncoderCache(logger)
 
 	modelString := "text-embedding-ada-002"
 	wg := sync.WaitGroup{}

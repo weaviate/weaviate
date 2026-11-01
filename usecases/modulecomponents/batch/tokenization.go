@@ -19,18 +19,20 @@ import (
 
 	"github.com/weaviate/weaviate/entities/moduletools"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/tiktoken-go"
 	"github.com/weaviate/weaviate/entities/models"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
 type EncoderCache struct {
-	lock  sync.RWMutex
-	cache map[string]*tiktoken.Tiktoken
+	lock   sync.RWMutex
+	cache  map[string]*tiktoken.Tiktoken
+	logger logrus.FieldLogger
 }
 
-func NewEncoderCache() *EncoderCache {
-	return &EncoderCache{cache: make(map[string]*tiktoken.Tiktoken), lock: sync.RWMutex{}}
+func NewEncoderCache(logger logrus.FieldLogger) *EncoderCache {
+	return &EncoderCache{cache: make(map[string]*tiktoken.Tiktoken), lock: sync.RWMutex{}, logger: logger}
 }
 
 func (e *EncoderCache) Get(model string) (*tiktoken.Tiktoken, bool) {
@@ -60,15 +62,11 @@ func ReturnBatchTokenizerWithAltNames(multiplier float32, moduleName string, alt
 		icheck := settings.NewBaseClassSettingsWithAltNames(cfg, lowerCaseInput, moduleName, altNames, nil)
 		modelString := modelToModelString(icheck.Model(), moduleName)
 		if multiplier > 0 {
-			var err error
 			// creating the tokenizer is quite expensive => cache for each module
 			if tke2, ok := encoderCache.Get(modelString); ok {
 				tke = tke2
 			} else {
-				tke, err = tiktoken.EncodingForModel(modelString)
-				if err != nil {
-					tke, _ = tiktoken.EncodingForModel("text-embedding-ada-002")
-				}
+				tke = loadEncoder(modelString, tiktoken.EncodingForModel, encoderCache.logger)
 				encoderCache.Set(modelString, tke)
 			}
 		}
@@ -92,6 +90,22 @@ func ReturnBatchTokenizerWithAltNames(multiplier float32, moduleName string, alt
 		}
 		return texts, tokenCounts, skipObject, skipAll, nil
 	}
+}
+
+// loadEncoder returns the tokenizer for modelString, falling back to ada-002 when
+// the model has no encoding of its own. Returns nil and warns when neither loads,
+// so callers estimate the token count instead.
+func loadEncoder(modelString string, load func(string) (*tiktoken.Tiktoken, error), logger logrus.FieldLogger) *tiktoken.Tiktoken {
+	tke, err := load(modelString)
+	if err == nil {
+		return tke
+	}
+	tke, fallbackErr := load("text-embedding-ada-002")
+	if fallbackErr != nil {
+		logger.Warnf("could not load tokenizer vocabulary for model %q; batch token counts will be estimated. Provide the vocabulary offline via TOKENIZER_BPE_DIR to avoid this: %v", modelString, fallbackErr)
+		return nil
+	}
+	return tke
 }
 
 func modelToModelString(model, moduleName string) string {
