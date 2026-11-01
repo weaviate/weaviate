@@ -56,7 +56,7 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 
 	resp := models.DistributedTasks{}
 	for namespace, tasks := range tasksByNamespace {
-		visible, hideTenants, err := h.filterTasks(ctx, principal, namespace, tasks)
+		visible, redactTo, err := h.filterTasks(ctx, principal, namespace, tasks)
 		if err != nil {
 			return nil, err
 		}
@@ -78,8 +78,8 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 			}
 
 			dt.Units = mapUnits(task)
-			if hideTenants[task] {
-				h.redactTenants(&dt, payload, h.visiblePayloadFields[namespace])
+			if fields, redact := redactTo[task]; redact {
+				h.redactTenants(&dt, payload, fields)
 			}
 
 			resp[namespace] = append(resp[namespace], dt)
@@ -96,23 +96,23 @@ type collectionTask struct {
 
 func (h *Handler) filterTasks(ctx context.Context, principal *models.Principal, namespace string,
 	tasks []*distributedtask.Task,
-) (visible []*distributedtask.Task, hideTenants map[*distributedtask.Task]bool, err error) {
+) (visible []*distributedtask.Task, redactTo map[*distributedtask.Task][]string, err error) {
 	extract := h.collectionExtractors[namespace]
 	if extract == nil {
 		return tasks, nil, nil
 	}
 
 	visible = make([]*distributedtask.Task, 0, len(tasks))
-	hideTenants = make(map[*distributedtask.Task]bool, len(tasks))
+	redactTo = make(map[*distributedtask.Task][]string, len(tasks))
 	bound := make([]collectionTask, 0, len(tasks))
 	for _, task := range tasks {
 		if collection, ok := extract(task.Payload); ok {
 			bound = append(bound, collectionTask{task: task, collection: collection})
 		} else {
-			// Fails open: every cluster reader sees it, redacted, even when the
-			// extractor rejected a payload that does name a collection.
+			// Stays listed so a task blocking a 409 is visible, but with no payload
+			// fields: a rejected payload can still name a collection.
 			visible = append(visible, task)
-			hideTenants[task] = true
+			redactTo[task] = nil
 		}
 	}
 
@@ -131,12 +131,12 @@ func (h *Handler) filterTasks(ctx context.Context, principal *models.Principal, 
 
 	for _, t := range readable {
 		visible = append(visible, t.task)
-		hideTenants[t.task] = true
+		redactTo[t.task] = h.visiblePayloadFields[namespace]
 	}
 	for _, t := range withTenants {
-		delete(hideTenants, t.task)
+		delete(redactTo, t.task)
 	}
-	return visible, hideTenants, nil
+	return visible, redactTo, nil
 }
 
 // Checks each task's own resource; filter.Filter's shared wildcard would let a tenant-only grant match too.

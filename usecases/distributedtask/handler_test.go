@@ -267,7 +267,10 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 			}, map[string]distributedtask.CollectionExtractor{
 				boundNamespace:        extractCollection,
 				noCollectionNamespace: extractCollection,
-			}, map[string][]string{boundNamespace: {"collection", "migrationType"}})
+			}, map[string][]string{
+				boundNamespace:        {"collection", "migrationType"},
+				noCollectionNamespace: {"collection", "migrationType"},
+			})
 
 			tasks, err := h.ListTasks(context.Background(), principal)
 			require.NoError(t, err)
@@ -280,7 +283,7 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 			noCollection := tasks[noCollectionNamespace][0]
 			require.Equal(t, visibleTask{map[string]interface{}{}, "", "", ""},
 				visibleTask{noCollection.Payload.(map[string]interface{}), noCollection.Units[0].ID, noCollection.Error, noCollection.Units[0].Error},
-				"a namespace without an allow-list shows no payload fields, and a healthy task must not read as failed")
+				"a payload the extractor rejects shows no fields, and a healthy task must not read as failed")
 			require.Len(t, tasks[unboundNamespace], 1, "a task bound to no collection stays visible to cluster readers")
 			require.Equal(t, map[string]interface{}{"targets": []interface{}{"t"}}, tasks[unboundNamespace][0].Payload)
 		})
