@@ -1540,7 +1540,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	exportScheduler := startExportScheduler(appState)
 	setupExportHandlers(api, exportScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
-	setupDistributedTasksHandlers(api, appState.Authorizer, appState.ServerConfig.Config.Authorization.Rbac, appState.ClusterService.Raft)
+	setupDistributedTasksHandlers(api, appState.Authorizer, appState.ClusterService.Raft)
 
 	telemeter := telemetry.New(
 		appState.DB,

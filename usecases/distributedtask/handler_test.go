@@ -14,18 +14,22 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestHandler_ListTasks(t *testing.T) {
@@ -123,7 +127,7 @@ func TestHandler_ListTasks(t *testing.T) {
 			authorizer.EXPECT().
 				Authorize(mock.Anything, mock.Anything, authorization.READ, authorization.Cluster()).
 				Return(tt.authzErr)
-			h := NewHandler(authorizer, rbacconf.Config{}, taskListerStub{
+			h := NewHandler(authorizer, taskListerStub{
 				items: map[string][]*distributedtask.Task{namespace: {tt.task}},
 			}, nil)
 
@@ -174,39 +178,51 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 	redactedPayload := func(collection string) map[string]interface{} {
 		return map[string]interface{}{"collection": collection, "migrationType": "repair-filterable"}
 	}
+	readCollection := func(c string) *models.Permission {
+		return &models.Permission{
+			Action:      authorization.String(authorization.ReadCollections),
+			Collections: &models.PermissionCollections{Collection: &c},
+		}
+	}
+	readTenants := func(c string) *models.Permission {
+		return &models.Permission{
+			Action:  authorization.String(authorization.ReadTenants),
+			Tenants: &models.PermissionTenants{Collection: &c, Tenant: authorization.String("*")},
+		}
+	}
 
 	type visibleTask struct {
 		payload                  map[string]interface{}
 		unitID, taskErr, unitErr string
 	}
 	tests := []struct {
-		name   string
-		denied []string
-		want   map[string]visibleTask
+		name        string
+		collections []string // one bound task per collection
+		permissions []*models.Permission
+		want        map[string]visibleTask
 	}{
 		{
-			name: "full permissions see every task unchanged",
-			want: map[string]visibleTask{
-				"A": {fullPayload("A"), "tenant1__node1", failed, failed},
-				"B": {fullPayload("B"), "tenant1__node1", failed, failed},
-			},
+			name:        "read on collection A only hides B's tasks",
+			collections: []string{"A", "B"},
+			permissions: []*models.Permission{readCollection("A"), readTenants("A")},
+			want:        map[string]visibleTask{"A": {fullPayload("A"), "tenant1__node1", failed, failed}},
 		},
 		{
-			name: "read on collection A only hides B's tasks",
-			denied: []string{
-				authorization.CollectionsMetadata("B")[0], authorization.ShardsMetadata("B")[0],
-			},
-			want: map[string]visibleTask{"A": {fullPayload("A"), "tenant1__node1", failed, failed}},
-		},
-		{
-			name: "collection read without tenant read redacts tenant and shard names",
-			denied: []string{
-				authorization.ShardsMetadata("A")[0], authorization.ShardsMetadata("B")[0],
-			},
+			name:        "collection read without tenant read redacts tenant and shard names",
+			collections: []string{"A", "B"},
+			permissions: []*models.Permission{readCollection("A"), readCollection("B")},
 			want: map[string]visibleTask{
 				"A": {redactedPayload("A"), "", redactedError, redactedError},
 				"B": {redactedPayload("B"), "", redactedError, redactedError},
 			},
+		},
+		{
+			// With one collection in play, a shared wildcard check would let
+			// the tenant grant pass for the collection too.
+			name:        "tenant read without collection read hides the only task",
+			collections: []string{"A"},
+			permissions: []*models.Permission{readTenants("A")},
+			want:        map[string]visibleTask{},
 		},
 	}
 
@@ -215,22 +231,38 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 		err := json.Unmarshal(payload, &p)
 		return p.Collection, err == nil && p.Collection != ""
 	}
+	principal := &models.Principal{Username: "user", UserType: models.UserTypeInputDb}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewMockAuthorizer()
-			authorizer.Deny(tt.denied...)
+			logger, _ := logrustest.NewNullLogger()
+			authorizer, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true},
+				config.Authentication{}, false, nil, logger)
+			require.NoError(t, err)
+			policies, err := conv.RolesToPolicies(&models.Role{
+				Name:        authorization.String("role"),
+				Permissions: append([]*models.Permission{{Action: authorization.String(authorization.ReadCluster)}}, tt.permissions...),
+			})
+			require.NoError(t, err)
+			require.NoError(t, authorizer.CreateRolesPermissions(policies))
+			require.NoError(t, authorizer.AddRolesForUser(conv.UserNameWithTypeFromPrincipal(principal), []string{"role"}))
+
+			bound := make([]*distributedtask.Task, 0, len(tt.collections))
+			for _, c := range tt.collections {
+				bound = append(bound, taskOn(c))
+			}
 			unbound := &distributedtask.Task{
 				Namespace:      unboundNamespace,
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "unbound"},
 				Payload:        []byte(`{"targets":["t"]}`),
 			}
-			h := NewHandler(authorizer, rbacconf.Config{Enabled: true}, taskListerStub{
+			h := NewHandler(authorizer, taskListerStub{
 				items: map[string][]*distributedtask.Task{
-					boundNamespace:   {taskOn("A"), taskOn("B")},
+					boundNamespace:   bound,
 					unboundNamespace: {unbound},
 					noCollectionNamespace: {{
 						Namespace: noCollectionNamespace,
 						Payload:   []byte(`{"collection":"","migrationType":"repair-filterable","tenants":["tenant1"]}`),
+						Units:     map[string]*distributedtask.Unit{"tenant1__node1": {ID: "tenant1__node1"}},
 					}},
 				},
 			}, map[string]distributedtask.CollectionExtractor{
@@ -238,7 +270,7 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 				noCollectionNamespace: extractCollection,
 			})
 
-			tasks, err := h.ListTasks(context.Background(), &models.Principal{})
+			tasks, err := h.ListTasks(context.Background(), principal)
 			require.NoError(t, err)
 
 			got := map[string]visibleTask{}
@@ -246,8 +278,10 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 				got[task.ID] = visibleTask{task.Payload.(map[string]interface{}), task.Units[0].ID, task.Error, task.Units[0].Error}
 			}
 			require.Equal(t, tt.want, got)
-			require.Equal(t, redactedPayload(""), tasks[noCollectionNamespace][0].Payload,
-				"a payload without a readable collection hides tenant names")
+			noCollection := tasks[noCollectionNamespace][0]
+			require.Equal(t, visibleTask{redactedPayload(""), "", "", ""},
+				visibleTask{noCollection.Payload.(map[string]interface{}), noCollection.Units[0].ID, noCollection.Error, noCollection.Units[0].Error},
+				"a payload without a readable collection hides tenant names, and a healthy task must not read as failed")
 			require.Len(t, tasks[unboundNamespace], 1, "a task bound to no collection stays visible to cluster readers")
 			require.Equal(t, map[string]interface{}{"targets": []interface{}{"t"}}, tasks[unboundNamespace][0].Payload)
 		})

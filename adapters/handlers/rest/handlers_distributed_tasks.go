@@ -21,16 +21,13 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 
 	distributedtaskUC "github.com/weaviate/weaviate/usecases/distributedtask"
 )
 
-func setupDistributedTasksHandlers(api *operations.WeaviateAPI, authorizer authorization.Authorizer, rbacConfig rbacconf.Config,
-	taskLister distributedtask.TaskLister,
-) {
+func setupDistributedTasksHandlers(api *operations.WeaviateAPI, authorizer authorization.Authorizer, taskLister distributedtask.TaskLister) {
 	h := distributedTasksHandlers{
-		handler: distributedtaskUC.NewHandler(authorizer, rbacConfig, taskLister, distributedTaskCollectionExtractors()),
+		handler: distributedtaskUC.NewHandler(authorizer, taskLister, distributedTaskCollectionExtractors()),
 	}
 
 	api.DistributedTasksDistributedTasksGetHandler = distributed_tasks.DistributedTasksGetHandlerFunc(h.getTasks)

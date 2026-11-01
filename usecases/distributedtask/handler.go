@@ -22,23 +22,19 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 )
 
 type Handler struct {
 	authorizer           authorization.Authorizer
-	rbacConfig           rbacconf.Config
 	taskLister           distributedtask.TaskLister
 	collectionExtractors map[string]distributedtask.CollectionExtractor
 }
 
-func NewHandler(authorizer authorization.Authorizer, rbacConfig rbacconf.Config, taskLister distributedtask.TaskLister,
+func NewHandler(authorizer authorization.Authorizer, taskLister distributedtask.TaskLister,
 	collectionExtractors map[string]distributedtask.CollectionExtractor,
 ) *Handler {
 	return &Handler{
 		authorizer:           authorizer,
-		rbacConfig:           rbacConfig,
 		taskLister:           taskLister,
 		collectionExtractors: collectionExtractors,
 	}
@@ -58,7 +54,10 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 
 	resp := models.DistributedTasks{}
 	for namespace, tasks := range tasksByNamespace {
-		visible, hideTenants := h.filterTasks(ctx, principal, namespace, tasks)
+		visible, hideTenants, err := h.filterTasks(ctx, principal, namespace, tasks)
+		if err != nil {
+			return nil, err
+		}
 		resp[namespace] = make([]models.DistributedTask, 0, len(visible))
 		for _, task := range visible {
 			var payload map[string]interface{}
@@ -97,10 +96,10 @@ type collectionTask struct {
 // needing tenant-name redaction when the caller lacks tenant read.
 func (h *Handler) filterTasks(ctx context.Context, principal *models.Principal, namespace string,
 	tasks []*distributedtask.Task,
-) (visible []*distributedtask.Task, hideTenants map[*distributedtask.Task]bool) {
+) (visible []*distributedtask.Task, hideTenants map[*distributedtask.Task]bool, err error) {
 	extract := h.collectionExtractors[namespace]
 	if extract == nil {
-		return tasks, nil
+		return tasks, nil, nil
 	}
 
 	visible = make([]*distributedtask.Task, 0, len(tasks))
@@ -110,19 +109,25 @@ func (h *Handler) filterTasks(ctx context.Context, principal *models.Principal, 
 		if collection, ok := extract(task.Payload); ok {
 			bound = append(bound, collectionTask{task: task, collection: collection})
 		} else {
-			// No collection to check tenant read against.
+			// Fails open: every cluster reader sees it, redacted, even when the
+			// extractor rejected a payload that does name a collection.
 			visible = append(visible, task)
 			hideTenants[task] = true
 		}
 	}
 
-	resourceFilter := filter.New[collectionTask](h.authorizer, h.rbacConfig)
-	readable := resourceFilter.Filter(ctx, principal, bound, authorization.READ, func(t collectionTask) string {
-		return authorization.CollectionsMetadata(t.collection)[0]
+	readable, err := h.authorizedTasks(ctx, principal, bound, func(c string) string {
+		return authorization.CollectionsMetadata(c)[0]
 	})
-	withTenants := resourceFilter.Filter(ctx, principal, readable, authorization.READ, func(t collectionTask) string {
-		return authorization.ShardsMetadata(t.collection)[0]
+	if err != nil {
+		return nil, nil, err
+	}
+	withTenants, err := h.authorizedTasks(ctx, principal, readable, func(c string) string {
+		return authorization.ShardsMetadata(c)[0]
 	})
+	if err != nil {
+		return nil, nil, err
+	}
 
 	for _, t := range readable {
 		visible = append(visible, t.task)
@@ -131,7 +136,36 @@ func (h *Handler) filterTasks(ctx context.Context, principal *models.Principal, 
 	for _, t := range withTenants {
 		delete(hideTenants, t.task)
 	}
-	return visible, hideTenants
+	return visible, hideTenants, nil
+}
+
+// authorizedTasks checks each task's own resource. filter.Filter would check
+// a shared wildcard instead, which a tenant-only grant also matches.
+func (h *Handler) authorizedTasks(ctx context.Context, principal *models.Principal, tasks []collectionTask,
+	resource func(collection string) string,
+) ([]collectionTask, error) {
+	if len(tasks) == 0 {
+		return nil, nil
+	}
+	resources := make([]string, len(tasks))
+	for i, t := range tasks {
+		resources[i] = resource(t.collection)
+	}
+	allowed, err := h.authorizer.FilterAuthorizedResources(ctx, principal, authorization.READ, resources...)
+	if err != nil {
+		return nil, fmt.Errorf("authorize task collections: %w", err)
+	}
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, r := range allowed {
+		allowedSet[r] = struct{}{}
+	}
+	kept := make([]collectionTask, 0, len(tasks))
+	for i, t := range tasks {
+		if _, ok := allowedSet[resources[i]]; ok {
+			kept = append(kept, t)
+		}
+	}
+	return kept, nil
 }
 
 const redactedError = "hidden: requires read permission on the collection's tenants"
