@@ -383,6 +383,7 @@ function main() {
       echo_green "Weaviate image successfully built, run module tests for $mod..."
       if ! go test -count 1 -race -timeout 15m -v "$pkg"; then
         echo "Test for $pkg failed" >&2
+        dump_container_logs
         return 1
       fi
       echo_green "Module acceptance tests for $mod successful"
@@ -641,6 +642,7 @@ function run_acceptance_lsmkv() {
     for pkg in $(go list ./...); do
       if ! go test -timeout=15m -count 1 "$pkg"; then
         echo "Test for $pkg failed" >&2
+        dump_container_logs
         return 1
       fi
     done
@@ -840,11 +842,13 @@ function run_aof_group() {
       if [[ "$pkg" == "test/acceptance/stress_tests" ]]; then
         if ! go test -count 1 "${extra_flags[@]}" "$pkg"; then
           echo "Test for $pkg failed" >&2
+          dump_container_logs
           testFailed=1
         fi
       else
         if ! go test -count 1 -timeout="$group_timeout" -race "${extra_flags[@]}" "$pkg"; then
           echo "Test for $pkg failed" >&2
+          dump_container_logs
           testFailed=1
         fi
       fi
@@ -1395,6 +1399,7 @@ function run_go_client_group() {
       echo_green "Running $pkg"
       if ! go test -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
+        dump_container_logs
         testFailed=1
       fi
     done
@@ -1451,6 +1456,7 @@ function run_acceptance_go_client_named_vectors_single_node() {
     for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests/singlenode'); do
       if ! go test -timeout=15m -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
+        dump_container_logs
         return 1
       fi
     done
@@ -1464,6 +1470,7 @@ function run_acceptance_go_client_named_vectors_cluster() {
     for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests/cluster'); do
       if ! go test -timeout=15m -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
+        dump_container_logs
         return 1
       fi
     done
@@ -1475,6 +1482,7 @@ function run_acceptance_graphql_tests() {
   for pkg in $(go list ./... | grep 'test/acceptance/graphql_resolvers'); do
     if ! go test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
+      dump_container_logs
       return 1
     fi
   done
@@ -1485,6 +1493,7 @@ function run_acceptance_only_authz() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/authz'); do
     if ! go test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
+      dump_container_logs
       return 1
     fi
   done
@@ -1495,6 +1504,7 @@ function run_acceptance_only_mcp() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/mcp'); do
     if ! go test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
+      dump_container_logs
       return 1
     fi
   done
@@ -1505,6 +1515,7 @@ function run_acceptance_replica_replication_fast_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication/fast'); do
     if ! go test -timeout=30m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
+      dump_container_logs
       return 1
     fi
   done
@@ -1515,6 +1526,7 @@ function run_acceptance_replica_replication_slow_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication/slow'); do
     if ! go test -timeout=45m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
+      dump_container_logs
       return 1
     fi
   done
@@ -1525,6 +1537,7 @@ function run_acceptance_replication_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/read_repair'); do
     if ! go test -timeout=20m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
+      dump_container_logs
       return 1
     fi
   done
@@ -1549,6 +1562,7 @@ function run_acceptance_async_replication_tests() {
   for pkg in $pkgs; do
     if ! go test -timeout=20m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
+      dump_container_logs
       return 1
     fi
   done
@@ -1558,6 +1572,7 @@ function run_acceptance_objects() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/objects'); do
     if ! go test -count 1 -race -v "$pkg"; then
       echo "Test for $pkg failed" >&2
+      dump_container_logs
       return 1
     fi
   done
@@ -1569,6 +1584,7 @@ function run_acceptance_only_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/'${package}); do
     if ! go test -v -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
+      dump_container_logs
       return 1
     fi
   done
@@ -1578,6 +1594,7 @@ function run_module_only_backup_tests() {
   for pkg in $(go list ./... | grep 'test/modules' | grep 'test/modules/backup'); do
     if ! go test -count 1 -race -timeout 30m "$pkg"; then
       echo "Test for $pkg failed" >&2
+      dump_container_logs
       return 1
     fi
   done
@@ -1587,6 +1604,7 @@ function run_module_only_offload_tests() {
   for pkg in $(go list ./... |grep 'test/modules/offload'); do
     if ! go test -count 1 -race -timeout 30m -v "$pkg"; then
       echo "Test for $pkg failed" >&2
+      dump_container_logs
       return 1
     fi
   done
@@ -1596,6 +1614,7 @@ function run_module_except_backup_tests() {
   for pkg in $(go list ./... | grep 'test/modules' | grep -v 'test/modules/backup'); do
     if ! go test -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
+      dump_container_logs
       return 1
     fi
   done
@@ -1605,6 +1624,7 @@ function run_module_except_offload_tests() {
   for pkg in $(go list ./... | grep 'test/modules' | grep -v 'test/modules/offload'); do
     if ! go test -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
+      dump_container_logs
       return 1
     fi
   done
@@ -1623,6 +1643,34 @@ function run_module_tests() {
   if $run_module_except_offload_tests; then
     run_module_except_offload_tests "$@"
   fi
+}
+
+# Dumps the log tail of every container still present after a test failure,
+# including exited ones, so a crash is diagnosable from CI output without a
+# local repro.
+#
+# Containers that testcontainers already terminated AND removed during test
+# cleanup are gone by the time this runs and cannot be recovered here. A node
+# that died and was reaped therefore leaves no logs, so an incomplete dump is
+# not evidence that nothing crashed — cross-check against the docker ps -a
+# listing below.
+function dump_container_logs() {
+  local tail_lines=2000
+  echo_red "Dumping docker container logs (last $tail_lines lines per container)..."
+  docker ps -a || true
+  local ids
+  ids=$(docker ps -aq) || true
+  if [[ -z "$ids" ]]; then
+    echo "dump_container_logs: no containers left (already cleaned up?)"
+    return 0
+  fi
+  local id header
+  for id in $ids; do
+    header=$(docker inspect --format '{{.Name}} status={{.State.Status}} exit={{.State.ExitCode}} oom-killed={{.State.OOMKilled}}' "$id" 2>/dev/null || echo "$id")
+    echo "===== BEGIN container logs: $header ====="
+    docker logs --tail "$tail_lines" "$id" 2>&1 || true
+    echo "===== END container logs: $header ====="
+  done
 }
 
 suppress_on_success() {
