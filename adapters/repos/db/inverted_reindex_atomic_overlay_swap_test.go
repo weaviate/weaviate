@@ -96,6 +96,15 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 	require.NotNil(t, task.swapPropAtomic,
 		"overlay wiring must be active for a tokenization-changing migration")
 
+	var (
+		stop       atomic.Bool
+		queryWG    sync.WaitGroup
+		sawBad     atomic.Bool
+		badOnce    sync.Once
+		badDetail  string
+		totalReads atomic.Int64
+	)
+
 	// Widen the flip↔overlay window so the race is deterministically observable.
 	if nonAtomic {
 		// Two-step reproduction: flip, gap, then set the overlay as a
@@ -107,7 +116,12 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 			if err != nil {
 				return nil, err
 			}
-			time.Sleep(hookSleepMs * time.Millisecond)
+			// Hold the gap open until the query lands in it: a fixed window
+			// can pass unobserved on a loaded runner.
+			deadline := time.Now().Add(10 * time.Second)
+			for !sawBad.Load() && time.Now().Before(deadline) {
+				time.Sleep(time.Millisecond)
+			}
 			shard.SetPropertyOverlay(propName, inverted.PropertyOverlay{
 				Tokenization: models.PropertyTokenizationWord,
 			})
@@ -132,14 +146,6 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 		}
 	}
 
-	var (
-		stop       atomic.Bool
-		queryWG    sync.WaitGroup
-		sawBad     atomic.Bool
-		badOnce    sync.Once
-		badDetail  string
-		totalReads atomic.Int64
-	)
 	query := func() (int, string) {
 		var (
 			tok     string

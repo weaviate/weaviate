@@ -417,7 +417,8 @@ func statusFromError(err error) *APIError {
 	case errors.As(err, &certainty):
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &missingIndex):
-		// filter on a property whose inverted index is disabled
+		// filter on a property whose inverted index is disabled, or whose
+		// range index this shard does not serve yet
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.Is(err, distancer.ErrVectorLength):
 		// the query vector (supplied or vectorized) does not have the

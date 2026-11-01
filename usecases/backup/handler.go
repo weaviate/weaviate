@@ -35,7 +35,7 @@ import (
 // Classification uses errors.Is against the shared
 // [backup.ErrBackupBlockedByInFlightReindex] sentinel rather than substring
 // comparison; the storage layer's Backupable() wraps that sentinel inside
-// errors.Join when multiple shards refuse, and errors.Is walks the join.
+// errors.Join when several classes refuse, and errors.Is walks the join.
 func classifyCanCommitErr(err error) CanCommitErrorKind {
 	if err == nil {
 		return ""

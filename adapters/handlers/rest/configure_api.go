@@ -205,6 +205,12 @@ type vectorRepo interface {
 	Shutdown(ctx context.Context) error
 }
 
+func distributedTaskShardReplicasExtractors() map[string]distributedtask.ShardReplicasExtractor {
+	return map[string]distributedtask.ShardReplicasExtractor{
+		db.ReindexNamespace: db.ExtractReindexTaskReplicas,
+	}
+}
+
 func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	build.Version = ParseVersionFromSwaggerSpec() // Version is always static and loaded from swagger spec.
 
@@ -693,6 +699,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DistributedTaskTargetVectorExtractors: map[string]distributedtask.TargetVectorExtractor{
 			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskTargets,
 		},
+		DistributedTaskShardReplicasExtractors: distributedTaskShardReplicasExtractors(),
 		DrainSleep:                             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
 		MaxTenantsPerCollection:                appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
 		MaxCollections:                         appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount,
@@ -1052,9 +1059,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// fall back to refusing every backup until DTM is reachable, to
 		// avoid races against in-flight reindexes that the local node
 		// cannot see.
-		listTaskTimeout := appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout
 		repo.SetShardReindexActivityLookup(shardReindexActivityBuilder(serverShutdownCtx,
-			listTaskTimeout, appState.ClusterService.ListDistributedTasks, appState.Logger))
+			appState.ClusterService.ListDistributedTasks, appState.Logger))
 		// S1: the DTM-activity lookup flips a shard "free" the moment a
 		// task lands in a terminal status; autoCleanupAfterTerminal then
 		// tears the sidecar __reindex / __ingest dirs over the next
@@ -1067,14 +1073,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	return appState
 }
 
-func shardReindexActivityBuilder(ctx context.Context, timeout time.Duration,
+func shardReindexActivityBuilder(ctx context.Context,
 	listTasks func(context.Context) (map[string][]*distributedtask.Task, error), logger logrus.FieldLogger,
 ) db.ShardReindexActivityLookupBuilder {
 	return func() (db.ShardReindexActivityLookup, error) {
-		// listTasks waits on the known leader's connection with no deadline of its own.
-		listCtx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-		tasksByNamespace, err := listTasks(listCtx)
+		tasksByNamespace, err := listTasks(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("cannot list the cluster's distributed tasks: %w", err)
 		}

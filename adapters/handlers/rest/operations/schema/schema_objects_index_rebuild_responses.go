@@ -233,7 +233,7 @@ func (o *SchemaObjectsIndexRebuildNotFound) WriteResponse(rw http.ResponseWriter
 const SchemaObjectsIndexRebuildConflictCode int = 409
 
 /*
-SchemaObjectsIndexRebuildConflict Nothing was started: the collection has either a conflicting in-flight reindex task or a replica movement in flight. The message says which.
+SchemaObjectsIndexRebuildConflict Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.
 
 swagger:response schemaObjectsIndexRebuildConflict
 */

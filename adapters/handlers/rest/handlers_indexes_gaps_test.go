@@ -33,7 +33,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/runtime"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -839,6 +838,23 @@ func TestBuildUnitMaps_DeterministicSortAndCorrectMappings(t *testing.T) {
 	require.Equal(t, "node-2", unitToNode["shard-b__node-2"])
 }
 
+func TestReindexPayload_LeaderReadsItsReplicas(t *testing.T) {
+	_, unitToShard, unitToNode := buildUnitMaps(map[string][]string{
+		"node-2": {"shard-b", "shard-a"},
+		"node-1": {"shard-a"},
+	})
+	raw, err := json.Marshal(buildReindexPayload(nil, "C", nil, upsertPlan{}, nil, unitToShard, unitToNode))
+	require.NoError(t, err)
+
+	extract := distributedTaskShardReplicasExtractors()[db.ReindexNamespace]
+	require.NotNil(t, extract, "without it the leader admits a reindex built against stale replicas")
+	got, ok := extract(raw)
+	require.True(t, ok)
+	require.Len(t, got, 2)
+	require.ElementsMatch(t, []string{"node-1", "node-2"}, got["shard-a"])
+	require.ElementsMatch(t, []string{"node-2"}, got["shard-b"])
+}
+
 func TestBuildUnitSpecs_GroupIDIsShardName(t *testing.T) {
 	// Critical contract: GroupID == shardName so OnGroupCompleted fires
 	// per-tenant for MT semantic migrations.
@@ -1192,14 +1208,6 @@ func TestShardReindexActivityBuilder(t *testing.T) {
 			wantErr: errNoLeader,
 		},
 		{
-			name: "the task list call hangs",
-			list: func(ctx context.Context) (map[string][]*distributedtask.Task, error) {
-				<-ctx.Done()
-				return nil, ctx.Err()
-			},
-			wantErr: context.DeadlineExceeded,
-		},
-		{
 			name: "a reindex task is running",
 			list: func(context.Context) (map[string][]*distributedtask.Task, error) {
 				return map[string][]*distributedtask.Task{
@@ -1220,7 +1228,7 @@ func TestShardReindexActivityBuilder(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			lookup, err := shardReindexActivityBuilder(context.Background(), 50*time.Millisecond, tc.list, logger)()
+			lookup, err := shardReindexActivityBuilder(context.Background(), tc.list, logger)()
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 				return
