@@ -31,10 +31,11 @@ func TestListDistributedTasksUnreachableLeader(t *testing.T) {
 	tests := []struct {
 		name            string
 		consistencyWait time.Duration
-		callerTimeout   time.Duration
+		callerCancel    time.Duration
+		wantCode        codes.Code
 	}{
-		{name: "caller without deadline", consistencyWait: 100 * time.Millisecond},
-		{name: "caller deadline shorter than the consistency wait", consistencyWait: time.Hour, callerTimeout: 100 * time.Millisecond},
+		{name: "caller without deadline", consistencyWait: 100 * time.Millisecond, wantCode: codes.DeadlineExceeded},
+		{name: "caller without deadline cancels first", consistencyWait: time.Hour, callerCancel: 100 * time.Millisecond, wantCode: codes.Canceled},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -42,7 +43,8 @@ func TestListDistributedTasksUnreachableLeader(t *testing.T) {
 			m.store.cfg.ConsistencyWaitTimeout = tt.consistencyWait
 			followerTransport := attachFollowerRaft(t, m.store)
 
-			// A heartbeat from a leader whose RPC port has no listener.
+			// Send a heartbeat naming a leader at 127.0.0.1:1. The RPC client below
+			// dials a freed port, so that leader never answers.
 			leaderAddr, leaderTransport := raft.NewInmemTransport("127.0.0.1:1")
 			leaderTransport.Connect(followerTransport.LocalAddr(), followerTransport)
 			require.NoError(t, leaderTransport.AppendEntries("node-1", followerTransport.LocalAddr(),
@@ -57,13 +59,14 @@ func TestListDistributedTasksUnreachableLeader(t *testing.T) {
 			srv := NewRaft(mocks.NewMockNodeSelector(), m.store, cl)
 
 			ctx := context.Background()
-			if tt.callerTimeout > 0 {
+			if tt.callerCancel > 0 {
 				var cancel context.CancelFunc
-				ctx, cancel = context.WithTimeout(ctx, tt.callerTimeout)
+				ctx, cancel = context.WithCancel(ctx)
 				defer cancel()
+				time.AfterFunc(tt.callerCancel, cancel)
 			}
 			_, err := srv.ListDistributedTasks(ctx)
-			require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+			require.Equal(t, tt.wantCode, status.Code(err))
 		})
 	}
 }
