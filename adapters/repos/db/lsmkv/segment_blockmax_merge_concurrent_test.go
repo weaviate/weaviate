@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/binary"
 	"math/rand"
+	"os"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -48,6 +49,12 @@ func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 	// Surface a merge panic instead of letting createDiskTermFromCV's recover
 	// swallow it.
 	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "true")
+
+	if os.Getenv("BMW_SKIPLIST") != "" {
+		prevSkipList := useSkipListMemtable
+		useSkipListMemtable = true
+		t.Cleanup(func() { useSkipListMemtable = prevSkipList })
+	}
 
 	ctx := context.Background()
 	logger := logrus.New()
