@@ -75,13 +75,17 @@ func TestModeADrainRematerialize(t *testing.T) {
 
 			// Objects left to drain, so a worker ignoring the guard still has
 			// bucket writes to make; otherwise the entry points return on
-			// "nothing to do". OnAfterLsmInit is unguarded, so this setup does
-			// not consume the parked guard call.
+			// "nothing to do". onAfterLsmInit (unexported) is the call that
+			// actually creates the migration record, and it is unguarded, so
+			// this setup does not consume the parked guard call.
 			for i := 0; i < 10; i++ {
 				require.NoError(t, shard.PutObject(ctx,
 					createTestObjectWithText(className, "before migration "+uuid.NewString())))
 			}
-			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+			_, err := task.onAfterLsmInit(ctx, shard)
+			require.NoError(t, err)
+			_, hasRecord := task.migrationRecord(shard)
+			require.True(t, hasRecord, "a migration record must exist, or both entry points below exit early on 'nothing to do'")
 			for i := 0; i < 5; i++ {
 				require.NoError(t, shard.PutObject(ctx,
 					createTestObjectWithText(className, "during migration "+uuid.NewString())))
