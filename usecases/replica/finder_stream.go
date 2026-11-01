@@ -303,3 +303,8 @@ type BatchReply struct {
 func (r BatchReply) UpdateTimeAt(idx int) int64 {
 	return r.DigestData[idx].UpdateTime
 }
+
+// DeletedAt reports whether this replica holds a tombstone for the object at idx
+func (r BatchReply) DeletedAt(idx int) bool {
+	return r.DigestData[idx].Deleted
+}
