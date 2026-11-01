@@ -5,7 +5,9 @@ set -euo pipefail
 all_files=$(git ls-files | grep -E '\.go$' | grep -vE '_test\.go$')
 
 # Get all files with 'go ' in them, ignoring lines that start with a comment
-files=$(grep -E -l '^[[:space:]]*[^/]*go ' ${all_files})
+# `|| true` because grep exits 1 when nothing matches, which under `set -e` would
+# abort here and exit 1 with no output — indistinguishable from a real violation.
+files=$(grep -E -l '^[[:space:]]*[^/]*go ' ${all_files} || true)
 
 found_error=false
 

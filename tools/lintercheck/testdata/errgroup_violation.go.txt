@@ -1,0 +1,10 @@
+package pkg
+
+import "golang.org/x/sync/errgroup"
+
+// Known-bad: direct errgroup use outside the allow-listed wrapper file.
+func Violation() error {
+	var g errgroup.Group
+	g.Go(func() error { return nil })
+	return g.Wait()
+}
