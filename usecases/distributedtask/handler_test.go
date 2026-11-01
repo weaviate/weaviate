@@ -129,7 +129,7 @@ func TestHandler_ListTasks(t *testing.T) {
 				Return(tt.authzErr)
 			h := NewHandler(authorizer, taskListerStub{
 				items: map[string][]*distributedtask.Task{namespace: {tt.task}},
-			}, nil)
+			}, nil, nil)
 
 			tasks, err := h.ListTasks(context.Background(), &models.Principal{})
 			if tt.authzErr != nil {
@@ -161,7 +161,7 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 		return &distributedtask.Task{
 			Namespace:      boundNamespace,
 			TaskDescriptor: distributedtask.TaskDescriptor{ID: collection},
-			Payload: []byte(`{"collection":"` + collection + `","migrationType":"repair-filterable",` +
+			Payload: []byte(`{"collection":"` + collection + `","migrationType":"repair-filterable","note":"tenant1",` +
 				`"tenants":["tenant1"],"unitToShard":{"tenant1__node1":"tenant1"}}`),
 			Error: failed,
 			Units: map[string]*distributedtask.Unit{
@@ -171,7 +171,7 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 	}
 	fullPayload := func(collection string) map[string]interface{} {
 		return map[string]interface{}{
-			"collection": collection, "migrationType": "repair-filterable",
+			"collection": collection, "migrationType": "repair-filterable", "note": "tenant1",
 			"tenants": []interface{}{"tenant1"}, "unitToShard": map[string]interface{}{"tenant1__node1": "tenant1"},
 		}
 	}
@@ -267,7 +267,7 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 			}, map[string]distributedtask.CollectionExtractor{
 				boundNamespace:        extractCollection,
 				noCollectionNamespace: extractCollection,
-			})
+			}, map[string][]string{boundNamespace: {"collection", "migrationType"}})
 
 			tasks, err := h.ListTasks(context.Background(), principal)
 			require.NoError(t, err)
@@ -278,9 +278,9 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 			}
 			require.Equal(t, tt.want, got)
 			noCollection := tasks[noCollectionNamespace][0]
-			require.Equal(t, visibleTask{redactedPayload(""), "", "", ""},
+			require.Equal(t, visibleTask{map[string]interface{}{}, "", "", ""},
 				visibleTask{noCollection.Payload.(map[string]interface{}), noCollection.Units[0].ID, noCollection.Error, noCollection.Units[0].Error},
-				"a payload without a readable collection hides tenant names, and a healthy task must not read as failed")
+				"a namespace without an allow-list shows no payload fields, and a healthy task must not read as failed")
 			require.Len(t, tasks[unboundNamespace], 1, "a task bound to no collection stays visible to cluster readers")
 			require.Equal(t, map[string]interface{}{"targets": []interface{}{"t"}}, tasks[unboundNamespace][0].Payload)
 		})

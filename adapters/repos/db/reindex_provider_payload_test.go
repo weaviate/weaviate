@@ -13,6 +13,8 @@ package db
 
 import (
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -89,4 +91,21 @@ func TestExtractReindexTaskReplicas(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Adding a payload field must force a decision on whether GET /v1/tasks may show
+// it to a caller without tenant read.
+func TestReindexTaskPayloadFieldsAreClassifiedForTasksList(t *testing.T) {
+	hidden := []string{"properties", "tenants", "unitToNode", "unitToShard"}
+
+	payloadType := reflect.TypeOf(ReindexTaskPayload{})
+	fields := make([]string, 0, payloadType.NumField())
+	for i := 0; i < payloadType.NumField(); i++ {
+		name, _, _ := strings.Cut(payloadType.Field(i).Tag.Get("json"), ",")
+		require.NotEmpty(t, name, "field %s needs a json name", payloadType.Field(i).Name)
+		fields = append(fields, name)
+	}
+
+	require.ElementsMatch(t, fields, append(append([]string{}, ReindexTaskVisiblePayloadFields...), hidden...),
+		"each payload field must be in exactly one of ReindexTaskVisiblePayloadFields or the hidden list")
 }

@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -28,15 +29,17 @@ type Handler struct {
 	authorizer           authorization.Authorizer
 	taskLister           distributedtask.TaskLister
 	collectionExtractors map[string]distributedtask.CollectionExtractor
+	visiblePayloadFields map[string][]string
 }
 
 func NewHandler(authorizer authorization.Authorizer, taskLister distributedtask.TaskLister,
-	collectionExtractors map[string]distributedtask.CollectionExtractor,
+	collectionExtractors map[string]distributedtask.CollectionExtractor, visiblePayloadFields map[string][]string,
 ) *Handler {
 	return &Handler{
 		authorizer:           authorizer,
 		taskLister:           taskLister,
 		collectionExtractors: collectionExtractors,
+		visiblePayloadFields: visiblePayloadFields,
 	}
 }
 
@@ -76,7 +79,7 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 
 			dt.Units = mapUnits(task)
 			if hideTenants[task] {
-				h.redactTenants(&dt, payload)
+				h.redactTenants(&dt, payload, h.visiblePayloadFields[namespace])
 			}
 
 			resp[namespace] = append(resp[namespace], dt)
@@ -166,12 +169,11 @@ func (h *Handler) authorizedTasks(ctx context.Context, principal *models.Princip
 
 const redactedError = "hidden: requires read permission on the collection's tenants"
 
-// Tenant and shard names live in array/map payload fields, and unit IDs and
-// errors can embed them.
-func (h *Handler) redactTenants(dt *models.DistributedTask, payload map[string]interface{}) {
-	for key, value := range payload {
-		switch value.(type) {
-		case []interface{}, map[string]interface{}:
+// Payload fields are shown only when allow-listed, so a field added later stays
+// hidden by default. Unit IDs and errors can embed tenant and shard names.
+func (h *Handler) redactTenants(dt *models.DistributedTask, payload map[string]interface{}, visibleFields []string) {
+	for key := range payload {
+		if !slices.Contains(visibleFields, key) {
 			delete(payload, key)
 		}
 	}
