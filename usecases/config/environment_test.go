@@ -1469,6 +1469,102 @@ func TestEnvironmentPersistenceMinMMapSize(t *testing.T) {
 	}
 }
 
+func TestEnvironmentPersistenceLSMSegmentIndexPinThreshold(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    int64
+		expectedErr bool
+	}{
+		{"Valid no unit", []string{"3"}, 3, false},
+		{"Valid SI unit", []string{"3KB"}, 3000, false},
+		{"Valid IEC unit", []string{"3KiB"}, 3 * 1024, false},
+		{"not given defaults to disabled", []string{}, 0, false},
+		{"invalid factor", []string{"-1"}, -1, true},
+		{"not parsable", []string{"I'm not a number"}, -1, true},
+		{"unlimited rejected", []string{"unlimited"}, -1, true},
+		{"above per-segment max rejected", []string{"2GiB"}, -1, true},
+		{"per-segment max accepted", []string{"1GiB"}, 1 << 30, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("PERSISTENCE_LSM_SEGMENT_INDEX_PIN_THRESHOLD", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, conf.Persistence.LSMSegmentIndexPinThreshold)
+			}
+		})
+	}
+}
+
+func TestEnvironmentPersistenceLSMSegmentIndexPinTotalLimit(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    int64
+		expectedErr bool
+	}{
+		{"Valid IEC unit", []string{"4GiB"}, 4 << 30, false},
+		{"not given defaults to 2GiB", []string{}, DefaultPersistenceLSMSegmentIndexPinTotalLimit, false},
+		{"not parsable", []string{"I'm not a number"}, -1, true},
+		{"unlimited rejected", []string{"unlimited"}, -1, true},
+		{"nolimit rejected", []string{"nolimit"}, -1, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("PERSISTENCE_LSM_SEGMENT_INDEX_PIN_TOTAL_LIMIT", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, conf.Persistence.LSMSegmentIndexPinTotalLimit)
+			}
+		})
+	}
+}
+
+func TestEnvironmentPersistenceLSMSegmentIndexPinScope(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    string
+		expectedErr bool
+	}{
+		{"objects", []string{"objects"}, "objects", false},
+		{"all", []string{"all"}, "all", false},
+		{"not given defaults to objects", []string{}, DefaultPersistenceLSMSegmentIndexPinScope, false},
+		{"invalid scope", []string{"some-bucket"}, "", true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("PERSISTENCE_LSM_SEGMENT_INDEX_PIN_SCOPE", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, conf.Persistence.LSMSegmentIndexPinScope)
+			}
+		})
+	}
+}
+
 func TestEnvironmentPersistenceMaxReuseWalSize(t *testing.T) {
 	factors := []struct {
 		name        string
