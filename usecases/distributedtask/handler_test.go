@@ -197,7 +197,7 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 	}
 	tests := []struct {
 		name        string
-		collections []string // one bound task per collection
+		collections []string
 		permissions []*models.Permission
 		want        map[string]visibleTask
 	}{
@@ -217,8 +217,7 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 			},
 		},
 		{
-			// With one collection in play, a shared wildcard check would let
-			// the tenant grant pass for the collection too.
+			// Guards against a shared-wildcard check matching the tenant grant too.
 			name:        "tenant read without collection read hides the only task",
 			collections: []string{"A"},
 			permissions: []*models.Permission{readTenants("A")},

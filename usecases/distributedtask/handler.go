@@ -40,8 +40,7 @@ func NewHandler(authorizer authorization.Authorizer, taskLister distributedtask.
 	}
 }
 
-// ListTasks hides tasks on collections the caller can't read, and redacts
-// tenant/shard names unless the caller can read all of the collection's tenants.
+// ListTasks must not leak collection, tenant, or shard names the caller lacks read access to.
 func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (models.DistributedTasks, error) {
 	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Cluster()); err != nil {
 		return nil, err
@@ -92,8 +91,6 @@ type collectionTask struct {
 	collection string
 }
 
-// filterTasks drops tasks on unreadable collections and flags survivors
-// needing tenant-name redaction when the caller lacks tenant read.
 func (h *Handler) filterTasks(ctx context.Context, principal *models.Principal, namespace string,
 	tasks []*distributedtask.Task,
 ) (visible []*distributedtask.Task, hideTenants map[*distributedtask.Task]bool, err error) {
@@ -139,8 +136,7 @@ func (h *Handler) filterTasks(ctx context.Context, principal *models.Principal, 
 	return visible, hideTenants, nil
 }
 
-// authorizedTasks checks each task's own resource. filter.Filter would check
-// a shared wildcard instead, which a tenant-only grant also matches.
+// Checks each task's own resource; filter.Filter's shared wildcard would let a tenant-only grant match too.
 func (h *Handler) authorizedTasks(ctx context.Context, principal *models.Principal, tasks []collectionTask,
 	resource func(collection string) string,
 ) ([]collectionTask, error) {
@@ -170,8 +166,8 @@ func (h *Handler) authorizedTasks(ctx context.Context, principal *models.Princip
 
 const redactedError = "hidden: requires read permission on the collection's tenants"
 
-// redactTenants strips array/map payload fields, since that's where tenant
-// and shard names live, and clears unit IDs and errors, which can embed them.
+// Tenant and shard names live in array/map payload fields, and unit IDs and
+// errors can embed them.
 func (h *Handler) redactTenants(dt *models.DistributedTask, payload map[string]interface{}) {
 	for key, value := range payload {
 		switch value.(type) {
