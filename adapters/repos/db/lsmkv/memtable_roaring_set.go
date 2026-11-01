@@ -37,8 +37,7 @@ func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
 	if err != nil {
 		return fmt.Errorf("create node for commit log: %w", err)
 	}
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("roaringSetAddList")()
 
 	if err := m.roaringSetAddCommitLog(node); err != nil {
 		return err
@@ -72,8 +71,7 @@ func (m *Memtable) roaringSetAddBatch(entries []RoaringSetBatchEntry) error {
 		nodes[i] = node
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("roaringSetAddBatch")()
 
 	for i, node := range nodes {
 		if node == nil {
@@ -106,8 +104,7 @@ func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 		return fmt.Errorf("create node for commit log: %w", err)
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("roaringSetAddBitmap")()
 
 	if err := m.roaringSetAddCommitLog(node); err != nil {
 		return err
@@ -136,8 +133,7 @@ func (m *Memtable) roaringSetRemoveList(key []byte, values []uint64) error {
 		return fmt.Errorf("create node for commit log: %w", err)
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("roaringSetRemoveList")()
 
 	if err := m.roaringSetAddCommitLog(node); err != nil {
 		return err
@@ -171,8 +167,7 @@ func (m *Memtable) roaringSetRemoveBatch(entries []RoaringSetBatchEntry) error {
 		nodes[i] = node
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("roaringSetRemoveBatch")()
 
 	for i, node := range nodes {
 		if node == nil {
@@ -205,8 +200,7 @@ func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
 		return fmt.Errorf("create node for commit log: %w", err)
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("roaringSetRemoveBitmap")()
 
 	if err := m.roaringSetAddCommitLog(node); err != nil {
 		return err
@@ -231,8 +225,7 @@ func (m *Memtable) roaringSetAddRemoveSlices(key []byte, additions []uint64, del
 		return fmt.Errorf("create node for commit log: %w", err)
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("roaringSetAddRemoveSlices")()
 
 	if err := m.roaringSetAddCommitLog(node); err != nil {
 		return err
@@ -253,7 +246,7 @@ func (m *Memtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 		return roaringset.BitmapLayer{}, err
 	}
 
-	m.RLock()
+	m.rlockR("roaringSetGet")
 	defer m.RUnlock()
 
 	return m.roaringSet.Get(key)

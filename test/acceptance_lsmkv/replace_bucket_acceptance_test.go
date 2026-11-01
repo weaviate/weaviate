@@ -15,9 +15,14 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
+	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -66,6 +71,23 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+
+	// THROWAWAY stall tracing (LSMKV_STALL_TRACE=1)
+	traceDone := make(chan struct{})
+	traceWg := sync.WaitGroup{}
+	if lsmkv.StallTraceEnabled() {
+		lsmkv.StallTraceRaw(time.Now(), "test_start", "workers=%d gomaxprocs=%d dir=%s", workers, runtime.GOMAXPROCS(0), dir)
+		traceWg.Add(3)
+		go func() { defer traceWg.Done(); schedStallDetector(traceDone) }()
+		go func() { defer traceWg.Done(); gcPauseWatcher(traceDone) }()
+		go func() { defer traceWg.Done(); psiWatcher(traceDone) }()
+	}
+	defer func() {
+		close(traceDone)
+		traceWg.Wait()
+		lsmkv.StallTraceRaw(time.Now(), "test_end", "failed=%v", t.Failed())
+		lsmkv.StallTraceSummary()
+	}()
 
 	results := make([]result, workers)
 	wg := sync.WaitGroup{}
@@ -159,6 +181,7 @@ func worker(ctx context.Context, t *testing.T, wg *sync.WaitGroup, workerID int,
 		if took > putThreshold {
 			logger.Warnf("put took too long: %s", time.Since(before))
 		}
+		traceQuery(before, "test.put", workerID, took, putThreshold)
 
 		// perform spot checks every 10000 iterations
 		// the spot checks pick a random increment between 0 and 100 between ids
@@ -175,6 +198,7 @@ func worker(ctx context.Context, t *testing.T, wg *sync.WaitGroup, workerID int,
 				if took > getThreshold {
 					logger.Warnf("get took too long: %s", time.Since(before))
 				}
+				traceQuery(before, "test.get", workerID, took, getThreshold)
 
 				if string(val) != fmt.Sprintf("value-%d", j) {
 					t.Errorf("expected value-%d but got %s", j, val)
@@ -211,5 +235,138 @@ func trackWorstQuery(heap *priorityqueue.Queue[float32], i int, took time.Durati
 	} else if heap.Top().Dist < float32(took.Seconds()) {
 		heap.Pop()
 		heap.Insert(uint64(i), float32(took.Seconds()))
+	}
+}
+
+// ---- THROWAWAY stall tracing helpers ----
+
+var tracedQueries atomic.Int64
+
+// traceQuery logs queries above 20ms; OVER marks the ones that fail the test.
+func traceQuery(start time.Time, kind string, workerID int, took, threshold time.Duration) {
+	if !lsmkv.StallTraceEnabled() {
+		return
+	}
+	lsmkv.StallTraceObserve(kind, took)
+	if took <= 20*time.Millisecond {
+		return
+	}
+	over := ""
+	if took > threshold {
+		over = " OVER_THRESHOLD"
+	}
+	if tracedQueries.Add(1) > 1000 && over == "" {
+		return
+	}
+	lsmkv.StallTraceRaw(start, kind, "worker=%d took=%.2fms end=%s%s", workerID,
+		float64(took)/float64(time.Millisecond), start.Add(took).UTC().Format("15:04:05.000000"), over)
+}
+
+// schedStallDetector logs when a 5ms sleep overshoots by more than 20ms
+// (CPU starvation, STW pauses, host steal).
+func schedStallDetector(done chan struct{}) {
+	logged := 0
+	for {
+		select {
+		case <-done:
+			return
+		default:
+		}
+		before := time.Now()
+		time.Sleep(5 * time.Millisecond)
+		late := time.Since(before) - 5*time.Millisecond
+		lsmkv.StallTraceObserve("sched.oversleep", late)
+		if late > 20*time.Millisecond && logged < 500 {
+			logged++
+			lsmkv.StallTraceRaw(before, "sched_stall", "late=%.2fms", float64(late)/float64(time.Millisecond))
+		}
+	}
+}
+
+// gcPauseWatcher logs GC stop-the-world pauses above 1ms.
+func gcPauseWatcher(done chan struct{}) {
+	var lastNum int64
+	tick := time.NewTicker(500 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-tick.C:
+		}
+		var st debug.GCStats
+		st.Pause = make([]time.Duration, 0, 256)
+		st.PauseEnd = make([]time.Time, 0, 256)
+		debug.ReadGCStats(&st)
+		newN := int(st.NumGC - lastNum)
+		if newN > len(st.Pause) {
+			newN = len(st.Pause)
+		}
+		for i := 0; i < newN; i++ { // most recent first
+			lsmkv.StallTraceObserve("gc.pause", st.Pause[i])
+			if st.Pause[i] > time.Millisecond {
+				lsmkv.StallTraceRaw(st.PauseEnd[i].Add(-st.Pause[i]), "gc_pause", "pause=%.2fms numgc=%d",
+					float64(st.Pause[i])/float64(time.Millisecond), st.NumGC)
+			}
+		}
+		lastNum = st.NumGC
+	}
+}
+
+// psiWatcher samples Linux pressure stall info every 250ms and logs
+// intervals with more than 20ms of stalled time.
+func psiWatcher(done chan struct{}) {
+	read := func(res string) (some, full int64, ok bool) {
+		b, err := os.ReadFile("/proc/pressure/" + res)
+		if err != nil {
+			return 0, 0, false
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 5 {
+				continue
+			}
+			v, _ := strconv.ParseInt(strings.TrimPrefix(fields[4], "total="), 10, 64)
+			switch fields[0] {
+			case "some":
+				some = v
+			case "full":
+				full = v
+			}
+		}
+		return some, full, true
+	}
+	type prev struct{ some, full int64 }
+	last := map[string]prev{}
+	for _, r := range []string{"io", "cpu", "memory"} {
+		s, f, ok := read(r)
+		if !ok {
+			lsmkv.StallTraceRaw(time.Now(), "psi_unavailable", "res=%s", r)
+			continue
+		}
+		last[r] = prev{s, f}
+	}
+	logged := 0
+	tick := time.NewTicker(250 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case now := <-tick.C:
+			for r, p := range last {
+				s, f, ok := read(r)
+				if !ok {
+					continue
+				}
+				ds, df := s-p.some, f-p.full
+				last[r] = prev{s, f}
+				if (ds > 20_000 || df > 20_000) && logged < 1000 {
+					logged++
+					lsmkv.StallTraceRaw(now.Add(-250*time.Millisecond), "psi_"+r, "some=%.1fms full=%.1fms (per 250ms window)",
+						float64(ds)/1000, float64(df)/1000)
+				}
+			}
+		}
 	}
 }

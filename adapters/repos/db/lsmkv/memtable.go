@@ -134,6 +134,7 @@ type Memtable struct {
 	roaringSet      *roaringset.BinarySearchTree
 	roaringSetRange *roaringsetrange.Memtable
 	commitlog       memtableCommitLogger
+	stall           memtableStall // THROWAWAY trace state, guarded by the write lock
 	// scratch for the map and inverted write paths, guarded by the embedded lock
 	mapPairScratch  []byte
 	mapValueScratch [1]value
@@ -244,6 +245,10 @@ func newMemtable(cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldL
 		}
 	}
 
+	if stallTraceEnabled {
+		m.commitlog = &tracingCommitLogger{inner: cl, m: m}
+	}
+
 	m.metrics.observeSize(m.size)
 
 	if m.strategy == StrategyInverted {
@@ -262,7 +267,7 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 		return nil, fmt.Errorf("Memtable::get(): %w", err)
 	}
 
-	m.RLock()
+	m.rlockR("get")
 	defer m.RUnlock()
 
 	return m.key.get(key)
@@ -275,7 +280,7 @@ func (m *Memtable) exists(key []byte) error {
 		return fmt.Errorf("Memtable::exists(): %w", err)
 	}
 
-	m.RLock()
+	m.rlockR("exists")
 	defer m.RUnlock()
 
 	return m.key.exists(key)
@@ -289,7 +294,7 @@ func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, []byte, error) {
 		return nil, nil, fmt.Errorf("Memtable::getBySecondary(): %w", err)
 	}
 
-	m.RLock()
+	m.rlockR("getBySecondary")
 	defer m.RUnlock()
 
 	primary := m.secondaryToPrimary[pos][string(key)]
@@ -322,8 +327,7 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 		tombstone:           false,
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("put")()
 
 	if err := m.commitlog.put(node); err != nil {
 		return errors.Wrap(err, "write into commit log")
@@ -364,8 +368,7 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 		tombstone:           true,
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("setTombstone")()
 
 	if err := m.commitlog.put(node); err != nil {
 		return errors.Wrap(err, "write into commit log")
@@ -407,8 +410,7 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 		tombstone:           true,
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("setTombstoneWith")()
 
 	if err := m.commitlog.put(node); err != nil {
 		return errors.Wrap(err, "write into commit log")
@@ -495,7 +497,7 @@ func (m *Memtable) getCollection(key []byte) ([]value, error) {
 		return nil, fmt.Errorf("Memtable::getCollection(): %w", err)
 	}
 
-	m.RLock()
+	m.rlockR("getCollection")
 	defer m.RUnlock()
 
 	v, err := m.keyMulti.get(key)
@@ -516,7 +518,7 @@ func (m *Memtable) getCollectionBytes(key []byte) ([][]byte, error) {
 			StrategySetCollection, StrategyMapCollection, StrategyInverted)
 	}
 
-	m.RLock()
+	m.rlockR("getCollectionBytes")
 	defer m.RUnlock()
 
 	v, err := m.keyMulti.get(key)
@@ -539,7 +541,7 @@ func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
 		return nil, fmt.Errorf("Memtable::getMap(): %w", err)
 	}
 
-	m.RLock()
+	m.rlockR("getMap")
 	defer m.RUnlock()
 
 	if m.strategy == StrategyInverted {
@@ -567,7 +569,7 @@ func (m *Memtable) getInverted(key []byte) ([]invertedPair, error) {
 		return nil, fmt.Errorf("Memtable::getInverted(): %w", err)
 	}
 
-	m.RLock()
+	m.rlockR("getInverted")
 	defer m.RUnlock()
 
 	return m.keyInverted.get(key)
@@ -581,8 +583,7 @@ func (m *Memtable) append(key []byte, values []value) error {
 		return fmt.Errorf("Memtable::append(): %w", err)
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("append")()
 	m.writesSinceLastSync = true
 
 	if err := m.commitlog.append(segmentCollectionNode{
@@ -611,8 +612,7 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 		return fmt.Errorf("Memtable::appendMapSorted(): %w", err)
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("appendMapSorted")()
 
 	// The commit log serializes the node before returning, so the scratch
 	// buffers can be reused by the next write.
@@ -651,8 +651,7 @@ func (m *Memtable) appendInverted(key []byte, pair invertedPair) error {
 		return fmt.Errorf("Memtable::appendInverted(): %w", err)
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("appendInverted")()
 	m.writesSinceLastSync = true
 
 	recordLen := pair.encodeCommitLog(m.invRecordBuf[:])
@@ -743,8 +742,7 @@ func (m *Memtable) netCount() int {
 // that the WAL is written before a successful response is returned to the
 // user.
 func (m *Memtable) writeWAL() error {
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("writeWAL")()
 
 	return m.commitlog.flushBuffers()
 }
@@ -819,8 +817,7 @@ func (m *Memtable) getStrategy() string {
 }
 
 func (m *Memtable) setAveragePropertyLength(avgPropLength float64, propLengthCount uint64) {
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("setAveragePropertyLength")()
 
 	m.averagePropLength = avgPropLength
 	m.propLengthCount = propLengthCount
@@ -835,8 +832,7 @@ func (m *Memtable) commitlogWalPath() string {
 }
 
 func (m *Memtable) getAndUpdateWritesSinceLastSync(logger logrus.FieldLogger) bool {
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("getAndUpdateWritesSinceLastSync")()
 
 	hasWrites := m.writesSinceLastSync
 	if !hasWrites {

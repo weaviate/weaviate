@@ -115,11 +115,16 @@ func (sr *segmentReplacer) switchInMemory() error {
 	start := time.Now()
 
 	sr.sg.maintenanceLock.Lock()
+	acquired := time.Now()
 	if time.Since(start) > 100*time.Millisecond {
 		sr.sg.logger.WithField("duration", time.Since(start)).
 			Debug("compaction took more than 100ms to acquire maintenance lock")
 	}
-	defer sr.sg.maintenanceLock.Unlock()
+	defer func() {
+		hold := time.Since(acquired)
+		sr.sg.maintenanceLock.Unlock()
+		stallEventf(acquired, "compaction_switch", "maintLock_wait=%s maintLock_hold=%s", ms(acquired.Sub(start)), ms(hold))
+	}()
 
 	sr.sg.segments[sr.oldRightPos] = sr.newSeg
 	if !sr.replaceSingleSegment {

@@ -8,6 +8,7 @@ on:
   pull_request:
 jobs:
   golangci:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: golangci
     runs-on: ubuntu-latest
     steps:
@@ -17,12 +18,14 @@ jobs:
       - name: Run golangci-lint
         uses: ./.github/actions/golangci-lint
   protolint:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: protolint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: yoheimuta/action-protolint@e62319541dc5107df5e3a5010acb8987004d3d25 # v1
   python:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: python checks
     runs-on: ubuntu-latest
     steps:
@@ -31,6 +34,7 @@ jobs:
         with:
           version: "26.3.1"
   custom:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: custom checks
     runs-on: ubuntu-latest
     steps:

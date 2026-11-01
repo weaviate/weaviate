@@ -320,6 +320,15 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (bool, error) {
 	return sg.compactOnceAbortable(ctx, nil)
 }
 
+func (sg *SegmentGroup) compactOnceTraced(ctx context.Context, shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
+	start := time.Now()
+	compacted, err := sg.compactOnceAbortableInner(ctx, shouldAbort)
+	if compacted || err != nil {
+		stallEventf(start, "compaction", "took=%s err=%v", ms(time.Since(start)), err)
+	}
+	return compacted, err
+}
+
 // watchAbort returns a context cancelled once shouldAbort turns true. The poller
 // lives until the returned cancel runs, so callers must always call it.
 func (sg *SegmentGroup) watchAbort(ctx context.Context,
@@ -356,6 +365,15 @@ func (sg *SegmentGroup) watchAbort(ctx context.Context,
 // compactor.AbortCheckEveryN keys). Its shouldAbort bridge is built only once
 // there is a pair to merge, so an idle cycle needs no context, goroutine or ticker.
 func (sg *SegmentGroup) compactOnceAbortable(ctx context.Context,
+	shouldAbort cyclemanager.ShouldAbortCallback,
+) (compacted bool, err error) {
+	if stallTraceEnabled {
+		return sg.compactOnceTraced(ctx, shouldAbort)
+	}
+	return sg.compactOnceAbortableInner(ctx, shouldAbort)
+}
+
+func (sg *SegmentGroup) compactOnceAbortableInner(ctx context.Context,
 	shouldAbort cyclemanager.ShouldAbortCallback,
 ) (compacted bool, err error) {
 	// Is it safe to only occasionally lock instead of the entire duration? Yes,

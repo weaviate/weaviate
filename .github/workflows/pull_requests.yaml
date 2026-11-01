@@ -20,9 +20,9 @@ env:
 
 jobs:
   Multi-Arch-Docker-Build:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: docker build (multi-arch)
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && (startsWith(github.ref, 'refs/tags') || startsWith(github.head_ref, 'build') || github.head_ref == '') }} # no PRs from fork
     timeout-minutes: 45
     env:
       PROJECT_KEY: ${{ secrets.ORCA_PROJECT_KEY }}
@@ -131,10 +131,10 @@ jobs:
           retention-days: 1
 
   PR-Docker-Build:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: docker build (${{ matrix.arch }})
     # ARM builds run on specific runners to avoid cross-compilation.
     runs-on: ${{ matrix.runner }}
-    if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }} # no PRs from fork
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -178,9 +178,9 @@ jobs:
           retention-days: 1
 
   PR-Vulnerability-Check:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: vulnerability check
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }}
     timeout-minutes: 45
     env:
       PROJECT_KEY: ${{ secrets.ORCA_PROJECT_KEY }}
@@ -249,12 +249,12 @@ jobs:
           echo "All security scans passed"
 
   Generate-Docker-Report:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: docker report
     runs-on: ubicloud-standard-2
     # Depends on both production and PR jobs, but only one will run based on the event type
     needs: [Multi-Arch-Docker-Build, PR-Docker-Build]
     # Always run if either dependency succeeded (pr or production build)
-    if: always() && (needs.Multi-Arch-Docker-Build.result == 'success' || needs.PR-Docker-Build.result == 'success')
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -296,9 +296,9 @@ jobs:
         run: ./ci/generate_docker_report.sh
 
   Buf-Checks:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: buf checks
     runs-on: ubuntu-latest
-    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
@@ -313,9 +313,9 @@ jobs:
           input: "cluster/proto"
           against: "https://github.com/${GITHUB_REPOSITORY}.git#branch=${{ github.event.pull_request.base.ref }},subdir=cluster/proto"
   Run-Swagger:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: swagger
     runs-on: ubuntu-latest
-    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
@@ -338,6 +338,7 @@ jobs:
             exit 0
           fi
   Unit-Tests:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: unit tests (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
@@ -360,6 +361,7 @@ jobs:
           name: coverage-report-unit-${{ matrix.name }}
           path: coverage-unit.txt
   Integration-Tests:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: integration tests (${{ matrix.name }})
     runs-on: ubicloud-standard-4
     strategy:
@@ -392,9 +394,9 @@ jobs:
           name: coverage-report-integration${{ matrix.test }}
           path: coverage-integration.txt
   Modules-Acceptance-Tests:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: modules (${{ matrix.name }})
     runs-on: ubicloud-standard-4
-    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -442,9 +444,9 @@ jobs:
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Modules-On-Demand-Tests-Check:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: modules on demand
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork && (github.event_name != 'push' || github.ref_type != 'branch') }}  # no PRs from fork, skipped on branch pushes
     outputs:
       run_pipeline: ${{ steps.check.outputs.run_pipeline }}
     steps:
@@ -465,10 +467,10 @@ jobs:
             echo "run_pipeline=false" >> $GITHUB_OUTPUT
           fi
   Modules-Acceptance-Tests-large:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: modules large (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
     needs: [Modules-On-Demand-Tests-Check]
-    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
       fail-fast: false
       matrix:
@@ -510,10 +512,10 @@ jobs:
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-light:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: modules light (${{ matrix.name }})
     runs-on: ubicloud-standard-4
     needs: [Modules-On-Demand-Tests-Check]
-    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
       fail-fast: false
       matrix:
@@ -543,10 +545,10 @@ jobs:
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-api:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: modules api (${{ matrix.name }})
     runs-on: ubicloud-standard-4
     needs: [Modules-On-Demand-Tests-Check]
-    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork && !startsWith(github.ref, 'refs/tags') }}  # no PRs from fork
     strategy:
       fail-fast: false
       matrix:
@@ -657,9 +659,9 @@ jobs:
           META_APIKEY: ${{ secrets.META_APIKEY }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: acceptance (${{ matrix.name }})
     runs-on: ubicloud-standard-4
-    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -721,9 +723,9 @@ jobs:
           REPLICATION_GRPC_ENABLED: ${{ matrix.grpc_replication || '' }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests-4-cores:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: acceptance large (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
-    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -789,9 +791,9 @@ jobs:
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Acceptance-Reindex-Tests:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: reindex (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
-    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -842,9 +844,9 @@ jobs:
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Acceptance-DropVectorIndex-Tests:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: drop-vector-index (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
-    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -879,15 +881,14 @@ jobs:
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Acceptance-Tests-github-4-cores:
-    name: acceptance large (${{ matrix.name }})
+    # THROWAWAY (weaviate/etienne-claude-issues#431): only this job runs on this branch.
+    name: measure lsmkv stalls (runner ${{ matrix.runner }})
     runs-on: DB-ubuntu-24.04-4-cores
-    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: "lsmkv"
-            test: "--acceptance-lsmkv"
+        runner: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
@@ -898,28 +899,48 @@ jobs:
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
-      - name: Determine retry max_attempts value
-        env:
-          MATRIX_TEST: ${{ matrix.name }}
+      - name: Runner info
         run: |
-          if [[ "$MATRIX_TEST" == *"lsmkv"* ]]; then
-            echo "retry_max_attempts=2" >> $GITHUB_ENV
-          else
-            echo "retry_max_attempts=1" >> $GITHUB_ENV
-          fi
-      - name: Acceptance tests Large
-        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
+          nproc; free -m; df -h "$RUNNER_TEMP" /tmp || true
+          lsblk -o NAME,ROTA,SIZE,TYPE,MOUNTPOINT,MODEL || true
+          findmnt -T /tmp || true
+          cat /proc/pressure/io /proc/pressure/cpu || true
+      - name: Build test binary
+        working-directory: test/acceptance_lsmkv
+        run: go test -c -o "$RUNNER_TEMP/lsmkv.test" .
+      - name: Run TestLSMKV_ReplaceBucket 5 times
+        working-directory: test/acceptance_lsmkv
+        env:
+          LSMKV_STALL_TRACE: "1"
+        run: |
+          mkdir -p "$RUNNER_TEMP/stall"
+          fails=0
+          for rep in 1 2 3 4 5; do
+            log="$RUNNER_TEMP/stall/runner${{ matrix.runner }}-rep${rep}"
+            echo "::group::runner ${{ matrix.runner }} rep ${rep}"
+            set +e
+            LSMKV_STALL_TRACE_FILE="${log}.trace" "$RUNNER_TEMP/lsmkv.test" \
+              -test.run '^TestLSMKV_ReplaceBucket$' -test.count 1 -test.timeout 10m -test.v > "${log}.test.log" 2>&1
+            rc=$?
+            set -e
+            echo "rep ${rep} exit=${rc}" | tee -a "$RUNNER_TEMP/stall/runner${{ matrix.runner }}-summary.txt"
+            [ "$rc" -ne 0 ] && fails=$((fails+1))
+            grep -E -- '--- (PASS|FAIL)|outside threshold|took too long' "${log}.test.log" || true
+            cat "${log}.trace" || true
+            echo "::endgroup::"
+          done
+          echo "runner ${{ matrix.runner }}: ${fails}/5 repetitions failed" | tee -a "$RUNNER_TEMP/stall/runner${{ matrix.runner }}-summary.txt"
+      - name: Upload stall logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          # 15 Minute is a large enough timeout for most of our tests
-          timeout_minutes: 15
-          max_attempts: ${{ env.retry_max_attempts }}
-          command: ./test/run.sh ${{ matrix.test }}
-          on_retry_command: ./test/run.sh --cleanup
+          name: stall-logs-runner-${{ matrix.runner }}
+          path: ${{ runner.temp }}/stall/
   Codecov:
+    if: false  # THROWAWAY: disabled on the measurement branch
     needs: [Unit-Tests, Integration-Tests]
     name: codecov
     runs-on: ubuntu-latest
-    if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'main') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Download coverage artifacts integration
@@ -954,9 +975,9 @@ jobs:
           files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-integration-slow-package-only.txt, ./coverage-unit-adapters/coverage-unit.txt, ./coverage-unit-non-adapters/coverage-unit.txt
           verbose: true
   Compile-and-upload-binaries:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: compile and upload binaries
     runs-on: ubicloud-standard-4-ubuntu-2404
-    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
@@ -994,6 +1015,7 @@ jobs:
           name: binaries-linux-arm64
           path: dist/weaviate_linux_arm64
   Acceptance-Tests-windows:
+    if: false  # THROWAWAY: disabled on the measurement branch
     name: acceptance (windows)
     needs: Compile-and-upload-binaries
     runs-on: windows-latest

@@ -1005,8 +1005,14 @@ func (sg *SegmentGroup) currentSegmentIDsLocked() []string {
 }
 
 func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {
+	beforeLock := time.Now()
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
+	if stallTraceEnabled {
+		if w := time.Since(beforeLock); w > stallThreshold {
+			StallTracef(beforeLock, "rwait/sg.maintenanceLock", "wait=%s", ms(w))
+		}
+	}
 
 	segments = make([]Segment, len(sg.segments))
 	copy(segments, sg.segments)

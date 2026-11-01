@@ -23,6 +23,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -67,10 +68,12 @@ func (cl *lazyCommitLogger) mayInitCommitLogger() error {
 	}
 
 	// file does not exist yet
+	createStart := time.Now()
 	commitLogger, err := newCommitLogger(cl.path, cl.strategy, 0)
 	if err != nil {
 		return err
 	}
+	stallEventf(createStart, "wal_create", "took=%s mt=%s", ms(time.Since(createStart)), shortPath(cl.path))
 
 	cl.commitLogger = commitLogger
 	return nil

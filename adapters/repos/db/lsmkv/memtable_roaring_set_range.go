@@ -23,8 +23,7 @@ func (m *Memtable) roaringSetRangeAdd(key uint64, values ...uint64) error {
 		return err
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("roaringSetRangeAdd")()
 
 	if err := m.roaringSetRangeAddCommitLog(key, values, nil); err != nil {
 		return err
@@ -41,8 +40,7 @@ func (m *Memtable) roaringSetRangeRemove(key uint64, values ...uint64) error {
 		return err
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("roaringSetRangeRemove")()
 
 	if err := m.roaringSetRangeAddCommitLog(key, nil, values); err != nil {
 		return err
@@ -59,8 +57,7 @@ func (m *Memtable) roaringSetRangeAddRemove(key uint64, additions []uint64, dele
 		return err
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	defer m.lockW("roaringSetRangeAddRemove")()
 
 	if err := m.roaringSetRangeAddCommitLog(key, additions, deletions); err != nil {
 		return err

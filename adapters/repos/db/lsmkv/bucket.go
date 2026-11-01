@@ -802,6 +802,11 @@ func (b *Bucket) GetConsistentView() BucketConsistentView {
 		}).Debug("Waited more than 100ms to obtain a flush lock during get")
 	}
 
+	if stallTraceEnabled {
+		if w := time.Since(beforeFlushLock); w > stallThreshold {
+			StallTracef(beforeFlushLock, "rwait/bucket.flushLock", "wait=%s caller=GetConsistentView", ms(w))
+		}
+	}
 	diskSegments, releaseDiskSegments := b.disk.getConsistentViewOfSegments()
 	return BucketConsistentView{
 		Active:   b.active,
@@ -876,10 +881,27 @@ func (b *Bucket) Exists(key []byte) (bool, error) {
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
+	if stallTraceEnabled {
+		return b.getTraced(key)
+	}
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
 	return b.getWithConsistentView(key, view)
+}
+
+func (b *Bucket) getTraced(key []byte) ([]byte, error) {
+	start := time.Now()
+	view := b.GetConsistentView()
+	gotView := time.Now()
+	defer view.ReleaseView()
+
+	v, err := b.getWithConsistentView(key, view)
+	if total := time.Since(start); total > stallThreshold {
+		StallTracef(start, "bucket.Get", "total=%s view=%s lookup=%s flushing_present=%v segments=%d",
+			ms(total), ms(gotView.Sub(start)), ms(time.Since(gotView)), view.Flushing != nil, len(view.Disk))
+	}
+	return v, err
 }
 
 func (b *Bucket) getWithConsistentView(key []byte, view BucketConsistentView) ([]byte, error) {
@@ -1284,7 +1306,16 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) (err error) 
 	}
 	defer active.decWriterCount()
 
-	return active.put(key, value, opts...)
+	if !stallTraceEnabled {
+		return active.put(key, value, opts...)
+	}
+	gotActive := time.Now()
+	err = active.put(key, value, opts...)
+	if total := time.Since(start); total > stallThreshold {
+		StallTracef(start, "bucket.Put", "total=%s getActive(flushLock.RLock)=%s memtable.put=%s",
+			ms(total), ms(gotActive.Sub(start)), ms(time.Since(gotActive)))
+	}
+	return err
 }
 
 // getActiveMemtableForWrite returns the active memtable and uses reference
@@ -1299,8 +1330,14 @@ func (b *Bucket) getActiveMemtableForWrite() (memtable, error) {
 		return nil, err
 	}
 
+	beforeLock := time.Now()
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
+	if stallTraceEnabled {
+		if w := time.Since(beforeLock); w > stallThreshold {
+			StallTracef(beforeLock, "rwait/bucket.flushLock", "wait=%s caller=getActiveMemtableForWrite", ms(w))
+		}
+	}
 
 	active := b.active
 	active.incWriterCount()
@@ -2275,7 +2312,10 @@ func (b *Bucket) flushFlushingLocked(addSegment func(Segment) error) error {
 	// switched the active memtable already, new writers will go into the
 	// currently active memtable, and existing writers will eventually finish
 	// their work
+	t0 := time.Now()
 	b.waitForZeroWriters(b.flushing)
+	t1 := time.Now()
+	flushingSize := b.flushing.Size()
 
 	if b.flushing.getStrategy() == StrategyInverted {
 		avgPropLength, propLengthCount := b.disk.GetAveragePropertyLength()
@@ -2285,7 +2325,11 @@ func (b *Bucket) flushFlushingLocked(addSegment func(Segment) error) error {
 	if err != nil {
 		return fmt.Errorf("flush: %w", err)
 	}
-	return b.addFlushedSegment(segmentPath, addSegment)
+	t2 := time.Now()
+	err = b.addFlushedSegment(segmentPath, addSegment)
+	stallEventf(t0, "memtable_flush", "total=%s waitZeroWriters=%s write_segment=%s precompute+add=%s size=%d threshold=%d",
+		ms(time.Since(t0)), ms(t1.Sub(t0)), ms(t2.Sub(t1)), ms(time.Since(t2)), flushingSize, b.memtableThreshold)
+	return err
 }
 
 // drainFailedFlush must be called with flushAndSwitchMu held.
@@ -2404,8 +2448,14 @@ func (b *Bucket) addFlushedSegment(segmentPath string, addSegment func(Segment) 
 // This method is agnostic of how a new memtable is constructed, the caller can
 // dependency-inject a function to do so.
 func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (memtable, error)) (bool, error) {
+	beforeLock := time.Now()
 	b.flushLock.Lock()
-	defer b.flushLock.Unlock()
+	acquired := time.Now()
+	defer func() {
+		hold := time.Since(acquired)
+		b.flushLock.Unlock()
+		stallEventf(acquired, "memtable_switch", "flushLock_wait=%s flushLock_hold=%s", ms(acquired.Sub(beforeLock)), ms(hold))
+	}()
 
 	if b.flushing != nil {
 		// Overwriting a leftover flushing memtable would orphan its
@@ -2464,8 +2514,14 @@ func (b *Bucket) waitForZeroWriters(mt memtable) {
 }
 
 func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
+	beforeLock := time.Now()
 	b.flushLock.Lock()
-	defer b.flushLock.Unlock()
+	acquired := time.Now()
+	defer func() {
+		hold := time.Since(acquired)
+		b.flushLock.Unlock()
+		stallEventf(acquired, "segment_add", "flushLock_wait=%s flushLock_hold=%s", ms(acquired.Sub(beforeLock)), ms(hold))
+	}()
 
 	return b.addDiskSegmentAndRemoveFlushingLocked(seg)
 }
