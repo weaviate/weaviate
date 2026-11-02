@@ -201,6 +201,33 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		assert.Equal(t, map[string]vectorIndexRecord{"bar": bar}, records)
 	})
 
+	t.Run("removes the queue under the record's queue ID", func(t *testing.T) {
+		indexPath, shardName := setup(t)
+		shardDir := filepath.Join(indexPath, shardName)
+		require.NoError(t, os.MkdirAll(shardDir, 0o755))
+
+		db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		foo := vectorIndexRecord{PhysicalID: "vectors_foo_2", IndexType: "hnsw", State: "ready", QueueID: "vectors_foo"}
+		bar := vectorIndexRecord{PhysicalID: "vectors_bar", IndexType: "hnsw", State: "ready", QueueID: "vectors_bar"}
+		require.NoError(t, newVectorIndexMapping(db).Initialize(map[string]vectorIndexRecord{"foo": foo, "bar": bar}))
+		require.NoError(t, db.Close())
+
+		commitLog := filepath.Join(shardDir, "vectors_foo_2.hnsw.commitlog.d")
+		queueDir := filepath.Join(shardDir, "vectors_foo.queue.d")
+		barQueueDir := filepath.Join(shardDir, "vectors_bar.queue.d")
+		for _, dir := range []string{commitLog, queueDir, barQueueDir} {
+			require.NoError(t, os.MkdirAll(dir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "chunk-1.bin"), []byte("data"), 0o644))
+		}
+
+		require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, "foo", []string{"bar"}))
+
+		assert.False(t, pathExists(commitLog))
+		assert.False(t, pathExists(queueDir), "the queue the record names goes with the vector")
+		assert.True(t, pathExists(barQueueDir), "a sibling's queue stays")
+	})
+
 	t.Run("leaves the record to a shard that holds the file locked", func(t *testing.T) {
 		indexPath, shardName := setup(t)
 		shardDir := filepath.Join(indexPath, shardName)
