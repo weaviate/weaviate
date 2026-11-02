@@ -28,6 +28,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec errorcompounder.ErrorCompounder) {
@@ -339,8 +340,10 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 		return
 	}
 
+	// a source copy is the only copy until the DONE commits
 	enterrors.GoWrapper(func() {
-		if _, err := m.cluster.UpdateTenantsProcess(ctx, class, &cmd); err != nil {
+		version, err := m.cluster.UpdateTenantsProcess(ctx, class, &cmd)
+		if err != nil {
 			m.logger.WithFields(logrus.Fields{
 				"action":  "update_tenants_process",
 				"error":   err,
@@ -350,26 +353,51 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 			ec.Add(fmt.Errorf("UpdateTenantsProcess error: %w", err))
 			return
 		}
-	}, idx.logger)
-
-	tenantsToBeDeletedFromCloud.Range(func(name, nodeID any) bool {
-		m.logger.WithFields(logrus.Fields{
-			"action":      "deleting_tenant_from_cloud",
-			"name":        class,
-			"node":        nodeID,
-			"currentNode": m.nodeId,
-			"tenant":      name,
-		}).Debug()
-
-		if err := m.cloud.Delete(ctx, class, name.(string), nodeID.(string)); err != nil {
-			// we just logging in case of we are not able to delete the cloud
+		if err := idx.schemaReader.WaitForUpdate(ctx, version); err != nil {
 			m.logger.WithFields(logrus.Fields{
 				"action": "deleting_tenant_from_cloud",
-				"error":  err,
 				"name":   class,
-				"tenant": name,
-			}).Error("deleting")
+			}).Errorf("keeping the source cloud copies: report at version %d not applied: %v", version, err)
+			return
 		}
-		return true
-	})
+
+		tenantsToBeDeletedFromCloud.Range(func(name, nodeID any) bool {
+			logger := m.logger.WithFields(logrus.Fields{
+				"action":      "deleting_tenant_from_cloud",
+				"name":        class,
+				"node":        nodeID,
+				"currentNode": m.nodeId,
+				"tenant":      name,
+			})
+
+			// the read side excludes a freeze uploading to this path, not lookups
+			idx.shardCreateLocks.RLock(name.(string))
+			defer idx.shardCreateLocks.RUnlock(name.(string))
+
+			frozenAgain := false
+			if err := idx.schemaReader.Read(class, false, func(_ *models.Class, state *sharding.State) error {
+				if state == nil {
+					return nil
+				}
+				if phys, ok := state.Physical[name.(string)]; ok {
+					status := phys.ActivityStatus()
+					frozenAgain = status == models.TenantActivityStatusFREEZING || status == models.TenantActivityStatusFROZEN
+				}
+				return nil
+			}); err != nil {
+				logger.Errorf("keeping the source cloud copy: read tenant status: %v", err)
+				return true
+			}
+			if frozenAgain {
+				logger.Warn("keeping the source cloud copy: tenant is frozen again")
+				return true
+			}
+
+			logger.Debug()
+			if err := m.cloud.Delete(ctx, class, name.(string), nodeID.(string)); err != nil {
+				logger.Errorf("deleting: %v", err)
+			}
+			return true
+		})
+	}, idx.logger)
 }
