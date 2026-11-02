@@ -103,8 +103,7 @@ func TestRecoveryReportsEachFaultKindOnce(t *testing.T) {
 	}
 }
 
-// A fault every tenant shares, such as a failing disk, must not log once per
-// shard load, must not hide another kind, and must say how much it dropped.
+// A shared fault must not log once per shard, must not hide another kind, and must report what it dropped.
 func TestRecoveryCapsFaultLinesAcrossShards(t *testing.T) {
 	const dropped = 5
 	logger, hook := logrustest.NewNullLogger()

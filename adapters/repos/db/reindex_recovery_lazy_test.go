@@ -87,8 +87,7 @@ func TestRecoveryRunsWhenAShardLoadsNotAtBoot(t *testing.T) {
 	require.Empty(t, p.cachedReindexTasks(desc, subjects[cold].Key.UnitID))
 }
 
-// The load reconciler promotes a decided flip unless the record says its
-// staged copy missed writes, so recovery's stamp must land first.
+// Recovery's unmirrored stamp must land before the reconciler promotes a decided flip.
 func TestShardLoadStampsAnUnarmableFlipBeforeTheReconcilerPromotesIt(t *testing.T) {
 	const name = "tenant-unbuildable"
 	ctx := testCtx()
@@ -125,8 +124,7 @@ func TestShardLoadStampsAnUnarmableFlipBeforeTheReconcilerPromotesIt(t *testing.
 	require.DirExists(t, filepath.Join(lsm, dirs.Staged), "nothing renamed it over the canonical dir")
 }
 
-// A mirror that fails to arm leaves writes out of the staged copy, so the
-// shard must still serve while the migration can no longer swap that copy in.
+// The shard keeps serving when a mirror fails to arm; only the stale swap is blocked.
 func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) {
 	const name = "tenant-arm-fails"
 	ctx := testCtx()

@@ -56,8 +56,8 @@ func NewMigrationRecoveryReindexer(runtimeReindexEnabled bool, logger logrus.Fie
 	}
 }
 
-// RecoverMigrations reads the records the shard already loaded, and runs before
-// the load reconciler, which must see the unmirrored stamp before it promotes anything.
+// RecoverMigrations must run before the load reconciler, which needs to see
+// the unmirrored stamp before it promotes anything.
 func (r *MigrationRecoveryReindexer) RecoverMigrations(shard *Shard) []*ShardReindexTaskGeneric {
 	return r.remember(r.recoverFromStore(shard.migrationRecords, shard.Name()))
 }
