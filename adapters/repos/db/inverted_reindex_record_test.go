@@ -1782,10 +1782,16 @@ func TestAdoptingArrivedRecordsRenamesOnlyTheSourcesSoleClaim(t *testing.T) {
 		return newMigrationRecordAt(t, subject, state)
 	}
 	fileOf := func(node string) string { return recordOf(node, MigrationStateSwapped).Subject().Key.fileName() }
+	withoutCollection := func(node string) MigrationRecord {
+		subject := recordOf(node, MigrationStateMerged).Subject()
+		subject.Collection = ""
+		return NewMigrationRecordMerged(subject)
+	}
 
 	tests := []struct {
 		name       string
 		present    []MigrationRecord
+		raw        []MigrationRecord // files the reader accepts but the writer refuses
 		unreadable bool
 		want       []string
 		// the state of the one record the shard's load serves, if any
@@ -1815,6 +1821,11 @@ func TestAdoptingArrivedRecordsRenamesOnlyTheSourcesSoleClaim(t *testing.T) {
 			want:       []string{unreadableRecordFile, fileOf(source)},
 		},
 		{
+			name: "a source record the writer refuses stays set aside",
+			raw:  []MigrationRecord{withoutCollection(source)},
+			want: []string{fileOf(source)},
+		},
+		{
 			name:     "a crash between the write and the removal resumes the rename",
 			present:  []MigrationRecord{recordOf(source, MigrationStateSwapped), recordOf(node, MigrationStateSwapped)},
 			want:     []string{fileOf(node)},
@@ -1832,14 +1843,25 @@ func TestAdoptingArrivedRecordsRenamesOnlyTheSourcesSoleClaim(t *testing.T) {
 			for _, rec := range tt.present {
 				require.NoError(t, writer.Put(rec))
 			}
+			for _, rec := range tt.raw {
+				writeRawMigrationRecord(t, writer, rec.toEnvelope())
+			}
 			if tt.unreadable {
 				plantUnreadableRecord(t, writer.Dir())
 			}
+			sourcePath := filepath.Join(writer.Dir(), fileOf(source))
+			sourceBefore, err := os.ReadFile(sourcePath)
+			require.NoError(t, err)
 
 			refusal, err := AdoptArrivedMigrationRecords(indexPath, shard, node, source)
 			require.NoError(t, err)
 			require.Equal(t, slices.Contains(tt.want, fileOf(source)), refusal != "",
 				"a refusal is reported exactly when the source's records stay: %q", refusal)
+			if refusal != "" {
+				sourceAfter, err := os.ReadFile(sourcePath)
+				require.NoError(t, err)
+				require.Equal(t, sourceBefore, sourceAfter, "a record set aside is left as it arrived")
+			}
 
 			entries, err := os.ReadDir(writer.Dir())
 			require.NoError(t, err)

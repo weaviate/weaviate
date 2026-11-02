@@ -328,9 +328,13 @@ func (s *MigrationRecordStore) adoptUnit(source string) (refusal string, err err
 		}
 		env := rec.toEnvelope()
 		env.Subject.Key.UnitID = s.unitID
-		if renamed[key], err = encodeMigrationEnvelope(env); err != nil {
-			return "", fmt.Errorf("rename migration record %q: %w", key, err)
+		data, encodeErr := encodeMigrationEnvelope(env)
+		if encodeErr != nil {
+			// The reader accepts files the writer refuses. Failing here would
+			// fail every copy of this shard, so the records stay set aside.
+			return fmt.Sprintf("record %q cannot be renamed: %v", key, encodeErr), nil
 		}
+		renamed[key] = data
 	}
 	if len(renamed) == 0 {
 		return "", nil
@@ -366,8 +370,8 @@ func (s *MigrationRecordStore) adoptUnit(source string) (refusal string, err err
 			return "", fmt.Errorf("remove migration record %q: %w", key, err)
 		}
 	}
-	// A crash before this sync resumes on the next adoption, which finds the
-	// record already renamed.
+	// A crash before this sync fails the copy; its retry re-downloads the
+	// source's records and adopts them again.
 	if err := diskio.Fsync(s.dir); err != nil {
 		return "", fmt.Errorf("publish the removal of the records of unit %q: %w", source, err)
 	}
