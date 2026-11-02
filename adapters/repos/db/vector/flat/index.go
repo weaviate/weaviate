@@ -488,6 +488,10 @@ func (index *flat) deleteFromBuckets(idBytes []byte) error {
 	return compressed.Delete(idBytes)
 }
 
+// maxPresizedRescoreCandidates caps the heap capacity a quantized search
+// allocates up front, whatever its rescore budget.
+const maxPresizedRescoreCandidates = 1024
+
 // searchTimeRescore returns how many of the best candidates by compressed
 // distance a quantized search rescores: max(k, rescoreLimit,
 // ceil(k * rescoreFactor)). The policy is loaded atomically, so config updates
@@ -549,7 +553,9 @@ func (index *flat) searchByVectorQuantized(ctx context.Context, vector []float32
 
 	// TODO: pass context into inner methods, so it can be checked more granuarly
 	rescore := index.searchTimeRescore(k)
-	heap := index.pqResults.GetMax(rescore)
+	// the budget only bounds how many candidates are kept and can far exceed
+	// the index, so presize for a typical search and let the heap grow
+	heap := index.pqResults.GetMax(min(rescore, maxPresizedRescoreCandidates))
 	defer index.pqResults.Put(heap)
 
 	vector = index.normalized(vector)
