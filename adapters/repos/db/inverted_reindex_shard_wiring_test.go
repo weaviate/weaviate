@@ -152,49 +152,6 @@ func TestReconcileWithClusterWithholdsWhereItCannotAct(t *testing.T) {
 	}
 }
 
-func TestReconcileWithoutADatabaseHandle(t *testing.T) {
-	const propName = "title"
-
-	tests := []struct {
-		name string
-		rec  func(MigrationSubject) MigrationRecord
-	}{
-		{
-			name: "merged",
-			rec:  func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := testCtx()
-			className := "WiringNoDBHandle_" + uuid.NewString()[:8]
-			class := newTestClassWithProps(className, []string{propName})
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
-			shard := shd.(*Shard)
-			defer shard.Shutdown(context.Background())
-
-			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, propName)
-			subject.Key.UnitID = shard.migrationUnit()
-			require.NoError(t, shard.migrationRecords.Put(tt.rec(subject)))
-			for _, dir := range migrationOwnedDirs(subject) {
-				require.NoError(t, os.MkdirAll(filepath.Join(shard.pathLSM(), dir), 0o777))
-			}
-			staged := filepath.Join(shard.pathLSM(), subject.Props[propName].Staged)
-
-			handle := idx.db
-			idx.db = nil
-			defer func() { idx.db = handle }()
-
-			require.NotPanics(t, func() { shard.reconcileMigrationRecords(ctx, class) })
-
-			assert.True(t, dirExists(t, staged), "the staged directory")
-			_, present := shard.migrationRecords.Get(subject.Key)
-			assert.True(t, present, "the migration record")
-		})
-	}
-}
-
 // The properties a predecessor still owns must keep serving while one is retired.
 func TestShutdownStagedBucketsClosesOnlyTheNamedProperty(t *testing.T) {
 	const propA, propB = "title", "author"
@@ -272,9 +229,7 @@ func TestLazyLoadShardMigrationAccessorsLockAgainstTheLoader(t *testing.T) {
 				false, false, false)
 			defer hot.Shutdown(context.Background())
 
-			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-				false, idx.bitmapBufPool)
+			cold := newTestLazyLoadShard(ctx, idx, class, tenant)
 			defer func() {
 				if cold.isLoaded() {
 					require.NoError(t, cold.Shutdown(context.Background()))

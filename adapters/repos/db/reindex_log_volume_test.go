@@ -136,30 +136,54 @@ func TestRecoveryWalkReportsEachFaultKindOnce(t *testing.T) {
 	}
 }
 
-// The apply's sweep summary must print: record_set_reads is where a
-// once-per-shard regression shows up.
-func TestUpdatePropertySummaryCountsRecordSetReads(t *testing.T) {
-	ctx := testCtx()
-	className := "SweepSummaryRecordReads_" + uuid.NewString()[:8]
-	class := newTestClassWithProps(className, []string{"title"})
+// Built once per shard: once per index type would multiply disk cost per
+// tenant, and a cancelled apply must skip it entirely.
+func TestUpdatePropertyReadsEachShardsRecordsAtMostOnce(t *testing.T) {
+	tests := []struct {
+		name      string
+		cancelled bool
+		wantReads []int64
+	}{
+		{name: "one read for the shard, whatever the index-type count", wantReads: []int64{1}},
+		{name: "a cancelled apply reads nothing", cancelled: true},
+	}
 
-	logger, hook := logrustest.NewNullLogger()
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false, func(i *Index) { i.logger = logger })
-	shard := shd.(*Shard)
-	defer shard.Shutdown(context.Background())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "SweepSummaryRecordReads_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{"title"})
 
-	prop := class.Properties[0]
-	off := false
-	prop.IndexFilterable = &off
-	prop.IndexSearchable = &off
-	prop.IndexRangeFilters = &off
+			logger, hook := logrustest.NewNullLogger()
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false, func(i *Index) { i.logger = logger })
+			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
 
-	hook.Reset()
-	require.NoError(t, idx.updateProperty(ctx, prop))
+			prop := class.Properties[0]
+			off := false
+			prop.IndexFilterable = &off
+			prop.IndexSearchable = &off
+			prop.IndexRangeFilters = &off
+			require.Greater(t, len(disabledIndexTypes(prop)), 1,
+				"the property must sweep several index types or this pins nothing")
 
-	about := entriesAbout(hook, "partial-reindex cleanup: migration dirs swept for disabled index types")
-	require.Len(t, about, 1, "one summary line for the apply: %v", linesOf(about))
-	require.GreaterOrEqual(t, about[0].Data["record_set_reads"], int64(1),
-		"the summary reports the record-set read the sweep still paid")
+			applyCtx := ctx
+			if tt.cancelled {
+				var cancel context.CancelFunc
+				applyCtx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+
+			hook.Reset()
+			err := idx.updateProperty(applyCtx, prop)
+			require.Equal(t, tt.cancelled, err != nil, "update error: %v", err)
+
+			var reads []int64
+			for _, entry := range entriesAbout(hook, "partial-reindex cleanup: migration dirs swept for disabled index types") {
+				reads = append(reads, entry.Data["record_set_reads"].(int64))
+			}
+			require.Equal(t, tt.wantReads, reads)
+		})
+	}
 }

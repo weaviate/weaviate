@@ -18,8 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -103,38 +101,4 @@ func TestMirrorStragglerNeverWritesIntoLiveData(t *testing.T) {
 					"denotes live source-form data, not this migration's copy")
 		})
 	}
-}
-
-func TestTheMirrorRefusesAStagedNameItDidNotArmOn(t *testing.T) {
-	ctx := testCtx()
-	className := "MirrorStagedIdentity_" + uuid.NewString()[:8]
-	class := newTestClassWithProps(className, []string{"title"})
-	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
-
-	const staged = "property_title_searchable__retokenize_ingest_1"
-	require.NoError(t, shard.store.CreateOrLoadBucket(ctx, staged,
-		shard.makeDefaultBucketOptions(lsmkv.StrategyInverted)...))
-	live := shard.store.Bucket(staged)
-	require.NotNil(t, live)
-
-	namer := func(string) string { return staged }
-	prop := &inverted.Property{Name: "title"}
-	armed := armedMirror{
-		props:   map[string]struct{}{"title": {}},
-		buckets: map[string]*lsmkv.Bucket{"title": live},
-	}
-
-	got, _, skip := resolveScopedDoubleWriteBucket(shard, prop, armed,
-		namer, helpers.BucketSearchableFromPropNameLSM)
-	require.False(t, skip, "a mirror still aimed at the bucket it armed on writes into it")
-	require.Same(t, live, got)
-
-	armed.buckets["title"] = &lsmkv.Bucket{}
-	_, _, skip = resolveScopedDoubleWriteBucket(shard, prop, armed,
-		namer, helpers.BucketSearchableFromPropNameLSM)
-	require.True(t, skip,
-		"the staged name now denotes another migration's bucket, and this mirror's rows do not belong in it")
 }

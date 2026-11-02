@@ -14,6 +14,7 @@ package reindex_singlenode
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +23,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/acceptance/helpers/reindexrecords"
@@ -134,4 +137,33 @@ func opaqueMigrationSubject(t *testing.T, staged, shardName string) db.Migration
 			Canonical: handles.Canonical,
 		}},
 	}
+}
+
+// findShardPathInContainer returns the shard dir (/data/<class>/<uuid>), not
+// the lsm subdir within it.
+func findShardPathInContainer(t *testing.T, container testcontainers.Container, class string) string {
+	t.Helper()
+	ctx := context.Background()
+
+	classDir := fmt.Sprintf("/data/%s", strings.ToLower(class))
+	code, reader, err := container.Exec(ctx, []string{"ls", "-1", classDir}, tcexec.Multiplexed())
+	require.NoError(t, err)
+	require.Zero(t, code, "ls %s must succeed", classDir)
+
+	out, _ := io.ReadAll(reader)
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Anything non-shard would be a file like backups.db; shards are dirs
+		// with UUID names. Use the first directory entry.
+		probe := classDir + "/" + line + "/lsm"
+		code, _, err := container.Exec(ctx, []string{"test", "-d", probe})
+		if err == nil && code == 0 {
+			return classDir + "/" + line
+		}
+	}
+	t.Fatalf("could not locate shard dir for class %s under %s", class, classDir)
+	return ""
 }

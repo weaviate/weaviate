@@ -42,9 +42,7 @@ func TestTerminalCleanupSettlesTheTasksRecordsOnTheShardsItHolds(t *testing.T) {
 	defer loadedA.Shutdown(context.Background())
 
 	lazyShard := func(name string) *LazyLoadShard {
-		lazy := NewLazyLoadShard(ctx, nil, name, idx, class, idx.centralJobQueue,
-			idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-			false, idx.bitmapBufPool)
+		lazy := newTestLazyLoadShard(ctx, idx, class, name)
 		idx.shards.Store(name, lazy)
 		t.Cleanup(func() {
 			if lazy.isLoaded() {

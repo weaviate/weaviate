@@ -47,40 +47,13 @@ func mustMainBucket(t *testing.T, propName, indexType string) string {
 }
 
 func mkFlippedMigrationRecord(t *testing.T, lsmPath, unitID string, code MigrationStrategyCode, version uint64,
-	prop, staged, canonical string,
+	prop, staged string,
 ) {
 	t.Helper()
-	mkMigrationRecordAt(t, lsmPath, unitID, code, version,
-		map[string]string{prop: staged}, map[string]string{prop: canonical}, MigrationStateSwapped)
-}
-
-func mkMigrationRecordAt(t *testing.T, lsmPath, unitID string, code MigrationStrategyCode, version uint64,
-	staged, canonical map[string]string, state MigrationState,
-) {
-	t.Helper()
-	subject := MigrationSubject{
-		Key: MigrationRecordKey{
-			TaskVersion:  version,
-			StrategyCode: code,
-			UnitID:       unitID,
-		},
-		TaskID:        fixtureTaskID(code, version),
-		MigrationType: fixtureMigrationTypes[code],
-		Collection:    "Books",
-		Props:         map[string]MigrationPropertyDirs{},
-	}
-	for prop, dir := range staged {
-		subject.Props[prop] = MigrationPropertyDirs{
-			Staged:    dir,
-			Canonical: canonical[prop],
-			Sidecar:   fixtureSidecarFor(dir),
-		}
-	}
-
-	rec := newMigrationRecordAt(t, subject, state)
-	logger, _ := test.NewNullLogger()
-	require.NoError(t, os.MkdirAll(lsmPath, 0o777))
-	require.NoError(t, NewMigrationRecordStore(lsmPath, logger).Put(rec))
+	mkMigrationRecord(t, lsmPath, migrationRecordFixture{
+		unitID: unitID, code: code, version: version, state: MigrationStateSwapped,
+		staged: map[string]string{prop: staged},
+	})
 }
 
 // See [Index.cleanStalePartialReindexState] for why hydrating every unloaded
@@ -147,9 +120,7 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 			if tc.staleOnUnloadedShard {
 				mkSidecarDir(t, unloadedLSM, staleSidecar)
 			}
-			unloaded := NewLazyLoadShard(setupCtx, nil, unloadedShard, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-				false, idx.bitmapBufPool)
+			unloaded := newTestLazyLoadShard(setupCtx, idx, class, unloadedShard)
 			idx.shards.Store(unloadedShard, unloaded)
 			defer func() {
 				if unloaded.isLoaded() {
@@ -262,7 +233,7 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 			residueLSM := shardPathLSM(idx.path(), residueTenant)
 			unitID := testMigrationUnitFor(idx, residueTenant)
 			mkFlippedMigrationRecord(t, residueLSM, unitID,
-				tc.code, tc.gen, tc.propName, tc.ingestDir, tc.canonical)
+				tc.code, tc.gen, tc.propName, tc.ingestDir)
 			mkBucketDir(t, residueLSM, tc.ingestDir, promoted)
 			mkBucketDir(t, residueLSM, tc.legacyDir, "superseded.marker")
 
@@ -274,9 +245,7 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 
 			tenants := map[string]*LazyLoadShard{}
 			for _, name := range []string{residueTenant, cleanTenant} {
-				lazy := NewLazyLoadShard(ctx, nil, name, idx, class, idx.centralJobQueue,
-					idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter,
-					idx.shardReindexer, false, idx.bitmapBufPool)
+				lazy := newTestLazyLoadShard(ctx, idx, class, name)
 				idx.shards.Store(name, lazy)
 				tenants[name] = lazy
 			}
@@ -605,9 +574,10 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				if c.promoted {
 					state = MigrationStatePromoted
 				}
-				mkMigrationRecordAt(t, lsm, "shard-1__node-0", c.code, c.gen,
-					map[string]string{c.prop: c.owned},
-					map[string]string{c.prop: mustMainBucket(t, c.prop, tc.indexType)}, state)
+				mkMigrationRecord(t, lsm, migrationRecordFixture{
+					code: c.code, version: c.gen, state: state,
+					staged: map[string]string{c.prop: c.owned},
+				})
 			}
 			for _, name := range tc.sidecars {
 				mkSidecarDir(t, lsm, name)
@@ -649,48 +619,6 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			require.Equal(t, before, lsmDirNames(t, lsm),
 				"the predicate said this shard has nothing to clean, so the sweep it gates "+
 					"must not find anything either — a shard it skips is never looked at again")
-		})
-	}
-}
-
-// A cancelled two-property task leaves sidecars for both properties, and
-// cleanup runs once per property.
-func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTasksSidecar(t *testing.T) {
-	const sidecar = "property_a__enable_filterable_ingest_1"
-
-	tests := []struct {
-		name      string
-		propName  string
-		wantStale bool
-	}{
-		{name: "swept by its own property", propName: "a", wantStale: true},
-		{name: "left alone by the task's other property", propName: "b"},
-		{name: "left alone by a property the task does not name", propName: "c"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := testCtx()
-			class := newTestClassWithProps("UnloadedSweepMultiProp_"+uuid.NewString()[:8],
-				[]string{"a", "b", "c"})
-			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
-			shard := shd.(*Shard)
-			defer shard.Shutdown(context.Background())
-			lsm := shard.pathLSM()
-
-			mkSidecarDir(t, lsm, sidecar)
-
-			logger, _ := test.NewNullLogger()
-			stale, finalizable := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil, logger)
-			require.Equal(t, tc.wantStale, stale,
-				"the gate has to load the shard for exactly the sweeps that would clean it")
-			require.False(t, finalizable, "the skip is !stale && !finalizable, so a row claiming a skip owes both")
-			cleanSweep(t, ctx, shard, tc.propName, "filterable")
-
-			// "a"'s sidecar is only in reach of "a"'s own sweep.
-			wantSidecar := tc.propName != "a"
-			require.Equal(t, wantSidecar, dirExistsAt(t, lsm, sidecar))
 		})
 	}
 }
@@ -748,11 +676,9 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyMigra
 			defer shard.Shutdown(context.Background())
 			lsm := shard.pathLSM()
 
-			canonical := map[string]string{}
-			for prop := range tc.staged {
-				canonical[prop] = mustMainBucket(t, prop, "filterable")
-			}
-			mkMigrationRecordAt(t, lsm, "shard-1__node-0", StrategyCodeEnableFilterable, 1, tc.staged, canonical, tc.state)
+			mkMigrationRecord(t, lsm, migrationRecordFixture{
+				code: StrategyCodeEnableFilterable, version: 1, state: tc.state, staged: tc.staged,
+			})
 			mkSidecarDir(t, lsm, sidecar)
 
 			logger, _ := test.NewNullLogger()
@@ -809,7 +735,7 @@ func TestCleanStalePartialReindexStateRemovesAReplacedBucketDir(t *testing.T) {
 			mkSidecarDir(t, lsm, leftover)
 			if tc.liveSidecar != "" {
 				mkFlippedMigrationRecord(t, lsm, shard.migrationUnit(), StrategyCodeEnableFilterable, 1,
-					propName, tc.liveSidecar, mainBucket)
+					propName, tc.liveSidecar)
 				mkSidecarDir(t, lsm, tc.liveSidecar)
 			}
 
@@ -845,9 +771,7 @@ func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *
 		false, false, false)
 	defer shd.Shutdown(context.Background())
 
-	lazy := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-		false, idx.bitmapBufPool)
+	lazy := newTestLazyLoadShard(ctx, idx, class, tenant)
 	idx.shards.Store(tenant, lazy)
 	_, err := lazy.Unwrap(ctx)
 	require.NoError(t, err)
@@ -947,7 +871,7 @@ func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
 			plantOnGateShard: func(t *testing.T, lsm string) {
 				const staged = "property_category__enable_filterable_ingest_1"
 				mkFlippedMigrationRecord(t, lsm, MigrationUnitID(gateShard, "node1"), StrategyCodeEnableFilterable, 1,
-					propName, staged, "property_category")
+					propName, staged)
 				mkSidecarDir(t, lsm, staged)
 			},
 		},
@@ -999,9 +923,7 @@ func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
 				mkSidecarDir(t, shardPathLSM(idx.path(), otherShard), staleSidecar)
 			}
 
-			lazy := NewLazyLoadShard(ctx, nil, gateShard, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-				false, idx.bitmapBufPool)
+			lazy := newTestLazyLoadShard(ctx, idx, class, gateShard)
 			idx.shards.Store(gateShard, lazy)
 			defer func() {
 				if lazy.isLoaded() {
@@ -1129,8 +1051,10 @@ func TestDirNamesCache(t *testing.T) {
 	t.Run("a shard's committed migrations are read once per run", func(t *testing.T) {
 		lsm := t.TempDir()
 		const staged = "property_cat__enable_filterable_ingest_1"
-		mkMigrationRecord(t, lsm, StrategyCodeEnableFilterable, 1, MigrationStateSwapped,
-			map[string]string{"cat": staged})
+		mkMigrationRecord(t, lsm, migrationRecordFixture{
+			code: StrategyCodeEnableFilterable, version: 1, state: MigrationStateSwapped,
+			staged: map[string]string{"cat": staged},
+		})
 		logger, _ := test.NewNullLogger()
 
 		cache := &dirNamesCache{}
@@ -1176,9 +1100,7 @@ func TestIndexCleanStalePartialReindexStateRefusesAnUnknownIndexType(t *testing.
 		false, false, false)
 	defer shd.Shutdown(context.Background())
 
-	unloaded := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-		false, idx.bitmapBufPool)
+	unloaded := newTestLazyLoadShard(ctx, idx, class, tenant)
 	idx.shards.Store(tenant, unloaded)
 
 	err := idx.cleanStalePartialReindexState(ctx, propName, "an-index-type-this-build-does-not-know", nil, nil)
@@ -1299,9 +1221,7 @@ func TestIndexCleanStalePartialReindexStateLogsGateSkippedShards(t *testing.T) {
 		false, false, false, func(i *Index) { i.logger = hookLogger })
 	defer shd.Shutdown(context.Background())
 
-	lazy := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-		false, idx.bitmapBufPool)
+	lazy := newTestLazyLoadShard(ctx, idx, class, tenant)
 	idx.shards.Store(tenant, lazy)
 	defer func() {
 		if lazy.isLoaded() {

@@ -1063,10 +1063,9 @@ function run_acceptance_reindex_singlenode_a() {
   # Profiled locally on M4 (race detector on): TestSingleNode_ReindexSuite
   # totals 265s, dominated by /PropertyStateMigrationMatrix at 128s
   # (~half the suite). Isolating PSMM to -singlenode-b gives this
-  # sub-shard ~137s of suite work + the 5 standalone Test* funcs
+  # sub-shard ~137s of suite work + the 4 standalone Test* funcs
   # (TestCancelThenRetry, TestRestartDuringSwap,
   # TestSingleNode_FinishedStatusRaceWithSchemaFlag,
-  # TestTornResume_StandaloneSmoke,
   # TestRebuiltIndexSurvivesShardLoadsWhileTheIndexIsOff), totalling
   # ~3 min local → ~7-8 min CI.
   #

@@ -57,8 +57,11 @@ func TestSwapPhaseLoadsTheShardBeforeClaimingItsUnit(t *testing.T) {
 	defer hot.Shutdown(context.Background())
 
 	tenantLSM := shardPathLSM(idx.path(), tenant)
-	subject := mkMigrationRecordFor(t, tenantLSM, StrategyCodeSearchableRetokenize, "T_swap", 1, unitID,
-		ReindexTypeChangeTokenization, MigrationStateSwapped, prop)
+	subject := mkMigrationRecord(t, tenantLSM, migrationRecordFixture{
+		unitID: unitID, taskID: "T_swap", migrationType: ReindexTypeChangeTokenization,
+		code: StrategyCodeSearchableRetokenize, version: 1, state: MigrationStateSwapped,
+		staged: map[string]string{prop: "property_" + prop + "__ingest_1"},
+	})
 
 	staged := subject.Props[prop].Staged
 	canonical := "property_" + prop + "_searchable"
@@ -66,9 +69,7 @@ func TestSwapPhaseLoadsTheShardBeforeClaimingItsUnit(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tenantLSM, staged, "promoted.marker"), []byte(staged), 0o600))
 	require.NoDirExists(t, filepath.Join(tenantLSM, canonical))
 
-	cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-		false, idx.bitmapBufPool)
+	cold := newTestLazyLoadShard(ctx, idx, class, tenant)
 	idx.shards.Store(tenant, cold)
 	defer func() {
 		if cold.isLoaded() {

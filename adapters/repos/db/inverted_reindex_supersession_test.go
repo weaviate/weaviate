@@ -595,20 +595,19 @@ func TestUnretiredSupersededPropertiesReportOncePerRecord(t *testing.T) {
 	require.Equal(t, MigrationStateSwapped, state,
 		"an unretired superseded property keeps the record short of Promoted")
 
-	require.Equal(t, 1, countWarnsContaining(f, "still hold their staged directory"),
+	countWarnsContaining := func(want string) int {
+		n := 0
+		for _, entry := range f.logs.AllEntries() {
+			if entry.Level == logrus.WarnLevel && strings.Contains(entry.Message, want) {
+				n++
+			}
+		}
+		return n
+	}
+	require.Equal(t, 1, countWarnsContaining("still hold their staged directory"),
 		"one line for the record, whatever the property count")
 	for _, prop := range taken {
-		require.Equal(t, 1, countWarnsContaining(f, prop),
+		require.Equal(t, 1, countWarnsContaining(prop),
 			"the single line still names every property it is about")
 	}
-}
-
-func countWarnsContaining(f *reconcileFixture, want string) int {
-	n := 0
-	for _, entry := range f.logs.AllEntries() {
-		if entry.Level == logrus.WarnLevel && strings.Contains(entry.Message, want) {
-			n++
-		}
-	}
-	return n
 }

@@ -132,9 +132,7 @@ func unloadedShardOfASuspendedNamespace(t *testing.T) (*Index, string) {
 	require.NoError(t, os.MkdirAll(lsm, 0o777))
 	logger, _ := logrustest.NewNullLogger()
 	require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordIterated(subject)))
-	idx.shards.Store(tenant, NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-		false, idx.bitmapBufPool))
+	idx.shards.Store(tenant, newTestLazyLoadShard(ctx, idx, class, tenant))
 	idx.namespace, idx.namespacesExister = "alpha", existerWithState(t, api.NamespaceStateSuspended)
 	return idx, tenant
 }

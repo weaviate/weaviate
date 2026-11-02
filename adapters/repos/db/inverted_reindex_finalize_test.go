@@ -67,18 +67,11 @@ type plantedMigration struct {
 	code        MigrationStrategyCode
 	prop        string
 	state       MigrationState
-	canonical   string
 	running     bool
 }
 
 func (p plantedMigration) subject() MigrationSubject {
-	subject := testMigrationSubject(p.taskVersion, p.code, p.prop)
-	if p.canonical != "" {
-		dirs := subject.Props[p.prop]
-		dirs.Canonical = p.canonical
-		subject.Props[p.prop] = dirs
-	}
-	return subject
+	return testMigrationSubject(p.taskVersion, p.code, p.prop)
 }
 
 func (p plantedMigration) record(t *testing.T) MigrationRecord {

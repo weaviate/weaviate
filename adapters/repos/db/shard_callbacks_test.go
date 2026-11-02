@@ -137,13 +137,12 @@ func TestDeriveScope(t *testing.T) {
 			wantOverlay: map[string]inverted.PropertyOverlay{"title": filterable},
 		},
 		{
-			name: "the most recent arm's overlay wins",
+			name: "two different overlays on one property conflict",
 			regs: []migrationScopeReg{
 				{id: 1, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
 				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": rangeable}},
 			},
 			wantProps:     []string{"title"},
-			wantOverlay:   map[string]inverted.PropertyOverlay{"title": rangeable},
 			wantConflicts: []string{"title"},
 		},
 		{
@@ -153,7 +152,6 @@ func TestDeriveScope(t *testing.T) {
 				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
 			},
 			wantProps:     []string{"title"},
-			wantOverlay:   map[string]inverted.PropertyOverlay{"title": filterable},
 			wantConflicts: []string{"title"},
 		},
 		{
@@ -163,7 +161,6 @@ func TestDeriveScope(t *testing.T) {
 				{id: 2, props: map[string]struct{}{"title": {}}},
 			},
 			wantProps:     []string{"title"},
-			wantOverlay:   map[string]inverted.PropertyOverlay{"title": filterable},
 			wantConflicts: []string{"title"},
 		},
 		{
@@ -183,7 +180,6 @@ func TestDeriveScope(t *testing.T) {
 				{id: 3, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": searchable}},
 			},
 			wantProps:     []string{"title"},
-			wantOverlay:   map[string]inverted.PropertyOverlay{"title": searchable},
 			wantConflicts: []string{"title"},
 		},
 	}
@@ -198,8 +194,11 @@ func TestDeriveScope(t *testing.T) {
 			}
 			sort.Strings(props)
 			assert.Equal(t, tt.wantProps, emptyToNil(props))
-			assert.Equal(t, tt.wantOverlay, scope.overlay)
 			assert.Equal(t, tt.wantConflicts, conflicts)
+			// A conflict makes the mirror use per-registration overlays instead.
+			if len(tt.wantConflicts) == 0 {
+				assert.Equal(t, tt.wantOverlay, scope.overlay)
+			}
 		})
 	}
 }

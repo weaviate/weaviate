@@ -180,6 +180,7 @@ func TestResolveScopedDoubleWriteBucket(t *testing.T) {
 		create       []string
 		swap         bool
 		shutdownName string
+		armedOnOther bool
 		propsByName  map[string]struct{}
 		wantBucket   string
 		wantSkip     bool
@@ -215,6 +216,13 @@ func TestResolveScopedDoubleWriteBucket(t *testing.T) {
 			propsByName:  map[string]struct{}{propName: {}},
 			wantSkip:     true,
 		},
+		{
+			name:         "the sidecar name now denotes a bucket this mirror did not arm on",
+			create:       []string{sidecarName, canonicalName},
+			armedOnOther: true,
+			propsByName:  map[string]struct{}{propName: {}},
+			wantSkip:     true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -234,6 +242,9 @@ func TestResolveScopedDoubleWriteBucket(t *testing.T) {
 			armed := armedMirror{
 				props:   tt.propsByName,
 				buckets: map[string]*lsmkv.Bucket{propName: shard.store.Bucket(sidecarName)},
+			}
+			if tt.armedOnOther {
+				armed.buckets[propName] = &lsmkv.Bucket{}
 			}
 
 			if tt.swap {

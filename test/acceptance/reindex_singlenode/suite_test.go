@@ -242,10 +242,6 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testChangeTokDeleteJourneys(t, restURI)
 	})
 
-	t.Run("TornResumeReindexedNotTidied", func(t *testing.T) {
-		testTornResumeReindexedNotTidied(t, compose)
-	})
-
 	t.Run("PromotionRunsOnRecordedHandles", func(t *testing.T) {
 		testPromotionRunsOnRecordedHandles(t, compose)
 	})

@@ -17,9 +17,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
+	"github.com/weaviate/weaviate/test/docker"
 )
 
 // TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency asserts
@@ -209,12 +211,7 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 		return map[string]interface{}{"path": paths[i%len(paths)]}
 	})
 
-	// Pre-migration baseline.
-	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-		got, err := equalCount(restURIOf(compose, nodeIdx), className, "path", paths[0])
-		require.NoError(t, err)
-		require.Equalf(t, expectedPathCount, got, "pre-migration node %d", nodeIdx)
-	}
+	requireEveryReplicaServes(t, compose, className, "path", paths[0], expectedPathCount, "pre-migration")
 
 	uri := restURIOf(compose, 1)
 	taskID := reindexhelpers.SubmitIndexUpsert(t, uri, className, "path", "searchable",
@@ -223,10 +220,9 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 
 	observed := awaitReindexReachedFinalizing(t, uri, taskID)
 	t.Logf("task %s reached %s — killing node 3 ungracefully inside this window", taskID, observed)
-	if observed == "FINISHED" {
-		t.Logf("WARNING: FINALIZING window already closed; ack-barrier crash-path not stressed. " +
-			"Consider increasing totalObjects to widen the window.")
-	}
+	require.Equalf(t, "PREPARING", observed,
+		"the merged window closed before the kill, so the scenario never ran; "+
+			"raise totalObjects (currently %d) to widen it", totalObjects)
 
 	// SIGKILL + restart node 3 — k8s OOM / node-hardware-failure shape.
 	t.Log("SIGKILL + restart node 3")
@@ -236,25 +232,11 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 	// could already have committed before the kill, leaving node 3
 	// with divergent on-disk state on restart — the per-replica
 	// histogram below would catch that.
-	reindexhelpers.AwaitReindexFinished(t, restURIOf(compose, 1), taskID, reindexhelpers.WithTimeout(180*time.Second))
+	reindexhelpers.AwaitReindexFinished(t, restURIOf(compose, 1), taskID, reindexhelpers.WithTimeout(240*time.Second))
 	t.Log("task FINISHED post-kill-and-restart")
 
-	// Poll until every replica converges to expectedPathCount, then sample
-	// stability below. AwaitReindexFinished only confirms node-1; the
-	// SIGKILL'd-and-restarted node may still be loading buckets
-	// (reconciliation). A node that never converges fails here
-	// loudly instead of being slept past.
-	require.Eventually(t, func() bool {
-		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-			got, err := equalCount(restURIOf(compose, nodeIdx), className, "path", paths[0])
-			if err != nil || got != expectedPathCount {
-				return false
-			}
-		}
-		return true
-	}, 60*time.Second, 50*time.Millisecond,
-		"per-replica path count never converged to %d on all 3 replicas after SIGKILL during FINALIZING",
-		expectedPathCount)
+	// AwaitReindexFinished only confirms node-1; the restarted node may still be reconciling.
+	requireEveryReplicaServes(t, compose, className, "path", paths[0], expectedPathCount, "after the task finished")
 
 	const pollsPerReplica = 30
 	histogram := make(map[string]map[int]int)
@@ -289,5 +271,26 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 			msg += fmt.Sprintf("\n  %s: %v", nodeKey, histogram[nodeKey])
 		}
 		t.Fatal(msg)
+	}
+
+	rollingRestartCluster(ctx, t, compose)
+	requireEveryReplicaServes(t, compose, className, "path", paths[0], expectedPathCount, "after a second restart")
+	awaitTokenizationOnAllNodes(t, compose, className, "path", "field")
+}
+
+func requireEveryReplicaServes(t *testing.T, compose *docker.DockerCompose,
+	className, propName, value string, want int, phase string,
+) {
+	t.Helper()
+	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+		node := nodeIdx
+		require.EventuallyWithTf(t, func(ct *assert.CollectT) {
+			got, err := equalCount(restURIOf(compose, node), className, propName, value)
+			if !assert.NoErrorf(ct, err, "node %d could not be queried", node) {
+				return
+			}
+			assert.Equalf(ct, want, got, "node %d serves the wrong count for %s=%q", node, propName, value)
+		}, 90*time.Second, 200*time.Millisecond,
+			"node %d must serve %d objects for %s=%q %s", node, want, propName, value, phase)
 	}
 }
