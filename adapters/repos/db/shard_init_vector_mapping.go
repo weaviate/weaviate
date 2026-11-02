@@ -54,6 +54,16 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 		delete(records, name)
 	}
 
+	// two consumers of one queue would each take the other's work
+	queues := make(map[string]string, len(records))
+	for _, name := range slices.Sorted(maps.Keys(records)) {
+		queueID := records[name].queueIDOrDefault()
+		if other, ok := queues[queueID]; ok {
+			return nil, fmt.Errorf("vectors %q and %q both record queue %q", other, name, queueID)
+		}
+		queues[queueID] = name
+	}
+
 	toBuild := make(map[string]vectorIndexRecord, len(active))
 	owners := vectorIndexOwners(records)
 	for _, name := range slices.Sorted(maps.Keys(active)) {
