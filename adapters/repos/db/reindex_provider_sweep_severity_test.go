@@ -39,8 +39,7 @@ func TestTerminalCleanupRanksAWalkFailureLikeTheSweepDoes(t *testing.T) {
 		// the shard the payload names.
 		fixture     func(t *testing.T) (idx *Index, shardName string)
 		wantOutcome CleanupSweepOutcome
-		// wantText is wording the summary must carry, so a shard nothing
-		// touched is not reported as partly swept.
+		// wantText distinguishes an untouched shard's wording from "partly swept".
 		wantText string
 	}{
 		{
