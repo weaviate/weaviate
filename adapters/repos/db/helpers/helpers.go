@@ -114,6 +114,12 @@ func MVMappingsBucketName(indexID string) string {
 	return fmt.Sprintf("%s_mv_mappings", indexID)
 }
 
+// QueueDirName is the directory under the shard of the async-indexing queue
+// with ID queueID.
+func QueueDirName(queueID string) string {
+	return fmt.Sprintf("%s.queue.d", queueID)
+}
+
 // HFresh keeps more on-disk state than the other index types: a directory of
 // its own under the shard, plus two dedicated LSM buckets. All three are keyed
 // on the index ID (vectorIndexID, i.e. "vectors_<target>" for a named vector),
@@ -196,7 +202,7 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 			// before the live drop) leaves it — and DiskQueue.Init replays stale
 			// chunks into a re-created index of the same name, so this is wrong
 			// vectors and dimension errors, not just disk cost.
-			indexID + ".queue.d",
+			QueueDirName(indexID),
 			// flat.Drop removes this on the live path only; the files-only
 			// paths leave it, same gap as the queue directory above.
 			FlatMetadataFileName(targetVector),
@@ -222,7 +228,7 @@ func VectorIndexArtifactNamesForID(physicalID string) VectorIndexArtifacts {
 			HNSWCommitLogDirNameForID(physicalID),
 			physicalID + ".hnsw.snapshot.d",
 			HFreshDirName(physicalID),
-			physicalID + ".queue.d",
+			QueueDirName(physicalID),
 			FlatMetadataFileNameForID(physicalID),
 		},
 	}

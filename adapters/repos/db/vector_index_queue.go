@@ -23,6 +23,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -107,7 +108,7 @@ func newVectorIndexQueueWithID(
 			ID:        fmt.Sprintf("vector_index_queue_%s_%s", shard.ID(), indexID),
 			Logger:    logger,
 			Scheduler: shard.scheduler,
-			Dir:       filepath.Join(shard.path(), fmt.Sprintf("%s.queue.d", indexID)),
+			Dir:       filepath.Join(shard.path(), helpers.QueueDirName(indexID)),
 			TaskDecoder: &vectorIndexQueueDecoder{
 				q: &viq,
 			},
