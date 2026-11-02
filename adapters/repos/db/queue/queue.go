@@ -103,6 +103,7 @@ type DiskQueue struct {
 	id               string
 	dir              string
 	onBatchProcessed func() error
+	onChunkRemoved   func()
 	metrics          *Metrics
 	chunkSize        uint64
 
@@ -135,7 +136,10 @@ type DiskQueueOptions struct {
 	StaleTimeout     time.Duration
 	ChunkSize        uint64
 	OnBatchProcessed func() error
-	Metrics          *Metrics
+	// OnChunkRemoved runs once a chunk left the queue and its records are
+	// no longer counted in Size.
+	OnChunkRemoved func()
+	Metrics        *Metrics
 }
 
 func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
@@ -177,6 +181,7 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 		taskDecoder:      opt.TaskDecoder,
 		metrics:          opt.Metrics,
 		onBatchProcessed: opt.OnBatchProcessed,
+		onChunkRemoved:   opt.OnChunkRemoved,
 		chunkSize:        opt.ChunkSize,
 	}
 
@@ -788,11 +793,15 @@ func (q *DiskQueue) forgetChunk(path string) {
 	}
 
 	q.m.Lock()
-	defer q.m.Unlock()
 	q.recordCount -= ref.count
 	q.diskUsage -= int64(ref.size)
 	q.metrics.DiskUsage(q.diskUsage)
 	q.metrics.Size(q.recordCount)
+	q.m.Unlock()
+
+	if q.onChunkRemoved != nil {
+		q.onChunkRemoved()
+	}
 }
 
 // quarantineChunk renames a torn or corrupt chunk file to <name>.corrupt so
