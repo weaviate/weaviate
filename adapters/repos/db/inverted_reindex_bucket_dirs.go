@@ -50,6 +50,29 @@ func (b bucketDirs) Exists(dir string) (bool, error) {
 	return there, nil
 }
 
+func (b bucketDirs) Empty(dir string) (bool, error) {
+	path, err := b.Path(dir, "a recorded directory")
+	if err != nil {
+		return false, err
+	}
+	empty, err := diskio.IsDirEmpty(path)
+	if err != nil {
+		return false, fmt.Errorf("list migration directory %q: %w", path, err)
+	}
+	return empty, nil
+}
+
+func (b bucketDirs) Create(dir, what string) error {
+	path, err := b.Path(dir, what)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return fmt.Errorf("create %s %q: %w", what, dir, err)
+	}
+	return nil
+}
+
 func (b bucketDirs) Discard(dir, what string) error {
 	if dir == "" {
 		return nil
