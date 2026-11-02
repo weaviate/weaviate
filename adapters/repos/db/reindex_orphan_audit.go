@@ -460,7 +460,18 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 			continue
 		}
 		trackerPath := filepath.Join(migsDir, dirName)
-		if fileExistsInDir(trackerPath, "tidied.mig") || fileExistsInDir(trackerPath, "merged.mig") {
+		completed, err := migrationDirCompleted(trackerPath)
+		if err != nil {
+			// Unreadable sentinels make completion unknowable, and this
+			// classification is what stands between a completed migration and
+			// [cleanUnloadedShardOrphans] deleting its live sidecars (#12647).
+			logger.WithField("collection", collection).WithField("shard", shardName).
+				WithField("tracker", dirName).
+				Warnf("reindex orphan audit: cannot tell whether migration completed, "+
+					"leaving tracker for the next audit: %v", err)
+			continue
+		}
+		if completed {
 			continue
 		}
 		if !fileExistsInDir(trackerPath, "started.mig") {

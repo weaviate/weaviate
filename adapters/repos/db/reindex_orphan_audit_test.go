@@ -259,6 +259,41 @@ func TestAuditOrphanReindexTrackers_TidiedTrackerLeftAlone(t *testing.T) {
 	require.NoError(t, err, "tidied tracker must survive the audit even when classified as unknown")
 }
 
+// TestAuditOrphanReindexTrackers_UnreadableSentinelNotAnOrphan pins the audit
+// half of #12647: the tidied/merged check is what keeps a completed migration
+// out of the orphan set, so a sentinel it cannot read must leave the tracker
+// alone rather than classify it and let cleanup delete its live sidecars.
+func TestAuditOrphanReindexTrackers_UnreadableSentinelNotAnOrphan(t *testing.T) {
+	ctx := testCtx()
+	className := "AuditUnreadableSentinelClass"
+	shd, idx := testShard(t, ctx, className)
+
+	migs := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
+	dir := filepath.Join(migs, "searchable_retokenize_body_1")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	for _, s := range []string{"started.mig", "reindexed.mig", "swapped.mig"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, s), nil, 0o600))
+	}
+	// A symlink to itself: Stat gives ELOOP for every user, root included, so
+	// whether this migration completed is unknowable rather than false.
+	require.NoError(t, os.Symlink("tidied.mig", filepath.Join(dir, "tidied.mig")))
+	writePayload(t, dir, "task-unknown", 1, "unit-0", className,
+		ReindexTypeChangeTokenization, []string{"body"})
+
+	db := &DB{
+		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:  Config{RootPath: idx.Config.RootPath},
+	}
+	knownNothing := func(string, uint64) bool { return false }
+	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New())
+	require.NoError(t, err)
+	assert.Equal(t, 0, outcome.OrphansFound,
+		"a tracker whose completion cannot be read must not be classified as an orphan")
+
+	_, err = os.Lstat(dir)
+	require.NoError(t, err, "the tracker dir must survive the audit")
+}
+
 func TestAuditOrphanReindexTrackers_NoMigrationsDir(t *testing.T) {
 	ctx := testCtx()
 	className := "AuditNoMigsClass"
