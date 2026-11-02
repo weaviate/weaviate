@@ -197,6 +197,9 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
 			s.cleanStaleSidecarDirs(ctx, mainBucket, sweepState().committed)
+			if err := s.migrations().EndRecordsOfDeletedIndex(ctx, prop.Name, mainBucket); err != nil {
+				return fmt.Errorf("cannot end the migration records of the %s index for %s property: %w", indexType, prop.Name, err)
+			}
 		}
 		return nil
 	})

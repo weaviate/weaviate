@@ -959,6 +959,27 @@ func (r *migrationReconciler) discardUnlessUnitRuns(ctx context.Context, subject
 	return r.discardSealed(ctx, subject, why)
 }
 
+// A stale record wedges later loads or resurrects the index on an unloaded
+// tenant. Skipped: undecided flips (may belong to an in-progress migration)
+// and multi-prop records (reclaiming would delete other properties' data).
+func (r *migrationReconciler) EndRecordsOfDeletedIndex(ctx context.Context, prop, mainBucket string) error {
+	if len(r.store.Unreadable()) > 0 {
+		return nil
+	}
+	ending := errorcompounder.New()
+	for _, rec := range r.store.Records() {
+		subject := rec.Subject()
+		if !rec.FlipDecided() || len(subject.Props) != 1 || subject.Props[prop].Canonical != mainBucket {
+			continue
+		}
+		// No line per record: one DELETE reaches every tenant of the collection.
+		ending.AddWrapf(r.withSealedUnit(subject, "the end of its record", func() error {
+			return r.reclaimRecordAndDirs(ctx, subject)
+		}), "record %s", subject.Key)
+	}
+	return ending.ToErrorLimited(maxReportedErrors)
+}
+
 func (r *migrationReconciler) discardSealed(ctx context.Context, subject MigrationSubject, why string) error {
 	r.logger.WithField("record", subject.Key.String()).Infof("discarding staged migration data: %s", why)
 	return r.reclaimRecordAndDirs(ctx, subject)

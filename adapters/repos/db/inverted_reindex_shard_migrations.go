@@ -46,6 +46,13 @@ func (m shardMigrations) RetireSuperseded(ctx context.Context) {
 	m.liveReconciler().RetireSuperseded(ctx)
 }
 
+func (m shardMigrations) EndRecordsOfDeletedIndex(ctx context.Context, prop, mainBucket string) error {
+	if m.shard.migrationRecords == nil {
+		return nil
+	}
+	return m.liveReconciler().EndRecordsOfDeletedIndex(ctx, prop, mainBucket)
+}
+
 func (m shardMigrations) liveReconciler() *migrationReconciler {
 	className := m.shard.index.Config.ClassName.String()
 	return m.shard.migrationReconciler(func() *models.Class {

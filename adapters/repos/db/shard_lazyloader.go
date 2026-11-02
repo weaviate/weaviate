@@ -607,7 +607,6 @@ func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors
 	if l.isLoaded() {
 		l.shard.updatePropertyBuckets(ctx, eg, property, counts)
 	} else {
-		// The unloaded path removes bucket dirs by name and reads no records.
 		l.updateUnloadedPropertyBuckets(ctx, eg, property)
 	}
 }
@@ -617,11 +616,9 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 	prop *models.Property,
 ) {
 	eg.Go(func() error {
-		// Shares the loaded path's index types so Index.updateProperty's summary
-		// log names what this branch removed too. Not its body: this path
-		// removes the main bucket dir by name and nothing else, so a cold
-		// tenant's migration and sidecar dirs outlive the property delete.
-		// That is a gap, not a property of unloaded shards.
+		// Reuses the loaded path's index types so the summary log matches.
+		// Doesn't sweep sidecar dirs, so an undecided-flip migration's dirs
+		// outlive this delete: a known gap, not an unloaded-shard quirk.
 		for _, indexType := range disabledIndexTypes(prop) {
 			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
 			if !ok {
@@ -631,9 +628,45 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 				return fmt.Errorf("cannot remove unloaded %s index for %s property: %w", indexType, prop.Name, err)
 			}
 		}
-		return nil
+		return l.endUnloadedRecordsOfDeletedIndexes(ctx, prop)
 	})
 }
+
+// Holds the loading lock so no load reconciles these records mid-reclaim.
+func (l *LazyLoadShard) endUnloadedRecordsOfDeletedIndexes(ctx context.Context, prop *models.Property) error {
+	release := l.blockLoading()
+	defer release()
+
+	if l.loaded {
+		return nil
+	}
+	index := l.shardOpts.index
+	store := NewMigrationRecordStoreForUnit(l.pathLSM(), migrationUnitOf(index, l.shardOpts.name), index.logger)
+	// An unreadable record set is announced and withheld by the next load.
+	if store.Load() != nil || len(store.Records()) == 0 {
+		return nil
+	}
+	reconciler := newMigrationReconciler(store, l.pathLSM(), index.logger.WithField("shard", l.shardOpts.name),
+		migrationReconcileDeps{
+			SealUnit: index.db.migrationSeals.SealUnit,
+			Mirror:   unloadedShardMigrations{},
+			Buckets:  unloadedShardMigrations{},
+		})
+	for _, indexType := range disabledIndexTypes(prop) {
+		mainBucket, _ := mainBucketForPropertyIndex(prop.Name, indexType)
+		if err := reconciler.EndRecordsOfDeletedIndex(ctx, prop.Name, mainBucket); err != nil {
+			return fmt.Errorf("cannot end the migration records of the unloaded %s index for %s property: %w", indexType, prop.Name, err)
+		}
+	}
+	return nil
+}
+
+// An unloaded shard has no mirror armed and no bucket open.
+type unloadedShardMigrations struct{}
+
+func (unloadedShardMigrations) DisarmMigrationMirror(MigrationRecordKey, string) {}
+
+func (unloadedShardMigrations) ShutdownStagedBucketsAt(context.Context, []string) error { return nil }
 
 // DropVectorIndex routes to the loaded shard or to disk, deciding and acting
 // under l.mutex, which Shutdown, drop and loadIfCold all take.
