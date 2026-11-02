@@ -247,7 +247,9 @@ func (s *Shard) migrationSweepState() *migrationSweepState {
 //
 // Crash safety: sidecar buckets shut down before their dirs go (open lsmkv
 // handles); the .migrations/records/ record stays, still naming the run's dirs.
-func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, indexType string) error {
+func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, indexType string,
+	dirs *dirNamesCache,
+) error {
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
 		return fmt.Errorf("clean stale partial reindex state: unknown indexType %q", indexType)
@@ -261,12 +263,14 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		"operation":   "CleanStalePartialReindexState",
 	})
 
-	// Other store-scope faults still preserve every sidecar and get reported by
-	// the index sweep's count, so only an unlistable dir needs to fail here.
-	committed, err := migrationPreservedStateAt(s.pathLSM(), s.index.logger)
+	// Only an unlistable dir fails the shard: any other unreadable record set
+	// preserves every sidecar, and the sweep summary's count reports it.
+	records, faults, err := migrationRecordsAt(s.pathLSM(), s.index.logger)
+	dirs.chargeUnreadableRecordSet(s.pathLSM(), faults, err)
 	if err != nil {
 		return fmt.Errorf("partial-reindex cleanup: %w", err)
 	}
+	committed := migrationPreservedStateFromRecords(records, faults)
 
 	loaded := s.store.GetBucketsByName()
 	var shutDown []string

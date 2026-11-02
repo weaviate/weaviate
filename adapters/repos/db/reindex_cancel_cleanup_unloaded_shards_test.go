@@ -37,7 +37,7 @@ type committedMigration struct {
 	prop     string
 	owned    string
 	promoted bool
-	// unit defaults to shard-1__node-0, the one unit every row without its own shares.
+	// Empty puts the row in one shared unit, so only a set unit adds a second.
 	unit string
 }
 
@@ -654,7 +654,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				return
 			}
 			if tc.wantSweepFails {
-				err := shard.CleanStalePartialReindexState(ctx, propName, tc.indexType)
+				err := shard.CleanStalePartialReindexState(ctx, propName, tc.indexType, nil)
 				require.Error(t, err,
 					"a sweep that removed nothing because it could not read the shard "+
 						"must not be summarized as one that finished")
@@ -934,47 +934,57 @@ func TestIndexCleanStalePartialReindexStateReportsAnUnlistableMigrationsDir(t *t
 }
 
 // Load returns no error for records split across two units, but the index
-// sweep still has to treat the shard as unreadable.
+// sweep still has to report the shard as unreadable, loaded or not.
 func TestIndexCleanStalePartialReindexStateReportsRecordsOfTwoUnits(t *testing.T) {
 	const (
 		propName  = "category"
 		indexType = "filterable"
 		tenant    = "restored-tenant"
 		owned     = "property_category__enable_filterable_ingest_1"
+		stale     = "property_category__enable_filterable_ingest_2"
 	)
-	ctx := testCtx()
-	logger, hook := test.NewNullLogger()
-	class := newTestClassWithProps("TwoUnitRecords_"+uuid.NewString()[:8], []string{propName})
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false, func(i *Index) { i.logger = logger })
-	defer shd.Shutdown(context.Background())
+	for _, loaded := range []bool{true, false} {
+		t.Run(fmt.Sprintf("loaded=%v", loaded), func(t *testing.T) {
+			ctx := testCtx()
+			logger, hook := test.NewNullLogger()
+			class := newTestClassWithProps("TwoUnitRecords_"+uuid.NewString()[:8], []string{propName})
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false, func(i *Index) { i.logger = logger })
+			defer shd.Shutdown(context.Background())
 
-	lsm := shardPathLSM(idx.path(), tenant)
-	main := mustMainBucket(t, propName, indexType)
-	for _, unit := range []string{tenant + "__node1", tenant + "__node-9"} {
-		mkFlippedMigrationRecord(t, lsm, unit, StrategyCodeEnableFilterable, 1, propName, owned, main)
+			shardName, lsm := shd.Name(), shd.(*Shard).pathLSM()
+			if !loaded {
+				lazy := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
+					idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+					false, idx.bitmapBufPool)
+				idx.shards.Store(tenant, lazy)
+				defer func() {
+					if lazy.isLoaded() {
+						require.NoError(t, lazy.Shutdown(context.Background()))
+					}
+				}()
+				shardName, lsm = tenant, shardPathLSM(idx.path(), tenant)
+			}
+			require.NoError(t, os.MkdirAll(filepath.Join(lsm, stale), 0o755))
+			main := mustMainBucket(t, propName, indexType)
+			own := MigrationUnitID(shardName, idx.getSchema.NodeName())
+			for _, unit := range []string{own, shardName + "__node-9"} {
+				mkFlippedMigrationRecord(t, lsm, unit, StrategyCodeEnableFilterable, 1, propName, owned, main)
+			}
+
+			hook.Reset()
+			cache := &dirNamesCache{}
+			require.NoError(t, idx.cleanStalePartialReindexState(ctx, propName, indexType, nil, cache))
+
+			count, reasons := cache.unreadableRecordSets()
+			require.Equal(t, 1, count)
+			require.ErrorContains(t, reasons, "records of 2 units")
+			summary := onlySweepSummary(t, hook)
+			require.Equal(t, logrus.WarnLevel, summary.Level)
+			require.Equal(t, 1, summary.Data["unreadable_record_sets"])
+			require.True(t, dirExistsAt(t, lsm, stale), "a shard whose records are unreadable keeps every sidecar")
+		})
 	}
-
-	lazy := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-		false, idx.bitmapBufPool)
-	idx.shards.Store(tenant, lazy)
-	defer func() {
-		if lazy.isLoaded() {
-			require.NoError(t, lazy.Shutdown(context.Background()))
-		}
-	}()
-
-	hook.Reset()
-	cache := &dirNamesCache{}
-	require.NoError(t, idx.cleanStalePartialReindexState(ctx, propName, indexType, nil, cache))
-
-	count, reasons := cache.unreadableRecordSets()
-	require.Equal(t, 1, count)
-	require.ErrorContains(t, reasons, "records of 2 units")
-	summary := onlySweepSummary(t, hook)
-	require.Equal(t, logrus.WarnLevel, summary.Level)
-	require.Equal(t, 1, summary.Data["unreadable_record_sets"])
 }
 
 // The gate's answer must depend on nothing but this shard's own disk, and must
