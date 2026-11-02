@@ -1008,12 +1008,6 @@ func TestShardsStatusNonExistingIndexWrapsNotFound(t *testing.T) {
 				return err
 			},
 		},
-		{
-			name: "UpdateShardStatus",
-			call: func() error {
-				return migrator.UpdateShardStatus(context.Background(), "DoesNotExist", "shard1", models.TenantActivityStatusHOT, 0)
-			},
-		},
 	}
 
 	for _, tt := range tests {

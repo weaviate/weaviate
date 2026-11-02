@@ -179,3 +179,23 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 	logger.Log(lvl, "shard status changed")
 	return nil
 }
+
+// refuseUserReadOnly is for client writes only: migrations and repair skip it.
+func (i *Index) refuseUserReadOnly(shardName string) error {
+	if i.userReadOnly(shardName) {
+		return storagestate.ErrStatusReadOnlyWithReason(statusReasonManualUpdate)
+	}
+	return nil
+}
+
+func (i *Index) userReadOnly(shardName string) bool {
+	return i.db != nil && i.db.nodeOverlay.ReadOnly(i.Config.ClassName.String(), shardName)
+}
+
+func (i *Index) reportedStatus(shardName string, shard ShardLike) string {
+	status := shard.GetStatus()
+	if (status == storagestate.StatusReady || status == storagestate.StatusIndexing) && i.userReadOnly(shardName) {
+		return storagestate.StatusReadOnly.String()
+	}
+	return status.String()
+}

@@ -50,7 +50,6 @@ func TestRaftEndpoints(t *testing.T) {
 	m.indexer.On("UpdateClass", Anything).Return(nil)
 	m.indexer.On("DeleteClass", Anything).Return(nil)
 	m.indexer.On("AddProperty", Anything, Anything).Return(nil)
-	m.indexer.On("UpdateShardStatus", Anything).Return(nil)
 	m.indexer.On("AddTenants", Anything, Anything).Return(nil)
 	m.indexer.On("UpdateTenants", Anything, Anything).Return(nil)
 	m.indexer.On("DeleteTenants", Anything, Anything, mock.Anything).Return(nil)
@@ -245,7 +244,7 @@ func TestRaftEndpoints(t *testing.T) {
 	_, err = srv.UpdateShardStatus(ctx, "C", "", "ACTIVE")
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
 	_, err = srv.UpdateShardStatus(ctx, "C", "A", "ACTIVE")
-	assert.Nil(t, err)
+	assert.ErrorIs(t, err, schema.ErrShardNotFound)
 
 	// AddTenants
 	_, err = srv.AddTenants(ctx, "", &command.AddTenantsRequest{})

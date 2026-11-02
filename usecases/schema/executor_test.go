@@ -361,11 +361,4 @@ func TestExecutor(t *testing.T) {
 		_, err := x.GetShardsStorageStatus(ctx, "A", "")
 		assert.ErrorIs(t, err, ErrAny)
 	})
-	t.Run("UpdateShardStatus", func(t *testing.T) {
-		migrator := &fakeMigrator{}
-		req := &api.UpdateShardStatusRequest{Class: "A", Shard: "S", Status: "ST", SchemaVersion: 123}
-		migrator.On("UpdateShardStatus", Anything, "A", "S", "ST", uint64(123)).Return(nil)
-		x := newMockExecutor(migrator, store)
-		assert.Nil(t, x.UpdateShardStatus(req))
-	})
 }

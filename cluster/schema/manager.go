@@ -100,6 +100,7 @@ type SchemaManager struct {
 	mutationGuard          MutationGuard
 	distributedTaskManager distributedTaskCascadeDeleter
 	nodeAlive              func(node string) bool
+	overlay                *NodeOverlay
 	// tenantLimit resolves the per-collection tenant cap (negative = unlimited;
 	// nil = unenforced); read pre-commit, never in the FSM apply path.
 	tenantLimit func() int
@@ -125,10 +126,11 @@ type SchemaManager struct {
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
 	return &SchemaManager{
-		schema: NewSchema(nodeId, reg),
-		db:     db,
-		parser: parser,
-		log:    log,
+		schema:  NewSchema(nodeId, reg),
+		db:      db,
+		parser:  parser,
+		log:     log,
+		overlay: &NodeOverlay{},
 	}
 }
 
@@ -285,13 +287,15 @@ func (s *SchemaManager) AliasSnapshot() ([]byte, error) {
 
 // Restore installs a snapshot's schema. Nothing replays the DELETE_CLASS that
 // dropped a class the snapshot no longer names, so this diff is the store's
-// only signal.
+// only signal. Nor does anything replay the commands that set user read-only,
+// so the flags go as on a restart.
 func (s *SchemaManager) Restore(data []byte, parser Parser) error {
 	dropped, err := s.schema.Restore(data, parser)
 	if err != nil {
 		return err
 	}
 	s.recordOrphans(dropped)
+	s.overlay.reset()
 	return nil
 }
 
@@ -351,14 +355,15 @@ func (s *SchemaManager) RestoreAliases(data []byte) error {
 	return s.schema.RestoreAlias(data)
 }
 
-// RestoreLegacy is Restore for the old snapshot format, and drops classes the
-// same way.
+// RestoreLegacy is Restore for the old snapshot format, and drops classes and
+// flags the same way.
 func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser) error {
 	dropped, err := s.schema.RestoreLegacy(data, parser)
 	if err != nil {
 		return err
 	}
 	s.recordOrphans(dropped)
+	s.overlay.reset()
 	return nil
 }
 
@@ -777,6 +782,7 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				if s.schema.deleteClass(cmd.Class) && schemaOnly {
 					s.recordOrphan(cmd.Class, hasFrozen)
 				}
+				s.overlay.clearClass(cmd.Class)
 				// Cascade lives in updateSchema (not updateStore) so it
 				// also runs on schemaOnly catchup replay: DTM is in-memory
 				// FSM state, rebuilt from RAFT log on restart, and the
@@ -935,8 +941,8 @@ func (s *SchemaManager) UpdateShardStatus(cmd *command.ApplyRequest, schemaOnly 
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
-			updateSchema: func() error { return nil },
-			updateStore:  func() error { return s.db.UpdateShardStatus(&req) },
+			updateSchema: func() error { return s.schema.requireShard(req.Class, req.Shard) },
+			updateStore:  func() error { return s.applyShardStatus(req.Class, req.Shard, req.Status) },
 			schemaOnly:   schemaOnly,
 		},
 	)
@@ -1077,6 +1083,7 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 				if err := s.schema.deleteTenants(cmd.Class, cmd.Version, req); err != nil {
 					return err
 				}
+				s.overlay.clearShards(cmd.Class, req.Tenants)
 				s.cascadeDeleteReplicationOpsForTenants(cmd.Class, req.Tenants)
 				return nil
 			},

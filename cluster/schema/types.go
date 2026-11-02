@@ -37,7 +37,6 @@ type Indexer interface {
 	// DeleteTenants deletes cloud attempts below v, the delete's RAFT index.
 	DeleteTenants(class string, tenants []*models.Tenant, v uint64) error
 	UpdateTenantsProcess(class string, req *api.TenantProcessRequest) error
-	UpdateShardStatus(*api.UpdateShardStatusRequest) error
 	// AddReplicaToShard materializes a replica the schema just assigned to this
 	// node, with no replica movement under way. Success does not guarantee a
 	// local shard: a namespace being deleted opens none.

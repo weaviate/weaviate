@@ -79,7 +79,6 @@ type IndexIncomingRepo interface {
 		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error)
 	IncomingGetShardStatus(ctx context.Context, shardName string) (string, error)
-	IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error
 	IncomingOverwriteObjects(ctx context.Context, shard string,
 		vobjects []*objects.VObject) ([]types.RepairResponse, error)
 	IncomingDigestObjects(ctx context.Context, shardName string,
@@ -291,17 +290,6 @@ func (rii *IndexIncoming) GetShardStatus(ctx context.Context,
 	}
 
 	return index.IncomingGetShardStatus(ctx, shardName)
-}
-
-func (rii *IndexIncoming) UpdateShardStatus(ctx context.Context,
-	indexName, shardName, targetStatus string, schemaVersion uint64,
-) error {
-	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
-	if err != nil {
-		return err
-	}
-
-	return index.IncomingUpdateShardStatus(ctx, shardName, targetStatus, schemaVersion)
 }
 
 func (rii *IndexIncoming) FilePutter(ctx context.Context,

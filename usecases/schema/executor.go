@@ -391,11 +391,6 @@ func (e *executor) DeleteTenants(class string, tenants []*models.Tenant, v uint6
 	return nil
 }
 
-func (e *executor) UpdateShardStatus(req *api.UpdateShardStatusRequest) error {
-	ctx := context.Background()
-	return e.migrator.UpdateShardStatus(ctx, req.Class, req.Shard, req.Status, req.SchemaVersion)
-}
-
 func (e *executor) GetShardsStorageStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error) {
 	shardsStatus, legacyStatus, err := e.migrator.GetShardsStorageStatus(ctx, class, tenant)
 	if err != nil {

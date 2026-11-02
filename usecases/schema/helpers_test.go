@@ -169,10 +169,6 @@ func (f *fakeDB) DeleteTenants(class string, tenants []*models.Tenant, v uint64)
 	return nil
 }
 
-func (f *fakeDB) UpdateShardStatus(cmd *command.UpdateShardStatusRequest) error {
-	return nil
-}
-
 func (f *fakeDB) GetShardsStorageStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error) {
 	args := f.Called(ctx, class, tenant)
 	return args.Get(0).(models.ShardStatusList), nil
@@ -388,11 +384,6 @@ func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants 
 func (f *fakeMigrator) GetShardsStorageStatus(ctx context.Context, className, tenant string) (map[string]map[string]string, map[string]string, error) {
 	args := f.Called(ctx, className, tenant)
 	return args.Get(0).(map[string]map[string]string), args.Get(1).(map[string]string), args.Error(2)
-}
-
-func (f *fakeMigrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error {
-	args := f.Called(ctx, className, shardName, targetStatus, schemaVersion)
-	return args.Error(0)
 }
 
 func (f *fakeMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schemaConfig.VectorIndexConfig) error {

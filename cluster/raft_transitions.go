@@ -23,6 +23,10 @@ import (
 
 const transitionAbortInterval = 30 * time.Second
 
+func (s *Raft) NodeOverlay() *schema.NodeOverlay {
+	return s.store.schemaManager.NodeOverlay()
+}
+
 func (s *Raft) RunningTransitions() []schema.TenantTransition {
 	return s.store.schemaManager.RunningTransitions()
 }

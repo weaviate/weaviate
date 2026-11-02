@@ -27,10 +27,6 @@ import (
 func (s *Shard) createNestedPropertyBuckets(ctx context.Context, prop *models.Property,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 ) error {
-	if err := s.isReadOnly(); err != nil {
-		return err
-	}
-
 	if inverted.HasNestedFilterableIndex(prop) {
 		if err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketNestedFromPropNameLSM(prop.Name),

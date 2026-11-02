@@ -57,7 +57,6 @@ type Migrator interface {
 	DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant, v uint64) error
 
 	GetShardsStorageStatus(ctx context.Context, className, tenant string) (map[string]map[string]string, map[string]string, error)
-	UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error
 
 	UpdateVectorIndexConfig(ctx context.Context, className string, updated schemaConfig.VectorIndexConfig) error
 	ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig) error
