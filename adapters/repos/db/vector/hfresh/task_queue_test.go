@@ -15,7 +15,9 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
@@ -62,6 +64,24 @@ func TestTaskQueueRegisterIsExplicit(t *testing.T) {
 	index.taskQueue.Register()
 
 	require.Equal(t, 4, scheduler.QueueCount())
+}
+
+// The pending-task gauges are updated once a processed chunk is removed, so a
+// drained queue reports no backlog.
+func TestTaskQueuePendingMetricsAfterProcessing(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, ucfg := makeHFreshConfig(t)
+	index := makeHFreshWithConfig(t, store, cfg, ucfg)
+
+	require.NoError(t, index.taskQueue.EnqueueAnalyze(1))
+	require.Equal(t, 1.0, testutil.ToFloat64(index.metrics.analyzePending))
+
+	require.Eventually(t, func() bool {
+		return index.taskQueue.analyzeQueue.Size() == 0
+	}, 10*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		return testutil.ToFloat64(index.metrics.analyzePending) == 0
+	}, time.Second, 10*time.Millisecond, "the gauge still reports the processed chunk")
 }
 
 func TestDecodeReassignTaskLegacyFormat(t *testing.T) {
