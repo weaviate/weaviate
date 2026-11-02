@@ -1054,8 +1054,10 @@ Then, per shard load:
    and are lost when the swap replaces it with the ingest bucket. If a
    mirror fails to arm, the shard still loads; `AbandonUnarmed` stamps
    the record `Unmirrored` and drops the unit's tasks from the provider's
-   cache. The in-memory swap refuses an `Unmirrored` record, so the
-   migration fails and has to be resubmitted.
+   cache. `RunPrepareOnShard` refuses an `Unmirrored` record, so this
+   node's PREPARING ack fails and the task goes `FAILED` before any
+   replica or sibling half swaps; it has to be resubmitted. The in-memory
+   swap refuses it too, for a record stamped after its prepare passed.
 5. `FinalizeCompletedMigrations` runs per shard before LSM init
    reloads any buckets. For each `(prop, indexType)`, finds the
    highest tidied (or merged-but-not-tidied) generation, promotes

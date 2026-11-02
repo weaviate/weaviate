@@ -124,58 +124,86 @@ func TestShardLoadStampsAnUnarmableFlipBeforeTheReconcilerPromotesIt(t *testing.
 	require.DirExists(t, filepath.Join(lsm, dirs.Staged), "nothing renamed it over the canonical dir")
 }
 
-// The shard keeps serving when a mirror fails to arm; only the stale swap is blocked.
+// The shard keeps serving when a mirror fails to arm; the stale migration fails
+// at prepare, before any replica swaps it in.
 func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) {
-	const name = "tenant-arm-fails"
-	ctx := testCtx()
-	className := "LazyRecoveryArm_" + uuid.NewString()[:8]
-	class := newTestClassWithProps(className, []string{"title"})
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
-	defer shd.Shutdown(context.Background())
+	for _, tt := range []struct {
+		name   string
+		record func(MigrationSubject) MigrationRecord
+	}{
+		{name: "merged", record: func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) }},
+		{name: "iterated", record: func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterated(s) }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			name := "tenant-arm-fails-" + tt.name
+			ctx := testCtx()
+			className := "LazyRecoveryArm_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{"title"})
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+			defer shd.Shutdown(context.Background())
 
-	logger, _ := test.NewNullLogger()
-	p := NewReindexProvider(idx.db, nil, nil, logger, idx.getSchema.NodeName(), nil, ctx)
-	idx.shardReindexer = NewMigrationRecoveryReindexer(true, logger, nil, p)
+			logger, _ := test.NewNullLogger()
+			p := NewReindexProvider(idx.db, nil, nil, logger, idx.getSchema.NodeName(), nil, ctx)
+			idx.shardReindexer = NewMigrationRecoveryReindexer(true, logger, nil, p)
 
-	desc := distributedtask.TaskDescriptor{ID: "T", Version: 3}
-	subject := testMigrationSubject(desc.Version, StrategyCodeSearchableRetokenize, "title")
-	subject.TaskID, subject.Collection = desc.ID, className
-	subject.Key.UnitID = testMigrationUnitFor(idx, name)
-	built, err := buildRecoveryTasks(subject, name, logger, nil)
-	require.NoError(t, err)
-	task := built[0]
-	subject.Props["title"] = MigrationPropertyDirs{
-		Staged:    task.ingestBucketName("title"),
-		Canonical: subject.Props["title"].Canonical,
-		Sidecar:   task.reindexBucketName("title"),
+			// Both halves of one unit; only the searchable one fails to arm.
+			desc := distributedtask.TaskDescriptor{ID: "T", Version: 3}
+			lsm := shardPathLSM(idx.path(), name)
+			var tasks []*ShardReindexTaskGeneric
+			var subjects []MigrationSubject
+			for _, code := range []MigrationStrategyCode{StrategyCodeSearchableRetokenize, StrategyCodeFilterableRetokenize} {
+				subject := testMigrationSubject(desc.Version, code, "title")
+				subject.TaskID, subject.Collection = desc.ID, className
+				subject.Key.UnitID = testMigrationUnitFor(idx, name)
+				built, err := buildRecoveryTasks(subject, name, logger, nil)
+				require.NoError(t, err)
+				subject.Props["title"] = MigrationPropertyDirs{
+					Staged:    built[0].ingestBucketName("title"),
+					Canonical: subject.Props["title"].Canonical,
+					Sidecar:   built[0].reindexBucketName("title"),
+				}
+				for _, dir := range []string{subject.Props["title"].Staged, subject.Props["title"].Sidecar} {
+					require.NoError(t, os.MkdirAll(filepath.Join(lsm, dir), 0o777))
+				}
+				require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(tt.record(subject)))
+				tasks = append(tasks, built[0])
+				subjects = append(subjects, subject)
+			}
+			// Fails the arm the way a failing disk would.
+			corrupt := filepath.Join(lsm, subjects[0].Props["title"].Staged, "segment-1.db")
+			require.NoError(t, os.WriteFile(corrupt, []byte("not a segment"), 0o600))
+
+			loaded, err := idx.initShard(ctx, name, class, nil, true, true)
+			require.NoError(t, err, "the shard loads despite the fault")
+			shard := loaded.(*Shard)
+			defer shard.Shutdown(context.Background())
+
+			obj := createTestObjectWithText(className, "written after the load")
+			require.NoError(t, shard.PutObject(ctx, obj))
+			found, err := shard.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
+			require.NoError(t, err)
+			require.NotNil(t, found, "and serves")
+
+			rec, ok := shard.migrationRecords.Get(subjects[0].Key)
+			require.True(t, ok)
+			require.True(t, rec.Subject().Unmirrored, "the write above is missing from the staged copy")
+			require.Empty(t, p.cachedReindexTasks(desc, subjects[0].Key.UnitID),
+				"a cached sibling alone would swap half the unit")
+
+			// Once the fault clears, the staged copy is openable but still stale.
+			require.NoError(t, os.Remove(corrupt))
+			prepOK, prep := p.runShardPrepPhase(ctx, subjects[0].Key.UnitID, shard, tasks, false, logger)
+			require.False(t, prepOK, "a failed prepare fails the task before any replica swaps")
+			require.Len(t, prep.Errs, 1)
+			require.Contains(t, prep.Errs[0], "no double-write mirror armed")
+			require.ErrorContains(t, tasks[0].RunSwapOnShard(ctx, shard), "no double-write mirror armed")
+			for _, subject := range subjects {
+				rec, ok := shard.migrationRecords.Get(subject.Key)
+				require.True(t, ok)
+				require.False(t, rec.FlipDecided(), "%s: nothing flipped", subject.Key.StrategyCode)
+			}
+			require.Equal(t, filepath.Base(shard.store.Bucket(subjects[0].Props["title"].Canonical).GetDir()),
+				subjects[0].Props["title"].Canonical, "the canonical bucket still serves")
+		})
 	}
-	lsm := shardPathLSM(idx.path(), name)
-	staged := filepath.Join(lsm, subject.Props["title"].Staged)
-	corrupt := filepath.Join(staged, "segment-1.db")
-	require.NoError(t, os.MkdirAll(staged, 0o777))
-	// Fails the arm the way a failing disk would.
-	require.NoError(t, os.WriteFile(corrupt, []byte("not a segment"), 0o600))
-	require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordMerged(subject)))
-
-	loaded, err := idx.initShard(ctx, name, class, nil, true, true)
-	require.NoError(t, err, "the shard loads despite the fault")
-	shard := loaded.(*Shard)
-	defer shard.Shutdown(context.Background())
-
-	obj := createTestObjectWithText(className, "written after the load")
-	require.NoError(t, shard.PutObject(ctx, obj))
-	found, err := shard.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
-	require.NoError(t, err)
-	require.NotNil(t, found, "and serves")
-
-	rec, ok := shard.migrationRecords.Get(subject.Key)
-	require.True(t, ok)
-	require.True(t, rec.Subject().Unmirrored, "the write above is missing from the staged copy")
-	require.Empty(t, p.cachedReindexTasks(desc, subject.Key.UnitID), "no swap may run the task that never armed")
-
-	// Once the fault clears, the staged copy is openable but still stale.
-	require.NoError(t, os.Remove(corrupt))
-	require.ErrorContains(t, task.RunSwapOnShard(ctx, shard), "no double-write mirror armed")
-	require.Equal(t, filepath.Base(shard.store.Bucket(subject.Props["title"].Canonical).GetDir()),
-		subject.Props["title"].Canonical, "the canonical bucket still serves")
 }

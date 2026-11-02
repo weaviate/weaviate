@@ -234,7 +234,8 @@ func (f *recoveryFaultLog) admit(now time.Time) (dropped int, ok bool) {
 	return dropped, true
 }
 
-const migrationUnmirroredRemedy = "Submit a new migration covering the same properties once the cause is cleared."
+const migrationUnmirroredRemedy = "The migration fails at its next prepare or swap step; once it has failed and " +
+	"the cause is cleared, submit a new migration covering the same properties."
 
 // stampUnmirroredRecords stops a later promotion from renaming stale staged data over the live bucket.
 func stampUnmirroredRecords(store *MigrationRecordStore, records []MigrationRecord,

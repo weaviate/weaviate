@@ -227,6 +227,11 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	}
 	concreteShard, logger := entry.shard, entry.logger
 
+	// Refused here, not only at swap: a failed prepare fails the task before any replica swaps.
+	if err := t.refuseUnmirrored(entry.rec.Subject()); err != nil {
+		return err
+	}
+
 	if entry.rec.StagedDataComplete() {
 		logger.Debug("RunPrepareOnShard: already merged on disk; no-op")
 		return nil
@@ -1121,9 +1126,9 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	if subject.Unmirrored {
-		return fmt.Errorf("migration %s: this shard took writes with no double-write mirror armed, so its "+
-			"staged data is stale and is not swapped in. %s", t.migrationRecordKey(), migrationUnmirroredRemedy)
+	// For a record stamped after its prepare passed.
+	if err := t.refuseUnmirrored(subject); err != nil {
+		return err
 	}
 	// Read here, not at the call sites: rewriting a decided record drops promotion marks.
 	if rec, ok := t.migrationRecord(shard); !ok || !rec.FlipDecided() {
@@ -1407,6 +1412,14 @@ func (t *ShardReindexTaskGeneric) recordCheckpoint(shard ShardLike, subject Migr
 		LastProcessedKey: lastProcessedKey.Clone().Bytes(),
 		UpdatedAt:        time.Now(),
 	}))
+}
+
+func (t *ShardReindexTaskGeneric) refuseUnmirrored(subject MigrationSubject) error {
+	if !subject.Unmirrored {
+		return nil
+	}
+	return fmt.Errorf("migration %s: this shard took writes with no double-write mirror armed, so its "+
+		"staged data is stale and is not swapped in. %s", t.migrationRecordKey(), migrationUnmirroredRemedy)
 }
 
 func (t *ShardReindexTaskGeneric) migrationSubjectNow(shard ShardLike) (MigrationSubject, error) {
