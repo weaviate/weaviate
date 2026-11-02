@@ -308,6 +308,11 @@ func AdoptArrivedMigrationRecords(indexPath, shardName, node, sourceNode string)
 	return store.adoptUnit(MigrationUnitID(shardName, sourceNode))
 }
 
+// A restore stages its files outside the data path, so indexPath is the staged copy.
+func (db *DB) AdoptRestoredMigrationRecords(indexPath, shardName, node, sourceNode string) (refusal string, err error) {
+	return AdoptArrivedMigrationRecords(indexPath, shardName, node, sourceNode)
+}
+
 // Renames only if the source is the sole claimant of its records; a record
 // already here from this node or a third replica may name the same directories,
 // so it blocks the rename. An own record byte-equal to the source's is a

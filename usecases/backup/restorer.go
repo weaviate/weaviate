@@ -17,7 +17,9 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -160,13 +162,15 @@ func (r *restorer) restoreAll(ctx context.Context,
 		return fmt.Errorf("restore cancelled: %w", err)
 	}
 
+	var setAside migrationRecordsSetAside
+	defer setAside.report(r.logger, desc.ID, store.node)
 	for _, cdesc := range desc.Classes {
 		// Check for cancellation before each class restore
 		if err := ctx.Err(); err != nil {
 			r.lastOp.set(backup.Cancelled)
 			return fmt.Errorf("restore cancelled: %w", err)
 		}
-		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, cpuPercentage, store, overrideBucket, overridePath, stripNamespaces); err != nil {
+		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, cpuPercentage, store, overrideBucket, overridePath, stripNamespaces, &setAside); err != nil {
 			if errors.Is(err, context.Canceled) {
 				r.lastOp.set(backup.Cancelled)
 				return fmt.Errorf("restore cancelled: %w", err)
@@ -193,7 +197,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 	desc *backup.ClassDescriptor, serverVersion string, compressionType backup.CompressionType,
 	cpuPercentage int, store nodeStore,
 	overrideBucket, overridePath string,
-	stripNamespaces bool,
+	stripNamespaces bool, setAside *migrationRecordsSetAside,
 ) (err error) {
 	classLabel := desc.Name
 	if monitoring.GetMetrics().Group {
@@ -229,7 +233,42 @@ func (r *restorer) restoreOne(ctx context.Context,
 		return fmt.Errorf("write files: %w", err)
 	}
 
+	// The records name the node the backup was taken on, so under a node mapping
+	// the shard would set them aside and serve the migrated indexes empty.
+	indexPath := filepath.Join(fw.tempDir, materializedName, strings.ToLower(materializedName))
+	for _, shard := range desc.Shards {
+		refusal, err := r.sourcer.AdoptRestoredMigrationRecords(indexPath, shard.Name, r.node, store.node)
+		if err != nil {
+			return fmt.Errorf("adopt the migration records of shard %q restored from %s: %w", shard.Name, store.node, err)
+		}
+		setAside.add(desc.Name, shard.Name, refusal)
+	}
 	return nil
+}
+
+// One line per restore, not per shard: a multi-tenant class restores every tenant at once.
+type migrationRecordsSetAside struct {
+	count   int
+	example string
+}
+
+func (s *migrationRecordsSetAside) add(class, shard, refusal string) {
+	if refusal == "" {
+		return
+	}
+	if s.count == 0 {
+		s.example = fmt.Sprintf("class %q, shard %q: %s", class, shard, refusal)
+	}
+	s.count++
+}
+
+func (s *migrationRecordsSetAside) report(logger logrus.FieldLogger, backupID, sourceNode string) {
+	if s.count == 0 {
+		return
+	}
+	logger.WithField("action", "restore").WithField("backup_id", backupID).WithField("shard_count", s.count).
+		Warnf("the migration records of %d restored shard(s) taken on %s stay set aside; first, %s",
+			s.count, sourceNode, s.example)
 }
 
 func (r *restorer) status(backend, ID string) (Status, error) {

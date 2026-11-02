@@ -54,6 +54,25 @@ func (bsp *fakeBackupBackendProvider) EnabledBackupBackends() []modulecapabiliti
 
 type fakeSourcer struct {
 	mock.Mock
+	adoptMu sync.Mutex
+	adopted []adoptedRecords
+}
+
+type adoptedRecords struct {
+	indexPath, shardName, node, sourceNode string
+}
+
+func (s *fakeSourcer) AdoptRestoredMigrationRecords(indexPath, shardName, node, sourceNode string) (string, error) {
+	s.adoptMu.Lock()
+	defer s.adoptMu.Unlock()
+	s.adopted = append(s.adopted, adoptedRecords{indexPath, shardName, node, sourceNode})
+	return "", nil
+}
+
+func (s *fakeSourcer) adoptedCalls() []adoptedRecords {
+	s.adoptMu.Lock()
+	defer s.adoptMu.Unlock()
+	return append([]adoptedRecords(nil), s.adopted...)
 }
 
 func (s *fakeSourcer) ReleaseBackup(ctx context.Context, id, class string) error {
