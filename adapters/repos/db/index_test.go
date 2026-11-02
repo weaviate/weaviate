@@ -686,7 +686,7 @@ func TestPropertyWorkPinsShardAgainstTeardown(t *testing.T) {
 			name: "updateProperty",
 			expect: func(shard *MockShardLike, schedule func(*enterrors.ErrorGroupWrapper)) {
 				shard.EXPECT().updatePropertyBuckets(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					Run(func(_ context.Context, eg *enterrors.ErrorGroupWrapper, _ *models.Property, _ *atomic.Int64) {
+					Run(func(_ context.Context, eg *enterrors.ErrorGroupWrapper, _ *models.Property, _ *migrationSweepCounts) {
 						schedule(eg)
 					})
 			},
