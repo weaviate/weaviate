@@ -318,14 +318,23 @@ func (s *Shard) validateVectorQueuesBeforeInsert(obj *storobj.Object) error {
 		}
 	}
 
-	// Phase 2: nothing can reject from here, so reserve.
+	// Phase 2: nothing can reject from here, so reserve. A target that passed the
+	// check above must still be present, so a miss here is a real error rather
+	// than something to skip.
 	for _, t := range targets {
-		s.WithVectorIndexQueue(t.name, func(queue *VectorIndexQueue) error {
+		found, err := s.WithVectorIndexQueue(t.name, func(queue *VectorIndexQueue) error {
 			if queue != nil {
 				queue.ReserveDims(t.length)
 			}
 			return nil
 		})
+		if !found {
+			return fmt.Errorf("vector index not found for %q", t.name)
+		}
+		if err != nil {
+			return errors.Wrapf(err, "Reserve vector index queue %s for target %s %s",
+				t.name, t.kind, obj.ID())
+		}
 	}
 	return nil
 }
