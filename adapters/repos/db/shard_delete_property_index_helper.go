@@ -26,8 +26,7 @@ func newPropertyDeleteIndexHelper() *propertyDeleteIndexHelper {
 	return &propertyDeleteIndexHelper{}
 }
 
-// propertyIndexRemoved reports whether an index setting was explicitly set to
-// false. A nil setting is the default, which keeps the index.
+// Shared with [migrationCanonicalSweptBySchema] so both read the flag the same.
 func propertyIndexRemoved(propertyIndexSetting *bool) bool {
 	return propertyIndexSetting != nil && !*propertyIndexSetting
 }

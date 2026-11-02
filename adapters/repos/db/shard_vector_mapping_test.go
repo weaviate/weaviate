@@ -13,10 +13,12 @@ package db
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
@@ -156,6 +158,121 @@ func TestVectorIndexMapping_Load(t *testing.T) {
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
+}
+
+// A record written by a newer version carries fields this one ignores; the
+// strip rewrites exactly those records and leaves a mapping it wrote alone.
+func TestVectorIndexMapping_LoadAndStrip(t *testing.T) {
+	const (
+		own   = `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready"}`
+		newer = `{"physical_id":"main","index_type":"hnsw","state":"ready","queue_id":"main","future":{"ef":64}}`
+	)
+	// lastTxID opens the closed index.db directly: bolt's transaction ID
+	// moves on every committed write, even one that changes nothing
+	lastTxID := func(t *testing.T, dir string) int {
+		t.Helper()
+		db, err := bbolt.Open(filepath.Join(dir, shardmeta.FileName), 0o600, nil)
+		require.NoError(t, err)
+		defer db.Close()
+		tx, err := db.Begin(false)
+		require.NoError(t, err)
+		defer tx.Rollback()
+		return tx.ID()
+	}
+	loadAndStrip := func(t *testing.T, dir string) (map[string]vectorIndexRecord, []string, map[string]string) {
+		t.Helper()
+		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		defer db.Close()
+		records, initialized, stripped, err := newVectorIndexMapping(db).LoadAndStrip()
+		require.NoError(t, err)
+		assert.True(t, initialized)
+		raw := map[string]string{}
+		require.NoError(t, db.Namespace(vectorIndexMappingNamespace).ForEach(func(k, v []byte) error {
+			raw[string(k)] = string(v)
+			return nil
+		}))
+		return records, stripped, raw
+	}
+	setup := func(t *testing.T, values map[string]string) string {
+		t.Helper()
+		dir := t.TempDir()
+		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		defer db.Close()
+		ns := db.Namespace(vectorIndexMappingNamespace)
+		require.NoError(t, ns.Put([]byte(".format_version"), []byte("1")))
+		for k, v := range values {
+			require.NoError(t, ns.Put([]byte(k), []byte(v)))
+		}
+		return dir
+	}
+
+	t.Run("records of a newer version are rewritten without its fields", func(t *testing.T) {
+		dir := setup(t, map[string]string{".legacy": newer, "title": own, "summary": newer})
+		records, stripped, raw := loadAndStrip(t, dir)
+		assert.Equal(t, []string{"", "summary"}, stripped)
+		assert.Equal(t, map[string]vectorIndexRecord{
+			"":        {PhysicalID: "main", IndexType: "hnsw", State: "ready", QueueID: "main"},
+			"title":   {PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"},
+			"summary": {PhysicalID: "main", IndexType: "hnsw", State: "ready", QueueID: "main"},
+		}, records)
+		assert.Equal(t, map[string]string{
+			".format_version": "1",
+			".legacy":         `{"physical_id":"main","index_type":"hnsw","state":"ready","queue_id":"main"}`,
+			"title":           own,
+			"summary":         `{"physical_id":"main","index_type":"hnsw","state":"ready","queue_id":"main"}`,
+		}, raw)
+
+		// the next load finds nothing to strip and does not write
+		before := lastTxID(t, dir)
+		_, stripped, _ = loadAndStrip(t, dir)
+		assert.Empty(t, stripped)
+		assert.Equal(t, before, lastTxID(t, dir))
+	})
+
+	t.Run("a mapping this version wrote is not written to", func(t *testing.T) {
+		dir := setup(t, map[string]string{"title": own})
+		before := lastTxID(t, dir)
+		records, stripped, raw := loadAndStrip(t, dir)
+		assert.Empty(t, stripped)
+		assert.Equal(t, map[string]vectorIndexRecord{
+			"title": {PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"},
+		}, records)
+		assert.Equal(t, map[string]string{".format_version": "1", "title": own}, raw)
+		assert.Equal(t, before, lastTxID(t, dir))
+	})
+
+	t.Run("an uninitialized mapping is not written to", func(t *testing.T) {
+		dir := t.TempDir()
+		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		require.NoError(t, db.Close())
+		before := lastTxID(t, dir)
+		db, err = shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		records, initialized, stripped, err := newVectorIndexMapping(db).LoadAndStrip()
+		require.NoError(t, err)
+		require.NoError(t, db.Close())
+		assert.False(t, initialized)
+		assert.Empty(t, records)
+		assert.Empty(t, stripped)
+		assert.Equal(t, before, lastTxID(t, dir))
+	})
+
+	// a record that does not validate refuses the load before anything is
+	// written, as Load does
+	t.Run("an invalid record refuses the load", func(t *testing.T) {
+		dir := setup(t, map[string]string{".legacy": newer, "title": `{"physical_id":"","index_type":"hnsw","state":"ready","config":{}}`})
+		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		_, _, _, err = newVectorIndexMapping(db).LoadAndStrip()
+		require.ErrorContains(t, err, "physical id")
+		v, err := db.Namespace(vectorIndexMappingNamespace).Get([]byte(".legacy"))
+		require.NoError(t, err)
+		assert.Equal(t, newer, string(v))
+		require.NoError(t, db.Close())
+	})
 }
 
 func TestVectorIndexMapping_Initialize(t *testing.T) {

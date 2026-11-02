@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -290,6 +291,47 @@ func TestInitShardVectors_RefusesAQueueIDOtherThanTheIndexID(t *testing.T) {
 				[]byte(`{"physical_id":"vectors_foo","index_type":"hnsw","state":"ready","queue_id":"vectors_foo_queue"}`)))
 		})
 	})
+}
+
+// A shard last loaded by a newer version has records with fields this one
+// does not know. The load drops them before any index opens, and the
+// indexes serve as before.
+func TestInitShardVectors_StripsFieldsOfANewerVersion(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	obj := dropVecObject(t, "a", true)
+	require.NoError(t, shard.PutObject(ctx, obj))
+
+	want := map[string]string{}
+	shard = reloadAfter(t, ctx, shard, class, func() {
+		withOfflineMapping(t, shard.path(), func(_ *vectorIndexMapping, ns *shardmeta.Namespace) {
+			for _, k := range []string{".legacy", "foo", "mv"} {
+				v, err := ns.Get([]byte(k))
+				require.NoError(t, err)
+				want[k] = string(v)
+			}
+			for _, k := range []string{".legacy", "foo"} {
+				newer := strings.TrimSuffix(want[k], "}") + `,"future":{"ef":64}}`
+				require.NoError(t, ns.Put([]byte(k), []byte(newer)))
+			}
+		})
+	})
+
+	ns := shard.metadataDB.Namespace(vectorIndexMappingNamespace)
+	for key, w := range want {
+		got, err := ns.Get([]byte(key))
+		require.NoError(t, err)
+		assert.Equal(t, w, string(got), key)
+	}
+
+	found, err := shard.WithVectorIndex("foo", func(index VectorIndex) error {
+		if !index.ContainsDoc(obj.DocID) {
+			return fmt.Errorf("doc %d is gone", obj.DocID)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	assert.True(t, found)
 }
 
 // A vector added to a running shard is recorded ready at the naming rule's

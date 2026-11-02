@@ -29,6 +29,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -206,6 +207,18 @@ func (c *Copier) CopyReplicaFilesToLocalShard(ctx context.Context, opID strfmt.U
 	err = c.validateLocalFolder(collectionName, localShard, snapResp.FileNames)
 	if err != nil {
 		return fmt.Errorf("failed to validate local folder: %w", err)
+	}
+
+	// A retry drops files the source doesn't list, renamed records included,
+	// so this re-adopts them.
+	refusal, err := db.AdoptArrivedMigrationRecordsInDir(path.Join(c.rootDataPath, strings.ToLower(collectionName)),
+		localShard, shardName, c.nodeName, srcNodeId)
+	if err != nil {
+		return fmt.Errorf("adopt the migration records copied from %s: %w", srcNodeId, err)
+	}
+	if refusal != "" {
+		c.logger.WithField("collection", collectionName).WithField("shard", shardName).Warnf(
+			"the migration records copied from %s stay set aside: %s", srcNodeId, refusal)
 	}
 
 	return nil
