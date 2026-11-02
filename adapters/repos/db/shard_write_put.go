@@ -18,6 +18,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 
@@ -312,8 +313,7 @@ func (s *Shard) withClaimableQueue(targetVector string, length int, do func(queu
 	}
 
 	_, err := s.WithVectorIndexQueue(targetVector, func(queue *VectorIndexQueue) error {
-		// the vectors of a skipped index aren't indexed, they can have any length
-		if queue == nil || queue.vectorIndex.Type() == common.IndexTypeNoop {
+		if queue == nil {
 			return nil
 		}
 		return do(queue, length)
@@ -321,15 +321,12 @@ func (s *Shard) withClaimableQueue(targetVector string, length int, do func(queu
 	return err
 }
 
-func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes []byte,
-) (status objectInsertStatus, err error) {
-	before := time.Now()
-	defer s.metrics.PutObject(before)
-
-	// validation happens before any change is stored, and a missing index
-	// is a failure here: an object stored without its index is skipped as
-	// unchanged on the retry and never indexed
-	for targetVector, vector := range obj.Vectors {
+// validateVectors happens before any change is stored, and a missing index is a
+// failure here: an object stored without its index is skipped as unchanged on the
+// retry and never indexed. The indexes come first: after a restart a queue has no
+// length of its own, and claiming one it hasn't checked would refuse the right one.
+func (s *Shard) validateVectors(id strfmt.UUID, vectors map[string][]float32, multiVectors map[string][][]float32, legacy []float32) error {
+	for targetVector, vector := range vectors {
 		found, err := s.WithVectorIndex(targetVector, func(vectorIndex VectorIndex) error {
 			err := checkVectorKind(vectorIndex, targetVector, false)
 			if err != nil {
@@ -338,14 +335,14 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return vectorIndex.ValidateBeforeInsert(vector)
 		})
 		if !found {
-			return status, fmt.Errorf("vector index not found for %q", targetVector)
+			return fmt.Errorf("vector index not found for %q", targetVector)
 		}
 		if err != nil {
-			return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
+			return errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, id)
 		}
 	}
 
-	for targetVector, vector := range obj.MultiVectors {
+	for targetVector, vector := range multiVectors {
 		found, err := s.WithVectorIndex(targetVector, func(vectorIndex VectorIndex) error {
 			multiIndex, err := asMultiVectorIndex(vectorIndex, targetVector)
 			if err != nil {
@@ -354,32 +351,43 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return multiIndex.ValidateMultiBeforeInsert(vector)
 		})
 		if !found {
-			return status, fmt.Errorf("vector index not found for %q", targetVector)
+			return fmt.Errorf("vector index not found for %q", targetVector)
 		}
 		if err != nil {
-			return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
+			return errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, id)
 		}
 	}
 
 	// the legacy vector needs an index when the schema has one
-	if len(obj.Vector) > 0 && s.index.GetVectorIndexConfig("") != nil {
+	if len(legacy) > 0 && s.index.GetVectorIndexConfig("") != nil {
 		found, err := s.WithVectorIndex("", func(index VectorIndex) error {
 			err := checkVectorKind(index, "", false)
 			if err != nil {
 				return err
 			}
-			return index.ValidateBeforeInsert(obj.Vector)
+			return index.ValidateBeforeInsert(legacy)
 		})
 		if !found {
-			return status, fmt.Errorf(`vector index not found for ""`)
+			return fmt.Errorf(`vector index not found for ""`)
 		}
 		if err != nil {
-			return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
+			return errors.Wrapf(err, "Validate vector index for %s", id)
 		}
 	}
 
-	if err := s.claimVectorDimensions(obj.Vectors, obj.MultiVectors, obj.Vector); err != nil {
-		return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
+	if err := s.claimVectorDimensions(vectors, multiVectors, legacy); err != nil {
+		return errors.Wrapf(err, "Validate vector index for %s", id)
+	}
+	return nil
+}
+
+func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes []byte,
+) (status objectInsertStatus, err error) {
+	before := time.Now()
+	defer s.metrics.PutObject(before)
+
+	if err := s.validateVectors(obj.ID(), obj.Vectors, obj.MultiVectors, obj.Vector); err != nil {
+		return status, err
 	}
 
 	bucket, release, err := s.objectsBucket()

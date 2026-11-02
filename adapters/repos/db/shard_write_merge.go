@@ -217,9 +217,10 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 			return nil
 		}
 
-		// Here and not in MergeObject: replication enters merge directly. Only the
-		// vectors the merge supplies count, the others were accepted when they were stored.
-		err = s.claimVectorDimensions(vectorsAsMap(merge.Vectors), multiVectorsAsMap(merge.Vectors), merge.Vector)
+		// Here and not in MergeObject: replication enters merge directly and meets no
+		// other check. Only the vectors the merge supplies count, the others were
+		// accepted when they were stored.
+		err = s.validateVectors(merge.ID, vectorsAsMap(merge.Vectors), multiVectorsAsMap(merge.Vectors), merge.Vector)
 		if err != nil {
 			return errors.Wrapf(err, "validate vector index for update of %v", merge.ID)
 		}

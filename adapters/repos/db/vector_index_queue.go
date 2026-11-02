@@ -165,20 +165,22 @@ func (iq *VectorIndexQueue) insertSync(ctx context.Context, vectors []common.Vec
 
 // checkDimensions refuses what claimDimensions would refuse, without claiming anything.
 func (iq *VectorIndexQueue) checkDimensions(length int) error {
-	if dims := iq.dims.Load(); dims != 0 && dims != int32(length) {
-		return errors.Errorf("inconsistent vector lengths: %d != %d", length, dims)
+	dims := iq.dims.Load()
+	// the vectors of a skipped index aren't indexed, they can have any length
+	if dims == 0 || dims == int32(length) || iq.vectorIndex.Type() == common.IndexTypeNoop {
+		return nil
 	}
-	return nil
+	return errors.Errorf("inconsistent vector lengths: %d != %d", length, dims)
 }
 
 // claimDimensions makes sure the first vectors of an index are consistent: an empty
 // index has no dimensions to validate against, so the first length accepted stands
 // in for them.
 func (iq *VectorIndexQueue) claimDimensions(length int) error {
-	if !iq.dims.CompareAndSwap(0, int32(length)) && iq.dims.Load() != int32(length) {
-		return errors.Errorf("inconsistent vector lengths: %d != %d", length, iq.dims.Load())
+	if iq.dims.CompareAndSwap(0, int32(length)) {
+		return nil
 	}
-	return nil
+	return iq.checkDimensions(length)
 }
 
 func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.VectorRecord) error {

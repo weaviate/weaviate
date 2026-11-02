@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -158,6 +159,73 @@ func TestRefusedMergeLeavesObjectUnchanged(t *testing.T) {
 	}
 }
 
+// restartShard restarts a shard. What only lives in memory is gone, like the length a
+// queue remembers.
+func restartShard(t *testing.T, index *Index, shard ShardLike) ShardLike {
+	t.Helper()
+	name := shard.Name()
+	require.NoError(t, shard.Shutdown(t.Context()))
+	index.shards.LoadAndDelete(name)
+	reopened, release, err := index.getOrInitShard(t.Context(), name)
+	require.NoError(t, err)
+	release()
+	return reopened
+}
+
+// TestRefusedMergeAfterRestart pins the case where only the index knows the length. A
+// queue that took a length from a merge without asking the index would be left refusing
+// every correct write to the shard, and replication has no other check in front of it.
+func TestRefusedMergeAfterRestart(t *testing.T) {
+	for _, flavor := range consistencyFlavors() {
+		for _, route := range mergeRoutes {
+			for _, async := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s, %s, async %v", flavor.name, route.name, async), func(t *testing.T) {
+					className := "RefusedMergeRestart"
+					shard, index := testShardWithSettings(t, t.Context(), consistencyClass(className),
+						enthnsw.NewDefaultUserConfig(), false, async, flavor.opts...)
+
+					objs := consistencyObjects(flavor, className, 3)
+					require.NoError(t, shard.PutObject(t.Context(), objs[0]))
+
+					objs[1].Vector, objs[1].Vectors, objs[1].MultiVectors = nil, nil, nil
+					require.NoError(t, shard.PutObject(t.Context(), objs[1]))
+
+					indexed, err := shard.ObjectByID(t.Context(), objs[0].ID(), nil, additional.Properties{})
+					require.NoError(t, err)
+					_, err = shard.WithVectorIndex(flavor.target, func(index VectorIndex) error {
+						require.Eventually(t, func() bool { return index.ContainsDoc(indexed.DocID) },
+							10*time.Second, 20*time.Millisecond)
+						return nil
+					})
+					require.NoError(t, err)
+
+					shard = restartShard(t, index, shard)
+
+					// a put asks the same index
+					refused := consistencyObjects(flavor, className, 1)[0]
+					flavor.set(refused, []float32{1, 2, 3})
+					require.Error(t, shard.PutObject(t.Context(), refused))
+					exists, err := shard.Exists(t.Context(), refused.ID())
+					require.NoError(t, err)
+					require.False(t, exists, "a refused put must not store its object")
+
+					doc := mergeOfVector(flavor, objs[1], []float32{1, 2, 3})
+					require.Error(t, route.merge(t.Context(), shard, doc))
+
+					stored, err := shard.ObjectByID(t.Context(), objs[1].ID(), nil, additional.Properties{Vector: true})
+					require.NoError(t, err)
+					require.NotNil(t, stored)
+					assert.Empty(t, flavor.get(stored), "a refused merge must not store its vector")
+
+					require.NoError(t, shard.PutObject(t.Context(), objs[2]), "a refused merge must not block correct writes")
+					doc = mergeOfVector(flavor, objs[1], consistencyVector(1))
+					assert.NoError(t, route.merge(t.Context(), shard, doc))
+				})
+			}
+		}
+	}
+}
+
 // TestRefusedWriteClaimsNoLength pins that a refused write decides nothing for an index
 // that is still empty, where the first length accepted stands in for its dimensions.
 func TestRefusedWriteClaimsNoLength(t *testing.T) {
@@ -272,13 +340,30 @@ func TestMergeOfPropertiesClaimsNoLength(t *testing.T) {
 
 // A skipped index holds no vectors, so nothing ties them to one length.
 func TestSkippedIndexTakesVectorsOfAnyLength(t *testing.T) {
-	className := "SkippedIndexLengths"
-	flavor := consistencyFlavors()[0]
-	shard, _ := testShardWithSettings(t, t.Context(), consistencyClass(className),
-		enthnsw.UserConfig{Skip: true}, false, false)
+	writes := []struct {
+		name  string
+		write func(ctx context.Context, shard ShardLike, objs []*storobj.Object) []error
+	}{
+		{"batch", func(ctx context.Context, shard ShardLike, objs []*storobj.Object) []error {
+			return shard.PutObjectBatch(ctx, objs)
+		}},
+		{"single", putEach},
+	}
 
-	objs := consistencyObjects(flavor, className, 2)
-	objs[1].Vector = []float32{1, 2, 3}
+	for _, test := range writes {
+		for _, async := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s, async %v", test.name, async), func(t *testing.T) {
+				className := "SkippedIndexLengths"
+				flavor := consistencyFlavors()[0]
+				shard, _ := testShardWithSettings(t, t.Context(), consistencyClass(className),
+					enthnsw.UserConfig{Skip: true}, false, async)
 
-	require.Empty(t, nonNilErrs(shard.PutObjectBatch(t.Context(), objs)))
+				objs := consistencyObjects(flavor, className, 2)
+				objs[1].Vector = []float32{1, 2, 3}
+
+				require.Empty(t, nonNilErrs(test.write(t.Context(), shard, objs[:1])))
+				require.Empty(t, nonNilErrs(test.write(t.Context(), shard, objs[1:])))
+			})
+		}
+	}
 }
