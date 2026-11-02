@@ -9590,18 +9590,25 @@ func init() {
             "blockmax"
           ]
         },
+        "migratedTenants": {
+          "description": "Number of tenants whose index the reindex task already migrated. Present only on a ` + "`" + `partial` + "`" + ` entry.",
+          "type": "integer",
+          "format": "int64"
+        },
         "progress": {
           "type": "number",
           "format": "float"
         },
         "status": {
+          "description": "` + "`" + `partial` + "`" + `: the latest reindex task failed or was cancelled after some tenants had migrated; those tenants serve the new index, the rest the old one. See ` + "`" + `migratedTenants` + "`" + ` and ` + "`" + `totalTenants` + "`" + `.",
           "type": "string",
           "enum": [
             "ready",
             "indexing",
             "pending",
             "failed",
-            "cancelled"
+            "cancelled",
+            "partial"
           ]
         },
         "targetAlgorithm": {
@@ -9616,11 +9623,16 @@ func init() {
           "type": "string"
         },
         "taskId": {
-          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
+          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `, ` + "`" + `partial` + "`" + `); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
           "type": "string"
         },
         "tokenization": {
           "type": "string"
+        },
+        "totalTenants": {
+          "description": "Number of tenants the reindex task covers. Present only on a ` + "`" + `partial` + "`" + ` entry.",
+          "type": "integer",
+          "format": "int64"
         },
         "type": {
           "description": "Canonical inverted-index type. Always one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, ` + "`" + `rangeFilters` + "`" + ` — never the ` + "`" + `rangeable` + "`" + ` write-path alias.",
@@ -22549,18 +22561,25 @@ func init() {
             "blockmax"
           ]
         },
+        "migratedTenants": {
+          "description": "Number of tenants whose index the reindex task already migrated. Present only on a ` + "`" + `partial` + "`" + ` entry.",
+          "type": "integer",
+          "format": "int64"
+        },
         "progress": {
           "type": "number",
           "format": "float"
         },
         "status": {
+          "description": "` + "`" + `partial` + "`" + `: the latest reindex task failed or was cancelled after some tenants had migrated; those tenants serve the new index, the rest the old one. See ` + "`" + `migratedTenants` + "`" + ` and ` + "`" + `totalTenants` + "`" + `.",
           "type": "string",
           "enum": [
             "ready",
             "indexing",
             "pending",
             "failed",
-            "cancelled"
+            "cancelled",
+            "partial"
           ]
         },
         "targetAlgorithm": {
@@ -22575,11 +22594,16 @@ func init() {
           "type": "string"
         },
         "taskId": {
-          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
+          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `, ` + "`" + `partial` + "`" + `); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
           "type": "string"
         },
         "tokenization": {
           "type": "string"
+        },
+        "totalTenants": {
+          "description": "Number of tenants the reindex task covers. Present only on a ` + "`" + `partial` + "`" + ` entry.",
+          "type": "integer",
+          "format": "int64"
         },
         "type": {
           "description": "Canonical inverted-index type. Always one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, ` + "`" + `rangeFilters` + "`" + ` — never the ` + "`" + `rangeable` + "`" + ` write-path alias.",

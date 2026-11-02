@@ -759,6 +759,25 @@ type parsedReindexTask struct {
 	payload db.ReindexTaskPayload
 }
 
+// migratedTenantCounts reports how many of a task's tenants had their swap
+// decided, and how many tenants it covers. A single-tenant collection's one
+// unnamed group is no tenant, so it never reads as partial.
+func migratedTenantCounts(task *distributedtask.Task) (migrated, total int64) {
+	if !db.ReindexLeftPartial(task) {
+		return 0, 0
+	}
+	for _, group := range task.Groups() {
+		if group == "" {
+			continue
+		}
+		total++
+		if task.GroupSwapDecided(group) {
+			migrated++
+		}
+	}
+	return migrated, total
+}
+
 // parseReindexTasks unmarshals every reindex task's payload once. Tasks
 // with unparseable payloads are skipped — those are flagged elsewhere by
 // checkReindexConflict at submit time; for the read-side merge they're
@@ -800,6 +819,8 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 //     status this build does not recognize.
 //   - "failed":     latest matching task ended in FAILED.
 //   - "cancelled":  latest matching task ended in CANCELLED.
+//   - "partial":    latest matching task ended in FAILED or CANCELLED after
+//     some tenants' swaps were decided; those tenants serve the new index.
 //
 // Property matching is uniform across all migration types: every branch
 // requires payload.Properties to be non-empty and to contain propName.
@@ -904,12 +925,16 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	surfaceSyntheticFields := false
 
 	switch best.Status {
-	case distributedtask.TaskStatusFailed:
-		idx.Status = "failed"
-		idx.Progress = aggregateProgress(best)
-		surfaceSyntheticFields = true
-	case distributedtask.TaskStatusCancelled:
-		idx.Status = "cancelled"
+	case distributedtask.TaskStatusFailed, distributedtask.TaskStatusCancelled:
+		idx.Status = models.IndexStatusStatusFailed
+		if best.Status == distributedtask.TaskStatusCancelled {
+			idx.Status = models.IndexStatusStatusCancelled
+		}
+		// Per-tenant counts, not a list: a collection can hold 100k tenants.
+		if migrated, total := migratedTenantCounts(best); migrated > 0 {
+			idx.Status = models.IndexStatusStatusPartial
+			idx.MigratedTenants, idx.TotalTenants = migrated, total
+		}
 		idx.Progress = aggregateProgress(best)
 		surfaceSyntheticFields = true
 	case distributedtask.TaskStatusStarted:

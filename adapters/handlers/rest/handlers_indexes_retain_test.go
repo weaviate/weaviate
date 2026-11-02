@@ -35,6 +35,8 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 		prop       string
 		collection string // empty means "C"
 		badBytes   bool
+		// partial: the run decided tenant t1's swap out of t1 and t2.
+		partial bool
 	}
 	failed := func(mt db.ReindexMigrationType, prop string) rec {
 		return rec{status: distributedtask.TaskStatusFailed, mt: mt, prop: prop}
@@ -78,6 +80,8 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 		{name: "a failed repair on an index dropped since is not kept", records: []rec{failed(db.ReindexTypeRepairFilterable, "foo")}, filterableOff: true, filterable: "ready", searchable: "ready"},
 		{name: "a failed enable on an index still off is kept", records: []rec{filterable}, filterableOff: true, wantKept: []int{0}, filterable: "failed", searchable: "ready"},
 		{name: "a cancelled migration is not kept", records: []rec{withStatus(filterable, distributedtask.TaskStatusCancelled)}, filterable: "ready", searchable: "ready"},
+		{name: "a cancelled migration that left tenants migrated is kept and reads partial", records: []rec{{status: distributedtask.TaskStatusCancelled, mt: db.ReindexTypeEnableFilterable, prop: "foo", partial: true}}, wantKept: []int{0}, filterable: "partial", searchable: "ready"},
+		{name: "a failed migration that left tenants migrated reads partial", records: []rec{{status: distributedtask.TaskStatusFailed, mt: db.ReindexTypeEnableFilterable, prop: "foo", partial: true}}, wantKept: []int{0}, filterable: "partial", searchable: "ready"},
 		{name: "an unreadable record is not kept", records: []rec{{status: distributedtask.TaskStatusFailed, badBytes: true}}, filterable: "ready", searchable: "ready"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -95,6 +99,12 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 				task.StartedAt = now.Add(time.Duration(i) * time.Minute)
 				if r.badBytes {
 					task.Payload = []byte("{")
+				}
+				if r.partial {
+					task.Units = map[string]*distributedtask.Unit{
+						"u1": {ID: "u1", GroupID: "t1"}, "u2": {ID: "u2", GroupID: "t2"},
+					}
+					task.SwapDecidedGroups = map[string]time.Time{"t1": now}
 				}
 				all = append(all, task)
 			}
@@ -138,6 +148,10 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 				idx := &models.IndexStatus{Type: indexType, Status: "ready"}
 				mergeReindexStatus(idx, "C", "foo", indexType, parseReindexTasks(kept), nil)
 				require.Equal(t, want, idx.Status, indexType)
+				if want == models.IndexStatusStatusPartial {
+					require.Equal(t, int64(1), idx.MigratedTenants, "tenants already serving the new index")
+					require.Equal(t, int64(2), idx.TotalTenants, "tenants the task covers")
+				}
 			}
 			require.Equal(t, tt.wantKept, keptIdx)
 		})
