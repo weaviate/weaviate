@@ -101,7 +101,7 @@ func mkSidecarDir(t *testing.T, lsmPath, name string) {
 // cleanSweep runs one shard's partial-reindex sweep and requires it to succeed.
 func cleanSweep(t *testing.T, ctx context.Context, shard *Shard, propName, indexType string) {
 	t.Helper()
-	_, err := shard.CleanStalePartialReindexState(ctx, propName, indexType)
+	_, err := shard.CleanStalePartialReindexState(ctx, propName, indexType, nil)
 	require.NoError(t, err)
 }
 
