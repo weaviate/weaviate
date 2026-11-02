@@ -34,8 +34,9 @@ type OffloadCloud interface {
 	ListCopies(ctx context.Context, className, shardName string) ([]string, error)
 	// Delete deletes content of a shard assigned to specific node in
 	// cloud provider (S3, Azure Blob storage, Google cloud storage)
-	// Careful: if shardName and nodeName is passed empty it will delete all class frozen shards in cloud storage
 	// {cloud_provider}://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
 	// Callers pass {attempt} as nodeName to delete every node's copy of it.
 	Delete(ctx context.Context, className, shardName, nodeName string) error
+	// DeleteClass deletes a class's copies with attempt below `below`, except those Retain marked.
+	DeleteClass(ctx context.Context, className string, below uint64) error
 }

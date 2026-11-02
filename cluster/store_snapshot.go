@@ -140,8 +140,10 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 		// between them. The other order lets a FINISHED task pair with an
 		// IndexFilterable / IndexSearchable / IndexRangeFilters that still
 		// reads false.
+		// raft stores the snapshot before restoring from it
+		snapIndex := lastSnapshotIndex(st.snapshotStore)
 		if snap.Schema != nil {
-			if err := st.schemaManager.Restore(snap.Schema, st.cfg.Parser); err != nil {
+			if err := st.schemaManager.Restore(snap.Schema, st.cfg.Parser, snapIndex); err != nil {
 				st.log.WithError(err).Error("restoring schema from snapshot")
 				return fmt.Errorf("restore schema from snapshot: %w", err)
 			}
@@ -152,7 +154,7 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 				return fmt.Errorf("restore snapshot: marshal json: %w", err)
 			}
 
-			if err := st.schemaManager.RestoreLegacy(jsonBytes, st.cfg.Parser); err != nil {
+			if err := st.schemaManager.RestoreLegacy(jsonBytes, st.cfg.Parser, snapIndex); err != nil {
 				st.log.WithError(err).Error("restoring schema from snapshot")
 				return fmt.Errorf("restore schema from snapshot: %w", err)
 			}
@@ -209,7 +211,6 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			return nil
 		}
 
-		snapIndex := lastSnapshotIndex(st.snapshotStore)
 		if st.wipedJoinerCandidate.Load() {
 			// Caught up via InstallSnapshot; a snapshot below the join barrier defers to the barrier path.
 			st.wipedJoinerRestoreReload(snapIndex)

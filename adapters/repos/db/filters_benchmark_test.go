@@ -758,7 +758,7 @@ func TestFiltersBenchmark(t *testing.T) {
 					}
 
 					t.Cleanup(func() {
-						migrator.DropClass(context.Background(), className, false)
+						migrator.DropClass(context.Background(), className, false, 1)
 					})
 				})
 			}
@@ -941,7 +941,7 @@ func TestFiltersDelete(t *testing.T) {
 						waitForIndexing(t, repo, className)
 					}
 					t.Cleanup(func() {
-						migrator.DropClass(context.Background(), className, false)
+						migrator.DropClass(context.Background(), className, false, 1)
 					})
 				})
 

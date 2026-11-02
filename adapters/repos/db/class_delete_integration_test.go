@@ -60,7 +60,7 @@ func createClass(t *testing.T, ctx context.Context, migrator *Migrator, sg *fake
 
 func deleteClass(t *testing.T, ctx context.Context, migrator *Migrator, sg *fakeSchemaGetter, name string) {
 	t.Helper()
-	require.NoError(t, migrator.DropClass(ctx, name, false))
+	require.NoError(t, migrator.DropClass(ctx, name, false, 1))
 	unpublish(sg, name)
 }
 
@@ -153,7 +153,7 @@ func TestDeleteClassDuringBackup(t *testing.T) {
 
 	var dropErr error
 	requireNoHang(t, "delete of a class with an open backup", func() {
-		dropErr = migrator.DropClass(ctx, deleteTestClass, false)
+		dropErr = migrator.DropClass(ctx, deleteTestClass, false, 1)
 	})
 	require.NoError(t, dropErr)
 	unpublish(sg, deleteTestClass)

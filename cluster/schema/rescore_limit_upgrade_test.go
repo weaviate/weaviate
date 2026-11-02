@@ -111,7 +111,7 @@ func TestRestoreLegacyQuantizerRescoreLimit(t *testing.T) {
 				`"vectorIndexType":"hnsw","vectorIndexConfig":` + test.legacy + `},` +
 				`"ClassVersion":1,"Sharding":` + string(shardState) + `,"ShardVersion":1}}`
 
-			require.NoError(t, sm.Restore([]byte(snapshot), parser))
+			require.NoError(t, sm.Restore([]byte(snapshot), parser, 1))
 
 			cls := sm.NewSchemaReader().ReadOnlyClass(className)
 			require.NotNil(t, cls)

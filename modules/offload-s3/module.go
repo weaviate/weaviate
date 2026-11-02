@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/s5cmd/v2/storage"
 	"github.com/weaviate/s5cmd/v2/storage/url"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -410,37 +411,21 @@ func (m *Module) DownloadToPath(ctx context.Context, className, shardName, nodeN
 
 // Delete deletes content of a shard assigned to specific node in
 // cloud provider (S3, Azure Blob storage, Google cloud storage)
-// Careful: if shardName and nodeName is passed empty it will delete all class frozen shards in cloud storage
 // {cloud_provider}://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
 func (m *Module) Delete(ctx context.Context, className, shardName, nodeName string) error {
 	start := time.Now()
 
-	if className == "" {
-		return fmt.Errorf("can't pass empty class name")
-	}
-
-	if shardName == "" && nodeName != "" {
-		return fmt.Errorf("can't pass empty shard name")
-	}
-
-	if nodeName == "" && shardName != "" {
-		return fmt.Errorf("can't pass empty node name")
+	if err := validate(className, shardName, nodeName); err != nil {
+		return err
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 
-	cloudPath := fmt.Sprintf("s3://%s/%s/%s/%s/*", m.Bucket, strings.ToLower(className), shardName, nodeName)
-
-	// update cloud path on deleting a class
-	if shardName == "" && nodeName == "" {
-		cloudPath = fmt.Sprintf("s3://%s/%s/*", m.Bucket, strings.ToLower(className))
-	}
-
 	cmd := []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"rm",
-		cloudPath,
+		fmt.Sprintf("s3://%s/%s/%s/%s/*", m.Bucket, strings.ToLower(className), shardName, nodeName),
 	}
 
 	var err error
@@ -458,6 +443,74 @@ func (m *Module) Delete(ctx context.Context, className, shardName, nodeName stri
 		return err
 	}
 	return nil
+}
+
+// DeleteClass deletes attempts below `below`, sparing a same-name class created after it.
+func (m *Module) DeleteClass(ctx context.Context, className string, below uint64) (err error) {
+	start := time.Now()
+	if className == "" {
+		return fmt.Errorf("can't pass empty class name")
+	}
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "failed"
+		}
+		m.metrics.OpsDuration.WithLabelValues("delete", status).Observe(time.Since(start).Seconds())
+	}()
+
+	ctx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	class := strings.ToLower(className)
+	target, err := url.New(fmt.Sprintf("s3://%s/%s/*", m.Bucket, class))
+	if err != nil {
+		return err
+	}
+	initS5cmd(m.workersCount)
+	client, err := storage.NewRemoteClient(ctx, target, storage.Options{
+		Endpoint:   m.Endpoint,
+		MaxRetries: s5cmdRetries,
+		LogLevel:   log.LevelError,
+	})
+	if err != nil {
+		return err
+	}
+
+	urls := make(chan *url.URL)
+	var listErr error
+	enterrors.GoWrapper(func() {
+		defer close(urls)
+		for object := range client.List(ctx, target, false) {
+			if object.Err != nil {
+				if !errors.Is(object.Err, storage.ErrNoObjectFound) {
+					listErr = object.Err
+				}
+				continue
+			}
+			// {shard}/{attempt}/{node}/...
+			parts := strings.SplitN(strings.TrimPrefix(object.URL.Path, class+"/"), "/", 3)
+			if len(parts) < 3 {
+				continue
+			}
+			if attempt, err := strconv.ParseUint(parts[1], 10, 64); err != nil || attempt >= below {
+				continue
+			}
+			select {
+			case urls <- object.URL:
+			case <-ctx.Done():
+			}
+		}
+	}, m.logger)
+
+	var deleteErr error
+	for object := range client.MultiDelete(ctx, urls) {
+		if object.Err != nil {
+			deleteErr = errors.Join(deleteErr, fmt.Errorf("delete %s: %w", object.URL, object.Err))
+		}
+	}
+	// s5cmd reports a listing cut short as a success
+	return errors.Join(listErr, deleteErr, ctx.Err())
 }
 
 func dirSize(path string) (int64, error) {

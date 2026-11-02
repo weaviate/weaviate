@@ -760,7 +760,7 @@ func TestLazyLoadShardMetricsLifecycle(t *testing.T) {
 		// At this point, the shard is unloaded (from previous test)
 		// Drop the class (which drops shards)
 		// Since the shard was unloaded, LazyLoadShard.drop() should call DeleteUnloadedShard
-		err = migrator.DropClass(ctx, className, false)
+		err = migrator.DropClass(ctx, className, false, 1)
 		require.NoError(t, err)
 
 		// After dropping, all counts should be 0

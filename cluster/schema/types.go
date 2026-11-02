@@ -29,7 +29,8 @@ type (
 type Indexer interface {
 	AddClass(api.AddClassRequest) error
 	UpdateClass(api.UpdateClassRequest) error
-	DeleteClass(className string, hasFrozen bool) error
+	// DeleteClass deletes cloud copies below v, the delete's RAFT index.
+	DeleteClass(className string, hasFrozen bool, v uint64) error
 	AddProperty(class string, req api.AddPropertyRequest) error
 	UpdateProperty(class string, req api.UpdatePropertyRequest) error
 	AddTenants(class string, req *api.AddTenantsRequest) error
@@ -57,8 +58,8 @@ type Indexer interface {
 	ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error
 
 	// DropOrphanedClass removes the data of a class the schema already
-	// dropped. Only call it for a class the schema really held.
-	DropOrphanedClass(ctx context.Context, className string, hasFrozen bool) error
+	// dropped at index v or before. Only call it for a class the schema really held.
+	DropOrphanedClass(ctx context.Context, className string, hasFrozen bool, v uint64) error
 
 	// RestoreClassDir restores classes on the filesystem directly from the temporary class backup stored on disk.
 	RestoreClassDir(class string) error

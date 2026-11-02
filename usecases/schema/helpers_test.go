@@ -137,11 +137,11 @@ func (f *fakeDB) ReloadLocalDB(ctx context.Context, all []command.UpdateClassReq
 	return nil
 }
 
-func (f *fakeDB) DropOrphanedClass(ctx context.Context, class string, hasFrozen bool) error {
+func (f *fakeDB) DropOrphanedClass(ctx context.Context, class string, hasFrozen bool, v uint64) error {
 	return nil
 }
 
-func (f *fakeDB) DeleteClass(class string, hasFrozen bool) error {
+func (f *fakeDB) DeleteClass(class string, hasFrozen bool, v uint64) error {
 	return nil
 }
 
@@ -316,7 +316,7 @@ func (f *fakeMigrator) GetShardsQueueSize(ctx context.Context, className, tenant
 	return args.Get(0).(map[string]int64), args.Error(1)
 }
 
-func (f *fakeMigrator) DropOrphanedClass(ctx context.Context, className string, hasFrozen bool) error {
+func (f *fakeMigrator) DropOrphanedClass(ctx context.Context, className string, hasFrozen bool, v uint64) error {
 	return nil
 }
 
@@ -325,7 +325,7 @@ func (f *fakeMigrator) AddClass(ctx context.Context, cls *models.Class) error {
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) DropClass(ctx context.Context, className string, hasFrozen bool) error {
+func (f *fakeMigrator) DropClass(ctx context.Context, className string, hasFrozen bool, v uint64) error {
 	args := f.Called(ctx, className)
 	return args.Error(0)
 }

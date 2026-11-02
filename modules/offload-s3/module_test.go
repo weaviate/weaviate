@@ -13,7 +13,9 @@ package modsloads3
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,8 +26,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // Runs in a child process: s5cmd's logger is a process global any earlier command would have set.
@@ -132,6 +137,57 @@ func TestUploadArgs_SkipsScratchFiles(t *testing.T) {
 		"/var/lib/weaviate/testclass/tenant-0/*",
 		"s3://weaviate-offload-test/testclass/tenant-0/node1/",
 	}, args)
+}
+
+// A late-applied class delete must not touch copies of a same-name class created after it.
+func TestDeleteClassKeepsNewerCopies(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+	t.Setenv("AWS_REGION", "us-east-1")
+	var mu sync.Mutex
+	var deleted []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		if r.Method == http.MethodPost {
+			body, _ := io.ReadAll(r.Body)
+			var req struct {
+				Objects []struct{ Key string } `xml:"Object"`
+			}
+			require.NoError(t, xml.Unmarshal(body, &req))
+			out := `<DeleteResult>`
+			mu.Lock()
+			for _, o := range req.Objects {
+				deleted = append(deleted, o.Key)
+				out += "<Deleted><Key>" + o.Key + "</Key></Deleted>"
+			}
+			mu.Unlock()
+			_, _ = w.Write([]byte(out + `</DeleteResult>`))
+			return
+		}
+		keys := []string{
+			"class/t1/7/node1/segment", "class/t1/7/node2/segment",
+			"class/t1/120/node1/segment",
+			"class/t2/9/node1/segment",
+			"class/t3/legacy-node/segment",
+		}
+		out := `<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><IsTruncated>false</IsTruncated>`
+		for _, key := range keys {
+			out += "<Contents><Key>" + key + "</Key><Size>1</Size></Contents>"
+		}
+		_, _ = w.Write([]byte(out + `</ListBucketResult>`))
+	}))
+	defer srv.Close()
+
+	logger, _ := test.NewNullLogger()
+	m := &Module{
+		Endpoint: srv.URL, Bucket: "bucket", timeout: 10 * time.Second, workersCount: 1, logger: logger,
+		metrics: monitoring.NewTenantOffloadMetrics(monitoring.Config{MetricsNamespace: "test"}, prometheus.NewRegistry()),
+	}
+	require.NoError(t, m.DeleteClass(t.Context(), "Class", 100))
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.ElementsMatch(t, []string{"class/t1/7/node1/segment", "class/t1/7/node2/segment", "class/t2/9/node1/segment"}, deleted)
 }
 
 func shardName(i int) string {
