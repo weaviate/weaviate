@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type MigrationState string
@@ -655,7 +656,9 @@ func migrationReservedDirName(h string) bool {
 }
 
 // A positive shape rule, not a denylist, so it refuses stores added later
-// too. Deliberately as weak as [isSidecarDirOf]: weaviate/weaviate#12621.
+// too. Still matches on the role word alone, so it stays weaker than
+// [isSidecarDirOf] now that the sweep reads whole suffixes out of the
+// strategy registry: weaviate/weaviate#12621.
 func migrationHandleIsSidecarShaped(h string) bool {
 	tail, ok := strings.CutPrefix(h, migrationPropertyBucketPrefix)
 	if !ok {
@@ -665,7 +668,7 @@ func migrationHandleIsSidecarShaped(h string) bool {
 	if i < 0 {
 		return false
 	}
-	return slices.Contains(sidecarRoleWords, sidecarRoleWord(tail[i+2:]))
+	return slices.Contains(schema.SidecarRoleWords, schema.SidecarRoleWord(tail[i+2:]))
 }
 
 // TestEveryPropertyBucketCarriesTheMigrationPrefix pins this against the
