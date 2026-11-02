@@ -189,9 +189,11 @@ func runLiveQueryDuringChangeTokenizationCase(
 
 	className := fmt.Sprintf("LiveQueryTok_%s_%s_%s", startTok, targetTok, indexType)
 
+	// A filterable-only retokenize is refused while a searchable index exists.
+	searchable := indexType != "filterable"
 	createCollection(t, compose, compose.GetWeaviateNode(1).URI(), className, shardCount, rf,
 		[]*models.Property{
-			{Name: "text", DataType: []string{"text"}, Tokenization: startTok},
+			{Name: "text", DataType: []string{"text"}, Tokenization: startTok, IndexSearchable: &searchable},
 		})
 	defer deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
 
