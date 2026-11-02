@@ -469,10 +469,9 @@ func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key, overri
 }
 
 func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {
-	f.Lock()
-	defer f.Unlock()
 	defer r.Close()
-	return 0, nil
+	// Closing unread fails the sender with "read/write on closed pipe".
+	return io.Copy(io.Discard, r)
 }
 
 func (f *fakeBackupBackend) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
