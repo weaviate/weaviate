@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
@@ -32,6 +33,10 @@ type noopTenantProcessor struct{}
 func (noopTenantProcessor) UpdateTenantsProcess(context.Context, string, *command.TenantProcessRequest) (uint64, error) {
 	return 0, nil
 }
+
+func (noopTenantProcessor) RunningTransitions() []clusterschema.TenantTransition { return nil }
+
+func (noopTenantProcessor) TransitionsCaughtUp() bool { return true }
 
 // Freezing a tenant whose shard is not loaded deletes the tenant's on-disk
 // subtree with no Store to shut each bucket down, exactly like the dropShards

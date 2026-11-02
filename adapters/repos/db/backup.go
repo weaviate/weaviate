@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -356,14 +357,17 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 
 	desc.StagingDir = stagingRoot
 
-	shardNames, stateBytes, replicas, err := i.readSchema()
+	shardNames, stateBytes, local, err := i.readSchema()
 	if err != nil {
 		return fmt.Errorf("list local shards: %w", err)
 	}
 	if err := verifyDesignatedLocalShards(designated, shardNames, i.Config.NodeName); err != nil {
 		return err
 	}
-	shardNames = filterDesignatedShards(shardNames, designated, replicas, i.Config.NodeName)
+	shardNames = filterDesignatedShards(shardNames, designated, local, i.Config.NodeName)
+	if err := i.retainFrozenCopies(ctx, backupID, local); err != nil {
+		return err
+	}
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
 	eg.SetLimit(_NUMCPU)
@@ -393,6 +397,9 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 
 	if err := eg.Wait(); err != nil {
 		return fmt.Errorf("backup shards with hardlinks: %w", err)
+	}
+	if err := i.refuseOffloadDrift(local); err != nil {
+		return err
 	}
 
 	// Preserve original shard order from sharding state.
@@ -554,14 +561,14 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 		}
 	}()
 
-	shardNames, stateBytes, replicas, err := i.readSchema()
+	shardNames, stateBytes, local, err := i.readSchema()
 	if err != nil {
 		return fmt.Errorf("list local shards: %w", err)
 	}
 	if err := verifyDesignatedLocalShards(designated, shardNames, i.Config.NodeName); err != nil {
 		return err
 	}
-	shardNames = filterDesignatedShards(shardNames, designated, replicas, i.Config.NodeName)
+	shardNames = filterDesignatedShards(shardNames, designated, local, i.Config.NodeName)
 
 	shards := map[string]*backup.ShardDescriptor{}
 	for _, name := range shardNames {
@@ -818,26 +825,26 @@ func (i *Index) marshalSchema() ([]byte, error) {
 }
 
 // readSchema reads the sharding state and returns the names of all shards
-// that belong to this node, regardless of tenant status, their replica sets,
-// and the overall sharding state.
+// that belong to this node, regardless of tenant status, those shards as the
+// state recorded them, and the overall sharding state.
 // This is used as the single source of truth for which shards to back up, avoiding the race condition
 // of iterating two separate data structures.
-func (i *Index) readSchema() (shards []string, state []byte, replicas map[string][]string, err error) {
+func (i *Index) readSchema() (shards []string, state []byte, local map[string]sharding.Physical, err error) {
 	nodeName := i.Config.NodeName
-	replicas = make(map[string][]string)
+	local = make(map[string]sharding.Physical)
 	err = i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, s *sharding.State) error {
 		if s == nil {
 			return fmt.Errorf("unable to retrieve sharding state for class %s", i.Config.ClassName.String())
 		}
 		var jsonErr error
-		state, jsonErr = s.JSON()
+		state, jsonErr = withoutTransitions(s).JSON()
 		if jsonErr != nil {
 			return fmt.Errorf("marshal sharding state: %w", jsonErr)
 		}
 		for shardName, phys := range s.Physical {
 			if phys.IsLocalShard(nodeName) {
 				shards = append(shards, shardName)
-				replicas[shardName] = slices.Clone(phys.BelongsToNodes)
+				local[shardName] = phys.DeepCopy()
 			}
 		}
 		return nil
@@ -864,17 +871,68 @@ func verifyDesignatedLocalShards(designated map[string]string, shardNames []stri
 	return fmt.Errorf("shards %v are designated to this node but no longer local; the replica set changed during the backup, retry it", listed)
 }
 
+// retainFrozenCopies keeps the cloud copies the backup's frozen tenants restore
+// from: no transition or delete removes a retained attempt.
+func (i *Index) retainFrozenCopies(ctx context.Context, backupID string, local map[string]sharding.Physical) error {
+	if i.db == nil || i.db.offloadCloud == nil {
+		return nil // without the module this node deletes no cloud copy
+	}
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	eg.SetLimit(_NUMCPU)
+	for name, p := range local {
+		if p.Status != models.TenantActivityStatusFROZEN || p.CloudAttempt == 0 {
+			continue
+		}
+		eg.Go(func() error {
+			attempt := strconv.FormatUint(p.CloudAttempt, 10)
+			if err := i.db.offloadCloud.Retain(ctx, i.Config.ClassName.String(), name, attempt, backupID); err != nil {
+				return fmt.Errorf("keep the cloud copy of frozen tenant %q: %w", name, err)
+			}
+			return nil
+		})
+	}
+	return eg.Wait()
+}
+
+// refuseOffloadDrift fails a backup a freeze or unfreeze completed under: the
+// recorded state no longer describes the local data the backup took. A freeze
+// removes the folder, so the tenant would restore empty.
+func (i *Index) refuseOffloadDrift(captured map[string]sharding.Physical) error {
+	var drifted []string
+	err := i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, s *sharding.State) error {
+		for name, then := range captured {
+			now := s.Physical[name]
+			frozen := func(p sharding.Physical) bool { return p.Status == models.TenantActivityStatusFROZEN }
+			if frozen(now) != frozen(then) || now.CloudAttempt != then.CloudAttempt {
+				drifted = append(drifted, name)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("read sharding state: %w", err)
+	}
+	if len(drifted) == 0 {
+		return nil
+	}
+	sort.Strings(drifted)
+	if len(drifted) > _maxDesignatedShardsInError {
+		drifted = append(drifted[:_maxDesignatedShardsInError:_maxDesignatedShardsInError], fmt.Sprintf("+%d more", len(drifted)-_maxDesignatedShardsInError))
+	}
+	return fmt.Errorf("tenants %v were frozen or unfrozen during the backup, retry it", drifted)
+}
+
 // _maxDesignatedShardsInError caps the shard names in a drift error, which can span every tenant of a class.
 const _maxDesignatedShardsInError = 10
 
 // filterDesignatedShards drops shards designated to another still-replica node; anything else is kept so exclusion never orphans a shard.
-func filterDesignatedShards(shardNames []string, designated map[string]string, replicas map[string][]string, nodeName string) []string {
+func filterDesignatedShards(shardNames []string, designated map[string]string, local map[string]sharding.Physical, nodeName string) []string {
 	if len(designated) == 0 {
 		return shardNames
 	}
 	out := make([]string, 0, len(shardNames))
 	for _, name := range shardNames {
-		if d, ok := designated[name]; ok && d != nodeName && slices.Contains(replicas[name], d) {
+		if d, ok := designated[name]; ok && d != nodeName && slices.Contains(local[name].BelongsToNodes, d) {
 			continue
 		}
 		out = append(out, name)
@@ -1144,4 +1202,21 @@ func (s *shardTransfer) RLockGuard(reader func() error) error {
 	s.RLock()
 	defer s.RUnlock()
 	return reader()
+}
+
+// withoutTransitions brings a restored tenant back at the status it started from.
+func withoutTransitions(s *sharding.State) *sharding.State {
+	running := false
+	for _, phys := range s.Physical {
+		running = running || phys.Transition != nil
+	}
+	if !running {
+		return s
+	}
+	stripped := s.DeepCopy()
+	for name, phys := range stripped.Physical {
+		phys.Transition = nil
+		stripped.Physical[name] = phys
+	}
+	return &stripped
 }

@@ -68,9 +68,10 @@ func TestOptimisticTenantStatus_ImplicitActivation(t *testing.T) {
 		// allowActivation is what the caller passes: true for external request paths.
 		allowActivation bool
 
-		localStatus    string // tenant's status in the local schema; "" means absent
-		autoActivation bool   // is auto tenant activation enabled on the collection
-		leaderStatus   string // status the leader reports
+		localStatus     string // tenant's status in the local schema; "" means absent
+		localTransition string // kind of the transition running locally, if any
+		autoActivation  bool   // is auto tenant activation enabled on the collection
+		leaderStatus    string // status the leader reports
 
 		wantStatus      string
 		wantLeaderQuery bool
@@ -144,6 +145,29 @@ func TestOptimisticTenantStatus_ImplicitActivation(t *testing.T) {
 			wantActivation:  false,
 		},
 		{
+			// The stored status stays HOT during a freeze, so it must not short-circuit:
+			// a write would land after the upload and be lost.
+			name:            "internal caller: a running freeze is not HOT",
+			localStatus:     models.TenantActivityStatusHOT,
+			localTransition: sharding.TransitionFreeze,
+			autoActivation:  true,
+			leaderStatus:    models.TenantActivityStatusFREEZING,
+			wantStatus:      models.TenantActivityStatusFREEZING,
+			wantLeaderQuery: false,
+			wantActivation:  false,
+		},
+		{
+			name:            "external request: a running freeze asks the leader",
+			allowActivation: true,
+			localStatus:     models.TenantActivityStatusHOT,
+			localTransition: sharding.TransitionFreeze,
+			autoActivation:  false,
+			leaderStatus:    models.TenantActivityStatusFREEZING,
+			wantStatus:      models.TenantActivityStatusFREEZING,
+			wantLeaderQuery: true,
+			wantActivation:  false,
+		},
+		{
 			name:            "internal caller: HOT locally short-circuits the same way",
 			localStatus:     models.TenantActivityStatusHOT,
 			autoActivation:  true,
@@ -165,6 +189,11 @@ func TestOptimisticTenantStatus_ImplicitActivation(t *testing.T) {
 			state := &sharding.State{Physical: map[string]sharding.Physical{}}
 			if tt.localStatus != "" {
 				state.Physical[tenantName] = sharding.Physical{Name: tenantName, Status: tt.localStatus}
+				if tt.localTransition != "" {
+					phys := state.Physical[tenantName]
+					phys.Transition = &sharding.Transition{Kind: tt.localTransition}
+					state.Physical[tenantName] = phys
+				}
 			}
 
 			// Read serves both the local tenant probe (sharding state) and

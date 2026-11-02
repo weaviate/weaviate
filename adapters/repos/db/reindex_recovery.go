@@ -83,7 +83,7 @@ func DiscoverInFlightReindexTasks(
 			continue
 		}
 		for _, shardEntry := range shards {
-			if !shardEntry.IsDir() {
+			if !shardEntry.IsDir() || strings.HasPrefix(shardEntry.Name(), unfreezeStagingPrefix) {
 				continue
 			}
 			shardsWalked++

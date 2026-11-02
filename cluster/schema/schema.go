@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 
@@ -341,13 +342,7 @@ func (s *schema) hasFrozenTenant(class string) bool {
 	if err != nil {
 		return false
 	}
-	for _, t := range tenants {
-		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
-			t.ActivityStatus == models.TenantActivityStatusFREEZING {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(tenants, hasCloudCopy)
 }
 
 // classNames returns the names the schema holds, without MetaClasses' deep copy.
@@ -404,7 +399,7 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 	}
 
 	for _, shard := range ss.Physical {
-		s.shardsCount.WithLabelValues(shard.Status).Inc()
+		s.shardsCount.WithLabelValues(shard.CountedStatus()).Inc()
 	}
 
 	return nil
@@ -438,7 +433,7 @@ func (s *schema) deleteClass(name string) bool {
 
 	// need to decrement shards count on this class.
 	for _, shard := range class.Sharding.Physical {
-		sc[shard.Status]++
+		sc[shard.CountedStatus()]++
 	}
 
 	delete(s.classes, name)
@@ -478,7 +473,7 @@ func (s *schema) replaceClasses(classes map[string]*metaClass) {
 
 	for _, ss := range s.classes {
 		for _, shard := range ss.Sharding.Physical {
-			s.shardsCount.WithLabelValues(shard.Status).Dec()
+			s.shardsCount.WithLabelValues(shard.CountedStatus()).Dec()
 		}
 	}
 
@@ -490,7 +485,7 @@ func (s *schema) replaceClasses(classes map[string]*metaClass) {
 
 	for _, ss := range s.classes {
 		for _, shard := range ss.Sharding.Physical {
-			s.shardsCount.WithLabelValues(shard.Status).Inc()
+			s.shardsCount.WithLabelValues(shard.CountedStatus()).Inc()
 		}
 	}
 }
@@ -655,12 +650,12 @@ func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenant
 	return nil
 }
 
-func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest, replicationFSM replicationFSM, preFreezeStatuses map[string]string) error {
+func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest, replicationFSM replicationFSM) error {
 	ok, meta, _, err := s.multiTenancyEnabled(class)
 	if !ok {
 		return err
 	}
-	sc, err := meta.UpdateTenants(s.nodeID, req, replicationFSM, v, preFreezeStatuses)
+	sc, err := meta.UpdateTenants(s.nodeID, req, replicationFSM, v)
 	// partial update possible
 	for status, count := range sc {
 		// count can be positive or negative.
@@ -705,7 +700,7 @@ func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, e
 
 				res[i] = &models.Tenant{
 					Name:           tenantName,
-					ActivityStatus: entSchema.ActivityStatus(physical.Status),
+					ActivityStatus: physical.ActivityStatus(),
 				}
 
 				// Increment our result iterator
@@ -720,7 +715,7 @@ func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, e
 					copy(cpy, physical.BelongsToNodes)
 					res = append(res, &models.Tenant{
 						Name:           tenantName,
-						ActivityStatus: entSchema.ActivityStatus(physical.Status),
+						ActivityStatus: physical.ActivityStatus(),
 					})
 				}
 			}

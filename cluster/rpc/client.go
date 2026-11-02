@@ -376,6 +376,8 @@ func fromRPCError(err error) error {
 			return errors.Join(err, clusterSchema.ErrMTDisabled)
 		case strings.Contains(msg, replicationTypes.ErrMovementBlockedByTask.Error()):
 			return errors.Join(err, replicationTypes.ErrMovementBlockedByTask)
+		case strings.Contains(msg, clusterSchema.ErrTenantTransitionalState.Error()):
+			return errors.Join(err, clusterSchema.ErrTenantTransitionalState)
 		}
 	case codes.AlreadyExists:
 		switch {

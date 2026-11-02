@@ -342,6 +342,10 @@ type Store struct {
 
 	// clusterID is the stable UUID committed once per cluster lifetime via raft.
 	clusterID atomic.Pointer[string]
+
+	// joinCommitIndex is the leader's commit index when this node joined or
+	// rejoined, 0 if none was returned.
+	joinCommitIndex atomic.Uint64
 }
 
 // storeMetrics exposes RAFT store related prometheus metrics
@@ -453,6 +457,9 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 		Logger:           cfg.Logger,
 	})
 
+	schemaManager.SetNodeAlive(func(node string) bool {
+		return cfg.NodeSelector == nil || cfg.NodeSelector.NodeAddress(node) != ""
+	})
 	schemaManager.SetMutationGuard(distributedTasksManager)
 	schemaManager.SetDistributedTaskManager(distributedTasksManager)
 
@@ -1014,6 +1021,13 @@ func wipedJoinerSnapshotCoversBarrier(joined bool, barrier, snapIndex uint64) bo
 }
 
 // SetJoinBarrier: no-op unless an un-reloaded candidate; a 0 index falls back to the watcher timeouts.
+// joined records the leader's commit index for a node that joined with no
+// state, as Rejoin does for one that has state.
+func (st *Store) joined(leaderCommitIndex uint64) {
+	st.joinCommitIndex.Store(leaderCommitIndex)
+	st.SetJoinBarrier(leaderCommitIndex)
+}
+
 func (st *Store) SetJoinBarrier(leaderCommitIndex uint64) {
 	if !st.wipedJoinerCandidate.Load() || st.wipedJoinerReloaded.Load() {
 		return

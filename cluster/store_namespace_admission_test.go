@@ -84,7 +84,7 @@ var destructiveApplyTypes = map[api.ApplyRequest_Type]struct{}{
 // a namespace is suspended can be revoked without a resume.
 // DELETE_REPLICA_FROM_SHARD can destroy data and is ungated on purpose.
 //
-// TENANT_PROCESS stays ungated because Migrator.freeze ends every offload with
+// TENANT_PROCESS stays ungated because transitionManager.work ends every offload with
 // one, and refusing it would leave the tenant FREEZING with its shard halted. A
 // new offload aborts because Index.GetShard refuses a suspended namespace's
 // shard. One in flight finishes through Migrator.frozen, which skips GetShard.
@@ -364,7 +364,7 @@ func destructiveCommands() []gatedCommand {
 			},
 			seedEntity: seedClass,
 			expectApplied: func(t *testing.T, ms *MockStore, target string) {
-				ms.indexer.On("DeleteTenants", target, mock.Anything).Return(nil)
+				ms.indexer.On("DeleteTenants", target, mock.Anything, mock.Anything).Return(nil)
 				ms.replicationFSM.On("DeleteReplicationsByTenants", target, []string{seededTenant}).Return(nil)
 			},
 			landed: func(ms *MockStore, target string) bool {
@@ -654,7 +654,7 @@ func shardMaterializingCommands() []gatedCommand {
 			},
 			seedEntity: seedClass,
 			expectApplied: func(t *testing.T, ms *MockStore, _ string) {
-				ms.indexer.On("UpdateTenants", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				ms.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
 				// A move to COLD checks for a replication holding the shard.
 				ms.replicationFSM.On("HasActiveReplicationForShard",
 					mock.Anything, mock.Anything).Return(false)

@@ -20,14 +20,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestFilterDesignatedShards(t *testing.T) {
-	replicas := map[string][]string{
-		"s1": {"n1", "n2", "n3"},
-		"s2": {"n1", "n2", "n3"},
-		"s3": {"n1", "n2", "n3"},
-		"s4": {"n1", "n2"},
+	local := map[string]sharding.Physical{
+		"s1": {BelongsToNodes: []string{"n1", "n2", "n3"}},
+		"s2": {BelongsToNodes: []string{"n1", "n2", "n3"}},
+		"s3": {BelongsToNodes: []string{"n1", "n2", "n3"}},
+		"s4": {BelongsToNodes: []string{"n1", "n2"}},
 	}
 	all := []string{"s1", "s2", "s3", "s4"}
 
@@ -60,7 +61,7 @@ func TestFilterDesignatedShards(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := filterDesignatedShards(all, tc.designated, replicas, tc.nodeName)
+			got := filterDesignatedShards(all, tc.designated, local, tc.nodeName)
 			assert.Equal(t, tc.want, got)
 		})
 	}

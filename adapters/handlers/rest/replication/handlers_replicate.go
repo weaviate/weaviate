@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -58,7 +59,7 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 		if errors.Is(err, replicationTypes.ErrInvalidRequest) {
 			return replication.NewReplicateUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
-		if errors.Is(err, replicationTypes.ErrMovementBlockedByTask) {
+		if errors.Is(err, replicationTypes.ErrMovementBlockedByTask) || errors.Is(err, clusterSchema.ErrTenantTransitionalState) {
 			return replication.NewReplicateConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
 		return replication.NewReplicateInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
@@ -598,7 +599,7 @@ func (h *replicationHandler) applyReplicationScalePlan(params replication.ApplyR
 	operationIDs, err := h.replicationManager.ApplyReplicationScalePlan(ctx, scalePlan)
 	if errors.Is(err, replicationTypes.ErrNotFound) {
 		return replication.NewApplyReplicationScalePlanNotFound()
-	} else if errors.Is(err, replicationTypes.ErrMovementBlockedByTask) {
+	} else if errors.Is(err, replicationTypes.ErrMovementBlockedByTask) || errors.Is(err, clusterSchema.ErrTenantTransitionalState) {
 		return replication.NewApplyReplicationScalePlanConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	} else if err != nil {
 		return replication.NewApplyReplicationScalePlanInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))

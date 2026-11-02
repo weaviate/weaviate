@@ -13,8 +13,10 @@ package modsloads3
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -30,6 +32,8 @@ import (
 	"github.com/weaviate/s5cmd/v2/log"
 	"github.com/weaviate/s5cmd/v2/log/stat"
 	"github.com/weaviate/s5cmd/v2/parallel"
+	"github.com/weaviate/s5cmd/v2/storage"
+	"github.com/weaviate/s5cmd/v2/storage/url"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -58,6 +62,15 @@ var (
 // sync.Once would still race if two Module instances ever ran Upload
 // concurrently.
 var s5cmdInit sync.Once
+
+const s5cmdRetries = 10
+
+func initS5cmd(workers int) {
+	s5cmdInit.Do(func() {
+		log.Init("error", false) // print level error only
+		parallel.Init(workers)
+	})
+}
 
 type Module struct {
 	Endpoint     string
@@ -120,7 +133,7 @@ func (m *Module) newApp() *cli.App {
 			&cli.IntFlag{
 				Name:    "retry-count",
 				Aliases: []string{"r"},
-				Value:   10,
+				Value:   s5cmdRetries,
 				Usage:   "number of times that a request will be retried for failures",
 			},
 			&cli.StringFlag{
@@ -139,10 +152,7 @@ func (m *Module) newApp() *cli.App {
 			isStat := c.Bool("stat")
 			endpointURL := c.String("endpoint-url")
 
-			s5cmdInit.Do(func() {
-				log.Init("error", false) // print level error only
-				parallel.Init(workerCount)
-			})
+			initS5cmd(workerCount)
 
 			if retryCount < 0 {
 				err := fmt.Errorf("retry count cannot be a negative value")
@@ -420,17 +430,17 @@ func (m *Module) Delete(ctx context.Context, className, shardName, nodeName stri
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 
-	cloudPath := fmt.Sprintf("s3://%s/%s/%s/%s/*", m.Bucket, strings.ToLower(className), shardName, nodeName)
-
-	// update cloud path on deleting a class
-	if shardName == "" && nodeName == "" {
-		cloudPath = fmt.Sprintf("s3://%s/%s/*", m.Bucket, strings.ToLower(className))
-	}
-
 	cmd := []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"rm",
-		cloudPath,
+		fmt.Sprintf("s3://%s/%s/%s/%s/*", m.Bucket, strings.ToLower(className), shardName, nodeName),
+	}
+	if shardName == "" && nodeName == "" {
+		retained, err := m.retainedInClass(ctx, className)
+		if err != nil {
+			return fmt.Errorf("list retained copies: %w", err)
+		}
+		cmd = m.deleteClassArgs(className, retained)
 	}
 
 	var err error
@@ -450,6 +460,76 @@ func (m *Module) Delete(ctx context.Context, className, shardName, nodeName stri
 	return nil
 }
 
+// retainedDir holds a marker per copy a backup restores from. Tenant names have
+// no dots, so it never collides with one.
+const retainedDir = ".retained"
+
+// deleteClassArgs deletes a class's copies except the retained ones, each a
+// {shardName}/{attempt}, and their markers.
+func (m *Module) deleteClassArgs(className string, retained []string) []string {
+	cmd := []string{
+		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
+		"rm",
+		fmt.Sprintf("--exclude=%s/*", retainedDir),
+	}
+	for _, copyPath := range retained {
+		cmd = append(cmd, fmt.Sprintf("--exclude=%s/*", copyPath))
+	}
+	return append(cmd, fmt.Sprintf("s3://%s/%s/*", m.Bucket, strings.ToLower(className)))
+}
+
+func (m *Module) retainedInClass(ctx context.Context, className string) ([]string, error) {
+	shards, err := m.listDir(ctx, fmt.Sprintf("%s/%s", strings.ToLower(className), retainedDir))
+	if err != nil {
+		return nil, err
+	}
+	var retained []string
+	for _, shard := range shards {
+		attempts, err := m.Retained(ctx, className, shard)
+		if err != nil {
+			return nil, err
+		}
+		for _, attempt := range attempts {
+			retained = append(retained, shard+"/"+attempt)
+		}
+	}
+	return retained, nil
+}
+
+// Retain marks a shard's attempt as one backupID restores from, so deletes keep it.
+// {cloud_provider}://{configured_bucket}/{className}/.retained/{shardName}/{attempt}/{backupID}
+func (m *Module) Retain(ctx context.Context, className, shardName, attempt, backupID string) error {
+	if err := validate(className, shardName, attempt); err != nil {
+		return err
+	}
+	if backupID == "" {
+		return fmt.Errorf("can't pass empty backup id")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	target, err := url.New(fmt.Sprintf("s3://%s/%s/%s/%s/%s/%s",
+		m.Bucket, strings.ToLower(className), retainedDir, shardName, attempt, backupID))
+	if err != nil {
+		return err
+	}
+	initS5cmd(m.workersCount)
+	client, err := storage.NewRemoteClient(ctx, target, storage.Options{
+		Endpoint:   m.Endpoint,
+		MaxRetries: s5cmdRetries,
+		LogLevel:   log.LevelError,
+	})
+	if err != nil {
+		return err
+	}
+	return client.Put(ctx, strings.NewReader(""), target, storage.Metadata{}, 1, 5<<20)
+}
+
+func (m *Module) Retained(ctx context.Context, className, shardName string) ([]string, error) {
+	return m.listDir(ctx, fmt.Sprintf("%s/%s/%s", strings.ToLower(className), retainedDir, shardName))
+}
+
 func dirSize(path string) (int64, error) {
 	var size int64
 	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
@@ -462,6 +542,50 @@ func dirSize(path string) (int64, error) {
 		return err
 	})
 	return size, err
+}
+
+func (m *Module) HasData(ctx context.Context, className, shardName, nodeName string) (bool, error) {
+	if err := validate(className, shardName, nodeName); err != nil {
+		return false, err
+	}
+	names, err := m.listDir(ctx, fmt.Sprintf("%s/%s/%s", strings.ToLower(className), shardName, nodeName))
+	return len(names) > 0, err
+}
+
+func (m *Module) ListCopies(ctx context.Context, className, shardName string) ([]string, error) {
+	return m.listDir(ctx, fmt.Sprintf("%s/%s", strings.ToLower(className), shardName))
+}
+
+func (m *Module) listDir(ctx context.Context, dir string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	target, err := url.New(fmt.Sprintf("s3://%s/%s/", m.Bucket, dir))
+	if err != nil {
+		return nil, err
+	}
+	initS5cmd(m.workersCount)
+	client, err := storage.NewRemoteClient(ctx, target, storage.Options{
+		Endpoint:   m.Endpoint,
+		MaxRetries: s5cmdRetries,
+		LogLevel:   log.LevelError,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var names []string
+	var listErr error
+	for object := range client.List(ctx, target, false) {
+		switch {
+		case errors.Is(object.Err, storage.ErrNoObjectFound):
+		case object.Err != nil:
+			listErr = object.Err
+		default:
+			names = append(names, path.Base(strings.TrimSuffix(object.URL.Path, "/")))
+		}
+	}
+	return names, errors.Join(listErr, ctx.Err())
 }
 
 func validate(className, shardName, nodeName string) error {

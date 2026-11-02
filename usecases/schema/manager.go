@@ -305,7 +305,7 @@ func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tena
 		}
 
 		foundTenant = true
-		status = t.Status
+		status = t.ActivityStatus()
 		return nil
 	})
 	if err != nil {

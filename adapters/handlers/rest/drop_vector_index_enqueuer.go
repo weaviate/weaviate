@@ -25,7 +25,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
-	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -396,7 +395,7 @@ func activeShardOwnership(state *sharding.State) map[string][]string {
 	result := make(map[string][]string)
 	for shardName, shard := range state.Physical {
 		if state.PartitioningEnabled {
-			switch entschema.ActivityStatus(shard.Status) {
+			switch shard.ActivityStatus() {
 			case models.TenantActivityStatusHOT, models.TenantActivityStatusACTIVE:
 				// Loaded — include.
 			default:

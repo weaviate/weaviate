@@ -46,3 +46,19 @@ func TestDiscoverInFlightReindexTasks_RuntimeReindexDisabled(t *testing.T) {
 		})
 	}
 }
+
+// A crash mid-download leaves the source node's records in an unfreeze staging
+// folder, which the first transition pass removes.
+func TestDiscoverInFlightReindexTasksSkipsUnfreezeStaging(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	root := t.TempDir()
+	lsm := filepath.Join(root, "books", unfreezeStagingPrefix+"shard-1-9", "lsm")
+	require.NoError(t, os.MkdirAll(lsm, 0o777))
+	require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(
+		NewMigrationRecordIterated(testMigrationSubject(3, StrategyCodeSearchableRetokenize, "title"))))
+
+	recovered, err := DiscoverInFlightReindexTasks(root, true, logger, nil)
+
+	require.NoError(t, err)
+	require.Empty(t, recovered)
+}

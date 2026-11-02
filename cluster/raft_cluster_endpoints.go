@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -117,11 +118,13 @@ func (s *Raft) Remove(ctx context.Context, id string) error {
 }
 
 // rebalanceReplicasAfterNodeRemoval updates shard replica assignments after a node
-// has been removed from the Raft cluster.
+// has been removed from the Raft cluster. A shard it cannot change, such as one
+// mid-transition, does not stop the others.
 func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNode string) error {
 	schemaReader := s.SchemaReader()
 	states := schemaReader.States()
 
+	var errs []error
 	// Collect class names first to avoid concurrent map iteration
 	classNames := make([]string, 0, len(states))
 	for className := range states {
@@ -154,14 +157,15 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 
 		desiredRF := int(classInfo.ReplicationFactor)
 
+		slices.Sort(shardsWithRemovedNode)
 		for _, shardName := range shardsWithRemovedNode {
 			if err := s.processShardReplicaRemoval(ctx, schemaReader, className, shardName, removedNode, desiredRF); err != nil {
-				return err
+				errs = append(errs, err)
 			}
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // processShardReplicaRemoval handles the removal of a node from a specific shard's replicas.

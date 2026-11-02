@@ -2517,7 +2517,7 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 				}
 			}
 
-			switch entschema.ActivityStatus(shard.Status) {
+			switch shard.ActivityStatus() {
 			case models.TenantActivityStatusHOT, models.TenantActivityStatusACTIVE:
 			default:
 				notHot = true

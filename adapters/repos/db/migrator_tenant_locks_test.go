@@ -105,7 +105,7 @@ func migratorOpsWithoutClassLock(reachIndex bool) map[string]func(*Migrator) err
 			return m.UpdateTenants(ctx, &models.Class{Class: lockTestClass}, nil, false)
 		},
 		"DeleteTenants": func(m *Migrator) error {
-			return m.DeleteTenants(ctx, lockTestClass, nil)
+			return m.DeleteTenants(ctx, lockTestClass, nil, 0)
 		},
 		"GetShardsStorageStatus": func(m *Migrator) error {
 			_, _, err := m.GetShardsStorageStatus(ctx, lockTestClass, "")

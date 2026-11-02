@@ -144,6 +144,13 @@ type Physical struct {
 	BelongsToNodes                       []string `json:"belongsToNodes,omitempty"`
 
 	Status string `json:"status,omitempty"`
+
+	// Transition is set while a freeze or unfreeze runs.
+	Transition *Transition `json:"transition,omitempty"`
+	// CloudAttempt is the attempt whose cloud copies hold a frozen tenant.
+	CloudAttempt uint64 `json:"cloudAttempt,omitempty"`
+	// CloudSources are the nodes whose cloud copy held data when the tenant froze.
+	CloudSources []string `json:"cloudSources,omitempty"`
 }
 
 // BelongsToNode for backward-compatibility when there was no replication. It
@@ -270,7 +277,19 @@ func (p *Physical) AdjustReplicas(count int, nodes cluster.NodeSelector) error {
 }
 
 func (p *Physical) ActivityStatus() string {
+	if p.Transition != nil {
+		return p.Transition.activityStatus()
+	}
 	return schema.ActivityStatus(p.Status)
+}
+
+// CountedStatus is ActivityStatus for shard metrics, keeping a single-tenant
+// shard's empty status.
+func (p *Physical) CountedStatus() string {
+	if p.Transition != nil {
+		return p.ActivityStatus()
+	}
+	return p.Status
 }
 
 func (p *Physical) IsLocalShard(nodeName string) bool {
@@ -349,7 +368,7 @@ func (s *State) PhysicalShard(in []byte) string {
 func (s *State) LocalActivePhysicalShardsCount() int {
 	count := 0
 	for _, physical := range s.Physical {
-		if s.IsLocalPhysical(physical) && physical.Status == models.TenantActivityStatusHOT {
+		if s.IsLocalPhysical(physical) && physical.Status == models.TenantActivityStatusHOT && physical.Transition == nil {
 			count++
 		}
 	}
@@ -516,8 +535,8 @@ func (s State) GetPartitions(nodes []string, shards []string, replFactor int64) 
 	nodeSet := make(map[string]bool)
 	for _, name := range shards {
 		if existedShard, exists := s.Physical[name]; exists &&
-			existedShard.Status != models.TenantActivityStatusFROZEN &&
-			existedShard.Status != models.TenantActivityStatusFREEZING {
+			existedShard.ActivityStatus() != models.TenantActivityStatusFROZEN &&
+			existedShard.ActivityStatus() != models.TenantActivityStatusFREEZING {
 			continue
 		}
 		owners := make([]string, 0, replFactor)
@@ -570,7 +589,7 @@ func (s *State) DeletePartition(name string) (string, bool, error) {
 	if !ok {
 		return "", false, nil
 	}
-	status := t.Status
+	status := t.CountedStatus()
 	delete(s.Physical, name)
 	return status, true, nil
 }
@@ -748,6 +767,9 @@ func (p Physical) DeepCopy() Physical {
 		OwnsPercentage: p.OwnsPercentage,
 		BelongsToNodes: belongsCopy,
 		Status:         p.Status,
+		Transition:     p.Transition.DeepCopy(),
+		CloudAttempt:   p.CloudAttempt,
+		CloudSources:   slices.Clone(p.CloudSources),
 	}
 }
 

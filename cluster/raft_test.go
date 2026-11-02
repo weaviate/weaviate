@@ -52,8 +52,8 @@ func TestRaftEndpoints(t *testing.T) {
 	m.indexer.On("AddProperty", Anything, Anything).Return(nil)
 	m.indexer.On("UpdateShardStatus", Anything).Return(nil)
 	m.indexer.On("AddTenants", Anything, Anything).Return(nil)
-	m.indexer.On("UpdateTenants", Anything, Anything, Anything).Return(nil)
-	m.indexer.On("DeleteTenants", Anything, Anything).Return(nil)
+	m.indexer.On("UpdateTenants", Anything, Anything).Return(nil)
+	m.indexer.On("DeleteTenants", Anything, Anything, mock.Anything).Return(nil)
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	m.indexer.On("AddReplicaToShard", Anything, Anything, Anything).Return(nil)
 	m.indexer.On("DeleteReplicaFromShard", Anything, Anything, Anything).Return(nil)
@@ -698,6 +698,35 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, after.Physical[shard].BelongsToNodes, "Node-7")
 	})
+
+	t.Run("A tenant mid-transition refuses the plan before any step", func(t *testing.T) {
+		const transitioning = "TransitioningCollection"
+		_, err := r.AddClass(ctx, &models.Class{Class: transitioning}, &sharding.State{
+			PartitioningEnabled: true,
+			Physical: map[string]sharding.Physical{
+				"T1": {Name: "T1", BelongsToNodes: []string{sourceNode, removeNode}},
+				"T2": {
+					Name: "T2", BelongsToNodes: []string{sourceNode, removeNode},
+					Transition: &sharding.Transition{Kind: sharding.TransitionFreeze},
+				},
+			},
+		})
+		require.NoError(t, err)
+		plan := command.ReplicationScalePlan{
+			Collection: transitioning,
+			ShardReplicationScaleActions: map[string]command.ShardReplicationScaleActions{
+				"T1": {RemoveNodes: map[string]struct{}{removeNode: {}}},
+				"T2": {RemoveNodes: map[string]struct{}{removeNode: {}}},
+			},
+		}
+
+		_, err = r.ApplyReplicationScalePlan(ctx, plan)
+
+		require.ErrorIs(t, err, schema.ErrTenantTransitionalState)
+		after, err := readShardingState(r.SchemaReader(), transitioning)
+		require.NoError(t, err)
+		require.Contains(t, after.Physical["T1"].BelongsToNodes, removeNode, "no step applied")
+	})
 }
 
 // TestClusterID_CommittedByRealRaftLeader drives cluster-id commit through a
@@ -732,4 +761,23 @@ func TestClusterID_CommittedByRealRaftLeader(t *testing.T) {
 	srv.store.maybeCommitClusterID()
 	assert.Equal(t, id, srv.store.ClusterID(),
 		"clusterId must be stable once committed (set-once)")
+}
+
+func TestTransitionsCaughtUpOnAnIdleLeader(t *testing.T) {
+	ctx := context.Background()
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
+	m.indexer.On("Open", mock.Anything).Return(nil)
+	m.indexer.On("Close", mock.Anything).Return(nil)
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+
+	srv := NewRaft(mocks.NewMockNodeSelector("Node-1"), m.store, nil)
+	defer srv.Close(ctx)
+	require.NoError(t, srv.Open(ctx, m.indexer))
+	require.NoError(t, srv.store.Notify(m.cfg.NodeID, addr))
+	require.True(t, tryNTimesWithWait(25, 200*time.Millisecond, srv.store.IsLeader))
+	require.True(t, tryNTimesWithWait(10, 200*time.Millisecond, srv.Ready))
+
+	require.True(t, tryNTimesWithWait(25, 200*time.Millisecond, srv.TransitionsCaughtUp),
+		"a leader nobody writes to must still resume transitions")
 }

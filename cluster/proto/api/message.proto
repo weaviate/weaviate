@@ -210,6 +210,10 @@ message TenantsProcess {
 
   Op op = 1;  
   Tenant tenant =2;
+  // The RAFT index that started the transition.
+  uint64 attempt = 3;
+  // Whether the cloud path held any object after an upload.
+  bool has_data = 4;
 }
 
 message TenantProcessRequest {

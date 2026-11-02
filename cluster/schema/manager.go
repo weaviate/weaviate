@@ -99,6 +99,7 @@ type SchemaManager struct {
 	replicationFSM         replicationFSM
 	mutationGuard          MutationGuard
 	distributedTaskManager distributedTaskCascadeDeleter
+	nodeAlive              func(node string) bool
 	// tenantLimit resolves the per-collection tenant cap (negative = unlimited;
 	// nil = unenforced); read pre-commit, never in the FSM apply path.
 	tenantLimit func() int
@@ -208,17 +209,7 @@ func (s *SchemaManager) DeleteClassFromDB(class string, hasFrozen bool) error {
 
 // HasFrozenTenants reports whether the class has tenants on cloud storage
 func (s *SchemaManager) HasFrozenTenants(class string) bool {
-	tenants, err := s.schema.getTenants(class, nil)
-	if err != nil {
-		return false
-	}
-	for _, t := range tenants {
-		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
-			t.ActivityStatus == models.TenantActivityStatusFREEZING {
-			return true
-		}
-	}
-	return false
+	return s.schema.hasFrozenTenant(class)
 }
 
 // SetCollectionLimit installs the collection-cap resolvers used by
@@ -372,6 +363,10 @@ func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser) error {
 }
 
 func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
+	if err := s.refuseDuringTransition(req); err != nil {
+		return err
+	}
+
 	// Discard restoring a class if it, or a similar name, already exists.
 	// ClassEqual mirrors the ADD_CLASS branch below: index directories are
 	// lowercased on disk, so a variable case restore would land its data in
@@ -1030,9 +1025,6 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 		}
 	}
 
-	// apply() runs updateSchema before updateStore, so this is complete when the DB reads it
-	preFreezeStatuses := make(map[string]string)
-
 	return s.apply(
 		applyOp{
 			op: cmd.GetType().String(),
@@ -1040,9 +1032,9 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 			// to the updateStore function. This allows us to effectively use the schema update to narrow down work for
 			// the DB update.
 			updateSchema: func() error {
-				return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM, preFreezeStatuses)
+				return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM)
 			},
-			updateStore:           func() error { return s.db.UpdateTenants(cmd.Class, req, preFreezeStatuses) },
+			updateStore:           func() error { return s.db.UpdateTenants(cmd.Class, req) },
 			schemaOnly:            schemaOnly,
 			allowPartialSchemaErr: true,
 		},
@@ -1089,7 +1081,7 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 				return nil
 			},
 			updateStore: func() error {
-				return s.db.DeleteTenants(cmd.Class, tenants)
+				return s.db.DeleteTenants(cmd.Class, tenants, cmd.Version)
 			},
 			schemaOnly: schemaOnly,
 		},

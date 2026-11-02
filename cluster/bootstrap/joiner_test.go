@@ -303,7 +303,7 @@ func TestJoinerRejoin(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 			defer cancel()
 			j := NewJoiner(pj, "weaviate-0", localAddr, true)
-			err := j.Rejoin(ctx, logrus.New(), nodes, leader.Load, tt.retryPeriod, time.Millisecond)
+			_, err := j.Rejoin(ctx, logrus.New(), nodes, leader.Load, tt.retryPeriod, time.Millisecond)
 
 			require.ErrorIs(t, err, tt.wantErr)
 			require.Equal(t, tt.wantJoins, int(joins.Load()))

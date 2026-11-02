@@ -938,3 +938,58 @@ func TestState_LocalPhysicalShardAccessors(t *testing.T) {
 		assert.Equal(t, []string{"T1"}, state.AllLocalPhysicalShards())
 	})
 }
+
+func TestPhysicalTransition(t *testing.T) {
+	transition := func(kind string) *Transition {
+		return &Transition{
+			Kind:         kind,
+			Attempt:      7,
+			Participants: map[string]TransitionParticipant{"n1": {Progress: ProgressStarted}},
+			Chosen:       []string{"n1"},
+		}
+	}
+
+	tests := []struct {
+		name    string
+		phys    Physical
+		want    string
+		counted string
+	}{
+		{name: "settled", phys: Physical{Status: models.TenantActivityStatusCOLD}, want: models.TenantActivityStatusCOLD, counted: models.TenantActivityStatusCOLD},
+		{name: "no status", phys: Physical{}, want: models.TenantActivityStatusHOT},
+		{
+			name:    "freeze",
+			phys:    Physical{Status: models.TenantActivityStatusHOT, Transition: transition(TransitionFreeze)},
+			want:    models.TenantActivityStatusFREEZING,
+			counted: models.TenantActivityStatusFREEZING,
+		},
+		{
+			name:    "unfreeze",
+			phys:    Physical{Status: models.TenantActivityStatusFROZEN, Transition: transition(TransitionUnfreeze)},
+			want:    models.TenantActivityStatusUNFREEZING,
+			counted: models.TenantActivityStatusUNFREEZING,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.phys.ActivityStatus())
+			assert.Equal(t, tt.counted, tt.phys.CountedStatus())
+		})
+	}
+
+	t.Run("deep copy keeps the record independent", func(t *testing.T) {
+		original := Physical{
+			BelongsToNodes: []string{"n1"}, Transition: transition(TransitionFreeze), CloudAttempt: 3, CloudSources: []string{"n1"},
+		}
+		copied := original.DeepCopy()
+
+		copied.Transition.Participants["n1"] = TransitionParticipant{Progress: ProgressDone}
+		copied.Transition.Chosen[0] = "n2"
+		copied.CloudSources[0] = "n2"
+
+		assert.Equal(t, ProgressStarted, original.Transition.Participants["n1"].Progress)
+		assert.Equal(t, "n1", original.Transition.Chosen[0])
+		assert.Equal(t, uint64(3), copied.CloudAttempt)
+		assert.Equal(t, []string{"n1"}, original.CloudSources)
+	})
+}

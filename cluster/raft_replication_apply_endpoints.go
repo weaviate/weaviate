@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,6 +25,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.ReplicationScalePlan) (opsUUIDs []strfmt.UUID, err error) {
@@ -70,6 +74,24 @@ func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.Repl
 
 	if len(scalePlan.ShardReplicationScaleActions) > 0 && !s.SchemaReader().ClassInfo(scalePlan.Collection).Exists {
 		return nil, fmt.Errorf("collection %q: %w", scalePlan.Collection, replicationTypes.ErrNotFound)
+	}
+	// Each step is its own command, so refuse a transitioning tenant before the first.
+	if len(scalePlan.ShardReplicationScaleActions) > 0 {
+		if err := s.SchemaReader().Read(scalePlan.Collection, false, func(_ *models.Class, state *sharding.State) error {
+			var running []string
+			for shardName := range scalePlan.ShardReplicationScaleActions {
+				if p, ok := state.Physical[shardName]; ok && p.Transition != nil {
+					running = append(running, shardName)
+				}
+			}
+			if len(running) == 0 {
+				return nil
+			}
+			slices.Sort(running)
+			return fmt.Errorf("%w: tenants %q have a running freeze or unfreeze", schema.ErrTenantTransitionalState, running)
+		}); err != nil {
+			return nil, err
+		}
 	}
 	if copiesReplica {
 		if err := s.store.admitTaskOrMovement(api.ApplyRequest_TYPE_REPLICATION_REPLICATE, scalePlan.Collection); err != nil {

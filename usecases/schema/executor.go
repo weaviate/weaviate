@@ -319,7 +319,7 @@ func (e *executor) AddTenants(class string, req *api.AddTenantsRequest) error {
 	return nil
 }
 
-func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest, preFreezeStatuses map[string]string) error {
+func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) error {
 	ctx := context.Background()
 	cls := e.schemaReader.ReadOnlyClass(class)
 	if cls == nil {
@@ -329,9 +329,8 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest, pr
 	updates := make([]*UpdateTenantPayload, 0, len(req.Tenants))
 	for _, tu := range req.Tenants {
 		updates = append(updates, &UpdateTenantPayload{
-			Name:            tu.Name,
-			Status:          tu.Status,
-			PreFreezeStatus: preFreezeStatuses[tu.Name],
+			Name:   tu.Name,
+			Status: tu.Status,
 		})
 	}
 
@@ -380,9 +379,9 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 	return nil
 }
 
-func (e *executor) DeleteTenants(class string, tenants []*models.Tenant) error {
+func (e *executor) DeleteTenants(class string, tenants []*models.Tenant, v uint64) error {
 	ctx := context.Background()
-	if err := e.migrator.DeleteTenants(ctx, class, tenants); err != nil {
+	if err := e.migrator.DeleteTenants(ctx, class, tenants, v); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action": "delete_tenants",
 			"class":  class,

@@ -25,18 +25,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-type (
-	NodeShardProcess map[string]*command.TenantsProcess
-	metaClass        struct {
-		sync.RWMutex
-		Class        models.Class
-		ClassVersion uint64
-		Sharding     sharding.State
-		ShardVersion uint64
-		// ShardProcesses map[tenantName-action(FREEZING/UNFREEZING)]map[nodeID]TenantsProcess
-		ShardProcesses map[string]NodeShardProcess
-	}
-)
+type metaClass struct {
+	sync.RWMutex
+	Class        models.Class
+	ClassVersion uint64
+	Sharding     sharding.State
+	ShardVersion uint64
+}
 
 func (m *metaClass) ClassInfo() ClassInfo {
 	if m == nil {
@@ -103,7 +98,8 @@ func (m *metaClass) ShardOwner(shard string) (string, uint64, error) {
 	if !ok {
 		return "", 0, ErrShardNotFound
 	}
-	if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
+	nodes := x.RoutingNodes()
+	if len(nodes) < 1 || nodes[0] == "" {
 		return "", 0, fmt.Errorf("owner node not found")
 	}
 
@@ -111,7 +107,7 @@ func (m *metaClass) ShardOwner(shard string) (string, uint64, error) {
 	// - avoid hotspots
 	// - tolerate down nodes
 	// - distribute load
-	return x.BelongsToNodes[rand.Intn(len(x.BelongsToNodes))], m.version(), nil
+	return nodes[rand.Intn(len(nodes))], m.version(), nil
 }
 
 // ShardFromUUID returns shard name of the provided uuid
@@ -129,7 +125,7 @@ func (m *metaClass) ShardReplicas(shard string) ([]string, uint64, error) {
 	if !ok {
 		return nil, 0, ErrShardNotFound
 	}
-	return slices.Clone(x.BelongsToNodes), m.version(), nil
+	return slices.Clone(x.RoutingNodes()), m.version(), nil
 }
 
 // TenantsShardsStatus returns shard name for the provided tenant and its activity status
@@ -204,6 +200,9 @@ func (m *metaClass) AddReplicaToShard(v uint64, shard string, replica string) er
 	m.Lock()
 	defer m.Unlock()
 
+	if err := m.refuseRunningTransition(shard); err != nil {
+		return err
+	}
 	err := m.Sharding.AddReplicaToShard(shard, replica)
 	if err != nil {
 		return err
@@ -216,11 +215,23 @@ func (m *metaClass) DeleteReplicaFromShard(v uint64, shard string, replica strin
 	m.Lock()
 	defer m.Unlock()
 
+	if err := m.refuseRunningTransition(shard); err != nil {
+		return err
+	}
 	err := m.Sharding.DeleteReplicaFromShard(shard, replica)
 	if err != nil {
 		return err
 	}
 	m.ClassVersion = v
+	return nil
+}
+
+// refuseRunningTransition repeats the leader's check on apply: a change the
+// leader checked before a freeze applied can land after it.
+func (m *metaClass) refuseRunningTransition(shard string) error {
+	if p, ok := m.Sharding.Physical[shard]; ok && p.Transition != nil {
+		return fmt.Errorf("%w: tenant %q has a running %s", ErrTenantTransitionalState, shard, p.Transition.Kind)
+	}
 	return nil
 }
 
@@ -396,6 +407,8 @@ func (m *metaClass) DeleteTenants(req *command.DeleteTenantsRequest, v uint64) (
 	return count, nil
 }
 
+// UpdateTenantsProcess ignores a report that does not apply to a running
+// attempt, and leaves req holding only what this node's DB has to act on.
 func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProcessRequest, v uint64) (map[string]int, error) {
 	m.Lock()
 	defer m.Unlock()
@@ -403,56 +416,95 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 	// sc tracks number of tenants updated by "status"
 	sc := make(map[string]int)
 
-	for idx := range req.TenantsProcesses {
-		name := req.TenantsProcesses[idx].Tenant.Name
-
-		shard, ok := m.Sharding.Physical[name]
-		if !ok {
-			return nil, fmt.Errorf("shard %s not found", name)
-		}
-		oldStatus := shard.Status
-
-		if req.Action == command.TenantProcessRequest_ACTION_UNFREEZING {
-			// on unfreezing get the requested status from the shard process
-			if status := m.findRequestedStatus(nodeID, name, req.Action); status != "" {
-				req.TenantsProcesses[idx].Tenant.Status = status
-			}
-		}
-
-		// NOTE: Have to get the `newStatus` only after `findRequestedStatus`, else req.Tenant.Status can be empty.
-		newStatus := req.TenantsProcesses[idx].Tenant.Status
-
-		process := m.shardProcess(name, req.Action)
-		process[req.Node] = req.TenantsProcesses[idx]
-
-		if m.allShardProcessExecuted(name, req.Action) {
-			m.applyShardProcess(name, req.Action, req.TenantsProcesses[idx], &shard)
-		} else {
-			// ignore applying in case of aborts (upload action only)
-			if !m.updateShardProcess(name, req.Action, req.TenantsProcesses[idx], &shard) {
-				req.TenantsProcesses[idx] = nil
-				continue
-			}
-		}
-
-		m.ShardVersion = v
-		m.Sharding.Physical[shard.Name] = shard
-
-		sc[oldStatus]--
-		sc[newStatus]++
-
-		if !slices.Contains(shard.BelongsToNodes, nodeID) {
+	for idx, report := range req.TenantsProcesses {
+		if report == nil || report.Tenant == nil {
 			req.TenantsProcesses[idx] = nil
 			continue
 		}
+		shard, ok := m.Sharding.Physical[report.Tenant.Name]
+		if !ok || !reportApplies(shard.Transition, req, report) {
+			req.TenantsProcesses[idx] = nil
+			continue
+		}
+
+		updated := shard.DeepCopy()
+		settleReport(&updated, req.Node, report)
+		m.Sharding.Physical[updated.Name] = updated
+		m.ShardVersion = v
+
+		if updated.Transition != nil {
+			req.TenantsProcesses[idx] = nil
+			continue
+		}
+		sc[shard.CountedStatus()]--
+		sc[updated.CountedStatus()]++
+
+		if !actsOnEnd(shard, updated, nodeID) {
+			req.TenantsProcesses[idx] = nil
+			continue
+		}
+		report.Tenant.Status = updated.Status
 	}
 	return sc, nil
 }
 
-// UpdateTenants applies the requested tenant statuses. For every tenant it puts into
-// FREEZING it records the status the tenant held beforehand in preFreezeStatuses, which
-// the DB layer reports back if the freeze aborts. Callers must pass a non-nil map.
-func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, replicationFSM replicationFSM, v uint64, preFreezeStatuses map[string]string) (map[string]int, error) {
+// actsOnEnd tells whether nodeID's DB acts on the end of a transition. An
+// unfreeze participant clears what it may have swapped in when the unfreeze
+// aborts.
+func actsOnEnd(before, after sharding.Physical, nodeID string) bool {
+	if before.Transition.Kind == sharding.TransitionUnfreeze && after.Status == models.TenantActivityStatusFROZEN {
+		_, ok := before.Transition.Participants[nodeID]
+		return ok
+	}
+	return slices.Contains(after.BelongsToNodes, nodeID)
+}
+
+func reportApplies(t *sharding.Transition, req *command.TenantProcessRequest, report *command.TenantsProcess) bool {
+	if t == nil || t.Kind != transitionKind(req.Action) || report.Attempt != t.Attempt {
+		return false
+	}
+	participant, ok := t.Participants[req.Node]
+	return ok && participant.Progress == sharding.ProgressStarted
+}
+
+func transitionKind(action command.TenantProcessRequest_Action) string {
+	if action == command.TenantProcessRequest_ACTION_FREEZING {
+		return sharding.TransitionFreeze
+	}
+	return sharding.TransitionUnfreeze
+}
+
+func settleReport(p *sharding.Physical, node string, report *command.TenantsProcess) {
+	t := p.Transition
+	if report.Op == command.TenantsProcess_OP_ABORT {
+		p.Transition = nil
+		return
+	}
+
+	participant := t.Participants[node]
+	participant.Progress = sharding.ProgressDone
+	participant.HasData = report.HasData
+	t.Participants[node] = participant
+	if !t.AllDone() {
+		return
+	}
+
+	p.Transition = nil
+	if t.Kind == sharding.TransitionFreeze {
+		p.Status = models.TenantActivityStatusFROZEN
+		p.CloudAttempt = t.Attempt
+		p.CloudSources = t.DataNodes()
+		return
+	}
+	p.Status = t.Target
+	p.BelongsToNodes = t.Chosen
+	p.CloudAttempt = 0
+	p.CloudSources = nil
+}
+
+// UpdateTenants applies the requested tenant statuses. A freeze or unfreeze
+// starts a transition at index v instead.
+func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, replicationFSM replicationFSM, v uint64) (map[string]int, error) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -468,15 +520,15 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 
 	for i, requestTenant := range req.Tenants {
 		oldTenant, ok := m.Sharding.Physical[requestTenant.Name]
-		oldStatus := oldTenant.Status
 		// If we can't find the shard add it to missing shards to error later
 		if !ok {
 			partialErrs = append(partialErrs, fmt.Errorf("%w: %s", ErrShardNotFound, requestTenant.Name))
 			continue
 		}
+		oldStatus := oldTenant.ActivityStatus()
 
 		// validate status
-		switch oldTenant.ActivityStatus() {
+		switch oldStatus {
 		case req.Tenants[i].Status:
 			continue
 		case types.TenantActivityStatusFREEZING:
@@ -495,12 +547,8 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			// Reject any conflicting status change while unfreeze is in progress.
 			req.ImplicitUpdateRequest = true
 			var statusInProgress string
-			processes, exists := m.ShardProcesses[shardProcessID(req.Tenants[i].Name, command.TenantProcessRequest_ACTION_UNFREEZING)]
-			if exists {
-				for _, process := range processes {
-					statusInProgress = process.Tenant.Status
-					break
-				}
+			if oldTenant.Transition != nil {
+				statusInProgress = oldTenant.Transition.Target
 			}
 			if requestTenant.Status == statusInProgress {
 				continue
@@ -510,14 +558,14 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			continue
 		}
 
-		existedSharedFrozen := oldTenant.ActivityStatus() == models.TenantActivityStatusFROZEN || oldTenant.ActivityStatus() == models.TenantActivityStatusFREEZING
+		isFrozen := oldStatus == models.TenantActivityStatusFROZEN
 		requestedToFrozen := requestTenant.Status == models.TenantActivityStatusFROZEN
 
 		// COLD shuts the shard down, freeze offloads it, unfreeze reassigns its nodes — each
 		// breaks an in-flight movement. (oldTenant is never FREEZING/UNFREEZING here.)
 		toCold := requestTenant.Status == models.TenantActivityStatusCOLD
-		toFrozen := requestedToFrozen && !existedSharedFrozen
-		fromFrozen := existedSharedFrozen && !requestedToFrozen
+		toFrozen := requestedToFrozen && !isFrozen
+		fromFrozen := isFrozen && !requestedToFrozen
 		if (toCold || toFrozen || fromFrozen) && replicationFSM != nil && replicationFSM.HasActiveReplicationForShard(m.Class.Class, requestTenant.Name) {
 			partialErrs = append(partialErrs, fmt.Errorf(
 				"%w: tenant %q status change to %s blocked; retry after movement completes",
@@ -525,36 +573,35 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			continue
 		}
 
-		switch {
-		case existedSharedFrozen && !requestedToFrozen:
-			if err := m.unfreeze(nodeID, i, req, &oldTenant); err != nil {
-				return sc, err
-			}
-			if req.Tenants[i] != nil {
-				requestTenant.Status = req.Tenants[i].Status
-			}
-
-		case requestedToFrozen && !existedSharedFrozen:
-			preFreezeStatuses[requestTenant.Name] = oldTenant.ActivityStatus()
-			m.freeze(i, req, oldTenant)
-		default:
-			// do nothing
-		}
-
 		newTenant := oldTenant.DeepCopy()
-		newTenant.Status = requestTenant.Status
+		involved := slices.Contains(oldTenant.BelongsToNodes, nodeID)
+
+		switch {
+		case fromFrozen:
+			transition, err := m.unfreezeTransition(req, &oldTenant, requestTenant.Status, v)
+			if err != nil {
+				partialErrs = append(partialErrs, fmt.Errorf("tenant %q: %w", requestTenant.Name, err))
+				continue
+			}
+			newTenant.Transition = transition
+			_, involved = transition.Participants[nodeID]
+			requestTenant.Status = types.TenantActivityStatusUNFREEZING
+		case toFrozen:
+			newTenant.Transition = freezeTransition(&oldTenant, v)
+			requestTenant.Status = types.TenantActivityStatusFREEZING
+		default:
+			newTenant.Status = requestTenant.Status
+		}
 
 		// Update the schema tenant representation with the deep copy (necessary as the initial is a shallow copy from
 		// the map read
 		m.Sharding.Physical[oldTenant.Name] = newTenant
 
 		// At this point we know, we are going to change the status of a tenant from old-state to new-state.
-		sc[oldStatus]--
-		sc[newTenant.ActivityStatus()]++
+		sc[oldTenant.CountedStatus()]--
+		sc[newTenant.CountedStatus()]++
 
-		// If the shard is not stored on that node skip updating the request tenant as there will be nothing to load on
-		// the DB side
-		if !slices.Contains(oldTenant.BelongsToNodes, nodeID) {
+		if !involved {
 			continue
 		}
 
@@ -579,6 +626,48 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	return sc, err
 }
 
+func freezeTransition(p *sharding.Physical, v uint64) *sharding.Transition {
+	participants := make(map[string]sharding.TransitionParticipant, len(p.BelongsToNodes))
+	for _, node := range p.BelongsToNodes {
+		participants[node] = sharding.TransitionParticipant{Progress: sharding.ProgressStarted}
+	}
+	return &sharding.Transition{
+		Kind:         sharding.TransitionFreeze,
+		Target:       models.TenantActivityStatusFROZEN,
+		Attempt:      v,
+		Participants: participants,
+	}
+}
+
+// unfreezeTransition spreads the chosen nodes over the copies that hold data.
+func (m *metaClass) unfreezeTransition(req *command.UpdateTenantsRequest, p *sharding.Physical, target string, v uint64) (*sharding.Transition, error) {
+	partitions, err := m.Sharding.GetPartitions(req.ClusterNodes, []string{p.Name}, m.Class.ReplicationConfig.Factor)
+	if err != nil {
+		return nil, fmt.Errorf("get partitions: %w", err)
+	}
+	chosen, ok := partitions[p.Name]
+	if !ok {
+		return nil, fmt.Errorf("can not assign new nodes to shard %s, it didn't exist in the new partitions", p.Name)
+	}
+
+	slices.Sort(chosen)
+	participants := make(map[string]sharding.TransitionParticipant, len(chosen))
+	for idx, node := range chosen {
+		participant := sharding.TransitionParticipant{Progress: sharding.ProgressStarted}
+		if len(p.CloudSources) > 0 {
+			participant.Source = p.CloudSources[idx%len(p.CloudSources)]
+		}
+		participants[node] = participant
+	}
+	return &sharding.Transition{
+		Kind:         sharding.TransitionUnfreeze,
+		Target:       target,
+		Attempt:      v,
+		Participants: participants,
+		Chosen:       chosen,
+	}, nil
+}
+
 // LockGuard provides convenient mechanism for owning mutex by function which mutates the state.
 func (m *metaClass) LockGuard(mutator func(*metaClass) error) error {
 	m.Lock()
@@ -591,180 +680,4 @@ func (m *metaClass) RLockGuard(reader func(*models.Class, *sharding.State) error
 	m.RLock()
 	defer m.RUnlock()
 	return reader(&m.Class, &m.Sharding)
-}
-
-func shardProcessID(name string, action command.TenantProcessRequest_Action) string {
-	return fmt.Sprintf("%s-%s", name, action)
-}
-
-func (m *metaClass) findRequestedStatus(nodeID, name string, action command.TenantProcessRequest_Action) string {
-	processes, pExists := m.ShardProcesses[shardProcessID(name, action)]
-	if _, tExists := processes[nodeID]; pExists && tExists {
-		return processes[nodeID].Tenant.Status
-	}
-	return ""
-}
-
-func (m *metaClass) allShardProcessExecuted(name string, action command.TenantProcessRequest_Action) bool {
-	name = shardProcessID(name, action)
-	expectedCount := len(m.ShardProcesses[name])
-	i := 0
-	for _, p := range m.ShardProcesses[name] {
-		if p.Op > command.TenantsProcess_OP_START { // DONE or ABORT
-			i++
-		}
-	}
-	return i != 0 && i == expectedCount
-}
-
-func (m *metaClass) updateShardProcess(name string, action command.TenantProcessRequest_Action, req *command.TenantsProcess, copy *sharding.Physical) bool {
-	processes := m.ShardProcesses[shardProcessID(name, action)]
-	switch action {
-	case command.TenantProcessRequest_ACTION_UNFREEZING:
-		for _, sp := range processes {
-			if sp.Op == command.TenantsProcess_OP_DONE {
-				copy.Status = sp.Tenant.Status
-				req.Tenant.Status = sp.Tenant.Status
-				break
-			}
-		}
-		return false
-	case command.TenantProcessRequest_ACTION_FREEZING:
-		for _, sp := range processes {
-			if sp.Op == command.TenantsProcess_OP_ABORT {
-				copy.Status = req.Tenant.Status
-				req.Tenant.Status = sp.Tenant.Status
-				return true
-			}
-		}
-	default:
-		return false
-	}
-
-	return false
-}
-
-func (m *metaClass) applyShardProcess(name string, action command.TenantProcessRequest_Action, req *command.TenantsProcess, copy *sharding.Physical) {
-	processes := m.ShardProcesses[shardProcessID(name, action)]
-	switch action {
-	case command.TenantProcessRequest_ACTION_UNFREEZING:
-		for _, sp := range processes {
-			if sp.Op == command.TenantsProcess_OP_DONE {
-				copy.Status = sp.Tenant.Status
-				req.Tenant.Status = sp.Tenant.Status
-				break
-			}
-		}
-	case command.TenantProcessRequest_ACTION_FREEZING:
-		count := 0
-		onAbortStatus := copy.Status
-		for _, sp := range processes {
-			if sp.Op == command.TenantsProcess_OP_DONE {
-				count++
-			} else {
-				count--
-				onAbortStatus = sp.Tenant.Status
-			}
-		}
-
-		if count == len(processes) {
-			copy.Status = req.Tenant.Status
-		} else {
-			copy.Status = onAbortStatus
-			req.Tenant.Status = onAbortStatus
-		}
-	default:
-		// do nothing
-		return
-	}
-	delete(m.ShardProcesses, shardProcessID(name, action))
-}
-
-func (m *metaClass) shardProcess(name string, action command.TenantProcessRequest_Action) map[string]*command.TenantsProcess {
-	if len(m.ShardProcesses) == 0 {
-		m.ShardProcesses = make(map[string]NodeShardProcess)
-	}
-
-	process, ok := m.ShardProcesses[shardProcessID(name, action)]
-	if !ok {
-		process = make(map[string]*command.TenantsProcess)
-	}
-	return process
-}
-
-// freeze creates a process requests and add them in memory to compare it later when
-// TenantProcessRequest comes.
-// it updates the tenant status to FREEZING in RAFT schema
-func (m *metaClass) freeze(i int, req *command.UpdateTenantsRequest, shard sharding.Physical) {
-	process := m.shardProcess(req.Tenants[i].Name, command.TenantProcessRequest_ACTION_FREEZING)
-
-	for _, node := range shard.BelongsToNodes {
-		process[node] = &command.TenantsProcess{
-			Op: command.TenantsProcess_OP_START,
-			Tenant: &command.Tenant{
-				Name:   req.Tenants[i].Name,
-				Status: req.Tenants[i].Status,
-			},
-		}
-	}
-	// to be proceed in the db layer
-	req.Tenants[i].Status = types.TenantActivityStatusFREEZING
-	m.ShardProcesses[shardProcessID(req.Tenants[i].Name, command.TenantProcessRequest_ACTION_FREEZING)] = process
-}
-
-// unfreeze creates a process requests and add them in memory to compare it later when
-// TenantProcessRequest comes.
-// it keeps the requested state ACTIVE/INACTIVE in memory.
-// it updates the tenant status to UNFREEZING in RAFT schema.
-// NOTE: can make some of the requests nil.
-func (m *metaClass) unfreeze(nodeID string, i int, req *command.UpdateTenantsRequest, p *sharding.Physical) error {
-	name := req.Tenants[i].Name
-	process := m.shardProcess(name, command.TenantProcessRequest_ACTION_UNFREEZING)
-
-	partitions, err := m.Sharding.GetPartitions(req.ClusterNodes, []string{name}, m.Class.ReplicationConfig.Factor)
-	if err != nil {
-		req.Tenants[i] = nil
-		return fmt.Errorf("get partitions: %w", err)
-	}
-
-	newNodes, ok := partitions[name]
-	if !ok {
-		req.Tenants[i] = nil
-		return fmt.Errorf("can not assign new nodes to shard %s, it didn't exist in the new partitions", name)
-	}
-
-	oldNodes := p.BelongsToNodes
-	p.Status = types.TenantActivityStatusUNFREEZING
-	p.BelongsToNodes = newNodes
-
-	newToOld := map[string]string{}
-	slices.Sort(newNodes)
-	slices.Sort(oldNodes)
-
-	for idx, node := range newNodes {
-		if idx >= len(oldNodes) {
-			// ignore new nodes if the replication factor increase
-			// and relay on replication client will replicate the data
-			// after it's downloaded
-			continue
-		}
-		newToOld[node] = oldNodes[idx]
-		process[node] = &command.TenantsProcess{
-			Op: command.TenantsProcess_OP_START,
-			Tenant: &command.Tenant{
-				Name:   name,
-				Status: req.Tenants[i].Status, // requested status HOT, COLD
-			},
-		}
-	}
-
-	if _, exists := newToOld[nodeID]; !exists {
-		// it does not belong to the new partitions
-		req.Tenants[i] = nil
-		return nil
-	}
-	m.ShardProcesses[shardProcessID(req.Tenants[i].Name, command.TenantProcessRequest_ACTION_UNFREEZING)] = process
-	req.Tenants[i].Name = fmt.Sprintf("%s#%s", req.Tenants[i].Name, newToOld[nodeID])
-	req.Tenants[i].Status = p.Status
-	return nil
 }

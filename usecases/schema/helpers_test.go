@@ -157,7 +157,7 @@ func (f *fakeDB) AddTenants(class string, cmd *command.AddTenantsRequest) error 
 	return nil
 }
 
-func (f *fakeDB) UpdateTenants(class string, cmd *command.UpdateTenantsRequest, preFreezeStatuses map[string]string) error {
+func (f *fakeDB) UpdateTenants(class string, cmd *command.UpdateTenantsRequest) error {
 	return nil
 }
 
@@ -165,7 +165,7 @@ func (f *fakeDB) UpdateTenantsProcess(class string, req *command.TenantProcessRe
 	return nil
 }
 
-func (f *fakeDB) DeleteTenants(class string, tenants []*models.Tenant) error {
+func (f *fakeDB) DeleteTenants(class string, tenants []*models.Tenant, v uint64) error {
 	return nil
 }
 
@@ -380,8 +380,8 @@ func (f *fakeMigrator) UpdateTenantsForProcess(ctx context.Context, class *model
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
-	args := f.Called(ctx, class, tenants)
+func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant, v uint64) error {
+	args := f.Called(ctx, class, tenants, v)
 	return args.Error(0)
 }
 

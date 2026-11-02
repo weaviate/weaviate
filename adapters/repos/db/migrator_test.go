@@ -1187,6 +1187,16 @@ func TestMigratorDeleteTenants(t *testing.T) {
 			wantErrContains: []string{"cloud delete failed"},
 		},
 		{
+			// the cloud error fires only if the delete reaches the cloud
+			name: "unfreezing tenant is deleted from the cloud",
+			tenants: []tenant{{
+				name:     "unfreezing1",
+				status:   models.TenantActivityStatusUNFREEZING,
+				cloudErr: errors.New("cloud delete failed"),
+			}},
+			wantErrContains: []string{"cloud delete failed"},
+		},
+		{
 			// the cloud error must not fire: only frozen tenants are offloaded
 			name: "hot tenant is not deleted from the cloud",
 			tenants: []tenant{{
@@ -1232,7 +1242,7 @@ func TestMigratorDeleteTenants(t *testing.T) {
 			}
 
 			err := newDropTestMigrator(idx, className, backend).
-				DeleteTenants(context.Background(), className, tenants)
+				DeleteTenants(context.Background(), className, tenants, 10)
 
 			if len(tt.wantErrContains) == 0 {
 				require.NoError(t, err)
@@ -1268,17 +1278,21 @@ func TestUpdateIndexDeleteTenants(t *testing.T) {
 			name: "no shard to remove",
 		},
 		{
-			name:     "removed shard is dropped locally and in the cloud",
+			name:     "removed shard is dropped locally",
 			dropErrs: map[string]error{"shard1": nil},
 		},
 		{
-			name: "cloud shards are dropped even when a local drop fails",
+			name:      "a reload leaves cloud copies to the tenant delete",
+			dropErrs:  map[string]error{"shard1": nil},
+			cloudErrs: map[string]error{"shard1": errors.New("unexpected cloud delete")},
+		},
+		{
+			name: "a local drop failure is reported",
 			dropErrs: map[string]error{
 				"shard1": errors.New("shard drop failed"),
 				"shard2": nil,
 			},
-			cloudErrs:       map[string]error{"shard2": errors.New("cloud delete failed")},
-			wantErrContains: []string{"shard drop failed", "cloud delete failed"},
+			wantErrContains: []string{"shard drop failed"},
 		},
 	}
 

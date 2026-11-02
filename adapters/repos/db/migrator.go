@@ -31,7 +31,6 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/router"
 	clusterschema "github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -56,6 +55,8 @@ type provider interface {
 type processor interface {
 	UpdateTenantsProcess(ctx context.Context,
 		class string, req *command.TenantProcessRequest) (uint64, error)
+	RunningTransitions() []clusterschema.TenantTransition
+	TransitionsCaughtUp() bool
 }
 
 type Migrator struct {
@@ -66,16 +67,23 @@ type Migrator struct {
 	nodeId        string
 	localNodeName string
 
-	classLocks *esync.KeyLocker
+	classLocks  *esync.KeyLocker
+	transitions *transitionManager
 }
 
 func NewMigrator(db *DB, logger logrus.FieldLogger, localNodeName string) *Migrator {
-	return &Migrator{
+	m := &Migrator{
 		db:            db,
 		logger:        logger,
 		classLocks:    esync.NewKeyLocker(),
 		localNodeName: localNodeName,
 	}
+	m.transitions = newTransitionManager(m)
+	return m
+}
+
+func (m *Migrator) RunTransitions(ctx context.Context) {
+	m.transitions.run(ctx)
 }
 
 func (m *Migrator) SetNode(nodeID string) {
@@ -92,6 +100,9 @@ func (m *Migrator) SetOffloadProvider(provider provider, moduleName string) {
 		m.logger.Debug(fmt.Sprintf("module %s is not enabled", moduleName))
 	}
 	m.cloud = cloud
+	if m.db != nil {
+		m.db.offloadCloud = cloud
+	}
 	m.logger.Info(fmt.Sprintf("module %s is enabled", moduleName))
 }
 
@@ -311,6 +322,8 @@ func (m *Migrator) DropClass(ctx context.Context, className string, hasFrozen bo
 		return err
 	}
 
+	m.transitions.kick()
+
 	if m.cloud != nil && hasFrozen && !collided {
 		return m.cloud.Delete(ctx, className, "", "")
 	}
@@ -463,7 +476,7 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 			continue
 		}
 
-		if phys.Status == models.TenantActivityStatusHOT {
+		if phys.Status == models.TenantActivityStatusHOT && phys.Transition == nil {
 			// Only load the tenant if activity status == HOT.
 			ec.AddWrapf(idx.loadLocalShardForReload(ctx, shardName),
 				"add missing tenant shard %s during update index", shardName)
@@ -492,19 +505,7 @@ func (m *Migrator) updateIndexDeleteTenants(ctx context.Context,
 		return nil
 	}
 
-	// the cloud delete runs even when the local drop fails, otherwise the
-	// offloaded data is orphaned: the dropped shards are gone from the index,
-	// so a later update no longer lists them
-	ec := errorcompounder.New()
-	ec.Add(idx.dropShards(toRemove))
-
-	if m.cloud != nil {
-		// TODO-offload: currently we send all tenants and if it did find one in the cloud will delete
-		// better to filter the passed shards and get the frozen only
-		ec.Add(idx.dropCloudShards(ctx, m.cloud, toRemove, m.nodeId))
-	}
-
-	if err := ec.ToError(); err != nil {
+	if err := idx.dropShards(toRemove); err != nil {
 		return fmt.Errorf("drop tenant shards %v during update index: %w", toRemove, err)
 	}
 	return nil
@@ -668,6 +669,12 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 // that can be used to either commit or rollback the changes. A namespace being
 // deleted leaves an activated tenant's shard closed instead of failing the apply.
 func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload, implicitTenantActivation bool) error {
+	// An activation has nothing for the reconciler, whose pass reads every tenant.
+	if slices.ContainsFunc(updates, func(u *schemaUC.UpdateTenantPayload) bool {
+		return u.Status == models.TenantActivityStatusFREEZING || u.Status == models.TenantActivityStatusUNFREEZING
+	}) {
+		defer m.transitions.kick()
+	}
 	return m.updateTenants(ctx, class, updates, func(ctx context.Context, idx *Index, name string) error {
 		return idx.LoadLocalShardForTenantActivation(ctx, name, implicitTenantActivation)
 	})
@@ -677,6 +684,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 // reported. A namespace being deleted leaves the tenant's shard closed instead of
 // failing the apply.
 func (m *Migrator) UpdateTenantsForProcess(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload) error {
+	defer m.transitions.kick()
 	return m.updateTenants(ctx, class, updates, func(ctx context.Context, idx *Index, name string) error {
 		return idx.LoadLocalShardForTenantProcess(ctx, name)
 	})
@@ -697,10 +705,7 @@ func (m *Migrator) updateTenants(ctx context.Context, class *models.Class, updat
 
 	hot := make([]string, 0, len(updates))
 	cold := make([]string, 0, len(updates))
-	// freeze needs each tenant's pre-freeze status, so it keeps the whole payload
-	freezing := make([]*schemaUC.UpdateTenantPayload, 0, len(updates))
 	frozen := make([]string, 0, len(updates))
-	unfreezing := make([]string, 0, len(updates))
 
 	for _, tenant := range updates {
 		switch tenant.Status {
@@ -710,11 +715,6 @@ func (m *Migrator) updateTenants(ctx context.Context, class *models.Class, updat
 			cold = append(cold, tenant.Name)
 		case models.TenantActivityStatusFROZEN:
 			frozen = append(frozen, tenant.Name)
-
-		case types.TenantActivityStatusFREEZING: // never arrives from user
-			freezing = append(freezing, tenant)
-		case types.TenantActivityStatusUNFREEZING: // never arrives from user
-			unfreezing = append(unfreezing, tenant.Name)
 		}
 	}
 
@@ -792,29 +792,13 @@ func (m *Migrator) updateTenants(ctx context.Context, class *models.Class, updat
 		m.frozen(ctx, idx, frozen, ec)
 	}
 
-	if len(freezing) > 0 {
-		m.logger.WithField("action", "tenants_to_freezing").Debug(tenantNames(freezing))
-		m.freeze(ctx, idx, class.Class, freezing, ec)
-	}
-
-	if len(unfreezing) > 0 {
-		m.logger.WithField("action", "tenants_to_unfreezing").Debug(unfreezing)
-		m.unfreeze(ctx, idx, class.Class, unfreezing, ec)
-	}
-
 	return ec.ToError()
 }
 
-func tenantNames(tenants []*schemaUC.UpdateTenantPayload) []string {
-	names := make([]string, len(tenants))
-	for i, tenant := range tenants {
-		names[i] = tenant.Name
-	}
-	return names
-}
-
 // DeleteTenants deletes tenant from the database and data from the disk, no matter the current status of the tenant
-func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
+func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant, v uint64) error {
+	defer m.transitions.kick()
+
 	idx := m.db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return nil
@@ -826,8 +810,8 @@ func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*m
 
 	for _, tenant := range tenants {
 		allTenantNames = append(allTenantNames, tenant.Name)
-		if tenant.ActivityStatus == models.TenantActivityStatusFROZEN ||
-			tenant.ActivityStatus == models.TenantActivityStatusFREEZING {
+		switch tenant.ActivityStatus {
+		case models.TenantActivityStatusFROZEN, models.TenantActivityStatusFREEZING, models.TenantActivityStatusUNFREEZING:
 			frozenTenants = append(frozenTenants, tenant.Name)
 		}
 	}
@@ -838,7 +822,7 @@ func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*m
 	ec.Add(idx.dropShards(allTenantNames))
 
 	if m.cloud != nil && len(frozenTenants) > 0 {
-		ec.AddWrapf(idx.dropCloudShards(ctx, m.cloud, frozenTenants, m.nodeId),
+		ec.AddWrapf(idx.dropCloudShards(ctx, m.cloud, frozenTenants, v),
 			"drop tenant shards %v during update index", frozenTenants)
 	}
 

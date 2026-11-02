@@ -105,6 +105,7 @@ type Service struct {
 	cancelReplicationEngine context.CancelFunc
 	engineDone              chan struct{}
 	cancelOpCleaner         context.CancelFunc
+	cancelTransitionAborts  context.CancelFunc
 	closeBootstrapper       chan struct{}
 	closeOnFSMCaughtUp      chan struct{}
 	closeWaitForDB          chan struct{}
@@ -238,7 +239,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	defer bCancel()
 	if hasState {
 		joiner := bootstrap.NewJoiner(c.rpcClient, c.config.NodeID, c.raftAddr, c.config.Voter)
-		err = joiner.Rejoin(bootstrapCtx, c.logger,
+		commitIndex, err := joiner.Rejoin(bootstrapCtx, c.logger,
 			func() map[string]string {
 				return bootstrap.ResolveRemoteNodes(c.config.NodeSelector, c.config.NodeNameToPortMap)
 			},
@@ -247,6 +248,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		if err != nil {
 			return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value", err)
 		}
+		c.Raft.store.joinCommitIndex.Store(commitIndex)
 	} else {
 		bs := bootstrap.NewBootstrapper(
 			c.rpcClient,
@@ -255,8 +257,8 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 			c.config.Voter,
 			c.config.NodeSelector,
 			c.Raft.Ready,
-			// wiped-joiner catch-up barrier; no-op for non-wiped nodes.
-			c.Raft.store.SetJoinBarrier,
+			// the leader's commit index; a wiped joiner also defers its DB load on it.
+			c.Raft.store.joined,
 			// a wiped joiner is "ready" pre-join; keep joining until the barrier lands.
 			c.Raft.store.NeedsJoinBarrier,
 		)
@@ -280,6 +282,10 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		defer close(c.engineDone)
 		c.onFSMCaughtUp(engineCtx)
 	}, c.logger)
+
+	abortCtx, abortCancel := context.WithCancel(ctx)
+	c.cancelTransitionAborts = abortCancel
+	enterrors.GoWrapper(func() { c.Raft.runTransitionAborts(abortCtx) }, c.logger)
 
 	if c.opCleaner != nil {
 		cleanerCtx, cleanerCancel := context.WithCancel(ctx)
@@ -310,6 +316,9 @@ func (c *Service) Close(ctx context.Context) error {
 
 	if c.cancelOpCleaner != nil {
 		c.cancelOpCleaner()
+	}
+	if c.cancelTransitionAborts != nil {
+		c.cancelTransitionAborts()
 	}
 	// Cancel any in-flight node-reached-state broadcast/drain retry loops.
 	if c.Raft != nil && c.Raft.store != nil && c.Raft.store.replicationManager != nil {

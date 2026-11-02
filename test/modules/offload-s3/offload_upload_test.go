@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/objects"
+	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
@@ -299,26 +300,21 @@ func Test_UploadS3JourneyUnhappyPath(t *testing.T) {
 			require.Nil(t, compose.Stop(ctx, compose.GetWeaviateNode2().Name(), nil))
 		})
 
-		t.Run("updating tenant status", func(t *testing.T) {
-			helper.UpdateTenants(t, className, []*models.Tenant{
-				{
-					Name:           tenantNames[0],
-					ActivityStatus: models.TenantActivityStatusFROZEN,
-				},
-			})
+		freeze := []*models.Tenant{{Name: tenantNames[0], ActivityStatus: models.TenantActivityStatusFROZEN}}
+
+		t.Run("a freeze naming the down node is refused", func(t *testing.T) {
+			err := helper.UpdateTenantsReturnError(t, className, freeze)
+			var refused *clschema.TenantsUpdateUnprocessableEntity
+			require.ErrorAs(t, err, &refused)
+			require.Contains(t, refused.Payload.Error[0].Message, "down node")
 		})
 
-		t.Run("verify tenant status FREEZING", func(t *testing.T) {
+		t.Run("the refused tenant stays HOT", func(t *testing.T) {
 			resp, err := helper.GetTenants(t, className)
 			require.Nil(t, err)
-
 			for _, tn := range resp.Payload {
 				if tn.Name == tenantNames[0] {
-					require.True(t,
-						tn.ActivityStatus == models.TenantActivityStatusFREEZING ||
-							tn.ActivityStatus == models.TenantActivityStatusFROZEN,
-						"expected tenant status FREEZING or FROZEN, got %s", tn.ActivityStatus,
-					)
+					require.Equal(t, models.TenantActivityStatusHOT, tn.ActivityStatus)
 					break
 				}
 			}
@@ -328,9 +324,10 @@ func Test_UploadS3JourneyUnhappyPath(t *testing.T) {
 			require.Nil(t, compose.Start(ctx, compose.GetWeaviateNode2().Name()))
 		})
 
-		t.Run("verify tenant does not exists", func(t *testing.T) {
-			_, err = helper.TenantObject(t, tenantObjects[0].Class, tenantObjects[0].ID, tenantNames[0])
-			require.NotNil(t, err)
+		t.Run("the freeze succeeds once the node is back", func(t *testing.T) {
+			assert.EventuallyWithT(t, func(at *assert.CollectT) {
+				assert.NoError(at, helper.UpdateTenantsReturnError(t, className, freeze))
+			}, 30*time.Second, time.Second, "freeze was still refused")
 		})
 
 		t.Run("verify tenant status", func(t *testing.T) {
@@ -343,7 +340,12 @@ func Test_UploadS3JourneyUnhappyPath(t *testing.T) {
 						break
 					}
 				}
-			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
+			}, 30*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
+		})
+
+		t.Run("verify tenant does not exists", func(t *testing.T) {
+			_, err = helper.TenantObject(t, tenantObjects[0].Class, tenantObjects[0].ID, tenantNames[0])
+			require.NotNil(t, err)
 		})
 	})
 }
