@@ -842,28 +842,35 @@ func (s *Scheduler) runPreparationPhase(
 	task *Task,
 	suProvider UnitAwareProvider,
 ) {
+	// One pass over the units, not one per group: this runs every tick for
+	// as long as the task does, and a task can hold a group per tenant.
+	running := map[string]bool{}
+	localIDs := map[string][]string{}
+	for id, u := range task.Units {
+		if u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
+			running[u.GroupID] = true
+		}
+		if u.NodeID == s.localNode {
+			localIDs[u.GroupID] = append(localIDs[u.GroupID], id)
+		}
+	}
 	worklist := func() []preparationGroupWork {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		var list []preparationGroupWork
-		for _, groupID := range task.Groups() {
-			if task.GroupSwapDecided(groupID) || !task.AllGroupUnitsTerminal(groupID) {
+		for groupID, ids := range localIDs {
+			if running[groupID] || task.GroupSwapDecided(groupID) {
 				continue
 			}
-			state := s.perTaskStateLocked(desc)
-			if state != nil && state.preparationCallbackFired[groupID] {
+			state := s.perTaskStateLockedOrInit(desc)
+			if state.preparationCallbackFired[groupID] {
 				continue
 			}
-			localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
-			if len(localIDs) == 0 {
-				continue
-			}
-			state = s.perTaskStateLockedOrInit(desc)
 			if state.preparationCallbackFired == nil {
 				state.preparationCallbackFired = map[string]bool{}
 			}
 			state.preparationCallbackFired[groupID] = true
-			list = append(list, preparationGroupWork{groupID: groupID, localIDs: localIDs})
+			list = append(list, preparationGroupWork{groupID: groupID, localIDs: ids})
 		}
 		return list
 	}()
@@ -910,7 +917,7 @@ func (s *Scheduler) runPreparationPhase(
 		return pending
 	}()
 
-	for _, ack := range acks {
+	for i, ack := range acks {
 		var errMsg string
 		if ack.err != nil {
 			errMsg = ack.err.Error()
@@ -919,14 +926,18 @@ func (s *Scheduler) runPreparationPhase(
 			context.Background(), namespace, task.ID, task.Version,
 			ack.groupID, s.localNode, ack.err == nil, errMsg,
 		)
+		// A failed RAFT write fails the rest the same way: stop, log once per
+		// tick for all of them, and retry next tick.
+		if ackErr != nil {
+			s.postCompletionAckLogger.WithSampling(func(l logrus.FieldLogger) {
+				s.loggerWithTask(namespace, desc).WithField("pending_group_count", len(acks)-i).
+					Warnf("failed to record distributed task prep-complete acks; will retry on next tick or wake: %v", ackErr)
+			})
+			return
+		}
 		func() {
 			s.mu.Lock()
 			defer s.mu.Unlock()
-			if ackErr != nil {
-				s.loggerWithTask(namespace, desc).WithField("groupID", ack.groupID).
-					Warnf("failed to record distributed task prep-complete ack; will retry on next tick or wake: %v", ackErr)
-				return
-			}
 			if state := s.perTaskStateLocked(desc); state != nil {
 				if state.preparationAckEmitted == nil {
 					state.preparationAckEmitted = map[string]bool{}

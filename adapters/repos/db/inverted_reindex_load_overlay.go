@@ -110,7 +110,7 @@ func (s *Shard) migratedIndexStands(propName, indexType string) bool {
 // still has it off.
 func (s *Shard) withMigratedIndexes(prop *models.Property) *models.Property {
 	o, ok := s.SnapshotPropertyOverlay([]string{prop.Name})[prop.Name]
-	if !ok || !(o.ForceFilterable || o.ForceSearchable || o.ForceRangeable) {
+	if !ok || (!o.ForceFilterable && !o.ForceSearchable && !o.ForceRangeable) {
 		return prop
 	}
 	on := true
