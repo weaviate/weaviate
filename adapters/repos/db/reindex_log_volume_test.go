@@ -184,3 +184,44 @@ func TestUpdatePropertySummaryLogsOnlyWhenDirsSwept(t *testing.T) {
 		})
 	}
 }
+
+// Every reindex submit and cancel sweeps every loaded shard, so the sweep logs
+// one summary line carrying the total, never a line per shard.
+func TestCleanStalePartialReindexStateLogsOneLineWithTheRemovedCount(t *testing.T) {
+	tests := []struct {
+		name            string
+		seedStaleDir    bool
+		wantDirsRemoved int
+	}{
+		{name: "nothing to remove", seedStaleDir: false, wantDirsRemoved: 0},
+		{name: "a stale sidecar dir to remove", seedStaleDir: true, wantDirsRemoved: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			class := newTestClassWithProps("CleanupLogsRemoved_"+uuid.NewString()[:8], []string{"title"})
+
+			logger, hook := logrustest.NewNullLogger()
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false, func(i *Index) { i.logger = logger })
+			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
+
+			mainBucket, ok := mainBucketForPropertyIndex("title", "filterable")
+			require.True(t, ok)
+			dir := filepath.Join(shard.pathLSM(), mainBucket+"__reindex"+genSuffix(1))
+			if tt.seedStaleDir {
+				require.NoError(t, os.MkdirAll(dir, 0o777))
+			}
+
+			hook.Reset()
+			require.NoError(t, idx.cleanStalePartialReindexState(ctx, "title", "filterable", nil, nil))
+
+			about := entriesAbout(hook, "partial-reindex cleanup:")
+			require.Len(t, about, 1, "cleanup lines for the sweep: %v", linesOf(about))
+			require.Equal(t, tt.wantDirsRemoved, about[0].Data["dirs_removed"])
+			require.NoDirExists(t, dir)
+		})
+	}
+}

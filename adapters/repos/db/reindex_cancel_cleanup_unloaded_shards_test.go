@@ -637,7 +637,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				return
 			}
 			if tc.wantSweepFails {
-				err := shard.CleanStalePartialReindexState(ctx, propName, tc.indexType)
+				_, err := shard.CleanStalePartialReindexState(ctx, propName, tc.indexType)
 				require.Error(t, err,
 					"a sweep that removed nothing because it could not read the shard "+
 						"must not be summarized as one that finished")
