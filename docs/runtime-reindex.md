@@ -856,12 +856,11 @@ the `Touches*` predicates intentionally panic on unknown migration
 types so a new `ReindexMigrationType` cannot silently be treated as
 "doesn't touch X" — it surfaces on the first request.
 
-**`reindex_recovery.go`** — `DiscoverInFlightReindexTasks`,
-`buildRecoveryTasks`, `NewShardReindexerV3FromRecovered`,
-`SeedReindexProviderFromRecovery`. Called from `MakeAppState` BEFORE
-`DB.WaitForStartup`, so reconstructed `ShardReindexTaskGeneric`
-instances are registered before any post-restart write can reach the
-shard. See §6 crash safety.
+**`reindex_recovery.go`** — `MigrationRecoveryReindexer`
+(`RecoverMigrations`, `AbandonUnarmed`) and `buildRecoveryTasks`.
+`MakeAppState` sets it as the DB's `ShardReindexerV3` before any shard
+loads, so each shard rebuilds its in-flight tasks and re-arms their
+double-write mirrors before it takes a write. See §6 crash safety.
 
 **`reindex_cancel_cleanup.go`** — `DB.NewStalePartialReindexSweep(tenants)`
 returns a `func(ctx, collection, prop, indexType) error` that fans out to
@@ -884,7 +883,7 @@ cached snapshot.
 `inverted_reindex_strategy_dir_names.go`). The finalize algorithm
 handles every shape defensively: tidied / merged-but-not-
 tidied / lower-gen sidecars / in-flight gens left alone for
-`DiscoverInFlightReindexTasks` to pick up.
+recovery at shard load (§6.2) to pick up.
 
 ### 4.5 Strategy implementations — `inverted_reindex_strategy_*.go`
 
@@ -1022,30 +1021,42 @@ transition rewrites it atomically:
 | `checkpoint` | The last processed key, while iterating. |
 | `flip` | The swapped properties and the directories they displaced. |
 
-### 6.2 Recovery — startup `DB` init
+### 6.2 Recovery — at shard load
 
-Sequence in `MakeAppState`:
+Recovery runs as each shard loads, not at boot, so a shard that never
+loads (a cold tenant) costs nothing. `MakeAppState` builds the reindex
+provider and the `MigrationRecoveryReindexer` before any shard loads.
+Then, per shard load:
 
-1. `DiscoverInFlightReindexTasks(rootPath)` reads every shard's migration
-   records. It runs before Raft opens, so the record is its only source. For
-   each record whose iteration finished and whose flip is not promoted, it
-   rebuilds a per-shard `ShardReindexTaskGeneric`: the generation is the
-   record's task version, and a change-tokenization half is chosen by the
-   record's strategy code. The narrow window — "iterated but not yet
-   promoted" — is exactly the recovery gap the design exists to close.
-2. `NewShardReindexerV3FromRecovered` wires the recovered tasks into
-   a stripped-down recovery-only `ShardReindexerV3` that fires
-   `OnAfterLsmInit` per shard load — re-installing the double-write
-   callbacks BEFORE any post-restart write can reach the shard.
-   Without this, writes that arrive between shard init and the swap
-   that completes a deferred reindex go only to the old main bucket
-   and are lost when the swap replaces it with the ingest bucket.
-3. `SeedReindexProviderFromRecovery` pre-populates the provider's
-   per-descriptor task cache so `OnGroupCompleted` reuses the same
-   instances rather than creating fresh ones and calling
-   `OnAfterLsmInit` a second time (which would attempt to load
-   already-loaded ingest buckets).
-4. `FinalizeCompletedMigrations` runs per shard before LSM init
+1. The shard loads its migration records once. A records directory that
+   cannot be read is reported by the load reconciler, and nothing is
+   recovered.
+2. `RecoverMigrations` reads those records. Raft may not be open yet, so
+   the record is its only source. For each record whose iteration
+   finished and whose flip is not promoted, it rebuilds a per-shard
+   `ShardReindexTaskGeneric`: the generation is the record's task
+   version, and a change-tokenization half is chosen by the record's
+   strategy code. The narrow window — "iterated but not yet promoted" —
+   is exactly the recovery gap the design exists to close. A record it
+   cannot build a task from is stamped `Unmirrored`. New tasks seed the
+   provider's per-descriptor task cache, so `OnGroupCompleted` reuses
+   the armed instances instead of calling `OnAfterLsmInit` a second
+   time (which would attempt to load already-loaded ingest buckets). A
+   reload of the same shard gets back the instances the provider holds.
+3. The load reconciler runs over the same records. It runs after the
+   stamp, because it must not promote stale staged data over the live
+   bucket.
+4. Once the shard's buckets are open, `Shard.armRecoveredMigrations`
+   calls `OnAfterLsmInit` on each recovered task, re-installing the
+   double-write callbacks before any post-restart write can reach the
+   shard. Without this, writes that arrive between shard init and the
+   swap that completes a deferred reindex go only to the old main bucket
+   and are lost when the swap replaces it with the ingest bucket. If a
+   mirror fails to arm, the shard still loads; `AbandonUnarmed` stamps
+   the record `Unmirrored` and drops the unit's tasks from the provider's
+   cache. The in-memory swap refuses an `Unmirrored` record, so the
+   migration fails and has to be resubmitted.
+5. `FinalizeCompletedMigrations` runs per shard before LSM init
    reloads any buckets. For each `(prop, indexType)`, finds the
    highest tidied (or merged-but-not-tidied) generation, promotes
    its ingest dir to the canonical name, deletes lower-gen
@@ -1377,8 +1388,8 @@ Per namespace (strategy-prefix + props-suffix):
      **CRITICAL:** otherwise this node serves the old data under the
      new schema → divergence vs other replicas → #10675-shape bug.
 5. Remove every dir on disk with gen < effective.
-6. Leave gens > effective alone (in-flight; `DiscoverInFlightReindexTasks`
-   handles them).
+6. Leave gens > effective alone (in-flight; recovery at shard load
+   handles them, §6.2).
 
 ### 9.6 Hard rules
 
@@ -1677,7 +1688,7 @@ what destroys the data**. Upgrade again instead and let reconciliation promote.
 - [`adapters/repos/db/reindex_provider_payload.go`](../adapters/repos/db/reindex_provider_payload.go) — `ReindexTaskPayload`, migration type constants.
 - [`adapters/repos/db/reindex_conflict.go`](../adapters/repos/db/reindex_conflict.go) — `CheckConflict`, `CheckPropertyUpdate`, `CheckClassMutation`, `CheckTenantMutation`, `Touches*` predicates, `MutationRemedy`.
 - [`adapters/repos/db/reindex_activity_lookup.go`](../adapters/repos/db/reindex_activity_lookup.go) — `NewShardReindexActivityLookup`, the backup gate's snapshot.
-- [`adapters/repos/db/reindex_recovery.go`](../adapters/repos/db/reindex_recovery.go) — `DiscoverInFlightReindexTasks`, `buildRecoveryTasks`, recovery-only `ShardReindexerV3`.
+- [`adapters/repos/db/reindex_recovery.go`](../adapters/repos/db/reindex_recovery.go) — `MigrationRecoveryReindexer`, the shard-load recovery `ShardReindexerV3`, and `buildRecoveryTasks`.
 - [`adapters/repos/db/reindex_cancel_cleanup.go`](../adapters/repos/db/reindex_cancel_cleanup.go) — `DB.NewStalePartialReindexSweep`.
 - [`adapters/repos/db/reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go) — `Index.refuseIfReindexInFlight` and `newReindexGate`, the backup gate.
 
