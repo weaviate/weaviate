@@ -1494,7 +1494,7 @@ func TestPreMarkTerminalCallbacksLocked_NonRecoveryAwareProviderUnchanged(t *tes
 //
 // preparationCallbackFired and preparationAckEmitted maps must also stay empty for
 // non-terminal barrier tasks so the next tick can populate them in
-// PHASE A / PHASE A.5.
+// PHASE A.
 func TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked(t *testing.T) {
 	preparingDesc := TaskDescriptor{ID: "preparing-task", Version: 1}
 	swappingDesc := TaskDescriptor{ID: "swapping-task", Version: 2}
@@ -1566,8 +1566,6 @@ func TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked(t *testing.T) 
 		"FINISHED barrier task's group must be pre-marked")
 	require.True(t, finished.preparationCallbackFired["g1"],
 		"FINISHED barrier task's PHASE A flag must be pre-marked — both phases already cleared the ack barrier pre-restart")
-	require.True(t, finished.preparationAckEmitted,
-		"FINISHED barrier task's PreparationCompleteAck must be pre-marked as emitted")
 	require.True(t, finished.postCompletionAckEmitted,
 		"FINISHED barrier task's PostCompletionAck must be pre-marked as emitted")
 }
@@ -1592,7 +1590,7 @@ func TestScheduler_DeletePerTaskStateLocked_ClearsAllPhaseMaps(t *testing.T) {
 		groupCallbackFired:               map[string]bool{"g1": true},
 		preparationCallbackFired:         map[string]bool{"g1": true},
 		postCompletionAckEmitted:         true,
-		preparationAckEmitted:            true,
+		preparationAckEmitted:            map[string]bool{"g1": true},
 		postCompletionGroupErrors:        map[string]error{"g1": nil},
 		preparationCompletionGroupErrors: map[string]error{"g1": nil},
 	}
@@ -1925,7 +1923,7 @@ func (alwaysFailingAckRecorder) RecordDistributedTaskPostCompletionAck(
 }
 
 func (alwaysFailingAckRecorder) RecordDistributedTaskPreparationCompleteAck(
-	context.Context, string, string, uint64, string, bool, string,
+	context.Context, string, string, uint64, string, string, bool, string,
 ) error {
 	return errors.New("raft unavailable")
 }
@@ -2248,26 +2246,14 @@ func TestScheduler_AckErrorIsCappedAcrossManyFailingGroups(t *testing.T) {
 	}
 	desc := TaskDescriptor{ID: "T", Version: 1}
 	s := &Scheduler{perTaskState: map[TaskDescriptor]*taskSchedulerState{desc: {
-		postCompletionGroupErrors:        groupErrs,
-		preparationCompletionGroupErrors: groupErrs,
+		postCompletionGroupErrors: groupErrs,
 	}}}
 
-	tests := []struct {
-		name      string
-		aggregate func(*Task, TaskDescriptor) (bool, string)
-	}{
-		{name: "post-completion", aggregate: s.aggregateAckErrorsLocked},
-		{name: "preparation", aggregate: s.aggregatePreparationAckErrorsLocked},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			success, msg := tt.aggregate(nil, desc)
+	success, msg := s.aggregateAckErrorsLocked(nil, desc)
 
-			require.False(t, success)
-			require.Less(t, len(msg), 1000)
-			require.Contains(t, msg, "1000 group(s) failed")
-			require.Contains(t, msg, `group="tenant-0000": {swap failed}`)
-			require.Contains(t, msg, "(and 990 more)")
-		})
-	}
+	require.False(t, success)
+	require.Less(t, len(msg), 1000)
+	require.Contains(t, msg, "1000 group(s) failed")
+	require.Contains(t, msg, `group="tenant-0000": {swap failed}`)
+	require.Contains(t, msg, "(and 990 more)")
 }

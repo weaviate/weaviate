@@ -13,6 +13,7 @@ package distributedtask
 
 import (
 	"context"
+	"maps"
 	"time"
 )
 
@@ -119,15 +120,15 @@ type PostCompletionAckRecorder interface {
 		errMsg string,
 	) error
 
-	// RecordDistributedTaskPreparationCompleteAck commits one node's PREP result via
-	// RAFT and gates the cluster-wide PREPARING → SWAPPING transition. Any
-	// success=false flips the task to FAILED so no node fires its swap.
-	// Idempotent: first ack per (task, node) wins.
+	// RecordDistributedTaskPreparationCompleteAck commits one node's PREP result
+	// for one group via RAFT. The group's swap is decided once every node owning
+	// a unit in it acked success; success=false fails the task, and groups
+	// already decided stay decided. Idempotent: first ack per (group, node) wins.
 	RecordDistributedTaskPreparationCompleteAck(
 		ctx context.Context,
 		namespace, taskID string,
 		taskVersion uint64,
-		nodeID string,
+		groupID, nodeID string,
 		success bool,
 		errMsg string,
 	) error
@@ -323,8 +324,9 @@ type RecoveryAwareProvider interface {
 // Callback phases:
 //  1. OnGroupCompleted — fires per group as each group's units reach terminal.
 //     PREP-only for barrier tasks; PREP+OVERLAY+SWAP inline otherwise.
-//  2. OnSwapRequested — fires after the cluster-wide PREPARING → SWAPPING
-//     transition. Barrier tasks only; carries OVERLAY+SWAP.
+//  2. OnSwapRequested — fires once the group's swap is decided in RAFT
+//     ([Task.GroupSwapDecided]), whatever the task status. Barrier tasks only;
+//     carries OVERLAY+SWAP.
 //  3. OnTaskCompleted — fires once on every node after ALL units terminal.
 type UnitAwareProvider interface {
 	Provider
@@ -334,9 +336,10 @@ type UnitAwareProvider interface {
 	// RecordPreparationCompleteAck (barrier tasks) or RecordPostCompletionAck.
 	OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) error
 
-	// OnSwapRequested fires after the cluster-wide PREP barrier lifts
-	// (PREPARING → SWAPPING). Barrier tasks only. Non-nil errors feed
-	// RecordPostCompletionAck (failure → FAILED, schema flip skipped).
+	// OnSwapRequested fires once the group's swap is decided, even on a task
+	// that later failed or was cancelled: a decided group is past its point of
+	// no return. Barrier tasks only. Non-nil errors feed RecordPostCompletionAck
+	// (failure → FAILED, schema flip skipped).
 	OnSwapRequested(task *Task, groupID string, localGroupUnitIDs []string) error
 
 	// OnTaskCompleted is invoked by the [Scheduler] once per task that has
@@ -426,10 +429,10 @@ const (
 	TaskStatusStarted TaskStatus = "STARTED"
 
 	// TaskStatusPreparing means every unit terminal AND the task uses the
-	// PREP barrier (semantic migrations). Each node is running PREP; the
-	// task transitions to SWAPPING only after every node's PreparationCompleteAck
-	// lands successfully — any failure flips the task to FAILED. Non-barrier
-	// tasks skip this status entirely.
+	// PREP barrier (semantic migrations), but not every group's swap is
+	// decided yet. The task transitions to SWAPPING once every group is
+	// decided — any failed PREP flips the task to FAILED. Non-barrier tasks
+	// skip this status entirely.
 	TaskStatusPreparing TaskStatus = "PREPARING"
 
 	// TaskStatusSwapping means every node is firing its per-shard atomic
@@ -505,16 +508,15 @@ func (t TaskStatus) IsRecognized() bool {
 	return false
 }
 
-// IsCancellable is true for the one status [Manager.CancelTask] accepts:
-// STARTED. Past that, some nodes may already have written merged state or
-// renamed bucket directories, so stopping the rest would leave the cluster
-// serving migrated buckets under the pre-migration schema.
+// IsCancellable is true for every in-flight status. A cancel never waits on
+// a reindex that may itself be the incident: it stops every group whose swap
+// is not decided yet, and leaves decided groups to swap.
 //
 // A literal comparison, not a classification: the FSM apply that reads it
 // must reach the same verdict on every binary that replays the entry,
 // including one that cannot name the status.
 func (t TaskStatus) IsCancellable() bool {
-	return t == TaskStatusStarted
+	return t == TaskStatusStarted || t == TaskStatusPreparing || t == TaskStatusSwapping
 }
 
 // TaskDescriptor is a struct identifying a task execution under a certain task namespace.
@@ -530,10 +532,23 @@ type TaskDescriptor struct {
 type TaskStatusEntry struct {
 	TaskDescriptor
 	Status TaskStatus
+	// DecidedUnits holds the units whose group's swap is decided, so a record
+	// can be committed on the decision alone, whatever the task status.
+	DecidedUnits map[string]struct{}
 }
 
 func (t *Task) StatusEntry() TaskStatusEntry {
-	return TaskStatusEntry{TaskDescriptor: t.TaskDescriptor, Status: t.Status}
+	entry := TaskStatusEntry{TaskDescriptor: t.TaskDescriptor, Status: t.Status}
+	if len(t.SwapDecidedGroups) == 0 {
+		return entry
+	}
+	entry.DecidedUnits = map[string]struct{}{}
+	for id, u := range t.Units {
+		if t.GroupSwapDecided(u.GroupID) {
+			entry.DecidedUnits[id] = struct{}{}
+		}
+	}
+	return entry
 }
 
 // Task represents a distributed task tracked across the cluster via Raft consensus.
@@ -579,11 +594,15 @@ type Task struct {
 
 	collection string
 
-	// PreparationCompletionAcks records per-node PREP-phase confirmations during
-	// PREPARING. The FSM gates PREPARING → SWAPPING on every expected ack
-	// landing with Success=true; any Success=false flips to FAILED. Nil
-	// for tasks that don't opt into the PREP barrier.
-	PreparationCompletionAcks map[string]PostCompletionAck `json:"preparationCompletionAcks,omitempty"`
+	// PreparedGroups records, per group and node, the PREP acks of groups not
+	// decided yet. A group's entry goes once it is decided, so the map stays
+	// bounded by the groups still preparing.
+	PreparedGroups map[string]map[string]PostCompletionAck `json:"preparedGroups,omitempty"`
+
+	// SwapDecidedGroups maps each group whose swap is decided to when. It is
+	// the one fact every replica of the group obeys, and it outlives a later
+	// FAILED or CANCELLED status: a decided group is past its point of no return.
+	SwapDecidedGroups map[string]time.Time `json:"swapDecidedGroups,omitempty"`
 
 	// PostCompletionAcks records per-node confirmations that the node's
 	// SWAP phase (the second half of the split OnGroupCompleted —
@@ -637,13 +656,30 @@ func (t *Task) Clone() *Task {
 			clone.PostCompletionAcks[k] = v
 		}
 	}
-	if t.PreparationCompletionAcks != nil {
-		clone.PreparationCompletionAcks = make(map[string]PostCompletionAck, len(t.PreparationCompletionAcks))
-		for k, v := range t.PreparationCompletionAcks {
-			clone.PreparationCompletionAcks[k] = v
+	if t.PreparedGroups != nil {
+		clone.PreparedGroups = make(map[string]map[string]PostCompletionAck, len(t.PreparedGroups))
+		for group, acks := range t.PreparedGroups {
+			clone.PreparedGroups[group] = maps.Clone(acks)
 		}
 	}
+	clone.SwapDecidedGroups = maps.Clone(t.SwapDecidedGroups)
 	return &clone
+}
+
+// GroupSwapDecided reports whether every replica of the group may swap.
+func (t *Task) GroupSwapDecided(groupID string) bool {
+	_, ok := t.SwapDecidedGroups[groupID]
+	return ok
+}
+
+// AllGroupsSwapDecided is false while any group still prepares.
+func (t *Task) AllGroupsSwapDecided() bool {
+	for _, u := range t.Units {
+		if !t.GroupSwapDecided(u.GroupID) {
+			return false
+		}
+	}
+	return true
 }
 
 // markTerminal stamps status and FinishedAt together so a terminal
@@ -699,6 +735,18 @@ func (t *Task) AllGroupUnitsTerminal(groupID string) bool {
 		}
 	}
 	return true
+}
+
+// groupNodes returns the nodes owning a unit of the group: the replicas whose
+// PREP acks decide the group's swap.
+func (t *Task) groupNodes(groupID string) map[string]struct{} {
+	nodes := map[string]struct{}{}
+	for _, u := range t.Units {
+		if u.GroupID == groupID && u.NodeID != "" {
+			nodes[u.NodeID] = struct{}{}
+		}
+	}
+	return nodes
 }
 
 // LocalGroupUnitIDs returns the IDs of units in the given group assigned to the given node.

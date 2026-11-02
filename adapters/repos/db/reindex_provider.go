@@ -1421,17 +1421,19 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	return out
 }
 
-// OnSwapRequested runs OVERLAY+SWAP for NeedsPreparationBarrier=true tasks. The
-// scheduler only fires this after the cluster-wide PREPARING → SWAPPING
-// transition. Returns non-nil on any per-shard swap failure; the resulting
-// PostCompletionAck flip-to-FAILED prevents the cluster-wide schema flip.
+// OnSwapRequested runs OVERLAY+SWAP for NeedsPreparationBarrier=true tasks,
+// for a group whose swap is decided in RAFT. It runs on a failed or cancelled
+// task too: every replica of a decided group swaps, or the group's replicas
+// would disagree for good. Returns non-nil on any per-shard swap failure; the
+// resulting PostCompletionAck flip-to-FAILED prevents the cluster-wide schema
+// flip.
 func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
 		WithField("localGroupUnitCount", len(localGroupUnitIDs))
 
-	if task.Status.IsTerminal() {
+	if !task.GroupSwapDecided(groupID) {
 		logger.WithField("status", task.Status).
-			Debug("reindex provider: swap-requested: skipping replay on past-terminal task")
+			Debug("reindex provider: swap-requested: group's swap is not decided; skipping")
 		return nil
 	}
 
@@ -1447,7 +1449,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 		return nil
 	}
 
-	logger.Info("reindex provider: swap-requested → starting OVERLAY+SWAP after cluster-wide PREP barrier")
+	logger.Info("reindex provider: swap-requested → starting OVERLAY+SWAP for a decided group")
 
 	className := entschema.ClassName(payload.Collection)
 	idx := p.db.GetIndex(className)
@@ -1529,7 +1531,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 			case distributedtask.TaskStatusCancelled:
 				// Acks can be missing: a late ack on an already-CANCELLED task is dropped, so the costlier shard walk backs them up.
 				tornLocally := len(task.PostCompletionAcks) > 0 ||
-					len(task.PreparationCompletionAcks) > 0
+					len(task.PreparedGroups) > 0 || len(task.SwapDecidedGroups) > 0
 				if !tornLocally {
 					tornLocally = p.probeLocalPostMergeState(payload)
 				}

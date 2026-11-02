@@ -15,6 +15,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -265,43 +267,40 @@ func TestManager_CancelTask_Failures(t *testing.T) {
 	})
 }
 
-// TestManager_CancelTask_RejectsNonStartedActive pins that CancelTask aborts
-// only STARTED tasks: a task that reached PREPARING/SWAPPING is rejected with
-// ErrTaskNotRunning, which cancelReindexTask maps to 202 NO_OP, not 500.
-func TestManager_CancelTask_RejectsNonStartedActive(t *testing.T) {
-	const (
-		ns      = "test"
-		taskID  = "1"
-		version = uint64(10)
-	)
-	cancel := func(t *testing.T, h *testHarness) error {
-		return h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
-			Namespace:             ns,
-			Id:                    taskID,
-			Version:               version,
-			CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-		}))
+// Pins the cancel ruling at the FSM: a cancel stops every group still
+// preparing and leaves a decided group decided, so its replicas still swap.
+func TestManager_CancelTask_KeepsDecidedGroups(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	const ns, id, version = "ns", "task1", uint64(10)
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:               ns,
+		Id:                      id,
+		SubmittedAtUnixMillis:   h.clock.Now().UnixMilli(),
+		UnitSpecs:               []*cmd.UnitSpec{{Id: "a", GroupId: "tenant-a"}, {Id: "b", GroupId: "tenant-b"}},
+		NeedsPreparationBarrier: true,
+	}), version))
+	completeUnit(t, h, ns, id, version, "n1", "a")
+	completeUnit(t, h, ns, id, version, "n1", "b")
+	ack := func(group string) {
+		require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+			Namespace: ns, Id: id, Version: version, GroupId: group, NodeId: "n1", Success: true,
+			AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
 	}
+	ack("tenant-a")
+	require.Equal(t, TaskStatusPreparing, h.manager.tasks[ns][id].Status)
 
-	t.Run("SWAPPING task rejected with ErrTaskNotRunning", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		addTaskWithUnits(t, h, ns, taskID, version, []string{"su-1"})
-		completeUnit(t, h, ns, taskID, version, "node-1", "su-1")
-		tasks, _ := h.manager.ListDistributedTasks(context.Background())
-		require.Equal(t, TaskStatusSwapping, tasks[ns][0].Status)
+	require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+		Namespace: ns, Id: id, Version: version, CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+	ack("tenant-b")
 
-		require.ErrorIs(t, cancel(t, h), ErrTaskNotRunning)
-	})
-
-	t.Run("PREPARING task rejected with ErrTaskNotRunning", func(t *testing.T) {
-		h := newTestHarness(t).init(t)
-		addBarrierTaskWithUnits(t, h, ns, taskID, version, []string{"su-1"})
-		completeUnit(t, h, ns, taskID, version, "node-1", "su-1")
-		tasks, _ := h.manager.ListDistributedTasks(context.Background())
-		require.Equal(t, TaskStatusPreparing, tasks[ns][0].Status)
-
-		require.ErrorIs(t, cancel(t, h), ErrTaskNotRunning)
-	})
+	task := h.manager.tasks[ns][id]
+	require.Equal(t, TaskStatusCancelled, task.Status)
+	require.True(t, task.GroupSwapDecided("tenant-a"), "a decided group survives the cancel")
+	require.False(t, task.GroupSwapDecided("tenant-b"), "no group is decided after the cancel")
+	require.Equal(t, map[string]struct{}{"a": {}}, task.StatusEntry().DecidedUnits,
+		"record verdicts read the decision through the status entry")
 }
 
 func TestManager_CleanUpTask_Failures(t *testing.T) {
@@ -2017,7 +2016,7 @@ func TestManager_HasActiveTaskForCollection(t *testing.T) {
 // addBarrierTaskWithUnits is the barrier-mode counterpart to
 // addTaskWithUnits — same shape, but the task opts into the PrepComplete
 // barrier so AllUnitsTerminal routes STARTED → PREPARING (instead of
-// straight to SWAPPING) and PreparationCompletionAcks become the gate on the
+// straight to SWAPPING) and the group's swap decision gates the
 // PREPARING → SWAPPING transition.
 func addBarrierTaskWithUnits(t *testing.T, h *testHarness, ns, id string, version uint64, units []string) {
 	t.Helper()
@@ -2120,13 +2119,10 @@ func TestManager_RecordPreparationCompleteAck_Success(t *testing.T) {
 	task := tasks["ns"][0]
 	require.Equal(t, TaskStatusSwapping, task.Status,
 		"PREPARING → SWAPPING fires the moment the last expected ack lands")
-	require.Len(t, task.PreparationCompletionAcks, 3)
-	for _, n := range nodes {
-		ack, ok := task.PreparationCompletionAcks[n]
-		require.True(t, ok, "PrepAck for %s must be recorded", n)
-		require.True(t, ack.Success)
-		require.False(t, ack.AckedAt.IsZero(), "AckedAt must be set on apply")
-	}
+	require.True(t, task.GroupSwapDecided(""), "the last ack decides the group's swap")
+	require.Equal(t, h.clock.Now().UnixMilli(), task.SwapDecidedGroups[""].UnixMilli(),
+		"the decision is stamped with the deciding ack's time")
+	require.Empty(t, task.PreparedGroups, "a decided group's acks are dropped")
 }
 
 // TestManager_RecordPreparationCompleteAck_FailureTransitionsToFailed pins
@@ -2180,7 +2176,7 @@ func TestManager_RecordPreparationCompleteAck_Idempotent(t *testing.T) {
 	// First ack: success → barrier lifts (single-node).
 	ackPrep(t, h, "ns", "task1", version, "node-1", true)
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
-	require.True(t, tasks["ns"][0].PreparationCompletionAcks["node-1"].Success)
+	require.True(t, tasks["ns"][0].GroupSwapDecided(""))
 	require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status)
 
 	// Duplicate ack with Success=false: must be silently dropped.
@@ -2188,8 +2184,8 @@ func TestManager_RecordPreparationCompleteAck_Idempotent(t *testing.T) {
 	// recorded ack AND flip SWAPPING → FAILED, both of which are wrong.
 	ackPrep(t, h, "ns", "task1", version, "node-1", false)
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
-	require.True(t, tasks["ns"][0].PreparationCompletionAcks["node-1"].Success,
-		"duplicate ack must not flip recorded success → failure")
+	require.True(t, tasks["ns"][0].GroupSwapDecided(""),
+		"duplicate ack must not take back the decision")
 	require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status,
 		"duplicate ack must not flip SWAPPING → FAILED")
 }
@@ -2221,7 +2217,105 @@ func TestManager_RecordPreparationCompleteAck_AckOrderCommutativity(t *testing.T
 			task := tasks["ns"][0]
 			require.Equal(t, TaskStatusSwapping, task.Status,
 				"end state must be SWAPPING regardless of ack-arrival order")
-			require.Len(t, task.PreparationCompletionAcks, 3)
+			require.True(t, task.GroupSwapDecided(""))
+		})
+	}
+}
+
+// Pins the per-group decision: a group is decided once every node owning one
+// of its units acked success, and acks that cannot decide it are dropped.
+func TestManager_RecordPreparationCompleteAck_PerGroup(t *testing.T) {
+	const ns, id, version = "ns", "task1", uint64(10)
+	type step func(t *testing.T, h *testHarness)
+	complete := func(node, unit string) step {
+		return func(t *testing.T, h *testHarness) { completeUnit(t, h, ns, id, version, node, unit) }
+	}
+	ack := func(group, node string, success bool) step {
+		return func(t *testing.T, h *testHarness) {
+			require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+				Namespace: ns, Id: id, Version: version, GroupId: group, NodeId: node,
+				Success: success, Error: errIfFailed(success), AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+			})))
+		}
+	}
+	for _, tc := range []struct {
+		name        string
+		steps       []step
+		wantStatus  TaskStatus
+		wantDecided []string
+		wantAcks    map[string]int
+	}{
+		{
+			name:       "an ack from a node outside the group is dropped",
+			steps:      []step{complete("n1", "u1"), complete("n2", "u2"), complete("n1", "u3"), ack("g2", "n2", true)},
+			wantStatus: TaskStatusPreparing,
+		},
+		{
+			name:       "an ack before the group's units are done is dropped",
+			steps:      []step{complete("n1", "u1"), ack("g1", "n1", true)},
+			wantStatus: TaskStatusStarted,
+		},
+		{
+			name:        "a group is decided once every replica acked, while another group runs",
+			steps:       []step{complete("n1", "u1"), complete("n2", "u2"), ack("g1", "n1", true), ack("g1", "n2", true)},
+			wantStatus:  TaskStatusStarted,
+			wantDecided: []string{"g1"},
+		},
+		{
+			name:       "one replica's ack does not decide the group",
+			steps:      []step{complete("n1", "u1"), complete("n2", "u2"), ack("g1", "n1", true)},
+			wantStatus: TaskStatusStarted,
+			wantAcks:   map[string]int{"g1": 1},
+		},
+		{
+			name: "SWAPPING comes once every group is decided",
+			steps: []step{
+				complete("n1", "u1"), complete("n2", "u2"), complete("n1", "u3"),
+				ack("g1", "n1", true), ack("g1", "n2", true), ack("g2", "n1", true),
+			},
+			wantStatus:  TaskStatusSwapping,
+			wantDecided: []string{"g1", "g2"},
+		},
+		{
+			name: "a failed ack fails the task and keeps the decided groups",
+			steps: []step{
+				complete("n1", "u1"), complete("n2", "u2"), ack("g1", "n1", true), ack("g1", "n2", true),
+				complete("n1", "u3"), ack("g2", "n1", false),
+			},
+			wantStatus:  TaskStatusFailed,
+			wantDecided: []string{"g1"},
+		},
+		{
+			name:       "a failed ack fails a task that is still STARTED",
+			steps:      []step{complete("n1", "u1"), complete("n2", "u2"), ack("g1", "n1", false)},
+			wantStatus: TaskStatusFailed,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+				Namespace: ns, Id: id, SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+				UnitSpecs: []*cmd.UnitSpec{
+					{Id: "u1", GroupId: "g1"}, {Id: "u2", GroupId: "g1"}, {Id: "u3", GroupId: "g2"},
+				},
+				NeedsPreparationBarrier: true,
+			}), version))
+			updateProgress(t, h, ns, id, version, "n2", "u2", 0.1)
+			for _, step := range tc.steps {
+				step(t, h)
+			}
+
+			task := h.manager.tasks[ns][id]
+			require.Equal(t, tc.wantStatus, task.Status)
+			require.ElementsMatch(t, tc.wantDecided, slices.Collect(maps.Keys(task.SwapDecidedGroups)))
+			acks := map[string]int{}
+			for group, byNode := range task.PreparedGroups {
+				acks[group] = len(byNode)
+			}
+			if tc.wantAcks == nil {
+				tc.wantAcks = map[string]int{}
+			}
+			require.Equal(t, tc.wantAcks, acks)
 		})
 	}
 }
@@ -2323,12 +2417,11 @@ func TestManager_CleanUpTask_RefusesOnlyStatusesThisBuildCallsLive(t *testing.T)
 	}
 }
 
-// Pins cancel eligibility for every status: open for STARTED and nothing
-// else. Closed for the coordination phases (a node may already have
-// swapped buckets), for every terminal status including a double cancel,
-// and for a status this build cannot name — only a build that can name it
-// knows whether stopping is safe, and every binary has to answer the same
-// way or the FSM diverges.
+// Pins cancel eligibility for every status: open for every in-flight
+// status, since decided groups keep their swap anyway. Closed for every
+// terminal status including a double cancel, and for a status this build
+// cannot name — only a build that can name it knows whether stopping is
+// safe, and every binary has to answer the same way or the FSM diverges.
 func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
 	for _, tc := range []struct {
 		status   TaskStatus
@@ -2336,8 +2429,8 @@ func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
 	}{
 		{TaskStatusStarted, true},
 		{unknownFutureStatus, false},
-		{TaskStatusPreparing, false},
-		{TaskStatusSwapping, false},
+		{TaskStatusPreparing, true},
+		{TaskStatusSwapping, true},
 		{TaskStatusFinished, false},
 		{TaskStatusFailed, false},
 		{TaskStatusCancelled, false},

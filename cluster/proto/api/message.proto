@@ -365,6 +365,7 @@ message RecordDistributedTaskPreparationCompleteAckRequest {
   bool success = 5;
   string error = 6;
   int64 acked_at_unix_millis = 7;
+  string group_id = 8;
 }
 
 // SetClusterIDRequest carries the stable cluster identity committed once per

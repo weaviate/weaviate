@@ -49,7 +49,7 @@ func TestTaskStatus_IsTerminal(t *testing.T) {
 }
 
 // TestTask_Clone_DeepCopiesAckMaps pins that Clone() deep-copies every
-// map field on Task, including PreparationCompletionAcks added in #11328.
+// map field on Task.
 // Regression guard: the scheduler tick mutates the local clone's ack
 // maps to reflect FSM transitions in the same tick (see scheduler.go
 // PHASE A.5 / Phase 1.5); if Clone aliased the map, those writes would
@@ -63,9 +63,10 @@ func TestTask_Clone_DeepCopiesAckMaps(t *testing.T) {
 		PostCompletionAcks: map[string]PostCompletionAck{
 			"node-1": {Success: true, AckedAt: now},
 		},
-		PreparationCompletionAcks: map[string]PostCompletionAck{
-			"node-1": {Success: true, AckedAt: now},
+		PreparedGroups: map[string]map[string]PostCompletionAck{
+			"g1": {"node-1": {Success: true, AckedAt: now}},
 		},
+		SwapDecidedGroups: map[string]time.Time{"g0": now},
 	}
 
 	clone := orig.Clone()
@@ -74,13 +75,15 @@ func TestTask_Clone_DeepCopiesAckMaps(t *testing.T) {
 	clone.Units["u-1"].Status = UnitStatusFailed
 	clone.PostCompletionAcks["node-1"] = PostCompletionAck{Success: false, Error: "swap"}
 	clone.PostCompletionAcks["node-2"] = PostCompletionAck{Success: true}
-	clone.PreparationCompletionAcks["node-1"] = PostCompletionAck{Success: false, Error: "prep"}
-	clone.PreparationCompletionAcks["node-2"] = PostCompletionAck{Success: true}
+	clone.PreparedGroups["g1"]["node-1"] = PostCompletionAck{Success: false, Error: "prep"}
+	clone.PreparedGroups["g2"] = map[string]PostCompletionAck{"node-2": {Success: true}}
+	clone.SwapDecidedGroups["g1"] = now
 
 	// Original must be untouched on EVERY map.
 	assert.Equal(t, UnitStatusCompleted, orig.Units["u-1"].Status, "Units value-level deep copy")
 	assert.True(t, orig.PostCompletionAcks["node-1"].Success, "PostCompletionAcks must not alias clone")
 	assert.NotContains(t, orig.PostCompletionAcks, "node-2", "PostCompletionAcks must not alias clone")
-	assert.True(t, orig.PreparationCompletionAcks["node-1"].Success, "PreparationCompletionAcks must not alias clone")
-	assert.NotContains(t, orig.PreparationCompletionAcks, "node-2", "PreparationCompletionAcks must not alias clone")
+	assert.True(t, orig.PreparedGroups["g1"]["node-1"].Success, "PreparedGroups must not alias clone")
+	assert.NotContains(t, orig.PreparedGroups, "g2", "PreparedGroups must not alias clone")
+	assert.NotContains(t, orig.SwapDecidedGroups, "g1", "SwapDecidedGroups must not alias clone")
 }

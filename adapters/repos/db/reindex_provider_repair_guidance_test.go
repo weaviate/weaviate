@@ -235,8 +235,7 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_EmptyPropertiesEmitsGe
 }
 
 // Pins: repair guidance on a CANCELLED task follows the evidence that a
-// node got past its units — either ack map, since PREP acks land in a
-// different one from post-swap acks.
+// node got past its units — a swap ack, a PREP ack, or a decided group.
 func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.T) {
 	payload, err := json.Marshal(ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
@@ -250,12 +249,14 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 	for _, tc := range []struct {
 		name         string
 		postAcks     map[string]distributedtask.PostCompletionAck
-		prepAcks     map[string]distributedtask.PostCompletionAck
+		prepAcks     map[string]map[string]distributedtask.PostCompletionAck
+		decided      map[string]time.Time
 		wantGuidance bool
 	}{
 		{name: "no node acked anything", wantGuidance: false},
 		{name: "one node acked a swap", postAcks: acked, wantGuidance: true},
-		{name: "one node acked PREP only", prepAcks: acked, wantGuidance: true},
+		{name: "one node acked PREP only", prepAcks: map[string]map[string]distributedtask.PostCompletionAck{"": acked}, wantGuidance: true},
+		{name: "a group was decided", decided: map[string]time.Time{"": {}}, wantGuidance: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
@@ -267,12 +268,13 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 			}
 
 			require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
-				Namespace:                 ReindexNamespace,
-				TaskDescriptor:            distributedtask.TaskDescriptor{ID: "T_cancel", Version: 1},
-				Status:                    distributedtask.TaskStatusCancelled,
-				Payload:                   payload,
-				PostCompletionAcks:        tc.postAcks,
-				PreparationCompletionAcks: tc.prepAcks,
+				Namespace:          ReindexNamespace,
+				TaskDescriptor:     distributedtask.TaskDescriptor{ID: "T_cancel", Version: 1},
+				Status:             distributedtask.TaskStatusCancelled,
+				Payload:            payload,
+				PostCompletionAcks: tc.postAcks,
+				PreparedGroups:     tc.prepAcks,
+				SwapDecidedGroups:  tc.decided,
 			}))
 
 			var guided bool

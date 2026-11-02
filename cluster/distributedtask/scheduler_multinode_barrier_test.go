@@ -348,7 +348,7 @@ func TestBarrier_G1_LeaderLossBetweenPhaseAandPhaseB(t *testing.T) {
 	require.Equal(t, 0, h.nodes[1].provider.swapCount(taskID))
 	task = h.getTask(t, taskID)
 	require.Equal(t, TaskStatusPreparing, task.Status)
-	require.Len(t, task.PreparationCompletionAcks, 2)
+	require.Len(t, task.PreparedGroups[""], 2)
 
 	// node-3 ticks third: its prep-ack apply trips the
 	// PREPARING → SWAPPING transition on the shared FSM. But the local
@@ -513,30 +513,23 @@ func TestBarrier_G3_LatePrepAckArrivesInSwapping(t *testing.T) {
 	barrierDriveAllAcksAndAssertSwapping(t, h, taskID)
 	task := h.getTask(t, taskID)
 	require.Equal(t, TaskStatusSwapping, task.Status)
-	originalAcks := map[string]PostCompletionAck{}
-	for k, v := range task.PreparationCompletionAcks {
-		originalAcks[k] = v
-	}
-	require.Len(t, originalAcks, 2, "both nodes' prep acks must be recorded by SWAPPING")
-	require.True(t, originalAcks["node-2"].Success,
-		"prerequisite: node-2's original prep ack recorded Success=true")
+	decidedAt, decided := task.SwapDecidedGroups[""]
+	require.True(t, decided, "prerequisite: both nodes' prep acks decided the group by SWAPPING")
 
 	// Inject a duplicate prep ack on node-2 with Success=false — the
 	// shape a retried wire-call would land in if the in-memory
 	// preparationAckEmitted flag was never set. The Manager MUST drop
 	// it: status stays SWAPPING, the original successful ack remains.
+	h.clock.Advance(time.Minute)
 	require.NoError(t, h.ackRecorder.RecordDistributedTaskPreparationCompleteAck(
-		context.Background(), h.namespace, taskID, 1, "node-2", false, "late duplicate prep ack with synthesized failure",
+		context.Background(), h.namespace, taskID, 1, "", "node-2", false, "late duplicate prep ack with synthesized failure",
 	))
 
 	task = h.getTask(t, taskID)
 	require.Equal(t, TaskStatusSwapping, task.Status,
 		"SWAPPING task MUST silently drop a late prep-ack — no state flip back to FAILED")
-	require.True(t, task.PreparationCompletionAcks["node-2"].Success,
-		"original successful prep-ack MUST NOT be overwritten by the late duplicate")
-	require.Equal(t, originalAcks["node-2"].AckedAt,
-		task.PreparationCompletionAcks["node-2"].AckedAt,
-		"original ack timestamp MUST survive a late duplicate")
+	require.Equal(t, decidedAt, task.SwapDecidedGroups[""],
+		"the decision MUST survive a late duplicate")
 	require.Empty(t, task.Error,
 		"SWAPPING task MUST NOT pick up an error from a silently-dropped late prep-ack")
 
@@ -554,23 +547,20 @@ func TestBarrier_G3_LatePrepAckArrivesInSwapping(t *testing.T) {
 	failedTask := h.getTask(t, taskID2)
 	require.Equal(t, TaskStatusFailed, failedTask.Status,
 		"prerequisite: task2 must be FAILED via the injected swap error")
-	preFailedAcks := map[string]PostCompletionAck{}
-	for k, v := range failedTask.PreparationCompletionAcks {
-		preFailedAcks[k] = v
-	}
+	preFailedDecisions := failedTask.SwapDecidedGroups
 
 	// Deliver a late prep-ack for an already-acked node (the manager's
 	// 2-arm guard at manager.go:564-567 returns nil for terminal-state
 	// tasks BEFORE the idempotency check fires, so the FAILED state
 	// short-circuits whether or not the ack is a duplicate).
 	require.NoError(t, h.ackRecorder.RecordDistributedTaskPreparationCompleteAck(
-		context.Background(), h.namespace, taskID2, 1, "node-1", false, "late duplicate after task FAILED",
+		context.Background(), h.namespace, taskID2, 1, "", "node-1", false, "late duplicate after task FAILED",
 	))
 	failedTask = h.getTask(t, taskID2)
 	require.Equal(t, TaskStatusFailed, failedTask.Status,
 		"FAILED task MUST silently drop a late prep-ack — no state flip")
-	require.Equal(t, preFailedAcks, failedTask.PreparationCompletionAcks,
-		"FAILED task's PreparationCompletionAcks MUST remain bit-for-bit identical")
+	require.Equal(t, preFailedDecisions, failedTask.SwapDecidedGroups,
+		"FAILED task's decisions MUST remain bit-for-bit identical")
 }
 
 // TestBarrier_G4_ParallelMigrationDifferentPropDuringBarrier pins gap G4:
@@ -702,8 +692,8 @@ func TestBarrier_G5_SchemaVersionMismatchRollingUpgrade(t *testing.T) {
 		Units: map[string]*Unit{
 			"u-1": {ID: "u-1", NodeID: "node-1", Status: UnitStatusCompleted, FinishedAt: now},
 		},
-		PreparationCompletionAcks: map[string]PostCompletionAck{
-			"node-1": {Success: true, AckedAt: now},
+		PreparedGroups: map[string]map[string]PostCompletionAck{
+			"": {"node-1": {Success: true, AckedAt: now}},
 		},
 	}
 
@@ -718,16 +708,16 @@ func TestBarrier_G5_SchemaVersionMismatchRollingUpgrade(t *testing.T) {
 	// into it MUST succeed (JSON unmarshal silently drops unknown fields
 	// by default) and the legacy node sees the task without the barrier.
 	type barrierLegacyTask struct {
-		Namespace                 string                       `json:"namespace"`
-		TaskDescriptor            TaskDescriptor               `json:",inline"`
-		Payload                   []byte                       `json:"payload"`
-		Status                    TaskStatus                   `json:"status"`
-		StartedAt                 time.Time                    `json:"startedAt"`
-		FinishedAt                time.Time                    `json:"finishedAt"`
-		Error                     string                       `json:"error,omitempty"`
-		Units                     map[string]*Unit             `json:"units,omitempty"`
-		PostCompletionAcks        map[string]PostCompletionAck `json:"postCompletionAcks,omitempty"`
-		PreparationCompletionAcks map[string]PostCompletionAck `json:"preparationCompletionAcks,omitempty"`
+		Namespace          string                                  `json:"namespace"`
+		TaskDescriptor     TaskDescriptor                          `json:",inline"`
+		Payload            []byte                                  `json:"payload"`
+		Status             TaskStatus                              `json:"status"`
+		StartedAt          time.Time                               `json:"startedAt"`
+		FinishedAt         time.Time                               `json:"finishedAt"`
+		Error              string                                  `json:"error,omitempty"`
+		Units              map[string]*Unit                        `json:"units,omitempty"`
+		PostCompletionAcks map[string]PostCompletionAck            `json:"postCompletionAcks,omitempty"`
+		PreparedGroups     map[string]map[string]PostCompletionAck `json:"preparedGroups,omitempty"`
 	}
 	var legacy barrierLegacyTask
 	require.NoError(t, json.Unmarshal(wireBytes, &legacy),
@@ -740,8 +730,8 @@ func TestBarrier_G5_SchemaVersionMismatchRollingUpgrade(t *testing.T) {
 	// status would silently fall through to a default branch.
 	require.Equal(t, postPRTask.Namespace, legacy.Namespace)
 	require.Equal(t, postPRTask.Units["u-1"].ID, legacy.Units["u-1"].ID)
-	require.Equal(t, postPRTask.PreparationCompletionAcks, legacy.PreparationCompletionAcks,
-		"PreparationCompletionAcks must round-trip even on a legacy follower (the field name is the same, only NeedsPreparationBarrier is new)")
+	require.Equal(t, postPRTask.PreparedGroups, legacy.PreparedGroups,
+		"PreparedGroups must round-trip even on a legacy follower (the field name is the same, only NeedsPreparationBarrier is new)")
 	require.Equal(t, TaskStatus("PREPARING"), legacy.Status,
 		"the new PREPARING status string survives the round-trip — legacy code-paths must defensively handle unknown TaskStatus values to avoid silent state flips")
 
@@ -791,7 +781,7 @@ func TestBarrier_G6_RestartMidPhaseARecovery(t *testing.T) {
 		"prerequisite: node-1 fired PHASE A")
 	tasks := h.listTasks(t)
 	require.Equal(t, TaskStatusPreparing, tasks[0].Status)
-	require.Len(t, tasks[0].PreparationCompletionAcks, 1)
+	require.Len(t, tasks[0].PreparedGroups[""], 1)
 
 	// Simulate node-2 restart: replace its scheduler with a new one
 	// bound to the same manager + same provider. The new scheduler's
@@ -855,18 +845,17 @@ func TestBarrier_G6_RestartMidPhaseARecovery(t *testing.T) {
 	// All three prep-acks must now be present; FSM must have advanced
 	// PREPARING → SWAPPING.
 	tasks = h.listTasks(t)
-	require.Len(t, tasks[0].PreparationCompletionAcks, 3,
-		"every node's prep-ack must be present after restart recovery")
+	require.True(t, tasks[0].GroupSwapDecided(""),
+		"every node's prep-ack must have landed after restart recovery")
 	require.Equal(t, TaskStatusSwapping, tasks[0].Status,
 		"FSM must lift to SWAPPING after the restarted nodes re-emit their prep-acks")
 }
 
 // TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode: multi-group
 // task where group-a is owned only by node-1 and group-b only by
-// node-2; node-2 crashes pre-prep-ack. The FSM barrier-lift
-// (allExpectedPreparationAcksLanded) only counts nodes with local
-// units, so node-3's vacuous "all-local-groups-fired" ack is ignored
-// and the barrier stays up until node-2 recovers.
+// node-2; node-2 crashes pre-prep-ack. group-a is decided on its own,
+// node-3 owns no unit and acks nothing, and group-b stays undecided
+// until node-2 recovers.
 func TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -910,27 +899,18 @@ func TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode(t *testing.T) {
 	h.tick(0)
 	require.Equal(t, 1, h.nodes[0].provider.groupCount(taskID))
 	task = h.getTask(t, taskID)
-	require.Contains(t, task.PreparationCompletionAcks, "node-1",
-		"node-1: prep-ack must land after PHASE A fires for its group")
+	require.True(t, task.GroupSwapDecided("group-a"),
+		"node-1 alone owns group-a, so its prep-ack decides it")
 
-	// node-3 ticks: NO local units in either group → no PHASE A fire.
-	// The scheduler's allLocalGroupsPreparationFiredLocked vacuously
-	// returns true (the for-loop body never runs), so the prep-ack
-	// emission gate DOES fire — recording a vacuous Success=true ack
-	// for node-3. This is benign: allExpectedPreparationAcksLanded
-	// (the barrier-lift predicate at the FSM layer) only counts nodes
-	// with local units, so node-3's ack does not contribute to the
-	// barrier.
+	// node-3 ticks: NO local units in either group → no PHASE A fire and no ack.
 	h.tick(2)
 	require.Equal(t, 0, h.nodes[2].provider.groupCount(taskID),
 		"node-3: OnGroupCompleted MUST NOT fire — no local units in any group")
 	task = h.getTask(t, taskID)
 	require.Equal(t, TaskStatusPreparing, task.Status,
-		"FSM must hold at PREPARING — node-2's ack is still missing despite node-3's vacuous ack")
-	require.NotContains(t, task.PreparationCompletionAcks, "node-2",
-		"node-2's prep-ack must NOT be present (it hasn't ticked yet)")
-	require.False(t, allExpectedPreparationAcksLanded(task),
-		"barrier predicate must be false — node-2 owns local units and has not acked")
+		"FSM must hold at PREPARING — node-2's ack for group-b is still missing")
+	require.False(t, task.GroupSwapDecided("group-b"),
+		"group-b must stay undecided until node-2 acks")
 
 	// Simulate node-2 crash: don't tick it, and rebuild its scheduler
 	// with empty maps (as if the binary restarted). The provider
@@ -957,18 +937,18 @@ func TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode(t *testing.T) {
 
 	// Restarted node-2 ticks: fresh map allows OnGroupCompleted to fire
 	// for group-b, then PHASE A.5 emits node-2's prep-ack.
-	// allExpectedPreparationAcksLanded now true → PREPARING → SWAPPING.
+	// group-b is now decided too → PREPARING → SWAPPING.
 	freshScheduler.tick()
 
 	task = h.getTask(t, taskID)
-	require.Contains(t, task.PreparationCompletionAcks, "node-2",
+	require.True(t, task.GroupSwapDecided("group-b"),
 		"node-2: prep-ack must land after recovery re-fires PHASE A for group-b")
 	require.Equal(t, TaskStatusSwapping, task.Status,
 		"FSM must lift to SWAPPING after the crashed node's group is recovered")
 }
 
-// TestBarrier_G8_SnapshotRestoreMidPreparing pins gap G8: the new
-// PreparationCompletionAcks map on Task must survive a JSON snapshot/restore
+// TestBarrier_G8_SnapshotRestoreMidPreparing pins gap G8: the
+// PreparedGroups map on Task must survive a JSON snapshot/restore
 // round-trip through Manager.Snapshot / Manager.Restore — a follower
 // joining mid-PREPARING via snapshot install must see the partial ack
 // map exactly as the leader committed it.
@@ -992,10 +972,10 @@ func TestBarrier_G8_SnapshotRestoreMidPreparing(t *testing.T) {
 	h.tick(1)
 	tasks := h.listTasks(t)
 	require.Equal(t, TaskStatusPreparing, tasks[0].Status)
-	require.Len(t, tasks[0].PreparationCompletionAcks, 2,
+	require.Len(t, tasks[0].PreparedGroups[""], 2,
 		"only the two ticked nodes' prep-acks must be present pre-snapshot")
-	require.Contains(t, tasks[0].PreparationCompletionAcks, "node-1")
-	require.Contains(t, tasks[0].PreparationCompletionAcks, "node-2")
+	require.Contains(t, tasks[0].PreparedGroups[""], "node-1")
+	require.Contains(t, tasks[0].PreparedGroups[""], "node-2")
 
 	// Take the snapshot, then build a fresh Manager and restore into
 	// it. This is the install-snapshot path a follower joining
@@ -1022,26 +1002,10 @@ func TestBarrier_G8_SnapshotRestoreMidPreparing(t *testing.T) {
 		"restored task must preserve PREPARING status — a follower joining mid-barrier must see the same FSM state as the leader")
 	require.True(t, restored.NeedsPreparationBarrier,
 		"NeedsPreparationBarrier must survive snapshot/restore — otherwise the follower silently degrades to legacy SWAPPING semantics")
-	require.Len(t, restored.PreparationCompletionAcks, 2,
-		"partial PreparationCompletionAcks must survive snapshot/restore")
-	require.Contains(t, restored.PreparationCompletionAcks, "node-1",
-		"node-1's prep-ack must be restored")
-	require.Contains(t, restored.PreparationCompletionAcks, "node-2",
-		"node-2's prep-ack must be restored")
-	require.NotContains(t, restored.PreparationCompletionAcks, "node-3",
-		"node-3's missing prep-ack must remain missing after restore — restoration MUST be exact")
-	require.True(t, restored.PreparationCompletionAcks["node-1"].Success,
-		"node-1's success flag must survive restore")
-	require.True(t, restored.PreparationCompletionAcks["node-2"].Success,
-		"node-2's success flag must survive restore")
-
-	// allExpectedPreparationAcksLanded on the restored task should be
-	// false (node-3 missing). The barrier predicate is a pure transform
-	// of the restored state, so applying node-3's ack against the
-	// restored Manager must lift the barrier exactly as it would on the
-	// leader.
-	require.False(t, allExpectedPreparationAcksLanded(restored),
-		"barrier predicate must be false on the restored partial state")
+	require.Equal(t, tasks[0].PreparedGroups, restored.PreparedGroups,
+		"partial PreparedGroups must survive snapshot/restore exactly")
+	require.False(t, restored.GroupSwapDecided(""),
+		"the group must stay undecided on the restored partial state")
 
 	require.NoError(t, freshManager.RecordPreparationCompleteAck(
 		toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
@@ -1059,9 +1023,9 @@ func TestBarrier_G8_SnapshotRestoreMidPreparing(t *testing.T) {
 		"after the restored Manager records node-3's prep-ack, the barrier must lift to SWAPPING — proving the restore preserved enough state for the FSM transition to fire correctly")
 }
 
-// Pins: cancel is refused once one replica has swapped, so both replicas
-// still swap and the schema flip still commits.
-func TestBarrier_G9_CancelRefusedOnceANodeHasSwapped(t *testing.T) {
+// Pins: a cancel after the swap is decided is accepted, the replica that has
+// not swapped yet still swaps, and the schema flip is skipped.
+func TestBarrier_G9_CancelAfterDecisionStillSwapsEveryReplica(t *testing.T) {
 	defer leaktest.Check(t)()
 
 	h := newBarrierHarness(t, []string{"node-1", "node-2"})
@@ -1073,28 +1037,25 @@ func TestBarrier_G9_CancelRefusedOnceANodeHasSwapped(t *testing.T) {
 
 	// Only node 0 swaps so far.
 	h.tick(0)
-	require.Equal(t, 1, h.nodes[0].provider.swapCallsBy["T9"],
-		"node-1 must have run its swap")
-	require.Equal(t, 0, h.nodes[1].provider.swapCallsBy["T9"],
-		"node-2 must not have ticked into its swap yet")
+	require.Equal(t, 1, h.nodes[0].provider.swapCount("T9"), "node-1 must have run its swap")
+	require.Equal(t, 0, h.nodes[1].provider.swapCount("T9"), "node-2 must not have ticked into its swap yet")
 
-	err := h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+	require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
 		Namespace:             h.namespace,
 		Id:                    "T9",
 		Version:               1,
 		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-	}))
-	require.Error(t, err, "cancel must be refused once the task is past its units")
-	require.Equal(t, TaskStatusSwapping, h.getTask(t, "T9").Status,
-		"the refused cancel must not change the task's status")
+	})), "a cancel is never refused while the task is in flight")
+	require.Equal(t, TaskStatusCancelled, h.getTask(t, "T9").Status)
 
-	// The migration completes on both replicas.
 	h.tickAll()
 	h.tickAll()
-	require.Equal(t, 1, h.nodes[1].provider.swapCallsBy["T9"],
-		"node-2 must still run its swap after the refused cancel")
-	require.Equal(t, TaskStatusFinished, h.getTask(t, "T9").Status,
-		"both replicas swapped, so the task must finalize rather than stay stuck")
+	require.Equal(t, 1, h.nodes[1].provider.swapCount("T9"),
+		"node-2 must still swap: the group was decided before the cancel")
+	for _, n := range h.nodes {
+		require.Equal(t, []TaskStatus{TaskStatusCancelled}, n.provider.taskStatuses,
+			"%s: OnTaskCompleted runs the cancel cleanup, never the SWAPPING schema flip", n.id)
+	}
 }
 
 // Regression: a node's own failed PREP/SWAP ack must hand callbacks FAILED, not a stale PREPARING/SWAPPING.
@@ -1116,7 +1077,6 @@ func TestBarrier_FailedPhaseHandsCallbacksFailedStatus(t *testing.T) {
 			name:         "prep failure",
 			needsBarrier: true,
 			inject:       groupErr,
-			swapStatuses: []TaskStatus{TaskStatusFailed},
 		},
 		{
 			name:         "swap failure",

@@ -267,21 +267,16 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 }
 
 // MutationRemedy is the tail of a mutation refusal: what the operator can
-// actually do about it. The cancel API accepts STARTED and nothing else,
-// so a refusal that names a cancel unconditionally sends the operator
-// down a road that dead-ends in a 409.
+// actually do about it. The cancel API refuses only a status this build
+// cannot classify, so a refusal that names a cancel for it sends the
+// operator down a road that dead-ends in a 409.
 func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) string {
-	switch {
-	case status.IsCancellable():
+	if status.IsCancellable() {
 		return whenCancellable
-	case status.IsRecognized():
-		return "the task is past the point where a cancel is accepted — the reindex REST API " +
-			"answers 409 in this phase, so it has to run through to a terminal state first"
-	default:
-		return "this build cannot classify that status, so a cancel via the reindex REST API is " +
-			"refused on every node — the task has to reach a terminal state on the nodes that do " +
-			"recognize it"
 	}
+	return "this build cannot classify that status, so a cancel via the reindex REST API is " +
+		"refused on every node — the task has to reach a terminal state on the nodes that do " +
+		"recognize it"
 }
 
 // CheckPropertyUpdate implements [distributedtask.SchemaMutationDetector]

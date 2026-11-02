@@ -405,9 +405,8 @@ func (h *indexesHandlers) cancelNoOpResponder(collection, propertyName, indexTyp
 	})
 }
 
-// cancelRefusedResponder answers a cancel DTM will not accept. "Wait for
-// a terminal state" is honest advice in a coordination phase and a dead
-// end for a status only other nodes can terminate, hence two bodies.
+// cancelRefusedResponder answers a cancel DTM will not accept: a status
+// only nodes that recognize it can terminate.
 func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event": "reindex_task_cancel_refused",
@@ -417,11 +416,11 @@ func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, c
 		"taskID":      target.ID,
 		"status":      target.Status.String(),
 		"principal":   principalUsername(principal),
-	}).Info("cancel: task is past the point where cancelling is safe; refusing")
+	}).Info("cancel: task is in a status this build cannot classify; refusing")
 	return jsonResponder(http.StatusConflict, errorResponse(principal,
 		fmt.Sprintf("reindex task %q on %s.%s is in status %s: %s",
 			target.ID, collection, propertyName, target.Status,
-			cancelRefusalReason(target.Status))))
+			cancelRefusalReason())))
 }
 
 // cancelRacedResponder answers a cancel whose target stopped accepting
@@ -440,25 +439,17 @@ func (h *indexesHandlers) cancelRacedResponder(target *distributedtask.Task, col
 	}).Info("cancel: task left the cancellable state between the read and the apply; refusing")
 	return jsonResponder(http.StatusConflict, errorResponse(principal,
 		fmt.Sprintf("reindex task %q on %s.%s changed status between this request's task read and "+
-			"the cancel, and is no longer cancellable. Nothing was cancelled. It has either entered "+
-			"a cluster-wide coordination phase, where nodes may already have written merged state or "+
-			"renamed bucket directories, reached a status this node's build does not recognize, or "+
-			"already reached a terminal state. Re-read GET /v1/schema/%s/indexes to see where it landed",
+			"the cancel, and is no longer cancellable. Nothing was cancelled. It has either reached "+
+			"a status this node's build does not recognize, or already reached a terminal state. Re-read GET /v1/schema/%s/indexes to see where it landed",
 			target.ID, collection, propertyName, collection)))
 }
 
-// cancelRefusalReason explains a 409 from the cancel verb. Its
-// coordination-phase wording has to hold for PREPARING too, where no node
-// has swapped yet, so it cannot name the swap as under way.
-func cancelRefusalReason(status distributedtask.TaskStatus) string {
-	if !status.IsRecognized() {
-		return "this build cannot classify that status, so it cannot tell whether stopping the " +
-			"task is safe and refuses the cancel on every node — the task has to reach a terminal " +
-			"state on the nodes that do recognize it"
-	}
-	return "nodes may already have written merged state or renamed bucket directories, so " +
-		"stopping it now would leave the cluster serving migrated buckets under the " +
-		"pre-migration schema — wait for it to reach a terminal state"
+// cancelRefusalReason explains a 409 from the cancel verb, which refuses
+// only a status this build cannot classify.
+func cancelRefusalReason() string {
+	return "this build cannot classify that status, so it cannot tell whether stopping the " +
+		"task is safe and refuses the cancel on every node — the task has to reach a terminal " +
+		"state on the nodes that do recognize it"
 }
 
 // cancelReindexTask finds the in-flight reindex task targeting

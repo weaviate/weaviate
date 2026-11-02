@@ -2336,6 +2336,7 @@ type RecordDistributedTaskPreparationCompleteAckRequest struct {
 	Success           bool                   `protobuf:"varint,5,opt,name=success,proto3" json:"success,omitempty"`
 	Error             string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
 	AckedAtUnixMillis int64                  `protobuf:"varint,7,opt,name=acked_at_unix_millis,json=ackedAtUnixMillis,proto3" json:"acked_at_unix_millis,omitempty"`
+	GroupId           string                 `protobuf:"bytes,8,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -2417,6 +2418,13 @@ func (x *RecordDistributedTaskPreparationCompleteAckRequest) GetAckedAtUnixMilli
 		return x.AckedAtUnixMillis
 	}
 	return 0
+}
+
+func (x *RecordDistributedTaskPreparationCompleteAckRequest) GetGroupId() string {
+	if x != nil {
+		return x.GroupId
+	}
+	return ""
 }
 
 // SetClusterIDRequest carries the stable cluster identity committed once per
@@ -2706,7 +2714,7 @@ const file_api_message_proto_rawDesc = "" +
 	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x18\n" +
 	"\asuccess\x18\x05 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x06 \x01(\tR\x05error\x12/\n" +
-	"\x14acked_at_unix_millis\x18\a \x01(\x03R\x11ackedAtUnixMillis\"\xf6\x01\n" +
+	"\x14acked_at_unix_millis\x18\a \x01(\x03R\x11ackedAtUnixMillis\"\x91\x02\n" +
 	"2RecordDistributedTaskPreparationCompleteAckRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
@@ -2714,7 +2722,8 @@ const file_api_message_proto_rawDesc = "" +
 	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x18\n" +
 	"\asuccess\x18\x05 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x06 \x01(\tR\x05error\x12/\n" +
-	"\x14acked_at_unix_millis\x18\a \x01(\x03R\x11ackedAtUnixMillis\"4\n" +
+	"\x14acked_at_unix_millis\x18\a \x01(\x03R\x11ackedAtUnixMillis\x12\x19\n" +
+	"\bgroup_id\x18\b \x01(\tR\agroupId\"4\n" +
 	"\x13SetClusterIDRequest\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x01 \x01(\tR\tclusterId2\x8d\x04\n" +

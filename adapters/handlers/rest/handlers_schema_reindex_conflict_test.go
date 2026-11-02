@@ -94,7 +94,7 @@ func TestCheckReindexConflictForPropertyMutation_EndsOnTheFSMGuardsRemedy(t *tes
 				CheckPropertyUpdate("C", "title", []*distributedtask.Task{task})
 	}
 
-	// The remedy for the one cancellable status; elsewhere it must be gone,
+	// The remedy for the cancellable statuses; elsewhere it must be gone,
 	// not merely qualified.
 	cancellable, _ := refusals(distributedtask.TaskStatusStarted)
 	cancellableRemedy := remedyOf(t, cancellable)
@@ -104,8 +104,8 @@ func TestCheckReindexConflictForPropertyMutation_EndsOnTheFSMGuardsRemedy(t *tes
 		wantCancel bool
 	}{
 		{distributedtask.TaskStatusStarted, true},
-		{distributedtask.TaskStatusPreparing, false},
-		{distributedtask.TaskStatusSwapping, false},
+		{distributedtask.TaskStatusPreparing, true},
+		{distributedtask.TaskStatusSwapping, true},
 		{unknownFutureStatus, false},
 	} {
 		t.Run(string(tc.status), func(t *testing.T) {
@@ -247,8 +247,8 @@ func TestDeleteClassPropertyIndex_NamesACancelOnlyWhereTheCancelVerbAcceptsOne(t
 		wantCancelAccepted bool
 	}{
 		{status: distributedtask.TaskStatusStarted, wantCancelAccepted: true},
-		{status: distributedtask.TaskStatusPreparing},
-		{status: distributedtask.TaskStatusSwapping},
+		{status: distributedtask.TaskStatusPreparing, wantCancelAccepted: true},
+		{status: distributedtask.TaskStatusSwapping, wantCancelAccepted: true},
 		{status: unknownFutureStatus},
 	} {
 		t.Run(string(tc.status), func(t *testing.T) {

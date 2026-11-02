@@ -998,12 +998,10 @@ var blockingStatuses = []distributedtask.TaskStatus{
 	unknownFutureStatus,
 }
 
-// Pins: a mutation refusal tells the operator to cancel the reindex only
-// for the status the cancel API accepts one for. STARTED is that status.
-// A coordination phase gets 409 because stopping mid-cutover is unsafe,
-// and a status this build cannot classify gets 409 on every node — so
-// naming a cancel for either sends the operator down a road that
-// dead-ends.
+// Pins: a mutation refusal tells the operator to cancel the reindex for
+// every status the cancel API accepts one for. A status this build cannot
+// classify gets 409 on every node, so naming a cancel for it sends the
+// operator down a road that dead-ends.
 //
 // The expectations are spelled out per status rather than derived from
 // IsCancellable, so re-keying the helper onto a different predicate
@@ -1055,14 +1053,8 @@ func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
 		wantReason       string
 	}{
 		{status: distributedtask.TaskStatusStarted, wantCancelAdvice: true},
-		{
-			status:     distributedtask.TaskStatusPreparing,
-			wantReason: "past the point where a cancel is accepted",
-		},
-		{
-			status:     distributedtask.TaskStatusSwapping,
-			wantReason: "past the point where a cancel is accepted",
-		},
+		{status: distributedtask.TaskStatusPreparing, wantCancelAdvice: true},
+		{status: distributedtask.TaskStatusSwapping, wantCancelAdvice: true},
 		{
 			status:     unknownFutureStatus,
 			wantReason: "cannot classify that status",
