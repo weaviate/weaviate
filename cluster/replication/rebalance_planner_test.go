@@ -16,7 +16,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,14 +28,19 @@ import (
 	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	gproto "google.golang.org/protobuf/proto"
 
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
-	clusterTypes "github.com/weaviate/weaviate/cluster/types"
+	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -50,47 +57,22 @@ var plannerStart = time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 
 type measureFunc func(ctx context.Context, node string) (types.RebalanceNodeMeasurement, error)
 
-// fakeProposer applies each completion to the FSM at logTerm, as Raft applies
-// the entry, unless err is set. It records every request and its result. The
-// real proposer JSON-encodes each request, so a request that fails to encode
-// fails the test.
-type fakeProposer struct {
-	t       *testing.T
-	fsm     *replication.ShardReplicationFSM
+type plannerHarness struct {
+	t        *testing.T
+	planner  *replication.RebalancePlanner
+	fsm      *replication.ShardReplicationFSM
+	proposer *replication.MockrebalanceProposer
+	clock    *clockwork.FakeClock
+	registry *prometheus.Registry
+
+	// logTerm is the term at which a proposal is applied to the FSM.
 	logTerm uint64
-	err     error
+	// proposeErr, when set, is returned by the proposer, which then skips the FSM.
+	proposeErr error
 
 	mu   sync.Mutex
 	reqs []replication.CompletePlanningRequest
 	errs []error
-}
-
-func (f *fakeProposer) CompleteRebalancePlanning(_ context.Context, req *replication.CompletePlanningRequest) error {
-	_, err := json.Marshal(req)
-	if err != nil {
-		f.t.Errorf("completion request does not encode: %v", err)
-	} else if err = f.err; err == nil {
-		err = f.fsm.CompletePlanning(f.logTerm, req)
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.reqs = append(f.reqs, *req)
-	f.errs = append(f.errs, err)
-	return err
-}
-
-func (f *fakeProposer) recorded() ([]replication.CompletePlanningRequest, []error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]replication.CompletePlanningRequest(nil), f.reqs...), append([]error(nil), f.errs...)
-}
-
-type plannerHarness struct {
-	planner  *replication.RebalancePlanner
-	fsm      *replication.ShardReplicationFSM
-	proposer *fakeProposer
-	clock    *clockwork.FakeClock
-	registry *prometheus.Registry
 
 	measureCalls atomic.Int32
 	term         atomic.Uint64
@@ -105,17 +87,20 @@ type plannerHarness struct {
 
 // newPlannerHarness returns a leader with both flags on and a PLANNING plan
 // listing node-1 as source and node-2 as target. A nil measure leaves the
-// planner's Measure nil.
-func newPlannerHarness(t *testing.T, measure measureFunc, states map[string]clusterTypes.ClassState) *plannerHarness {
+// planner's Measure nil. The proposer mock has no expectations until
+// expectProposals is called.
+func newPlannerHarness(t *testing.T, measure measureFunc, schemaReader *replication.MockrebalanceSchemaReader) *plannerHarness {
 	t.Helper()
 	logger, _ := logrustest.NewNullLogger()
 
 	h := &plannerHarness{
+		t:        t,
 		registry: prometheus.NewPedanticRegistry(),
 		clock:    clockwork.NewFakeClockAt(plannerStart),
+		proposer: replication.NewMockrebalanceProposer(t),
+		logTerm:  plannerTerm,
 	}
 	h.fsm = replication.NewShardReplicationFSM(h.registry)
-	h.proposer = &fakeProposer{t: t, fsm: h.fsm, logTerm: plannerTerm}
 	h.term.Store(plannerTerm)
 	h.leader.Store(true)
 	h.rebalanceOn.Store(true)
@@ -134,7 +119,7 @@ func newPlannerHarness(t *testing.T, measure measureFunc, states map[string]clus
 		Proposer:    h.proposer,
 		Clock:       h.clock,
 		Registerer:  h.registry,
-		States:      func() map[string]clusterTypes.ClassState { return states },
+		Schema:      schemaReader,
 		CurrentTerm: h.term.Load,
 		ReadyToPlan: func() bool {
 			ready := h.leader.Load()
@@ -160,6 +145,33 @@ func newPlannerHarness(t *testing.T, measure measureFunc, states map[string]clus
 	require.NoError(t, err)
 	h.planner = planner
 	return h
+}
+
+// expectProposals makes the proposer apply each completion to the FSM at
+// logTerm, as Raft applies the entry, unless proposeErr is set. It records
+// every request and its result. The real proposer JSON-encodes each request,
+// so a request that fails to encode fails the test.
+func (h *plannerHarness) expectProposals() *mock.Call {
+	return h.proposer.EXPECT().CompleteRebalancePlanning(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, req *replication.CompletePlanningRequest) error {
+			_, err := json.Marshal(req)
+			if err != nil {
+				h.t.Errorf("completion request does not encode: %v", err)
+			} else if err = h.proposeErr; err == nil {
+				err = h.fsm.CompletePlanning(h.logTerm, req)
+			}
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			h.reqs = append(h.reqs, *req)
+			h.errs = append(h.errs, err)
+			return err
+		}).Call
+}
+
+func (h *plannerHarness) recorded() ([]replication.CompletePlanningRequest, []error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]replication.CompletePlanningRequest(nil), h.reqs...), append([]error(nil), h.errs...)
 }
 
 // equalNodes measures node-1 and node-2 within every tolerance but not
@@ -212,9 +224,51 @@ type shardGroup struct {
 	nodes  []string
 }
 
+// schemaFixture holds the sharding states a schema mock serves. A collection
+// in readErrs is listed, and reading it returns its error.
+type schemaFixture struct {
+	states   map[string]sharding.State
+	readErrs map[string]error
+}
+
+// mock returns a schema mock that serves f and expects ReadSchema and a Read
+// of every listed collection. ReadSchema lists collections in sorted order.
+// Read is expected only with retryIfClassNotFound=false, because a real reader
+// retries a missing class with backoff before failing.
+func (f *schemaFixture) mock(t *testing.T) *replication.MockrebalanceSchemaReader {
+	m := replication.NewMockrebalanceSchemaReader(t)
+	classes := append(slices.Collect(maps.Keys(f.states)), slices.Collect(maps.Keys(f.readErrs))...)
+	slices.Sort(classes)
+	m.EXPECT().ReadSchema(mock.Anything).RunAndReturn(func(reader func(models.Class, uint64)) error {
+		for _, class := range classes {
+			reader(models.Class{Class: class}, 0)
+		}
+		return nil
+	})
+	for class, state := range f.states {
+		m.EXPECT().Read(class, false, mock.Anything).
+			RunAndReturn(func(_ string, _ bool, reader func(*models.Class, *sharding.State) error) error {
+				return reader(&models.Class{Class: class}, &state)
+			})
+	}
+	for class, err := range f.readErrs {
+		m.EXPECT().Read(class, false, mock.Anything).Return(err)
+	}
+	return m
+}
+
+// failing adds a listed collection whose read returns err.
+func (f *schemaFixture) failing(class string, err error) *schemaFixture {
+	if f.readErrs == nil {
+		f.readErrs = map[string]error{}
+	}
+	f.readErrs[class] = err
+	return f
+}
+
 // layout returns one collection holding count shards per group, each shard
 // with a replica on every node of its group.
-func layout(groups ...shardGroup) map[string]clusterTypes.ClassState {
+func layout(groups ...shardGroup) *schemaFixture {
 	physical := map[string]sharding.Physical{}
 	for g, group := range groups {
 		for i := range group.count {
@@ -222,9 +276,7 @@ func layout(groups ...shardGroup) map[string]clusterTypes.ClassState {
 			physical[name] = sharding.Physical{Name: name, BelongsToNodes: group.nodes, Status: group.status}
 		}
 	}
-	return map[string]clusterTypes.ClassState{
-		"Articles": {Class: models.Class{Class: "Articles"}, Shards: sharding.State{Physical: physical}},
-	}
+	return &schemaFixture{states: map[string]sharding.State{"Articles": {Physical: physical}}}
 }
 
 // balancedLayout puts 100 replicas on node-1 and 104 on node-2: count ratios
@@ -232,7 +284,7 @@ func layout(groups ...shardGroup) map[string]clusterTypes.ClassState {
 // Counting the FROZEN shards would give node-1 130 (stddev 0.11), skipping the
 // COLD ones would give node-2 100, and counting the unlisted node-9 in the
 // mean would unbalance every ratio.
-func balancedLayout() map[string]clusterTypes.ClassState {
+func balancedLayout() *schemaFixture {
 	return layout(
 		shardGroup{count: 100, nodes: []string{"node-1", "node-2"}},
 		shardGroup{count: 4, status: models.TenantActivityStatusCOLD, nodes: []string{"node-2", "node-9"}},
@@ -240,11 +292,26 @@ func balancedLayout() map[string]clusterTypes.ClassState {
 	)
 }
 
+func newSchemaManager() *schema.SchemaManager {
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	return schema.NewSchemaManager("node-1", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+}
+
+// missingClassErr returns the error a real SchemaReader returns for a
+// collection that does not exist, read without retry.
+func missingClassErr(t *testing.T) error {
+	t.Helper()
+	err := newSchemaManager().NewSchemaReader().Read("Deleted", false, func(*models.Class, *sharding.State) error { return nil })
+	require.ErrorIs(t, err, schema.ErrClassNotFound)
+	return err
+}
+
 // requireRun asserts the run proposed exactly once with the run's identity and
 // measurement time, and counted one run under result.
 func requireRun(t *testing.T, h *plannerHarness, result string) replication.CompletePlanningRequest {
 	t.Helper()
-	reqs, _ := h.proposer.recorded()
+	reqs, _ := h.recorded()
 	require.Len(t, reqs, 1)
 	req := reqs[0]
 	require.Equal(t, plannerPlanID, req.PlanID)
@@ -310,7 +377,10 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 	cases := []struct {
 		name   string
 		rows   map[string]types.RebalanceNodeMeasurement
-		states map[string]clusterTypes.ClassState
+		states *schemaFixture
+		// noSchemaRead marks a run that ends before counting replicas; its
+		// schema mock fails the test on any call.
+		noSchemaRead bool
 		// measure, when set, replaces fixedMeasure(rows).
 		measure    func(h *plannerHarness) measureFunc
 		nilMeasure bool
@@ -380,6 +450,21 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			},
 		},
 		{
+			name:        "class read error",
+			states:      balancedLayout().failing("Broken", errors.New("invalid sharding state: physical shards unavailable")),
+			wantOutcome: replication.PlanStatePlanningFailed,
+			wantReason:  `could not read collection "Broken": invalid sharding state: physical shards unavailable`,
+		},
+		{
+			name:        "class deleted during the pass",
+			states:      balancedLayout().failing("Deleted", missingClassErr(t)),
+			wantOutcome: replication.PlanStateNotNeeded,
+			wantBaseline: []replication.PlanNodeBalance{
+				{Node: "node-1", DiskUtilisation: node1Utilisation, ReplicaCount: 100},
+				{Node: "node-2", DiskUtilisation: node2Utilisation, ReplicaCount: 104},
+			},
+		},
+		{
 			name: "unreachable node",
 			measure: func(h *plannerHarness) measureFunc {
 				return func(ctx context.Context, node string) (types.RebalanceNodeMeasurement, error) {
@@ -398,56 +483,63 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 					return types.RebalanceNodeMeasurement{}, errors.New("node-2 did not answer before the deadline")
 				}
 			},
-			wantOutcome: replication.PlanStatePlanningFailed,
-			wantReason:  "could not measure nodes due to error: node-2: node-2 did not answer before the deadline",
+			noSchemaRead: true,
+			wantOutcome:  replication.PlanStatePlanningFailed,
+			wantReason:   "could not measure nodes due to error: node-2: node-2 did not answer before the deadline",
 			wantNodes: []types.RebalanceNodeMeasurement{
 				measuredRows(equalNodes())[0],
 				{Node: "node-2", Error: "node-2 did not answer before the deadline"},
 			},
 		},
 		{
-			name:        "nil Measure",
-			nilMeasure:  true,
-			wantOutcome: replication.PlanStatePlanningFailed,
-			wantReason:  "measurement unavailable",
+			name:         "nil Measure",
+			nilMeasure:   true,
+			noSchemaRead: true,
+			wantOutcome:  replication.PlanStatePlanningFailed,
+			wantReason:   "measurement unavailable",
 			wantNodes: []types.RebalanceNodeMeasurement{
 				{Node: "node-1", Error: "measurement unavailable"},
 				{Node: "node-2", Error: "measurement unavailable"},
 			},
 		},
 		{
-			name:        "no memory limit",
-			rows:        withNode2(func(m *types.RebalanceNodeMeasurement) { m.MemoryLimitBytes = math.MaxInt64 }),
-			wantOutcome: replication.PlanStatePlanningFailed,
-			wantReason:  "no memory limit on nodes: node-2",
+			name:         "no memory limit",
+			rows:         withNode2(func(m *types.RebalanceNodeMeasurement) { m.MemoryLimitBytes = math.MaxInt64 }),
+			noSchemaRead: true,
+			wantOutcome:  replication.PlanStatePlanningFailed,
+			wantReason:   "no memory limit on nodes: node-2",
 		},
 		{
 			name: "unequal disk capacity",
 			// 5.7% apart.
-			rows:        withNode2(func(m *types.RebalanceNodeMeasurement) { m.DiskTotalBytes = 1_060_000_000 }),
-			wantOutcome: replication.PlanStatePlanningFailed,
-			wantReason:  "disk capacity differs by more than 5% across nodes",
+			rows:         withNode2(func(m *types.RebalanceNodeMeasurement) { m.DiskTotalBytes = 1_060_000_000 }),
+			noSchemaRead: true,
+			wantOutcome:  replication.PlanStatePlanningFailed,
+			wantReason:   "disk capacity differs by more than 5% across nodes",
 		},
 		{
 			name: "unequal memory limit",
 			// 5.9% apart.
-			rows:        withNode2(func(m *types.RebalanceNodeMeasurement) { m.MemoryLimitBytes = 8_500_000_000 }),
-			wantOutcome: replication.PlanStatePlanningFailed,
-			wantReason:  "memory limit differs by more than 5% across nodes",
+			rows:         withNode2(func(m *types.RebalanceNodeMeasurement) { m.MemoryLimitBytes = 8_500_000_000 }),
+			noSchemaRead: true,
+			wantOutcome:  replication.PlanStatePlanningFailed,
+			wantReason:   "memory limit differs by more than 5% across nodes",
 		},
 		{
-			name:        "unequal warning percentage",
-			rows:        withNode2(func(m *types.RebalanceNodeMeasurement) { m.DiskWarningPercentage = 85 }),
-			wantOutcome: replication.PlanStatePlanningFailed,
-			wantReason:  "disk warning percentage differs across nodes",
+			name:         "unequal warning percentage",
+			rows:         withNode2(func(m *types.RebalanceNodeMeasurement) { m.DiskWarningPercentage = 85 }),
+			noSchemaRead: true,
+			wantOutcome:  replication.PlanStatePlanningFailed,
+			wantReason:   "disk warning percentage differs across nodes",
 		},
 		{
 			// Equal on every node, so the agreement checks pass; utilisation
 			// would divide by zero.
-			name:        "zero warning percentage",
-			rows:        withAll(func(m *types.RebalanceNodeMeasurement) { m.DiskWarningPercentage = 0 }),
-			wantOutcome: replication.PlanStatePlanningFailed,
-			wantReason:  "disk usage warning disabled on nodes: node-1, node-2",
+			name:         "zero warning percentage",
+			rows:         withAll(func(m *types.RebalanceNodeMeasurement) { m.DiskWarningPercentage = 0 }),
+			noSchemaRead: true,
+			wantOutcome:  replication.PlanStatePlanningFailed,
+			wantReason:   "disk usage warning disabled on nodes: node-1, node-2",
 		},
 		{
 			// Equal on every node, so the agreement checks pass; utilisation
@@ -456,8 +548,9 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			rows: withAll(func(m *types.RebalanceNodeMeasurement) {
 				m.DiskTotalBytes, m.DiskAvailableBytes = 0, 0
 			}),
-			wantOutcome: replication.PlanStatePlanningFailed,
-			wantReason:  "no disk capacity on nodes: node-1, node-2",
+			noSchemaRead: true,
+			wantOutcome:  replication.PlanStatePlanningFailed,
+			wantReason:   "no disk capacity on nodes: node-1, node-2",
 		},
 		{
 			name: "empty node lists",
@@ -469,9 +562,10 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 					CreatedAtUnixMs: plannerStart.UnixMilli(),
 				}))
 			},
-			wantOutcome: replication.PlanStatePlanningFailed,
-			wantReason:  "no nodes listed",
-			wantNodes:   []types.RebalanceNodeMeasurement{},
+			noSchemaRead: true,
+			wantOutcome:  replication.PlanStatePlanningFailed,
+			wantReason:   "no nodes listed",
+			wantNodes:    []types.RebalanceNodeMeasurement{},
 		},
 		{
 			name: "stop during measurement",
@@ -492,7 +586,7 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 				{Node: "node-2", DiskUtilisation: node2Utilisation, ReplicaCount: 104},
 			},
 			check: func(t *testing.T, h *plannerHarness) {
-				_, errs := h.proposer.recorded()
+				_, errs := h.recorded()
 				require.ErrorIs(t, errs[0], replication.ErrPlanTransition)
 				got, ok := h.fsm.GetPlan()
 				require.True(t, ok)
@@ -507,9 +601,14 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			if rows == nil {
 				rows = equalNodes()
 			}
-			states := tc.states
-			if states == nil {
-				states = balancedLayout()
+			var states *replication.MockrebalanceSchemaReader
+			switch {
+			case tc.noSchemaRead:
+				states = replication.NewMockrebalanceSchemaReader(t)
+			case tc.states != nil:
+				states = tc.states.mock(t)
+			default:
+				states = balancedLayout().mock(t)
 			}
 			wantNodes := tc.wantNodes
 			if wantNodes == nil {
@@ -538,6 +637,7 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			default:
 				h = newPlannerHarness(t, fixedMeasure(rows), states)
 			}
+			h.expectProposals()
 			if tc.setup != nil {
 				tc.setup(t, h)
 			}
@@ -570,6 +670,107 @@ func TestRebalancePlanner_Verdicts(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRebalancePlanner_ConcurrentTenantWrites(t *testing.T) {
+	t.Run("planning passes count replicas while tenants are added", func(t *testing.T) {
+		const class = "Tenants"
+		sm := newSchemaManager()
+		require.NoError(t, sm.AddClass(buildApplyRequest(class, api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+			Class: &models.Class{
+				Class:              class,
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				ReplicationConfig:  &models.ReplicationConfig{Factor: 2},
+			},
+			State: &sharding.State{PartitioningEnabled: true},
+		}), "node-1", true, false))
+
+		registry := prometheus.NewPedanticRegistry()
+		fsm := replication.NewShardReplicationFSM(registry)
+		proposer := replication.NewMockrebalanceProposer(t)
+		proposer.EXPECT().CompleteRebalancePlanning(mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, req *replication.CompletePlanningRequest) error {
+				if _, err := json.Marshal(req); err != nil {
+					t.Errorf("completion request does not encode: %v", err)
+				}
+				return fsm.CompletePlanning(plannerTerm, req)
+			})
+		logger, _ := logrustest.NewNullLogger()
+		planner, err := replication.NewRebalancePlanner(replication.RebalancePlannerParams{
+			Logger:      logger,
+			FSM:         fsm,
+			Proposer:    proposer,
+			Clock:       clockwork.NewFakeClockAt(plannerStart),
+			Registerer:  registry,
+			Schema:      sm.NewSchemaReader(),
+			CurrentTerm: func() uint64 { return plannerTerm },
+			ReadyToPlan: func() bool { return true },
+			Enabled:     func() bool { return true },
+			Measure:     fixedMeasure(equalNodes()),
+		})
+		require.NoError(t, err)
+
+		// The writer adds tenants until the planner has finished minPasses
+		// passes, so at least minPasses passes run while tenant adds are in flight.
+		const minTenants, minPasses = 200, 50
+		var passes atomic.Int32
+		type written struct {
+			tenants int
+			err     error
+		}
+		writerDone := make(chan written, 1)
+		// If a failed assertion ends the subtest early, cancel stops the writer.
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		enterrors.GoWrapper(func() {
+			n := 0
+			for ; ctx.Err() == nil && (n < minTenants || passes.Load() < minPasses); n++ {
+				sub, err := gproto.Marshal(&api.AddTenantsRequest{
+					ClusterNodes: []string{"node-1", "node-2"},
+					Tenants:      []*api.Tenant{{Name: fmt.Sprintf("tenant-%d", n), Status: models.TenantActivityStatusHOT}},
+				})
+				if err == nil {
+					err = sm.AddTenants(&api.ApplyRequest{Type: api.ApplyRequest_TYPE_ADD_TENANT, Class: class, SubCommand: sub}, true)
+				}
+				if err != nil {
+					writerDone <- written{tenants: n, err: err}
+					return
+				}
+			}
+			writerDone <- written{tenants: n}
+		}, logger)
+
+		// The pass after the writer reports runs with every tenant added.
+		var w written
+		var last replication.Plan
+		for done := false; !done; {
+			select {
+			case w = <-writerDone:
+				done = true
+			default:
+			}
+			require.NoError(t, fsm.CreatePlan(&replication.CreatePlanRequest{
+				PlanID:          plannerPlanID,
+				SourceNodes:     []string{"node-1"},
+				TargetNodes:     []string{"node-2"},
+				CreatedAtUnixMs: plannerStart.UnixMilli(),
+			}))
+			planner.RunOnce(context.Background())
+			passes.Add(1)
+
+			plan, ok := fsm.GetPlan()
+			require.True(t, ok)
+			require.Equal(t, replication.PlanStateNotNeeded, plan.State, plan.Reason)
+			require.Len(t, plan.Baseline, 2)
+			// Every tenant has a replica on both nodes.
+			require.Equal(t, plan.Baseline[0].ReplicaCount, plan.Baseline[1].ReplicaCount)
+			last = plan
+			require.NoError(t, fsm.DeletePlan(&replication.DeletePlanRequest{PlanID: plannerPlanID}))
+		}
+		require.NoError(t, w.err)
+		require.GreaterOrEqual(t, w.tenants, minTenants)
+		require.Equal(t, w.tenants, last.Baseline[0].ReplicaCount)
+	})
 }
 
 func TestRebalancePlanner_ProposalErrors(t *testing.T) {
@@ -611,7 +812,7 @@ func TestRebalancePlanner_ProposalErrors(t *testing.T) {
 		{
 			name: "a completion applied in a later term ends STALE",
 			setup: func(t *testing.T, h *plannerHarness) {
-				h.proposer.logTerm = plannerTerm + 1
+				h.logTerm = plannerTerm + 1
 			},
 			wantErr:   replication.ErrPlanStaleRun,
 			wantPlan:  plannerPlanID,
@@ -622,7 +823,7 @@ func TestRebalancePlanner_ProposalErrors(t *testing.T) {
 			name: "a run whose leader is deposed after the ready gate keeps the old term and ends STALE",
 			setup: func(t *testing.T, h *plannerHarness) {
 				h.afterReady = func() { h.term.Store(plannerTerm + 1) }
-				h.proposer.logTerm = plannerTerm + 1
+				h.logTerm = plannerTerm + 1
 			},
 			wantErr:   replication.ErrPlanStaleRun,
 			wantPlan:  plannerPlanID,
@@ -632,7 +833,7 @@ func TestRebalancePlanner_ProposalErrors(t *testing.T) {
 		{
 			name: "any other proposal error ends ERROR",
 			setup: func(t *testing.T, h *plannerHarness) {
-				h.proposer.err = errors.New("no leader found")
+				h.proposeErr = errors.New("no leader found")
 			},
 			wantPlan:  plannerPlanID,
 			wantState: replication.PlanStatePlanning,
@@ -644,7 +845,8 @@ func TestRebalancePlanner_ProposalErrors(t *testing.T) {
 			measure := fixedMeasure(equalNodes())
 			h := newPlannerHarness(t, func(ctx context.Context, node string) (types.RebalanceNodeMeasurement, error) {
 				return measure(ctx, node)
-			}, balancedLayout())
+			}, balancedLayout().mock(t))
+			h.expectProposals()
 			if tc.measure != nil {
 				measure = tc.measure(h)
 			}
@@ -656,7 +858,7 @@ func TestRebalancePlanner_ProposalErrors(t *testing.T) {
 
 			requireRun(t, h, tc.result)
 			if tc.wantErr != nil {
-				_, errs := h.proposer.recorded()
+				_, errs := h.recorded()
 				require.ErrorIs(t, errs[0], tc.wantErr)
 			}
 			got, ok := h.fsm.GetPlan()
@@ -679,12 +881,13 @@ func TestRebalancePlanner_Cancelled(t *testing.T) {
 				return types.RebalanceNodeMeasurement{}, ctx.Err()
 			}
 			return equalNodes()[node], nil
-		}, balancedLayout())
+		}, replication.NewMockrebalanceSchemaReader(t))
+		h.expectProposals().Maybe()
 
 		h.planner.RunOnce(ctx)
 
 		require.Equal(t, int32(2), h.measureCalls.Load())
-		reqs, _ := h.proposer.recorded()
+		reqs, _ := h.recorded()
 		require.Empty(t, reqs)
 		got, ok := h.fsm.GetPlan()
 		require.True(t, ok)
@@ -696,7 +899,7 @@ func TestRebalancePlanner_Cancelled(t *testing.T) {
 
 func TestRebalancePlanner_Wake(t *testing.T) {
 	t.Run("Wake does not block on a full channel when Run is not receiving", func(t *testing.T) {
-		h := newPlannerHarness(t, fixedMeasure(equalNodes()), balancedLayout())
+		h := newPlannerHarness(t, fixedMeasure(equalNodes()), replication.NewMockrebalanceSchemaReader(t))
 
 		done := make(chan struct{})
 		logger, _ := logrustest.NewNullLogger()
@@ -732,7 +935,8 @@ func TestRebalancePlanner_MeasuresInParallel(t *testing.T) {
 			case <-ctx.Done():
 				return types.RebalanceNodeMeasurement{}, ctx.Err()
 			}
-		}, balancedLayout())
+		}, balancedLayout().mock(t))
+		h.expectProposals()
 
 		done := make(chan struct{})
 		logger, _ := logrustest.NewNullLogger()
@@ -784,7 +988,8 @@ func TestRebalancePlanner_NoRun(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			h := newPlannerHarness(t, fixedMeasure(equalNodes()), balancedLayout())
+			h := newPlannerHarness(t, fixedMeasure(equalNodes()), replication.NewMockrebalanceSchemaReader(t))
+			h.expectProposals().Maybe()
 			h.gate = make(chan struct{})
 			tc.setup(t, h)
 			before, hadBefore := h.fsm.GetPlan()
@@ -811,7 +1016,7 @@ func TestRebalancePlanner_NoRun(t *testing.T) {
 			cancel()
 			require.ErrorIs(t, <-runDone, context.Canceled)
 			require.Zero(t, h.measureCalls.Load())
-			reqs, _ := h.proposer.recorded()
+			reqs, _ := h.recorded()
 			require.Empty(t, reqs)
 			after, hasAfter := h.fsm.GetPlan()
 			require.Equal(t, hadBefore, hasAfter)

@@ -27,9 +27,10 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/replication/types"
-	clusterTypes "github.com/weaviate/weaviate/cluster/types"
+	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 const (
@@ -59,10 +60,17 @@ const (
 	planningResultError     = "ERROR"
 )
 
-// RebalanceProposer is the Raft surface the planner needs. *cluster.Raft
+// rebalanceProposer is the Raft surface the planner needs. *cluster.Raft
 // satisfies it.
-type RebalanceProposer interface {
+type rebalanceProposer interface {
 	CompleteRebalancePlanning(ctx context.Context, req *CompletePlanningRequest) error
+}
+
+// rebalanceSchemaReader holds the schema reads the planner makes.
+// schema.SchemaReader satisfies it.
+type rebalanceSchemaReader interface {
+	ReadSchema(reader func(models.Class, uint64)) error
+	Read(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error) error
 }
 
 // RebalancePlannerParams are the dependencies of a RebalancePlanner. Every
@@ -70,15 +78,15 @@ type RebalanceProposer interface {
 type RebalancePlannerParams struct {
 	Logger     *logrus.Logger
 	FSM        *ShardReplicationFSM
-	Proposer   RebalanceProposer
+	Proposer   rebalanceProposer
 	Clock      clockwork.Clock
 	Registerer prometheus.Registerer
 
 	// Measure reads one node's resources. When nil, every run ends
 	// PLANNING_FAILED with the reason "measurement unavailable".
 	Measure func(ctx context.Context, node string) (types.RebalanceNodeMeasurement, error)
-	// States returns every collection's sharding state.
-	States func() map[string]clusterTypes.ClassState
+	// Schema lists the collections and reads their sharding states.
+	Schema rebalanceSchemaReader
 	// CurrentTerm is the Raft term the run records; the FSM refuses a completion
 	// whose log entry has another term.
 	CurrentTerm func() uint64
@@ -112,8 +120,8 @@ func NewRebalancePlanner(p RebalancePlannerParams) (*RebalancePlanner, error) {
 		return nil, errors.New("rebalance planner: Clock is required")
 	case p.Registerer == nil:
 		return nil, errors.New("rebalance planner: Registerer is required")
-	case p.States == nil:
-		return nil, errors.New("rebalance planner: States is required")
+	case p.Schema == nil:
+		return nil, errors.New("rebalance planner: Schema is required")
 	case p.CurrentTerm == nil:
 		return nil, errors.New("rebalance planner: CurrentTerm is required")
 	case p.ReadyToPlan == nil:
@@ -231,7 +239,12 @@ func (rp *RebalancePlanner) assess(ctx context.Context, plan Plan, req *Complete
 		return
 	}
 
-	req.Baseline = baseline(req.Nodes, rp.p.States())
+	replicas, err := rp.countReplicas(req.Nodes)
+	if err != nil {
+		req.Outcome, req.Reason = PlanStatePlanningFailed, err.Error()
+		return
+	}
+	req.Baseline = baseline(req.Nodes, replicas)
 	if balanced(req.Baseline) {
 		req.Outcome = PlanStateNotNeeded
 		return
@@ -333,27 +346,50 @@ func withinCapacityTolerance(values []int64) bool {
 	return float64(hi-lo) <= capacityTolerance*float64(hi)
 }
 
-// baseline returns one row per measured node. A shard counts once on every
-// listed node in its BelongsToNodes; FROZEN shards hold no local data and are
-// skipped.
-func baseline(rows []types.RebalanceNodeMeasurement, states map[string]clusterTypes.ClassState) []PlanNodeBalance {
+// countReplicas returns the replica count of every measured node. A shard
+// counts once on every listed node in its BelongsToNodes; FROZEN shards hold no
+// local data and are skipped. A collection deleted after it was listed is
+// skipped; any other read error is returned.
+func (rp *RebalancePlanner) countReplicas(rows []types.RebalanceNodeMeasurement) (map[string]int, error) {
 	replicas := make(map[string]int, len(rows))
 	for _, r := range rows {
 		replicas[r.Node] = 0
 	}
-	for _, state := range states {
-		for _, shard := range state.Shards.Physical {
-			if shard.ActivityStatus() == models.TenantActivityStatusFROZEN {
-				continue
-			}
-			for _, node := range shard.BelongsToNodes {
-				if _, listed := replicas[node]; listed {
-					replicas[node]++
+
+	var classes []string
+	if err := rp.p.Schema.ReadSchema(func(c models.Class, _ uint64) {
+		classes = append(classes, c.Class)
+	}); err != nil {
+		return nil, fmt.Errorf("could not list collections: %w", err)
+	}
+	for _, class := range classes {
+		// The sharding state is live. It is read-locked only for the duration
+		// of this callback, so every shard is counted inside it.
+		err := rp.p.Schema.Read(class, false, func(_ *models.Class, state *sharding.State) error {
+			for _, shard := range state.Physical {
+				if shard.ActivityStatus() == models.TenantActivityStatusFROZEN {
+					continue
+				}
+				for _, node := range shard.BelongsToNodes {
+					if _, listed := replicas[node]; listed {
+						replicas[node]++
+					}
 				}
 			}
+			return nil
+		})
+		if errors.Is(err, schema.ErrClassNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("could not read collection %q: %w", class, err)
 		}
 	}
+	return replicas, nil
+}
 
+// baseline returns one row per measured node, with that node's count from replicas.
+func baseline(rows []types.RebalanceNodeMeasurement, replicas map[string]int) []PlanNodeBalance {
 	out := make([]PlanNodeBalance, len(rows))
 	for i, r := range rows {
 		used := float64(r.DiskTotalBytes - r.DiskAvailableBytes)

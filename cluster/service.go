@@ -188,7 +188,7 @@ func New(cfg Config, authZController authorization.Controller, svrMetrics *monit
 		Clock:      clockwork.NewRealClock(),
 		Registerer: prometheus.DefaultRegisterer,
 		Measure:    cfg.RebalanceMeasure,
-		States:     raft.SchemaReader().States,
+		Schema:     raft.SchemaReader(),
 		CurrentTerm: func() uint64 {
 			// The raft node is nil until the store opens.
 			rn := raft.store.raft.Load()
