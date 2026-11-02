@@ -1534,6 +1534,50 @@ func TestDequeueBatchKeepsChunkWhenFlushFails(t *testing.T) {
 	require.Equal(t, 0, countChunks())
 }
 
+// A torn chunk is quarantined only once its salvaged records are flushed:
+// until then it is the only copy of them and must be replayed.
+func TestDequeueBatchKeepsTornChunkWhenFlushFails(t *testing.T) {
+	s := makeScheduler(t)
+	dir := t.TempDir()
+	path := writeSealedChunk(t, s, dir)
+	fi, err := os.Stat(path)
+	require.NoError(t, err)
+	require.NoError(t, os.Truncate(path, fi.Size()-2))
+
+	flushErr := errors.New("flush failed")
+	q, err := NewDiskQueue(DiskQueueOptions{
+		ID:          "test_queue",
+		Scheduler:   s,
+		Logger:      newTestLogger(),
+		Dir:         dir,
+		TaskDecoder: discardExecutor(),
+		OnBatchProcessed: func() error {
+			return flushErr
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, q.Init())
+
+	batch, err := q.DequeueBatch()
+	require.NoError(t, err)
+	require.Len(t, batch.Tasks, 2)
+	batch.Done()
+
+	_, err = os.Stat(path)
+	require.NoError(t, err, "the chunk was quarantined despite the failed flush")
+	require.EqualValues(t, 3, q.Size())
+
+	flushErr = nil
+	batch, err = q.DequeueBatch()
+	require.NoError(t, err)
+	require.Len(t, batch.Tasks, 2)
+	batch.Done()
+
+	_, err = os.Stat(path + ".corrupt")
+	require.NoError(t, err)
+	require.EqualValues(t, 0, q.Size())
+}
+
 // TestChunkWriterCreateSameMicrosecond ensures that chunk files, which are
 // named after their creation time in microseconds, are created exclusively.
 // Without O_EXCL, a second Create in the same microsecond silently reopens the
