@@ -97,9 +97,9 @@ var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: t
 // errors.Is.
 var ErrCleanupShardFailed = errors.New("partial-reindex cleanup could not sweep every shard it reached")
 
-// errCleanupShardWithheld marks cleanup refused before touching anything,
-// since an unreadable record may name the dirs it would remove — unlike
-// [ErrCleanupShardFailed], no partial sweep happened here.
+// errCleanupShardWithheld is what DiscardTask returns when it refuses before
+// removing anything, because an unreadable record may name the dirs it would
+// remove. Unlike [ErrCleanupShardFailed], it means no partial sweep happened.
 var errCleanupShardWithheld = errors.New("a migration record on this shard is not understood, so no record is discarded")
 
 // IsCleanupCollectionDropped reports whether the collection being gone is the

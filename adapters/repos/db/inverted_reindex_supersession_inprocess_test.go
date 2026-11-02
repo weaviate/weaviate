@@ -187,12 +187,13 @@ func TestASwapLeavesADisplacedDirAnotherRecordStillNames(t *testing.T) {
 		"the successor's flip must not remove the directory the predecessor names as its staged data")
 }
 
-// An unreadable record may name the displaced dir as live data; a resumed
-// swap (flip already decided) writes nothing, so only this guard catches it.
+// A resumed swap writes no record, so only runtimeSwap's Unreadable check
+// can save a dir another record still needs.
 func TestAResumedSwapLeavesItsDisplacedDirWhileARecordIsNotUnderstood(t *testing.T) {
 	ctx := testCtx()
 	className := "SwapKeepsDirOnFault_" + uuid.NewString()[:8]
-	class := newEnableFilterableTestClass(className, "title")
+	props := []string{"title", "body"}
+	class := newEnableFilterableTestClass(className, props...)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
@@ -203,20 +204,24 @@ func TestAResumedSwapLeavesItsDisplacedDirWhileARecordIsNotUnderstood(t *testing
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	task, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 1, shard.migrationUnit(), "title")
+	task, strategy := newEnableFilterableTaskAtGeneration(t, idx, className, 1, shard.migrationUnit(), props...)
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 
-	props := []string{"title"}
-	displaced := filepath.Base(shard.store.Bucket(task.strategy.SourceBucketName("title")).GetDir())
+	displaced := map[string]string{}
+	for _, prop := range props {
+		displaced[prop] = filepath.Base(shard.store.Bucket(task.strategy.SourceBucketName(prop)).GetDir())
+	}
 	subject, err := task.migrationSubjectNow(shard)
 	require.NoError(t, err)
-	require.NoError(t, task.putMigrationRecord(shard,
-		NewMigrationRecordSwapped(subject, props, map[string]string{"title": displaced})))
+	require.NoError(t, task.putMigrationRecord(shard, NewMigrationRecordSwapped(subject, props, displaced)))
 	plantUnreadableRecord(t, shard.migrationRecords.Dir())
 	require.NoError(t, shard.migrationRecords.Load())
 
 	require.NoError(t, task.runtimeSwap(ctx, task.logger, shard, props))
 
-	require.DirExists(t, filepath.Join(shard.pathLSM(), displaced))
+	for _, dir := range displaced {
+		require.DirExists(t, filepath.Join(shard.pathLSM(), dir))
+	}
+	require.True(t, strategy.migrationCompleted, "keeping the dirs must not cut the rest of the swap short")
 }
