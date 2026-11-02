@@ -47,8 +47,7 @@ func (s *Shard) restoreMigratedOverlays(class *models.Class) {
 	})
 	for _, rec := range records {
 		subject := rec.Subject()
-		// An unmirrored record's staged copy missed writes, so it never becomes the data.
-		if !rec.FlipDecided() || subject.Unmirrored {
+		if !rec.FlipDecided() {
 			continue
 		}
 		payload := subject.reindexPayload()
@@ -71,6 +70,8 @@ func (s *Shard) restoreMigratedOverlays(class *models.Class) {
 			if migrationPropertySuperseded(all, subject, prop) {
 				continue
 			}
+			// Not the unmirrored flag: the load refuses to promote a stale copy over
+			// live data, so whatever it did promote is the only data there is.
 			if isSwapped && swapped.PromotionOf(prop) != migrationPromotionFinished {
 				continue
 			}
@@ -95,11 +96,18 @@ func (s *Shard) migratedIndexStands(propName, indexType string) bool {
 	for _, rec := range s.migrationRecords.Records() {
 		subject := rec.Subject()
 		enabled, ok := migrationEnablesIndexType(subject.MigrationType)
-		if ok && enabled == indexType && rec.FlipDecided() && !subject.Unmirrored {
-			if _, covers := subject.Props[propName]; covers {
-				return true
-			}
+		if !ok || enabled != indexType || !rec.FlipDecided() {
+			continue
 		}
+		if _, covers := subject.Props[propName]; !covers {
+			continue
+		}
+		// A promotion the load refused leaves an unmirrored copy stale; one it ran made it the data.
+		if swapped, isSwapped := rec.(MigrationRecordSwapped); subject.Unmirrored && isSwapped &&
+			swapped.PromotionOf(propName) != migrationPromotionFinished {
+			continue
+		}
+		return true
 	}
 	return false
 }

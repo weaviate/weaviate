@@ -26,8 +26,8 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// A restart between the swap ack and the schema flip must keep serving staged data until promotion catches up.
-func TestDeferredPromotionServesStagedDataAcrossTheFlip(t *testing.T) {
+// A restart between the swap ack and the schema flip must keep serving the migrated data across the flip.
+func TestRestartBeforeTheSchemaFlipServesTheMigratedData(t *testing.T) {
 	const (
 		propName   = "title"
 		numObjects = 25
@@ -144,8 +144,8 @@ func TestDeferredPromotionServesStagedDataAcrossTheFlip(t *testing.T) {
 					tc.flip(class.Properties[0])
 				}
 				shard = openShardFromDisk(t, ctx, idx, loadClass, name)
-				require.Equal(t, []MigrationState{MigrationStateSwapped}, migrationRecordStates(t, lsm),
-					"the unflipped schema must defer the promotion")
+				require.Equal(t, []MigrationState{MigrationStatePromoted}, migrationRecordStates(t, lsm),
+					"a decided swap promotes at load, while the schema has not flipped yet")
 
 				require.NoError(t, shard.PutObject(ctx, createTestObjectWithText(className, lateToken)))
 
@@ -167,8 +167,8 @@ func TestDeferredPromotionServesStagedDataAcrossTheFlip(t *testing.T) {
 
 				shard = reloadShardFromDisk(t, ctx, idx, shard, class)
 				defer shard.Shutdown(context.Background())
-				require.Equal(t, []MigrationState{MigrationStatePromoted}, migrationRecordStates(t, lsm),
-					"the next load must promote the staged data")
+				require.Empty(t, migrationRecordStates(t, lsm),
+					"the next load retires the record once the schema shows its effect")
 				assertServed(shard, "after the next load")
 			})
 		}
