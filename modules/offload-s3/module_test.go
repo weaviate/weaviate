@@ -14,7 +14,10 @@ package modsloads3
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -24,6 +27,38 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 )
+
+// Runs in a child process: s5cmd's logger is a process global any earlier command would have set.
+func TestHasDataNeedsNoEarlierCommand(t *testing.T) {
+	const child = "OFFLOAD_HAS_DATA_CHILD"
+	if os.Getenv(child) == "" {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestHasDataNeedsNoEarlierCommand$")
+		cmd.Env = append(os.Environ(), child+"=1",
+			"AWS_ACCESS_KEY_ID=key", "AWS_SECRET_ACCESS_KEY=secret", "AWS_REGION=", "AWS_DEFAULT_REGION=")
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+		return
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			// s5cmd logs a failed region lookup, then carries on.
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = w.Write([]byte(`<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+			<IsTruncated>false</IsTruncated>
+			<Contents><Key>class/tenant/node/segment</Key><Size>1</Size></Contents>
+		</ListBucketResult>`))
+	}))
+	defer srv.Close()
+
+	m := &Module{Endpoint: srv.URL, Bucket: "bucket", timeout: 10 * time.Second, workersCount: 1}
+	hasData, err := m.HasData(t.Context(), "Class", "tenant", "node")
+	require.NoError(t, err)
+	require.True(t, hasData)
+}
 
 func TestUpload_ConcurrentNoFlagRedefinedPanic(t *testing.T) {
 	dataDir := t.TempDir()
@@ -101,4 +136,34 @@ func TestUploadArgs_SkipsScratchFiles(t *testing.T) {
 
 func shardName(i int) string {
 	return fmt.Sprintf("tenant-%d", i)
+}
+
+// Transition cleanup deletes every attempt ListCopies names, so it must name exactly those folders.
+func TestListCopiesNamesTheAttempts(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+	t.Setenv("AWS_REGION", "us-east-1")
+	var mu sync.Mutex
+	var queries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		queries = append(queries, r.URL.Query().Get("prefix")+"|"+r.URL.Query().Get("delimiter"))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = w.Write([]byte(`<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+			<IsTruncated>false</IsTruncated>
+			<CommonPrefixes><Prefix>class/tenant/7/</Prefix></CommonPrefixes>
+			<CommonPrefixes><Prefix>class/tenant/12/</Prefix></CommonPrefixes>
+		</ListBucketResult>`))
+	}))
+	defer srv.Close()
+
+	m := &Module{Endpoint: srv.URL, Bucket: "bucket", timeout: 10 * time.Second, workersCount: 1}
+	copies, err := m.ListCopies(t.Context(), "Class", "tenant")
+
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"7", "12"}, copies)
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, []string{"class/tenant/|/"}, queries, "one level only, so a node's files are not listed")
 }

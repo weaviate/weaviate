@@ -13,7 +13,35 @@ package cluster
 
 import (
 	"github.com/hashicorp/raft"
+
+	"github.com/weaviate/weaviate/cluster/schema"
 )
+
+func (s *Raft) RunningTransitions() []schema.TenantTransition {
+	return s.store.schemaManager.RunningTransitions()
+}
+
+// TransitionsCaughtUp is false while a restarted node may hold a record that already ended.
+func (s *Raft) TransitionsCaughtUp() bool {
+	return s.store.transitionsCaughtUp()
+}
+
+func (st *Store) transitionsCaughtUp() bool {
+	if !st.dbLoaded.Load() {
+		return false
+	}
+	rn := st.raft.Load()
+	if rn == nil {
+		return false
+	}
+	if st.IsLeader() {
+		return st.waitLeaderFSMCaughtUp() == nil
+	}
+	if rn.Leader() == "" {
+		return false
+	}
+	return st.fsmReachedIndex(st.joinCommitIndex.Load())
+}
 
 // fsmReachedIndex checks the last command at or below index: config and noop entries never advance
 // lastAppliedIndex, and raft's own applied index moves on enqueue, before the FSM runs the entry.

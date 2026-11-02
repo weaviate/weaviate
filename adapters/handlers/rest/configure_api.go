@@ -1102,6 +1102,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		setupShardNoopDebugHandler(appState, shardNoopProvider)
 	}
 
+	enterrors.GoWrapper(func() {
+		if metaStoreReady.waitForMetaStore() == nil {
+			migrator.RunTransitions(serverShutdownCtx)
+		}
+	}, appState.Logger)
+
 	initReindexAndDistributedTasks(appState, repo, providers, reindexProvider, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting

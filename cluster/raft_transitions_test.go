@@ -19,6 +19,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestTransitionsCaughtUp(t *testing.T) {
+	st := NewMockStore(t, "node1", 0).store
+
+	assert.False(t, st.transitionsCaughtUp(), "the DB has not loaded")
+
+	st.dbLoaded.Store(true)
+	assert.False(t, st.transitionsCaughtUp(), "raft is not open")
+
+	st.lastAppliedIndex.Store(10)
+	assert.True(t, st.fsmReachedIndex(10))
+	assert.False(t, st.fsmReachedIndex(11), "raft is not open, so nothing shows the queue is empty")
+
+	st.joined(11)
+	assert.Equal(t, uint64(11), st.joinCommitIndex.Load(), "a node that joined with no state waits for the leader's index too")
+}
+
 func TestFSMReachedIndexWaitsForTheLastCommand(t *testing.T) {
 	entries := []raft.LogType{raft.LogConfiguration, raft.LogCommand, raft.LogCommand, raft.LogNoop, raft.LogConfiguration}
 	tests := []struct {

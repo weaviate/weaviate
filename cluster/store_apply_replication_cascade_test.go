@@ -148,7 +148,7 @@ func setupReplicationCascadeStore(t *testing.T, class, tenant string) *MockStore
 	ms.indexer.On("AddClass", mock.Anything).Return(nil)
 	ms.indexer.On("DeleteClass", mock.Anything).Return(nil)
 	ms.indexer.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
-	ms.indexer.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
+	ms.indexer.On("DeleteTenants", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	ms.parser.On("ParseClass", mock.Anything).Return(nil)
 

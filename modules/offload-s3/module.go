@@ -13,8 +13,10 @@ package modsloads3
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -30,6 +32,8 @@ import (
 	"github.com/weaviate/s5cmd/v2/log"
 	"github.com/weaviate/s5cmd/v2/log/stat"
 	"github.com/weaviate/s5cmd/v2/parallel"
+	"github.com/weaviate/s5cmd/v2/storage"
+	"github.com/weaviate/s5cmd/v2/storage/url"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -58,6 +62,15 @@ var (
 // sync.Once would still race if two Module instances ever ran Upload
 // concurrently.
 var s5cmdInit sync.Once
+
+const s5cmdRetries = 10
+
+func initS5cmd(workers int) {
+	s5cmdInit.Do(func() {
+		log.Init("error", false) // print level error only
+		parallel.Init(workers)
+	})
+}
 
 type Module struct {
 	Endpoint     string
@@ -120,7 +133,7 @@ func (m *Module) newApp() *cli.App {
 			&cli.IntFlag{
 				Name:    "retry-count",
 				Aliases: []string{"r"},
-				Value:   10,
+				Value:   s5cmdRetries,
 				Usage:   "number of times that a request will be retried for failures",
 			},
 			&cli.StringFlag{
@@ -139,10 +152,7 @@ func (m *Module) newApp() *cli.App {
 			isStat := c.Bool("stat")
 			endpointURL := c.String("endpoint-url")
 
-			s5cmdInit.Do(func() {
-				log.Init("error", false) // print level error only
-				parallel.Init(workerCount)
-			})
+			initS5cmd(workerCount)
 
 			if retryCount < 0 {
 				err := fmt.Errorf("retry count cannot be a negative value")
@@ -462,6 +472,50 @@ func dirSize(path string) (int64, error) {
 		return err
 	})
 	return size, err
+}
+
+func (m *Module) HasData(ctx context.Context, className, shardName, nodeName string) (bool, error) {
+	if err := validate(className, shardName, nodeName); err != nil {
+		return false, err
+	}
+	names, err := m.listDir(ctx, fmt.Sprintf("%s/%s/%s", strings.ToLower(className), shardName, nodeName))
+	return len(names) > 0, err
+}
+
+func (m *Module) ListCopies(ctx context.Context, className, shardName string) ([]string, error) {
+	return m.listDir(ctx, fmt.Sprintf("%s/%s", strings.ToLower(className), shardName))
+}
+
+func (m *Module) listDir(ctx context.Context, dir string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	target, err := url.New(fmt.Sprintf("s3://%s/%s/", m.Bucket, dir))
+	if err != nil {
+		return nil, err
+	}
+	initS5cmd(m.workersCount)
+	client, err := storage.NewRemoteClient(ctx, target, storage.Options{
+		Endpoint:   m.Endpoint,
+		MaxRetries: s5cmdRetries,
+		LogLevel:   log.LevelError,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var names []string
+	var listErr error
+	for object := range client.List(ctx, target, false) {
+		switch {
+		case errors.Is(object.Err, storage.ErrNoObjectFound):
+		case object.Err != nil:
+			listErr = object.Err
+		default:
+			names = append(names, path.Base(strings.TrimSuffix(object.URL.Path, "/")))
+		}
+	}
+	return names, errors.Join(listErr, ctx.Err())
 }
 
 func validate(className, shardName, nodeName string) error {

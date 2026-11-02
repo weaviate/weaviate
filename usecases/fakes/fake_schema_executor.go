@@ -104,8 +104,8 @@ func (m *MockSchemaExecutor) AddTenants(class string, req *cmd.AddTenantsRequest
 	return args.Error(0)
 }
 
-func (m *MockSchemaExecutor) UpdateTenants(class string, req *cmd.UpdateTenantsRequest, preFreezeStatuses map[string]string) error {
-	args := m.Called(class, req, preFreezeStatuses)
+func (m *MockSchemaExecutor) UpdateTenants(class string, req *cmd.UpdateTenantsRequest) error {
+	args := m.Called(class, req)
 	return args.Error(0)
 }
 
@@ -114,8 +114,8 @@ func (m *MockSchemaExecutor) UpdateTenantsProcess(class string, req *cmd.TenantP
 	return args.Error(0)
 }
 
-func (m *MockSchemaExecutor) DeleteTenants(class string, tenants []*models.Tenant) error {
-	args := m.Called(class, tenants)
+func (m *MockSchemaExecutor) DeleteTenants(class string, tenants []*models.Tenant, v uint64) error {
+	args := m.Called(class, tenants, v)
 	return args.Error(0)
 }
 

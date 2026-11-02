@@ -76,7 +76,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	assert.Nil(t, srv.store.raft.Load().Barrier(2*time.Second).Error())
 	assert.Nil(t, srv.store.raft.Load().Snapshot().Error())
 
-	m.indexer.On("DeleteTenants", Anything, Anything).Return(nil)
+	m.indexer.On("DeleteTenants", Anything, Anything, mock.Anything).Return(nil)
 	m.replicationFSM.On("DeleteReplicationsByTenants", Anything, Anything).Return(nil)
 	// Now let's drop the tenant T0 (this will be a log entry and not included in the snapshot)
 	_, err = srv.DeleteTenants(ctx, cls.Class, &api.DeleteTenantsRequest{Tenants: []string{"T0"}})

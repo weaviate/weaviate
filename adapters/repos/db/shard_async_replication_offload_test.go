@@ -24,6 +24,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -205,4 +206,31 @@ func TestResumeAfterAbortedOffload_ConcurrentReconcileNoStaleTree(t *testing.T) 
 	s.asyncReplicationRWMux.RUnlock()
 	require.NotEqual(t, rootAtDump, rootAfterResume,
 		"final hashtree must reflect the post-dump write even under a concurrent reconcile")
+}
+
+// The halt stops async replication before its flush fails on the paused store.
+func TestFailedFreezeHaltRestartsAsyncReplication(t *testing.T) {
+	ctx := context.Background()
+	const class = "FailedFreezeHalt"
+
+	sl, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx))
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+	setShardReplicas(t, idx, "node1", "node2")
+
+	require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
+	require.NoError(t, s.store.FlushMemtables(ctx))
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+	awaitHashtreeInitialized(t, s)
+	require.NoError(t, s.store.UpdateBucketsStatus(storagestate.StatusReadOnly), "as resource pressure does")
+
+	h := newTransitionHarness(t)
+	h.migrator.db = indexRegistry(idx)
+	record := freezeRecord(7)
+	record.Class, record.Tenant = class, s.name
+	_, err := h.migrator.transitions.freeze(ctx, record, &transitionWorker{}, false)
+
+	require.ErrorContains(t, err, "halt for transfer")
+	require.EqualValues(t, 0, s.haltForTransferCount.Load())
+	awaitHashtreeInitialized(t, s)
 }

@@ -219,16 +219,7 @@ func (s *SchemaManager) DeleteClassFromDB(class string, hasFrozen bool) error {
 
 // HasFrozenTenants reports whether the class has tenants on cloud storage
 func (s *SchemaManager) HasFrozenTenants(class string) bool {
-	tenants, err := s.schema.getTenants(class, nil)
-	if err != nil {
-		return false
-	}
-	for _, t := range tenants {
-		if entSchema.TenantIsFrozenOrFreezing(t.ActivityStatus) {
-			return true
-		}
-	}
-	return false
+	return s.schema.hasFrozenTenant(class)
 }
 
 // SetCollectionLimit installs the collection-cap resolvers used by
@@ -1190,9 +1181,6 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 		}
 	}
 
-	// apply() runs updateSchema before updateStore, so this is complete when the DB reads it
-	preFreezeStatuses := make(map[string]string)
-
 	return s.apply(
 		applyOp{
 			op: cmd.GetType().String(),
@@ -1200,9 +1188,9 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 			// to the updateStore function. This allows us to effectively use the schema update to narrow down work for
 			// the DB update.
 			updateSchema: func() error {
-				return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM, preFreezeStatuses)
+				return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM)
 			},
-			updateStore:           func() error { return s.db.UpdateTenants(cmd.Class, req, preFreezeStatuses) },
+			updateStore:           func() error { return s.db.UpdateTenants(cmd.Class, req) },
 			schemaOnly:            schemaOnly,
 			allowPartialSchemaErr: true,
 		},
@@ -1252,7 +1240,7 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 				return nil
 			},
 			updateStore: func() error {
-				return s.db.DeleteTenants(cmd.Class, tenants)
+				return s.db.DeleteTenants(cmd.Class, tenants, cmd.Version)
 			},
 			schemaOnly: schemaOnly,
 		},
