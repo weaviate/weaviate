@@ -234,21 +234,10 @@ func (s *migrationSweepState) recordSetReads() int {
 // No disk read: the shard's store is the only writer to .migrations/records/.
 func (s *Shard) migrationSweepState() *migrationSweepState {
 	store := s.migrationRecordStore()
-	unreadable := store.Unreadable()
 	return &migrationSweepState{
 		recordReads: 1,
-		committed: migrationPreservedStateFromRecords(store.Records(),
-			len(unreadable) > 0, migrationRecordSetUnreadable(unreadable)),
+		committed:   migrationPreservedStateFromRecords(store.Records(), store.Unreadable()),
 	}
-}
-
-func migrationRecordSetUnreadable(faults []MigrationRecordUnreadable) bool {
-	for _, fault := range faults {
-		if fault.Scope == MigrationRecordFaultStore {
-			return true
-		}
-	}
-	return false
 }
 
 // CleanStalePartialReindexState removes the on-disk state of a previously

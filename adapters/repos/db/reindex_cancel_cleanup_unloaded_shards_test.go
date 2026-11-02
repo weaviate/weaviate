@@ -37,6 +37,8 @@ type committedMigration struct {
 	prop     string
 	owned    string
 	promoted bool
+	// unit defaults to the shard's own.
+	unit string
 }
 
 func mustMainBucket(t *testing.T, propName, indexType string) string {
@@ -299,9 +301,9 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 				"a backup copy from a release before this one is reclaimed here or never")
 
 			logger, _ := test.NewNullLogger()
-			store, someRecordsUnreadable, err := migrationRecordStoreAt(residueLSM, logger)
+			store, unreadable, err := migrationRecordStoreAt(residueLSM, logger)
 			require.NoError(t, err)
-			require.False(t, someRecordsUnreadable)
+			require.Empty(t, unreadable)
 			rec, ok := store.Get(MigrationRecordKey{TaskVersion: tc.gen, StrategyCode: tc.code, UnitID: unitID})
 			require.True(t, ok, "the record outlives the rename that answers it")
 			assert.Equal(t, MigrationStatePromoted, rec.State())
@@ -573,6 +575,17 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			sidecars:        []string{"property_category__enable_filterable_ingest_1"},
 			wantFinalizable: true,
 		},
+		// Records of two units (backup restore, replica move) fail open like an unreadable set.
+		{
+			name:      "records of two units",
+			indexType: "filterable",
+			committed: append(slices.Clone(deferredFinalize), committedMigration{
+				code: StrategyCodeEnableFilterable, gen: 2, prop: "category",
+				owned: "property_category__enable_filterable_ingest_2", unit: "shard-1__node-9",
+			}),
+			sidecars:  []string{"property_category__enable_filterable_ingest_1"},
+			wantStale: true,
+		},
 		{
 			name:                "a .migrations dir the gate cannot enumerate",
 			indexType:           "filterable",
@@ -605,7 +618,11 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				if c.promoted {
 					state = MigrationStatePromoted
 				}
-				mkMigrationRecordAt(t, lsm, "shard-1__node-0", c.code, c.gen,
+				unit := c.unit
+				if unit == "" {
+					unit = "shard-1__node-0"
+				}
+				mkMigrationRecordAt(t, lsm, unit, c.code, c.gen,
 					map[string]string{c.prop: c.owned},
 					map[string]string{c.prop: mustMainBucket(t, c.prop, tc.indexType)}, state)
 			}
