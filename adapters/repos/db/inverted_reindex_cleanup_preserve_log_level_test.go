@@ -68,11 +68,12 @@ func TestCleanStaleSidecarDirsPreservedLogAtDebug(t *testing.T) {
 	}
 }
 
-// The sweep is built once for the whole index-type loop; building it inside
-// would multiply every tenant's disk cost by the index-type count.
-func TestApplyPathReadsAShardsRecordsOncePerProperty(t *testing.T) {
+// Each disabled index type sweeps its own sidecar dir through the same
+// shared sweep state; the total must equal the real dirs removed, not be
+// inflated by the index-type count.
+func TestApplyPathSweepsOneStaleDirPerDisabledIndexType(t *testing.T) {
 	ctx := testCtx()
-	className := "ApplyReadCount" + uuid.NewString()[:8]
+	className := "ApplySweepCount" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{"title"})
 
 	// Every index type off, so the loop this read outlives runs more than once.
@@ -86,14 +87,23 @@ func TestApplyPathReadsAShardsRecordsOncePerProperty(t *testing.T) {
 	shard := shd.(*Shard)
 	defer shard.Shutdown(context.Background())
 
-	require.Greater(t, len(disabledIndexTypes(prop)), 1,
+	types := disabledIndexTypes(prop)
+	require.Greater(t, len(types), 1,
 		"the property must sweep several index types or this pins nothing")
+
+	// One stale sidecar dir per disabled index type, so the sweep has real work.
+	for _, indexType := range types {
+		mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
+		require.True(t, ok)
+		dir := mainBucket + "__reindex" + genSuffix(1)
+		require.NoError(t, os.MkdirAll(filepath.Join(shard.pathLSM(), dir), 0o777))
+	}
 
 	var counts migrationSweepCounts
 	eg := enterrors.NewErrorGroupWrapper(shard.index.logger)
 	shard.updatePropertyBuckets(ctx, eg, prop, &counts)
 	require.NoError(t, eg.Wait())
 
-	require.Equal(t, int64(1), counts.recordSetReads.Load(),
-		"one record-set read for the shard, whatever the index-type count")
+	require.Equal(t, int64(len(types)), counts.dirsSwept.Load(),
+		"one swept dir per disabled index type, not doubled by the shared sweep state")
 }

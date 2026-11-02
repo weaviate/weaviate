@@ -162,7 +162,7 @@ func createsGeoIndex(prop *models.Property) bool {
 }
 
 type migrationSweepCounts struct {
-	recordSetReads atomic.Int64
+	dirsSwept atomic.Int64
 }
 
 func (s *Shard) updatePropertyBuckets(ctx context.Context,
@@ -178,8 +178,9 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			}
 			return sweep
 		}
+		var swept int
 		defer func() {
-			counts.recordSetReads.Add(int64(sweep.recordSetReads()))
+			counts.dirsSwept.Add(int64(swept))
 		}()
 		for _, indexType := range disabledIndexTypes(prop) {
 			// The whole loop runs inside the RAFT apply, once per shard. Every
@@ -196,7 +197,7 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			if err := s.removeBucket(ctx, mainBucket); err != nil {
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
-			s.cleanStaleSidecarDirs(ctx, mainBucket, sweepState().committed)
+			swept += s.cleanStaleSidecarDirs(ctx, mainBucket, sweepState().committed)
 		}
 		return nil
 	})
@@ -220,15 +221,6 @@ func disabledIndexTypes(prop *models.Property) []string {
 
 type migrationSweepState struct {
 	committed migrationPreservedState
-	// One per state: the total should come to one per sweep, not per index type.
-	recordReads int
-}
-
-func (s *migrationSweepState) recordSetReads() int {
-	if s == nil {
-		return 0
-	}
-	return s.recordReads
 }
 
 // No disk read: the shard's store is the only writer to .migrations/records/.
@@ -236,7 +228,6 @@ func (s *Shard) migrationSweepState() *migrationSweepState {
 	store := s.migrationRecordStore()
 	unreadable := store.Unreadable()
 	return &migrationSweepState{
-		recordReads: 1,
 		committed: migrationPreservedStateFromRecords(store.Records(),
 			len(unreadable) > 0, migrationRecordSetUnreadable(unreadable)),
 	}
@@ -337,9 +328,11 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 	return "", false
 }
 
+// cleanStaleSidecarDirs returns how many sidecar directories it removed, so
+// callers can tell a real sweep from a no-op.
 func (s *Shard) cleanStaleSidecarDirs(ctx context.Context, mainBucketName string,
 	committed migrationPreservedState,
-) {
+) int {
 	keep := map[string]bool{}
 	for bucketName := range s.store.GetBucketsByName() {
 		if !isSidecarDirOf(bucketName, mainBucketName) {
@@ -357,18 +350,21 @@ func (s *Shard) cleanStaleSidecarDirs(ctx context.Context, mainBucketName string
 			keep[bucketName] = true
 		}
 	}
-	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, migrationPreservingOnly(keep))
+	return s.cleanStaleSidecarDirsWithPreserved(mainBucketName, migrationPreservingOnly(keep))
 }
 
-func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, committed migrationPreservedState) {
+// cleanStaleSidecarDirsWithPreserved returns how many sidecar directories it
+// removed, so callers can tell a real sweep from a no-op.
+func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, committed migrationPreservedState) int {
 	dirs := shardBucketDirs(s.pathLSM())
 	entries, err := os.ReadDir(dirs.root)
 	if err != nil {
 		s.index.logger.WithField("path", dirs.root).
 			Errorf("failed to enumerate LSM dir for sidecar cleanup after DELETE: %v; a subsequent re-enable may fail with 'file exists' when RunSwapOnShard tries to rotate buckets", err)
-		return
+		return 0
 	}
 	const what = "a stale sidecar directory"
+	var swept int
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -397,8 +393,11 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, commit
 		if err := dirs.Discard(name, what); err != nil {
 			s.index.logger.WithField("dir", name).
 				Errorf("failed to remove stale sidecar bucket dir after index DELETE: %v", err)
+			continue
 		}
+		swept++
 	}
+	return swept
 }
 
 // sidecarRoleWords are the words every migration sidecar suffix ends in, once

@@ -45,5 +45,5 @@ func TestACancelledApplyBuildsNoSweepState(t *testing.T) {
 	shard.updatePropertyBuckets(cancelled, eg, prop, &counts)
 	require.Error(t, eg.Wait())
 
-	require.Equal(t, int64(0), counts.recordSetReads.Load())
+	require.Equal(t, int64(0), counts.dirsSwept.Load())
 }

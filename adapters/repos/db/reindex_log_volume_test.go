@@ -136,30 +136,54 @@ func TestRecoveryWalkReportsEachFaultKindOnce(t *testing.T) {
 	}
 }
 
-// The apply's sweep summary must print: record_set_reads is where a
-// once-per-shard regression shows up.
-func TestUpdatePropertySummaryCountsRecordSetReads(t *testing.T) {
-	ctx := testCtx()
-	className := "SweepSummaryRecordReads_" + uuid.NewString()[:8]
-	class := newTestClassWithProps(className, []string{"title"})
+// The apply's sweep summary must report real work, not just that the sweep
+// ran: a property update with nothing to sweep (the common case — most
+// updates are not accompanied by a migration) must stay silent, and one
+// with a stale dir to remove must name how many it swept.
+func TestUpdatePropertySummaryLogsOnlyWhenDirsSwept(t *testing.T) {
+	tests := []struct {
+		name         string
+		seedStaleDir bool
+		wantLogLines int
+	}{
+		{name: "no-op update: nothing to sweep", seedStaleDir: false, wantLogLines: 0},
+		{name: "a stale sidecar dir to sweep", seedStaleDir: true, wantLogLines: 1},
+	}
 
-	logger, hook := logrustest.NewNullLogger()
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false, func(i *Index) { i.logger = logger })
-	shard := shd.(*Shard)
-	defer shard.Shutdown(context.Background())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "SweepSummaryDirsSwept_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{"title"})
 
-	prop := class.Properties[0]
-	off := false
-	prop.IndexFilterable = &off
-	prop.IndexSearchable = &off
-	prop.IndexRangeFilters = &off
+			logger, hook := logrustest.NewNullLogger()
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false, func(i *Index) { i.logger = logger })
+			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
 
-	hook.Reset()
-	require.NoError(t, idx.updateProperty(ctx, prop))
+			prop := class.Properties[0]
+			off := false
+			prop.IndexFilterable = &off
+			prop.IndexSearchable = &off
+			prop.IndexRangeFilters = &off
 
-	about := entriesAbout(hook, "partial-reindex cleanup: migration dirs swept for disabled index types")
-	require.Len(t, about, 1, "one summary line for the apply: %v", linesOf(about))
-	require.GreaterOrEqual(t, about[0].Data["record_set_reads"], int64(1),
-		"the summary reports the record-set read the sweep still paid")
+			if tt.seedStaleDir {
+				mainBucket, ok := mainBucketForPropertyIndex(prop.Name, "filterable")
+				require.True(t, ok)
+				dir := mainBucket + "__reindex" + genSuffix(1)
+				require.NoError(t, os.MkdirAll(filepath.Join(shard.pathLSM(), dir), 0o777))
+			}
+
+			hook.Reset()
+			require.NoError(t, idx.updateProperty(ctx, prop))
+
+			about := entriesAbout(hook, "partial-reindex cleanup: migration dirs swept for disabled index types")
+			require.Len(t, about, tt.wantLogLines, "summary lines for the apply: %v", linesOf(about))
+			if tt.wantLogLines > 0 {
+				require.Equal(t, int64(1), about[0].Data["dirs_swept"],
+					"the summary reports the dir the sweep actually removed")
+			}
+		})
+	}
 }
