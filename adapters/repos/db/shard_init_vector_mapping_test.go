@@ -399,6 +399,18 @@ func TestVectorIndexCollisions(t *testing.T) {
 		vectorIndexCollisionsWith(owners, "foo_mv_mappings", ownerAt("vectors_foo_mv_mappings")))
 }
 
+// A queue that outlived its index is still its vector's: another vector
+// naming it collides, and so does a newcomer whose ID the index took.
+func TestVectorIndexCollisions_QueueOutlivedItsIndex(t *testing.T) {
+	owners := map[string]vectorIndexOwner{"foo": {physicalID: "vectors_foo_2", queueID: "vectors_foo"}}
+
+	assert.Empty(t, vectorIndexCollisionsWith(owners, "bar", ownerAt("vectors_bar")))
+	assert.Equal(t, []string{`vectors "foo" and "bar" share "vectors_foo.queue.d"`},
+		vectorIndexCollisionsWith(owners, "bar", vectorIndexOwner{physicalID: "vectors_bar", queueID: "vectors_foo"}))
+	assert.Equal(t, []string{`vectors "foo" and "foo_2" share "vectors_foo_2"`},
+		vectorIndexCollisionsWith(owners, "foo_2", ownerAt("vectors_foo_2")))
+}
+
 // ownersAt maps each vector to an owner whose index and queue share its ID.
 func ownersAt(ids map[string]string) map[string]vectorIndexOwner {
 	owners := make(map[string]vectorIndexOwner, len(ids))
