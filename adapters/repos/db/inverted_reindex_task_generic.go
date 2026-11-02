@@ -139,7 +139,7 @@ func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store 
 	ingestName := t.ingestBucketName(propName)
 	mainName := t.strategy.SourceBucketName(propName)
 
-	if main := store.Bucket(mainName); main != nil && filepath.Base(main.GetDir()) == ingestName {
+	if t.canonicalServesStaged(store, propName) {
 		return nil, nil
 	}
 
@@ -148,6 +148,13 @@ func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store 
 		return nil, fmt.Errorf("swapping bucket pointer %q <- %q: %w", mainName, ingestName, err)
 	}
 	return oldMainBucket, nil
+}
+
+// The flip leaves the staged directory on disk until the next load, so opening
+// it again under the staged name puts a second bucket on a live directory.
+func (t *ShardReindexTaskGeneric) canonicalServesStaged(store *lsmkv.Store, propName string) bool {
+	main := store.Bucket(t.strategy.SourceBucketName(propName))
+	return main != nil && filepath.Base(main.GetDir()) == t.ingestBucketName(propName)
 }
 
 func (t *ShardReindexTaskGeneric) Name() string {
@@ -368,7 +375,7 @@ func (t *ShardReindexTaskGeneric) ensureReindexBucketsLoadedForSwap(
 			}
 		}
 		ingestName := t.ingestBucketName(propName)
-		if store.Bucket(ingestName) == nil {
+		if store.Bucket(ingestName) == nil && !t.canonicalServesStaged(store, propName) {
 			there, err := dirs.Exists(ingestName)
 			if err != nil {
 				return fmt.Errorf("probe ingest bucket dir for %q: %w", propName, err)
@@ -699,11 +706,14 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 
 	committed := hasRecord && rec.StagedDataComplete()
 	if committed {
+		props = slices.DeleteFunc(slices.Clone(props), func(propName string) bool {
+			return t.canonicalServesStaged(shard.store, propName)
+		})
 		if props, err = t.stagedPropsStillOnDisk(logger, shard, rec.Subject(), props); err != nil {
 			return false, err
 		}
 		if len(props) == 0 {
-			logger.Debug("no staged directory left to open: each is either promoted or named by another generation")
+			logger.Debug("no staged directory left to open: each is promoted, served under the canonical name, or named by another generation")
 			return true, nil
 		}
 		logger.Debug("merged, not swapped. starting ingest buckets")
@@ -732,6 +742,9 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 	}
 
 	if hasRecord {
+		if err = t.serveDeferredPromotions(ctx, shard, rec, props); err != nil {
+			return false, err
+		}
 		return true, nil
 	}
 
@@ -745,6 +758,40 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 	}
 
 	return true, nil
+}
+
+// A load holds this promotion back while the schema leaves the index off, and
+// the flip renames nothing, so until the next load the canonical name must keep
+// serving what it served before the restart.
+func (t *ShardReindexTaskGeneric) serveDeferredPromotions(ctx context.Context, shard *Shard,
+	rec MigrationRecord, props []string,
+) error {
+	deferred := shard.migrationRecords.DeferredPromotions(rec.Subject().Key)
+	dirs := shardBucketDirs(shard.pathLSM())
+	for _, propName := range props {
+		if !slices.Contains(deferred, propName) {
+			continue
+		}
+		// A removed index opens no canonical bucket, so nothing reads one.
+		if shard.store.Bucket(t.strategy.SourceBucketName(propName)) == nil {
+			continue
+		}
+		displaced, err := t.processOneSwapProp(ctx, shard.store, 0, propName)
+		if err != nil {
+			return err
+		}
+		if displaced == nil {
+			continue
+		}
+		if err := displaced.Shutdown(ctx); err != nil {
+			return fmt.Errorf("shutting down the canonical bucket displaced for %q: %w", propName, err)
+		}
+		// Empty since the load-time sweep; left on disk, the next load refuses to promote an unmirrored record over it.
+		if err := dirs.Discard(filepath.Base(displaced.GetDir()), "the displaced canonical directory"); err != nil {
+			return fmt.Errorf("removing the displaced canonical dir for %q: %w", propName, err)
+		}
+	}
+	return nil
 }
 
 func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
@@ -1077,11 +1124,15 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// Read here, not at the call sites: rewriting a decided record drops promotion marks.
 	// Read before the flips, which repoint the canonical name at the staged bucket.
 	var displaced map[string]string
+	var stagedEmpty []string
 	if rec, ok := t.migrationRecord(shard); !ok || !rec.FlipDecided() {
 		displaced = make(map[string]string, len(props))
 		for _, propName := range props {
 			if bucket := store.Bucket(t.strategy.SourceBucketName(propName)); bucket != nil {
 				displaced[propName] = filepath.Base(bucket.GetDir())
+			}
+			if t.stagedBucketHoldsNothing(store, propName) {
+				stagedEmpty = append(stagedEmpty, propName)
 			}
 		}
 	}
@@ -1117,7 +1168,8 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// crash before this write leaves the record merged, and the RAFT decision
 	// that licensed the swap commits it at the next load.
 	if displaced != nil {
-		if err := t.putMigrationRecord(shard, NewMigrationRecordSwapped(subject, props, displaced)); err != nil {
+		swapped := NewMigrationRecordSwapped(subject, props, displaced).WithStagedEmpty(stagedEmpty)
+		if err := t.putMigrationRecord(shard, swapped); err != nil {
 			return fmt.Errorf("recording the flip decision: %w", err)
 		}
 	}
@@ -1174,6 +1226,17 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	logger.Info("runtime swap: migration complete (ingest→main rename deferred to next restart)")
 
 	return nil
+}
+
+// Read from memory, not the directory: the live WAL buffers writes the directory does not show yet.
+func (t *ShardReindexTaskGeneric) stagedBucketHoldsNothing(store *lsmkv.Store, propName string) bool {
+	bucket := store.Bucket(t.ingestBucketName(propName))
+	if bucket == nil {
+		return false
+	}
+	view := bucket.GetConsistentView()
+	defer view.ReleaseView()
+	return len(view.Disk) == 0 && view.Flushing == nil && view.Active.Size() == 0
 }
 
 func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
