@@ -259,6 +259,7 @@ func toRPCError(err error) error {
 		errors.Is(err, namespaces.ErrNamespaceResuming),
 		errors.Is(err, namespaces.ErrStateChangedConcurrently),
 		errors.Is(err, replicationTypes.ErrMovementBlockedByTask),
+		errors.Is(err, schema.ErrTenantTransitionalState),
 		errors.Is(err, schema.ErrMTDisabled):
 		ec = codes.FailedPrecondition
 	case errors.Is(err, namespaces.ErrAlreadyExists),

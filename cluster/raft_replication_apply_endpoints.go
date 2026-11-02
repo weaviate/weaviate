@@ -16,6 +16,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -72,6 +74,13 @@ func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.Repl
 
 	if len(scalePlan.ShardReplicationScaleActions) > 0 && !s.SchemaReader().ClassInfo(scalePlan.Collection).Exists {
 		return nil, fmt.Errorf("collection %q: %w", scalePlan.Collection, replicationTypes.ErrNotFound)
+	}
+	// Each step is its own command, so refuse a transitioning tenant before the first.
+	if len(scalePlan.ShardReplicationScaleActions) > 0 {
+		shards := slices.Sorted(maps.Keys(scalePlan.ShardReplicationScaleActions))
+		if err := s.store.schemaManager.RefuseTransitioning(scalePlan.Collection, shards); err != nil {
+			return nil, err
+		}
 	}
 	if copiesReplica {
 		// admitPropose runs both checks on each copy too. Checking here first

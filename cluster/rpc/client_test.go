@@ -182,6 +182,11 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 				replicationTypes.ErrMovementBlockedByTask, "Movies"),
 			want: replicationTypes.ErrMovementBlockedByTask,
 		},
+		{
+			name: "ErrTenantTransitionalState",
+			send: fmt.Errorf("%w: tenant %q has a running freeze", schema.ErrTenantTransitionalState, "t"),
+			want: schema.ErrTenantTransitionalState,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -15,6 +15,7 @@ import (
 	"github.com/hashicorp/raft"
 
 	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 func (s *Raft) RunningTransitions() []schema.TenantTransition {
@@ -76,4 +77,11 @@ func (st *Store) lastCommandAtOrBelow(index uint64) (last uint64, found bool) {
 		}
 	}
 	return 0, false
+}
+
+// nodeAliveFunc counts a node alive while the membership knows its address.
+func nodeAliveFunc(selector cluster.NodeSelector) func(string) bool {
+	return func(node string) bool {
+		return selector == nil || selector.NodeAddress(node) != ""
+	}
 }

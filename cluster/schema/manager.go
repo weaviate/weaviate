@@ -106,6 +106,7 @@ type SchemaManager struct {
 	mutationGuard          MutationGuard
 	distributedTaskManager distributedTaskCascadeDeleter
 	namespaces             usecasesNamespaces.Exister
+	nodeAlive              func(node string) bool
 	// tenantLimit resolves the per-collection tenant cap (negative = unlimited;
 	// nil = unenforced); read pre-commit, never in the FSM apply path.
 	tenantLimit func() int
@@ -375,6 +376,10 @@ func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser, index uint64) 
 }
 
 func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
+	if err := s.refuseDuringTransition(req); err != nil {
+		return err
+	}
+
 	// Discard restoring a class if it, or a similar name, already exists.
 	// ClassEqual mirrors the ADD_CLASS branch below: index directories are
 	// lowercased on disk, so a variable case restore would land its data in

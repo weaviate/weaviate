@@ -477,6 +477,7 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 		},
 	})
 
+	schemaManager.SetNodeAlive(nodeAliveFunc(cfg.NodeSelector))
 	schemaManager.SetMutationGuard(distributedTasksManager)
 	schemaManager.SetDistributedTaskManager(distributedTasksManager)
 
