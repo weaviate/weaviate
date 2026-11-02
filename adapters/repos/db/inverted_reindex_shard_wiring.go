@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -35,12 +36,19 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 	return recovered
 }
 
+// The shard loads even when a mirror fails to arm; the reindexer then keeps
+// that migration from swapping in staged data that misses this shard's writes.
 func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardReindexTaskGeneric) {
+	var unarmed []*ShardReindexTaskGeneric
+	causes := errorcompounder.New()
 	for _, t := range recovered {
 		if err := t.OnAfterLsmInit(ctx, s); err != nil {
-			s.index.logger.WithField("task", t.Name()).WithField("shard", s.Name()).
-				Errorf("reindex recovery: after-LSM-init failed: %v", err)
+			unarmed = append(unarmed, t)
+			causes.AddWrapf(err, "%s", t.Name())
 		}
+	}
+	if len(unarmed) > 0 {
+		s.reindexer.AbandonUnarmed(s, unarmed, causes.ToErrorLimited(maxReportedErrors))
 	}
 }
 

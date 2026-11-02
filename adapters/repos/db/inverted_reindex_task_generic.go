@@ -1121,6 +1121,10 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	if subject.Unmirrored {
+		return fmt.Errorf("migration %s: this shard took writes with no double-write mirror armed, so its "+
+			"staged data is stale and is not swapped in. %s", t.migrationRecordKey(), migrationUnmirroredRemedy)
+	}
 	// Read here, not at the call sites: rewriting a decided record drops promotion marks.
 	if rec, ok := t.migrationRecord(shard); !ok || !rec.FlipDecided() {
 		displaced := make(map[string]string, len(props))

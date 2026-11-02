@@ -298,6 +298,12 @@ func (p *ReindexProvider) cacheReindexTasks(desc distributedtask.TaskDescriptor,
 	p.reindexTasks[desc][unitID] = tasks
 }
 
+func (p *ReindexProvider) evictReindexTasks(desc distributedtask.TaskDescriptor, unitID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.reindexTasks[desc], unitID)
+}
+
 func (p *ReindexProvider) clearTaskCaches(desc distributedtask.TaskDescriptor) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

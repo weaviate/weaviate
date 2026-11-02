@@ -12,9 +12,10 @@
 package db
 
 // ShardReindexerV3 returns the tasks whose double-write mirrors a loading
-// shard must re-arm once its buckets are open.
+// shard must re-arm once its buckets are open, and is told which failed to.
 type ShardReindexerV3 interface {
 	RecoverMigrations(shard *Shard) []*ShardReindexTaskGeneric
+	AbandonUnarmed(shard *Shard, unarmed []*ShardReindexTaskGeneric, cause error)
 }
 
 // -----------------------------------------------------------------------------
@@ -28,3 +29,5 @@ type shardReindexerV3Noop struct{}
 func (r *shardReindexerV3Noop) RecoverMigrations(*Shard) []*ShardReindexTaskGeneric {
 	return nil
 }
+
+func (r *shardReindexerV3Noop) AbandonUnarmed(*Shard, []*ShardReindexTaskGeneric, error) {}

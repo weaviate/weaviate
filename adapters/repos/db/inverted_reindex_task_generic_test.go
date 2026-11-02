@@ -58,6 +58,8 @@ func (r *testShardReindexer) RecoverMigrations(*Shard) []*ShardReindexTaskGeneri
 	return []*ShardReindexTaskGeneric{r.task}
 }
 
+func (r *testShardReindexer) AbandonUnarmed(*Shard, []*ShardReindexTaskGeneric, error) {}
+
 func createTestObjectWithText(className, text string) *storobj.Object {
 	return &storobj.Object{
 		MarshallerVersion: 1,

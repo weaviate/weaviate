@@ -36,7 +36,7 @@ type MigrationRecoveryReindexer struct {
 
 	// One fault, such as a disk failing under every tenant, would otherwise log
 	// once per shard load. Per kind, so one flooding kind cannot hide another.
-	unreadableFaults, unbuildableFaults, unarmedFaults, stampFaults recoveryFaultLog
+	unreadableFaults, unbuildableFaults, unarmedFaults, armFaults, stampFaults recoveryFaultLog
 
 	mu sync.Mutex
 	// A reloaded shard re-arms the instances the provider already holds, so its
@@ -60,6 +60,38 @@ func NewMigrationRecoveryReindexer(runtimeReindexEnabled bool, logger logrus.Fie
 // the load reconciler, which must see the unmirrored stamp before it promotes anything.
 func (r *MigrationRecoveryReindexer) RecoverMigrations(shard *Shard) []*ShardReindexTaskGeneric {
 	return r.remember(r.recoverFromStore(shard.migrationRecords, shard.Name()))
+}
+
+// AbandonUnarmed keeps a migration whose mirror failed to arm from swapping in
+// staged data that misses this shard's writes; resubmitting is the way out.
+func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*ShardReindexTaskGeneric, cause error) {
+	shardName := shard.Name()
+	r.armFaults.report(r.logger.WithField("shard", shardName), func(l logrus.FieldLogger) {
+		l.Errorf("reindex recovery: %d migration(s) could not re-arm their double-write mirror, so they will "+
+			"not be swapped in: %v. %s", len(unarmed), cause, migrationUnmirroredRemedy)
+	})
+	var records []MigrationRecord
+	for _, t := range unarmed {
+		if rec, ok := shard.migrationRecords.Get(t.migrationRecordKey()); ok {
+			records = append(records, rec)
+		}
+	}
+	if _, err := stampUnmirroredRecords(shard.migrationRecords, records, nil); err != nil {
+		r.reportStampFault(shardName, err)
+	}
+	r.forget(unarmed)
+}
+
+// forget drops every task of each unarmed task's unit: a cached sibling alone
+// would swap one half of the migration and report the unit done.
+func (r *MigrationRecoveryReindexer) forget(unarmed []*ShardReindexTaskGeneric) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, t := range unarmed {
+		desc := distributedtask.TaskDescriptor{ID: t.taskID, Version: t.taskVersion}
+		delete(r.recovered[desc], t.unitID)
+		r.provider.evictReindexTasks(desc, t.unitID)
+	}
 }
 
 func (r *MigrationRecoveryReindexer) recoverFromStore(store *MigrationRecordStore,
