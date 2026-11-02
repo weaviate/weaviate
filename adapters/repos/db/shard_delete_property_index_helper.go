@@ -35,21 +35,24 @@ func propertyIndexRemoved(propertyIndexSetting *bool) bool {
 // for nonexistent property indexes which may be left on disk in two cases:
 // - tenant was inactive during drop property index operation hence their property buckets may still exist on disk
 // - an error occurred during update property operation and most probably property buckets haven't been removed
+//
+// migrated reports an index one of the shard's own migrations turned on ahead
+// of the schema; its bucket is that migration's data, not a leftover.
 func (p *propertyDeleteIndexHelper) ensureBucketsAreRemovedForNonExistentPropertyIndexes(
-	indexPath, shardName string, class *models.Class,
+	indexPath, shardName string, class *models.Class, migrated func(propName, indexType string) bool,
 ) error {
 	for _, prop := range class.Properties {
-		if propertyIndexRemoved(prop.IndexFilterable) && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketFromPropNameLSM(prop.Name)) {
+		if propertyIndexRemoved(prop.IndexFilterable) && !migrated(prop.Name, "filterable") && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketFromPropNameLSM(prop.Name)) {
 			if err := p.removePropertyIndexBucketFromDisk(indexPath, shardName, helpers.BucketFromPropNameLSM(prop.Name)); err != nil {
 				return fmt.Errorf("failed to remove unused bucket for filterable index: class %s property %s: %w", class.Class, prop.Name, err)
 			}
 		}
-		if propertyIndexRemoved(prop.IndexSearchable) && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketSearchableFromPropNameLSM(prop.Name)) {
+		if propertyIndexRemoved(prop.IndexSearchable) && !migrated(prop.Name, "searchable") && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketSearchableFromPropNameLSM(prop.Name)) {
 			if err := p.removePropertyIndexBucketFromDisk(indexPath, shardName, helpers.BucketSearchableFromPropNameLSM(prop.Name)); err != nil {
 				return fmt.Errorf("failed to remove unused bucket for searchable index: class %s property %s: %w", class.Class, prop.Name, err)
 			}
 		}
-		if propertyIndexRemoved(prop.IndexRangeFilters) && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketRangeableFromPropNameLSM(prop.Name)) {
+		if propertyIndexRemoved(prop.IndexRangeFilters) && !migrated(prop.Name, "rangeable") && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketRangeableFromPropNameLSM(prop.Name)) {
 			if err := p.removePropertyIndexBucketFromDisk(indexPath, shardName, helpers.BucketRangeableFromPropNameLSM(prop.Name)); err != nil {
 				return fmt.Errorf("failed to remove unused bucket for rangeFilters index: class %s property %s: %w", class.Class, prop.Name, err)
 			}

@@ -110,6 +110,7 @@ func TestPropertyDeleteIndexHelper_RemovePropertyIndexBucketFromDisk(t *testing.
 }
 
 func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentPropertyIndexes(t *testing.T) {
+	noMigratedIndex := func(string, string) bool { return false }
 	setup := func(t *testing.T) (string, string) {
 		t.Helper()
 		indexPath := t.TempDir()
@@ -138,7 +139,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			Properties: nil,
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, noMigratedIndex)
 		require.NoError(t, err)
 	})
 
@@ -167,7 +168,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			},
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, noMigratedIndex)
 		require.NoError(t, err)
 
 		assert.True(t, bucketExists(indexPath, shardName, filterableBucket))
@@ -200,7 +201,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			},
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, noMigratedIndex)
 		require.NoError(t, err)
 
 		assert.True(t, bucketExists(indexPath, shardName, filterableBucket))
@@ -233,7 +234,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			},
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, noMigratedIndex)
 		require.NoError(t, err)
 
 		assert.False(t, bucketExists(indexPath, shardName, filterableBucket))
@@ -266,7 +267,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			},
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, noMigratedIndex)
 		require.NoError(t, err)
 
 		assert.False(t, bucketExists(indexPath, shardName, filterableBucket))
@@ -299,7 +300,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			},
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, noMigratedIndex)
 		require.NoError(t, err)
 
 		assert.True(t, bucketExists(indexPath, shardName, filterableBucket))
@@ -332,7 +333,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			},
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, noMigratedIndex)
 		require.NoError(t, err)
 
 		assert.True(t, bucketExists(indexPath, shardName, filterableBucket))
@@ -356,7 +357,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			},
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, noMigratedIndex)
 		require.NoError(t, err)
 	})
 
@@ -392,12 +393,30 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			},
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, noMigratedIndex)
 		require.NoError(t, err)
 
 		assert.False(t, bucketExists(indexPath, shardName, prop1Filterable))
 		assert.True(t, bucketExists(indexPath, shardName, prop1Searchable))
 		assert.True(t, bucketExists(indexPath, shardName, prop2Filterable))
 		assert.False(t, bucketExists(indexPath, shardName, prop2Searchable))
+	})
+
+	t.Run("an index a migration turned on keeps its bucket while the schema has it off", func(t *testing.T) {
+		h := newPropertyDeleteIndexHelper()
+		indexPath, shardName := setup(t)
+		searchable := helpers.BucketSearchableFromPropNameLSM("prop1")
+		filterable := helpers.BucketFromPropNameLSM("prop1")
+		createBucket(t, indexPath, shardName, searchable)
+		createBucket(t, indexPath, shardName, filterable)
+
+		class := &models.Class{Class: "TestClass", Properties: []*models.Property{
+			{Name: "prop1", IndexFilterable: boolPtr(false), IndexSearchable: boolPtr(false)},
+		}}
+		migratedSearchable := func(prop, indexType string) bool { return prop == "prop1" && indexType == "searchable" }
+
+		require.NoError(t, h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, migratedSearchable))
+		assert.True(t, bucketExists(indexPath, shardName, searchable), "the migrated index is that migration's data")
+		assert.False(t, bucketExists(indexPath, shardName, filterable))
 	})
 }
