@@ -97,6 +97,12 @@ var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: t
 // errors.Is.
 var ErrCleanupShardFailed = errors.New("partial-reindex cleanup could not sweep every shard it reached")
 
+// errCleanupShardWithheld marks a shard whose cleanup was refused before it
+// touched anything: a record it cannot read may name the directories it would
+// remove. Kept apart from [ErrCleanupShardFailed], which may leave a shard
+// partly swept.
+var errCleanupShardWithheld = errors.New("a migration record on this shard is not understood, so no record is discarded")
+
 // IsCleanupCollectionDropped reports whether the collection being gone is the
 // whole of what a sweep error says. Unlike a bare errors.Is check, it returns
 // false if a shard also failed before the delete landed.

@@ -1172,6 +1172,11 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		logger.Warnf("runtime swap: cannot retire superseded migrations: %v", err)
 	}
 	dirs := shardBucketDirs(shard.pathLSM())
+	// Records() leaves out a record that is not understood, and that record may
+	// still name a displaced directory as its live data.
+	recordStore := shard.migrationRecordStore()
+	recordsComplete := recordStore == nil || len(recordStore.Unreadable()) == 0
+	kept := 0
 	for _, propName := range props {
 		oldMainBucket, ok := oldMainBuckets[propName]
 		if !ok {
@@ -1179,6 +1184,10 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		}
 		if err := oldMainBucket.Shutdown(ctx); err != nil {
 			return fmt.Errorf("shutting down old main bucket for %q: %w", propName, err)
+		}
+		if !recordsComplete {
+			kept++
+			continue
 		}
 		dir := filepath.Base(oldMainBucket.GetDir())
 		if key, role, held := migrationDirHeldByAnotherRecord(
@@ -1191,6 +1200,10 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		if err := dirs.Discard(dir, "the displaced directory"); err != nil {
 			return fmt.Errorf("removing displaced dir for %q: %w", propName, err)
 		}
+	}
+	if kept > 0 {
+		logger.Warnf("leaving %d displaced directory/directories in place: a migration record on "+
+			"this shard is not understood, and it may name them", kept)
 	}
 
 	logger.Debug("runtime swap: displaced dirs removed (staged→canonical rename deferred to next load)")

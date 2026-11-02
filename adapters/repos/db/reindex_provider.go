@@ -527,7 +527,7 @@ func (p *ReindexProvider) processOneUnit(
 	// A rerun swap deletes the canonical directory, which an unreadable record
 	// may still need: it could hold writes the staged copy never saw.
 	if store := concreteShard.migrationRecordStore(); store != nil {
-		if fault := unreadableRecordFault(unitID, store); fault != "" {
+		if fault := unreadableRecordFault(store); fault != "" {
 			p.failUnit(ctx, task, unitID, recorder, fault)
 			return
 		}
@@ -1070,9 +1070,9 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	}
 	// Get reads only decoded records, so an unreadable one would read as a
 	// migration already finalized, and the schema would flip over an unrebuilt bucket.
-	if fault := unreadableRecordFault(unitID, store); fault != "" {
+	if fault := unreadableRecordFault(store); fault != "" {
 		logger.WithField("unit", unitID).Errorf("reindex provider: resolveUnitForPhase: %s", fault)
-		return phaseUnitResolution{Errs: []string{fault}}
+		return phaseUnitResolution{Errs: []string{fmt.Sprintf("unit %s: %s", unitID, fault)}}
 	}
 	built, err := p.createReindexTasks(task.TaskDescriptor, unitID, payload)
 	if err != nil {
@@ -1105,14 +1105,17 @@ func (p *ReindexProvider) resolveUnitForPhase(
 }
 
 // unreadableRecordFault returns why a unit must not run, or "" when every
-// migration record on its shard is readable.
-func unreadableRecordFault(unitID string, store *MigrationRecordStore) string {
+// migration record on its shard is readable. It names no unit: the failed-unit
+// path already prefixes one, and the phase path adds its own.
+func unreadableRecordFault(store *MigrationRecordStore) string {
 	unreadable := store.Unreadable()
 	if len(unreadable) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("unit %s: migration record %q could not be read, so whether this unit "+
-		"is still in flight is unknown: %s", unitID, unreadable[0].FileName, unreadable[0].Reason)
+	return fmt.Sprintf("%d migration record(s) on this shard are not understood, so whether this "+
+		"unit is still in flight is unknown, and no reindex unit passes this check on this shard "+
+		"until they are fixed and the shard reloads; first: %q: %s",
+		len(unreadable), unreadable[0].FileName, unreadable[0].Reason)
 }
 
 // runShardPrepPhase runs the disk-I/O PREP phase for one unit on one shard.
@@ -1664,6 +1667,9 @@ func (i *Index) discardTaskRecordsOn(ctx context.Context, name string, task *dis
 		if truncated := truncatedByCancellation(err); truncated != nil {
 			return truncated
 		}
+		if errors.Is(err, errCleanupShardWithheld) {
+			return err
+		}
 		return fmt.Errorf("%w: %w", ErrCleanupShardFailed, err)
 	}
 	return nil
@@ -1691,6 +1697,10 @@ const (
 	// partway through one. What is on them is unknown, which is not the same as
 	// knowing state is there.
 	CleanupSweepUnknown
+	// CleanupSweepWithheld: a shard was reached and left untouched, because a
+	// migration record on it is not understood. Below Failed: both leave state
+	// for certain, and only Failed's line warns of a partly swept shard.
+	CleanupSweepWithheld
 	// CleanupSweepFailed: a shard was reached and could not be swept. It can
 	// fail after already removing part of its state, so what the shard holds
 	// is an unknown remainder rather than the state the sweep found.
@@ -1712,6 +1722,8 @@ func ClassifyCleanupSweep(err error) (outcome CleanupSweepOutcome, failure error
 		return CleanupSweepDropped, nil
 	case errors.Is(err, ErrCleanupShardFailed):
 		return CleanupSweepFailed, err
+	case errors.Is(err, errCleanupShardWithheld):
+		return CleanupSweepWithheld, err
 	case errors.Is(err, ErrCleanupSweepTruncated):
 		return CleanupSweepUnknown, err
 	default:
@@ -1729,9 +1741,9 @@ const (
 // the caller, and everything after it is shared, so the same outcome never
 // reaches an operator as two claims at two severities.
 //
-// [CleanupSweepFailed] is the only Error. It reports a shard that was reached
-// and could not be swept, and was left partly swept with nothing scheduled to
-// finish it, so an operator has to act. A cancelled run can also stop a shard
+// [CleanupSweepFailed] and [CleanupSweepWithheld] are the only Errors. Each
+// reports a shard that was reached and still holds state nothing is scheduled
+// to remove, so an operator has to act. A cancelled run can also stop a shard
 // partway through — that reaches the operator as unverified, not as confirmed.
 // Everything else is either clean or merely unverified, and routine tenant
 // churn produces unverified on a healthy node.
@@ -1752,6 +1764,10 @@ func CleanupSweepSummary(phase string, outcome CleanupSweepOutcome) (msg string,
 	case CleanupSweepFailed:
 		return phase + ": a shard could not be swept, so it is left partly swept with nothing " +
 				"scheduled to finish it",
+			logrus.ErrorLevel
+	case CleanupSweepWithheld:
+		return phase + ": a shard holds a migration record that is not understood, so its cleanup " +
+				"is withheld until that record is fixed and the shard reloads",
 			logrus.ErrorLevel
 	default:
 		// Also the CleanupSweepUnknown arm: an outcome this build cannot name

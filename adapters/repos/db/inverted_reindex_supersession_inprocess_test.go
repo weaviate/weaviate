@@ -186,3 +186,38 @@ func TestASwapLeavesADisplacedDirAnotherRecordStillNames(t *testing.T) {
 	require.DirExists(t, filepath.Join(shard.pathLSM(), held),
 		"the successor's flip must not remove the directory the predecessor names as its staged data")
 }
+
+// A record that is not understood may name the displaced directory as its live
+// data. A resumed swap whose flip is already recorded never writes, so nothing
+// else stops it from removing that directory.
+func TestAResumedSwapLeavesItsDisplacedDirWhileARecordIsNotUnderstood(t *testing.T) {
+	ctx := testCtx()
+	className := "SwapKeepsDirOnFault_" + uuid.NewString()[:8]
+	class := newEnableFilterableTestClass(className, "title")
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(context.Background())
+
+	for _, obj := range makeConvergenceTestObjects(t, 10, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 1, shard.migrationUnit(), "title")
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+
+	props := []string{"title"}
+	displaced := filepath.Base(shard.store.Bucket(task.strategy.SourceBucketName("title")).GetDir())
+	subject, err := task.migrationSubjectNow(shard)
+	require.NoError(t, err)
+	require.NoError(t, task.putMigrationRecord(shard,
+		NewMigrationRecordSwapped(subject, props, map[string]string{"title": displaced})))
+	plantUnreadableRecord(t, shard.migrationRecords.Dir())
+	require.NoError(t, shard.migrationRecords.Load())
+
+	require.NoError(t, task.runtimeSwap(ctx, task.logger, shard, props))
+
+	require.DirExists(t, filepath.Join(shard.pathLSM(), displaced))
+}
