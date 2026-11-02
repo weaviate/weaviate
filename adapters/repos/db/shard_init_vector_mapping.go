@@ -47,7 +47,7 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 			continue
 		}
 		// a deferred deletion the process did not live to finish
-		err := s.removeVectorIndexArtifacts(ctx, name, rec.PhysicalID)
+		err := s.removeVectorIndexArtifacts(ctx, name, rec)
 		if err != nil {
 			return nil, err
 		}

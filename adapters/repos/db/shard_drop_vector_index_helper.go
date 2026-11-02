@@ -119,6 +119,7 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 			}
 		}
 		artifacts = helpers.VectorIndexArtifactsForID(id, otherIDs)
+		artifacts.ShardDirs = append(artifacts.ShardDirs, helpers.QueueDirName(rec.queueIDOrDefault()))
 	}
 
 	var dirs []string

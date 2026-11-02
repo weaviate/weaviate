@@ -462,12 +462,12 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 }
 
 // removeVectorIndexArtifacts deletes every file name's index owns at
-// physicalID, its dynamic state key and last its record. Siblings protect
-// what their records map them to; a sibling without a record owns nothing.
+// rec's physical ID, the queue at its queue ID, its dynamic state key and
+// last its record. Siblings protect what their records map them to; a
+// sibling without a record owns nothing.
 // Idempotent: a retry after a partial run finds less to do.
-// The queue is removed under physicalID: validate refuses a record whose
-// queue ID differs.
-func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name, physicalID string) error {
+func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name string, rec vectorIndexRecord) error {
+	physicalID := rec.PhysicalID
 	others := otherTargetVectors(s.class, name)
 	otherIDs := make([]string, 0, len(others))
 	for _, other := range others {
@@ -492,7 +492,12 @@ func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name, physicalID
 			return fmt.Errorf("drop directory %q for vector %q: %w", dir, name, err)
 		}
 	}
-	err := dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), physicalID)
+	queueDir := helpers.QueueDirName(rec.queueIDOrDefault())
+	err := removeDirIfExists(s.path(), queueDir)
+	if err != nil {
+		return fmt.Errorf("drop directory %q for vector %q: %w", queueDir, name, err)
+	}
+	err = dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), physicalID)
 	if err != nil {
 		return fmt.Errorf("vector %q: %w", name, err)
 	}
@@ -534,5 +539,5 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 	if err != nil || !recorded {
 		return err
 	}
-	return s.removeVectorIndexArtifacts(ctx, targetVector, rec.PhysicalID)
+	return s.removeVectorIndexArtifacts(ctx, targetVector, rec)
 }
