@@ -170,7 +170,8 @@ func (f *reconcileFixture) warned(want string) bool {
 func (f *reconcileFixture) reconcile() *migrationReconciler {
 	f.t.Helper()
 	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	require.NoError(f.t, r.Reconcile(context.Background()))
+	require.NoError(f.t, r.Load())
+	r.Reconcile(context.Background())
 	f.requireMigrationDirsTrackRecords()
 	return r
 }
@@ -868,7 +869,7 @@ func TestReconcileNotUnderstoodNamesTheDirectoryWhenItIsUnreadable(t *testing.T)
 
 	f := newReconcileFixtureAt(t, lsmPath)
 	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	require.Error(t, r.Reconcile(context.Background()))
+	require.Error(t, r.Load())
 
 	require.Len(t, f.logs.AllEntries(), 1)
 	notice := f.logs.AllEntries()[0]
@@ -1717,8 +1718,8 @@ func TestACancelledPassRemovesNothing(t *testing.T) {
 	cancel()
 
 	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	require.NoError(t, r.Reconcile(ctx),
-		"a shard load must not fail because the activation that drove it was cancelled")
+	require.NoError(t, r.Load())
+	r.Reconcile(ctx)
 
 	_, present := f.state(subject.Key)
 	require.True(t, present, "a pass that stopped decided nothing")

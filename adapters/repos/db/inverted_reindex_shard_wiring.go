@@ -21,11 +21,14 @@ import (
 func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Class) []*ShardReindexTaskGeneric {
 	s.migrationRecords = NewMigrationRecordStoreForUnit(s.pathLSM(), s.migrationUnit(), s.index.logger)
 	s.migrationRecords.SweepTempFiles()
-	recovered := s.reindexer.RecoverMigrations(s)
 
 	reconciler := s.migrationReconciler(func() *models.Class { return class })
-	if err := reconciler.Reconcile(ctx); err != nil {
+	var recovered []*ShardReindexTaskGeneric
+	if err := reconciler.Load(); err != nil {
 		s.index.logger.WithField("shard", s.ID()).Errorf("reconcile migration records: %v", err)
+	} else {
+		recovered = s.reindexer.RecoverMigrations(s)
+		reconciler.Reconcile(ctx)
 	}
 	monitoring.GetMetrics().AddMigrationRecordsWedged(
 		reconciler.WedgedCount(), len(s.migrationRecords.Unreadable()))

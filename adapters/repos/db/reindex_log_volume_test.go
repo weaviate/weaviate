@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -54,11 +55,10 @@ func TestRecoveryReportsEachFaultKindOnce(t *testing.T) {
 	fixtureLogger, _ := logrustest.NewNullLogger()
 
 	tests := []struct {
-		name            string
-		seed            func(t *testing.T, lsm string)
-		about           string
-		wantText        []string
-		unreadableLines int
+		name     string
+		seed     func(t *testing.T, lsm string)
+		about    string
+		wantText []string
 	}{
 		{
 			name: "records recovery cannot build a task from",
@@ -74,25 +74,11 @@ func TestRecoveryReportsEachFaultKindOnce(t *testing.T) {
 			wantText: []string{fmt.Sprintf("%d migration(s)", records), fmt.Sprintf("and %d more", records-maxReportedErrors)},
 		},
 		{
-			name: "a record set that cannot be read",
-			seed: func(t *testing.T, lsm string) {
-				require.NoError(t, os.MkdirAll(filepath.Join(lsm, migrationsDir), 0o777))
-				require.NoError(t, os.WriteFile(filepath.Join(lsm, migrationsDir, migrationRecordsDirName), nil, 0o600))
-			},
-			about:           "the migration records could not be read",
-			wantText:        []string{"read migration records dir"},
-			unreadableLines: 1,
-		},
-		{
 			name: "one record that cannot be read",
 			seed: func(t *testing.T, lsm string) {
-				recordsDir := filepath.Join(lsm, migrationsDir, migrationRecordsDirName)
-				require.NoError(t, os.MkdirAll(recordsDir, 0o777))
-				require.NoError(t, os.WriteFile(filepath.Join(recordsDir, "searchable_retokenize_title_1.json"),
-					[]byte("not json"), 0o600))
+				plantUnreadableRecord(t, filepath.Join(lsm, migrationsDir, migrationRecordsDirName))
 			},
-			about:           "some migration records could not be read",
-			unreadableLines: 1,
+			about: "some migration records could not be read",
 		},
 	}
 
@@ -102,8 +88,9 @@ func TestRecoveryReportsEachFaultKindOnce(t *testing.T) {
 			tt.seed(t, lsm)
 
 			logger, hook := logrustest.NewNullLogger()
-			recovered := NewMigrationRecoveryReindexer(true, logger, nil).
-				recoverFromStore(NewMigrationRecordStore(lsm, logger), "tenant-00")
+			store := NewMigrationRecordStore(lsm, logger)
+			require.NoError(t, store.Load())
+			recovered := NewMigrationRecoveryReindexer(true, logger, nil, nil).recoverFromStore(store, "tenant-00")
 			require.Empty(t, recovered)
 
 			about := entriesAbout(hook, tt.about)
@@ -112,32 +99,46 @@ func TestRecoveryReportsEachFaultKindOnce(t *testing.T) {
 			for _, want := range tt.wantText {
 				require.Contains(t, about[0].Message, want)
 			}
-
-			var unreadable []*logrus.Entry
-			for _, entry := range entriesAbout(hook, "reindex recovery:") {
-				if strings.Contains(entry.Message, "could not be read") {
-					unreadable = append(unreadable, entry)
-				}
-			}
-			require.Len(t, unreadable, tt.unreadableLines,
-				"a shard is reported as wholly or partly unreadable, never both: %v", linesOf(unreadable))
 		})
 	}
 }
 
-// A fault every tenant shares, such as a failing disk, must not log once per shard load.
+// A fault every tenant shares, such as a failing disk, must not log once per
+// shard load, must not hide another kind, and must say how much it dropped.
 func TestRecoveryCapsFaultLinesAcrossShards(t *testing.T) {
-	const shards = maxReportedErrors + 5
+	const dropped = 5
 	logger, hook := logrustest.NewNullLogger()
-	recovery := NewMigrationRecoveryReindexer(true, logger, nil)
-	for i := 0; i < shards; i++ {
-		lsm := filepath.Join(t.TempDir(), "books_abc", fmt.Sprintf("tenant-%02d", i), "lsm")
-		require.NoError(t, os.MkdirAll(filepath.Join(lsm, migrationsDir), 0o777))
-		require.NoError(t, os.WriteFile(filepath.Join(lsm, migrationsDir, migrationRecordsDirName), nil, 0o600))
-		recovery.recoverFromStore(NewMigrationRecordStore(lsm, logger), fmt.Sprintf("tenant-%02d", i))
+	recovery := NewMigrationRecoveryReindexer(true, logger, nil, nil)
+	recoverShard := func(seed func(lsm string)) {
+		lsm := filepath.Join(t.TempDir(), "books_abc", "tenant", "lsm")
+		seed(lsm)
+		store := NewMigrationRecordStore(lsm, logger)
+		require.NoError(t, store.Load())
+		recovery.recoverFromStore(store, "tenant")
 	}
-	about := entriesAbout(hook, "the migration records could not be read")
+	unreadable := func(lsm string) {
+		plantUnreadableRecord(t, filepath.Join(lsm, migrationsDir, migrationRecordsDirName))
+	}
+	for i := 0; i < maxReportedErrors+dropped; i++ {
+		recoverShard(unreadable)
+	}
+	about := entriesAbout(hook, "some migration records could not be read")
 	require.Len(t, about, maxReportedErrors, "%v", linesOf(about))
+
+	recoverShard(func(lsm string) {
+		subject := testMigrationSubject(1, StrategyCodeEnableSearchable, "title")
+		subject.MigrationType, subject.TargetTokenization = ReindexTypeEnableSearchable, ""
+		require.NoError(t, os.MkdirAll(lsm, 0o777))
+		require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordMerged(subject)))
+	})
+	require.Len(t, entriesAbout(hook, "builds no reindex task"), 1, "another kind still reports")
+
+	recovery.unreadableFaults.windowStart = time.Time{}
+	hook.Reset()
+	recoverShard(unreadable)
+	about = entriesAbout(hook, "some migration records could not be read")
+	require.Len(t, about, 1, "%v", linesOf(about))
+	require.Equal(t, dropped, about[0].Data["dropped_lines"])
 }
 
 // The apply's sweep summary must print: record_set_reads is where a

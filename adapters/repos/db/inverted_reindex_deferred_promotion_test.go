@@ -133,9 +133,7 @@ func TestDeferredPromotionServesStagedDataAcrossTheFlip(t *testing.T) {
 				name, lsm := shard.Name(), shard.pathLSM()
 				require.NoError(t, shard.Shutdown(ctx))
 				p := NewReindexProvider(idx.db, nil, nil, idx.logger, idx.getSchema.NodeName(), nil, ctx)
-				recovery := NewMigrationRecoveryReindexer(true, idx.logger, nil)
-				recovery.AttachProvider(p)
-				idx.shardReindexer = recovery
+				idx.shardReindexer = NewMigrationRecoveryReindexer(true, idx.logger, nil, p)
 				loadClass := class
 				if sc.flipDuringLoad {
 					snapshot := *class

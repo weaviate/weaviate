@@ -40,8 +40,9 @@ func TestMigrationRecovery_RuntimeReindexDisabled(t *testing.T) {
 			require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(
 				NewMigrationRecordIterated(testMigrationSubject(3, StrategyCodeSearchableRetokenize, "title"))))
 
-			recovered := NewMigrationRecoveryReindexer(tt.enabled, logger, nil).
-				recoverFromStore(NewMigrationRecordStore(lsm, logger), "shard-1")
+			store := NewMigrationRecordStore(lsm, logger)
+			require.NoError(t, store.Load())
+			recovered := NewMigrationRecoveryReindexer(tt.enabled, logger, nil, nil).recoverFromStore(store, "shard-1")
 			require.Equal(t, tt.wantRecovered, len(recovered) > 0)
 		})
 	}

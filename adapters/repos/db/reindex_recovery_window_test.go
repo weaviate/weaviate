@@ -90,7 +90,9 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 				plantUnreadableRecord(t, store.Dir())
 			}
 
-			recovered := NewMigrationRecoveryReindexer(true, logger, nil).recoverFromStore(NewMigrationRecordStore(lsm, logger), "shard-1")
+			reread := NewMigrationRecordStore(lsm, logger)
+			require.NoError(t, reread.Load())
+			recovered := NewMigrationRecoveryReindexer(true, logger, nil, nil).recoverFromStore(reread, "shard-1")
 
 			if !tt.wantIn {
 				require.Empty(t, recovered, tt.because)

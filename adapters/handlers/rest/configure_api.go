@@ -834,14 +834,20 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	bitmapBufPool, bitmapBufPoolClose := configureBitmapBufPool(appState)
 	repo.SetBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
-	// Must be created before shards load, or writes between shard init and the
+	reindexProvider := db.NewReindexProvider(
+		repo, appState.SchemaManager, appState.ClusterService.Raft, appState.Logger,
+		appState.Cluster.LocalName(),
+		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
+		serverShutdownCtx,
+	)
+	// Must be set before shards load, or writes between shard init and the
 	// deferred swap reach only the old bucket.
-	migrationRecovery := db.NewMigrationRecoveryReindexer(
+	repo.SetReindexer(db.NewMigrationRecoveryReindexer(
 		appState.ServerConfig.Config.RuntimeReindexEnabled,
 		appState.Logger,
 		appState.SchemaManager,
-	)
-	repo.SetReindexer(migrationRecovery)
+		reindexProvider,
+	))
 
 	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
@@ -1025,7 +1031,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		setupShardNoopDebugHandler(appState, shardNoopProvider)
 	}
 
-	initReindexAndDistributedTasks(appState, repo, providers, migrationRecovery, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
+	initReindexAndDistributedTasks(appState, repo, providers, reindexProvider, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -1082,7 +1088,7 @@ func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPoo
 		appState.ServerConfig.Config.QueryBitmapBufsMaxMemory)
 }
 
-// initReindexAndDistributedTasks builds the reindex provider, registers it in
+// initReindexAndDistributedTasks registers the reindex provider in
 // the distributedtask providers map, constructs the scheduler, and wires the
 // cross-FSM conflict + schema-mutation detectors on the cluster service.
 // Mutates appState (ReindexProvider, DistributedTaskScheduler) and the
@@ -1092,18 +1098,11 @@ func initReindexAndDistributedTasks(
 	appState *state.State,
 	repo *db.DB,
 	providers map[string]distributedtask.Provider,
-	migrationRecovery *db.MigrationRecoveryReindexer,
+	reindexProvider *db.ReindexProvider,
 	metricsRegisterer prometheus.Registerer,
 	serverShutdownCtx context.Context,
 	dropVectorEnqueuer *dropVectorIndexEnqueuer,
 ) {
-	reindexProvider := db.NewReindexProvider(
-		repo, appState.SchemaManager, appState.ClusterService.Raft, appState.Logger,
-		appState.Cluster.LocalName(),
-		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
-		serverShutdownCtx,
-	)
-	migrationRecovery.AttachProvider(reindexProvider)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
 
