@@ -163,6 +163,14 @@ func (iq *VectorIndexQueue) insertSync(ctx context.Context, vectors []common.Vec
 	}
 }
 
+// checkDimensions refuses what claimDimensions would refuse, without claiming anything.
+func (iq *VectorIndexQueue) checkDimensions(length int) error {
+	if dims := iq.dims.Load(); dims != 0 && dims != int32(length) {
+		return errors.Errorf("inconsistent vector lengths: %d != %d", length, dims)
+	}
+	return nil
+}
+
 // claimDimensions makes sure the first vectors of an index are consistent: an empty
 // index has no dimensions to validate against, so the first length accepted stands
 // in for them.

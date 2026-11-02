@@ -217,6 +217,13 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 			return nil
 		}
 
+		// Here and not in MergeObject: replication enters merge directly. Only the
+		// vectors the merge supplies count, the others were accepted when they were stored.
+		err = s.claimVectorDimensions(vectorsAsMap(merge.Vectors), multiVectorsAsMap(merge.Vectors), merge.Vector)
+		if err != nil {
+			return errors.Wrapf(err, "validate vector index for update of %v", merge.ID)
+		}
+
 		objBytes, err := obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk)
 		if err != nil {
 			return errors.Wrapf(err, "marshal object %s to binary", obj.ID())
