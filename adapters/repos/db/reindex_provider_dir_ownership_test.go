@@ -16,6 +16,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -179,7 +180,9 @@ func TestRehydrateRebuildsTheDirectoryNamesTheMigrationWrote(t *testing.T) {
 
 				switch {
 				case tt.wantErrs:
-					require.NotEmpty(t, got.Errs)
+					require.Len(t, got.Errs, 1)
+					require.True(t, strings.HasPrefix(got.Errs[0],
+						"unit "+unitID+": 1 migration record(s) on this shard are not understood"), got.Errs[0])
 					require.False(t, got.Skip)
 				case tt.wantSkip:
 					require.True(t, got.Skip)
