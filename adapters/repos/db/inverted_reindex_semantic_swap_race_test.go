@@ -58,18 +58,20 @@ func TestWritesRacingSemanticSwapStayIndexed(t *testing.T) {
 		name      string
 		newClass  func(className, propName string) *models.Class
 		migration ReindexMigrationType
-		newTask   func(*testing.T, *Index, string, string) *ShardReindexTaskGeneric
+		newTask   func(*testing.T, *Index, string, string, string) *ShardReindexTaskGeneric
 		flip      func(prop *models.Property)
 		find      func(*testing.T, context.Context, *Shard, string, string, int) []*storobj.Object
 		// Search drops deleted docs; only the bitmap can leak one.
 		checkDeletes bool
 	}{
 		{
-			name:      "enable-filterable",
-			newClass:  newEnableFilterableTestClass,
+			name: "enable-filterable",
+			newClass: func(className, propName string) *models.Class {
+				return newEnableFilterableTestClass(className, propName)
+			},
 			migration: ReindexTypeEnableFilterable,
-			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
-				task, _ := newEnableFilterableTask(t, idx, className, propName)
+			newTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
+				task, _ := newEnableFilterableTask(t, idx, className, unitID, propName)
 				return task
 			},
 			flip:         func(prop *models.Property) { prop.IndexFilterable = boolPtr(true) },
@@ -82,9 +84,9 @@ func TestWritesRacingSemanticSwapStayIndexed(t *testing.T) {
 				return newEnableSearchableTestClass(className, []string{propName})
 			},
 			migration: ReindexTypeEnableSearchable,
-			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+			newTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
 				task, _ := newEnableSearchableTask(t, idx, className, propName,
-					models.PropertyTokenizationWord)
+					models.PropertyTokenizationWord, unitID)
 				return task
 			},
 			flip: func(prop *models.Property) { prop.IndexSearchable = boolPtr(true) },
@@ -107,7 +109,7 @@ func TestWritesRacingSemanticSwapStayIndexed(t *testing.T) {
 				for _, obj := range makeConvergenceTestObjects(t, semanticWindowSeedObjects, className) {
 					require.NoError(t, shard.PutObject(ctx, obj))
 				}
-				task := tc.newTask(t, idx, className, propName)
+				task := tc.newTask(t, idx, className, propName, shard.migrationUnit())
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 
