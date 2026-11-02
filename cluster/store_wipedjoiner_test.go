@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -177,27 +178,30 @@ func TestWipedJoinerRestoreReloadCompletesWhenCovered(t *testing.T) {
 
 // Pins the enqueued-vs-consumed skew: the watcher must not reload while LogCommands below the barrier are still draining.
 func TestWipedJoinerFSMCaughtUp(t *testing.T) {
-	t.Run("FSM past the barrier -> caught up", func(t *testing.T) {
-		st := &Store{}
-		st.lastAppliedIndex.Store(220)
-		require.True(t, st.wipedJoinerFSMCaughtUp(220))
-	})
+	tests := []struct {
+		name    string
+		applied uint64
+		tail    []raft.LogType // entries 101..
+		want    bool
+	}{
+		{name: "FSM past the barrier", applied: 103, tail: []raft.LogType{raft.LogCommand, raft.LogCommand, raft.LogCommand}, want: true},
+		{name: "config-only gap below the barrier", applied: 101, tail: []raft.LogType{raft.LogCommand, raft.LogConfiguration, raft.LogNoop}, want: true},
+		{name: "a command below the barrier still drains", applied: 101, tail: []raft.LogType{raft.LogCommand, raft.LogCommand, raft.LogNoop}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logs := raft.NewInmemStore()
+			for i, typ := range tt.tail {
+				require.NoError(t, logs.StoreLog(&raft.Log{Index: uint64(101 + i), Type: typ}))
+			}
+			cache, err := raft.NewLogCache(16, logs)
+			require.NoError(t, err)
+			st := &Store{logCache: cache}
+			st.lastAppliedIndex.Store(tt.applied)
 
-	t.Run("stable below barrier, no pipeline -> config-only gap, caught up", func(t *testing.T) {
-		st := &Store{}
-		st.lastAppliedIndex.Store(100)
-		require.True(t, st.wipedJoinerFSMCaughtUp(220))
-	})
-
-	t.Run("still draining -> not caught up", func(t *testing.T) {
-		st := &Store{}
-		st.lastAppliedIndex.Store(100)
-		go func() {
-			time.Sleep(20 * time.Millisecond)
-			st.lastAppliedIndex.Store(150)
-		}()
-		require.False(t, st.wipedJoinerFSMCaughtUp(220))
-	})
+			require.Equal(t, tt.want, st.wipedJoinerFSMCaughtUp(103))
+		})
+	}
 }
 
 func TestNeedsJoinBarrier(t *testing.T) {
