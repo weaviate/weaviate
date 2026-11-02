@@ -186,11 +186,11 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 	return nil
 }
 
-// typesConflictReason returns a non-empty reason string if two reindex
-// migrations on the same collection target overlapping properties — even
-// across different migration types, since one's completion can flip a
-// schema flag the other's on-disk state still assumes is false
-// (weaviate/weaviate#10675).
+// typesConflictReason returns a non-empty reason if two reindex migrations
+// on the same collection target overlapping properties — even across
+// types, since completing one applies an UpdateProperty whose bucket sweep
+// removes any index type the merged property shows disabled, including
+// the other migration's own still-false flag (weaviate/weaviate#10675).
 //
 // Empty props means "all properties" (reserved for a future
 // whole-collection rebuild) and overlaps with everything.
@@ -289,11 +289,12 @@ func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) s
 // apply path to reject external property mutations racing an in-flight
 // reindex migration on the same (collection, property).
 //
-// Without it, a DELETE arriving mid-migration can land while MergeProps
-// still carries the migration's own still-false flag, wiping the running
-// sub-task's working copy and producing a bucket↔schema inversion — same
-// family as the ack-barrier failure mode, triggered externally instead of
-// by a crash.
+// Without it, a DELETE /index/searchable arriving mid-migration can wipe
+// a change-tokenization task's running searchable sub-task while its
+// sibling filterable sub-task commits — schema stays at the old
+// tokenization while the filterable bucket already holds the new one.
+// Same family as the ack-barrier failure mode, triggered externally
+// instead of by a crash.
 //
 // Migration-driven flips bypass the guard via
 // [api.UpdatePropertyRequest.FromInFlightMigration], set by
