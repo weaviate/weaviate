@@ -108,6 +108,41 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_MultipleProperties(t *
 	require.ElementsMatch(t, []string{"a", "b", "c"}, gotProps)
 }
 
+// Tenant counts can run into the thousands.
+func TestGroupHandlersLogUnitCountNotUnitIDs(t *testing.T) {
+	unitIDs := make([]string, 1000)
+	for i := range unitIDs {
+		unitIDs[i] = uuid.NewString()
+	}
+
+	for _, tc := range []struct {
+		name string
+		call func(*ReindexProvider, *distributedtask.Task) error
+	}{
+		{name: "group completed", call: func(p *ReindexProvider, task *distributedtask.Task) error {
+			return p.OnGroupCompleted(task, "g1", unitIDs)
+		}},
+		{name: "swap requested", call: func(p *ReindexProvider, task *distributedtask.Task) error {
+			return p.OnSwapRequested(task, "g1", unitIDs)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+			p := &ReindexProvider{logger: logger}
+
+			require.NoError(t, tc.call(p, &distributedtask.Task{
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
+				Status:         distributedtask.TaskStatusFinished,
+			}))
+
+			require.Len(t, hook.Entries, 1)
+			require.Equal(t, 1000, hook.Entries[0].Data["localGroupUnitCount"])
+			require.NotContains(t, hook.Entries[0].Data, "localGroupUnitIDs")
+		})
+	}
+}
+
 // TestRepairCommandsForFailedMigration_EnableAndAlgorithmUsePut pins that
 // enable-*/change-algorithm emit the re-run PUT (a /rebuild would 400: no
 // index, or still WAND). Retokenize migrations keep /rebuild.

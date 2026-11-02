@@ -218,7 +218,7 @@ func TestIndexSweepReportsLoadedShardPayloadReads(t *testing.T) {
 		tracker{dir: "enable_filterable_cat_dog_1", props: []string{"cat", "dog"}})
 
 	hook.Reset()
-	require.NoError(t, idx.cleanStalePartialReindexState(ctx, "cat", "filterable", nil))
+	require.NoError(t, idx.cleanStalePartialReindexState(ctx, "cat", "filterable", nil, nil))
 
 	summary := onlySweepSummary(t, hook)
 	require.Equal(t, 0, summary.Data["skipped_shards"],
