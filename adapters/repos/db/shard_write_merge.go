@@ -142,6 +142,10 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 		}
 	}
 
+	if err := s.deleteFromDroppedTargets(obj, status); err != nil {
+		return err
+	}
+
 	if err := s.updatePropertySpecificIndices(ctx, obj, status); err != nil {
 		return errors.Wrap(err, "update property-specific indices")
 	}

@@ -920,6 +920,248 @@ func (s *noVectorQueues) WithVectorIndexQueue(string, func(*VectorIndexQueue) er
 	return false, nil
 }
 
+// TestUpdateDroppingATargetRemovesTheOldDoc pins the target a write doesn't name. The
+// loops over an object's vectors never reach it, so the doc that was replaced would stay
+// live in its index, with nothing left that could ever take it out.
+func TestUpdateDroppingATargetRemovesTheOldDoc(t *testing.T) {
+	const className = "DroppedTarget"
+
+	multi := enthnsw.NewDefaultUserConfig()
+	multi.Multivector = enthnsw.MultivectorConfig{Enabled: true}
+
+	versionWith := func(obj *storobj.Object, kept []float32) *storobj.Object {
+		next := newerVersions([]*storobj.Object{obj}, 5)[0]
+		next.Vectors = map[string][]float32{"kept": kept}
+		next.MultiVectors = nil
+		return next
+	}
+	mergeOf := func(obj *storobj.Object, kept []float32) objects.MergeDocument {
+		return objects.MergeDocument{
+			Class: className, ID: obj.ID(), UpdateTime: obj.LastUpdateTimeUnix() + 5,
+			Vectors: models.Vectors{"kept": kept},
+		}
+	}
+
+	updates := []struct {
+		name  string
+		write func(t *testing.T, shard ShardLike, obj *storobj.Object, kept []float32) error
+	}{
+		{"put", func(t *testing.T, shard ShardLike, obj *storobj.Object, kept []float32) error {
+			return shard.PutObject(t.Context(), versionWith(obj, kept))
+		}},
+		{"batch", func(t *testing.T, shard ShardLike, obj *storobj.Object, kept []float32) error {
+			return shard.PutObjectBatch(t.Context(), []*storobj.Object{versionWith(obj, kept)})[0]
+		}},
+		{"merge object", func(t *testing.T, shard ShardLike, obj *storobj.Object, kept []float32) error {
+			return shard.MergeObject(t.Context(), mergeOf(obj, kept))
+		}},
+		{"replication", func(t *testing.T, shard ShardLike, obj *storobj.Object, kept []float32) error {
+			idBytes, err := uuid.MustParse(obj.ID().String()).MarshalBinary()
+			require.NoError(t, err)
+			return shard.(*Shard).merge(t.Context(), idBytes, mergeOf(obj, kept))
+		}},
+	}
+
+	targets := []struct {
+		name   string
+		config schemaConfig.VectorIndexConfig
+		set    func(obj *storobj.Object, vector []float32)
+	}{
+		{"hnsw", enthnsw.NewDefaultUserConfig(), func(obj *storobj.Object, vector []float32) {
+			obj.Vectors["dropped"] = vector
+		}},
+		{"flat", flat.NewDefaultUserConfig(), func(obj *storobj.Object, vector []float32) {
+			obj.Vectors["dropped"] = vector
+		}},
+		{"multi vector", multi, func(obj *storobj.Object, vector []float32) {
+			obj.MultiVectors = map[string][][]float32{"dropped": {vector, vector}}
+		}},
+	}
+
+	keptVectors := []struct {
+		name   string
+		vector []float32
+	}{
+		{"kept vector changes", consistencyVector(1)},
+		{"nothing else changes", consistencyVector(0)},
+	}
+
+	for _, update := range updates {
+		for _, target := range targets {
+			for _, kept := range keptVectors {
+				for _, async := range []bool{false, true} {
+					t.Run(fmt.Sprintf("%s, %s, %s, async %v", update.name, target.name, kept.name, async), func(t *testing.T) {
+						shard, _ := testShardWithSettings(t, t.Context(), consistencyClass(className),
+							enthnsw.NewDefaultUserConfig(), false, async, func(i *Index) {
+								i.vectorIndexUserConfig = nil
+								i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+									"kept":    enthnsw.NewDefaultUserConfig(),
+									"dropped": target.config,
+								}
+							})
+
+						// the object next to it keeps both, and both indexes in use
+						objs := consistencyObjects(consistencyFlavors()[0], className, 2)
+						for i, obj := range objs {
+							obj.Vector = nil
+							obj.Vectors = map[string][]float32{"kept": consistencyVector(0)}
+							target.set(obj, consistencyVector(i))
+							require.NoError(t, shard.PutObject(t.Context(), obj))
+						}
+
+						before, err := shard.ObjectByID(t.Context(), objs[0].ID(), nil, additional.Properties{})
+						require.NoError(t, err)
+						requireDocInIndex(t, shard, "dropped", before.DocID, true)
+
+						require.NoError(t, update.write(t, shard, objs[0], kept.vector))
+
+						after, err := shard.ObjectByID(t.Context(), objs[0].ID(), nil,
+							additional.Properties{Vectors: []string{"kept", "dropped"}})
+						require.NoError(t, err)
+						require.NotEqual(t, before.DocID, after.DocID)
+						assert.Empty(t, after.Vectors["dropped"])
+						assert.Empty(t, after.MultiVectors["dropped"])
+
+						requireDocInIndex(t, shard, "dropped", before.DocID, false)
+						requireDocInIndex(t, shard, "kept", before.DocID, false)
+						requireDocInIndex(t, shard, "kept", after.DocID, true)
+					})
+				}
+			}
+		}
+	}
+}
+
+// A write that replaces nothing has nothing to delete. A new object has no previous doc,
+// and doc ID 0 is the first object of the shard, not a placeholder.
+func TestNewObjectWithoutATargetLeavesItsIndexAlone(t *testing.T) {
+	const className = "UnusedTarget"
+	shard, _ := testShardWithSettings(t, t.Context(), consistencyClass(className),
+		enthnsw.NewDefaultUserConfig(), false, false, func(i *Index) {
+			i.vectorIndexUserConfig = nil
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+				"kept":    enthnsw.NewDefaultUserConfig(),
+				"dropped": enthnsw.NewDefaultUserConfig(),
+			}
+		})
+
+	objs := consistencyObjects(consistencyFlavors()[0], className, 2)
+	objs[0].Vector = nil
+	objs[0].Vectors = map[string][]float32{"kept": consistencyVector(0), "dropped": consistencyVector(0)}
+	require.NoError(t, shard.PutObject(t.Context(), objs[0]))
+	first, err := shard.ObjectByID(t.Context(), objs[0].ID(), nil, additional.Properties{})
+	require.NoError(t, err)
+	require.Zero(t, first.DocID)
+
+	objs[1].Vector = nil
+	objs[1].Vectors = map[string][]float32{"kept": consistencyVector(1)}
+	require.NoError(t, shard.PutObject(t.Context(), objs[1]))
+
+	requireDocInIndex(t, shard, "dropped", first.DocID, true)
+}
+
+// TestUpdateQueuesOneDeletePerTarget pins that dropped targets cost only what they need:
+// a target the write names already deletes the old doc on its own.
+func TestUpdateQueuesOneDeletePerTarget(t *testing.T) {
+	const className = "OneDelete"
+
+	multi := enthnsw.NewDefaultUserConfig()
+	multi.Multivector = enthnsw.MultivectorConfig{Enabled: true}
+	plain := enthnsw.NewDefaultUserConfig()
+
+	tests := []struct {
+		name string
+		// nil for the legacy vector index
+		configs map[string]schemaConfig.VectorIndexConfig
+		// what the object starts with, and what the update leaves
+		before, after func(obj *storobj.Object)
+		// records each target's queue gets from the update
+		want map[string]int64
+	}{
+		{
+			name:   "legacy vector",
+			before: func(obj *storobj.Object) {},
+			after:  func(obj *storobj.Object) { obj.Vector = consistencyVector(1) },
+			want:   map[string]int64{"": 2},
+		},
+		{
+			name:    "vector named, one dropped",
+			configs: map[string]schemaConfig.VectorIndexConfig{"kept": plain, "dropped": plain},
+			before: func(obj *storobj.Object) {
+				obj.Vector = nil
+				obj.Vectors = map[string][]float32{"kept": consistencyVector(0), "dropped": consistencyVector(0)}
+			},
+			after: func(obj *storobj.Object) {
+				obj.Vectors = map[string][]float32{"kept": consistencyVector(1)}
+			},
+			want: map[string]int64{"kept": 2, "dropped": 1},
+		},
+		{
+			name:    "multi vector named, one dropped",
+			configs: map[string]schemaConfig.VectorIndexConfig{"kept": multi, "dropped": plain},
+			before: func(obj *storobj.Object) {
+				obj.Vector = nil
+				obj.Vectors = map[string][]float32{"dropped": consistencyVector(0)}
+				obj.MultiVectors = map[string][][]float32{"kept": {consistencyVector(0), consistencyVector(0)}}
+			},
+			after: func(obj *storobj.Object) {
+				obj.Vectors = nil
+				obj.MultiVectors = map[string][][]float32{"kept": {consistencyVector(1), consistencyVector(1)}}
+			},
+			want: map[string]int64{"kept": 2, "dropped": 1},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			shard, _ := testShardWithSettings(t, t.Context(), consistencyClass(className),
+				enthnsw.NewDefaultUserConfig(), false, true, func(i *Index) {
+					if test.configs != nil {
+						i.vectorIndexUserConfig = nil
+						i.vectorIndexUserConfigs = test.configs
+					}
+				})
+
+			obj := consistencyObjects(consistencyFlavors()[0], className, 1)[0]
+			test.before(obj)
+
+			forEachTarget := func(fn func(target string, queue *VectorIndexQueue)) {
+				for target := range test.want {
+					_, err := shard.WithVectorIndexQueue(target, func(queue *VectorIndexQueue) error {
+						fn(target, queue)
+						return nil
+					})
+					require.NoError(t, err)
+				}
+			}
+
+			forEachTarget(func(_ string, queue *VectorIndexQueue) { require.NoError(t, queue.Pause(t.Context())) })
+			require.NoError(t, shard.PutObject(t.Context(), obj))
+
+			sizes := map[string]int64{}
+			forEachTarget(func(target string, queue *VectorIndexQueue) { sizes[target] = queue.Size() })
+
+			next := newerVersions([]*storobj.Object{obj}, 5)[0]
+			test.after(next)
+			require.NoError(t, shard.PutObject(t.Context(), next))
+
+			forEachTarget(func(target string, queue *VectorIndexQueue) {
+				assert.Equalf(t, test.want[target], queue.Size()-sizes[target], "target %q", target)
+			})
+		})
+	}
+}
+
+func requireDocInIndex(t *testing.T, shard ShardLike, target string, docID uint64, want bool) {
+	t.Helper()
+	_, err := shard.WithVectorIndex(target, func(index VectorIndex) error {
+		require.Eventuallyf(t, func() bool { return index.ContainsDoc(docID) == want },
+			10*time.Second, 20*time.Millisecond, "doc %d in %s, want %v", docID, target, want)
+		return nil
+	})
+	require.NoError(t, err)
+}
+
 // TestAsyncBatchReportsVectorErrorsOnTheirOwnObjects pins that a vector the queue
 // refuses fails its own object. It used to fail the first object of the batch
 // instead, and the objects behind the refused one were reported as written

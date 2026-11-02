@@ -92,6 +92,10 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		}
 	}
 
+	if err := s.deleteFromDroppedTargets(object, status); err != nil {
+		return err
+	}
+
 	if err := s.updatePropertySpecificIndices(ctx, object, status); err != nil {
 		return errors.Wrap(err, "update property-specific indices")
 	}
@@ -105,6 +109,28 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 	}
 
 	return nil
+}
+
+// deleteFromDroppedTargets takes a replaced doc out of the indexes of the targets its
+// new version doesn't have. A write only visits the targets it names, so nothing else
+// would reach them. The legacy index is always visited.
+func (s *Shard) deleteFromDroppedTargets(object *storobj.Object, status objectInsertStatus) error {
+	if !status.docIDChanged {
+		return nil
+	}
+
+	return s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		_, single := object.Vectors[targetVector]
+		_, multi := object.MultiVectors[targetVector]
+		if single || multi || targetVector == "" {
+			return nil
+		}
+
+		if err := queue.Delete(status.oldDocID); err != nil {
+			return errors.Wrapf(err, "delete doc id %d from vector index for target vector %s", status.oldDocID, targetVector)
+		}
+		return queue.Flush()
+	})
 }
 
 // as the name implies this method only performs the insertions, but completely
