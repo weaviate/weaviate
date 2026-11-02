@@ -400,16 +400,25 @@ func TestVectorIndexCollisions(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, vectorIndexCollisions(tt.owners))
+			assert.Equal(t, tt.want, vectorIndexCollisions(ownersAt(tt.owners)))
 		})
 	}
 
 	// a newcomer is checked against the owners, not the owners against each
 	// other: an existing collision does not block an unrelated addition
-	owners := map[string]string{"foo": "vectors_foo", "foo_muvera_vectors": "vectors_foo_muvera_vectors"}
-	assert.Empty(t, vectorIndexCollisionsWith(owners, "bar", "vectors_bar"))
+	owners := ownersAt(map[string]string{"foo": "vectors_foo", "foo_muvera_vectors": "vectors_foo_muvera_vectors"})
+	assert.Empty(t, vectorIndexCollisionsWith(owners, "bar", ownerAt("vectors_bar")))
 	assert.Equal(t, []string{`vectors "foo" and "foo_mv_mappings" share "vectors_foo_mv_mappings"`},
-		vectorIndexCollisionsWith(owners, "foo_mv_mappings", "vectors_foo_mv_mappings"))
+		vectorIndexCollisionsWith(owners, "foo_mv_mappings", ownerAt("vectors_foo_mv_mappings")))
+}
+
+// ownersAt maps each vector to an owner whose index and queue share its ID.
+func ownersAt(ids map[string]string) map[string]vectorIndexOwner {
+	owners := make(map[string]vectorIndexOwner, len(ids))
+	for name, id := range ids {
+		owners[name] = ownerAt(id)
+	}
+	return owners
 }
 
 // A live creation whose physical names another vector owns is refused

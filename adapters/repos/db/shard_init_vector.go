@@ -380,7 +380,7 @@ func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg s
 	}
 	rec := vectorIndexRecordFor(targetVector, cfg, vectorIndexStateCreating)
 	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
-		err := s.refuseVectorIndexCollision(targetVector, rec.PhysicalID)
+		err := s.refuseVectorIndexCollision(targetVector, rec)
 		if err != nil {
 			return nil, nil, err
 		}

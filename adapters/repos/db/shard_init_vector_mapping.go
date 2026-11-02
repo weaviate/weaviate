@@ -64,14 +64,14 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 			// creation when its files belong to another vector, and counted as
 			// an owner for the newcomers after it
 			rec = vectorIndexRecordFor(name, cfg, vectorIndexStateCreating)
-			if collisions := vectorIndexCollisionsWith(owners, name, rec.PhysicalID); len(collisions) > 0 {
+			if collisions := vectorIndexCollisionsWith(owners, name, ownerOf(rec)); len(collisions) > 0 {
 				return nil, vectorIndexCollisionError(name, collisions)
 			}
 			err := s.mapping.Put(name, rec)
 			if err != nil {
 				return nil, err
 			}
-			owners[name] = rec.PhysicalID
+			owners[name] = ownerOf(rec)
 		}
 		if rec.IndexType != cfg.IndexType() {
 			return nil, fmt.Errorf("vector %q: the mapping records a %s index at %q but the schema says %s",
@@ -244,31 +244,54 @@ func (s *Shard) syncVectorIndexRecordStorage(name string, rec vectorIndexRecord)
 	return nil
 }
 
-// vectorIndexOwners maps each recorded vector to its physical ID. Skipped
-// vectors are never recorded, so every owner has storage.
-func vectorIndexOwners(records map[string]vectorIndexRecord) map[string]string {
-	owners := make(map[string]string, len(records))
+// vectorIndexOwner is where a vector's files live: its index at physicalID,
+// its queue at queueID.
+type vectorIndexOwner struct {
+	physicalID string
+	queueID    string
+}
+
+// ownerOf is where rec's files live.
+func ownerOf(rec vectorIndexRecord) vectorIndexOwner {
+	return vectorIndexOwner{physicalID: rec.PhysicalID, queueID: rec.queueIDOrDefault()}
+}
+
+// ownerAt is a vector whose index and queue are both at id, as the naming
+// rule creates them.
+func ownerAt(id string) vectorIndexOwner {
+	return vectorIndexOwner{physicalID: id, queueID: id}
+}
+
+// names lists the physical names o owns.
+func (o vectorIndexOwner) names() []string {
+	return append(helpers.VectorIndexArtifactNamesForID(o.physicalID).All(), helpers.QueueDirName(o.queueID))
+}
+
+// vectorIndexOwners maps each recorded vector to where its files live.
+// Skipped vectors are never recorded, so every owner has storage.
+func vectorIndexOwners(records map[string]vectorIndexRecord) map[string]vectorIndexOwner {
+	owners := make(map[string]vectorIndexOwner, len(records))
 	for name, rec := range records {
-		owners[name] = rec.PhysicalID
+		owners[name] = ownerOf(rec)
 	}
 	return owners
 }
 
 // vectorIndexCollisionsWith lists the owners other than name that share a
-// physical name with an index at physicalID, as "vectors A and B share N".
-// The legacy vector is the empty name.
-func vectorIndexCollisionsWith(owners map[string]string, name, physicalID string) []string {
-	mine := map[string]struct{}{}
-	for _, n := range helpers.VectorIndexArtifactNamesForID(physicalID).All() {
-		mine[n] = struct{}{}
+// physical name with mine, as "vectors A and B share N". The legacy vector
+// is the empty name.
+func vectorIndexCollisionsWith(owners map[string]vectorIndexOwner, name string, mine vectorIndexOwner) []string {
+	own := map[string]struct{}{}
+	for _, n := range mine.names() {
+		own[n] = struct{}{}
 	}
 	var collisions []string
 	for _, other := range slices.Sorted(maps.Keys(owners)) {
 		if other == name {
 			continue
 		}
-		for _, n := range helpers.VectorIndexArtifactNamesForID(owners[other]).All() {
-			if _, shared := mine[n]; shared {
+		for _, n := range owners[other].names() {
+			if _, shared := own[n]; shared {
 				collisions = append(collisions, fmt.Sprintf("vectors %q and %q share %q", other, name, n))
 				break
 			}
@@ -279,11 +302,11 @@ func vectorIndexCollisionsWith(owners map[string]string, name, physicalID string
 
 // vectorIndexCollisions lists every pair of owners that share a physical
 // name, each pair once, names in order.
-func vectorIndexCollisions(owners map[string]string) []string {
+func vectorIndexCollisions(owners map[string]vectorIndexOwner) []string {
 	names := slices.Sorted(maps.Keys(owners))
 	var collisions []string
 	for i, name := range names {
-		before := make(map[string]string, i)
+		before := make(map[string]vectorIndexOwner, i)
 		for _, earlier := range names[:i] {
 			before[earlier] = owners[earlier]
 		}
@@ -300,14 +323,14 @@ func vectorIndexCollisionError(name string, collisions []string) error {
 // refuseVectorIndexCollision fails a creation whose physical names are
 // already in use by another recorded vector. The vector's own record, a
 // retry of an interrupted creation, is not a collision.
-func (s *Shard) refuseVectorIndexCollision(name, physicalID string) error {
+func (s *Shard) refuseVectorIndexCollision(name string, rec vectorIndexRecord) error {
 	records, _, err := s.mapping.Load()
 	if err != nil {
 		return err
 	}
 	owners := vectorIndexOwners(records)
 	delete(owners, name)
-	collisions := vectorIndexCollisionsWith(owners, name, physicalID)
+	collisions := vectorIndexCollisionsWith(owners, name, ownerOf(rec))
 	if len(collisions) == 0 {
 		return nil
 	}
