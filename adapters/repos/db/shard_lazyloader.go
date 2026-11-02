@@ -617,11 +617,8 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 	prop *models.Property,
 ) {
 	eg.Go(func() error {
-		// Shares the loaded path's index types so Index.updateProperty's summary
-		// log names what this branch removed too. Not its body: this path
-		// removes the main bucket dir by name and nothing else, so a cold
-		// tenant's migration and sidecar dirs outlive the property delete.
-		// That is a gap, not a property of unloaded shards.
+		// Mirrors the loaded path's index types, but only drops the main bucket
+		// dir: a cold tenant's migration/sidecar dirs outlive this delete (known gap).
 		for _, indexType := range disabledIndexTypes(prop) {
 			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
 			if !ok {

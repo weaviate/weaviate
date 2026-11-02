@@ -162,7 +162,7 @@ func createsGeoIndex(prop *models.Property) bool {
 }
 
 type migrationSweepCounts struct {
-	recordSetReads atomic.Int64
+	dirsSwept atomic.Int64
 }
 
 func (s *Shard) updatePropertyBuckets(ctx context.Context,
@@ -171,17 +171,16 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 	counts *migrationSweepCounts,
 ) {
 	eg.Go(func() error {
-		var sweep *migrationSweepState
-		sweepState := func() *migrationSweepState {
-			if sweep == nil {
-				sweep = s.migrationSweepState()
-			}
-			return sweep
+		indexTypes := disabledIndexTypes(prop)
+		if len(indexTypes) == 0 {
+			return nil
 		}
+		committed := s.migrationSweepState().committed
+		var swept int
 		defer func() {
-			counts.recordSetReads.Add(int64(sweep.recordSetReads()))
+			counts.dirsSwept.Add(int64(swept))
 		}()
-		for _, indexType := range disabledIndexTypes(prop) {
+		for _, indexType := range indexTypes {
 			// The whole loop runs inside the RAFT apply, once per shard. Every
 			// shard still queued for it drops out here rather than sweeping its
 			// own directories for an apply that is already failing.
@@ -196,7 +195,7 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			if err := s.removeBucket(ctx, mainBucket); err != nil {
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
-			s.cleanStaleSidecarDirs(ctx, mainBucket, sweepState().committed)
+			swept += s.cleanStaleSidecarDirs(ctx, mainBucket, committed)
 		}
 		return nil
 	})
@@ -220,35 +219,14 @@ func disabledIndexTypes(prop *models.Property) []string {
 
 type migrationSweepState struct {
 	committed migrationPreservedState
-	// One per state: the total should come to one per sweep, not per index type.
-	recordReads int
-}
-
-func (s *migrationSweepState) recordSetReads() int {
-	if s == nil {
-		return 0
-	}
-	return s.recordReads
 }
 
 // No disk read: the shard's store is the only writer to .migrations/records/.
 func (s *Shard) migrationSweepState() *migrationSweepState {
 	store := s.migrationRecordStore()
-	unreadable := store.Unreadable()
 	return &migrationSweepState{
-		recordReads: 1,
-		committed: migrationPreservedStateFromRecords(store.Records(),
-			len(unreadable) > 0, migrationRecordSetUnreadable(unreadable)),
+		committed: migrationPreservedStateFromRecords(store.Records(), store.Unreadable()),
 	}
-}
-
-func migrationRecordSetUnreadable(faults []MigrationRecordUnreadable) bool {
-	for _, fault := range faults {
-		if fault.Scope == MigrationRecordFaultStore {
-			return true
-		}
-	}
-	return false
 }
 
 // CleanStalePartialReindexState removes the on-disk state of a previously
@@ -258,30 +236,28 @@ func migrationRecordSetUnreadable(faults []MigrationRecordUnreadable) bool {
 //
 // Crash safety: sidecar buckets shut down before their dirs go (open lsmkv
 // handles); the .migrations/records/ record stays, still naming the run's dirs.
-func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, indexType string) error {
+//
+// The caller logs the returned dir count once per sweep: every reindex submit
+// and cancel sweeps every loaded shard, so a line per shard would follow the
+// tenant count.
+func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, indexType string,
+	dirs *dirNamesCache,
+) (int, error) {
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
-		return fmt.Errorf("clean stale partial reindex state: unknown indexType %q", indexType)
+		return 0, fmt.Errorf("clean stale partial reindex state: unknown indexType %q", indexType)
 	}
 
-	logger := s.index.logger.WithFields(map[string]any{
-		"shard":       s.Name(),
-		"property":    propName,
-		"index_type":  indexType,
-		"main_bucket": mainBucketName,
-		"operation":   "CleanStalePartialReindexState",
-	})
-
-	// A shard whose record set cannot be read at all keeps every sidecar, so the
-	// sweep has removed nothing and must not report success.
-	committed, err := migrationPreservedStateAt(s.pathLSM(), s.index.logger)
+	// Only an unlistable dir fails the shard: any other unreadable record set
+	// preserves every sidecar, and the sweep summary's count reports it.
+	records, faults, err := migrationRecordsAt(s.pathLSM(), s.index.logger)
+	dirs.chargeUnreadableRecordSet(s.pathLSM(), faults, err)
 	if err != nil {
-		return fmt.Errorf("partial-reindex cleanup: %w", err)
+		return 0, fmt.Errorf("partial-reindex cleanup: %w", err)
 	}
+	committed := migrationPreservedStateFromRecords(records, faults)
 
-	loaded := s.store.GetBucketsByName()
-	var shutDown []string
-	for bucketName := range loaded {
+	for bucketName := range s.store.GetBucketsByName() {
 		if !isSidecarDirOf(bucketName, mainBucketName) {
 			continue
 		}
@@ -299,20 +275,12 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 				// — bucket gone — is satisfied; keep going.
 				continue
 			}
-			return fmt.Errorf(
+			return 0, fmt.Errorf(
 				"shutting down stale sidecar bucket %q before partial-reindex cleanup: %w",
 				bucketName, err)
 		}
-		shutDown = append(shutDown, bucketName)
 	}
-	logger.WithField("buckets_shut_down", shutDown).
-		WithField("preserved_sidecars", committed.bucketsOf(mainBucketName)).
-		Info("partial-reindex cleanup: sidecar buckets shut down")
-
-	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, committed)
-	logger.Info("partial-reindex cleanup: sidecar dirs cleaned")
-
-	return nil
+	return s.cleanStaleSidecarDirsWithPreserved(mainBucketName, committed), nil
 }
 
 // mainBucketForPropertyIndex returns the canonical main bucket name on
@@ -339,7 +307,7 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 
 func (s *Shard) cleanStaleSidecarDirs(ctx context.Context, mainBucketName string,
 	committed migrationPreservedState,
-) {
+) int {
 	keep := map[string]bool{}
 	for bucketName := range s.store.GetBucketsByName() {
 		if !isSidecarDirOf(bucketName, mainBucketName) {
@@ -357,18 +325,22 @@ func (s *Shard) cleanStaleSidecarDirs(ctx context.Context, mainBucketName string
 			keep[bucketName] = true
 		}
 	}
-	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, migrationPreservingOnly(keep))
+	return s.cleanStaleSidecarDirsWithPreserved(mainBucketName, migrationPreservingOnly(keep))
 }
 
-func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, committed migrationPreservedState) {
+// cleanStaleSidecarDirsWithPreserved returns how many sidecar dirs it removed,
+// leaving out preserved dirs and failed removals. A dir another sweep removed
+// first still counts, because os.RemoveAll reports success on a missing path.
+func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, committed migrationPreservedState) int {
 	dirs := shardBucketDirs(s.pathLSM())
 	entries, err := os.ReadDir(dirs.root)
 	if err != nil {
 		s.index.logger.WithField("path", dirs.root).
 			Errorf("failed to enumerate LSM dir for sidecar cleanup after DELETE: %v; a subsequent re-enable may fail with 'file exists' when RunSwapOnShard tries to rotate buckets", err)
-		return
+		return 0
 	}
 	const what = "a stale sidecar directory"
+	var swept int
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -397,8 +369,11 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, commit
 		if err := dirs.Discard(name, what); err != nil {
 			s.index.logger.WithField("dir", name).
 				Errorf("failed to remove stale sidecar bucket dir after index DELETE: %v", err)
+			continue
 		}
+		swept++
 	}
+	return swept
 }
 
 // sidecarRoleWords are the words every migration sidecar suffix ends in, once

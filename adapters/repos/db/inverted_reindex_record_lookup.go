@@ -17,20 +17,22 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []MigrationRecord, someRecordsUnreadable bool, recordSetErr error) {
-	store, someRecordsUnreadable, recordSetErr := migrationRecordStoreAt(lsmPath, logger)
+func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []MigrationRecord, unreadable []MigrationRecordUnreadable, recordSetErr error) {
+	store, unreadable, recordSetErr := migrationRecordStoreAt(lsmPath, logger)
 	if recordSetErr != nil {
-		return nil, true, recordSetErr
+		return nil, unreadable, recordSetErr
 	}
-	return store.Records(), someRecordsUnreadable, nil
+	return store.Records(), unreadable, nil
 }
 
-func migrationRecordStoreAt(lsmPath string, logger logrus.FieldLogger) (store *MigrationRecordStore, someRecordsUnreadable bool, recordSetErr error) {
+// A failed Load always adds a store-scope fault, so faults alone tell callers
+// whether the record set was readable.
+func migrationRecordStoreAt(lsmPath string, logger logrus.FieldLogger) (store *MigrationRecordStore, unreadable []MigrationRecordUnreadable, recordSetErr error) {
 	store = NewMigrationRecordStore(lsmPath, logger)
 	if err := store.Load(); err != nil {
-		return nil, true, err
+		return nil, store.Unreadable(), err
 	}
-	return store, len(store.Unreadable()) > 0, nil
+	return store, store.Unreadable(), nil
 }
 
 type migrationPreservedState struct {
@@ -41,16 +43,18 @@ type migrationPreservedState struct {
 }
 
 func migrationPreservedStateAt(lsmPath string, logger logrus.FieldLogger) (migrationPreservedState, error) {
-	records, someRecordsUnreadable, recordSetErr := migrationRecordsAt(lsmPath, logger)
-	return migrationPreservedStateFromRecords(records, someRecordsUnreadable, recordSetErr != nil), recordSetErr
+	records, unreadable, recordSetErr := migrationRecordsAt(lsmPath, logger)
+	return migrationPreservedStateFromRecords(records, unreadable), recordSetErr
 }
 
-func migrationPreservedStateFromRecords(records []MigrationRecord, someRecordsUnreadable, recordSetUnreadable bool) migrationPreservedState {
+func migrationPreservedStateFromRecords(records []MigrationRecord, unreadable []MigrationRecordUnreadable) migrationPreservedState {
 	state := migrationPreservedState{
-		records:             records,
-		buckets:             map[string]bool{},
-		withholdEverything:  someRecordsUnreadable,
-		recordSetUnreadable: recordSetUnreadable,
+		records:            records,
+		buckets:            map[string]bool{},
+		withholdEverything: len(unreadable) > 0,
+		recordSetUnreadable: slices.ContainsFunc(unreadable, func(fault MigrationRecordUnreadable) bool {
+			return fault.Scope == MigrationRecordFaultStore
+		}),
 	}
 	for _, rec := range records {
 		if !rec.StagedDataComplete() {
@@ -101,17 +105,6 @@ func migrationPropertyLoadCanStillAct(rec MigrationRecord, prop string) bool {
 		return true
 	}
 	return sw.PromotionOf(prop) != migrationPromotionLost
-}
-
-func (s migrationPreservedState) bucketsOf(mainBucketName string) []string {
-	out := make([]string, 0, len(s.buckets))
-	for dir := range s.buckets {
-		if isSidecarDirOf(dir, mainBucketName) {
-			out = append(out, dir)
-		}
-	}
-	slices.Sort(out)
-	return out
 }
 
 func migrationRecordStagingIncomplete(rec MigrationRecord) bool { return !rec.StagedDataComplete() }

@@ -179,6 +179,7 @@ func (i *Index) cleanStalePartialReindexState(
 	}
 	shardErrs := errorcompounder.New()
 	skippedShards := 0
+	dirsRemoved := 0
 	// One cache serves every sweep of a request, so only the delta belongs to
 	// this one; its running total would re-report the first sweep's refusals.
 	refusedBefore := dirs.refusedListings()
@@ -220,7 +221,9 @@ func (i *Index) cleanStalePartialReindexState(
 			}
 			shard = unwrapped
 		}
-		if err := shard.CleanStalePartialReindexState(ctx, propName, indexType); err != nil {
+		removed, err := shard.CleanStalePartialReindexState(ctx, propName, indexType, dirs)
+		dirsRemoved += removed
+		if err != nil {
 			reported := fmt.Errorf("shard %q: %w", name, err)
 			if truncated := truncatedByCancellation(reported); truncated != nil {
 				return truncated
@@ -248,6 +251,7 @@ func (i *Index) cleanStalePartialReindexState(
 		"index_type":        indexType,
 		"operation":         "CleanStalePartialReindexState",
 		"skipped_shards":    skippedShards,
+		"dirs_removed":      dirsRemoved,
 		"uncached_listings": uncachedListings,
 	}
 	if unreadable, reasons := dirs.unreadableRecordSets(); unreadable > unreadableBefore {
@@ -323,16 +327,32 @@ type dirNamesCache struct {
 	unreadableErrs    errorcompounder.ErrorCompounder
 }
 
-func (c *dirNamesCache) chargeUnreadableRecordSet(lsmPath string, err error) {
-	if err == nil {
+// Records of several units leave the set unreadable without failing Load. A
+// path is charged once, so a shard reads as one fault whichever path reads it.
+func (c *dirNamesCache) chargeUnreadableRecordSet(lsmPath string,
+	faults []MigrationRecordUnreadable, recordSetErr error,
+) {
+	if c == nil {
 		return
+	}
+	if _, charged := c.unreadableRecords[lsmPath]; charged {
+		return
+	}
+	if recordSetErr == nil {
+		i := slices.IndexFunc(faults, func(fault MigrationRecordUnreadable) bool {
+			return fault.Scope == MigrationRecordFaultStore
+		})
+		if i < 0 {
+			return
+		}
+		recordSetErr = errors.New(faults[i].Reason)
 	}
 	if c.unreadableRecords == nil {
 		c.unreadableRecords = map[string]struct{}{}
 		c.unreadableErrs = errorcompounder.New()
 	}
 	c.unreadableRecords[lsmPath] = struct{}{}
-	c.unreadableErrs.AddWrapf(err, "%s", lsmPath)
+	c.unreadableErrs.AddWrapf(recordSetErr, "%s", lsmPath)
 }
 
 func (c *dirNamesCache) unreadableRecordSets() (int, error) {
@@ -352,8 +372,9 @@ func (c *dirNamesCache) committedMigrations(lsmPath string,
 	if state, ok := c.committed[lsmPath]; ok {
 		return state
 	}
-	state, recordSetErr := migrationPreservedStateAt(lsmPath, logger)
-	c.chargeUnreadableRecordSet(lsmPath, recordSetErr)
+	records, faults, recordSetErr := migrationRecordsAt(lsmPath, logger)
+	state := migrationPreservedStateFromRecords(records, faults)
+	c.chargeUnreadableRecordSet(lsmPath, faults, recordSetErr)
 	if c.committed == nil {
 		c.committed = map[string]migrationPreservedState{}
 	}

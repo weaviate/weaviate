@@ -136,22 +136,24 @@ func TestRecoveryWalkReportsEachFaultKindOnce(t *testing.T) {
 	}
 }
 
-// Built once per shard: once per index type would multiply disk cost per
-// tenant, and a cancelled apply must skip it entirely.
-func TestUpdatePropertyReadsEachShardsRecordsAtMostOnce(t *testing.T) {
+// Every property update runs this sweep, so only one that removed a dir is
+// worth a log line.
+func TestUpdatePropertySummaryLogsOnlyWhenDirsSwept(t *testing.T) {
 	tests := []struct {
-		name      string
-		cancelled bool
-		wantReads []int64
+		name         string
+		seedStaleDir bool
+		cancelled    bool
+		wantSwept    []int64
 	}{
-		{name: "one read for the shard, whatever the index-type count", wantReads: []int64{1}},
-		{name: "a cancelled apply reads nothing", cancelled: true},
+		{name: "no-op update: nothing to sweep"},
+		{name: "a stale sidecar dir to sweep", seedStaleDir: true, wantSwept: []int64{1}},
+		{name: "a cancelled apply sweeps nothing", seedStaleDir: true, cancelled: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := testCtx()
-			className := "SweepSummaryRecordReads_" + uuid.NewString()[:8]
+			className := "SweepSummaryDirsSwept_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{"title"})
 
 			logger, hook := logrustest.NewNullLogger()
@@ -165,8 +167,13 @@ func TestUpdatePropertyReadsEachShardsRecordsAtMostOnce(t *testing.T) {
 			prop.IndexFilterable = &off
 			prop.IndexSearchable = &off
 			prop.IndexRangeFilters = &off
-			require.Greater(t, len(disabledIndexTypes(prop)), 1,
-				"the property must sweep several index types or this pins nothing")
+
+			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, "filterable")
+			require.True(t, ok)
+			dir := filepath.Join(shard.pathLSM(), mainBucket+"__reindex"+genSuffix(1))
+			if tt.seedStaleDir {
+				require.NoError(t, os.MkdirAll(dir, 0o777))
+			}
 
 			applyCtx := ctx
 			if tt.cancelled {
@@ -179,11 +186,55 @@ func TestUpdatePropertyReadsEachShardsRecordsAtMostOnce(t *testing.T) {
 			err := idx.updateProperty(applyCtx, prop)
 			require.Equal(t, tt.cancelled, err != nil, "update error: %v", err)
 
-			var reads []int64
+			var swept []int64
 			for _, entry := range entriesAbout(hook, "partial-reindex cleanup: migration dirs swept for disabled index types") {
-				reads = append(reads, entry.Data["record_set_reads"].(int64))
+				swept = append(swept, entry.Data["dirs_swept"].(int64))
 			}
-			require.Equal(t, tt.wantReads, reads)
+			require.Equal(t, tt.wantSwept, swept)
+			if tt.seedStaleDir && tt.wantSwept == nil {
+				require.DirExists(t, dir)
+			}
+		})
+	}
+}
+
+// Every reindex submit and cancel sweeps every loaded shard, so the sweep logs
+// one summary line carrying the total, never a line per shard.
+func TestCleanStalePartialReindexStateLogsOneLineWithTheRemovedCount(t *testing.T) {
+	tests := []struct {
+		name            string
+		seedStaleDir    bool
+		wantDirsRemoved int
+	}{
+		{name: "nothing to remove", seedStaleDir: false, wantDirsRemoved: 0},
+		{name: "a stale sidecar dir to remove", seedStaleDir: true, wantDirsRemoved: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			class := newTestClassWithProps("CleanupLogsRemoved_"+uuid.NewString()[:8], []string{"title"})
+
+			logger, hook := logrustest.NewNullLogger()
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false, func(i *Index) { i.logger = logger })
+			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
+
+			mainBucket, ok := mainBucketForPropertyIndex("title", "filterable")
+			require.True(t, ok)
+			dir := filepath.Join(shard.pathLSM(), mainBucket+"__reindex"+genSuffix(1))
+			if tt.seedStaleDir {
+				require.NoError(t, os.MkdirAll(dir, 0o777))
+			}
+
+			hook.Reset()
+			require.NoError(t, idx.cleanStalePartialReindexState(ctx, "title", "filterable", nil, nil))
+
+			about := entriesAbout(hook, "partial-reindex cleanup:")
+			require.Len(t, about, 1, "cleanup lines for the sweep: %v", linesOf(about))
+			require.Equal(t, tt.wantDirsRemoved, about[0].Data["dirs_removed"])
+			require.NoDirExists(t, dir)
 		})
 	}
 }
