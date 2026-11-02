@@ -366,6 +366,9 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 			err := q.onBatchProcessed()
 			if err != nil {
 				q.Logger.WithField("file", c.path).Errorf("failed to flush the index, keeping the processed chunk for replay: %v", err)
+				// the replayed tasks may succeed again, so only the delay
+				// keeps a persistent failure from replaying in a loop
+				q.scheduler.retryLater(q.id)
 				return
 			}
 		}
