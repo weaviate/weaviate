@@ -64,7 +64,9 @@ func (r *MigrationRecoveryReindexer) RecoverMigrations(shard *Shard) []*ShardRei
 
 // AbandonUnarmed keeps a migration whose mirror failed to arm from swapping in
 // staged data that misses this shard's writes; resubmitting is the way out.
-func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*ShardReindexTaskGeneric, cause error) {
+// Without the stamp nothing would stop that swap once the fault clears, so a
+// failed stamp write is returned to fail the shard load.
+func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*ShardReindexTaskGeneric, cause error) error {
 	shardName := shard.Name()
 	r.armFaults.report(r.logger.WithField("shard", shardName), func(l logrus.FieldLogger) {
 		l.Errorf("reindex recovery: %d migration(s) could not re-arm their double-write mirror, so they will "+
@@ -76,10 +78,11 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 			records = append(records, rec)
 		}
 	}
-	if _, err := stampUnmirroredRecords(shard.migrationRecords, records, nil); err != nil {
-		r.reportStampFault(shardName, err)
-	}
 	r.forget(unarmed)
+	if _, err := stampUnmirroredRecords(shard.migrationRecords, records, nil); err != nil {
+		return fmt.Errorf("record that a migration's mirror stayed unarmed: %w", err)
+	}
+	return nil
 }
 
 // forget drops every task of each unarmed task's unit: a cached sibling alone

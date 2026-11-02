@@ -36,9 +36,9 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 	return recovered
 }
 
-// The shard loads even when a mirror fails to arm; the reindexer then keeps
-// that migration from swapping in staged data that misses this shard's writes.
-func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardReindexTaskGeneric) {
+// The shard loads even when a mirror fails to arm, as long as the reindexer can
+// keep that migration from swapping in staged data that misses this shard's writes.
+func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardReindexTaskGeneric) error {
 	var unarmed []*ShardReindexTaskGeneric
 	causes := errorcompounder.New()
 	for _, t := range recovered {
@@ -47,9 +47,10 @@ func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardRe
 			causes.AddWrapf(err, "%s", t.Name())
 		}
 	}
-	if len(unarmed) > 0 {
-		s.reindexer.AbandonUnarmed(s, unarmed, causes.ToErrorLimited(maxReportedErrors))
+	if len(unarmed) == 0 {
+		return nil
 	}
+	return s.reindexer.AbandonUnarmed(s, unarmed, causes.ToErrorLimited(maxReportedErrors))
 }
 
 func (s *Shard) migrationUnit() string { return migrationUnitOf(s.index, s.name) }

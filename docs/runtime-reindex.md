@@ -1058,6 +1058,8 @@ Then, per shard load:
    node's PREPARING ack fails and the task goes `FAILED` before any
    replica or sibling half swaps; it has to be resubmitted. The in-memory
    swap refuses it too, for a record stamped after its prepare passed.
+   If the stamp cannot be written either, the shard load fails: nothing
+   else would stop the stale swap once the fault clears.
 5. `FinalizeCompletedMigrations` runs per shard before LSM init
    reloads any buckets. For each `(prop, indexType)`, finds the
    highest tidied (or merged-but-not-tidied) generation, promotes

@@ -207,3 +207,43 @@ func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) 
 		})
 	}
 }
+
+// With the stamp unwritable too, nothing would block the stale swap once the
+// fault clears, so the shard must not load.
+func TestShardLoadFailsWhenAMirrorFailsToArmAndItsStampCannotBeWritten(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the read-only records dir")
+	}
+	const name = "tenant-arm-and-stamp-fail"
+	ctx := testCtx()
+	className := "LazyRecoveryStampFail_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{"title"})
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	defer shd.Shutdown(context.Background())
+
+	logger, _ := test.NewNullLogger()
+	p := NewReindexProvider(idx.db, nil, nil, logger, idx.getSchema.NodeName(), nil, ctx)
+	idx.shardReindexer = NewMigrationRecoveryReindexer(true, logger, nil, p)
+
+	subject := testMigrationSubject(3, StrategyCodeSearchableRetokenize, "title")
+	subject.TaskID, subject.Collection = "T", className
+	subject.Key.UnitID = testMigrationUnitFor(idx, name)
+	built, err := buildRecoveryTasks(subject, name, logger, nil)
+	require.NoError(t, err)
+	subject.Props["title"] = MigrationPropertyDirs{
+		Staged:    built[0].ingestBucketName("title"),
+		Canonical: subject.Props["title"].Canonical,
+		Sidecar:   built[0].reindexBucketName("title"),
+	}
+	lsm := shardPathLSM(idx.path(), name)
+	staged := filepath.Join(lsm, subject.Props["title"].Staged)
+	require.NoError(t, os.MkdirAll(staged, 0o777))
+	require.NoError(t, os.WriteFile(filepath.Join(staged, "segment-1.db"), []byte("not a segment"), 0o600))
+	require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordMerged(subject)))
+	recordsDir := filepath.Join(lsm, migrationsDir, migrationRecordsDirName)
+	require.NoError(t, os.Chmod(recordsDir, 0o500))
+	t.Cleanup(func() { require.NoError(t, os.Chmod(recordsDir, 0o700)) })
+
+	_, err = idx.initShard(ctx, name, class, nil, true, true)
+	require.ErrorContains(t, err, "mirror stayed unarmed")
+}
