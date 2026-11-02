@@ -884,11 +884,12 @@ type Backup struct {
 	DistributedTasksEnabled bool `json:"distributed_tasks_enabled" yaml:"distributed_tasks_enabled"`
 
 	// StaleTimeout is the per-task stale-detection timeout for DTM backup
-	// tasks. A unit whose fingerprint is unchanged for this duration is
-	// force-failed. Env: BACKUP_STALE_TIMEOUT. Default: 7m (parity with
-	// the legacy 7-minute node-down check) when env is unset and this field
-	// is 0. Env 0 disables stale detection. Any set value must be 0 or at
-	// least 1ms.
+	// tasks. The task is force-failed when a node still has an unfinished unit
+	// but none of its units has changed for this duration. It is also
+	// force-failed when an unclaimed unit is unchanged for this duration. Env:
+	// BACKUP_STALE_TIMEOUT. Default: 7m (parity with the legacy 7-minute
+	// node-down check) when env is unset and this field is 0. Env 0 disables
+	// stale detection. Any set value must be 0 or at least 1ms.
 	StaleTimeout time.Duration `json:"stale_timeout" yaml:"stale_timeout"`
 
 	// MaxUnitRetries is the per-unit retry budget for transient failures.

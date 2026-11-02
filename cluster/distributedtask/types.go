@@ -663,7 +663,10 @@ type Task struct {
 	FormatVersion int32 `json:"formatVersion,omitempty"`
 
 	// StaleTimeoutMs is the opt-in per-task stale-detection timeout, set
-	// at ADD time. Zero disables stale detection.
+	// at ADD time. Zero disables stale detection. A PENDING or IN_PROGRESS
+	// unit that a node has claimed is stale once none of that node's units
+	// has changed for this long. An unclaimed unit is stale once its own
+	// state has not changed for this long.
 	StaleTimeoutMs int64 `json:"staleTimeoutMs,omitempty"`
 
 	// MaxUnitRetries is the opt-in per-task retry budget for retryable

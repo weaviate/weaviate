@@ -501,10 +501,11 @@ const (
 	_PredicateReadTimeout = 5 * time.Second
 )
 
-// keepaliveIntervalFor returns how often a flow re-reports its live units, so
-// that a task's stale detector sees fresh UpdatedAt values during slow uploads.
-// It is a sixth of the stale timeout, at least one second. A task without a
-// stale timeout gets 0: stale detection skips it, so it needs no keepalive.
+// keepaliveIntervalFor returns how often a flow re-reports one of its
+// unfinished units, so that the task's stale detector sees activity from this
+// node during slow uploads. It is a sixth of the stale timeout, at least one second. A task
+// without a stale timeout gets 0: stale detection skips it, so it needs no
+// keepalive.
 func keepaliveIntervalFor(staleTimeoutMs int64) time.Duration {
 	if staleTimeoutMs <= 0 {
 		return 0
@@ -525,14 +526,49 @@ type classCompletionTracker struct {
 	completed map[string]bool
 	reported  map[string]bool
 	heldBack  string
+	// failedClaims holds the pending classes whose claim write has not
+	// succeeded. Their units can still have an empty NodeID, so the stale
+	// detector judges each unit on its own state until a keepalive tick
+	// re-claims it.
+	failedClaims map[string]bool
 }
 
 func newClassCompletionTracker(total int) *classCompletionTracker {
 	return &classCompletionTracker{
-		total:     total,
-		completed: make(map[string]bool, total),
-		reported:  make(map[string]bool, total),
+		total:        total,
+		completed:    make(map[string]bool, total),
+		reported:     make(map[string]bool, total),
+		failedClaims: make(map[string]bool),
 	}
+}
+
+func (t *classCompletionTracker) claimFailed(className string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.failedClaims[className] = true
+}
+
+func (t *classCompletionTracker) claimed(className string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.failedClaims, className)
+}
+
+// unclaimed returns, in pending order, the classes of pending whose claim
+// write has not succeeded.
+func (t *classCompletionTracker) unclaimed(pending []string) []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(t.failedClaims) == 0 {
+		return nil
+	}
+	var classes []string
+	for _, cls := range pending {
+		if t.failedClaims[cls] {
+			classes = append(classes, cls)
+		}
+	}
+	return classes
 }
 
 func (t *classCompletionTracker) uploaded(className string, record func(string) bool) {
@@ -557,10 +593,21 @@ func (t *classCompletionTracker) uploaded(className string, record func(string) 
 	}()
 }
 
-func (t *classCompletionTracker) isReported(className string) bool {
+// keepaliveTarget returns the first class in pending whose completion this
+// flow has not tried to report. The held-back class has not been tried, so it
+// qualifies. The unit of such a class is not terminal, so a progress write
+// refreshes its UpdatedAt. A class whose report failed is skipped, because a
+// failed report can still have committed and made the unit terminal. While
+// pending is non-empty, a target always exists.
+func (t *classCompletionTracker) keepaliveTarget(pending []string) (string, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.reported[className]
+	for _, cls := range pending {
+		if !t.reported[cls] && (!t.completed[cls] || cls == t.heldBack) {
+			return cls, true
+		}
+	}
+	return "", false
 }
 
 func (t *classCompletionTracker) flush(classes []string, record func(string) bool) {
@@ -676,26 +723,18 @@ func (p *BackupTaskProvider) runNodeBackup(
 		}
 	}
 
-	// Claim units: progress=0 transitions PENDING to IN_PROGRESS. If the task is
-	// no longer running, the flow returns before writing or uploading the
-	// descriptor. The scheduler terminates such a flow, and a terminated upload
-	// writes CANCELED over backup.json.
-	for _, cls := range classes {
-		unitID := fmt.Sprintf("%s/%s", p.node, cls)
-		if err := recorder.UpdateDistributedTaskUnitProgress(
-			ctx, BackupTaskNamespace, task.ID, task.Version, p.node, unitID, 0,
-		); err != nil {
-			if errors.Is(err, distributedtask.ErrTaskNotRunning) {
-				p.logger.WithFields(logFields).WithField("unit", unitID).
-					Infof("task is no longer running, not uploading: %v", err)
-				return
-			}
-			p.logger.WithFields(logFields).WithField("unit", unitID).
-				Warnf("claim write failed: %v", err)
-		}
+	pendingSet := make(map[string]struct{}, len(pending))
+	for _, cls := range pending {
+		pendingSet[cls] = struct{}{}
+	}
+	completionTracker := newClassCompletionTracker(len(pending))
+	// If the task is no longer running, the flow returns before writing or
+	// uploading the descriptor. The scheduler terminates such a flow, and a
+	// terminated upload writes CANCELED over backup.json.
+	if !p.claimUnits(ctx, task, classes, pendingSet, completionTracker, recorder, logFields) {
+		return
 	}
 
-	completionTracker := newClassCompletionTracker(len(pending))
 	keepaliveCtx, keepaliveCancel := context.WithCancel(ctx)
 	defer keepaliveCancel()
 	if interval := keepaliveIntervalFor(task.StaleTimeoutMs); interval > 0 {
@@ -780,10 +819,6 @@ func (p *BackupTaskProvider) runNodeBackup(
 	// Class callbacks can run concurrently. Only pending classes are reported,
 	// and the last of them waits until uploader.all writes the node descriptor.
 	// A re-run still uploads every local class, so the descriptor lists them all.
-	pendingSet := make(map[string]struct{}, len(pending))
-	for _, cls := range pending {
-		pendingSet[cls] = struct{}{}
-	}
 	up.onClassUploaded = func(className string) {
 		if _, ok := pendingSet[className]; ok {
 			completionTracker.uploaded(className, recordClassCompletion)
@@ -811,10 +846,39 @@ func (p *BackupTaskProvider) runNodeBackup(
 	completionTracker.flush(pending, recordClassCompletion)
 }
 
-// runKeepalive re-reports progress=0 every interval for each pending unit that
-// the tracker has not marked reported. This keeps UpdatedAt fresh for the stale
-// detector during slow uploads. A unit whose completion report failed is not
-// marked reported, so its keepalive continues.
+// claimUnits writes progress=0 for each class, which moves its unit from
+// PENDING to IN_PROGRESS and sets its NodeID to this node. It returns false
+// when the task is no longer running. A pending class whose claim fails is
+// recorded in tracker, and keepaliveTick re-claims it.
+func (p *BackupTaskProvider) claimUnits(
+	ctx context.Context,
+	task *distributedtask.Task,
+	classes []string,
+	pendingSet map[string]struct{},
+	tracker *classCompletionTracker,
+	recorder distributedtask.TaskCompletionRecorder,
+	logFields logrus.Fields,
+) bool {
+	for _, cls := range classes {
+		unitID := fmt.Sprintf("%s/%s", p.node, cls)
+		if err := recorder.UpdateDistributedTaskUnitProgress(
+			ctx, BackupTaskNamespace, task.ID, task.Version, p.node, unitID, 0,
+		); err != nil {
+			if errors.Is(err, distributedtask.ErrTaskNotRunning) {
+				p.logger.WithFields(logFields).WithField("unit", unitID).
+					Infof("task is no longer running, not uploading: %v", err)
+				return false
+			}
+			p.logger.WithFields(logFields).WithField("unit", unitID).
+				Warnf("claim write failed: %v", err)
+			if _, ok := pendingSet[cls]; ok && !errors.Is(err, distributedtask.ErrUnitAlreadyTerminal) {
+				tracker.claimFailed(cls)
+			}
+		}
+	}
+	return true
+}
+
 func (p *BackupTaskProvider) runKeepalive(
 	ctx context.Context,
 	task *distributedtask.Task,
@@ -830,18 +894,41 @@ func (p *BackupTaskProvider) runKeepalive(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			for _, cls := range pending {
-				if tracker.isReported(cls) {
-					continue
-				}
-				unitID := fmt.Sprintf("%s/%s", p.node, cls)
-				// progress=0 skips the update throttle, and the FSM always
-				// refreshes UpdatedAt.
-				_ = recorder.UpdateDistributedTaskUnitProgress(
-					ctx, BackupTaskNamespace, task.ID, task.Version, p.node, unitID, 0,
-				)
-			}
+			p.keepaliveTick(ctx, task, pending, tracker, recorder)
 		}
+	}
+}
+
+// keepaliveTick first re-sends the claim for every class whose claim write has
+// not succeeded. It then writes progress=0 for the tracker's keepalive target.
+// The stale detector judges a claimed unit by the newest change on any unit
+// its node has claimed. So one fresh UpdatedAt per interval keeps all of this
+// node's claimed units from going stale during slow uploads. An unclaimed unit
+// is judged on its own state, so each failed claim costs one extra write per
+// tick until it succeeds. With no target and no failed claims, the tick
+// writes nothing.
+func (p *BackupTaskProvider) keepaliveTick(
+	ctx context.Context,
+	task *distributedtask.Task,
+	pending []string,
+	tracker *classCompletionTracker,
+	recorder distributedtask.TaskCompletionRecorder,
+) {
+	// progress=0 skips the update throttle, and the task state machine always
+	// refreshes UpdatedAt on a non-terminal unit.
+	write := func(cls string) error {
+		return recorder.UpdateDistributedTaskUnitProgress(
+			ctx, BackupTaskNamespace, task.ID, task.Version, p.node, fmt.Sprintf("%s/%s", p.node, cls), 0,
+		)
+	}
+	for _, cls := range tracker.unclaimed(pending) {
+		if err := write(cls); err == nil || errors.Is(err, distributedtask.ErrUnitAlreadyTerminal) ||
+			errors.Is(err, distributedtask.ErrTaskNotRunning) {
+			tracker.claimed(cls)
+		}
+	}
+	if cls, ok := tracker.keepaliveTarget(pending); ok {
+		_ = write(cls)
 	}
 }
 

@@ -78,6 +78,9 @@ type threadSafeRecorder struct {
 	onCompletion func(unitID string)
 	// progressErr, when set, is returned by every progress update.
 	progressErr error
+	// progressFailures maps a unit ID to how many of its next progress updates
+	// fail. A failed update is not recorded.
+	progressFailures map[string]int
 }
 
 type progressEntry struct {
@@ -118,6 +121,10 @@ func (r *threadSafeRecorder) UpdateDistributedTaskUnitProgress(_ context.Context
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.progressFailures[unitID] > 0 {
+		r.progressFailures[unitID]--
+		return errors.New("raft write failed")
+	}
 	r.progresses = append(r.progresses, progressEntry{unitID, progress})
 	if r.claimTask != nil {
 		if u := r.claimTask.Units[unitID]; u != nil {
@@ -798,7 +805,125 @@ func TestBackupTaskProvider(t *testing.T) {
 		assert.Equal(t, []distributedtask.TaskDescriptor{{ID: "b1", Version: 42}}, provider.GetLocalTasks())
 	})
 
-	t.Run("keepalive refreshes only units the flow has not completed", func(t *testing.T) {
+	t.Run("keepalive refreshes one unreported unit per tick", func(t *testing.T) {
+		pending := []string{"Article", "Book", "Movie"}
+		tests := []struct {
+			name  string
+			setup func(*classCompletionTracker)
+			want  []progressEntry
+		}{
+			{
+				name: "no unit reported targets the first pending unit",
+				want: []progressEntry{{"node-1/Article", 0}},
+			},
+			{
+				name: "a reported unit hands over to the next unreported unit",
+				setup: func(tr *classCompletionTracker) {
+					tr.uploaded("Article", func(string) bool { return true })
+				},
+				want: []progressEntry{{"node-1/Book", 0}},
+			},
+			{
+				// The failed report can have committed, and the task state
+				// machine ignores progress on a terminal unit.
+				name: "a unit whose completion report failed is skipped",
+				setup: func(tr *classCompletionTracker) {
+					tr.uploaded("Article", func(string) bool { return false })
+				},
+				want: []progressEntry{{"node-1/Book", 0}},
+			},
+			{
+				name: "the held-back last unit stays the target",
+				setup: func(tr *classCompletionTracker) {
+					tr.uploaded("Article", func(string) bool { return true })
+					tr.uploaded("Book", func(string) bool { return false })
+					tr.uploaded("Movie", func(string) bool { return true })
+				},
+				want: []progressEntry{{"node-1/Movie", 0}},
+			},
+			{
+				name: "every unit reported makes no call",
+				setup: func(tr *classCompletionTracker) {
+					for _, cls := range pending {
+						tr.completed[cls] = true
+						tr.reported[cls] = true
+					}
+				},
+			},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				logger, _ := test.NewNullLogger()
+				recorder := &threadSafeRecorder{}
+				provider := NewBackupTaskProvider(BackupTaskProviderParams{
+					Node:   "node-1",
+					Logger: logger,
+					Cfg:    config.Backup{},
+				})
+				task := makeTask("b1", distributedtask.TaskStatusStarted, makePayload("b1"))
+				tracker := newClassCompletionTracker(len(pending))
+				if tc.setup != nil {
+					tc.setup(tracker)
+				}
+
+				provider.keepaliveTick(context.Background(), task, pending, tracker, recorder)
+				assert.Equal(t, tc.want, recorder.getProgresses())
+			})
+		}
+	})
+
+	t.Run("keepalive re-sends failed claims", func(t *testing.T) {
+		pending := []string{"Article", "Book", "Movie"}
+		pendingSet := map[string]struct{}{"Article": {}, "Book": {}, "Movie": {}}
+		tests := []struct {
+			name string
+			// failures counts the leading failed writes per unit, claims included.
+			failures map[string]int
+			ticks    int
+			want     []progressEntry
+		}{
+			{
+				name:     "a failed claim on a later class is re-sent with the keepalive",
+				failures: map[string]int{"node-1/Book": 1},
+				ticks:    1,
+				want:     []progressEntry{{"node-1/Book", 0}, {"node-1/Article", 0}},
+			},
+			{
+				name:     "a re-claim that fails again is retried on the next tick",
+				failures: map[string]int{"node-1/Book": 2},
+				ticks:    2,
+				want:     []progressEntry{{"node-1/Article", 0}, {"node-1/Book", 0}, {"node-1/Article", 0}},
+			},
+			{
+				name:     "a re-claim that succeeds is not sent again",
+				failures: map[string]int{"node-1/Book": 1},
+				ticks:    2,
+				want:     []progressEntry{{"node-1/Book", 0}, {"node-1/Article", 0}, {"node-1/Article", 0}},
+			},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				logger, _ := test.NewNullLogger()
+				recorder := &threadSafeRecorder{progressFailures: tc.failures}
+				provider := NewBackupTaskProvider(BackupTaskProviderParams{
+					Node:   "node-1",
+					Logger: logger,
+					Cfg:    config.Backup{},
+				})
+				task := makeTask("b1", distributedtask.TaskStatusStarted, makePayload("b1"))
+				tracker := newClassCompletionTracker(len(pending))
+
+				require.True(t, provider.claimUnits(context.Background(), task, pending, pendingSet, tracker, recorder, nil))
+				claims := len(recorder.getProgresses())
+				for range tc.ticks {
+					provider.keepaliveTick(context.Background(), task, pending, tracker, recorder)
+				}
+				assert.Equal(t, tc.want, recorder.getProgresses()[claims:])
+			})
+		}
+	})
+
+	t.Run("keepalive ticks until its context ends", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		recorder := &threadSafeRecorder{}
 		provider := NewBackupTaskProvider(BackupTaskProviderParams{
@@ -807,17 +932,8 @@ func TestBackupTaskProvider(t *testing.T) {
 			Cfg:    config.Backup{},
 		})
 		task := makeTask("b1", distributedtask.TaskStatusStarted, makePayload("b1"))
-		pending := []string{"Article", "Book", "Movie"}
+		pending := []string{"Article", "Book"}
 		tracker := newClassCompletionTracker(len(pending))
-		writes := func(className string) int {
-			n := 0
-			for _, p := range recorder.getProgresses() {
-				if p.unitID == "node-1/"+className {
-					n++
-				}
-			}
-			return n
-		}
 
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan struct{})
@@ -827,24 +943,13 @@ func TestBackupTaskProvider(t *testing.T) {
 		}()
 
 		require.Eventually(t, func() bool {
-			return writes("Article") > 0 && writes("Book") > 0 && writes("Movie") > 0
-		}, 5*time.Second, time.Millisecond, "every pending unit is refreshed")
-
-		// Article's completion report succeeds. Book's fails, so Book stays live.
-		tracker.uploaded("Article", func(string) bool { return true })
-		tracker.uploaded("Book", func(string) bool { return false })
-		articleWrites, bookWrites, movieWrites := writes("Article"), writes("Book"), writes("Movie")
-
-		require.Eventually(t, func() bool {
-			return writes("Book") >= bookWrites+3 && writes("Movie") >= movieWrites+3
-		}, 5*time.Second, time.Millisecond, "live units keep being refreshed")
+			return len(recorder.getProgresses()) >= 2
+		}, 5*time.Second, time.Millisecond, "every tick refreshes a unit")
 		cancel()
 		<-done
 
-		// Only the tick in flight when Article was reported can write it again.
-		assert.LessOrEqual(t, writes("Article"), articleWrites+1, "a reported unit is no longer refreshed")
 		for _, p := range recorder.getProgresses() {
-			assert.Equal(t, float32(0), p.progress, "keepalive re-reports progress=0, which refreshes UpdatedAt")
+			assert.Equal(t, progressEntry{"node-1/Article", 0}, p)
 		}
 	})
 
