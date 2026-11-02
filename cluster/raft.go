@@ -112,8 +112,8 @@ func (s *Raft) LocalDistributedTasks() map[string][]*distributedtask.Task {
 	return s.store.LocalDistributedTasks()
 }
 
-// LocalTaskStatuses is the decider's read of this node's FSM. It can trail the
-// leader, so a task missing from it licenses no decision.
+// LocalTaskStatuses is the decider's read of this node's FSM. It can trail the leader,
+// so a missing task licenses no discard; only the applied schema's effect licenses a commit.
 func (s *Raft) LocalTaskStatuses(namespace string) []distributedtask.TaskStatusEntry {
 	return s.store.LocalTaskStatuses(namespace)
 }
