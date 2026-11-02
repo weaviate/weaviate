@@ -27,13 +27,53 @@ import (
 func makeCatchPanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequestsTotal) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			defer handlePanics(logger, metricRequestsTotal, r)
-			next.ServeHTTP(w, r)
+			pw := &panicResponseWriter{ResponseWriter: w}
+			defer handlePanics(logger, metricRequestsTotal, r, pw)
+			next.ServeHTTP(pw, r)
 		})
 	}
 }
 
-func handlePanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequestsTotal, r *http.Request) {
+// panicResponseWriter records whether the handler wrote anything, so a
+// recovered panic can answer 500 instead of net/http's implicit empty 200.
+type panicResponseWriter struct {
+	http.ResponseWriter
+	wrote bool
+}
+
+func (p *panicResponseWriter) WriteHeader(status int) {
+	p.wrote = true
+	p.ResponseWriter.WriteHeader(status)
+}
+
+func (p *panicResponseWriter) Write(b []byte) (int, error) {
+	p.wrote = true
+	return p.ResponseWriter.Write(b)
+}
+
+func (p *panicResponseWriter) Flush() {
+	if f, ok := p.ResponseWriter.(http.Flusher); ok {
+		p.wrote = true
+		f.Flush()
+	}
+}
+
+// Unwrap lets http.ResponseController reach the underlying writer.
+func (p *panicResponseWriter) Unwrap() http.ResponseWriter {
+	return p.ResponseWriter
+}
+
+// writeInternalError answers a recovered panic when nothing was sent yet.
+func (p *panicResponseWriter) writeInternalError() {
+	if p.wrote {
+		return
+	}
+	p.Header().Set("Content-Type", "application/json")
+	p.WriteHeader(http.StatusInternalServerError)
+	p.Write([]byte(`{"error":[{"message":"internal server error; details are in the server log"}]}`))
+}
+
+func handlePanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequestsTotal, r *http.Request, pw *panicResponseWriter) {
 	recovered := recover()
 	if recovered == nil {
 		return
@@ -53,6 +93,7 @@ func handlePanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequests
 		// find the source of the issue if the user sends their logs
 		metricRequestsTotal.logServerError("", fmt.Errorf("%v", recovered))
 		enterrors.PrintStack(logger)
+		pw.writeInternalError()
 		return
 	}
 
@@ -86,6 +127,7 @@ func handlePanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequests
 	entsentry.Recover(r)
 
 	enterrors.PrintStack(logger)
+	pw.writeInternalError()
 }
 
 func handleBrokenPipe(err error, logger logrus.FieldLogger, r *http.Request) {

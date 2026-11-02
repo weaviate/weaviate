@@ -92,16 +92,7 @@ type MigrationStrategy interface {
 	PreReindexHook(shard *Shard, props []string)
 
 	// AnalyzerOverlay returns a per-property override map applied by the
-	// inverted analyzer during the backfill scan. It is used by
-	// "from-scratch" strategies (e.g. enable-filterable / enable-searchable)
-	// that build a brand-new inverted bucket while the corresponding
-	// schema flag is still false in the RAFT-stored schema. Without this
-	// override the analyzer would skip the targeted property and produce
-	// an empty target bucket.
-	//
-	// Strategies that don't need an overlay (the live schema flag is
-	// already true for the targeted properties — e.g. retokenize,
-	// map→blockmax, roaring-set refresh) should return nil.
+	// analyzer; without it a property whose schema flag is false is skipped.
 	AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay
 
 	// OnMigrationComplete is called when the migration is fully tidied on a
@@ -111,34 +102,16 @@ type MigrationStrategy interface {
 	// migrations, where the flag must only flip once every searchable property
 	// has been migrated.
 	//
-	// Phase contract (see inverted_reindex_task_generic.go file-level
-	// godoc): OnMigrationComplete fires in Phase 2c — AFTER the per-prop
-	// SwapBucketPointer tight loop (Phase 2a) and AFTER the inline
-	// oldMain.Shutdown + oldMain→backup rename loop (Phase 2b), but still
-	// INSIDE the per-shard tokenization-overlay window for migrations
-	// that use one (change-tokenization-{searchable,filterable},
-	// enable-filterable, enable-searchable). The overlay is cleared
-	// later by the cluster-wide schema flip in
-	// [ReindexProvider.OnTaskCompleted].
-	//
 	// Allowed work in this position:
 	//
-	//   - In-memory mutation of shard-local query-path state that MUST
-	//     match the cluster-wide schema flip before that flip
-	//     propagates. The canonical example is
-	//     [Shard.setRangeableLocallyReady] in
-	//     [FilterableToRangeableStrategy.OnMigrationComplete] — it
-	//     ensures THIS shard's queries observe ready=true at the same
-	//     moment they could observe the new schema flag. The overlay
-	//     is the equivalent mechanism for tokenization changes; this
-	//     hook is the equivalent for per-shard ready flags.
+	//   - In-memory mutation of shard-local state the query path consults.
+	//     [FilterableToRangeableStrategy.OnMigrationComplete] calls
+	//     [Shard.setRangeableLocallyReady] so range queries reach the bucket
+	//     the swap just made canonical.
 	//
-	//   - RAFT calls (per-property schema updates) for non-semantic
-	//     strategies whose schema flip is NOT batched in
-	//     OnTaskCompleted: e.g. [MapToBlockmaxStrategy]'s
-	//     updateToBlockMaxInvertedIndexConfig (class-level
-	//     UsingBlockMaxWAND), [FilterableToRangeableStrategy]'s
-	//     applyPerPropertySchemaUpdate (per-property IndexRangeFilters).
+	//   - RAFT calls for strategies whose schema flip is NOT batched in
+	//     OnTaskCompleted: [MapToBlockmaxStrategy]'s
+	//     updateToBlockMaxInvertedIndexConfig (class-level UsingBlockMaxWAND).
 	//     These are slow (hundreds of ms) — correctness is preserved by
 	//     the overlay covering the per-shard window — but they widen
 	//     the FINALIZING duration beyond what the per-shard atomic

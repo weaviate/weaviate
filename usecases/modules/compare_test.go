@@ -13,6 +13,7 @@ package modules
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -436,4 +437,53 @@ func TestCompareRevectorize_BlobHashMediaProperty(t *testing.T) {
 		{name: "media blobHash unchanged -> skip", oldProps: map[string]any{"image": hashA}, newProps: map[string]any{"image": "QQ=="}, different: false},
 		{name: "media blobHash changed -> re-vectorize", oldProps: map[string]any{"image": hashA}, newProps: map[string]any{"image": "Qg=="}, different: true},
 	})
+}
+
+// TestCompareRevectorize_MultiTenantLookupUsesObjectTenant: the stored-object
+// lookup runs in the object's tenant. On a multi-tenant class a lookup without
+// the tenant fails, and a failed lookup re-vectorizes, so an unchanged object
+// only keeps its stored vector when its tenant reaches the lookup.
+func TestCompareRevectorize_MultiTenantLookupUsesObjectTenant(t *testing.T) {
+	class := &models.Class{
+		Class:              "MyClass",
+		Vectorizer:         "my-module",
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{schema.DataTypeText.String()}},
+		},
+	}
+	cfg := NewClassBasedModuleConfig(class, "my-module", "tenantA", "", nil)
+	module := newDummyText2VecModule("my-module", []string{"image", "video"})
+	storedVector := []float32{1, 2, 3}
+
+	// Like the real repo, the stored object is only found in its tenant's shard.
+	findInTenant := func(ctx context.Context, class string, id strfmt.UUID,
+		props search.SelectProperties, adds additional.Properties, tenant string,
+	) (*search.Result, error) {
+		if tenant != "tenantA" {
+			return nil, errors.New("has multi-tenancy enabled, but request was without tenant")
+		}
+		return &search.Result{Schema: map[string]any{"text": "value1"}, Vector: storedVector}, nil
+	}
+
+	cases := []struct {
+		name      string
+		newProps  map[string]any
+		different bool
+	}{
+		{name: "source property unchanged -> keep stored vector", newProps: map[string]any{"text": "value1"}, different: false},
+		{name: "source property changed -> re-vectorize", newProps: map[string]any{"text": "value2"}, different: true},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			uid, _ := uuid.NewRandom()
+			objNew := &models.Object{Class: class.Class, Properties: tt.newProps, ID: strfmt.UUID(uid.String()), Tenant: "tenantA"}
+			different, _, vector, err := reVectorize(context.Background(), cfg, module, objNew, class, nil, "", findInTenant, false)
+			require.NoError(t, err)
+			require.Equal(t, tt.different, different)
+			if !tt.different {
+				require.Equal(t, storedVector, vector)
+			}
+		})
+	}
 }

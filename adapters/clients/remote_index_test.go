@@ -32,10 +32,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
+	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
 func TestRemoteIndexReInitShardIn(t *testing.T) {
@@ -226,6 +230,40 @@ func TestRemoteIndexPutFile(t *testing.T) {
 	})
 }
 
+// A failed check must not report the object as present, or a caller reading
+// the bool first answers "already exists" for an object that was never stored.
+func TestRemoteIndexExistsFailedCheck(t *testing.T) {
+	t.Parallel()
+
+	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
+	fs := newFakeRemoteIndexServer(t, http.MethodGet, "/indices/C1/shards/S1/objects/"+id.String())
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+	ts := fs.server(t)
+	defer ts.Close()
+
+	down := httptest.NewServer(http.NotFoundHandler())
+	downHost := down.URL[7:]
+	down.Close()
+
+	tests := []struct {
+		name string
+		host string
+	}{
+		{name: "owner answers 500", host: fs.host},
+		{name: "owner refuses the connection", host: downHost},
+	}
+	client := newRemoteIndex(ts.Client())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			exists, err := client.Exists(context.Background(), tt.host, "C1", "S1", id)
+			require.Error(t, err)
+			assert.False(t, exists)
+		})
+	}
+}
+
 func newRemoteIndex(httpClient *http.Client) *RemoteIndex {
 	ri := NewRemoteIndex(httpClient)
 	ri.minBackOff = time.Millisecond * 1
@@ -374,4 +412,99 @@ func TestRemoteIndexRemoveAsyncReplicationTargetNode(t *testing.T) {
 		err := client.RemoveAsyncReplicationTargetNode(ctx, fs.host, indexName, shardName, override)
 		assert.Nil(t, err)
 	})
+}
+
+// TestRemoteIndexSearchShardShedRehydratesOverloaded pins M2: retry
+// exhaustion on a 429-shedding remote node must rehydrate
+// queryadmission.ErrOverloaded, not collapse to a generic 500.
+func TestRemoteIndexSearchShardShedRehydratesOverloaded(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := "/indices/C1/shards/S1/objects/_search"
+	fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
+	ts := fs.server(t)
+	defer ts.Close()
+	client := newRemoteIndex(ts.Client())
+
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte("node overloaded, request shed"))
+	}
+
+	_, _, _, err := client.SearchShard(ctx, fs.host, "C1", "S1",
+		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
+	require.Error(t, err)
+	require.ErrorIs(t, err, queryadmission.ErrOverloaded,
+		"a cross-node admission shed (429) surviving retry exhaustion must carry ErrOverloaded, got: %v", err)
+	// The underlying status detail is preserved for operators.
+	require.Contains(t, err.Error(), "429")
+}
+
+// TestRemoteIndexSearchShardNon429NotOverloaded is the negative control: a
+// non-429 exhaustion (500) must NOT be mislabelled as an admission shed.
+func TestRemoteIndexSearchShardNon429NotOverloaded(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := "/indices/C1/shards/S1/objects/_search"
+	fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
+	ts := fs.server(t)
+	defer ts.Close()
+	client := newRemoteIndex(ts.Client())
+
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("boom"))
+	}
+
+	_, _, _, err := client.SearchShard(ctx, fs.host, "C1", "S1",
+		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, queryadmission.ErrOverloaded)
+}
+
+// TestRemoteIndexAggregateShedRehydratesOverloaded mirrors the SearchShard
+// case: a remote aggregation shed (429) surviving retry exhaustion must carry
+// ErrOverloaded so the ingress maps it, not collapse to a generic error.
+func TestRemoteIndexAggregateShedRehydratesOverloaded(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := "/indices/C1/shards/S1/objects/_aggregations"
+	fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
+	ts := fs.server(t)
+	defer ts.Close()
+	client := newRemoteIndex(ts.Client())
+
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte("node overloaded, request shed"))
+	}
+
+	_, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{})
+	require.Error(t, err)
+	require.ErrorIs(t, err, queryadmission.ErrOverloaded,
+		"a cross-node aggregation shed (429) surviving retry exhaustion must carry ErrOverloaded, got: %v", err)
+	require.Contains(t, err.Error(), "429")
+}
+
+func TestRemoteIndexAggregateNon429NotOverloaded(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := "/indices/C1/shards/S1/objects/_aggregations"
+	fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
+	ts := fs.server(t)
+	defer ts.Close()
+	client := newRemoteIndex(ts.Client())
+
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("boom"))
+	}
+
+	_, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{})
+	require.Error(t, err)
+	require.NotErrorIs(t, err, queryadmission.ErrOverloaded)
 }

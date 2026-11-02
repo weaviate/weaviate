@@ -6,6 +6,7 @@ repos:
         entry: gofumpt -w
         language: system
         types: [ go ]
+        exclude: ^adapters/repos/db/lsmkv/bloomhash/murmur\.go$ # verbatim copy of bits-and-blooms/bloom
       - id: error groups
         name: error groups
         entry: ./tools/linter_error_groups.sh
@@ -22,8 +23,8 @@ repos:
         language: system
         types: [ go ]
   - repo: https://github.com/golangci/golangci-lint
-    # Keep in sync with .github/workflows/linter.yml.
-    rev: v2.13.1
+    # Keep in sync with .github/actions/golangci-lint/action.yml and tools/gen-code-from-swagger.sh.
+    rev: v2.14.0
     hooks:
       - id: golangci-lint
         args: [--new-from-rev=HEAD]

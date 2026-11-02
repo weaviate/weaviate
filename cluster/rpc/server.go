@@ -29,6 +29,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -237,8 +238,12 @@ func toRPCError(err error) error {
 		// leader-local apply would otherwise reach the follower as
 		// codes.Internal and render 500.
 		ec = NotLeaderRPCCode
-	case errors.Is(err, types.ErrNotOpen):
+	case errors.Is(err, types.ErrNotOpen),
+		errors.Is(err, types.ErrFSMNotCaughtUp):
 		ec = codes.Unavailable
+	case errors.Is(err, types.ErrUnknownCommand):
+		// This node, or a node the request was forwarded to, has no handler for this command type.
+		ec = codes.Unimplemented
 	case errors.Is(err, namespaces.ErrNamespaceGone),
 		errors.Is(err, namespaces.ErrNotFound):
 		ec = codes.NotFound
@@ -250,6 +255,7 @@ func toRPCError(err error) error {
 		errors.Is(err, namespaces.ErrCollectionSuspended),
 		errors.Is(err, namespaces.ErrNamespaceResuming),
 		errors.Is(err, namespaces.ErrStateChangedConcurrently),
+		errors.Is(err, replicationTypes.ErrMovementBlockedByTask),
 		errors.Is(err, schema.ErrMTDisabled):
 		ec = codes.FailedPrecondition
 	case errors.Is(err, namespaces.ErrAlreadyExists),

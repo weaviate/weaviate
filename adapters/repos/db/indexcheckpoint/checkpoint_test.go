@@ -80,13 +80,37 @@ func TestCheckpoint(t *testing.T) {
 		err = c.Update("shard1", "", 123)
 		require.NoError(t, err)
 
-		err := c.DeleteShard("shard1")
+		err := c.DeleteShard("shard1", nil)
 		require.NoError(t, err)
 
 		v, ok, err := c.Get("shard1", "")
 		require.NoError(t, err)
 		require.False(t, ok)
 		require.Zero(t, v)
+	})
+
+	// shard ids join the index and shard name with "_", and tenant names may contain it
+	t.Run("deleteShard: tenant whose name starts with the other's", func(t *testing.T) {
+		require.NoError(t, c.Update("docs_t1", "", 1))
+		require.NoError(t, c.Update("docs_t1", "a", 2))
+		require.NoError(t, c.Update("docs_t1_x", "", 3))
+		require.NoError(t, c.Update("docs_t1_x", "a", 4))
+
+		require.NoError(t, c.DeleteShard("docs_t1", []string{"a"}))
+
+		for _, deleted := range []string{"", "a"} {
+			_, ok, err := c.Get("docs_t1", deleted)
+			require.NoError(t, err)
+			require.False(t, ok)
+		}
+		v, ok, err := c.Get("docs_t1_x", "")
+		require.NoError(t, err)
+		require.True(t, ok, "the checkpoint of tenant t1_x must be kept")
+		require.EqualValues(t, 3, v)
+		v, ok, err = c.Get("docs_t1_x", "a")
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.EqualValues(t, 4, v)
 	})
 
 	t.Run("deleteShard: named vectors", func(t *testing.T) {
@@ -102,7 +126,7 @@ func TestCheckpoint(t *testing.T) {
 		err = c.Update("vector_wKFB6FDP7hd_", "a", 4)
 		require.NoError(t, err)
 
-		err := c.DeleteShard("vector_wKFB6FDP7hdS")
+		err := c.DeleteShard("vector_wKFB6FDP7hdS", []string{"a", "b"})
 		require.NoError(t, err)
 
 		v, ok, err := c.Get("vector_wKFB6FDP7hdS", "a")

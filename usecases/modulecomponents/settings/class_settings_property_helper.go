@@ -229,6 +229,14 @@ func getNumberValue[T int | int64 | float64](settings map[string]any,
 		if asInt64V, err := v.Int64(); err == nil {
 			return asNumber[int64, T](asInt64V)
 		}
+		// A fraction, which only a float setting can hold. The REST API
+		// decodes every number of a module config as json.Number.
+		var zero T
+		if _, isFloat := any(zero).(float64); isFloat {
+			if asFloat64V, err := v.Float64(); err == nil {
+				return asNumber[float64, T](asFloat64V)
+			}
+		}
 		return defaultValue
 	case float32:
 		return asNumber[float32, T](v)

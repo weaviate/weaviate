@@ -13,11 +13,13 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -720,10 +722,52 @@ func TestScanResourceUsageOnce_SeesMemoryDropWhileReadOnly(t *testing.T) {
 	db.resourceScanState.isReadOnly.Store(true)
 
 	used.Store(10)
-	db.scanResourceUsageOnce(mon, diskUse{total: 100, free: 100, avail: 100}, false)
+	db.scanResourceUsageOnce(mon, diskUse{total: 100, free: 100, avail: 100}, time.Now())
 
 	assert.False(t, db.resourceScanState.isReadOnly.Load(), "isReadOnly should lift once memory drops")
 	assert.Equal(t, storagestate.StatusReady, shard.get().Status)
+}
+
+// The scan reads the mappings when MappingsReadDue says so.
+func TestScanResourceUsageOnce_ReadsMappingsWhenDue(t *testing.T) {
+	mon := memwatch.NewMonitor(func() int64 { return 0 }, func(int64) int64 { return 100 }, 1.0)
+	db := testResourceDB(t, 0, 0, nil)
+	due := time.Now().Add(time.Minute)
+	require.True(t, mon.MappingsReadDue(due))
+
+	db.scanResourceUsageOnce(mon, diskUse{total: 100, free: 100, avail: 100}, due)
+
+	assert.False(t, mon.MappingsReadDue(due), "the scan should have read the mappings")
+}
+
+func TestWarnMappingsReadFailed(t *testing.T) {
+	readErr := errors.New("too many open files")
+	cases := []struct {
+		name             string
+		errs             []error // one read result per scan
+		expectedWarnings int
+	}{
+		{name: "a successful read warns nothing", errs: []error{nil}, expectedWarnings: 0},
+		{name: "a failed read warns", errs: []error{readErr}, expectedWarnings: 1},
+		{name: "a second failure within the backoff warns nothing", errs: []error{readErr, readErr}, expectedWarnings: 1},
+		{name: "a failure after a successful read warns again", errs: []error{readErr, nil, readErr}, expectedWarnings: 2},
+		{name: "a success ends an incident of several failures", errs: []error{readErr, readErr, nil, readErr}, expectedWarnings: 2},
+		{name: "a failure after the reset is throttled again", errs: []error{readErr, nil, readErr, readErr}, expectedWarnings: 2},
+		{name: "every failure after a success warns", errs: []error{readErr, nil, readErr, nil, readErr}, expectedWarnings: 3},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			db := testResourceDB(t, 0, 0, nil)
+			db.logger = logger
+
+			for _, err := range tt.errs {
+				db.warnMappingsReadFailed(err)
+			}
+
+			assert.Len(t, hook.AllEntries(), tt.expectedWarnings)
+		})
+	}
 }
 
 // Both sweeps decide and write in one shard call, so a status set between the

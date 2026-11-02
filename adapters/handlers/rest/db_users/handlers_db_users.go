@@ -16,7 +16,9 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"sync"
 	"time"
 
@@ -56,6 +58,8 @@ import (
 type dynUserHandler struct {
 	authorizer           authorization.Authorizer
 	dbUsers              DbUserAndRolesGetter
+	localUsers           LocalUsersGetter
+	localRoles           authorization.Controller // nil when RBAC is disabled
 	staticApiKeysConfigs config.StaticAPIKey
 	rbacConfig           rbacconf.Config
 	adminListConfig      adminlist.Config
@@ -73,16 +77,24 @@ type DbUserAndRolesGetter interface {
 	RevokeRolesForUser(userName string, roles ...string) error
 }
 
+// LocalUsersGetter reads db users from this node's store without asking the RAFT
+// leader.
+type LocalUsersGetter interface {
+	GetUsers(userIds ...string) (map[string]apikey.UserView, error)
+}
+
 var validateUserNameRegex = regexp.MustCompile(`^` + apikey.UserNameRegexCore + `$`)
 
 func SetupHandlers(
-	api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, authorizer authorization.Authorizer, authNConfig config.Authentication,
-	authZConfig config.Authorization, remoteUser *clients.RemoteUser, nodesGetter schema.SchemaGetter,
+	api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, localUsers LocalUsersGetter, localRoles authorization.Controller, authorizer authorization.Authorizer,
+	authNConfig config.Authentication, authZConfig config.Authorization, remoteUser *clients.RemoteUser, nodesGetter schema.SchemaGetter,
 	namespacesEnabled bool, ns namespaces.Exister, logger logrus.FieldLogger,
 ) {
 	h := &dynUserHandler{
 		authorizer:           authorizer,
 		dbUsers:              dbUsers,
+		localUsers:           localUsers,
+		localRoles:           localRoles,
 		staticApiKeysConfigs: authNConfig.APIKey,
 		dbUserEnabled:        authNConfig.DBUsers.Enabled,
 		rbacConfig:           authZConfig.Rbac,
@@ -113,15 +125,12 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		return users.NewListAllUsersOK().WithPayload([]*models.DBUserInfo{})
 	}
 
-	allDbUsers, err := h.dbUsers.GetUsers()
+	allDbUsers, err := h.localUsers.GetUsers()
 	if err != nil {
 		return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	allUsers := make([]apikey.UserView, 0, len(allDbUsers))
-	for _, dbUser := range allDbUsers {
-		allUsers = append(allUsers, dbUser)
-	}
+	allUsers := slices.Collect(maps.Values(allDbUsers))
 
 	resourceFilter := filter.New[apikey.UserView](h.authorizer, h.rbacConfig)
 	filteredUsers := resourceFilter.Filter(
@@ -185,12 +194,18 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 }
 
 func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *models.Principal, response []*models.DBUserInfo, internalID, displayID, userType string, active bool, apiKeyFirstLetter, namespace string, createdAt *time.Time, lastusedAt *time.Time) ([]*models.DBUserInfo, error) {
-	roles, err := h.dbUsers.GetRolesForUserOrGroup(internalID, authentication.AuthTypeDb, false)
-	if err != nil {
-		return response, err
+	// The list reads roles once per user, so it reads this node's controller
+	// rather than querying the leader.
+	var roles map[string][]authorization.Policy
+	if h.localRoles != nil {
+		var err error
+		roles, err = h.localRoles.GetRolesForUserOrGroup(internalID, authentication.AuthTypeDb, false)
+		if err != nil {
+			return response, err
+		}
 	}
 
-	own := principal != nil && internalID == principal.Username && principal.UserType == models.UserTypeInputDb
+	own := apikey.IsOwnUser(principal, internalID)
 	resp := &models.DBUserInfo{
 		Active:             &active,
 		UserID:             &displayID,
@@ -279,7 +294,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("get roles: %w", err)))
 	}
 
-	own := principal != nil && internalKey == principal.Username && principal.UserType == models.UserTypeInputDb
+	own := apikey.IsOwnUser(principal, internalKey)
 	response.Roles = h.visibleRoleNames(ctx, principal, existingRoles, own)
 
 	return users.NewGetUserInfoOK().WithPayload(response)
@@ -402,7 +417,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 	}
 
 	if params.Body.Import != nil && *params.Body.Import {
-		if !h.principalIsRootUser(principal.Username) {
+		if !h.principalIsRootUser(principal) {
 			return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("only root users can import static api keys")))
 		}
 
@@ -546,7 +561,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("db user management is not enabled")))
 	}
 
-	if internalKey == principal.Username {
+	if apikey.IsOwnUser(principal, internalKey) {
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("cannot delete its own user %q", params.UserID)))
 	}
 
@@ -595,7 +610,7 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("db user management is not enabled")))
 	}
 
-	if internalKey == principal.Username {
+	if apikey.IsOwnUser(principal, internalKey) {
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("cannot deactivate its own user %q", params.UserID)))
 	}
 
@@ -921,16 +936,11 @@ func (h *dynUserHandler) staticUserExists(newUser string) bool {
 	return false
 }
 
-func (h *dynUserHandler) principalIsRootUser(name string) bool {
+func (h *dynUserHandler) principalIsRootUser(principal *models.Principal) bool {
 	if !h.rbacConfig.Enabled && !h.adminListConfig.Enabled {
 		return true
 	}
-	for i := range h.rbacConfig.RootUsers {
-		if h.rbacConfig.RootUsers[i] == name {
-			return true
-		}
-	}
-	return false
+	return principal != nil && h.isRootUser(principal.Username)
 }
 
 func (h *dynUserHandler) isRootUser(name string) bool {

@@ -78,6 +78,12 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 	helper.CreateClassAuth(t, clsA, adminKey)
 	helper.CreateObjectsBatchAuth(t, []*models.Object{objA.Object(), objP.Object()}, adminKey)
 
+	// A 403 for classes the caller did not name must not reveal them.
+	requireNoClassNames := func(t *testing.T, msg string) {
+		require.NotContains(t, msg, clsA.Class)
+		require.NotContains(t, msg, clsP.Class)
+	}
+
 	t.Run("create and assign a role that does have the manage_backups permission", func(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(testRoleName),
@@ -181,12 +187,21 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		require.Equal(t, backupID, customResp.Payload[0].ID)
 	})
 
+	t.Run("backup status is 403 for a caller missing permission on one of the backup classes", func(t *testing.T) {
+		_, err := helper.CreateBackupStatusWithAuthz(t, backend, "backup-multi-1", "", "", helper.CreateAuth(customKey))
+		require.Error(t, err)
+		var parsed *backups.BackupsCreateStatusForbidden
+		require.True(t, errors.As(err, &parsed))
+		requireNoClassNames(t, parsed.Payload.Error[0].Message)
+	})
+
 	t.Run("backup status is 403 for callers without permission on the backup classes", func(t *testing.T) {
 		_, err := helper.CreateBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(viewerKey))
 		require.Error(t, err)
 		var parsed *backups.BackupsCreateStatusForbidden
 		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+		requireNoClassNames(t, parsed.Payload.Error[0].Message)
 	})
 
 	t.Run("cancel is 403 for callers without permission on the backup classes", func(t *testing.T) {
@@ -195,6 +210,7 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		var parsed *backups.BackupsCancelForbidden
 		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+		requireNoClassNames(t, parsed.Payload.Error[0].Message)
 	})
 
 	t.Run("empty Include filters to classes the caller is permitted to back up", func(t *testing.T) {
@@ -227,6 +243,7 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		var parsed *backups.BackupsCreateForbidden
 		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+		requireNoClassNames(t, parsed.Payload.Error[0].Message)
 	})
 
 	t.Run("explicit Include is forbidden when caller lacks permission on a listed class", func(t *testing.T) {
@@ -275,6 +292,7 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		var parsed *backups.BackupsRestoreStatusForbidden
 		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+		requireNoClassNames(t, parsed.Payload.Error[0].Message)
 	})
 
 	t.Run("successfully cancel an in-progress backup", func(t *testing.T) {
@@ -308,6 +326,7 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		var parsed *backups.BackupsRestoreCancelForbidden
 		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+		requireNoClassNames(t, parsed.Payload.Error[0].Message)
 	})
 
 	t.Run("empty Include restore with no backup permissions returns 403", func(t *testing.T) {
@@ -322,6 +341,7 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		var parsed *backups.BackupsRestoreForbidden
 		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+		requireNoClassNames(t, parsed.Payload.Error[0].Message)
 	})
 
 	t.Run("explicit Include restore is forbidden when caller lacks permission on a listed class", func(t *testing.T) {

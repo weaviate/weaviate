@@ -53,7 +53,6 @@ var (
 var (
 	DefaultAnthropicMaxTokensToSample = 300
 	DefaultAnthropicStopSequences     = []string{"\\n\\nHuman:"}
-	DefaultAnthropicTemperature       = 1.0
 	DefaultAnthropicTopK              = 250
 	DefaultAnthropicTopP              = 0.999
 )
@@ -260,9 +259,6 @@ func (ic *classSettings) Temperature(service, model string) *float64 {
 	if isBedrock(service) {
 		if isAmazonModel(model) {
 			return ic.getFloatProperty(temperatureProperty, &DefaultTitanTemperature)
-		}
-		if isAnthropicModel(model) {
-			return ic.getFloatProperty(temperatureProperty, &DefaultAnthropicTemperature)
 		}
 		if isCohereModel(model) {
 			return ic.getFloatProperty(temperatureProperty, &DefaultCohereTemperature)

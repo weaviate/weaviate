@@ -677,15 +677,16 @@ func TestSubmitBatchAndWaitRespectsContext(t *testing.T) {
 }
 
 func TestEncoderCache(t *testing.T) {
-	cache := NewEncoderCache()
+	logger, _ := test.NewNullLogger()
+	cache := NewEncoderCache(logger)
 
 	modelString := "text-embedding-ada-002"
+	tke, err := tiktoken.EncodingForModel(modelString)
+	require.NoError(t, err)
 	wg := sync.WaitGroup{}
 	for i := 0; i < 10; i++ {
 		wg.Add(2)
 		go func() {
-			tke, err := tiktoken.EncodingForModel(modelString)
-			require.NoError(t, err)
 			cache.Set(modelString, tke)
 			wg.Done()
 		}()

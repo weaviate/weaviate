@@ -145,14 +145,14 @@ func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 	return out, nil
 }
 
-// ObjectByID checks every index of the particular kind for the ID
+// ObjectByID returns the first object ObjectsByID finds outside every namespace.
 //
 // @warning: this function is deprecated by Object()
 func (db *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
 	tenant string,
 ) (*search.Result, error) {
-	results, err := db.ObjectsByID(ctx, id, props, additional, tenant)
+	results, err := db.ObjectsByID(ctx, id, props, additional, tenant, "")
 	if err != nil {
 		return nil, err
 	}
@@ -162,12 +162,12 @@ func (db *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 	return &results[0], nil
 }
 
-// ObjectsByID checks every index of the particular kind for the ID
-// this method is only used for Explore queries where we don't have
-// a class context
+// ObjectsByID returns every object with the given id in the collections of
+// namespace, "" meaning those outside any namespace. Without a tenant it skips
+// multi-tenant collections.
 func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
-	tenant string,
+	tenant, namespace string,
 ) (search.Results, error) {
 	var result []*storobj.Object
 	// TODO: Search in parallel, rather than sequentially or this will be
@@ -175,6 +175,13 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	db.indexLock.RLock()
 
 	for _, index := range db.indices {
+		if index.namespace != namespace {
+			continue
+		}
+		if tenant == "" && index.partitioningEnabled {
+			// A multi-tenant collection holds nothing a lookup without a tenant can reach.
+			continue
+		}
 		res, err := index.objectByID(ctx, id, props, additional, nil, tenant)
 		if err != nil {
 			db.indexLock.RUnlock()
@@ -205,7 +212,10 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
 	props search.SelectProperties, addl additional.Properties,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*search.Result, error) {
-	idx := db.GetIndex(schema.ClassName(class))
+	idx, err := db.indexForRead(ctx, schema.ClassName(class))
+	if err != nil {
+		return nil, err
+	}
 	if idx == nil {
 		return nil, nil
 	}
@@ -248,7 +258,10 @@ func (db *DB) Exists(ctx context.Context, class string, id strfmt.UUID,
 	if class == "" {
 		return db.anyExists(ctx, id, repl)
 	}
-	index := db.GetIndex(schema.ClassName(class))
+	index, err := db.indexForRead(ctx, schema.ClassName(class))
+	if err != nil {
+		return false, err
+	}
 	if index == nil {
 		return false, nil
 	}

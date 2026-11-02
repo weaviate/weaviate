@@ -29,7 +29,7 @@ import (
 const (
 	// S3 backend constants
 	s3ContainerName = "backuptest-minio"
-	s3Image         = "minio/minio"
+	s3Image         = "cgr.dev/chainguard/minio"
 	s3Port          = "9000/tcp"
 	s3AccessKey     = "minioadmin"
 	s3SecretKey     = "minioadmin"

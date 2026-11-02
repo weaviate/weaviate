@@ -35,6 +35,57 @@ func nullLogger() logrus.FieldLogger {
 	return l
 }
 
+func TestGenerateRejectsUnsafeURLSettings(t *testing.T) {
+	tests := []struct {
+		name   string
+		params googleparams.Params
+	}{
+		{
+			name:   "apiEndpoint outside the Google API domain",
+			params: googleparams.Params{ApiEndpoint: "attacker.example.com"},
+		},
+		{
+			name:   "region carrying a host",
+			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Region: "attacker.example.com/"},
+		},
+		{
+			name:   "location carrying a host",
+			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Location: "attacker.example.com/"},
+		},
+		{
+			name:   "projectId carrying path segments",
+			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "a/../../other"},
+		},
+		{
+			name:   "Vertex AI model that is a dot segment",
+			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", Model: ".."},
+		},
+		{
+			name:   "endpointId that is a dot segment",
+			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", EndpointID: ".."},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &google{
+				apiKey:       "apiKey",
+				httpClient:   &http.Client{},
+				googleApiKey: apikey.NewGoogleApiKey(),
+				buildUrlFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, region, location string) string {
+					t.Fatal("must not build a request URL for rejected settings")
+					return ""
+				},
+				logger: nullLogger(),
+			}
+			props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
+
+			_, err := c.GenerateAllResults(context.Background(), props, "What is my name?", tt.params, false, nil)
+
+			require.Error(t, err)
+		})
+	}
+}
+
 func TestGetAnswer(t *testing.T) {
 	t.Run("when the server has a successful answer ", func(t *testing.T) {
 		prompt := "John"
@@ -66,7 +117,7 @@ func TestGetAnswer(t *testing.T) {
 			logger: nullLogger(),
 		}
 
-		params := googleparams.Params{ApiEndpoint: server.URL}
+		params := googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com"}
 		props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
 		expected := modulecapabilities.GenerateResponse{
 			Result: ptString("John"),
@@ -223,4 +274,38 @@ func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func ptString(in string) *string {
 	return &in
+}
+
+func TestBuildURLEscapesPathSegments(t *testing.T) {
+	tests := []struct {
+		name            string
+		useGenerativeAI bool
+		apiEndpoint     string
+		modelID         string
+		want            string
+	}{
+		{
+			name:            "AI Studio gemini model",
+			useGenerativeAI: true,
+			modelID:         "gemini/../x?y#z",
+			want:            "https://generativelanguage.googleapis.com/v1beta/models/gemini%2F..%2Fx%3Fy%23z:generateContent",
+		},
+		{
+			name:    "Vertex AI gemini model",
+			modelID: "gemini/../x?y#z",
+			want:    "https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/publishers/google/models/gemini%2F..%2Fx%3Fy%23z:generateContent",
+		},
+		{
+			name:        "Vertex AI predict model",
+			apiEndpoint: "us-central1-aiplatform.googleapis.com",
+			modelID:     "m/../x?y#z",
+			want:        "https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/publishers/google/models/m%2F..%2Fx%3Fy%23z:predict",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildURL(tt.useGenerativeAI, tt.apiEndpoint, "my-project", tt.modelID, "us-central1", "us-central1")
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

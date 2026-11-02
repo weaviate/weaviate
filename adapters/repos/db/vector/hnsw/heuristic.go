@@ -27,6 +27,19 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],
 		return nil
 	}
 
+	// input is a max-queue (both callers in neighbor_connections.go build
+	// one), so for metrics that never produce negative distances a zero
+	// top distance means every candidate's distToQuery is exactly zero —
+	// mass-duplicate coordinates (weaviate/0-weaviate-issues#670). The
+	// pruning rule below is strictly peerDist < distToQuery, so with
+	// distToQuery zero it could only fire for a negative peerDist, which
+	// the same non-negativity rules out: the O(n²) peer-distance loop can
+	// never prune anything and is skipped. Nothing else is skipped, and no
+	// transitivity is assumed — peers may well sit at positive distances
+	// from each other (e.g. cosine rounding distinct near-duplicates to
+	// zero against the query); the outcome is unchanged either way.
+	allAtZero := h.distancesNonNegative && input.Len() > 0 && input.Top().Dist == 0
+
 	// TODO, if this solution stays we might need something with fewer allocs
 	ids := make([]uint64, input.Len())
 
@@ -115,13 +128,15 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],
 				}
 			}
 			good := true
-			for _, item := range returnList {
-				peerDist, _ := h.distancerProvider.SingleDist(currVec,
-					vecs[item.Value])
+			if !allAtZero {
+				for _, item := range returnList {
+					peerDist, _ := h.distancerProvider.SingleDist(currVec,
+						vecs[item.Value])
 
-				if peerDist < distToQuery {
-					good = false
-					break
+					if peerDist < distToQuery {
+						good = false
+						break
+					}
 				}
 			}
 

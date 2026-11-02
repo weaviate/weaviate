@@ -121,7 +121,7 @@ func (Boost_DecayCurve) EnumDescriptor() ([]byte, []int) {
 
 type SearchRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// required
+	//required
 	Collection string `protobuf:"bytes,1,opt,name=collection,proto3" json:"collection,omitempty"`
 	// parameters
 	Tenant           string            `protobuf:"bytes,10,opt,name=tenant,proto3" json:"tenant,omitempty"`

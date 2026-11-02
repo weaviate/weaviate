@@ -1691,3 +1691,70 @@ func TestCreateUserIdentifierInvariant(t *testing.T) {
 		require.False(t, cached)
 	})
 }
+
+// A login cached against a key that changed after the snapshot must not
+// shadow the restored key.
+func TestRestoreAcceptsRestoredKeyAfterCachedLogin(t *testing.T) {
+	const userId = "id"
+
+	tests := []struct {
+		name   string
+		mutate func(t *testing.T, dynUsers *DBUser, identifier string) (key, newIdentifier string)
+	}{
+		{
+			name: "unchanged user",
+			mutate: func(t *testing.T, dynUsers *DBUser, identifier string) (string, string) {
+				return "", ""
+			},
+		},
+		{
+			name: "rotated key",
+			mutate: func(t *testing.T, dynUsers *DBUser, identifier string) (string, string) {
+				apiKey, hash, newIdentifier, err := keys.CreateApiKeyAndHash()
+				require.NoError(t, err)
+				require.NoError(t, dynUsers.RotateKey(userId, apiKey[:3], hash, identifier, newIdentifier))
+				key, _, err := keys.DecodeApiKey(apiKey)
+				require.NoError(t, err)
+				return key, newIdentifier
+			},
+		},
+		{
+			name: "deleted and recreated user",
+			mutate: func(t *testing.T, dynUsers *DBUser, identifier string) (string, string) {
+				require.NoError(t, dynUsers.DeleteUser(userId))
+				apiKey, hash, newIdentifier, err := keys.CreateApiKeyAndHash()
+				require.NoError(t, err)
+				require.NoError(t, dynUsers.CreateUser(userId, hash, newIdentifier, "", "", time.Now()))
+				key, _, err := keys.DecodeApiKey(apiKey)
+				require.NoError(t, err)
+				return key, newIdentifier
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dynUsers, err := NewDBUser(t.TempDir(), true, log, activeExister{})
+			require.NoError(t, err)
+
+			apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
+			require.NoError(t, err)
+			require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now()))
+			key, _, err := keys.DecodeApiKey(apiKey)
+			require.NoError(t, err)
+
+			snapshot, err := dynUsers.Snapshot()
+			require.NoError(t, err)
+
+			if newKey, newIdentifier := tt.mutate(t, dynUsers, identifier); newKey != "" {
+				_, err := dynUsers.ValidateAndExtract(newKey, newIdentifier)
+				require.NoError(t, err)
+			}
+
+			require.NoError(t, dynUsers.Restore(snapshot, false))
+
+			principal, err := dynUsers.ValidateAndExtract(key, identifier)
+			require.NoError(t, err)
+			require.Equal(t, userId, principal.Username)
+		})
+	}
+}

@@ -35,7 +35,7 @@ import (
 
 func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 	var (
-		vectorRepo      *fakeVectorRepo
+		vectorRepo      *fakeObjectFinder
 		modulesProvider *fakeModulesProvider
 		manager         *Manager
 		schemaManager   *fakeSchemaManager
@@ -62,7 +62,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 	}
 
 	resetAutoSchema := func(autoSchemaEnabled bool) {
-		vectorRepo = &fakeVectorRepo{}
+		vectorRepo = &fakeObjectFinder{}
 		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 		schemaManager = &fakeSchemaManager{
 			GetSchemaResponse: sch,
@@ -194,6 +194,24 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		assert.Equal(t, NewErrInvalidUserInput("id '%s' already exists", id), err)
 	})
 
+	t.Run("with a uuid whose existence check fails", func(t *testing.T) {
+		reset()
+
+		ctx := context.Background()
+		id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
+		class := &models.Object{
+			ID:    id,
+			Class: "Foo",
+		}
+
+		checkErr := errors.New("owner node unreachable")
+		vectorRepo.On("Exists", "Foo", id).Return(true, checkErr).Once()
+
+		_, err := manager.AddObject(ctx, nil, class, nil)
+		require.ErrorAs(t, err, &ErrInternal{})
+		require.ErrorIs(t, err, checkErr)
+	})
+
 	t.Run("with a uuid that's malformed", func(t *testing.T) {
 		reset()
 
@@ -316,7 +334,7 @@ func Test_Add_Object_Uses_Max_SchemaVersion_For_Write(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sch := schema.Schema{Objects: &models.Schema{Classes: tt.classes}}
-			vectorRepo := &fakeVectorRepo{}
+			vectorRepo := &fakeObjectFinder{}
 			vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 			schemaManager := &fakeSchemaManager{
 				GetSchemaResponse:       sch,
@@ -351,7 +369,7 @@ func Test_Add_Object_Uses_Max_SchemaVersion_For_Write(t *testing.T) {
 
 func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 	var (
-		vectorRepo      *fakeVectorRepo
+		vectorRepo      *fakeObjectFinder
 		modulesProvider *fakeModulesProvider
 		manager         *Manager
 	)
@@ -369,7 +387,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 	}
 
 	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
+		vectorRepo = &fakeObjectFinder{}
 		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
@@ -465,7 +483,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 
 func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 	var (
-		vectorRepo      *fakeVectorRepo
+		vectorRepo      *fakeObjectFinder
 		modulesProvider *fakeModulesProvider
 		manager         *Manager
 	)
@@ -483,7 +501,7 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 	}
 
 	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
+		vectorRepo = &fakeObjectFinder{}
 		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
@@ -521,7 +539,7 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 
 func Test_AddObjectEmptyProperties(t *testing.T) {
 	var (
-		vectorRepo      *fakeVectorRepo
+		vectorRepo      *fakeObjectFinder
 		modulesProvider *fakeModulesProvider
 		manager         *Manager
 	)
@@ -544,7 +562,7 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 		},
 	}
 	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
+		vectorRepo = &fakeObjectFinder{}
 		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
@@ -574,7 +592,7 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 
 func Test_AddObjectWithUUIDProps(t *testing.T) {
 	var (
-		vectorRepo      *fakeVectorRepo
+		vectorRepo      *fakeObjectFinder
 		modulesProvider *fakeModulesProvider
 		manager         *Manager
 	)
@@ -600,7 +618,7 @@ func Test_AddObjectWithUUIDProps(t *testing.T) {
 		},
 	}
 	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
+		vectorRepo = &fakeObjectFinder{}
 		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,

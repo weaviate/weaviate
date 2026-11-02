@@ -15,14 +15,12 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	objectsCli "github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/schema"
-	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -31,25 +29,7 @@ import (
 func createNamespacedUser(t *testing.T, userID, ns, adminKey string) string {
 	t.Helper()
 
-	// AddNamespace no longer waits for local apply, so the follower the test
-	// client talks to may not yet see the namespace in its local controller
-	// when CreateUser arrives. The createUser handler's fast-path Exists()
-	// check then 422s with "namespace does not exist"; the local check 422s
-	// before any RAFT command is sent, so retries are safe.
-	var apikey string
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		resp, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(ns+":"+userID).WithBody(users.CreateUserBody{}),
-			helper.CreateAuth(adminKey),
-		)
-		if !assert.NoError(c, err) {
-			return
-		}
-		if !assert.NotNil(c, resp.Payload.Apikey) {
-			return
-		}
-		apikey = *resp.Payload.Apikey
-	}, 10*time.Second, 50*time.Millisecond, "user %q could not be created", userID)
+	apikey := helper.CreateUserWithNamespace(t, userID, ns, adminKey)
 
 	// On a multi-node cluster CreateUser is RAFT-forwarded to the leader and
 	// returns once the leader applies the FSM entry; the follower the test
@@ -57,11 +37,7 @@ func createNamespacedUser(t *testing.T, userID, ns, adminKey string) string {
 	// authenticated with apikey can transiently 401. Poll a cheap auth-bearing
 	// endpoint until the new key is recognized locally. Same pattern as
 	// helper.CreateNamespace and retryOnAliasLag, just for dynamic users.
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		_, err := helper.Client(t).Users.GetOwnInfo(
-			users.NewGetOwnInfoParams(), helper.CreateAuth(apikey))
-		assert.NoError(c, err)
-	}, 10*time.Second, 50*time.Millisecond, "user %q apikey not recognized after create", userID)
+	helper.WaitForAPIKeyRecognized(t, apikey, userID)
 
 	// Mandatory RBAC: grant the built-in admin role so the namespaced user can
 	// reach the data/schema/tenant/alias/MCP handlers. The role's wildcard

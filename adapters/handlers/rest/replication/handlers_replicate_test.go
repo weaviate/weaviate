@@ -15,14 +15,17 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -43,6 +46,7 @@ func createReplicationHandlerWithMocks(t *testing.T, logger *logrus.Logger) (*re
 		authorizer:         mockAuthorizer,
 		replicationManager: mockReplicationManager,
 		logger:             logger,
+		enabled:            runtime.NewDynamicValue(true),
 	}
 
 	return handler, mockAuthorizer, mockReplicationManager
@@ -182,69 +186,47 @@ func TestReplicationReplicate(t *testing.T) {
 		assert.IsType(t, &replication.ReplicateBadRequest{}, response)
 	})
 
-	t.Run("unprocessable entity error", func(t *testing.T) {
-		// GIVEN
-		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+	for _, tc := range []struct {
+		name       string
+		managerErr error
+		want       middleware.Responder
+	}{
+		{"unprocessable entity error", types.ErrInvalidRequest, &replication.ReplicateUnprocessableEntity{}},
+		{"conflict when a task is running on the collection", types.ErrMovementBlockedByTask, &replication.ReplicateConflict{}},
+		{"internal server error", errors.New("target node does not exist"), &replication.ReplicateInternalServerError{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// GIVEN
+			handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
 
-		collection := fmt.Sprintf("Collection%d", randomInt(10))
-		shard := fmt.Sprintf("shard-%d", randomInt(10))
-		sourceNode := fmt.Sprintf("node-%d", randomInt(5)*2)
-		targetNode := fmt.Sprintf("node-%d", randomInt(5)*2+1)
-		replicationType := randomReplicationType()
-		params := replication.ReplicateParams{
-			HTTPRequest: &http.Request{},
-			Body: &models.ReplicationReplicateReplicaRequest{
-				Collection: &collection,
-				TargetNode: &targetNode,
-				Shard:      &shard,
-				SourceNode: &sourceNode,
-				Type:       &replicationType,
-			},
-		}
+			collection := fmt.Sprintf("Collection%d", randomInt(10))
+			shard := fmt.Sprintf("shard-%d", randomInt(10))
+			sourceNode := fmt.Sprintf("node-%d", randomInt(5)*2)
+			targetNode := fmt.Sprintf("node-%d", randomInt(5)*2+1)
+			replicationType := randomReplicationType()
+			params := replication.ReplicateParams{
+				HTTPRequest: &http.Request{},
+				Body: &models.ReplicationReplicateReplicaRequest{
+					Collection: &collection,
+					TargetNode: &targetNode,
+					Shard:      &shard,
+					SourceNode: &sourceNode,
+					Type:       &replicationType,
+				},
+			}
 
-		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.EXPECT().ReplicationReplicateReplica(mock.Anything, mock.AnythingOfType("strfmt.UUID"), sourceNode, collection, shard, targetNode, replicationType).Return(types.ErrInvalidRequest)
+			mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			mockReplicationManager.EXPECT().ReplicationReplicateReplica(mock.Anything, mock.AnythingOfType("strfmt.UUID"), sourceNode, collection, shard, targetNode, replicationType).Return(tc.managerErr)
 
-		// WHEN
-		response := handler.replicate(params, &models.Principal{})
+			// WHEN
+			response := handler.replicate(params, &models.Principal{})
 
-		// THEN
-		assert.IsType(t, &replication.ReplicateUnprocessableEntity{}, response)
-		mockAuthorizer.AssertExpectations(t)
-		mockReplicationManager.AssertExpectations(t)
-	})
-
-	t.Run("internal server error", func(t *testing.T) {
-		// GIVEN
-		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
-
-		collection := fmt.Sprintf("Collection%d", randomInt(10))
-		shard := fmt.Sprintf("shard-%d", randomInt(10))
-		sourceNode := fmt.Sprintf("node-%d", randomInt(5)*2)
-		targetNode := fmt.Sprintf("node-%d", randomInt(5)*2+1)
-		replicationType := randomReplicationType()
-		params := replication.ReplicateParams{
-			HTTPRequest: &http.Request{},
-			Body: &models.ReplicationReplicateReplicaRequest{
-				Collection: &collection,
-				TargetNode: &targetNode,
-				Shard:      &shard,
-				SourceNode: &sourceNode,
-				Type:       &replicationType,
-			},
-		}
-
-		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.EXPECT().ReplicationReplicateReplica(mock.Anything, mock.AnythingOfType("strfmt.UUID"), sourceNode, collection, shard, targetNode, replicationType).Return(errors.New("target node does not exist"))
-
-		// WHEN
-		response := handler.replicate(params, &models.Principal{})
-
-		// THEN
-		assert.IsType(t, &replication.ReplicateInternalServerError{}, response)
-		mockAuthorizer.AssertExpectations(t)
-		mockReplicationManager.AssertExpectations(t)
-	})
+			// THEN
+			assert.IsType(t, tc.want, response)
+			mockAuthorizer.AssertExpectations(t)
+			mockReplicationManager.AssertExpectations(t)
+		})
+	}
 
 	t.Run("authorization error", func(t *testing.T) {
 		// GIVEN
@@ -700,51 +682,42 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 		mockAuthorizer.AssertExpectations(t)
 	})
 
-	t.Run("not found error", func(t *testing.T) {
-		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
-		body := &models.ReplicationScalePlan{
-			PlanID:     "plan-123",
-			Collection: "MissingCollection",
-		}
-		params := replication.ApplyReplicationScalePlanParams{
-			HTTPRequest: &http.Request{},
-			Body:        body,
-		}
-		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.EXPECT().ApplyReplicationScalePlan(
-			mock.Anything,
-			mock.MatchedBy(func(plan api.ReplicationScalePlan) bool {
-				return plan.PlanID == "plan-123" && plan.Collection == "MissingCollection"
-			}),
-		).Return([]strfmt.UUID{}, types.ErrNotFound)
-		response := handler.applyReplicationScalePlan(params, &models.Principal{})
-		assert.IsType(t, &replication.ApplyReplicationScalePlanNotFound{}, response)
-		mockAuthorizer.AssertExpectations(t)
-		mockReplicationManager.AssertExpectations(t)
-	})
-
-	t.Run("internal error", func(t *testing.T) {
-		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
-		body := &models.ReplicationScalePlan{
-			PlanID:     "plan-123",
-			Collection: "TestCollection",
-		}
-		params := replication.ApplyReplicationScalePlanParams{
-			HTTPRequest: &http.Request{},
-			Body:        body,
-		}
-		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.EXPECT().ApplyReplicationScalePlan(
-			mock.Anything,
-			mock.MatchedBy(func(plan api.ReplicationScalePlan) bool {
-				return plan.PlanID == "plan-123" && plan.Collection == "TestCollection"
-			}),
-		).Return([]strfmt.UUID{}, errors.New("internal error"))
-		response := handler.applyReplicationScalePlan(params, &models.Principal{})
-		assert.IsType(t, &replication.ApplyReplicationScalePlanInternalServerError{}, response)
-		mockAuthorizer.AssertExpectations(t)
-		mockReplicationManager.AssertExpectations(t)
-	})
+	for _, tc := range []struct {
+		name       string
+		managerErr error
+		want       middleware.Responder
+	}{
+		{"not found error", types.ErrNotFound, &replication.ApplyReplicationScalePlanNotFound{}},
+		{
+			"conflict when a task is running on the collection",
+			types.ErrMovementBlockedByTask,
+			&replication.ApplyReplicationScalePlanConflict{},
+		},
+		{"internal error", errors.New("internal error"), &replication.ApplyReplicationScalePlanInternalServerError{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+			body := &models.ReplicationScalePlan{
+				PlanID:     "plan-123",
+				Collection: "TestCollection",
+			}
+			params := replication.ApplyReplicationScalePlanParams{
+				HTTPRequest: &http.Request{},
+				Body:        body,
+			}
+			mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			mockReplicationManager.EXPECT().ApplyReplicationScalePlan(
+				mock.Anything,
+				mock.MatchedBy(func(plan api.ReplicationScalePlan) bool {
+					return plan.PlanID == "plan-123" && plan.Collection == "TestCollection"
+				}),
+			).Return([]strfmt.UUID{}, tc.managerErr)
+			response := handler.applyReplicationScalePlan(params, &models.Principal{})
+			assert.IsType(t, tc.want, response)
+			mockAuthorizer.AssertExpectations(t)
+			mockReplicationManager.AssertExpectations(t)
+		})
+	}
 
 	t.Run("successful application", func(t *testing.T) {
 		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
@@ -836,6 +809,62 @@ func TestForceDeleteReplicationsDryRun_NotFoundIsEmptyResult(t *testing.T) {
 			assert.True(t, payload.DryRun)
 			mockAuthorizer.AssertExpectations(t)
 			mockReplicationManager.AssertExpectations(t)
+		})
+	}
+}
+
+func TestReplicaMovementGate(t *testing.T) {
+	handler, mockAuthorizer, mockManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+	handler.enabled = runtime.NewDynamicValue(false)
+	// Past the gate every handler stops at validation, authz, or its first manager call.
+	mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("denied")).Maybe()
+	mockManager.EXPECT().GetReplicationDetailsByReplicationId(mock.Anything, mock.Anything).Return(api.ReplicationDetailsResponse{}, errors.New("unavailable")).Maybe()
+
+	req := &http.Request{}
+	principal := &models.Principal{}
+	tests := []struct {
+		name     string
+		call     func() middleware.Responder
+		disabled middleware.Responder
+	}{
+		{"replicate", func() middleware.Responder {
+			return handler.replicate(replication.ReplicateParams{HTTPRequest: req, Body: &models.ReplicationReplicateReplicaRequest{}}, principal)
+		}, &replication.ReplicateNotImplemented{}},
+		{"details", func() middleware.Responder {
+			return handler.getReplicationDetailsByReplicationId(replication.ReplicationDetailsParams{HTTPRequest: req}, principal)
+		}, &replication.ReplicationDetailsNotImplemented{}},
+		{"delete", func() middleware.Responder {
+			return handler.deleteReplication(replication.DeleteReplicationParams{HTTPRequest: req}, principal)
+		}, &replication.DeleteReplicationNotImplemented{}},
+		{"delete all", func() middleware.Responder {
+			return handler.deleteAllReplications(replication.DeleteAllReplicationsParams{HTTPRequest: req}, principal)
+		}, &replication.DeleteAllReplicationsNotImplemented{}},
+		{"force delete", func() middleware.Responder {
+			return handler.forceDeleteReplications(replication.ForceDeleteReplicationsParams{HTTPRequest: req}, principal)
+		}, &replication.ForceDeleteReplicationsNotImplemented{}},
+		{"cancel", func() middleware.Responder {
+			return handler.cancelReplication(replication.CancelReplicationParams{HTTPRequest: req}, principal)
+		}, &replication.CancelReplicationNotImplemented{}},
+		{"list", func() middleware.Responder {
+			return handler.listReplication(replication.ListReplicationParams{HTTPRequest: req}, principal)
+		}, &replication.ListReplicationNotImplemented{}},
+		{"sharding state", func() middleware.Responder {
+			return handler.getCollectionShardingState(replication.GetCollectionShardingStateParams{HTTPRequest: req}, principal)
+		}, &replication.GetCollectionShardingStateNotImplemented{}},
+		{"scale plan", func() middleware.Responder {
+			return handler.getReplicationScalePlan(replication.GetReplicationScalePlanParams{HTTPRequest: req}, principal)
+		}, &replication.GetReplicationScalePlanNotImplemented{}},
+		{"apply scale plan", func() middleware.Responder {
+			return handler.applyReplicationScalePlan(replication.ApplyReplicationScalePlanParams{HTTPRequest: req}, principal)
+		}, &replication.ApplyReplicationScalePlanNotImplemented{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NoError(t, handler.enabled.SetValue(false))
+			assert.IsType(t, tt.disabled, tt.call())
+
+			require.NoError(t, handler.enabled.SetValue(true))
+			assert.NotEqual(t, reflect.TypeOf(tt.disabled), reflect.TypeOf(tt.call()))
 		})
 	}
 }

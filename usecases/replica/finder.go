@@ -549,8 +549,9 @@ func (f *Finder) CompareDigests(ctx context.Context,
 }
 
 // targetHostAddrsForShard resolves a shard's remote replica host addresses
-// (excluding the local node), mirroring CollectShardDifferences.
-func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {
+// (excluding the local node) into buf, mirroring CollectShardDifferences.
+// Host addrs come from the plan's replicas, resolved at plan-build time.
+func (f *Finder) targetHostAddrsForShard(shardName string, buf []string) ([]string, error) {
 	routingPlan, err := f.localReadRoutingPlan(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
@@ -562,24 +563,19 @@ func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {
 		return nil, fmt.Errorf("could not resolve hostname for local node %q: class %q shard %q", localNodeName, f.class, shardName)
 	}
 
-	replicas := routingPlan.Replicas()
-	hosts := make([]string, 0, len(replicas))
-	for _, replica := range replicas {
-		if replica.NodeName == localNodeName {
+	hosts := buf[:0]
+	for _, replica := range routingPlan.Replicas() {
+		if replica.NodeName == localNodeName || replica.HostAddr == localHostAddr {
 			continue
 		}
-		addr, ok := f.nodeResolver.NodeHostname(replica.NodeName)
-		if !ok || addr == localHostAddr {
-			continue
-		}
-		hosts = append(hosts, addr)
+		hosts = append(hosts, replica.HostAddr)
 	}
 	return hosts, nil
 }
 
 // TargetHostAddrsForShard exposes per-shard replica host resolution for the scheduler's cross-class pre-filter.
 func (f *Finder) TargetHostAddrsForShard(shardName string) ([]string, error) {
-	return f.targetHostAddrsForShard(shardName)
+	return f.targetHostAddrsForShard(shardName, nil)
 }
 
 // prefilterMaxShardsPerRPC caps shards per CompareHashTreeRoots request to bound
@@ -604,12 +600,14 @@ func (f *Finder) PrefilterShardRoots(ctx context.Context,
 	needFull := make(map[string]struct{})
 	byHost := make(map[string]map[string]hashtree.Digest)
 
+	var hostsBuf []string
 	for shard, root := range roots {
-		hosts, err := f.targetHostAddrsForShard(shard)
+		hosts, err := f.targetHostAddrsForShard(shard, hostsBuf)
 		if err != nil {
 			needFull[shard] = struct{}{}
 			continue
 		}
+		hostsBuf = hosts
 		for _, h := range hosts {
 			sub := byHost[h]
 			if sub == nil {

@@ -14,6 +14,7 @@ package export
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -26,6 +27,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/parquet-go/parquet-go"
+	"github.com/parquet-go/parquet-go/encoding/thrift"
+	"github.com/parquet-go/parquet-go/format"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -255,6 +258,9 @@ func scanToRows(t *testing.T, ctx context.Context, bucket *lsmkv.Bucket, start, 
 	var writer *ParquetWriter
 
 	scanErr := scanRangeToWriter(ctx, bucket, start, end, func() (*ParquetWriter, error) {
+		if writer != nil {
+			return writer, nil
+		}
 		var err error
 		writer, err = NewParquetWriter(&buf)
 		return writer, err
@@ -709,91 +715,174 @@ func (b *failingWriteBackend) Write(_ context.Context, _, _, _, _ string, r back
 func TestScanJobExecute(t *testing.T) {
 	t.Parallel()
 
-	t.Run("happy path writes rows and reports count", func(t *testing.T) {
-		t.Parallel()
+	// A maxFileBytes of 1 ends each file after its first flushed batch of
+	// defaultBatchSize rows. Ranges split at splitKeys run concurrently on one
+	// rangeWriterConfig, as a shard's ranges do, and each ends at a full file.
+	writeTests := []struct {
+		name         string
+		numObjects   int
+		maxFileBytes int64
+		splitKeys    []uint64
+		wantFiles    int
+	}{
+		{
+			name:         "range below the cap writes one file",
+			numObjects:   10,
+			maxFileBytes: maxFileBytes,
+			wantFiles:    1,
+		},
+		{
+			name:         "range past the cap continues in new files",
+			numObjects:   2*defaultBatchSize + 88,
+			maxFileBytes: 1,
+			wantFiles:    3,
+		},
+		{
+			name:         "unset cap falls back to the default",
+			numObjects:   2*defaultBatchSize + 88,
+			maxFileBytes: 0,
+			wantFiles:    1,
+		},
+		{
+			name:         "negative cap falls back to the default",
+			numObjects:   2*defaultBatchSize + 88,
+			maxFileBytes: -1,
+			wantFiles:    1,
+		},
+		{
+			name:         "ranges of one shard number their files without collisions",
+			numObjects:   4 * defaultBatchSize,
+			maxFileBytes: 1,
+			splitKeys:    []uint64{2 * defaultBatchSize},
+			wantFiles:    4,
+		},
+	}
 
-		store, _ := createTestStore(t, 10)
-		t.Cleanup(func() { store.Shutdown(context.Background()) })
-		bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	for _, tc := range writeTests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		backend := &fakeBackend{}
-		logger, _ := test.NewNullLogger()
+			store, _ := createTestStore(t, tc.numObjects)
+			t.Cleanup(func() { store.Shutdown(context.Background()) })
+			bucket := store.Bucket(helpers.ObjectsBucketLSM)
 
-		cfg := &rangeWriterConfig{
-			backend:   backend,
-			req:       &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
-			className: "TestClass",
-			shardName: "shard0",
-			logger:    logger,
-		}
+			backend := &fakeBackend{}
+			logger, _ := test.NewNullLogger()
+			cfg := &rangeWriterConfig{
+				backend:      backend,
+				req:          &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
+				className:    "TestClass",
+				shardName:    "shard0",
+				maxFileBytes: tc.maxFileBytes,
+				logger:       logger,
+			}
+			var written atomic.Int64
+			cfg.onFlush = func(n int64) { written.Add(n) }
 
-		var wg sync.WaitGroup
-		var gotErr error
-		var written int64
-		cfg.onFlush = func(n int64) { written += n }
+			ranges := []keyRange{{}}
+			for _, k := range tc.splitKeys {
+				key := make([]byte, 8)
+				binary.BigEndian.PutUint64(key, k)
+				ranges[len(ranges)-1].end = key
+				ranges = append(ranges, keyRange{start: key})
+			}
 
-		wg.Add(1)
-		job := scanJob{
-			ctx:        context.Background(),
-			bucket:     bucket,
-			keyRange:   keyRange{start: nil, end: nil},
-			rangeIndex: 0,
-			writerCfg:  cfg,
-			wg:         &wg,
-			setErr:     func(err error) { gotErr = err },
-		}
-		job.execute()
-		wg.Wait()
+			var wg sync.WaitGroup
+			for i, r := range ranges {
+				wg.Add(1)
+				job := scanJob{
+					ctx:        context.Background(),
+					bucket:     bucket,
+					keyRange:   r,
+					rangeIndex: i,
+					writerCfg:  cfg,
+					wg:         &wg,
+					setErr:     func(err error) { t.Errorf("range %d: %v", i, err) },
+				}
+				go job.execute()
+			}
+			wg.Wait()
 
-		require.NoError(t, gotErr)
-		assert.Equal(t, int64(10), written)
+			assert.Equal(t, int64(tc.numObjects), written.Load())
 
-		data := backend.getWritten("TestClass_shard0_0000.parquet")
-		require.NotNil(t, data)
-		assert.Len(t, readParquetRows(t, data), 10)
-	})
+			var rows []ParquetRow
+			for i := range tc.wantFiles {
+				data := backend.getWritten(fmt.Sprintf("TestClass_shard0_%04d.parquet", i))
+				require.NotNil(t, data, "file %d", i)
+				rows = append(rows, readParquetRows(t, data)...)
+			}
+			assert.Nil(t, backend.getWritten(fmt.Sprintf("TestClass_shard0_%04d.parquet", tc.wantFiles)))
+			assert.Len(t, rows, tc.numObjects)
+			assertUniqueIDs(t, rows)
+		})
+	}
 
-	t.Run("upload error calls setErr", func(t *testing.T) {
-		t.Parallel()
+	uploadErrorTests := []struct {
+		name         string
+		numObjects   int
+		maxFileBytes int64
+		wantWritten  int64
+	}{
+		{
+			// onFlush counts the last batch when Shutdown closes the writer,
+			// before it reads the upload error.
+			name:         "upload error calls setErr",
+			numObjects:   10,
+			maxFileBytes: maxFileBytes,
+			wantWritten:  10,
+		},
+		{
+			// The range waits for the full file's upload before it opens the
+			// next file, so it stops after the first batch.
+			name:         "upload error on a full file stops the range",
+			numObjects:   2*defaultBatchSize + 88,
+			maxFileBytes: 1,
+			wantWritten:  defaultBatchSize,
+		},
+	}
 
-		store, _ := createTestStore(t, 10)
-		t.Cleanup(func() { store.Shutdown(context.Background()) })
-		bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	for _, tc := range uploadErrorTests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		logger, _ := test.NewNullLogger()
-		cfg := &rangeWriterConfig{
-			backend:   &failingWriteBackend{writeErr: fmt.Errorf("s3 upload failed")},
-			req:       &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
-			className: "TestClass",
-			shardName: "shard0",
-			logger:    logger,
-		}
+			store, _ := createTestStore(t, tc.numObjects)
+			t.Cleanup(func() { store.Shutdown(context.Background()) })
+			bucket := store.Bucket(helpers.ObjectsBucketLSM)
 
-		var wg sync.WaitGroup
-		var gotErr error
-		var written int64
-		cfg.onFlush = func(n int64) { written += n }
+			backend := &failingWriteBackend{writeErr: fmt.Errorf("s3 upload failed")}
+			logger, _ := test.NewNullLogger()
+			cfg := &rangeWriterConfig{
+				backend:      backend,
+				req:          &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
+				className:    "TestClass",
+				shardName:    "shard0",
+				maxFileBytes: tc.maxFileBytes,
+				logger:       logger,
+			}
 
-		wg.Add(1)
-		job := scanJob{
-			ctx:        context.Background(),
-			bucket:     bucket,
-			keyRange:   keyRange{start: nil, end: nil},
-			rangeIndex: 0,
-			writerCfg:  cfg,
-			wg:         &wg,
-			setErr:     func(err error) { gotErr = err },
-		}
-		job.execute()
-		wg.Wait()
+			var wg sync.WaitGroup
+			var gotErr error
+			var written int64
+			cfg.onFlush = func(n int64) { written += n }
 
-		require.Error(t, gotErr)
-		assert.Contains(t, gotErr.Error(), "s3 upload failed")
-		// The scan succeeded and the final flush wrote all 10 objects to
-		// the pipe before the upload error was detected. onFlush fires
-		// during writer.Close() which happens before we read uploadDone.
-		assert.Equal(t, int64(10), written)
-	})
+			wg.Add(1)
+			job := scanJob{
+				ctx:        context.Background(),
+				bucket:     bucket,
+				keyRange:   keyRange{start: nil, end: nil},
+				rangeIndex: 0,
+				writerCfg:  cfg,
+				wg:         &wg,
+				setErr:     func(err error) { gotErr = err },
+			}
+			job.execute()
+			wg.Wait()
+
+			require.ErrorContains(t, gotErr, "s3 upload failed")
+			assert.Equal(t, int64(1), backend.writeCalls.Load(), "backend.Write call count")
+			assert.Equal(t, tc.wantWritten, written)
+		})
+	}
 
 	// An empty range must not create the upload pipeline or call
 	// backend.Write at all.
@@ -810,12 +899,13 @@ func TestScanJobExecute(t *testing.T) {
 		backend := &failingWriteBackend{writeErr: fmt.Errorf("unexpected Write on empty range")}
 		logger, _ := test.NewNullLogger()
 		cfg := &rangeWriterConfig{
-			backend:   backend,
-			req:       &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
-			className: "TestClass",
-			shardName: "Tenant-134",
-			isMT:      true,
-			logger:    logger,
+			backend:      backend,
+			req:          &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
+			className:    "TestClass",
+			shardName:    "Tenant-134",
+			isMT:         true,
+			maxFileBytes: maxFileBytes,
+			logger:       logger,
 		}
 
 		var wg sync.WaitGroup
@@ -877,11 +967,12 @@ func TestScanJobExecute(t *testing.T) {
 			backend := &failingWriteBackend{writeErr: fmt.Errorf("upload error")}
 			logger, _ := test.NewNullLogger()
 			cfg := &rangeWriterConfig{
-				backend:   backend,
-				req:       &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
-				className: "TestClass",
-				shardName: "shard0",
-				logger:    logger,
+				backend:      backend,
+				req:          &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
+				className:    "TestClass",
+				shardName:    "shard0",
+				maxFileBytes: maxFileBytes,
+				logger:       logger,
 			}
 
 			var wg sync.WaitGroup
@@ -1009,4 +1100,208 @@ func TestParquetWriter_OnFlush(t *testing.T) {
 		// The remaining 5 objects were buffered but not flushed before the error.
 		require.Equal(t, []int64{10, 10}, callbacks)
 	})
+
+	t.Run("batch closes at the byte limit", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name            string
+			rows            int
+			propertiesBytes int
+			vectorBytes     int
+			want            []int64
+		}{
+			{
+				name:            "large rows",
+				rows:            10,
+				propertiesBytes: maxBatchBytes / 4,
+				want:            []int64{4, 4, 2},
+			},
+			{
+				name:            "large rows across every blob column",
+				rows:            10,
+				propertiesBytes: maxBatchBytes / 16,
+				vectorBytes:     maxBatchBytes / 16,
+				want:            []int64{4, 4, 2},
+			},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				writer, err := NewParquetWriter(io.Discard)
+				require.NoError(t, err)
+				var callbacks []int64
+				writer.onFlush = func(n int64) {
+					callbacks = append(callbacks, n)
+				}
+
+				for i := range tc.rows {
+					row := ParquetRow{
+						ID:           fmt.Sprint(i),
+						Vector:       make([]byte, tc.vectorBytes),
+						NamedVectors: make([]byte, tc.vectorBytes),
+						MultiVectors: make([]byte, tc.vectorBytes),
+						Properties:   make([]byte, tc.propertiesBytes),
+					}
+					require.NoError(t, writer.WriteRow(row))
+				}
+				require.NoError(t, writer.Close())
+				assert.Equal(t, tc.want, callbacks)
+			})
+		}
+	})
+}
+
+func TestParquetWriter_RowGroups(t *testing.T) {
+	t.Parallel()
+
+	// Random properties don't compress, so each row adds rowBytes to the row group.
+	const rowBytes = 1024 * 1024
+	const numRows = 80
+	properties := make([]byte, numRows*rowBytes)
+	_, err := rand.Read(properties)
+	require.NoError(t, err)
+	row := func(i int) ParquetRow {
+		return ParquetRow{ID: fmt.Sprint(i), Properties: properties[i*rowBytes : (i+1)*rowBytes]}
+	}
+
+	t.Run("each row group reaches the io.Writer when it ends", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		writer, err := NewParquetWriter(&buf)
+		require.NoError(t, err)
+		for i := range numRows {
+			require.NoError(t, writer.WriteRow(row(i)))
+		}
+		writtenBeforeClose := int64(buf.Len())
+		require.NoError(t, writer.Close())
+
+		file, err := parquet.OpenFile(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+		require.NoError(t, err)
+		rowGroups := file.Metadata().RowGroups
+		require.Greater(t, len(rowGroups), 1)
+
+		var closedBeforeLast int64
+		for i, rowGroup := range rowGroups {
+			assert.LessOrEqual(t, rowGroup.TotalCompressedSize, int64(maxRowGroupBytes+maxBatchBytes+rowBytes),
+				"row group %d", i)
+			if i < len(rowGroups)-1 {
+				assert.GreaterOrEqual(t, rowGroup.TotalCompressedSize, int64(maxRowGroupBytes), "row group %d", i)
+				closedBeforeLast += rowGroup.TotalCompressedSize
+			}
+		}
+		// parquet-go's write buffer can still hold the end of the last row group it closed.
+		assert.GreaterOrEqual(t, writtenBeforeClose, closedBeforeLast-parquet.DefaultWriteBufferSize,
+			"every row group but the last reaches the io.Writer before Close")
+
+		rows := readParquetRows(t, buf.Bytes())
+		require.Len(t, rows, numRows)
+		for i, got := range rows {
+			assert.True(t, bytes.Equal(row(i).Properties, got.Properties), "properties of row %d", i)
+		}
+	})
+
+	t.Run("failed upload fails WriteRow at the end of a row group", func(t *testing.T) {
+		t.Parallel()
+
+		uploadErr := errors.New("upload failed")
+		pr, pw := newBufferedPipe(defaultPipeBufferSize)
+		pr.CloseWithError(uploadErr)
+		writer, err := NewParquetWriter(pw)
+		require.NoError(t, err)
+
+		var writeErr error
+		for i := range numRows {
+			if writeErr = writer.WriteRow(row(i)); writeErr != nil {
+				break
+			}
+		}
+		require.ErrorIs(t, writeErr, uploadErr)
+	})
+}
+
+func TestParquetWriter_Statistics(t *testing.T) {
+	t.Parallel()
+
+	rows := make([]ParquetRow, 0, 3)
+	for i := range 3 {
+		rows = append(rows, ParquetRow{
+			ID:           fmt.Sprintf("00000000-0000-0000-0000-00000000000%d", i),
+			Vector:       []byte{byte(i), 1, 2, 3},
+			NamedVectors: fmt.Appendf(nil, `{"a":[%d]}`, i),
+			MultiVectors: fmt.Appendf(nil, `{"b":[[%d]]}`, i),
+			Properties:   fmt.Appendf(nil, `{"p":%d}`, i),
+		})
+	}
+	// A row without vectors or properties puts one null in each blob column.
+	nullRow := ParquetRow{ID: "00000000-0000-0000-0000-000000000003"}
+
+	var buf bytes.Buffer
+	writer, err := NewParquetWriter(&buf)
+	require.NoError(t, err)
+	for _, row := range append(rows, nullRow) {
+		require.NoError(t, writer.WriteRow(row))
+	}
+	require.NoError(t, writer.Close())
+
+	file, err := parquet.OpenFile(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	require.NoError(t, err)
+	require.Len(t, file.RowGroups(), 1)
+
+	tests := []struct {
+		column        string
+		value         func(ParquetRow) any
+		wantPageStats bool
+		wantNulls     int64
+	}{
+		{column: "id", value: func(r ParquetRow) any { return r.ID }, wantPageStats: true},
+		{column: "vector", value: func(r ParquetRow) any { return r.Vector }, wantNulls: 1},
+		{column: "named_vectors", value: func(r ParquetRow) any { return r.NamedVectors }, wantNulls: 1},
+		{column: "multi_vectors", value: func(r ParquetRow) any { return r.MultiVectors }, wantNulls: 1},
+		{column: "properties", value: func(r ParquetRow) any { return r.Properties }, wantNulls: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.column, func(t *testing.T) {
+			leaf, ok := file.Schema().Lookup(tc.column)
+			require.True(t, ok)
+			i := leaf.ColumnIndex
+			chunk := file.RowGroups()[0].ColumnChunks()[i]
+
+			// A reader pruning pages by the column index must find every value the file holds.
+			columnIndex, err := chunk.ColumnIndex()
+			require.NoError(t, err)
+			for _, row := range rows {
+				value := parquet.ValueOf(tc.value(row))
+				assert.Less(t, parquet.Search(columnIndex, value, chunk.Type()), columnIndex.NumPages(),
+					"column index search for %v", value)
+			}
+			assert.Equal(t, []int64{tc.wantNulls}, []int64(file.ColumnIndexes()[i].NullCounts), "column index null counts")
+
+			chunkStats := file.Metadata().RowGroups[0].Columns[i].MetaData.Statistics
+			assert.NotEmpty(t, chunkStats.MaxValue, "column chunk bounds")
+			assert.Equal(t, tc.wantNulls, chunkStats.NullCount, "column chunk null count")
+
+			pages := file.OffsetIndexes()[i].PageLocations
+			require.NotEmpty(t, pages)
+			for _, page := range pages {
+				pageStats := readPageHeaderStatistics(t, buf.Bytes()[page.Offset:])
+				assert.Equal(t, tc.wantPageStats, len(pageStats.MaxValue) > 0, "page header statistics")
+			}
+		})
+	}
+}
+
+// readPageHeaderStatistics decodes the data page header at the start of data
+// and returns the statistics it carries.
+func readPageHeaderStatistics(t *testing.T, data []byte) format.Statistics {
+	t.Helper()
+
+	var header format.PageHeader
+	reader := new(thrift.CompactProtocol).NewReader(bytes.NewReader(data))
+	require.NoError(t, thrift.NewDecoder(reader).Decode(&header))
+	if header.DataPageHeaderV2.Valid {
+		return header.DataPageHeaderV2.V.Statistics
+	}
+	require.True(t, header.DataPageHeader.Valid, "page type %v is not a data page", header.Type)
+	return header.DataPageHeader.V.Statistics
 }

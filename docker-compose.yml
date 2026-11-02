@@ -14,8 +14,6 @@ services:
     ports:
       - "9999:9999"
     environment:
-      EXTENSIONS_STORAGE_MODE: weaviate
-      EXTENSIONS_STORAGE_ORIGIN: http://host.docker.internal:8080
       OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
       LOG_LEVEL: debug
   prometheus:
@@ -102,7 +100,7 @@ services:
     ports:
       - "8012:8080"
   backup-s3:
-    image: minio/minio
+    image: cgr.dev/chainguard/minio
     ports:
       - "9000:9000"
       - "9001:9001"

@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -65,9 +66,9 @@ func (db *DB) GetNodeStatus(ctx context.Context, className, shardName string, ve
 func (db *DB) GetOneNodeStatus(ctx context.Context, nodeName, className, shardName, output string) (*models.NodeStatus, error) {
 	if db.schemaGetter.NodeName() == nodeName {
 		status, err := db.LocalNodeStatus(ctx, className, shardName, output)
-		if errors.Is(err, context.DeadlineExceeded) {
-			// a local scan that ran out of time times out this node alone,
-			// instead of failing the status of every node
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, types.ErrDeadlineExceeded) {
+			// a local scan or class version wait that ran out of time times out
+			// this node alone, instead of failing the status of every node
 			return timedOutNodeStatus(nodeName), nil
 		}
 		return status, err
@@ -109,17 +110,27 @@ func unavailableNodeStatus(nodeName string) *models.NodeStatus {
 	return &models.NodeStatus{Name: nodeName, Status: &unavailable}
 }
 
-// IncomingGetNodeStatus returns the index if it exists or nil if it doesn't.
-// A scan that ran out of time surfaces as an error: the node that asked has
-// timed out on its own request by then and reports this node as timed out.
+// IncomingGetNodeStatus reports this node as timed out when indexForRead hits
+// RAFT_CONSISTENCY_WAIT_TIMEOUT while the asking node still waits. A shard scan
+// runs out of time only once the asker has given up, so its error is returned.
 func (db *DB) IncomingGetNodeStatus(ctx context.Context, className, shardName, verbosity string) (*models.NodeStatus, error) {
-	return db.LocalNodeStatus(ctx, className, shardName, verbosity)
+	status, err := db.LocalNodeStatus(ctx, className, shardName, verbosity)
+	if errors.Is(err, types.ErrDeadlineExceeded) {
+		return timedOutNodeStatus(db.schemaGetter.NodeName()), nil
+	}
+	return status, err
 }
 
 func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output string) (*models.NodeStatus, error) {
-	if className != "" && db.GetIndex(schema.ClassName(className)) == nil {
-		// class not found
-		return &models.NodeStatus{}, nil
+	if className != "" {
+		index, err := db.indexForRead(ctx, schema.ClassName(className))
+		if err != nil {
+			return nil, err
+		}
+		if index == nil {
+			// class not found
+			return &models.NodeStatus{}, nil
+		}
 	}
 
 	var (

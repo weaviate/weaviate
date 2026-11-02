@@ -29,7 +29,7 @@ const deadJoinAddr = "127.0.0.1:1"
 
 // freeGossipPort returns a port nothing is listening on, so the test does not
 // collide with memberlist's default 7946
-func freeGossipPort(t *testing.T) int {
+func freeGossipPort(t testing.TB) int {
 	t.Helper()
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")

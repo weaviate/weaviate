@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -50,6 +51,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
@@ -137,6 +139,7 @@ type Config struct {
 	BootstrapExpect int
 
 	// ConsistencyWaitTimeout is the duration we will wait for a schema version to land on that node
+	// and the default bound on a follower's task-list query, including its leader lookup.
 	ConsistencyWaitTimeout time.Duration
 	// NodeSelector is the memberlist interface to RAFT
 	NodeSelector cluster.NodeSelector
@@ -199,8 +202,10 @@ type Config struct {
 	// DistributedTaskTargetVectorExtractors mirror the collection extractors for
 	// per-target cascade deletion (drop-vector marker introduction).
 	DistributedTaskTargetVectorExtractors map[string]distributedtask.TargetVectorExtractor
-
-	ReplicaMovementEnabled bool
+	// DistributedTaskShardReplicasExtractors let admitTaskReplicas refuse a task
+	// whose units no longer match the current replicas of the shards they name.
+	// A namespace without a collection extractor is never checked.
+	DistributedTaskShardReplicasExtractors map[string]distributedtask.ShardReplicasExtractor
 
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.
@@ -210,8 +215,13 @@ type Config struct {
 	// unlimited), enforced pre-commit on the leader.
 	MaxTenantsPerCollection *runtime.DynamicValue[int]
 
+	// MaxCollections caps collections per namespace, or in total on a
+	// non-namespaced cluster (nil/negative = unlimited), enforced pre-commit on
+	// the leader.
+	MaxCollections *runtime.DynamicValue[int]
+
 	// UsageLimitsErrorMessage (USAGE_LIMITS_ERROR_MESSAGE) is rendered into the
-	// tenant-cap rejection, matching the handler fast-path.
+	// tenant-cap and collection-cap rejections, matching the handler fast-path.
 	UsageLimitsErrorMessage *runtime.DynamicValue[string]
 
 	// Replica-movement cleanup knobs. The sweeper re-reads them every tick, so
@@ -241,12 +251,20 @@ type Store struct {
 	dbLoaded atomic.Bool
 
 	// raft implementation from external library
-	raft          *raft.Raft
+	// raft is atomically published: Open assigns it while concurrently-served RPCs (JoinPeer/Leader) read it.
+	raft          atomic.Pointer[raft.Raft]
 	raftResolver  types.RaftResolver
 	raftTransport *raft.NetworkTransport
 
 	// applyTimeout timeout limit the amount of time raft waits for a command to be applied
 	applyTimeout time.Duration
+
+	// fsmCaughtUpTerm is the leader term a barrier has confirmed; see
+	// [Store.waitLeaderFSMCaughtUp]. Written under fsmCatchUpMu, which is what
+	// keeps the check, the barrier and the stamp one unit; atomic so a future
+	// lock-free reader can peek it.
+	fsmCatchUpMu    sync.Mutex
+	fsmCaughtUpTerm atomic.Uint64
 
 	// raft snapshot store
 	snapshotStore *raft.FileSnapshotStore
@@ -258,7 +276,9 @@ type Store struct {
 	logCache *raft.LogCache
 
 	// cluster bootstrap related attributes
-	candidates map[string]string
+	// candidatesMu guards candidates: concurrent NotifyPeer RPCs mutate it during bootstrap.
+	candidatesMu sync.Mutex
+	candidates   map[string]string
 	// bootstrapped is set once the node has either bootstrapped or recovered from RAFT log entries
 	bootstrapped atomic.Bool
 
@@ -290,6 +310,13 @@ type Store struct {
 	// pre-commit tenant-cap check cannot race the apply that increments the count.
 	tenantAddLocks *entsync.KeyLocker
 
+	// collectionAddLocks serializes AddClass per namespace on the leader so the
+	// pre-commit collection-cap check cannot race the apply that increments the
+	// count.
+	collectionAddLocks *entsync.KeyLocker
+
+	taskMovementLocks *entsync.KeyLocker
+
 	// authZController is the authz controller for the store
 	authZController authorization.Controller
 
@@ -301,8 +328,15 @@ type Store struct {
 
 // storeMetrics exposes RAFT store related prometheus metrics
 type storeMetrics struct {
-	applyDuration prometheus.Histogram
+	applyDuration *prometheus.HistogramVec
 	applyFailures prometheus.Counter
+
+	// waitForIndex times every wait for a schema version, by outcome.
+	waitForIndex *prometheus.HistogramVec
+
+	// waitForIndexGap is how many entries short a wait was when it gave up: a couple points at
+	// something other than lag, thousands at a node still catching up.
+	waitForIndexGap prometheus.Histogram
 
 	// raftLastAppliedIndex represents current applied index of a raft cluster in local node.
 	// This includes every commands including config changes
@@ -315,6 +349,10 @@ type storeMetrics struct {
 	// fsmStartupAppliedIndex represents previous applied index of the cluster store FSM in local node
 	// that any restart would try to catch up
 	fsmStartupAppliedIndex prometheus.Gauge
+
+	// leaderFSMBarriers counts catch-up barriers. Once per leadership change
+	// when healthy, so a climbing rate reads as leadership churn.
+	leaderFSMBarriers prometheus.Counter
 }
 
 // newStoreMetrics cretes and registers the store related metrics on
@@ -322,12 +360,14 @@ type storeMetrics struct {
 func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 	r := promauto.With(reg)
 	return &storeMetrics{
-		applyDuration: r.NewHistogram(prometheus.HistogramOpts{
+		applyDuration: r.NewHistogramVec(prometheus.HistogramOpts{
 			Name:        "weaviate_cluster_store_fsm_apply_duration_seconds",
-			Help:        "Time to apply cluster store FSM state in local node",
+			Help:        "Time to apply cluster store FSM state in local node, by command type",
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
-			Buckets:     prometheus.ExponentialBuckets(0.001, 5, 5), // 1ms, 5ms, 25ms, 125ms, 625ms
-		}),
+			// The first five bounds are the original ones, kept so history still compares.
+			// The rest reach past a second, which the old cap could not.
+			Buckets: []float64{0.001, 0.005, 0.025, 0.125, 0.625, 2.5, 10, 30, 60},
+		}, []string{"cmd_type"}),
 		applyFailures: r.NewCounter(prometheus.CounterOpts{
 			Name:        "weaviate_cluster_store_fsm_apply_failures_total",
 			Help:        "Total failure count of cluster store FSM state apply in local node",
@@ -348,19 +388,43 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 			Help:        "Previous applied index of the cluster store FSM in local node that any restart would try to catch up",
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
 		}),
+		leaderFSMBarriers: r.NewCounter(prometheus.CounterOpts{
+			Name:        "weaviate_cluster_store_leader_fsm_barriers_total",
+			Help:        "Catch-up barriers issued by this node after winning an election",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		waitForIndex: r.NewHistogramVec(prometheus.HistogramOpts{
+			Name:        "weaviate_cluster_store_wait_for_index_duration_seconds",
+			Help:        "Time spent waiting for the local FSM to reach a schema version, by outcome",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+			Buckets: []float64{
+				0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 60,
+			},
+		}, []string{"outcome"}),
+		waitForIndexGap: r.NewHistogram(prometheus.HistogramOpts{
+			Name:        "weaviate_cluster_store_wait_for_index_gap_entries",
+			Help:        "Entries still missing when a wait for a schema version gave up",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+			Buckets:     []float64{1, 2, 5, 10, 25, 50, 100, 500, 1000, 5000, 10000, 100000},
+		}),
 	}
 }
 
 func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
+	schemaManager.SetMetadataOnly(cfg.MetadataOnlyVoters)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
+	errTemplate := func() string { return "" }
+	if t := cfg.UsageLimitsErrorMessage; t != nil {
+		errTemplate = t.Get
+	}
 	if dv := cfg.MaxTenantsPerCollection; dv != nil {
-		errTemplate := func() string { return "" }
-		if t := cfg.UsageLimitsErrorMessage; t != nil {
-			errTemplate = t.Get
-		}
 		schemaManager.SetTenantLimit(dv.Get, errTemplate)
+	}
+	// Guarded: a nil DynamicValue's Get returns 0, which would cap at zero.
+	if dv := cfg.MaxCollections; dv != nil {
+		schemaManager.SetCollectionLimit(dv.Get, errTemplate)
 	}
 
 	// Two-way wiring: mutation-guard (prevents schema↔reindex races) and
@@ -411,10 +475,12 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		}),
 		schemaManager:           schemaManager,
 		tenantAddLocks:          entsync.NewKeyLocker(),
+		collectionAddLocks:      entsync.NewKeyLocker(),
+		taskMovementLocks:       entsync.NewKeyLocker(),
 		authZController:         authZController,
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
-		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, rbacLister, cfg.Logger),
+		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, rbacLister, monitoring.GetMetrics(), cfg.Logger),
 		replicationManager:      replicationManager,
 		distributedTasksManager: distributedTasksManager,
 		metrics:                 newStoreMetrics(cfg.NodeID, reg),
@@ -470,8 +536,8 @@ func (st *Store) LocalDistributedTasks() map[string][]*distributedtask.Task {
 // this method work as a protection from applying anything was applied to the db
 // by checking either raft or max(snapshot, log store) instead the db will catchup
 func (st *Store) lastIndex() uint64 {
-	if st.raft != nil {
-		return st.raft.AppliedIndex()
+	if r := st.raft.Load(); r != nil {
+		return r.AppliedIndex()
 	}
 
 	l, err := st.LastAppliedCommand()
@@ -505,14 +571,15 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		"name":                 st.cfg.NodeID,
 		"metadata_only_voters": st.cfg.MetadataOnlyVoters,
 	}).Info("construct a new raft node")
-	st.raft, err = raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
+	rn, err := raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
 	}
+	st.raft.Store(rn)
 
 	// Only if node recovery is enabled will we check if we are either forcing it or automating the detection of a one
 	// node cluster
-	if st.cfg.EnableOneNodeRecovery && (st.cfg.ForceOneNodeRecovery || (st.cfg.BootstrapExpect == 1 && len(st.candidates) < 2)) {
+	if st.cfg.EnableOneNodeRecovery && (st.cfg.ForceOneNodeRecovery || (st.cfg.BootstrapExpect == 1 && st.candidatesLen() < 2)) {
 		if err := st.recoverSingleNode(st.cfg.ForceOneNodeRecovery); err != nil {
 			return err
 		}
@@ -524,14 +591,16 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		st.dbLoaded.Store(true)
 	}
 
-	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
+	st.lastAppliedIndex.Store(rn.AppliedIndex())
 
 	st.log.WithFields(logrus.Fields{
-		"raft_applied_index":                st.raft.AppliedIndex(),
-		"raft_last_index":                   st.raft.LastIndex(),
+		"raft_applied_index":                rn.AppliedIndex(),
+		"raft_last_index":                   rn.LastIndex(),
 		"last_store_applied_index_on_start": st.lastAppliedIndexToDB.Load(),
 		"last_snapshot_index":               snapIndex,
 	}).Info("raft node constructed")
+
+	st.electIfSoleVoter(st.raft.Load())
 
 	// There's no hard limit on the migration, so it should take as long as necessary.
 	// However, we believe that 1 day should be more than sufficient.
@@ -621,9 +690,10 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 			if err != nil {
 				return fmt.Errorf("create snapshot: %w", err)
 			}
-			b.Index = st.raft.LastIndex()
+			rn := st.raft.Load()
+			b.Index = rn.LastIndex()
 			b.Term = 1
-			if err := st.raft.Restore(b, c, timeout); err != nil {
+			if err := rn.Restore(b, c, timeout); err != nil {
 				return fmt.Errorf("raft restore: %w", err)
 			}
 			return nil
@@ -642,6 +712,7 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 		if st.IsLeader() {
 			st.maybeCommitClusterID()
 		}
+
 		return
 	}
 }
@@ -653,9 +724,9 @@ func (st *Store) Close(ctx context.Context) error {
 
 	// transfer leadership: it stops accepting client requests, ensures
 	// the target server is up to date and initiates the transfer
-	if st.IsLeader() && len(st.raft.GetConfiguration().Configuration().Servers) > 1 {
+	if rn := st.raft.Load(); st.IsLeader() && len(rn.GetConfiguration().Configuration().Servers) > 1 {
 		st.log.Info("transferring leadership to another server")
-		if err := st.raft.LeadershipTransfer().Error(); err != nil {
+		if err := rn.LeadershipTransfer().Error(); err != nil {
 			st.log.WithError(err).Error("transferring leadership")
 		} else {
 			st.log.Info("successfully transferred leadership to another server")
@@ -676,7 +747,7 @@ func (st *Store) Close(ctx context.Context) error {
 
 	// shutdown raft after transport is closed to ensure clean termination
 	st.log.Info("shutting down raft ...")
-	if err := st.raft.Shutdown().Error(); err != nil {
+	if err := st.raft.Load().Shutdown().Error(); err != nil {
 		st.log.WithError(err).Warn("raft shutdown failed")
 	}
 
@@ -795,22 +866,50 @@ func (st *Store) trackDBLoadProgress() func() {
 	return func() { close(done) }
 }
 
+// Outcomes of a wait for a schema version, as the waitForIndex label.
+const (
+	waitOutcomeImmediate = "immediate"
+	waitOutcomeCaughtUp  = "caught_up"
+	waitOutcomeDeadline  = "deadline"
+	waitOutcomeCanceled  = "canceled"
+)
+
 // WaitForAppliedIndex waits until the update with the given version is propagated to this follower node
 func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, version uint64) error {
-	if idx := st.lastAppliedIndex.Load(); idx >= version {
+	start := time.Now()
+	outcome := waitOutcomeDeadline
+	defer func() {
+		st.metrics.waitForIndex.WithLabelValues(outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	idx := st.lastAppliedIndex.Load()
+	if idx >= version {
+		outcome = waitOutcomeImmediate
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, st.cfg.ConsistencyWaitTimeout)
 	defer cancel()
 	ticker := time.NewTicker(period)
 	defer ticker.Stop()
-	var idx uint64
 	for {
 		select {
 		case <-ctx.Done():
+			// Re-read rather than trust the last tick: the FSM can advance in the gap before the
+			// deadline, and reporting that stale value records too large a gap and fails a wait
+			// that has in fact caught up.
+			if idx = st.lastAppliedIndex.Load(); idx >= version {
+				outcome = waitOutcomeCaughtUp
+				return nil
+			}
+			if errors.Is(ctx.Err(), context.Canceled) {
+				outcome = waitOutcomeCanceled
+				return fmt.Errorf("%w: version got=%d  want=%d", ctx.Err(), idx, version)
+			}
+			st.metrics.waitForIndexGap.Observe(float64(version - idx))
 			return fmt.Errorf("%w: version got=%d  want=%d", types.ErrDeadlineExceeded, idx, version)
 		case <-ticker.C:
 			if idx = st.lastAppliedIndex.Load(); idx >= version {
+				outcome = waitOutcomeCaughtUp
 				return nil
 			} else {
 				st.log.WithFields(logrus.Fields{
@@ -824,7 +923,8 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, 
 
 // IsLeader returns whether this node is the leader of the cluster
 func (st *Store) IsLeader() bool {
-	return st.raft != nil && st.raft.State() == raft.Leader
+	r := st.raft.Load()
+	return r != nil && r.State() == raft.Leader
 }
 
 // SchemaReader returns a SchemaReader from the underlying schema manager using a wait function that will make it wait
@@ -881,17 +981,17 @@ func (st *Store) Stats() map[string]any {
 	stats["is_voter"] = st.IsVoter()
 	stats["open"] = st.open.Load()
 	stats["bootstrapped"] = st.bootstrapped.Load()
-	stats["candidates"] = st.candidates
+	stats["candidates"] = st.candidatesSnapshot()
 	stats["last_store_log_applied_index"] = st.lastAppliedIndexToDB.Load()
 	stats["last_applied_index"] = st.lastIndex()
 	stats["db_loaded"] = st.dbLoaded.Load()
 
 	// If the raft stats exist, add them as a nested map
-	if st.raft != nil {
-		stats["raft"] = st.raft.Stats()
+	if rn := st.raft.Load(); rn != nil {
+		stats["raft"] = rn.Stats()
 		// add the servers information
 		var servers []map[string]any
-		if cf := st.raft.GetConfiguration(); cf.Error() == nil {
+		if cf := rn.GetConfiguration(); cf.Error() == nil {
 			servers = make([]map[string]any, len(cf.Configuration().Servers))
 			for i, server := range cf.Configuration().Servers {
 				servers[i] = map[string]any{
@@ -910,18 +1010,20 @@ func (st *Store) Stats() map[string]any {
 // Leader is used to return the current leader address.
 // It may return empty strings if there is no current leader or the leader is unknown.
 func (st *Store) Leader() string {
-	if st.raft == nil {
+	rn := st.raft.Load()
+	if rn == nil {
 		return ""
 	}
-	add, _ := st.raft.LeaderWithID()
+	add, _ := rn.LeaderWithID()
 	return string(add)
 }
 
 func (st *Store) LeaderWithID() (raft.ServerAddress, raft.ServerID) {
-	if st.raft == nil {
+	rn := st.raft.Load()
+	if rn == nil {
 		return "", ""
 	}
-	return st.raft.LeaderWithID()
+	return rn.LeaderWithID()
 }
 
 func (st *Store) assertFuture(fut raft.IndexFuture) error {
@@ -1022,7 +1124,7 @@ func (st *Store) reloadDBFromSchema() {
 
 	// in this path it means it was called from Apply()
 	// or forced Restore()
-	if st.raft != nil {
+	if st.raft.Load() != nil {
 		// we don't update lastAppliedIndexToDB if not a restore
 		return
 	}
@@ -1038,14 +1140,52 @@ func (st *Store) reloadDBFromSchema() {
 	st.metrics.fsmStartupAppliedIndex.Set(float64(val))
 }
 
+// waitLeaderFSMCaughtUp blocks until this node's FSM has applied what it
+// inherited from the previous term. Memoised per term, so steady state is one
+// atomic load.
+//
+// raft reports Leader as soon as the vote is won: the log holds every committed
+// entry, the state machine may hold none of them. raft.Barrier waits out that
+// difference; VerifyLeader appends nothing, so it waits for nothing.
+func (st *Store) waitLeaderFSMCaughtUp() error {
+	rn := st.raft.Load()
+	if rn == nil {
+		return nil
+	}
+
+	st.fsmCatchUpMu.Lock()
+	defer st.fsmCatchUpMu.Unlock()
+
+	term := rn.CurrentTerm()
+	if st.fsmCaughtUpForTerm(term) {
+		return nil
+	}
+
+	st.metrics.leaderFSMBarriers.Inc()
+	if err := rn.Barrier(st.applyTimeout).Error(); err != nil {
+		st.log.Warnf("leader FSM catch-up barrier failed on term %d: %v", term, err)
+		return fmt.Errorf("%w: %w", types.ErrFSMNotCaughtUp, err)
+	}
+
+	// Terms only climb, so a stamp staled by a new term costs one extra barrier.
+	st.fsmCaughtUpTerm.Store(term)
+	return nil
+}
+
+// fsmCaughtUpForTerm reports whether a barrier has confirmed term.
+func (st *Store) fsmCaughtUpForTerm(term uint64) bool {
+	return term != 0 && st.fsmCaughtUpTerm.Load() == term
+}
+
 func (st *Store) FSMHasCaughtUp() bool {
 	return st.lastAppliedIndex.Load() >= st.lastAppliedIndexToDB.Load()
 }
 
-// shouldLogSlowApply reports whether slow RAFT apply diagnostics should be
-// emitted: current leader, store ready, and past startup FSM catch-up.
+// shouldLogSlowApply reports whether slow RAFT apply diagnostics should be emitted. Not gated on
+// leadership: a follower's apply loop is serial too, and it is the follower that rejects a read
+// for a version it has not reached.
 func (st *Store) shouldLogSlowApply() bool {
-	return st.IsLeader() && st.Ready() && st.FSMHasCaughtUp()
+	return st.Ready() && st.FSMHasCaughtUp()
 }
 
 type Response struct {
@@ -1074,16 +1214,16 @@ func lastSnapshotIndex(snapshotStore *raft.FileSnapshotStore) uint64 {
 // used in a single cluster node.
 // for more details see : https://github.com/hashicorp/raft/blob/main/api.go#L279
 func (st *Store) recoverSingleNode(force bool) error {
-	if !force && (st.cfg.BootstrapExpect > 1 || len(st.candidates) > 1) {
+	if !force && (st.cfg.BootstrapExpect > 1 || st.candidatesLen() > 1) {
 		return fmt.Errorf("bootstrap expect %v, candidates %v, "+
-			"can't perform auto recovery in multi node cluster", st.cfg.BootstrapExpect, st.candidates)
+			"can't perform auto recovery in multi node cluster", st.cfg.BootstrapExpect, st.candidatesSnapshot())
 	}
-	servers := st.raft.GetConfiguration().Configuration().Servers
+	servers := st.raft.Load().GetConfiguration().Configuration().Servers
 	// nothing to do here, wasn't a single node
 	if !force && len(servers) != 1 {
 		st.log.WithFields(logrus.Fields{
 			"servers_from_previous_configuration": servers,
-			"candidates":                          st.candidates,
+			"candidates":                          st.candidatesSnapshot(),
 		}).Warn("didn't perform cluster recovery")
 		return nil
 	}
@@ -1106,7 +1246,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 		"new_single_cluster_node":     newNode,
 	}).Info("perform cluster recovery")
 
-	fut := st.raft.Shutdown()
+	fut := st.raft.Load().Shutdown()
 	if err := fut.Error(); err != nil {
 		return err
 	}
@@ -1129,11 +1269,11 @@ func (st *Store) recoverSingleNode(force bool) error {
 		return err
 	}
 
-	var err error
-	st.raft, err = raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
+	rn, err := raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
 	}
+	st.raft.Store(rn)
 
 	if exNode.ID == newNode.ID {
 		// no node name change needed in the state
@@ -1148,6 +1288,47 @@ func (st *Store) recoverSingleNode(force bool) error {
 	st.schemaManager.ReplaceStatesNodeName(string(newNode.ID))
 
 	return nil
+}
+
+// electIfSoleVoter starts an election now rather than after the randomized
+// heartbeat timeout (5-10s by default) when this node is the only voter: it
+// would elect itself anyway, so only the timing changes. Lowering the heartbeat
+// timeout makes a follower's timer fire at once; the configured value is put
+// back right away.
+func (st *Store) electIfSoleVoter(rn *raft.Raft) {
+	fut := rn.GetConfiguration()
+	if err := fut.Error(); err != nil {
+		st.log.Warnf("cannot read raft configuration to check for a sole voter: %v", err)
+		return
+	}
+	if !isSoleVoter(fut.Configuration(), raft.ServerID(st.cfg.NodeID)) {
+		return
+	}
+
+	configured := rn.ReloadableConfig()
+	lowered := configured
+	lowered.HeartbeatTimeout--
+	if err := rn.ReloadConfig(lowered); err != nil {
+		st.log.Warnf("cannot start an immediate election as the sole voter, waiting for the heartbeat timeout: %v", err)
+		return
+	}
+	if err := rn.ReloadConfig(configured); err != nil {
+		st.log.Errorf("cannot restore the raft heartbeat timeout to %s: %v", configured.HeartbeatTimeout, err)
+		return
+	}
+	st.log.WithField("action", "raft_sole_voter").Info("this node is the only voter, starting the election now")
+}
+
+func isSoleVoter(c raft.Configuration, id raft.ServerID) bool {
+	voters, self := 0, false
+	for _, s := range c.Servers {
+		if s.Suffrage != raft.Voter {
+			continue
+		}
+		voters++
+		self = self || s.ID == id
+	}
+	return voters == 1 && self
 }
 
 // setClusterID records the cluster identity in memory, set-once (first

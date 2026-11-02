@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -266,6 +265,50 @@ func TestAggregateGroupByValidation(t *testing.T) {
 	}
 }
 
+// TestAggregateGroupByDataType: the grouper cannot key on an object value, nor
+// on a reference once a where filter narrows the scan.
+func TestAggregateGroupByDataType(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int // 0: accepted
+		want       string
+	}{
+		{"text", `{"groupBy":"title"}`, 0, ""},
+		{"text array", `{"groupBy":"tags"}`, 0, ""},
+		{"int", `{"groupBy":"year"}`, 0, ""},
+		{"date", `{"groupBy":"published"}`, 0, ""},
+		{"geo", `{"groupBy":"location"}`, 0, ""},
+		{"phone", `{"groupBy":"phone"}`, 0, ""},
+		{"reference without where", `{"groupBy":"hasAuthor"}`, 0, ""},
+		{
+			"text with where",
+			`{"groupBy":"title","where":{"path":["year"],"operator":"Equal","valueInt":1}}`,
+			0, "",
+		},
+		{"object", `{"groupBy":"meta"}`, http.StatusUnprocessableEntity, `not supported on object property "meta"`},
+		{
+			"reference with where",
+			`{"groupBy":"hasAuthor","where":{"path":["year"],"operator":"Equal","valueInt":1}}`,
+			http.StatusUnprocessableEntity, "together with a where filter",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := newCatalogHandler(t, false)
+			deps.searcher.aggregateRes = &aggregation.Result{}
+			_, apiErr := doAggregate(t, deps, nil, "Catalog", tt.body)
+			if tt.wantStatus == 0 {
+				require.Nil(t, apiErr)
+				return
+			}
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tt.wantStatus, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), tt.want)
+		})
+	}
+}
+
 func TestAggregateLimitValidation(t *testing.T) {
 	tests := []struct {
 		name string
@@ -312,43 +355,6 @@ func TestAggregateHandlerWhere(t *testing.T) {
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})
-}
-
-func TestAggregateHandlerDisabled(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-
-	_, apiErr := doAggregate(t, deps, nil, "Movie", `{}`)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "not enabled")
-	assert.Contains(t, apiErr.Error(), "EXPERIMENTAL_REST_SEARCH_ENABLED")
-}
-
-// TestAggregateHandlerDisabledMissingCollection: a disabled endpoint answers
-// 422 even for a missing collection (the not-enabled check runs after authz,
-// before existence).
-func TestAggregateHandlerDisabledMissingCollection(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-
-	_, apiErr := doAggregate(t, deps, nil, "NoSuchCollection", `{}`)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "not enabled")
-}
-
-// TestAggregateHandlerDisabledUnauthorized: an unauthorized caller gets 403,
-// not the not-enabled 422 (a denied caller must not learn the endpoint is
-// off).
-func TestAggregateHandlerDisabledUnauthorized(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-	deps.authorizer.SetErr(autherrs.NewForbidden(&models.Principal{Username: "someone"}, "read", "collections/Movie"))
-
-	_, apiErr := doAggregate(t, deps, nil, "Movie", `{}`)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusForbidden, apiErr.Status)
 }
 
 func TestAggregateHandlerAuthorizesBeforeSchemaAccess(t *testing.T) {

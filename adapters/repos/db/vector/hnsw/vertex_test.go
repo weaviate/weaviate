@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
@@ -65,7 +66,7 @@ func TestVertex_SetConnections(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			connections, _ := packedconn.NewWithMaxLayer(0)
 			v := &vertex{
-				connections: connections,
+				connections: *connections,
 			}
 			v.connections.ReplaceLayer(0, tc.initial)
 
@@ -115,7 +116,7 @@ func TestVertex_AppendConnection(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			connections, _ := packedconn.NewWithMaxLayer(0)
 			v := &vertex{
-				connections: connections,
+				connections: *connections,
 			}
 			v.connections.ReplaceLayer(0, tc.initial)
 
@@ -167,7 +168,7 @@ func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			connections, _ := packedconn.NewWithMaxLayer(1)
 			v := &vertex{
-				connections: connections,
+				connections: *connections,
 			}
 			v.connections.ReplaceLayer(0, tc.initial)
 
@@ -185,7 +186,7 @@ func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 func TestVertex_ResetConnections(t *testing.T) {
 	connections, _ := packedconn.NewWithMaxLayer(1)
 	v := &vertex{
-		connections: connections,
+		connections: *connections,
 	}
 	v.connections.ReplaceLayer(0, makeConnections(4, 4))
 
@@ -209,4 +210,10 @@ func TestVertex_Maintenance(t *testing.T) {
 	assert.True(t, v.isUnderMaintenance())
 	v.unmarkAsMaintenance()
 	assert.False(t, v.isUnderMaintenance())
+}
+
+func TestVertex_Size(t *testing.T) {
+	// one allocation per node: the connections, the mutex, the level and
+	// the maintenance flag
+	assert.Equal(t, uintptr(64), unsafe.Sizeof(vertex{}))
 }

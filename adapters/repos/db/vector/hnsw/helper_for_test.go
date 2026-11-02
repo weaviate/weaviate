@@ -29,12 +29,12 @@ func dumpIndex(index *hnsw, labels ...string) {
 	fmt.Printf("Max Level: %d\n", index.currentMaximumLayer)
 	fmt.Printf("Tombstones %v\n", index.tombstones)
 	fmt.Printf("\nNodes and Connections:\n")
-	for _, node := range index.nodes {
+	for i, node := range index.nodes {
 		if node == nil {
 			continue
 		}
 
-		fmt.Printf("  Node %d\n", node.id)
+		fmt.Printf("  Node %d\n", i)
 		iter := node.connections.Iterator()
 		for iter.Next() {
 			level, conns := iter.Current()

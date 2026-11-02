@@ -91,10 +91,6 @@ type SchemaManager interface {
 	QueryReadOnlyClasses(names ...string) (map[string]versioned.Class, error)
 	QuerySchema() (models.Schema, error)
 	QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error)
-	// QueryCollectionsCount returns a leader-consistent count. Empty
-	// namespace returns the cluster-global total; a non-empty namespace
-	// restricts the count to classes in that namespace.
-	QueryCollectionsCount(namespace string) (int, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
 	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
 	QueryShardingState(class string) (*sharding.State, uint64, error)
@@ -134,6 +130,10 @@ type SchemaReader interface {
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 	ResolveAlias(alias string) string
 	GetAliasesForClass(class string) []*models.Alias
+	// CollectionsCount returns the local count of stored classes. Empty
+	// namespace returns the cluster-global total; a non-empty namespace
+	// restricts the count to classes in that namespace.
+	CollectionsCount(namespace string) int
 
 	// These schema reads function (...WithVersion) return the metadata once the local schema has caught up to the
 	// version parameter. If version is 0 is behaves exactly the same as eventual consistent reads.
@@ -357,7 +357,7 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 ) (uint64, error) {
 	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsMetadata(class, shard)...); err != nil {
@@ -372,7 +372,7 @@ func (h *Handler) ShardsStatus(ctx context.Context,
 ) (models.ShardStatusList, error) {
 	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsMetadata(class, shard)...); err != nil {

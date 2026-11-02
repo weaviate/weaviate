@@ -18,7 +18,6 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
@@ -174,22 +173,17 @@ func TestObjects(t *testing.T) {
 		name     string
 		class    string
 		shard    string
-		id       strfmt.UUID
 		expected string
 	}{
-		{"No class, no shard, no id", "", "", "", fmt.Sprintf("%s/collections/*/shards/*/objects/*", DataDomain)},
-		{"Class, no shard, no id", "class1", "", "", fmt.Sprintf("%s/collections/Class1/shards/*/objects/*", DataDomain)},
-		{"No class, shard, no id", "", "shard1", "", fmt.Sprintf("%s/collections/*/shards/shard1/objects/*", DataDomain)},
-		{"No class, no shard, id", "", "", "id1", fmt.Sprintf("%s/collections/*/shards/*/objects/id1", DataDomain)},
-		{"Class, shard, no id", "class1", "shard1", "", fmt.Sprintf("%s/collections/Class1/shards/shard1/objects/*", DataDomain)},
-		{"Class, no shard, id", "class1", "", "id1", fmt.Sprintf("%s/collections/Class1/shards/*/objects/id1", DataDomain)},
-		{"No class, shard, id", "", "shard1", "id1", fmt.Sprintf("%s/collections/*/shards/shard1/objects/id1", DataDomain)},
-		{"Class, shard, id", "class1", "shard1", "id1", fmt.Sprintf("%s/collections/Class1/shards/shard1/objects/id1", DataDomain)},
+		{"No class, no shard", "", "", fmt.Sprintf("%s/collections/*/shards/*/objects/*", DataDomain)},
+		{"Class, no shard", "class1", "", fmt.Sprintf("%s/collections/Class1/shards/*/objects/*", DataDomain)},
+		{"No class, shard", "", "shard1", fmt.Sprintf("%s/collections/*/shards/shard1/objects/*", DataDomain)},
+		{"Class, shard", "class1", "shard1", fmt.Sprintf("%s/collections/Class1/shards/shard1/objects/*", DataDomain)},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := Objects(tt.class, tt.shard, tt.id)
+			result := Objects(tt.class, tt.shard)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -292,9 +286,11 @@ func TestBuiltInPermissions_NamespaceManageOnly(t *testing.T) {
 	assert.True(t, hasExactAction(root, ManageNamespaces), "Root must include manage_namespaces")
 	assert.False(t, hasNamespaceAction(viewer), "Viewer must not include any *_namespaces action")
 	assert.False(t, hasNamespaceAction(readOnly), "ReadOnly must not include any *_namespaces action")
-	// Regression guard for the "only R-prefixed actions survive viewer filter"
-	// convention: backups has no read-prefixed action either, so viewers get none.
-	assert.False(t, hasBackupAction(viewer), "Viewer must not include any *_backups action")
+	// Only R-prefixed actions survive the viewer filter: viewers get read_backups,
+	// which their wildcard READ policy already granted, and never manage_backups.
+	assert.True(t, hasExactAction(viewer, ReadBackups), "Viewer must include read_backups")
+	assert.False(t, hasExactAction(viewer, ManageBackups), "Viewer must not include manage_backups")
+	assert.True(t, hasBackupAction(admin), "Admin must include backups actions")
 }
 
 // TestBuiltInPermissions_NamespacesEnabled asserts the narrowed admin/viewer
@@ -348,7 +344,7 @@ func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 
 	// Cluster-only domains excluded from both narrowed roles.
 	for _, action := range []string{
-		ManageBackups, ManageNamespaces,
+		ManageBackups, ReadBackups, ManageNamespaces,
 		ReadNodes, ReadCluster,
 		AssignAndRevokeGroups, ReadGroups,
 		CreateReplicate, ReadReplicate, UpdateReplicate, DeleteReplicate,

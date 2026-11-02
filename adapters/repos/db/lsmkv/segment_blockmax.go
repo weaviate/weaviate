@@ -58,14 +58,7 @@ func (s *segment) loadBlockEntries(node segmentindex.Node, plView *propLengthsVi
 	} else {
 		// read first 8 bytes to get
 		buf = make([]byte, 8+12*terms.ENCODE_AS_FULL_BYTES)
-		r, err := s.newNodeReader(nodeOffset{node.Start, node.Start + uint64(8+12*terms.ENCODE_AS_FULL_BYTES)}, "loadBMW")
-		if err != nil {
-			return nil, 0, nil, err
-		}
-		defer r.Release()
-
-		_, err = r.Read(buf)
-		if err != nil {
+		if err := s.preadInto(buf, node.Start, loadBMWOp); err != nil {
 			return nil, 0, nil, err
 		}
 	}
@@ -95,15 +88,8 @@ func (s *segment) loadBlockEntries(node segmentindex.Node, plView *propLengthsVi
 	if s.readFromMemory {
 		buf = s.contents[node.Start+16 : node.Start+16+uint64(blockCount*20)]
 	} else {
-		r, err := s.newNodeReader(nodeOffset{node.Start + 16, node.Start + 16 + uint64(blockCount*20)}, "loadBMW")
-		if err != nil {
-			return nil, 0, nil, err
-		}
-		defer r.Release()
-
 		buf = make([]byte, blockCount*20)
-		_, err = r.Read(buf)
-		if err != nil {
+		if err := s.preadInto(buf, node.Start+16, loadBMWOp); err != nil {
 			return nil, 0, nil, err
 		}
 	}
@@ -221,7 +207,11 @@ type SegmentBlockMax struct {
 func (s *segment) newSegmentBlockMax(node *segmentindex.Node, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
 	if node == nil {
 		n, err := s.index.Get(key)
+		// TODO aliszka:bm25-corruption-swallow: an unreadable index reads as "no
+		// posting" here, dropping this segment's postings. Reported, not returned:
+		// what a query should do with one is a separate decision.
 		if err != nil {
+			_ = s.reportIndexErr(err)
 			return nil
 		}
 		node = &n
@@ -231,7 +221,10 @@ func (s *segment) newSegmentBlockMax(node *segmentindex.Node, key []byte, queryT
 
 func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
 	node, err := s.index.Get(key)
+	// TODO aliszka:bm25-corruption-swallow: an unreadable index reads as "no
+	// posting" here too, dropping this segment's postings.
 	if err != nil {
+		_ = s.reportIndexErr(err)
 		return nil
 	}
 	return newSegmentBlockMaxFromNode(s, node, queryTermIndex, idf, propertyBoost, tombstones, memTombstones, filterDocIds, averagePropLength, config)

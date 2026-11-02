@@ -12,7 +12,6 @@
 package db
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -242,7 +241,12 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 
 	for targetVector, vector := range obj.Vectors {
 		if vectorIndex, ok := s.GetVectorIndex(targetVector); ok {
-			if err := vectorIndex.ValidateBeforeInsert(vector); err != nil {
+			err = checkVectorKind(vectorIndex, targetVector, false)
+			if err != nil {
+				return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
+			}
+			err = vectorIndex.ValidateBeforeInsert(vector)
+			if err != nil {
 				return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
 			}
 		}
@@ -250,7 +254,12 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 
 	for targetVector, vector := range obj.MultiVectors {
 		if vectorIndex, ok := s.GetVectorIndex(targetVector); ok {
-			if err := vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(vector); err != nil {
+			multiIndex, err := asMultiVectorIndex(vectorIndex, targetVector)
+			if err != nil {
+				return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
+			}
+			err = multiIndex.ValidateMultiBeforeInsert(vector)
+			if err != nil {
 				return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
 			}
 		}
@@ -259,16 +268,20 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 	if len(obj.Vector) > 0 && s.hasLegacyVectorIndex() {
 		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
 		if index, ok := s.GetVectorIndex(""); ok {
+			if err = checkVectorKind(index, "", false); err != nil {
+				return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
+			}
 			if err = index.ValidateBeforeInsert(obj.Vector); err != nil {
 				return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
 			}
 		}
 	}
 
-	bucket, err := s.objectsBucket()
+	bucket, release, err := s.objectsBucket()
 	if err != nil {
 		return status, err
 	}
+	defer release()
 	var prevObj *storobj.Object
 
 	// First the object bucket is checked if an object with the same uuid is alreadypresent,
@@ -276,11 +289,7 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 	// Afterwards the bucket is updated. To avoid races, only one goroutine can do this at once.
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
 
-	// Wait for hashtree initialization before acquiring the RLock.
-	// waitForMinimalHashTreeInitialization must not be called while holding
-	// RLock: if initHashtree fails and retries, it needs write-lock to replace
-	// minimalHashtreeInitializationCh; a caller blocking under RLock would
-	// deadlock with the retry until the caller's context expired.
+	// Wait outside the RLock: initHashtree arms the gate under the write lock, so parking under RLock would deadlock it.
 	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
 		return objectInsertStatus{}, err
 	}
@@ -523,12 +532,8 @@ func (s *Shard) determineMutableInsertStatus(previous, next *storobj.Object) (ob
 func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
 	docID uint64,
 ) error {
-	keyBuf := bytes.NewBuffer(nil)
-	err := binary.Write(keyBuf, binary.LittleEndian, &docID)
-	if err != nil {
-		return fmt.Errorf("write doc id to buffer: %w", err)
-	}
-	docIDBytes := keyBuf.Bytes()
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
 
 	return bucket.Put(id, data,
 		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes),
@@ -538,14 +543,15 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	status objectInsertStatus, prevObject *storobj.Object,
 ) error {
+	// One snapshot for the whole write, loaded before analysis: the swap
+	// publishes the overlay before it disarms, so a disarmed snapshot means
+	// the analysis below already sees the overlay.
+	st := s.loadPropValueIndexState()
+
 	props, nilprops, nestedProps, err := s.AnalyzeObject(object)
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
 	}
-
-	// One snapshot for the whole write, so the double-write pass below sees
-	// the same {add,del,scope} as the inline suppression above.
-	st := s.loadPropValueIndexState()
 
 	var prevProps []inverted.Property
 	var prevNilprops []inverted.NilProperty

@@ -72,10 +72,13 @@ type RecoveredReindex struct {
 // belonging to the same task is the caller's job.
 func DiscoverInFlightReindexTasks(
 	rootPath string,
+	runtimeReindexEnabled bool,
 	logger logrus.FieldLogger,
 	schemaManager *schema.Manager,
 ) ([]RecoveredReindex, error) {
-	if rootPath == "" {
+	// The scan lists a directory per shard, which delays startup by minutes
+	// on clusters with many tenants, so it only runs with the feature on.
+	if rootPath == "" || !runtimeReindexEnabled {
 		return nil, nil
 	}
 	indices, err := os.ReadDir(rootPath)
@@ -118,15 +121,13 @@ func DiscoverInFlightReindexTasks(
 					continue
 				}
 
-				// Parse the per-node generation suffix from the migration dir
-				// name. With per-migration generation, the strategy instances
-				// reconstructed here MUST use the same gen as the in-flight
-				// state on disk, otherwise their SourceBucketName / Reindex
-				// SuffixName paths won't match the on-disk dirs.
-				_, generation, parseOk := parseMigrationDirName(migEntry.Name())
-				if !parseOk {
+				// Generation comes from the dir name, like every other reader
+				// of this state: payload.mig is copied into every task dir
+				// for this migration, so it can't tell generations apart.
+				_, generation, hasGeneration := parseMigrationDirName(migEntry.Name())
+				if !hasGeneration {
 					logger.WithField("migrationDir", migDir).
-						Warn("reindex recovery: migration dir name missing _<gen> suffix; skipping")
+						Warn("reindex recovery: migration dir name carries no generation; skipping")
 					continue
 				}
 
@@ -232,7 +233,7 @@ func buildRecoveryTasks(
 		}
 	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
 		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeFilterableToRangeableTask(logger, schemaManager, payload.Properties, payload.Collection, generation),
+			NewRuntimeFilterableToRangeableTask(logger, payload.Properties, payload.Collection, generation),
 		}
 	case ReindexTypeEnableFilterable:
 		raw = []*ShardReindexTaskGeneric{

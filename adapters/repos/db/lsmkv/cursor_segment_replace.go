@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"bufio"
-	"errors"
 	"io"
 	"sync"
 
@@ -106,17 +105,17 @@ func (s *segment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
 		},
 		firstOffsetFn: func() (uint64, error) {
 			index := s.secondaryIndices[pos]
-			n, err := index.Seek(nil)
+			start, _, err := index.SeekOffsets(nil)
 			if err != nil {
-				return 0, err
+				return 0, s.reportIndexErr(err)
 			}
-			return n.Start, nil
+			return start, nil
 		},
 		nextOffsetFn: func(n *segmentReplaceNode) (uint64, error) {
 			index := s.secondaryIndices[pos]
 			next, err := index.Next(n.secondaryKeys[pos])
 			if err != nil {
-				return 0, err
+				return 0, s.reportIndexErr(err)
 			}
 			return next.Start, nil
 		},
@@ -153,15 +152,15 @@ func (sg *SegmentGroup) newCursorsWithSecondaryIndex(pos int) ([]innerCursorRepl
 }
 
 func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
-	node, err := s.index.Seek(key)
+	start, end, err := s.index.SeekOffsets(key)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, s.segment.reportIndexErr(err)
 	}
 
-	s.currOffset = node.Start
+	s.currOffset = start
 
-	err = s.parseReplaceNodeInto(nodeOffset{start: node.Start, end: node.End},
-		s.segment.contents[node.Start:node.End])
+	err = s.parseReplaceNodeInto(nodeOffset{start: start, end: end},
+		s.segment.contents[start:end])
 	if err != nil {
 		return s.keyFn(s.reusableNode), nil, err
 	}
@@ -242,7 +241,7 @@ func (s *segmentCursorReplace) firstWithAllKeys() (n segmentReplaceNode, err err
 }
 
 func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset) (segmentReplaceNode, error) {
-	r, err := s.segment.newNodeReader(offset, "segmentCursorReplace")
+	r, err := s.segment.newNodeReader(offset, segmentCursorReplaceOp)
 	if err != nil {
 		return segmentReplaceNode{}, err
 	}
@@ -260,7 +259,7 @@ func (s *segmentCursorReplace) parseReplaceNodeInto(offset nodeOffset, buf []byt
 		return s.parse(buf)
 	}
 
-	r, err := s.segment.newNodeReader(offset, "segmentCursorReplace")
+	r, err := s.segment.newNodeReader(offset, segmentCursorReplaceOp)
 	if err != nil {
 		return err
 	}
@@ -392,11 +391,11 @@ func (s *segmentCursorReplaceReusable) next() (*segmentReplaceNode, error) {
 // seek positions at the first node with key >= the given key; next() then
 // continues sequentially. Returns lsmkv.NotFound past the highest key.
 func (s *segmentCursorReplaceReusable) seek(key []byte) (*segmentReplaceNode, error) {
-	node, err := s.segment.index.Seek(key)
+	start, _, err := s.segment.index.SeekOffsets(key)
 	if err != nil {
-		return nil, err
+		return nil, s.segment.reportIndexErr(err)
 	}
-	s.currOffset = node.Start
+	s.currOffset = start
 	return s.parseInto()
 }
 
@@ -446,7 +445,7 @@ type reusableInnerCursorReplace struct {
 }
 
 func nodeToKV(n *segmentReplaceNode, err error) ([]byte, []byte, error) {
-	if errors.Is(err, lsmkv.Deleted) {
+	if lsmkv.IsDeleted(err) {
 		// tombstone: key with nil value, so the merge can advance past it
 		return n.primaryKey, nil, err
 	}

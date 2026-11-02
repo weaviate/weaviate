@@ -837,7 +837,7 @@ func TestRecExecutorFilterExamples(t *testing.T) {
 //
 // Two layers are exercised:
 //
-//   - Top-level: execute() checks ctxExpired at the very top, so any cancelled
+//   - Top-level: execute() checks ctx.Err() at the very top, so any cancelled
 //     context short-circuits regardless of plan shape. The
 //     `cancelled_via_*` sub-tests cover the three execute() dispatches with
 //     a non-nil plan: canUseRawAndAll (raw AndAll, no idx loop),
@@ -924,7 +924,7 @@ func TestRecExecutorContextCancellation(t *testing.T) {
 	t.Run("inner_check_runIdxLoopRecursive_returns_ctx_err", func(t *testing.T) {
 		// Bypass execute() and invoke evalNode directly so the top-level
 		// check is skipped. runIdxLoopRecursive's own start-of-function
-		// ctxExpired guard must still fire — this protects long-running idx
+		// ctx.Err() guard must still fire — this protects long-running idx
 		// iterations after a previous ctx check passed.
 		mb := newIdxBucket(t)
 		writeIdx(t, mb, "garages", 0, []uint64{enc(1, 1, 100)})
@@ -946,7 +946,7 @@ func TestRecExecutorContextCancellation(t *testing.T) {
 
 	t.Run("inner_check_evalSplit_returns_ctx_err", func(t *testing.T) {
 		// Bypass execute() and invoke evalNode directly. evalSplit's
-		// per-branch ctxExpired guard must fire — this protects multi-branch
+		// per-branch ctx.Err() guard must fire — this protects multi-branch
 		// dispatch when each branch incurs a metaBucket read.
 		mb := newIdxBucket(t)
 		writeIdx(t, mb, "garages", 0, []uint64{enc(1, 1, 100)})

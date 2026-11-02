@@ -13,7 +13,6 @@ package roaringset
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 
 	"github.com/weaviate/sroar"
@@ -27,6 +26,9 @@ type CombinedCursor struct {
 	maxConc int
 }
 
+// InnerCursor may yield a nil side, and a non-nil side may still be empty:
+// implementations differ. Test a side with [sroar.Bitmap.IsEmpty], which reads
+// nil and empty alike, never against nil.
 type InnerCursor interface {
 	First() ([]byte, BitmapLayer, error)
 	Next() ([]byte, BitmapLayer, error)
@@ -81,7 +83,7 @@ func (c *CombinedCursor) runAll(cursorRun cursorRun) []innerCursorState {
 }
 
 func (c *CombinedCursor) createState(key []byte, layer BitmapLayer, err error) innerCursorState {
-	if errors.Is(err, lsmkv.NotFound) {
+	if lsmkv.IsNotFound(err) {
 		return innerCursorState{err: err}
 	}
 	if err != nil {
@@ -138,7 +140,7 @@ func (c *CombinedCursor) getCursorIdsWithLowestKey(states []innerCursorState) ([
 	allNotFound := true
 
 	for id, state := range states {
-		if errors.Is(state.err, lsmkv.NotFound) {
+		if lsmkv.IsNotFound(state.err) {
 			continue
 		}
 		allNotFound = false

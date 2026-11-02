@@ -50,7 +50,7 @@ func TestRoleResolverQualifyNameForCreate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := QualifyRoleNameForCreate(tt.principal, tt.nsEnabled, tt.raw)
 			if tt.wantErr {
-				require.Error(t, err)
+				require.ErrorIs(t, err, ErrInvalidRoleName)
 				return
 			}
 			require.NoError(t, err)
@@ -94,7 +94,7 @@ func TestRoleResolverResolveRoleName(t *testing.T) {
 			case tt.wantNotFound:
 				require.ErrorIs(t, err, ErrRoleNotFound)
 			case tt.wantErr:
-				require.Error(t, err)
+				require.ErrorIs(t, err, ErrInvalidRoleName)
 			default:
 				require.NoError(t, err)
 				assert.Equal(t, tt.wantStored, stored)
@@ -108,6 +108,7 @@ func TestRoleResolverResolveRoleName(t *testing.T) {
 		_, err := ResolveRoleName(namespaced("customer1"), true, "editor", failing)
 		require.ErrorIs(t, err, boom)
 		require.NotErrorIs(t, err, ErrRoleNotFound)
+		require.NotErrorIs(t, err, ErrInvalidRoleName)
 	})
 }
 

@@ -98,42 +98,205 @@ func (e *comparableValueExtractor) extractFromObject(object *storobj.Object, pro
 		return nil
 	}
 
+	// A live object's property arrives in whichever shape the object carries:
+	// typed values from a parsed request, or the generic JSON shapes
+	// ([]interface{}, map[string]interface{}) of an object unmarshaled from
+	// storage. A value matching neither shape extracts as nil, the same as a
+	// missing property — a sort must degrade to "no value", never panic the
+	// query.
 	switch e.dataTypesHelper.getType(propName) {
-	case schema.DataTypeBlob, schema.DataTypeBlobHash:
-		s := value.(string)
-		return &s
-	case schema.DataTypeText:
-		s := value.(string)
-		return &s
+	case schema.DataTypeBlob, schema.DataTypeBlobHash, schema.DataTypeText:
+		if s, ok := value.(string); ok {
+			return &s
+		}
 	case schema.DataTypeTextArray:
-		sa := value.([]string)
-		return &sa
+		if sa, ok := asStringSlice(value); ok {
+			return &sa
+		}
 	case schema.DataTypeDate:
-		d := e.mustExtractDates([]string{value.(string)})[0]
-		return &d
+		if d, ok := asDate(value); ok {
+			return &d
+		}
 	case schema.DataTypeDateArray:
-		da := e.mustExtractDates(value.([]string))
-		return &da
+		if da, ok := asDateSlice(value); ok {
+			return &da
+		}
 	case schema.DataTypeNumber, schema.DataTypeInt:
-		n := value.(float64)
-		return &n
+		if n, ok := value.(float64); ok {
+			return &n
+		}
 	case schema.DataTypeNumberArray, schema.DataTypeIntArray:
-		na := value.([]float64)
-		return &na
+		if na, ok := asFloat64Slice(value); ok {
+			return &na
+		}
 	case schema.DataTypeBoolean:
-		b := value.(bool)
-		return &b
+		if b, ok := value.(bool); ok {
+			return &b
+		}
 	case schema.DataTypeBooleanArray:
-		ba := value.([]bool)
-		return &ba
+		if ba, ok := asBoolSlice(value); ok {
+			return &ba
+		}
 	case schema.DataTypePhoneNumber:
-		fa := e.toFloatArrayFromPhoneNumber(value.(*models.PhoneNumber))
-		return &fa
+		if pn, ok := asPhoneNumber(value); ok {
+			fa := e.toFloatArrayFromPhoneNumber(pn)
+			return &fa
+		}
 	case schema.DataTypeGeoCoordinates:
-		fa := e.toFloatArrayFromGeoCoordinates(value.(*models.GeoCoordinates))
-		return &fa
+		if gc, ok := asGeoCoordinates(value); ok {
+			fa := e.toFloatArrayFromGeoCoordinates(gc)
+			return &fa
+		}
 	default:
-		return nil
+		// crefs, uuids, (nested) objects and the legacy string types are not
+		// sortable
+	}
+	return nil
+}
+
+// asStringSlice accepts the two shapes a stored string-array property takes
+// on a live object: a typed []string, or the []interface{} of a JSON-decoded
+// object.
+func asStringSlice(value interface{}) ([]string, bool) {
+	switch v := value.(type) {
+	case []string:
+		return v, true
+	case []interface{}:
+		out := make([]string, len(v))
+		for i := range v {
+			s, ok := v[i].(string)
+			if !ok {
+				return nil, false
+			}
+			out[i] = s
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func asFloat64Slice(value interface{}) ([]float64, bool) {
+	switch v := value.(type) {
+	case []float64:
+		return v, true
+	case []interface{}:
+		out := make([]float64, len(v))
+		for i := range v {
+			n, ok := v[i].(float64)
+			if !ok {
+				return nil, false
+			}
+			out[i] = n
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func asBoolSlice(value interface{}) ([]bool, bool) {
+	switch v := value.(type) {
+	case []bool:
+		return v, true
+	case []interface{}:
+		out := make([]bool, len(v))
+		for i := range v {
+			b, ok := v[i].(bool)
+			if !ok {
+				return nil, false
+			}
+			out[i] = b
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+// asDate accepts the two shapes a date property takes on a live object: the
+// request validator's typed time.Time, or the RFC3339 string of a
+// JSON-decoded object. A malformed string is a missing value, not a panic.
+func asDate(value interface{}) (time.Time, bool) {
+	switch v := value.(type) {
+	case time.Time:
+		return v, true
+	case string:
+		d, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return time.Time{}, false
+		}
+		return d, true
+	default:
+		return time.Time{}, false
+	}
+}
+
+// asDateSlice mirrors asDate for date arrays: []time.Time from the validator,
+// or string elements ([]string / []interface{}) parsed fallibly.
+func asDateSlice(value interface{}) ([]time.Time, bool) {
+	if da, ok := value.([]time.Time); ok {
+		return da, true
+	}
+	sa, ok := asStringSlice(value)
+	if !ok {
+		return nil, false
+	}
+	out := make([]time.Time, len(sa))
+	for i := range sa {
+		d, err := time.Parse(time.RFC3339, sa[i])
+		if err != nil {
+			return nil, false
+		}
+		out[i] = d
+	}
+	return out, true
+}
+
+// asPhoneNumber accepts the typed *models.PhoneNumber of a parsed request or
+// the map[string]interface{} of a JSON-decoded object. A map must carry the
+// two numeric fields the comparator reads; a partial map (e.g. {}) is a
+// missing value, not a zero phone number.
+func asPhoneNumber(value interface{}) (*models.PhoneNumber, bool) {
+	switch v := value.(type) {
+	case *models.PhoneNumber:
+		return v, v != nil
+	case map[string]interface{}:
+		countryCode, ok := v["countryCode"].(float64)
+		if !ok {
+			return nil, false
+		}
+		national, ok := v["national"].(float64)
+		if !ok {
+			return nil, false
+		}
+		return &models.PhoneNumber{
+			CountryCode: uint64(countryCode),
+			National:    uint64(national),
+		}, true
+	default:
+		return nil, false
+	}
+}
+
+// asGeoCoordinates mirrors asPhoneNumber for geo properties.
+func asGeoCoordinates(value interface{}) (*models.GeoCoordinates, bool) {
+	switch v := value.(type) {
+	case *models.GeoCoordinates:
+		return v, v != nil
+	case map[string]interface{}:
+		lon, ok := v["longitude"].(float64)
+		if !ok {
+			return nil, false
+		}
+		lat, ok := v["latitude"].(float64)
+		if !ok {
+			return nil, false
+		}
+		lonF, latF := float32(lon), float32(lat)
+		return &models.GeoCoordinates{Longitude: &lonF, Latitude: &latF}, true
+	default:
+		return nil, false
 	}
 }
 

@@ -29,7 +29,7 @@ func TestGRPC_MixedVectors(t *testing.T) {
 		grpcClient, _ = newClient(t)
 	)
 
-	class := books.ClassMixedContextionaryVectorizer()
+	class := books.ClassMixedModel2VecVectorizer()
 	helper.DeleteClass(t, class.Class)
 	helper.CreateClass(t, class)
 
@@ -81,18 +81,18 @@ func TestGRPC_MixedVectors(t *testing.T) {
 		require.Len(t, resp.Results, 3)
 
 		for _, result := range resp.Results {
-			require.Len(t, result.Metadata.Vector, 300)
+			require.Len(t, result.Metadata.Vector, 256)
 			require.Len(t, result.Metadata.Vectors, 2)
 
-			contextionary := find(result.Metadata.Vectors, func(t *pb.Vectors) bool {
-				return t.Name == "contextionary_all"
+			model2vecAll := find(result.Metadata.Vectors, func(t *pb.Vectors) bool {
+				return t.Name == books.Model2VecAllTargetVector
 			})
-			require.Equal(t, "contextionary_all", contextionary.Name)
-			require.Equal(t, result.Metadata.Vector, byteops.Fp32SliceFromBytes(contextionary.VectorBytes))
+			require.Equal(t, books.Model2VecAllTargetVector, model2vecAll.Name)
+			require.Equal(t, result.Metadata.Vector, byteops.Fp32SliceFromBytes(model2vecAll.VectorBytes))
 		}
 	})
 
-	for _, targetVector := range []string{"", "contextionary_all"} {
+	for _, targetVector := range []string{"", books.Model2VecAllTargetVector} {
 		t.Run(fmt.Sprintf("search,targetVector=%q", targetVector), func(t *testing.T) {
 			t.Run("hybrid", func(t *testing.T) {
 				resp := search(t, func(req *pb.SearchRequest) {

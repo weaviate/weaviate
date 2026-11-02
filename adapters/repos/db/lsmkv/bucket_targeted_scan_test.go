@@ -228,6 +228,9 @@ func TestScanTargetedReplaceFlushingMemtable(t *testing.T) {
 	ctx := context.Background()
 	b := newReusableTestBucket(t, ctx)
 	defer b.Shutdown(ctx)
+	// A defer rather than a cleanup, so it runs before the Shutdown above it:
+	// Shutdown waits on b.flushing with no bound, and cleanups run after defers.
+	defer completeParkedFlush(t, b)
 
 	put := func(id uint64, fillerLen int) { targetedPut(t, b, id, fillerLen) }
 	putEmpty := func(id uint64) { targetedPutEmpty(t, b, id) }
@@ -262,14 +265,6 @@ func TestScanTargetedReplaceFlushingMemtable(t *testing.T) {
 	}
 
 	require.Equal(t, collectMergedCursor(t, b), scanCollect(t, b, 16, 4))
-
-	// finish the parked flush the same way FlushAndSwitch would, so Shutdown
-	// sees a normal bucket
-	segPath, err := b.flushing.flush()
-	require.NoError(t, err)
-	seg, err := b.disk.initAndPrecomputeNewSegment(segPath)
-	require.NoError(t, err)
-	require.NoError(t, b.atomicallyAddDiskSegmentAndRemoveFlushing(seg))
 }
 
 // TestScanTargetedReplaceLazySegments reopens a populated bucket with lazy

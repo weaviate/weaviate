@@ -92,6 +92,7 @@ func (s *Shard) preparePutObject(ctx context.Context, requestID string, object *
 			Code: replicaerrors.StatusPreconditionFailed, Msg: err.Error(),
 		}}}
 	}
+	// commit assigns the DocID on the object, so in-process callers must pass an owned copy
 	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
 		if err := s.putOne(ctx, uuid, object); err != nil {
@@ -146,6 +147,7 @@ func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid 
 }
 
 func (s *Shard) preparePutObjects(ctx context.Context, requestID string, objects []*storobj.Object) replica.SimpleResponse {
+	// commit assigns DocIDs on the objects, so in-process callers must pass owned copies
 	task := func(ctx context.Context) interface{} {
 		rawErrs := s.putBatch(ctx, objects)
 		resp := replica.SimpleResponse{Errors: make([]replicaerrors.Error, len(rawErrs))}

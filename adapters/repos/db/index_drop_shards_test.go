@@ -489,7 +489,7 @@ func newDropTestIndex(t *testing.T) (*Index, *test.Hook) {
 	t.Cleanup(func() {
 		// a cycle the index left running would otherwise outlive the test
 		for _, cycle := range testCycles(idx.cycleCallbacks) {
-			require.NoError(t, cycle.StopAndWait(context.Background()))
+			stopTestCycle(t, cycle)
 		}
 	})
 	return idx, hook

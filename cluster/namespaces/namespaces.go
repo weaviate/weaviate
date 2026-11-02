@@ -43,12 +43,20 @@ type RBACNamespaceLister interface {
 	CountNamespaceLocalRBAC(namespace string) (int, error)
 }
 
+// NamespaceMetricsDeleter drops the prometheus series that belong to a
+// namespace itself, rather than to one of its classes. It returns nothing,
+// because the apply and restore paths that call it must not fail on a metrics error.
+type NamespaceMetricsDeleter interface {
+	DeleteNamespace(namespace string)
+}
+
 // Manager is the RAFT FSM adapter. It does not own state.
 type Manager struct {
 	controller *usecasesNamespaces.Controller
 	schema     SchemaNamespaceLister
 	dynusers   DynusersNamespaceLister
 	rbac       RBACNamespaceLister
+	metrics    NamespaceMetricsDeleter
 	logger     logrus.FieldLogger
 }
 
@@ -61,6 +69,7 @@ func NewManager(
 	schema SchemaNamespaceLister,
 	dynusers DynusersNamespaceLister,
 	rbac RBACNamespaceLister,
+	metrics NamespaceMetricsDeleter,
 	logger logrus.FieldLogger,
 ) *Manager {
 	if controller == nil {
@@ -74,8 +83,18 @@ func NewManager(
 		schema:     schema,
 		dynusers:   dynusers,
 		rbac:       rbac,
+		metrics:    metrics,
 		logger:     logger,
 	}
+}
+
+// deleteMetrics drops the namespace's series on this node. Every RAFT node
+// applies the removal, so every node drops its own copy.
+func (m *Manager) deleteMetrics(namespace string) {
+	if m.metrics == nil {
+		return
+	}
+	m.metrics.DeleteNamespace(namespace)
 }
 
 // Add applies an AddNamespace RAFT command, recording the command's RAFT log
@@ -130,7 +149,8 @@ func (m *Manager) ChangeState(c *cmd.ApplyRequest) error {
 // [usecasesNamespaces.ErrNotFound] when the namespace does not exist,
 // [usecasesNamespaces.ErrInvalidState] when called on an active namespace,
 // and [usecasesNamespaces.ErrNamespaceNotEmpty] when classes, aliases, users,
-// or RBAC rows still remain in the namespace.
+// or RBAC rows still remain in the namespace. On success it drops the
+// namespace's metric series on this node.
 func (m *Manager) RemoveEntity(c *cmd.ApplyRequest) error {
 	req := &cmd.RemoveNamespaceEntityRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
@@ -162,7 +182,11 @@ func (m *Manager) RemoveEntity(c *cmd.ApplyRequest) error {
 			return fmt.Errorf("%w: %d RBAC row(s) remain in %q", usecasesNamespaces.ErrNamespaceNotEmpty, rbacRows, req.Name)
 		}
 	}
-	return m.controller.RemoveEntity(req.Name)
+	if err := m.controller.RemoveEntity(req.Name); err != nil {
+		return err
+	}
+	m.deleteMetrics(req.Name)
+	return nil
 }
 
 // GetNamespace returns the namespace by name. ok is false when the
@@ -205,6 +229,29 @@ func (m *Manager) Snapshot() ([]byte, error) {
 }
 
 // Restore replaces the current state with the snapshot contents.
+//
+// A follower that lagged past log compaction installs a snapshot instead of
+// applying the removal entries. RemoveEntity therefore never runs for the
+// namespaces the snapshot has already dropped. This method deletes their
+// series instead. A name present before the restore and absent after it is
+// exactly a removal this node missed.
 func (m *Manager) Restore(snapshot []byte) error {
-	return m.controller.Restore(snapshot)
+	if m.metrics == nil {
+		return m.controller.Restore(snapshot)
+	}
+
+	before := make(map[string]struct{})
+	for _, ns := range m.controller.List() {
+		before[ns.Name] = struct{}{}
+	}
+	if err := m.controller.Restore(snapshot); err != nil {
+		return err
+	}
+	for _, ns := range m.controller.List() {
+		delete(before, ns.Name)
+	}
+	for name := range before {
+		m.deleteMetrics(name)
+	}
+	return nil
 }

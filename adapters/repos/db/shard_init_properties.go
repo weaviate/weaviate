@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -184,6 +185,7 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			if !ok {
 				return fmt.Errorf("cannot remove %s index for %s property: no main bucket for this index type", indexType, prop.Name)
 			}
+			s.retirePropertyOverlay(prop.Name, indexType)
 			if err := s.removeBucket(ctx, mainBucket); err != nil {
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
@@ -234,7 +236,7 @@ func (s *Shard) cleanStaleMigrationDirs(ctx context.Context, propName, indexType
 // [Shard.cleanStaleMigrationDirs]: takes an explicit lsmPath + logger so the
 // preservation logic can be unit-tested without standing up a Shard.
 //
-// Every migration tracker dir on disk carries a per-node generation
+// Every migration tracker dir on disk carries a generation
 // suffix (`_<N>`); a single (prop, indexType) tuple can have multiple
 // generations on disk simultaneously when the last migration's trim
 // hasn't run (e.g. crash before markTidied → next-restart finalize
@@ -657,15 +659,23 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			return err
 		}
 
-		if actualStrategy := s.store.Bucket(bucketName).Strategy(); actualStrategy == lsmkv.StrategyInverted {
+		bucket, release := s.store.AcquireBucketForRead(bucketName)
+		if bucket == nil {
+			return fmt.Errorf("searchable bucket %q of shard %q: %w", bucketName, s.name, lsmkv.ErrBucketNotFound)
+		}
+		actualStrategy := bucket.Strategy()
+		release()
+		if actualStrategy == lsmkv.StrategyInverted {
 			s.markSearchableBlockmaxProperties(prop.Name)
 		}
 	}
 
 	if inverted.HasRangeableIndex(prop) {
+		// Appended last so it wins over makeDefaultBucketOptions' value.
+		opts := append(makeBucketOptions(lsmkv.StrategyRoaringSetRange),
+			lsmkv.WithKeepSegmentsInMemory(s.index.Config.keepRangeableInMemory(prop.Name)))
 		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketRangeableFromPropNameLSM(prop.Name),
-			makeBucketOptions(lsmkv.StrategyRoaringSetRange)...,
+			helpers.BucketRangeableFromPropNameLSM(prop.Name), opts...,
 		); err != nil {
 			return err
 		}
@@ -727,7 +737,11 @@ func (s *Shard) createDimensionsBucket(ctx context.Context, name string) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
+	return s.loadDimensionsBucket(ctx, name)
+}
 
+// loadDimensionsBucket, unlike createDimensionsBucket, does not refuse a read only shard.
+func (s *Shard) loadDimensionsBucket(ctx context.Context, name string) error {
 	bucketPath := filepath.Join(s.pathLSM(), name)
 	strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, lsmkv.DimensionsBucketPrioritizedStrategies)
 	if err != nil {
@@ -745,10 +759,20 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 		return err
 	}
 
-	// Note: this data would fit the "Set" type better, but since the "Map" type
-	// is currently optimized better, it is more efficient to use a Map here.
-	err := s.createDimensionsBucket(ctx, helpers.DimensionsBucketLSM)
+	// a usage scan that takes the shard for unloaded must not open the bucket meanwhile
+	unlock, err := shardusage.LockUnloadedDimensionsBucket(ctx, s.index.path(), s.name)
 	if err != nil {
+		return fmt.Errorf("create dimensions tracking property: %w", err)
+	}
+	defer unlock()
+
+	// nothing can read or write the bucket yet, so a migration needs no double writes
+	if _, err := shardusage.PrepareDimensionsBucket(ctx, s.index.logger, s.index.path(), s.name,
+		s.index.Config.MigrateDimensionsToRoaringSet); err != nil {
+		return fmt.Errorf("create dimensions tracking property: %w", err)
+	}
+
+	if err := s.createDimensionsBucket(ctx, helpers.DimensionsBucketLSM); err != nil {
 		return fmt.Errorf("create dimensions tracking property: %w", err)
 	}
 

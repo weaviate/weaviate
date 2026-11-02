@@ -162,28 +162,50 @@ func TestCreateSuccess(t *testing.T) {
 	assert.NotNil(t, parsed)
 }
 
-func TestCreateSuccessWithKey(t *testing.T) {
-	principal := &models.Principal{}
-	authorizer := authorization.NewMockAuthorizer(t)
+func TestCreateWithKey(t *testing.T) {
 	user := "user@weaviate.io"
-	authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(user)[0]).Return(nil)
-
-	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("CreateUserWithKey", mock.Anything, user, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-
-	h := dynUserHandler{
-		dbUsers:              dynUser,
-		authorizer:           authorizer,
-		dbUserEnabled:        true,
-		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{user}, AllowedKeys: []string{"key"}},
+	rbacWithRoot := rbacconf.Config{Enabled: true, RootUsers: []string{"root"}}
+	tests := []struct {
+		name        string
+		principal   *models.Principal
+		rbacConf    rbacconf.Config
+		wantCreated bool
+	}{
+		{name: "rbac and adminlist off", principal: &models.Principal{}, wantCreated: true},
+		// With RBAC and adminlist off, DummyAuthorizer lets an anonymous request's nil principal through.
+		{name: "nil principal, rbac and adminlist off", principal: nil, wantCreated: true},
+		{name: "rbac non-root user", principal: &models.Principal{Username: "other"}, rbacConf: rbacWithRoot},
 	}
-	tp := true
 
-	res := h.createUser(users.CreateUserParams{UserID: user, HTTPRequest: req, Body: users.CreateUserBody{Import: &tp}}, principal)
-	parsed, ok := res.(*users.CreateUserCreated)
-	assert.True(t, ok)
-	assert.NotNil(t, parsed)
-	assert.Equal(t, *parsed.Payload.Apikey, "key")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.CREATE, authorization.Users(user)[0]).Return(nil)
+
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			if tt.wantCreated {
+				dynUser.On("CreateUserWithKey", mock.Anything, user, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			}
+
+			h := dynUserHandler{
+				dbUsers:              dynUser,
+				authorizer:           authorizer,
+				dbUserEnabled:        true,
+				rbacConfig:           tt.rbacConf,
+				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{user}, AllowedKeys: []string{"key"}},
+			}
+			tp := true
+
+			res := h.createUser(users.CreateUserParams{UserID: user, HTTPRequest: req, Body: users.CreateUserBody{Import: &tp}}, tt.principal)
+			if !tt.wantCreated {
+				require.IsType(t, &users.CreateUserForbidden{}, res)
+				return
+			}
+			parsed, ok := res.(*users.CreateUserCreated)
+			require.True(t, ok, "expected 201, got %T", res)
+			assert.Equal(t, "key", *parsed.Payload.Apikey)
+		})
+	}
 }
 
 func TestCreateNotFoundWithKey(t *testing.T) {

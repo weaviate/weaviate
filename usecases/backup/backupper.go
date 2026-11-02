@@ -129,7 +129,8 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			return
 		}
 
-		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, req.Users, req.Roles, store, req.ID, &b.lastOp, b.logger).
+		selection := snapshotSelection{users: req.Users, roles: req.Roles, skipUsers: req.SkipUsers, skipRoles: req.SkipRoles}
+		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, selection, store, req.ID, &b.lastOp, b.logger).
 			withCompression(newZipConfig(req.Compression))
 
 		compressionType, err := CompressionTypeFromLevel(req.Level)
@@ -147,7 +148,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 
 		baseBackupID := req.BaseBackupID
 		startedAt := time.Now().UTC()
-		baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, startedAt, store.bucket, store.path, compressionType, store.MetaForBackupID)
+		baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, startedAt, store.bucket, store.path, compressionType, store.BaseMetaForBackupID)
 		if err != nil {
 			if !errors.As(err, &backup.ErrNotFound{}) {
 				b.logger.WithFields(logFields).Error(err)

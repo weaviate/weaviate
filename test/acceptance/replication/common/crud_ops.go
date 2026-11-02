@@ -391,6 +391,45 @@ func GetNodes(t *testing.T, host string) *models.NodesStatusResponse {
 	return resp.Payload
 }
 
+// FastAsyncConfig replaces the async replication defaults (30s propagation
+// delay, 30s hashbeat) for a class so a repair lands within seconds. It is
+// per-class on purpose: the ASYNC_REPLICATION_* env vars take precedence over
+// every class's asyncConfig, so setting them would override tests that
+// configure their own.
+func FastAsyncConfig() *models.ReplicationAsyncConfig {
+	frequency, whilePropagating, delay := int64(5000), int64(1000), int64(1000)
+	return &models.ReplicationAsyncConfig{
+		Frequency:                 &frequency,
+		FrequencyWhilePropagating: &whilePropagating,
+		PropagationDelay:          &delay,
+	}
+}
+
+// ShardsAsyncReplicationLen returns the total len(asyncReplicationStatus)
+// across every node × every shard of the given class as seen from the
+// verbose nodes endpoint. Zero means async replication is registered
+// nowhere; >0 means at least one shard has it active. Returns an error so
+// callers can use it inside EventuallyWithT's CollectT scope (assertions
+// retry instead of failing the outer test on a transient HTTP error).
+func ShardsAsyncReplicationLen(t *testing.T, class string) (int, error) {
+	verbose := verbosity.OutputVerbose
+	params := nodes.NewNodesGetClassParams().WithClassName(class).WithOutput(&verbose)
+	body, err := helper.Client(t).Nodes.NodesGetClass(params, nil)
+	if err != nil {
+		return 0, err
+	}
+	if body.Payload == nil {
+		return 0, fmt.Errorf("nil payload from NodesGetClass")
+	}
+	total := 0
+	for _, n := range body.Payload.Nodes {
+		for _, s := range n.Shards {
+			total += len(s.AsyncReplicationStatus)
+		}
+	}
+	return total, nil
+}
+
 func Vec2String(v []interface{}) (s string) {
 	for _, n := range v {
 		x := n.(json.Number)

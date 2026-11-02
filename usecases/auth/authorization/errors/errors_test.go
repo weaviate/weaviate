@@ -18,6 +18,12 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+func Test_ForbiddenError_NilPrincipal(t *testing.T) {
+	err := NewForbidden(nil, "delete", "schema/things")
+	expectedErrMsg := "authorization, forbidden action: user 'anonymous' has insufficient permissions to delete [schema/things]"
+	assert.Equal(t, expectedErrMsg, err.Error())
+}
+
 func Test_ForbiddenError_NoGroups(t *testing.T) {
 	principal := &models.Principal{
 		Username: "john",

@@ -56,6 +56,7 @@ func TestTenantCap_HardUnderClusterConcurrency(t *testing.T) {
 			t.Logf("failed to terminate cluster: %v", err)
 		}
 	}()
+	defer helper.ResetClient()
 
 	nodes := []string{
 		"http://" + compose.GetWeaviate().URI(),

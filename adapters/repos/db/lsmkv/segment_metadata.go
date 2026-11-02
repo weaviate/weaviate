@@ -88,10 +88,7 @@ func (s *segment) initMetadata(metrics *Metrics, overwrite bool, exists existsOn
 		return false, err
 	}
 
-	netAdditions, err := s.recalcCountNetAdditions(exists, precomputedCNAValue)
-	if err != nil {
-		return false, err
-	}
+	netAdditions := s.recalcCountNetAdditions(exists, precomputedCNAValue)
 
 	return true, s.writeMetadataToDisk(path, primaryBloom, secondaryBloom, netAdditions)
 }
@@ -145,7 +142,7 @@ func (s *segment) recalculateBloomFilters() ([]byte, [][]byte, error) {
 func (s *segment) recalculatePrimaryBloomFilter() ([]byte, error) {
 	keys, err := s.index.AllKeys()
 	if err != nil {
-		return nil, err
+		return nil, s.reportIndexErr(err)
 	}
 
 	s.bloomFilter = bloom.NewWithEstimates(uint(len(keys)), 0.001)
@@ -174,7 +171,7 @@ func (s *segment) recalculateSecondaryBloomFilter() ([][]byte, error) {
 	for i := range s.secondaryBloomFilters {
 		keys, err := s.secondaryIndices[i].AllKeys()
 		if err != nil {
-			return nil, err
+			return nil, s.reportIndexErr(err)
 		}
 
 		s.secondaryBloomFilters[i] = bloom.NewWithEstimates(uint(len(keys)), 0.001)
@@ -254,46 +251,20 @@ func (s *segment) initCNAFromData(netAdditions []byte) error {
 	return nil
 }
 
-func (s *segment) recalcCountNetAdditions(exists existsOnLowerSegmentsFn, precomputedCNAValue *int) ([]byte, error) {
+func (s *segment) recalcCountNetAdditions(exists existsOnLowerSegmentsFn, precomputedCNAValue *int) []byte {
 	if !s.calcCountNetAdditions || s.strategy != segmentindex.StrategyReplace {
-		return nil, nil
+		return nil
 	}
 
 	if precomputedCNAValue != nil {
 		s.countNetAdditions = *precomputedCNAValue
 	} else {
-		var lastErr error
-		countNet := 0
-		cb := func(key []byte, tombstone bool) {
-			existedOnPrior, err := exists(key)
-			if err != nil {
-				lastErr = err
-			}
-
-			if tombstone && existedOnPrior {
-				countNet--
-			}
-
-			if !tombstone && !existedOnPrior {
-				countNet++
-			}
-		}
-
-		extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
-			s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
-
-		extr.do()
-
-		if lastErr != nil {
-			return nil, lastErr
-		}
-
-		s.countNetAdditions = countNet
+		s.countNetAdditions = s.computeNetAdditions(exists)
 	}
 
 	data := make([]byte, 8)
 	binary.LittleEndian.PutUint64(data, uint64(s.countNetAdditions))
-	return data, nil
+	return data
 }
 
 // ReadObjectCountFromMetadataFile reads a .metadata file and returns the count net additions value

@@ -203,7 +203,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}
 
-	if err := m.updateRefVector(ctx, principal, input.Class, input.ID, tenant, class, schemaVersion); err != nil {
+	if err := m.updateRefVector(ctx, input.Class, input.ID, tenant, class, schemaVersion); err != nil {
 		return &Error{"update ref vector", StatusInternalServerError, err}
 	}
 

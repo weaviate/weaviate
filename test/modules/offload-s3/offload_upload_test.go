@@ -37,7 +37,7 @@ func Test_UploadS3JourneyHappyPath(t *testing.T) {
 
 		compose, err := docker.New().
 			WithOffloadS3("offloading", "us-west-1").
-			WithText2VecContextionary().
+			WithText2VecModel2Vec().
 			With3NodeCluster().
 			Start(ctx)
 		require.Nil(t, err)
@@ -211,7 +211,7 @@ func Test_UploadS3JourneyUnhappyPath(t *testing.T) {
 
 		compose, err := docker.New().
 			WithOffloadS3("weaviate-offload", "us-west-1").
-			WithText2VecContextionary().
+			WithText2VecModel2Vec().
 			With3NodeCluster().
 			Start(ctx)
 		require.Nil(t, err)
@@ -361,7 +361,7 @@ func Test_UploadS3JourneyUnhappyPath_CloudProviderIsDown(t *testing.T) {
 			WithWeaviateEnv("OFFLOAD_TIMEOUT", "2").
 			WithWeaviateEnv("OFFLOAD_S3_CONCURRENCY", "1").
 			WithWeaviateEnv("OFFLOAD_S3_WORKERS", "1").
-			WithText2VecContextionary().
+			WithText2VecModel2Vec().
 			With3NodeCluster().
 			Start(ctx)
 		require.Nil(t, err)

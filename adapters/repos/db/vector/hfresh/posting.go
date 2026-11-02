@@ -95,18 +95,6 @@ func (p Posting) GarbageCollect(versionMap *VersionMap) (Posting, error) {
 	return p, nil
 }
 
-func (p Posting) Uncompress(quantizer *compressionhelpers.BinaryRotationalQuantizer) [][]float32 {
-	data := make([][]float32, 0, len(p))
-
-	var buf []uint64
-	for _, v := range p {
-		buf = quantizer.FromCompressedBytesInto(v.Data(), buf)
-		data = append(data, quantizer.Decode(buf))
-	}
-
-	return data
-}
-
 type Distancer struct {
 	quantizer *compressionhelpers.BinaryRotationalQuantizer
 	distancer distancer.Provider

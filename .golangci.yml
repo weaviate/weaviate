@@ -178,6 +178,10 @@ linters:
         text: QF1003 # could use tagged switch on strategy
       - linters:
           - staticcheck
+        path: ^adapters/repos/db/lsmkv/bloomhash/murmur\.go$ # verbatim copy of bits-and-blooms/bloom
+        text: S1023
+      - linters:
+          - staticcheck
         path: adapters/handlers/grpc/v1/filters.go
         text: QF1003 # could use tagged switch on propToFilterOn
       - linters:
@@ -549,3 +553,4 @@ formatters:
       - third_party$
       - builtin$
       - examples$
+      - ^adapters/repos/db/lsmkv/bloomhash/murmur\.go$ # verbatim copy of bits-and-blooms/bloom

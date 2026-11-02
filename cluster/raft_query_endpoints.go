@@ -14,12 +14,17 @@ package cluster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/getsentry/sentry-go"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -116,42 +121,6 @@ func (s *Raft) QuerySchema() (models.Schema, error) {
 		return models.Schema{}, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
 	return resp.Schema, nil
-}
-
-// QueryCollectionsCount issues a leader-directed count query. An empty
-// namespace returns the cluster-global total; a non-empty namespace returns
-// the count restricted to classes in that namespace.
-func (s *Raft) QueryCollectionsCount(namespace string) (int, error) {
-	ctx := context.Background()
-	if entSentry.Enabled() {
-		transaction := sentry.StartSpan(ctx, "grpc.client",
-			sentry.WithTransactionName("raft.query.collections.count"),
-			sentry.WithDescription("Query the collections count"),
-		)
-		transaction.SetData("namespace", namespace)
-		ctx = transaction.Context()
-		defer transaction.Finish()
-	}
-
-	req := cmd.QueryCollectionsCountRequest{Namespace: namespace}
-	subCommand, err := json.Marshal(&req)
-	if err != nil {
-		return 0, fmt.Errorf("marshal collections count request (namespace=%q): %w", namespace, err)
-	}
-	command := &cmd.QueryRequest{
-		Type:       cmd.QueryRequest_TYPE_GET_COLLECTIONS_COUNT,
-		SubCommand: subCommand,
-	}
-	queryResp, err := s.Query(ctx, command)
-	if err != nil {
-		return 0, fmt.Errorf("execute collections count query (namespace=%q): %w", namespace, err)
-	}
-
-	resp := cmd.QueryCollectionsCountResponse{}
-	if err := json.Unmarshal(queryResp.Payload, &resp); err != nil {
-		return 0, fmt.Errorf("unmarshal collections count response (namespace=%q): %w", namespace, err)
-	}
-	return resp.Count, nil
 }
 
 // QueryTenants build a Query to read the tenants of a given class that will be directed to the leader to ensure we
@@ -372,10 +341,9 @@ func (s *Raft) QueryClassVersions(classes ...string) (map[string]uint64, error) 
 // Query receives a QueryRequest and ensure it is executed on the leader and returns the related QueryResponse
 // If any error happens it returns it
 func (s *Raft) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
+	queryType := req.Type.String()
 	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaReadsLeader.WithLabelValues(
-			req.Type.String(),
-		))
+		monitoring.GetMetrics().SchemaReadsLeader.WithLabelValues(queryType))
 	defer t.ObserveDuration()
 
 	if s.store.IsLeader() {
@@ -392,14 +360,47 @@ func (s *Raft) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResp
 		return nil
 		// pass in the election timeout after applying multiplier
 	}, backoffConfig(ctx, s.store.raftConfig().ElectionTimeout)); err != nil {
-		s.log.Warnf("query: failed to find leader after retries: %s", err)
+		reason := leaderQueryFailureReason(ctx, err, false)
+		monitoring.GetMetrics().SchemaLeaderQueryFailures.WithLabelValues(queryType, reason).Inc()
+		s.log.WithFields(logrus.Fields{
+			"query_type": queryType,
+			"reason":     reason,
+		}).Warnf("query: failed to find leader after retries: %s", err)
 		return &cmd.QueryResponse{}, err
 	}
 
 	resp, err := s.cl.Query(ctx, leader, req)
 	if err != nil {
-		s.log.WithField("leader", leader).Errorf("query: failed to query leader: %s", err)
+		reason := leaderQueryFailureReason(ctx, err, true)
+		monitoring.GetMetrics().SchemaLeaderQueryFailures.WithLabelValues(queryType, reason).Inc()
+		s.log.WithFields(logrus.Fields{
+			"leader":     leader,
+			"query_type": queryType,
+			"reason":     reason,
+		}).Errorf("query: failed to query leader: %s", err)
 		return &cmd.QueryResponse{}, err
 	}
 	return resp, err
+}
+
+const (
+	leaderQueryNoLeader    = "no_leader"
+	leaderQueryConnClosed  = "conn_closed"
+	leaderQueryCtxCanceled = "ctx_canceled"
+	leaderQueryLeaderError = "leader_error"
+)
+
+const grpcClientConnClosingDesc = "grpc: the client connection is closing"
+
+func leaderQueryFailureReason(ctx context.Context, err error, leaderKnown bool) string {
+	if status.Code(err) == codes.Canceled && strings.Contains(err.Error(), grpcClientConnClosingDesc) {
+		return leaderQueryConnClosed
+	}
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return leaderQueryCtxCanceled
+	}
+	if !leaderKnown {
+		return leaderQueryNoLeader
+	}
+	return leaderQueryLeaderError
 }

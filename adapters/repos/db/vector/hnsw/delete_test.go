@@ -1308,51 +1308,44 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		{1, 2, 3, 4, 5, 6, 7, 8},
 	})
 	index.nodes[0] = &vertex{
-		id:          0,
-		connections: conns,
+		connections: *conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{0, 2, 3, 4, 5, 6, 7, 8},
 	})
 	index.nodes[1] = &vertex{
-		id:          1,
-		connections: conns,
+		connections: *conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{1, 0, 3, 4, 5, 6, 7, 8},
 	})
 	index.nodes[2] = &vertex{
-		id:          2,
-		connections: conns,
+		connections: *conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{2, 1, 0, 4, 5, 6, 7, 8},
 	})
 	index.nodes[3] = &vertex{
-		id:          3,
-		connections: conns,
+		connections: *conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{3, 2, 1, 0, 5, 6, 7, 8},
 	})
 	index.nodes[4] = &vertex{
-		id:          4,
-		connections: conns,
+		connections: *conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{3, 4, 2, 1, 0, 6, 7, 8},
 	})
 	index.nodes[5] = &vertex{
-		id:          5,
-		connections: conns,
+		connections: *conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{4, 3, 1, 3, 5, 0, 7, 8},
 		{7},
 	})
 	index.nodes[6] = &vertex{
-		id:          6,
-		connections: conns,
+		connections: *conns,
 		level:       1,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
@@ -1360,16 +1353,14 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		{6},
 	})
 	index.nodes[7] = &vertex{
-		id:          7,
-		connections: conns,
+		connections: *conns,
 		level:       1,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{7, 6, 4, 3, 5, 2, 1, 0},
 	})
 	index.nodes[8] = &vertex{
-		id:          8,
-		connections: conns,
+		connections: *conns,
 	}
 
 	dumpIndex(index, "before delete")
@@ -1468,24 +1459,21 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		{1},
 	})
 	index.nodes[0] = &vertex{
-		id:          0,
-		connections: conns,
+		connections: *conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		0: {0, 2},
 		1: {2},
 	})
 	index.nodes[1] = &vertex{
-		id:          1,
-		connections: conns,
+		connections: *conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		0: {1},
 		1: {1},
 	})
 	index.nodes[2] = &vertex{
-		id:          2,
-		connections: conns,
+		connections: *conns,
 	}
 
 	dumpIndex(index, "before adding another element")
@@ -2136,6 +2124,100 @@ func Test_DeleteTombstoneMetrics(t *testing.T) {
 	})
 }
 
+// TestDelete_TombstoneMetricMatchesTombstones checks the vector_index_tombstones
+// gauge against len(h.tombstones) when an id with a tombstone is deleted again
+// and when a reset clears the tombstones during a cleanup cycle.
+func TestDelete_TombstoneMetricMatchesTombstones(t *testing.T) {
+	tests := []struct {
+		name     string
+		run      func(t *testing.T, index *hnsw)
+		expected int
+	}{
+		{
+			name: "delete an id that already has a tombstone together with a new id",
+			run: func(t *testing.T, index *hnsw) {
+				require.NoError(t, index.Delete(2))
+				require.NoError(t, index.Delete(2, 4))
+			},
+			expected: 2,
+		},
+		{
+			name: "cleanup after deleting an id twice",
+			run: func(t *testing.T, index *hnsw) {
+				require.NoError(t, index.Delete(2))
+				require.NoError(t, index.Delete(2, 4))
+				require.NoError(t, index.CleanUpTombstonedNodes(neverStop))
+			},
+			expected: 0,
+		},
+		{
+			name: "reset between copying and removing the tombstones of a cycle",
+			run: func(t *testing.T, index *hnsw) {
+				require.NoError(t, index.Delete(2, 4))
+				deleteList := index.tombstonesAsDenyList()
+				// brk checks the resetCtx captured before the reset, as
+				// breakCleanUpTombstonedNodes does, so id 2 is still removed and
+				// the cycle stops before id 4
+				resetCtx := index.resetCtx
+				reset := false
+				brk := func() bool {
+					aborted := resetCtx.Err() != nil
+					if !reset {
+						reset = true
+						require.NoError(t, index.resetUnlocked())
+					}
+					return aborted
+				}
+				_, err := index.removeTombstonesAndNodes(deleteList, brk)
+				require.NoError(t, err)
+			},
+			expected: 0,
+		},
+	}
+
+	vectors := vectorsForDeleteTest()
+	metrics := monitoring.GetMetrics()
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			className, shardName := "TombstoneMetric", fmt.Sprintf("shard-%d", i)
+			t.Cleanup(func() { metrics.VectorIndexTombstones.DeleteLabelValues(className, shardName) })
+
+			index, err := New(Config{
+				RootPath:              t.TempDir(),
+				ID:                    "tombstone-metric",
+				ClassName:             className,
+				ShardName:             shardName,
+				MakeCommitLoggerThunk: MakeNoopCommitLogger,
+				DistanceProvider:      distancer.NewCosineDistanceProvider(),
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					return vectors[int(id)], nil
+				},
+				GetViewThunk:                 GetViewThunk,
+				TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+				AllocChecker:                 memwatch.NewDummyMonitor(),
+				PrometheusMetrics:            metrics,
+			}, ent.UserConfig{
+				MaxConnections:        30,
+				EFConstruction:        64,
+				VectorCacheMaxObjects: 100000,
+			}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+			require.NoError(t, err)
+			defer index.Shutdown(context.Background())
+
+			for id, vec := range vectors {
+				require.NoError(t, index.Add(context.Background(), uint64(id), vec))
+			}
+
+			tt.run(t, index)
+
+			gauge, err := metrics.VectorIndexTombstones.GetMetricWithLabelValues(className, shardName)
+			require.NoError(t, err)
+			require.Equal(t, float64(tt.expected), testutil.ToFloat64(gauge))
+			require.Equal(t, tt.expected, tombstoneCountOf(index))
+		})
+	}
+}
+
 // TestDelete_EntrypointWithLowerLevelThanOtherNodes tests a regression where
 // deleting an entrypoint with a lower level than other nodes in the graph
 // causes a panic. This can happen when:
@@ -2189,9 +2271,8 @@ func TestDelete_EntrypointWithLowerLevelThanOtherNodes(t *testing.T) {
 		{1}, // connections at level 0
 	})
 	index.nodes[0] = &vertex{
-		id:          0,
 		level:       0,
-		connections: conns0,
+		connections: *conns0,
 	}
 
 	// Node 1: has level 3 (higher than entrypoint's level 0)
@@ -2203,17 +2284,16 @@ func TestDelete_EntrypointWithLowerLevelThanOtherNodes(t *testing.T) {
 		{},  // level 3
 	})
 	index.nodes[1] = &vertex{
-		id:          1,
 		level:       3, // Higher than entrypoint
-		connections: conns1,
+		connections: *conns1,
 	}
 	index.Unlock()
 
 	// Verify the setup is correct
 	require.Equal(t, uint64(0), index.entryPointID)
 	require.Equal(t, 0, index.currentMaximumLayer)
-	require.Equal(t, 0, index.nodes[0].level)
-	require.Equal(t, 3, index.nodes[1].level)
+	require.Equal(t, 0, int(index.nodes[0].level))
+	require.Equal(t, 3, int(index.nodes[1].level))
 	require.Equal(t, uint8(1), index.nodes[0].connections.Layers())
 	require.Equal(t, uint8(4), index.nodes[1].connections.Layers())
 
@@ -2236,5 +2316,101 @@ func TestDelete_EntrypointWithLowerLevelThanOtherNodes(t *testing.T) {
 		// After deletion, node 1 should become the new entrypoint
 		require.Equal(t, uint64(1), index.entryPointID)
 		require.Equal(t, 3, index.currentMaximumLayer)
+	})
+}
+
+// newTombstonedNilEntrypointIndex manufactures a torn crash-recovery state:
+// removeTombstonesAndNodes persists DeleteNode and RemoveTombstone as two
+// separate commit-log entries, and a crash between the two replays into
+// entryPointID = 0, tombstones = {0}, nodes[0] = nil.
+func newTombstonedNilEntrypointIndex(t *testing.T, withLiveNodes bool) *hnsw {
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "tombstoned-nil-entrypoint-test",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk([][]float32{
+			{0.1, 0.2},
+			{0.3, 0.4},
+			{0.5, 0.6},
+		}),
+		AllocChecker: memwatch.NewDummyMonitor(),
+	}, ent.UserConfig{
+		MaxConnections:         30,
+		EFConstruction:         128,
+		EF:                     36,
+		CleanupIntervalSeconds: 0,
+		VectorCacheMaxObjects:  100000,
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.Nil(t, err)
+	t.Cleanup(func() { index.Drop(context.Background(), false) })
+
+	index.Lock()
+	index.entryPointID = 0
+	index.currentMaximumLayer = 0
+	index.nodes = make([]*vertex, 10)
+	// slot 0 deliberately stays nil: the DeleteNode commit for the old
+	// entrypoint was persisted, the matching RemoveTombstone was not
+	if withLiveNodes {
+		conns1, _ := packedconn.NewWithElements([][]uint64{{2}})
+		index.nodes[1] = &vertex{level: 0, connections: *conns1}
+		conns2, _ := packedconn.NewWithElements([][]uint64{{1}})
+		index.nodes[2] = &vertex{level: 0, connections: *conns2}
+	}
+	index.Unlock()
+
+	index.tombstoneLock.Lock()
+	index.tombstones = map[uint64]struct{}{0: {}}
+	index.tombstoneLock.Unlock()
+
+	return index
+}
+
+func tombstoneCountOf(index *hnsw) int {
+	index.tombstoneLock.Lock()
+	defer index.tombstoneLock.Unlock()
+	return len(index.tombstones)
+}
+
+// TestDelete_TombstonedEntrypointWithNilNode: on the torn state (see
+// newTombstonedNilEntrypointIndex) the cleanup cycle dereferenced the nil
+// entrypoint node and panicked; the cycle's recover swallowed the panic, so
+// no cycle ever made progress again. The first and third subtests are
+// regression tests for that; the second pins the adjacent journey where no
+// live node remains (which also worked before the fix).
+func TestDelete_TombstonedEntrypointWithNilNode(t *testing.T) {
+	newCorruptIndex := newTombstonedNilEntrypointIndex
+	tombstoneCount := tombstoneCountOf
+
+	t.Run("cleanup replaces the entrypoint and removes the tombstone", func(t *testing.T) {
+		index := newCorruptIndex(t, true)
+
+		require.Nil(t, index.CleanUpTombstonedNodes(neverStop))
+
+		assert.Equal(t, uint64(1), index.getEntrypoint(),
+			"entrypoint must move to a live node")
+		assert.Equal(t, 0, tombstoneCount(index),
+			"the stale tombstone must be cleaned up")
+	})
+
+	t.Run("cleanup resets the graph when no live node remains", func(t *testing.T) {
+		index := newCorruptIndex(t, false)
+
+		require.Nil(t, index.CleanUpTombstonedNodes(neverStop))
+
+		assert.Equal(t, 0, tombstoneCount(index),
+			"the stale tombstone must be cleaned up")
+		assert.True(t, index.isEmpty(), "graph must be reset to empty")
+	})
+
+	t.Run("Delete on the corrupt entrypoint id replaces the entrypoint", func(t *testing.T) {
+		index := newCorruptIndex(t, true)
+
+		require.Nil(t, index.Delete(0))
+
+		assert.Equal(t, uint64(1), index.getEntrypoint(),
+			"entrypoint must move to a live node even though its slot is nil")
 	})
 }

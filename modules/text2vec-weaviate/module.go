@@ -31,12 +31,12 @@ import (
 const Name = "text2vec-weaviate"
 
 var batchSettings = batch.Settings{
-	TokenMultiplier:    0,
+	TokenMultiplier:    1,
 	MaxTimePerBatch:    float64(10),
 	MaxObjectsPerBatch: 200,
 	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 500000 },
-	HasTokenLimit:      false,
-	ReturnsRateLimit:   false,
+	HasTokenLimit:      true,
+	ReturnsRateLimit:   true,
 }
 
 type WeaviateEmbedModule struct {

@@ -63,7 +63,7 @@ func (m *Module) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
-	m.dataPath = params.GetStorageProvider().DataPath()
+	m.dataPath = params.GetDataPath()
 	backupsPath := os.Getenv(backupsPathName)
 	if err := m.initBackupBackend(ctx, backupsPath); err != nil {
 		return fmt.Errorf("init backup backend: %w", err)

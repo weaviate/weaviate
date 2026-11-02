@@ -39,7 +39,7 @@ type nearParamsSearcher interface {
 		props search.SelectProperties, additional additional.Properties,
 		repl *additional.ReplicationProperties, tenant string) (*search.Result, error)
 	ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties, tenant string) (search.Results, error)
+		additional additional.Properties, tenant, namespace string) (search.Results, error)
 }
 
 func newNearParamsVector(modulesProvider ModulesProvider, search nearParamsSearcher) *nearParamsVector {
@@ -342,7 +342,9 @@ func (v *nearParamsVector) classFindMultiVector(ctx context.Context, className s
 }
 
 func (v *nearParamsVector) crossClassFindVector(ctx context.Context, id strfmt.UUID, targetVector string) ([]float32, string, error) {
-	res, err := v.search.ObjectsByID(ctx, id, search.SelectProperties{}, additional.Properties{}, "")
+	// Explore is GraphQL, which a cluster with NAMESPACES_ENABLED does not serve,
+	// so no collection it searches sits in a namespace.
+	res, err := v.search.ObjectsByID(ctx, id, search.SelectProperties{}, additional.Properties{}, "", "")
 	if err != nil {
 		return nil, "", errors.Wrap(err, "find objects")
 	}
@@ -413,7 +415,9 @@ func (v *nearParamsVector) crossClassFindVector(ctx context.Context, id strfmt.U
 }
 
 func (v *nearParamsVector) crossClassFindMultiVector(ctx context.Context, id strfmt.UUID, targetVector string) ([][]float32, string, error) {
-	res, err := v.search.ObjectsByID(ctx, id, search.SelectProperties{}, additional.Properties{}, "")
+	// Explore is GraphQL, which a cluster with NAMESPACES_ENABLED does not serve,
+	// so no collection it searches sits in a namespace.
+	res, err := v.search.ObjectsByID(ctx, id, search.SelectProperties{}, additional.Properties{}, "", "")
 	if err != nil {
 		return nil, "", errors.Wrap(err, "find objects")
 	}

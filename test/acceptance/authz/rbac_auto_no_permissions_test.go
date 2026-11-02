@@ -182,6 +182,10 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 			if endpoint.path == "/search/{collection}/near-object" && endpoint.method == http.MethodPost {
 				body = []byte(`{"id":"aa44bbee-ca5f-4db7-a412-5fc6a2300001"}`)
 			}
+			// same for near-vector (a well-formed query vector)
+			if endpoint.path == "/search/{collection}/near-vector" && endpoint.method == http.MethodPost {
+				body = []byte(`{"vector":[0.1,0.2]}`)
+			}
 			// aggregate's generated body fills the reserved fields, which 422
 			// before authz; an empty body (total count) reaches authz.
 			if endpoint.path == "/aggregate/{collection}" && endpoint.method == http.MethodPost {

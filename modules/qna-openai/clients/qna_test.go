@@ -19,11 +19,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/modules/qna-openai/ent"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func nullLogger() logrus.FieldLogger {
@@ -137,6 +139,48 @@ func TestGetAnswer(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "https://headerResourceName.openai.azure.com/openai/deployments/headerDeploymentId/completions?api-version=2022-12-01", buildURL)
 	})
+}
+
+func TestAnswerTransportError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server.Close()
+
+	c := New("openAIApiKey", "", "", 0, nullLogger())
+	c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
+		return buildUrl(server.URL, resourceName, deploymentID, isAzure)
+	}
+
+	vec := monitoring.GetMetrics().ModuleExternalError
+	series := vec.WithLabelValues("qna", "openai", "OpenAI API", "-1")
+	before := testutil.ToFloat64(series)
+
+	_, err := c.Answer(context.Background(), "My name is John", "What is my name?", nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "send POST request")
+	assert.Equal(t, before+1, testutil.ToFloat64(series))
+}
+
+func TestAnswerResponseStatusCountedOnce(t *testing.T) {
+	server := httptest.NewServer(&testAnswerHandler{
+		t:      t,
+		answer: answersResponse{Choices: []choice{{Text: "John"}}},
+	})
+	defer server.Close()
+
+	c := New("openAIApiKey", "", "", 0, nullLogger())
+	c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
+		return buildUrl(server.URL, resourceName, deploymentID, isAzure)
+	}
+
+	vec := monitoring.GetMetrics().ModuleExternalResponseStatus
+	series := vec.WithLabelValues("qna", server.URL+"/v1/completions", "200")
+	before := testutil.ToFloat64(series)
+
+	_, err := c.Answer(context.Background(), "My name is John", "What is my name?", nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, before+1, testutil.ToFloat64(series))
 }
 
 type testAnswerHandler struct {

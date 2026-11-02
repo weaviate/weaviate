@@ -81,6 +81,10 @@ type fakeVectorSearcher struct {
 	diversifyCalledRelevanceFromDist bool
 
 	sparseObjectSearchFn func(params dto.GetParams) ([]*storobj.Object, []float32, error)
+	// vectorSearchFn replaces the mock expectations when set.
+	vectorSearchFn      func(params dto.GetParams) ([]search.Result, error)
+	resolveReferencesFn func(objs search.Results, props search.SelectProperties) (search.Results, error)
+	crossClassErr       error
 }
 
 func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
@@ -89,7 +93,7 @@ func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
 	f.calledWithVector = vector
 	f.calledWithLimit = limit
 	f.calledWithOffset = offset
-	return f.results, nil
+	return f.results, f.crossClassErr
 }
 
 func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
@@ -102,6 +106,9 @@ func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
 	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
+	if f.vectorSearchFn != nil {
+		return f.vectorSearchFn(params)
+	}
 	args := f.Called(params, searchVectors)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
@@ -123,7 +130,7 @@ func (f *fakeVectorSearcher) Object(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
-	props search.SelectProperties, additional additional.Properties, tenant string,
+	props search.SelectProperties, additional additional.Properties, tenant, namespace string,
 ) (search.Results, error) {
 	args := f.Called(id)
 	return args.Get(0).(search.Results), args.Error(1)
@@ -142,6 +149,9 @@ func (f *fakeVectorSearcher) ResolveReferences(ctx context.Context, objs search.
 	props search.SelectProperties, groupBy *searchparams.GroupBy,
 	additional additional.Properties, tenant string,
 ) (search.Results, error) {
+	if f.resolveReferencesFn != nil {
+		return f.resolveReferencesFn(objs, props)
+	}
 	return objs, nil
 }
 
@@ -163,7 +173,7 @@ type fakeVectorRepo struct {
 
 func (f *fakeVectorRepo) ObjectsByID(ctx context.Context,
 	id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties, tenant string,
+	additional additional.Properties, tenant, namespace string,
 ) (search.Results, error) {
 	return nil, nil
 }

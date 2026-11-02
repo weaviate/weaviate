@@ -29,14 +29,20 @@ import (
 
 func TestSuccessDeactivate(t *testing.T) {
 	tests := []struct {
+		name      string
+		principal *models.Principal
 		revokeKey bool
 	}{
-		{false}, {true},
+		{name: "keep key", principal: &models.Principal{}},
+		{name: "revoke key", principal: &models.Principal{}, revokeKey: true},
+		// With RBAC and adminlist off, DummyAuthorizer lets an anonymous request's nil principal through.
+		{name: "nil principal", principal: nil},
+		{name: "oidc principal named like the user", principal: &models.Principal{Username: "user", UserType: models.UserTypeInputOidc}},
 	}
 
 	for _, test := range tests {
-		t.Run(fmt.Sprint(test.revokeKey), func(t *testing.T) {
-			principal := &models.Principal{}
+		t.Run(test.name, func(t *testing.T) {
+			principal := test.principal
 			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
@@ -85,7 +91,7 @@ func TestDeactivateBadParameters(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(fmt.Sprint(test.name), func(t *testing.T) {
-			principal := &models.Principal{Username: test.principal}
+			principal := &models.Principal{Username: test.principal, UserType: models.UserTypeInputDb}
 			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(test.user)[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
@@ -203,6 +209,7 @@ func TestDeactivateUser_Namespaces(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			principal := &models.Principal{
 				Username:         tt.principalName,
+				UserType:         models.UserTypeInputDb,
 				IsGlobalOperator: tt.isGlobalOperator,
 				Namespace:        tt.principalNS,
 			}

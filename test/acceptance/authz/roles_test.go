@@ -573,7 +573,7 @@ func TestAuthzEmptyRole(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("get all roles, shall be 4 for the newly created empty role", func(t *testing.T) {
+	t.Run("get all roles, shall include the newly created empty role", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
 		require.Equal(t, NumBuildInRoles+1, len(roles))
 	})
@@ -617,7 +617,7 @@ func TestAuthzRoleRemoveToEmptyAndAddPermission(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("get all roles, shall be 3 for the newly created empty role", func(t *testing.T) {
+	t.Run("get all roles, shall include the emptied role", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
 		require.Equal(t, NumBuildInRoles+1, len(roles))
 	})

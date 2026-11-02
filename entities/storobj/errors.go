@@ -11,7 +11,13 @@
 
 package storobj
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrNoVector reports a stored object whose legacy vector slot is empty.
+var ErrNoVector = errors.New("object has no vector")
 
 type ErrNotFound struct {
 	DocID       uint64

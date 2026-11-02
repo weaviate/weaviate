@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -47,6 +48,32 @@ func (h *vectorDropIndexHelper) ensureFilesAreRemovedForDroppedVectorIndexes(
 		}
 	}
 	return nil
+}
+
+// clearDroppedVectorDimensions clears the dimension rows of every vector whose
+// index has been dropped. It is what covers a tenant that was inactive when the
+// drop ran: the drop leaves those rows alone, and nothing else reclaims them.
+//
+// It runs after the store is open so the rows go through the shard's own
+// dimensions bucket. Clearing them earlier in the load would mean a second open
+// of that bucket from disk, segments and WAL recovery included, on every
+// activation for as long as the dropped entry stands.
+//
+// Not fatal. These rows are usage accounting, and the drop task clears them per
+// unit as well, so a failure here costs a delayed reclaim where returning would
+// cost the tenant its activation — including when the only problem is a usage
+// collection holding the bucket lock this call waits on.
+func (s *Shard) clearDroppedVectorDimensions(ctx context.Context, class *models.Class) {
+	for name, cfg := range class.VectorConfig {
+		if !modelsext.IsVectorIndexDropped(cfg) {
+			continue
+		}
+		if err := s.removeAllDimensionsLSM(ctx, name); err != nil {
+			s.index.logger.WithField("shard", s.name).WithField("class", class.Class).
+				WithField("target_vector", name).
+				Warnf("drop vector index: could not clear dimension rows, leaving them for the next sweep: %v", err)
+		}
+	}
 }
 
 // removeVectorIndexFiles removes every on-disk artifact of a named vector index

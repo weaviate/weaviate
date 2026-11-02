@@ -54,6 +54,11 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 		return nil, errors.Wrap(err, "invalid 'where' filter")
 	}
 
+	if err := t.authorizeNearObjectBeacon(ctx, principal, params.NearObject,
+		params.ClassName, params.Tenant); err != nil {
+		return nil, err
+	}
+
 	certainty := ExtractCertaintyFromParams(params)
 	if certainty != 0 || params.AdditionalProperties.Certainty {
 		// if certainty is provided as input, we must ensure

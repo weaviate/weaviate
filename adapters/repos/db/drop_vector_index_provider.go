@@ -78,6 +78,9 @@ type dropVectorShards interface {
 	// deletes so replayed callbacks can't mass-load inactive shards.
 	EditOpBucketsForLoadedShards(collection string, shardNames []string) (map[string]editOpBucket, error)
 	EnsureDroppedVectorFilesRemoved(collection, shard string, targets []string) error
+	// RemoveDroppedVectorDimensions clears a shard's dimension rows for the
+	// dropped vectors. Called per unit before the unit is recorded complete.
+	RemoveDroppedVectorDimensions(ctx context.Context, collection, shard string, targets []string) error
 }
 
 // dropVectorSchemaFinalizer removes the dropped named-vector entries from a
@@ -370,6 +373,24 @@ func (p *DropVectorIndexProvider) drainUnit(
 		if shard := payload.UnitToShard[unitID]; !p.shardLocallyLoaded(payload.Collection, shard) {
 			msg += " (shard no longer locally available — tenant deactivated, offloaded, or deleted; " +
 				"reconciliation re-covers the remaining shards and the tenant on reactivation)"
+		}
+		p.failUnit(ctx, task, unitID, msg)
+		return
+	}
+
+	// Before the completion is recorded, not after: a completed unit stays
+	// credited to the drop's coverage even when its round fails, so a clear
+	// that failed later would leave this shard skipped by every later round
+	// while the rows are still on disk.
+	if err := p.shards.RemoveDroppedVectorDimensions(ctx, payload.Collection,
+		payload.UnitToShard[unitID], payload.Targets); err != nil {
+		if ctx.Err() != nil {
+			return // shutdown: resume after restart, do not mark failed
+		}
+		msg := "clear dimension rows: " + err.Error()
+		if errors.Is(err, errDimensionsShardNotLoaded) {
+			msg += " (tenant deactivated, offloaded, or deleted after its drain; reconciliation " +
+				"re-covers the tenant on reactivation, and loading it clears the rows)"
 		}
 		p.failUnit(ctx, task, unitID, msg)
 		return

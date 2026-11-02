@@ -76,15 +76,22 @@ func depthAt(tree *DiskTree, offset int64, budget int) (int, error) {
 	if budget <= 0 {
 		return 0, errors.New("child pointers descend past the node count")
 	}
-	node, err := tree.readNodeAt(offset)
+
+	// node layout: [keyLen:4][key:keyLen][start:8][end:8][left:8][right:8]
+	if offset+TREE_KEY_STORE_OVERHEAD > int64(len(tree.data)) {
+		return 0, fmt.Errorf("node at %d out of range (buffer %d)", offset, len(tree.data))
+	}
+	keyLen := int64(binary.LittleEndian.Uint32(tree.data[offset:]))
+	children := offset + 4 + keyLen + 16
+	if children+16 > int64(len(tree.data)) {
+		return 0, fmt.Errorf("node at %d has a key of %d past the buffer", offset, keyLen)
+	}
+
+	left, err := depthAt(tree, int64(binary.LittleEndian.Uint64(tree.data[children:])), budget-1)
 	if err != nil {
 		return 0, err
 	}
-	left, err := depthAt(tree, node.leftChild, budget-1)
-	if err != nil {
-		return 0, err
-	}
-	right, err := depthAt(tree, node.rightChild, budget-1)
+	right, err := depthAt(tree, int64(binary.LittleEndian.Uint64(tree.data[children+8:])), budget-1)
 	if err != nil {
 		return 0, err
 	}
@@ -663,4 +670,52 @@ func TestMarshalSortedKeysRejectsOffsetPastFirstValueEnd(t *testing.T) {
 	var buf bytes.Buffer
 	_, err := MarshalSortedKeys(&buf, keys, 20)
 	require.Error(t, err)
+}
+
+// TestMarshalSortedKeysMatchesFromKeys pins the premise the roaring set flush's
+// switch to KeyRedux rests on: MarshalSortedKeys derives each key's start from
+// the previous key's end, where MarshalSortedKeysFromKeys reads ValueStart, so
+// the two agree while the keys are contiguous from dataStartOffset.
+func TestMarshalSortedKeysMatchesFromKeys(t *testing.T) {
+	// sortedKeyWriters() runs both writers only at dataStartOffset 0, so nothing
+	// compares them to each other where the chain starts past 0.
+	contiguousKeys := func(n int) []Key {
+		keys := make([]Key, n)
+		start := HeaderSize
+		for i := range keys {
+			keys[i] = Key{Key: varWidthKey(i), ValueStart: start, ValueEnd: start + 10}
+			start += 10
+		}
+		return keys
+	}
+
+	tests := []struct {
+		name string
+		n    int
+	}{
+		{name: "no keys", n: 0},
+		{name: "one key", n: 1},
+		{name: "two keys", n: 2},
+		{name: "many keys", n: 33},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			keys := contiguousKeys(tt.n)
+			redux := make([]KeyRedux, len(keys))
+			for i, key := range keys {
+				redux[i] = KeyRedux{Key: key.Key, ValueEnd: key.ValueEnd}
+			}
+
+			var fromKeys, fromRedux bytes.Buffer
+			nKeys, err := MarshalSortedKeysFromKeys(&fromKeys, keys)
+			require.NoError(t, err)
+			nRedux, err := MarshalSortedKeys(&fromRedux, redux, HeaderSize)
+			require.NoError(t, err)
+
+			require.Equal(t, nKeys, nRedux, "the two writers reported different lengths")
+			require.Equal(t, fromKeys.Bytes(), fromRedux.Bytes(),
+				"KeyRedux must produce the index bytes WriteIndexes would have written")
+		})
+	}
 }

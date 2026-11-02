@@ -84,6 +84,10 @@ func (c *Config) Validate() error {
 		return errors.New("tempVectorForIDWithViewThunk cannot be nil")
 	}
 
+	if c.VectorForIDThunk == nil {
+		return errors.New("vectorForIDThunk cannot be nil")
+	}
+
 	return nil
 }
 

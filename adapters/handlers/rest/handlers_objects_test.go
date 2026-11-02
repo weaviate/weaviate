@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
@@ -777,23 +778,38 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		type test struct {
 			name string
 			err  error
+			want middleware.Responder
 		}
 
 		tests := []test{
 			{
 				name: "without props - noaction changes",
+				want: objects.NewObjectsClassDeleteNoContent(),
 			},
 			{
 				name: "error forbidden",
 				err:  errors.NewForbidden(&models.Principal{}, "get", "Myclass/123"),
+				want: objects.NewObjectsClassDeleteForbidden(),
 			},
 			{
 				name: "use case err not found",
 				err:  uco.ErrNotFound{},
+				want: objects.NewObjectsClassDeleteNotFound(),
+			},
+			{
+				name: "multi-tenancy error",
+				err:  uco.NewErrMultiTenancy(stderrors.New("has multi-tenancy disabled")),
+				want: objects.NewObjectsClassDeleteUnprocessableEntity(),
+			},
+			{
+				name: "invalid class name",
+				err:  uco.NewErrInvalidUserInput("%v", stderrors.New("'a:Foo' is not a valid class name")),
+				want: objects.NewObjectsClassDeleteUnprocessableEntity(),
 			},
 			{
 				name: "unknown error",
 				err:  stderrors.New("any error"),
+				want: objects.NewObjectsClassDeleteInternalServerError(),
 			},
 		}
 
@@ -808,13 +824,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 					ClassName:   cls,
 					ID:          "123",
 				}
-				res := h.deleteObject(req, nil)
-				_, ok := res.(*objects.ObjectsClassDeleteNoContent)
-				if test.err != nil {
-					require.False(t, ok)
-					return
-				}
-				require.True(t, ok)
+				require.IsType(t, test.want, h.deleteObject(req, nil))
 			})
 		}
 	})

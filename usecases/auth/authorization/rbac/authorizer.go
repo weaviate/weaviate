@@ -14,6 +14,7 @@ package rbac
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 
@@ -93,10 +94,8 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 	for _, resource := range uniqueResources {
 		allowed, err := m.checkPermissions(principal, resource, verb)
 		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"resource": resource,
-			}).WithError(err).Error("failed to enforce policy")
-			return err
+			logger.WithField("resource", resource).Errorf("failed to enforce policy: %v", err)
+			return enforceError(err)
 		}
 
 		perm, err := conv.PathToPermission(verb, resource)
@@ -129,6 +128,13 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 	}
 
 	return nil
+}
+
+// enforceError cuts err to its first line for the API response, dropping the
+// goroutine stack casbin appends when a stored pattern panics its matcher.
+func enforceError(err error) error {
+	msg, _, _ := strings.Cut(err.Error(), "\n")
+	return fmt.Errorf("rbac: enforce policy: %s", msg)
 }
 
 // Authorize verify if the user has access to a resource to do specific action
@@ -186,8 +192,8 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 	for _, resource := range uniqueResources {
 		allowed, err := m.checkPermissions(principal, resource, verb)
 		if err != nil {
-			logger.WithError(err).WithField("resource", resource).Error("failed to enforce policy")
-			return nil, err
+			logger.WithField("resource", resource).Errorf("failed to enforce policy: %v", err)
+			return nil, enforceError(err)
 		}
 
 		if allowed {

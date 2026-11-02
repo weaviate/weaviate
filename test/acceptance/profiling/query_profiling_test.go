@@ -348,8 +348,10 @@ func TestQueryProfiling(t *testing.T) {
 		require.NotEmpty(t, resp.Results)
 		require.NotNil(t, resp.QueryProfile)
 
+		require.NotEmpty(t, resp.QueryProfile.Shards)
 		for _, shard := range resp.QueryProfile.Shards {
-			vecSearch := shard.Searches["vector"]
+			vecSearch, ok := shard.Searches["vector"]
+			require.True(t, ok, "shard %s should report a vector search", shard.Name)
 			assert.NotEmpty(t, vecSearch.Details["total_took"])
 			assert.NotEmpty(t, vecSearch.Details["filters_build_allow_list_took"],
 				"filtered search should include filter timing for shard %s", shard.Name)
@@ -429,6 +431,7 @@ func TestQueryProfiling(t *testing.T) {
 				for _, shard := range resp.QueryProfile.Shards {
 					assert.NotEmpty(t, shard.Name)
 					assert.NotEmpty(t, shard.Node)
+					assert.NotEmpty(t, shard.Searches, "shard %s should report its searches", shard.Name)
 					for searchType, sp := range shard.Searches {
 						assert.NotEmpty(t, sp.Details["total_took"],
 							"shard %s search %s should report timing", shard.Name, searchType)

@@ -196,60 +196,15 @@ func (t *Tree) grow(i int) {
 }
 
 func (t *Tree) MarshalBinary() ([]byte, error) {
-	offsets, size := t.calculateDiskOffsets()
-
 	buf := bytes.NewBuffer(nil)
-
-	for i, node := range t.nodes {
-		if node == nil {
-			continue
-		}
-
-		var leftOffset int64
-		var rightOffset int64
-
-		if t.exists(t.left(i)) {
-			leftOffset = int64(offsets[t.left(i)])
-		} else {
-			leftOffset = -1
-		}
-
-		if t.exists(t.right(i)) {
-			rightOffset = int64(offsets[t.right(i)])
-		} else {
-			rightOffset = -1
-		}
-
-		if len(node.Key) > math.MaxUint32 {
-			return nil, errors.Errorf("max key size is %d", math.MaxUint32)
-		}
-
-		keyLen := uint32(len(node.Key))
-		if err := binary.Write(buf, binary.LittleEndian, keyLen); err != nil {
-			return nil, err
-		}
-		if _, err := buf.Write(node.Key); err != nil {
-			return nil, err
-		}
-		if err := binary.Write(buf, binary.LittleEndian, node.Start); err != nil {
-			return nil, err
-		}
-		if err := binary.Write(buf, binary.LittleEndian, node.End); err != nil {
-			return nil, err
-		}
-		if err := binary.Write(buf, binary.LittleEndian, leftOffset); err != nil {
-			return nil, err
-		}
-		if err := binary.Write(buf, binary.LittleEndian, rightOffset); err != nil {
-			return nil, err
-		}
+	size, err := t.MarshalBinaryInto(buf)
+	if err != nil {
+		return nil, err
 	}
-	bytes := buf.Bytes()
-	if size != len(bytes) {
-		return nil, errors.Errorf("corrupt: wrote %d bytes with target %d", len(bytes), size)
+	if int(size) != buf.Len() {
+		return nil, errors.Errorf("corrupt: wrote %d bytes with target %d", buf.Len(), size)
 	}
-
-	return bytes, nil
+	return buf.Bytes(), nil
 }
 
 func (t *Tree) MarshalBinaryInto(w io.Writer) (int64, error) {
@@ -271,13 +226,13 @@ func (t *Tree) MarshalBinaryInto(w io.Writer) (int64, error) {
 		if t.exists(t.left(i)) {
 			leftOffset = int64(offsets[t.left(i)])
 		} else {
-			leftOffset = -1
+			leftOffset = noChild
 		}
 
 		if t.exists(t.right(i)) {
 			rightOffset = int64(offsets[t.right(i)])
 		} else {
-			rightOffset = -1
+			rightOffset = noChild
 		}
 
 		if len(node.Key) > math.MaxUint32 {
@@ -656,10 +611,10 @@ func vebOffsets(order, mapping []int32, nodeCount int, nodeSize func(sortedIdx i
 }
 
 // childOffset returns the serialized byte offset of the child at heap position
-// childPos, or -1 when that position holds no node.
+// childPos, or noChild when that position holds no node.
 func childOffset(offsetOf []int64, mapping []int32, childPos int) int64 {
 	if childPos < len(mapping) && mapping[childPos] >= 0 {
 		return offsetOf[mapping[childPos]]
 	}
-	return -1
+	return noChild
 }

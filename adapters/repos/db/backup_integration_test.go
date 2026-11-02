@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/versioned"
 	backupUC "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -284,24 +285,33 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 	return setupTestDBWithConfig(t, rootDir, nil, classes...)
 }
 
-// setupTestDBWithConfig builds a single-node DB. override, when non-nil, adjusts
-// the Config before the DB is created.
+// setupTestDBWithConfig builds a single-node DB on a single shard. override, when
+// non-nil, adjusts the Config before the DB is created.
 func setupTestDBWithConfig(t *testing.T, rootDir string, override func(*Config), classes ...*models.Class) *DB {
+	return setupTestDBWithShardState(t, rootDir, singleShardState(), override, classes...)
+}
+
+// setupTestDBWithShardState builds a single-node DB that holds the given shards.
+// override, when non-nil, adjusts the Config before the DB is created.
+func setupTestDBWithShardState(t *testing.T, rootDir string, shardState *sharding.State,
+	override func(*Config), classes ...*models.Class,
+) *DB {
 	logger, _ := test.NewNullLogger()
 
-	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(len(shardState.AllPhysicalShards()), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: classes}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlyVersionedClass(mock.Anything).Return(versioned.Class{}).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, version uint64) error {
 		if ctx.Err() != nil {
 			return ctx.Err()

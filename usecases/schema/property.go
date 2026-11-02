@@ -38,7 +38,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	if err != nil {
 		return nil, 0, err
 	}
-	if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, newProps); err != nil {
+	if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, className, newProps); err != nil {
 		return nil, 0, err
 	}
 

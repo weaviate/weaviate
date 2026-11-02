@@ -12,8 +12,6 @@
 package inverted
 
 import (
-	"bytes"
-	"encoding/binary"
 	"slices"
 	"sync"
 
@@ -31,13 +29,21 @@ type Countable struct {
 }
 
 type Property struct {
-	Name               string
-	Items              []Countable
-	RawValues          []string // Original text values before tokenization (text/text[] only)
+	Name      string
+	Items     []Countable
+	RawValues []string // Original text values before tokenization (text/text[] only)
+	// Length is the rune count for text, the element count for arrays/refs,
+	// and -1 for every other type, which has no length. It comes from the
+	// raw value, not from Items, and feeds the property-length and
+	// null-state indexes.
 	Length             int
 	HasFilterableIndex bool // roaring set index
 	HasSearchableIndex bool // map index (with frequencies)
 	HasRangeableIndex  bool // roaring set index for ranged queries
+	// OverlayForcedOnly: no property-length or null-state bucket exists yet.
+	OverlayForcedOnly bool
+	// OverlaySearchable means the overlay set the flag, so no tracker entry exists.
+	OverlaySearchable bool
 }
 
 type NilProperty struct {
@@ -96,10 +102,10 @@ func DedupItems(props []Property) []Property {
 }
 
 // PropertyOverlay describes inverted-index flags and (optionally) a
-// tokenization to apply to a single property *for the duration of a single
-// analyzer call*. It is used by runtime reindex migrations that build a new
-// inverted bucket before the corresponding schema flag has been flipped via
-// RAFT (see EnableFilterableStrategy / EnableSearchableStrategy).
+// tokenization to apply to a single property while it is analyzed. A runtime
+// reindex strategy may hand one to its backfill scan, and a shard keeps one
+// from its bucket swap on: writes apply what the live schema lacks, and
+// queries read its tokenization.
 //
 // The overlay is read by Analyzer.analyzeProps which, when an entry exists
 // for the property name, treats the property as if its IndexFilterable /
@@ -113,10 +119,26 @@ type PropertyOverlay struct {
 	ForceFilterable bool
 	ForceSearchable bool
 	ForceRangeable  bool
-	// Tokenization, when non-empty, overrides prop.Tokenization for the
-	// duration of analysis. Used by EnableSearchableStrategy to tokenize
-	// with the target tokenization before the RAFT update applies it.
+	// Tokenization, when non-empty, replaces prop.Tokenization during analysis:
+	// the tokenization the migrated bucket is built with.
 	Tokenization string
+}
+
+func (o PropertyOverlay) Empty() bool {
+	return o == PropertyOverlay{}
+}
+
+func (o PropertyOverlay) BeyondLiveSchema(live *models.Property) PropertyOverlay {
+	if live == nil {
+		return o
+	}
+	o.ForceFilterable = o.ForceFilterable && !HasFilterableIndex(live)
+	o.ForceSearchable = o.ForceSearchable && !HasSearchableIndex(live)
+	o.ForceRangeable = o.ForceRangeable && !HasRangeableIndex(live)
+	if o.Tokenization == live.Tokenization {
+		o.Tokenization = ""
+	}
+	return o
 }
 
 type analyzerCacheEntry struct {
@@ -194,8 +216,6 @@ func (a *Analyzer) TextArray(tokenization string, inArr []string, propName strin
 	return countable
 }
 
-// Int requires no analysis, so it's actually just a simple conversion to a
-// string-formatted byte slice of the int
 func (a *Analyzer) Int(in int64) ([]Countable, error) {
 	data, err := ent.LexicographicallySortableInt64(in)
 	if err != nil {
@@ -209,7 +229,6 @@ func (a *Analyzer) Int(in int64) ([]Countable, error) {
 	}, nil
 }
 
-// UUID requires no analysis, so it's just dumping the raw binary representation
 func (a *Analyzer) UUID(in uuid.UUID) ([]Countable, error) {
 	return []Countable{
 		{
@@ -218,8 +237,6 @@ func (a *Analyzer) UUID(in uuid.UUID) ([]Countable, error) {
 	}, nil
 }
 
-// UUID array requires no analysis, so it's just dumping the raw binary
-// representation of each contained element
 func (a *Analyzer) UUIDArray(in []uuid.UUID) ([]Countable, error) {
 	out := make([]Countable, len(in))
 	for i := range in {
@@ -231,8 +248,6 @@ func (a *Analyzer) UUIDArray(in []uuid.UUID) ([]Countable, error) {
 	return out, nil
 }
 
-// Int array requires no analysis, so it's actually just a simple conversion to a
-// string-formatted byte slice of the int
 func (a *Analyzer) IntArray(in []int64) ([]Countable, error) {
 	out := make([]Countable, len(in))
 	for i := range in {
@@ -246,8 +261,6 @@ func (a *Analyzer) IntArray(in []int64) ([]Countable, error) {
 	return out, nil
 }
 
-// Float requires no analysis, so it's actually just a simple conversion to a
-// lexicographically sortable byte slice.
 func (a *Analyzer) Float(in float64) ([]Countable, error) {
 	data, err := ent.LexicographicallySortableFloat64(in)
 	if err != nil {
@@ -261,8 +274,6 @@ func (a *Analyzer) Float(in float64) ([]Countable, error) {
 	}, nil
 }
 
-// Float array requires no analysis, so it's actually just a simple conversion to a
-// lexicographically sortable byte slice.
 func (a *Analyzer) FloatArray(in []float64) ([]Countable, error) {
 	out := make([]Countable, len(in))
 	for i := range in {
@@ -276,36 +287,22 @@ func (a *Analyzer) FloatArray(in []float64) ([]Countable, error) {
 	return out, nil
 }
 
-// BoolArray requires no analysis, so it's actually just a simple conversion to a
-// little-endian ordered byte slice
 func (a *Analyzer) BoolArray(in []bool) ([]Countable, error) {
 	out := make([]Countable, len(in))
 	for i := range in {
-		b := bytes.NewBuffer(nil)
-		err := binary.Write(b, binary.LittleEndian, &in[i])
-		if err != nil {
-			return nil, err
-		}
-		out[i] = Countable{Data: b.Bytes()}
+		b := make([]byte, 1)
+		putBoolKey(b, in[i])
+		out[i] = Countable{Data: b}
 	}
 
 	return out, nil
 }
 
-// Bool requires no analysis, so it's actually just a simple conversion to a
-// little-endian ordered byte slice
 func (a *Analyzer) Bool(in bool) ([]Countable, error) {
-	b := bytes.NewBuffer(nil)
-	err := binary.Write(b, binary.LittleEndian, &in)
-	if err != nil {
-		return nil, err
-	}
+	b := make([]byte, 1)
+	putBoolKey(b, in)
 
-	return []Countable{
-		{
-			Data: b.Bytes(),
-		},
-	}, nil
+	return []Countable{{Data: b}}, nil
 }
 
 // RefCount does not index the content of the refs, but only the count with 0

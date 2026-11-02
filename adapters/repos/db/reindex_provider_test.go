@@ -25,7 +25,7 @@ import (
 // Wave 2 S1: cleanup-vs-status-visibility race in
 // [ReindexProvider.autoCleanupAfterTerminal].
 //
-// The DTM-backed [DB.AnyLiveReindexForShard] flips to "not live" the
+// The DTM-backed [DB.anyLiveReindexForShard] flips to "not live" the
 // instant a task lands in FAILED / CANCELLED, but [autoCleanup
 // AfterTerminal] is still tearing __reindex / __ingest sidecars for
 // tens of seconds after that. A backup landing in that gap sees the
@@ -169,8 +169,6 @@ func TestCleanupInProgress_ZeroRefcountDeletesEntry(t *testing.T) {
 // TestCleanupInProgress_LookupBuilder pins the wiring contract:
 // the builder returns a closure that probes the LIVE registry on
 // every invocation — not a snapshotted bool from builder-call time.
-// This mirrors [ShardReindexActivityLookupBuilder]'s contract so the
-// backup gate can install both via the same pattern.
 func TestCleanupInProgress_LookupBuilder(t *testing.T) {
 	p := newCleanupRegistryProvider()
 

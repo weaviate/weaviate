@@ -12,14 +12,76 @@
 package compact
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 )
+
+func TestCompactor_IsolatedNode(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		id    uint64
+		level uint16
+	}{
+		{name: "first HNSW object", id: 0},
+		{name: "first HFresh centroid", id: 1},
+		{name: "higher level node", id: 7, level: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			logger := logrus.New()
+			compactor := NewCompactor(DefaultCompactorConfig(dir), logger)
+			for round := 0; round < 3; round++ {
+				name := fmt.Sprint(1000 + round)
+				f, err := os.Create(filepath.Join(dir, name))
+				require.NoError(t, err)
+				writer := NewWALWriter(f)
+				switch round {
+				case 0:
+					require.NoError(t, writer.WriteSetEntryPointMaxLevel(tc.id, tc.level))
+					require.NoError(t, writer.WriteAddNode(tc.id, tc.level))
+				case 1:
+					// A later log has no AddNode. It must not lower the stored level.
+					require.NoError(t, writer.WriteAddLinksAtLevel(tc.id, 0, nil))
+				case 2:
+					// Deletion must still win over the isolated node in the snapshot.
+					require.NoError(t, writer.WriteDeleteNode(tc.id))
+				}
+				require.NoError(t, f.Close())
+				createEmptyFile(t, dir, fmt.Sprint(1001+round))
+				// Force another snapshot even when the delta is smaller than 20%.
+				compactor.config.SnapshotThreshold = 0.000001
+				action, err := compactor.RunCycle(nil)
+				require.NoError(t, err)
+				require.Equal(t, ActionCreateSnapshot, action)
+				state, err := NewFileDiscovery(dir).Scan()
+				require.NoError(t, err)
+				require.NotNil(t, state.Snapshot)
+				res, err := NewSnapshotReader(logger).ReadFromFile(state.Snapshot.Path)
+				require.NoError(t, err)
+				if round == 2 {
+					if int(tc.id) < len(res.Graph.Nodes) {
+						require.Nil(t, res.Graph.Nodes[tc.id])
+					}
+					continue
+				}
+				require.Greater(t, len(res.Graph.Nodes), int(tc.id))
+				node := res.Graph.Nodes[tc.id]
+				require.NotNil(t, node, "isolated node must survive compaction round %d", round)
+				require.Equal(t, int(tc.level), node.Level)
+				require.Equal(t, tc.id, res.Graph.Entrypoint)
+			}
+		})
+	}
+}
 
 func TestCompactor_EmptyDirectory(t *testing.T) {
 	dir := t.TempDir()
@@ -190,6 +252,195 @@ func TestCompactor_DecideAction_WithSnapshot(t *testing.T) {
 	}
 }
 
+// RunCycle calls decideAction on every maintenance cycle, so it must not
+// allocate log fields unless the logger keeps debug entries.
+func TestCompactor_DecideAction_Logging(t *testing.T) {
+	sorted := func(n int, size int64) []FileInfo {
+		files := make([]FileInfo, n)
+		for i := range files {
+			files[i] = FileInfo{StartTS: int64(1000 * (i + 1)), Size: size}
+		}
+		return files
+	}
+
+	states := []struct {
+		name     string
+		state    *DirectoryState
+		expected Action
+	}{
+		{name: "no data", state: &DirectoryState{}, expected: ActionNone},
+		{name: "initial snapshot", state: &DirectoryState{SortedFiles: sorted(1, 1000)}, expected: ActionCreateSnapshot},
+		{name: "merge before initial snapshot", state: &DirectoryState{SortedFiles: sorted(6, 100)}, expected: ActionMergeSorted},
+		{
+			name:     "merge before snapshot above threshold",
+			state:    &DirectoryState{Snapshot: &FileInfo{Size: 100}, SortedFiles: sorted(6, 100)},
+			expected: ActionMergeSorted,
+		},
+		{
+			name:     "snapshot above threshold",
+			state:    &DirectoryState{Snapshot: &FileInfo{Size: 100}, SortedFiles: sorted(1, 100)},
+			expected: ActionCreateSnapshot,
+		},
+		{
+			name:     "merge below threshold",
+			state:    &DirectoryState{Snapshot: &FileInfo{Size: 1000}, SortedFiles: sorted(2, 50)},
+			expected: ActionMergeSorted,
+		},
+		{
+			name:     "one sorted file below threshold",
+			state:    &DirectoryState{Snapshot: &FileInfo{Size: 1000}, SortedFiles: sorted(1, 100)},
+			expected: ActionNone,
+		},
+	}
+
+	for _, tc := range states {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Run("info level", func(t *testing.T) {
+				logger, hook := test.NewNullLogger()
+				logger.SetLevel(logrus.InfoLevel)
+				compactor := NewCompactor(DefaultCompactorConfig(t.TempDir()), logger.WithField("id", "main"))
+
+				var got Action
+				allocs := testing.AllocsPerRun(10, func() {
+					got = compactor.decideAction(tc.state)
+				})
+				assert.Equal(t, tc.expected, got)
+				assert.Zero(t, allocs)
+				assert.Empty(t, hook.AllEntries())
+			})
+
+			t.Run("debug level", func(t *testing.T) {
+				logger, hook := test.NewNullLogger()
+				logger.SetLevel(logrus.DebugLevel)
+				compactor := NewCompactor(DefaultCompactorConfig(t.TempDir()), logger)
+
+				assert.Equal(t, tc.expected, compactor.decideAction(tc.state))
+				if tc.expected == ActionNone {
+					assert.Empty(t, hook.AllEntries(), "no-op decisions repeat every idle cycle and must stay silent")
+					return
+				}
+				require.Len(t, hook.AllEntries(), 1)
+				entry := hook.LastEntry()
+				assert.Equal(t, logrus.DebugLevel, entry.Level)
+				assert.Equal(t, "decision: "+tc.expected.String(), entry.Message)
+				assert.Equal(t, "hnsw_compactor_decide", entry.Data["action"])
+				assert.NotEmpty(t, entry.Data["reason"])
+				assert.Equal(t, len(tc.state.SortedFiles), entry.Data["sorted_count"])
+			})
+		})
+	}
+}
+
+// The debug logs RunCycle reaches past decideAction must not build their fields
+// unless the logger keeps debug entries. A logger whose level LevelEnabled cannot
+// read still builds them, which gives each case its baseline.
+func TestCompactor_DebugLogging(t *testing.T) {
+	sortedInputs := func(t *testing.T, dir string) []FileInfo {
+		files := []FileInfo{
+			{Path: filepath.Join(dir, "1000.sorted"), StartTS: 1000, EndTS: 1000, Type: FileTypeSorted},
+			{Path: filepath.Join(dir, "2000.sorted"), StartTS: 2000, EndTS: 2000, Type: FileTypeSorted},
+		}
+		for _, f := range files {
+			file, err := os.Create(f.Path)
+			require.NoError(t, err)
+			w := NewWALWriter(file)
+			require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
+			require.NoError(t, w.WriteAddNode(0, 0))
+			require.NoError(t, file.Close())
+		}
+		return files
+	}
+
+	testCases := []struct {
+		name     string
+		run      func(t *testing.T, c *Compactor)
+		messages []string
+	}{
+		{
+			name: "resolveOverlaps",
+			run: func(t *testing.T, c *Compactor) {
+				state := &DirectoryState{Overlaps: []Overlap{{
+					MergedFile:    FileInfo{Path: filepath.Join(c.config.Dir, "1000_3000.sorted")},
+					ContainedFile: FileInfo{Path: filepath.Join(c.config.Dir, "2000.sorted")},
+				}}}
+				require.NoError(t, c.resolveOverlaps(state))
+			},
+			messages: []string{"removing file contained in merged range"},
+		},
+		{
+			name: "convertFileToSorted",
+			run: func(t *testing.T, c *Compactor) {
+				createEmptyFile(t, c.config.Dir, "1000")
+				raw := FileInfo{Path: filepath.Join(c.config.Dir, "1000"), StartTS: 1000, EndTS: 1000, Type: FileTypeRaw}
+				_, err := c.convertFileToSorted(raw)
+				require.NoError(t, err)
+			},
+			messages: []string{"converting file to sorted format", "converted file to sorted format"},
+		},
+		{
+			name: "mergeSorted",
+			run: func(t *testing.T, c *Compactor) {
+				state := &DirectoryState{SortedFiles: sortedInputs(t, c.config.Dir)}
+				require.NoError(t, c.mergeSorted(state, nil))
+			},
+			messages: []string{"merging sorted files", "merged sorted files"},
+		},
+		{
+			name: "createSnapshot",
+			run: func(t *testing.T, c *Compactor) {
+				state := &DirectoryState{SortedFiles: sortedInputs(t, c.config.Dir)}
+				require.NoError(t, c.createSnapshot(state, nil))
+			},
+			messages: []string{"creating snapshot", "created snapshot"},
+		},
+		{
+			name: "InMemoryReader.Do",
+			run: func(t *testing.T, c *Compactor) {
+				var buf bytes.Buffer
+				require.NoError(t, NewWALWriter(&buf).WriteSetEntryPointMaxLevel(0, 0))
+				_, err := NewInMemoryReader(NewWALCommitReader(&buf, c.logger), c.logger).Do(nil, false)
+				require.NoError(t, err)
+			},
+			messages: []string{"hnsw commit logger " + SetEntryPointMaxLevel.String()},
+		},
+		{
+			name: "growIndexToAccommodateNode",
+			run: func(t *testing.T, c *Compactor) {
+				_, grown, err := growIndexToAccommodateNode(nil, 0, c.logger)
+				require.NoError(t, err)
+				require.True(t, grown)
+			},
+			messages: []string{fmt.Sprintf("index grown from 0 to %d", cache.MinimumIndexGrowthDelta)},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			allocs := func(logger logrus.FieldLogger) float64 {
+				c := NewCompactor(DefaultCompactorConfig(t.TempDir()), logger)
+				return testing.AllocsPerRun(10, func() { tc.run(t, c) })
+			}
+			infoLogger, infoHook := test.NewNullLogger()
+			infoLogger.SetLevel(logrus.InfoLevel)
+			assert.Less(t, allocs(infoLogger), allocs(unreadableLogger{infoLogger}))
+			assert.Empty(t, infoHook.AllEntries())
+
+			debugLogger, debugHook := test.NewNullLogger()
+			debugLogger.SetLevel(logrus.DebugLevel)
+			tc.run(t, NewCompactor(DefaultCompactorConfig(t.TempDir()), debugLogger))
+			var messages []string
+			for _, entry := range debugHook.AllEntries() {
+				assert.Equal(t, logrus.DebugLevel, entry.Level)
+				messages = append(messages, entry.Message)
+			}
+			assert.Equal(t, tc.messages, messages)
+		})
+	}
+}
+
+// unreadableLogger is a FieldLogger whose level LevelEnabled cannot inspect.
+type unreadableLogger struct{ logrus.FieldLogger }
+
 func TestCompactor_ResolveOverlaps(t *testing.T) {
 	dir := t.TempDir()
 	logger := logrus.New()
@@ -304,4 +555,156 @@ func createWALFile(t *testing.T, path string) {
 	// Write entrypoint
 	err = walWriter.WriteSetEntryPointMaxLevel(0, 0)
 	require.NoError(t, err)
+}
+
+// TestCompactor_EmptyRotationsStayBounded covers forced commit-log rotations
+// (the backup path rotates regardless of size) on an index that receives no
+// commits. Each rotation leaves a 0-byte raw file that compaction converts
+// into a 0-byte .sorted file; those must be collapsed like any other sorted
+// file instead of accumulating one per rotation.
+func TestCompactor_EmptyRotationsStayBounded(t *testing.T) {
+	const rotations = 12
+
+	cases := []struct {
+		name string
+		// seed writes any pre-existing state under timestamps below 2000.
+		seed func(t *testing.T, dir string, compactor *Compactor)
+		// fill writes the content of each rotated-out log; nil leaves it empty.
+		fill         func(t *testing.T, path string)
+		wantSnapshot bool
+		wantNode     bool
+	}{
+		{
+			name: "never-written index",
+		},
+		{
+			name: "real commits, then only empty rotations",
+			seed: func(t *testing.T, dir string, _ *Compactor) {
+				createWALFile(t, filepath.Join(dir, "1000"))
+			},
+			wantSnapshot: true,
+			wantNode:     true,
+		},
+		{
+			name: "empty rotations on top of an existing snapshot",
+			seed: func(t *testing.T, dir string, compactor *Compactor) {
+				createWALFile(t, filepath.Join(dir, "1000"))
+				createEmptyFile(t, dir, "1001")
+				runCompactionToQuiescence(t, compactor)
+				state, err := NewFileDiscovery(dir).Scan()
+				require.NoError(t, err)
+				require.NotNil(t, state.Snapshot, "seed must produce a snapshot")
+			},
+			wantSnapshot: true,
+			wantNode:     true,
+		},
+		{
+			// Not every 0-byte sorted file starts as a 0-byte log: the sorted
+			// writer drops a tombstone that was added and removed again.
+			name: "rotations whose only commits cancel out",
+			fill: func(t *testing.T, path string) {
+				f, err := os.Create(path)
+				require.NoError(t, err)
+				defer f.Close()
+				w := NewWALWriter(f)
+				require.NoError(t, w.WriteAddTombstone(7))
+				require.NoError(t, w.WriteRemoveTombstone(7))
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			compactor := NewCompactor(DefaultCompactorConfig(dir), logrus.New())
+			if tc.seed != nil {
+				tc.seed(t, dir, compactor)
+			}
+
+			ts := int64(2000)
+			createEmptyFile(t, dir, fmt.Sprint(ts))
+			// rotate fills the live file, then seals it by opening a newer empty
+			// one, exactly what a forced switchCommitLogs does.
+			rotate := func() {
+				if tc.fill != nil {
+					tc.fill(t, filepath.Join(dir, fmt.Sprint(ts)))
+				}
+				ts++
+				createEmptyFile(t, dir, fmt.Sprint(ts))
+			}
+
+			check := func(phase string) {
+				t.Helper()
+				runCompactionToQuiescence(t, compactor)
+
+				state, err := NewFileDiscovery(dir).Scan()
+				require.NoError(t, err)
+				assert.LessOrEqualf(t, len(state.SortedFiles), 1,
+					"%s: empty sorted files were not collapsed: %v", phase, sortedNames(state))
+				assert.Emptyf(t, state.RawFiles, "%s: unconverted raw files remain", phase)
+				assert.Equal(t, tc.wantSnapshot, state.Snapshot != nil, "%s: snapshot presence", phase)
+
+				// A fixed point: another cycle changes nothing.
+				before := dirEntries(t, dir)
+				action, err := compactor.RunCycle(nil)
+				require.NoError(t, err)
+				assert.Equal(t, ActionNone, action, "%s: compactor did not settle", phase)
+				assert.Equal(t, before, dirEntries(t, dir), "%s: idle cycle changed the directory", phase)
+
+				res, err := NewLoader(LoaderConfig{Dir: dir, Logger: logrus.New()}).Load()
+				require.NoError(t, err, "%s: load", phase)
+				if tc.wantNode {
+					require.NotNil(t, res, "%s: load returned no state", phase)
+					require.NotEmpty(t, res.State.Graph.Nodes, "%s: node lost", phase)
+					require.NotNil(t, res.State.Graph.Nodes[0], "%s: node lost", phase)
+				}
+			}
+
+			// Burst: many rotations before compaction gets to run, the state an
+			// upgraded deployment starts from.
+			for i := 0; i < rotations; i++ {
+				rotate()
+			}
+			check("burst")
+
+			// Steady state: one rotation per backup with compaction in between.
+			for i := 0; i < rotations; i++ {
+				rotate()
+				check(fmt.Sprintf("rotation %d", i))
+			}
+		})
+	}
+}
+
+// runCompactionToQuiescence runs cycles until the compactor reports nothing
+// left to do, failing if it never settles.
+func runCompactionToQuiescence(t *testing.T, compactor *Compactor) {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		action, err := compactor.RunCycle(nil)
+		require.NoError(t, err)
+		if action == ActionNone {
+			return
+		}
+	}
+	t.Fatal("compactor did not reach a fixed point within 100 cycles")
+}
+
+func sortedNames(state *DirectoryState) []string {
+	names := make([]string, 0, len(state.SortedFiles))
+	for _, f := range state.SortedFiles {
+		names = append(names, filepath.Base(f.Path))
+	}
+	return names
+}
+
+func dirEntries(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
 }

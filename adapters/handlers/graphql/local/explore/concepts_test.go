@@ -12,14 +12,17 @@
 package explore
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	helper "github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -711,4 +714,24 @@ func (tests testCases) AssertExtraction(t *testing.T, resolver *mockResolver) {
 			}
 		})
 	}
+}
+
+// TestExplore_AdmissionShedMapsToRateLimit pins that a shed surfacing from
+// Explore's cross-class vector search (admitted per shard) maps to
+// "429 Too many requests" at the GraphQL Explore ingress, as Get does.
+func TestExplore_AdmissionShedMapsToRateLimit(t *testing.T) {
+	t.Parallel()
+	resolver := newMockResolver()
+
+	shed := fmt.Errorf("explorer: %w", queryadmission.ErrOverloaded)
+	resolver.On("Explore", mock.Anything).Return([]search.Result{}, shed).Once()
+
+	result := resolver.Resolve(`{ Explore(nearVector: {vector: [0, 1, 0.8]}) { beacon } }`)
+
+	require.Len(t, result.Errors, 1)
+	require.Contains(t, result.Errors[0].Error(), "429 Too many requests",
+		"admission shed must surface as the rate-limit error at the GraphQL Explore ingress")
+	require.NotContains(t, result.Errors[0].Error(), "node overloaded",
+		"raw ErrOverloaded message must not leak to the client")
+	resolver.AssertExpectations(t)
 }

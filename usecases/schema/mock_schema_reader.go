@@ -237,6 +237,52 @@ func (_c *MockSchemaReader_ClassInfoWithVersion_Call) RunAndReturn(run func(cont
 	return _c
 }
 
+// CollectionsCount provides a mock function with given fields: namespace
+func (_m *MockSchemaReader) CollectionsCount(namespace string) int {
+	ret := _m.Called(namespace)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CollectionsCount")
+	}
+
+	var r0 int
+	if rf, ok := ret.Get(0).(func(string) int); ok {
+		r0 = rf(namespace)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	return r0
+}
+
+// MockSchemaReader_CollectionsCount_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CollectionsCount'
+type MockSchemaReader_CollectionsCount_Call struct {
+	*mock.Call
+}
+
+// CollectionsCount is a helper method to define mock.On call
+//   - namespace string
+func (_e *MockSchemaReader_Expecter) CollectionsCount(namespace interface{}) *MockSchemaReader_CollectionsCount_Call {
+	return &MockSchemaReader_CollectionsCount_Call{Call: _e.mock.On("CollectionsCount", namespace)}
+}
+
+func (_c *MockSchemaReader_CollectionsCount_Call) Run(run func(namespace string)) *MockSchemaReader_CollectionsCount_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockSchemaReader_CollectionsCount_Call) Return(_a0 int) *MockSchemaReader_CollectionsCount_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSchemaReader_CollectionsCount_Call) RunAndReturn(run func(string) int) *MockSchemaReader_CollectionsCount_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetAliasesForClass provides a mock function with given fields: class
 func (_m *MockSchemaReader) GetAliasesForClass(class string) []*models.Alias {
 	ret := _m.Called(class)

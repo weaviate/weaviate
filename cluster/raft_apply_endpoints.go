@@ -338,6 +338,10 @@ func (s *Raft) Execute(ctx context.Context, req *cmd.ApplyRequest) (uint64, erro
 			if errors.Is(err, raft.ErrNotLeader) || errors.Is(err, raft.ErrLeadershipLost) {
 				return err
 			}
+			// Transient by construction, so retry instead of failing the client.
+			if errors.Is(err, types.ErrFSMNotCaughtUp) {
+				return err
+			}
 			return backoff.Permanent(err)
 		}
 

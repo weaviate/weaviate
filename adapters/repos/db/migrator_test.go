@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -115,6 +116,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
+			shutdownIndexOnCleanup(t, index)
 
 			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
 				NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
@@ -595,6 +597,7 @@ func TestUpdateIndexShards(t *testing.T) {
 				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
+			shutdownIndexOnCleanup(t, index)
 
 			// Initialize shards
 			for _, shardName := range tt.initialShards {
@@ -978,7 +981,9 @@ func numberedShards(n int) []string {
 // schemaUC.ErrNotFound so the REST handler maps them to 404 rather than 500.
 func TestShardsStatusNonExistingIndexWrapsNotFound(t *testing.T) {
 	logger := logrus.New()
-	migrator := NewMigrator(&DB{}, logger, "node1")
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader.EXPECT().ReadOnlyVersionedClass("DoesNotExist").Return(versioned.Class{}).Maybe()
+	migrator := NewMigrator(&DB{schemaReader: schemaReader}, logger, "node1")
 
 	tests := []struct {
 		name string
@@ -1060,6 +1065,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
+	shutdownIndexOnCleanup(t, index)
 	// HaltForTransfer's backup-gate would refuse the test's
 	// IncomingPauseFileActivity call without a wired lookup; install
 	// the no-live-reindex stub so the gate is satisfied.

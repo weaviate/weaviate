@@ -14,6 +14,7 @@ package usage_limits
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
@@ -80,10 +82,10 @@ func TestRuntimeOverride_ObjectLimit(t *testing.T) {
 		body := []byte(fmt.Sprintf(`{"class":"RuntimeCol","properties":{"i":%d}}`, i))
 		postOK(t, ctx, httpURI+"/v1/objects", body)
 	}
-	// Give the memtable flush trigger a beat to land — otherwise the
-	// async count still says 0 when the override fires, and the probe
-	// would succeed (count 0 + 1 < cap 3).
-	time.Sleep(3 * time.Second)
+	// Wait for the memtable flush to land — otherwise the async count
+	// still says 0 when the override fires, and the probe would succeed
+	// (count 0 + 1 < cap 3).
+	waitForCountedObjects(t, ctx, httpURI, 3)
 
 	// Write a runtime override YAML pinning the object cap to 3 (i.e.
 	// already at the cap given the inserts above).
@@ -126,4 +128,27 @@ func TestRuntimeOverride_ObjectLimit(t *testing.T) {
 	}
 	require.True(t, sawLimit,
 		"runtime override did not take effect within 30s; expected an HTTP 429 once the YAML override propagated")
+}
+
+// waitForCountedObjects waits until the node's verbose object count, which
+// like the object limit only sees flushed segments, reaches want.
+func waitForCountedObjects(t *testing.T, ctx context.Context, httpURI string, want int64) {
+	t.Helper()
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpURI+"/v1/nodes?output=verbose", nil)
+		require.NoError(c, err)
+		resp, err := http.DefaultClient.Do(req)
+		if !assert.NoError(c, err) {
+			return
+		}
+		defer resp.Body.Close()
+		var status models.NodesStatusResponse
+		if !assert.NoError(c, json.NewDecoder(resp.Body).Decode(&status)) {
+			return
+		}
+		if !assert.NotEmpty(c, status.Nodes) || !assert.NotNil(c, status.Nodes[0].Stats) {
+			return
+		}
+		assert.Equal(c, want, status.Nodes[0].Stats.ObjectCount)
+	}, 30*time.Second, 100*time.Millisecond)
 }

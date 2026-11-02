@@ -56,13 +56,6 @@ func TestMain(m *testing.M) {
 	weaviateURI := sharedCompose.GetWeaviate().URI()
 	gcsURI := sharedCompose.GetGCS().URI()
 
-	// Verify contextionary is available
-	contextionary := sharedCompose.GetText2VecContextionary()
-	if contextionary != nil {
-		// Log contextionary URI for debugging
-		_ = contextionary.URI() // This ensures the container is accessible
-	}
-
 	// Set up environment variables for tests to use
 	os.Setenv(envSharedWeaviateEndpoint, weaviateURI)
 	os.Setenv(envSharedGCSEndpoint, gcsURI)
@@ -154,11 +147,11 @@ func deleteGCSBucket(ctx context.Context, bucketName string) error {
 // The cluster includes:
 // - 3-node Weaviate cluster (to test cluster backup scenarios)
 // - GCS emulator storage
-// - text2vec-contextionary vectorizer (for tests that need vectorization)
+// - text2vec-model2vec vectorizer (for tests that need vectorization)
 func setupSharedCluster(ctx context.Context) (*docker.DockerCompose, error) {
 	compose, err := docker.New().
 		WithBackendGCS(gcsBucketName).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateCluster(3).
 		WithWeaviateExposeGRPCPort().
 		Start(ctx)
@@ -166,10 +159,8 @@ func setupSharedCluster(ctx context.Context) (*docker.DockerCompose, error) {
 		return nil, errors.Wrap(err, "failed to start docker compose")
 	}
 
-	// Verify contextionary container is running
-	contextionary := compose.GetText2VecContextionary()
-	if contextionary == nil {
-		return nil, errors.New("text2vec-contextionary container not found - vectorizer may not be available")
+	if compose.GetText2VecModel2Vec() == nil {
+		return nil, errors.New("text2vec-model2vec container not found - vectorizer may not be available")
 	}
 
 	return compose, nil

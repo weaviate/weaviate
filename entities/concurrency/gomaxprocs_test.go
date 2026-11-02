@@ -13,6 +13,7 @@ package concurrency
 
 import (
 	"fmt"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -216,4 +217,14 @@ func TestFractionOf(t *testing.T) {
 			assert.Equal(t, tc.expected, n)
 		})
 	}
+}
+
+// limitResources and /debug/config/gomaxprocs both change GOMAXPROCS after init.
+func TestCurrentGOMAXPROCSx2FollowsGOMAXPROCS(t *testing.T) {
+	original := runtime.GOMAXPROCS(0)
+	t.Cleanup(func() { runtime.GOMAXPROCS(original) })
+
+	assert.Equal(t, original, runtime.GOMAXPROCS(original+1))
+	assert.Equal(t, 2*(original+1), CurrentGOMAXPROCSx2())
+	assert.Equal(t, 2*original, GOMAXPROCSx2, "the package-init snapshot must not move")
 }

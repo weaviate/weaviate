@@ -602,6 +602,17 @@ func TestGuardLoadPath(t *testing.T) {
 		require.ErrorIs(t, err, errNamespaceUnknownLocally)
 	})
 
+	// Status reads skip loading a cold shard, but not the guard.
+	t.Run("suspended refuses a status read of a cold shard", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
+		idx.shards.Store("t1", &LazyLoadShard{})
+
+		_, err := idx.IncomingGetShardStatus(ctx, "t1")
+		require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+		_, err = idx.IncomingGetShardQueueSize(ctx, "t1")
+		require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+	})
+
 	// The allow side: without it, a guard that refused every in-band load would
 	// pass every refuse-only assertion above.
 	t.Run("an active namespace admits the load", func(t *testing.T) {
@@ -1902,8 +1913,11 @@ func TestGuardReload(t *testing.T) {
 
 		// Which tenants a reload opens is decided by the check boot uses rather
 		// than the request-path one, so the multi-tenant arm walks the same table.
+		// With lazy loading on a reload only registers the tenant, so it is off
+		// here to make the reload open it.
 		t.Run(tc.name+" opens the tenants that stay open", func(t *testing.T) {
 			m, idx := migratorForReload(t, tc.className, tc.exister(t))
+			idx.Config.EnableLazyLoadShards = false
 			idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
 
 			state := reloadState(true, map[string]sharding.Physical{"t1": hotPhysical("t1")})

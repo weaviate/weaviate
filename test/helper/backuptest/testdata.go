@@ -176,8 +176,7 @@ func (g *TestDataGenerator) GenerateClass() *models.Class {
 		class.Vectorizer = g.config.UseVectorizer
 		class.ModuleConfig = map[string]interface{}{
 			g.config.UseVectorizer: map[string]interface{}{
-				// Don't vectorize class name - our generated class names contain
-				// underscores and timestamps that aren't in contextionary's vocabulary
+				// generated class names (underscores, timestamps) carry no meaning
 				"vectorizeClassName": false,
 			},
 		}

@@ -31,7 +31,7 @@ func TestClusterAPIAuth(t *testing.T) {
 
 	compose, err := docker.New().With3NodeCluster().
 		WithWeaviateBasicAuth("user", "pass").
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
@@ -55,7 +55,7 @@ func TestClusterAPIAuth(t *testing.T) {
 			require.Len(t, nodes, 3)
 		})
 
-		booksClass := books.ClassContextionaryVectorizer()
+		booksClass := books.ClassModel2VecVectorizer()
 		helper.CreateClass(t, booksClass)
 		defer helper.DeleteClass(t, booksClass.Class)
 

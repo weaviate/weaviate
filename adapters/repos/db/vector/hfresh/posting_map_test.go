@@ -32,12 +32,24 @@ func makePostingMetadataStore(t *testing.T) *PostingMap {
 	return NewPostingMap(bucket)
 }
 
-func makePostingMetadataBucket(t *testing.T) *lsmkv.Bucket {
+func makePostingMetadataBucket(t *testing.T) bucketRef {
 	t.Helper()
 
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
+	return bucket
+}
+
+// mustBucket resolves a ref for the assertions that need the bucket itself.
+// The pin is released at the end of the test; these tests never tear the store
+// down while running, so holding it that long cannot block a shutdown.
+func mustBucket(t *testing.T, ref bucketRef) *lsmkv.Bucket {
+	t.Helper()
+
+	bucket, release, err := ref.acquire()
+	require.NoError(t, err)
+	t.Cleanup(release)
 	return bucket
 }
 
@@ -564,7 +576,7 @@ func TestPostingMetadataStore(t *testing.T) {
 
 		legacy := legacyPackedPostingMetadata(10, 20, 30)
 		legacyKey := postingMapKey(postingMapBucketPrefixV1, 42)
-		err := bucket.Put(legacyKey, legacy)
+		err := mustBucket(t, bucket).Put(legacyKey, legacy)
 		require.NoError(t, err)
 
 		err = migratePostingMapV1ToV2(ctx, bucket, logrus.New())
@@ -586,7 +598,7 @@ func TestPostingMetadataStore(t *testing.T) {
 		require.NoError(t, err)
 		require.EqualValues(t, 3, size)
 
-		c := bucket.Cursor()
+		c := mustBucket(t, bucket).Cursor()
 		defer c.Close()
 		k, _ := c.Seek(postingMapBucketPrefixV1)
 		require.False(t, bytes.HasPrefix(k, postingMapBucketPrefixV1))
@@ -603,7 +615,7 @@ func TestPostingMetadataStore(t *testing.T) {
 		total := postingMapMigrationBatchSize + 3
 		for postingID := range total {
 			legacy := legacyPackedPostingMetadata(uint64(postingID), uint64(postingID+1))
-			err := bucket.Put(postingMapKey(postingMapBucketPrefixV1, uint64(postingID)), legacy)
+			err := mustBucket(t, bucket).Put(postingMapKey(postingMapBucketPrefixV1, uint64(postingID)), legacy)
 			require.NoError(t, err)
 		}
 
@@ -619,9 +631,9 @@ func TestPostingMetadataStore(t *testing.T) {
 		err = migratePostingMapV1ToV2(ctx, bucket, logrus.New())
 		require.NoError(t, err)
 
-		require.Equal(t, 0, countKeysWithPrefix(bucket, postingMapBucketPrefixV1))
-		require.Equal(t, total, countKeysWithPrefix(bucket, postingMapBucketPrefixV2))
-		require.Equal(t, total, countKeysWithPrefix(bucket, postingSizesBucketPrefix))
+		require.Equal(t, 0, countKeysWithPrefix(mustBucket(t, bucket), postingMapBucketPrefixV1))
+		require.Equal(t, total, countKeysWithPrefix(mustBucket(t, bucket), postingMapBucketPrefixV2))
+		require.Equal(t, total, countKeysWithPrefix(mustBucket(t, bucket), postingSizesBucketPrefix))
 
 		for _, postingID := range []uint64{0, partialID, uint64(total - 1)} {
 			metadata, err := store.Get(ctx, postingID)
@@ -635,28 +647,60 @@ func TestPostingMetadataStore(t *testing.T) {
 
 		err = migratePostingMapV1ToV2(ctx, bucket, logrus.New())
 		require.NoError(t, err)
-		require.Equal(t, 0, countKeysWithPrefix(bucket, postingMapBucketPrefixV1))
-		require.Equal(t, total, countKeysWithPrefix(bucket, postingMapBucketPrefixV2))
-		require.Equal(t, total, countKeysWithPrefix(bucket, postingSizesBucketPrefix))
+		require.Equal(t, 0, countKeysWithPrefix(mustBucket(t, bucket), postingMapBucketPrefixV1))
+		require.Equal(t, total, countKeysWithPrefix(mustBucket(t, bucket), postingMapBucketPrefixV2))
+		require.Equal(t, total, countKeysWithPrefix(mustBucket(t, bucket), postingSizesBucketPrefix))
 	})
 
 	t.Run("deletes empty legacy rows", func(t *testing.T) {
 		bucket := makePostingMetadataBucket(t)
 
 		emptyKey := postingMapKey(postingMapBucketPrefixV1, 42)
-		err := bucket.Put(emptyKey, nil)
+		err := mustBucket(t, bucket).Put(emptyKey, nil)
 		require.NoError(t, err)
-		err = bucket.Put(postingMapKey(postingMapBucketPrefixV1, 43), legacyPackedPostingMetadata(100, 200))
+		err = mustBucket(t, bucket).Put(postingMapKey(postingMapBucketPrefixV1, 43), legacyPackedPostingMetadata(100, 200))
 		require.NoError(t, err)
 
 		err = migratePostingMapV1ToV2(ctx, bucket, logrus.New())
 		require.NoError(t, err)
 
-		require.Equal(t, 0, countKeysWithPrefix(bucket, postingMapBucketPrefixV1))
-		require.Equal(t, 1, countKeysWithPrefix(bucket, postingMapBucketPrefixV2))
-		require.Equal(t, 1, countKeysWithPrefix(bucket, postingSizesBucketPrefix))
+		require.Equal(t, 0, countKeysWithPrefix(mustBucket(t, bucket), postingMapBucketPrefixV1))
+		require.Equal(t, 1, countKeysWithPrefix(mustBucket(t, bucket), postingMapBucketPrefixV2))
+		require.Equal(t, 1, countKeysWithPrefix(mustBucket(t, bucket), postingSizesBucketPrefix))
 
 		_, err = NewPostingMapStore(bucket, postingMapBucketPrefixV2).Get(ctx, 42)
 		require.ErrorIs(t, err, ErrPostingNotFound)
+	})
+
+	t.Run("legacy batch does not allocate without legacy rows", func(t *testing.T) {
+		bucket := makePostingMetadataBucket(t)
+		err := NewPostingMapStore(bucket, postingMapBucketPrefixV2).Set(ctx, 42, NewPackedPostingMetadata([]uint64{1, 2}))
+		require.NoError(t, err)
+
+		batch, err := legacyPostingMapBatch(ctx, bucket, postingMapMigrationBatchSize)
+		require.NoError(t, err)
+		require.Empty(t, batch)
+		require.Zero(t, cap(batch))
+	})
+
+	t.Run("legacy batch limit counts empty rows", func(t *testing.T) {
+		bucket := makePostingMetadataBucket(t)
+		for postingID := range uint64(5) {
+			err := mustBucket(t, bucket).Put(postingMapKey(postingMapBucketPrefixV1, postingID), nil)
+			require.NoError(t, err)
+		}
+		for postingID := uint64(5); postingID < 7; postingID++ {
+			err := mustBucket(t, bucket).Put(postingMapKey(postingMapBucketPrefixV1, postingID), legacyPackedPostingMetadata(postingID))
+			require.NoError(t, err)
+		}
+
+		batch, err := legacyPostingMapBatch(ctx, bucket, 3)
+		require.NoError(t, err)
+		require.Len(t, batch, 3)
+
+		err = migratePostingMapV1ToV2(ctx, bucket, logrus.New())
+		require.NoError(t, err)
+		require.Equal(t, 0, countKeysWithPrefix(mustBucket(t, bucket), postingMapBucketPrefixV1))
+		require.Equal(t, 2, countKeysWithPrefix(mustBucket(t, bucket), postingMapBucketPrefixV2))
 	})
 }

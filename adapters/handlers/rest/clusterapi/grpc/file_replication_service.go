@@ -81,7 +81,7 @@ func (fps *FileReplicationService) ReleaseReplicaSnapshot(ctx context.Context, r
 	indexName := req.GetIndexName()
 	opID := req.GetOpId()
 
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := fps.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return nil, status.Errorf(codes.Internal, "local index %q not found", indexName)
 	}
@@ -101,7 +101,7 @@ func (fps *FileReplicationService) GetReplicaSnapshotFileMetadata(ctx context.Co
 	opID := req.GetOpId()
 	fileName := req.GetFileName()
 
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := fps.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return nil, status.Errorf(codes.Internal, "local index %q not found", indexName)
 	}
@@ -129,7 +129,7 @@ func (fps *FileReplicationService) GetReplicaSnapshotFile(req *pb.GetReplicaSnap
 	opID := req.GetOpId()
 	fileName := req.GetFileName()
 
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := fps.repo.GetIndexForIncomingSharding(stream.Context(), schema.ClassName(indexName))
 	if index == nil {
 		return status.Errorf(codes.Internal, "local index %q not found", indexName)
 	}
@@ -190,7 +190,7 @@ func (fps *FileReplicationService) StartChangeCapture(ctx context.Context, req *
 }
 
 func (fps *FileReplicationService) GetChangeLog(req *pb.GetChangeLogRequest, stream pb.FileReplicationService_GetChangeLogServer) error {
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	index := fps.repo.GetIndexForIncomingSharding(stream.Context(), schema.ClassName(req.IndexName))
 	if index == nil {
 		return status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
 	}
@@ -227,7 +227,7 @@ func (fps *FileReplicationService) GetChangeLog(req *pb.GetChangeLogRequest, str
 }
 
 func (fps *FileReplicationService) SnapshotChangeLogLSN(ctx context.Context, req *pb.SnapshotChangeLogLSNRequest) (*pb.SnapshotChangeLogLSNResponse, error) {
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	index := fps.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(req.IndexName))
 	if index == nil {
 		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
 	}
@@ -247,7 +247,7 @@ func (fps *FileReplicationService) SnapshotChangeLogLSN(ctx context.Context, req
 }
 
 func (fps *FileReplicationService) FinalizeChangeLog(ctx context.Context, req *pb.FinalizeChangeLogRequest) (*pb.FinalizeChangeLogResponse, error) {
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	index := fps.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(req.IndexName))
 	if index == nil {
 		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
 	}
@@ -267,7 +267,7 @@ func (fps *FileReplicationService) FinalizeChangeLog(ctx context.Context, req *p
 }
 
 func (fps *FileReplicationService) StopChangeCapture(ctx context.Context, req *pb.StopChangeCaptureRequest) (*pb.StopChangeCaptureResponse, error) {
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	index := fps.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(req.IndexName))
 	if index == nil {
 		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
 	}
@@ -291,7 +291,7 @@ func (fps *FileReplicationService) indexForIncomingWrite(ctx context.Context, in
 	if _, err := fps.schema.ReadOnlyClassWithVersion(ctx, indexName, schemaVersion); err != nil {
 		return nil, fmt.Errorf("local index %q not found: %w", indexName, err)
 	}
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := fps.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return nil, fmt.Errorf("local index %q not found", indexName)
 	}

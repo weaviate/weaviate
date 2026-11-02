@@ -25,14 +25,14 @@ import (
 
 // buildUnitMaps creates per-replica unit IDs and maps from shard ownership.
 // ShardOwnership returns map[nodeName][]shardName (node→shards it owns).
-// Unit ID format: "shardName__nodeName".
+// Unit ID format is [db.MigrationUnitID]: "shardName__nodeName".
 func buildUnitMaps(shardOwnership map[string][]string) (unitIDs []string, unitToShard, unitToNode map[string]string) {
 	unitToShard = make(map[string]string)
 	unitToNode = make(map[string]string)
 
 	for nodeName, shards := range shardOwnership {
 		for _, shardName := range shards {
-			unitID := fmt.Sprintf("%s__%s", shardName, nodeName)
+			unitID := db.MigrationUnitID(shardName, nodeName)
 			unitIDs = append(unitIDs, unitID)
 			unitToShard[unitID] = shardName
 			unitToNode[unitID] = nodeName
@@ -230,8 +230,8 @@ func validateEnableSearchableProperty(prop *models.Property, tokenization string
 // validateFilterableTokenizationChange validates the body for
 // `PUT /v1/schema/{class}/properties/{prop}/index/filterable` with a
 // diverging `{"tokenization":X}`.
-// Distinct from validateTokenizationChange: does NOT require a searchable
-// bucket — this is the filterable-only retokenize variant. The caller
+// Distinct from validateTokenizationChange: the property must NOT have a
+// searchable index — this is the filterable-only retokenize variant. The caller
 // dispatches to ReindexTypeChangeTokenizationFilterable which runs only
 // the filterable retokenize task.
 func validateFilterableTokenizationChange(prop *models.Property, targetTokenization string) error {
@@ -250,6 +250,14 @@ func validateFilterableTokenizationChange(prop *models.Property, targetTokenizat
 	}
 	if prop.Tokenization == targetTokenization {
 		return fmt.Errorf("property %q already uses tokenization %q", prop.Name, targetTokenization)
+	}
+	// Both indexes are queried with the property's one tokenization, so
+	// retokenizing only the filterable one leaves the searchable one unreadable.
+	if searchableIndexOn(prop) {
+		return fmt.Errorf("property %q also has a searchable index built with tokenization %q; "+
+			"retokenizing only the filterable index would silently desynchronize the searchable index. "+
+			"Change the tokenization of both indexes via PUT /v1/schema/{className}/properties/%s/index/searchable",
+			prop.Name, prop.Tokenization, prop.Name)
 	}
 	return nil
 }
@@ -298,7 +306,7 @@ func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSp
 	var specs []distributedtask.UnitSpec
 	for nodeName, shards := range shardOwnership {
 		for _, shardName := range shards {
-			unitID := fmt.Sprintf("%s__%s", shardName, nodeName)
+			unitID := db.MigrationUnitID(shardName, nodeName)
 			specs = append(specs, distributedtask.UnitSpec{
 				ID:      unitID,
 				GroupID: shardName,
@@ -309,12 +317,12 @@ func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSp
 	return specs
 }
 
-// validateTenants checks that all specified tenants exist in the collection's
-// sharding state and are in a status that has local data (HOT, ACTIVE, COLD,
-// INACTIVE). Returns an error for nonexistent or OFFLOADED/FROZEN tenants.
+// validateTenants checks that every named tenant exists in the collection's
+// sharding state. submitReindexTask refuses a named tenant that is not HOT.
 func validateTenants(database *db.DB, ctx context.Context, collection string, tenants []string) error {
-	// Get all shard ownership including all statuses.
-	allOwnership, err := database.ShardReplicaOwnershipForMT(ctx, collection, nil)
+	// Unfiltered: a frozen tenant must count as known, so it fails with the
+	// not-HOT error, not the unknown-tenant one.
+	allOwnership, err := database.ShardReplicaOwnership(ctx, collection)
 	if err != nil {
 		return fmt.Errorf("reading shard state: %w", err)
 	}
@@ -326,25 +334,9 @@ func validateTenants(database *db.DB, ctx context.Context, collection string, te
 			knownTenants[shard] = struct{}{}
 		}
 	}
-
-	// Get the filtered ownership (only HOT/ACTIVE/COLD/INACTIVE).
-	activeOwnership, err := database.ShardReplicaOwnershipForMT(ctx, collection, tenants)
-	if err != nil {
-		return fmt.Errorf("reading shard state: %w", err)
-	}
-	activeTenants := make(map[string]struct{})
-	for _, shards := range activeOwnership {
-		for _, shard := range shards {
-			activeTenants[shard] = struct{}{}
-		}
-	}
-
 	for _, tenant := range tenants {
 		if _, ok := knownTenants[tenant]; !ok {
 			return fmt.Errorf("tenant %q does not exist", tenant)
-		}
-		if _, ok := activeTenants[tenant]; !ok {
-			return fmt.Errorf("tenant %q is not in an active status (OFFLOADED/FROZEN tenants cannot be reindexed)", tenant)
 		}
 	}
 	return nil

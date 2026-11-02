@@ -24,11 +24,6 @@ import (
 )
 
 var (
-	// contextual
-	article1 strfmt.UUID = "dcbe5df8-af01-46f1-b45f-bcc9a7a0773d" // apple macbook
-	article2 strfmt.UUID = "6a8c7b62-fd45-488f-b884-ec87227f6eb3" // ice cream and steak
-	article3 strfmt.UUID = "92f05097-6371-499c-a0fe-3e60ae16fe3d" // president of the us
-
 	// knn
 	recipeTypeSavory   strfmt.UUID = "989d792c-b59e-4430-80a3-cf7f320f31b0"
 	recipeTypeSweet    strfmt.UUID = "c9dfda02-6b05-4117-9d95-a188342cca48"
@@ -43,118 +38,25 @@ var (
 )
 
 func Test_Classifications(t *testing.T) {
-	t.Run("article/category setup for contextual classification", setupArticleCategory)
 	t.Run("recipe setup for knn classification", setupRecipe)
 	t.Run("food types and recipes setup for zeroshot classification", setupFoodTypes)
 
 	// tests
-	t.Run("contextual classification", contextualClassification)
 	t.Run("knn classification", knnClassification)
 	t.Run("zeroshot classification", zeroshotClassification)
 
 	// tear down
-	deleteObjectClass(t, "Article")
-	deleteObjectClass(t, "Category")
 	deleteObjectClass(t, "Recipe")
 	deleteObjectClass(t, "RecipeType")
 	deleteObjectClass(t, "FoodType")
 	deleteObjectClass(t, "Recipes")
 }
 
-func setupArticleCategory(t *testing.T) {
-	t.Run("schema setup", func(t *testing.T) {
-		createObjectClass(t, &models.Class{
-			Class: "Category",
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizeClassName": true,
-				},
-			},
-			Properties: []*models.Property{
-				{
-					Name:         "name",
-					DataType:     schema.DataTypeText.PropString(),
-					Tokenization: models.PropertyTokenizationWhitespace,
-				},
-			},
-		})
-		createObjectClass(t, &models.Class{
-			Class: "Article",
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizeClassName": true,
-				},
-			},
-			Properties: []*models.Property{
-				{
-					Name:     "content",
-					DataType: []string{"text"},
-				},
-				{
-					Name:     "OfCategory",
-					DataType: []string{"Category"},
-				},
-			},
-		})
-	})
-
-	t.Run("object setup - categories", func(t *testing.T) {
-		createObject(t, &models.Object{
-			Class: "Category",
-			Properties: map[string]interface{}{
-				"name": "Food and Drink",
-			},
-		})
-		createObject(t, &models.Object{
-			Class: "Category",
-			Properties: map[string]interface{}{
-				"name": "Computers and Technology",
-			},
-		})
-		createObject(t, &models.Object{
-			Class: "Category",
-			Properties: map[string]interface{}{
-				"name": "Politics",
-			},
-		})
-	})
-
-	t.Run("object setup - articles", func(t *testing.T) {
-		createObject(t, &models.Object{
-			ID:    article1,
-			Class: "Article",
-			Properties: map[string]interface{}{
-				"content": "The new Apple Macbook 16 inch provides great performance",
-			},
-		})
-		createObject(t, &models.Object{
-			ID:    article2,
-			Class: "Article",
-			Properties: map[string]interface{}{
-				"content": "I love eating ice cream with my t-bone steak",
-			},
-		})
-		createObject(t, &models.Object{
-			ID:    article3,
-			Class: "Article",
-			Properties: map[string]interface{}{
-				"content": "Barack Obama was the 44th president of the united states",
-			},
-		})
-	})
-
-	assertGetObjectEventually(t, "92f05097-6371-499c-a0fe-3e60ae16fe3d")
-}
-
 func setupRecipe(t *testing.T) {
 	t.Run("schema setup", func(t *testing.T) {
 		createObjectClass(t, &models.Class{
-			Class: "RecipeType",
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizeClassName": true,
-				},
-			},
+			Class:        "RecipeType",
+			ModuleConfig: vectorizeClassName(),
 			Properties: []*models.Property{
 				{
 					Name:         "name",
@@ -164,12 +66,8 @@ func setupRecipe(t *testing.T) {
 			},
 		})
 		createObjectClass(t, &models.Class{
-			Class: "Recipe",
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizeClassName": true,
-				},
-			},
+			Class:        "Recipe",
+			ModuleConfig: vectorizeClassName(),
 			Properties: []*models.Property{
 				{
 					Name:     "content",
@@ -297,12 +195,8 @@ func setupRecipe(t *testing.T) {
 func setupFoodTypes(t *testing.T) {
 	t.Run("schema setup", func(t *testing.T) {
 		createObjectClass(t, &models.Class{
-			Class: "FoodType",
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizeClassName": true,
-				},
-			},
+			Class:        "FoodType",
+			ModuleConfig: vectorizeClassName(),
 			Properties: []*models.Property{
 				{
 					Name:         "text",
@@ -312,12 +206,8 @@ func setupFoodTypes(t *testing.T) {
 			},
 		})
 		createObjectClass(t, &models.Class{
-			Class: "Recipes",
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizeClassName": true,
-				},
-			},
+			Class:        "Recipes",
+			ModuleConfig: vectorizeClassName(),
 			Properties: []*models.Property{
 				{
 					Name:     "text",
@@ -368,6 +258,12 @@ func setupFoodTypes(t *testing.T) {
 	})
 }
 
+func vectorizeClassName() map[string]interface{} {
+	return map[string]interface{}{
+		"text2vec-model2vec": map[string]interface{}{"vectorizeClassName": true},
+	}
+}
+
 func createObjectClass(t *testing.T, class *models.Class) {
 	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
@@ -406,4 +302,8 @@ func assertGetObjectEventually(t *testing.T, uuid strfmt.UUID) *models.Object {
 	})
 
 	return object
+}
+
+func ptString(in string) *string {
+	return &in
 }

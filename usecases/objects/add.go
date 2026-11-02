@@ -28,8 +28,10 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 // AddObject Class Instance to the connected DB.
@@ -95,7 +97,13 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 
 	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, fetchedClasses, object)
 	if err != nil {
-		return nil, fmt.Errorf("invalid object: %w", err)
+		// A denial and a usage limit keep their own status. Every other error,
+		// a cluster failure writing the schema included, is reported as invalid
+		// input.
+		if _, limited := usagelimits.AsLimitExceeded(err); limited || errors.As(err, &authzerrs.Forbidden{}) {
+			return nil, fmt.Errorf("invalid object: %w", err)
+		}
+		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 	maxSchemaVersion = max(maxSchemaVersion, autoSchemaVersion)
 
@@ -160,9 +168,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 	validatedID := strfmt.UUID(strings.ToLower(id.String()))
 
 	exists, err := m.vectorRepo.Exists(ctx, className, validatedID, repl, tenant)
-	if exists {
-		return "", NewErrInvalidUserInput("id '%s' already exists", id)
-	} else if err != nil {
+	if err != nil {
 		switch {
 		case errors.As(err, &ErrInvalidUserInput{}):
 			return "", err
@@ -176,6 +182,9 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 		default:
 			return "", NewErrInternal("%w", err)
 		}
+	}
+	if exists {
+		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	}
 
 	return validatedID, nil

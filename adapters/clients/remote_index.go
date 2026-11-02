@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
@@ -259,7 +260,10 @@ func (c *RemoteIndex) Exists(ctx context.Context, hostName, indexName,
 	}
 	ok := func(code int) bool { return code == http.StatusNotFound || code == http.StatusNoContent }
 	code, err := c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, nil, nil, ok)
-	return code != http.StatusNotFound, err
+	if err != nil {
+		return false, err
+	}
+	return code != http.StatusNotFound, nil
 }
 
 func (c *RemoteIndex) DeleteObject(ctx context.Context, hostName, indexName,
@@ -411,6 +415,13 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	// send request
 	resp := &searchShardResp{}
 	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
+	if err != nil {
+		// Rehydrate the shed's identity (429) past retry exhaustion so it
+		// reaches the ingress mapping instead of a generic 500.
+		if he, ok := AsHTTPError(err); ok && he.StatusCode() == http.StatusTooManyRequests {
+			err = fmt.Errorf("%w: %w", queryadmission.ErrOverloaded, err)
+		}
+	}
 	return resp.Objects, resp.Distributions, resp.QueryProfiles, err
 }
 
@@ -453,6 +464,13 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 	// send request
 	resp := &aggregateResp{}
 	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
+	if err != nil {
+		// Rehydrate the shed's identity (429) past retry exhaustion, as in
+		// SearchShard, so it reaches the ingress mapping.
+		if he, ok := AsHTTPError(err); ok && he.StatusCode() == http.StatusTooManyRequests {
+			err = fmt.Errorf("%w: %w", queryadmission.ErrOverloaded, err)
+		}
+	}
 	return resp.Result, err
 }
 

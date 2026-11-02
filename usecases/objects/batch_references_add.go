@@ -388,7 +388,7 @@ func getReferenceClasses(ctx context.Context,
 		fetchedClasses[toClassName] = toClass
 	}
 	if toClass.Class == nil {
-		err = fmt.Errorf("target class %q not found in schema", classFrom)
+		err = fmt.Errorf("target class %q not found in schema", toClassName)
 		return sourceClass, targetClass, schemaVersion, err
 	}
 	targetClass = toClass.Class

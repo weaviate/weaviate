@@ -435,7 +435,7 @@ func NewSchemaObjectsIndexRebuildConflict() *SchemaObjectsIndexRebuildConflict {
 /*
 SchemaObjectsIndexRebuildConflict describes a response with status code 409, with default header values.
 
-Conflicting in-flight reindex task; the message names the offending task ID.
+Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.
 */
 type SchemaObjectsIndexRebuildConflict struct {
 	Payload *models.ErrorResponse
