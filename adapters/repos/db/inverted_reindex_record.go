@@ -215,6 +215,9 @@ type MigrationRecordSwapped struct {
 	migrationRecordBase
 	migrationFlipBlock
 	promotion map[string]migrationPromotionMark
+	// Staged dirs that were empty when the flip was recorded: a copy drops an
+	// empty dir, and that must not read as a staged directory lost with data in it.
+	stagedEmpty []string
 }
 
 type migrationPromotionMark string
@@ -251,7 +254,7 @@ func NewMigrationRecordMerged(subject MigrationSubject) MigrationRecordMerged {
 }
 
 func NewMigrationRecordSwapped(subject MigrationSubject, flipped []string, displacedDirs map[string]string) MigrationRecordSwapped {
-	return MigrationRecordSwapped{migrationRecordBase{subject}, migrationFlipBlock{flipped, displacedDirs}, nil}
+	return MigrationRecordSwapped{migrationRecordBase{subject}, migrationFlipBlock{flipped, displacedDirs}, nil, nil}
 }
 
 func (r MigrationRecordSwapped) PromotionOf(prop string) migrationPromotionMark {
@@ -264,6 +267,15 @@ func (r MigrationRecordSwapped) WithPromotionAt(prop string, mark migrationPromo
 	next[prop] = mark
 	r.promotion = next
 	return r
+}
+
+func (r MigrationRecordSwapped) WithStagedEmpty(props []string) MigrationRecordSwapped {
+	r.stagedEmpty = props
+	return r
+}
+
+func (r MigrationRecordSwapped) StagedWasEmpty(prop string) bool {
+	return slices.Contains(r.stagedEmpty, prop)
 }
 
 func (r MigrationRecordSwapped) WithPromotionAbandoned(prop string) MigrationRecordSwapped {
@@ -299,7 +311,8 @@ type migrationFlipEnvelope struct {
 	DisplacedDirs map[string]string `json:"displacedDirs,omitempty"`
 	// Its own key, not one an earlier shape wrote: a build that reads only the
 	// other key then promotes nothing rather than promoting on a claim it cannot check.
-	Promotion map[string]migrationPromotionMark `json:"promotion,omitempty"`
+	Promotion   map[string]migrationPromotionMark `json:"promotion,omitempty"`
+	StagedEmpty []string                          `json:"stagedEmpty,omitempty"`
 }
 
 type migrationRecordEnvelope struct {
@@ -337,6 +350,7 @@ func (r MigrationRecordSwapped) toEnvelope() migrationRecordEnvelope {
 	env := newMigrationRecordEnvelope(MigrationStateSwapped, r.subject)
 	env.Flip = r.migrationFlipBlock.toEnvelope()
 	env.Flip.Promotion = r.promotion
+	env.Flip.StagedEmpty = r.stagedEmpty
 	return env
 }
 
@@ -347,7 +361,10 @@ func (r MigrationRecordPromoted) toEnvelope() migrationRecordEnvelope {
 }
 
 func encodeMigrationRecord(rec MigrationRecord) ([]byte, error) {
-	env := rec.toEnvelope()
+	return encodeMigrationEnvelope(rec.toEnvelope())
+}
+
+func encodeMigrationEnvelope(env migrationRecordEnvelope) ([]byte, error) {
 	if err := validateMigrationEnvelope(env); err != nil {
 		return nil, err
 	}
@@ -542,6 +559,7 @@ func decodeMigrationRecord(data []byte) (MigrationRecord, error) {
 		}
 		swapped := NewMigrationRecordSwapped(env.Subject, env.Flip.Flipped, env.Flip.DisplacedDirs)
 		swapped.promotion = env.Flip.Promotion
+		swapped.stagedEmpty = env.Flip.StagedEmpty
 		return swapped, nil
 	case MigrationStatePromoted:
 		if err := env.requireBlocks(migrationBlocks{flip: true}); err != nil {
