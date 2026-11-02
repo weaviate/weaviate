@@ -2295,14 +2295,22 @@ func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string)
 		return nil
 	}
 
-	ctrl, ok := shard.(asyncReplicationController)
-	if !ok {
-		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
-	}
-
 	// Idempotent when not halted (e.g. HaltForTransfer failed and self-resumed).
 	if err := shard.resumeMaintenanceCycles(ctx); err != nil {
 		return fmt.Errorf("resume maintenance cycles on shard %q: %w", shardName, err)
+	}
+	return i.rebuildAsyncReplication(ctx, shardName)
+}
+
+// rebuildAsyncReplication rebuilds from a full scan, as an offloading halt does not persist the tree.
+func (i *Index) rebuildAsyncReplication(ctx context.Context, shardName string) error {
+	shard := i.shards.Loaded(shardName)
+	if shard == nil {
+		return nil
+	}
+	ctrl, ok := shard.(asyncReplicationController)
+	if !ok {
+		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
 	}
 
 	// Apply-lock serialized so a stale rebuild cannot install an old-config tree after a fresher apply.
@@ -3683,6 +3691,10 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	}
 
 	// A tenant activated without its folder (COLD at a wipe, or deactivated while queued) recovers instead of materialising empty.
+	if err := i.refuseLoadDuringTransition(shardName, caller); err != nil {
+		return err
+	}
+
 	if caller == callerTenantActivation && i.recoverShardOnActivation(ctx, class, shardName) {
 		return nil
 	}
@@ -3965,6 +3977,9 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		shard = nil
 	}
 	if shard == nil {
+		if err := i.refuseLoadDuringTransition(shardName, caller); err != nil {
+			return nil, func() {}, err
+		}
 		// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
 		if _, protected := i.backupProtectedShards.Load(shardName); protected {
 			return nil, func() {}, fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
@@ -4390,7 +4405,7 @@ func (i *Index) purgeUnloadedShardRegistry(names []string) {
 	lsmkv.GlobalBucketRegistry.RemoveByPrefixes(dirs...)
 }
 
-func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.OffloadCloud, names []string, nodeId string) error {
+func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.OffloadCloud, names []string, below uint64) error {
 	if err := i.enterRead(); err != nil {
 		return err
 	}
@@ -4407,7 +4422,7 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 			i.shardCreateLocks.Lock(name)
 			defer i.shardCreateLocks.Unlock(name)
 
-			if err := cloud.Delete(ctx, i.ID(), name, nodeId); err != nil {
+			if err := deleteCloudAttempts(ctx, cloud, i.ID(), name, 0, below); err != nil {
 				ec.Add(err)
 				i.logger.WithField("action", "cloud_drop_shard").
 					WithField("shard", name).Error(err)

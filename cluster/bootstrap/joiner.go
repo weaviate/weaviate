@@ -121,7 +121,7 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 // meantime, as a sole voter does milliseconds after starting.
 func (j *Joiner) Rejoin(ctx context.Context, lg *logrus.Logger, resolveNodes func() map[string]string,
 	hasLeader func() bool, retryPeriod, pollPeriod time.Duration,
-) error {
+) (uint64, error) {
 	poll := time.NewTicker(pollPeriod)
 	defer poll.Stop()
 	var nextAttempt time.Time
@@ -129,16 +129,15 @@ func (j *Joiner) Rejoin(ctx context.Context, lg *logrus.Logger, resolveNodes fun
 	for {
 		if !time.Now().Before(nextAttempt) || (!leaderKnown && hasLeader()) {
 			leaderKnown = hasLeader()
-			// Node has existing state, not a wiped joiner; barrier discarded.
-			_, _, err := j.Do(ctx, lg, resolveNodes())
+			_, commitIndex, err := j.Do(ctx, lg, resolveNodes())
 			if err == nil {
-				return nil
+				return commitIndex, nil
 			}
 			nextAttempt = time.Now().Add(retryPeriod)
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return 0, ctx.Err()
 		case <-poll.C:
 		}
 	}

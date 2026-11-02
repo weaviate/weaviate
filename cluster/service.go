@@ -238,7 +238,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	defer bCancel()
 	if hasState {
 		joiner := bootstrap.NewJoiner(c.rpcClient, c.config.NodeID, c.raftAddr, c.config.Voter)
-		err = joiner.Rejoin(bootstrapCtx, c.logger,
+		commitIndex, err := joiner.Rejoin(bootstrapCtx, c.logger,
 			func() map[string]string {
 				return bootstrap.ResolveRemoteNodes(c.config.NodeSelector, c.config.NodeNameToPortMap)
 			},
@@ -247,6 +247,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		if err != nil {
 			return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value", err)
 		}
+		c.Raft.store.joinCommitIndex.Store(commitIndex)
 	} else {
 		bs := bootstrap.NewBootstrapper(
 			c.rpcClient,
@@ -255,8 +256,8 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 			c.config.Voter,
 			c.config.NodeSelector,
 			c.Raft.Ready,
-			// wiped-joiner catch-up barrier; no-op for non-wiped nodes.
-			c.Raft.store.SetJoinBarrier,
+			// the leader's commit index; a wiped joiner also defers its DB load on it.
+			c.Raft.store.joined,
 			// a wiped joiner is "ready" pre-join; keep joining until the barrier lands.
 			c.Raft.store.NeedsJoinBarrier,
 		)

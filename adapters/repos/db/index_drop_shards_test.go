@@ -137,7 +137,7 @@ func TestIndexDropShardsCollectsConcurrentFailures(t *testing.T) {
 				for _, name := range names {
 					cloud.deleteErrs[name] = errors.New("cloud delete failed")
 				}
-				return idx.dropCloudShards(context.Background(), cloud, names, "node1")
+				return idx.dropCloudShards(context.Background(), cloud, names, 10)
 			},
 			wantErrPerShard: "cloud delete failed",
 		},
@@ -191,7 +191,7 @@ func TestIndexDropCloudShards(t *testing.T) {
 			idx, _ := newDropTestIndex(t)
 
 			cloud := fakeOffloadCloud{deleteErrs: tt.deleteErrs}
-			err := idx.dropCloudShards(context.Background(), cloud, tt.names, "node1")
+			err := idx.dropCloudShards(context.Background(), cloud, tt.names, 10)
 
 			if tt.wantErrContains == "" {
 				require.NoError(t, err)
@@ -242,7 +242,7 @@ func TestIndexDropShardsReportsWorkerPanic(t *testing.T) {
 			name: "dropCloudShards",
 			drop: func(t *testing.T, idx *Index) error {
 				cloud := fakeOffloadCloud{panicShard: shardName}
-				return idx.dropCloudShards(context.Background(), cloud, []string{shardName}, "node1")
+				return idx.dropCloudShards(context.Background(), cloud, []string{shardName}, 10)
 			},
 			wantErrContains: []string{"drop panicked"},
 		},
@@ -262,7 +262,7 @@ func TestIndexDropShardsReportsWorkerPanic(t *testing.T) {
 					panicShard: shardName,
 					deleteErrs: map[string]error{failingShard: errors.New("cloud delete failed")},
 				}
-				return idx.dropCloudShards(context.Background(), cloud, []string{shardName, failingShard}, "node1")
+				return idx.dropCloudShards(context.Background(), cloud, []string{shardName, failingShard}, 10)
 			},
 			wantErrContains: []string{"drop panicked", "cloud delete failed"},
 		},
@@ -520,6 +520,18 @@ func (c fakeOffloadCloud) Upload(ctx context.Context, className, shardName, node
 
 func (c fakeOffloadCloud) Download(ctx context.Context, className, shardName, nodeName string) error {
 	return nil
+}
+
+func (c fakeOffloadCloud) DownloadToPath(ctx context.Context, className, shardName, nodeName, localPath string) error {
+	return nil
+}
+
+func (c fakeOffloadCloud) HasData(ctx context.Context, className, shardName, nodeName string) (bool, error) {
+	return true, nil
+}
+
+func (c fakeOffloadCloud) ListCopies(ctx context.Context, className, shardName string) ([]string, error) {
+	return []string{"5"}, nil
 }
 
 func (c fakeOffloadCloud) Delete(ctx context.Context, className, shardName, nodeName string) error {

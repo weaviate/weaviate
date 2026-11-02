@@ -169,57 +169,36 @@ func TestExecutor(t *testing.T) {
 		})
 	}
 
-	tenants := []*api.Tenant{{Name: "T1"}, {Name: "T2"}}
+	tenants := []*api.Tenant{{Name: "T1", Status: models.TenantActivityStatusHOT}, {Name: "T2", Status: models.TenantActivityStatusFREEZING}}
 
 	t.Run("DeleteTenants", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		tenants := []*models.Tenant{}
-		migrator.On("DeleteTenants", Anything, "A", tenants).Return(nil)
+		migrator.On("DeleteTenants", Anything, "A", tenants, uint64(7)).Return(nil)
 		x := newMockExecutor(migrator, store)
-		assert.Nil(t, x.DeleteTenants("A", tenants))
+		assert.Nil(t, x.DeleteTenants("A", tenants, 7))
 	})
 	t.Run("DeleteTenantsWithError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		tenants := []*models.Tenant{}
-		migrator.On("DeleteTenants", Anything, "A", tenants).Return(ErrAny)
+		migrator.On("DeleteTenants", Anything, "A", tenants, uint64(7)).Return(ErrAny)
 		x := newMockExecutor(migrator, store)
-		assert.Nil(t, x.DeleteTenants("A", tenants))
+		assert.Nil(t, x.DeleteTenants("A", tenants, 7))
 	})
 
 	t.Run("UpdateTenants", func(t *testing.T) {
-		cases := []struct {
-			name              string
-			preFreezeStatuses map[string]string
-			want              map[string]string // tenant name -> expected PreFreezeStatus
-		}{
-			{
-				name:              "freezing tenant carries its recorded status",
-				preFreezeStatuses: map[string]string{"T1": models.TenantActivityStatusCOLD},
-				want:              map[string]string{"T1": models.TenantActivityStatusCOLD, "T2": ""},
-			},
-			{
-				name:              "no freeze recorded, nothing carried",
-				preFreezeStatuses: map[string]string{},
-				want:              map[string]string{"T1": "", "T2": ""},
-			},
-		}
-		for _, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				migrator := &fakeMigrator{}
-				var got []*UpdateTenantPayload
-				migrator.On("UpdateTenants", Anything, cls, Anything).
-					Run(func(args mock.Arguments) { got = args.Get(2).([]*UpdateTenantPayload) }).
-					Return(nil)
-				x := newMockExecutor(migrator, store)
+		migrator := &fakeMigrator{}
+		var got []*UpdateTenantPayload
+		migrator.On("UpdateTenants", Anything, cls, Anything).
+			Run(func(args mock.Arguments) { got = args.Get(2).([]*UpdateTenantPayload) }).
+			Return(nil)
+		x := newMockExecutor(migrator, store)
 
-				require.NoError(t, x.UpdateTenants("A", &api.UpdateTenantsRequest{Tenants: tenants}, tc.preFreezeStatuses))
-
-				require.Len(t, got, len(tc.want))
-				for _, payload := range got {
-					assert.Equal(t, tc.want[payload.Name], payload.PreFreezeStatus, "tenant %q", payload.Name)
-				}
-			})
-		}
+		require.NoError(t, x.UpdateTenants("A", &api.UpdateTenantsRequest{Tenants: tenants}))
+		require.Equal(t, []*UpdateTenantPayload{
+			{Name: "T1", Status: models.TenantActivityStatusHOT},
+			{Name: "T2", Status: models.TenantActivityStatusFREEZING},
+		}, got)
 	})
 
 	t.Run("UpdateTenantsClassNotFound", func(t *testing.T) {
@@ -228,7 +207,7 @@ func TestExecutor(t *testing.T) {
 
 		req := &api.UpdateTenantsRequest{Tenants: tenants}
 		x := newMockExecutor(&fakeMigrator{}, store)
-		assert.ErrorIs(t, x.UpdateTenants("A", req, map[string]string{}), ErrNotFound)
+		assert.ErrorIs(t, x.UpdateTenants("A", req), ErrNotFound)
 	})
 
 	t.Run("UpdateTenantsError", func(t *testing.T) {
@@ -236,7 +215,7 @@ func TestExecutor(t *testing.T) {
 		req := &api.UpdateTenantsRequest{Tenants: tenants}
 		migrator.On("UpdateTenants", Anything, cls, Anything).Return(ErrAny)
 		x := newMockExecutor(migrator, store)
-		assert.ErrorIs(t, x.UpdateTenants("A", req, map[string]string{}), ErrAny)
+		assert.ErrorIs(t, x.UpdateTenants("A", req), ErrAny)
 	})
 
 	report := func(status string) *api.TenantProcessRequest {

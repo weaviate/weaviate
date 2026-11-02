@@ -21,14 +21,21 @@ type OffloadCloud interface {
 	// Upload uploads the content of a shard assigned to specific node to
 	// cloud provider (S3, Azure Blob storage, Google cloud storage)
 	// {cloud_provider}://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
+	// Callers pass {attempt}/{node} as nodeName.
 	Upload(ctx context.Context, className, shardName, nodeName string) error
 	// Download downloads the content of a shard to desired node from
 	// cloud provider (S3, Azure Blob storage, Google cloud storage)
 	// {dataPath}/{className}/{shardName}/{content}
 	Download(ctx context.Context, className, shardName, nodeName string) error
+	// DownloadToPath creates nothing under localPath if the copy is empty.
+	DownloadToPath(ctx context.Context, className, shardName, nodeName, localPath string) error
+	HasData(ctx context.Context, className, shardName, nodeName string) (bool, error)
+	// ListCopies returns the names directly under a shard's cloud path.
+	ListCopies(ctx context.Context, className, shardName string) ([]string, error)
 	// Delete deletes content of a shard assigned to specific node in
 	// cloud provider (S3, Azure Blob storage, Google cloud storage)
 	// Careful: if shardName and nodeName is passed empty it will delete all class frozen shards in cloud storage
 	// {cloud_provider}://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
+	// Callers pass {attempt} as nodeName to delete every node's copy of it.
 	Delete(ctx context.Context, className, shardName, nodeName string) error
 }
