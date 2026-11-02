@@ -19,6 +19,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -30,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 
@@ -1350,10 +1352,20 @@ func (p *ReindexProvider) runPerUnitPhase(
 	// of acking a permanent failure that would flip the task to FAILED.
 	if agg.SawContextCanceled {
 		return fmt.Errorf("%s: %d unit(s) failed: %s: %w",
-			callbackName, len(agg.Errs), strings.Join(agg.Errs, "; "), context.Canceled)
+			callbackName, len(agg.Errs), p.joinUnitErrors(agg.Errs), context.Canceled)
 	}
 	return fmt.Errorf("%s: %d unit(s) failed: %s",
-		callbackName, len(agg.Errs), strings.Join(agg.Errs, "; "))
+		callbackName, len(agg.Errs), p.joinUnitErrors(agg.Errs))
+}
+
+// joinUnitErrors caps the message because it becomes this node's ack error
+// in the RAFT log. Sorting keeps the reported subset stable across runs.
+func (p *ReindexProvider) joinUnitErrors(msgs []string) string {
+	ec := errorcompounder.New()
+	for _, msg := range slices.Sorted(slices.Values(msgs)) {
+		ec.Addf("%s", msg)
+	}
+	return ec.ToErrorLimited(maxReportedErrors).Error()
 }
 
 // OnGroupCompleted fires after all units in a group reach terminal state.
@@ -1366,7 +1378,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 // remain un-swapped.
 func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
-		WithField("localGroupUnitIDs", localGroupUnitIDs)
+		WithField("localGroupUnitCount", len(localGroupUnitIDs))
 
 	// Recovery-replay short-circuit. The scheduler can invoke
 	// OnGroupCompleted for a task whose terminal state was reached in a
@@ -1496,7 +1508,7 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 // PostCompletionAck flip-to-FAILED prevents the cluster-wide schema flip.
 func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
-		WithField("localGroupUnitIDs", localGroupUnitIDs)
+		WithField("localGroupUnitCount", len(localGroupUnitIDs))
 
 	if task.Status.IsTerminal() {
 		logger.WithField("status", task.Status).
@@ -1697,7 +1709,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	// One sweep for the whole loop: every tuple asks the same unloaded shards.
 	// A loaded shard is read again per tuple, since each deletion changes what
 	// the next one would list.
-	sweep := p.db.NewStalePartialReindexSweep()
+	sweep := p.db.NewStalePartialReindexSweep(payload.Tenants)
 	worst := sweepEachPropertyIndexType(payload.Properties, indexTypes,
 		func(propName, indexType string) error {
 			return sweep(cleanupCtx, payload.Collection, propName, indexType)
@@ -1987,7 +1999,7 @@ func (p *ReindexProvider) unregisterCleanup(collection, shard string) {
 // IsCleanupInProgress reports whether [autoCleanupAfterTerminal] is
 // currently tearing partial sidecar state on (collection, shard).
 //
-// Backup gate consumer: the cluster-wide [DB.AnyLiveReindexForShard]
+// Backup gate consumer: the cluster-wide [DB.anyLiveReindexForShard]
 // answer must include this signal — the DTM activity lookup it wraps
 // flips a task to terminal as soon as the FSM lands, but the
 // node-local sidecar buckets are still being shut down for tens of
@@ -1996,7 +2008,7 @@ func (p *ReindexProvider) unregisterCleanup(collection, shard string) {
 //
 // Wiring: install [CleanupInProgressLookupBuilder] (returns a closure
 // over this method) on the DB alongside [DB.SetShardReindexActivity
-// Lookup] so [DB.AnyLiveReindexForShard] consults both. Returns false
+// Lookup] so [DB.anyLiveReindexForShard] consults both. Returns false
 // if the registry is nil (test fixtures that construct the provider
 // without going through [NewReindexProvider]).
 func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
@@ -2193,7 +2205,7 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 	if len(hosted) == 0 {
 		return true
 	}
-	if err := idx.forEachShardStrict(func(name string, _ ShardLike) error {
+	if err := idx.forEachShardStrict(nil, func(name string, _ ShardLike) error {
 		if _, wanted := hosted[name]; wanted {
 			hosted[name] = true
 		}
@@ -2650,12 +2662,12 @@ func (h *reindexTaskHandle) Done() <-chan struct{} {
 	return h.doneCh
 }
 
-// ShardReplicaOwnershipForMT returns shard ownership filtered for multi-tenant
-// collections. It filters by the given tenant names (or all tenants if empty)
-// and skips tenants whose activity status indicates no local data (OFFLOADED,
-// OFFLOADING, FROZEN, FREEZING, UNFREEZING, ONLOADING).
+// ShardReplicaOwnershipForMT returns shard ownership for the named tenants
+// (all, if empty), or [ErrTenantsNotHot] if any isn't HOT: a COLD
+// tenant has no loaded shard, and a frozen or offloaded one holds a stale index.
 func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, tenantNames []string) (map[string][]string, error) {
 	result := make(map[string][]string)
+	notHot := false
 	tenantSet := make(map[string]struct{}, len(tenantNames))
 	for _, tn := range tenantNames {
 		tenantSet[tn] = struct{}{}
@@ -2674,16 +2686,10 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 				}
 			}
 
-			// Skip tenants without local data.
-			status := entschema.ActivityStatus(shard.Status)
-			switch status {
-			case models.TenantActivityStatusHOT,
-				models.TenantActivityStatusACTIVE,
-				models.TenantActivityStatusCOLD,
-				models.TenantActivityStatusINACTIVE:
-				// These have local data — include them.
+			switch entschema.ActivityStatus(shard.Status) {
+			case models.TenantActivityStatusHOT, models.TenantActivityStatusACTIVE:
 			default:
-				// OFFLOADED, OFFLOADING, FROZEN, FREEZING, UNFREEZING, ONLOADING — skip.
+				notHot = true
 				continue
 			}
 
@@ -2699,6 +2705,9 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", className, err)
 	}
+	if notHot {
+		return nil, ErrTenantsNotHot
+	}
 
 	// Sort shard names per node for determinism.
 	for _, shards := range result {
@@ -2707,6 +2716,12 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 
 	return result, nil
 }
+
+// ErrTenantsNotHot refuses a reindex that targets tenants which are not HOT.
+// It names no tenant: a collection-wide caller may lack permission to read
+// tenants. A tenant mid freeze or unfreeze rejects a HOT update until done.
+var ErrTenantsNotHot = errors.New("some target tenants are not HOT and cannot be reindexed; " +
+	"once any freeze or unfreeze in progress finishes, set them to HOT")
 
 // ShardReplicaOwnership returns a map of node name to shard names, with one
 // entry per replica. Unlike ShardOwnership (which assigns each shard to one
