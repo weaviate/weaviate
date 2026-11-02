@@ -812,6 +812,37 @@ func copyFileForTest(t *testing.T, src, dst string) {
 	require.NoError(t, os.WriteFile(dst, data, 0o644))
 }
 
+// A dropping record whose queue outlived its index: finishing the drop
+// removes the queue the record names, not one under the index's ID.
+func TestInitShardVectors_FinishesADroppingRecordWithItsQueue(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	dropping := vectorIndexRecord{PhysicalID: "vectors_foo_2", IndexType: "hnsw", State: "dropping", QueueID: "vectors_foo"}
+	shardDir := shard.path()
+	queueChunk := filepath.Join(shardDir, "vectors_foo.queue.d", "chunk-1.bin")
+	commitLog := filepath.Join(shardDir, "vectors_foo_2.hnsw.commitlog.d")
+
+	// gone from the schema rather than marked dropped, so only the record
+	// says what to remove
+	delete(class.VectorConfig, "foo")
+	shard.index.vectorIndexUserConfigLock.Lock()
+	delete(shard.index.vectorIndexUserConfigs, "foo")
+	shard.index.vectorIndexUserConfigLock.Unlock()
+	shard = reloadAfter(t, ctx, shard, class, func() {
+		require.NoError(t, os.MkdirAll(filepath.Dir(queueChunk), 0o755))
+		require.NoError(t, os.WriteFile(queueChunk, []byte("left by the replaced index"), 0o644))
+		require.NoError(t, os.MkdirAll(commitLog, 0o755))
+		withOfflineMapping(t, shardDir, func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+			require.NoError(t, m.Put("foo", dropping))
+		})
+	})
+	assert.NoDirExists(t, filepath.Dir(queueChunk))
+	assert.NoDirExists(t, commitLog)
+	_, ok, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
 // A dropping record is a deferred deletion the process did not finish: the
 // load deletes the files and the record, then treats the vector as unknown.
 func TestInitShardVectors_FinishesADroppingRecord(t *testing.T) {
