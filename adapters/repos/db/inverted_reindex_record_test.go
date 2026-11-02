@@ -1771,3 +1771,92 @@ func TestALoneForeignRecordIsSetAsideRatherThanAdopted(t *testing.T) {
 	_, err := os.Stat(filepath.Join(local.Dir(), foreign.Key.fileName()))
 	require.NoError(t, err, "the foreign file is left on disk for whoever put it there")
 }
+
+// A shard copy's records are renamed to this node's unit only when nothing
+// else here could claim them.
+func TestAdoptingArrivedRecordsRenamesOnlyTheSourcesSoleClaim(t *testing.T) {
+	const shard, node, source, third = "shard-1", "node-0", "node-1", "node-2"
+	recordOf := func(node string, state MigrationState) MigrationRecord {
+		subject := testMigrationSubject(42, StrategyCodeEnableFilterable, "title")
+		subject.Key.UnitID = MigrationUnitID(shard, node)
+		return newMigrationRecordAt(t, subject, state)
+	}
+	fileOf := func(node string) string { return recordOf(node, MigrationStateSwapped).Subject().Key.fileName() }
+
+	tests := []struct {
+		name       string
+		present    []MigrationRecord
+		unreadable bool
+		want       []string
+		// the state of the one record the shard's load serves, if any
+		wantLive MigrationState
+	}{
+		{
+			name:     "the source's records alone are renamed",
+			present:  []MigrationRecord{recordOf(source, MigrationStateSwapped)},
+			want:     []string{fileOf(node)},
+			wantLive: MigrationStateSwapped,
+		},
+		{
+			name:     "a record of this node's own keeps the source's set aside",
+			present:  []MigrationRecord{recordOf(source, MigrationStateSwapped), recordOf(node, MigrationStateMerged)},
+			want:     []string{fileOf(node), fileOf(source)},
+			wantLive: MigrationStateMerged,
+		},
+		{
+			name:    "a third replica's record keeps the source's set aside",
+			present: []MigrationRecord{recordOf(source, MigrationStateSwapped), recordOf(third, MigrationStateSwapped)},
+			want:    []string{fileOf(source), fileOf(third)},
+		},
+		{
+			name:       "an unreadable record keeps the source's set aside",
+			present:    []MigrationRecord{recordOf(source, MigrationStateSwapped)},
+			unreadable: true,
+			want:       []string{unreadableRecordFile, fileOf(source)},
+		},
+		{
+			name:     "a crash between the write and the removal resumes the rename",
+			present:  []MigrationRecord{recordOf(source, MigrationStateSwapped), recordOf(node, MigrationStateSwapped)},
+			want:     []string{fileOf(node)},
+			wantLive: MigrationStateSwapped,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			indexPath := t.TempDir()
+			lsmPath := shardPathLSM(indexPath, shard)
+			require.NoError(t, os.MkdirAll(lsmPath, 0o777))
+			writer := NewMigrationRecordStore(lsmPath, logger)
+			for _, rec := range tt.present {
+				require.NoError(t, writer.Put(rec))
+			}
+			if tt.unreadable {
+				plantUnreadableRecord(t, writer.Dir())
+			}
+
+			refusal, err := AdoptArrivedMigrationRecords(indexPath, shard, node, source)
+			require.NoError(t, err)
+			require.Equal(t, slices.Contains(tt.want, fileOf(source)), refusal != "",
+				"a refusal is reported exactly when the source's records stay: %q", refusal)
+
+			entries, err := os.ReadDir(writer.Dir())
+			require.NoError(t, err)
+			var got []string
+			for _, entry := range entries {
+				got = append(got, entry.Name())
+			}
+			require.ElementsMatch(t, tt.want, got)
+
+			local := NewMigrationRecordStoreForUnit(lsmPath, MigrationUnitID(shard, node), logger)
+			require.NoError(t, local.Load())
+			if tt.wantLive == "" {
+				require.Empty(t, local.Records())
+				return
+			}
+			require.Len(t, local.Records(), 1)
+			require.Equal(t, tt.wantLive, local.Records()[0].State())
+		})
+	}
+}

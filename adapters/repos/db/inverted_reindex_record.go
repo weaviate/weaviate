@@ -347,7 +347,10 @@ func (r MigrationRecordPromoted) toEnvelope() migrationRecordEnvelope {
 }
 
 func encodeMigrationRecord(rec MigrationRecord) ([]byte, error) {
-	env := rec.toEnvelope()
+	return encodeMigrationEnvelope(rec.toEnvelope())
+}
+
+func encodeMigrationEnvelope(env migrationRecordEnvelope) ([]byte, error) {
 	if err := validateMigrationEnvelope(env); err != nil {
 		return nil, err
 	}
