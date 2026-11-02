@@ -45,13 +45,11 @@ func ReindexLeftPartial(task *distributedtask.Task) bool {
 		len(task.SwapDecidedGroups) > 0
 }
 
-// ShouldRetainCompletedTask keeps a FAILED record, or one that left its
-// tenants partly migrated, until newer runs on its property cover all its
-// index types, so the status endpoint still reads "failed" or "partial", and
-// a replica's load still finds the decision its record commits on. A newer run that hides the failure is kept until the failed record
-// is gone, so the failure cannot resurface. "failed" lasts until a newer run of
-// that index type (even a cancelled one), a collection delete, or, for a
-// non-enable run, dropping the index.
+// ShouldRetainCompletedTask keeps a FAILED or partly-migrated record alive
+// until a newer run covers all its index types — so the status endpoint
+// keeps reading "failed"/"partial", and a reload still finds the swap
+// decision its record commits. A newer run that hides the failure is kept
+// until the failed record is gone, so the failure cannot resurface.
 // Assumes one property per payload, as every submit path builds today.
 func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task,

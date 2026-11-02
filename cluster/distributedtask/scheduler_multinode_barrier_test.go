@@ -851,11 +851,10 @@ func TestBarrier_G6_RestartMidPhaseARecovery(t *testing.T) {
 		"FSM must lift to SWAPPING after the restarted nodes re-emit their prep-acks")
 }
 
-// TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode: multi-group
-// task where group-a is owned only by node-1 and group-b only by
-// node-2; node-2 crashes pre-prep-ack. group-a is decided on its own,
-// node-3 owns no unit and acks nothing, and group-b stays undecided
-// until node-2 recovers.
+// TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode: group-a is owned
+// only by node-1, group-b only by node-2, which crashes pre-prep-ack.
+// group-a decides on its own; group-b stays undecided until node-2
+// recovers.
 func TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode(t *testing.T) {
 	defer leaktest.Check(t)()
 

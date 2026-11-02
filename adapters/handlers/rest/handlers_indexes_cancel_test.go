@@ -152,9 +152,8 @@ func cancelResponse(t *testing.T, resp middleware.Responder) (int, string, strin
 	return rec.Code, body.Status, rec.Body.String()
 }
 
-// TestCancelReindexTask_CoordinationPhaseCancels pins that a
-// PREPARING/SWAPPING target cancels against the real FSM: a cancel is never
-// refused while the reindex runs, and groups already decided still swap.
+// TestCancelReindexTask_CoordinationPhaseCancels pins that cancel succeeds
+// against the real FSM during PREPARING/SWAPPING; decided groups still swap.
 func TestCancelReindexTask_CoordinationPhaseCancels(t *testing.T) {
 	principal := &models.Principal{Username: "tester"}
 	for _, tc := range []struct {

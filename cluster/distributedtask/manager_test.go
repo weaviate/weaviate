@@ -2417,11 +2417,9 @@ func TestManager_CleanUpTask_RefusesOnlyStatusesThisBuildCallsLive(t *testing.T)
 	}
 }
 
-// Pins cancel eligibility for every status: open for every in-flight
-// status, since decided groups keep their swap anyway. Closed for every
-// terminal status including a double cancel, and for a status this build
-// cannot name — only a build that can name it knows whether stopping is
-// safe, and every binary has to answer the same way or the FSM diverges.
+// Pins cancel eligibility: open for in-flight statuses, closed for terminal
+// ones and a double cancel. Closed too for an unrecognized status, since
+// every binary must agree or the FSM diverges.
 func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
 	for _, tc := range []struct {
 		status   TaskStatus

@@ -1421,12 +1421,10 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	return out
 }
 
-// OnSwapRequested runs OVERLAY+SWAP for NeedsPreparationBarrier=true tasks,
-// for a group whose swap is decided in RAFT. It runs on a failed or cancelled
-// task too: every replica of a decided group swaps, or the group's replicas
-// would disagree for good. Returns non-nil on any per-shard swap failure; the
-// resulting PostCompletionAck flip-to-FAILED prevents the cluster-wide schema
-// flip.
+// OnSwapRequested runs OVERLAY+SWAP for a NeedsPreparationBarrier=true task's
+// decided group, including on a failed/cancelled task — every replica of a
+// decided group must swap, or they disagree for good. Returning non-nil flips
+// the task to FAILED via PostCompletionAck, blocking the cluster-wide schema flip.
 func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
 		WithField("localGroupUnitCount", len(localGroupUnitIDs))

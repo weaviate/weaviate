@@ -33,11 +33,10 @@ func migrationEnablesIndexType(mt ReindexMigrationType) (string, bool) {
 	}
 }
 
-// restoreMigratedOverlays re-installs, from the shard's own records, what a
-// swap put in memory: a shard whose migration is promoted but whose flip has
-// not landed (another tenant failed, or the flip is still in flight) holds
-// buckets the schema does not describe. Without this a reload reads and
-// writes them with the schema's tokenization and index flags.
+// restoreMigratedOverlays re-installs the overlay a swap left in memory
+// for a migration promoted here but not yet flipped in the schema (a
+// sibling tenant failed, or the flip is in flight); without it, reload
+// would read and write those buckets under the schema's stale settings.
 func (s *Shard) restoreMigratedOverlays(class *models.Class) {
 	if s.migrationRecords == nil || class == nil {
 		return

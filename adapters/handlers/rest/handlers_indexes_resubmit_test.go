@@ -22,9 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// Pins which tenants a resubmitted migration leaves out: only those the
-// property's latest run decided, and only when this request is that same
-// migration.
+// Pins that resubmitting skips only tenants the latest identical run decided.
 func TestSkipTenantsAlreadyMigrated(t *testing.T) {
 	ownership := map[string][]string{"n1": {"a", "b"}, "n2": {"a", "b"}}
 	plan := upsertPlan{

@@ -29,11 +29,8 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Pins that a tenant migrated ahead of the schema keeps serving its migrated
-// index across a reload: one tenant swapped a word→field retokenize, its task
-// failed on another tenant, so the schema still says word. Covers the crash
-// between the swap's pointer flips and its record write too: that leaves the
-// record merged, and only the tenant's RAFT decision licenses committing it.
+// Pins that a tenant migrated ahead of the schema survives a reload, even
+// across a crash between the swap's pointer flips and its record write.
 func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 	const propName = "title"
 	for _, tc := range []struct {

@@ -31,9 +31,8 @@ import (
 // margin, so the small tenant's swap is observable while the task still runs.
 const perTenantLargeObjects = 60_000
 
-// perTenantSwapFixture builds a 3-node RF 3 multi-tenant collection with a
-// small and a large tenant, each object's text a two-word phrase only a
-// field-tokenized query matches whole.
+// perTenantSwapFixture builds a small and large tenant whose objects are
+// two-word phrases, so only a field-tokenized query matches them whole.
 func perTenantSwapFixture(t *testing.T, compose *docker.DockerCompose, className string) {
 	t.Helper()
 	restURI := compose.GetWeaviate().URI()
@@ -94,11 +93,10 @@ func reindexTaskStatus(restURI, taskID string) string {
 	return ""
 }
 
-// TestMultiNode_PerTenantSwap_SmallTenantServesBeforeLargeFinishes pins that
-// a tenant swaps once its own replicas are ready: the small tenant answers
-// with the new tokenization on every node while the large one is still
-// reindexing, keeps doing so across a node restart, and the schema flips once
-// the large tenant is done.
+// Pins that a tenant swaps once its own replicas are ready: the small
+// tenant serves the new tokenization while the large one still reindexes,
+// survives a node restart, and the schema flips once the large tenant
+// finishes.
 func TestMultiNode_PerTenantSwap_SmallTenantServesBeforeLargeFinishes(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
@@ -128,11 +126,9 @@ func TestMultiNode_PerTenantSwap_SmallTenantServesBeforeLargeFinishes(t *testing
 	require.True(t, smallTenantMigratedOnEveryNode(t, compose, className))
 }
 
-// TestMultiNode_PerTenantSwap_CancelLeavesPartialThenResubmitFinishes pins the
-// cancel and status rulings: a cancel while the large tenant still runs is
-// accepted, the small tenant keeps its swap, the indexes endpoint reads
-// partial with tenant counts, and resubmitting the same migration skips the
-// small tenant and completes the rest.
+// Pins the cancel and status rulings: cancelling while the large tenant
+// still runs keeps the small tenant's swap, reports partial with tenant
+// counts, and a resubmit skips the small tenant and finishes the rest.
 func TestMultiNode_PerTenantSwap_CancelLeavesPartialThenResubmitFinishes(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)

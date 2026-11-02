@@ -687,21 +687,18 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	return nil
 }
 
-// RecordPreparationCompleteAck records one node's PREP ack for one group.
-// Once every node owning a unit in the group acked success, the group's swap
-// is decided: from then on every replica of that group swaps, whatever later
-// happens to the rest of the task. Groups never wait for each other; the
-// replicas of one group do, so their swaps land within RAFT latency of each
-// other instead of one PREP apart. A failed ack fails the task; groups
-// already decided stay decided. PREPARING moves to SWAPPING once every group
+// RecordPreparationCompleteAck records one node's PREP ack for a group. A
+// group's swap is decided once every node owning one of its units acks
+// success, and stays decided no matter what happens to the rest of the task
+// — groups don't wait on each other, but one group's replicas do, so their
+// swaps land within RAFT latency of each other rather than one PREP apart.
+// A failed ack fails the task; PREPARING moves to SWAPPING once every group
 // is decided.
 //
-// Idempotent: the first ack per (group, node) wins, and acks for a decided
-// group, from a node outside the group, or against a status past PREPARING
-// are dropped.
-//
-// FSM-determinism: the decision reads only RAFT state (the group's units and
-// their nodes, and the acks recorded so far).
+// Idempotent and deterministic: the first ack per (group, node) wins, late
+// acks (decided group, outside node, past-PREPARING status) are dropped, and
+// the decision reads only RAFT-replicated state, so every node's Manager
+// reaches it on the same apply.
 func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 	var r api.RecordDistributedTaskPreparationCompleteAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {

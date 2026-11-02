@@ -759,9 +759,8 @@ type parsedReindexTask struct {
 	payload db.ReindexTaskPayload
 }
 
-// migratedTenantCounts reports how many of a task's tenants had their swap
-// decided, and how many tenants it covers. A single-tenant collection's one
-// unnamed group is no tenant, so it never reads as partial.
+// migratedTenantCounts counts decided vs. total tenant groups; a
+// single-tenant collection's unnamed group never counts as a tenant.
 func migratedTenantCounts(task *distributedtask.Task) (migrated, total int64) {
 	if !db.ReindexLeftPartial(task) {
 		return 0, 0

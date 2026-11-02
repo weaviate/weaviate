@@ -82,9 +82,8 @@ func TestPerTenantSwap(t *testing.T) {
 	})
 }
 
-// Pins that a decision survives the RAFT snapshot a joining or restarting
-// node installs, and that a snapshot written before decisions existed loads
-// with none.
+// Pins that a swap decision survives a RAFT snapshot/restore, and that a
+// snapshot predating decisions restores with none.
 func TestPerTenantSwap_DecisionSurvivesSnapshot(t *testing.T) {
 	h := newBarrierHarness(t, []string{"node-1", "node-2"})
 	defer h.close()

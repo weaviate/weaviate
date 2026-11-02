@@ -2001,9 +2001,8 @@ func TestMigrationReportedNamesCapsAPropertyList(t *testing.T) {
 		"a list within the cap is reported whole")
 }
 
-// Pins: terminal cleanup of a failed or cancelled task keeps the records of
-// units whose group was decided, so their replicas still swap, and discards
-// the rest.
+// Pins that terminal-task cleanup keeps a decided group's record (so its
+// replicas still swap) and discards the rest.
 func TestDiscardTaskKeepsTheRecordsOfDecidedGroups(t *testing.T) {
 	for _, status := range []distributedtask.TaskStatus{distributedtask.TaskStatusFailed, distributedtask.TaskStatusCancelled} {
 		t.Run(string(status), func(t *testing.T) {

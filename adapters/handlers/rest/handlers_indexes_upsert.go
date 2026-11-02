@@ -744,11 +744,9 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	})
 }
 
-// skipTenantsAlreadyMigrated leaves out the tenants the property's latest
-// reindex decided before it failed or was cancelled, when this request asks
-// for the very same migration: those tenants already serve its target. Any
-// other request, or a latest run that was not identical, reruns every tenant.
-// The decision is the task's RAFT record, never shard state.
+// skipTenantsAlreadyMigrated drops tenants the latest identical-migration
+// run already decided, so a resubmit after a partial failure doesn't redo
+// them. The decision comes from the task's RAFT record, never shard state.
 func skipTenantsAlreadyMigrated(ownership map[string][]string, collection, propertyName string,
 	plan upsertPlan, reindexTasks []*distributedtask.Task,
 ) map[string][]string {

@@ -998,10 +998,8 @@ var blockingStatuses = []distributedtask.TaskStatus{
 	unknownFutureStatus,
 }
 
-// Pins: a mutation refusal tells the operator to cancel the reindex for
-// every status the cancel API accepts one for. A status this build cannot
-// classify gets 409 on every node, so naming a cancel for it sends the
-// operator down a road that dead-ends.
+// Pins: a mutation refusal names a cancel only for a status the cancel API
+// accepts — otherwise it would dead-end the operator.
 //
 // The expectations are spelled out per status rather than derived from
 // IsCancellable, so re-keying the helper onto a different predicate
