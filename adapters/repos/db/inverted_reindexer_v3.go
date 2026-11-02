@@ -11,12 +11,10 @@
 
 package db
 
-import (
-	"context"
-)
-
+// ShardReindexerV3 returns the tasks whose double-write mirrors a loading
+// shard must re-arm once its buckets are open.
 type ShardReindexerV3 interface {
-	RunAfterLsmInit(ctx context.Context, shard *Shard) error
+	RecoverMigrations(shard *Shard) []*ShardReindexTaskGeneric
 }
 
 // -----------------------------------------------------------------------------
@@ -27,6 +25,6 @@ func NewShardReindexerV3Noop() *shardReindexerV3Noop {
 
 type shardReindexerV3Noop struct{}
 
-func (r *shardReindexerV3Noop) RunAfterLsmInit(ctx context.Context, shard *Shard) error {
+func (r *shardReindexerV3Noop) RecoverMigrations(*Shard) []*ShardReindexTaskGeneric {
 	return nil
 }

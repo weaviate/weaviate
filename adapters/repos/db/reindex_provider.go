@@ -218,8 +218,7 @@ func (p *ReindexProvider) SetCompletionRecorder(recorder distributedtask.TaskCom
 }
 
 // SeedReindexTaskCache pre-populates the per-descriptor task cache with
-// instances reconstructed during startup recovery (see
-// [DiscoverInFlightReindexTasks] and [RegisterRecoveredReindexes]). The
+// instances recovered as shards load (see [MigrationRecoveryReindexer]). The
 // purpose is to make OnGroupCompleted reuse the recovered instances —
 // whose double-write callbacks were re-registered during shard init —
 // rather than fall through to the rehydrate branch and call

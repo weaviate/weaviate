@@ -20,15 +20,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The data dir holds a recoverable migration, so a scan that ran returns it.
-func TestDiscoverInFlightReindexTasks_RuntimeReindexDisabled(t *testing.T) {
+// The shard holds a recoverable migration, so a recovery that ran returns it.
+func TestMigrationRecovery_RuntimeReindexDisabled(t *testing.T) {
 	tests := []struct {
 		name          string
 		enabled       bool
 		wantRecovered bool
 	}{
-		{name: "disabled skips the scan"},
-		{name: "enabled keeps the scan", enabled: true, wantRecovered: true},
+		{name: "disabled skips recovery"},
+		{name: "enabled recovers", enabled: true, wantRecovered: true},
 	}
 
 	for _, tt := range tests {
@@ -40,8 +40,8 @@ func TestDiscoverInFlightReindexTasks_RuntimeReindexDisabled(t *testing.T) {
 			require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(
 				NewMigrationRecordIterated(testMigrationSubject(3, StrategyCodeSearchableRetokenize, "title"))))
 
-			recovered, err := DiscoverInFlightReindexTasks(root, tt.enabled, logger, nil)
-			require.NoError(t, err)
+			recovered := NewMigrationRecoveryReindexer(tt.enabled, logger, nil).
+				recoverFromStore(NewMigrationRecordStore(lsm, logger), "shard-1")
 			require.Equal(t, tt.wantRecovered, len(recovered) > 0)
 		})
 	}

@@ -54,8 +54,8 @@ type testShardReindexer struct {
 	task *ShardReindexTaskGeneric
 }
 
-func (r *testShardReindexer) RunAfterLsmInit(ctx context.Context, shard *Shard) error {
-	return r.task.OnAfterLsmInit(ctx, shard)
+func (r *testShardReindexer) RecoverMigrations(*Shard) []*ShardReindexTaskGeneric {
+	return []*ShardReindexTaskGeneric{r.task}
 }
 
 func createTestObjectWithText(className, text string) *storobj.Object {

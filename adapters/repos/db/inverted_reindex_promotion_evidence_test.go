@@ -219,4 +219,4 @@ func aColdShardWithMergedStagedData(t *testing.T, ctx context.Context, class *mo
 
 type noRecoveryTaskReindexer struct{}
 
-func (r *noRecoveryTaskReindexer) RunAfterLsmInit(context.Context, *Shard) error { return nil }
+func (r *noRecoveryTaskReindexer) RecoverMigrations(*Shard) []*ShardReindexTaskGeneric { return nil }

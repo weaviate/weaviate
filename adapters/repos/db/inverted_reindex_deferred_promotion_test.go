@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -131,10 +132,10 @@ func TestDeferredPromotionServesStagedDataAcrossTheFlip(t *testing.T) {
 
 				name, lsm := shard.Name(), shard.pathLSM()
 				require.NoError(t, shard.Shutdown(ctx))
-				recovered, err := DiscoverInFlightReindexTasks(idx.Config.RootPath, true, idx.logger, nil)
-				require.NoError(t, err)
-				require.Len(t, recovered, 1)
-				idx.shardReindexer = NewShardReindexerV3FromRecovered(recovered, idx.logger)
+				p := NewReindexProvider(idx.db, nil, nil, idx.logger, idx.getSchema.NodeName(), nil, ctx)
+				recovery := NewMigrationRecoveryReindexer(true, idx.logger, nil)
+				recovery.AttachProvider(p)
+				idx.shardReindexer = recovery
 				loadClass := class
 				if sc.flipDuringLoad {
 					snapshot := *class
@@ -144,6 +145,8 @@ func TestDeferredPromotionServesStagedDataAcrossTheFlip(t *testing.T) {
 					tc.flip(class.Properties[0])
 				}
 				shard = openShardFromDisk(t, ctx, idx, loadClass, name)
+				require.Len(t, p.cachedReindexTasks(distributedtask.TaskDescriptor{ID: task.taskID, Version: task.taskVersion},
+					task.unitID), 1, "the load must recover the migration whose promotion it defers")
 				require.Equal(t, []MigrationState{MigrationStateSwapped}, migrationRecordStates(t, lsm),
 					"the unflipped schema must defer the promotion")
 

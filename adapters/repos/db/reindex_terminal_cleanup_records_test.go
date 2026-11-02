@@ -103,11 +103,13 @@ func TestTerminalCleanupSettlesTheTasksRecordsOnTheShardsItHolds(t *testing.T) {
 		require.False(t, lazy.isLoaded(), "%s holds no record of the task that cleanup could end", name)
 	}
 
-	recovered, err := DiscoverInFlightReindexTasks(idx.Config.RootPath, true, logger, nil)
-	require.NoError(t, err)
+	recovery := NewMigrationRecoveryReindexer(true, logger, nil)
 	var rebuilt []string
-	for _, rr := range recovered {
-		rebuilt = append(rebuilt, rr.Descriptor.ID+" on "+rr.ShardName)
+	for _, name := range []string{loadedA.Name(), unloadedB, loadedC, otherTaskD, decidedFlipE} {
+		store := NewMigrationRecordStore(shardPathLSM(idx.path(), name), logger)
+		for _, task := range recovery.recoverFromStore(store, name) {
+			rebuilt = append(rebuilt, task.taskID+" on "+name)
+		}
 	}
 	require.ElementsMatch(t, []string{
 		"L on " + loadedA.Name(), "T on " + loadedC, "L on " + otherTaskD, "T on " + decidedFlipE,

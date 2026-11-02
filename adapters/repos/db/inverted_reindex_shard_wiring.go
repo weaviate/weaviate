@@ -18,9 +18,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Class) {
+func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Class) []*ShardReindexTaskGeneric {
 	s.migrationRecords = NewMigrationRecordStoreForUnit(s.pathLSM(), s.migrationUnit(), s.index.logger)
 	s.migrationRecords.SweepTempFiles()
+	recovered := s.reindexer.RecoverMigrations(s)
 
 	reconciler := s.migrationReconciler(func() *models.Class { return class })
 	if err := reconciler.Reconcile(ctx); err != nil {
@@ -28,6 +29,16 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 	}
 	monitoring.GetMetrics().AddMigrationRecordsWedged(
 		reconciler.WedgedCount(), len(s.migrationRecords.Unreadable()))
+	return recovered
+}
+
+func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardReindexTaskGeneric) {
+	for _, t := range recovered {
+		if err := t.OnAfterLsmInit(ctx, s); err != nil {
+			s.index.logger.WithField("task", t.Name()).WithField("shard", s.Name()).
+				Errorf("reindex recovery: after-LSM-init failed: %v", err)
+		}
+	}
 }
 
 func (s *Shard) migrationUnit() string { return migrationUnitOf(s.index, s.name) }

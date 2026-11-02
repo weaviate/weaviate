@@ -834,23 +834,14 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	bitmapBufPool, bitmapBufPoolClose := configureBitmapBufPool(appState)
 	repo.SetBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
-	// Discover in-flight runtime reindex tasks from disk so the static
-	// ShardReindexerV3 can re-register their double-write callbacks via
-	// OnAfterLsmInit during shard load — BEFORE any post-restart write
-	// reaches the shard. Without this, writes between shard init and the
-	// deferred swap go only to the old main bucket and are silently lost.
-	recoveredReindexes, recoveryErr := db.DiscoverInFlightReindexTasks(
-		appState.ServerConfig.Config.Persistence.DataPath,
+	// Must be created before shards load, or writes between shard init and the
+	// deferred swap reach only the old bucket.
+	migrationRecovery := db.NewMigrationRecoveryReindexer(
 		appState.ServerConfig.Config.RuntimeReindexEnabled,
 		appState.Logger,
 		appState.SchemaManager,
 	)
-	if recoveryErr != nil {
-		appState.Logger.WithError(recoveryErr).
-			Warn("reindex recovery: disk scan failed; writes during the swap-recovery window may be lost")
-	}
-	reindexer := configureReindexer(recoveredReindexes, appState.Logger)
-	repo.SetReindexer(reindexer)
+	repo.SetReindexer(migrationRecovery)
 
 	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
@@ -1034,7 +1025,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		setupShardNoopDebugHandler(appState, shardNoopProvider)
 	}
 
-	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
+	initReindexAndDistributedTasks(appState, repo, providers, migrationRecovery, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -1101,7 +1092,7 @@ func initReindexAndDistributedTasks(
 	appState *state.State,
 	repo *db.DB,
 	providers map[string]distributedtask.Provider,
-	recoveredReindexes []db.RecoveredReindex,
+	migrationRecovery *db.MigrationRecoveryReindexer,
 	metricsRegisterer prometheus.Registerer,
 	serverShutdownCtx context.Context,
 	dropVectorEnqueuer *dropVectorIndexEnqueuer,
@@ -1112,10 +1103,7 @@ func initReindexAndDistributedTasks(
 		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 		serverShutdownCtx,
 	)
-	// Seed re-uses the SAME task instances ShardReindexerV3 registered, so
-	// OnGroupCompleted's swap phase doesn't take the rehydrate path and try
-	// to load already-loaded ingest buckets.
-	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
+	migrationRecovery.AttachProvider(reindexProvider)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
 
@@ -1207,22 +1195,6 @@ func initReindexAndDistributedTasks(
 		}
 	}
 	appState.ClusterService.SetDistributedTaskSchemaMutationDetectors(schemaMutationDetectors)
-}
-
-func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogger) db.ShardReindexerV3 {
-	// All reindex operations are now triggered via the REST API
-	// (DTM-based). The V3 startup reindexer is no longer used for
-	// kicking off new reindexes — but we still need it for restart
-	// recovery: in-flight runtime reindex tasks discovered on disk
-	// register here so that OnAfterLsmInit fires during shard load and
-	// re-installs the double-write callbacks before any post-restart
-	// write reaches the shard.
-	if len(recovered) == 0 {
-		return db.NewShardReindexerV3Noop()
-	}
-	logger.WithField("count", len(recovered)).
-		Info("reindex recovery: registering in-flight tasks discovered on disk")
-	return db.NewShardReindexerV3FromRecovered(recovered, logger)
 }
 
 // enforceNamespaceStartupInvariants decides whether the current cluster state
