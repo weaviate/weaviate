@@ -1458,3 +1458,69 @@ func TestMigrator_ValidateVectorIndexConfigsUpdate_Collisions(t *testing.T) {
 		})
 	}
 }
+
+// A snapshot install or crash before applying a transition's end skips its cleanup; reload must.
+func TestReloadRemovesSettledFrozenTenants(t *testing.T) {
+	frozen := sharding.Physical{Name: "t1", Status: models.TenantActivityStatusFROZEN, CloudAttempt: 7}
+	withOwners := func(p sharding.Physical, owners ...string) sharding.Physical {
+		p.BelongsToNodes = owners
+		return p
+	}
+	unfreezing := withOwners(frozen, "node1")
+	unfreezing.Transition = &sharding.Transition{Kind: sharding.TransitionUnfreeze, Attempt: 9}
+
+	cases := []struct {
+		name     string
+		incoming sharding.Physical
+		current  sharding.Physical
+		loaded   bool
+		wantDir  bool
+	}{
+		{
+			name:     "completed freeze, shard still loaded",
+			incoming: withOwners(frozen, "node1"), current: withOwners(frozen, "node1"), loaded: true,
+		},
+		{
+			name:     "aborted unfreeze on a node outside the owners",
+			incoming: withOwners(frozen, "node2"), current: withOwners(frozen, "node2"),
+		},
+		{
+			name:     "aborted unfreeze on an owner",
+			incoming: withOwners(frozen, "node1"), current: withOwners(frozen, "node1"),
+		},
+		{
+			name:     "a later unfreeze runs by the time the tenant's lock is held",
+			incoming: withOwners(frozen, "node1"), current: unfreezing, wantDir: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			idx, _ := newDropTestIndex(t)
+			sg := schemaUC.NewMockSchemaGetter(t)
+			sg.EXPECT().ReadOnlyClass(mock.Anything).Return(&models.Class{Class: idx.Config.ClassName.String()}).Maybe()
+			idx.getSchema = sg
+			reader := local.NewMockSchemaReader(t)
+			reader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).
+				RunAndReturn(func(_ string, _ bool, read func(*models.Class, *sharding.State) error) error {
+					return read(nil, &sharding.State{Physical: map[string]sharding.Physical{"t1": tc.current}})
+				}).Maybe()
+			idx.schemaReader = reader
+			m := &Migrator{db: &DB{localNodeName: "node1", schemaGetter: sg}, logger: idx.logger}
+			dir := shardDirWithData(t, idx, "t1")
+			if tc.loaded {
+				dir = droppableShard(t, idx, "t1", nil)
+			}
+			incoming := &sharding.State{Physical: map[string]sharding.Physical{"t1": tc.incoming}}
+
+			require.NoError(t, m.updateIndexTenants(context.Background(), idx, incoming))
+
+			if tc.wantDir {
+				require.DirExists(t, dir)
+				return
+			}
+			require.NoDirExists(t, dir)
+			require.Nil(t, idx.shards.Load("t1"))
+			require.NoError(t, m.updateIndexTenants(context.Background(), idx, incoming), "a second reload finds nothing left")
+		})
+	}
+}

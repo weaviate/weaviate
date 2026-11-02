@@ -473,6 +473,11 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 	// order, so which tenants were reconciled would otherwise vary per run
 	ec := errorcompounder.New()
 	for shardName, phys := range incomingSS.Physical {
+		if phys.Status == models.TenantActivityStatusFROZEN && phys.Transition == nil {
+			ec.AddWrapf(idx.removeFrozenLeftover(shardName),
+				"remove frozen tenant shard %s during update index", shardName)
+			continue
+		}
 		if !phys.IsLocalShard(nodeName) {
 			continue
 		}
