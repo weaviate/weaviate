@@ -649,6 +649,68 @@ func TestRestoreShardWhoseVectorsAreStillQueued(t *testing.T) {
 	}
 }
 
+// A replacement index keeps the queue it took over: the shard opens the
+// queue the record names, indexes what it holds into the index the record
+// names, and a drop of the vector removes both.
+func TestInitShardVectors_QueueOutlivesItsIndex(t *testing.T) {
+	ctx := testCtx()
+	tt := queuedVectorIndexCases()[2]
+	shard, idx, class := newQueuedVectorShard(t, ctx, tt, true)
+	for i := range queuedObjectCount {
+		require.NoError(t, shard.PutObject(ctx, tt.object(i)))
+	}
+	require.Equal(t, int64(queuedObjectCount), queuedVectorCount(t, shard, "foo"),
+		"precondition: every vector is still queued")
+
+	// the state a replacement leaves: the record names the new index and the
+	// old queue, and the old index is gone
+	replaced := recorded(shard, "foo", "vectors_foo_2", "ready")
+	replaced.QueueID = "vectors_foo"
+	shardName, shardDir := shard.Name(), shard.path()
+	require.NoError(t, shard.Shutdown(ctx))
+	simulateProcessRestartBucketCleanup(t, shard.pathLSM())
+	old := helpers.VectorIndexArtifactNamesForID("vectors_foo")
+	for _, bucket := range old.LSMBuckets {
+		require.NoError(t, os.RemoveAll(filepath.Join(shard.pathLSM(), bucket)))
+	}
+	for _, dir := range old.ShardDirs {
+		require.NoError(t, os.RemoveAll(filepath.Join(shardDir, dir)))
+	}
+	withOfflineMapping(t, shardDir, func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+		require.NoError(t, m.Put("foo", replaced))
+	})
+
+	idx.scheduler = idx.db.scheduler
+	reopened, err := idx.initShard(ctx, shardName, class, nil, true, true)
+	require.NoError(t, err)
+	idx.shards.Store(shardName, reopened)
+	shard = underlyingShard(t, reopened)
+
+	waitForQueueToDrain(t, shard, "foo")
+	found, err := shard.WithVectorIndex("foo", func(index VectorIndex) error {
+		for docID := range uint64(queuedObjectCount) {
+			require.True(t, index.ContainsDoc(docID), "doc %d is indexed from the queue the record names", docID)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+	rec, _, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	assert.Equal(t, replaced, rec)
+	assert.DirExists(t, filepath.Join(shardDir, "vectors_foo.queue.d"))
+	assert.DirExists(t, filepath.Join(shardDir, "vectors_foo_2.hnsw.commitlog.d"))
+	assert.NoDirExists(t, filepath.Join(shardDir, "vectors_foo_2.queue.d"))
+
+	// the drop takes the index and the queue it names, and nothing else
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+	assert.Empty(t, entriesWithID(t, shard, "vectors_foo"))
+	_, ok, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	assert.False(t, ok)
+	assert.DirExists(t, filepath.Join(shardDir, "main.queue.d"))
+}
+
 const (
 	queuedClassName   = "QueuedAtBackup"
 	queuedObjectCount = 20
