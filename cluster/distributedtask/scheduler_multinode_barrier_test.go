@@ -70,6 +70,7 @@ type barrierRecordingProvider struct {
 	// Status each callback was handed: the provider's only view of the task.
 	swapStatuses []TaskStatus
 	taskStatuses []TaskStatus
+	swapGroups   []string
 }
 
 func newBarrierRecordingProvider(t *testing.T) *barrierRecordingProvider {
@@ -92,10 +93,11 @@ func (p *barrierRecordingProvider) OnGroupCompleted(task *Task, _ string, _ []st
 	return nil
 }
 
-func (p *barrierRecordingProvider) OnSwapRequested(task *Task, _ string, _ []string) error {
+func (p *barrierRecordingProvider) OnSwapRequested(task *Task, groupID string, _ []string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.swapCalls = append(p.swapCalls, task.ID)
+	p.swapGroups = append(p.swapGroups, groupID)
 	p.swapCallsBy[task.ID]++
 	p.swapStatuses = append(p.swapStatuses, task.Status)
 	if p.swapRequestErr != nil {
