@@ -88,18 +88,9 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 	// hundreds of ms to spare for the rolling-restart trigger.
 	observed := awaitReindexReachedFinalizing(t, uri, taskID)
 	t.Logf("task %s reached %s — beginning rolling restart inside this window", taskID, observed)
-	if observed == "FINISHED" {
-		// At 50k records the FINALIZING window can be sub-100ms on a
-		// fast machine. The test would still verify the per-replica
-		// histogram is correct (it always must be), but it wouldn't
-		// exercise the ack barrier on the FINALIZING → FINISHED
-		// transition. Surface this loudly so the next test run can
-		// bump the dataset.
-		t.Logf("WARNING: FINALIZING window already closed before rolling restart; "+
-			"per-replica histogram still asserted, but the ack barrier was not stressed. "+
-			"Consider increasing totalObjects (currently %d) to widen FINALIZING window.",
-			totalObjects)
-	}
+	require.NotEqualf(t, "FINISHED", observed,
+		"the finalizing window closed before the rolling restart, so the ack barrier was not exercised; "+
+			"raise totalObjects (currently %d) to widen it", totalObjects)
 
 	// Rolling restart immediately. The intent is to catch one or
 	// more nodes mid-swap or mid-ack so the ack barrier's
@@ -183,6 +174,10 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 //
 // Target the last node (index 2) so the surviving majority keeps serving
 // RAFT while it's down — mirroring a single-pod OOM-kill in production.
+//
+// The kill must land while the task is PREPARING, and after a further rolling
+// restart every node must still serve the count and report tokenization field,
+// so a migration committed across the kill survives.
 func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
@@ -220,13 +215,25 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 
 	observed := awaitReindexReachedFinalizing(t, uri, taskID)
 	t.Logf("task %s reached %s — killing node 3 ungracefully inside this window", taskID, observed)
-	require.Equalf(t, "PREPARING", observed,
-		"the merged window closed before the kill, so the scenario never ran; "+
-			"raise totalObjects (currently %d) to widen it", totalObjects)
 
-	// SIGKILL + restart node 3 — k8s OOM / node-hardware-failure shape.
-	t.Log("SIGKILL + restart node 3")
-	cycleNodeFastKill(ctx, t, compose, 2)
+	// SIGKILL node 3 — k8s OOM / node-hardware-failure shape. The status is read
+	// while it is down because the task cannot finish without it, so it shows
+	// the phase the kill landed in.
+	t.Log("SIGKILL node 3")
+	zero := time.Duration(0)
+	require.NoError(t, compose.StopAt(ctx, 2, &zero))
+	tasks, ok := reindexhelpers.TryFetchTasks(uri)
+	require.True(t, ok, "node 1 must list tasks while node 3 is down")
+	var status string
+	for _, task := range tasks["reindex"] {
+		if task.ID == taskID {
+			status = task.Status
+		}
+	}
+	require.Equalf(t, "PREPARING", status,
+		"the kill landed after the merged window, so the scenario never ran; "+
+			"raise totalObjects (currently %d) to widen it", totalObjects)
+	require.NoError(t, compose.StartAt(ctx, 2))
 
 	// Wait for FINISHED. Without the ack barrier, the schema flip
 	// could already have committed before the kill, leaving node 3
@@ -235,7 +242,7 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 	reindexhelpers.AwaitReindexFinished(t, restURIOf(compose, 1), taskID, reindexhelpers.WithTimeout(240*time.Second))
 	t.Log("task FINISHED post-kill-and-restart")
 
-	// AwaitReindexFinished only confirms node-1; the restarted node may still be reconciling.
+	// AwaitReindexFinished only confirms node-1. The restarted node may still be reconciling.
 	requireEveryReplicaServes(t, compose, className, "path", paths[0], expectedPathCount, "after the task finished")
 
 	const pollsPerReplica = 30

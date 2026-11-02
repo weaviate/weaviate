@@ -60,7 +60,7 @@ func TestSwapPhaseLoadsTheShardBeforeClaimingItsUnit(t *testing.T) {
 	subject := mkMigrationRecord(t, tenantLSM, migrationRecordFixture{
 		unitID: unitID, taskID: "T_swap", migrationType: ReindexTypeChangeTokenization,
 		code: StrategyCodeSearchableRetokenize, version: 1, state: MigrationStateSwapped,
-		staged: map[string]string{prop: "property_" + prop + "__ingest_1"},
+		staged: map[string]string{prop: stagedDirFor(prop, 1)},
 	})
 
 	staged := subject.Props[prop].Staged

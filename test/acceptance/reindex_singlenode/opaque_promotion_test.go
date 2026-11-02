@@ -156,7 +156,7 @@ func findShardPathInContainer(t *testing.T, container testcontainers.Container, 
 		if line == "" {
 			continue
 		}
-		// Anything non-shard would be a file like backups.db; shards are dirs
+		// Anything non-shard would be a file like backups.db. Shards are dirs
 		// with UUID names. Use the first directory entry.
 		probe := classDir + "/" + line + "/lsm"
 		code, _, err := container.Exec(ctx, []string{"test", "-d", probe})

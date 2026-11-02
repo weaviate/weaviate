@@ -28,7 +28,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Canonical is always the strategy's own source bucket; the record writer
+// Canonical is always the strategy's own source bucket. The record writer
 // refuses any other name.
 type migrationRecordFixture struct {
 	unitID        string
@@ -81,6 +81,12 @@ func mkMigrationRecord(t *testing.T, lsmPath string, f migrationRecordFixture) M
 	}
 	require.NoError(t, store.Put(rec))
 	return subject
+}
+
+// Deriving the staged dir from the version keeps a fixture from planting a
+// record that names another generation's dir.
+func stagedDirFor(prop string, version uint64) string {
+	return fmt.Sprintf("property_%s__ingest_%d", prop, version)
 }
 
 // plantMigrationRecordFile writes a record the way the store's Put does, minus

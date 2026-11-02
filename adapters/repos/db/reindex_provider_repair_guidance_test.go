@@ -303,7 +303,7 @@ func TestHasLocalPostMergeStateReadsEachShardsRecordsOnce(t *testing.T) {
 	mkMigrationRecord(t, concrete.pathLSM(), migrationRecordFixture{
 		unitID: "u1__n1", taskID: "T_cancel", migrationType: ReindexTypeChangeTokenization,
 		code: StrategyCodeSearchableRetokenize, version: 1, state: MigrationStateIterating,
-		staged: map[string]string{"title": "property_" + "title" + "__ingest_1"},
+		staged: map[string]string{"title": stagedDirFor("title", 1)},
 	})
 
 	logger, hook := logrustest.NewNullLogger()
@@ -348,7 +348,7 @@ func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvid
 	mkMigrationRecord(t, concrete.pathLSM(), migrationRecordFixture{
 		unitID: "u1__n1", taskID: "T_cancel", migrationType: ReindexTypeChangeTokenization,
 		code: StrategyCodeSearchableRetokenize, version: 1, state: MigrationStateMerged,
-		staged: map[string]string{"title": "property_" + "title" + "__ingest_1"},
+		staged: map[string]string{"title": stagedDirFor("title", 1)},
 	})
 
 	payload := &ReindexTaskPayload{
@@ -432,7 +432,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 	mkMigrationRecord(t, concrete.pathLSM(), migrationRecordFixture{
 		unitID: "u1__n1", taskID: "T_cancel_drain", migrationType: ReindexTypeChangeTokenization,
 		code: StrategyCodeSearchableRetokenize, version: 1, state: MigrationStateMerged,
-		staged: map[string]string{"title": "property_" + "title" + "__ingest_1"},
+		staged: map[string]string{"title": stagedDirFor("title", 1)},
 	})
 
 	payload, err := json.Marshal(ReindexTaskPayload{
@@ -574,7 +574,7 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 				mkMigrationRecord(t, shardPathLSM(idx.path(), tenant), migrationRecordFixture{
 					unitID: "u1__n1", taskID: "T_probe", migrationType: recordType,
 					code: code, version: 1, state: tc.state,
-					staged: map[string]string{prop: "property_" + prop + "__ingest_1"},
+					staged: map[string]string{prop: stagedDirFor(prop, 1)},
 				})
 			}
 			cold := newTestLazyLoadShard(ctx, idx, class, tenant)

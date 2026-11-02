@@ -226,14 +226,14 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 				mkMigrationRecord(t, tenantLSM, migrationRecordFixture{
 					unitID: "u1__n1", taskID: "T_bootstrap", migrationType: migrationType,
 					code: code, version: 1, state: tc.state,
-					staged: map[string]string{recordProp: "property_" + recordProp + "__ingest_1"},
+					staged: map[string]string{recordProp: stagedDirFor(recordProp, 1)},
 				})
 			}
 			if tc.laterState != "" {
 				mkMigrationRecord(t, tenantLSM, migrationRecordFixture{
 					unitID: "u1__n1", taskID: "T_next", migrationType: migrationType,
 					code: code, version: 2, state: tc.laterState,
-					staged: map[string]string{recordProp: "property_" + recordProp + "__ingest_2"},
+					staged: map[string]string{recordProp: stagedDirFor(recordProp, 2)},
 				})
 			}
 			if tc.unreadableRecord {
