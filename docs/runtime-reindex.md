@@ -53,11 +53,9 @@ typical journeys it unlocks:
   `repair-rangeable`.
 - Upgrade a searchable index from the deprecated WAND format to
   BlockMax: `change-algorithm`.
-- Cancel a migration that has not yet entered its cluster-wide
-  coordination phase; the cluster cleans up the partial state and the
-  property is back to its pre-submit on-disk shape — unless a node had
-  already merged its rewritten buckets, which needs an operator rebuild
-  instead (§12).
+- Cancel a migration at any point while it runs. Every tenant whose swap
+  is not decided yet stops and is cleaned up; a tenant past that point
+  keeps its swap, which can leave the collection partly migrated (§6.3, §12).
 
 The whole feature is built on top of three substrates:
 
@@ -84,8 +82,7 @@ together into a small REST surface rooted at
 > a migration returns `400 Bad Request` with
 > `runtime reindex is disabled; enable with RUNTIME_REINDEX_ENABLED=true`.
 > The cancel verb and `GET .../indexes` keep working, so a task that was
-> already running stays observable and, for as long as it is still
-> `STARTED`, cancellable (§12). Everything below describes behavior with
+> already running stays observable and cancellable (§12). Everything below describes behavior with
 > the flag on.
 
 A replica movement requested while a migration runs on its collection is
@@ -139,12 +136,13 @@ rejected — migrate to Blockmax first via `PUT {"algorithm":"blockmax"}`.
 ### `POST /v1/schema/{className}/properties/{propertyName}/index/{indexType}/cancel`
 
 Cancel the in-flight task on `(class, property, indexType)`. No request
-body. Idempotent: `202` + `Status: CANCELLED` (with `taskId`) when a
-`STARTED` task is cancelled, `202` + `Status: NO_OP` (no `taskId`) when
-nothing matches (already finished, never submitted, or already
-cancelled), `409` for every other in-flight status — a coordination phase
-(`PREPARING` / `SWAPPING`), or one this build does not recognize. See
-§12. Never `404` for "nothing to cancel".
+body. Idempotent: `202` + `Status: CANCELLED` (with `taskId`) when an in-flight
+task is cancelled, `202` + `Status: NO_OP` (no `taskId`) when nothing
+matches (already finished, never submitted, or already cancelled), `409`
+only for a status this build does not recognize. A cancel is never refused
+while the reindex runs, because the reindex itself may be the incident.
+Tenants whose swap is already decided (§6.3) keep it; every other tenant
+stops. See §12. Never `404` for "nothing to cancel".
 
 Query parameters (PUT and rebuild):
 
@@ -180,13 +178,10 @@ Response shapes (PUT / rebuild / cancel):
   task already touches this property; the error names the offending task
   ID unless another submit won the race. On PUT / rebuild, a replica
   movement is in flight on the collection.
-  On cancel, either arm can refuse. The pre-flight refuses a status
-  other than `STARTED` (`PREPARING` or `SWAPPING`, where nodes may
-  already have written merged state or renamed bucket directories, or one
-  this build does not recognize) and names the task ID and that status.
-  The apply refuses a target that left `STARTED` after that read, and
-  names no status, since it cannot tell a coordination phase from a task
-  that has already finished. Neither refusal cancelled anything, but the
+  On cancel, either arm can refuse. The pre-flight refuses a status this
+  build does not recognize and names the task ID and that status. The
+  apply refuses a target that reached such a status or a terminal one
+  after that read, and names no status, since it cannot tell which. Neither refusal cancelled anything, but the
   apply refusal cannot tell you what did: a concurrent cancel may have won
   the race, so re-read the index status to see where it landed —
   `CANCELLED` included. A pre-flight refusal leaves the task in flight,
@@ -678,7 +673,7 @@ Key types & contracts:
 | `IsActive()` | everything else (defined as the exact negation of `IsTerminal()`) |
 | `IsCompleted()` | `SWAPPING`, `FINISHED` — every unit succeeded |
 | `IsRecognized()` | any status this build declares |
-| `IsCancellable()` | `STARTED`, and nothing else |
+| `IsCancellable()` | `STARTED`, `PREPARING`, `SWAPPING` |
 
 `IsCancellable()` is a literal comparison rather than a classification,
 which is what makes it different from the other four. `Manager.CancelTask`
@@ -711,8 +706,9 @@ the node:
   than `ready` or `pending`, since the per-unit progress does not prove
   that no shard has started;
 - refuses a cancel with 409, at the REST pre-flight and again at
-  `Manager.CancelTask`. `IsCancellable()` is `STARTED` only, so an
-  unrecognized status is not cancellable. The mutation-refusal messages
+  `Manager.CancelTask`. `IsCancellable()` names only the in-flight
+  statuses this build declares, so an unrecognized status is not
+  cancellable. The mutation-refusal messages
   say so directly: for this case they drop the usual "cancel it" advice
   and tell the operator the task has to reach a terminal state on the
   nodes that do recognize the status (`MutationRemedy` in
@@ -1057,16 +1053,20 @@ The post-completion barrier is split into two phases.
 
 **Semantic migrations (NeedsPreparationBarrier=true):**
 
-1. `OnGroupCompleted` (PHASE A) runs PREP per local shard. Returns a
-   non-nil error iff any task in the group failed to merge. The
-   scheduler emits `RecordPreparationCompleteAck(Success=bool)` per node.
-2. FSM transitions `PREPARING → SWAPPING` only when every expected
-   PreparationCompleteAck has landed with `Success=true`. The transition is
-   committed inside the FSM apply path (atomic) so no node can
-   advance to SWAPPING before every node has finished PREP.
-3. `OnSwapRequested` (PHASE B) runs OVERLAY+SWAP per local shard.
-   Returns a non-nil error iff any task's RunSwapOnShard failed. The
-   scheduler emits `RecordPostCompletionAck(Success=bool)` per node.
+1. `OnGroupCompleted` (PHASE A) runs PREP per local shard of a group
+   (one group per tenant) as soon as that group's units are done, while
+   other groups still run. The scheduler emits
+   `RecordPreparationCompleteAck(group, Success=bool)` per node and group.
+2. Once every node owning a unit of the group acked success, the FSM
+   records the group's swap as decided (`Task.SwapDecidedGroups`). That
+   RAFT fact is the group's point of no return: every replica of the
+   group swaps, even if the task later fails or is cancelled, and a
+   record of a decided group commits at load whatever the task status.
+   `PREPARING → SWAPPING` happens once every group is decided.
+3. `OnSwapRequested` (PHASE B) runs OVERLAY+SWAP per local shard of a
+   decided group. Returns a non-nil error iff any task's RunSwapOnShard
+   failed. From SWAPPING on, the scheduler emits
+   `RecordPostCompletionAck(Success=bool)` per node.
 4. `OnTaskCompleted` fires → cluster-wide schema flip commits. The
    scheduler runs this phase (`runCompletedCallbackPhase`) before it
    proposes finalization.
@@ -1086,7 +1086,9 @@ PostCompletionAck barrier only.
 
 - Any `Success=false` on EITHER ack → task flips to `FAILED`
   immediately → `OnTaskCompleted` early-returns, schema flip is
-  SKIPPED.
+  SKIPPED. Groups already decided stay decided and still swap, so the
+  collection is left partly migrated (`partial` on the indexes
+  endpoint); submitting the same migration again skips those tenants.
 - Per-node swap failure can no longer let the cluster-wide schema flip
   propagate while one replica's bucket pointer never moved.
 - On node restart, the recovery path re-fires the appropriate phase
@@ -1094,11 +1096,12 @@ PostCompletionAck barrier only.
   rehydrate branch; if the per-shard work succeeds the second time,
   the ack lands and the task completes normally.
 
-**Cross-replica window:** The time during which different nodes'
-buckets are in mixed-tokenization state (some swapped, some not) is
+**Cross-replica window:** The time during which the replicas of one
+tenant are in mixed-tokenization state (some swapped, some not) is
 bounded by RAFT propagation latency between PHASE B firing on the
 fastest-node and PHASE B firing on the slowest-node — tens of
-milliseconds regardless of PREP duration. Decoupling SWAP from PREP
+milliseconds regardless of PREP duration. Different tenants are not
+coupled: each swaps when its own replicas are ready. Decoupling SWAP from PREP
 across nodes is the reason this window stays bounded even when PREP
 runs minutes per shard at billion-scale.
 
@@ -1116,7 +1119,7 @@ the FSM table see "two RAFT-coordinated phases" and may propose
 collapsing it back to one — the bug it closes is not visually
 obvious from the code alone.
 
-Acks idempotent (first ack per `(task, node)` wins); rehydrate over
+Acks idempotent (first ack per `(task, group, node)` wins); rehydrate over
 restart (the scheduler re-fires on the next tick); silent on already-
 terminal tasks (a late-arriving ack from a slow follower must not
 produce a noisy apply failure).
@@ -1241,9 +1244,15 @@ Per-tenant unit groups (Journey 4 from the DTM doc): one
 as each tenant's replicas all finish. Tenant A starts serving new
 data immediately even while tenant B is still reindexing.
 
-That holds for format-only migrations. A semantic migration's schema
-flag is collection-wide, so no tenant sees the flipped behavior until
-the last tenant's replicas have all swapped.
+That holds for semantic migrations too: a tenant swaps once its own
+replicas have prepared (§6.3), and its shards carry the migrated
+tokenization and index flags in their overlay (§10) until the
+collection-wide schema flip lands after the last tenant. A failure
+leaves the decided tenants migrated and the rest not: the indexes
+endpoint reads `partial` with `migratedTenants` / `totalTenants`, and
+the operator migrates forward by submitting the same migration again,
+which skips the tenants already migrated. Migrating back is not
+supported yet.
 
 Status after cancelling a tenant-scoped task is reported at the
 collection level: `GET /v1/schema/{className}/indexes` renders
@@ -1416,6 +1425,13 @@ breaks two things:
   indexed nowhere. Nothing rescans afterwards, so it stays missing
   (weaviate/etienne-claude-issues#449).
 
+With per-tenant swaps (§6.3) the window lasts until the slowest tenant
+finishes, and forever after a failure. So the overlay is a cache of the
+shard's migration records, not the source of truth: every shard load
+re-installs it from each promoted record whose effect the schema does
+not show yet, opens the bucket of an index a migration turned on, and the
+schema's index-off sweeps leave that bucket alone.
+
 The overlay closes both. `Shard.SetPropertyOverlay(prop, overlay)`
 installs a per-shard map of `inverted.PropertyOverlay` values, each
 saying which index flags to treat as on and which tokenization to use.
@@ -1526,21 +1542,14 @@ source, the other is a copy that outlives it.
    verified to exist by the outer handler, so "nothing to cancel" is
    surfaced as a no-op rather than overloading 404 with two distinct
    meanings.
-2. If that task is not `STARTED`, return 409 and stop. `STARTED` is the
-   only cancellable status (`TaskStatus.IsCancellable`, §4.2). Two cases
-   reach this branch:
-   - a coordination phase (`PREPARING` / `SWAPPING`). Nodes may already
-     have written merged state or renamed bucket directories; stopping
-     the rest would leave the cluster serving migrated buckets under the
-     pre-migration schema, repairable only by an operator following the
-     guidance the provider logs.
-   - a status this build does not recognize (§4.2). This build cannot
-     tell whether the task has swapped anywhere, so it refuses rather
-     than guess. The mutation-refusal guards agree: for this case they
-     drop the "cancel it" advice and point the operator at the nodes that
-     do recognize the status (`MutationRemedy`).
-
-   Either way the task has to run through to `FINISHED` or `FAILED`. The
+2. If that task is in a status this build does not recognize (§4.2),
+   return 409 and stop: this build cannot tell whether the task has
+   swapped anywhere, so it refuses rather than guess. The mutation-refusal
+   guards agree: for this case they drop the "cancel it" advice and point
+   the operator at the nodes that do recognize the status
+   (`MutationRemedy`). Every other in-flight status cancels
+   (`TaskStatus.IsCancellable`): tenants whose swap is decided (§6.3)
+   still swap, every other tenant stops. The
    REST pre-flight and `Manager.CancelTask` apply the same predicate, so a
    cancel that loses the race to a status transition is refused at the FSM
    too, and `cancelApplyFailureResponder` renders that refusal as the same
