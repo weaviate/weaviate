@@ -27,37 +27,46 @@ func (r *migrationMirrorRegistry) ArmMigrationMirror(key MigrationRecordKey, pro
 	if disarm == nil {
 		return
 	}
-	mirrorKey := migrationMirrorKey{record: key, property: prop}
-
-	r.mu.Lock()
-	if r.disarms == nil {
-		r.disarms = map[migrationMirrorKey]func(){}
-	}
-	previous := r.disarms[mirrorKey]
-	r.disarms[mirrorKey] = disarm
-	r.mu.Unlock()
-
-	if previous != nil {
+	if previous := r.swap(migrationMirrorKey{record: key, property: prop}, disarm); previous != nil {
 		previous()
 	}
 }
 
 func (r *migrationMirrorRegistry) DisarmMigrationMirror(key MigrationRecordKey, prop string) {
-	mirrorKey := migrationMirrorKey{record: key, property: prop}
-
-	r.mu.Lock()
-	disarm := r.disarms[mirrorKey]
-	delete(r.disarms, mirrorKey)
-	r.mu.Unlock()
-
 	// Run outside the lock: disarm reaches into shard write-path state.
-	if disarm != nil {
+	if disarm := r.take(migrationMirrorKey{record: key, property: prop}); disarm != nil {
 		disarm()
 	}
 }
 
 func (r *migrationMirrorRegistry) DisarmMigrationMirrors(key MigrationRecordKey) {
+	for _, disarm := range r.takeAll(key) {
+		disarm()
+	}
+}
+
+func (r *migrationMirrorRegistry) swap(mirrorKey migrationMirrorKey, disarm func()) func() {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.disarms == nil {
+		r.disarms = map[migrationMirrorKey]func(){}
+	}
+	previous := r.disarms[mirrorKey]
+	r.disarms[mirrorKey] = disarm
+	return previous
+}
+
+func (r *migrationMirrorRegistry) take(mirrorKey migrationMirrorKey) func() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	disarm := r.disarms[mirrorKey]
+	delete(r.disarms, mirrorKey)
+	return disarm
+}
+
+func (r *migrationMirrorRegistry) takeAll(key MigrationRecordKey) []func() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var disarms []func()
 	for mirrorKey, disarm := range r.disarms {
 		if mirrorKey.record != key {
@@ -66,11 +75,7 @@ func (r *migrationMirrorRegistry) DisarmMigrationMirrors(key MigrationRecordKey)
 		disarms = append(disarms, disarm)
 		delete(r.disarms, mirrorKey)
 	}
-	r.mu.Unlock()
-
-	for _, disarm := range disarms {
-		disarm()
-	}
+	return disarms
 }
 
 var _ migrationMirrorDisarmer = (*Shard)(nil)

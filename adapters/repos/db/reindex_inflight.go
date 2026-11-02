@@ -66,9 +66,7 @@ func newReindexGate(db *DB, maxAge time.Duration) reindexGate {
 // fixture that skips the post-bootstrap install; production HTTP gates on
 // bootstrap completion, so external traffic cannot reach the unwired window.
 func (db *DB) reindexActivityLookup() (ShardReindexActivityLookup, error) {
-	db.reindexLookupsMu.RLock()
-	activityBuilder := db.shardReindexActivityLookupBuilder
-	db.reindexLookupsMu.RUnlock()
+	activityBuilder := db.activityLookupBuilder()
 	if activityBuilder == nil {
 		unwiredGateWarnOnce.Do(func() {
 			logger := db.logger
@@ -115,9 +113,7 @@ func (db *DB) anyLiveReindexForShard(collection, shardName string,
 	// sidecar buckets. The cleanup builder is optional — older
 	// wiring paths and test fixtures that install only the activity
 	// lookup keep the prior semantics.
-	db.reindexLookupsMu.RLock()
-	cleanupBuilder := db.reindexCleanupInProgressLookupBldr
-	db.reindexLookupsMu.RUnlock()
+	cleanupBuilder := db.cleanupInProgressLookupBuilder()
 	if cleanupBuilder == nil {
 		return false, nil
 	}
@@ -136,6 +132,18 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 	db.reindexLookupsMu.Lock()
 	defer db.reindexLookupsMu.Unlock()
 	db.reindexCleanupInProgressLookupBldr = builder
+}
+
+func (db *DB) activityLookupBuilder() ShardReindexActivityLookupBuilder {
+	db.reindexLookupsMu.RLock()
+	defer db.reindexLookupsMu.RUnlock()
+	return db.shardReindexActivityLookupBuilder
+}
+
+func (db *DB) cleanupInProgressLookupBuilder() CleanupInProgressLookupBuilder {
+	db.reindexLookupsMu.RLock()
+	defer db.reindexLookupsMu.RUnlock()
+	return db.reindexCleanupInProgressLookupBldr
 }
 
 // ErrReindexGateUnavailable keeps a movement from waiting, so a task-manager outage shows as errors, not a stall.
