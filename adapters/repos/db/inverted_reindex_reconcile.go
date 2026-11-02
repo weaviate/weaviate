@@ -822,7 +822,7 @@ func (r *migrationReconciler) clusterVerdict(subject MigrationSubject, tasks []d
 		return migrationVerdictLeave, migrationTaskMapUnreadable
 	}
 	if task, found := findMigrationTask(subject, local); found {
-		return migrationVerdictForTask(task)
+		return migrationVerdictForTask(task, subject)
 	}
 	return r.verdictFrom(subject, tasks, taskListIsComplete)
 }
@@ -857,7 +857,7 @@ func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []dist
 	completeness taskListCompleteness,
 ) (migrationVerdict, string) {
 	if task, found := findMigrationTask(subject, tasks); found {
-		return migrationVerdictForTask(task)
+		return migrationVerdictForTask(task, subject)
 	}
 
 	class := r.deps.Class()
@@ -886,7 +886,12 @@ func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []dist
 	return migrationVerdictDiscard, "owning task is gone and the schema does not show its effect"
 }
 
-func migrationVerdictForTask(task distributedtask.TaskStatusEntry) (migrationVerdict, string) {
+// A decided group is past its point of no return: its record commits whatever
+// the task's status, or this replica would disagree with its siblings for good.
+func migrationVerdictForTask(task distributedtask.TaskStatusEntry, subject MigrationSubject) (migrationVerdict, string) {
+	if _, decided := task.DecidedUnits[subject.Key.UnitID]; decided {
+		return migrationVerdictCommit, fmt.Sprintf("owning task (%s) decided this unit's swap", task.Status)
+	}
 	switch task.Status {
 	case distributedtask.TaskStatusFinished:
 		return migrationVerdictCommit, "owning task finished"
@@ -930,11 +935,8 @@ func (r *migrationReconciler) DiscardTask(ctx context.Context, task *distributed
 	if len(r.store.Unreadable()) > 0 {
 		return errors.New("a migration record on this shard cannot be read, so no record is discarded")
 	}
-	verdict, why := migrationVerdictForTask(task.StatusEntry())
-	if verdict != migrationVerdictDiscard {
-		return nil
-	}
-	tasks := []distributedtask.TaskStatusEntry{task.StatusEntry()}
+	entry := task.StatusEntry()
+	tasks := []distributedtask.TaskStatusEntry{entry}
 	discarding := errorcompounder.New()
 	for _, rec := range r.store.Records() {
 		if err := ctx.Err(); err != nil {
@@ -943,6 +945,10 @@ func (r *migrationReconciler) DiscardTask(ctx context.Context, task *distributed
 		}
 		subject := rec.Subject()
 		if _, found := findMigrationTask(subject, tasks); !found || rec.FlipDecided() || r.store.Wedged(subject.Key) {
+			continue
+		}
+		verdict, why := migrationVerdictForTask(entry, subject)
+		if verdict != migrationVerdictDiscard {
 			continue
 		}
 		discarding.AddWrapf(r.discardUnlessUnitRuns(ctx, subject, why), "record %s", subject.Key)

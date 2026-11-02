@@ -38,9 +38,17 @@ func ReindexIndexTypes(mt ReindexMigrationType) (indexTypes []string, known bool
 	return nil, false
 }
 
-// ShouldRetainCompletedTask keeps a FAILED record until newer runs on its
-// property cover all its index types, so the status endpoint still reads
-// "failed". A newer run that hides the failure is kept until the failed record
+// ReindexLeftPartial reports whether a task stopped after some groups' swaps
+// were decided: those tenants serve the migrated index, the rest do not.
+func ReindexLeftPartial(task *distributedtask.Task) bool {
+	return (task.Status == distributedtask.TaskStatusFailed || task.Status == distributedtask.TaskStatusCancelled) &&
+		len(task.SwapDecidedGroups) > 0
+}
+
+// ShouldRetainCompletedTask keeps a FAILED record, or one that left its
+// tenants partly migrated, until newer runs on its property cover all its
+// index types, so the status endpoint still reads "failed" or "partial", and
+// a replica's load still finds the decision its record commits on. A newer run that hides the failure is kept until the failed record
 // is gone, so the failure cannot resurface. "failed" lasts until a newer run of
 // that index type (even a cancelled one), a collection delete, or, for a
 // non-enable run, dropping the index.
@@ -57,13 +65,13 @@ func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	if len(newestOn) == 0 {
 		return false
 	}
-	if task.Status == distributedtask.TaskStatusFailed {
+	if task.Status == distributedtask.TaskStatusFailed || ReindexLeftPartial(task) {
 		return slices.ContainsFunc(newestOn, func(indexType string) bool {
 			return !p.indexDroppedSince(target, indexType)
 		})
 	}
 	for _, older := range namespaceTasks {
-		if older.Version >= task.Version || older.Status != distributedtask.TaskStatusFailed {
+		if older.Version >= task.Version || (older.Status != distributedtask.TaskStatusFailed && !ReindexLeftPartial(older)) {
 			continue
 		}
 		olderTarget := targets.of(older)
