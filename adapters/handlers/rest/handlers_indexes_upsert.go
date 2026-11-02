@@ -685,6 +685,9 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	if len(shardOwnership) == 0 {
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, "collection has no shards"))
 	}
+	if isMT && semantic {
+		shardOwnership = skipTenantsAlreadyMigrated(shardOwnership, collection, propertyName, plan, reindexTasks)
+	}
 
 	unitIDs, unitToShard, unitToNode := buildUnitMaps(shardOwnership)
 
@@ -707,8 +710,8 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		return resp
 	}
 
-	// Semantic migrations opt into the two-phase RAFT PREP barrier; MT
-	// semantic migrations also group by tenant for per-tenant barriers.
+	// Semantic migrations decide each group's swap in RAFT; MT semantic
+	// migrations group by tenant, so each tenant swaps once its replicas are ready.
 	if isMT && semantic {
 		unitSpecs := buildUnitSpecs(shardOwnership)
 		if err := h.appState.ClusterService.AddDistributedTaskWithGroupsBarrier(
@@ -739,6 +742,45 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		TaskID: namespacing.StripOwnNamespace(principal, taskID),
 		Status: reindexStartedStatus,
 	})
+}
+
+// skipTenantsAlreadyMigrated leaves out the tenants the property's latest
+// reindex decided before it failed or was cancelled, when this request asks
+// for the very same migration: those tenants already serve its target. Any
+// other request, or a latest run that was not identical, reruns every tenant.
+// The decision is the task's RAFT record, never shard state.
+func skipTenantsAlreadyMigrated(ownership map[string][]string, collection, propertyName string,
+	plan upsertPlan, reindexTasks []*distributedtask.Task,
+) map[string][]string {
+	var latest *distributedtask.Task
+	var latestPayload db.ReindexTaskPayload
+	for _, pt := range parseReindexTasks(reindexTasks) {
+		if !strings.EqualFold(pt.payload.Collection, collection) || !slices.Contains(pt.payload.Properties, propertyName) {
+			continue
+		}
+		if latest == nil || pt.task.Version > latest.Version {
+			latest, latestPayload = pt.task, pt.payload
+		}
+	}
+	if latest == nil || !db.ReindexLeftPartial(latest) ||
+		latestPayload.MigrationType != plan.migrationType ||
+		latestPayload.TargetTokenization != plan.targetTok ||
+		latestPayload.BucketStrategy != plan.bucketStrategy {
+		return ownership
+	}
+	remaining := make(map[string][]string, len(ownership))
+	for node, shards := range ownership {
+		for _, shard := range shards {
+			if !latest.GroupSwapDecided(shard) {
+				remaining[node] = append(remaining[node], shard)
+			}
+		}
+	}
+	// Every tenant decided but the flip never landed: only a full run reaches it.
+	if len(remaining) == 0 {
+		return ownership
+	}
+	return remaining
 }
 
 // buildReindexPayload assembles the RAFT task payload. OriginalTokenization is
