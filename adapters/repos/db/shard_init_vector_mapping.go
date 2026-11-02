@@ -42,6 +42,12 @@ import (
 func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[string]schemaConfig.VectorIndexConfig,
 	records map[string]vectorIndexRecord,
 ) (map[string]vectorIndexRecord, error) {
+	// before any deletion: finishing a drop would take the other's queue
+	err := refuseSharedVectorIndexQueues(records)
+	if err != nil {
+		return nil, err
+	}
+
 	for name, rec := range records {
 		if rec.State != vectorIndexStateDropping {
 			continue
@@ -52,16 +58,6 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 			return nil, err
 		}
 		delete(records, name)
-	}
-
-	// two consumers of one queue would each take the other's work
-	queues := make(map[string]string, len(records))
-	for _, name := range slices.Sorted(maps.Keys(records)) {
-		queueID := records[name].queueIDOrDefault()
-		if other, ok := queues[queueID]; ok {
-			return nil, fmt.Errorf("vectors %q and %q both record queue %q", other, name, queueID)
-		}
-		queues[queueID] = name
 	}
 
 	toBuild := make(map[string]vectorIndexRecord, len(active))
@@ -110,6 +106,21 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 		}
 	}
 	return toBuild, nil
+}
+
+// refuseSharedVectorIndexQueues fails when two records name one queue: two
+// consumers would each take the other's work, and a drop of either would
+// delete the other's.
+func refuseSharedVectorIndexQueues(records map[string]vectorIndexRecord) error {
+	queues := make(map[string]string, len(records))
+	for _, name := range slices.Sorted(maps.Keys(records)) {
+		queueID := records[name].queueIDOrDefault()
+		if other, ok := queues[queueID]; ok {
+			return fmt.Errorf("vectors %q and %q both record queue %q", other, name, queueID)
+		}
+		queues[queueID] = name
+	}
+	return nil
 }
 
 // readyVectorIndexNeedsRebuild probes a ready record's storage. Present:
