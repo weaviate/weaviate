@@ -607,34 +607,7 @@ func TestRestoreShardWhoseVectorsAreStillQueued(t *testing.T) {
 					"precondition: every vector is still queued")
 			}
 
-			stagingRoot := t.TempDir()
-			sd := backup.ShardDescriptor{}
-			files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot)
-			require.NoError(t, err)
-
-			// restore in place, the way a restore lands the backup on the node
-			shardName := shard.Name()
-			shardDir := shard.path()
-			require.NoError(t, shard.Shutdown(ctx))
-			require.NoError(t, os.RemoveAll(shardDir))
-			rootPath := idx.Config.RootPath
-			for _, relPath := range files {
-				copyFileForTest(t, filepath.Join(stagingRoot, relPath), filepath.Join(rootPath, relPath))
-			}
-			for relPath, data := range map[string][]byte{
-				sd.DocIDCounterPath:      sd.DocIDCounter,
-				sd.PropLengthTrackerPath: sd.PropLengthTracker,
-				sd.ShardVersionPath:      sd.Version,
-			} {
-				require.NoError(t, os.WriteFile(filepath.Join(rootPath, relPath), data, 0o644))
-			}
-
-			// the restored node indexes as usual
-			idx.scheduler = idx.db.scheduler
-			restored, err := idx.initShard(ctx, shardName, class, nil, true, true)
-			require.NoError(t, err, "the restored shard must load")
-			idx.shards.Store(shardName, restored)
-			restoredShard := underlyingShard(t, restored)
+			restoredShard := backupAndRestoreInPlace(t, ctx, shard, idx, class)
 
 			waitForQueueToDrain(t, restoredShard, tt.targetVector)
 			found, err := restoredShard.WithVectorIndex(tt.targetVector, func(index VectorIndex) error {
@@ -709,6 +682,76 @@ func TestInitShardVectors_QueueOutlivesItsIndex(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, ok)
 	assert.DirExists(t, filepath.Join(shardDir, "main.queue.d"))
+}
+
+// backupAndRestoreInPlace backs shard up, replaces its directory with the
+// backup, the way a restore lands it on the node, and loads it with idx's
+// running scheduler.
+func backupAndRestoreInPlace(t *testing.T, ctx context.Context, shard *Shard, idx *Index, class *models.Class) *Shard {
+	t.Helper()
+	stagingRoot := t.TempDir()
+	sd := backup.ShardDescriptor{}
+	files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot)
+	require.NoError(t, err)
+
+	shardName := shard.Name()
+	shardDir := shard.path()
+	require.NoError(t, shard.Shutdown(ctx))
+	require.NoError(t, os.RemoveAll(shardDir))
+	rootPath := idx.Config.RootPath
+	for _, relPath := range files {
+		copyFileForTest(t, filepath.Join(stagingRoot, relPath), filepath.Join(rootPath, relPath))
+	}
+	for relPath, data := range map[string][]byte{
+		sd.DocIDCounterPath:      sd.DocIDCounter,
+		sd.PropLengthTrackerPath: sd.PropLengthTracker,
+		sd.ShardVersionPath:      sd.Version,
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(rootPath, relPath), data, 0o644))
+	}
+
+	idx.scheduler = idx.db.scheduler
+	restored, err := idx.initShard(ctx, shardName, class, nil, true, true)
+	require.NoError(t, err, "the restored shard must load")
+	idx.shards.Store(shardName, restored)
+	return underlyingShard(t, restored)
+}
+
+// A backup of a shard whose queue outlived its index carries the queue and
+// the record naming it: the restored shard indexes what was still queued.
+func TestRestoreShardWhoseQueueOutlivedItsIndex(t *testing.T) {
+	ctx := testCtx()
+	tt := queuedVectorIndexCases()[2]
+	shard, idx, class := newQueuedVectorShard(t, ctx, tt, true)
+	replaced := recorded(shard, "foo", "vectors_foo_2", "ready")
+	replaced.QueueID = "vectors_foo"
+	// the switch happens on an empty index, so every vector lands in the
+	// queue the replacement took over
+	shard = reloadAfter(t, ctx, shard, class, func() {
+		withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+			require.NoError(t, m.Put("foo", replaced))
+		})
+	})
+	for i := range queuedObjectCount {
+		require.NoError(t, shard.PutObject(ctx, tt.object(i)))
+	}
+	require.Equal(t, int64(queuedObjectCount), queuedVectorCount(t, shard, "foo"),
+		"precondition: every vector is still queued")
+
+	shard = backupAndRestoreInPlace(t, ctx, shard, idx, class)
+
+	rec, _, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	assert.Equal(t, replaced, rec)
+	waitForQueueToDrain(t, shard, "foo")
+	found, err := shard.WithVectorIndex("foo", func(index VectorIndex) error {
+		for docID := range uint64(queuedObjectCount) {
+			require.True(t, index.ContainsDoc(docID), "doc %d is indexed after restore", docID)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.True(t, found)
 }
 
 const (
