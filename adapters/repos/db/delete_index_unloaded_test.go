@@ -224,7 +224,7 @@ func TestMigratorDropOrphanedClassSkipsCloudForALiveClassOfDifferentCase(t *test
 	}
 	m := &Migrator{db: db, cloud: panickingOffloader{}}
 
-	require.NoError(t, m.DropOrphanedClass(context.Background(), orphan, true))
+	require.NoError(t, m.DropOrphanedClass(context.Background(), orphan, true, 100))
 }
 
 // GetIndex retries a miss for ~150ms, which every real orphan hits: one lookup
@@ -236,7 +236,7 @@ func TestMigratorDropOrphanedClassLooksUpTheIndexOnce(t *testing.T) {
 
 	start := time.Now()
 	for _, class := range []string{"OrphanA", "OrphanB", "OrphanC"} {
-		require.NoError(t, m.DropOrphanedClass(context.Background(), class, false))
+		require.NoError(t, m.DropOrphanedClass(context.Background(), class, false, 100))
 	}
 	require.Less(t, time.Since(start), 900*time.Millisecond)
 }
@@ -258,9 +258,45 @@ func TestDropClassNeverTouchesALiveClassOfDifferentCase(t *testing.T) {
 	writeShardSignature(t, dir)
 	m := &Migrator{db: db, cloud: panickingOffloader{}, classLocks: esync.NewKeyLocker()}
 
-	require.NoError(t, m.DropClass(context.Background(), other, true))
+	require.NoError(t, m.DropClass(context.Background(), other, true, 100))
 
 	require.Same(t, liveIdx, db.GetIndex(schema.ClassName(live)), "live index was unloaded")
 	_, err := os.Stat(dir)
 	require.NoError(t, err, "live class directory was removed")
+}
+
+// The cloud delete stops at the delete's index so a recreated same-name class keeps its copies.
+func TestClassDropsBoundTheCloudDeleteByTheDeleteIndex(t *testing.T) {
+	tests := []struct {
+		name      string
+		drop      func(m *Migrator) error
+		wantBound []uint64
+	}{
+		{
+			name:      "class delete",
+			drop:      func(m *Migrator) error { return m.DropClass(context.Background(), "Gone", true, 300) },
+			wantBound: []uint64{300},
+		},
+		{
+			name:      "orphan drop",
+			drop:      func(m *Migrator) error { return m.DropOrphanedClass(context.Background(), "Gone", true, 500) },
+			wantBound: []uint64{500},
+		},
+		{
+			name: "a class without frozen tenants touches no copy",
+			drop: func(m *Migrator) error { return m.DropClass(context.Background(), "Gone", false, 300) },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			db := &DB{config: Config{RootPath: t.TempDir()}, logger: logger, indices: map[string]*Index{}}
+			cloud := &fakeTransitionCloud{}
+			m := &Migrator{db: db, cloud: cloud, classLocks: esync.NewKeyLocker(), logger: logger}
+
+			require.NoError(t, tt.drop(m))
+
+			require.Equal(t, tt.wantBound, cloud.classDeletes)
+		})
+	}
 }

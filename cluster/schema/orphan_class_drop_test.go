@@ -33,19 +33,26 @@ import (
 type recordingIndexer struct {
 	Indexer
 
-	deleted  []string
-	frozen   map[string]bool
-	dropErr  error
-	onReload func([]command.UpdateClassRequest)
+	deleted   []string
+	frozen    map[string]bool
+	droppedAt map[string]uint64
+	dropErr   error
+	onReload  func([]command.UpdateClassRequest)
 }
 
-func (r *recordingIndexer) DropOrphanedClass(_ context.Context, class string, hasFrozen bool) error {
+func (r *recordingIndexer) DropOrphanedClass(_ context.Context, class string, hasFrozen bool, v uint64) error {
 	r.deleted = append(r.deleted, class)
 	if r.frozen == nil {
 		r.frozen = map[string]bool{}
+		r.droppedAt = map[string]uint64{}
 	}
 	r.frozen[class] = hasFrozen
+	r.droppedAt[class] = v
 	return r.dropErr
+}
+
+func (r *recordingIndexer) DeleteClass(class string, hasFrozen bool, v uint64) error {
+	return r.DropOrphanedClass(context.Background(), class, hasFrozen, v)
 }
 
 func (r *recordingIndexer) TriggerSchemaUpdateCallbacks() {}
@@ -92,7 +99,7 @@ func TestReloadDropsClassesTheSchemaNoLongerNames(t *testing.T) {
 			seed: func(t *testing.T, sm *SchemaManager) {
 				addClass(t, sm, "Kept")
 				addClass(t, sm, "Orphan")
-				require.NoError(t, sm.Restore(snapshotWithout(t, sm, "Orphan"), sm.parser))
+				require.NoError(t, sm.Restore(snapshotWithout(t, sm, "Orphan"), sm.parser, 500))
 			},
 			wantDeleted: []string{"Orphan"},
 		},
@@ -121,8 +128,8 @@ func TestReloadDropsClassesTheSchemaNoLongerNames(t *testing.T) {
 				addClass(t, sm, "Kept")
 				addClass(t, sm, "Revived")
 				full := snapshotWithout(t, sm, "")
-				require.NoError(t, sm.Restore(snapshotWithout(t, sm, "Revived"), sm.parser))
-				require.NoError(t, sm.Restore(full, sm.parser))
+				require.NoError(t, sm.Restore(snapshotWithout(t, sm, "Revived"), sm.parser, 500))
+				require.NoError(t, sm.Restore(full, sm.parser, 500))
 			},
 			wantDeleted: nil,
 		},
@@ -140,7 +147,7 @@ func TestReloadDropsClassesTheSchemaNoLongerNames(t *testing.T) {
 			seed: func(t *testing.T, sm *SchemaManager) {
 				addClass(t, sm, "Kept")
 				addClass(t, sm, "Orphan")
-				require.NoError(t, sm.RestoreLegacy(legacySnapshotWithout(t, sm, "Orphan"), sm.parser))
+				require.NoError(t, sm.RestoreLegacy(legacySnapshotWithout(t, sm, "Orphan"), sm.parser, 500))
 			},
 			wantDeleted: []string{"Orphan"},
 		},
@@ -190,7 +197,7 @@ func TestMetadataOnlyNodesRecordNoOrphans(t *testing.T) {
 
 	addClass(t, sm, "Orphan")
 	deleteClassSchemaOnly(t, sm, "Orphan")
-	require.NoError(t, sm.Restore(snapshotWithout(t, sm, ""), sm.parser))
+	require.NoError(t, sm.Restore(snapshotWithout(t, sm, ""), sm.parser, 500))
 
 	sm.orphansMu.Lock()
 	defer sm.orphansMu.Unlock()
@@ -220,9 +227,67 @@ func TestFailedDropIsRetriedOnTheNextReload(t *testing.T) {
 // goes, the store is left untouched.
 func deleteClassSchemaOnly(t *testing.T, sm *SchemaManager, class string) {
 	t.Helper()
+	deleteClassAt(t, sm, class, 300, true)
+}
+
+func deleteClassAt(t *testing.T, sm *SchemaManager, class string, v uint64, schemaOnly bool) {
+	t.Helper()
 	require.NoError(t, sm.DeleteClass(&command.ApplyRequest{
-		Type: command.ApplyRequest_TYPE_DELETE_CLASS, Class: class,
-	}, true, false))
+		Type: command.ApplyRequest_TYPE_DELETE_CLASS, Class: class, Version: v,
+	}, schemaOnly, false))
+}
+
+func TestClassDropsCarryTheDeleteIndex(t *testing.T) {
+	tests := []struct {
+		name string
+		seed func(t *testing.T, sm *SchemaManager)
+		want uint64
+	}{
+		{
+			name: "applied delete",
+			seed: func(t *testing.T, sm *SchemaManager) { deleteClassAt(t, sm, "C", 300, false) },
+			want: 300,
+		},
+		{
+			name: "delete replayed during catch-up",
+			seed: func(t *testing.T, sm *SchemaManager) {
+				deleteClassAt(t, sm, "C", 300, true)
+				sm.ReloadDBFromSchema(context.Background())
+			},
+			want: 300,
+		},
+		{
+			name: "deleted twice during catch-up",
+			seed: func(t *testing.T, sm *SchemaManager) {
+				deleteClassAt(t, sm, "C", 300, true)
+				addClass(t, sm, "C")
+				deleteClassAt(t, sm, "C", 400, true)
+				sm.ReloadDBFromSchema(context.Background())
+			},
+			want: 400,
+		},
+		{
+			name: "snapshot without the class",
+			seed: func(t *testing.T, sm *SchemaManager) {
+				require.NoError(t, sm.Restore(snapshotWithout(t, sm, "C"), sm.parser, 500))
+				sm.ReloadDBFromSchema(context.Background())
+			},
+			want: 500,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx := &recordingIndexer{}
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			addClass(t, sm, "C")
+
+			tt.seed(t, sm)
+
+			require.Equal(t, map[string]uint64{"C": tt.want}, idx.droppedAt)
+		})
+	}
 }
 
 // legacySnapshotWithout is snapshotWithout in the pre-Snapshot wire format,
@@ -260,7 +325,7 @@ func TestRestoreCarriesTheFrozenFlag(t *testing.T) {
 	// A snapshot naming no class at all: both were deleted while away.
 	empty, err := json.Marshal(map[string]*metaClass{})
 	require.NoError(t, err)
-	require.NoError(t, sm.Restore(empty, sm.parser))
+	require.NoError(t, sm.Restore(empty, sm.parser, 500))
 
 	sm.ReloadDBFromSchema(context.Background())
 
@@ -320,7 +385,7 @@ func TestReloadNeverDropsAClassThatDiffersOnlyByCase(t *testing.T) {
 				classes["Global_webflowPages"] = live
 				data, err := json.Marshal(classes)
 				require.NoError(t, err)
-				require.NoError(t, sm.Restore(data, sm.parser))
+				require.NoError(t, sm.Restore(data, sm.parser, 500))
 			},
 			wantDeleted: nil,
 		},

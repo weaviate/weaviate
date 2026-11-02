@@ -58,7 +58,7 @@ func createClass(t *testing.T, ctx context.Context, migrator *Migrator, sg *fake
 
 func deleteClass(t *testing.T, ctx context.Context, migrator *Migrator, sg *fakeSchemaGetter, name string) {
 	t.Helper()
-	require.NoError(t, migrator.DropClass(ctx, name, false))
+	require.NoError(t, migrator.DropClass(ctx, name, false, 1))
 	unpublish(sg, name)
 }
 
@@ -148,7 +148,7 @@ func TestDeleteClassDuringBackup(t *testing.T) {
 	deleted := make(chan struct{})
 	go func() {
 		defer close(deleted)
-		_ = migrator.DropClass(ctx, deleteTestClass, false)
+		_ = migrator.DropClass(ctx, deleteTestClass, false, 1)
 	}()
 	unpublish(sg, deleteTestClass)
 

@@ -309,7 +309,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	return nil
 }
 
-func (m *Migrator) DropClass(ctx context.Context, className string, hasFrozen bool) error {
+func (m *Migrator) DropClass(ctx context.Context, className string, hasFrozen bool, v uint64) error {
 	indexID := indexID(schema.ClassName(className))
 
 	m.classLocks.Lock(indexID)
@@ -323,19 +323,19 @@ func (m *Migrator) DropClass(ctx context.Context, className string, hasFrozen bo
 	m.transitions.kick()
 
 	if m.cloud != nil && hasFrozen && !collided {
-		return m.cloud.Delete(ctx, className, "", "")
+		return m.cloud.DeleteClass(ctx, className, v)
 	}
 
 	return nil
 }
 
-func (m *Migrator) DropOrphanedClass(ctx context.Context, className string, hasFrozen bool) error {
+func (m *Migrator) DropOrphanedClass(ctx context.Context, className string, hasFrozen bool, v uint64) error {
 	collided, err := m.db.DropOrphanedClass(schema.ClassName(className))
 	if err != nil {
 		return err
 	}
 	if m.cloud != nil && hasFrozen && !collided {
-		return m.cloud.Delete(ctx, className, "", "")
+		return m.cloud.DeleteClass(ctx, className, v)
 	}
 	return nil
 }

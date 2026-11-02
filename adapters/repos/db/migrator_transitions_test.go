@@ -54,6 +54,8 @@ type fakeTransitionCloud struct {
 	deletes   []string
 	copies    []string
 	empty     map[string]bool
+	// classDeletes holds the bound of each class delete.
+	classDeletes []uint64
 
 	uploadErr  error
 	hasDataErr error
@@ -105,6 +107,13 @@ func (c *fakeTransitionCloud) Delete(_ context.Context, _, _, copyPath string) e
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.deletes = append(c.deletes, copyPath)
+	return nil
+}
+
+func (c *fakeTransitionCloud) DeleteClass(_ context.Context, _ string, below uint64) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.classDeletes = append(c.classDeletes, below)
 	return nil
 }
 

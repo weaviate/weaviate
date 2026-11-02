@@ -223,7 +223,7 @@ func TestShardStatusGaugeReleasedWhenShardLeavesNode(t *testing.T) {
 			},
 			act: func(t *testing.T, e env) {
 				// Drop may error on a closed store; the gauge must be released regardless.
-				_ = e.h.migrator.DropClass(ctx, e.className, false)
+				_ = e.h.migrator.DropClass(ctx, e.className, false, 1)
 			},
 		},
 		{
@@ -271,7 +271,7 @@ func TestShardStatusGaugeReleasedWhenShardLeavesNode(t *testing.T) {
 				require.Error(t, e.shard.UpdateStatus(storagestate.StatusReadOnly.String(), "closed store"))
 			},
 			act: func(t *testing.T, e env) {
-				_ = e.h.migrator.DropClass(ctx, e.className, false)
+				_ = e.h.migrator.DropClass(ctx, e.className, false, 1)
 			},
 		},
 		{
@@ -324,7 +324,7 @@ func TestShardStatusGaugeReleasedWhenShardLeavesNode(t *testing.T) {
 			multiTenant: true,
 			counted:     nil,
 			act: func(t *testing.T, e env) {
-				require.NoError(t, e.h.migrator.DropClass(ctx, e.className, false))
+				require.NoError(t, e.h.migrator.DropClass(ctx, e.className, false, 1))
 			},
 		},
 	}
@@ -376,7 +376,7 @@ func TestShardStatusGaugeCountsEachShardOfACollection(t *testing.T) {
 	h.requireBuckets(t, "with one tenant left active",
 		map[storagestate.Status]float64{storagestate.StatusReady: 1})
 
-	require.NoError(t, h.migrator.DropClass(ctx, className, false))
+	require.NoError(t, h.migrator.DropClass(ctx, className, false, 1))
 	h.requireBuckets(t, "after the collection is dropped", nil)
 }
 
@@ -407,7 +407,7 @@ func TestShardStatusGaugeReleasedAcrossCreateDropCycles(t *testing.T) {
 		h.requireBuckets(t, "while the collection exists",
 			map[storagestate.Status]float64{storagestate.StatusReady: 1})
 
-		require.NoError(t, h.migrator.DropClass(testCtx(), "StatusGaugeCycle", false))
+		require.NoError(t, h.migrator.DropClass(testCtx(), "StatusGaugeCycle", false, 1))
 		h.requireBuckets(t, "after the collection is dropped", nil)
 	}
 }
@@ -441,7 +441,7 @@ func TestShardStatusGaugeReleasedWhileStatusIsAccessed(t *testing.T) {
 		{
 			name: "collection dropped",
 			act: func(t *testing.T, h *statusGaugeHarness, className string, _ *Shard) {
-				require.NoError(t, h.migrator.DropClass(ctx, className, false))
+				require.NoError(t, h.migrator.DropClass(ctx, className, false, 1))
 			},
 		},
 		{
@@ -520,6 +520,6 @@ func TestShardStatusGaugeMovesFromCountedBucketOnWrite(t *testing.T) {
 		map[storagestate.Status]float64{storagestate.StatusReadOnly: 1})
 
 	queue.Resume()
-	require.NoError(t, h.migrator.DropClass(ctx, className, false))
+	require.NoError(t, h.migrator.DropClass(ctx, className, false, 1))
 	h.requireBuckets(t, "after the collection is dropped", nil)
 }

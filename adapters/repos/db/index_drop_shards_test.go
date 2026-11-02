@@ -541,6 +541,8 @@ func (c fakeOffloadCloud) Delete(ctx context.Context, className, shardName, node
 	return c.deleteErrs[shardName]
 }
 
+func (c fakeOffloadCloud) DeleteClass(context.Context, string, uint64) error { return nil }
+
 func dropShardLogShard(t *testing.T, hook *test.Hook) any {
 	t.Helper()
 	for _, entry := range hook.AllEntries() {

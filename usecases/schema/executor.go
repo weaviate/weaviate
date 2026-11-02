@@ -61,8 +61,8 @@ func (e *executor) Open(ctx context.Context) error {
 
 // DropOrphanedClass returns its error, unlike DeleteClass, so the next reload
 // can retry a failed drop.
-func (e *executor) DropOrphanedClass(ctx context.Context, cls string, hasFrozen bool) error {
-	return e.migrator.DropOrphanedClass(ctx, cls, hasFrozen)
+func (e *executor) DropOrphanedClass(ctx context.Context, cls string, hasFrozen bool, v uint64) error {
+	return e.migrator.DropOrphanedClass(ctx, cls, hasFrozen, v)
 }
 
 // ReloadLocalDB reloads the local database using the latest schema.
@@ -254,13 +254,13 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 	return nil
 }
 
-func (e *executor) DeleteClass(cls string, hasFrozen bool) error {
+func (e *executor) DeleteClass(cls string, hasFrozen bool, v uint64) error {
 	ctx := context.Background()
-	if err := e.migrator.DropClass(ctx, cls, hasFrozen); err != nil {
+	if err := e.migrator.DropClass(ctx, cls, hasFrozen, v); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action": "delete_class",
 			"class":  cls,
-		}).WithError(err).Errorf("migrator")
+		}).Errorf("migrator: %v", err)
 	}
 
 	e.logger.WithFields(logrus.Fields{

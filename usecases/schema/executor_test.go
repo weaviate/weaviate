@@ -78,13 +78,13 @@ func TestExecutor(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("DropClass", Anything, Anything).Return(nil)
 		x := newMockExecutor(migrator, store)
-		assert.Nil(t, x.DeleteClass("A", false))
+		assert.Nil(t, x.DeleteClass("A", false, 100))
 	})
 	t.Run("DropClassWithError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("DropClass", Anything, Anything).Return(ErrAny)
 		x := newMockExecutor(migrator, store)
-		assert.Nil(t, x.DeleteClass("A", false))
+		assert.Nil(t, x.DeleteClass("A", false, 100))
 	})
 
 	t.Run("UpdateIndex", func(t *testing.T) {

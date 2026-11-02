@@ -35,8 +35,9 @@ type UpdateTenantPayload struct {
 // Migrator represents both the input and output interface of the Composer
 type Migrator interface {
 	AddClass(ctx context.Context, class *models.Class) error
-	DropClass(ctx context.Context, className string, hasFrozen bool) error
-	DropOrphanedClass(ctx context.Context, className string, hasFrozen bool) error
+	// DropClass and DropOrphanedClass delete cloud copies below v, the delete's RAFT index.
+	DropClass(ctx context.Context, className string, hasFrozen bool, v uint64) error
+	DropOrphanedClass(ctx context.Context, className string, hasFrozen bool, v uint64) error
 	// UpdateClass(ctx context.Context, className string,newClassName *string) error
 	GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error)
 	LoadShardForMovement(ctx context.Context, class, shard string) error

@@ -117,9 +117,14 @@ type SchemaManager struct {
 	metadataOnly bool
 
 	orphansMu sync.Mutex
-	// orphanedClasses maps classes dropped while the store went untouched to
-	// whether they held frozen tenants.
-	orphanedClasses map[string]bool
+	// orphanedClasses holds the classes dropped while the store went untouched.
+	orphanedClasses map[string]orphanedClass
+}
+
+type orphanedClass struct {
+	hasFrozen bool
+	// dropped is the highest index the class was dropped at.
+	dropped uint64
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
@@ -192,18 +197,6 @@ func (s *SchemaManager) SetShouldLogSlowApply(fn func() bool) {
 // the AddTenants serialization when it is not.
 func (s *SchemaManager) TenantLimitEnforced() bool {
 	return s.tenantLimit != nil && s.tenantLimit() >= 0
-}
-
-// DeleteClassFromDB is the store half of a DELETE_CLASS.
-func (s *SchemaManager) DeleteClassFromDB(class string, hasFrozen bool) error {
-	if s.replicationFSM == nil {
-		return fmt.Errorf("replication deleter is not set, this should never happen")
-	} else if err := s.replicationFSM.DeleteReplicationsByCollection(class); err != nil {
-		// Logged, not returned: a stuck replication op must not block the
-		// delete.
-		s.log.WithField("class", class).Errorf("could not delete replication operations for deleted class: %v", err)
-	}
-	return s.db.DeleteClass(class, hasFrozen)
 }
 
 // HasFrozenTenants reports whether the class has tenants on cloud storage
@@ -285,34 +278,35 @@ func (s *SchemaManager) AliasSnapshot() ([]byte, error) {
 // Restore installs a snapshot's schema. Nothing replays the DELETE_CLASS that
 // dropped a class the snapshot no longer names, so this diff is the store's
 // only signal.
-func (s *SchemaManager) Restore(data []byte, parser Parser) error {
+func (s *SchemaManager) Restore(data []byte, parser Parser, index uint64) error {
 	dropped, err := s.schema.Restore(data, parser)
 	if err != nil {
 		return err
 	}
-	s.recordOrphans(dropped)
+	s.recordOrphans(dropped, index)
 	return nil
 }
 
 // recordOrphans marks the classes a restore dropped.
-func (s *SchemaManager) recordOrphans(dropped map[string]bool) {
+func (s *SchemaManager) recordOrphans(dropped map[string]bool, index uint64) {
 	for class, hasFrozen := range dropped {
-		s.recordOrphan(class, hasFrozen)
+		s.recordOrphan(class, hasFrozen, index)
 	}
 }
 
-func (s *SchemaManager) recordOrphan(class string, hasFrozen bool) {
+func (s *SchemaManager) recordOrphan(class string, hasFrozen bool, dropped uint64) {
 	if s.metadataOnly {
 		return
 	}
 	s.orphansMu.Lock()
 	defer s.orphansMu.Unlock()
 	if s.orphanedClasses == nil {
-		s.orphanedClasses = map[string]bool{}
+		s.orphanedClasses = map[string]orphanedClass{}
 	}
-	// OR, never overwrite: deleted frozen, re-added, deleted hot still leaves
+	// OR and max, never overwrite: deleted frozen, re-added, deleted hot still leaves
 	// the first incarnation's cloud data.
-	s.orphanedClasses[class] = s.orphanedClasses[class] || hasFrozen
+	prev := s.orphanedClasses[class]
+	s.orphanedClasses[class] = orphanedClass{hasFrozen: prev.hasFrozen || hasFrozen, dropped: max(prev.dropped, dropped)}
 }
 
 // dropOrphanedClasses removes the recorded classes' data, skipping any the
@@ -330,18 +324,18 @@ func (s *SchemaManager) dropOrphanedClasses() {
 	for name := range present {
 		presentFolded[strings.ToLower(name)] = struct{}{}
 	}
-	for class, hasFrozen := range orphans {
+	for class, orphan := range orphans {
 		if _, revived := presentFolded[strings.ToLower(class)]; revived {
 			continue
 		}
 		// DropOrphanedClass, not DeleteClass: no index is loaded to delete.
-		if err := s.db.DropOrphanedClass(context.Background(), class, hasFrozen); err != nil {
+		if err := s.db.DropOrphanedClass(context.Background(), class, orphan.hasFrozen, orphan.dropped); err != nil {
 			s.log.WithFields(logrus.Fields{
 				"action": "drop_orphaned_class",
 				"class":  class,
 			}).Error(err)
 			// Put it back; nothing else would name this data again.
-			s.recordOrphan(class, hasFrozen)
+			s.recordOrphan(class, orphan.hasFrozen, orphan.dropped)
 		}
 	}
 }
@@ -352,12 +346,12 @@ func (s *SchemaManager) RestoreAliases(data []byte) error {
 
 // RestoreLegacy is Restore for the old snapshot format, and drops classes the
 // same way.
-func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser) error {
+func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser, index uint64) error {
 	dropped, err := s.schema.RestoreLegacy(data, parser)
 	if err != nil {
 		return err
 	}
-	s.recordOrphans(dropped)
+	s.recordOrphans(dropped, index)
 	return nil
 }
 
@@ -770,7 +764,7 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				// collection would otherwise be recorded too. Whether the
 				// directory is really ours is settled at the drop.
 				if s.schema.deleteClass(cmd.Class) && schemaOnly {
-					s.recordOrphan(cmd.Class, hasFrozen)
+					s.recordOrphan(cmd.Class, hasFrozen, cmd.Version)
 				}
 				// Cascade lives in updateSchema (not updateStore) so it
 				// also runs on schemaOnly catchup replay: DTM is in-memory
@@ -786,7 +780,7 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				return nil
 			},
 			updateStore: func() error {
-				return s.db.DeleteClass(cmd.Class, hasFrozen)
+				return s.db.DeleteClass(cmd.Class, hasFrozen, cmd.Version)
 			},
 			schemaOnly:           schemaOnly,
 			enableSchemaCallback: enableSchemaCallback,
