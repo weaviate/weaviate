@@ -84,3 +84,48 @@ func (r *recordingMultiVectorIndex) DeleteMulti(ids ...uint64) error {
 func (r *recordingMultiVectorIndex) Multivector() bool {
 	return true
 }
+
+// ValidateDims must not leave dimensions reserved behind a rejection when it is
+// used for several targets of one object: a write supplying vectors for two
+// targets, where the second is inconsistent with the queue, must not fix the
+// first target at the rejected write's length.
+func TestVectorIndexQueueCheckThenReserveKeepsReservationAllOrNothing(t *testing.T) {
+	queue := &VectorIndexQueue{}
+	queue.asyncEnabled = true
+
+	// A first legitimate 16-dimensional vector takes the dimensions.
+	require.NoError(t, queue.ValidateDims(16))
+
+	// A later write supplies 3 dimensions for this target and is rejected.
+	require.Error(t, queue.CheckDims(3))
+
+	// The rejection must not have changed the reserved dimensions, so the
+	// original 16 is still what the queue accepts.
+	require.NoError(t, queue.CheckDims(16))
+	require.Equal(t, int32(16), queue.dims.Load())
+}
+
+// CheckDims reserves nothing on its own, so a caller can validate every target
+// of one object before committing any of them.
+func TestVectorIndexQueueCheckDimsDoesNotReserve(t *testing.T) {
+	queue := &VectorIndexQueue{}
+	queue.asyncEnabled = true
+
+	require.NoError(t, queue.CheckDims(16))
+	require.Equal(t, int32(0), queue.dims.Load(), "CheckDims must not reserve dimensions")
+
+	queue.ReserveDims(16)
+	require.Equal(t, int32(16), queue.dims.Load())
+}
+
+// ReserveDims is a no-op once dimensions are taken, so committing after a
+// successful check cannot overwrite an established length.
+func TestVectorIndexQueueReserveDimsKeepsFirstLength(t *testing.T) {
+	queue := &VectorIndexQueue{}
+	queue.asyncEnabled = true
+
+	queue.ReserveDims(16)
+	queue.ReserveDims(3)
+
+	require.Equal(t, int32(16), queue.dims.Load())
+}

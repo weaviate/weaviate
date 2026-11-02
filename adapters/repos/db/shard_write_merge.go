@@ -205,6 +205,16 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 			return err
 		}
 
+		// As for a put, with async indexing the index has no dimensions until the
+		// queue drains, so validate against the queued vectors before storing.
+		// This path does not funnel through putObjectLSM, so without this the
+		// merge is persisted and only the queued insert rejects the dimensions.
+		if s.index.AsyncIndexingEnabled {
+			if err := s.validateVectorQueuesBeforeInsert(obj); err != nil {
+				return err
+			}
+		}
+
 		status, err = s.determineInsertStatus(prevObj, obj)
 		if err != nil {
 			return errors.Wrap(err, "check insert/update status")

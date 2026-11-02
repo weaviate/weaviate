@@ -148,17 +148,38 @@ func (iq *VectorIndexQueue) Close(ctx context.Context) error {
 // before the object is written to the LSM store: Insert alone sees a mismatch
 // only after the object is already persisted, leaving a refused object stored
 // but unindexed while the vector index is still empty.
+//
+// Prefer CheckDims followed by ReserveDims when validating several targets for
+// one object, so a later rejection does not leave an earlier reservation
+// behind.
 func (iq *VectorIndexQueue) ValidateDims(length int) error {
+	if err := iq.CheckDims(length); err != nil {
+		return err
+	}
+	iq.ReserveDims(length)
+	return nil
+}
+
+// CheckDims reports whether a pending vector's length is consistent with the
+// dimensions the queue has already accepted. It reserves nothing.
+func (iq *VectorIndexQueue) CheckDims(length int) error {
 	if !iq.asyncEnabled || length == 0 {
 		return nil
 	}
-	if iq.dims.CompareAndSwap(0, int32(length)) {
-		return nil
-	}
-	if dims := iq.dims.Load(); dims != int32(length) {
+	if dims := iq.dims.Load(); dims != 0 && dims != int32(length) {
 		return errors.Errorf("inconsistent vector lengths: %d != %d", length, dims)
 	}
 	return nil
+}
+
+// ReserveDims records length as the queue's dimensions when none is set yet.
+// It is a no-op once dimensions are taken, so it is safe after CheckDims and
+// cannot undo an earlier reservation.
+func (iq *VectorIndexQueue) ReserveDims(length int) {
+	if !iq.asyncEnabled || length == 0 {
+		return
+	}
+	iq.dims.CompareAndSwap(0, int32(length))
 }
 
 func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.VectorRecord) error {

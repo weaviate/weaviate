@@ -268,38 +268,64 @@ func (s *Shard) requireVectorIndexes(vectors map[string][]float32, multiVectors 
 // validateVectorQueuesBeforeInsert reserves the dimensions of every vector
 // about to be stored in the async queues. The queue's Insert runs after the
 // object is persisted, too late to keep a refused write out of the store.
+//
+// Validation is two-phase: every target is checked first, and dimensions are
+// only reserved once all of them pass. Reserving as we went left an earlier
+// target fixed at the length of a write that was then rejected, so a later
+// legitimate vector of the real length was refused too.
 func (s *Shard) validateVectorQueuesBeforeInsert(obj *storobj.Object) error {
-	validate := func(targetVector string, length int) error {
-		found, err := s.WithVectorIndexQueue(targetVector, func(queue *VectorIndexQueue) error {
-			if queue == nil {
-				return nil
-			}
-			return queue.ValidateDims(length)
-		})
-		if !found {
-			return fmt.Errorf("vector index not found for %q", targetVector)
-		}
-		return err
+	type target struct {
+		name   string
+		length int
+		kind   string
 	}
-
-	for targetVector, vector := range obj.Vectors {
-		if err := validate(targetVector, len(vector)); err != nil {
-			return errors.Wrapf(err, "Validate vector index queue %s for target vector %s", targetVector, obj.ID())
+	var targets []target
+	add := func(name string, length int, kind string) {
+		if length == 0 {
+			return
 		}
+		targets = append(targets, target{name: name, length: length, kind: kind})
+	}
+	for targetVector, vector := range obj.Vectors {
+		add(targetVector, len(vector), "vector")
 	}
 	for targetVector, vector := range obj.MultiVectors {
 		length := 0
 		if len(vector) > 0 {
 			length = len(vector[0])
 		}
-		if err := validate(targetVector, length); err != nil {
-			return errors.Wrapf(err, "Validate vector index queue %s for target multi vector %s", targetVector, obj.ID())
-		}
+		add(targetVector, length, "multi vector")
 	}
 	if len(obj.Vector) > 0 && s.index.GetVectorIndexConfig("") != nil {
-		if err := validate("", len(obj.Vector)); err != nil {
-			return errors.Wrapf(err, "Validate vector index queue for %s", obj.ID())
+		add("", len(obj.Vector), "legacy vector")
+	}
+
+	// Phase 1: every target must be consistent with what the queues accepted, so
+	// a rejection leaves no dimensions reserved.
+	for _, t := range targets {
+		found, err := s.WithVectorIndexQueue(t.name, func(queue *VectorIndexQueue) error {
+			if queue == nil {
+				return nil
+			}
+			return queue.CheckDims(t.length)
+		})
+		if !found {
+			return fmt.Errorf("vector index not found for %q", t.name)
 		}
+		if err != nil {
+			return errors.Wrapf(err, "Validate vector index queue %s for target %s %s",
+				t.name, t.kind, obj.ID())
+		}
+	}
+
+	// Phase 2: nothing can reject from here, so reserve.
+	for _, t := range targets {
+		s.WithVectorIndexQueue(t.name, func(queue *VectorIndexQueue) error {
+			if queue != nil {
+				queue.ReserveDims(t.length)
+			}
+			return nil
+		})
 	}
 	return nil
 }
