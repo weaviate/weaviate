@@ -255,6 +255,52 @@ func TestInitShardVectors_Reconcile(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// A shard last loaded by a newer version has records with fields this one
+// does not know. The load drops them before any index opens, and the
+// indexes serve as before.
+func TestInitShardVectors_StripsFieldsOfANewerVersion(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	obj := dropVecObject(t, "a", true)
+	require.NoError(t, shard.PutObject(ctx, obj))
+
+	newer := map[string]string{
+		".legacy": `{"physical_id":"main","index_type":"hnsw","state":"ready","queue_id":"main","config":{"ef":64}}`,
+		"foo":     `{"physical_id":"vectors_foo","index_type":"hnsw","state":"ready","queue_id":"vectors_foo","config":{"ef":64}}`,
+	}
+	var mvBefore []byte
+	shard = reloadAfter(t, ctx, shard, class, func() {
+		withOfflineMapping(t, shard.path(), func(_ *vectorIndexMapping, ns *shardmeta.Namespace) {
+			for k, v := range newer {
+				require.NoError(t, ns.Put([]byte(k), []byte(v)))
+			}
+			var err error
+			mvBefore, err = ns.Get([]byte("mv"))
+			require.NoError(t, err)
+		})
+	})
+
+	ns := shard.metadataDB.Namespace(vectorIndexMappingNamespace)
+	for key, want := range map[string]string{
+		".legacy": `{"physical_id":"main","index_type":"hnsw","state":"ready"}`,
+		"foo":     `{"physical_id":"vectors_foo","index_type":"hnsw","state":"ready"}`,
+		"mv":      string(mvBefore),
+	} {
+		got, err := ns.Get([]byte(key))
+		require.NoError(t, err)
+		assert.Equal(t, want, string(got), key)
+	}
+
+	found, err := shard.WithVectorIndex("foo", func(index VectorIndex) error {
+		if !index.ContainsDoc(obj.DocID) {
+			return fmt.Errorf("doc %d is gone", obj.DocID)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	assert.True(t, found)
+}
+
 // A vector added to a running shard is recorded ready at the naming rule's
 // ID, with its storage durable, and survives a reload as itself.
 func TestInitTargetVector_RecordsTheVector(t *testing.T) {
