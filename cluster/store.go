@@ -18,7 +18,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1073,25 +1072,9 @@ func (st *Store) wipedJoinerRestoreReload(snapIndex uint64) bool {
 	return false
 }
 
-const wipedJoinerFSMSettleWindow = 200 * time.Millisecond
-
 // raft.AppliedIndex counts enqueued-not-consumed entries; reloading mid-drain would let queued ADD_CLASS full-apply post-reload (empty shard, no recovery).
 func (st *Store) wipedJoinerFSMCaughtUp(barrier uint64) bool {
-	if st.lastAppliedIndex.Load() >= barrier {
-		return true
-	}
-	before := st.lastAppliedIndex.Load()
-	time.Sleep(wipedJoinerFSMSettleWindow)
-	if st.lastAppliedIndex.Load() != before {
-		return false
-	}
-	rn := st.raft.Load()
-	if rn == nil {
-		return true
-	}
-	// stable FSM index + empty queue: only config/noop entries remain below the barrier
-	pending, err := strconv.ParseUint(rn.Stats()["fsm_pending"], 10, 64)
-	return err != nil || pending == 0
+	return st.fsmReachedIndex(barrier)
 }
 
 func (st *Store) wipedJoinerBarrierTimeout() time.Duration {
