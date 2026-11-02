@@ -295,6 +295,21 @@ func TestVectorIndexMapping_Get(t *testing.T) {
 	require.ErrorContains(t, err, `record "broken"`)
 }
 
+// A record whose queue outlived the index it was created with keeps both
+// IDs through a write and a read.
+func TestVectorIndexMapping_QueueIDOtherThanThePhysicalID(t *testing.T) {
+	m, _ := newTestVectorIndexMapping(t)
+	require.NoError(t, m.Initialize(nil))
+	title := vectorIndexRecord{PhysicalID: "vectors_title_2", IndexType: "hnsw", State: "ready", QueueID: "vectors_title"}
+	require.NoError(t, m.Put("title", title))
+
+	rec, ok, err := m.Get("title")
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.Equal(t, title, rec)
+	assert.Equal(t, "vectors_title", rec.queueIDOrDefault())
+}
+
 func TestVectorIndexMapping_Delete(t *testing.T) {
 	t.Run("removes one record and leaves the rest", func(t *testing.T) {
 		m, _ := newTestVectorIndexMapping(t)
