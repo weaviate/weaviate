@@ -30,8 +30,8 @@ import (
 // The walk ranks its outcome by the sweep's taxonomy, so an operator alerting
 // on one level sees every cleanup that left the same thing behind.
 //
-// Two rows, because they land on opposite sides of the taxonomy: a level
-// hardcoded to either one fails on the other.
+// Rows land on both sides of the taxonomy, so a level hardcoded to either side
+// fails on the other.
 func TestTerminalCleanupRanksAWalkFailureLikeTheSweepDoes(t *testing.T) {
 	tests := []struct {
 		name string
@@ -39,7 +39,7 @@ func TestTerminalCleanupRanksAWalkFailureLikeTheSweepDoes(t *testing.T) {
 		// the shard the payload names.
 		fixture     func(t *testing.T) (idx *Index, shardName string)
 		wantOutcome CleanupSweepOutcome
-		// wantText distinguishes an untouched shard's wording from "partly swept".
+		// wantText tells an untouched shard's wording from a partly swept one's.
 		wantText string
 	}{
 		{
@@ -47,6 +47,23 @@ func TestTerminalCleanupRanksAWalkFailureLikeTheSweepDoes(t *testing.T) {
 			fixture:     shardWithAnUnreadableRecordStore,
 			wantOutcome: CleanupSweepWithheld,
 			wantText:    "its cleanup is withheld until that record is fixed and the shard reloads",
+		},
+		{
+			name: "a shard the walk reached and could not settle",
+			fixture: func(t *testing.T) (*Index, string) {
+				ctx := testCtx()
+				shard, idx := testShard(t, ctx, "BusyUnit"+uuid.NewString()[:8])
+				concrete, err := unwrapShard(ctx, shard)
+				require.NoError(t, err)
+				subject := testMigrationSubject(1, StrategyCodeSearchableRetokenize, "title")
+				subject.TaskID, subject.Key.UnitID = "T_terminal", testMigrationUnitFor(idx, shard.Name())
+				require.NoError(t, concrete.migrationRecords.Put(NewMigrationRecordIterated(subject)))
+				idx.db.SetReindexUnitSeal(func() ReindexUnitSeal {
+					return func(distributedtask.TaskDescriptor, string) (func(), bool) { return nil, false }
+				})
+				return idx, shard.Name()
+			},
+			wantOutcome: CleanupSweepFailed,
 		},
 		{
 			name:        "a walk that stopped before it reached every shard",
@@ -99,7 +116,9 @@ func TestTerminalCleanupRanksAWalkFailureLikeTheSweepDoes(t *testing.T) {
 			require.Contains(t, summary[0].Message, wantMsg,
 				"the operator has to read one wording for one outcome")
 			require.Contains(t, summary[0].Message, tc.wantText)
-			require.NotContains(t, summary[0].Message, "partly swept")
+			if tc.wantOutcome != CleanupSweepFailed {
+				require.NotContains(t, summary[0].Message, "partly swept")
+			}
 		})
 	}
 }

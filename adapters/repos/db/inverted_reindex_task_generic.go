@@ -1123,7 +1123,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// Records() omits unreadable entries, which may still name a displaced dir as live data.
 	recordStore := shard.migrationRecordStore()
 	recordsComplete := recordStore == nil || len(recordStore.Unreadable()) == 0
-	kept := 0
+	var kept []string
 	for _, propName := range props {
 		oldMainBucket, ok := oldMainBuckets[propName]
 		if !ok {
@@ -1132,11 +1132,11 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		if err := oldMainBucket.Shutdown(ctx); err != nil {
 			return fmt.Errorf("shutting down old main bucket for %q: %w", propName, err)
 		}
+		dir := filepath.Base(oldMainBucket.GetDir())
 		if !recordsComplete {
-			kept++
+			kept = append(kept, dir)
 			continue
 		}
-		dir := filepath.Base(oldMainBucket.GetDir())
 		if key, role, held := migrationDirHeldByAnotherRecord(
 			migrationRecordsOf(shard), subject, dir, migrationLiveDataRoles); held {
 			logger.WithField("dir", dir).Warnf(
@@ -1148,12 +1148,14 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 			return fmt.Errorf("removing displaced dir for %q: %w", propName, err)
 		}
 	}
-	if kept > 0 {
-		logger.Warnf("leaving %d displaced directory/directories in place: a migration record on "+
-			"this shard is not understood, and it may name them", kept)
+	if len(kept) > 0 {
+		logger.WithField("dirs", strings.Join(migrationReportedNames(kept), ", ")).Warnf(
+			"leaving %d displaced directory/directories in place: a migration record on this shard "+
+				"is not understood, and it may name them. They are cleared once that record is fixed "+
+				"and the shard reloads", len(kept))
 	}
 
-	logger.Debug("runtime swap: displaced dirs removed (staged→canonical rename deferred to next load)")
+	logger.Debug("runtime swap: displaced dirs settled (staged→canonical rename deferred to next load)")
 	swapCompleted = true
 
 	// Ordering contract: rebuild before OnMigrationComplete. The hook marks

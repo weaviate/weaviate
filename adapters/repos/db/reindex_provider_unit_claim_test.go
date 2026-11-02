@@ -313,12 +313,12 @@ func TestAUnitDoesNotRunWhileAMigrationRecordIsUnreadable(t *testing.T) {
 	tests := []struct {
 		name       string
 		query      string
-		unreadable bool
+		unreadable int
 		arrange    func(t *testing.T, ctx context.Context, s *Shard, boot func(ShardReindexerV3) *Shard) int
 	}{
-		{"unmirrored swapped record, another record unreadable", "betaword", true, unmirrored},
-		{"superseded swapped record, another record unreadable", "alpha", true, superseded},
-		{"unmirrored swapped record, every record readable", "betaword", false, unmirrored},
+		{"unmirrored swapped record, two other records unreadable", "betaword", 2, unmirrored},
+		{"superseded swapped record, another record unreadable", "alpha", 1, superseded},
+		{"unmirrored swapped record, every record readable", "betaword", 0, unmirrored},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -347,9 +347,12 @@ func TestAUnitDoesNotRunWhileAMigrationRecordIsUnreadable(t *testing.T) {
 				idx.shards.Store(name, reloaded)
 				return reloaded.(*Shard)
 			}
-			bad := filepath.Join(shard.migrationRecords.Dir(), "99_searchable_retokenize_"+shard.migrationUnit()+".json")
-			if tc.unreadable {
-				require.NoError(t, os.WriteFile(bad, []byte("{"), 0o600))
+			var bad []string
+			for i := range tc.unreadable {
+				path := filepath.Join(shard.migrationRecords.Dir(),
+					fmt.Sprintf("%d_searchable_retokenize_%s.json", 99-i, shard.migrationUnit()))
+				require.NoError(t, os.WriteFile(path, []byte("{"), 0o600))
+				bad = append(bad, path)
 			}
 			want := tc.arrange(t, ctx, shard, boot)
 
@@ -367,16 +370,17 @@ func TestAUnitDoesNotRunWhileAMigrationRecordIsUnreadable(t *testing.T) {
 			}, payload, idx, unit, rec)
 			require.NoError(t, frozen.Shutdown(ctx))
 
-			if tc.unreadable {
-				require.NoError(t, os.Remove(bad))
+			for _, path := range bad {
+				require.NoError(t, os.Remove(path))
 			}
 			clean := boot(&testShardReindexer{task: newTask()})
 			defer clean.Shutdown(ctx)
 			require.Equal(t, want, bm25(ctx, clean, tc.query))
-			require.Equal(t, !tc.unreadable, slices.Contains(rec.completed, unit), rec.failed)
-			if tc.unreadable {
-				// The FSM prefixes the unit, so the message must not; the remedy names the reload.
-				require.True(t, strings.HasPrefix(rec.failed[unit], "1 migration record(s) on this shard are not understood"), rec.failed)
+			require.Equal(t, tc.unreadable == 0, slices.Contains(rec.completed, unit), rec.failed)
+			if tc.unreadable > 0 {
+				// The FSM prefixes the unit, so the message must not. The remedy names the reload.
+				require.True(t, strings.HasPrefix(rec.failed[unit], fmt.Sprintf(
+					"%d migration record(s) on this shard are not understood", tc.unreadable)), rec.failed)
 				require.Contains(t, rec.failed[unit], "until they are fixed and the shard reloads")
 			}
 		})

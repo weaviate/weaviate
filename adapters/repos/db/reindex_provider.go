@@ -1107,8 +1107,8 @@ func (p *ReindexProvider) resolveUnitForPhase(
 }
 
 // unreadableRecordFault returns why a unit must not run, or "" when every
-// migration record on its shard is readable. It omits the unit: the FSM prefixes a
-// failed unit's error, and the phase path adds the unit itself.
+// migration record on its shard is readable. It omits the unit because the FSM
+// prefixes a failed unit's error and resolveUnitForPhase adds the unit itself.
 func unreadableRecordFault(store *MigrationRecordStore) string {
 	unreadable := store.Unreadable()
 	if len(unreadable) == 0 {
@@ -1700,8 +1700,8 @@ const (
 	// knowing state is there.
 	CleanupSweepUnknown
 	// CleanupSweepWithheld: a shard was reached and left untouched, because a
-	// migration record on it is not understood. Below Failed: both leave state
-	// for certain, and only Failed's line warns of a partly swept shard.
+	// migration record on it is not understood. It ranks below Failed: both
+	// leave state for certain, but only Failed's line warns of a partly swept shard.
 	CleanupSweepWithheld
 	// CleanupSweepFailed: a shard was reached and could not be swept. It can
 	// fail after already removing part of its state, so what the shard holds
