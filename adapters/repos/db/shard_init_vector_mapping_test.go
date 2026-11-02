@@ -301,6 +301,33 @@ func TestInitShardVectors_RefusesTwoRecordsNamingOneQueue(t *testing.T) {
 	assert.Equal(t, mv, rec)
 }
 
+// A dropping record sharing a queue with a live one refuses the load before
+// the drop is finished: finishing it would delete the live vector's queue.
+func TestInitShardVectors_RefusesADroppingRecordSharingAQueue(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	shardDir := shard.path()
+	foo := recorded(shard, "foo", "vectors_foo", "ready")
+	dropping := recorded(shard, "mv", "vectors_mv", "dropping")
+	dropping.QueueID = "vectors_foo"
+	queueChunk := filepath.Join(shardDir, "vectors_foo.queue.d", "chunk-1.bin")
+
+	reloadExpectingError(t, ctx, shard, class, `vectors "foo" and "mv" both record queue "vectors_foo"`, func() {
+		require.NoError(t, os.MkdirAll(filepath.Dir(queueChunk), 0o755))
+		require.NoError(t, os.WriteFile(queueChunk, []byte("foo's pending work"), 0o644))
+		withOfflineMapping(t, shardDir, func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+			require.NoError(t, m.Put("mv", dropping))
+		})
+	})
+	assert.FileExists(t, queueChunk, "the refusal deletes nothing")
+	withOfflineMapping(t, shardDir, func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+		records, _, err := m.Load()
+		require.NoError(t, err)
+		assert.Equal(t, dropping, records["mv"])
+		assert.Equal(t, foo, records["foo"])
+	})
+}
+
 // A vector added to a running shard is recorded ready at the naming rule's
 // ID, with its storage durable, and survives a reload as itself.
 func TestInitTargetVector_RecordsTheVector(t *testing.T) {
