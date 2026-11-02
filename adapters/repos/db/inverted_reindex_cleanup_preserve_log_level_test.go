@@ -68,9 +68,7 @@ func TestCleanStaleSidecarDirsPreservedLogAtDebug(t *testing.T) {
 	}
 }
 
-// Each disabled index type sweeps its own sidecar dir through the same
-// shared sweep state; the total must equal the real dirs removed, not be
-// inflated by the index-type count.
+// dirsSwept must count real removed dirs, not be inflated by looping over index types.
 func TestApplyPathSweepsOneStaleDirPerDisabledIndexType(t *testing.T) {
 	ctx := testCtx()
 	className := "ApplySweepCount" + uuid.NewString()[:8]

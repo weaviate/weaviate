@@ -136,10 +136,7 @@ func TestRecoveryWalkReportsEachFaultKindOnce(t *testing.T) {
 	}
 }
 
-// The apply's sweep summary must report real work, not just that the sweep
-// ran: a property update with nothing to sweep (the common case — most
-// updates are not accompanied by a migration) must stay silent, and one
-// with a stale dir to remove must name how many it swept.
+// A no-op property update must not log this summary; a real sweep must. (weaviate/etienne-claude-issues#535)
 func TestUpdatePropertySummaryLogsOnlyWhenDirsSwept(t *testing.T) {
 	tests := []struct {
 		name         string

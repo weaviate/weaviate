@@ -328,8 +328,6 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 	return "", false
 }
 
-// cleanStaleSidecarDirs returns how many sidecar directories it removed, so
-// callers can tell a real sweep from a no-op.
 func (s *Shard) cleanStaleSidecarDirs(ctx context.Context, mainBucketName string,
 	committed migrationPreservedState,
 ) int {
@@ -353,8 +351,7 @@ func (s *Shard) cleanStaleSidecarDirs(ctx context.Context, mainBucketName string
 	return s.cleanStaleSidecarDirsWithPreserved(mainBucketName, migrationPreservingOnly(keep))
 }
 
-// cleanStaleSidecarDirsWithPreserved returns how many sidecar directories it
-// removed, so callers can tell a real sweep from a no-op.
+// The returned count lets callers log only when a sweep did real work.
 func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, committed migrationPreservedState) int {
 	dirs := shardBucketDirs(s.pathLSM())
 	entries, err := os.ReadDir(dirs.root)
