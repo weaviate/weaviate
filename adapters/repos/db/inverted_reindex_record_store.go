@@ -24,6 +24,8 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
@@ -110,6 +112,8 @@ type MigrationRecordStore struct {
 	// Records no pass on this build could advance. Cleared on every load, since
 	// the pass that follows a load re-derives it.
 	wedged map[MigrationRecordKey]bool
+	// Caches what a pass deferred, since the schema may flip before the load hook serves it.
+	deferredPromotions map[MigrationRecordKey][]string
 }
 
 // The store names no unit, so every record it loads reads as local. Callers
@@ -308,6 +312,37 @@ func AdoptArrivedMigrationRecords(indexPath, shardName, node, sourceNode string)
 	return store.adoptUnit(MigrationUnitID(shardName, sourceNode))
 }
 
+// A restore stages its files outside the data path, so indexPath is the staged
+// copy. An I/O error fails the restore: silently continuing would leave a
+// shard serving its migrated indexes empty.
+func (db *DB) AdoptRestoredMigrationRecords(indexPath string, desc *backup.ClassDescriptor,
+	node, sourceNode string,
+) error {
+	setAside, example := 0, ""
+	for _, shard := range desc.Shards {
+		refusal, err := AdoptArrivedMigrationRecords(indexPath, shard.Name, node, sourceNode)
+		if err != nil {
+			return fmt.Errorf("adopt the migration records of shard %q restored from %s: %w",
+				shard.Name, sourceNode, err)
+		}
+		if refusal == "" {
+			continue
+		}
+		if setAside == 0 {
+			example = fmt.Sprintf("shard %q: %s", shard.Name, refusal)
+		}
+		setAside++
+	}
+	// One line per class, not per shard: a multi-tenant class restores every tenant at once.
+	if setAside > 0 {
+		db.logger.WithField("action", "restore").WithField("class", desc.Name).
+			WithField("shard_count", setAside).
+			Warnf("the migration records of %d restored shard(s) taken on %s stay set aside; first, %s",
+				setAside, sourceNode, example)
+	}
+	return nil
+}
+
 // Renames only if the source is the sole claimant of its records; a record
 // already here from this node or a third replica may name the same directories,
 // so it blocks the rename. An own record byte-equal to the source's is a
@@ -456,6 +491,7 @@ func (s *MigrationRecordStore) publish(records map[MigrationRecordKey]MigrationR
 	s.records = records
 	s.unreadable = unreadable
 	s.wedged = nil
+	s.deferredPromotions = nil
 }
 
 // MarkWedged records that nothing this build runs can move this record on. The
@@ -469,6 +505,23 @@ func (s *MigrationRecordStore) MarkWedged(key MigrationRecordKey) {
 		s.wedged = map[MigrationRecordKey]bool{}
 	}
 	s.wedged[key] = true
+}
+
+// The schema may flip before the load hook serves a deferred promotion, so
+// the hook reads this cache instead of the schema.
+func (s *MigrationRecordStore) DeferPromotions(key MigrationRecordKey, props []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.deferredPromotions == nil {
+		s.deferredPromotions = map[MigrationRecordKey][]string{}
+	}
+	s.deferredPromotions[key] = props
+}
+
+func (s *MigrationRecordStore) DeferredPromotions(key MigrationRecordKey) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.deferredPromotions[key]
 }
 
 // Read by every later pass in this incarnation. The reconciler that diagnosed
@@ -504,6 +557,7 @@ func (s *MigrationRecordStore) Put(rec MigrationRecord) error {
 	defer s.mu.Unlock()
 	s.records[rec.Subject().Key] = rec
 	delete(s.wedged, rec.Subject().Key)
+	delete(s.deferredPromotions, rec.Subject().Key)
 	return nil
 }
 
@@ -544,6 +598,7 @@ func (s *MigrationRecordStore) removeSynced(key MigrationRecordKey, sync func(st
 		defer s.mu.Unlock()
 		delete(s.records, key)
 		delete(s.wedged, key)
+		delete(s.deferredPromotions, key)
 	}()
 
 	if removed != nil {

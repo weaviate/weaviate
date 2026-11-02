@@ -886,10 +886,8 @@ func (p *ReindexProvider) loadPayload(task *distributedtask.Task) (*ReindexTaskP
 // goes through RAFT (RecordDistributedTaskUnitFailure → applyDistributedTaskCommand),
 // so transient errors are possible: leadership loss, network blip, RAFT
 // timeout. If the FSM never learns the unit failed, the task stays in
-// "started" forever and the scheduler will not retry it on this node
-// (it only re-schedules units that have a terminal status). The
-// scheduler's task-level retry only fires when ALL local units are
-// terminal — a single un-recorded failure can therefore wedge the task.
+// "started", and once this handle is done the scheduler relaunches the task
+// since this node's unit is still non-terminal: it reruns every tick instead of failing.
 //
 // Retry the recorder call a few times with backoff to ride out transient
 // RAFT issues. If the retries also fail, log the recorder error with the
