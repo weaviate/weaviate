@@ -1124,12 +1124,17 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// Read here, not at the call sites: rewriting a decided record drops promotion marks.
 	if rec, ok := t.migrationRecord(shard); !ok || !rec.FlipDecided() {
 		displaced := make(map[string]string, len(props))
+		var stagedEmpty []string
 		for _, propName := range props {
 			if bucket := store.Bucket(t.strategy.SourceBucketName(propName)); bucket != nil {
 				displaced[propName] = filepath.Base(bucket.GetDir())
 			}
+			if t.stagedBucketHoldsNothing(store, propName) {
+				stagedEmpty = append(stagedEmpty, propName)
+			}
 		}
-		if err := t.putMigrationRecord(shard, NewMigrationRecordSwapped(subject, props, displaced)); err != nil {
+		swapped := NewMigrationRecordSwapped(subject, props, displaced).WithStagedEmpty(stagedEmpty)
+		if err := t.putMigrationRecord(shard, swapped); err != nil {
 			return fmt.Errorf("recording the flip decision: %w", err)
 		}
 	}
@@ -1213,6 +1218,17 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	logger.Info("runtime swap: migration complete (ingest→main rename deferred to next restart)")
 
 	return nil
+}
+
+// Read from memory, not the directory: the live WAL buffers writes the directory does not show yet.
+func (t *ShardReindexTaskGeneric) stagedBucketHoldsNothing(store *lsmkv.Store, propName string) bool {
+	bucket := store.Bucket(t.ingestBucketName(propName))
+	if bucket == nil {
+		return false
+	}
+	view := bucket.GetConsistentView()
+	defer view.ReleaseView()
+	return len(view.Disk) == 0 && view.Flushing == nil && view.Active.Size() == 0
 }
 
 func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(

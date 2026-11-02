@@ -298,6 +298,7 @@ func (r *migrationReconciler) commitMerged(subject MigrationSubject,
 ) (MigrationRecordSwapped, error) {
 	all := r.store.Records()
 	props := subject.Properties()
+	var stagedEmpty []string
 	for _, prop := range props {
 		if migrationPropertySuperseded(all, subject, prop) {
 			continue
@@ -316,13 +317,20 @@ func (r *migrationReconciler) commitMerged(subject MigrationSubject,
 			return MigrationRecordSwapped{}, fmt.Errorf(
 				"refusing to commit the flip: property %q names no staged directory %q to promote", prop, staged)
 		}
+		empty, err := r.dirs.Empty(staged)
+		if err != nil {
+			return MigrationRecordSwapped{}, err
+		}
+		if empty {
+			stagedEmpty = append(stagedEmpty, prop)
+		}
 	}
 
 	displaced := make(map[string]string, len(props))
 	for _, prop := range props {
 		displaced[prop] = subject.Props[prop].Canonical
 	}
-	swapped := NewMigrationRecordSwapped(subject, props, displaced)
+	swapped := NewMigrationRecordSwapped(subject, props, displaced).WithStagedEmpty(stagedEmpty)
 	if err := r.store.Put(swapped); err != nil {
 		return swapped, fmt.Errorf("record the flip decision: %w", err)
 	}
@@ -536,9 +544,15 @@ func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 	if err != nil {
 		return rec, false, "", err
 	}
-	if !stagedThere {
+	if !stagedThere && (rec.PromotionOf(prop) == migrationPromotionStarted || !rec.StagedWasEmpty(prop)) {
 		updated, promoted, err = r.settleInterruptedPromotion(rec, prop, staged, canonical)
 		return updated, promoted, "", err
+	}
+	// Rebuilding the empty directory a copy dropped lets the one promotion path settle it.
+	if !stagedThere {
+		if err := r.dirs.Create(staged, "the empty staged directory"); err != nil {
+			return rec, false, "", err
+		}
 	}
 
 	// Above clearForPromotion, not just above the rename: clearing deletes the canonical and displaced dirs.
