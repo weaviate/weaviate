@@ -142,6 +142,7 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 		actives := make([]Result[string], 0, level) // cache for active replicas
 		var replicaErrs []error
 		var refusals []Result[string]
+		var refused error
 		for r := range prepare() {
 			if r.Err != nil { // connection error
 				if isLimitRefusal(r.Err) {
@@ -153,6 +154,12 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 				// error remains actionable regardless of whether the
 				// per-replica op wrapped it with host context.
 				replicaErrs = append(replicaErrs, annotateReplicaErr(r.Value, r.Err))
+				if level > 0 && userReadOnly(r.Err) {
+					refused = annotateReplicaErr(r.Value, r.Err)
+				}
+				continue
+			}
+			if refused != nil {
 				continue
 			}
 
@@ -186,11 +193,20 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 			for _, node := range replicas {
 				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
 			}
+			if refused != nil {
+				resChan <- Result[string]{Err: refused}
+				return
+			}
 			resChan <- Result[string]{Err: abort}
 		}
 	}
 	enterrors.GoWrapper(f, c.log)
 	return resChan
+}
+
+func userReadOnly(err error) bool {
+	var replicaErr *replicaerrors.Error
+	return errors.As(err, &replicaErr) && replicaErr.IsStatusCode(replicaerrors.StatusUserReadOnly)
 }
 
 // commitAll tells replicas to commit pending updates related to a specific request

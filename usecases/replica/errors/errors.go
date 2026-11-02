@@ -173,6 +173,8 @@ const (
 	StatusReadOnly
 	StatusObjectNotFound
 	StatusUsageLimitExceeded
+	// StatusUserReadOnly fails the whole write, not one replica, unless the consistency level was already met.
+	StatusUserReadOnly
 )
 
 // StatusText returns a text for the status code. It returns the empty string
@@ -195,7 +197,7 @@ func StatusText(code StatusCode) string {
 		return "already existed"
 	case StatusNotReady:
 		return "local index not ready"
-	case StatusReadOnly:
+	case StatusReadOnly, StatusUserReadOnly:
 		return "read only"
 	case StatusObjectNotFound:
 		return "object not found"

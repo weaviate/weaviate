@@ -1396,3 +1396,94 @@ func (f *fakeFactory) assertLogErrorContains(t *testing.T, xs ...string) {
 		assert.Contains(t, entry.Message, x)
 	}
 }
+
+func TestReplicatorUserReadOnly(t *testing.T) {
+	const (
+		cls   = "C1"
+		shard = "SH1"
+	)
+	obj := &storobj.Object{}
+	nodes := []string{"A", "B", "C"}
+	refusal := func(code replicaerrors.StatusCode) replica.SimpleResponse {
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{{Code: code, Msg: shard}}}
+	}
+
+	t.Run("a refusal fails the write although the level is reachable", func(t *testing.T) {
+		f := newFakeFactory(t, cls, shard, nodes, false)
+		rep := f.newReplicator()
+		refused := make(chan struct{})
+		f.WClient.EXPECT().
+			PutObject(mock.Anything, mock.Anything, cls, shard, anyVal, obj, uint64(123)).
+			RunAndReturn(func(_ context.Context, host, _, _, _ string, _ *storobj.Object, _ uint64) (replica.SimpleResponse, error) {
+				if host == "B" {
+					defer close(refused)
+					return refusal(replicaerrors.StatusUserReadOnly), nil
+				}
+				<-refused
+				time.Sleep(50 * time.Millisecond)
+				return replica.SimpleResponse{}, nil
+			})
+		for _, n := range nodes {
+			f.WClient.On("Abort", mock.Anything, n, cls, shard, anyVal).Return(replica.SimpleResponse{}, nil)
+		}
+
+		err := rep.PutObject(context.Background(), shard, obj, types.ConsistencyLevelQuorum, 123)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "read only")
+		f.WClient.AssertNotCalled(t, "Commit", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("resource pressure on one replica stays that replica's failure", func(t *testing.T) {
+		f := newFakeFactory(t, cls, shard, nodes, false)
+		rep := f.newReplicator()
+		f.WClient.EXPECT().
+			PutObject(mock.Anything, mock.Anything, cls, shard, anyVal, obj, uint64(123)).
+			RunAndReturn(func(_ context.Context, host, _, _, _ string, _ *storobj.Object, _ uint64) (replica.SimpleResponse, error) {
+				if host == "B" {
+					return refusal(replicaerrors.StatusReadOnly), nil
+				}
+				return replica.SimpleResponse{}, nil
+			})
+		for _, n := range []string{"A", "C"} {
+			f.WClient.On("Commit", mock.Anything, n, cls, shard, anyVal, anyVal).Return(nil)
+		}
+
+		require.NoError(t, rep.PutObject(context.Background(), shard, obj, types.ConsistencyLevelQuorum, 123))
+	})
+
+	t.Run("a refusal after the level is reached is too late", func(t *testing.T) {
+		f := newFakeFactory(t, cls, shard, nodes, false)
+		rep := f.newReplicator()
+		committed := make(chan struct{})
+		refusedB := make(chan struct{})
+		var once sync.Once
+		f.WClient.EXPECT().
+			PutObject(mock.Anything, mock.Anything, cls, shard, anyVal, obj, uint64(123)).
+			RunAndReturn(func(_ context.Context, host, _, _, _ string, _ *storobj.Object, _ uint64) (replica.SimpleResponse, error) {
+				switch host {
+				case "A":
+					return replica.SimpleResponse{}, nil
+				case "B":
+					<-committed
+					defer close(refusedB)
+					return refusal(replicaerrors.StatusUserReadOnly), nil
+				default:
+					<-refusedB
+					time.Sleep(50 * time.Millisecond)
+					return replica.SimpleResponse{}, nil
+				}
+			})
+		var cCommitted atomic.Bool
+		f.WClient.On("Commit", mock.Anything, mock.Anything, cls, shard, anyVal, anyVal).
+			Run(func(args mock.Arguments) {
+				once.Do(func() { close(committed) })
+				if args.Get(1) == "C" {
+					cCommitted.Store(true)
+				}
+			}).Return(nil)
+
+		require.NoError(t, rep.PutObject(context.Background(), shard, obj, types.ConsistencyLevelOne, 123))
+		require.Eventually(t, cCommitted.Load, 2*time.Second, 10*time.Millisecond, "replica C was never committed")
+	})
+}
