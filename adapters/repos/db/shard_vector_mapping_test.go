@@ -142,7 +142,6 @@ func TestVectorIndexMapping_Load(t *testing.T) {
 		{name: "empty index type", key: "title", value: `{"physical_id":"vectors_title","index_type":"","state":"ready"}`, wantErr: "index type"},
 		{name: "record without format version", noVersion: true, key: "title", value: `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready"}`, wantErr: "format version"},
 		{name: "config of an unknown index type", key: "title", value: `{"physical_id":"vectors_title","index_type":"none","state":"ready","config":{}}`, wantErr: `unknown vector index type "none"`},
-		{name: "queue id other than the physical id", key: "title", value: `{"physical_id":"vectors_title_2","index_type":"hnsw","state":"ready","queue_id":"vectors_title"}`, wantErr: `queue id "vectors_title" differs from physical id "vectors_title_2"`},
 		{name: "unparsable config", key: "title", value: `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready","config":{"ef":"many"}}`, wantErr: `record "title": config`},
 	}
 	for _, tt := range tests {
@@ -262,7 +261,6 @@ func TestVectorIndexMapping_Put(t *testing.T) {
 		{name: "unknown state", rec: vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "done"}, wantErr: `state "done"`},
 		{name: "empty physical id", rec: vectorIndexRecord{IndexType: "hnsw", State: "ready"}, wantErr: "physical id"},
 		{name: "empty index type", rec: vectorIndexRecord{PhysicalID: "vectors_title", State: "ready"}, wantErr: "index type"},
-		{name: "queue id other than the physical id", rec: vectorIndexRecord{PhysicalID: "vectors_title_2", IndexType: "hnsw", State: "ready", QueueID: "vectors_title"}, wantErr: `queue id "vectors_title" differs from physical id "vectors_title_2"`},
 		{name: "config of another type", rec: vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready", Config: entflat.NewDefaultUserConfig()}, wantErr: "config is for a flat index, the record says hnsw"},
 	}
 	for _, tt := range tests {

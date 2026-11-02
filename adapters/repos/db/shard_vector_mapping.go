@@ -59,8 +59,8 @@ var (
 // fields inside the record so an older reader ignores them. A record from
 // before then has neither: the shard fills both in when it loads, the queue
 // ID from the physical ID (the queue has always lived under the index's ID)
-// and the config from the schema. The two IDs are equal for now; validate
-// refuses a record where they differ.
+// and the config from the schema. The IDs differ once the queue outlives
+// the index it was created with.
 type vectorIndexRecord struct {
 	PhysicalID string `json:"physical_id"`
 	IndexType  string `json:"index_type"`
@@ -164,11 +164,6 @@ func (r vectorIndexRecord) validate() error {
 	case vectorIndexStateCreating, vectorIndexStateReady, vectorIndexStateDropping:
 	default:
 		return fmt.Errorf("unknown state %q", r.State)
-	}
-	// Drop cleanup removes the queue under the physical ID; a record with
-	// another queue ID would leave its queue behind.
-	if r.QueueID != "" && r.QueueID != r.PhysicalID {
-		return fmt.Errorf("queue id %q differs from physical id %q, which nothing supports yet", r.QueueID, r.PhysicalID)
 	}
 	// Catches a mismatched write only: a read decodes the config by
 	// IndexType, so a mismatch already on disk is not seen here.

@@ -279,19 +279,6 @@ func TestInitShardVectors_Reconcile(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// A record whose queue ID differs from its index's refuses the load: drop
-// cleanup removes the queue under the index's ID and would leave it behind.
-func TestInitShardVectors_RefusesAQueueIDOtherThanTheIndexID(t *testing.T) {
-	ctx := testCtx()
-	shard, class := setupDropVectorShard(t, ctx)
-	reloadExpectingError(t, ctx, shard, class, `queue id "vectors_foo_queue" differs from physical id "vectors_foo"`, func() {
-		withOfflineMapping(t, shard.path(), func(_ *vectorIndexMapping, ns *shardmeta.Namespace) {
-			require.NoError(t, ns.Put([]byte("foo"),
-				[]byte(`{"physical_id":"vectors_foo","index_type":"hnsw","state":"ready","queue_id":"vectors_foo_queue"}`)))
-		})
-	})
-}
-
 // A vector added to a running shard is recorded ready at the naming rule's
 // ID, with its storage durable, and survives a reload as itself.
 func TestInitTargetVector_RecordsTheVector(t *testing.T) {
