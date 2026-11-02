@@ -4759,12 +4759,6 @@ func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus s
 	})
 }
 
-func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
-	return i.withShardForWrite(ctx, shardName, func(shard shardWriter) error {
-		return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
-	})
-}
-
 func (i *Index) findUUIDs(ctx context.Context,
 	filters *filters.LocalFilter, tenant string, repl *additional.ReplicationProperties,
 	perShardLimit int,

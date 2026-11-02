@@ -96,7 +96,6 @@ type IndexClient interface {
 		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	GetShardQueueSize(ctx context.Context, hostName, indexName, shardName string) (int64, error)
 	GetShardStatus(ctx context.Context, hostName, indexName, shardName string) (string, error)
-	UpdateShardStatus(ctx context.Context, hostName, indexName, shardName, targetStatus string, schemaVersion uint64) error
 
 	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
 		payload io.ReadSeekCloser) error
@@ -396,20 +395,6 @@ func (ri *Index) GetShardStatus(ctx context.Context, shardName, nodeName string)
 	}
 
 	return ri.client.GetShardStatus(ctx, host, ri.class, shardName)
-}
-
-func (ri *Index) UpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
-	if err != nil {
-		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
-	}
-
-	host, ok := ri.nodeResolver.NodeHostname(owner)
-	if !ok {
-		return fmt.Errorf("resolve node name %q to host", owner)
-	}
-
-	return ri.client.UpdateShardStatus(ctx, host, ri.class, shardName, targetStatus, schemaVersion)
 }
 
 func (ri *Index) queryAllReplicas(

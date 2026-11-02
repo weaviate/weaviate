@@ -156,8 +156,6 @@ type shards interface {
 		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	GetShardQueueSize(ctx context.Context, indexName, shardName string) (int64, error)
 	GetShardStatus(ctx context.Context, indexName, shardName string) (string, error)
-	UpdateShardStatus(ctx context.Context, indexName, shardName,
-		targetStatus string, schemaVersion uint64) error
 
 	// Replication-specific
 	OverwriteObjects(ctx context.Context, indexName, shardName string,
@@ -328,10 +326,6 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 		case i.regexpShardsStatus.MatchString(path):
 			if r.Method == http.MethodGet {
 				i.getGetShardStatus().ServeHTTP(w, r)
-				return
-			}
-			if r.Method == http.MethodPost {
-				i.postUpdateShardStatus().ServeHTTP(w, r)
 				return
 			}
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
@@ -1277,52 +1271,6 @@ func (i *indices) getGetShardStatus() http.Handler {
 
 		shared.IndicesPayloads.GetShardStatusResults.SetContentTypeHeader(w)
 		w.Write(statusBytes)
-	})
-}
-
-func (i *indices) postUpdateShardStatus() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		args := i.regexpShardsStatus.FindStringSubmatch(r.URL.Path)
-		if len(args) != 3 {
-			http.Error(w, "invalid URI", http.StatusBadRequest)
-			return
-		}
-
-		index, shard := args[1], args[2]
-
-		defer r.Body.Close()
-		reqPayload, err := shared.ReadBody(r.Body, r.ContentLength)
-		if err != nil {
-			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		ct, ok := shared.IndicesPayloads.UpdateShardStatusParams.CheckContentTypeHeaderReq(r)
-		if !ok {
-			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
-				http.StatusUnsupportedMediaType)
-			return
-		}
-
-		targetStatus, err := shared.IndicesPayloads.UpdateShardStatusParams.
-			Unmarshal(reqPayload)
-		if err != nil {
-			http.Error(w, "unmarshal find doc ids params from json: "+err.Error(),
-				http.StatusBadRequest)
-			return
-		}
-
-		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		err = i.shards.UpdateShardStatus(r.Context(), index, shard, targetStatus, schemaVersion)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
 	})
 }
 

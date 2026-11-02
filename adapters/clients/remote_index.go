@@ -654,42 +654,6 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	return status, c.retry(ctx, MAX_RETRIES, try)
 }
 
-func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
-	targetStatus string, schemaVersion uint64,
-) error {
-	paramsBytes, err := clusterapi.IndicesPayloads.UpdateShardStatusParams.Marshal(targetStatus)
-	if err != nil {
-		return errors.Wrap(err, "marshal request payload")
-	}
-	value := []string{strconv.FormatUint(schemaVersion, 10)}
-
-	try := func(ctx context.Context) (bool, error) {
-		req, err := setupRequest(ctx, http.MethodPost, hostName,
-			fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName),
-			url.Values{replica.SchemaVersionKey: value}.Encode(),
-			bytes.NewReader(paramsBytes))
-		if err != nil {
-			return false, fmt.Errorf("create http request: %w", err)
-		}
-		clusterapi.IndicesPayloads.UpdateShardStatusParams.SetContentTypeHeaderReq(req)
-
-		res, err := c.client.Do(req)
-		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
-		}
-		defer res.Body.Close()
-
-		if code := res.StatusCode; code != http.StatusOK {
-			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
-		}
-
-		return false, nil
-	}
-
-	return c.retry(ctx, MAX_RETRIES, try)
-}
-
 func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 	shardName, fileName string, payload io.ReadSeekCloser,
 ) error {
