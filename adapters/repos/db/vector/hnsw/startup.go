@@ -263,13 +263,14 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 		h.compressor.GrowCache(uint64(len(h.nodes)))
 	}
 
-	if h.dims.Load() == 0 {
-		h.setDimensionsFromEntrypoint()
-	}
-
 	if h.compressed.Load() && h.multivector.Load() && !h.muvera.Load() {
 		h.compressor.GrowCache(uint64(len(h.nodes)))
 		h.populateKeys()
+	}
+
+	// after the keys, a multi vector index needs them to find a node's vector
+	if h.dims.Load() == 0 {
+		h.setDimensionsFromEntrypoint()
 	}
 
 	h.resetTombstoneMetric()
@@ -284,7 +285,7 @@ func (h *hnsw) setDimensionsFromEntrypoint() {
 	if len(h.nodes) == 0 {
 		return
 	}
-	if vec, err := h.VectorForIDThunk(context.Background(), h.entryPointID); err == nil && len(vec) > 0 {
+	if vec, err := h.vectorOfNode(context.Background(), h.entryPointID); err == nil && len(vec) > 0 {
 		h.dims.Store(int32(len(vec)))
 		return
 	}
@@ -298,11 +299,20 @@ func (h *hnsw) setDimensionsFromEntrypoint() {
 		if node == nil || id == h.entryPointID {
 			continue
 		}
-		if vec, err := h.VectorForIDThunk(context.Background(), id); err == nil && len(vec) > 0 {
+		if vec, err := h.vectorOfNode(context.Background(), id); err == nil && len(vec) > 0 {
 			h.dims.Store(int32(len(vec)))
 			return
 		}
 	}
+}
+
+// vectorOfNode finds the vector of a node. In a multi vector index a node isn't a
+// document, so VectorForIDThunk would come back empty and leave dims at 0.
+func (h *hnsw) vectorOfNode(ctx context.Context, nodeID uint64) ([]float32, error) {
+	if h.multivector.Load() && !h.muvera.Load() {
+		return h.multiVectorForNodeID(ctx, nodeID)
+	}
+	return h.VectorForIDThunk(ctx, nodeID)
 }
 
 func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
@@ -507,11 +517,17 @@ func (h *hnsw) populateKeys() {
 }
 
 // multiVectorForNodeID resolves a nodeID to its raw float32 vector by looking
-// up the (docID, relativeID) mapping from the compressor's cache, then fetching
-// from the object store. Used as the recovery callback for compressed multi-vector
-// indexes instead of h.vectorForID, which points to the dropped float32 cache.
+// up the (docID, relativeID) mapping from the compressor's cache, or the plain
+// cache when the index isn't compressed, then fetching from the object store.
+// Used as the recovery callback for compressed multi-vector indexes instead of
+// h.vectorForID, which points to the dropped float32 cache.
 func (h *hnsw) multiVectorForNodeID(ctx context.Context, nodeID uint64) ([]float32, error) {
-	docID, relativeID := h.compressor.GetKeys(nodeID)
+	var docID, relativeID uint64
+	if h.compressed.Load() {
+		docID, relativeID = h.compressor.GetKeys(nodeID)
+	} else {
+		docID, relativeID = h.cache.GetKeys(nodeID)
+	}
 	vecs, err := h.MultiVectorForIDThunk(ctx, docID)
 	if err != nil {
 		var e storobj.ErrNotFound
