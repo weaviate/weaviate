@@ -62,10 +62,9 @@ func (r *MigrationRecoveryReindexer) RecoverMigrations(shard *Shard) []*ShardRei
 	return r.remember(r.recoverFromStore(shard.migrationRecords, shard.Name()))
 }
 
-// AbandonUnarmed keeps a migration whose mirror failed to arm from swapping in
-// staged data that misses this shard's writes; resubmitting is the way out.
-// Without the stamp nothing would stop that swap once the fault clears, so a
-// failed stamp write is returned to fail the shard load.
+// AbandonUnarmed stamps a migration whose mirror failed to arm, so a later swap of
+// now-stale data is blocked; resubmitting is the way out. A failed stamp write is
+// returned so the shard load fails instead of leaving that swap unguarded.
 func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*ShardReindexTaskGeneric, cause error) error {
 	shardName := shard.Name()
 	r.armFaults.report(r.logger.WithField("shard", shardName), func(l logrus.FieldLogger) {

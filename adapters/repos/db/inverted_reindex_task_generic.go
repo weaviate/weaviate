@@ -1126,7 +1126,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	// For a record stamped after its prepare passed.
+	// Kept here too: the record can turn unmirrored after prepare already passed.
 	if err := t.refuseUnmirrored(subject); err != nil {
 		return err
 	}

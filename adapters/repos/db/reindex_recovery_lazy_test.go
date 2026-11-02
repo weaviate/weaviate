@@ -124,8 +124,7 @@ func TestShardLoadStampsAnUnarmableFlipBeforeTheReconcilerPromotesIt(t *testing.
 	require.DirExists(t, filepath.Join(lsm, dirs.Staged), "nothing renamed it over the canonical dir")
 }
 
-// The shard keeps serving when a mirror fails to arm; the stale migration fails
-// at prepare, before any replica swaps it in.
+// The shard keeps serving when a mirror fails to arm; the stale migration fails at prepare.
 func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
@@ -208,8 +207,7 @@ func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) 
 	}
 }
 
-// With the stamp unwritable too, nothing would block the stale swap once the
-// fault clears, so the shard must not load.
+// With the stamp itself unwritable, nothing blocks the stale swap, so the shard must not load.
 func TestShardLoadFailsWhenAMirrorFailsToArmAndItsStampCannotBeWritten(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores the read-only records dir")
