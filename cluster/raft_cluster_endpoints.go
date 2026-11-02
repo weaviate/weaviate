@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -110,11 +111,17 @@ func (s *Raft) Remove(ctx context.Context, id string) error {
 	// The Raft peer has been removed from the cluster configuration.
 	// Now ensure that no shard replicas still reference this node and
 	// that we keep satisfying the configured replication factor where possible.
-	if err := s.rebalanceReplicasAfterNodeRemoval(ctx, id); err != nil {
+	if err := s.afterNodeRemoval(ctx, id); err != nil {
 		return fmt.Errorf("rebalance replicas after removing node %q: %w", id, err)
 	}
 
 	return nil
+}
+
+// afterNodeRemoval aborts the node's transitions first, as the rebalance refuses a tenant mid-transition.
+func (s *Raft) afterNodeRemoval(ctx context.Context, id string) error {
+	s.abortTransitionsOf(ctx, id)
+	return s.rebalanceReplicasAfterNodeRemoval(ctx, id)
 }
 
 // rebalanceReplicasAfterNodeRemoval updates shard replica assignments after a node
@@ -123,6 +130,7 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 	schemaReader := s.SchemaReader()
 	states := schemaReader.States()
 
+	var errs []error
 	// Collect class names first to avoid concurrent map iteration
 	classNames := make([]string, 0, len(states))
 	for className := range states {
@@ -155,14 +163,15 @@ func (s *Raft) rebalanceReplicasAfterNodeRemoval(ctx context.Context, removedNod
 
 		desiredRF := int(classInfo.ReplicationFactor)
 
+		slices.Sort(shardsWithRemovedNode)
 		for _, shardName := range shardsWithRemovedNode {
 			if err := s.processShardReplicaRemoval(ctx, schemaReader, className, shardName, removedNode, desiredRF); err != nil {
-				return err
+				errs = append(errs, err)
 			}
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // processShardReplicaRemoval handles the removal of a node from a specific shard's replicas.

@@ -12,11 +12,18 @@
 package cluster
 
 import (
+	"context"
+	"time"
+
 	"github.com/hashicorp/raft"
 
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
+
+const transitionAbortInterval = 30 * time.Second
 
 func (s *Raft) RunningTransitions() []schema.TenantTransition {
 	return s.store.schemaManager.RunningTransitions()
@@ -79,9 +86,111 @@ func (st *Store) lastCommandAtOrBelow(index uint64) (last uint64, found bool) {
 	return 0, false
 }
 
+func (s *Raft) runTransitionAborts(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if s.store.IsLeader() {
+			s.abortRemovedParticipants(ctx)
+		}
+	}
+}
+
+func (s *Raft) abortRemovedParticipants(ctx context.Context) {
+	rn := s.store.raft.Load()
+	if rn == nil {
+		return
+	}
+	cf := rn.GetConfiguration()
+	if err := cf.Error(); err != nil {
+		s.log.Warnf("transition aborts: read raft configuration: %v", err)
+		return
+	}
+	members := make(map[string]struct{})
+	for _, server := range cf.Configuration().Servers {
+		members[string(server.ID)] = struct{}{}
+	}
+
+	alive := nodeAliveFunc(s.store.cfg.NodeSelector)
+	waiting := make(map[string]int)
+	for _, record := range s.RunningTransitions() {
+		removed, down := stalledParticipants(record, members, alive)
+		for _, node := range removed {
+			req := abortReport(record, node)
+			if _, err := s.UpdateTenantsProcess(ctx, record.Class, req); err != nil {
+				s.log.WithField("tenant", record.Tenant).Warnf("abort for removed node %q: %v", node, err)
+			}
+		}
+		for _, node := range down {
+			waiting[node]++
+		}
+	}
+	for node, count := range waiting {
+		s.log.WithField("action", "tenant_transition").Warnf("%d tenant transitions wait on down node %q; "+
+			"they end when it returns or is removed from the cluster", count, node)
+	}
+}
+
+// abortTransitionsOf waits until this node applied the aborts, so the rebalance after it sees them.
+func (s *Raft) abortTransitionsOf(ctx context.Context, node string) {
+	var last uint64
+	for _, record := range s.RunningTransitions() {
+		if p, ok := record.Transition.Participants[node]; !ok || p.Progress != sharding.ProgressStarted {
+			continue
+		}
+		v, err := s.UpdateTenantsProcess(ctx, record.Class, abortReport(record, node))
+		if err != nil {
+			s.log.WithField("tenant", record.Tenant).Warnf("abort for removed node %q: %v", node, err)
+			continue
+		}
+		last = max(last, v)
+	}
+	if last == 0 {
+		return
+	}
+	if err := s.WaitForUpdate(ctx, last); err != nil {
+		s.log.Warnf("wait for the aborts of removed node %q: %v", node, err)
+	}
+}
+
 // nodeAliveFunc counts a node alive while the membership knows its address.
 func nodeAliveFunc(selector cluster.NodeSelector) func(string) bool {
 	return func(node string) bool {
 		return selector == nil || selector.NodeAddress(node) != ""
+	}
+}
+
+func stalledParticipants(record schema.TenantTransition, members map[string]struct{}, alive func(string) bool) (removed, down []string) {
+	for node, participant := range record.Transition.Participants {
+		if participant.Progress != sharding.ProgressStarted {
+			continue
+		}
+		if _, ok := members[node]; !ok {
+			removed = append(removed, node)
+		} else if !alive(node) {
+			down = append(down, node)
+		}
+	}
+	return removed, down
+}
+
+func abortReport(record schema.TenantTransition, node string) *cmd.TenantProcessRequest {
+	action := cmd.TenantProcessRequest_ACTION_UNFREEZING
+	if record.Transition.Kind == sharding.TransitionFreeze {
+		action = cmd.TenantProcessRequest_ACTION_FREEZING
+	}
+	return &cmd.TenantProcessRequest{
+		Node:   node,
+		Action: action,
+		TenantsProcesses: []*cmd.TenantsProcess{{
+			Op:      cmd.TenantsProcess_OP_ABORT,
+			Attempt: record.Transition.Attempt,
+			Tenant:  &cmd.Tenant{Name: record.Tenant},
+		}},
 	}
 }
