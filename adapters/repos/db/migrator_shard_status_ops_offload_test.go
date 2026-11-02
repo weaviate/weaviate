@@ -22,9 +22,11 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -130,6 +132,9 @@ func TestUnfreezeDiscardsDownloadedHashtree(t *testing.T) {
 				require.NoError(t, os.MkdirAll(s.pathHashTree(), os.ModePerm))
 				require.NoError(t, os.WriteFile(filepath.Join(s.pathHashTree(), "hashtree-0000000000000002.ht"), []byte("stale snapshot"), 0o600))
 			}
+
+			idx.schemaReader.(*local.MockSchemaReader).EXPECT().
+				WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 			logger, _ := test.NewNullLogger()
 			m := NewMigrator(nil, logger, "node1")
