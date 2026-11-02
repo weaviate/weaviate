@@ -14,6 +14,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -183,7 +184,10 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 		factor      int64
 		shards      map[string][]string
 		removedNode string
-		want        map[string][]string
+		// transitioning shards have a running freeze, which refuses replica changes
+		transitioning []string
+		want          map[string][]string
+		wantErr       string
 	}{
 		{
 			// Several shards: a candidate picked without regard for the home
@@ -226,6 +230,20 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 			want:        map[string][]string{"S1": {"node-1", "node-3", "node-4"}},
 		},
 		{
+			name:      "a shard mid-transition does not stop the others",
+			className: "Transitioning",
+			factor:    3,
+			shards: map[string][]string{
+				"S1": {"node-1", "node-2", "node-3"}, "S2": {"node-1", "node-2", "node-3"}, "S3": {"node-1", "node-2", "node-3"},
+			},
+			removedNode:   "node-2",
+			transitioning: []string{"S1"},
+			want: map[string][]string{
+				"S1": {"node-1", "node-2", "node-3"}, "S2": {"node-1", "node-3", "node-4"}, "S3": {"node-1", "node-3", "node-4"},
+			},
+			wantErr: `tenant "S1" has a running freeze`,
+		},
+		{
 			name:        "shard without the removed node is untouched",
 			className:   "Bystander",
 			factor:      1,
@@ -241,6 +259,9 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 			virtual := make([]sharding.Virtual, 0, len(tt.shards))
 			for shard, nodes := range tt.shards {
 				physical[shard] = sharding.Physical{Name: shard, BelongsToNodes: nodes}
+				if slices.Contains(tt.transitioning, shard) {
+					physical[shard] = sharding.Physical{Name: shard, BelongsToNodes: nodes, Transition: &sharding.Transition{Kind: sharding.TransitionFreeze}}
+				}
 				virtual = append(virtual, sharding.Virtual{Name: shard + "_v", AssignedToPhysical: shard})
 			}
 			_, err := r.AddClass(ctx,
@@ -256,7 +277,12 @@ func TestRebalanceReplicasAfterNodeRemoval(t *testing.T) {
 				require.NoError(t, err)
 			}()
 
-			require.NoError(t, r.rebalanceReplicasAfterNodeRemoval(ctx, tt.removedNode))
+			err = r.rebalanceReplicasAfterNodeRemoval(ctx, tt.removedNode)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tt.wantErr)
+			}
 
 			for shard, want := range tt.want {
 				got, err := r.SchemaReader().ShardReplicas(tt.className, shard)

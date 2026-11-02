@@ -105,6 +105,7 @@ type Service struct {
 	cancelReplicationEngine context.CancelFunc
 	engineDone              chan struct{}
 	cancelOpCleaner         context.CancelFunc
+	cancelTransitionAborts  context.CancelFunc
 	closeBootstrapper       chan struct{}
 	closeOnFSMCaughtUp      chan struct{}
 	closeWaitForDB          chan struct{}
@@ -282,6 +283,10 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		c.onFSMCaughtUp(engineCtx)
 	}, c.logger)
 
+	abortCtx, abortCancel := context.WithCancel(ctx)
+	c.cancelTransitionAborts = abortCancel
+	enterrors.GoWrapper(func() { c.Raft.runTransitionAborts(abortCtx, transitionAbortInterval) }, c.logger)
+
 	if c.opCleaner != nil {
 		cleanerCtx, cleanerCancel := context.WithCancel(ctx)
 		c.cancelOpCleaner = cleanerCancel
@@ -311,6 +316,9 @@ func (c *Service) Close(ctx context.Context) error {
 
 	if c.cancelOpCleaner != nil {
 		c.cancelOpCleaner()
+	}
+	if c.cancelTransitionAborts != nil {
+		c.cancelTransitionAborts()
 	}
 	// Cancel any in-flight node-reached-state broadcast/drain retry loops.
 	if c.Raft != nil && c.Raft.store != nil && c.Raft.store.replicationManager != nil {
