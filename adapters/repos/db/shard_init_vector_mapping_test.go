@@ -279,6 +279,28 @@ func TestInitShardVectors_Reconcile(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// Two records naming one queue refuse the load: each consumer would take
+// the other's work.
+func TestInitShardVectors_RefusesTwoRecordsNamingOneQueue(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	mv := recorded(shard, "mv", "vectors_mv", "ready")
+	reloadExpectingError(t, ctx, shard, class, `vectors "foo" and "mv" both record queue "vectors_foo"`, func() {
+		withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+			shared := mv
+			shared.QueueID = "vectors_foo"
+			require.NoError(t, m.Put("mv", shared))
+		})
+	})
+	withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+		require.NoError(t, m.Put("mv", mv))
+	})
+	shard = reload(t, ctx, shard, class)
+	rec, _, err := shard.mapping.Get("mv")
+	require.NoError(t, err)
+	assert.Equal(t, mv, rec)
+}
+
 // A vector added to a running shard is recorded ready at the naming rule's
 // ID, with its storage durable, and survives a reload as itself.
 func TestInitTargetVector_RecordsTheVector(t *testing.T) {
