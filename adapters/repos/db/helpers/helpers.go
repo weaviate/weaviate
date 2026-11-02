@@ -211,8 +211,10 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 }
 
 // VectorIndexArtifactNamesForID is vectorIndexArtifactNames keyed by physical
-// ID. For a named vector the two agree; for the legacy vector only this one
-// names what the indexes write (the name-based list keys off "vectors").
+// ID, without the queue: a queue can outlive the index it fed, so it is the
+// vector's, named by the mapping's queue ID. For a named vector the two
+// otherwise agree; for the legacy vector only this one names what the indexes
+// write (the name-based list keys off "vectors").
 func VectorIndexArtifactNamesForID(physicalID string) VectorIndexArtifacts {
 	return VectorIndexArtifacts{
 		LSMBuckets: []string{
@@ -228,7 +230,6 @@ func VectorIndexArtifactNamesForID(physicalID string) VectorIndexArtifacts {
 			HNSWCommitLogDirNameForID(physicalID),
 			physicalID + ".hnsw.snapshot.d",
 			HFreshDirName(physicalID),
-			QueueDirName(physicalID),
 			FlatMetadataFileNameForID(physicalID),
 		},
 	}
