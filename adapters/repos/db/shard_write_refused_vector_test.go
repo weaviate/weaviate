@@ -21,10 +21,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -224,6 +227,191 @@ func TestRefusedMergeAfterRestart(t *testing.T) {
 			}
 		}
 	}
+}
+
+func pauseQueue(t *testing.T, shard ShardLike, target string) {
+	t.Helper()
+	_, err := shard.WithVectorIndexQueue(target, func(queue *VectorIndexQueue) error {
+		return queue.Pause(t.Context())
+	})
+	require.NoError(t, err)
+}
+
+func requireQueueLength(t *testing.T, shard ShardLike, target string, want int32) {
+	t.Helper()
+	_, err := shard.WithVectorIndexQueue(target, func(queue *VectorIndexQueue) error {
+		require.Equal(t, want, queue.dims.Load())
+		return nil
+	})
+	require.NoError(t, err)
+}
+
+// TestRefusedWriteAfterRestartWithVectorsPending pins the one restart where the index
+// can't help: the first vectors still wait in the queue, so it is empty and has no
+// length to compare with. Only the queue knows it, from the vectors it holds on disk.
+func TestRefusedWriteAfterRestartWithVectorsPending(t *testing.T) {
+	flavors := append(consistencyFlavors(),
+		namedVectorFlavor("dynamic", dynamicent.NewDefaultUserConfig()),
+		namedVectorFlavor("hfresh", hfreshent.NewDefaultUserConfig()),
+	)
+
+	for _, flavor := range flavors {
+		for _, route := range mergeRoutes {
+			t.Run(fmt.Sprintf("%s, %s", flavor.name, route.name), func(t *testing.T) {
+				className := "RefusedPending"
+				shard, index := testShardWithSettings(t, t.Context(), consistencyClass(className),
+					enthnsw.NewDefaultUserConfig(), false, true, flavor.opts...)
+
+				objs := consistencyObjects(flavor, className, 3)
+				pauseQueue(t, shard, flavor.target)
+				require.NoError(t, shard.PutObject(t.Context(), objs[0]))
+				objs[1].Vector, objs[1].Vectors, objs[1].MultiVectors = nil, nil, nil
+				require.NoError(t, shard.PutObject(t.Context(), objs[1]))
+
+				shard = restartShard(t, index, shard)
+				pauseQueue(t, shard, flavor.target)
+				requireQueueLength(t, shard, flavor.target, consistencyVectorDims)
+
+				refused := consistencyObjects(flavor, className, 2)
+				flavor.set(refused[0], []float32{1, 2, 3})
+				flavor.set(refused[1], []float32{1, 2, 3})
+				require.Error(t, shard.PutObject(t.Context(), refused[0]))
+				require.Len(t, nonNilErrs(shard.PutObjectBatch(t.Context(), refused[1:])), 1)
+				for _, obj := range refused {
+					exists, err := shard.Exists(t.Context(), obj.ID())
+					require.NoError(t, err)
+					assert.False(t, exists, "a refused write must not store its object")
+				}
+
+				doc := mergeOfVector(flavor, objs[1], []float32{1, 2, 3})
+				require.Error(t, route.merge(t.Context(), shard, doc))
+
+				require.NoError(t, shard.PutObject(t.Context(), objs[2]), "a refused write must not block correct ones")
+				doc = mergeOfVector(flavor, objs[1], consistencyVector(1))
+				require.NoError(t, route.merge(t.Context(), shard, doc))
+
+				// the next restart finds these waiting as well
+				shard = restartShard(t, index, shard)
+				pauseQueue(t, shard, flavor.target)
+				requireQueueLength(t, shard, flavor.target, consistencyVectorDims)
+				require.Error(t, shard.PutObject(t.Context(), refused[0]))
+
+				_, err := shard.WithVectorIndexQueue(flavor.target, func(queue *VectorIndexQueue) error {
+					queue.Resume()
+					return nil
+				})
+				require.NoError(t, err)
+
+				_, err = shard.WithVectorIndex(flavor.target, func(index VectorIndex) error {
+					for _, obj := range objs {
+						stored, err := shard.ObjectByID(t.Context(), obj.ID(), nil, additional.Properties{})
+						require.NoError(t, err)
+						require.NotNil(t, stored)
+						assert.Eventuallyf(t, func() bool { return index.ContainsDoc(stored.DocID) },
+							10*time.Second, 20*time.Millisecond, "object %s has to reach the index", obj.ID())
+					}
+					return nil
+				})
+				require.NoError(t, err)
+			})
+		}
+	}
+}
+
+// TestQueueRestoresLengthAfterRestart goes through what a queue can hold when it picks
+// its length up again. The records go straight to disk: some couldn't pass an insert.
+func TestQueueRestoresLengthAfterRestart(t *testing.T) {
+	type pending = func(t *testing.T, queue *VectorIndexQueue)
+
+	vector := func(id uint64, length int) pending {
+		return func(t *testing.T, queue *VectorIndexQueue) {
+			record, err := encodeVector(nil, &common.Vector[[]float32]{ID: id, Vector: make([]float32, length)})
+			require.NoError(t, err)
+			require.NoError(t, queue.Push(record))
+		}
+	}
+	deleted := func(id uint64) pending {
+		return func(t *testing.T, queue *VectorIndexQueue) {
+			require.NoError(t, queue.Delete(id))
+		}
+	}
+
+	tests := []struct {
+		name string
+		// the index holds a vector, so it knows the length
+		seeded  bool
+		pending []pending
+		want    int32
+	}{
+		{name: "nothing"},
+		{name: "only deletes", pending: []pending{deleted(1), deleted(2)}},
+		{name: "a vector", pending: []pending{vector(1, 16)}, want: 16},
+		{name: "a delete in front of the vector", pending: []pending{deleted(1), vector(2, 16)}, want: 16},
+		{name: "two lengths, the first one reaches the index first", pending: []pending{vector(1, 3), vector(2, 16)}, want: 3},
+		{name: "a wrong vector in front of the right one", seeded: true, pending: []pending{vector(1, 3), vector(2, 16)}, want: 16},
+		{name: "nothing but a wrong vector", seeded: true, pending: []pending{vector(1, 3)}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			className := "RestoredLength"
+			flavor := consistencyFlavors()[0]
+			shard, index := testShardWithSettings(t, t.Context(), consistencyClass(className),
+				enthnsw.NewDefaultUserConfig(), false, true)
+
+			if test.seeded {
+				seed := consistencyObjects(flavor, className, 1)[0]
+				require.NoError(t, shard.PutObject(t.Context(), seed))
+				stored, err := shard.ObjectByID(t.Context(), seed.ID(), nil, additional.Properties{})
+				require.NoError(t, err)
+				_, err = shard.WithVectorIndex("", func(index VectorIndex) error {
+					require.Eventually(t, func() bool { return index.ContainsDoc(stored.DocID) },
+						10*time.Second, 20*time.Millisecond)
+					return nil
+				})
+				require.NoError(t, err)
+			}
+
+			pauseQueue(t, shard, "")
+			_, err := shard.WithVectorIndexQueue("", func(queue *VectorIndexQueue) error {
+				for _, add := range test.pending {
+					add(t, queue)
+				}
+				return nil
+			})
+			require.NoError(t, err)
+
+			shard = restartShard(t, index, shard)
+			pauseQueue(t, shard, "")
+			requireQueueLength(t, shard, "", test.want)
+		})
+	}
+}
+
+// Every target has a queue of its own, so a restart can't mix their lengths up.
+func TestQueuesRestoreTheirOwnLength(t *testing.T) {
+	className := "RestoredLengths"
+	shard, index := testShardWithSettings(t, t.Context(), consistencyClass(className),
+		enthnsw.NewDefaultUserConfig(), false, true, func(i *Index) {
+			i.vectorIndexUserConfig = nil
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+				"a": enthnsw.NewDefaultUserConfig(),
+				"b": enthnsw.NewDefaultUserConfig(),
+			}
+		})
+
+	obj := consistencyObjects(namedVectorFlavor("a", enthnsw.NewDefaultUserConfig()), className, 1)[0]
+	obj.Vectors = map[string][]float32{"a": consistencyVector(0), "b": consistencyVector(0)[:8]}
+
+	pauseQueue(t, shard, "a")
+	pauseQueue(t, shard, "b")
+	require.NoError(t, shard.PutObject(t.Context(), obj))
+
+	shard = restartShard(t, index, shard)
+	pauseQueue(t, shard, "a")
+	pauseQueue(t, shard, "b")
+	requireQueueLength(t, shard, "a", consistencyVectorDims)
+	requireQueueLength(t, shard, "b", 8)
 }
 
 // TestRefusedWriteClaimsNoLength pins that a refused write decides nothing for an index

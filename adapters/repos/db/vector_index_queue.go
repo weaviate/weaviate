@@ -135,6 +135,8 @@ func newVectorIndexQueueWithID(
 			return nil, errors.Wrap(err, "failed to initialize vector index queue")
 		}
 
+		viq.restoreDimensions()
+
 		shard.scheduler.RegisterQueue(&viq)
 	}
 
@@ -160,6 +162,33 @@ func (iq *VectorIndexQueue) insertSync(ctx context.Context, vectors []common.Vec
 			return err
 		}
 		time.Sleep(rand.N(time.Duration(attempt) * vectorIndexInsertBackoff))
+	}
+}
+
+// restoreDimensions recovers the length claimed before a restart. While the first
+// vectors wait in the queue it is all there is to refuse another length with: the index
+// is empty, and dims isn't kept. The vectors on disk still carry it, and the first one
+// the index accepts is the one that will set its length. That passes over deletes,
+// which have no vector, and anything the index knows to be wrong.
+func (iq *VectorIndexQueue) restoreDimensions() {
+	err := iq.DiskQueue.Pending(func(task queue.Task) bool {
+		var v common.VectorRecord
+		switch t := task.(type) {
+		case *Task[[]float32]:
+			v = &common.Vector[[]float32]{ID: t.id, Vector: t.vector}
+		case *Task[[][]float32]:
+			v = &common.Vector[[][]float32]{ID: t.id, Vector: t.vector}
+		default:
+			return true
+		}
+		if v.Validate(iq.vectorIndex) != nil {
+			return true
+		}
+		iq.dims.Store(int32(v.Len()))
+		return false
+	})
+	if err != nil {
+		iq.Logger.Warnf("failed to restore the vector length from the queue: %v", err)
 	}
 }
 
