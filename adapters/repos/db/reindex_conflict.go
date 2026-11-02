@@ -187,10 +187,10 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 }
 
 // typesConflictReason returns a non-empty reason if two reindex migrations
-// on the same collection target overlapping properties — even across
-// types, since completing one applies an UpdateProperty whose bucket sweep
-// removes any index type the merged property shows disabled, including
-// the other migration's own still-false flag (weaviate/weaviate#10675).
+// on the same collection target overlapping properties, whatever their types.
+// The UpdateProperty completing a semantic migration ([IsSemanticMigration])
+// runs updatePropertyBuckets, which deletes the working dirs of an overlapping
+// enable-* migration whose flag is still false (weaviate/weaviate#10675).
 //
 // Empty props means "all properties" (reserved for a future
 // whole-collection rebuild) and overlaps with everything.
@@ -289,12 +289,12 @@ func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) s
 // apply path to reject external property mutations racing an in-flight
 // reindex migration on the same (collection, property).
 //
-// Without it, a DELETE /index/searchable arriving mid-migration can wipe
-// a change-tokenization task's running searchable sub-task while its
-// sibling filterable sub-task commits — schema stays at the old
-// tokenization while the filterable bucket already holds the new one.
-// Same family as the ack-barrier failure mode, triggered externally
-// instead of by a crash.
+// Without it, an external UpdateProperty such as DELETE /index/searchable
+// runs updatePropertyBuckets, which deletes the working dirs of an in-flight
+// enable-* migration whose flag is still false. Mid change-tokenization, the
+// same DELETE wipes the searchable sub-task while the filterable sub-task
+// commits, leaving the schema at the old tokenization and the filterable
+// bucket on the new one.
 //
 // Migration-driven flips bypass the guard via
 // [api.UpdatePropertyRequest.FromInFlightMigration], set by
