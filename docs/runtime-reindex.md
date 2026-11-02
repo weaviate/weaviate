@@ -1056,10 +1056,15 @@ Then, per shard load:
    the record `Unmirrored` and drops the unit's tasks from the provider's
    cache. `RunPrepareOnShard` refuses an `Unmirrored` record, so this
    node's PREPARING ack fails and the task goes `FAILED` before any
-   replica or sibling half swaps; it has to be resubmitted. The in-memory
-   swap refuses it too, for a record stamped after its prepare passed.
-   If the stamp cannot be written either, the shard load fails: nothing
-   else would stop the stale swap once the fault clears.
+   replica or sibling half swaps; it has to be resubmitted. A task can
+   already be past its prepare, as when the node restarts mid-swap, so the
+   swap phase checks every task of the unit first and swaps none of them
+   if any record is `Unmirrored`. If the stamp cannot be written either,
+   the shard load fails: nothing else would stop the stale swap once the
+   fault clears. The exception is an unreadable record on the shard: the
+   store then refuses every write, but it also keeps the reconciler frozen
+   and the provider from rebuilding the evicted tasks, so the shard loads
+   unstamped.
 5. `FinalizeCompletedMigrations` runs per shard before LSM init
    reloads any buckets. For each `(prop, indexType)`, finds the
    highest tidied (or merged-but-not-tidied) generation, promotes

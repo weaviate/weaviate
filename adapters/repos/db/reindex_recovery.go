@@ -71,13 +71,18 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 		l.Errorf("reindex recovery: %d migration(s) could not re-arm their double-write mirror, so they will "+
 			"not be swapped in: %v. %s", len(unarmed), cause, migrationUnmirroredRemedy)
 	})
+	r.forget(unarmed)
+	if len(shard.migrationRecords.Unreadable()) > 0 {
+		// The store refuses every write, so the stamp would fail each restart, yet
+		// the frozen store already keeps the evicted tasks from being rebuilt.
+		return nil
+	}
 	var records []MigrationRecord
 	for _, t := range unarmed {
 		if rec, ok := shard.migrationRecords.Get(t.migrationRecordKey()); ok {
 			records = append(records, rec)
 		}
 	}
-	r.forget(unarmed)
 	if _, err := stampUnmirroredRecords(shard.migrationRecords, records, nil); err != nil {
 		return fmt.Errorf("record that a migration's mirror stayed unarmed: %w", err)
 	}

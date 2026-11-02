@@ -1165,6 +1165,23 @@ func (p *ReindexProvider) runShardSwapPhase(
 	unitTasks []*ShardReindexTaskGeneric,
 	logger logrus.FieldLogger,
 ) (out phaseResult) {
+	// Swapping a sibling of a refused half would leave the migration
+	// half-applied on this shard.
+	for _, reindexTask := range unitTasks {
+		rec, ok := reindexTask.migrationRecord(shard)
+		if !ok {
+			continue
+		}
+		if err := reindexTask.refuseUnmirrored(rec.Subject()); err != nil {
+			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s swap: %v", unitID, reindexTask.Name(), err))
+		}
+	}
+	if len(out.Errs) > 0 {
+		logger.WithField("unit", unitID).WithField("shard", shardName).
+			Errorf("reindex provider: shard swap refused for every task of the unit: %s", strings.Join(out.Errs, "; "))
+		return out
+	}
+
 	allSwapped := true
 
 	// Wire a per-prop hook rather than setting the overlay once up front;

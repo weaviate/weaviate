@@ -196,6 +196,10 @@ func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) 
 			require.Len(t, prep.Errs, 1)
 			require.Contains(t, prep.Errs[0], "no double-write mirror armed")
 			require.ErrorContains(t, tasks[0].RunSwapOnShard(ctx, shard), "no double-write mirror armed")
+			// The task can already be past its prepare, as when the node restarts mid-swap.
+			payload := subjects[0].reindexPayload()
+			swap := p.runShardSwapPhase(ctx, &payload, subjects[0].Key.UnitID, name, shard, tasks, logger)
+			require.NotEmpty(t, swap.Errs)
 			for _, subject := range subjects {
 				rec, ok := shard.migrationRecords.Get(subject.Key)
 				require.True(t, ok)
@@ -207,41 +211,75 @@ func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) 
 	}
 }
 
-// With the stamp itself unwritable, nothing blocks the stale swap, so the shard must not load.
-func TestShardLoadFailsWhenAMirrorFailsToArmAndItsStampCannotBeWritten(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root ignores the read-only records dir")
+// The shard loads only when the same fault that blocks stamping also blocks the stale swap.
+func TestShardLoadWhenAMirrorFailsToArmAndItsStampCannotBeWritten(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		breakStore func(t *testing.T, recordsDir string)
+		wantErr    string
+	}{
+		{
+			name: "records dir read-only",
+			breakStore: func(t *testing.T, recordsDir string) {
+				if os.Geteuid() == 0 {
+					t.Skip("root ignores the read-only records dir")
+				}
+				require.NoError(t, os.Chmod(recordsDir, 0o500))
+				t.Cleanup(func() { require.NoError(t, os.Chmod(recordsDir, 0o700)) })
+			},
+			wantErr: "mirror stayed unarmed",
+		},
+		{
+			// An unreadable record freezes the store, so no task is rebuilt from it.
+			name:       "another record unreadable",
+			breakStore: func(t *testing.T, recordsDir string) { plantUnreadableRecord(t, recordsDir) },
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			const name = "tenant-arm-and-stamp-fail"
+			ctx := testCtx()
+			className := "LazyRecoveryStampFail_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{"title"})
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+			defer shd.Shutdown(context.Background())
+
+			logger, _ := test.NewNullLogger()
+			p := NewReindexProvider(idx.db, nil, nil, logger, idx.getSchema.NodeName(), nil, ctx)
+			idx.shardReindexer = NewMigrationRecoveryReindexer(true, logger, nil, p)
+
+			desc := distributedtask.TaskDescriptor{ID: "T", Version: 3}
+			subject := testMigrationSubject(desc.Version, StrategyCodeSearchableRetokenize, "title")
+			subject.TaskID, subject.Collection = desc.ID, className
+			subject.Key.UnitID = testMigrationUnitFor(idx, name)
+			built, err := buildRecoveryTasks(subject, name, logger, nil)
+			require.NoError(t, err)
+			subject.Props["title"] = MigrationPropertyDirs{
+				Staged:    built[0].ingestBucketName("title"),
+				Canonical: subject.Props["title"].Canonical,
+				Sidecar:   built[0].reindexBucketName("title"),
+			}
+			lsm := shardPathLSM(idx.path(), name)
+			staged := filepath.Join(lsm, subject.Props["title"].Staged)
+			require.NoError(t, os.MkdirAll(staged, 0o777))
+			require.NoError(t, os.WriteFile(filepath.Join(staged, "segment-1.db"), []byte("not a segment"), 0o600))
+			require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordMerged(subject)))
+			tt.breakStore(t, filepath.Join(lsm, migrationsDir, migrationRecordsDirName))
+
+			loaded, err := idx.initShard(ctx, name, class, nil, true, true)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			defer loaded.Shutdown(context.Background())
+			idx.shards.Store(name, loaded)
+
+			require.Empty(t, p.cachedReindexTasks(desc, subject.Key.UnitID))
+			payload := subject.reindexPayload()
+			payload.UnitToShard = map[string]string{subject.Key.UnitID: name}
+			res := p.resolveUnitForPhase(ctx, &distributedtask.Task{TaskDescriptor: desc}, &payload,
+				subject.Key.UnitID, idx, logger)
+			require.NotEmpty(t, res.Errs, "no phase runs on the stale staged data")
+		})
 	}
-	const name = "tenant-arm-and-stamp-fail"
-	ctx := testCtx()
-	className := "LazyRecoveryStampFail_" + uuid.NewString()[:8]
-	class := newTestClassWithProps(className, []string{"title"})
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
-	defer shd.Shutdown(context.Background())
-
-	logger, _ := test.NewNullLogger()
-	p := NewReindexProvider(idx.db, nil, nil, logger, idx.getSchema.NodeName(), nil, ctx)
-	idx.shardReindexer = NewMigrationRecoveryReindexer(true, logger, nil, p)
-
-	subject := testMigrationSubject(3, StrategyCodeSearchableRetokenize, "title")
-	subject.TaskID, subject.Collection = "T", className
-	subject.Key.UnitID = testMigrationUnitFor(idx, name)
-	built, err := buildRecoveryTasks(subject, name, logger, nil)
-	require.NoError(t, err)
-	subject.Props["title"] = MigrationPropertyDirs{
-		Staged:    built[0].ingestBucketName("title"),
-		Canonical: subject.Props["title"].Canonical,
-		Sidecar:   built[0].reindexBucketName("title"),
-	}
-	lsm := shardPathLSM(idx.path(), name)
-	staged := filepath.Join(lsm, subject.Props["title"].Staged)
-	require.NoError(t, os.MkdirAll(staged, 0o777))
-	require.NoError(t, os.WriteFile(filepath.Join(staged, "segment-1.db"), []byte("not a segment"), 0o600))
-	require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordMerged(subject)))
-	recordsDir := filepath.Join(lsm, migrationsDir, migrationRecordsDirName)
-	require.NoError(t, os.Chmod(recordsDir, 0o500))
-	t.Cleanup(func() { require.NoError(t, os.Chmod(recordsDir, 0o700)) })
-
-	_, err = idx.initShard(ctx, name, class, nil, true, true)
-	require.ErrorContains(t, err, "mirror stayed unarmed")
 }
