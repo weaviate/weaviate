@@ -16,18 +16,22 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // failingOffloadCloud is an OffloadCloud whose Upload always fails.
@@ -180,4 +184,205 @@ func TestUnfreezeOntoAnotherNodeAdoptsTheFreezingNodesRecords(t *testing.T) {
 	require.NoError(t, local.Load())
 	require.Len(t, local.Records(), 1, "the freezing node's record is this node's to finalize")
 	require.Equal(t, MigrationStateSwapped, local.Records()[0].State())
+}
+
+type deleteRecordingCloud struct {
+	mu      sync.Mutex
+	deletes []string
+	entered chan struct{}
+	block   chan struct{}
+}
+
+func (c *deleteRecordingCloud) VerifyBucket(context.Context) error { return nil }
+
+func (c *deleteRecordingCloud) Upload(context.Context, string, string, string) error { return nil }
+
+func (c *deleteRecordingCloud) Download(context.Context, string, string, string) error { return nil }
+
+func (c *deleteRecordingCloud) Delete(_ context.Context, class, tenant, node string) error {
+	if c.block != nil {
+		close(c.entered)
+		<-c.block
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.deletes = append(c.deletes, class+"/"+tenant+"/"+node)
+	return nil
+}
+
+func (c *deleteRecordingCloud) deleted() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.deletes...)
+}
+
+type gatedProcessor struct {
+	release chan struct{}
+	called  chan struct{}
+	err     error
+}
+
+func (p *gatedProcessor) UpdateTenantsProcess(context.Context, string, *command.TenantProcessRequest) (uint64, error) {
+	close(p.called)
+	<-p.release
+	if p.err != nil {
+		return 0, p.err
+	}
+	return unfreezeReportVersion, nil
+}
+
+const unfreezeReportVersion = uint64(7)
+
+// unfreezeSchema holds the tenant's status; empty means the tenant is gone.
+type unfreezeSchema struct {
+	status  atomic.Value
+	waitErr error
+	readErr error
+}
+
+func newUnfreezeSchema(status string) *unfreezeSchema {
+	s := &unfreezeSchema{}
+	s.status.Store(status)
+	return s
+}
+
+func (s *unfreezeSchema) reader(t *testing.T) *local.MockSchemaReader {
+	r := local.NewMockSchemaReader(t)
+	r.EXPECT().WaitForUpdate(mock.Anything, unfreezeReportVersion).Return(s.waitErr).Maybe()
+	r.EXPECT().Read("C", false, mock.Anything).RunAndReturn(
+		func(_ string, _ bool, read func(*models.Class, *sharding.State) error) error {
+			if s.readErr != nil {
+				return s.readErr
+			}
+			state := &sharding.State{Physical: map[string]sharding.Physical{}}
+			if status := s.status.Load().(string); status != "" {
+				state.Physical["t1"] = sharding.Physical{Name: "t1", Status: status}
+			}
+			return read(nil, state)
+		}).Maybe()
+	return r
+}
+
+func newUnfreezeMigrator(t *testing.T, schema *unfreezeSchema, proc processor, cloud *deleteRecordingCloud) (*Migrator, *Index) {
+	logger, _ := test.NewNullLogger()
+	idx := &Index{
+		logger:           logger,
+		backupLock:       esync.NewKeyRWLocker(),
+		shardCreateLocks: esync.NewKeyRWLocker(),
+		schemaReader:     schema.reader(t),
+	}
+	idx.Config.RootPath = t.TempDir()
+
+	m := NewMigrator(nil, logger, "node1")
+	m.SetNode("node1")
+	m.SetCluster(proc)
+	m.cloud = cloud
+	return m, idx
+}
+
+func TestUnfreezeDeletesSourceOnlyAfterDoneCommits(t *testing.T) {
+	cases := []struct {
+		name       string
+		status     string
+		commitErr  error
+		waitErr    error
+		readErr    error
+		wantDelete bool
+	}{
+		{name: "deleted once DONE commits", status: models.TenantActivityStatusHOT, wantDelete: true},
+		{name: "deleted for a COLD target", status: models.TenantActivityStatusCOLD, wantDelete: true},
+		{name: "deleted after a DONE that was not the last report", status: models.TenantActivityStatusUNFREEZING, wantDelete: true},
+		{name: "deleted when the tenant is gone", status: "", wantDelete: true},
+		{name: "kept when DONE fails to commit", status: models.TenantActivityStatusHOT, commitErr: fmt.Errorf("leader lost")},
+		{name: "kept when DONE does not apply locally", status: models.TenantActivityStatusHOT, waitErr: fmt.Errorf("timed out")},
+		{name: "kept when the schema cannot be read", status: models.TenantActivityStatusHOT, readErr: fmt.Errorf("class gone")},
+		{name: "kept when the tenant is freezing again", status: models.TenantActivityStatusFREEZING},
+		{name: "kept when the tenant is frozen again", status: models.TenantActivityStatusFROZEN},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			schema := newUnfreezeSchema(tc.status)
+			schema.waitErr = tc.waitErr
+			schema.readErr = tc.readErr
+			proc := &gatedProcessor{release: make(chan struct{}), called: make(chan struct{}), err: tc.commitErr}
+			cloud := &deleteRecordingCloud{}
+			m, idx := newUnfreezeMigrator(t, schema, proc, cloud)
+
+			m.unfreeze(context.Background(), idx, "C", []string{"t1#oldnode"}, errorcompounder.NewSafe())
+
+			select {
+			case <-proc.called:
+			case <-time.After(5 * time.Second):
+				t.Fatal("unfreeze did not report DONE")
+			}
+			require.Never(t, func() bool { return len(cloud.deleted()) > 0 },
+				100*time.Millisecond, 10*time.Millisecond, "source deleted before DONE committed")
+
+			close(proc.release)
+			if !tc.wantDelete {
+				require.Never(t, func() bool { return len(cloud.deleted()) > 0 },
+					200*time.Millisecond, 10*time.Millisecond, "source must be kept")
+				return
+			}
+			require.Eventually(t, func() bool { return len(cloud.deleted()) == 1 },
+				5*time.Second, 10*time.Millisecond)
+			require.Equal(t, []string{"C/t1/oldnode"}, cloud.deleted())
+		})
+	}
+}
+
+func TestUnfreezeSourceDeleteWaitsForRunningFreeze(t *testing.T) {
+	schema := newUnfreezeSchema(models.TenantActivityStatusHOT)
+	proc := &gatedProcessor{release: make(chan struct{}), called: make(chan struct{})}
+	cloud := &deleteRecordingCloud{}
+	m, idx := newUnfreezeMigrator(t, schema, proc, cloud)
+
+	// unfreeze takes this lock itself for the download
+	m.unfreeze(context.Background(), idx, "C", []string{"t1#oldnode"}, errorcompounder.NewSafe())
+	idx.shardCreateLocks.Lock("t1")
+	close(proc.release)
+	require.Never(t, func() bool { return len(cloud.deleted()) > 0 },
+		100*time.Millisecond, 10*time.Millisecond, "delete must wait for the running freeze")
+
+	schema.status.Store(models.TenantActivityStatusFREEZING)
+	idx.shardCreateLocks.Unlock("t1")
+	require.Never(t, func() bool { return len(cloud.deleted()) > 0 },
+		200*time.Millisecond, 10*time.Millisecond, "delete must skip the re-frozen tenant")
+}
+
+func TestUnfreezeSourceDeleteHoldsOffFreezeNotLookups(t *testing.T) {
+	schema := newUnfreezeSchema(models.TenantActivityStatusHOT)
+	proc := &gatedProcessor{release: make(chan struct{}), called: make(chan struct{})}
+	cloud := &deleteRecordingCloud{entered: make(chan struct{}), block: make(chan struct{})}
+	m, idx := newUnfreezeMigrator(t, schema, proc, cloud)
+	close(proc.release)
+
+	m.unfreeze(context.Background(), idx, "C", []string{"t1#oldnode"}, errorcompounder.NewSafe())
+	select {
+	case <-cloud.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("delete did not start")
+	}
+
+	lookup := idx.shardCreateLocks.TryRLock("t1")
+	require.True(t, lookup, "a shard lookup must not wait for the delete")
+	idx.shardCreateLocks.RUnlock("t1")
+
+	var freezeStarted atomic.Bool
+	freezeDone := make(chan struct{})
+	go func() {
+		defer close(freezeDone)
+		idx.shardCreateLocks.Lock("t1")
+		defer idx.shardCreateLocks.Unlock("t1")
+		freezeStarted.Store(true)
+	}()
+	require.Never(t, freezeStarted.Load, 100*time.Millisecond, 10*time.Millisecond,
+		"a freeze must wait for the delete")
+
+	close(cloud.block)
+	select {
+	case <-freezeDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("freeze did not proceed after the delete")
+	}
 }
