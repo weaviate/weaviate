@@ -732,6 +732,9 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 	}
 
 	if hasRecord {
+		if err = t.serveDeferredPromotions(ctx, shard, rec, props); err != nil {
+			return false, err
+		}
 		return true, nil
 	}
 
@@ -745,6 +748,43 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 	}
 
 	return true, nil
+}
+
+// A load holds this promotion back while the schema leaves the index off, and
+// the flip renames nothing, so until the next load the canonical name must keep
+// serving what it served before the restart.
+func (t *ShardReindexTaskGeneric) serveDeferredPromotions(ctx context.Context, shard *Shard,
+	rec MigrationRecord, props []string,
+) error {
+	if !rec.FlipDecided() {
+		return nil
+	}
+	class := shard.index.getSchema.ReadOnlyClass(shard.index.Config.ClassName.String())
+	dirs := shardBucketDirs(shard.pathLSM())
+	for _, propName := range props {
+		if swept, _ := migrationCanonicalSweptBySchema(class, rec.Subject(), propName); !swept {
+			continue
+		}
+		// A removed index opens no canonical bucket, so nothing reads one.
+		if shard.store.Bucket(t.strategy.SourceBucketName(propName)) == nil {
+			continue
+		}
+		displaced, err := t.processOneSwapProp(ctx, shard.store, 0, propName)
+		if err != nil {
+			return err
+		}
+		if displaced == nil {
+			continue
+		}
+		if err := displaced.Shutdown(ctx); err != nil {
+			return fmt.Errorf("shutting down the canonical bucket displaced for %q: %w", propName, err)
+		}
+		// Empty since the load-time sweep; left behind, it wedges an unmirrored record at the next load.
+		if err := dirs.Discard(filepath.Base(displaced.GetDir()), "the displaced canonical directory"); err != nil {
+			return fmt.Errorf("removing the displaced canonical dir for %q: %w", propName, err)
+		}
+	}
+	return nil
 }
 
 func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
