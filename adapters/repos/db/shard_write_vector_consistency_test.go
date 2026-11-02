@@ -759,8 +759,8 @@ func (s *noVectorQueues) WithVectorIndexQueue(string, func(*VectorIndexQueue) er
 	return false, nil
 }
 
-// TestAsyncBatchReportsVectorErrorsOnTheirOwnObjects pins that a vector the queue
-// refuses fails its own object. It used to fail the first object of the batch
+// TestAsyncBatchReportsVectorErrorsOnTheirOwnObjects pins that a refused vector
+// fails its own object. It used to fail the first object of the batch
 // instead, and the objects behind the refused one were reported as written
 // without ever reaching the queue.
 func TestAsyncBatchReportsVectorErrorsOnTheirOwnObjects(t *testing.T) {
@@ -797,6 +797,42 @@ func TestAsyncBatchReportsVectorErrorsOnTheirOwnObjects(t *testing.T) {
 		}
 		return true
 	}, 10*time.Second, 50*time.Millisecond, "every accepted object has to reach the index")
+}
+
+// TestAsyncBatchReportsQueueErrorsOnTheirOwnObjects pins the same for what only the
+// queue is left to refuse, once validation is behind a vector: the error belongs to
+// that object, and the objects behind it still have to reach the queue.
+func TestAsyncBatchReportsQueueErrorsOnTheirOwnObjects(t *testing.T) {
+	const count, refused = 5, 2
+
+	className := "AsyncQueueErrors"
+	flavor := consistencyFlavors()[0]
+	shard, _ := testShardWithSettings(t, t.Context(), consistencyClass(className),
+		enthnsw.NewDefaultUserConfig(), false, true)
+	pauseQueue(t, shard, "")
+
+	objs := consistencyObjects(flavor, className, count)
+	batcher := newObjectsBatcher(shard, shard.Index().logger)
+	batcher.init(objs)
+	batcher.storeInObjectStore(t.Context())
+	require.Empty(t, nonNilErrs(batcher.errs))
+
+	objs[refused].Vector = []float32{1, 2, 3}
+	batcher.storeAdditionalStorageWithAsyncQueue(t.Context())
+
+	for i, err := range batcher.errs {
+		if i == refused {
+			require.Errorf(t, err, "object %d", i)
+			continue
+		}
+		require.NoErrorf(t, err, "object %d", i)
+	}
+
+	_, err := shard.WithVectorIndexQueue("", func(queue *VectorIndexQueue) error {
+		require.EqualValues(t, count-1, queue.Size())
+		return nil
+	})
+	require.NoError(t, err)
 }
 
 func TestAsyncBatchReportsMissingQueueOnEveryObject(t *testing.T) {
