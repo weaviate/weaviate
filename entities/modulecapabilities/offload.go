@@ -39,4 +39,10 @@ type OffloadCloud interface {
 	Delete(ctx context.Context, className, shardName, nodeName string) error
 	// DeleteClass deletes a class's copies with attempt below `below`, except those Retain marked.
 	DeleteClass(ctx context.Context, className string, below uint64) error
+	// Retain marks a shard's {attempt} as one backupID restores from.
+	Retain(ctx context.Context, className, shardName, attempt, backupID string) error
+	// Retained returns the attempts of a shard that a backup restores from.
+	Retained(ctx context.Context, className, shardName string) ([]string, error)
+	// Release deletes every marker backupID's Retain calls wrote in a class.
+	Release(ctx context.Context, className, backupID string) error
 }

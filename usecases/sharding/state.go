@@ -165,6 +165,8 @@ type Physical struct {
 	CloudAttempt uint64 `json:"cloudAttempt,omitempty"`
 	// CloudSources are the nodes whose cloud copy held data when the tenant froze.
 	CloudSources []string `json:"cloudSources,omitempty"`
+	// LastTransition is the attempt of the last freeze or unfreeze that completed.
+	LastTransition uint64 `json:"lastTransition,omitempty"`
 }
 
 // BelongsToNode for backward-compatibility when there was no replication. It
@@ -783,6 +785,7 @@ func (p Physical) DeepCopy() Physical {
 		Transition:     p.Transition.DeepCopy(),
 		CloudAttempt:   p.CloudAttempt,
 		CloudSources:   slices.Clone(p.CloudSources),
+		LastTransition: p.LastTransition,
 	}
 }
 

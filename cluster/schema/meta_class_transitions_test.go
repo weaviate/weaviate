@@ -123,6 +123,7 @@ func (c *transitionCluster) status(tenant string) string {
 		require.Equal(c.t, first.Status, got.Status, "stored status on %s", node)
 		require.ElementsMatch(c.t, first.BelongsToNodes, got.BelongsToNodes, "owners on %s", node)
 		require.Equal(c.t, first.CloudAttempt, got.CloudAttempt, "cloud attempt on %s", node)
+		require.Equal(c.t, first.LastTransition, got.LastTransition, "last transition on %s", node)
 	}
 	return first.ActivityStatus()
 }
@@ -173,6 +174,7 @@ func TestFreezeTransition(t *testing.T) {
 			phys := c.physical("n1", "t")
 			require.Nil(t, phys.Transition)
 			require.Equal(t, attempt, phys.CloudAttempt)
+			require.Equal(t, attempt, phys.LastTransition)
 			require.Equal(t, nodes, phys.CloudSources)
 			require.Equal(t, frozen, acted["n1"][0].Tenant.Status, "the DB removes local data")
 		})
@@ -186,6 +188,7 @@ func TestFreezeTransition(t *testing.T) {
 
 			require.Equal(t, start, c.status("t"))
 			require.Zero(t, c.physical("n1", "t").CloudAttempt)
+			require.Zero(t, c.physical("n1", "t").LastTransition, "an abort completes nothing")
 			require.Equal(t, start, acted["n1"][0].Tenant.Status, "a replica that finished still gets the abort")
 		})
 	}
@@ -231,6 +234,7 @@ func TestUnfreezeTransition(t *testing.T) {
 		require.ElementsMatch(t, chosen, phys.BelongsToNodes)
 		require.Zero(t, phys.CloudAttempt)
 		require.Empty(t, phys.CloudSources)
+		require.Equal(t, attempt, phys.LastTransition)
 	})
 
 	t.Run("any abort leaves the tenant frozen where it was", func(t *testing.T) {
@@ -243,6 +247,7 @@ func TestUnfreezeTransition(t *testing.T) {
 		require.ElementsMatch(t, []string{"n2", "n3"}, phys.BelongsToNodes)
 		require.Equal(t, uint64(50), phys.CloudAttempt)
 		require.Equal(t, []string{"n2", "n3"}, phys.CloudSources)
+		require.Zero(t, phys.LastTransition, "an abort completes nothing")
 		require.ElementsMatch(t, participants, slices.Collect(maps.Keys(acted)), "a participant clears what it may have swapped in")
 		for _, processes := range acted {
 			require.Equal(t, frozen, processes[0].Tenant.Status)

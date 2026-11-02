@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -136,6 +137,8 @@ func Test_CoordinatedBackup(t *testing.T) {
 			CompressionType: backup.CompressionGZIP,
 		}
 		assert.Equal(t, want, got)
+		require.Eventually(t, func() bool { return coordinator.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+		assert.Empty(t, fc.selector.discards(), "a successful backup keeps its frozen tenants' copies")
 	})
 
 	t.Run("SuccessOnShardsEmptyPhysical", func(t *testing.T) {
@@ -315,6 +318,9 @@ func Test_CoordinatedBackup(t *testing.T) {
 			CompressionType: backup.CompressionGZIP,
 		}
 		assert.Equal(t, want, got)
+		require.Eventually(t, func() bool { return coordinator.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+		assert.ElementsMatch(t, []string{backupID + "/" + classes[0], backupID + "/" + classes[1]}, fc.selector.discards(),
+			"a failed backup releases the copies every node kept")
 	})
 
 	t.Run("NodeDisconnect", func(t *testing.T) {
@@ -607,6 +613,23 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 
 type fakeSelector struct {
 	mock.Mock
+	discardMu sync.Mutex
+	discarded []string
+}
+
+func (s *fakeSelector) DiscardBackup(_ context.Context, bakID string, classes []string) error {
+	s.discardMu.Lock()
+	defer s.discardMu.Unlock()
+	for _, class := range classes {
+		s.discarded = append(s.discarded, bakID+"/"+class)
+	}
+	return nil
+}
+
+func (s *fakeSelector) discards() []string {
+	s.discardMu.Lock()
+	defer s.discardMu.Unlock()
+	return slices.Clone(s.discarded)
 }
 
 func (s *fakeSelector) Shards(ctx context.Context, class string) ([]string, error) {
@@ -1610,4 +1633,29 @@ func TestCoordinatorCommitPollsQuicklyAtFirst(t *testing.T) {
 	assert.Less(t, time.Since(start), 2*time.Second)
 	assert.Equal(t, backup.Transferred, c.descriptor.Status)
 	fc.client.AssertNumberOfCalls(t, "Status", 3)
+}
+
+func TestCleanupUnfinishedBackupsReleasesTheirCopies(t *testing.T) {
+	backend := newFakeBackend()
+	unfinished := &backup.DistributedBackupDescriptor{
+		ID: "unfinished", Status: backup.Transferring,
+		Nodes: map[string]*backup.NodeDescriptor{"N1": {Classes: []string{"A"}}},
+	}
+	succeeded := &backup.DistributedBackupDescriptor{
+		ID: "succeeded", Status: backup.Success,
+		Nodes: map[string]*backup.NodeDescriptor{"N1": {Classes: []string{"B"}}},
+	}
+	backend.On("AllBackups", mock.Anything).Return([]*backup.DistributedBackupDescriptor{unfinished, succeeded}, nil)
+	backend.On("PutObject", mock.Anything, "unfinished", GlobalBackupFile, mock.Anything).Return(nil)
+	selector := &fakeSelector{}
+	logger, _ := test.NewNullLogger()
+	s := &Scheduler{
+		logger:    logger,
+		backends:  &fakeBackupBackendProvider{backend: backend},
+		backupper: newCoordinator(selector, nil, nil, logger, nil, nil, nil, nil),
+	}
+
+	s.CleanupUnfinishedBackups(context.Background())
+
+	require.Equal(t, []string{"unfinished/A"}, selector.discards())
 }

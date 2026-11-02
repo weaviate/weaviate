@@ -101,6 +101,9 @@ func (m *Migrator) SetOffloadProvider(provider provider, moduleName string) {
 		return
 	}
 	m.cloud = cloud
+	if m.db != nil {
+		m.db.offloadCloud = cloud
+	}
 	m.logger.Info(fmt.Sprintf("module %s is enabled", moduleName))
 }
 

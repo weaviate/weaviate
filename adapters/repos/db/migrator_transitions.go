@@ -422,7 +422,7 @@ func (t *transitionManager) deleteOldAttempts(ctx context.Context, class, tenant
 	}
 }
 
-// deleteCloudAttempts spares keep; attempts only go up, so a lagging node can't
+// deleteCloudAttempts spares keep and retained attempts; attempts only go up, so a lagging node can't
 // touch a newer copy.
 func deleteCloudAttempts(ctx context.Context, cloud modulecapabilities.OffloadCloud, class, tenant string, keep, below uint64) error {
 	copies, err := cloud.ListCopies(ctx, class, tenant)
@@ -436,9 +436,15 @@ func deleteCloudAttempts(ctx context.Context, cloud modulecapabilities.OffloadCl
 	if len(old) == 0 {
 		return nil
 	}
+	retained, err := cloud.Retained(ctx, class, tenant)
+	if err != nil {
+		return fmt.Errorf("list retained cloud copies: %w", err)
+	}
 	ec := errorcompounder.New()
 	for _, name := range old {
-		ec.Add(cloud.Delete(ctx, class, tenant, name))
+		if !slices.Contains(retained, name) {
+			ec.Add(cloud.Delete(ctx, class, tenant, name))
+		}
 	}
 	return ec.ToError()
 }
