@@ -261,8 +261,8 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		"operation":   "CleanStalePartialReindexState",
 	})
 
-	// A shard whose record set cannot be read at all keeps every sidecar, so the
-	// sweep has removed nothing and must not report success.
+	// Other store-scope faults still preserve every sidecar and get reported by
+	// the index sweep's count, so only an unlistable dir needs to fail here.
 	committed, err := migrationPreservedStateAt(s.pathLSM(), s.index.logger)
 	if err != nil {
 		return fmt.Errorf("partial-reindex cleanup: %w", err)

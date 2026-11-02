@@ -352,7 +352,15 @@ func (c *dirNamesCache) committedMigrations(lsmPath string,
 	if state, ok := c.committed[lsmPath]; ok {
 		return state
 	}
-	state, recordSetErr := migrationPreservedStateAt(lsmPath, logger)
+	records, faults, recordSetErr := migrationRecordsAt(lsmPath, logger)
+	state := migrationPreservedStateFromRecords(records, faults)
+	// Records of several units leave the set unreadable without failing Load.
+	if recordSetErr == nil && state.recordSetUnreadable {
+		i := slices.IndexFunc(faults, func(fault MigrationRecordUnreadable) bool {
+			return fault.Scope == MigrationRecordFaultStore
+		})
+		recordSetErr = errors.New(faults[i].Reason)
+	}
 	c.chargeUnreadableRecordSet(lsmPath, recordSetErr)
 	if c.committed == nil {
 		c.committed = map[string]migrationPreservedState{}

@@ -37,7 +37,7 @@ type committedMigration struct {
 	prop     string
 	owned    string
 	promoted bool
-	// unit defaults to the shard's own.
+	// unit defaults to shard-1__node-0, the one unit every row without its own shares.
 	unit string
 }
 
@@ -931,6 +931,50 @@ func TestIndexCleanStalePartialReindexStateReportsAnUnlistableMigrationsDir(t *t
 
 	require.True(t, dirExistsAt(t, lsm, staleSidecar),
 		"the state the summary must not report as swept")
+}
+
+// Load returns no error for records split across two units, but the index
+// sweep still has to treat the shard as unreadable.
+func TestIndexCleanStalePartialReindexStateReportsRecordsOfTwoUnits(t *testing.T) {
+	const (
+		propName  = "category"
+		indexType = "filterable"
+		tenant    = "restored-tenant"
+		owned     = "property_category__enable_filterable_ingest_1"
+	)
+	ctx := testCtx()
+	logger, hook := test.NewNullLogger()
+	class := newTestClassWithProps("TwoUnitRecords_"+uuid.NewString()[:8], []string{propName})
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false, func(i *Index) { i.logger = logger })
+	defer shd.Shutdown(context.Background())
+
+	lsm := shardPathLSM(idx.path(), tenant)
+	main := mustMainBucket(t, propName, indexType)
+	for _, unit := range []string{tenant + "__node1", tenant + "__node-9"} {
+		mkFlippedMigrationRecord(t, lsm, unit, StrategyCodeEnableFilterable, 1, propName, owned, main)
+	}
+
+	lazy := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
+		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		false, idx.bitmapBufPool)
+	idx.shards.Store(tenant, lazy)
+	defer func() {
+		if lazy.isLoaded() {
+			require.NoError(t, lazy.Shutdown(context.Background()))
+		}
+	}()
+
+	hook.Reset()
+	cache := &dirNamesCache{}
+	require.NoError(t, idx.cleanStalePartialReindexState(ctx, propName, indexType, nil, cache))
+
+	count, reasons := cache.unreadableRecordSets()
+	require.Equal(t, 1, count)
+	require.ErrorContains(t, reasons, "records of 2 units")
+	summary := onlySweepSummary(t, hook)
+	require.Equal(t, logrus.WarnLevel, summary.Level)
+	require.Equal(t, 1, summary.Data["unreadable_record_sets"])
 }
 
 // The gate's answer must depend on nothing but this shard's own disk, and must
