@@ -24,7 +24,6 @@ import (
 	replicationclient "github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -54,19 +53,11 @@ func TestMultiNode_PostMigrationOps(t *testing.T) {
 	ctx := context.Background()
 	// Filesystem backups are per-node and refused on a multi-node cluster.
 	const backupBucket = "post-migration-ops"
-	compose, err := docker.New().
-		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
-		With3NodeCluster().
-		WithBackendS3(backupBucket, "us-east-1").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "1").
-		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true").
-		WithWeaviateEnv("MEMBERLIST_FAST_FAILURE_DETECTION", "false").
-		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
-		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, compose.Terminate(ctx)) }()
+	compose, cleanup := start3NodeReindexClusterWithS3Backup(ctx, t, backupBucket,
+		"USE_INVERTED_SEARCHABLE", "false",
+		"REPLICA_MOVEMENT_ENABLED", "true",
+	)
+	defer cleanup()
 	defer dumpContainerLogs(ctx, t, compose)
 
 	trueVal, falseVal := true, false
