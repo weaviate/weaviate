@@ -17,8 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A failed range-index migration leaves the index withheld just as a cancelled
-// one does, and nothing runs afterwards that would end the wait.
+// A failed migration withholds the index the same as a cancelled one.
 func TestAWithheldRangeIndexNamesTheReloadAfterAFailedMigration(t *testing.T) {
 	require.Contains(t, NewWithheldRangeableIndexError("price").Error(),
 		"if it was cancelled or failed, reload the shard")

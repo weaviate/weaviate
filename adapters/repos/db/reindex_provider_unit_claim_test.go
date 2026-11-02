@@ -375,7 +375,7 @@ func TestAUnitDoesNotRunWhileAMigrationRecordIsUnreadable(t *testing.T) {
 			require.Equal(t, want, bm25(ctx, clean, tc.query))
 			require.Equal(t, !tc.unreadable, slices.Contains(rec.completed, unit), rec.failed)
 			if tc.unreadable {
-				// The FSM prefixes the unit itself, and the remedy has to name the reload.
+				// The FSM prefixes the unit, so the message must not; the remedy names the reload.
 				require.True(t, strings.HasPrefix(rec.failed[unit], "1 migration record(s) on this shard are not understood"), rec.failed)
 				require.Contains(t, rec.failed[unit], "until they are fixed and the shard reloads")
 			}

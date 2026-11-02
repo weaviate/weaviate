@@ -1120,8 +1120,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		logger.Warnf("runtime swap: cannot retire superseded migrations: %v", err)
 	}
 	dirs := shardBucketDirs(shard.pathLSM())
-	// Records() leaves out a record that is not understood, and that record may
-	// still name a displaced directory as its live data.
+	// Records() omits unreadable entries, which may still name a displaced dir as live data.
 	recordStore := shard.migrationRecordStore()
 	recordsComplete := recordStore == nil || len(recordStore.Unreadable()) == 0
 	kept := 0

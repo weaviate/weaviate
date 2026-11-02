@@ -1107,8 +1107,8 @@ func (p *ReindexProvider) resolveUnitForPhase(
 }
 
 // unreadableRecordFault returns why a unit must not run, or "" when every
-// migration record on its shard is readable. It names no unit: the failed-unit
-// path already prefixes one, and the phase path adds its own.
+// migration record on its shard is readable. It omits the unit: the FSM prefixes a
+// failed unit's error, and the phase path adds the unit itself.
 func unreadableRecordFault(store *MigrationRecordStore) string {
 	unreadable := store.Unreadable()
 	if len(unreadable) == 0 {

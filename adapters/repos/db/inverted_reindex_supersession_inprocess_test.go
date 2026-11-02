@@ -187,9 +187,8 @@ func TestASwapLeavesADisplacedDirAnotherRecordStillNames(t *testing.T) {
 		"the successor's flip must not remove the directory the predecessor names as its staged data")
 }
 
-// A record that is not understood may name the displaced directory as its live
-// data. A resumed swap whose flip is already recorded never writes, so nothing
-// else stops it from removing that directory.
+// An unreadable record may name the displaced dir as live data; a resumed
+// swap (flip already decided) writes nothing, so only this guard catches it.
 func TestAResumedSwapLeavesItsDisplacedDirWhileARecordIsNotUnderstood(t *testing.T) {
 	ctx := testCtx()
 	className := "SwapKeepsDirOnFault_" + uuid.NewString()[:8]
