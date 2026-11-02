@@ -199,3 +199,36 @@ func TestApplyPathFailingMidLoopKeepsItsCount(t *testing.T) {
 	require.Error(t, eg.Wait())
 	require.Equal(t, int64(1), counts.dirsSwept.Load())
 }
+
+// A canceled apply must see the cancellation before it builds the
+// migration-record snapshot, not after: this shard's record store is left
+// unset, so building the snapshot anyway panics instead of returning the
+// cancellation cleanly.
+func TestUpdatePropertyBucketsCanceledBeforeStartBuildsNoSnapshot(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	shard := &Shard{
+		name:  "s1",
+		index: &Index{logger: logger, Config: IndexConfig{RootPath: t.TempDir(), ClassName: "C"}},
+	}
+
+	class := newTestClassWithProps("CanceledApply"+uuid.NewString()[:8], []string{"title"})
+	prop := class.Properties[0]
+	off := false
+	prop.IndexFilterable = &off
+	prop.IndexSearchable = &off
+	prop.IndexRangeFilters = &off
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var counts migrationSweepCounts
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	shard.updatePropertyBuckets(ctx, eg, prop, &counts)
+
+	err := eg.Wait()
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled,
+		"a wrapped context.Canceled means the apply returned on its own cancellation check; "+
+			"a panic recovered into \"panic occurred: ...\" would mean it built the snapshot first")
+	require.Zero(t, counts.dirsSwept.Load())
+}

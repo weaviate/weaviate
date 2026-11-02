@@ -175,17 +175,22 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 		if len(indexTypes) == 0 {
 			return nil
 		}
-		committed := s.migrationSweepState().committed
+		var committed migrationPreservedState
 		var swept int
 		defer func() {
 			counts.dirsSwept.Add(int64(swept))
 		}()
-		for _, indexType := range indexTypes {
+		for i, indexType := range indexTypes {
 			// The whole loop runs inside the RAFT apply, once per shard. Every
 			// shard still queued for it drops out here rather than sweeping its
 			// own directories for an apply that is already failing.
 			if err := ctx.Err(); err != nil {
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
+			}
+			if i == 0 {
+				// Built once, right after the check above, and reused for the
+				// remaining index types: a canceled apply must not pay for it.
+				committed = s.migrationSweepState().committed
 			}
 			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
 			if !ok {
