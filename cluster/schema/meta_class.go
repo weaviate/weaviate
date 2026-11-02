@@ -200,6 +200,9 @@ func (m *metaClass) AddReplicaToShard(v uint64, shard string, replica string) er
 	m.Lock()
 	defer m.Unlock()
 
+	if err := m.refuseRunningTransition(shard); err != nil {
+		return err
+	}
 	err := m.Sharding.AddReplicaToShard(shard, replica)
 	if err != nil {
 		return err
@@ -212,11 +215,22 @@ func (m *metaClass) DeleteReplicaFromShard(v uint64, shard string, replica strin
 	m.Lock()
 	defer m.Unlock()
 
+	if err := m.refuseRunningTransition(shard); err != nil {
+		return err
+	}
 	err := m.Sharding.DeleteReplicaFromShard(shard, replica)
 	if err != nil {
 		return err
 	}
 	m.ClassVersion = v
+	return nil
+}
+
+// refuseRunningTransition re-checks on apply: a change checked before a freeze applied can land after it.
+func (m *metaClass) refuseRunningTransition(shard string) error {
+	if p, ok := m.Sharding.Physical[shard]; ok && p.Transition != nil {
+		return fmt.Errorf("%w: tenant %q has a running %s", ErrTenantTransitionalState, shard, p.Transition.Kind)
+	}
 	return nil
 }
 

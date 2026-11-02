@@ -13,6 +13,7 @@ package schema
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"slices"
 	"testing"
@@ -454,6 +455,167 @@ func TestUnfreezeFailingMidBatchKeepsEarlierTenants(t *testing.T) {
 	require.Equal(t, frozen, c.status("b"))
 	require.Len(t, req.Tenants, 1)
 	require.Equal(t, "a", req.Tenants[0].Name)
+}
+
+func TestRefuseDuringTransition(t *testing.T) {
+	manager := func(t *testing.T, tenant sharding.Physical, alive func(string) bool) *SchemaManager {
+		t.Helper()
+		s := NewSchema("n1", prometheus.NewPedanticRegistry())
+		tenant.Name = "t"
+		cls := &models.Class{Class: "C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}, ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
+		require.NoError(t, s.addClass(cls, &sharding.State{
+			PartitioningEnabled: true,
+			Physical:            map[string]sharding.Physical{"t": tenant},
+		}, 1))
+		return &SchemaManager{schema: s, nodeAlive: alive}
+	}
+	running := &sharding.Transition{Kind: sharding.TransitionFreeze}
+	marshal := func(t *testing.T, m proto.Message) []byte {
+		t.Helper()
+		b, err := proto.Marshal(m)
+		require.NoError(t, err)
+		return b
+	}
+	jsonOf := func(t *testing.T, v any) []byte {
+		t.Helper()
+		b, err := json.Marshal(v)
+		require.NoError(t, err)
+		return b
+	}
+
+	cases := []struct {
+		name    string
+		tenant  sharding.Physical
+		alive   func(string) bool
+		req     func(t *testing.T) *command.ApplyRequest
+		refused bool
+	}{
+		{
+			name: "tenant delete with a running transition", tenant: sharding.Physical{Status: hot, Transition: running}, refused: true,
+			req: func(t *testing.T) *command.ApplyRequest {
+				return &command.ApplyRequest{Type: command.ApplyRequest_TYPE_DELETE_TENANT, Class: "C", SubCommand: marshal(t, &command.DeleteTenantsRequest{Tenants: []string{"t"}})}
+			},
+		},
+		{
+			name: "tenant delete with none", tenant: sharding.Physical{Status: hot},
+			req: func(t *testing.T) *command.ApplyRequest {
+				return &command.ApplyRequest{Type: command.ApplyRequest_TYPE_DELETE_TENANT, Class: "C", SubCommand: marshal(t, &command.DeleteTenantsRequest{Tenants: []string{"t"}})}
+			},
+		},
+		{
+			name: "replica add", tenant: sharding.Physical{Status: hot, Transition: running}, refused: true,
+			req: func(t *testing.T) *command.ApplyRequest {
+				return &command.ApplyRequest{Type: command.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD, SubCommand: jsonOf(t, command.AddReplicaToShard{Class: "C", Shard: "t"})}
+			},
+		},
+		{
+			name: "replica delete", tenant: sharding.Physical{Status: hot, Transition: running}, refused: true,
+			req: func(t *testing.T) *command.ApplyRequest {
+				return &command.ApplyRequest{Type: command.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD, SubCommand: jsonOf(t, command.DeleteReplicaFromShard{Class: "C", Shard: "t"})}
+			},
+		},
+		{
+			name: "replica move", tenant: sharding.Physical{Status: hot, Transition: running}, refused: true,
+			req: func(t *testing.T) *command.ApplyRequest {
+				return &command.ApplyRequest{Type: command.ApplyRequest_TYPE_REPLICATION_REPLICATE, SubCommand: jsonOf(t, command.ReplicationReplicateShardRequest{SourceCollection: "C", SourceShard: "t"})}
+			},
+		},
+		{
+			name: "freeze naming a down node", tenant: sharding.Physical{Status: hot, BelongsToNodes: []string{"n1", "n2"}}, refused: true,
+			alive: func(node string) bool { return node == "n1" },
+			req: func(t *testing.T) *command.ApplyRequest {
+				return &command.ApplyRequest{Type: command.ApplyRequest_TYPE_UPDATE_TENANT, Class: "C", SubCommand: marshal(t, &command.UpdateTenantsRequest{Tenants: []*command.Tenant{{Name: "t", Status: frozen}}})}
+			},
+		},
+		{
+			name: "unfreeze choosing a down node", tenant: sharding.Physical{Status: frozen, BelongsToNodes: []string{"n1"}}, refused: true,
+			alive: func(node string) bool { return node == "n1" },
+			req: func(t *testing.T) *command.ApplyRequest {
+				return &command.ApplyRequest{Type: command.ApplyRequest_TYPE_UPDATE_TENANT, Class: "C", SubCommand: marshal(t, &command.UpdateTenantsRequest{
+					ClusterNodes: []string{"n2"}, Tenants: []*command.Tenant{{Name: "t", Status: hot}},
+				})}
+			},
+		},
+		{
+			name: "unfreeze choosing live nodes", tenant: sharding.Physical{Status: frozen, BelongsToNodes: []string{"n2"}},
+			alive: func(node string) bool { return node == "n1" },
+			req: func(t *testing.T) *command.ApplyRequest {
+				return &command.ApplyRequest{Type: command.ApplyRequest_TYPE_UPDATE_TENANT, Class: "C", SubCommand: marshal(t, &command.UpdateTenantsRequest{
+					ClusterNodes: []string{"n1"}, Tenants: []*command.Tenant{{Name: "t", Status: hot}},
+				})}
+			},
+		},
+		{
+			name: "a freeze retry while the freeze runs ignores liveness", tenant: sharding.Physical{Status: hot, BelongsToNodes: []string{"n1", "n2"}, Transition: running},
+			alive: func(node string) bool { return node == "n1" },
+			req: func(t *testing.T) *command.ApplyRequest {
+				return &command.ApplyRequest{Type: command.ApplyRequest_TYPE_UPDATE_TENANT, Class: "C", SubCommand: marshal(t, &command.UpdateTenantsRequest{Tenants: []*command.Tenant{{Name: "t", Status: frozen}}})}
+			},
+		},
+		{
+			name: "a status change that is no freeze ignores liveness", tenant: sharding.Physical{Status: hot, BelongsToNodes: []string{"n2"}},
+			alive: func(string) bool { return false },
+			req: func(t *testing.T) *command.ApplyRequest {
+				return &command.ApplyRequest{Type: command.ApplyRequest_TYPE_UPDATE_TENANT, Class: "C", SubCommand: marshal(t, &command.UpdateTenantsRequest{Tenants: []*command.Tenant{{Name: "t", Status: cold}}})}
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := manager(t, tc.tenant, tc.alive).refuseDuringTransition(tc.req(t))
+			if tc.refused {
+				assert.ErrorIs(t, err, ErrTenantTransitionalState)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestTransitionRefusalNamesWhatItWaitsOn(t *testing.T) {
+	s := NewSchema("n1", prometheus.NewPedanticRegistry())
+	running := func(kind string) *sharding.Transition {
+		return &sharding.Transition{Kind: kind, Participants: map[string]sharding.TransitionParticipant{
+			"n1": {Progress: sharding.ProgressDone}, "n2": {Progress: sharding.ProgressStarted}, "n3": {Progress: sharding.ProgressStarted},
+		}}
+	}
+	cls := &models.Class{Class: "C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}, ReplicationConfig: &models.ReplicationConfig{Factor: 3}}
+	require.NoError(t, s.addClass(cls, &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{
+		"a": {Name: "a", Status: hot, Transition: running(sharding.TransitionFreeze)},
+		"b": {Name: "b", Status: frozen, Transition: running(sharding.TransitionUnfreeze)},
+		"c": {Name: "c", Status: hot},
+	}}, 1))
+	m := &SchemaManager{schema: s, nodeAlive: func(node string) bool { return node != "n2" }}
+
+	err := m.RefuseTransitioning("C", []string{"a", "b", "c"})
+
+	require.ErrorIs(t, err, ErrTenantTransitionalState)
+	require.ErrorContains(t, err, `tenant "a" has a running freeze waiting on n2 (down: bring it back or remove it from the cluster), n3, `+
+		`tenant "b" has a running unfreeze waiting on n2 (down: bring it back or remove it from the cluster), n3; retry when it ends`)
+	require.NotContains(t, err.Error(), `"c"`)
+}
+
+func TestReplicaChangesRefusedOnApplyDuringTransition(t *testing.T) {
+	changes := map[string]func(m *metaClass) error{
+		"add":    func(m *metaClass) error { return m.AddReplicaToShard(200, "t", "n3") },
+		"delete": func(m *metaClass) error { return m.DeleteReplicaFromShard(200, "t", "n2") },
+	}
+	for name, change := range changes {
+		for _, transition := range []*sharding.Transition{nil, {Kind: sharding.TransitionFreeze}} {
+			t.Run(fmt.Sprintf("%s with transition %v", name, transition != nil), func(t *testing.T) {
+				c := newTransitionCluster(t, []string{"n1"}, 2, []string{"n1", "n2"}, map[string]sharding.Physical{
+					"t": {Status: hot, Transition: transition},
+				})
+				err := change(c.metas["n1"])
+				if transition != nil {
+					require.ErrorIs(t, err, ErrTenantTransitionalState)
+					require.ElementsMatch(t, []string{"n1", "n2"}, c.physical("n1", "t").BelongsToNodes)
+					return
+				}
+				require.NoError(t, err)
+			})
+		}
+	}
 }
 
 func TestClassDeleteKnowsAboutCloudCopies(t *testing.T) {

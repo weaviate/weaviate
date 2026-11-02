@@ -698,6 +698,35 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, after.Physical[shard].BelongsToNodes, "Node-7")
 	})
+
+	t.Run("A tenant mid-transition refuses the plan before any step", func(t *testing.T) {
+		const transitioning = "TransitioningCollection"
+		_, err := r.AddClass(ctx, &models.Class{Class: transitioning}, &sharding.State{
+			PartitioningEnabled: true,
+			Physical: map[string]sharding.Physical{
+				"T1": {Name: "T1", BelongsToNodes: []string{sourceNode, removeNode}},
+				"T2": {
+					Name: "T2", BelongsToNodes: []string{sourceNode, removeNode},
+					Transition: &sharding.Transition{Kind: sharding.TransitionFreeze},
+				},
+			},
+		})
+		require.NoError(t, err)
+		plan := command.ReplicationScalePlan{
+			Collection: transitioning,
+			ShardReplicationScaleActions: map[string]command.ShardReplicationScaleActions{
+				"T1": {RemoveNodes: map[string]struct{}{removeNode: {}}},
+				"T2": {RemoveNodes: map[string]struct{}{removeNode: {}}},
+			},
+		}
+
+		_, err = r.ApplyReplicationScalePlan(ctx, plan)
+
+		require.ErrorIs(t, err, schema.ErrTenantTransitionalState)
+		after, err := readShardingState(r.SchemaReader(), transitioning)
+		require.NoError(t, err)
+		require.Contains(t, after.Physical["T1"].BelongsToNodes, removeNode, "no step applied")
+	})
 }
 
 // TestClusterID_CommittedByRealRaftLeader drives cluster-id commit through a

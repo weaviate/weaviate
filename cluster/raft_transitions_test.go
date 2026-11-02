@@ -12,11 +12,22 @@
 package cluster
 
 import (
+	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/utils"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestTransitionsCaughtUp(t *testing.T) {
@@ -67,4 +78,40 @@ func TestFSMReachedIndexWaitsForTheLastCommand(t *testing.T) {
 			assert.Equal(t, tt.want, st.fsmReachedIndex(tt.index))
 		})
 	}
+}
+
+func TestScalePlanRefusesATransitioningTenant(t *testing.T) {
+	ctx := context.Background()
+	m := NewMockStore(t, "node-1", utils.MustGetFreeTCPPort())
+	m.parser.On("ParseClass", mock.Anything).Return(nil)
+	m.indexer.On("Open", mock.Anything).Return(nil)
+	m.indexer.On("Close", mock.Anything).Return(nil).Maybe()
+	m.indexer.On("AddClass", mock.Anything).Return(nil)
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	m.replicationFSM.EXPECT().HasActiveReplicationForCollection(mock.Anything).Return(false).Maybe()
+
+	r := NewRaft(mocks.NewMockNodeSelector("node-1"), m.store, nil)
+	require.NoError(t, r.Open(ctx, m.indexer))
+	defer r.Close(ctx)
+	require.NoError(t, r.store.Notify(m.cfg.NodeID, fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)))
+	require.True(t, tryNTimesWithWait(40, 200*time.Millisecond, r.store.IsLeader))
+	_, err := r.AddClass(ctx,
+		&models.Class{Class: "C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}, ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+		&sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{
+			"t": {Name: "t", Status: models.TenantActivityStatusHOT, BelongsToNodes: []string{"node-1"}, Transition: &sharding.Transition{
+				Kind: sharding.TransitionFreeze, Participants: map[string]sharding.TransitionParticipant{"node-1": {Progress: sharding.ProgressStarted}},
+			}},
+		}},
+	)
+	require.NoError(t, err)
+
+	_, err = r.ApplyReplicationScalePlan(ctx, cmd.ReplicationScalePlan{
+		Collection: "C",
+		ShardReplicationScaleActions: map[string]cmd.ShardReplicationScaleActions{
+			"t": {RemoveNodes: map[string]struct{}{"node-1": {}}},
+		},
+	})
+
+	require.ErrorIs(t, err, schema.ErrTenantTransitionalState)
+	require.ErrorContains(t, err, `tenant "t" has a running freeze waiting on node-1`)
 }

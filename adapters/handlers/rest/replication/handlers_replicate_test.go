@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -193,6 +194,7 @@ func TestReplicationReplicate(t *testing.T) {
 	}{
 		{"unprocessable entity error", types.ErrInvalidRequest, &replication.ReplicateUnprocessableEntity{}},
 		{"conflict when a task is running on the collection", types.ErrMovementBlockedByTask, &replication.ReplicateConflict{}},
+		{"conflict when the tenant has a running freeze", clusterSchema.ErrTenantTransitionalState, &replication.ReplicateConflict{}},
 		{"internal server error", errors.New("target node does not exist"), &replication.ReplicateInternalServerError{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -691,6 +693,11 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 		{
 			"conflict when a task is running on the collection",
 			types.ErrMovementBlockedByTask,
+			&replication.ApplyReplicationScalePlanConflict{},
+		},
+		{
+			"conflict when a tenant has a running freeze",
+			clusterSchema.ErrTenantTransitionalState,
 			&replication.ApplyReplicationScalePlanConflict{},
 		},
 		{"internal error", errors.New("internal error"), &replication.ApplyReplicationScalePlanInternalServerError{}},
