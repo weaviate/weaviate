@@ -119,11 +119,6 @@ func (m *MockSchemaExecutor) DeleteTenants(class string, tenants []*models.Tenan
 	return args.Error(0)
 }
 
-func (m *MockSchemaExecutor) UpdateShardStatus(req *cmd.UpdateShardStatusRequest) error {
-	args := m.Called(req)
-	return args.Error(0)
-}
-
 func (m *MockSchemaExecutor) GetShardsStorageStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error) {
 	args := m.Called(ctx, class, tenant)
 	return models.ShardStatusList{}, args.Error(1)

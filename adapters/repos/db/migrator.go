@@ -642,16 +642,6 @@ func (m *Migrator) GetShardsStorageStatus(ctx context.Context, className, tenant
 	return idx.getShardsStorageStatus(ctx, tenant)
 }
 
-func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error {
-	idx := m.db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		// index not yet local (RAFT schema not applied on this node) or class does not exist
-		return fmt.Errorf("cannot update shard status to a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
-	}
-
-	return idx.updateShardStatus(ctx, shardName, targetStatus)
-}
-
 // NewTenants creates new partitions
 func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates []*schemaUC.CreateTenantPayload) error {
 	idx := m.db.GetIndex(schema.ClassName(class.Class))

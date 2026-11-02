@@ -115,9 +115,6 @@ func migratorOpsWithoutClassLock(reachIndex bool) map[string]func(*Migrator) err
 			_, err := m.GetShardsQueueSize(ctx, lockTestClass, "")
 			return err
 		},
-		"UpdateShardStatus": func(m *Migrator) error {
-			return m.UpdateShardStatus(ctx, lockTestClass, lockTestShard, models.TenantActivityStatusHOT, 0)
-		},
 	}
 }
 

@@ -61,6 +61,7 @@ import (
 )
 
 type DB struct {
+	nodeOverlay               *clusterSchema.NodeOverlay
 	logger                    logrus.FieldLogger
 	localNodeName             string
 	schemaGetter              schemaUC.SchemaGetter
@@ -539,6 +540,10 @@ type Config struct {
 // GetIndex returns the index if it exists or nil if it doesn't
 // by default it will retry 3 times between 0-150 ms to get the index
 // to handle the eventual consistency.
+func (db *DB) SetNodeOverlay(overlay *clusterSchema.NodeOverlay) {
+	db.nodeOverlay = overlay
+}
+
 func (db *DB) GetIndex(className schema.ClassName) *Index {
 	var (
 		index  *Index

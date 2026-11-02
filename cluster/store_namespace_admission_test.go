@@ -391,7 +391,7 @@ func destructiveCommands() []gatedCommand {
 }
 
 // shardStatusCommand drives the manual shard status change through Apply. It
-// writes no schema, so reaching the Indexer is what says the apply took effect.
+// writes no schema, so the overlay is what says the apply took effect.
 func shardStatusCommand() gatedCommand {
 	return gatedCommand{
 		cmdType: api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS,
@@ -408,15 +408,9 @@ func shardStatusCommand() gatedCommand {
 		},
 		seedEntity: seedClass,
 		expectApplied: func(t *testing.T, ms *MockStore, _ string) {
-			ms.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
 		},
-		landed: func(ms *MockStore, _ string) bool {
-			for _, call := range ms.indexer.Calls {
-				if call.Method == "UpdateShardStatus" {
-					return true
-				}
-			}
-			return false
+		landed: func(ms *MockStore, target string) bool {
+			return ms.store.schemaManager.NodeOverlay().ReadOnly(target, seededTenant)
 		},
 	}
 }

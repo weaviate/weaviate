@@ -727,6 +727,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	appState.ClusterService = rCluster.New(rConfig, appState.GRPCServerMetrics)
 	migrator.SetCluster(appState.ClusterService.Raft)
+	repo.SetNodeOverlay(appState.ClusterService.NodeOverlay())
 	appState.ClusterService.SetInflightDrainer(repo.WaitForLocalInflightWrites)
 
 	// Docs links carry ?clusterid= only when telemetry is enabled. Installed
