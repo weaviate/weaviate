@@ -541,6 +541,14 @@ func (c fakeOffloadCloud) Delete(ctx context.Context, className, shardName, node
 	return c.deleteErrs[shardName]
 }
 
+func (c fakeOffloadCloud) Retain(context.Context, string, string, string, string) error { return nil }
+
+func (c fakeOffloadCloud) Retained(context.Context, string, string) ([]string, error) {
+	return nil, nil
+}
+
+func (c fakeOffloadCloud) Release(context.Context, string, string) error { return nil }
+
 func (c fakeOffloadCloud) DeleteClass(context.Context, string, uint64) error { return nil }
 
 func dropShardLogShard(t *testing.T, hook *test.Hook) any {

@@ -490,6 +490,7 @@ func settleReport(p *sharding.Physical, node string, report *command.TenantsProc
 	}
 
 	p.Transition = nil
+	p.LastTransition = t.Attempt
 	if t.Kind == sharding.TransitionFreeze {
 		p.Status = models.TenantActivityStatusFROZEN
 		p.CloudAttempt = t.Attempt

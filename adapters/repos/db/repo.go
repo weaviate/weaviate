@@ -41,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -79,6 +80,8 @@ type DB struct {
 	propLengthsRecount        startupRebuild
 	resourceScanState         *resourceScanState
 	memMonitor                *memwatch.Monitor
+	// offloadCloud holds frozen tenants; nil without the offload module.
+	offloadCloud modulecapabilities.OffloadCloud
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modification at a time. R/W can be a bit confusing here,

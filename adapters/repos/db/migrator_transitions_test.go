@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -54,12 +55,15 @@ type fakeTransitionCloud struct {
 	deletes   []string
 	copies    []string
 	empty     map[string]bool
+	// retained holds each {tenant}/{attempt}/{backupID} marker.
+	retained []string
 	// classDeletes holds the bound of each class delete.
 	classDeletes []uint64
 
 	uploadErr  error
 	hasDataErr error
 	listErr    error
+	retainErr  error
 	download   func(ctx context.Context, localPath string) error
 	upload     func(ctx context.Context) error
 }
@@ -114,6 +118,37 @@ func (c *fakeTransitionCloud) DeleteClass(_ context.Context, _ string, below uin
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.classDeletes = append(c.classDeletes, below)
+	return nil
+}
+
+func (c *fakeTransitionCloud) Retain(_ context.Context, _, tenant, attempt, backupID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.retainErr != nil {
+		return c.retainErr
+	}
+	c.retained = append(c.retained, tenant+"/"+attempt+"/"+backupID)
+	return nil
+}
+
+func (c *fakeTransitionCloud) Retained(_ context.Context, _, tenant string) ([]string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var attempts []string
+	for _, marker := range c.retained {
+		if parts := strings.Split(marker, "/"); parts[0] == tenant {
+			attempts = append(attempts, parts[1])
+		}
+	}
+	return attempts, nil
+}
+
+func (c *fakeTransitionCloud) Release(_ context.Context, _, backupID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.retained = slices.DeleteFunc(c.retained, func(marker string) bool {
+		return strings.HasSuffix(marker, "/"+backupID)
+	})
 	return nil
 }
 
@@ -818,13 +853,46 @@ func TestShardLoadRefusedDuringTransition(t *testing.T) {
 	}
 }
 
+func TestBackupStripsTheTransitionRecord(t *testing.T) {
+	h := newTransitionHarness(t)
+	h.cluster.setRecords(freezeRecord(7))
+
+	_, state, _, err := h.idx.readSchema()
+	require.NoError(t, err)
+
+	var restored sharding.State
+	require.NoError(t, json.Unmarshal(state, &restored))
+	tenant := restored.Physical[transitionTenant]
+	require.Nil(t, tenant.Transition)
+	require.Equal(t, models.TenantActivityStatusHOT, tenant.ActivityStatus(), "comes back at the status it started from")
+	running, _, err := tenantPhysical(h.idx, transitionClass, transitionTenant)
+	require.NoError(t, err)
+	require.NotNil(t, running.Transition, "the live state is untouched")
+}
+
 func TestDeleteCloudAttemptsNamesExactAttempts(t *testing.T) {
-	cloud := &fakeTransitionCloud{copies: []string{"3", "8", "9", "12", "legacy"}}
+	cases := []struct {
+		name       string
+		retained   []string
+		wantDelete []string
+	}{
+		{name: "attempts below the bound, except the one kept", wantDelete: []string{"3", "9"}},
+		{
+			name:       "an attempt a backup restores from stays",
+			retained:   []string{transitionTenant + "/3/backup-1", "other/9/backup-1"},
+			wantDelete: []string{"9"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cloud := &fakeTransitionCloud{copies: []string{"3", "8", "9", "12", "legacy"}, retained: tc.retained}
 
-	require.NoError(t, deleteCloudAttempts(context.Background(), cloud, transitionClass, transitionTenant, 8, 10))
+			require.NoError(t, deleteCloudAttempts(context.Background(), cloud, transitionClass, transitionTenant, 8, 10))
 
-	_, _, deletes := cloud.snapshot()
-	assert.ElementsMatch(t, []string{"3", "9"}, deletes, fmt.Sprintf("got %v", deletes))
+			_, _, deletes := cloud.snapshot()
+			assert.ElementsMatch(t, tc.wantDelete, deletes, fmt.Sprintf("got %v", deletes))
+		})
+	}
 }
 
 // Without the module a participant never reports, so its transition would wait forever.

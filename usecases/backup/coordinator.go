@@ -85,6 +85,9 @@ type Selector interface {
 
 	// Backupable returns whether all given class can be backed up.
 	Backupable(_ context.Context, classes []string) error
+
+	// DiscardBackup releases the frozen tenants' cloud copies a backup that did not succeed kept.
+	DiscardBackup(_ context.Context, bakID string, classes []string) error
 }
 
 // UserLister resolves includeUsers selectors. ListAllUsers returns qualified
@@ -355,6 +358,9 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 			c.log.WithFields(logFields).Info("coordinator: backup completed successfully")
 		} else {
 			c.log.WithFields(logFields).Errorf("coordinator: %s", c.descriptor.Error)
+			if err := c.selector.DiscardBackup(ctx, req.ID, c.descriptor.Classes()); err != nil {
+				c.log.WithFields(logFields).Warnf("coordinator: release the cloud copies the backup kept: %v", err)
+			}
 		}
 	}
 	handedOff = true

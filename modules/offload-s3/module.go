@@ -445,7 +445,11 @@ func (m *Module) Delete(ctx context.Context, className, shardName, nodeName stri
 	return nil
 }
 
-// DeleteClass deletes attempts below `below`, sparing a same-name class created after it.
+// retainedDir holds markers at {class}/.retained/{tenant}/{attempt}/{backupID}; tenant names have no dots.
+// A successful backup's markers stay for good, since no backup operation deletes a backup.
+const retainedDir = ".retained"
+
+// DeleteClass deletes unretained attempts below `below`, sparing a same-name class created after it.
 func (m *Module) DeleteClass(ctx context.Context, className string, below uint64) (err error) {
 	start := time.Now()
 	if className == "" {
@@ -476,6 +480,10 @@ func (m *Module) DeleteClass(ctx context.Context, className string, below uint64
 	if err != nil {
 		return err
 	}
+	retained, err := m.retainedCopies(ctx, client, class)
+	if err != nil {
+		return fmt.Errorf("list retained copies: %w", err)
+	}
 
 	urls := make(chan *url.URL)
 	var listErr error
@@ -490,7 +498,7 @@ func (m *Module) DeleteClass(ctx context.Context, className string, below uint64
 			}
 			// {shard}/{attempt}/{node}/...
 			parts := strings.SplitN(strings.TrimPrefix(object.URL.Path, class+"/"), "/", 3)
-			if len(parts) < 3 {
+			if len(parts) < 3 || parts[0] == retainedDir || retained[parts[0]+"/"+parts[1]] {
 				continue
 			}
 			if attempt, err := strconv.ParseUint(parts[1], 10, 64); err != nil || attempt >= below {
@@ -511,6 +519,114 @@ func (m *Module) DeleteClass(ctx context.Context, className string, below uint64
 	}
 	// s5cmd reports a listing cut short as a success
 	return errors.Join(listErr, deleteErr, ctx.Err())
+}
+
+// retainedCopies returns the {shard}/{attempt} of every copy a backup retained.
+func (m *Module) retainedCopies(ctx context.Context, client *storage.S3, class string) (map[string]bool, error) {
+	target, err := url.New(fmt.Sprintf("s3://%s/%s/%s/*", m.Bucket, class, retainedDir))
+	if err != nil {
+		return nil, err
+	}
+	retained := map[string]bool{}
+	var listErr error
+	for object := range client.List(ctx, target, false) {
+		switch {
+		case errors.Is(object.Err, storage.ErrNoObjectFound):
+		case object.Err != nil:
+			listErr = object.Err
+		default:
+			// .retained/{shard}/{attempt}/{backup}
+			parts := strings.SplitN(strings.TrimPrefix(object.URL.Path, class+"/"+retainedDir+"/"), "/", 3)
+			if len(parts) == 3 {
+				retained[parts[0]+"/"+parts[1]] = true
+			}
+		}
+	}
+	return retained, errors.Join(listErr, ctx.Err())
+}
+
+// Retain marks a shard's attempt as one backupID restores from, so deletes keep it.
+func (m *Module) Retain(ctx context.Context, className, shardName, attempt, backupID string) error {
+	if err := validate(className, shardName, attempt); err != nil {
+		return err
+	}
+	if backupID == "" {
+		return fmt.Errorf("can't pass empty backup id")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	target, err := url.New(fmt.Sprintf("s3://%s/%s/%s/%s/%s/%s",
+		m.Bucket, strings.ToLower(className), retainedDir, shardName, attempt, backupID))
+	if err != nil {
+		return err
+	}
+	initS5cmd(m.workersCount)
+	client, err := storage.NewRemoteClient(ctx, target, storage.Options{
+		Endpoint:   m.Endpoint,
+		MaxRetries: s5cmdRetries,
+		LogLevel:   log.LevelError,
+	})
+	if err != nil {
+		return err
+	}
+	return client.Put(ctx, strings.NewReader(""), target, storage.Metadata{}, 1, 5<<20)
+}
+
+func (m *Module) Retained(ctx context.Context, className, shardName string) ([]string, error) {
+	return m.listDir(ctx, fmt.Sprintf("%s/%s/%s", strings.ToLower(className), retainedDir, shardName))
+}
+
+// Release deletes backupID's markers, so deletes no longer keep copies only it retained.
+func (m *Module) Release(ctx context.Context, className, backupID string) error {
+	if className == "" || backupID == "" {
+		return fmt.Errorf("can't pass empty class name or backup id")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	target, err := url.New(fmt.Sprintf("s3://%s/%s/%s/*", m.Bucket, strings.ToLower(className), retainedDir))
+	if err != nil {
+		return err
+	}
+	initS5cmd(m.workersCount)
+	client, err := storage.NewRemoteClient(ctx, target, storage.Options{
+		Endpoint:   m.Endpoint,
+		MaxRetries: s5cmdRetries,
+		LogLevel:   log.LevelError,
+	})
+	if err != nil {
+		return err
+	}
+
+	var markers []*url.URL
+	var listErr error
+	for object := range client.List(ctx, target, false) {
+		switch {
+		case errors.Is(object.Err, storage.ErrNoObjectFound):
+		case object.Err != nil:
+			listErr = object.Err
+		case path.Base(object.URL.Path) == backupID:
+			markers = append(markers, object.URL)
+		}
+	}
+	if err := errors.Join(listErr, ctx.Err()); err != nil {
+		return err
+	}
+	urls := make(chan *url.URL, len(markers))
+	for _, marker := range markers {
+		urls <- marker
+	}
+	close(urls)
+	var deleteErr error
+	for object := range client.MultiDelete(ctx, urls) {
+		if object.Err != nil {
+			deleteErr = errors.Join(deleteErr, fmt.Errorf("delete %s: %w", object.URL, object.Err))
+		}
+	}
+	return deleteErr
 }
 
 func dirSize(path string) (int64, error) {

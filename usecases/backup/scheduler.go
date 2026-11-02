@@ -160,6 +160,10 @@ func (s *Scheduler) CleanupUnfinishedBackups(ctx context.Context) {
 						Error(fmt.Errorf("update meta file: %w", err))
 					continue
 				}
+				if err := s.backupper.selector.DiscardBackup(ctx, bak.ID, bak.Classes()); err != nil {
+					s.logger.WithField("action", "cleanup_unfinished_backups").WithField("backup_id", bak.ID).
+						Warnf("release the cloud copies the backup kept: %v", err)
+				}
 			}
 		}
 	}

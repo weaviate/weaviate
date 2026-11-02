@@ -140,7 +140,7 @@ func TestUploadArgs_SkipsScratchFiles(t *testing.T) {
 }
 
 // A late-applied class delete must not touch copies of a same-name class created after it.
-func TestDeleteClassKeepsNewerCopies(t *testing.T) {
+func TestDeleteClassKeepsNewerAndRetainedCopies(t *testing.T) {
 	t.Setenv("AWS_ACCESS_KEY_ID", "key")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
 	t.Setenv("AWS_REGION", "us-east-1")
@@ -169,6 +169,10 @@ func TestDeleteClassKeepsNewerCopies(t *testing.T) {
 			"class/t1/120/node1/segment",
 			"class/t2/9/node1/segment",
 			"class/t3/legacy-node/segment",
+			"class/.retained/t2/9/backup-1",
+		}
+		if prefix := r.URL.Query().Get("prefix"); prefix == "class/.retained/" {
+			keys = keys[len(keys)-1:]
 		}
 		out := `<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><IsTruncated>false</IsTruncated>`
 		for _, key := range keys {
@@ -187,11 +191,97 @@ func TestDeleteClassKeepsNewerCopies(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	require.ElementsMatch(t, []string{"class/t1/7/node1/segment", "class/t1/7/node2/segment", "class/t2/9/node1/segment"}, deleted)
+	require.ElementsMatch(t, []string{"class/t1/7/node1/segment", "class/t1/7/node2/segment"}, deleted)
+}
+
+func TestRetainWritesAMarkerPerBackup(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+	t.Setenv("AWS_REGION", "us-east-1")
+	var mu sync.Mutex
+	var puts []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			mu.Lock()
+			puts = append(puts, r.URL.Path)
+			mu.Unlock()
+		}
+	}))
+	defer srv.Close()
+
+	m := &Module{Endpoint: srv.URL, Bucket: "bucket", timeout: 10 * time.Second, workersCount: 1}
+	require.NoError(t, m.Retain(t.Context(), "Class", "tenant", "7", "backup-1"))
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, []string{"/bucket/class/.retained/tenant/7/backup-1"}, puts)
 }
 
 func shardName(i int) string {
 	return fmt.Sprintf("tenant-%d", i)
+}
+
+func TestReleaseDeletesOnlyTheBackupsMarkers(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+	t.Setenv("AWS_REGION", "us-east-1")
+	var mu sync.Mutex
+	var prefixes []string
+	var deleted []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		if r.Method == http.MethodPost {
+			body, _ := io.ReadAll(r.Body)
+			var req struct {
+				Objects []struct{ Key string } `xml:"Object"`
+			}
+			require.NoError(t, xml.Unmarshal(body, &req))
+			out := `<DeleteResult>`
+			mu.Lock()
+			for _, o := range req.Objects {
+				deleted = append(deleted, o.Key)
+				out += "<Deleted><Key>" + o.Key + "</Key></Deleted>"
+			}
+			mu.Unlock()
+			_, _ = w.Write([]byte(out + `</DeleteResult>`))
+			return
+		}
+		mu.Lock()
+		prefixes = append(prefixes, r.URL.Query().Get("prefix"))
+		mu.Unlock()
+		_, _ = w.Write([]byte(`<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+			<IsTruncated>false</IsTruncated>
+			<Contents><Key>class/.retained/t1/7/backup-1</Key><Size>0</Size></Contents>
+			<Contents><Key>class/.retained/t1/7/backup-2</Key><Size>0</Size></Contents>
+			<Contents><Key>class/.retained/t2/9/backup-1</Key><Size>0</Size></Contents>
+			<Contents><Key>class/.retained/t3/4/backup-10</Key><Size>0</Size></Contents>
+		</ListBucketResult>`))
+	}))
+	defer srv.Close()
+
+	m := &Module{Endpoint: srv.URL, Bucket: "bucket", timeout: 10 * time.Second, workersCount: 1}
+	require.NoError(t, m.Release(t.Context(), "Class", "backup-1"))
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, []string{"class/.retained/"}, prefixes)
+	require.ElementsMatch(t, []string{"class/.retained/t1/7/backup-1", "class/.retained/t2/9/backup-1"}, deleted)
+}
+
+// A listing cut short must not pass as one that found no marker.
+func TestReleaseCutShortFails(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+	t.Setenv("AWS_REGION", "us-east-1")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	m := &Module{Endpoint: srv.URL, Bucket: "bucket", timeout: time.Minute, workersCount: 1}
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	require.Error(t, m.Release(ctx, "Class", "backup-1"))
 }
 
 // Transition cleanup deletes every attempt ListCopies names, so it must name exactly those folders.

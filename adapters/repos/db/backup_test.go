@@ -758,6 +758,110 @@ func createColdShardFiles(t *testing.T, rootDir, className, shardName string) {
 	require.NoError(t, os.WriteFile(filepath.Join(bucketDir, "segment-123.wal"), []byte("wal-data"), 0o644))
 }
 
+// A later unfreeze or delete would remove the copy a restored frozen tenant unfreezes from.
+func TestDescriptorKeepsFrozenCopies(t *testing.T) {
+	tests := []struct {
+		name         string
+		retainErr    error
+		wantRetained []string
+		wantErr      string
+	}{
+		{name: "each frozen tenant's attempt is retained", wantRetained: []string{"frozen/7/test-backup", "unfreezing/9/test-backup"}},
+		{name: "a copy it cannot retain fails the backup", retainErr: errors.New("s3 down"), wantErr: "keep the cloud copy of frozen tenant"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootDir := t.TempDir()
+			state := NewMultiTenantShardingStateBuilder().
+				AddTenant("frozen", models.TenantActivityStatusFROZEN).
+				AddTenant("frozen-empty", models.TenantActivityStatusFROZEN).
+				AddTenant("unfreezing", models.TenantActivityStatusFROZEN).
+				AddTenant("cold", models.TenantActivityStatusCOLD).
+				WithReplicationFactor(1).
+				Build()
+			frozen := state.Physical["frozen"]
+			frozen.CloudAttempt = 7
+			state.Physical["frozen"] = frozen
+			// restores FROZEN from attempt 9, the unfreeze being stripped
+			unfreezing := state.Physical["unfreezing"]
+			unfreezing.BelongsToNodes = []string{"node1"}
+			unfreezing.CloudAttempt = 9
+			unfreezing.Transition = &sharding.Transition{
+				Kind: sharding.TransitionUnfreeze, Target: models.TenantActivityStatusHOT, Attempt: 11, Chosen: []string{"node1"},
+				Participants: map[string]sharding.TransitionParticipant{"node1": {Source: "node1", Progress: sharding.ProgressStarted}},
+			}
+			state.Physical["unfreezing"] = unfreezing
+			idx := newDescriptorTestIndex(t, rootDir, "TestClass", state)
+			cloud := &fakeTransitionCloud{retainErr: tt.retainErr}
+			idx.db.offloadCloud = cloud
+			createColdShardFiles(t, rootDir, "TestClass", "cold")
+
+			var desc backup.ClassDescriptor
+			err := idx.descriptor(context.Background(), "test-backup", &desc, nil, nil, newReindexGate(idx.db, reindexGateMaxAge))
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.wantRetained, cloud.retained)
+		})
+	}
+}
+
+// A freeze between the state read and the shard lock removes the folder, so the restore is empty.
+func TestDescriptorRefusesOffloadDrift(t *testing.T) {
+	const className = "TestClass"
+	tests := []struct {
+		name       string
+		before     string
+		after      string
+		afterCloud uint64
+		afterLast  uint64
+		folder     bool
+		wantErr    bool
+	}{
+		{name: "a freeze completed", before: models.TenantActivityStatusHOT, after: models.TenantActivityStatusFROZEN, afterCloud: 7, afterLast: 7, wantErr: true},
+		{name: "an unfreeze completed", before: models.TenantActivityStatusFROZEN, after: models.TenantActivityStatusHOT, afterLast: 9, folder: true, wantErr: true},
+		{name: "a freeze and an unfreeze completed", before: models.TenantActivityStatusHOT, after: models.TenantActivityStatusHOT, afterLast: 9, wantErr: true},
+		{name: "a deactivation", before: models.TenantActivityStatusHOT, after: models.TenantActivityStatusCOLD, folder: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootDir := t.TempDir()
+			before := NewMultiTenantShardingStateBuilder().AddTenant("t", tt.before).WithReplicationFactor(1).Build()
+			after := before.DeepCopy()
+			tenant := after.Physical["t"]
+			tenant.Status, tenant.CloudAttempt, tenant.LastTransition = tt.after, tt.afterCloud, tt.afterLast
+			after.Physical["t"] = tenant
+			idx := newDescriptorTestIndex(t, rootDir, className, before)
+			reads := 0
+			reader := local.NewMockSchemaReader(t)
+			reader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).
+				RunAndReturn(func(_ string, _ bool, read func(*models.Class, *sharding.State) error) error {
+					reads++
+					if reads == 1 {
+						return read(&models.Class{Class: className}, before)
+					}
+					return read(&models.Class{Class: className}, &after)
+				})
+			idx.schemaReader = reader
+			if tt.folder {
+				createColdShardFiles(t, rootDir, className, "t")
+			}
+
+			var desc backup.ClassDescriptor
+			err := idx.descriptor(context.Background(), "test-backup", &desc, nil, nil, newReindexGate(idx.db, reindexGateMaxAge))
+
+			if tt.wantErr {
+				require.ErrorContains(t, err, "were frozen or unfrozen during the backup, retry it")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 	rootDir := t.TempDir()
 	className := "TestClass"
@@ -1516,4 +1620,14 @@ func backupTestDBWithLoadedShards(t *testing.T, classNames []string, state *shar
 		}
 	}
 	return db
+}
+
+func TestDiscardBackupReleasesOnlyItsMarkers(t *testing.T) {
+	db := stubDBWithNoLiveReindex()
+	require.NoError(t, db.DiscardBackup(context.Background(), "failed", []string{"TestClass"}), "a node without the module keeps nothing")
+
+	cloud := &fakeTransitionCloud{retained: []string{"frozen/7/failed", "frozen/7/kept", "other/3/failed"}}
+	db.offloadCloud = cloud
+	require.NoError(t, db.DiscardBackup(context.Background(), "failed", []string{"TestClass"}))
+	require.Equal(t, []string{"frozen/7/kept"}, cloud.retained)
 }
