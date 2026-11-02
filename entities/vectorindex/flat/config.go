@@ -24,20 +24,48 @@ const (
 	DefaultVectorCacheMaxObjects = 1e12
 	DefaultCompressionEnabled    = false
 	DefaultCompressionRescore    = -1 // indicates "let Weaviate pick"
-	DefaultRQBits                = 8
+	// DefaultCompressionRescoreFactor is what RescoreFactorAuto resolves to.
+	// It is 1 so an index rescores max(k, rescoreLimit) as it always has.
+	DefaultCompressionRescoreFactor = 1.0
+	// RescoreFactorAuto is the stored default of rescoreFactor.
+	RescoreFactorAuto = vectorindexcommon.RescoreFactorAuto
+	DefaultRQBits     = 8
 )
 
+// CompressionUserConfig is one flat quantizer's config. A quantized search
+// rescores max(k, rescoreLimit, ceil(k * rescoreFactor)) of the best
+// candidates by compressed distance with their uncompressed vectors;
+// rescoreLimit -1 and 0 both leave the minimum at k.
 type CompressionUserConfig struct {
-	Enabled      bool `json:"enabled"`
-	RescoreLimit int  `json:"rescoreLimit"`
-	Cache        bool `json:"cache"`
+	Enabled       bool    `json:"enabled"`
+	RescoreLimit  int     `json:"rescoreLimit"`
+	RescoreFactor float64 `json:"rescoreFactor"`
+	Cache         bool    `json:"cache"`
 }
 
+// RQUserConfig is CompressionUserConfig plus the RQ bit width.
 type RQUserConfig struct {
-	Enabled      bool `json:"enabled"`
-	RescoreLimit int  `json:"rescoreLimit"`
-	Cache        bool `json:"cache"`
-	Bits         int  `json:"bits,omitempty"`
+	Enabled       bool    `json:"enabled"`
+	RescoreLimit  int     `json:"rescoreLimit"`
+	RescoreFactor float64 `json:"rescoreFactor"`
+	Cache         bool    `json:"cache"`
+	Bits          int     `json:"bits,omitempty"`
+}
+
+// RescorePolicy resolves the rescore settings of this quantizer.
+func (c CompressionUserConfig) RescorePolicy() vectorindexcommon.RescorePolicy {
+	return vectorindexcommon.RescorePolicy{
+		Limit:  c.RescoreLimit,
+		Factor: vectorindexcommon.ResolveRescoreFactor(c.RescoreFactor, DefaultCompressionRescoreFactor),
+	}
+}
+
+// RescorePolicy resolves the rescore settings of RQ.
+func (c RQUserConfig) RescorePolicy() vectorindexcommon.RescorePolicy {
+	return vectorindexcommon.RescorePolicy{
+		Limit:  c.RescoreLimit,
+		Factor: vectorindexcommon.ResolveRescoreFactor(c.RescoreFactor, DefaultCompressionRescoreFactor),
+	}
 }
 
 type UserConfig struct {
@@ -74,12 +102,16 @@ func (u *UserConfig) SetDefaults() {
 	u.Distance = vectorindexcommon.DefaultDistanceMetric
 	u.PQ.Enabled = DefaultCompressionEnabled
 	u.PQ.RescoreLimit = DefaultCompressionRescore
+	u.PQ.RescoreFactor = RescoreFactorAuto
 	u.BQ.Enabled = DefaultCompressionEnabled
 	u.BQ.RescoreLimit = DefaultCompressionRescore
+	u.BQ.RescoreFactor = RescoreFactorAuto
 	u.SQ.Enabled = DefaultCompressionEnabled
 	u.SQ.RescoreLimit = DefaultCompressionRescore
+	u.SQ.RescoreFactor = RescoreFactorAuto
 	u.RQ.Enabled = DefaultCompressionEnabled
 	u.RQ.RescoreLimit = DefaultCompressionRescore
+	u.RQ.RescoreFactor = RescoreFactorAuto
 	u.RQ.Bits = DefaultRQBits
 }
 
@@ -129,7 +161,7 @@ func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, 
 	return uc, nil
 }
 
-func parseCompressionMap(in interface{}, cuc *CompressionUserConfig) error {
+func parseCompressionMap(in interface{}, quantizer string, cuc *CompressionUserConfig) error {
 	configMap, ok := in.(map[string]interface{})
 	if ok {
 		if err := vectorindexcommon.OptionalBoolFromMap(configMap, "enabled", func(v bool) {
@@ -149,6 +181,12 @@ func parseCompressionMap(in interface{}, cuc *CompressionUserConfig) error {
 		}); err != nil {
 			return err
 		}
+
+		if err := vectorindexcommon.ParseRescoreFactor(configMap, quantizer, func(v float64) {
+			cuc.RescoreFactor = v
+		}); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -164,21 +202,21 @@ func parseCompression(in map[string]interface{}, uc *UserConfig) error {
 	}
 
 	if pqOk {
-		err := parseCompressionMap(pqConfigValue, &uc.PQ)
+		err := parseCompressionMap(pqConfigValue, "pq", &uc.PQ)
 		if err != nil {
 			return err
 		}
 	}
 
 	if bqOk {
-		err := parseCompressionMap(bqConfigValue, &uc.BQ)
+		err := parseCompressionMap(bqConfigValue, "bq", &uc.BQ)
 		if err != nil {
 			return err
 		}
 	}
 
 	if sqOk {
-		err := parseCompressionMap(sqConfigValue, &uc.SQ)
+		err := parseCompressionMap(sqConfigValue, "sq", &uc.SQ)
 		if err != nil {
 			return err
 		}
@@ -251,6 +289,12 @@ func parseRQConfig(in interface{}, rq *RQUserConfig) error {
 			return err
 		}
 
+		if err := vectorindexcommon.ParseRescoreFactor(configMap, "rq", func(v float64) {
+			rq.RescoreFactor = v
+		}); err != nil {
+			return err
+		}
+
 		if err := vectorindexcommon.OptionalIntFromMap(configMap, "bits", func(v int) {
 			rq.Bits = v
 		}); err != nil {
@@ -282,15 +326,18 @@ func ParseDefaultQuantization(vectorIndexConfig schemaConfig.VectorIndexConfig, 
 		flatConfig.RQ.Enabled = true
 		flatConfig.RQ.Bits = 1
 		flatConfig.RQ.RescoreLimit = DefaultCompressionRescore
+		flatConfig.RQ.RescoreFactor = RescoreFactorAuto
 		flatConfig.RQ.Cache = DefaultVectorCache
 	case "rq-8":
 		flatConfig.RQ.Enabled = true
 		flatConfig.RQ.Bits = 8
 		flatConfig.RQ.RescoreLimit = DefaultCompressionRescore
+		flatConfig.RQ.RescoreFactor = RescoreFactorAuto
 		flatConfig.RQ.Cache = DefaultVectorCache
 	case "bq":
 		flatConfig.BQ.Enabled = true
 		flatConfig.BQ.RescoreLimit = DefaultCompressionRescore
+		flatConfig.BQ.RescoreFactor = RescoreFactorAuto
 		flatConfig.BQ.Cache = DefaultVectorCache
 	default:
 		return flatConfig, errors.New("invalid default quantization for flat index: " + compression)

@@ -25,7 +25,7 @@ import (
 
 // dangerousVectorConfigChange returns a non-empty reason when the update would rewrite a
 // vector's on-disk structure (index type, distance, quantizer) or add/remove a named vector.
-// Returns "" for query-time-only changes (ef, flatSearchCutoff, rescoreLimit, ...).
+// Returns "" for query-time-only changes (ef, flatSearchCutoff, rescoreLimit, rescoreFactor, ...).
 func dangerousVectorConfigChange(old, u *models.Class) string {
 	if r := vecDelta("", old.VectorIndexConfig, u.VectorIndexConfig); r != "" {
 		return r
@@ -133,22 +133,28 @@ func normalizeHNSW(c hnswent.UserConfig) hnswent.UserConfig {
 	c.FilterStrategy = ""
 	c.SkipDefaultQuantization = false
 	c.TrackDefaultQuantization = false
+	c.PQ.RescoreLimit = 0
+	c.BQ.RescoreLimit = 0
 	c.SQ.RescoreLimit = 0
 	c.RQ.RescoreLimit = 0
+	c.PQ.RescoreFactor = 0
+	c.BQ.RescoreFactor = 0
+	c.SQ.RescoreFactor = 0
+	c.RQ.RescoreFactor = 0
 	c.Multivector = hnswent.MultivectorConfig{} // every Multivector leaf is safe (deferred)
 	return c
 }
 
 // normalizeFlat zeroes the query-time-safe leaves of a flat config on a value copy. Quantizer
-// Enabled/Bits and Distance stay; RescoreLimit/Cache and VectorCacheMaxObjects are query-time.
+// Enabled/Bits and Distance stay; RescoreLimit/RescoreFactor/Cache and VectorCacheMaxObjects are query-time.
 func normalizeFlat(c flatent.UserConfig) flatent.UserConfig {
 	c.VectorCacheMaxObjects = 0
 	c.SkipDefaultQuantization = false
 	c.TrackDefaultQuantization = false
-	c.PQ.RescoreLimit, c.PQ.Cache = 0, false
-	c.BQ.RescoreLimit, c.BQ.Cache = 0, false
-	c.SQ.RescoreLimit, c.SQ.Cache = 0, false
-	c.RQ.RescoreLimit, c.RQ.Cache = 0, false
+	c.PQ.RescoreLimit, c.PQ.RescoreFactor, c.PQ.Cache = 0, 0, false
+	c.BQ.RescoreLimit, c.BQ.RescoreFactor, c.BQ.Cache = 0, 0, false
+	c.SQ.RescoreLimit, c.SQ.RescoreFactor, c.SQ.Cache = 0, 0, false
+	c.RQ.RescoreLimit, c.RQ.RescoreFactor, c.RQ.Cache = 0, 0, false
 	return c
 }
 
