@@ -38,8 +38,8 @@ func testChangeTokenizationFilterable(t *testing.T, restURI string) {
 	t.Run("searchable_only_text__filterable_tokenization_rejected", func(t *testing.T) {
 		testFilterableTokenizationOnSearchableOnlyRejected(t, restURI)
 	})
-	t.Run("both_indexes_text__filterable_tokenization_retokenizes_filterable_only", func(t *testing.T) {
-		testFilterableTokenizationOnBothIndexes(t, restURI)
+	t.Run("both_indexes_text__filterable_tokenization_rejected", func(t *testing.T) {
+		testFilterableTokenizationOnBothIndexesRejected(t, restURI)
 	})
 	t.Run("non_text_filterable__filterable_tokenization_rejected", func(t *testing.T) {
 		testFilterableTokenizationOnNonText(t, restURI)
@@ -170,7 +170,7 @@ func testFilterableTokenizationOnSearchableOnlyRejected(t *testing.T, restURI st
 		"the 400 body must explain the tokenization must match on filterable creation; current body: %s", resp.Body)
 }
 
-func testFilterableTokenizationOnBothIndexes(t *testing.T, restURI string) {
+func testFilterableTokenizationOnBothIndexesRejected(t *testing.T, restURI string) {
 	const className = "FilterableTokBothIndexes"
 	trueVal := true
 	helper.CreateClass(t, &models.Class{
@@ -181,37 +181,19 @@ func testFilterableTokenizationOnBothIndexes(t *testing.T, restURI string) {
 				DataType:        []string{"text"},
 				IndexFilterable: &trueVal,
 				IndexSearchable: &trueVal,
-				Tokenization:    "field",
+				Tokenization:    "word",
 			},
 		},
 		Vectorizer: "none",
 	})
 	defer helper.DeleteClass(t, className)
 
-	require.NoError(t, helper.CreateObject(t, &models.Object{
-		Class: className, Properties: map[string]interface{}{"name": "gamma"},
-	}))
-
-	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "name", "filterable",
-		`{"tokenization":"word"}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
-
-	require.Eventually(t, func() bool {
-		c := helper.GetClass(t, className)
-		if c == nil {
-			return false
-		}
-		for _, p := range c.Properties {
-			if p.Name == "name" {
-				return p.Tokenization == "word"
-			}
-		}
-		return false
-	}, 30*time.Second, 50*time.Millisecond,
-		"property tokenization must flip to 'word' even though both indexes exist")
-
-	require.Equal(t, 1, equalFilterHits(t, className, "name", "gamma"),
-		"post-migration: filterable Equal('gamma') still matches")
+	resp := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, className, "name", "filterable",
+		`{"tokenization":"field"}`)
+	require.Equal(t, 400, resp.StatusCode,
+		"PUT .../index/filterable {tokenization:field} with a searchable index too must 400")
+	require.Contains(t, resp.Body, "would silently desynchronize the searchable index",
+		"the 400 body must name the searchable index; current body: %s", resp.Body)
 }
 
 func testFilterableTokenizationOnNonText(t *testing.T, restURI string) {

@@ -537,7 +537,7 @@ func TestRestoreShardWhoseVectorsAreStillQueued(t *testing.T) {
 
 			stagingRoot := t.TempDir()
 			sd := backup.ShardDescriptor{}
-			files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot)
+			files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot, newReindexGate(idx.db, reindexGateMaxAge))
 			require.NoError(t, err)
 
 			// restore in place, the way a restore lands the backup on the node
