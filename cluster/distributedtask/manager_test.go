@@ -299,7 +299,7 @@ func TestManager_CancelTask_KeepsDecidedGroups(t *testing.T) {
 	require.Equal(t, TaskStatusCancelled, task.Status)
 	require.True(t, task.GroupSwapDecided("tenant-a"), "a decided group survives the cancel")
 	require.False(t, task.GroupSwapDecided("tenant-b"), "no group is decided after the cancel")
-	require.Equal(t, map[string]struct{}{"a": {}}, task.StatusEntry().DecidedUnits,
+	require.Equal(t, map[string]struct{}{"tenant-a": {}}, task.StatusEntry().DecidedGroups,
 		"record verdicts read the decision through the status entry")
 }
 

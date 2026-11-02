@@ -36,6 +36,9 @@ type migrationStagedBucketCloser interface {
 }
 
 type migrationReconcileDeps struct {
+	// Group is the shard's name, which every reindex unit of the shard is grouped under.
+	Group string
+
 	LocalTasks func() ([]distributedtask.TaskStatusEntry, bool)
 
 	SealUnit func(distributedtask.TaskDescriptor, string) (func(), bool)
@@ -841,7 +844,7 @@ func (r *migrationReconciler) clusterVerdict(subject MigrationSubject, tasks []d
 		return migrationVerdictLeave, migrationTaskMapUnreadable
 	}
 	if task, found := findMigrationTask(subject, local); found {
-		return migrationVerdictForTask(task, subject)
+		return r.verdictForTask(task)
 	}
 	return r.verdictFrom(subject, tasks, taskListIsComplete)
 }
@@ -876,7 +879,7 @@ func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []dist
 	completeness taskListCompleteness,
 ) (migrationVerdict, string) {
 	if task, found := findMigrationTask(subject, tasks); found {
-		return migrationVerdictForTask(task, subject)
+		return r.verdictForTask(task)
 	}
 
 	class := r.deps.Class()
@@ -907,9 +910,9 @@ func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []dist
 
 // A decided group is past its point of no return: its record commits whatever
 // the task's status, or this replica would disagree with its siblings for good.
-func migrationVerdictForTask(task distributedtask.TaskStatusEntry, subject MigrationSubject) (migrationVerdict, string) {
-	if _, decided := task.DecidedUnits[subject.Key.UnitID]; decided {
-		return migrationVerdictCommit, fmt.Sprintf("owning task (%s) decided this unit's swap", task.Status)
+func (r *migrationReconciler) verdictForTask(task distributedtask.TaskStatusEntry) (migrationVerdict, string) {
+	if _, decided := task.DecidedGroups[r.deps.Group]; decided {
+		return migrationVerdictCommit, fmt.Sprintf("owning task (%s) decided this shard's swap", task.Status)
 	}
 	switch task.Status {
 	case distributedtask.TaskStatusFinished:
@@ -954,8 +957,11 @@ func (r *migrationReconciler) DiscardTask(ctx context.Context, task *distributed
 	if len(r.store.Unreadable()) > 0 {
 		return errors.New("a migration record on this shard cannot be read, so no record is discarded")
 	}
-	entry := task.StatusEntry()
-	tasks := []distributedtask.TaskStatusEntry{entry}
+	verdict, why := r.verdictForTask(task.StatusEntry())
+	if verdict != migrationVerdictDiscard {
+		return nil
+	}
+	tasks := []distributedtask.TaskStatusEntry{task.StatusEntry()}
 	discarding := errorcompounder.New()
 	for _, rec := range r.store.Records() {
 		if err := ctx.Err(); err != nil {
@@ -964,10 +970,6 @@ func (r *migrationReconciler) DiscardTask(ctx context.Context, task *distributed
 		}
 		subject := rec.Subject()
 		if _, found := findMigrationTask(subject, tasks); !found || rec.FlipDecided() || r.store.Wedged(subject.Key) {
-			continue
-		}
-		verdict, why := migrationVerdictForTask(entry, subject)
-		if verdict != migrationVerdictDiscard {
 			continue
 		}
 		discarding.AddWrapf(r.discardUnlessUnitRuns(ctx, subject, why), "record %s", subject.Key)

@@ -532,9 +532,10 @@ type TaskDescriptor struct {
 type TaskStatusEntry struct {
 	TaskDescriptor
 	Status TaskStatus
-	// DecidedUnits holds the units whose group's swap is decided, so a record
-	// can be committed on the decision alone, whatever the task status.
-	DecidedUnits map[string]struct{}
+	// DecidedGroups holds the groups whose swap is decided, so a record can be
+	// committed on the decision alone, whatever the task status. Keyed by group,
+	// not unit: a copied replica's record is renamed to a unit the task never had.
+	DecidedGroups map[string]struct{}
 }
 
 func (t *Task) StatusEntry() TaskStatusEntry {
@@ -542,11 +543,9 @@ func (t *Task) StatusEntry() TaskStatusEntry {
 	if len(t.SwapDecidedGroups) == 0 {
 		return entry
 	}
-	entry.DecidedUnits = map[string]struct{}{}
-	for id, u := range t.Units {
-		if t.GroupSwapDecided(u.GroupID) {
-			entry.DecidedUnits[id] = struct{}{}
-		}
+	entry.DecidedGroups = make(map[string]struct{}, len(t.SwapDecidedGroups))
+	for group := range t.SwapDecidedGroups {
+		entry.DecidedGroups[group] = struct{}{}
 	}
 	return entry
 }

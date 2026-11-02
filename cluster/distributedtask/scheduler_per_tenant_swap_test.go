@@ -115,5 +115,5 @@ func TestPerTenantSwap_DecisionSurvivesSnapshot(t *testing.T) {
 	tasks, err = restored.ListDistributedTasks(context.Background())
 	require.NoError(t, err)
 	require.False(t, tasks["ns"][0].GroupSwapDecided("g"))
-	require.Empty(t, tasks["ns"][0].StatusEntry().DecidedUnits)
+	require.Empty(t, tasks["ns"][0].StatusEntry().DecidedGroups)
 }
