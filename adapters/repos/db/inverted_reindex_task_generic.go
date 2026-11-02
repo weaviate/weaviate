@@ -766,13 +766,10 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 func (t *ShardReindexTaskGeneric) serveDeferredPromotions(ctx context.Context, shard *Shard,
 	rec MigrationRecord, props []string,
 ) error {
-	if !rec.FlipDecided() {
-		return nil
-	}
-	class := shard.index.getSchema.ReadOnlyClass(shard.index.Config.ClassName.String())
+	deferred := shard.migrationRecords.DeferredPromotions(rec.Subject().Key)
 	dirs := shardBucketDirs(shard.pathLSM())
 	for _, propName := range props {
-		if swept, _ := migrationCanonicalSweptBySchema(class, rec.Subject(), propName); !swept {
+		if !slices.Contains(deferred, propName) {
 			continue
 		}
 		// A removed index opens no canonical bucket, so nothing reads one.
@@ -789,7 +786,7 @@ func (t *ShardReindexTaskGeneric) serveDeferredPromotions(ctx context.Context, s
 		if err := displaced.Shutdown(ctx); err != nil {
 			return fmt.Errorf("shutting down the canonical bucket displaced for %q: %w", propName, err)
 		}
-		// Empty since the load-time sweep; left behind, it wedges an unmirrored record at the next load.
+		// Empty since the load-time sweep; left on disk, the next load refuses to promote an unmirrored record over it.
 		if err := dirs.Discard(filepath.Base(displaced.GetDir()), "the displaced canonical directory"); err != nil {
 			return fmt.Errorf("removing the displaced canonical dir for %q: %w", propName, err)
 		}

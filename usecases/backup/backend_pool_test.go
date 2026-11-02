@@ -98,8 +98,8 @@ func (p *uploadProbe) ReleaseBackup(_ context.Context, _, class string) error {
 
 func (p *uploadProbe) Backupable(context.Context, []string) error { return nil }
 
-func (p *uploadProbe) AdoptRestoredMigrationRecords(string, string, string, string) (string, error) {
-	return "", nil
+func (p *uploadProbe) AdoptRestoredMigrationRecords(string, *backup.ClassDescriptor, string, string) error {
+	return nil
 }
 
 // BackupDescriptors produces one descriptor at a time from its own goroutine and

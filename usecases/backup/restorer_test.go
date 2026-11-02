@@ -12,6 +12,9 @@
 package backup
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,6 +25,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -247,6 +251,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		sourceHome := backupID + "/" + sourceNode
 		dataPath := t.TempDir()
 		backend := newFakeBackend()
+		backend.chunks = map[string][]byte{chunkKey(cls, 1): tarGzWithFile(t, strings.ToLower(cls)+"/Shard1/marker")}
 		sourcer := &fakeSourcer{}
 		backend.On("GetObject", ctx, sourceHome, BackupFile).Return(marshalMeta(metadata), nil)
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
@@ -257,10 +262,10 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		assert.Nil(t, m.OnCommit(ctx, &StatusRequest{Method: OpRestore, ID: req.ID, Backend: req.Backend}))
 		assert.Equal(t, backup.Success, m.restorer.waitForCompletion(req.Backend, req.ID, 12, 50).Status)
 		assert.Equal(t, []adoptedRecords{{
-			indexPath:  filepath.Join(dataPath, TempDirectory, cls, strings.ToLower(cls)),
-			shardName:  "Shard1",
-			node:       nodeName,
-			sourceNode: sourceNode,
+			indexPath:    filepath.Join(dataPath, TempDirectory, cls, strings.ToLower(cls)),
+			node:         nodeName,
+			sourceNode:   sourceNode,
+			stagedShards: []string{"Shard1"},
 		}}, sourcer.adoptedCalls())
 	})
 
@@ -403,4 +408,15 @@ func TestWithCancellation(t *testing.T) {
 			t.Error("abort signal should have been sent")
 		}
 	})
+}
+
+func tarGzWithFile(t *testing.T, name string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644}))
+	require.NoError(t, tw.Close())
+	require.NoError(t, gz.Close())
+	return buf.Bytes()
 }

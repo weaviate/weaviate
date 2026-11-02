@@ -93,54 +93,84 @@ func TestDeferredPromotionServesStagedDataAcrossTheFlip(t *testing.T) {
 			},
 		},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := testCtx()
-			className := "DeferredPromotion_" + uuid.NewString()[:8]
-			class := tc.newClass(className)
-			// Stopwords on: a word-tokenized filter needs a detector.
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, true, false, false)
-			shard := shd.(*Shard)
-			for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
-				require.NoError(t, shard.PutObject(ctx, obj))
-			}
+		for _, sc := range []struct {
+			name string
+			// Shard start reads the class before the flip; the after-load hook runs after it.
+			flipDuringLoad bool
+			// Only an unmirrored record refuses promotion over a canonical dir left on disk.
+			unmirrored bool
+		}{
+			{name: "flip after the load"},
+			{name: "flip during the load", flipDuringLoad: true},
+			{name: "unmirrored record", unmirrored: true},
+		} {
+			t.Run(tc.name+"/"+sc.name, func(t *testing.T) {
+				ctx := testCtx()
+				className := "DeferredPromotion_" + uuid.NewString()[:8]
+				class := tc.newClass(className)
+				// Stopwords on: a word-tokenized filter needs a detector.
+				shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, true, false, false)
+				shard := shd.(*Shard)
+				for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
+					require.NoError(t, shard.PutObject(ctx, obj))
+				}
 
-			task := tc.newTask(t, idx, className, shard.migrationUnit())
-			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-			require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-			require.NoError(t, task.RunSwapOnShard(ctx, shard))
-			require.Equal(t, []MigrationState{MigrationStateSwapped}, migrationRecordStates(t, shard.pathLSM()))
+				task := tc.newTask(t, idx, className, shard.migrationUnit())
+				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+				require.NoError(t, task.RunSwapOnShard(ctx, shard))
+				require.Equal(t, []MigrationState{MigrationStateSwapped}, migrationRecordStates(t, shard.pathLSM()))
 
-			name, lsm := shard.Name(), shard.pathLSM()
-			require.NoError(t, shard.Shutdown(ctx))
-			recovered, err := DiscoverInFlightReindexTasks(idx.Config.RootPath, true, idx.logger, nil)
-			require.NoError(t, err)
-			require.Len(t, recovered, 1)
-			idx.shardReindexer = NewShardReindexerV3FromRecovered(recovered, idx.logger)
-			shard = openShardFromDisk(t, ctx, idx, class, name)
-			require.Equal(t, []MigrationState{MigrationStateSwapped}, migrationRecordStates(t, lsm),
-				"the unflipped schema must defer the promotion")
+				if sc.unmirrored {
+					rec, ok := task.migrationRecord(shard)
+					require.True(t, ok)
+					stamped, ok := migrationRecordStampedUnmirrored(rec)
+					require.True(t, ok)
+					require.NoError(t, shard.migrationRecords.Put(stamped))
+				}
 
-			require.NoError(t, shard.PutObject(ctx, createTestObjectWithText(className, lateToken)))
-
-			tc.flip(class.Properties[0])
-			require.NoError(t, idx.updateProperty(ctx, class.Properties[0]))
-
-			assertServed := func(s *Shard, when string) {
-				t.Helper()
-				n, err := tc.count(ctx, s, className, token)
+				name, lsm := shard.Name(), shard.pathLSM()
+				require.NoError(t, shard.Shutdown(ctx))
+				recovered, err := DiscoverInFlightReindexTasks(idx.Config.RootPath, true, idx.logger, nil)
 				require.NoError(t, err)
-				require.Equalf(t, want, n, "%s: objects written before the migration", when)
-				n, err = tc.count(ctx, s, className, lateToken)
-				require.NoError(t, err)
-				require.Equalf(t, 1, n, "%s: the object written after the restart", when)
-			}
-			assertServed(shard, "after the flip")
+				require.Len(t, recovered, 1)
+				idx.shardReindexer = NewShardReindexerV3FromRecovered(recovered, idx.logger)
+				loadClass := class
+				if sc.flipDuringLoad {
+					snapshot := *class
+					prop := *class.Properties[0]
+					snapshot.Properties = []*models.Property{&prop}
+					loadClass = &snapshot
+					tc.flip(class.Properties[0])
+				}
+				shard = openShardFromDisk(t, ctx, idx, loadClass, name)
+				require.Equal(t, []MigrationState{MigrationStateSwapped}, migrationRecordStates(t, lsm),
+					"the unflipped schema must defer the promotion")
 
-			shard = reloadShardFromDisk(t, ctx, idx, shard, class)
-			defer shard.Shutdown(context.Background())
-			require.Equal(t, []MigrationState{MigrationStatePromoted}, migrationRecordStates(t, lsm),
-				"the next load must promote the staged data")
-			assertServed(shard, "after the next load")
-		})
+				require.NoError(t, shard.PutObject(ctx, createTestObjectWithText(className, lateToken)))
+
+				if !sc.flipDuringLoad {
+					tc.flip(class.Properties[0])
+				}
+				require.NoError(t, idx.updateProperty(ctx, class.Properties[0]))
+
+				assertServed := func(s *Shard, when string) {
+					t.Helper()
+					n, err := tc.count(ctx, s, className, token)
+					require.NoError(t, err)
+					require.Equalf(t, want, n, "%s: objects written before the migration", when)
+					n, err = tc.count(ctx, s, className, lateToken)
+					require.NoError(t, err)
+					require.Equalf(t, 1, n, "%s: the object written after the restart", when)
+				}
+				assertServed(shard, "after the flip")
+
+				shard = reloadShardFromDisk(t, ctx, idx, shard, class)
+				defer shard.Shutdown(context.Background())
+				require.Equal(t, []MigrationState{MigrationStatePromoted}, migrationRecordStates(t, lsm),
+					"the next load must promote the staged data")
+				assertServed(shard, "after the next load")
+			})
+		}
 	}
 }

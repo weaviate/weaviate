@@ -39,8 +39,8 @@ type Sourcer interface { // implemented by the index
 	BackupDescriptors(_ context.Context, bakid string, classes []string, baseDescr []*backup.BaseBackupDescriptor,
 	) <-chan backup.ClassDescriptor
 
-	// AdoptRestoredMigrationRecords renames a shard's records staged under indexPath
-	// from sourceNode (the backup's origin) to node, before the shard loads. It
-	// returns why it left them set aside, if it did.
-	AdoptRestoredMigrationRecords(indexPath, shardName, node, sourceNode string) (refusal string, err error)
+	// AdoptRestoredMigrationRecords renames the records of desc's shards staged
+	// under indexPath from sourceNode (the backup's origin) to node, before the
+	// shards load.
+	AdoptRestoredMigrationRecords(indexPath string, desc *backup.ClassDescriptor, node, sourceNode string) error
 }

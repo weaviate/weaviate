@@ -417,6 +417,7 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 	var noHandles []string
 	unretired := errorcompounder.New()
 	deferring := errorcompounder.New()
+	var deferredProps []string
 
 	for _, prop := range subject.Properties() {
 		// Between Put(started) and the rename there is no check: those two are
@@ -451,6 +452,7 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 		if deferred != "" {
 			settled = false
 			deferring.Addf("%s", deferred)
+			deferredProps = append(deferredProps, prop)
 			continue
 		}
 		if !promoted {
@@ -461,6 +463,9 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 	}
 
 	r.deferredBySchema(subject, deferring)
+	if len(deferredProps) > 0 {
+		r.store.DeferPromotions(subject.Key, deferredProps)
+	}
 
 	if len(noHandles) > 0 {
 		r.wedged(subject, migrationWedgeRemedyNoCanonical,
