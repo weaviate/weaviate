@@ -279,7 +279,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	nodes, err := c.canCommit(ctx, req, plan)
 	if err != nil {
 		c.lastOp.reset()
-		return err
+		return withReindexRefusalHint(err)
 	}
 
 	overrideBucket := req.Bucket
