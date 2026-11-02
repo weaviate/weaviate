@@ -78,13 +78,13 @@ func NewGeoIndexQueue(
 	return newVectorIndexQueueWithID(shard, id, logger, "geo_"+propName, index, geoQueueChunkSize)
 }
 
-// newVectorIndexQueueWithID builds the queue draining into index. logger is
+// newVectorIndexQueueWithID builds the queue at queueID draining into index. logger is
 // the index's identified logger; metricsTargetVector labels the queue's
 // Prometheus series. chunkSize overrides the DiskQueue's default (10MB)
 // chunk size (0 = default) to bound how long one batch occupies a worker.
 func newVectorIndexQueueWithID(
 	shard *Shard,
-	indexID string,
+	queueID string,
 	logger logrus.FieldLogger,
 	metricsTargetVector string,
 	index VectorIndex,
@@ -105,10 +105,10 @@ func newVectorIndexQueueWithID(
 
 	q, err := queue.NewDiskQueue(
 		queue.DiskQueueOptions{
-			ID:        fmt.Sprintf("vector_index_queue_%s_%s", shard.ID(), indexID),
+			ID:        fmt.Sprintf("vector_index_queue_%s_%s", shard.ID(), queueID),
 			Logger:    logger,
 			Scheduler: shard.scheduler,
-			Dir:       filepath.Join(shard.path(), helpers.QueueDirName(indexID)),
+			Dir:       filepath.Join(shard.path(), helpers.QueueDirName(queueID)),
 			TaskDecoder: &vectorIndexQueueDecoder{
 				q: &viq,
 			},
