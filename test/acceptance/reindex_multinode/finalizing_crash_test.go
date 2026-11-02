@@ -175,9 +175,12 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 // Target the last node (index 2) so the surviving majority keeps serving
 // RAFT while it's down — mirroring a single-pod OOM-kill in production.
 //
-// The kill must land while the task is PREPARING, and after a further rolling
-// restart every node must still serve the count and report tokenization field,
-// so a migration committed across the kill survives.
+// The kill must land before the task reaches FINISHED. SWAPPING is an
+// acceptable observed status too, since the task can't finish while node 3
+// is down; pinning the kill to PREPARING needs a swap-hold gate that doesn't
+// exist yet (weaviate/etienne-claude-issues#544). After a further rolling
+// restart every node must still serve the count and report tokenization
+// field, so a migration committed across the kill survives.
 func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
@@ -230,8 +233,12 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 			status = task.Status
 		}
 	}
-	require.Equalf(t, "PREPARING", status,
-		"the kill landed after the merged window, so the scenario never ran; "+
+	// FINISHED means the kill landed after the task was already done, so the
+	// scenario never ran; SWAPPING is fine, since node 3 being down blocks
+	// FINISHED either way (no swap-hold gate exists yet to pin this to
+	// PREPARING — weaviate/etienne-claude-issues#544).
+	require.NotEqualf(t, "FINISHED", status,
+		"the kill landed after the task already finished, so the scenario never ran; "+
 			"raise totalObjects (currently %d) to widen it", totalObjects)
 	require.NoError(t, compose.StartAt(ctx, 2))
 
