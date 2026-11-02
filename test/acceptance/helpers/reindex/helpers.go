@@ -189,6 +189,8 @@ type IndexesResponse struct {
 			TargetTokenization string  `json:"targetTokenization,omitempty"`
 			Algorithm          string  `json:"algorithm,omitempty"`
 			TargetAlgorithm    string  `json:"targetAlgorithm,omitempty"`
+			MigratedTenants    int64   `json:"migratedTenants,omitempty"`
+			TotalTenants       int64   `json:"totalTenants,omitempty"`
 		} `json:"indexes"`
 	} `json:"properties"`
 }
