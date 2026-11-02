@@ -139,7 +139,7 @@ func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store 
 	ingestName := t.ingestBucketName(propName)
 	mainName := t.strategy.SourceBucketName(propName)
 
-	if main := store.Bucket(mainName); main != nil && filepath.Base(main.GetDir()) == ingestName {
+	if t.canonicalServesStaged(store, propName) {
 		return nil, nil
 	}
 
@@ -148,6 +148,13 @@ func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store 
 		return nil, fmt.Errorf("swapping bucket pointer %q <- %q: %w", mainName, ingestName, err)
 	}
 	return oldMainBucket, nil
+}
+
+// The flip leaves the staged directory on disk until the next load, so opening
+// it again under the staged name puts a second bucket on a live directory.
+func (t *ShardReindexTaskGeneric) canonicalServesStaged(store *lsmkv.Store, propName string) bool {
+	main := store.Bucket(t.strategy.SourceBucketName(propName))
+	return main != nil && filepath.Base(main.GetDir()) == t.ingestBucketName(propName)
 }
 
 func (t *ShardReindexTaskGeneric) Name() string {
@@ -368,7 +375,7 @@ func (t *ShardReindexTaskGeneric) ensureReindexBucketsLoadedForSwap(
 			}
 		}
 		ingestName := t.ingestBucketName(propName)
-		if store.Bucket(ingestName) == nil {
+		if store.Bucket(ingestName) == nil && !t.canonicalServesStaged(store, propName) {
 			there, err := dirs.Exists(ingestName)
 			if err != nil {
 				return fmt.Errorf("probe ingest bucket dir for %q: %w", propName, err)
@@ -699,11 +706,14 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 
 	committed := hasRecord && rec.StagedDataComplete()
 	if committed {
+		props = slices.DeleteFunc(slices.Clone(props), func(propName string) bool {
+			return t.canonicalServesStaged(shard.store, propName)
+		})
 		if props, err = t.stagedPropsStillOnDisk(logger, shard, rec.Subject(), props); err != nil {
 			return false, err
 		}
 		if len(props) == 0 {
-			logger.Debug("no staged directory left to open: each is either promoted or named by another generation")
+			logger.Debug("no staged directory left to open: each is promoted, served under the canonical name, or named by another generation")
 			return true, nil
 		}
 		logger.Debug("merged, not swapped. starting ingest buckets")
