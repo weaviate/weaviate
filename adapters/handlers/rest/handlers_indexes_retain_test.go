@@ -45,6 +45,9 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 	filterable := failed(db.ReindexTypeEnableFilterable, "foo")
 	onD := filterable
 	onD.collection = "D"
+	partialRun := rec{status: distributedtask.TaskStatusCancelled, mt: db.ReindexTypeEnableFilterable, prop: "foo", partial: true}
+	partialChangeTok := partialRun
+	partialChangeTok.mt = db.ReindexTypeChangeTokenization
 	changeTokThenFixes := []rec{
 		failed(db.ReindexTypeChangeTokenization, "foo"),
 		withStatus(filterable, distributedtask.TaskStatusFinished),
@@ -82,6 +85,11 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 		{name: "a cancelled migration is not kept", records: []rec{withStatus(filterable, distributedtask.TaskStatusCancelled)}, filterable: "ready", searchable: "ready"},
 		{name: "a cancelled migration that left tenants migrated is kept and reads partial", records: []rec{{status: distributedtask.TaskStatusCancelled, mt: db.ReindexTypeEnableFilterable, prop: "foo", partial: true}}, wantKept: []int{0}, filterable: "partial", searchable: "ready"},
 		{name: "a failed migration that left tenants migrated reads partial", records: []rec{{status: distributedtask.TaskStatusFailed, mt: db.ReindexTypeEnableFilterable, prop: "foo", partial: true}}, wantKept: []int{0}, filterable: "partial", searchable: "ready"},
+		{name: "a running newer run keeps a partial run", records: []rec{partialRun, withStatus(filterable, distributedtask.TaskStatusStarted)}, wantKept: []int{0, 1}, filterable: "pending", searchable: "ready"},
+		{name: "a newer failed run keeps a partial run", records: []rec{partialRun, filterable}, wantKept: []int{0, 1}, filterable: "partial", searchable: "ready"},
+		{name: "a newer cancelled run keeps a partial run", records: []rec{partialRun, withStatus(filterable, distributedtask.TaskStatusCancelled)}, wantKept: []int{0, 1}, filterable: "partial", searchable: "ready"},
+		{name: "finished runs that flip nothing keep a partial run", records: []rec{partialChangeTok, withStatus(failed(db.ReindexTypeRebuildSearchable, "foo"), distributedtask.TaskStatusFinished), withStatus(failed(db.ReindexTypeRepairFilterable, "foo"), distributedtask.TaskStatusFinished)}, wantKept: []int{0, 1, 2}, filterable: "ready", searchable: "ready"},
+		{name: "a finished flip releases a partial run", records: []rec{partialRun, withStatus(filterable, distributedtask.TaskStatusFinished)}, wantKept: []int{1}, filterable: "ready", searchable: "ready"},
 		{name: "an unreadable record is not kept", records: []rec{{status: distributedtask.TaskStatusFailed, badBytes: true}}, filterable: "ready", searchable: "ready"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

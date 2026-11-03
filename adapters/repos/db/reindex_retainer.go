@@ -96,11 +96,13 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 	return migrated, covered
 }
 
-// ShouldRetainCompletedTask keeps a FAILED or partly-migrated record alive
+// ShouldRetainCompletedTask keeps a FAILED or partly-migrated task alive
 // until a newer run covers all its index types — so the status endpoint
 // keeps reading "failed"/"partial", and a reload still finds the swap
-// decision its record commits. A newer run that hides the failure is kept
-// until the failed record is gone, so the failure cannot resurface.
+// decision its record commits. Only a finished schema flip covers a partial
+// task, since its decisions matter until the schema shows their effect. A
+// newer run that hides the failure is kept until the failed task is gone,
+// so the failure cannot resurface.
 // Assumes one property per payload, as every submit path builds today.
 func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task,
@@ -110,11 +112,12 @@ func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	if target == nil {
 		return false // the status endpoint cannot read it either
 	}
-	newestOn := p.indexTypesNotRunSince(task, target, namespaceTasks, targets)
+	partial := ReindexLeftPartial(task)
+	newestOn := p.indexTypesNotRunSince(task, target, namespaceTasks, targets, partial)
 	if len(newestOn) == 0 {
 		return false
 	}
-	if task.Status == distributedtask.TaskStatusFailed || ReindexLeftPartial(task) {
+	if task.Status == distributedtask.TaskStatusFailed || partial {
 		return slices.ContainsFunc(newestOn, func(indexType string) bool {
 			return !p.indexDroppedSince(target, indexType)
 		})
@@ -163,9 +166,9 @@ func (ts reindexTargets) of(task *distributedtask.Task) *reindexTarget {
 }
 
 // indexTypesNotRunSince returns task's index types that no newer run on the
-// same properties has covered.
+// same properties has covered; with flipsOnly, only finished schema flips count.
 func (p *ReindexProvider) indexTypesNotRunSince(task *distributedtask.Task, target *reindexTarget,
-	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task, targets reindexTargets,
+	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task, targets reindexTargets, flipsOnly bool,
 ) []string {
 	remaining, _ := ReindexIndexTypes(target.MigrationType)
 	for _, other := range namespaceTasks {
@@ -173,7 +176,8 @@ func (p *ReindexProvider) indexTypesNotRunSince(task *distributedtask.Task, targ
 			continue
 		}
 		otherTarget := targets.of(other)
-		if otherTarget == nil {
+		if otherTarget == nil || (flipsOnly &&
+			(other.Status != distributedtask.TaskStatusFinished || !IsSemanticMigration(otherTarget.MigrationType))) {
 			continue
 		}
 		covered := p.indexTypesRunOnSameProperties(otherTarget, target)
