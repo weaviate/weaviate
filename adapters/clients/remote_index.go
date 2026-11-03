@@ -108,6 +108,17 @@ func duplicateErr(in error, count int) []error {
 	return out
 }
 
+// unexpectedStatusError builds the error for an answer whose status the caller
+// does not expect, so that errors.Is finds a namespace refusal the body ends with.
+func unexpectedStatusError(code int, body []byte) error {
+	return rebuildHTTPRefusal(errors.Errorf("unexpected status code %d (%s)", code, body), code, body)
+}
+
+// statusBodyError is unexpectedStatusError with a different message.
+func statusBodyError(code int, body []byte) error {
+	return rebuildHTTPRefusal(fmt.Errorf("status code: %v body: (%s)", code, body), code, body)
+}
+
 func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 	shard string, objs []*storobj.Object, _ *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
@@ -136,6 +147,9 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 		return duplicateErr(err, len(objs))
 	}
 
+	for i := range resp {
+		resp[i] = rebuildObjectRefusal(resp[i])
+	}
 	return resp
 }
 
@@ -166,8 +180,7 @@ func (c *RemoteIndex) BatchAddReferences(ctx context.Context, hostName, indexNam
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
-		return duplicateErr(errors.Errorf("unexpected status code %d (%s)",
-			res.StatusCode, body), len(refs))
+		return duplicateErr(unexpectedStatusError(res.StatusCode, body), len(refs))
 	}
 
 	if ct, ok := clusterapi.IndicesPayloads.ErrorList.
@@ -181,7 +194,11 @@ func (c *RemoteIndex) BatchAddReferences(ctx context.Context, hostName, indexNam
 		return duplicateErr(errors.Wrap(err, "ready body"), len(refs))
 	}
 
-	return clusterapi.IndicesPayloads.ErrorList.Unmarshal(resBytes)
+	errs := clusterapi.IndicesPayloads.ErrorList.Unmarshal(resBytes)
+	for i := range errs {
+		errs[i] = rebuildObjectRefusal(errs[i])
+	}
+	return errs
 }
 
 func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
@@ -226,8 +243,7 @@ func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
 
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
-		return nil, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
+		return nil, unexpectedStatusError(res.StatusCode, body)
 	}
 
 	ct, ok := clusterapi.IndicesPayloads.SingleObject.CheckContentTypeHeader(res)
@@ -292,8 +308,7 @@ func (c *RemoteIndex) DeleteObject(ctx context.Context, hostName, indexName,
 
 	if res.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(res.Body)
-		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
+		return unexpectedStatusError(res.StatusCode, body)
 	}
 
 	return nil
@@ -325,8 +340,7 @@ func (c *RemoteIndex) MergeObject(ctx context.Context, hostName, indexName,
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(res.Body)
-		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
+		return unexpectedStatusError(res.StatusCode, body)
 	}
 
 	return nil
@@ -362,8 +376,7 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
-		return nil, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
+		return nil, unexpectedStatusError(res.StatusCode, body)
 	}
 
 	ct, ok := clusterapi.IndicesPayloads.ObjectList.CheckContentTypeHeader(res)
@@ -497,8 +510,7 @@ func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
-		return nil, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
+		return nil, unexpectedStatusError(res.StatusCode, body)
 	}
 
 	resBytes, err := io.ReadAll(res.Body)
@@ -547,7 +559,7 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
-		err := errors.Errorf("unexpected status code %d (%s)", res.StatusCode, body)
+		err := unexpectedStatusError(res.StatusCode, body)
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
 
@@ -569,6 +581,9 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
 
+	for i := range batchDeleteResults {
+		batchDeleteResults[i].Err = rebuildObjectRefusal(batchDeleteResults[i].Err)
+	}
 	return batchDeleteResults
 }
 
@@ -592,7 +607,7 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 
 		if code := res.StatusCode; code != http.StatusOK {
 			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+			return shouldRetry(code), statusBodyError(code, body)
 		}
 		resBytes, err := io.ReadAll(res.Body)
 		if err != nil {
@@ -633,7 +648,7 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 
 		if code := res.StatusCode; code != http.StatusOK {
 			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+			return shouldRetry(code), statusBodyError(code, body)
 		}
 		resBytes, err := io.ReadAll(res.Body)
 		if err != nil {
@@ -681,7 +696,7 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 
 		if code := res.StatusCode; code != http.StatusOK {
 			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+			return shouldRetry(code), statusBodyError(code, body)
 		}
 
 		return false, nil
@@ -716,7 +731,7 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 				shouldRetry = (err == nil)
 			}
 			body, _ := io.ReadAll(res.Body)
-			return shouldRetry, fmt.Errorf("status code: %v body: (%s)", code, body)
+			return shouldRetry, statusBodyError(code, body)
 		}
 		return false, nil
 	}
@@ -742,7 +757,7 @@ func (c *RemoteIndex) CreateShard(ctx context.Context,
 
 		if code := res.StatusCode; code != http.StatusCreated {
 			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+			return shouldRetry(code), statusBodyError(code, body)
 		}
 		return false, nil
 	}
@@ -768,7 +783,7 @@ func (c *RemoteIndex) ReInitShard(ctx context.Context,
 
 		if code := res.StatusCode; code != http.StatusNoContent {
 			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+			return shouldRetry(code), statusBodyError(code, body)
 
 		}
 		return false, nil
@@ -809,7 +824,7 @@ func (c *RemoteIndex) AddAsyncReplicationTargetNode(
 
 		if code := res.StatusCode; code != http.StatusOK {
 			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+			return shouldRetry(code), statusBodyError(code, body)
 		}
 		return false, nil
 	}
@@ -844,7 +859,7 @@ func (c *RemoteIndex) RemoveAsyncReplicationTargetNode(
 
 		if code := res.StatusCode; code != http.StatusNoContent {
 			body, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+			return shouldRetry(code), statusBodyError(code, body)
 		}
 		return false, nil
 	}

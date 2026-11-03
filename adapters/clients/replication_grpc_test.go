@@ -14,6 +14,7 @@ package clients
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -33,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
@@ -65,6 +67,9 @@ type fakeGRPCReplicationServer struct {
 	fetchObjectsData []byte
 	digestResponse   []*pb.RepairResponse
 	overwriteResults []*pb.RepairResponse
+
+	// readErr, when set, is returned verbatim by the replica read methods.
+	readErr error
 
 	// commitPayload is the JSON payload returned by Commit on success.
 	commitPayload []byte
@@ -269,6 +274,9 @@ func (f *fakeGRPCReplicationServer) FetchObject(_ context.Context, req *pb.Fetch
 	assert.Equal(f.t, "C1", req.GetIndex())
 	assert.Equal(f.t, "S1", req.GetShard())
 
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
 	if req.GetUuid() == RequestMalFormedResponse {
 		return &pb.FetchObjectResponse{ReplicaData: []byte("corrupted binary")}, nil
 	}
@@ -279,6 +287,9 @@ func (f *fakeGRPCReplicationServer) FetchObjects(_ context.Context, req *pb.Fetc
 	assert.Equal(f.t, "C1", req.GetIndex())
 	assert.Equal(f.t, "S1", req.GetShard())
 
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
 	if len(req.GetUuids()) > 0 && req.GetUuids()[0] == RequestMalFormedResponse {
 		return &pb.FetchObjectsResponse{ReplicasData: []byte("corrupted binary")}, nil
 	}
@@ -289,7 +300,18 @@ func (f *fakeGRPCReplicationServer) DigestObjects(_ context.Context, req *pb.Dig
 	assert.Equal(f.t, "C1", req.GetIndex())
 	assert.Equal(f.t, "S1", req.GetShard())
 
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
 	return &pb.DigestObjectsResponse{Digests: f.digestResponse}, nil
+}
+
+func (f *fakeGRPCReplicationServer) FindUUIDs(context.Context, *pb.FindUUIDsRequest) (*pb.FindUUIDsResponse, error) {
+	return nil, f.readErr
+}
+
+func (f *fakeGRPCReplicationServer) CountObjects(context.Context, *pb.CountObjectsRequest) (*pb.CountObjectsResponse, error) {
+	return nil, f.readErr
 }
 
 func (f *fakeGRPCReplicationServer) OverwriteObjects(_ context.Context, req *pb.OverwriteObjectsRequest) (*pb.OverwriteObjectsResponse, error) {
@@ -866,6 +888,76 @@ func TestGRPCReplicationDigestObjects(t *testing.T) {
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connection")
 	})
+}
+
+func TestGRPCReplicationRebuildsNamespaceRefusal(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	host := "passthrough:bufnet"
+	suspended := namespaces.ErrNamespaceSuspended
+
+	fetchObject := func(c *grpcReplicationClient) error {
+		_, err := c.FetchObject(ctx, host, "C1", "S1", UUID1, nil, additional.Properties{}, 0)
+		return err
+	}
+	tests := []struct {
+		name    string
+		code    codes.Code
+		call    func(c *grpcReplicationClient) error
+		rebuilt bool
+	}{
+		{name: "FetchObject", code: codes.FailedPrecondition, call: fetchObject, rebuilt: true},
+		{
+			name: "FetchObjects",
+			code: codes.FailedPrecondition,
+			call: func(c *grpcReplicationClient) error {
+				_, err := c.FetchObjects(ctx, host, "C1", "S1", []strfmt.UUID{UUID1})
+				return err
+			},
+			rebuilt: true,
+		},
+		{
+			name: "DigestObjects",
+			code: codes.FailedPrecondition,
+			call: func(c *grpcReplicationClient) error {
+				_, err := c.DigestObjects(ctx, host, "C1", "S1", []strfmt.UUID{UUID1}, 0)
+				return err
+			},
+			rebuilt: true,
+		},
+		{
+			name: "FindUUIDs",
+			code: codes.FailedPrecondition,
+			call: func(c *grpcReplicationClient) error {
+				_, err := c.FindUUIDs(ctx, host, "C1", "S1", nil, 10)
+				return err
+			},
+			rebuilt: true,
+		},
+		{
+			name: "CountObjects",
+			code: codes.FailedPrecondition,
+			call: func(c *grpcReplicationClient) error {
+				_, err := c.CountObjects(ctx, host, "C1", "S1")
+				return err
+			},
+			rebuilt: true,
+		},
+		{name: "Internal with the same text is not rebuilt", code: codes.Internal, call: fetchObject},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := newFakeGRPCReplicationServer(t)
+			fake.readErr = status.Error(tc.code, `get shard "S1": `+suspended.Error())
+			client, cleanup := setupGRPCTestServer(t, fake)
+			defer cleanup()
+
+			err := tc.call(client)
+
+			assert.Equal(t, tc.code, status.Code(err))
+			assert.Equal(t, tc.rebuilt, errors.Is(err, suspended))
+		})
+	}
 }
 
 func TestGRPCReplicationHashTreeLevelEncoding(t *testing.T) {

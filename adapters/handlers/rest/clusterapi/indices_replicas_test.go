@@ -13,10 +13,14 @@ package clusterapi_test
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -25,12 +29,16 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
 	replicaTypes "github.com/weaviate/weaviate/usecases/replica/types"
 )
 
@@ -275,5 +283,70 @@ func TestPutOverwriteObjectsZstdConcurrent(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		require.NoError(t, err)
+	}
+}
+
+func TestReplicaReadRoutesRenderNamespaceRefusal(t *testing.T) {
+	refusal := fmt.Errorf("%w: shard %q", namespaces.ErrNamespaceSuspended, "myshard")
+	notReady := enterrors.NewErrUnprocessable(errors.New("local shard is not ready"))
+	plain := errors.New("disk failure")
+	const id = "73f2eb5f-5abf-447a-81ca-74b1dd168247"
+	multiGetQuery := url.Values{"ids": {base64.StdEncoding.EncodeToString([]byte("[]"))}}.Encode()
+
+	type route struct {
+		path   string
+		body   []byte
+		expect func(rep *replicaTypes.MockReplicator, err error)
+	}
+	getObject := route{"/objects/" + id, nil, func(rep *replicaTypes.MockReplicator, err error) {
+		rep.EXPECT().FetchObject(mock.Anything, "MyClass", "myshard", strfmt.UUID(id)).
+			Return(replica.Replica{}, err)
+	}}
+	getObjectsMulti := route{"/objects?" + multiGetQuery, nil, func(rep *replicaTypes.MockReplicator, err error) {
+		rep.EXPECT().FetchObjects(mock.Anything, "MyClass", "myshard", mock.Anything).Return(nil, err)
+	}}
+	getObjectsDigest := route{"/objects/_digest", []byte("[]"), func(rep *replicaTypes.MockReplicator, err error) {
+		rep.EXPECT().DigestObjects(mock.Anything, "MyClass", "myshard", mock.Anything).Return(nil, err)
+	}}
+	countObjects := route{"/objects/_count", nil, func(rep *replicaTypes.MockReplicator, err error) {
+		rep.EXPECT().CountObjects(mock.Anything, "MyClass", "myshard").Return(0, err)
+	}}
+
+	tests := []struct {
+		name       string
+		route      route
+		err        error
+		wantStatus int
+		wantSuffix string
+	}{
+		{"getObject refusal", getObject, refusal, http.StatusUnprocessableEntity, namespaces.ErrNamespaceSuspended.Error()},
+		{"getObjectsMulti refusal", getObjectsMulti, refusal, http.StatusUnprocessableEntity, namespaces.ErrNamespaceSuspended.Error()},
+		{"getObjectsDigest refusal", getObjectsDigest, refusal, http.StatusUnprocessableEntity, namespaces.ErrNamespaceSuspended.Error()},
+		{"countObjects refusal", countObjects, refusal, http.StatusUnprocessableEntity, namespaces.ErrNamespaceSuspended.Error()},
+		{"getObject shard not ready", getObject, notReady, http.StatusUnprocessableEntity, notReady.Error()},
+		{"getObjectsMulti shard not ready", getObjectsMulti, notReady, http.StatusUnprocessableEntity, notReady.Error()},
+		{"getObjectsDigest shard not ready", getObjectsDigest, notReady, http.StatusUnprocessableEntity, notReady.Error()},
+		{"getObject other error", getObject, plain, http.StatusInternalServerError, plain.Error()},
+		{"getObjectsMulti other error", getObjectsMulti, plain, http.StatusInternalServerError, plain.Error()},
+		{"getObjectsDigest other error", getObjectsDigest, plain, http.StatusInternalServerError, plain.Error()},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rep := replicaTypes.NewMockReplicator(t)
+			tc.route.expect(rep, tc.err)
+			server, cleanup := asyncCheckpointHandlerTestServer(t, rep)
+			defer cleanup()
+
+			req, err := http.NewRequest(http.MethodGet,
+				server.URL+"/replicas/indices/MyClass/shards/myshard"+tc.route.path, bytes.NewReader(tc.route.body))
+			require.NoError(t, err)
+			res, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer res.Body.Close()
+
+			body := readBodyOnce(t, res)
+			require.Equal(t, tc.wantStatus, res.StatusCode, "body: %s", body)
+			require.True(t, strings.HasSuffix(body, tc.wantSuffix), "body: %s", body)
+		})
 	}
 }

@@ -80,7 +80,7 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 		}
 
 		if code := res.StatusCode; !success(code) {
-			return shouldRetry(code), &HTTPError{Code: code, Body: respBody}
+			return shouldRetry(code), rebuildHTTPRefusal(&HTTPError{Code: code, Body: respBody}, code, respBody)
 		}
 
 		if err := decode(respBody); err != nil {
@@ -108,7 +108,7 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 
 		if code = res.StatusCode; !success(code) {
 			b, _ := clusterapi.ReadBody(res.Body, res.ContentLength)
-			return shouldRetry(code), &HTTPError{Code: code, Body: b}
+			return shouldRetry(code), rebuildHTTPRefusal(&HTTPError{Code: code, Body: b}, code, b)
 		}
 		if resp != nil {
 			if err := json.NewDecoder(res.Body).Decode(resp); err != nil {

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -28,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/replica"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -58,6 +60,17 @@ func TestReplicationErrorToGRPC(t *testing.T) {
 		st, ok := status.FromError(grpcErr)
 		require.True(t, ok)
 		assert.Equal(t, codes.FailedPrecondition, st.Code())
+	})
+
+	t.Run("namespace refusal returns FailedPrecondition ending in the sentinel's text", func(t *testing.T) {
+		for _, sentinel := range []error{namespaces.ErrNamespaceSuspended, namespaces.ErrNamespaceResuming} {
+			grpcErr := replicationErrorToGRPC(fmt.Errorf("%w: shard %q", sentinel, "s"))
+			require.Error(t, grpcErr)
+			st, ok := status.FromError(grpcErr)
+			require.True(t, ok)
+			assert.Equal(t, codes.FailedPrecondition, st.Code(), sentinel.Error())
+			assert.True(t, strings.HasSuffix(st.Message(), sentinel.Error()), st.Message())
+		}
 	})
 
 	t.Run("other error returns Internal", func(t *testing.T) {
