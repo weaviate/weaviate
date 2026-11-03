@@ -1164,3 +1164,48 @@ func TestAsyncReplicationResolutionIsLocalOnly(t *testing.T) {
 		t.Run(name, func(t *testing.T) { call() })
 	}
 }
+
+// CountObjects backs Aggregate count(*): a replica on a dead node must not fail it,
+// and a count that cannot be obtained must error rather than report 0.
+func TestFinderCountObjectsUnreachableReplicas(t *testing.T) {
+	tests := []struct {
+		name      string
+		reachable []string
+		replicas  []string
+		counts    map[string]error // reachable host -> CountObjects error
+		want      int
+		wantErr   bool
+	}{
+		{name: "all reachable", reachable: []string{"A", "B", "C"}, replicas: []string{"A", "B", "C"}, counts: map[string]error{"A": nil, "B": nil, "C": nil}, want: 7},
+		{name: "one unreachable", reachable: []string{"A", "B"}, replicas: []string{"A", "B", "C"}, counts: map[string]error{"A": nil, "B": nil}, want: 7},
+		{name: "two unreachable", reachable: []string{"A"}, replicas: []string{"A", "B", "C"}, counts: map[string]error{"A": nil}, want: 7},
+		{name: "none reachable", reachable: []string{}, replicas: []string{"A", "B", "C"}, wantErr: true},
+		{name: "reachable replicas all fail", reachable: []string{"A", "B"}, replicas: []string{"A", "B", "C"}, counts: map[string]error{"A": errAny, "B": errAny}, wantErr: true},
+	}
+
+	for _, multiTenant := range []bool{false, true} {
+		for _, tt := range tests {
+			t.Run(fmt.Sprintf("%s/multiTenant=%v", tt.name, multiTenant), func(t *testing.T) {
+				f := newFakeFactory(t, "C1", "S", tt.reachable, multiTenant)
+				f.AddShard("S", tt.replicas)
+				for host, err := range tt.counts {
+					if err != nil {
+						f.RClient.EXPECT().CountObjects(mock.Anything, host, "C1", "S").Return(0, err).Maybe()
+						continue
+					}
+					f.RClient.EXPECT().CountObjects(mock.Anything, host, "C1", "S").Return(tt.want, nil).Maybe()
+				}
+
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				got, err := f.newFinder("A").CountObjects(ctx, "S")
+				if tt.wantErr {
+					require.Error(t, err)
+					return
+				}
+				require.NoError(t, err)
+				require.Equal(t, tt.want, got)
+			})
+		}
+	}
+}
