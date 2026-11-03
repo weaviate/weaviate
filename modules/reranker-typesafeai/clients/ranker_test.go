@@ -473,6 +473,32 @@ func requireCanceledWithinASecond(t *testing.T, result <-chan error) {
 	}
 }
 
+func TestNewRaisesACapBelowOneToOne(t *testing.T) {
+	tests := []struct {
+		name                  string
+		maxConcurrentRequests int
+		wantCap               int
+	}{
+		{name: "zero", maxConcurrentRequests: 0, wantCap: 1},
+		{name: "negative", maxConcurrentRequests: -3, wantCap: 1},
+		{name: "one", maxConcurrentRequests: 1, wantCap: 1},
+		{name: "the default", maxConcurrentRequests: DefaultMaxConcurrentRequests, wantCap: 16},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+
+			c := New(defaultFakeKey, testTimeout, tt.maxConcurrentRequests, nullLogger())
+
+			require.Equal(t, tt.wantCap, cap(c.inFlight))
+			res, err := c.RankProperty(context.Background(), churn, "text", []string{noRefund, chargedTwice},
+				classConfig(f.url(), nil))
+			require.NoError(t, err)
+			assert.Len(t, res.DocumentScores, 2)
+		})
+	}
+}
+
 func TestRankChecksTheAnswers(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -481,16 +507,53 @@ func TestRankChecksTheAnswers(t *testing.T) {
 		wantErr   string
 	}{
 		{
-			name:      "missing answer",
+			name:      "no answers",
 			documents: []string{noRefund},
 			body:      `{"answers":{}}`,
+			wantErr:   `TypeSafe AI response has no answers: {"answers":{}}`,
+		},
+		{
+			name:      "an error in a 200",
+			documents: []string{noRefund},
+			body:      `{"error":"model overloaded"}`,
+			wantErr:   `TypeSafe AI response has no answers: {"error":"model overloaded"}`,
+		},
+		{
+			name:      "an error object in a 200",
+			documents: []string{noRefund},
+			body:      `{"detail":{"message":"model overloaded"}}`,
+			wantErr:   `TypeSafe AI response has no answers: {"detail":{"message":"model overloaded"}}`,
+		},
+		{
+			name:      "missing answer",
+			documents: []string{noRefund},
+			body:      `{"answers":{"document_0":{"type":"noul","noul":0.5}}}`,
 			wantErr:   `TypeSafe AI response has no answer for "q"`,
 		},
 		{
 			name:      "missing answer in a packed request",
 			documents: []string{noRefund, chargedTwice},
-			body:      `{"answers":{"document_0":{"type":"noul","noul":0.5}}}`,
+			body:      `{"answers":{"document_0":{"type":"noul","noul":0.5},"document_2":{"type":"noul","noul":0.5}}}`,
 			wantErr:   `TypeSafe AI response has no answer for "document_1"`,
+		},
+		{
+			name:      "too few answers",
+			documents: []string{noRefund, chargedTwice},
+			body:      `{"answers":{"document_0":{"type":"noul","noul":0.5}}}`,
+			wantErr:   "TypeSafe AI response has 1 answers for 2 documents",
+		},
+		{
+			name:      "an extra answer",
+			documents: []string{noRefund, chargedTwice},
+			body: `{"answers":{"document_0":{"type":"noul","noul":0.5},"document_1":{"type":"noul","noul":0.5},` +
+				`"document_7":{"type":"noul","noul":0.5}}}`,
+			wantErr: "TypeSafe AI response has 3 answers for 2 documents",
+		},
+		{
+			name:      "an extra answer to a single document",
+			documents: []string{noRefund},
+			body:      `{"answers":{"q":{"type":"noul","noul":0.5},"document_0":{"type":"noul","noul":0.5}}}`,
+			wantErr:   "TypeSafe AI response has 2 answers for 1 documents",
 		},
 		{
 			name:      "answer of type score",

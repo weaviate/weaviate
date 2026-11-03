@@ -39,7 +39,9 @@ const (
 
 	// The API does not publish its request size limit: 141,000 characters of
 	// documents were accepted and 149,000 rejected, so 100,000 leaves room for
-	// the questions. Beyond 50 documents a request saves almost no tokens and
+	// the questions. MaxBatchCharacters is counted in bytes: a non-ASCII
+	// character takes several, so such text makes smaller requests, never
+	// larger ones. Beyond 50 documents a request saves almost no tokens and
 	// answers more slowly than two sent in parallel.
 	MaxBatchDocuments  = 50
 	MaxBatchCharacters = 100_000
@@ -59,19 +61,20 @@ const (
 type client struct {
 	apiKey     string
 	httpClient *http.Client
-	// inFlight holds a slot per request being sent. It is shared by every
-	// call, so it bounds the load on the API however many queries run.
+	// inFlight holds a slot per request being built or sent. It is shared by
+	// every call, so it bounds the load on the API and the request bodies in
+	// memory however many queries run.
 	inFlight chan struct{}
 	logger   logrus.FieldLogger
 }
 
 // New returns a client that sends at most maxConcurrentRequests requests at
-// once; it must be at least 1.
+// once.
 func New(apiKey string, timeout time.Duration, maxConcurrentRequests int, logger logrus.FieldLogger) *client {
 	return &client{
 		apiKey:     apiKey,
 		httpClient: modulecomponents.NewBaseHttpClient(timeout),
-		inFlight:   make(chan struct{}, maxConcurrentRequests),
+		inFlight:   make(chan struct{}, max(maxConcurrentRequests, 1)),
 		logger:     logger,
 	}
 }
@@ -185,8 +188,8 @@ func propertyInput(cfg moduletools.ClassConfig, property string) (image bool, er
 }
 
 // batches splits the positions of the documents into requests of at most
-// maxDocuments documents and maxCharacters characters, in order. A document
-// longer than maxCharacters goes alone.
+// maxDocuments documents and maxCharacters bytes, in order. A document longer
+// than maxCharacters goes alone.
 func batches(indexes []int, documents []string, maxDocuments, maxCharacters int) [][]int {
 	var out [][]int
 	var batch []int
@@ -218,15 +221,7 @@ type judgeRequest struct {
 // judge returns the probability of every document, in order. A request the
 // API rejects for its size is sent again as two halves, down to one document.
 func (c *client) judge(ctx context.Context, r judgeRequest, documents []string) ([]float64, typesafeaiUsage, error) {
-	request, err := newRequest(r, documents)
-	if err != nil {
-		return nil, typesafeaiUsage{}, err
-	}
-	body, err := json.Marshal(request)
-	if err != nil {
-		return nil, typesafeaiUsage{}, fmt.Errorf("marshal TypeSafe AI request: %w", err)
-	}
-	response, tooLarge, err := c.send(ctx, r.url, r.apiKey, body, r.image)
+	response, tooLarge, err := c.post(ctx, r, documents)
 	if tooLarge && len(documents) > 1 {
 		half := len(documents) / 2
 		first, firstUsage, err := c.judge(ctx, r, documents[:half])
@@ -251,10 +246,9 @@ func (c *client) judge(ctx context.Context, r judgeRequest, documents []string) 
 	return values, usage, nil
 }
 
-// send makes one attempt. tooLarge says the API rejected the request for its
-// size.
-func (c *client) send(ctx context.Context, url, apiKey string, body []byte, images bool,
-) (response typesafeaiResponse, tooLarge bool, err error) {
+// post builds and sends the request of one batch while it holds an in-flight
+// slot, so that the slots also bound the request bodies in memory.
+func (c *client) post(ctx context.Context, r judgeRequest, documents []string) (typesafeaiResponse, bool, error) {
 	select {
 	case c.inFlight <- struct{}{}:
 		defer func() { <-c.inFlight }()
@@ -262,6 +256,21 @@ func (c *client) send(ctx context.Context, url, apiKey string, body []byte, imag
 		return typesafeaiResponse{}, false, ctx.Err()
 	}
 
+	request, err := newRequest(r, documents)
+	if err != nil {
+		return typesafeaiResponse{}, false, err
+	}
+	body, err := json.Marshal(request)
+	if err != nil {
+		return typesafeaiResponse{}, false, fmt.Errorf("marshal TypeSafe AI request: %w", err)
+	}
+	return c.send(ctx, r.url, r.apiKey, body, r.image)
+}
+
+// send makes one attempt. tooLarge says the API rejected the request for its
+// size.
+func (c *client) send(ctx context.Context, url, apiKey string, body []byte, images bool,
+) (response typesafeaiResponse, tooLarge bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return typesafeaiResponse{}, false, fmt.Errorf("create TypeSafe AI request: %w", err)
@@ -294,6 +303,12 @@ func (c *client) send(ctx context.Context, url, apiKey string, body []byte, imag
 	}
 	if err := json.Unmarshal(responseBody, &response); err != nil {
 		return typesafeaiResponse{}, false, fmt.Errorf("parse TypeSafe AI response: %w", err)
+	}
+	// The shape of an error in a 200 is not documented, so the body is the
+	// provider's message.
+	if len(response.Answers) == 0 {
+		return typesafeaiResponse{}, false, fmt.Errorf("TypeSafe AI response has no answers: %s",
+			responseBody[:min(len(responseBody), maxErrorBodyBytes)])
 	}
 	return response, false, nil
 }
@@ -400,6 +415,9 @@ func (u typesafeaiUsage) add(other typesafeaiUsage) typesafeaiUsage {
 
 // values returns the probabilities of a request of n documents, in order.
 func (r typesafeaiResponse) values(n int) ([]float64, error) {
+	if len(r.Answers) != n {
+		return nil, fmt.Errorf("TypeSafe AI response has %d answers for %d documents", len(r.Answers), n)
+	}
 	if n == 1 {
 		value, err := r.value(questionKey)
 		if err != nil {
