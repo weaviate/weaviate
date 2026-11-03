@@ -55,6 +55,21 @@ func TestGetScore(t *testing.T) {
 		}, *res)
 	})
 
+	t.Run("when the server returns the wrong number of scores", func(t *testing.T) {
+		server := httptest.NewServer(&testCrossRankerHandler{
+			t: t,
+			res: RankResponse{
+				Query:  "Where do I work?",
+				Scores: []DocumentScore{{Document: "I work at Apple", Score: 0.15}},
+			},
+		})
+		defer server.Close()
+		c := New(server.URL, 0, nullLogger())
+		_, err := c.Rank(context.Background(), "Where do I work?", []string{"I work at Apple", "I live in Berlin"}, nil)
+
+		require.ErrorContains(t, err, "reranker returned 1 results for 2 documents")
+	})
+
 	t.Run("when the server has an error", func(t *testing.T) {
 		server := httptest.NewServer(&testCrossRankerHandler{
 			t: t,

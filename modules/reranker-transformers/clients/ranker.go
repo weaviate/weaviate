@@ -141,6 +141,10 @@ func (c *client) performRank(ctx context.Context,
 		return nil, errors.Errorf("fail with status %d", res.StatusCode)
 	}
 
+	if len(resBody.Scores) != len(documents) {
+		return nil, fmt.Errorf("reranker returned %d results for %d documents", len(resBody.Scores), len(documents))
+	}
+
 	return resBody.Scores, nil
 }
 
