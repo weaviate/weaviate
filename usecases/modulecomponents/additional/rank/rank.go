@@ -29,11 +29,27 @@ type ReRankerClient interface {
 	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 }
 
+// PropertyReRankerClient also receives the name of the rerank property, so
+// that a module can read a blob property as an image.
+type PropertyReRankerClient interface {
+	RankProperty(ctx context.Context, query, property string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
+}
+
+type textOnly struct{ ReRankerClient }
+
+func (t textOnly) RankProperty(ctx context.Context, query, _ string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error) {
+	return t.Rank(ctx, query, documents, cfg)
+}
+
 type ReRankerProvider struct {
-	client ReRankerClient
+	client PropertyReRankerClient
 }
 
 func New(reranker ReRankerClient) *ReRankerProvider {
+	return NewWithProperty(textOnly{reranker})
+}
+
+func NewWithProperty(reranker PropertyReRankerClient) *ReRankerProvider {
 	return &ReRankerProvider{reranker}
 }
 

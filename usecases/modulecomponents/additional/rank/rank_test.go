@@ -159,6 +159,8 @@ func (c *fixedScoresClient) Rank(_ context.Context, query string, documents []st
 }
 
 func TestRankKeepsSearchOrderOnEqualScores(t *testing.T) {
+	// sort.Slice uses insertion sort, which is stable, up to 12 elements, so
+	// this fixture must be larger than that to fail without sort.SliceStable.
 	manyIDs := make([]string, 100)
 	manyScores := make(map[string]float64, len(manyIDs))
 	manyWant := make([]string, 0, len(manyIDs))
@@ -222,4 +224,29 @@ func TestRankKeepsSearchOrderOnEqualScores(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+type recordingPropertyClient struct{ property string }
+
+func (c *recordingPropertyClient) RankProperty(_ context.Context, query, property string, documents []string, _ moduletools.ClassConfig) (*ent.RankResult, error) {
+	c.property = property
+	out := make([]ent.DocumentScore, len(documents))
+	for i, d := range documents {
+		out[i] = ent.DocumentScore{Document: d, Score: 1}
+	}
+	return &ent.RankResult{Query: query, DocumentScores: out}, nil
+}
+
+func TestRankPropertyReceivesTheRerankProperty(t *testing.T) {
+	client := &recordingPropertyClient{}
+	provider := NewWithProperty(client)
+	in := []search.Result{{ID: "some-uuid", Schema: map[string]interface{}{"photo": "aGVsbG8="}}}
+	property := "photo"
+	query := "q"
+	limit := len(in)
+
+	_, err := provider.AdditionalPropertyFn(context.Background(), in,
+		&Params{Property: &property, Query: &query}, &limit, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "photo", client.property)
 }
