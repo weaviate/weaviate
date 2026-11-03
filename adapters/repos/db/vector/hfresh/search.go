@@ -323,8 +323,7 @@ func (h *HFresh) SearchByVectorDistance(
 
 		ids, dist = ids[offsetCap:totalLimitCap], dist[offsetCap:totalLimitCap]
 		for i := range ids {
-			if aboveThresh := dist[i] <= targetDistance; aboveThresh ||
-				floatcomp.InDelta(float64(dist[i]), float64(targetDistance), 1e-6) {
+			if floatcomp.WithinCutoff(dist[i], float64(targetDistance), h.needsNormalization) {
 				resultIDs = append(resultIDs, ids[i])
 				resultDist = append(resultDist, dist[i])
 			} else {
@@ -770,8 +769,7 @@ func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]fl
 
 		ids, dists = ids[offsetCap:totalLimitCap], dists[offsetCap:totalLimitCap]
 		for i := range ids {
-			if dists[i] <= targetDistance ||
-				floatcomp.InDelta(float64(dists[i]), float64(targetDistance), 1e-6) {
+			if floatcomp.WithinCutoff(dists[i], float64(targetDistance), h.needsNormalization) {
 				resultIDs = append(resultIDs, ids[i])
 				resultDist = append(resultDist, dists[i])
 			} else {
