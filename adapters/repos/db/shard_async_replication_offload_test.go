@@ -24,7 +24,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -222,7 +221,7 @@ func TestFailedFreezeHaltRestartsAsyncReplication(t *testing.T) {
 	require.NoError(t, s.store.FlushMemtables(ctx))
 	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
 	awaitHashtreeInitialized(t, s)
-	require.NoError(t, s.store.UpdateBucketsStatus(storagestate.StatusReadOnly), "as resource pressure does")
+	require.NoError(t, s.store.PauseBackgroundIO(true), "as resource pressure does")
 
 	h := newTransitionHarness(t)
 	h.migrator.db = indexRegistry(idx)

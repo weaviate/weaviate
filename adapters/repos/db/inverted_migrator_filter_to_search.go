@@ -297,7 +297,7 @@ func (m *filterableToSearchableMigrator) pauseStoreActivity(
 	if err := shard.Store().FlushMemtables(ctx); err != nil {
 		return errors.Wrapf(err, "failed flushing memtables for shard '%s'", shard.ID())
 	}
-	if err := shard.Store().UpdateBucketsStatus(storagestate.StatusReadOnly); err != nil {
+	if err := shard.Store().PauseBackgroundIO(true); err != nil {
 		return errors.Wrapf(err, "failed pausing compaction for shard '%s'", shard.ID())
 	}
 
@@ -313,7 +313,7 @@ func (m *filterableToSearchableMigrator) resumeStoreActivity(
 	if err := shard.Store().ResumeCompaction(ctx); err != nil {
 		return errors.Wrapf(err, "failed resuming compaction for shard '%s'", shard.ID())
 	}
-	if err := shard.Store().UpdateBucketsStatus(storagestate.StatusReady); err != nil {
+	if err := shard.Store().PauseBackgroundIO(false); err != nil {
 		return errors.Wrapf(err, "failed resuming compaction for shard '%s'", shard.ID())
 	}
 	m.logShard(shard).Debug("resumed store activity")

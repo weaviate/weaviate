@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 // bucketMoves moves bucket "moved" to the name "target".
@@ -38,7 +37,7 @@ var bucketMoves = []struct {
 	{
 		name: "RenameBucket",
 		move: func(ctx context.Context, s *Store) error {
-			s.Bucket("moved").UpdateStatus(storagestate.StatusReadOnly)
+			s.Bucket("moved").PauseBackgroundIO(true)
 			return s.RenameBucket(ctx, "moved", "target")
 		},
 	},

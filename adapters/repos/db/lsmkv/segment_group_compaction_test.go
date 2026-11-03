@@ -20,8 +20,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 var (
@@ -1356,7 +1354,7 @@ func TestSegmentGroup_CompactOrCleanupIdleSkipsAbortPoller(t *testing.T) {
 		name           string
 		segments       []Segment
 		maxSegmentSize int64
-		status         storagestate.Status
+		paused         bool
 	}{
 		{
 			name: "no segments",
@@ -1386,7 +1384,7 @@ func TestSegmentGroup_CompactOrCleanupIdleSkipsAbortPoller(t *testing.T) {
 				&segment{path: "seg_01", level: 3, size: 100},
 				&segment{path: "seg_02", level: 3, size: 100},
 			},
-			status: storagestate.StatusReadOnly,
+			paused: true,
 		},
 	}
 
@@ -1395,11 +1393,11 @@ func TestSegmentGroup_CompactOrCleanupIdleSkipsAbortPoller(t *testing.T) {
 			sg := &SegmentGroup{
 				segments:       tc.segments,
 				maxSegmentSize: tc.maxSegmentSize,
-				status:         tc.status,
 				dir:            t.TempDir(),
 				logger:         nullLogger(),
 				segmentCleaner: &segmentCleanerNoop{},
 			}
+			sg.paused.Store(tc.paused)
 
 			calls := 0
 			didWork := sg.compactOrCleanup(func() bool {

@@ -165,7 +165,7 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 		"prev":   oldStatus.String(),
 		"reason": reason,
 	})
-	if err = s.store.UpdateBucketsStatus(targetStatus); err != nil {
+	if err = s.store.PauseBackgroundIO(targetStatus == storagestate.StatusReadOnly); err != nil {
 		logger.WithError(err).Error("shard status change failed")
 		return err
 	}
