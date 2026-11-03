@@ -16,8 +16,10 @@
 // counts via an injected ObjectCounter and returns a *LimitExceededError if
 // the next write would push the live total past MAXIMUM_ALLOWED_OBJECTS_COUNT.
 // The check is invoked from the storage chokepoint (Shard.PutObject{,Batch}
-// in adapters/repos/db/) so it covers both local and forwarded writes for
-// RF=1. On namespace-enabled clusters the cap applies per namespace: the
+// in adapters/repos/db/) so it covers both local and forwarded writes to a
+// single-replica shard. It also runs at replica prepare
+// (Shard.preparePutObject{,s}), so a shard with more than one write replica is
+// covered too. On namespace-enabled clusters the cap applies per namespace: the
 // chokepoint passes the (namespace-qualified) class name and CheckObjects
 // extracts the namespace so the counter sums only indices in that namespace.
 //
