@@ -318,7 +318,7 @@ type Index struct {
 	shardCreateLocks *esync.KeyRWLocker
 
 	replicaSnapshotsMu sync.Mutex
-	replicaSnapshots   map[string]replicaSnapshotState
+	replicaSnapshots   map[string]struct{}
 
 	// Serializes create/release per opID against target retries. Read RPCs
 	// skip it on purpose — locking them would queue downloads behind any
@@ -1717,7 +1717,6 @@ type IndexConfig struct {
 	EnableLazyLoadShards                bool
 	LazyLoadShardWarmupMinObjects       int64 // read only when EnableLazyLoadShards is true
 	ForceFullReplicasSearch             bool
-	TransferInactivityTimeout           time.Duration
 	HaltForTransferTimeout              time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	SkipWriteClassNameOnDisk            bool

@@ -36,10 +36,6 @@ func replicaStagingDir(rootPath, opID string, className schema.ClassName) string
 	return filepath.Join(rootPath, name)
 }
 
-type replicaSnapshotState struct {
-	shardName string
-}
-
 // IncomingProbeShardData reports whether this node holds shard data; hosted means a usable copy answered. ErrShardRecovering means "not usable now".
 func (i *Index) IncomingProbeShardData(ctx context.Context, shardName string) (hasData, hosted bool, err error) {
 	if s := i.shards.Load(shardName); s != nil {
@@ -99,6 +95,12 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	i.replicaSnapshotOpLocks.Lock(opID)
 	defer i.replicaSnapshotOpLocks.Unlock(opID)
 
+	// Checked before GetShard, so a refusal never loads a cold lazy shard.
+	if !file.ProbeHardlinkSupport(i.Config.RootPath) {
+		return nil, fmt.Errorf("replica movement requires a filesystem that supports hard links; "+
+			"the data directory for class %s does not", i.Config.ClassName)
+	}
+
 	// A shard we're recovering can't be a copy source; probes must read "not usable now", not "definitively empty".
 	if s := i.shards.Load(shardName); s != nil {
 		if rec, ok := s.(*RecoveringShard); ok && rec.IsRecovering() {
@@ -120,11 +122,6 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 		return nil, fmt.Errorf("clean prior replica snapshot for op %q: %w", opID, rerr)
 	}
 
-	if !file.ProbeHardlinkSupport(i.Config.RootPath) {
-		return nil, fmt.Errorf("replica movement requires a filesystem that supports hard links; "+
-			"the data directory for class %s does not", i.Config.ClassName)
-	}
-
 	stagingRoot := replicaStagingDir(i.Config.RootPath, opID, schema.ClassName(i.Config.ClassName))
 	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
 		return nil, fmt.Errorf("create replica staging dir: %w", err)
@@ -137,7 +134,7 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	}
 	i.logger.WithField("op_id", opID).WithField("shard", shardName).
 		Debugf("created replica snapshot: %d files", len(files))
-	i.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName})
+	i.recordReplicaSnapshot(opID)
 	return files, nil
 }
 
@@ -214,13 +211,13 @@ func (i *Index) cleanupFailedReplicaSnapshot(stagingRoot, opID string) {
 	}
 }
 
-func (i *Index) recordReplicaSnapshot(opID string, st replicaSnapshotState) {
+func (i *Index) recordReplicaSnapshot(opID string) {
 	i.replicaSnapshotsMu.Lock()
 	defer i.replicaSnapshotsMu.Unlock()
 	if i.replicaSnapshots == nil {
-		i.replicaSnapshots = map[string]replicaSnapshotState{}
+		i.replicaSnapshots = map[string]struct{}{}
 	}
-	i.replicaSnapshots[opID] = st
+	i.replicaSnapshots[opID] = struct{}{}
 }
 
 // releaseReplicaSnapshot has no halt to undo: CreateReplicaSnapshot resumes

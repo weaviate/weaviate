@@ -2036,7 +2036,7 @@ func TestHaltForTransferOffloadDoesNotPersistHashtree(t *testing.T) {
 	ctx := context.Background()
 	_, s := newSeededAsyncShard(t, ctx, "HaltOffloadNoHashtreeTest")
 
-	require.NoError(t, s.HaltForTransfer(ctx, true, 0))
+	require.NoError(t, s.HaltForTransfer(ctx, true))
 	require.Empty(t, htFilesInDir(t, s.pathHashTree()),
 		"offload halt must not persist a hashtree for a live shard")
 
@@ -2480,7 +2480,7 @@ func TestResumeMaintenanceCyclesReappliesSkippedEnable(t *testing.T) {
 	s.index.Config.AsyncReplicationConfig = minAsyncReplicationConfig()
 	s.index.replicationConfigLock.Unlock()
 
-	require.NoError(t, s.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, s.HaltForTransfer(ctx, false))
 
 	override := additional.AsyncReplicationTargetNodeOverride{
 		CollectionID:   class,

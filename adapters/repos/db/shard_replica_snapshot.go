@@ -36,7 +36,7 @@ func (s *Shard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) (
 	if err := s.refuseIfEditOpsPending(); err != nil {
 		return nil, err
 	}
-	if err := s.HaltForTransfer(ctx, false, 0); err != nil {
+	if err := s.HaltForTransfer(ctx, false); err != nil {
 		return nil, fmt.Errorf("halt for replica snapshot: %w", err)
 	}
 	defer func() {

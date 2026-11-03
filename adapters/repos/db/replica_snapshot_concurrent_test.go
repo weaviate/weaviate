@@ -143,16 +143,30 @@ func TestIncomingCreateReplicaSnapshotConcurrent(t *testing.T) {
 
 func TestIncomingCreateReplicaSnapshotRefusesWithoutHardlinks(t *testing.T) {
 	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
-	index, shard := newSharedHaltTestShard(t)
 	ctx := context.Background()
 	const opID = "op-no-hardlink"
 
-	_, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", opID)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "supports hard links")
+	t.Run("loaded shard is not halted, staged, or registered", func(t *testing.T) {
+		index, shard := newSharedHaltTestShard(t)
 
-	require.Zero(t, shard.haltForTransferCount.Load(), "the refusal must not halt the shard")
-	require.NoDirExists(t, replicaStagingDir(index.Config.RootPath, opID, schema.ClassName(index.Config.ClassName)))
-	_, err = index.IncomingGetReplicaSnapshotFile(ctx, opID, "indexcount")
-	require.ErrorContains(t, err, "no replica snapshot registered")
+		_, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", opID)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "supports hard links")
+
+		require.Zero(t, shard.haltForTransferCount.Load(), "the refusal must not halt the shard")
+		require.NoDirExists(t, replicaStagingDir(index.Config.RootPath, opID, schema.ClassName(index.Config.ClassName)))
+		_, err = index.IncomingGetReplicaSnapshotFile(ctx, opID, "indexcount")
+		require.ErrorContains(t, err, "no replica snapshot registered")
+	})
+
+	t.Run("cold lazy shard stays cold", func(t *testing.T) {
+		index, loaded := newSharedHaltTestShard(t)
+		cold := NewLazyLoadShard(ctx, nil, "cold", index, loaded.class, index.centralJobQueue,
+			nil, index.shardLoadLimiter, index.shardReindexer, false, index.bitmapBufPool)
+		index.shards.Store("cold", cold)
+
+		_, err := index.IncomingCreateReplicaSnapshot(ctx, "cold", opID)
+		require.ErrorContains(t, err, "supports hard links")
+		require.False(t, cold.isLoaded(), "the refusal must not load the shard")
+	})
 }
