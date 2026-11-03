@@ -43,7 +43,10 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
+	"github.com/weaviate/weaviate/entities/shutdownreport/shutdownreporttest"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 type bucketTest struct {
@@ -3220,4 +3223,83 @@ func TestApplyToObjectDigestsWithFlushingMemtable(t *testing.T) {
 	completeParkedFlush(t, b)
 
 	require.Equal(t, want, scan(t, b), "root must not depend on whether the flushing memtable had landed")
+}
+
+func TestBucketShutdownReport(t *testing.T) {
+	expired := func() (context.Context, context.CancelFunc) {
+		return context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	}
+	live := func() (context.Context, context.CancelFunc) { return context.Background(), func() {} }
+	tests := []struct {
+		name      string
+		ctx       func() (context.Context, context.CancelFunc)
+		valueSize int
+		wantErr   error
+		wantKey   string
+	}{
+		{name: "WAL below the reuse threshold", ctx: live, valueSize: 10, wantKey: "buckets_wal_reused"},
+		{
+			name: "WAL above the reuse threshold", ctx: live,
+			valueSize: config.DefaultPersistenceMaxReuseWalSize + 1, wantKey: "buckets_flushed",
+		},
+		{name: "expired ctx", ctx: expired, valueSize: 10, wantErr: context.DeadlineExceeded, wantKey: "buckets_ctx_expired"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			b, err := NewBucketCreator().NewBucket(context.Background(), t.TempDir(), "", logger, nil,
+				cyclemanager.NewCallbackGroup("compaction", logger, 1), cyclemanager.NewCallbackGroup("flush", logger, 1),
+				WithStrategy(StrategyReplace))
+			require.NoError(t, err)
+			require.NoError(t, b.Put([]byte("key"), make([]byte, tt.valueSize)))
+			ctx, cancel := tt.ctx()
+			defer cancel()
+			report := shutdownreport.New("node-1")
+
+			err = b.Shutdown(shutdownreport.With(ctx, report))
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			f := shutdownreporttest.Summary(t, report)
+			for _, key := range []string{"buckets_flushed", "buckets_wal_reused", "buckets_ctx_expired", "buckets_failed"} {
+				want := int64(0)
+				if key == tt.wantKey {
+					want = 1
+				}
+				assert.Equal(t, want, f[key], key)
+			}
+		})
+	}
+}
+
+func TestBucketOutcome(t *testing.T) {
+	expired, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	errX := errors.New("disk full")
+	tests := []struct {
+		name      string
+		err       error
+		walReused bool
+		ctx       context.Context
+		want      shutdownreport.BucketOutcome
+	}{
+		{name: "success past the deadline", ctx: expired, want: shutdownreport.BucketFlushed},
+		{
+			name: "error wrapping the expired deadline", err: fmt.Errorf("x: %w", context.DeadlineExceeded),
+			ctx: expired, want: shutdownreport.BucketCtxExpired,
+		},
+		{
+			name: "WAL reused, then the deadline expired", err: context.DeadlineExceeded, walReused: true,
+			ctx: expired, want: shutdownreport.BucketCtxExpired,
+		},
+		{name: "other error past the deadline", err: errX, ctx: expired, want: shutdownreport.BucketFailed},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, bucketOutcome(tt.ctx, tt.err, tt.walReused))
+		})
+	}
 }
