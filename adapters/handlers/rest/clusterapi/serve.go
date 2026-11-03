@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync/atomic"
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
 
@@ -39,6 +40,7 @@ type Server struct {
 	server   *http.Server
 	appState *state.State
 	grpc     *grpc.Server
+	running  atomic.Int64
 }
 
 // Ensure Server implements interfaces.ClusterServer
@@ -135,15 +137,27 @@ func NewServer(appState *state.State) *Server {
 	protocols.SetHTTP1(true)
 	protocols.SetUnencryptedHTTP2(true)
 
-	return &Server{
-		server: &http.Server{
-			Addr:      fmt.Sprintf(":%d", port),
-			Handler:   handler,
-			Protocols: &protocols,
-		},
-		appState: appState,
-		grpc:     grpcServer,
+	s := &Server{appState: appState, grpc: grpcServer}
+	s.server = &http.Server{
+		Addr:      fmt.Sprintf(":%d", port),
+		Handler:   s.countRunning(handler),
+		Protocols: &protocols,
 	}
+	return s
+}
+
+// RequestsRunning returns how many internal REST and gRPC requests are being
+// handled.
+func (s *Server) RequestsRunning() int64 {
+	return s.running.Load()
+}
+
+func (s *Server) countRunning(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.running.Add(1)
+		defer s.running.Add(-1)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Serve starts the server and blocks until an error occurs
