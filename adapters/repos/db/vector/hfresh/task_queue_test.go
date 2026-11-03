@@ -14,12 +14,15 @@ package hfresh
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
@@ -199,4 +202,31 @@ func TestDecodeTaskNonReassignFormatsUnchanged(t *testing.T) {
 			require.IsType(t, tt.want, task)
 		})
 	}
+}
+
+// Postings live in the shard's buckets, so the task queue hook writes their
+// logs out before the queue removes the processed chunk.
+func TestTaskQueueOnBatchProcessedWritesLSMLogs(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, ucfg := makeHFreshConfig(t)
+	index := makeHFreshWithConfig(t, store, cfg, ucfg)
+
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	// small enough to stay in the log's buffer
+	require.NoError(t, bucket.Put([]byte("key"), []byte("value")))
+	walSize := func() int64 {
+		paths, err := filepath.Glob(filepath.Join(bucket.GetDir(), "*.wal"))
+		require.NoError(t, err)
+		var size int64
+		for _, p := range paths {
+			fi, err := os.Stat(p)
+			require.NoError(t, err)
+			size += fi.Size()
+		}
+		return size
+	}
+	before := walSize()
+
+	require.NoError(t, index.taskQueue.OnBatchProcessed())
+	require.Greater(t, walSize(), before, "the bucket log was not written out")
 }
