@@ -58,7 +58,6 @@ type generativeParser interface {
 	ReturnDebugForGrouped() bool
 }
 
-// A nil rerankPropertyValidator accepts every rerank property.
 type rerankPropertyValidator interface {
 	ValidateRerankProperty(class *models.Class, property string) error
 }
@@ -68,7 +67,7 @@ type Parser struct {
 	authorizedGetClass classGetterWithAuthzFunc
 	principal          *models.Principal
 	qualifier          namespacing.Qualifier
-	rerankValidator    rerankPropertyValidator
+	rerankValidator    rerankPropertyValidator // nil accepts every rerank property
 }
 
 func NewParser(uses127Api bool,
