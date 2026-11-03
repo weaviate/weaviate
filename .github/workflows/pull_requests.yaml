@@ -585,6 +585,8 @@ jobs:
             test: "--only-module-text2vec-cohere"
           - name: "reranker-cohere"
             test: "--only-module-reranker-cohere"
+          - name: "reranker-typesafeai"
+            test: "--only-module-reranker-typesafeai"
           - name: "text2vec-voyageai"
             test: "--only-module-text2vec-voyageai"
           - name: "multi2vec-voyageai"
@@ -655,6 +657,7 @@ jobs:
           JINAAI_APIKEY: ${{ secrets.JINAAI_APIKEY }}
           DIGITALOCEAN_APIKEY: ${{ secrets.DIGITALOCEAN_APIKEY }}
           META_APIKEY: ${{ secrets.META_APIKEY }}
+          TYPESAFEAI_APIKEY: ${{ secrets.TYPESAFEAI_APIKEY }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance (${{ matrix.name }})
