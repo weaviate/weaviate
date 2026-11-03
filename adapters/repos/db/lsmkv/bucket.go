@@ -147,8 +147,7 @@ type Bucket struct {
 
 	flushCallbackCtrl cyclemanager.CycleCallbackCtrl
 
-	status     storagestate.Status
-	statusLock sync.RWMutex
+	paused atomic.Bool
 
 	metrics *Metrics
 
@@ -275,8 +274,7 @@ type Bucket struct {
 
 	// immutable prevents all write operations. Set via WithImmutable, used by
 	// snapshot buckets to guarantee they never modify data. This is distinct
-	// from the shard-level read-only status (storagestate.StatusReadOnly)
-	// checked by isReadOnly().
+	// from paused background I/O.
 	immutable bool
 
 	// sequentialAccess hints the kernel (via fadvise) that segment files will
@@ -613,13 +611,6 @@ func (b *Bucket) GetDesiredStrategy() string {
 
 func (b *Bucket) GetSecondaryIndices() uint16 {
 	return b.secondaryIndices
-}
-
-func (b *Bucket) GetStatus() storagestate.Status {
-	b.statusLock.RLock()
-	defer b.statusLock.RUnlock()
-
-	return b.status
 }
 
 func (b *Bucket) GetMemtableThreshold() uint64 {
@@ -2063,7 +2054,7 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 		if b.haltedFlushTimer.IntervalElapsed() {
 			b.logger.WithField("action", "lsm_memtable_flush").
 				WithField("path", b.dir).
-				Warn("flush halted due to shard READONLY status")
+				Warn("flush halted, background I/O is paused")
 			b.haltedFlushTimer.IncreaseInterval()
 		}
 
@@ -2102,25 +2093,15 @@ func (b *Bucket) getAndUpdateWritesSinceLastSync() bool {
 	return b.active.getAndUpdateWritesSinceLastSync(b.logger)
 }
 
-// UpdateStatus is used by the parent shard to communicate to the bucket
-// when the shard has been set to readonly, or when it is ready for
-// writes.
-func (b *Bucket) UpdateStatus(status storagestate.Status) {
-	b.statusLock.Lock()
-	defer b.statusLock.Unlock()
-
-	b.status = status
-	b.disk.UpdateStatus(status)
+// PauseBackgroundIO stops flushes and compactions and refuses writes. Renaming
+// a bucket needs it. It is a storage control, not a status.
+func (b *Bucket) PauseBackgroundIO(paused bool) {
+	b.paused.Store(paused)
+	b.disk.pauseBackgroundIO(paused)
 }
 
 func (b *Bucket) isReadOnly() bool {
-	if b.immutable {
-		return true
-	}
-	b.statusLock.Lock()
-	defer b.statusLock.Unlock()
-
-	return b.status == storagestate.StatusReadOnly
+	return b.immutable || b.paused.Load()
 }
 
 // readOnlyErr returns the appropriate error when the bucket is read-only, or
@@ -2131,10 +2112,7 @@ func (b *Bucket) readOnlyErr() error {
 	if b.immutable {
 		return ErrImmutable
 	}
-	b.statusLock.Lock()
-	defer b.statusLock.Unlock()
-
-	if b.status == storagestate.StatusReadOnly {
+	if b.paused.Load() {
 		return storagestate.ErrStatusReadOnly
 	}
 	return nil

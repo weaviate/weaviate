@@ -423,9 +423,9 @@ func (i *Index) debugLoggingEnabled() bool {
 // the shards that are local to a node
 // NewIndex builds an index and every shard it owns. db is the owning DB, wired
 // in here rather than by the caller because the shards built below read state
-// off it while they come up (e.g. the resource-pressure read-only flag, see
-// [Shard.inheritResourcePressureReadOnly]) - assigning it after this returns
-// would leave those reads racing the assignment.
+// off it while they come up (e.g. the resource-pressure flag, see
+// [Shard.NotifyReady]) - assigning it after this returns would leave those
+// reads racing the assignment.
 func NewIndex(
 	ctx context.Context,
 	db *DB,

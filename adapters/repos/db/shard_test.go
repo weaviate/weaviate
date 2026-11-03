@@ -75,19 +75,17 @@ func TestShard_UpdateStatus(t *testing.T) {
 	})
 
 	t.Run("mark shard readonly and fail to insert", func(t *testing.T) {
-		err := shd.SetStatusReadonly("testing")
-		require.Nil(t, err)
+		setResourcePressure(t, idx, shd, true)
 
-		err = shd.PutObject(ctx, testObject(className))
+		err := shd.PutObject(ctx, testObject(className))
 		require.Contains(t, err.Error(), storagestate.ErrStatusReadOnly.Error())
-		require.Contains(t, err.Error(), "testing")
+		require.Contains(t, err.Error(), statusReasonResourcePressure)
 	})
 
 	t.Run("mark shard ready and insert successfully", func(t *testing.T) {
-		err := shd.UpdateStatus(storagestate.StatusReady.String(), "test ready")
-		require.Nil(t, err)
+		setResourcePressure(t, idx, shd, false)
 
-		err = shd.PutObject(ctx, testObject(className))
+		err := shd.PutObject(ctx, testObject(className))
 		require.Nil(t, err)
 	})
 

@@ -12,29 +12,19 @@
 package db
 
 import (
+	"errors"
 	"strings"
 
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
-
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	clusterschema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
-// Standardized reasons for shard status changes.  These are stored in
-// ShardStatus.Reason and used by the recovery logic to decide whether a
-// READONLY shard can be automatically transitioned back to READY.
 const (
 	statusReasonResourcePressure = "resource pressure"
-	statusReasonResourceRecovery = "resource usage below threshold"
 	statusReasonManualUpdate     = "manually set by user"
-	statusReasonShutdown         = "shutdown"
-	statusReasonNotifyReady      = "notify ready"
 )
-
-type ShardStatus struct {
-	Status storagestate.Status
-	Reason string
-}
 
 func (s *Shard) registerCountedStatus(status storagestate.Status) {
 	s.statusLock.Lock()
@@ -68,22 +58,16 @@ func (s *Shard) releaseCountedStatus() {
 	s.countedStatus = ""
 }
 
-// GetStatus recomputes READY/INDEXING from the vector queues. The gauge is not
-// moved by the recompute, only by status writes.
 func (s *Shard) GetStatus() storagestate.Status {
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
-
-	return s.getStatusUnlocked()
-}
-
-func (s *Shard) getStatusUnlocked() storagestate.Status {
-	if s.status.Status != storagestate.StatusReady && s.status.Status != storagestate.StatusIndexing {
-		return s.status.Status
+	phase := s.phase.Status()
+	if phase != storagestate.StatusReady {
+		return phase
 	}
-
+	if s.backgroundIOPaused() {
+		return storagestate.StatusReadOnly
+	}
 	if !s.hasAnyVectorIndex() {
-		return s.status.Status
+		return storagestate.StatusReady
 	}
 
 	status := storagestate.StatusReady
@@ -99,85 +83,93 @@ func (s *Shard) getStatusUnlocked() storagestate.Status {
 		}
 		return nil
 	})
-	s.status.Status = status
 	return status
 }
 
-func (s *Shard) GetStatusReason() string {
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
-	return s.status.Reason
-}
-
-// isReadOnly returns an error if shard is readOnly and nil otherwise
+// isReadOnly fails a write under resource pressure, a reindex or a freeze
+// upload, the conditions syncStorePause pauses the store for. A user's READONLY
+// is refuseUserReadOnly's.
 func (s *Shard) isReadOnly() error {
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
-
-	if s.status.Status == storagestate.StatusReadOnly {
-		return storagestate.ErrStatusReadOnlyWithReason(s.status.Reason)
+	if err := s.index.refuseResourcePressure(); err != nil {
+		return err
+	}
+	if s.phase.Reindexing() {
+		return storagestate.ErrStatusReadOnly
+	}
+	if s.phase.Transferring() {
+		return errTenantInTransition
 	}
 	return nil
 }
 
-func (s *Shard) SetStatusReadonly(reason string) error {
-	return s.UpdateStatus(storagestate.StatusReadOnly.String(), reason)
+func (s *Shard) backgroundIOPaused() bool {
+	return s.isReadOnly() != nil
 }
 
-func (s *Shard) UpdateStatus(in, reason string) error {
+// syncStorePause pauses or resumes the store and moves the status gauge to match
+// the node overlay and this shard's phase. It reads every condition each time,
+// so lifting resource pressure cannot resume a store a reindex still pauses.
+func (s *Shard) syncStorePause() error {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
-	return s.updateStatusUnlocked(in, reason)
-}
-
-// UpdateStatusIf writes the new status only if cond holds for the current one,
-// evaluating cond and writing under a single statusLock acquisition so a status
-// another writer sets in between cannot be overwritten. cond runs with the lock
-// held and must not call back into the shard.
-func (s *Shard) UpdateStatusIf(cond func(ShardStatus) bool, in, reason string) error {
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
-
-	current := ShardStatus{Status: s.getStatusUnlocked(), Reason: s.status.Reason}
-	if !cond(current) {
+	next := s.phase.Status()
+	if next == storagestate.StatusShutdown {
 		return nil
 	}
-	return s.updateStatusUnlocked(in, reason)
-}
 
-// updateStatusUnlocked updates the status without locking the statusLock.
-// Warning: Use UpdateStatus instead.
-func (s *Shard) updateStatusUnlocked(in, reason string) error {
-	targetStatus, err := storagestate.ValidateStatus(strings.ToUpper(in))
-	if err != nil {
-		return errors.Wrap(err, in)
-	}
-	oldStatus := s.status.Status
-	s.status.Status = targetStatus
-	s.status.Reason = reason
-
-	logger := s.index.logger.WithFields(logrus.Fields{
-		"action": "update_shard_status",
-		"class":  s.index.Config.ClassName,
-		"shard":  s.name,
-		"status": targetStatus.String(),
-		"prev":   oldStatus.String(),
-		"reason": reason,
-	})
-	if err = s.store.UpdateBucketsStatus(targetStatus); err != nil {
-		logger.WithError(err).Error("shard status change failed")
+	paused := s.backgroundIOPaused()
+	// A reindex writes its temp buckets while it holds the rest of the store.
+	reindexOnly := s.phase.Reindexing() && !s.phase.Transferring() && s.index.refuseResourcePressure() == nil
+	if err := s.store.PauseBackgroundIOExcept(paused, func(bucket string) bool {
+		return reindexOnly && strings.HasSuffix(bucket, schema.InternalTempSuffix)
+	}); err != nil {
 		return err
 	}
 
-	s.moveCountedStatusUnlocked(targetStatus)
-
-	lvl := logrus.DebugLevel
-	if targetStatus == storagestate.StatusReadOnly {
-		lvl = logrus.WarnLevel
+	if next == storagestate.StatusReady && (paused || s.index.userReadOnly(s.name)) {
+		next = storagestate.StatusReadOnly
 	}
-	logger.Log(lvl, "shard status changed")
+	s.moveCountedStatusUnlocked(next)
 	return nil
+}
+
+// markShutdown lifts any pause for good: a store going down takes what is in
+// flight.
+func (s *Shard) markShutdown() {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	s.phase.Set(storagestate.StatusShutdown)
+	s.moveCountedStatusUnlocked(storagestate.StatusShutdown)
+	if err := s.store.PauseBackgroundIO(false); err != nil && !errors.Is(err, lsmkv.ErrAlreadyClosed) {
+		s.index.logger.WithField("action", "update_shard_status").
+			Errorf("resume background I/O for shutdown: shard %q: %v", s.name, err)
+	}
+}
+
+func (s *Shard) dropPhase() {
+	s.index.nodeOverlay().DropShardPhase(s.index.Config.ClassName.String(), s.name, s.phase)
+}
+
+// setReindexing holds the store for an inverted reindex.
+func (s *Shard) setReindexing(reindexing bool) error {
+	s.phase.SetReindexing(reindexing)
+	return s.syncStorePause()
+}
+
+func (i *Index) refuseResourcePressure() error {
+	if i.db.resourcePressureReadOnly() {
+		return storagestate.ErrStatusReadOnlyWithReason(statusReasonResourcePressure)
+	}
+	return nil
+}
+
+func (i *Index) nodeOverlay() *clusterschema.NodeOverlay {
+	if i.db == nil {
+		return nil
+	}
+	return i.db.nodeOverlay
 }
 
 // refuseUserReadOnly is for client writes only: migrations and repair skip it.
@@ -189,7 +181,7 @@ func (i *Index) refuseUserReadOnly(shardName string) error {
 }
 
 func (i *Index) userReadOnly(shardName string) bool {
-	return i.db != nil && i.db.nodeOverlay.ReadOnly(i.Config.ClassName.String(), shardName)
+	return i.nodeOverlay().ReadOnly(i.Config.ClassName.String(), shardName)
 }
 
 func (i *Index) reportedStatus(shardName string, shard ShardLike) string {

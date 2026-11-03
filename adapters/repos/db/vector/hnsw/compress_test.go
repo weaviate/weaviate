@@ -34,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -1437,8 +1436,8 @@ func TestChildLoggersCarryTheIndexID(t *testing.T) {
 	index.compressor.Delete(context.Background(), 0)
 	bucket := store.Bucket(helpers.GetCompressedBucketName("title_centroids"))
 	require.NotNil(t, bucket)
-	bucket.UpdateStatus(storagestate.StatusReadOnly)
-	defer bucket.UpdateStatus(storagestate.StatusReady)
+	bucket.PauseBackgroundIO(true)
+	defer bucket.PauseBackgroundIO(false)
 
 	_, err = index.compressor.NewDistancerFromID(0)
 	require.NoError(t, err)

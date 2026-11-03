@@ -12,156 +12,306 @@
 package db
 
 import (
+	"context"
+	"errors"
 	"sync"
 	"testing"
-	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
-func TestShardUpdateStatusIf(t *testing.T) {
+// storePaused probes below every shard check: a paused bucket refuses on its own.
+func storePaused(t *testing.T, shard *Shard) bool {
+	t.Helper()
+	key := []byte("probe")
+	err := shard.store.Bucket(helpers.ObjectsBucketLSM).Put(key, key,
+		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, key))
+	if errors.Is(err, storagestate.ErrStatusReadOnly) {
+		return true
+	}
+	require.NoError(t, err)
+	return false
+}
+
+func TestShardStatusFollowsTheView(t *testing.T) {
 	tests := []struct {
 		name       string
-		initial    ShardStatus
-		cond       func(ShardStatus) bool
+		pressure   bool
+		reindexing bool
 		wantStatus storagestate.Status
-		wantReason string
+		wantPaused bool
+		wantErr    string
 	}{
 		{
-			name:       "condition holds",
-			initial:    ShardStatus{Status: storagestate.StatusReady, Reason: statusReasonNotifyReady},
-			cond:       func(ShardStatus) bool { return true },
-			wantStatus: storagestate.StatusReadOnly,
-			wantReason: statusReasonResourcePressure,
+			name:       "no condition",
+			wantStatus: storagestate.StatusReady,
 		},
 		{
-			name:       "condition does not hold",
-			initial:    ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate},
-			cond:       func(ShardStatus) bool { return false },
+			name:       "resource pressure",
+			pressure:   true,
 			wantStatus: storagestate.StatusReadOnly,
-			wantReason: statusReasonManualUpdate,
+			wantPaused: true,
+			wantErr:    "store is read-only due to: resource pressure",
 		},
 		{
-			name:    "condition reads the current status and reason",
-			initial: ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate},
-			cond: func(current ShardStatus) bool {
-				return current.Status == storagestate.StatusReadOnly &&
-					current.Reason == statusReasonManualUpdate
-			},
+			name:       "reindex keeps its plain error",
+			reindexing: true,
 			wantStatus: storagestate.StatusReadOnly,
-			wantReason: statusReasonResourcePressure,
+			wantPaused: true,
+			wantErr:    storagestate.ErrStatusReadOnly.Error(),
+		},
+		{
+			name:       "both report the pressure",
+			pressure:   true,
+			reindexing: true,
+			wantStatus: storagestate.StatusReadOnly,
+			wantPaused: true,
+			wantErr:    "store is read-only due to: resource pressure",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			shard, _ := testShard(t, t.Context(), "UpdateStatusIfCondition")
-			s := underlyingShard(t, shard)
-			require.NoError(t, s.UpdateStatus(tc.initial.Status.String(), tc.initial.Reason))
+			lazy, idx := testShard(t, t.Context(), "ShardStatusView")
+			s := underlyingShard(t, lazy)
 
-			require.NoError(t, s.UpdateStatusIf(tc.cond,
-				storagestate.StatusReadOnly.String(), statusReasonResourcePressure))
+			require.NoError(t, s.setReindexing(tc.reindexing))
+			setResourcePressure(t, idx, s, tc.pressure)
 
 			require.Equal(t, tc.wantStatus, s.GetStatus())
-			require.Equal(t, tc.wantReason, s.GetStatusReason())
+			require.Equal(t, tc.wantPaused, storePaused(t, s))
+			if tc.wantErr == "" {
+				require.NoError(t, s.isReadOnly())
+			} else {
+				require.EqualError(t, s.isReadOnly(), tc.wantErr)
+			}
 		})
 	}
 }
 
-// The condition and the write share one statusLock acquisition, so whichever of
-// the two calls runs second sees what the first left behind. Reading the status
-// and writing it in separate acquisitions lets the resource scanner miss a
-// freeze that lands in between and relabel it as resource pressure — after
-// which the recovery sweep lifts a freeze it never set.
-func TestShardUpdateStatusIf_ConcurrentFreezeKeepsItsReason(t *testing.T) {
-	shard, _ := testShard(t, t.Context(), "UpdateStatusIfConcurrent")
-	s := underlyingShard(t, shard)
-
-	// The sleep holds the decision open long enough for the other writer to
-	// land in it. An implementation that reads the status, drops the lock and
-	// writes afterwards overwrites that write; one that holds the lock across
-	// both makes the other writer queue up, and either order it ends up in
-	// leaves the manual reason in place.
-	notReadOnly := func(current ShardStatus) bool {
-		time.Sleep(50 * time.Microsecond)
-		return current.Status != storagestate.StatusReadOnly
+func TestShardConditionsLiftIndependently(t *testing.T) {
+	tests := []struct {
+		name  string
+		first func(t *testing.T, idx *Index, s *Shard)
+		last  func(t *testing.T, idx *Index, s *Shard)
+	}{
+		{
+			name: "pressure lifts during a reindex",
+			first: func(t *testing.T, idx *Index, s *Shard) {
+				setResourcePressure(t, idx, s, false)
+			},
+			last: func(t *testing.T, idx *Index, s *Shard) {
+				require.NoError(t, s.setReindexing(false))
+			},
+		},
+		{
+			name: "reindex ends under pressure",
+			first: func(t *testing.T, idx *Index, s *Shard) {
+				require.NoError(t, s.setReindexing(false))
+			},
+			last: func(t *testing.T, idx *Index, s *Shard) {
+				setResourcePressure(t, idx, s, false)
+			},
+		},
 	}
 
-	for i := 0; i < 1000; i++ {
-		require.NoError(t, s.UpdateStatus(storagestate.StatusReady.String(), statusReasonNotifyReady))
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			lazy, idx := testShard(t, t.Context(), "ShardConditionsLift")
+			s := underlyingShard(t, lazy)
+
+			require.NoError(t, s.setReindexing(true))
+			setResourcePressure(t, idx, s, true)
+
+			tc.first(t, idx, s)
+			require.Equal(t, storagestate.StatusReadOnly, s.GetStatus())
+			require.True(t, storePaused(t, s), "the other condition must keep holding the store")
+			require.Error(t, s.isReadOnly())
+
+			tc.last(t, idx, s)
+			require.Equal(t, storagestate.StatusReady, s.GetStatus())
+			require.False(t, storePaused(t, s))
+			require.NoError(t, s.isReadOnly())
+		})
+	}
+}
+
+// Reading the overlay outside statusLock lets a stale pause land after a newer resume.
+func TestShardSyncView_ConcurrentFlipsSettleOnTheView(t *testing.T) {
+	lazy, idx := testShard(t, t.Context(), "ShardSyncConcurrent")
+	s := underlyingShard(t, lazy)
+
+	for i := range 500 {
+		pressure := i%2 == 0
+		reindexing := i%3 == 0
 
 		var wg sync.WaitGroup
-		// Both writers park on start so they are released together. Spawning
-		// them one after the other lets the first finish before the second is
-		// scheduled, which leaves iterations that never overlap at all.
 		start := make(chan struct{})
 		errs := make([]error, 2)
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
 			<-start
-			errs[0] = s.UpdateStatus(storagestate.StatusReadOnly.String(), statusReasonManualUpdate)
+			idx.db.nodeOverlay.SetResourcePressure(pressure)
+			errs[0] = s.syncStorePause()
 		}()
 		go func() {
 			defer wg.Done()
 			<-start
-			errs[1] = s.UpdateStatusIf(notReadOnly,
-				storagestate.StatusReadOnly.String(), statusReasonResourcePressure)
+			errs[1] = s.setReindexing(reindexing)
 		}()
 		close(start)
 		wg.Wait()
 
 		require.NoError(t, errs[0])
 		require.NoError(t, errs[1])
-		require.Equal(t, statusReasonManualUpdate, s.GetStatusReason(),
-			"a manual freeze must survive a concurrent resource-pressure sweep")
+		require.Equal(t, pressure || reindexing, storePaused(t, s), "iteration %d", i)
 	}
 }
 
-// An unloaded shard holds no status to change, and loading one to record a
-// status resurrects a shard that was deliberately unloaded — under the very
-// memory pressure that makes the resource scanner sweep in the first place.
-func TestLazyLoadShardUpdateStatusIf(t *testing.T) {
-	shard, idx := testShard(t, t.Context(), "LazyUpdateStatusIf")
-	loaded := underlyingShard(t, shard)
-
+func TestShardMarkShutdown_LiftsPauseForGood(t *testing.T) {
 	tests := []struct {
-		name  string
-		shard *LazyLoadShard
-		// loaded is both the shard's state going in and what the call must
-		// leave behind: an unloaded shard is never loaded to serve the update.
-		loaded bool
+		name   string
+		holdBy func(t *testing.T, idx *Index, s *Shard)
 	}{
 		{
-			name:  "unloaded shard is left untouched",
-			shard: newColdShard(idx, "cold_tenant"),
+			name: "held by pressure",
+			holdBy: func(t *testing.T, idx *Index, s *Shard) {
+				setResourcePressure(t, idx, s, true)
+			},
 		},
 		{
-			name:   "loaded shard is updated",
-			shard:  newLoadedLazyShard(loaded),
-			loaded: true,
+			name: "held by a reindex",
+			holdBy: func(t *testing.T, idx *Index, s *Shard) {
+				require.NoError(t, s.setReindexing(true))
+			},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			condRun := false
-			cond := func(ShardStatus) bool {
-				condRun = true
-				return true
+			lazy, idx := testShard(t, t.Context(), "ShardMarkShutdown")
+			s := underlyingShard(t, lazy)
+
+			tc.holdBy(t, idx, s)
+			require.True(t, storePaused(t, s))
+
+			s.markShutdown()
+			require.Equal(t, storagestate.StatusShutdown, s.GetStatus())
+			require.False(t, storePaused(t, s))
+
+			require.NoError(t, s.syncStorePause())
+			require.False(t, storePaused(t, s), "a sweep must not pause a store going down")
+		})
+	}
+}
+
+func TestShardDropsItsPhase(t *testing.T) {
+	tests := []struct {
+		name    string
+		discard func(t *testing.T, s *Shard)
+	}{
+		{
+			name: "shutdown",
+			discard: func(t *testing.T, s *Shard) {
+				require.NoError(t, s.Shutdown(context.Background()))
+			},
+		},
+		{
+			name: "drop",
+			discard: func(t *testing.T, s *Shard) {
+				require.NoError(t, s.drop(false))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			lazy, idx := testShard(t, t.Context(), "ShardDropsPhase")
+			s := underlyingShard(t, lazy)
+			class := idx.Config.ClassName.String()
+
+			phase := idx.nodeOverlay().PhaseOf(class, s.name)
+			require.NotNil(t, phase)
+			require.Equal(t, storagestate.StatusReady, phase.Status())
+
+			tc.discard(t, s)
+
+			require.Nil(t, idx.nodeOverlay().PhaseOf(class, s.name))
+		})
+	}
+}
+
+// Loading to answer would spend the memory a resource sweep is reacting to.
+func TestLazyLoadShardConditionsDoNotLoad(t *testing.T) {
+	shard, idx := testShard(t, t.Context(), "LazyConditionsDoNotLoad")
+	loaded := underlyingShard(t, shard)
+
+	tests := []struct {
+		name     string
+		shard    *LazyLoadShard
+		pressure bool
+		loaded   bool
+		wantErr  string
+	}{
+		{
+			name:  "unloaded shard",
+			shard: newColdShard(idx, "cold_tenant"),
+		},
+		{
+			name:     "unloaded shard under pressure",
+			shard:    newColdShard(idx, "cold_tenant"),
+			pressure: true,
+			wantErr:  "store is read-only due to: resource pressure",
+		},
+		{
+			name:   "loaded shard",
+			shard:  newLoadedLazyShard(loaded),
+			loaded: true,
+		},
+		{
+			name:     "loaded shard under pressure",
+			shard:    newLoadedLazyShard(loaded),
+			pressure: true,
+			loaded:   true,
+			wantErr:  "store is read-only due to: resource pressure",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			idx.db.nodeOverlay.SetResourcePressure(tc.pressure)
+			t.Cleanup(func() { setResourcePressure(t, idx, loaded, false) })
+
+			require.NoError(t, tc.shard.syncStorePause())
+			err := tc.shard.isReadOnly()
+
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.EqualError(t, err, tc.wantErr)
 			}
-
-			require.NoError(t, tc.shard.UpdateStatusIf(cond,
-				storagestate.StatusReadOnly.String(), statusReasonResourcePressure))
-
-			require.Equal(t, tc.loaded, condRun, "the condition must only run against a loaded shard")
 			require.Equal(t, tc.loaded, tc.shard.isLoaded())
 			if tc.loaded {
-				require.Equal(t, storagestate.StatusReadOnly, tc.shard.GetStatus())
-				require.Equal(t, statusReasonResourcePressure, tc.shard.GetStatusReason())
+				assert.Equal(t, tc.pressure, storePaused(t, loaded))
 			}
 		})
 	}
+}
+
+func TestLazyLoadShardReportsReindex(t *testing.T) {
+	shard, _ := testShard(t, t.Context(), "LazyReportsReindex")
+	loaded := underlyingShard(t, shard)
+	lazy := newLoadedLazyShard(loaded)
+
+	require.NoError(t, lazy.setReindexing(true))
+	require.ErrorIs(t, lazy.isReadOnly(), storagestate.ErrStatusReadOnly)
+
+	require.NoError(t, lazy.setReindexing(false))
+	require.NoError(t, lazy.isReadOnly())
 }

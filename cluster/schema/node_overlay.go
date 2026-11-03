@@ -14,6 +14,7 @@ package schema
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -34,6 +35,17 @@ type shardKey struct {
 type NodeOverlay struct {
 	mu       sync.Mutex
 	readOnly atomic.Pointer[map[shardKey]struct{}]
+	pressure atomic.Bool
+	phases   sync.Map // shardKey to *ShardPhase
+
+	readOnlyChanged func(class, shard string)
+}
+
+// OnReadOnlyChange sets the callback SetReadOnly calls after a user's change.
+// Set it before the node applies any RAFT entry: SetReadOnly reads it unlocked.
+// The callback runs on the RAFT apply path, so it must not block.
+func (o *NodeOverlay) OnReadOnlyChange(changed func(class, shard string)) {
+	o.readOnlyChanged = changed
 }
 
 func (o *NodeOverlay) ReadOnly(class, shard string) bool {
@@ -56,6 +68,18 @@ func (o *NodeOverlay) SetReadOnly(class, shard string, readOnly bool) {
 			delete(set, shardKey{class, shard})
 		}
 	})
+	if o.readOnlyChanged != nil {
+		o.readOnlyChanged(class, shard)
+	}
+}
+
+// ResourcePressure reports whether this node refuses writes for disk or memory.
+func (o *NodeOverlay) ResourcePressure() bool {
+	return o != nil && o.pressure.Load()
+}
+
+func (o *NodeOverlay) SetResourcePressure(pressure bool) {
+	o.pressure.Store(pressure)
 }
 
 func (o *NodeOverlay) clearShards(class string, shards []string) {
@@ -74,7 +98,17 @@ func (o *NodeOverlay) clearClass(class string) {
 
 // reset drops every user read-only flag, as a restart does.
 func (o *NodeOverlay) reset() {
-	o.update(func(set map[shardKey]struct{}) { clear(set) })
+	var dropped []shardKey
+	o.update(func(set map[shardKey]struct{}) {
+		dropped = slices.Collect(maps.Keys(set))
+		clear(set)
+	})
+	if o.readOnlyChanged == nil {
+		return
+	}
+	for _, key := range dropped {
+		o.readOnlyChanged(key.class, key.shard)
+	}
 }
 
 func (o *NodeOverlay) update(change func(map[shardKey]struct{})) {
@@ -87,6 +121,77 @@ func (o *NodeOverlay) update(change func(map[shardKey]struct{})) {
 	}
 	change(next)
 	o.readOnly.Store(&next)
+}
+
+// NewShardPhase registers a shard object's phase. Each object gets its own, so
+// one that was replaced cannot touch its successor.
+func (o *NodeOverlay) NewShardPhase(class, shard string, status storagestate.Status) *ShardPhase {
+	phase := NewShardPhase(status)
+	if o != nil {
+		o.phases.Store(shardKey{class, shard}, phase)
+	}
+	return phase
+}
+
+// DropShardPhase forgets a discarded shard object unless a newer one took over.
+func (o *NodeOverlay) DropShardPhase(class, shard string, phase *ShardPhase) {
+	if o != nil {
+		o.phases.CompareAndDelete(shardKey{class, shard}, phase)
+	}
+}
+
+// PhaseOf returns the phase of the shard's current object, or nil.
+func (o *NodeOverlay) PhaseOf(class, shard string) *ShardPhase {
+	if o == nil {
+		return nil
+	}
+	phase, ok := o.phases.Load(shardKey{class, shard})
+	if !ok {
+		return nil
+	}
+	return phase.(*ShardPhase)
+}
+
+// ShardPhase is a shard object's place in its lifecycle. The shard holds a
+// handle, so reading it needs no lookup.
+type ShardPhase struct {
+	status       atomic.Pointer[storagestate.Status]
+	reindexing   atomic.Bool
+	transferring atomic.Bool
+}
+
+func NewShardPhase(status storagestate.Status) *ShardPhase {
+	phase := &ShardPhase{}
+	phase.Set(status)
+	return phase
+}
+
+func (p *ShardPhase) Set(status storagestate.Status) {
+	p.status.Store(&status)
+}
+
+func (p *ShardPhase) Status() storagestate.Status {
+	return *p.status.Load()
+}
+
+// Reindexing lives on the object: an unfinished reindex ends with the store it
+// held, so the next object starts clear.
+func (p *ShardPhase) Reindexing() bool {
+	return p.reindexing.Load()
+}
+
+func (p *ShardPhase) SetReindexing(reindexing bool) {
+	p.reindexing.Store(reindexing)
+}
+
+// Transferring holds the store for a freeze's upload, which would leave out any
+// later write.
+func (p *ShardPhase) Transferring() bool {
+	return p.transferring.Load()
+}
+
+func (p *ShardPhase) SetTransferring(transferring bool) {
+	p.transferring.Store(transferring)
 }
 
 func (s *SchemaManager) NodeOverlay() *NodeOverlay {

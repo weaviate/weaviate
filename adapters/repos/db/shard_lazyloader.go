@@ -251,24 +251,9 @@ func (l *LazyLoadShard) GetStatus() storagestate.Status {
 	return storagestate.StatusLazyLoading
 }
 
-func (l *LazyLoadShard) GetStatusReason() string {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-
-	if shard := l.currentShard(); shard != nil {
-		return shard.GetStatusReason()
-	}
-	return storagestate.StatusLazyLoading.String()
-}
-
-func (l *LazyLoadShard) UpdateStatus(status, reason string) error {
-	return l.mustLoad(context.Background()).UpdateStatus(status, reason)
-}
-
-// UpdateStatusIf leaves an unloaded shard alone instead of loading it: the
-// status lives in the loaded shard, and loading one to record a status would
-// resurrect a shard that was deliberately unloaded.
-func (l *LazyLoadShard) UpdateStatusIf(cond func(ShardStatus) bool, status, reason string) error {
+// syncStorePause leaves an unloaded shard alone. NotifyReady reads the overlay
+// when it loads.
+func (l *LazyLoadShard) syncStorePause() error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
@@ -276,11 +261,11 @@ func (l *LazyLoadShard) UpdateStatusIf(cond func(ShardStatus) bool, status, reas
 	if shard == nil {
 		return nil
 	}
-	return shard.UpdateStatusIf(cond, status, reason)
+	return shard.syncStorePause()
 }
 
-func (l *LazyLoadShard) SetStatusReadonly(reason string) error {
-	return l.mustLoad(context.Background()).SetStatusReadonly(reason)
+func (l *LazyLoadShard) setReindexing(reindexing bool) error {
+	return l.mustLoad(context.Background()).setReindexing(reindexing)
 }
 
 func (l *LazyLoadShard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) {
@@ -1033,7 +1018,10 @@ func (l *LazyLoadShard) Versioner() *shardVersioner {
 }
 
 func (l *LazyLoadShard) isReadOnly() error {
-	return l.mustLoad(context.Background()).isReadOnly()
+	if shard := l.currentShard(); shard != nil {
+		return shard.isReadOnly()
+	}
+	return l.shardOpts.index.refuseResourcePressure()
 }
 
 func (l *LazyLoadShard) preparePutObject(ctx context.Context, shardID string, object *storobj.Object) replica.SimpleResponse {

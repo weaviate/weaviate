@@ -650,9 +650,6 @@ var noLoadReaders = []struct {
 	{"GetStatus", func(t *testing.T, l *LazyLoadShard) {
 		require.Equal(t, storagestate.StatusLazyLoading, l.GetStatus())
 	}},
-	{"GetStatusReason", func(t *testing.T, l *LazyLoadShard) {
-		require.Equal(t, storagestate.StatusLazyLoading.String(), l.GetStatusReason())
-	}},
 	{"HashTreeRoot", func(t *testing.T, l *LazyLoadShard) {
 		_, ok := l.HashTreeRoot()
 		require.False(t, ok)

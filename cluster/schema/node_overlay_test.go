@@ -26,6 +26,7 @@ import (
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -73,6 +74,102 @@ func TestNodeOverlayReadAllocatesNothing(t *testing.T) {
 	})
 
 	assert.Zero(t, allocs, "this runs on every write")
+}
+
+func TestNodeOverlayHandleReadsAllocateNothing(t *testing.T) {
+	o := &NodeOverlay{}
+	phase := o.NewShardPhase("C", "s1", storagestate.StatusReady)
+
+	assert.Zero(t, testing.AllocsPerRun(100, func() {
+		_ = o.ResourcePressure()
+		_ = phase.Status()
+		_ = phase.Reindexing()
+	}))
+}
+
+func TestNodeOverlayNilReadsAreSafe(t *testing.T) {
+	var o *NodeOverlay
+
+	assert.False(t, o.ResourcePressure())
+	assert.Nil(t, o.PhaseOf("C", "s1"))
+
+	phase := o.NewShardPhase("C", "s1", storagestate.StatusLoading)
+	assert.Equal(t, storagestate.StatusLoading, phase.Status())
+	o.DropShardPhase("C", "s1", phase)
+}
+
+func TestNodeOverlayShardPhases(t *testing.T) {
+	tests := []struct {
+		name string
+		act  func(o *NodeOverlay, first *ShardPhase)
+		want storagestate.Status
+		// wantGone expects no phase for the shard at all.
+		wantGone bool
+	}{
+		{
+			name: "registered object",
+			act:  func(*NodeOverlay, *ShardPhase) {},
+			want: storagestate.StatusLoading,
+		},
+		{
+			name: "phase moves through the handle",
+			act: func(_ *NodeOverlay, first *ShardPhase) {
+				first.Set(storagestate.StatusReady)
+			},
+			want: storagestate.StatusReady,
+		},
+		{
+			name: "dropped object",
+			act: func(o *NodeOverlay, first *ShardPhase) {
+				o.DropShardPhase("C", "s1", first)
+			},
+			wantGone: true,
+		},
+		{
+			name: "a replaced object cannot report for its successor",
+			act: func(o *NodeOverlay, first *ShardPhase) {
+				o.NewShardPhase("C", "s1", storagestate.StatusReady)
+				first.Set(storagestate.StatusShutdown)
+			},
+			want: storagestate.StatusReady,
+		},
+		{
+			name: "a replaced object cannot drop its successor",
+			act: func(o *NodeOverlay, first *ShardPhase) {
+				o.NewShardPhase("C", "s1", storagestate.StatusReady)
+				o.DropShardPhase("C", "s1", first)
+			},
+			want: storagestate.StatusReady,
+		},
+		{
+			// The store a reindex paused went with the object it ran on.
+			name: "a replaced object's reindex does not hold its successor",
+			act: func(o *NodeOverlay, first *ShardPhase) {
+				first.SetReindexing(true)
+				o.NewShardPhase("C", "s1", storagestate.StatusReady)
+			},
+			want: storagestate.StatusReady,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := &NodeOverlay{}
+			first := o.NewShardPhase("C", "s1", storagestate.StatusLoading)
+
+			tt.act(o, first)
+
+			got := o.PhaseOf("C", "s1")
+			if tt.wantGone {
+				assert.Nil(t, got)
+			} else {
+				require.NotNil(t, got)
+				assert.Equal(t, tt.want, got.Status())
+				assert.False(t, got.Reindexing())
+			}
+			assert.Nil(t, o.PhaseOf("C", "s2"), "phases are per shard")
+		})
+	}
 }
 
 // Writers copy the set, so one outside the lock would drop another's flag.
@@ -222,10 +319,13 @@ func TestSnapshotInstallDropsUserReadOnly(t *testing.T) {
 			sm := NewSchemaManager("node1", &recordingIndexer{}, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			addClass(t, sm, "C")
 			sm.overlay.SetReadOnly("C", "shard1", true)
+			var changed []string
+			sm.overlay.OnReadOnlyChange(func(class, shard string) { changed = append(changed, class+"/"+shard) })
 
 			require.NoError(t, restore(t, sm))
 
 			assert.False(t, sm.overlay.ReadOnly("C", "shard1"), "a restart drops the flag too")
+			assert.Equal(t, []string{"C/shard1"}, changed, "the shard reads its flag again")
 		})
 	}
 }

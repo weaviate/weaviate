@@ -565,6 +565,12 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 	return idx.shards.Load(shardName), idx
 }
 
+func setResourcePressure(t testing.TB, idx *Index, shard ShardLike, pressure bool) {
+	t.Helper()
+	idx.db.nodeOverlay.SetResourcePressure(pressure)
+	require.NoError(t, shard.syncStorePause())
+}
+
 // Simplified functions that delegate to the common helper
 func testShardWithMultiTenantSettings(t testing.TB, ctx context.Context, class *models.Class,
 	vic schemaConfig.VectorIndexConfig, withStopwords, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),

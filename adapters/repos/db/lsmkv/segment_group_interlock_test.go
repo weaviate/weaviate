@@ -24,7 +24,6 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -255,11 +254,11 @@ func TestRegisterEditOp_RefusedOnReadOnlyBucket(t *testing.T) {
 	bucket, _ := newReplaceBucketWithEditOps(t, prefixTransformer)
 	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
 
-	bucket.UpdateStatus(storagestate.StatusReadOnly)
+	bucket.PauseBackgroundIO(true)
 	err := bucket.RegisterEditOp("op1", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 1})
 	require.Error(t, err, "arming on a read-only bucket must be refused")
 
-	bucket.UpdateStatus(storagestate.StatusReady)
+	bucket.PauseBackgroundIO(false)
 	require.NoError(t, bucket.RegisterEditOp("op1", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 1}))
 }
 

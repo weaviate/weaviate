@@ -31,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	wsync "github.com/weaviate/weaviate/entities/sync"
 )
 
@@ -139,23 +138,28 @@ func (s *Store) AcquireBucketConsistentViewForRead(name string) BucketConsistent
 	return view
 }
 
-func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) error {
+func (s *Store) PauseBackgroundIO(paused bool) error {
+	return s.PauseBackgroundIOExcept(paused, nil)
+}
+
+// PauseBackgroundIOExcept leaves the buckets skip names as they are.
+func (s *Store) PauseBackgroundIOExcept(paused bool, skip func(bucket string) bool) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
 
 	if s.closed {
-		return fmt.Errorf("%w: updating buckets state in store %q", ErrAlreadyClosed, s.dir)
+		return fmt.Errorf("%w: pausing background I/O in store %q", ErrAlreadyClosed, s.dir)
 	}
 
-	// UpdateBucketsStatus is a write operation on the bucket itself, but from
+	// PauseBackgroundIO is a write operation on the bucket itself, but from
 	// the perspective of our bucket access map this is a read-only operation,
 	// hence an RLock()
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
-	for _, b := range s.bucketsByName {
-		if b != nil {
-			b.UpdateStatus(targetStatus)
+	for name, b := range s.bucketsByName {
+		if b != nil && (skip == nil || !skip(name)) {
+			b.PauseBackgroundIO(paused)
 		}
 	}
 
@@ -747,7 +751,7 @@ func (s *Store) renameFlushedBucket(currBucket *Bucket, bucketName, newBucketNam
 	}
 
 	if !currBucket.isReadOnly() {
-		return false, fmt.Errorf("bucket '%s' must be in %s mode to be renamed", bucketName, storagestate.StatusReadOnly)
+		return false, fmt.Errorf("bucket '%s' must have background I/O paused to be renamed", bucketName)
 	}
 
 	currBucketDir := currBucket.dir

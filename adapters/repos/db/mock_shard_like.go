@@ -1779,51 +1779,6 @@ func (_c *MockShardLike_GetStatus_Call) RunAndReturn(run func() storagestate.Sta
 	return _c
 }
 
-// GetStatusReason provides a mock function with no fields
-func (_m *MockShardLike) GetStatusReason() string {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetStatusReason")
-	}
-
-	var r0 string
-	if rf, ok := ret.Get(0).(func() string); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(string)
-	}
-
-	return r0
-}
-
-// MockShardLike_GetStatusReason_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetStatusReason'
-type MockShardLike_GetStatusReason_Call struct {
-	*mock.Call
-}
-
-// GetStatusReason is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) GetStatusReason() *MockShardLike_GetStatusReason_Call {
-	return &MockShardLike_GetStatusReason_Call{Call: _e.mock.On("GetStatusReason")}
-}
-
-func (_c *MockShardLike_GetStatusReason_Call) Run(run func()) *MockShardLike_GetStatusReason_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockShardLike_GetStatusReason_Call) Return(_a0 string) *MockShardLike_GetStatusReason_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_GetStatusReason_Call) RunAndReturn(run func() string) *MockShardLike_GetStatusReason_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // HaltForTransfer provides a mock function with given fields: ctx, offloading, inactivityTimeout
 func (_m *MockShardLike) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
 	ret := _m.Called(ctx, offloading, inactivityTimeout)
@@ -3319,52 +3274,6 @@ func (_c *MockShardLike_SetPropertyLengths_Call) RunAndReturn(run func([]inverte
 	return _c
 }
 
-// SetStatusReadonly provides a mock function with given fields: reason
-func (_m *MockShardLike) SetStatusReadonly(reason string) error {
-	ret := _m.Called(reason)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SetStatusReadonly")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(string) error); ok {
-		r0 = rf(reason)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockShardLike_SetStatusReadonly_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetStatusReadonly'
-type MockShardLike_SetStatusReadonly_Call struct {
-	*mock.Call
-}
-
-// SetStatusReadonly is a helper method to define mock.On call
-//   - reason string
-func (_e *MockShardLike_Expecter) SetStatusReadonly(reason interface{}) *MockShardLike_SetStatusReadonly_Call {
-	return &MockShardLike_SetStatusReadonly_Call{Call: _e.mock.On("SetStatusReadonly", reason)}
-}
-
-func (_c *MockShardLike_SetStatusReadonly_Call) Run(run func(reason string)) *MockShardLike_SetStatusReadonly_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_SetStatusReadonly_Call) Return(_a0 error) *MockShardLike_SetStatusReadonly_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_SetStatusReadonly_Call) RunAndReturn(run func(string) error) *MockShardLike_SetStatusReadonly_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // Shutdown provides a mock function with given fields: _a0
 func (_m *MockShardLike) Shutdown(_a0 context.Context) error {
 	ret := _m.Called(_a0)
@@ -3454,101 +3363,6 @@ func (_c *MockShardLike_Store_Call) Return(_a0 *lsmkv.Store) *MockShardLike_Stor
 }
 
 func (_c *MockShardLike_Store_Call) RunAndReturn(run func() *lsmkv.Store) *MockShardLike_Store_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// UpdateStatus provides a mock function with given fields: status, reason
-func (_m *MockShardLike) UpdateStatus(status string, reason string) error {
-	ret := _m.Called(status, reason)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdateStatus")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(string, string) error); ok {
-		r0 = rf(status, reason)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockShardLike_UpdateStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateStatus'
-type MockShardLike_UpdateStatus_Call struct {
-	*mock.Call
-}
-
-// UpdateStatus is a helper method to define mock.On call
-//   - status string
-//   - reason string
-func (_e *MockShardLike_Expecter) UpdateStatus(status interface{}, reason interface{}) *MockShardLike_UpdateStatus_Call {
-	return &MockShardLike_UpdateStatus_Call{Call: _e.mock.On("UpdateStatus", status, reason)}
-}
-
-func (_c *MockShardLike_UpdateStatus_Call) Run(run func(status string, reason string)) *MockShardLike_UpdateStatus_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_UpdateStatus_Call) Return(_a0 error) *MockShardLike_UpdateStatus_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_UpdateStatus_Call) RunAndReturn(run func(string, string) error) *MockShardLike_UpdateStatus_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// UpdateStatusIf provides a mock function with given fields: cond, status, reason
-func (_m *MockShardLike) UpdateStatusIf(cond func(ShardStatus) bool, status string, reason string) error {
-	ret := _m.Called(cond, status, reason)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdateStatusIf")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(func(ShardStatus) bool, string, string) error); ok {
-		r0 = rf(cond, status, reason)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockShardLike_UpdateStatusIf_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateStatusIf'
-type MockShardLike_UpdateStatusIf_Call struct {
-	*mock.Call
-}
-
-// UpdateStatusIf is a helper method to define mock.On call
-//   - cond func(ShardStatus) bool
-//   - status string
-//   - reason string
-func (_e *MockShardLike_Expecter) UpdateStatusIf(cond interface{}, status interface{}, reason interface{}) *MockShardLike_UpdateStatusIf_Call {
-	return &MockShardLike_UpdateStatusIf_Call{Call: _e.mock.On("UpdateStatusIf", cond, status, reason)}
-}
-
-func (_c *MockShardLike_UpdateStatusIf_Call) Run(run func(cond func(ShardStatus) bool, status string, reason string)) *MockShardLike_UpdateStatusIf_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(func(ShardStatus) bool), args[1].(string), args[2].(string))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_UpdateStatusIf_Call) Return(_a0 error) *MockShardLike_UpdateStatusIf_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_UpdateStatusIf_Call) RunAndReturn(run func(func(ShardStatus) bool, string, string) error) *MockShardLike_UpdateStatusIf_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -5075,6 +4889,97 @@ func (_c *MockShardLike_setFallbackToSearchable_Call) Return() *MockShardLike_se
 
 func (_c *MockShardLike_setFallbackToSearchable_Call) RunAndReturn(run func(bool)) *MockShardLike_setFallbackToSearchable_Call {
 	_c.Run(run)
+	return _c
+}
+
+// setReindexing provides a mock function with given fields: reindexing
+func (_m *MockShardLike) setReindexing(reindexing bool) error {
+	ret := _m.Called(reindexing)
+
+	if len(ret) == 0 {
+		panic("no return value specified for setReindexing")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(bool) error); ok {
+		r0 = rf(reindexing)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShardLike_setReindexing_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'setReindexing'
+type MockShardLike_setReindexing_Call struct {
+	*mock.Call
+}
+
+// setReindexing is a helper method to define mock.On call
+//   - reindexing bool
+func (_e *MockShardLike_Expecter) setReindexing(reindexing interface{}) *MockShardLike_setReindexing_Call {
+	return &MockShardLike_setReindexing_Call{Call: _e.mock.On("setReindexing", reindexing)}
+}
+
+func (_c *MockShardLike_setReindexing_Call) Run(run func(reindexing bool)) *MockShardLike_setReindexing_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(bool))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_setReindexing_Call) Return(_a0 error) *MockShardLike_setReindexing_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_setReindexing_Call) RunAndReturn(run func(bool) error) *MockShardLike_setReindexing_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// syncStorePause provides a mock function with no fields
+func (_m *MockShardLike) syncStorePause() error {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for syncStorePause")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShardLike_syncStorePause_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'syncStorePause'
+type MockShardLike_syncStorePause_Call struct {
+	*mock.Call
+}
+
+// syncStorePause is a helper method to define mock.On call
+func (_e *MockShardLike_Expecter) syncStorePause() *MockShardLike_syncStorePause_Call {
+	return &MockShardLike_syncStorePause_Call{Call: _e.mock.On("syncStorePause")}
+}
+
+func (_c *MockShardLike_syncStorePause_Call) Run(run func()) *MockShardLike_syncStorePause_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockShardLike_syncStorePause_Call) Return(_a0 error) *MockShardLike_syncStorePause_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_syncStorePause_Call) RunAndReturn(run func() error) *MockShardLike_syncStorePause_Call {
+	_c.Call.Return(run)
 	return _c
 }
 
