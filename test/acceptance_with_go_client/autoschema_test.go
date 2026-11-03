@@ -253,7 +253,7 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 				var partial data.InsertError
 				if assert.ErrorAs(t, err, &partial) &&
 					assert.Len(t, partial.Errors, 1, "insert errors") {
-					require.Contains(t, partial.Errors[id], tt.containsErrMessage)
+					require.Contains(t, partial.Errors[0], tt.containsErrMessage)
 				}
 			} else {
 				require.NoError(t, err)
