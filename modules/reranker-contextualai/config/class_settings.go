@@ -18,10 +18,11 @@ import (
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
+// topN is not read: the provider's top_n truncates the response and Weaviate
+// needs one score per document.
 const (
 	modelProperty       = "model"
 	instructionProperty = "instruction"
-	topNProperty        = "topN"
 )
 
 const (
@@ -50,24 +51,10 @@ func (ic *classSettings) getStringProperty(name string, defaultValue string) *st
 	return &asString
 }
 
-func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
-	wrongVal := -1
-	return ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, name, &wrongVal, defaultValue)
-}
-
 func (ic *classSettings) Model() string {
 	return *ic.getStringProperty(modelProperty, DefaultContextualAIModel)
 }
 
 func (ic *classSettings) Instruction() string {
 	return *ic.getStringProperty(instructionProperty, "")
-}
-
-func (ic *classSettings) TopN() int {
-	defaultVal := 0
-	result := ic.getIntProperty(topNProperty, &defaultVal)
-	if result != nil {
-		return *result
-	}
-	return 0
 }

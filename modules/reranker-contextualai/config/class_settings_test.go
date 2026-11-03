@@ -113,34 +113,3 @@ func TestClassSettingsInstruction(t *testing.T) {
 		})
 	}
 }
-
-func TestClassSettingsTopN(t *testing.T) {
-	tests := []struct {
-		name     string
-		cfg      map[string]any
-		expected int
-	}{
-		{
-			name:     "no topN",
-			cfg:      map[string]any{},
-			expected: 0,
-		},
-		{
-			name: "with topN",
-			cfg: map[string]any{
-				"topN": 10,
-			},
-			expected: 10,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fakeConfig := fakeClassConfig{classConfig: tt.cfg}
-			settings := NewClassSettings(fakeConfig)
-
-			topN := settings.TopN()
-			assert.Equal(t, tt.expected, topN)
-		})
-	}
-}

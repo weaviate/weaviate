@@ -138,10 +138,6 @@ func (c *client) buildRankInput(query string, documents []string, cfg moduletool
 		input.Instruction = &instruction
 	}
 
-	if topN := settings.TopN(); topN > 0 {
-		input.TopN = &topN
-	}
-
 	metadata := make([]string, len(documents))
 	for i := range metadata {
 		metadata[i] = ""
@@ -248,7 +244,6 @@ type RankInput struct {
 	Query       string   `json:"query"`
 	Documents   []string `json:"documents"`
 	Model       string   `json:"model"`
-	TopN        *int     `json:"top_n,omitempty"`
 	Instruction *string  `json:"instruction,omitempty"`
 	Metadata    []string `json:"metadata,omitempty"`
 }

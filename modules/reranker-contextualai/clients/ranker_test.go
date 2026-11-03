@@ -172,7 +172,6 @@ func TestRankWithDifferentConfigs(t *testing.T) {
 		name          string
 		config        map[string]any
 		expectedModel string
-		expectedTopN  *int
 		expectedInstr *string
 	}{
 		{
@@ -189,7 +188,6 @@ func TestRankWithDifferentConfigs(t *testing.T) {
 				"topN":  5,
 			},
 			expectedModel: testModel,
-			expectedTopN:  func() *int { v := 5; return &v }(),
 		},
 		{
 			name: "with instruction",
@@ -205,10 +203,12 @@ func TestRankWithDifferentConfigs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var capturedRequest RankInput
+			var capturedBody map[string]json.RawMessage
 
 			testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				bodyBytes, _ := io.ReadAll(r.Body)
 				json.Unmarshal(bodyBytes, &capturedRequest)
+				json.Unmarshal(bodyBytes, &capturedBody)
 
 				response := RankResponse{
 					Results: []RerankedResult{
@@ -236,10 +236,7 @@ func TestRankWithDifferentConfigs(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedModel, capturedRequest.Model)
 
-			if tt.expectedTopN != nil {
-				require.NotNil(t, capturedRequest.TopN)
-				assert.Equal(t, *tt.expectedTopN, *capturedRequest.TopN)
-			}
+			assert.NotContains(t, capturedBody, "top_n")
 
 			if tt.expectedInstr != nil {
 				require.NotNil(t, capturedRequest.Instruction)
@@ -247,4 +244,46 @@ func TestRankWithDifferentConfigs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRankIgnoresTopN(t *testing.T) {
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]json.RawMessage
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+
+		results := []RerankedResult{
+			{Index: 2, RelevanceScore: 0.9},
+			{Index: 0, RelevanceScore: 0.8},
+			{Index: 1, RelevanceScore: 0.7},
+		}
+		if raw, ok := body["top_n"]; ok {
+			var topN int
+			assert.NoError(t, json.Unmarshal(raw, &topN))
+			results = results[:topN]
+		}
+
+		w.Header().Set(contentTypeHeader, applicationJSON)
+		json.NewEncoder(w).Encode(RankResponse{Results: results})
+	}))
+	defer testServer.Close()
+
+	client := &client{
+		apiKey:       testAPIKey,
+		httpClient:   &http.Client{Timeout: 30 * time.Second},
+		host:         testServer.URL,
+		path:         rerankPath,
+		maxDocuments: 1000,
+		logger:       logrus.New(),
+	}
+
+	fakeConfig := fakeClassConfig{classConfig: map[string]any{"model": testModel, "topN": 2}}
+	result, err := client.Rank(context.Background(), testQuery, []string{"doc1", "doc2", "doc3"}, fakeConfig)
+
+	require.NoError(t, err)
+	require.Len(t, result.DocumentScores, 3)
+	scores := make([]float64, len(result.DocumentScores))
+	for i, ds := range result.DocumentScores {
+		scores[i] = ds.Score
+	}
+	assert.Equal(t, []float64{0.8, 0.7, 0.9}, scores)
 }
