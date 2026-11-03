@@ -12,15 +12,12 @@
 package acceptance_with_go_client
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
 
-<<<<<<< HEAD
 	"github.com/google/uuid"
-=======
-	"acceptance_tests_with_client/internal/wvhost"
 
->>>>>>> 42c23cd288 (refactor: use v6 in TestAutoschemaCasingClass)
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate-go-client/v6/data"
