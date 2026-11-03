@@ -32,6 +32,7 @@ import (
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 type fakeReindexTaskLister struct {
@@ -98,6 +99,11 @@ func TestShardStatusErrResponder(t *testing.T) {
 			want: schema.NewSchemaObjectsShardsUpdateNotFound(),
 		},
 		{
+			name: "an invalid class name is unprocessable",
+			err:  fmt.Errorf("%w: %w", schemaUC.ErrValidation, errors.New("'a:Foo' is not a valid class name")),
+			want: schema.NewSchemaObjectsShardsUpdateUnprocessableEntity(),
+		},
+		{
 			name: "anything else stays a server error",
 			err:  errors.New("boom"),
 			want: schema.NewSchemaObjectsShardsUpdateInternalServerError(),
@@ -107,6 +113,68 @@ func TestShardStatusErrResponder(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.IsType(t, tt.want, shardStatusErrResponder(nil, tt.err))
+		})
+	}
+}
+
+func TestShardsStorageStatusErrResponder(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want middleware.Responder
+	}{
+		{
+			name: "a forbidden error maps to forbidden",
+			err:  authzerrors.Forbidden{},
+			want: schema.NewSchemaObjectsShardsGetForbidden(),
+		},
+		{
+			name: "an unknown class maps to not found",
+			err:  fmt.Errorf("class: %w", schemaUC.ErrNotFound),
+			want: schema.NewSchemaObjectsShardsGetNotFound(),
+		},
+		{
+			name: "an invalid class name maps to unprocessable entity",
+			err:  fmt.Errorf("%w: %w", schemaUC.ErrValidation, errors.New("'a:Foo' is not a valid class name")),
+			want: schema.NewSchemaObjectsShardsGetUnprocessableEntity(),
+		},
+		{
+			name: "anything else stays a server error",
+			err:  errors.New("boom"),
+			want: schema.NewSchemaObjectsShardsGetInternalServerError(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.IsType(t, tt.want, shardsStorageStatusErrResponder(nil, tt.err))
+		})
+	}
+}
+
+// A vector index drop refused by the namespace is the caller's problem too. One
+// state stands for the rest, which TestNamespaceErrRendersUnprocessable walks.
+func TestVectorIndexDeleteErrResponder(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want middleware.Responder
+	}{
+		{
+			name: "suspended namespace is unprocessable",
+			err:  namespaces.ErrNamespaceSuspended,
+			want: schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity(),
+		},
+		{
+			name: "anything else stays a server error",
+			err:  errors.New("boom"),
+			want: schema.NewSchemaObjectsVectorsDeleteInternalServerError(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.IsType(t, tt.want, vectorIndexDeleteErrResponder(nil, tt.err))
 		})
 	}
 }
@@ -123,7 +191,7 @@ func TestDeleteClassPropertyIndex_NamespaceConflictPreflight(t *testing.T) {
 	require.NoError(t, err)
 
 	h := &schemaHandlers{
-		namespacesEnabled:   true,
+		qualifier:           wlnamespaces.NewPrefixing(),
 		metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
 		// allow-all authorizer: this test is about class qualification, not authz
 		authorizer: &authorization.DummyAuthorizer{},
@@ -163,7 +231,7 @@ func TestDeleteClassPropertyIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) 
 
 	rec := &recordingLockProvider{}
 	h := &schemaHandlers{
-		namespacesEnabled:   true,
+		qualifier:           wlnamespaces.NewPrefixing(),
 		metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
 		// allow-all authorizer: this test is about the lock key, not authz
 		authorizer:         &authorization.DummyAuthorizer{},

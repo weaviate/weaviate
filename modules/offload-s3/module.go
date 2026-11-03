@@ -329,12 +329,15 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 // lsmkv.Bucket.listFiles and listInactiveLSMFiles already skip those; this
 // path builds an argv instead of walking the tree, so it needs its own rule.
 // .wal stays in, the shard needs it to recover on the next reactivation.
+// hashtree_uuid/ stays out like it does for backups: a downloaded .ht would be
+// trusted verbatim on load and mask a partial download from replication.
 func (m *Module) uploadArgs(localPath, className, shardName, nodeName string) []string {
 	return []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"cp",
 		fmt.Sprintf("--concurrency=%s", fmt.Sprintf("%d", m.Concurrency)),
 		"--exclude=*.tmp",
+		"--exclude=hashtree_uuid/*",
 		fmt.Sprintf("%s/*", localPath),
 		fmt.Sprintf("s3://%s/%s/%s/%s/", m.Bucket, strings.ToLower(className), shardName, nodeName),
 	}

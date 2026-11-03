@@ -211,7 +211,8 @@ func TestFIFOWakeOnRelease(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("second waiter not woken")
 	}
-	require.Equal(t, int64(0), l.usedForTest())
+	// start signals woke before releasing, so W2's grant may still be held.
+	waitFor(t, func() bool { return l.usedForTest() == 0 })
 }
 
 // --- cancellation & shedding ------------------------------------------------

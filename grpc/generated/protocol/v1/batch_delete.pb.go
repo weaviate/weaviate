@@ -103,12 +103,16 @@ func (x *BatchDeleteRequest) GetTenant() string {
 }
 
 type BatchDeleteReply struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Took          float32                `protobuf:"fixed32,1,opt,name=took,proto3" json:"took,omitempty"`
-	Failed        int64                  `protobuf:"varint,2,opt,name=failed,proto3" json:"failed,omitempty"`
-	Matches       int64                  `protobuf:"varint,3,opt,name=matches,proto3" json:"matches,omitempty"`
-	Successful    int64                  `protobuf:"varint,4,opt,name=successful,proto3" json:"successful,omitempty"`
-	Objects       []*BatchDeleteObject   `protobuf:"bytes,5,rep,name=objects,proto3" json:"objects,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Took       float32                `protobuf:"fixed32,1,opt,name=took,proto3" json:"took,omitempty"`
+	Failed     int64                  `protobuf:"varint,2,opt,name=failed,proto3" json:"failed,omitempty"`
+	Matches    int64                  `protobuf:"varint,3,opt,name=matches,proto3" json:"matches,omitempty"`
+	Successful int64                  `protobuf:"varint,4,opt,name=successful,proto3" json:"successful,omitempty"`
+	Objects    []*BatchDeleteObject   `protobuf:"bytes,5,rep,name=objects,proto3" json:"objects,omitempty"`
+	// The applied cap, from QUERY_MAXIMUM_RESULTS.
+	// matches above limit means the call was capped. matches equal to limit means it was not.
+	// An absent field means the server predates this field, not a cap of zero.
+	Limit         *int64 `protobuf:"varint,6,opt,name=limit,proto3,oneof" json:"limit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -176,6 +180,13 @@ func (x *BatchDeleteReply) GetObjects() []*BatchDeleteObject {
 		return x.Objects
 	}
 	return nil
+}
+
+func (x *BatchDeleteReply) GetLimit() int64 {
+	if x != nil && x.Limit != nil {
+		return *x.Limit
+	}
+	return 0
 }
 
 type BatchDeleteObject struct {
@@ -253,7 +264,7 @@ const file_v1_batch_delete_proto_rawDesc = "" +
 	"\x11consistency_level\x18\x05 \x01(\x0e2\x1d.weaviate.v1.ConsistencyLevelH\x00R\x10consistencyLevel\x88\x01\x01\x12\x1b\n" +
 	"\x06tenant\x18\x06 \x01(\tH\x01R\x06tenant\x88\x01\x01B\x14\n" +
 	"\x12_consistency_levelB\t\n" +
-	"\a_tenant\"\xb2\x01\n" +
+	"\a_tenant\"\xd7\x01\n" +
 	"\x10BatchDeleteReply\x12\x12\n" +
 	"\x04took\x18\x01 \x01(\x02R\x04took\x12\x16\n" +
 	"\x06failed\x18\x02 \x01(\x03R\x06failed\x12\x18\n" +
@@ -261,7 +272,9 @@ const file_v1_batch_delete_proto_rawDesc = "" +
 	"\n" +
 	"successful\x18\x04 \x01(\x03R\n" +
 	"successful\x128\n" +
-	"\aobjects\x18\x05 \x03(\v2\x1e.weaviate.v1.BatchDeleteObjectR\aobjects\"l\n" +
+	"\aobjects\x18\x05 \x03(\v2\x1e.weaviate.v1.BatchDeleteObjectR\aobjects\x12\x19\n" +
+	"\x05limit\x18\x06 \x01(\x03H\x00R\x05limit\x88\x01\x01B\b\n" +
+	"\x06_limit\"l\n" +
 	"\x11BatchDeleteObject\x12\x12\n" +
 	"\x04uuid\x18\x01 \x01(\fR\x04uuid\x12\x1e\n" +
 	"\n" +
@@ -309,6 +322,7 @@ func file_v1_batch_delete_proto_init() {
 	}
 	file_v1_base_proto_init()
 	file_v1_batch_delete_proto_msgTypes[0].OneofWrappers = []any{}
+	file_v1_batch_delete_proto_msgTypes[1].OneofWrappers = []any{}
 	file_v1_batch_delete_proto_msgTypes[2].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

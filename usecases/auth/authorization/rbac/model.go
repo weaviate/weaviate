@@ -161,7 +161,7 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 	}
 
-	// Wipe all four built-in role policies before re-registering. The
+	// Wipe all built-in role policies before re-registering. The
 	// canonical shape lives in code; rebuilding from scratch on every boot
 	// keeps the on-disk policy CSV honest.
 	for _, role := range authorization.BuiltInRoles {
@@ -182,19 +182,29 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 	// wildcards; on NS-enabled only root/read-only do — Casbin lacks deny
 	// semantics, so admin/viewer must be registered per-permission to be
 	// narrowable.
-	wildcardRoles := authorization.BuiltInRoles
+	wildcardRoles := authorization.WildcardRoles
 	if namespacesEnabled {
-		wildcardRoles = authorization.EnvVarRoles
+		wildcardRoles = []string{authorization.Root, authorization.ReadOnly}
 	}
-	for _, role := range wildcardRoles {
-		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(role), "*", conv.BuiltInWildcardVerb[role], "*"); err != nil {
-			return fmt.Errorf("add policy: %w", err)
+	if err := addWildcardPolicies(enforcer, wildcardRoles, conv.BuiltInWildcardVerb); err != nil {
+		return err
+	}
+
+	// The metadata reader is always registered per permission: a wildcard READ
+	// would include read_data.
+	metadataPolicies, err := conv.PermissionToPolicies(authorization.BuiltInPermissionsFor(namespacesEnabled)[authorization.MetadataReader]...)
+	if err != nil {
+		return fmt.Errorf("metadata reader policies: %w", err)
+	}
+	for _, p := range metadataPolicies {
+		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(authorization.MetadataReader), p.Resource, p.Verb, p.Domain); err != nil {
+			return fmt.Errorf("add metadata reader policy: %w", err)
 		}
 	}
 
 	if namespacesEnabled {
 		narrowed := authorization.BuiltInPermissionsFor(true)
-		for _, role := range []string{authorization.Admin, authorization.Viewer} {
+		for _, role := range authorization.ApiManagedBuiltInRoles {
 			policies, err := conv.PermissionToPolicies(narrowed[role]...)
 			if err != nil {
 				return fmt.Errorf("tenant-safe %s policies: %w", role, err)
@@ -280,6 +290,15 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 	}
 
+	for _, metadataGroup := range conf.MetadataGroups {
+		if strings.TrimSpace(metadataGroup) == "" {
+			continue
+		}
+		if _, err := enforcer.AddRoleForUser(conv.PrefixGroupName(metadataGroup), conv.PrefixRoleName(authorization.MetadataReader)); err != nil {
+			return fmt.Errorf("add metadata reader role for group %s: %w", metadataGroup, err)
+		}
+	}
+
 	if err := enforcer.SavePolicy(); err != nil {
 		return errors.Wrapf(err, "save policy")
 	}
@@ -302,6 +321,22 @@ var (
 	nodesMinimalResource = authorization.NodesDomain + "/verbosity/minimal"
 	nodesVerbosePrefix   = authorization.NodesDomain + "/verbosity/verbose/"
 )
+
+// addWildcardPolicies registers a single "*" policy per role with the role's
+// wildcard verb. It fails closed: an empty verb regex-matches every action in
+// casbin, so a role without a wildcard verb would silently gain full access.
+func addWildcardPolicies(enforcer *casbin.SyncedCachedEnforcer, roles []string, verbs map[string]string) error {
+	for _, role := range roles {
+		verb := verbs[role]
+		if verb == "" {
+			return fmt.Errorf("built-in role %q has no wildcard verb", role)
+		}
+		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(role), "*", verb, "*"); err != nil {
+			return fmt.Errorf("add policy: %w", err)
+		}
+	}
+	return nil
+}
 
 // rejectNamespacedRootSubjects fails startup when a namespace-qualified subject
 // is configured for the root role: a namespaced principal must never inherit
@@ -358,6 +393,24 @@ func operatorOnlyResource(path string) bool {
 		strings.HasPrefix(path, groupsPrefix)
 }
 
+// namespaceFreeResource reports whether a namespaced caller may match path
+// literally instead of being denied by the shape check in
+// namespaceAwareMatcher.
+//
+// Only mcp qualifies. Its resource is the bare string "mcp" with no collection
+// segment, so it always fails the shape check. Without this exception no
+// namespaced caller could use MCP, not even one whose role grants read_mcp
+// explicitly. Letting it through is safe because the mcp check only opens the
+// door to the tools. Each tool then checks the collection it touches under its
+// namespaced name, so data access is never decided on "mcp" alone. A caller
+// whose only grant is a bare "*" passes the mcp check, but every tool still
+// denies them.
+//
+// A new global domain belongs in operatorOnlyResource, not here.
+func namespaceFreeResource(path string) bool {
+	return path == authorization.McpDomain
+}
+
 // weaviateKeyMatch runs the `/shards/#` vs `/shards/.*` carve-out then
 // KeyMatch5: a collection-level request must not match a per-tenant policy.
 //
@@ -384,7 +437,9 @@ func weaviateKeyMatch(reqObj, polObj string) bool {
 //     non-namespaceable shape: no rewrite.
 //
 // Namespaced callers are denied the operator-only domains (backups, nodes,
-// replicate, cluster, namespaces, groups) outright.
+// replicate, cluster, namespaces, groups) outright. They are also denied any
+// request or policy shape FindNamespaceSegments does not know, such as a bare
+// "*", unless the request is mcp.
 func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 	// Namespaced callers have no access to operator-only domains, whatever the policy.
 	if ns != "" && operatorOnlyResource(reqObj) {
@@ -432,10 +487,12 @@ func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 	_, reqColEnd, reqHasAlias := namespacing.FindNamespaceSegments(reqObj)
 
 	// 2. Shape check. If either path isn't a namespaceable shape (end==0),
-	//    or the two disagree on alias-ness (one is schema/data, the other
-	//    aliases), there's nothing meaningful to rewrite — defer to plain
-	//    KeyMatch5 (which returns false on a shape mismatch anyway).
+	//    or the two disagree on alias-ness, there's nothing to rewrite. A
+	//    namespaced caller is denied, since a bare "*" matches any namespace.
 	if reqColEnd == 0 || polColEnd == 0 || reqHasAlias != polHasAlias {
+		if ns != "" && !namespaceFreeResource(reqObj) {
+			return false
+		}
 		return weaviateKeyMatch(reqObj, polObj)
 	}
 

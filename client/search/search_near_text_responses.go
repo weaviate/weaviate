@@ -64,6 +64,12 @@ func (o *SearchNearTextReader) ReadResponse(response runtime.ClientResponse, con
 			return nil, err
 		}
 		return nil, result
+	case 413:
+		result := NewSearchNearTextRequestEntityTooLarge()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewSearchNearTextUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -433,6 +439,74 @@ func (o *SearchNearTextNotFound) readResponse(response runtime.ClientResponse, c
 	return nil
 }
 
+// NewSearchNearTextRequestEntityTooLarge creates a SearchNearTextRequestEntityTooLarge with default headers values
+func NewSearchNearTextRequestEntityTooLarge() *SearchNearTextRequestEntityTooLarge {
+	return &SearchNearTextRequestEntityTooLarge{}
+}
+
+/*
+SearchNearTextRequestEntityTooLarge describes a response with status code 413, with default header values.
+
+The request body exceeded the 4194304 byte (4 MiB) limit.
+*/
+type SearchNearTextRequestEntityTooLarge struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this search near text request entity too large response has a 2xx status code
+func (o *SearchNearTextRequestEntityTooLarge) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this search near text request entity too large response has a 3xx status code
+func (o *SearchNearTextRequestEntityTooLarge) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this search near text request entity too large response has a 4xx status code
+func (o *SearchNearTextRequestEntityTooLarge) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this search near text request entity too large response has a 5xx status code
+func (o *SearchNearTextRequestEntityTooLarge) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this search near text request entity too large response a status code equal to that given
+func (o *SearchNearTextRequestEntityTooLarge) IsCode(code int) bool {
+	return code == 413
+}
+
+// Code gets the status code for the search near text request entity too large response
+func (o *SearchNearTextRequestEntityTooLarge) Code() int {
+	return 413
+}
+
+func (o *SearchNearTextRequestEntityTooLarge) Error() string {
+	return fmt.Sprintf("[POST /search/{collection}/near-text][%d] searchNearTextRequestEntityTooLarge  %+v", 413, o.Payload)
+}
+
+func (o *SearchNearTextRequestEntityTooLarge) String() string {
+	return fmt.Sprintf("[POST /search/{collection}/near-text][%d] searchNearTextRequestEntityTooLarge  %+v", 413, o.Payload)
+}
+
+func (o *SearchNearTextRequestEntityTooLarge) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *SearchNearTextRequestEntityTooLarge) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
 // NewSearchNearTextUnprocessableEntity creates a SearchNearTextUnprocessableEntity with default headers values
 func NewSearchNearTextUnprocessableEntity() *SearchNearTextUnprocessableEntity {
 	return &SearchNearTextUnprocessableEntity{}
@@ -441,7 +515,7 @@ func NewSearchNearTextUnprocessableEntity() *SearchNearTextUnprocessableEntity {
 /*
 SearchNearTextUnprocessableEntity describes a response with status code 422, with default header values.
 
-Either a request-schema violation (a missing required field such as `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
+Either a request-schema violation (a missing required field such as `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
 */
 type SearchNearTextUnprocessableEntity struct {
 	Payload *models.ErrorResponse

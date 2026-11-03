@@ -26,7 +26,7 @@ import (
 
 const (
 	DefaultRPM = 10000
-	DefaultTPM = 10_000_000
+	DefaultTPM = 6_000_000
 )
 
 type vectorizer struct {
@@ -64,7 +64,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, isSearchQuer
 		Text:       input,
 		Dimensions: len(embeddingsResponse.Embeddings[0]),
 		Vector:     embeddingsResponse.Embeddings,
-	}, nil, modulecomponents.GetTotalTokens(embeddingsResponse.Metadata.Usage), nil
+	}, embeddingsResponse.RateLimits, modulecomponents.GetTotalTokens(embeddingsResponse.Metadata.Usage), nil
 }
 
 func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {

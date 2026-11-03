@@ -159,7 +159,7 @@ def _http(
 
 
 def _create_namespace(http_port: int, name: str) -> None:
-    """POST /namespaces/{name}, then poll until it's visible locally.
+    """POST /namespaces/{name}, then poll until the leader reports it.
 
     409 (already exists) is success, so re-runs are idempotent. The POST is
     RAFT-forwarded and may not be applied on this node when it returns.
@@ -171,7 +171,8 @@ def _create_namespace(http_port: int, name: str) -> None:
 
 
 def _wait_for_namespace(http_port: int, name: str) -> None:
-    """Poll GET /namespaces/{name} until 200 — i.e. applied on this node."""
+    """Poll GET /namespaces/{name} until 200. The leader answers the GET, so a
+    200 does not mean this node has applied the namespace yet."""
     deadline = time.time() + 10.0
     last = None
     while time.time() < deadline:
@@ -207,9 +208,9 @@ def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str
 
     Absorbs two transients:
       - 409 (stale user from prior run): delete once + retry.
-      - 422 "namespace does not exist": local FSM hasn't applied the
-        create-namespace entry yet even though _wait_for_namespace got 200
-        from the RAFT-served GET; poll until local apply catches up.
+      - 422: createUser checks this node's own copy of the namespace, which
+        can lag the leader's 200 in _wait_for_namespace. The body cannot tell
+        that lag from a deleting namespace, so any 422 is retried.
     """
     qualified = f"{namespace}:{user_id}"
     deleted = False
@@ -239,7 +240,7 @@ def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str
             deleted = True
             deadline = time.time() + 10.0
             continue
-        if r.status_code == 422 and "does not exist" in r.text:
+        if r.status_code == 422:
             last = r
             time.sleep(0.05)
             continue
@@ -251,7 +252,8 @@ def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str
 
 
 def _wait_for_user_gone(http_port: int, qualified: str) -> None:
-    """Poll GET /users/db/{qualified} until 404 — i.e. delete applied here."""
+    """Poll GET /users/db/{qualified} until 404. The leader answers this GET, as
+    it does createUser's 409 check, so no node-local wait is needed."""
     deadline = time.time() + 10.0
     last = None
     while time.time() < deadline:

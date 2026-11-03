@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -79,7 +80,7 @@ type Scheduler struct {
 	selector     Selector
 	backends     BackendProvider
 	client       ExportClient
-	nodeResolver NodeResolver
+	nodeResolver cluster.HostnameResolver
 	localNode    string
 	participant  *Participant
 	metrics      *ExportMetrics
@@ -95,7 +96,7 @@ func NewScheduler(
 	backends BackendProvider,
 	logger logrus.FieldLogger,
 	client ExportClient,
-	nodeResolver NodeResolver,
+	nodeResolver cluster.HostnameResolver,
 	localNode string,
 	participant *Participant,
 	metrics *ExportMetrics,

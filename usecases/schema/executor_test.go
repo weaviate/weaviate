@@ -351,23 +351,33 @@ func TestExecutor(t *testing.T) {
 
 	t.Run("GetShardsStorageStatus", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		status := map[string]map[string]string{"A": {"B": "C"}}
-		legacy := map[string]string{"A": "C"}
+		status := map[string]map[string]string{"S1": {"N1": "INDEXING"}, "S2": {"N1": "READY"}}
+		legacy := map[string]string{"S1": "INDEXING", "S2": "READY"}
 		migrator.On("GetShardsStorageStatus", Anything, "A", "").Return(status, legacy, nil)
+		migrator.On("GetShardsQueueSize", Anything, "A", "").Return(map[string]int64{"S1": 42, "S2": 0}, nil)
 		x := newMockExecutor(migrator, store)
-		statusList, err := x.GetShardsStorageStatus(ctx, "A", "")
+		got, err := x.GetShardsStorageStatus(ctx, "A", "")
 		assert.NoError(t, err)
-		assert.Len(t, statusList, 1, "number of shards in the status list")
-		statusList0 := statusList[0]
-		assert.Equal(t, statusList0.Name, "A", "shard name")
-		assert.Equal(t, statusList0.Status, "C", "shard legacy status")
-		assert.Equal(t, statusList0.PerNodeStatus, map[string]string{"B": "C"})
+		assert.ElementsMatch(t, models.ShardStatusList{
+			{Name: "S1", Status: "INDEXING", PerNodeStatus: map[string]string{"N1": "INDEXING"}, VectorQueueSize: 42},
+			{Name: "S2", Status: "READY", PerNodeStatus: map[string]string{"N1": "READY"}, VectorQueueSize: 0},
+		}, got)
 	})
 	t.Run("GetShardsStorageStatusError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		status := map[string]map[string]string{"A": {"B": "C"}}
 		legacy := map[string]string{"A": "C"}
 		migrator.On("GetShardsStorageStatus", Anything, "A", "").Return(status, legacy, ErrAny)
+		x := newMockExecutor(migrator, store)
+		_, err := x.GetShardsStorageStatus(ctx, "A", "")
+		assert.ErrorIs(t, err, ErrAny)
+	})
+	t.Run("GetShardsStorageStatusQueueSizeError", func(t *testing.T) {
+		migrator := &fakeMigrator{}
+		status := map[string]map[string]string{"S1": {"N1": "READY"}}
+		legacy := map[string]string{"S1": "READY"}
+		migrator.On("GetShardsStorageStatus", Anything, "A", "").Return(status, legacy, nil)
+		migrator.On("GetShardsQueueSize", Anything, "A", "").Return(map[string]int64(nil), ErrAny)
 		x := newMockExecutor(migrator, store)
 		_, err := x.GetShardsStorageStatus(ctx, "A", "")
 		assert.ErrorIs(t, err, ErrAny)

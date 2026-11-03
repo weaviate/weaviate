@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
@@ -48,7 +49,6 @@ func newEmptyMTIndex(t *testing.T) *Index {
 	logger := logrus.New()
 
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-	mockSchemaGetter.On("NodeName").Return("node1").Maybe()
 
 	class := &models.Class{
 		Class:               "TestClass",
@@ -63,7 +63,7 @@ func newEmptyMTIndex(t *testing.T) *Index {
 	}
 	ss.SetLocalName("node1")
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
 			return readFunc(class, ss)
@@ -73,6 +73,7 @@ func newEmptyMTIndex(t *testing.T) *Index {
 	shardResolver := resolver.NewShardResolver(class.Class, true, mockSchemaGetter)
 
 	index, err := NewIndex(context.Background(), nil, IndexConfig{
+		NodeName:          "node1",
 		ClassName:         schema.ClassName("TestClass"),
 		RootPath:          rootPath,
 		ReplicationFactor: 1,

@@ -21,7 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/mock"
-	schema2 "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	numClasses = 100
+	numClasses = 10
 	numShards  = 10
 	uppercase  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	lowercase  = "abcdefghijklmnopqrstuvwxyz"
@@ -144,6 +144,8 @@ func TestFileStructureMigration(t *testing.T) {
 
 		db := testDB(t, root, classes, states)
 		require.Nil(t, db.migrateFileStructureIfNecessary())
+		require.Zero(t, openDescriptorCount(t, path.Join(root, "migration1.22.fs.hierarchy")),
+			"the migration leaves its indicator file closed")
 	})
 
 	files, err = os.ReadDir(root)
@@ -207,7 +209,7 @@ func assertShardRootContents(t *testing.T, shardsByClass map[string][]string, ro
 
 func testDB(t *testing.T, root string, classes []*models.Class, states map[string]*sharding.State) *DB {
 	logger, _ := test.NewNullLogger()
-	mockSchemaReader := schema2.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).RunAndReturn(func(className string) ([]string, error) {
 		return states[className].AllPhysicalShards(), nil
 	}).Maybe()
@@ -221,8 +223,9 @@ func testDB(t *testing.T, root string, classes []*models.Class, states map[strin
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: classes}).Maybe()
 	return &DB{
-		config: Config{RootPath: root},
-		logger: logger,
+		localNodeName: "node1",
+		config:        Config{RootPath: root},
+		logger:        logger,
 		schemaGetter: &fakeMigrationSchemaGetter{
 			sch:    schema.Schema{Objects: &models.Schema{Classes: classes}},
 			states: states,
@@ -282,8 +285,11 @@ type fakeMigrationSchemaGetter struct {
 	states map[string]*sharding.State
 }
 
-func (sg *fakeMigrationSchemaGetter) GetSchemaSkipAuth() schema.Schema {
-	return sg.sch
+func (sg *fakeMigrationSchemaGetter) ReadOnlySchema() models.Schema {
+	if sg.sch.Objects == nil {
+		return models.Schema{}
+	}
+	return *sg.sch.Objects
 }
 
 func (sg *fakeMigrationSchemaGetter) ReadOnlyClass(class string) *models.Class {
@@ -322,7 +328,7 @@ func (sg *fakeMigrationSchemaGetter) ShardOwner(class, shard string) (string, er
 	return "", nil
 }
 
-func (sg *fakeMigrationSchemaGetter) TenantsShards(_ context.Context, class string, tenants ...string) (map[string]string, error) {
+func (sg *fakeMigrationSchemaGetter) TenantsShardsStatus(_ context.Context, class string, tenants ...string) (map[string]string, error) {
 	return nil, nil
 }
 

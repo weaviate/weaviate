@@ -12,6 +12,7 @@
 package acceptance_with_go_client
 
 import (
+	"acceptance_tests_with_client/fixtures"
 	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"strings"
@@ -50,17 +51,18 @@ func TestGenerative(t *testing.T) {
 		ModuleConfig: map[string]interface{}{
 			"generative-dummy": map[string]interface{}{},
 		},
+		VectorConfig: fixtures.DefaultVectorConfig(),
 	}
 	require.Nil(t, classCreator.WithClass(&class).Do(ctx))
 	uids := []string{uuid.New().String(), uuid.New().String()}
 	_, err = c.Data().Creator().WithClassName(className).WithProperties(
 		map[string]interface{}{"first": "one", "second": "two"},
-	).WithID(uids[0]).WithVector([]float32{1, 0}).Do(ctx)
+	).WithID(uids[0]).WithVectors(models.Vectors{fixtures.DefaultVectorName: []float32{1, 0}}).Do(ctx)
 	require.Nil(t, err)
 
 	_, err = c.Data().Creator().WithClassName(className).WithProperties(
 		map[string]interface{}{"first": "three", "second": "four"},
-	).WithID(uids[1]).WithVector([]float32{1, 0}).Do(ctx)
+	).WithID(uids[1]).WithVectors(models.Vectors{fixtures.DefaultVectorName: []float32{1, 0}}).Do(ctx)
 	require.Nil(t, err)
 	nv := graphql.NearVectorArgumentBuilder{}
 
@@ -138,6 +140,7 @@ func TestGenerativeUpdate(t *testing.T) {
 		ModuleConfig: map[string]interface{}{
 			"generative-dummy": map[string]interface{}{"first": "second"},
 		},
+		VectorConfig: fixtures.DefaultVectorConfig(),
 	}
 
 	require.Nil(t, classCreator.WithClass(&class).Do(ctx))

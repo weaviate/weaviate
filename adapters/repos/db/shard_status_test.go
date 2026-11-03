@@ -140,7 +140,7 @@ func TestLazyLoadShardUpdateStatusIf(t *testing.T) {
 		},
 		{
 			name:   "loaded shard is updated",
-			shard:  &LazyLoadShard{loaded: true, shard: loaded},
+			shard:  newLoadedLazyShard(loaded),
 			loaded: true,
 		},
 	}

@@ -103,7 +103,8 @@ func nodeIndexFromName(t *testing.T, nodeName string) int {
 func uriForNode(t *testing.T, nodeName string) string {
 	t.Helper()
 
-	return sharedCompose.GetWeaviateNode(nodeIndexFromName(t, nodeName)).URI()
+	restURI, _ := nodeURIs(t, nodeName)
+	return restURI
 }
 
 // requireShardsEventually waits for the cluster-wide shard set to settle on
@@ -112,8 +113,10 @@ func uriForNode(t *testing.T, nodeName string) string {
 func requireShardsEventually(t *testing.T, qualifiedClass string, want ...string) {
 	t.Helper()
 
-	// Sorted on a copy: want aliases the caller's slice when spread with "...".
-	want = append([]string(nil), want...)
+	// want is sorted on a copy, because it aliases the caller's slice when spread
+	// with "...". The copy is non-nil, so a call with no names matches
+	// shardsForClass's empty listing.
+	want = append([]string{}, want...)
 	sort.Strings(want)
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		got, err := shardsForClass(t, qualifiedClass)
@@ -200,8 +203,8 @@ func TestNamespaces_SuspendRefusesTenantShardMaterialization(t *testing.T) {
 	setupMTClassInNs1(t, ns1, class, user1Key)
 	qualified := ns1 + ":" + class
 
-	// Baseline while active: the HOT tenant materializes and the COLD one does
-	// not. Everything below is read against this.
+	// While the namespace is active, the HOT tenant materializes and the COLD one
+	// does not.
 	require.NoError(t, addTenantsAuth(t, qualified, []*models.Tenant{
 		{Name: "warm", ActivityStatus: models.TenantActivityStatusHOT},
 		{Name: "chilled", ActivityStatus: models.TenantActivityStatusCOLD},
@@ -230,7 +233,6 @@ func TestNamespaces_SuspendRefusesTenantShardMaterialization(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotContains(t, tenantNames(tenants), "added")
 		assert.NotContains(t, tenantNames(tenants), "addedcold")
-		requireShardAbsent(t, qualified, "added", presentShard{qualified, "warm"})
 	})
 
 	// The node running a status change holds no shard for either a COLD or a HOT
@@ -243,24 +245,23 @@ func TestNamespaces_SuspendRefusesTenantShardMaterialization(t *testing.T) {
 		require.Error(t, err)
 
 		requireTenantEventually(t, qualified, "chilled", models.TenantActivityStatusCOLD)
-		requireShardAbsent(t, qualified, "chilled", presentShard{qualified, "warm"})
 	})
 
-	// The shard that was already open when the suspend landed stays open: the
-	// guards refuse new materialization but unload nothing.
-	t.Run("a shard open before the suspend stays open", func(t *testing.T) {
-		got, err := shardsForClass(t, qualified)
-		require.NoError(t, err)
-		assert.Equal(t, []string{"warm"}, got)
-	})
-
+	// Only the new tenant is waited for, because the resume can apply before or
+	// after the sweep releases warm, so warm may be listed or not.
 	t.Run("resuming lets a tenant materialize again", func(t *testing.T) {
 		helper.ResumeNamespace(t, ns1, adminKey)
 
 		require.NoError(t, addTenantsAuth(t, qualified, []*models.Tenant{
 			{Name: "afterresume", ActivityStatus: models.TenantActivityStatusHOT},
 		}, adminKey))
-		requireShardsEventually(t, qualified, "afterresume", "warm")
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			got, err := shardsForClass(t, qualified)
+			if !assert.NoError(c, err) {
+				return
+			}
+			assert.Contains(c, got, "afterresume")
+		}, 30*time.Second, 200*time.Millisecond, "the tenant created after the resume never materialized")
 	})
 }
 
@@ -357,10 +358,15 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 	// against the resume the test does itself.
 	t.Cleanup(func() { helper.ResumeNamespace(t, dropNS, adminKey) })
 
-	t.Run("suspending leaves an already-open shard open", func(t *testing.T) {
-		got, err := shardsForClass(t, dropSTQualified)
+	// Kept shares the home node, so its shard staying listed shows that the sweep
+	// released only the suspended namespace.
+	t.Run("suspending releases the namespace's shards", func(t *testing.T) {
+		requireShardsEventually(t, dropSTQualified)
+		requireShardsEventually(t, dropMTQualified)
+
+		got, err := shardsForClass(t, keepQualified)
 		require.NoError(t, err)
-		assert.Equal(t, dropSTShards, got)
+		assert.Equal(t, keepShards, got)
 	})
 
 	// A failed stop or start would leave the node down for every later test in
@@ -369,36 +375,26 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 		require.NoError(t, sharedCompose.EnsureRunning(ctx, restartNodeIndex))
 	})
 
-	// The kill runs first, while the suspended namespace's shards are still open
-	// and its data still unflushed: that is the boot with something to recover.
-	// The graceful pass afterwards starts from shards already closed, so it only
-	// re-checks that the decision holds.
-	zero := time.Duration(0)
-	for _, tc := range []struct {
-		name    string
-		timeout *time.Duration
-	}{
-		{"after a crash the suspended namespace loads no shards", &zero},
-		{"after a graceful restart the suspended namespace loads no shards", nil},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			require.NoError(t, sharedCompose.StopNode(ctx, restartNodeIndex, tc.timeout))
-			require.NoError(t, sharedCompose.StartNode(ctx, restartNodeIndex))
+	// The kill meets shards the sweep released or is still flushing, as a kill
+	// during a tenant deactivation can. adapters/repos/db's
+	// TestSuspendedNamespace_UnflushedWriteSurvivesACrash crashes before the sweep.
+	t.Run("after a crash the suspended namespace loads no shards", func(t *testing.T) {
+		zero := time.Duration(0)
+		require.NoError(t, sharedCompose.StopNode(ctx, restartNodeIndex, &zero))
+		require.NoError(t, sharedCompose.StartNode(ctx, restartNodeIndex))
 
-			// The active namespace's shard coming back is what says the node is
-			// answering again; requireShardAbsent keeps checking it below.
-			requireShardsEventually(t, keepQualified, keepShards...)
+		// The active namespace's shard coming back says the node is answering
+		// again, and requireShardAbsent keeps checking it below.
+		requireShardsEventually(t, keepQualified, keepShards...)
 
-			live := presentShard{keepQualified, keepShards[0]}
-			requireShardAbsent(t, dropSTQualified, dropSTShards[0], live)
-			requireShardAbsent(t, dropMTQualified, tenant, live)
-		})
-	}
+		live := presentShard{keepQualified, keepShards[0]}
+		requireShardAbsent(t, dropSTQualified, dropSTShards[0], live)
+		requireShardAbsent(t, dropMTQualified, tenant, live)
+	})
 
-	// A read cannot materialize a shard, so a write is what puts the request
-	// path's namespace check on a shard the boot skipped. As the global
-	// operator, since the namespace's own key stops authenticating while it is
-	// suspended and would be turned away before ever reaching a shard.
+	// These writes name a collection the boot skipped, and the gate refuses them
+	// before any shard is consulted. They run as the global operator, because the
+	// namespace's own key stops authenticating while it is suspended.
 	//
 	// The client is process-wide, so each write below puts it back before the
 	// next subtest reads it.
@@ -413,12 +409,8 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 		return err
 	}
 
-	// Someone suspended this on purpose, so the write should be turned away with
-	// a 422. It answers 500 instead: the object endpoints map only invalid-input
-	// and multi-tenancy errors to 422, so a namespace refusal falls through to
-	// the default arm the way the alias handlers used to. What is pinned here is
-	// that the write is refused and still says why; swap the type for
-	// ObjectsCreateUnprocessableEntity once the object endpoints gain the arm.
+	// Someone suspended this on purpose, so the write is turned away with a 422
+	// that still says why.
 	//
 	// These run as the operator, who sees the full message; the shorter one a
 	// namespaced user gets is out of reach here, because their key stops working
@@ -437,7 +429,7 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 
 			// The responder renders its payload as a pointer, so the message has
 			// to be read off the typed error rather than its Error() string.
-			var refused *objects.ObjectsCreateInternalServerError
+			var refused *objects.ObjectsCreateUnprocessableEntity
 			require.ErrorAs(t, err, &refused)
 			require.NotEmpty(t, refused.Payload.Error)
 			assert.Contains(t, refused.Payload.Error[0].Message, "namespace is suspended")
@@ -446,9 +438,8 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 
 	// A batch delete answers with one status for the whole request, on a ladder
 	// of its own, so the status the single-object endpoints give does not cover
-	// it. (A batch create cannot stand in here: it reports per-object failures
-	// inside a 200 and never reaches that ladder.) Its ladder has the same gap,
-	// and inverts with the one above.
+	// it. The request path refuses this before the shard is reached, so the
+	// message below is the gate's rather than the closed shard's.
 	t.Run("a batch delete in the suspended namespace is refused", func(t *testing.T) {
 		helper.SetupClient(uriForNode(t, shardOwner))
 		t.Cleanup(func() { helper.SetupClient(originalURI) })
@@ -466,7 +457,7 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 			}), helper.CreateAuth(adminKey))
 		require.Error(t, err)
 
-		var refused *batch.BatchObjectsDeleteInternalServerError
+		var refused *batch.BatchObjectsDeleteUnprocessableEntity
 		require.ErrorAs(t, err, &refused)
 		require.NotEmpty(t, refused.Payload.Error)
 		assert.Contains(t, refused.Payload.Error[0].Message, "namespace is suspended")

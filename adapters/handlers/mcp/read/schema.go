@@ -53,6 +53,7 @@ func Tools(reader *WeaviateReader, configs map[string]internal.ToolConfig, m *mc
 		mcp.WithIdempotentHintAnnotation(true),
 	)
 	internal.ApplySchemaDescriptions(&getConfigTool, getConfigName, configs)
+	internal.AllowNullForOptionalArguments(&getConfigTool)
 
 	tenantsName := "weaviate-tenants-list"
 	tenantsTool := mcp.NewTool(
@@ -65,6 +66,7 @@ func Tools(reader *WeaviateReader, configs map[string]internal.ToolConfig, m *mc
 		mcp.WithIdempotentHintAnnotation(true),
 	)
 	internal.ApplySchemaDescriptions(&tenantsTool, tenantsName, configs)
+	internal.AllowNullForOptionalArguments(&tenantsTool)
 
 	return []server.ServerTool{
 		{Tool: getConfigTool, Handler: mcp.NewStructuredToolHandler(mcpmetrics.Instrument(m, getConfigName, reader.GetCollectionConfig))},

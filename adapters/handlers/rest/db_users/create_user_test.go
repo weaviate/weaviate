@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
@@ -25,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -32,30 +34,44 @@ import (
 	api "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/namespaces"
+	wldbusers "github.com/weaviate/weaviate/wl/dbusers"
 )
+
+// unlicensedExpiry is the resolver configureAPI wires on a node without a
+// license key.
+var unlicensedExpiry = apikey.RefusingExpiry(license.Required("db user expiration"))
 
 func TestCreateUnprocessableEntity(t *testing.T) {
 	principal := &models.Principal{}
+	pastAt := strfmt.DateTime(time.Now().Add(-time.Hour))
+	futureAt := strfmt.DateTime(time.Now().Add(time.Hour))
+	tp := true
 	tests := []struct {
 		name   string
 		userId string
+		body   users.CreateUserBody
 	}{
 		{name: "too long", userId: strings.Repeat("A", 129)},
 		{name: "invalid characters", userId: "#a"},
+		{name: "past expiry", userId: "user", body: users.CreateUserBody{ExpiresAt: &pastAt}},
+		{name: "expiry on import", userId: "user", body: users.CreateUserBody{Import: &tp, ExpiresAt: &futureAt}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(tt.userId)[0]).Return(nil).Maybe()
 			dynUser := NewMockDbUserAndRolesGetter(t)
 
 			h := dynUserHandler{
+				expiry:     wldbusers.NewValidatingExpiry(),
 				dbUsers:    dynUser,
 				authorizer: authorizer, dbUserEnabled: true,
 			}
 
-			res := h.createUser(users.CreateUserParams{UserID: tt.userId, HTTPRequest: req}, principal)
+			res := h.createUser(users.CreateUserParams{UserID: tt.userId, HTTPRequest: req, Body: tt.body}, principal)
 			parsed, ok := res.(*users.CreateUserUnprocessableEntity)
 			assert.True(t, ok)
 			assert.NotNil(t, parsed)
@@ -89,10 +105,11 @@ func TestCreateInternalServerError(t *testing.T) {
 				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(tt.CheckUserIdentifierExistsValueReturn, tt.CheckUserIdentifierExistsErrorReturn)
 			}
 			if tt.CheckUserIdentifierExistsErrorReturn == nil && !tt.CheckUserIdentifierExistsValueReturn && tt.GetUserReturn == nil {
-				dynUser.On("CreateUser", mock.Anything, "user", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(tt.CreateUserReturn)
+				dynUser.On("CreateUser", mock.Anything, "user", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(tt.CreateUserReturn)
 			}
 
 			h := dynUserHandler{
+				expiry:     unlicensedExpiry,
 				dbUsers:    dynUser,
 				authorizer: authorizer, dbUserEnabled: true,
 			}
@@ -126,6 +143,7 @@ func TestCreateConflict(t *testing.T) {
 			}
 
 			h := dynUserHandler{
+				expiry:               unlicensedExpiry,
 				dbUsers:              dynUser,
 				authorizer:           authorizer,
 				staticApiKeysConfigs: tt.rbacConf,
@@ -149,9 +167,10 @@ func TestCreateSuccess(t *testing.T) {
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", user).Return(map[string]apikey.UserView{}, nil)
 	dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-	dynUser.On("CreateUser", mock.Anything, user, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	dynUser.On("CreateUser", mock.Anything, user, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	h := dynUserHandler{
+		expiry:     unlicensedExpiry,
 		dbUsers:    dynUser,
 		authorizer: authorizer, dbUserEnabled: true,
 	}
@@ -162,28 +181,51 @@ func TestCreateSuccess(t *testing.T) {
 	assert.NotNil(t, parsed)
 }
 
-func TestCreateSuccessWithKey(t *testing.T) {
-	principal := &models.Principal{}
-	authorizer := authorization.NewMockAuthorizer(t)
+func TestCreateWithKey(t *testing.T) {
 	user := "user@weaviate.io"
-	authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(user)[0]).Return(nil)
-
-	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("CreateUserWithKey", mock.Anything, user, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-
-	h := dynUserHandler{
-		dbUsers:              dynUser,
-		authorizer:           authorizer,
-		dbUserEnabled:        true,
-		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{user}, AllowedKeys: []string{"key"}},
+	rbacWithRoot := rbacconf.Config{Enabled: true, RootUsers: []string{"root"}}
+	tests := []struct {
+		name        string
+		principal   *models.Principal
+		rbacConf    rbacconf.Config
+		wantCreated bool
+	}{
+		{name: "rbac and adminlist off", principal: &models.Principal{}, wantCreated: true},
+		// With RBAC and adminlist off, DummyAuthorizer lets an anonymous request's nil principal through.
+		{name: "nil principal, rbac and adminlist off", principal: nil, wantCreated: true},
+		{name: "rbac non-root user", principal: &models.Principal{Username: "other"}, rbacConf: rbacWithRoot},
 	}
-	tp := true
 
-	res := h.createUser(users.CreateUserParams{UserID: user, HTTPRequest: req, Body: users.CreateUserBody{Import: &tp}}, principal)
-	parsed, ok := res.(*users.CreateUserCreated)
-	assert.True(t, ok)
-	assert.NotNil(t, parsed)
-	assert.Equal(t, *parsed.Payload.Apikey, "key")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.CREATE, authorization.Users(user)[0]).Return(nil)
+
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			if tt.wantCreated {
+				dynUser.On("CreateUserWithKey", mock.Anything, user, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			}
+
+			h := dynUserHandler{
+				expiry:               unlicensedExpiry,
+				dbUsers:              dynUser,
+				authorizer:           authorizer,
+				dbUserEnabled:        true,
+				rbacConfig:           tt.rbacConf,
+				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{user}, AllowedKeys: []string{"key"}},
+			}
+			tp := true
+
+			res := h.createUser(users.CreateUserParams{UserID: user, HTTPRequest: req, Body: users.CreateUserBody{Import: &tp}}, tt.principal)
+			if !tt.wantCreated {
+				require.IsType(t, &users.CreateUserForbidden{}, res)
+				return
+			}
+			parsed, ok := res.(*users.CreateUserCreated)
+			require.True(t, ok, "expected 201, got %T", res)
+			assert.Equal(t, "key", *parsed.Payload.Apikey)
+		})
+	}
 }
 
 func TestCreateNotFoundWithKey(t *testing.T) {
@@ -194,6 +236,7 @@ func TestCreateNotFoundWithKey(t *testing.T) {
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	h := dynUserHandler{
+		expiry:               unlicensedExpiry,
 		dbUsers:              dynUser,
 		authorizer:           authorizer,
 		dbUserEnabled:        true,
@@ -215,6 +258,7 @@ func TestCreateForbidden(t *testing.T) {
 	dynUser := NewMockDbUserAndRolesGetter(t)
 
 	h := dynUserHandler{
+		expiry:     unlicensedExpiry,
 		dbUsers:    dynUser,
 		authorizer: authorizer, dbUserEnabled: true,
 	}
@@ -232,6 +276,7 @@ func TestCreateUnprocessableEntityCreatingRootUser(t *testing.T) {
 	dynUser := NewMockDbUserAndRolesGetter(t)
 
 	h := dynUserHandler{
+		expiry:     unlicensedExpiry,
 		dbUsers:    dynUser,
 		authorizer: authorizer,
 		rbacConfig: rbacconf.Config{RootUsers: []string{"user-root"}}, dbUserEnabled: true,
@@ -260,6 +305,7 @@ func TestCreateUnprocessableEntityCreatingAdminlistUser(t *testing.T) {
 			authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
 
 			h := dynUserHandler{
+				expiry:          unlicensedExpiry,
 				dbUsers:         dynUser,
 				authorizer:      authorizer,
 				adminListConfig: tt.adminlistConf,
@@ -280,6 +326,7 @@ func TestCreateNoDynamic(t *testing.T) {
 	authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
 
 	h := dynUserHandler{
+		expiry:        unlicensedExpiry,
 		dbUsers:       NewMockDbUserAndRolesGetter(t),
 		authorizer:    authorizer,
 		dbUserEnabled: false,
@@ -467,7 +514,7 @@ func TestCreateUser_Namespaces(t *testing.T) {
 				}
 				dynUser.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{}, nil)
 				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-				dynUser.On("CreateUser", mock.Anything, tt.authzKey, mock.Anything, mock.Anything, mock.Anything, expectedNS, mock.Anything).Return(tt.createUserErr)
+				dynUser.On("CreateUser", mock.Anything, tt.authzKey, mock.Anything, mock.Anything, mock.Anything, expectedNS, mock.Anything, mock.Anything).Return(tt.createUserErr)
 			}
 
 			ns := namespaces.NewMockExister(t)
@@ -501,6 +548,7 @@ func TestCreateUser_Namespaces(t *testing.T) {
 			}
 
 			h := dynUserHandler{
+				expiry:            unlicensedExpiry,
 				dbUsers:           dynUser,
 				authorizer:        authorizer,
 				dbUserEnabled:     true,
@@ -595,7 +643,7 @@ func TestCreateUser_MapsApplyNamespaceErrors(t *testing.T) {
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers", userID).Return(map[string]apikey.UserView{}, nil)
 			dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-			dynUser.On("CreateUser", mock.Anything, userID, mock.Anything, mock.Anything, mock.Anything, "ns1", mock.Anything).Return(tt.applyErr)
+			dynUser.On("CreateUser", mock.Anything, userID, mock.Anything, mock.Anything, mock.Anything, "ns1", mock.Anything, mock.Anything).Return(tt.applyErr)
 
 			// Active, so the pre-check passes and the apply error under test
 			// is what the handler renders.
@@ -610,6 +658,7 @@ func TestCreateUser_MapsApplyNamespaceErrors(t *testing.T) {
 			).Maybe()
 
 			h := dynUserHandler{
+				expiry:            unlicensedExpiry,
 				dbUsers:           dynUser,
 				authorizer:        authorizer,
 				dbUserEnabled:     true,

@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const BEACON = "weaviate://localhost/"
@@ -31,7 +32,7 @@ var (
 )
 
 func TestValidationReferencesInObject(t *testing.T) {
-	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, false)
+	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, namespacing.Disabled)
 
 	class := &models.Class{
 		Class: "From",
@@ -55,7 +56,7 @@ func TestValidationReferencesInObject(t *testing.T) {
 }
 
 func TestValidationReference(t *testing.T) {
-	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, false)
+	validator := New(fakeExists, &config.WeaviateConfig{}, nil, nil, namespacing.Disabled)
 
 	cref := &models.SingleRef{Beacon: strfmt.URI(BEACON + "To/" + UuidUpper)}
 	ref, err := validator.ValidateSingleRef(cref)

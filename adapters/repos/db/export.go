@@ -366,14 +366,15 @@ func (i *Index) snapshotShard(
 	ctx context.Context, shard ShardLike, shardName string,
 	snapshotsRoot, snapshotName string,
 ) (*export.ShardSnapshotResult, string, error) {
-	if lazyShard, ok := shard.(*LazyLoadShard); ok {
+	if lazyShard, ok := asLazyLoadShard(shard); ok {
 		release := lazyShard.blockLoading()
 		defer release()
 
-		if !lazyShard.loaded {
+		loadedShard := lazyShard.currentShard()
+		if loadedShard == nil {
 			return i.snapshotFromDisk(shardName, snapshotsRoot, snapshotName)
 		}
-		shard = lazyShard.shard
+		shard = loadedShard
 	}
 
 	return i.snapshotFromLoadedShard(ctx, shard, shardName, snapshotsRoot, snapshotName)

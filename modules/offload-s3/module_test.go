@@ -93,6 +93,7 @@ func TestUploadArgs_SkipsScratchFiles(t *testing.T) {
 		"cp",
 		"--concurrency=4",
 		"--exclude=*.tmp",
+		"--exclude=hashtree_uuid/*",
 		"/var/lib/weaviate/testclass/tenant-0/*",
 		"s3://weaviate-offload-test/testclass/tenant-0/node1/",
 	}, args)

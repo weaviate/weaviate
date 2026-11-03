@@ -70,7 +70,7 @@ func loadStoppedByACancelledContext(t *testing.T) error {
 	t.Cleanup(func() { signalCloseRequested(nil) })
 
 	idx := &Index{
-		Config:               IndexConfig{RootPath: t.TempDir(), ClassName: "Movies"},
+		Config:               IndexConfig{NodeName: "node1", RootPath: t.TempDir(), ClassName: "Movies"},
 		closingCtx:           closingCtx,
 		closeRequestedCtx:    closeRequestedCtx,
 		signalCloseRequested: signalCloseRequested,
@@ -82,7 +82,7 @@ func loadStoppedByACancelledContext(t *testing.T) error {
 		shardLoadLimiter: newSweepLoadLimiter(),
 	}
 
-	_, err := lazy.Unwrap(ctx)
+	_, _, err := lazy.loadIfCold(ctx)
 	return err
 }
 
@@ -94,7 +94,7 @@ func sidecarShutdownStoppedByACancelledContext(t *testing.T) error {
 	t.Helper()
 	_, err := sweepStoppedInABucketShutdown(t,
 		func(ctx context.Context, _ *Index, shard *Shard) error {
-			_, err := shard.CleanStalePartialReindexState(ctx, "category", "filterable")
+			err := shard.CleanStalePartialReindexState(ctx, "category", "filterable")
 			return err
 		})
 	return err

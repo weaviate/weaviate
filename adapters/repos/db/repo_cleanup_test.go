@@ -21,30 +21,48 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Hardlinks inside an orphan staging dir pin compaction reclamation until
-// the dir is removed; the startup GC must take care of crashes/cancellations
-// that escaped the release defer.
-func TestStartupRemovesOrphanedReplicaStagingDirs(t *testing.T) {
-	root := t.TempDir()
+// cleanupRootPathOnStartup removes staging dirs a crash left behind. Replica
+// staging holds hardlinks that pin compaction reclamation. Backup staging holds
+// file.CopyFile copies, which skip fsync because no restart keeps them.
+func TestStartupRemovesOrphanedStagingDirs(t *testing.T) {
+	tests := []struct {
+		name       string
+		stagingDir func(root string) string
+	}{
+		{
+			name:       "replica staging",
+			stagingDir: func(root string) string { return replicaStagingDir(root, "op1", "MyClass") },
+		},
+		{
+			name:       "backup staging",
+			stagingDir: func(root string) string { return backupStagingDir(root, "backup1", "MyClass") },
+		},
+	}
 
-	keepClassDir := filepath.Join(root, "MyClass")
-	require.NoError(t, os.MkdirAll(keepClassDir, 0o755))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
 
-	orphanReplicaDir := filepath.Join(root, ".replica-staging-op1-myclass-deadbeef")
-	require.NoError(t, os.MkdirAll(filepath.Join(orphanReplicaDir, "lsm", "objects"), 0o755))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(orphanReplicaDir, "lsm", "objects", "segment-x.db"),
-		[]byte("hardlink-content"), 0o644))
+			keepClassDir := filepath.Join(root, "MyClass")
+			require.NoError(t, os.MkdirAll(keepClassDir, 0o755))
 
-	logger, _ := logrusTest.NewNullLogger()
-	require.NoError(t, cleanupRootPathOnStartup(root, logger))
+			orphanDir := tt.stagingDir(root)
+			require.NoError(t, os.MkdirAll(filepath.Join(orphanDir, "lsm", "objects"), 0o755))
+			require.NoError(t, os.WriteFile(
+				filepath.Join(orphanDir, "lsm", "objects", "segment-x.db"),
+				[]byte("staged-content"), 0o644))
 
-	_, err := os.Stat(orphanReplicaDir)
-	require.Truef(t, errors.Is(err, os.ErrNotExist),
-		"orphan replica staging dir was not removed: %v", err)
+			logger, _ := logrusTest.NewNullLogger()
+			require.NoError(t, cleanupRootPathOnStartup(root, logger))
 
-	_, err = os.Stat(keepClassDir)
-	require.NoError(t, err, "legit class dir was removed by cleanup")
+			_, err := os.Stat(orphanDir)
+			require.Truef(t, errors.Is(err, os.ErrNotExist),
+				"orphan staging dir was not removed: %v", err)
+
+			_, err = os.Stat(keepClassDir)
+			require.NoError(t, err, "legit class dir was removed by cleanup")
+		})
+	}
 }
 
 // Initial startup: missing rootPath isn't an error.

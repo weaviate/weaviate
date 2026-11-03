@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func TestClassBasedModuleConfig(t *testing.T) {
@@ -90,4 +91,53 @@ func TestClassBasedModuleConfig(t *testing.T) {
 		assert.Equal(t, map[string]interface{}{"propLevel": "bar"},
 			cfg.Property("some-prop"))
 	})
+}
+
+// A cross-class config (Explore) has no class, every accessor must fall back
+// to its empty value instead of panicking.
+func TestCrossClassModuleConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		get  func(cfg *ClassBasedModuleConfig) any
+		want any
+	}{
+		{
+			name: "class settings",
+			get:  func(cfg *ClassBasedModuleConfig) any { return cfg.Class() },
+			want: map[string]interface{}{},
+		},
+		{
+			name: "class settings by module name",
+			get:  func(cfg *ClassBasedModuleConfig) any { return cfg.ClassByModuleName("my-module") },
+			want: map[string]interface{}{},
+		},
+		{
+			name: "property settings",
+			get:  func(cfg *ClassBasedModuleConfig) any { return cfg.Property("some-prop") },
+			want: map[string]interface{}{},
+		},
+		{
+			name: "properties data types",
+			get:  func(cfg *ClassBasedModuleConfig) any { return cfg.PropertiesDataTypes() },
+			want: map[string]schema.DataType{},
+		},
+		{
+			name: "tenant",
+			get:  func(cfg *ClassBasedModuleConfig) any { return cfg.Tenant() },
+			want: "",
+		},
+		{
+			name: "target vector",
+			get:  func(cfg *ClassBasedModuleConfig) any { return cfg.TargetVector() },
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := NewCrossClassModuleConfig(nil)
+			assert.NotPanics(t, func() {
+				assert.Equal(t, tt.want, tt.get(cfg))
+			})
+		})
+	}
 }

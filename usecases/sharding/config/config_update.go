@@ -13,13 +13,11 @@ package config
 
 import (
 	"fmt"
+
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
-type nodeCounter interface {
-	NodeCount() int
-}
-
-func ValidateConfigUpdate(old, updated Config, nodeCounter nodeCounter) error {
+func ValidateConfigUpdate(old, updated Config, nodeCounter cluster.NodeCounter) error {
 	if old.DesiredCount != updated.DesiredCount {
 		return fmt.Errorf("re-sharding not supported yet: shard count is immutable: "+
 			"attempted change from \"%d\" to \"%d\"", old.DesiredCount,

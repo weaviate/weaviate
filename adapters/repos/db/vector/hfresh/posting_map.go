@@ -640,32 +640,28 @@ func legacyPostingMapBatch(ctx context.Context, ref bucketRef, limit int) ([]pos
 	c := bucket.Cursor()
 	defer c.Close()
 
-	batch := make([]postingMapMigrationEntry, 0, limit)
+	// Allocated on the first legacy row: every restore runs this, and once
+	// migrated there are none left.
+	var batch []postingMapMigrationEntry
 	for k, v := c.Seek(postingMapBucketPrefixV1); len(k) > 0 && bytes.HasPrefix(k, postingMapBucketPrefixV1); k, v = c.Next() {
 		if len(batch)%1000 == 0 {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
 		}
-
-		postingID := binary.LittleEndian.Uint64(k[len(postingMapBucketPrefixV1):])
-		key := make([]byte, len(k))
-		copy(key, k)
-		if len(v) == 0 {
-			batch = append(batch, postingMapMigrationEntry{
-				key:       key,
-				postingID: postingID,
-				empty:     true,
-			})
-			continue
+		if batch == nil {
+			batch = make([]postingMapMigrationEntry, 0, limit)
 		}
 
-		metadata := normalizePackedPostingMetadata(PackedPostingMetadata(v), true)
-		batch = append(batch, postingMapMigrationEntry{
-			key:       key,
-			postingID: postingID,
-			metadata:  metadata,
-		})
+		entry := postingMapMigrationEntry{
+			key:       bytes.Clone(k),
+			postingID: binary.LittleEndian.Uint64(k[len(postingMapBucketPrefixV1):]),
+			empty:     len(v) == 0,
+		}
+		if !entry.empty {
+			entry.metadata = normalizePackedPostingMetadata(PackedPostingMetadata(v), true)
+		}
+		batch = append(batch, entry)
 
 		if len(batch) == limit {
 			break

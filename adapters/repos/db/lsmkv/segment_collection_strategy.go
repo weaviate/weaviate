@@ -105,25 +105,20 @@ func (s *segment) collectionStratParseDataBytes(in []byte) ([][]byte, error) {
 	valuesLen := binary.LittleEndian.Uint64(in[offset : offset+8])
 	offset += 8
 
-	values := make([][]byte, valuesLen)
-	valueIndex := 0
-	for valueIndex < int(valuesLen) {
-		if in[offset] == 0x01 {
-			// skip tombstone
-			offset += 9
-			valueLen := binary.LittleEndian.Uint64(in[offset : offset+8])
-			offset += 8 + int(valueLen)
-			continue
-		}
+	// valuesLen counts tombstones too, so it bounds the entries to walk while
+	// only the live ones are appended
+	values := make([][]byte, 0, valuesLen)
+	for i := uint64(0); i < valuesLen; i++ {
+		tombstone := in[offset] == 0x01
 		offset += 1
 
 		valueLen := binary.LittleEndian.Uint64(in[offset : offset+8])
 		offset += 8
 
-		values[valueIndex] = in[offset : offset+int(valueLen)]
+		if !tombstone {
+			values = append(values, in[offset:offset+int(valueLen)])
+		}
 		offset += int(valueLen)
-
-		valueIndex++
 	}
 
 	return values, nil

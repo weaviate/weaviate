@@ -17,6 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -49,13 +50,7 @@ func (index *Index) initCycleCallbacks() {
 	// per-shard backoff; a shared backoff could stall a newly-active tenant by up to max.
 	backoff := !index.partitioningEnabled
 
-	vectorTombstoneCleanupIntervalSeconds := hnsw.DefaultCleanupIntervalSeconds
-	switch cfg := index.GetVectorIndexConfig("").(type) {
-	case hnsw.UserConfig:
-		vectorTombstoneCleanupIntervalSeconds = cfg.CleanupIntervalSeconds
-	case dynamicent.UserConfig:
-		vectorTombstoneCleanupIntervalSeconds = cfg.HnswUC.CleanupIntervalSeconds
-	}
+	vectorTombstoneCleanupInterval := vectorTombstoneCleanupInterval(index.GetVectorIndexConfigs())
 
 	cm := func(elems ...string) string {
 		elems = append([]string{index.ID()}, elems...)
@@ -122,7 +117,7 @@ func (index *Index) initCycleCallbacks() {
 	vectorTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup(id("vector", "tombstone_cleanup"), index.logger, routinesN)
 	vectorTombstoneCleanupCycle := cyclemanager.NewManager(
 		cm("vector", "tombstone_cleanup"),
-		cyclemanager.NewFixedTicker(time.Duration(vectorTombstoneCleanupIntervalSeconds)*time.Second),
+		cyclemanager.NewFixedTicker(vectorTombstoneCleanupInterval),
 		vectorTombstoneCleanupCallbacks.CycleCallback, index.logger)
 
 	geoPropsCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(id("geo_props", "commit_logger"), index.logger, routinesN)
@@ -155,6 +150,26 @@ func (index *Index) initCycleCallbacks() {
 		geoPropsTombstoneCleanupCallbacks: geoPropsTombstoneCleanupCallbacks,
 		geoPropsTombstoneCleanupCycle:     geoPropsTombstoneCleanupCycle,
 	}
+}
+
+func vectorTombstoneCleanupInterval(configs map[string]schemaConfig.VectorIndexConfig) time.Duration {
+	minSeconds := 0
+	for _, config := range configs {
+		seconds := 0
+		switch cfg := config.(type) {
+		case hnsw.UserConfig:
+			seconds = cfg.CleanupIntervalSeconds
+		case dynamicent.UserConfig:
+			seconds = cfg.HnswUC.CleanupIntervalSeconds
+		}
+		if seconds > 0 && (minSeconds == 0 || seconds < minSeconds) {
+			minSeconds = seconds
+		}
+	}
+	if minSeconds == 0 {
+		minSeconds = hnsw.DefaultCleanupIntervalSeconds
+	}
+	return time.Duration(minSeconds) * time.Second
 }
 
 func (index *Index) initCycleCallbacksNoop() {

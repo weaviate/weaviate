@@ -33,8 +33,8 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 		lsmkv.WithSegmentsCleanupInterval(
 			time.Duration(s.index.Config.SegmentsCleanupIntervalSeconds) * time.Second),
 		lsmkv.WithDynamicMemtableSizing(
-			s.index.Config.MemtablesInitialSizeMB,
-			s.index.Config.MemtablesMaxSizeMB,
+			s.index.Config.MemtablesInitialSizeMB*1024*1024,
+			s.index.Config.MemtablesMaxSizeMB*1024*1024,
 			s.index.Config.MemtablesMinActiveSeconds,
 			s.index.Config.MemtablesMaxActiveSeconds,
 		),
@@ -49,6 +49,8 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 	case lsmkv.StrategyRoaringSetRange:
 		options = append(options,
 			lsmkv.WithBitmapBufPool(s.bitmapBufPool),
+			// Only a creator holds the property name this resolves against,
+			// so each appends its own value after this one, which wins.
 			lsmkv.WithKeepSegmentsInMemory(s.index.Config.IndexRangeableInMemory),
 			lsmkv.WithUseBloomFilter(false),
 		)

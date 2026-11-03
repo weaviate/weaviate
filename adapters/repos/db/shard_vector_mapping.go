@@ -12,16 +12,22 @@
 package db
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 )
 
 // The mapping's on-disk layout inside index.db. Every key and field name
-// below is read by later versions; changing one is a format change.
+// below is read by later versions; changing one is a format change. New
+// information goes into fields of the existing records, never into a new
+// key or a new state: a reader from before the field ignores it.
 // A named vector is keyed by its name. The two other keys start with a dot,
 // which a vector name cannot, so they can never collide with one.
 const (
@@ -36,6 +42,8 @@ const (
 const (
 	vectorIndexStateCreating = "creating"
 	vectorIndexStateReady    = "ready"
+	// dropping: the slot is gone, the files are not yet; the next load finishes it
+	vectorIndexStateDropping = "dropping"
 )
 
 var (
@@ -44,12 +52,73 @@ var (
 )
 
 // vectorIndexRecord is what the shard persists about one logical vector:
-// where its index lives on disk, which implementation opens it, and whether
-// creation completed.
+// where its index lives on disk, which implementation opens it, whether
+// creation completed, which queue feeds it, and the config the index
+// adopted.
+//
+// QueueID and Config were added after the first records were written, as
+// fields inside the record so an older reader ignores them. A record from
+// before then has neither: the shard fills both in when it loads, the queue
+// ID from the physical ID (the queue has always lived under the index's ID)
+// and the config from the schema. The IDs differ once the queue outlives
+// the index it was created with.
 type vectorIndexRecord struct {
 	PhysicalID string `json:"physical_id"`
 	IndexType  string `json:"index_type"`
 	State      string `json:"state"`
+	// QueueID names the queue directory, "<QueueID>.queue.d". Empty in a
+	// record written before the field existed.
+	QueueID string `json:"queue_id,omitempty"`
+	// Config is the parsed config the index was built with at its creation
+	// or last load, a hnsw, flat, dynamic or hfresh UserConfig written with
+	// its API field names, every default filled in. A config update to a
+	// loaded index reaches the record at the next load. Nil in a record
+	// written before the field existed.
+	Config schemaConfig.VectorIndexConfig `json:"config,omitempty"`
+}
+
+// UnmarshalJSON decodes Config by IndexType; the field is an interface the
+// standard decoder cannot fill on its own.
+func (r *vectorIndexRecord) UnmarshalJSON(data []byte) error {
+	type plain vectorIndexRecord
+	var aux struct {
+		plain
+		Config json.RawMessage `json:"config"`
+	}
+	err := json.Unmarshal(data, &aux)
+	if err != nil {
+		return err
+	}
+	*r = vectorIndexRecord(aux.plain)
+	r.Config = nil
+	if len(aux.Config) == 0 || string(aux.Config) == "null" {
+		return nil
+	}
+	cfg, err := vectorindex.UnmarshalConfig(r.IndexType, aux.Config)
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	r.Config = cfg
+	return nil
+}
+
+// queueIDOrDefault is the queue ID a record names, or the physical ID for a
+// record from before the field existed: the queue has always lived under
+// the index's ID.
+func (r vectorIndexRecord) queueIDOrDefault() string {
+	if r.QueueID == "" {
+		return r.PhysicalID
+	}
+	return r.QueueID
+}
+
+// adopted is r with cfg recorded as its config, and a missing queue ID
+// filled in. changed reports whether the record differs from r.
+func (r vectorIndexRecord) adopted(cfg schemaConfig.VectorIndexConfig) (rec vectorIndexRecord, changed bool) {
+	rec = r
+	rec.QueueID = r.queueIDOrDefault()
+	rec.Config = cfg
+	return rec, !reflect.DeepEqual(rec, r)
 }
 
 // vectorIndexMapping is a shard's persisted view of which physical vector
@@ -92,8 +161,15 @@ func (r vectorIndexRecord) validate() error {
 	if r.IndexType == "" {
 		return errors.New("empty index type")
 	}
-	if r.State != vectorIndexStateCreating && r.State != vectorIndexStateReady {
+	switch r.State {
+	case vectorIndexStateCreating, vectorIndexStateReady, vectorIndexStateDropping:
+	default:
 		return fmt.Errorf("unknown state %q", r.State)
+	}
+	// Catches a mismatched write only: a read decodes the config by
+	// IndexType, so a mismatch already on disk is not seen here.
+	if r.Config != nil && r.Config.IndexType() != r.IndexType {
+		return fmt.Errorf("config is for a %s index, the record says %s", r.Config.IndexType(), r.IndexType)
 	}
 	return nil
 }
@@ -104,6 +180,38 @@ func (r vectorIndexRecord) validate() error {
 // the mapping cannot account for fails the load: an unknown format version,
 // a key that names no vector, a record that does not parse or validate.
 func (m *vectorIndexMapping) Load() (records map[string]vectorIndexRecord, initialized bool, err error) {
+	records, initialized, _, err = m.load()
+	return records, initialized, err
+}
+
+// LoadAndStrip is Load, then rewrites in one transaction every record whose
+// stored value is not what this binary writes, and returns their names. A
+// later version adds fields an older reader ignores but keeps on disk; they
+// would go stale here and be trusted again after an upgrade. A mapping this
+// binary wrote is not written to.
+func (m *vectorIndexMapping) LoadAndStrip() (records map[string]vectorIndexRecord, initialized bool, stripped []string, err error) {
+	records, initialized, stripped, err = m.load()
+	if err != nil || len(stripped) == 0 {
+		return records, initialized, nil, err
+	}
+	err = m.ns.Update(func(b *shardmeta.Batch) error {
+		for _, name := range stripped {
+			err := putVectorIndexRecord(b, name, records[name])
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, false, nil, fmt.Errorf("strip vector index mapping records: %w", err)
+	}
+	return records, initialized, stripped, nil
+}
+
+// load is Load, and also names the records whose stored value differs from
+// what this binary would write for them.
+func (m *vectorIndexMapping) load() (records map[string]vectorIndexRecord, initialized bool, foreign []string, err error) {
 	records = map[string]vectorIndexRecord{}
 	err = m.ns.ForEach(func(key, value []byte) error {
 		k := string(key)
@@ -128,16 +236,23 @@ func (m *vectorIndexMapping) Load() (records map[string]vectorIndexRecord, initi
 		if err != nil {
 			return fmt.Errorf("record %q: %w", name, err)
 		}
+		own, err := json.Marshal(rec)
+		if err != nil {
+			return fmt.Errorf("record %q: %w", name, err)
+		}
+		if !bytes.Equal(own, value) {
+			foreign = append(foreign, name)
+		}
 		records[name] = rec
 		return nil
 	})
 	if err != nil {
-		return nil, false, fmt.Errorf("load vector index mapping: %w", err)
+		return nil, false, nil, fmt.Errorf("load vector index mapping: %w", err)
 	}
 	if !initialized && len(records) > 0 {
-		return nil, false, errors.New("load vector index mapping: records without a format version")
+		return nil, false, nil, errors.New("load vector index mapping: records without a format version")
 	}
-	return records, initialized, nil
+	return records, initialized, foreign, nil
 }
 
 // Get returns name's record, and whether the mapping has one.
@@ -215,6 +330,37 @@ func (m *vectorIndexMapping) Put(name string, rec vectorIndexRecord) error {
 		return fmt.Errorf("put vector index mapping record %q: %w", name, err)
 	}
 	return nil
+}
+
+// readVectorIndexRecordOffline reads name's record from a shard that is not
+// loaded, for the cold sweep. initialized is false for a shard restored from
+// a pre-mapping backup that has not loaded since; such a shard has no
+// records at all.
+func readVectorIndexRecordOffline(shardDir, name string) (rec vectorIndexRecord, ok, initialized bool, err error) {
+	// one open for both keys; an absent key is a nil value
+	vals, _, err := shardmeta.GetOfflineMulti(shardDir, vectorIndexMappingNamespace,
+		[]byte(vectorIndexMappingFormatVersionKey), []byte(vectorIndexMappingKey(name)))
+	if err != nil || vals == nil || vals[0] == nil {
+		return vectorIndexRecord{}, false, false, err
+	}
+	version, v := vals[0], vals[1]
+	// the same refusals as Load: a deletion must not act on a record this
+	// binary cannot read
+	if string(version) != vectorIndexMappingFormatVersion {
+		return vectorIndexRecord{}, false, true, fmt.Errorf("unsupported format version %q, this binary reads %q",
+			version, vectorIndexMappingFormatVersion)
+	}
+	if v == nil {
+		return vectorIndexRecord{}, false, true, nil
+	}
+	err = json.Unmarshal(v, &rec)
+	if err == nil {
+		err = rec.validate()
+	}
+	if err != nil {
+		return vectorIndexRecord{}, false, true, fmt.Errorf("record %q: %w", name, err)
+	}
+	return rec, true, true, nil
 }
 
 func requireVectorIndexMappingInitialized(b *shardmeta.Batch) error {

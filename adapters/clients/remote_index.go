@@ -260,7 +260,10 @@ func (c *RemoteIndex) Exists(ctx context.Context, hostName, indexName,
 	}
 	ok := func(code int) bool { return code == http.StatusNotFound || code == http.StatusNoContent }
 	code, err := c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, nil, nil, ok)
-	return code != http.StatusNotFound, err
+	if err != nil {
+		return false, err
+	}
+	return code != http.StatusNotFound, nil
 }
 
 func (c *RemoteIndex) DeleteObject(ctx context.Context, hostName, indexName,

@@ -28,10 +28,6 @@ type NodeIterator struct {
 	state     int
 }
 
-type HostnameSource interface {
-	AllNames() []string
-}
-
 func NewNodeIterator(nodeNames []string,
 	strategy NodeIterationStrategy,
 ) (*NodeIterator, error) {

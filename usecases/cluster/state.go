@@ -37,14 +37,11 @@ var (
 
 // NodeResolver provides read-only access to cluster nodes and their addresses.
 type NodeResolver interface {
-	// NodeCount returns the current number of nodes in the cluster.
-	NodeCount() int
-	// AllHostnames returns the hostnames of all known cluster nodes.
-	AllHostnames() []string
+	HostnameResolver
+	HostnameLister
+	NodeCounter
 	// NodeAddress resolves node id into an ip address without the port.
 	NodeAddress(id string) string
-	// NodeHostname resolves a node id into an ip address with internal cluster api port.
-	NodeHostname(nodeName string) (string, bool)
 	// AllOtherClusterMembers returns all cluster members discovered via memberlist with their addresses.
 	// This is useful for bootstrap when the join config is incomplete.
 	AllOtherClusterMembers(port int) map[string]string
@@ -54,22 +51,17 @@ type NodeResolver interface {
 // It is used to select a portion of the available nodes in memberlist.
 type NodeSelector interface {
 	NodeResolver
+	NodeReader
+	StorageCandidateLister
 
 	// NodeGRPCPort returns the gRPC port for a specific node id.
 	NodeGRPCPort(id string) (int, error)
-	// StorageCandidates returns list of storage nodes (names)
-	// sorted by the free amount of disk space in descending order.
-	StorageCandidates() []string
 	// NonStorageNodes return nodes from member list which
 	// they are configured not to be voter only.
 	NonStorageNodes() []string
 	// SortCandidates sorts passed node names by the
 	// free amount of disk space in descending order.
 	SortCandidates(nodes []string) []string
-	// ClusterHealthScore returns an aggregate health score for the cluster.
-	ClusterHealthScore() int
-	// LocalName returns the local node name.
-	LocalName() string
 	// Leave marks the node as leaving the cluster (still visible but shutting down).
 	Leave() error
 	// Shutdown is called when leaving the cluster gracefully and shutting down the memberlist instance.

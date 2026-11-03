@@ -99,14 +99,14 @@ func (rs SchemaReader) ShardReplicasWithVersion(ctx context.Context, class, shar
 	return nodes, err
 }
 
-// TenantsShardsWithVersion returns shard name for the provided tenant and its activity status
-func (rs SchemaReader) TenantsShardsWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (tenantShards map[string]string, err error) {
+// TenantsShardsStatusWithVersion returns shard name for the provided tenant and its activity status
+func (rs SchemaReader) TenantsShardsStatusWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (tenantShards map[string]string, err error) {
 	if version > 0 {
-		status, _, err := rs.versionedSchemaReader.TenantsShards(ctx, version, class, tenants...)
+		status, _, err := rs.versionedSchemaReader.TenantsShardsStatus(ctx, version, class, tenants...)
 		return status, err
 	}
 	rs.retry(func(s *schema) error {
-		if tenantShards, _ = s.TenantsShards(class, tenants...); len(tenantShards) == 0 {
+		if tenantShards, _ = s.TenantsShardsStatus(class, tenants...); len(tenantShards) == 0 {
 			return ErrShardNotFound
 		}
 		return nil

@@ -25,7 +25,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -66,10 +65,10 @@ func startMockOIDC(ctx context.Context, networkName, mockoidcImage, certificate,
 	if preseedMode != "" {
 		containerEnvs["MOCK_OIDC_PRESEED"] = preseedMode
 	}
-	port := nat.Port("48001/tcp")
+	port := "48001/tcp"
 	// adminPort serves the /queue admin endpoint used by the mockoidc
 	// helper to drain-and-replace the user/code queues per token request.
-	adminPort := nat.Port("48002/tcp")
+	adminPort := "48002/tcp"
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			FromDockerfile: fromDockerFile,

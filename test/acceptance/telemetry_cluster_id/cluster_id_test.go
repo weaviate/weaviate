@@ -23,10 +23,11 @@ import (
 	"testing"
 	"time"
 
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sync/errgroup"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 )
@@ -126,7 +127,7 @@ func (s *telemetrySink) waitClusterID(t *testing.T, nodeID string, timeout time.
 			id = got
 		}
 		return ok
-	}, timeout, 500*time.Millisecond,
+	}, timeout, 100*time.Millisecond,
 		"timed out waiting for a non-empty clusterId from node %q", nodeID)
 	return id
 }
@@ -149,7 +150,7 @@ func TestTelemetryClusterID_SingleNode(t *testing.T) {
 		WithWeaviate().
 		WithWeaviateHostGateway().
 		WithWeaviateEnv("TELEMETRY_URL", sink.telemetryURL()).
-		WithWeaviateEnv("TELEMETRY_PUSH_INTERVAL", "2s").
+		WithWeaviateEnv("TELEMETRY_PUSH_INTERVAL", "500ms").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -190,7 +191,7 @@ func TestTelemetryClusterID_ThreeNodes(t *testing.T) {
 		WithWeaviateCluster(3).
 		WithWeaviateHostGateway().
 		WithWeaviateEnv("TELEMETRY_URL", sink.telemetryURL()).
-		WithWeaviateEnv("TELEMETRY_PUSH_INTERVAL", "2s").
+		WithWeaviateEnv("TELEMETRY_PUSH_INTERVAL", "500ms").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -235,19 +236,22 @@ func TestTelemetryClusterID_ThreeNodes(t *testing.T) {
 		// Cold restart: with every node down, the id can only come back from disk
 		// (snapshot + log replay), and the set-once guard must not re-mint it.
 		timeout := 30 * time.Second
-		for i := range nodes {
-			require.NoError(t, compose.StopNode(ctx, i, &timeout))
+		logger, _ := logrustest.NewNullLogger()
+		stops := enterrors.NewErrorGroupWrapper(logger)
+		for _, n := range nodes {
+			stops.Go(func() error { return compose.Stop(ctx, n, &timeout) })
 		}
+		require.NoError(t, stops.Wait())
 		sink.forget(nodes...)
 
 		// Start concurrently: a 3-node cluster needs quorum to elect a leader before
 		// any node passes its readiness check, so a lone node started first would
 		// hang. Bringing them up together lets quorum re-form.
-		var eg errgroup.Group
+		starts := enterrors.NewErrorGroupWrapper(logger)
 		for i := range nodes {
-			eg.Go(func() error { return compose.StartNode(ctx, i) })
+			starts.Go(func() error { return compose.StartNode(ctx, i) })
 		}
-		require.NoError(t, eg.Wait())
+		require.NoError(t, starts.Wait())
 
 		for _, n := range nodes {
 			after := sink.waitClusterID(t, n, waitTimeout)

@@ -201,6 +201,65 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		assert.Equal(t, map[string]vectorIndexRecord{"bar": bar}, records)
 	})
 
+	t.Run("removes the queue under the record's queue ID", func(t *testing.T) {
+		indexPath, shardName := setup(t)
+		shardDir := filepath.Join(indexPath, shardName)
+		require.NoError(t, os.MkdirAll(shardDir, 0o755))
+
+		db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		foo := vectorIndexRecord{PhysicalID: "vectors_foo_2", IndexType: "hnsw", State: "ready", QueueID: "vectors_foo"}
+		bar := vectorIndexRecord{PhysicalID: "vectors_bar", IndexType: "hnsw", State: "ready", QueueID: "vectors_bar"}
+		require.NoError(t, newVectorIndexMapping(db).Initialize(map[string]vectorIndexRecord{"foo": foo, "bar": bar}))
+		require.NoError(t, db.Close())
+
+		commitLog := filepath.Join(shardDir, "vectors_foo_2.hnsw.commitlog.d")
+		queueDir := filepath.Join(shardDir, "vectors_foo.queue.d")
+		barQueueDir := filepath.Join(shardDir, "vectors_bar.queue.d")
+		for _, dir := range []string{commitLog, queueDir, barQueueDir} {
+			require.NoError(t, os.MkdirAll(dir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "chunk-1.bin"), []byte("data"), 0o644))
+		}
+
+		require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, "foo", []string{"bar"}))
+
+		assert.False(t, pathExists(commitLog))
+		assert.False(t, pathExists(queueDir), "the queue the record names goes with the vector")
+		assert.True(t, pathExists(barQueueDir), "a sibling's queue stays")
+	})
+
+	t.Run("refuses a queue a sibling records and deletes nothing", func(t *testing.T) {
+		indexPath, shardName := setup(t)
+		shardDir := filepath.Join(indexPath, shardName)
+		require.NoError(t, os.MkdirAll(shardDir, 0o755))
+
+		db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		foo := vectorIndexRecord{PhysicalID: "vectors_foo_2", IndexType: "hnsw", State: "ready", QueueID: "vectors_foo"}
+		bar := vectorIndexRecord{PhysicalID: "vectors_bar", IndexType: "hnsw", State: "ready", QueueID: "vectors_foo"}
+		require.NoError(t, newVectorIndexMapping(db).Initialize(map[string]vectorIndexRecord{"foo": foo, "bar": bar}))
+		require.NoError(t, db.Close())
+
+		commitLog := filepath.Join(shardDir, "vectors_foo_2.hnsw.commitlog.d")
+		queueDir := filepath.Join(shardDir, "vectors_foo.queue.d")
+		for _, dir := range []string{commitLog, queueDir} {
+			require.NoError(t, os.MkdirAll(dir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "chunk-1.bin"), []byte("data"), 0o644))
+		}
+
+		err = h.removeVectorIndexFiles(indexPath, shardName, "foo", []string{"bar"})
+		require.ErrorContains(t, err, `vectors "bar" and "foo" both record queue "vectors_foo"`)
+
+		assert.True(t, pathExists(queueDir), "the sibling's pending work stays")
+		assert.True(t, pathExists(commitLog))
+		db, err = shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		defer db.Close()
+		records, _, err := newVectorIndexMapping(db).Load()
+		require.NoError(t, err)
+		assert.Equal(t, map[string]vectorIndexRecord{"foo": foo, "bar": bar}, records)
+	})
+
 	t.Run("leaves the record to a shard that holds the file locked", func(t *testing.T) {
 		indexPath, shardName := setup(t)
 		shardDir := filepath.Join(indexPath, shardName)
@@ -386,4 +445,32 @@ func TestVectorDropIndexHelper_EnsureFilesAreRemovedForDroppedVectorIndexes(t *t
 		err := h.ensureFilesAreRemovedForDroppedVectorIndexes(indexPath, shardName, class)
 		require.NoError(t, err)
 	})
+}
+
+// The sweep spares the legacy vector's quantized bucket when a named vector
+// called "compressed" is dropped next to it; without a legacy vector the
+// bucket was the named vector's alone and goes.
+func TestVectorDropIndexHelper_SweepSparesTheLegacyVector(t *testing.T) {
+	h := newVectorDropIndexHelper()
+	named := map[string]models.VectorConfig{"compressed": {VectorIndexType: vectorindex.VectorIndexTypeHNSW}}
+	tests := []struct {
+		name     string
+		class    *models.Class
+		survives bool
+	}{
+		{name: "next to a legacy vector", class: &models.Class{Class: "C", VectorIndexType: vectorindex.VectorIndexTypeHNSW, VectorConfig: named}, survives: true},
+		{name: "without a legacy vector", class: &models.Class{Class: "C", VectorConfig: named}, survives: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			indexPath, shardName := t.TempDir(), "shard1"
+			bucket := filepath.Join(indexPath, shardName, "lsm", helpers.VectorsCompressedBucketLSM)
+			require.NoError(t, os.MkdirAll(bucket, 0o755))
+
+			require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, "compressed", otherTargetVectors(tt.class, "compressed")))
+
+			_, err := os.Stat(bucket)
+			assert.Equal(t, tt.survives, err == nil)
+		})
+	}
 }

@@ -56,7 +56,7 @@ func TestGRPCSearch(t *testing.T) {
 		},
 		"description": {
 			Vectorizer: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
+				"text2vec-model2vec": map[string]interface{}{
 					"properties":         []interface{}{"description"},
 					"vectorizeClassName": false,
 				},

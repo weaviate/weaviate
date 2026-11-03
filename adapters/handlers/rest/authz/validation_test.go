@@ -23,19 +23,26 @@ func TestValidatePermissions(t *testing.T) {
 	tests := []struct {
 		name              string
 		permissions       []*models.Permission
-		allowEmpty        bool
+		check             permissionCheck
 		namespacesEnabled bool
 		expectedErr       string
 	}{
 		{
-			name:        "no permissions - not allowed",
+			name:        "no permissions - not allowed on add",
 			permissions: []*models.Permission{},
+			check:       checkAdd,
 			expectedErr: "role has to have at least 1 permission",
 		},
 		{
-			name:        "no permissions - allowed",
+			name:        "no permissions - not allowed on lookup",
 			permissions: []*models.Permission{},
-			allowEmpty:  true,
+			check:       checkLookup,
+			expectedErr: "role has to have at least 1 permission",
+		},
+		{
+			name:        "no permissions - allowed on create",
+			permissions: []*models.Permission{},
+			check:       checkCreate,
 		},
 		{
 			name: "invalid collection name with space",
@@ -68,6 +75,22 @@ func TestValidatePermissions(t *testing.T) {
 					},
 				},
 			},
+		},
+		{
+			// "ſ" and "ı" uppercase to ASCII "S" and "I", so the stored pattern
+			// would name a different class.
+			name: "collection starting with long s rejected",
+			permissions: []*models.Permission{
+				{Collections: &models.PermissionCollections{Collection: String("\u017fovies*")}},
+			},
+			expectedErr: "not a valid class name",
+		},
+		{
+			name: "collection starting with dotless i rejected",
+			permissions: []*models.Permission{
+				{Collections: &models.PermissionCollections{Collection: String("\u0131tems")}},
+			},
+			expectedErr: "not a valid class name",
 		},
 		{
 			name: "lowercase collection name in an alias permission is uppercased, not rejected",
@@ -250,11 +273,17 @@ func TestValidatePermissions(t *testing.T) {
 			expectedErr: "not a valid class name",
 		},
 		{
-			name: "invalid regex in data object is rejected (would panic the matcher)",
+			// Data.Object is deprecated and ignored, so nothing about it is validated
+			// any more: every value that is rejected on a live target -- a regex that
+			// does not compile, a '/', a brace-rewrite break, an over-long string --
+			// is accepted here as a no-op.
+			name: "deprecated data object is accepted whatever it holds",
 			permissions: []*models.Permission{
-				{Data: &models.PermissionData{Collection: String("*"), Object: String("[")}},
+				dataWithObject("["),
+				dataWithObject("a/b"),
+				dataWithObject(`\x{263a}`),
+				dataWithObject(strings.Repeat("o", maxTargetLength+1)),
 			},
-			expectedErr: "not a valid pattern",
 		},
 		{
 			name: "invalid regex in user is rejected",
@@ -278,19 +307,6 @@ func TestValidatePermissions(t *testing.T) {
 			expectedErr: "not a valid pattern",
 		},
 		{
-			name: "slash in object is rejected",
-			permissions: []*models.Permission{
-				{Data: &models.PermissionData{Collection: String("*"), Object: String("a/b")}},
-			},
-			expectedErr: "must not contain '/'",
-		},
-		{
-			name: "valid object regex is accepted",
-			permissions: []*models.Permission{
-				{Data: &models.PermissionData{Collection: String("*"), Object: String("o|x")}},
-			},
-		},
-		{
 			name: "valid user regex is accepted",
 			permissions: []*models.Permission{
 				{Users: &models.PermissionUsers{Users: String("admin.*")}},
@@ -306,13 +322,6 @@ func TestValidatePermissions(t *testing.T) {
 			name: "unicode class escape in user rejected (KeyMatch5 brace rewrite would break it)",
 			permissions: []*models.Permission{
 				{Users: &models.PermissionUsers{Users: String(`\p{L}`)}},
-			},
-			expectedErr: "not a valid pattern",
-		},
-		{
-			name: "unicode codepoint escape in object rejected",
-			permissions: []*models.Permission{
-				{Data: &models.PermissionData{Collection: String("*"), Object: String(`\x{263a}`)}},
 			},
 			expectedErr: "not a valid pattern",
 		},
@@ -343,6 +352,14 @@ func TestValidatePermissions(t *testing.T) {
 				{Aliases: &models.PermissionAliases{Collection: String("*"), Alias: String("[")}},
 			},
 			expectedErr: "not a valid pattern",
+		},
+		{
+			name: "invalid regex in alias rejected on lookup",
+			permissions: []*models.Permission{
+				{Aliases: &models.PermissionAliases{Collection: String("*"), Alias: String("[")}},
+			},
+			check:       checkLookup,
+			expectedErr: "alias '[' is not a valid pattern",
 		},
 		{
 			name: "invalid regex in tenant rejected",
@@ -405,7 +422,7 @@ func TestValidatePermissions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validatePermissions(tt.namespacesEnabled, tt.allowEmpty, tt.permissions...)
+			err := validatePermissions(tt.namespacesEnabled, tt.check, tt.permissions...)
 			if tt.expectedErr != "" {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), tt.expectedErr)
@@ -419,11 +436,18 @@ func TestValidatePermissions(t *testing.T) {
 // TestValidatePermissions_AccumulatesErrors pins that every invalid field in a
 // permission surfaces, not just the last one.
 func TestValidatePermissions_AccumulatesErrors(t *testing.T) {
-	err := validatePermissions(false, false, &models.Permission{
+	err := validatePermissions(false, checkAdd, &models.Permission{
 		Collections: &models.PermissionCollections{Collection: String("A[")},
-		Data:        &models.PermissionData{Collection: String("*"), Object: String("(")},
+		Users:       &models.PermissionUsers{Users: String("(")},
 	})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "collection 'A[' is not a valid pattern")
-	assert.Contains(t, err.Error(), "object '(' is not a valid pattern")
+	assert.Contains(t, err.Error(), "users '(' is not a valid pattern")
+}
+
+// dataWithObject builds a data permission carrying the deprecated object field,
+// which the server still accepts on the wire and ignores.
+func dataWithObject(object string) *models.Permission {
+	//nolint:staticcheck // pinning the deprecated field's no-op behaviour is the point
+	return &models.Permission{Data: &models.PermissionData{Collection: String("*"), Object: String(object)}}
 }

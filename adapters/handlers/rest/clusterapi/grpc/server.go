@@ -27,10 +27,11 @@ import (
 
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/types"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
 type Server struct {
@@ -41,8 +42,8 @@ type Server struct {
 type Config struct {
 	State                              *state.State
 	Replicator                         types.Replicator
-	FileReplicationRepo                sharding.RemoteIncomingRepo
-	FileReplicationSchema              sharding.RemoteIncomingSchema
+	FileReplicationRepo                remote.IncomingRepo
+	FileReplicationSchema              local.VersionedReader
 	MaintenanceModeEnabledForLocalhost func() bool
 	NodeReady                          func() bool
 	GRPCServerOptions                  []grpc.ServerOption
@@ -94,7 +95,9 @@ func NewServer(
 
 	s := grpc.NewServer(o...)
 
-	weaviateV1FileReplicationService := NewFileReplicationService(config.FileReplicationRepo, config.FileReplicationSchema, fileCopyChunkSize)
+	// Donor-side aggregate transfer cap; concurrent ops share the headroom instead of saturating the disk.
+	transferConcurrency := 2 * config.State.ServerConfig.Config.ReplicationEngineFileCopyWorkers
+	weaviateV1FileReplicationService := NewFileReplicationService(config.FileReplicationRepo, config.FileReplicationSchema, fileCopyChunkSize, transferConcurrency)
 	pb.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
 
 	replicationService := NewReplicationService(config.Replicator)

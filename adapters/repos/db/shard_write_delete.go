@@ -38,8 +38,7 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return false, err
 	}
 
-	// Wait for hashtree initialization before acquiring the RLock.
-	// See shard_write_put.go for the deadlock explanation.
+	// Wait outside the RLock; see shard_write_put.go.
 	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
 		return false, err
 	}
@@ -176,6 +175,8 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 		return fmt.Errorf("unmarshal previous object: %w", err)
 	}
 
+	// Before analysis, for the reason given in updateInvertedIndexLSM.
+	st := s.loadPropValueIndexState()
 	previousProps, previousNilProps, previousNestedProps, err := s.AnalyzeObject(previousObject)
 	if err != nil {
 		return fmt.Errorf("analyze previous object: %w", err)
@@ -192,7 +193,6 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 	// For any NotEquals filter, we do an Equals filter and invert it's results.
 	s.bitmapFactory.RemoveIds(docID)
 
-	st := s.loadPropValueIndexState()
 	err = s.deleteFromInvertedIndicesLSM(previousProps, previousNilProps, docID, st)
 	if err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)

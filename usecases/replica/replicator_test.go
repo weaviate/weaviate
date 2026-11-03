@@ -29,6 +29,7 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	clusterRouter "github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -908,7 +909,7 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 			}, nil
 		}).Maybe()
 
-	schemaReaderMock := schema.NewMockSchemaReader(f.t)
+	schemaReaderMock := local.NewMockSchemaReader(f.t)
 	schemaReaderMock.EXPECT().Shards(mock.Anything).RunAndReturn(func(className string) ([]string, error) {
 		shards := make([]string, 0, len(f.Shard2replicas))
 		for shard := range f.Shard2replicas {

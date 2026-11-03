@@ -410,44 +410,45 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 	// Deferred so a filter that fails partway is timed and reports what it did
 	// before it stopped.
 	defer func() {
+		if !helpers.HasSlowQueryDetails(ctx) {
+			return
+		}
 		took := time.Since(before)
-		helpers.AnnotateSlowQueryLogAppendFunc(ctx, "build_allow_list_doc_bitmap", func() map[string]any {
-			fields := map[string]any{
-				"prop":        pv.prop,
-				"operator":    pv.operator.Name(),
-				"took":        took,
-				"took_string": took.String(),
-				"count":       dbm.count(),
-				"failed":      err != nil,
-				"strategy":    b.Strategy(),
-				// Distinct keys, not filter values: dedup means a boolean
-				// filter reports at most two regardless of value count.
-				"batched_keys": pv.containsKeys.Len(),
-			}
-			// A planned fold always takes at least one worker, so this reports
-			// the plan whenever there is one — a fold that failed to open a
-			// reader included.
-			if plan.workers > 0 {
-				fields["fold_workers"] = plan.workers
-				fields["fold_strategy"] = plan.strategy.String()
-			}
-			// What the batching itself did, so a slow batched filter can be told
-			// from a filter that was merely slow.
-			if st, ok := source.stats(); ok {
-				fields["window_fills"] = st.Fills
-				fields["window_narrowed_fills"] = st.NarrowedFills
-				fields["batch_keys_served"] = st.KeysServed
-				fields["window_bytes_peak"] = st.BytesPeak
-				fields["window_bytes_copied"] = st.BytesCopied
-				fields["memtable_reads"] = st.MemtableReads
-				// Without this the read count cannot be normalized: reads per
-				// fill run from one to one per memtable, so a ratio of 1.0
-				// cannot be told from two memtables whose every fill skipped
-				// one.
-				fields["memtables"] = st.Memtables
-			}
-			return fields
-		})
+		fields := map[string]any{
+			"prop":        pv.prop,
+			"operator":    pv.operator.Name(),
+			"took":        took,
+			"took_string": took.String(),
+			"count":       dbm.count(),
+			"failed":      err != nil,
+			"strategy":    b.Strategy(),
+			// Distinct keys, not filter values: dedup means a boolean
+			// filter reports at most two regardless of value count.
+			"batched_keys": pv.containsKeys.Len(),
+		}
+		// A planned fold always takes at least one worker, so this reports
+		// the plan whenever there is one — a fold that failed to open a
+		// reader included.
+		if plan.workers > 0 {
+			fields["fold_workers"] = plan.workers
+			fields["fold_strategy"] = plan.strategy.String()
+		}
+		// What the batching itself did, so a slow batched filter can be told
+		// from a filter that was merely slow.
+		if st, ok := source.stats(); ok {
+			fields["window_fills"] = st.Fills
+			fields["window_narrowed_fills"] = st.NarrowedFills
+			fields["batch_keys_served"] = st.KeysServed
+			fields["window_bytes_peak"] = st.BytesPeak
+			fields["window_bytes_copied"] = st.BytesCopied
+			fields["memtable_reads"] = st.MemtableReads
+			// Without this the read count cannot be normalized: reads per
+			// fill run from one to one per memtable, so a ratio of 1.0
+			// cannot be told from two memtables whose every fill skipped
+			// one.
+			fields["memtables"] = st.Memtables
+		}
+		helpers.AnnotateSlowQueryLogAppendReducible(ctx, docBitmapSlowLogKey, fields, helpers.ReduceToSlowest)
 	}()
 
 	dbm, plan, err = s.docBitmapContainsBatch(ctx, source, pv)

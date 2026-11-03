@@ -25,7 +25,9 @@ func TestCheckExpectedStrategy(t *testing.T) {
 		name     string
 		strategy Strategy
 		expected []Strategy
-		wantErr  string
+		// check replaces CheckExpectedStrategy, so expected must name what check accepts
+		check   func(Strategy) error
+		wantErr string
 	}{
 		{
 			name:     "single expected strategy matches",
@@ -59,11 +61,22 @@ func TestCheckExpectedStrategy(t *testing.T) {
 			wantErr: "one of strategies [replace setcollection mapcollection roaringset " +
 				"roaringsetrange inverted] expected, got n/a",
 		},
+		{
+			name:     "CheckStrategyRoaringSet mismatches",
+			strategy: StrategyRoaringSetRange,
+			expected: []Strategy{StrategyRoaringSet},
+			check:    CheckStrategyRoaringSet,
+			wantErr:  "strategy roaringset expected, got roaringsetrange",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := CheckExpectedStrategy(tt.strategy, tt.expected...)
+			check := func(s Strategy) error { return CheckExpectedStrategy(s, tt.expected...) }
+			if tt.check != nil {
+				check = tt.check
+			}
+			err := check(tt.strategy)
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				require.True(t, IsExpectedStrategy(tt.strategy, tt.expected...))

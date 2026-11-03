@@ -46,6 +46,9 @@ func createSingleNodeEnvironment(ctx context.Context, apiKey, organization strin
 	compose, err = composeModules(apiKey, organization).
 		WithWeaviateWithGRPC().
 		WithWeaviateEnv("MODULES_CLIENT_TIMEOUT", "180s").
+		// Only generative-openai is enabled, so a class without a module config
+		// still has a default generative provider.
+		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
 		Start(ctx)
 	return compose, err
 }

@@ -61,7 +61,8 @@ func TestBatchReaderMatchesPerKeyReads(t *testing.T) {
 	require.NoError(t, oneSegmentFlushing.roaringSetRemoveList([]byte("aaa"), []uint64{2}))
 	require.NoError(t, oneSegmentFlushing.roaringSetRemoveList([]byte("eee"), []uint64{5}))
 	// A write carrying no values (an empty Positions produces this upstream):
-	// the per-key path sees a row, the window sees absence, and both must agree.
+	// BinarySearchTree.Insert creates no row for it, so neither the per-key path
+	// nor the window sees one, and both must agree.
 	require.NoError(t, oneSegmentFlushing.roaringSetAddList([]byte("ddd"), []uint64{}))
 
 	// oldest first: bbb is added by one segment and deleted by a later one,
@@ -987,10 +988,8 @@ func TestBatchReaderStatsReportTheWork(t *testing.T) {
 }
 
 // TestBatchReaderSkipsAnEmptyActiveMemtable pins the constructor's skip of an
-// active memtable whose size is zero: such rows add and delete nothing, so
-// the answer must match the per-key path, which does not skip it. A write
-// carrying no values (or a commit-log replay with both slices empty) builds a
-// node but leaves size at zero.
+// active memtable whose size is zero: it holds no rows at all, so the answer
+// must match the per-key path, which does not skip it.
 func TestBatchReaderSkipsAnEmptyActiveMemtable(t *testing.T) {
 	t.Parallel()
 
@@ -1031,12 +1030,13 @@ func TestBatchReaderSkipsAnEmptyActiveMemtable(t *testing.T) {
 				"ccc": bitmapFromSlice([]uint64{3}),
 			})
 
-			// Written through the write path, so size and tree disagree exactly as
-			// they would in a bucket: nodes for two keys, size still at zero.
+			// a valueless write is how a bucket reaches this state
 			active := newTestMemtableRoaringSet(map[string][]uint64{})
 			require.NoError(t, active.roaringSetAddList([]byte("aaa"), []uint64{}))
 			require.NoError(t, active.roaringSetAddList([]byte("ccc"), []uint64{}))
-			require.Zero(t, active.Size(), "the fixture must reach the state the skip is about")
+			require.Zero(t, active.Size())
+			require.Empty(t, active.roaringSet.FlattenInOrder(),
+				"a write carrying no values must leave no row")
 
 			b := &Bucket{
 				strategy: StrategyRoaringSet,

@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"bufio"
-	"errors"
 	"io"
 	"sync"
 
@@ -242,7 +241,7 @@ func (s *segmentCursorReplace) firstWithAllKeys() (n segmentReplaceNode, err err
 }
 
 func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset) (segmentReplaceNode, error) {
-	r, err := s.segment.newNodeReader(offset, "segmentCursorReplace")
+	r, err := s.segment.newNodeReader(offset, segmentCursorReplaceOp)
 	if err != nil {
 		return segmentReplaceNode{}, err
 	}
@@ -260,7 +259,7 @@ func (s *segmentCursorReplace) parseReplaceNodeInto(offset nodeOffset, buf []byt
 		return s.parse(buf)
 	}
 
-	r, err := s.segment.newNodeReader(offset, "segmentCursorReplace")
+	r, err := s.segment.newNodeReader(offset, segmentCursorReplaceOp)
 	if err != nil {
 		return err
 	}
@@ -446,7 +445,7 @@ type reusableInnerCursorReplace struct {
 }
 
 func nodeToKV(n *segmentReplaceNode, err error) ([]byte, []byte, error) {
-	if errors.Is(err, lsmkv.Deleted) {
+	if lsmkv.IsDeleted(err) {
 		// tombstone: key with nil value, so the merge can advance past it
 		return n.primaryKey, nil, err
 	}

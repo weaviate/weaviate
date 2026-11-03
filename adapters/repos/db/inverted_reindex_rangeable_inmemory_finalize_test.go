@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -38,10 +39,10 @@ import (
 // narrow to hit black-box.
 
 // newRangeableInMemoryTestTask installs a fault-injecting rebuildRangeableRepFn.
-func newRangeableInMemoryTestTask(t *testing.T, idx *Index, className, propName string, failing *atomic.Bool, calls *atomic.Int32,
+func newRangeableInMemoryTestTask(t *testing.T, idx *Index, className, propName, unitID string, failing *atomic.Bool, calls *atomic.Int32,
 ) (*ShardReindexTaskGeneric, *testFilterableToRangeableStrategyWrapper) {
 	t.Helper()
-	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
+	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName, unitID)
 	task.rebuildRangeableRepFn = func(ctx context.Context, b *lsmkv.Bucket) error {
 		calls.Add(1)
 		if failing.Load() {
@@ -63,20 +64,27 @@ func firstErrorEntry(hook *test.Hook) *logrus.Entry {
 	return nil
 }
 
-// newRangeableFinalizeTestShard builds a shard+index with the rangeable
-// in-memory knob enabled.
-// newRangeableFinalizeTestShard builds the shard; indexOpts run on the index
-// before the shard starts, which is where a test installs a log hook: the
-// shard's goroutines read index.logger, so a swap afterwards is a data race.
+// newRangeableFinalizeTestShard keeps every rangeable property in memory.
+// indexOpts run on the index before the shard starts, which is where a test
+// installs a log hook: the shard's goroutines read index.logger, so a swap
+// afterwards is a data race.
 func newRangeableFinalizeTestShard(t *testing.T, classNamePrefix string, indexOpts ...func(*Index)) (context.Context, *Shard, *Index, string) {
+	t.Helper()
+	opts := append([]func(*Index){func(idx *Index) { idx.Config.IndexRangeableInMemory = true }}, indexOpts...)
+	return newRangeableTestShard(t, classNamePrefix, opts...)
+}
+
+// newRangeableTestShard builds a shard+index for the filterable-to-rangeable
+// class, configured by indexOpts.
+func newRangeableTestShard(t *testing.T, classNamePrefix string, indexOpts ...func(*Index),
+) (context.Context, *Shard, *Index, string) {
 	t.Helper()
 	ctx := testCtx()
 	className := classNamePrefix + uuid.NewString()[:8]
 	class := newFilterableToRangeableTestClass(className)
 
-	opts := append([]func(*Index){func(idx *Index) { idx.Config.IndexRangeableInMemory = true }}, indexOpts...)
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, opts...)
+		false, false, indexOpts...)
 	shard := shd.(*Shard)
 	t.Cleanup(func() { shard.Shutdown(ctx) })
 	return ctx, shard, idx, className
@@ -121,7 +129,7 @@ func setupRangeableFinalizeDegradeFixture(t *testing.T, classNamePrefix string) 
 	failing.Store(true)
 	calls := &atomic.Int32{}
 
-	task, wrapped := newRangeableInMemoryTestTask(t, idx, className, propName, failing, calls)
+	task, wrapped := newRangeableInMemoryTestTask(t, idx, className, propName, shard.migrationUnit(), failing, calls)
 	require.NoError(t, runReindexToCompletionOrError(t, ctx, task, shard),
 		"a non-cancellation rebuild failure must not fail the migration")
 
@@ -175,13 +183,13 @@ func TestRangeableFinalize_RebuildCancellation_RoutesTransient(t *testing.T) {
 	// Drive the migration to completion first so the rangeable bucket
 	// exists: cancellation must route through the rebuild-error branch
 	// here, not the (separately tested) nil-bucket branch.
-	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+	task, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 	require.NoError(t, runReindexToCompletionOrError(t, ctx, task, shard))
 
 	bucketName := task.strategy.SourceBucketName(propName)
 	require.NotNil(t, shard.Store().Bucket(bucketName), "precondition: bucket must exist post-swap")
 
-	task2, _ := newFilterableToRangeableTask(t, idx, className, propName)
+	task2, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 	task2.rebuildRangeableRepFn = func(ctx context.Context, b *lsmkv.Bucket) error {
 		return fmt.Errorf("injected fault under cancellation")
 	}
@@ -204,8 +212,8 @@ func TestRangeableFinalize_DataWorkFailure_StillFAILED(t *testing.T) {
 	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "RangeableDataWorkFail_")
 	putRangeableTestObjects(t, ctx, shard, className, 5)
 
-	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
-	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error) {
+	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
+	task.processOneSwapPropFn = func(_ context.Context, _ *lsmkv.Store, _ int, _ string) (*lsmkv.Bucket, error) {
 		return nil, fmt.Errorf("injected data-work swap failure")
 	}
 
@@ -233,7 +241,7 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 	// cluster-wide RAFT commit of IndexRangeFilters=true that a real
 	// cluster's first-successful-shard triggers.
 	ctxA, shardA, idxA, classNameA := newReplica("RangeableMultiReplicaA_")
-	taskA, wrappedA := newFilterableToRangeableTask(t, idxA, classNameA, propName)
+	taskA, wrappedA := newFilterableToRangeableTask(t, idxA, classNameA, propName, shardA.migrationUnit())
 	require.NoError(t, runReindexToCompletionOrError(t, ctxA, taskA, shardA))
 	require.True(t, wrappedA.migrationCompleted)
 
@@ -251,7 +259,7 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 	failing := &atomic.Bool{}
 	failing.Store(true)
 	calls := &atomic.Int32{}
-	taskB, wrappedB := newRangeableInMemoryTestTask(t, idxB, classNameB, propName, failing, calls)
+	taskB, wrappedB := newRangeableInMemoryTestTask(t, idxB, classNameB, propName, shardB.migrationUnit(), failing, calls)
 	require.NoError(t, runReindexToCompletionOrError(t, ctxB, taskB, shardB),
 		"a non-cancellation rebuild failure must not fail the migration")
 	require.True(t, wrappedB.migrationCompleted,
@@ -270,15 +278,17 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 		"replica B, serving from disk, must return the identical result set to replica A, "+
 			"serving from memory - the staggered flip must never produce diverging results")
 
-	// Restart replica B: boot-time population rebuilds the rep from disk,
-	// restoring acceleration without any repair action.
 	shardName := shardB.Name()
 	require.NoError(t, shardB.Shutdown(ctxB))
 
-	taskB2, _ := newFilterableToRangeableTask(t, idxB, classNameB, propName)
+	taskB2, _ := newFilterableToRangeableTask(t, idxB, classNameB, propName, testMigrationUnitFor(idxB, shardName))
 	idxB.shardReindexer = &testShardReindexer{task: taskB2}
 
-	shdB2, err := idxB.initShard(ctxB, shardName, newFilterableToRangeableTestClass(classNameB), nil, true, true)
+	migratedClass := newFilterableToRangeableTestClass(classNameB)
+	rangeable := true
+	migratedClass.Properties[0].IndexRangeFilters = &rangeable
+
+	shdB2, err := idxB.initShard(ctxB, shardName, migratedClass, nil, true, true)
 	require.NoError(t, err)
 	shardB2 := shdB2.(*Shard)
 	idxB.shards.Store(shardName, shdB2)
@@ -300,7 +310,7 @@ func TestRebuildRangeableInMemoryReps_NilBucketRoutesContextCancellation(t *test
 	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "RangeableNilBucketCtxCancel_")
 	putRangeableTestObjects(t, ctx, shard, className, 5)
 
-	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+	task, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 
 	// A prop whose bucket was never created: store.Bucket(...) returns nil
 	// for it regardless of context state, giving a deterministic nil-bucket
@@ -332,7 +342,7 @@ func TestRebuildRangeableInMemoryReps_NilBucketDegradesWithoutCancellation(t *te
 
 	putRangeableTestObjects(t, ctx, shard, className, 5)
 
-	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+	task, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 
 	missingPropName := "never_created_prop"
 	require.Nil(t, shard.Store().Bucket(task.strategy.SourceBucketName(missingPropName)))
@@ -349,4 +359,39 @@ func TestRebuildRangeableInMemoryReps_NilBucketDegradesWithoutCancellation(t *te
 	metric, err2 := monitoring.GetMetrics().RangeableInMemoryRebuildDegraded.GetMetricWithLabelValues(className2, shard.Name(), missingPropName)
 	require.NoError(t, err2)
 	assert.GreaterOrEqual(t, testutil.ToFloat64(metric), float64(1))
+}
+
+// The swap promotes ingest buckets that open with no rep, so a named property
+// the finalize rebuild skips serves from disk until the next open.
+func TestRangeableReindex_RepFollowsPropertySelection(t *testing.T) {
+	propName := filterableToRangeablePropName
+
+	tests := []struct {
+		name         string
+		props        []string
+		wantInMemory bool
+	}{
+		{name: "the property is named", props: []string{propName}, wantInMemory: true},
+		{name: "every property is named", props: []string{config.AllProperties}, wantInMemory: true},
+		{name: "another property is named", props: []string{"other"}, wantInMemory: false},
+		{name: "no property is named", wantInMemory: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, shard, idx, className := newRangeableTestShard(t, "RangeableRepSelection_",
+				func(idx *Index) { idx.Config.IndexRangeableInMemoryProps = tt.props })
+			putRangeableTestObjects(t, ctx, shard, className, 5)
+
+			task, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
+			require.NoError(t, runReindexToCompletionOrError(t, ctx, task, shard))
+
+			bucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
+			require.NotNil(t, bucket)
+			assert.Equal(t, tt.wantInMemory, bucket.RangeableServesFromMemory())
+			require.Len(t, filterableToRangeableFingerprint(t, bucket),
+				filterableToRangeableNumDistinctValues,
+				"range reads must return the full term set whichever path serves them")
+		})
+	}
 }

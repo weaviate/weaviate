@@ -17,7 +17,6 @@ package rest_search
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,7 +30,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -102,19 +100,8 @@ func groupCounts(t *testing.T, out map[string]any) map[any]float64 {
 }
 
 func TestRESTAggregate(t *testing.T) {
-	ctx := context.Background()
-	compose, err := docker.New().
-		WithWeaviate().
-		// the endpoint is experimental and off by default; enable it
-		WithWeaviateEnv("EXPERIMENTAL_REST_SEARCH_ENABLED", "true").
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-
 	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
-	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient(restSearchServerURI(t))
 
 	novelistClass := &models.Class{
 		Class:      "Novelist",

@@ -39,22 +39,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
-// reindexInFlightChecker is the narrow interface schema handlers use
-// to fail fast on property mutations that would conflict with an
-// in-flight reindex migration. Implemented by the RAFT-backed
-// distributed-task state (today: cluster/raft.Raft).
-//
-// This is the REST-handler UX layer of the mutation guard: the
-// handler returns 409 Conflict before issuing the RAFT command, so
-// operators see a clean error instead of a downstream "apply rejected"
-// surprise. The cluster-wide safety net lives at the schema FSM's
-// UpdateProperty apply path via [cluster/schema.SchemaManager]'s
-// [MutationGuard] — that is the load-bearing check; this one is a
-// pre-flight optimization.
-type reindexInFlightChecker interface {
-	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
-}
-
 // reindexSubmitLockProvider returns the per-(collection, property)
 // mutex shared with the reindex-submit REST handler. This is the
 // SAME lock acquired by indexesHandlers.submitLock — the sharing is
@@ -72,10 +56,14 @@ type schemaHandlers struct {
 	manager             *schemaUC.Manager
 	authorizer          authorization.Authorizer
 	metricRequestsTotal restApiRequestsTotal
-	reindexTaskLister   reindexInFlightChecker
-	reindexSubmitLocks  reindexSubmitLockProvider
-	logger              logrus.FieldLogger
-	namespacesEnabled   bool
+	// reindexTaskLister lets property mutations fail fast with 409 Conflict when they
+	// would conflict with an in-flight reindex migration. It is only the REST pre-flight
+	// check; the load-bearing guard is the schema FSM's MutationGuard on the
+	// UpdateProperty apply path.
+	reindexTaskLister  distributedtask.TaskLister
+	reindexSubmitLocks reindexSubmitLockProvider
+	logger             logrus.FieldLogger
+	qualifier          namespacing.Qualifier
 }
 
 func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
@@ -216,9 +204,13 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 
 	// Conflict check and submit lock key on the qualified class (the reindex-task
 	// key); the manager delete call qualifies internally, so it gets the raw name.
-	qualifiedClass, qErr := namespacing.QualifyClass(principal, s.namespacesEnabled, params.ClassName)
+	qualifiedClass, qErr := namespacing.QualifyClass(principal, s.qualifier, params.ClassName)
 	if qErr != nil {
 		s.metricRequestsTotal.logError(params.ClassName, qErr)
+		if errors.As(qErr, &authzerrors.Forbidden{}) {
+			return schema.NewSchemaObjectsPropertiesDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(principal, qErr))
+		}
 		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, qErr))
 	}
@@ -387,24 +379,34 @@ func (s *schemaHandlers) deleteClassVectorIndex(params schema.SchemaObjectsVecto
 	err := s.manager.DeleteClassVectorIndex(ctx, principal, params.ClassName, params.VectorIndexName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
-		switch {
-		case errors.As(err, &authzerrors.Forbidden{}):
-			return schema.NewSchemaObjectsVectorsDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.Is(err, schemaUC.ErrNotFound):
-			return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.Is(err, schemaUC.ErrValidation):
-			return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		default:
-			return schema.NewSchemaObjectsVectorsDeleteInternalServerError().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		}
+		return vectorIndexDeleteErrResponder(principal, err)
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
 	return schema.NewSchemaObjectsVectorsDeleteOK()
+}
+
+// vectorIndexDeleteErrResponder maps a failed vector index drop to its response.
+// A namespace that refuses the drop answers 422 rather than the 500 an
+// unrecognized error gets, so a suspended instance does not read as a fault.
+func vectorIndexDeleteErrResponder(principal *models.Principal, err error) middleware.Responder {
+	switch {
+	case errors.As(err, &authzerrors.Forbidden{}):
+		return schema.NewSchemaObjectsVectorsDeleteForbidden().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrNotFound):
+		return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrValidation):
+		return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case cerrors.NamespaceErrRendersUnprocessable(err):
+		return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	default:
+		return schema.NewSchemaObjectsVectorsDeleteInternalServerError().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	}
 }
 
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
@@ -449,17 +451,7 @@ func (s *schemaHandlers) getShardsStorageStatus(params schema.SchemaObjectsShard
 	status, err := s.manager.ShardsStatus(ctx, principal, params.ClassName, tenant)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		switch {
-		case errors.As(err, &authzerrors.Forbidden{}):
-			return schema.NewSchemaObjectsShardsGetForbidden().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.Is(err, schemaUC.ErrNotFound):
-			return schema.NewSchemaObjectsShardsGetNotFound().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		default:
-			return schema.NewSchemaObjectsShardsGetInternalServerError().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		}
+		return shardsStorageStatusErrResponder(principal, err)
 	}
 
 	payload := status
@@ -497,11 +489,30 @@ func shardStatusErrResponder(principal *models.Principal, err error) middleware.
 	case errors.Is(err, schemaUC.ErrNotFound):
 		return schema.NewSchemaObjectsShardsUpdateNotFound().
 			WithPayload(errPayloadFromSingleErr(principal, err))
-	case cerrors.NamespaceErrRendersUnprocessable(err):
+	case errors.Is(err, schemaUC.ErrValidation), cerrors.NamespaceErrRendersUnprocessable(err):
 		return schema.NewSchemaObjectsShardsUpdateUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	default:
 		return schema.NewSchemaObjectsShardsUpdateInternalServerError().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	}
+}
+
+// shardsStorageStatusErrResponder maps a failed shard status read to its
+// response. An invalid class name answers 422.
+func shardsStorageStatusErrResponder(principal *models.Principal, err error) middleware.Responder {
+	switch {
+	case errors.As(err, &authzerrors.Forbidden{}):
+		return schema.NewSchemaObjectsShardsGetForbidden().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrNotFound):
+		return schema.NewSchemaObjectsShardsGetNotFound().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrValidation):
+		return schema.NewSchemaObjectsShardsGetUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	default:
+		return schema.NewSchemaObjectsShardsGetInternalServerError().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 }
@@ -654,7 +665,7 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 	return schema.NewTenantExistsOK()
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, authorizer authorization.Authorizer, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider, namespacesEnabled bool) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, authorizer authorization.Authorizer, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister distributedtask.TaskLister, reindexSubmitLocks reindexSubmitLockProvider, qualifier namespacing.Qualifier) {
 	h := &schemaHandlers{
 		manager:             manager,
 		authorizer:          authorizer,
@@ -662,7 +673,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 		reindexTaskLister:   reindexTaskLister,
 		reindexSubmitLocks:  reindexSubmitLocks,
 		logger:              logger,
-		namespacesEnabled:   namespacesEnabled,
+		qualifier:           qualifier,
 	}
 
 	api.SchemaSchemaObjectsCreateHandler = schema.

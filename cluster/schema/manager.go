@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
@@ -102,6 +104,11 @@ type SchemaManager struct {
 	tenantLimit func() int
 	// tenantLimitErrTemplate resolves the cap-exceeded message (empty = default).
 	tenantLimitErrTemplate func() string
+	// collectionLimit returns the per-namespace collection cap. Negative means
+	// unlimited; nil means no cap. It is read before commit, never in FSM apply.
+	collectionLimit func() int
+	// collectionLimitErrTemplate resolves the cap-exceeded message (empty = default).
+	collectionLimitErrTemplate func() string
 	// shouldLogSlowApply controls whether slow RAFT apply diagnostics are
 	// emitted.
 	shouldLogSlowApply func() bool
@@ -214,6 +221,20 @@ func (s *SchemaManager) HasFrozenTenants(class string) bool {
 	return false
 }
 
+// SetCollectionLimit installs the collection-cap resolvers used by
+// PreApplyFilter (negative = unlimited; nil = unenforced). Call once during FSM
+// bootstrap.
+func (s *SchemaManager) SetCollectionLimit(limit func() int, errTemplate func() string) {
+	s.collectionLimit = limit
+	s.collectionLimitErrTemplate = errTemplate
+}
+
+// CollectionLimitEnforced reports whether a collection cap is in effect.
+// When it is not, Execute skips the per-namespace AddClass lock.
+func (s *SchemaManager) CollectionLimitEnforced() bool {
+	return s.collectionLimit != nil && s.collectionLimit() >= 0
+}
+
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
 	return NewSchemaReader(
 		s.schema,
@@ -307,6 +328,7 @@ func (s *SchemaManager) recordOrphan(class string, hasFrozen bool) {
 // dropOrphanedClasses removes the recorded classes' data, skipping any the
 // schema names again: catching up over [DELETE_CLASS C, ADD_CLASS C] records C
 // on the way past, and dropping it here would destroy what the re-add created.
+// Case-insensitive: "FooBar" and "Foobar" share one index directory.
 func (s *SchemaManager) dropOrphanedClasses() {
 	s.orphansMu.Lock()
 	orphans := s.orphanedClasses
@@ -314,8 +336,12 @@ func (s *SchemaManager) dropOrphanedClasses() {
 	s.orphansMu.Unlock()
 
 	present := s.schema.classNames()
+	presentFolded := make(map[string]struct{}, len(present))
+	for name := range present {
+		presentFolded[strings.ToLower(name)] = struct{}{}
+	}
 	for class, hasFrozen := range orphans {
-		if _, revived := present[class]; revived {
+		if _, revived := presentFolded[strings.ToLower(class)]; revived {
 			continue
 		}
 		// DropOrphanedClass, not DeleteClass: no index is loaded to delete.
@@ -377,6 +403,21 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 		} else if other != "" {
 			return fmt.Errorf("%w: found similar %s %q", ErrClassExists, item, other)
 		}
+
+		// Per-namespace collection cap, checked before commit. store.Execute
+		// runs one AddClass per namespace at a time, so this count cannot go
+		// stale before the apply adds to it. An unqualified class counts
+		// against the global total. RESTORE_CLASS is not capped.
+		if s.collectionLimit != nil {
+			if maxCollections := s.collectionLimit(); maxCollections >= 0 &&
+				s.schema.CollectionsCount(namespacing.NamespaceFromQualified(req.Class)) >= maxCollections {
+				tmpl := ""
+				if s.collectionLimitErrTemplate != nil {
+					tmpl = s.collectionLimitErrTemplate()
+				}
+				return usagelimits.NewLimitExceededError(tmpl, usagelimits.LimitCollections, int64(maxCollections))
+			}
+		}
 	}
 
 	// Per-collection tenant cap, enforced pre-commit. store.Execute serializes
@@ -414,19 +455,21 @@ func (s *SchemaManager) Load(ctx context.Context, nodeID string) error {
 	return nil
 }
 
-func (s *SchemaManager) ReloadDBFromSchema() {
+func (s *SchemaManager) ReloadDBFromSchema(ctx context.Context) {
 	classes := s.schema.MetaClasses()
 
 	cs := make([]command.UpdateClassRequest, len(classes))
 	i := 0
 	for _, v := range classes {
-		migratePropertiesIfNecessary(&v.Class)
-		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
+		// Shards keep the class pointer, and &v.Class would keep v.Sharding alive with it.
+		class := v.Class
+		migratePropertiesIfNecessary(&class)
+		cs[i] = command.UpdateClassRequest{Class: &class, State: &v.Sharding}
 		i++
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
 	s.log.Info("reload local db: update schema ...")
-	s.db.ReloadLocalDB(context.Background(), cs)
+	s.db.ReloadLocalDB(ctx, cs)
 
 	// ReloadLocalDB only opens classes the schema still names.
 	s.dropOrphanedClasses()
@@ -612,18 +655,6 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// from an update that never applied. (Moving the purge below the
 		// assignments is no safer: the refusal above must not fire after the
 		// meta was already mutated.)
-		//
-		// ROLLING UPGRADE: the purge and the refusal below are new behavior in
-		// a deterministic apply, so a mixed-version cluster diverges on this
-		// very log entry — a node without this code neither purges nor refuses,
-		// and the two FSMs stay disagreeing after the upgrade completes. The
-		// AddTask apply has the same exposure (CheckConflict's claim re-check
-		// rejects on new binaries, accepts on old). An in-apply version check
-		// cannot fix it: reading node-local version state during apply is
-		// itself non-deterministic, so any fence has to sit proposal-side.
-		// Accepted while the endpoint is experimental
-		// (ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT); revisit
-		// before the feature is promoted to a supported release.
 		if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
 			if s.distributedTaskManager == nil {
 				// Mirrors cascadeDeleteDistributedTasks: a marker introduced
@@ -661,6 +692,9 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		meta.Class.VectorIndexConfig = u.VectorIndexConfig
 		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
 		meta.Class.VectorConfig = u.VectorConfig
+		if u.ModuleConfig != nil {
+			meta.Class.ModuleConfig = u.ModuleConfig
+		}
 		meta.Class.ReplicationConfig = u.ReplicationConfig
 		meta.Class.MultiTenancyConfig = u.MultiTenancyConfig
 		meta.Class.ObjectTTLConfig = u.ObjectTTLConfig
@@ -879,8 +913,16 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 		applyOp{
 			op: cmd.GetType().String(),
 			updateSchema: func() error {
-				_, err := s.schema.updateProperty(cmd.Class, cmd.Version, req.Property, req.FieldsToUpdate)
-				return err
+				merged, err := s.schema.updateProperty(cmd.Class, cmd.Version, req.Property, req.FieldsToUpdate)
+				if err != nil {
+					return err
+				}
+				if merged != nil {
+					// The store half drops the buckets of every index type its
+					// property says is off, so hand it what the schema kept.
+					req.Property = merged
+				}
+				return nil
 			},
 			updateStore:          func() error { return s.db.UpdateProperty(cmd.Class, req) },
 			schemaOnly:           schemaOnly,
@@ -1229,8 +1271,9 @@ func migratePropertiesIfNecessary(class *models.Class) {
 }
 
 func migrateNestedPropertiesIfNecessary(nprop *models.NestedProperty) {
-	// migrate this nested property
-	nprop.IndexRangeFilters = func() *bool { f := false; return &f }()
+	if nprop.IndexRangeFilters == nil {
+		nprop.IndexRangeFilters = func() *bool { f := false; return &f }()
+	}
 	// Recurse on all nested properties this one has
 	for _, recurseNestedProperty := range nprop.NestedProperties {
 		migrateNestedPropertiesIfNecessary(recurseNestedProperty)

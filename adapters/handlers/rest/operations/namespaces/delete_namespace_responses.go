@@ -78,7 +78,7 @@ func (o *DeleteNamespaceUnauthorized) WriteResponse(rw http.ResponseWriter, prod
 const DeleteNamespaceForbiddenCode int = 403
 
 /*
-DeleteNamespaceForbidden Forbidden
+DeleteNamespaceForbidden Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node
 
 swagger:response deleteNamespaceForbidden
 */

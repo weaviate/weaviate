@@ -13,11 +13,12 @@ package db
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -29,35 +30,61 @@ import (
 // cold, or lost files. It returns the record each schema vector is built
 // from, in name order so a failure is deterministic:
 //   - a ready record whose storage is on disk builds at the recorded ID;
-//   - a ready record whose storage is gone refuses the load if the object
-//     store holds a vector for it: an empty index in its place would silently
-//     serve nothing where there was data. With nothing to index it is
-//     rebuilt: a backup or a transfer carries no directory for an empty index;
+//   - a ready record whose storage is gone is rebuilt: a backup or a
+//     transfer carries no directory for an index that wrote nothing;
 //   - a creating record (a crash between the two writes of a creation) and a
 //     missing record (a vector added while the shard was cold) are built,
 //     then marked ready.
 //
-// A record the schema no longer has is deleted; its storage is left alone.
+// A dropping record is finished first: its files, its state key, then the
+// record. A record the schema no longer has is deleted; its storage is left
+// alone.
 func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[string]schemaConfig.VectorIndexConfig,
 	records map[string]vectorIndexRecord,
 ) (map[string]vectorIndexRecord, error) {
+	// before any deletion: finishing a drop would take the other's queue
+	err := refuseSharedVectorIndexQueues(records)
+	if err != nil {
+		return nil, err
+	}
+
+	for name, rec := range records {
+		if rec.State != vectorIndexStateDropping {
+			continue
+		}
+		// a deferred deletion the process did not live to finish
+		err := s.removeVectorIndexArtifacts(ctx, name, rec)
+		if err != nil {
+			return nil, err
+		}
+		delete(records, name)
+	}
+
 	toBuild := make(map[string]vectorIndexRecord, len(active))
+	owners := vectorIndexOwners(records)
 	for _, name := range slices.Sorted(maps.Keys(active)) {
 		cfg := active[name]
 		rec, ok := records[name]
 		if !ok {
+			// a vector without a record is a newcomer: refused like a live
+			// creation when its files belong to another vector, and counted as
+			// an owner for the newcomers after it
 			rec = vectorIndexRecordFor(name, cfg, vectorIndexStateCreating)
+			if collisions := vectorIndexCollisionsWith(owners, name, ownerOf(rec)); len(collisions) > 0 {
+				return nil, vectorIndexCollisionError(name, collisions)
+			}
 			err := s.mapping.Put(name, rec)
 			if err != nil {
 				return nil, err
 			}
+			owners[name] = ownerOf(rec)
 		}
 		if rec.IndexType != cfg.IndexType() {
 			return nil, fmt.Errorf("vector %q: the mapping records a %s index at %q but the schema says %s",
 				name, rec.IndexType, rec.PhysicalID, cfg.IndexType())
 		}
 		if rec.State == vectorIndexStateReady {
-			rebuild, err := s.readyVectorIndexNeedsRebuild(ctx, name, cfg, rec)
+			rebuild, err := s.readyVectorIndexNeedsRebuild(name, rec)
 			if err != nil {
 				return nil, err
 			}
@@ -81,14 +108,27 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 	return toBuild, nil
 }
 
-// errVectorIndexStorageMissing: a ready record whose directories are gone.
-// An empty index in their place would serve nothing where there was data.
-var errVectorIndexStorageMissing = errors.New("vector index storage is missing")
+// refuseSharedVectorIndexQueues fails when two records name one queue: two
+// consumers would each take the other's work, and a drop of either would
+// delete the other's.
+func refuseSharedVectorIndexQueues(records map[string]vectorIndexRecord) error {
+	queues := make(map[string]string, len(records))
+	for _, name := range slices.Sorted(maps.Keys(records)) {
+		queueID := records[name].queueIDOrDefault()
+		if other, ok := queues[queueID]; ok {
+			return fmt.Errorf("vectors %q and %q both record queue %q", other, name, queueID)
+		}
+		queues[queueID] = name
+	}
+	return nil
+}
 
 // readyVectorIndexNeedsRebuild probes a ready record's storage. Present:
-// nothing to do. Missing with vectors to index: the load is refused. Missing
-// with nothing to index: the index is rebuilt.
-func (s *Shard) readyVectorIndexNeedsRebuild(ctx context.Context, name string, cfg schemaConfig.VectorIndexConfig, rec vectorIndexRecord) (bool, error) {
+// nothing to do. Missing: the index is rebuilt at its recorded ID, as before
+// the mapping. A backup or transfer carries no directory for an index that
+// has written nothing, which under async indexing includes one whose vectors
+// are all still queued.
+func (s *Shard) readyVectorIndexNeedsRebuild(name string, rec vectorIndexRecord) (bool, error) {
 	dirs, err := s.vectorIndexStorageDirsFor(rec)
 	if err != nil {
 		return false, fmt.Errorf("vector %q: %w", name, err)
@@ -97,45 +137,78 @@ func (s *Shard) readyVectorIndexNeedsRebuild(ctx context.Context, name string, c
 	if err != nil {
 		return false, fmt.Errorf("vector %q: %w", name, err)
 	}
-	if exists {
-		return false, nil
-	}
-	hasVectors, err := s.hasVectorsFor(ctx, name, cfg.IsMultiVector())
-	if err != nil {
-		return false, fmt.Errorf("vector %q: %w", name, err)
-	}
-	if hasVectors {
-		return false, fmt.Errorf("%w: vector %q is recorded ready at %q, expected %v on disk",
-			errVectorIndexStorageMissing, name, rec.PhysicalID, dirs)
-	}
-	return true, nil
+	return !exists, nil
 }
 
 // commitVectorIndexRecords makes the indexes just built durable in the
-// mapping. On the first load every record is written ready in one
-// transaction; later, only the records that were creating are flipped.
-func (s *Shard) commitVectorIndexRecords(records map[string]vectorIndexRecord, initialized bool) error {
+// mapping, each with the config it was built with. On the first load every
+// record is written ready in one transaction; later, the records that were
+// creating are flipped, and a ready record is rewritten when the config it
+// holds is not the one the index was built with.
+//
+// Until the cutover the schema decides the config at load, so a ready
+// record whose config differs from the schema's is rewritten rather than
+// trusted: today's config push reaches loaded shards only, and a shard
+// that was cold during a change picks the change up here. The same rewrite
+// fills in a record from before the config and queue ID fields existed.
+func (s *Shard) commitVectorIndexRecords(records map[string]vectorIndexRecord,
+	built map[string]schemaConfig.VectorIndexConfig, initialized bool,
+) error {
 	for name, rec := range records {
+		rec, changed := rec.adopted(built[name])
 		if initialized && rec.State == vectorIndexStateReady {
-			continue
-		}
-		err := s.syncVectorIndexRecordStorage(name, rec)
-		if err != nil {
-			return err
-		}
-		rec.State = vectorIndexStateReady
-		records[name] = rec
-		if initialized {
-			err = s.mapping.Put(name, rec)
+			if !changed {
+				continue
+			}
+			err := s.mapping.Put(name, rec)
 			if err != nil {
 				return err
 			}
+			continue
+		}
+		if !initialized {
+			err := s.syncVectorIndexRecordStorage(name, rec)
+			if err != nil {
+				return err
+			}
+			rec.State = vectorIndexStateReady
+			records[name] = rec
+			continue
+		}
+		err := s.markVectorIndexReady(name, rec)
+		if err != nil {
+			return err
 		}
 	}
 	if initialized {
 		return nil
 	}
 	return s.mapping.Initialize(records)
+}
+
+// markVectorIndexCreating records that name's index is about to be built at
+// rec.PhysicalID. A crash from here on leaves a record the next load resumes.
+func (s *Shard) markVectorIndexCreating(name string, rec vectorIndexRecord) error {
+	rec.State = vectorIndexStateCreating
+	return s.mapping.Put(name, rec)
+}
+
+// markVectorIndexReady makes rec's directories durable, then records the
+// index as ready.
+func (s *Shard) markVectorIndexReady(name string, rec vectorIndexRecord) error {
+	err := s.syncVectorIndexRecordStorage(name, rec)
+	if err != nil {
+		return err
+	}
+	rec.State = vectorIndexStateReady
+	return s.mapping.Put(name, rec)
+}
+
+// markVectorIndexDropping records the index as dropping before the
+// teardown, so a crash before the files go is finished at the next load.
+func (s *Shard) markVectorIndexDropping(name string, rec vectorIndexRecord) error {
+	rec.State = vectorIndexStateDropping
+	return s.mapping.Put(name, rec)
 }
 
 // vectorIndexConfigsByStorage splits the schema's vectors, the legacy one
@@ -159,33 +232,6 @@ func vectorIndexConfigsByStorage(legacy schemaConfig.VectorIndexConfig,
 	return active, skipped
 }
 
-// errVectorFound stops the object scan at the first vector.
-var errVectorFound = errors.New("vector found")
-
-// hasVectorsFor reports whether any object holds a vector for name.
-func (s *Shard) hasVectorsFor(ctx context.Context, name string, multi bool) (bool, error) {
-	var err error
-	if multi {
-		err = s.iterateOnLSMMultiVectors(ctx, 0, name, func(_ uint64, v [][]float32) error {
-			if len(v) > 0 {
-				return errVectorFound
-			}
-			return nil
-		})
-	} else {
-		err = s.iterateOnLSMVectors(ctx, 0, name, func(_ uint64, v []float32) error {
-			if len(v) > 0 {
-				return errVectorFound
-			}
-			return nil
-		})
-	}
-	if errors.Is(err, errVectorFound) {
-		return true, nil
-	}
-	return false, err
-}
-
 // vectorIndexHasStorage is false for a skipped hnsw config: a no-op index
 // owns no files, so the mapping does not record it.
 func vectorIndexHasStorage(cfg schemaConfig.VectorIndexConfig) bool {
@@ -193,9 +239,11 @@ func vectorIndexHasStorage(cfg schemaConfig.VectorIndexConfig) bool {
 	return !ok || !hnswCfg.Skip
 }
 
-// vectorIndexRecordFor is the record of a vector created under the naming rule.
+// vectorIndexRecordFor is the record of a vector created under the naming
+// rule: its queue shares the index's ID, and cfg is what it is built with.
 func vectorIndexRecordFor(name string, cfg schemaConfig.VectorIndexConfig, state string) vectorIndexRecord {
-	return vectorIndexRecord{PhysicalID: vectorIndexID(name), IndexType: cfg.IndexType(), State: state}
+	id := vectorIndexID(name)
+	return vectorIndexRecord{PhysicalID: id, IndexType: cfg.IndexType(), State: state, QueueID: id, Config: cfg}
 }
 
 // vectorIndexStorageDirsFor lists the directories rec occupies under this shard.
@@ -215,4 +263,97 @@ func (s *Shard) syncVectorIndexRecordStorage(name string, rec vectorIndexRecord)
 		return fmt.Errorf("vector %q: %w", name, err)
 	}
 	return nil
+}
+
+// vectorIndexOwner is where a vector's files live: its index at physicalID,
+// its queue at queueID.
+type vectorIndexOwner struct {
+	physicalID string
+	queueID    string
+}
+
+// ownerOf is where rec's files live.
+func ownerOf(rec vectorIndexRecord) vectorIndexOwner {
+	return vectorIndexOwner{physicalID: rec.PhysicalID, queueID: rec.queueIDOrDefault()}
+}
+
+// ownerAt is a vector whose index and queue are both at id, as the naming
+// rule creates them.
+func ownerAt(id string) vectorIndexOwner {
+	return vectorIndexOwner{physicalID: id, queueID: id}
+}
+
+// names lists the physical names o owns.
+func (o vectorIndexOwner) names() []string {
+	return append(helpers.VectorIndexArtifactNamesForID(o.physicalID).All(), helpers.QueueDirName(o.queueID))
+}
+
+// vectorIndexOwners maps each recorded vector to where its files live.
+// Skipped vectors are never recorded, so every owner has storage.
+func vectorIndexOwners(records map[string]vectorIndexRecord) map[string]vectorIndexOwner {
+	owners := make(map[string]vectorIndexOwner, len(records))
+	for name, rec := range records {
+		owners[name] = ownerOf(rec)
+	}
+	return owners
+}
+
+// vectorIndexCollisionsWith lists the owners other than name that share a
+// physical name with mine, as "vectors A and B share N". The legacy vector
+// is the empty name.
+func vectorIndexCollisionsWith(owners map[string]vectorIndexOwner, name string, mine vectorIndexOwner) []string {
+	own := map[string]struct{}{}
+	for _, n := range mine.names() {
+		own[n] = struct{}{}
+	}
+	var collisions []string
+	for _, other := range slices.Sorted(maps.Keys(owners)) {
+		if other == name {
+			continue
+		}
+		for _, n := range owners[other].names() {
+			if _, shared := own[n]; shared {
+				collisions = append(collisions, fmt.Sprintf("vectors %q and %q share %q", other, name, n))
+				break
+			}
+		}
+	}
+	return collisions
+}
+
+// vectorIndexCollisions lists every pair of owners that share a physical
+// name, each pair once, names in order.
+func vectorIndexCollisions(owners map[string]vectorIndexOwner) []string {
+	names := slices.Sorted(maps.Keys(owners))
+	var collisions []string
+	for i, name := range names {
+		before := make(map[string]vectorIndexOwner, i)
+		for _, earlier := range names[:i] {
+			before[earlier] = owners[earlier]
+		}
+		collisions = append(collisions, vectorIndexCollisionsWith(before, name, owners[name])...)
+	}
+	return collisions
+}
+
+// vectorIndexCollisionError is the refusal every caller of the check returns.
+func vectorIndexCollisionError(name string, collisions []string) error {
+	return fmt.Errorf("vector %q cannot be created: %s", name, strings.Join(collisions, "; "))
+}
+
+// refuseVectorIndexCollision fails a creation whose physical names are
+// already in use by another recorded vector. The vector's own record, a
+// retry of an interrupted creation, is not a collision.
+func (s *Shard) refuseVectorIndexCollision(name string, rec vectorIndexRecord) error {
+	records, _, err := s.mapping.Load()
+	if err != nil {
+		return err
+	}
+	owners := vectorIndexOwners(records)
+	delete(owners, name)
+	collisions := vectorIndexCollisionsWith(owners, name, ownerOf(rec))
+	if len(collisions) == 0 {
+		return nil
+	}
+	return vectorIndexCollisionError(name, collisions)
 }

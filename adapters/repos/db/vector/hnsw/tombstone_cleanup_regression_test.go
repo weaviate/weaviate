@@ -46,7 +46,7 @@ func TestCleanupTombstones_KeepsTombstoneWhenEntrypointNotReplaceable(t *testing
 	conns, err := packedconn.NewWithElements([][]uint64{{}})
 	require.Nil(t, err)
 	index.Lock()
-	index.nodes[1] = &vertex{id: 1, level: 0, connections: conns}
+	index.nodes[1] = &vertex{level: 0, connections: *conns}
 	index.Unlock()
 	index.nodes[1].markAsMaintenance()
 
@@ -112,8 +112,8 @@ func TestDeleteEntrypoint_DoesNotClobberConcurrentPromotion(t *testing.T) {
 	conns9, err := packedconn.NewWithElements([][]uint64{{}})
 	require.Nil(t, err)
 	index.Lock()
-	index.nodes[3] = &vertex{id: 3, level: 5, connections: conns3}
-	index.nodes[9] = &vertex{id: 9, level: 0, connections: conns9}
+	index.nodes[3] = &vertex{level: 5, connections: *conns3}
+	index.nodes[9] = &vertex{level: 0, connections: *conns9}
 	index.Unlock()
 	// node 3 is mid-insert: under maintenance, so the scan must not pick
 	// it — but the insert promotes it to entrypoint mid-scan
@@ -169,7 +169,7 @@ func TestIterate_ConcurrentResetIsRaceFree(t *testing.T) {
 	// a wide, almost-empty nodes slice keeps the iterator busy reading the
 	// reset context long enough to overlap the concurrent reset below
 	index.nodes = make([]*vertex, 1_000_000)
-	index.nodes[0] = &vertex{id: 0, connections: conns}
+	index.nodes[0] = &vertex{connections: *conns}
 	index.Unlock()
 	index.tombstoneLock.Lock()
 	index.tombstones = map[uint64]struct{}{}

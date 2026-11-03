@@ -29,6 +29,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -52,6 +53,8 @@ type raftPeers interface {
 	Notify(id string, addr string) error
 	Remove(id string) error
 	Leader() string
+	// local committed RAFT index, served to a joiner as its catch-up barrier.
+	CommitIndex() uint64
 }
 
 type raftFSM interface {
@@ -102,7 +105,8 @@ func (s *Server) JoinPeer(_ context.Context, req *cmd.JoinPeerRequest) (*cmd.Joi
 		return &cmd.JoinPeerResponse{Leader: s.raftPeers.Leader()}, toRPCError(err)
 	}
 
-	return &cmd.JoinPeerResponse{}, nil
+	// Only the leader reaches here; hand the joiner the committed index as its catch-up barrier.
+	return &cmd.JoinPeerResponse{LeaderCommitIndex: s.raftPeers.CommitIndex()}, nil
 }
 
 // RemovePeer will notify the RAFT cluster that a peer is removed from the cluster.
@@ -240,6 +244,9 @@ func toRPCError(err error) error {
 	case errors.Is(err, types.ErrNotOpen),
 		errors.Is(err, types.ErrFSMNotCaughtUp):
 		ec = codes.Unavailable
+	case errors.Is(err, types.ErrUnknownCommand):
+		// This node, or a node the request was forwarded to, has no handler for this command type.
+		ec = codes.Unimplemented
 	case errors.Is(err, namespaces.ErrNamespaceGone),
 		errors.Is(err, namespaces.ErrNotFound):
 		ec = codes.NotFound
@@ -251,6 +258,7 @@ func toRPCError(err error) error {
 		errors.Is(err, namespaces.ErrCollectionSuspended),
 		errors.Is(err, namespaces.ErrNamespaceResuming),
 		errors.Is(err, namespaces.ErrStateChangedConcurrently),
+		errors.Is(err, replicationTypes.ErrMovementBlockedByTask),
 		errors.Is(err, schema.ErrMTDisabled):
 		ec = codes.FailedPrecondition
 	case errors.Is(err, namespaces.ErrAlreadyExists),

@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -24,7 +25,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/ratelimiter"
-	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // Traverser can be used to dynamically traverse the knowledge graph
@@ -34,7 +34,7 @@ type Traverser struct {
 	authorizer              authorization.Authorizer
 	vectorSearcher          VectorSearcher
 	explorer                explorer
-	schemaGetter            schema.SchemaGetter
+	schemaGetter            local.SchemaReader
 	nearParamsVector        *nearParamsVector
 	targetVectorParamHelper *TargetVectorParamHelper
 	metrics                 *Metrics
@@ -58,7 +58,7 @@ type explorer interface {
 // NewTraverser to traverse the knowledge graph
 func NewTraverser(config *config.WeaviateConfig, logger logrus.FieldLogger, authorizer authorization.Authorizer,
 	vectorSearcher VectorSearcher,
-	explorer explorer, schemaGetter schema.SchemaGetter,
+	explorer explorer, schemaGetter local.SchemaReader,
 	modulesProvider ModulesProvider,
 	metrics *Metrics, maxGetRequests int,
 ) *Traverser {

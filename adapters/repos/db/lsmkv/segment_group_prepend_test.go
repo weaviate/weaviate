@@ -990,7 +990,7 @@ func TestSegmentGroup_PrependSegments_InvertedAveragePropertyLength(t *testing.T
 	srcDir := t.TempDir()
 	src := createTestBucket(t, ctx, srcDir, StrategyInverted)
 	for id := 0; id < 100; id++ {
-		require.NoError(t, src.MapSet(term, NewMapPairFromDocIdAndTf(uint64(id), 1, 10, false)))
+		require.NoError(t, src.InvertedSet(term, uint64(id), 1, 10))
 	}
 	require.NoError(t, src.FlushAndSwitch())
 	require.NoError(t, src.Shutdown(ctx))
@@ -1000,7 +1000,7 @@ func TestSegmentGroup_PrependSegments_InvertedAveragePropertyLength(t *testing.T
 	tgt := createTestBucket(t, ctx, tgtDir, StrategyInverted)
 	defer tgt.Shutdown(ctx)
 	for id := 1000; id < 1010; id++ {
-		require.NoError(t, tgt.MapSet(term, NewMapPairFromDocIdAndTf(uint64(id), 1, 20, false)))
+		require.NoError(t, tgt.InvertedSet(term, uint64(id), 1, 20))
 	}
 	require.NoError(t, tgt.FlushAndSwitch())
 
@@ -1027,7 +1027,7 @@ func TestSegmentGroup_PrependSegments_InvertedCompactionDoesNotUnderflow(t *test
 	srcDir := t.TempDir()
 	src := createTestBucket(t, ctx, srcDir, StrategyInverted)
 	for id := 0; id < 97; id++ {
-		require.NoError(t, src.MapSet(term, NewMapPairFromDocIdAndTf(uint64(id), 1, 10, false)))
+		require.NoError(t, src.InvertedSet(term, uint64(id), 1, 10))
 	}
 	require.NoError(t, src.FlushAndSwitch())
 	require.NoError(t, src.Shutdown(ctx))
@@ -1037,14 +1037,14 @@ func TestSegmentGroup_PrependSegments_InvertedCompactionDoesNotUnderflow(t *test
 	tgt := createTestBucket(t, ctx, tgtDir, StrategyInverted)
 	defer tgt.Shutdown(ctx)
 	for id := 1000; id < 1003; id++ {
-		require.NoError(t, tgt.MapSet(term, NewMapPairFromDocIdAndTf(uint64(id), 1, 20, false)))
+		require.NoError(t, tgt.InvertedSet(term, uint64(id), 1, 20))
 	}
 	require.NoError(t, tgt.FlushAndSwitch())
 	require.NoError(t, tgt.PrependSegmentsFromBucket(ctx, srcDir))
 
 	// tombstone every prepended doc, then force the compaction that reclaims them
 	for id := 0; id < 97; id++ {
-		require.NoError(t, tgt.MapDeleteKey(term, NewMapPairFromDocIdAndTf(uint64(id), 1, 1, true).Key))
+		require.NoError(t, tgt.InvertedDeleteDoc(term, uint64(id)))
 	}
 	require.NoError(t, tgt.FlushAndSwitch())
 	for {

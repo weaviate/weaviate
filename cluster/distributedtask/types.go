@@ -21,6 +21,12 @@ type TaskLister interface {
 	ListDistributedTasks(ctx context.Context) (map[string][]*Task, error)
 }
 
+// LocalTaskLister lists the distributed tasks from this node's copy of the task
+// state, without a round-trip to the leader; it can lag the leader.
+type LocalTaskLister interface {
+	LocalDistributedTasks() map[string][]*Task
+}
+
 // SchedulerNotifier is implemented by the [Scheduler] and consumed by the
 // [Manager] to request an immediate scheduling cycle after a task-state
 // change applies via Raft. Without this hook the scheduler only reacts on
@@ -40,6 +46,9 @@ type SchedulerNotifier interface {
 // [Manager.DeleteTasksForCollection] — closes
 // weaviate/0-weaviate-issues#231.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
+
+// ShardReplicasExtractor lets the leader refuse a task built against a replica set that has since changed; ok=false admits the task unchecked.
+type ShardReplicasExtractor func(payload []byte) (nodesByShard map[string][]string, ok bool)
 
 // TargetVectorExtractor reads a task payload's (collection, target vectors) binding
 // for [Manager.PurgeTasksForCollectionTargetVectors]; ok=false skips the record.
@@ -88,6 +97,18 @@ type TaskFinalizer interface {
 	MarkDistributedTaskFailed(ctx context.Context, namespace, taskID string, taskVersion uint64, errMsg string) error
 }
 
+// ForceTerminator proposes a force-terminate transition via Raft.
+// The FSM accepts or refuses; callers are idempotent.
+type ForceTerminator interface {
+	ForceTerminateDistributedTask(
+		ctx context.Context,
+		namespace, taskID string,
+		taskVersion uint64,
+		reason string,
+		requestedTerminalStatus string,
+	) error
+}
+
 // PostCompletionAckRecorder is the RAFT-apply hook the [Scheduler] uses
 // to publish one node's OnGroupCompleted result (success or failure)
 // after its callbacks have returned for every local group in a task.
@@ -134,6 +155,10 @@ type PostCompletionAckRecorder interface {
 type TaskCompletionRecorder interface {
 	RecordDistributedTaskUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string) error
 	RecordDistributedTaskUnitFailure(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID, errMsg string) error
+	// RecordDistributedTaskRetryableUnitFailure reports a failure the FSM
+	// may retry. When Attempts < MaxUnitRetries the unit is re-opened on
+	// the same node; otherwise the task fails immediately.
+	RecordDistributedTaskRetryableUnitFailure(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID, errMsg string) error
 	UpdateDistributedTaskUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string, progress float32) error
 }
 
@@ -203,36 +228,56 @@ type ConflictDetector interface {
 	CheckConflict(newPayload []byte, existingTasks []*Task) error
 }
 
+// CrossNamespaceConflictDetector extends [ConflictDetector]. When
+// implemented, [Manager.AddTask] passes the full task map (all namespaces)
+// so the detector can reject cross-namespace conflicts.
+//
+// Same FSM-determinism contract as [ConflictDetector]:
+// CheckCrossNamespaceConflict must be a pure function of
+// (newPayload, allTasks).
+type CrossNamespaceConflictDetector interface {
+	ConflictDetector
+
+	// CheckCrossNamespaceConflict is called under [Manager.mu] with the
+	// full task map across all namespaces. Return a non-nil error to
+	// reject the new task.
+	CheckCrossNamespaceConflict(newPayload []byte, allTasks map[string]map[string]*Task) error
+}
+
+// TerminalCleanupProvider is an optional [Provider] interface. When
+// implemented, a FAILED/CANCELLED OnTaskCompleted error clears the
+// fired mark so the next tick retries. Bootstrap skips the pre-mark
+// for tasks reporting not-done.
+//
+// This re-fire path is separate from the SWAPPING escalation: it
+// never touches completedCallbackAttempts and never proposes
+// MarkTaskFailed or MarkTaskFinalized.
+type TerminalCleanupProvider interface {
+	Provider
+
+	// TerminalCleanupDone returns true when the local node's terminal
+	// cleanup for the task is durably complete. Called from the scheduler's
+	// bootstrap pre-mark and from the post-callback error path.
+	TerminalCleanupDone(task *Task, localNode string) bool
+}
+
 // SchemaMutationDetector is an optional interface providers implement so
 // the schema FSM's UpdateProperty apply path can reject external schema
 // mutations that would race with one of the provider's in-flight tasks.
 //
-// Motivating failure mode: a `change-tokenization` reindex spawns
-// separate per-shard sub-tasks for the searchable and filterable
-// indexes. A DELETE `/index/searchable` arriving mid-flight applies
-// `cleanStaleMigrationDirs("<prop>", "searchable")`, which wipes the
-// `searchable_retokenize_<prop>_<gen>/` working dir under the still-
-// running sub-task. That sub-unit FAILs; the sibling filterable
-// sub-unit keeps going and commits its local bucket swap; the
-// per-shard ack barrier sees mixed acks → task FAILED →
-// `flipSemanticMigrationSchema` skipped → schema stays at OLD
-// tokenization while the filterable bucket on disk now holds
-// NEW-tokenized data. Bucket↔schema inversion — same family as the
-// ack-barrier failure mode but triggered by an external schema
-// mutation instead of a crash.
+// Without it, a mutation landing mid-migration can let the FSM apply a
+// schema flip while the migration's own sub-task is still writing,
+// producing a bucket↔schema inversion — same family as the ack-barrier
+// failure mode, triggered externally instead of by a crash.
 //
-// Putting the check inside the schema FSM's UpdateProperty apply makes
-// it RAFT-deterministic: every node sees the same distributed-task FSM
-// snapshot at the same applyIndex and reaches the same accept/reject
-// decision. Symmetric to [ConflictDetector] (which protects in-flight
-// tasks from new conflicting tasks); this protects them from out-of-band
-// schema mutations during their flight.
+// The check runs inside the FSM apply so every node reaches the same
+// accept/reject decision from the same applyIndex. Symmetric to
+// [ConflictDetector] (protects in-flight tasks from new conflicting tasks);
+// this protects them from out-of-band schema mutations during their flight.
 //
-// FSM-determinism contract: CheckPropertyUpdate MUST be a pure function
-// of (className, propertyName, existingTasks). It must not read mutable
-// process state (clocks, network, schema, RNG) — different nodes
-// applying the same log entry must reach the same accept/reject
-// decision.
+// CheckPropertyUpdate MUST be a pure function of (className, propertyName,
+// existingTasks) — no clocks, network, schema, or RNG — so every node
+// applying the same log entry reaches the same decision.
 type SchemaMutationDetector interface {
 	Provider
 
@@ -408,6 +453,9 @@ type Unit struct {
 	Error      string     `json:"error,omitempty"`
 	UpdatedAt  time.Time  `json:"updatedAt"`
 	FinishedAt time.Time  `json:"finishedAt,omitempty"`
+	// Attempts counts retryable re-opens of this unit. The initial claim
+	// is not counted: zero means the unit has never been re-opened.
+	Attempts int32 `json:"attempts,omitempty"`
 }
 
 // markTerminal stamps FinishedAt and UpdatedAt together with the status, so a
@@ -492,8 +540,7 @@ func (t TaskStatus) IsTerminal() bool {
 // The exact negation of [TaskStatus.IsTerminal], so a status this build
 // does not recognize counts as in flight: reading it as done would admit
 // a second migration onto a property a newer node is still migrating, and
-// let the orphan audit and TTL sweep delete live state. See
-// docs/runtime-reindex.md §4.2.
+// let the TTL sweep delete live state. See docs/runtime-reindex.md §4.2.
 func (t TaskStatus) IsActive() bool {
 	return !t.IsTerminal()
 }
@@ -528,6 +575,22 @@ func (t TaskStatus) IsCancellable() bool {
 	return t == TaskStatusStarted
 }
 
+// IsForceTerminable returns true for {STARTED, PREPARING, SWAPPING}.
+// Unrecognized statuses return false. SWAPPING is further guarded by
+// the all-acks predicate in ForceTerminateTask.
+//
+// Literal comparison, not a classification: every binary replaying the
+// same log entry must reach the same verdict.
+func (t TaskStatus) IsForceTerminable() bool {
+	switch t {
+	case TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping:
+		return true
+	case TaskStatusFinished, TaskStatusCancelled, TaskStatusFailed:
+		return false
+	}
+	return false
+}
+
 // TaskDescriptor is a struct identifying a task execution under a certain task namespace.
 type TaskDescriptor struct {
 	// ID is the identifier of the task in the namespace.
@@ -536,6 +599,15 @@ type TaskDescriptor struct {
 	// Version is the version of the task with task ID.
 	// It is used to differentiate between multiple runs of the same task.
 	Version uint64 `json:"version"`
+}
+
+type TaskStatusEntry struct {
+	TaskDescriptor
+	Status TaskStatus
+}
+
+func (t *Task) StatusEntry() TaskStatusEntry {
+	return TaskStatusEntry{TaskDescriptor: t.TaskDescriptor, Status: t.Status}
 }
 
 // Task represents a distributed task tracked across the cluster via Raft consensus.
@@ -576,8 +648,22 @@ type Task struct {
 	// Error is an optional field to store the error which moved the task to FAILED status.
 	Error string `json:"error,omitempty"`
 
+	// FormatVersion is set to 1 by AddTask. A reader seeing > 0 knows the
+	// writer understood the extended field set. Zero on legacy tasks.
+	FormatVersion int32 `json:"formatVersion,omitempty"`
+
+	// StaleTimeoutMs is the opt-in per-task stale-detection timeout, set
+	// at ADD time. Zero disables stale detection.
+	StaleTimeoutMs int64 `json:"staleTimeoutMs,omitempty"`
+
+	// MaxUnitRetries is the opt-in per-task retry budget for retryable
+	// unit failures, set at ADD time. Zero disables retries (fail-fast).
+	MaxUnitRetries int32 `json:"maxUnitRetries,omitempty"`
+
 	// Units tracks per-unit progress. Always non-nil for valid tasks.
 	Units map[string]*Unit `json:"units,omitempty"`
+
+	collection string
 
 	// PreparationCompletionAcks records per-node PREP-phase confirmations during
 	// PREPARING. The FSM gates PREPARING → SWAPPING on every expected ack
@@ -587,7 +673,7 @@ type Task struct {
 
 	// PostCompletionAcks records per-node confirmations that the node's
 	// SWAP phase (the second half of the split OnGroupCompleted —
-	// per-shard SwapBucketPointer tight loop + post-atomic tidy +
+	// per-shard SwapBucketPointer tight loop + post-atomic cleanup +
 	// per-strategy OnMigrationComplete) completed successfully. Keys are
 	// node IDs. Populated only after the task transitions to SWAPPING
 	// and only by the [Scheduler] tick firing
@@ -769,6 +855,24 @@ func (t *Task) MissingPostCompletionAckNodes() []string {
 		}
 	}
 	return missing
+}
+
+// AllPostCompletionAcksSuccessful returns true when every node with
+// local units has a post-completion ack with Success=true. Used as the
+// force-terminate guard on SWAPPING: when true, finalize is imminent.
+func (t *Task) AllPostCompletionAcksSuccessful() bool {
+	for _, node := range t.NodesWithLocalUnits() {
+		ack, ok := t.PostCompletionAcks[node]
+		if !ok || !ack.Success {
+			return false
+		}
+	}
+	return true
+}
+
+// GetDistributedTaskResponse is the response for a by-id task query.
+type GetDistributedTaskResponse struct {
+	Task *Task `json:"task"`
 }
 
 type ListDistributedTasksResponse struct {

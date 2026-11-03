@@ -144,7 +144,7 @@ func testR0_RestartThenMigrate(t *testing.T) {
 
 // testR1_RestartAfter1Migration: import → word→field → restart →
 // per-replica query baseline equality. Pins that after restart
-// FinalizeCompletedMigrations promotes gen 1's ingest dir to canonical
+// reconciliation promotes gen 1's ingest dir to canonical
 // on every node, and every replica returns the same counts.
 func testR1_RestartAfter1Migration(t *testing.T) {
 	ctx := context.Background()
@@ -183,7 +183,7 @@ func testR1_RestartAfter1Migration(t *testing.T) {
 // testR1b_RestartAfter1MigrationThenMigrate: import → word→field →
 // restart → field→word → per-replica baseline equality. Pins that after
 // restart-finalize the next migration starts at gen=1 again (the
-// previous gen's tracker dir is gone) and produces consistent
+// previous gen's record is gone) and produces consistent
 // per-replica state.
 func testR1b_RestartAfter1MigrationThenMigrate(t *testing.T) {
 	ctx := context.Background()
@@ -389,7 +389,7 @@ func TestMultiNode_RollingRestartBetweenMigrations(t *testing.T) {
 
 	// Roll all pods between migrations. Some nodes' T1 state was
 	// finalized by their restart (canonical bucket on disk); others
-	// rolled later when T1 was already tidied. Per-node disk states
+	// rolled later when T1 was already promoted. Per-node disk states
 	// diverge.
 	rollingRestartCluster(ctx, t, compose)
 

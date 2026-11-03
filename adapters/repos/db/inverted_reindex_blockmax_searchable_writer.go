@@ -29,29 +29,25 @@ func writeBlockmaxSearchablePostings(shard ShardLike, bucket *lsmkv.Bucket,
 ) error {
 	propLen := calcPropLenInverted(prop.Items)
 	for _, item := range prop.Items {
-		pair := shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
-		if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
+		if err := shard.addToPropertyMapBucket(bucket, docID, item.Data, item.TermFrequency, propLen); err != nil {
 			return fmt.Errorf("adding prop '%s': %w", item.Data, err)
 		}
 	}
 	return nil
 }
 
-// swapFallbackNamer is the canonical-name fallback passed to
-// resolveDoubleWriteBucket; nil skips on a missing sidecar (backup phase).
 func blockmaxSearchableAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, swapFallbackNamer func(string) string,
+	armed armedMirror, swapFallbackNamer func(string) string,
 ) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, swapFallbackNamer, swapFallbackNamer != nil)
+			armed, bucketNamer, swapFallbackNamer)
 		if skip {
 			return nil
 		}
 		propLen := calcPropLenInverted(property.Items)
 		for _, item := range property.Items {
-			pair := shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
-			if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
+			if err := shard.addToPropertyMapBucket(bucket, docID, item.Data, item.TermFrequency, propLen); err != nil {
 				return fmt.Errorf("adding prop '%s' to bucket '%s': %w", item.Data, bucketName, err)
 			}
 		}
@@ -60,11 +56,11 @@ func blockmaxSearchableAddCallback(bucketNamer func(string) string,
 }
 
 func blockmaxSearchableDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, swapFallbackNamer func(string) string,
+	armed armedMirror, swapFallbackNamer func(string) string,
 ) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, swapFallbackNamer, swapFallbackNamer != nil)
+			armed, bucketNamer, swapFallbackNamer)
 		if skip {
 			return nil
 		}

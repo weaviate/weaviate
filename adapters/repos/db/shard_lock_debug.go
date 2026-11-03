@@ -33,8 +33,9 @@ func (s *Shard) DebugGetDocIdLockStatus() (bool, error) {
 }
 
 func (s *LazyLoadShard) DebugGetDocIdLockStatus() (bool, error) {
-	if s.shard == nil {
+	shard := s.currentShard()
+	if shard == nil {
 		return false, fmt.Errorf("shard is nil")
 	}
-	return s.shard.DebugGetDocIdLockStatus()
+	return shard.DebugGetDocIdLockStatus()
 }

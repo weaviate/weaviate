@@ -12,13 +12,21 @@
 package db
 
 import (
+	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	entdynamic "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	entflat "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func newTestVectorIndexMapping(t *testing.T) (*vectorIndexMapping, *shardmeta.DB) {
@@ -27,6 +35,13 @@ func newTestVectorIndexMapping(t *testing.T) (*vectorIndexMapping, *shardmeta.DB
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 	return newVectorIndexMapping(db), db
+}
+
+// recorded is name's record as the shard writes it today: built at
+// physicalID with its queue beside it, holding the schema's config.
+func recorded(shard *Shard, name, physicalID, state string) vectorIndexRecord {
+	cfg := shard.index.GetVectorIndexConfig(name)
+	return vectorIndexRecord{PhysicalID: physicalID, IndexType: cfg.IndexType(), State: state, QueueID: physicalID, Config: cfg}
 }
 
 // TestVectorIndexMapping_KeyLayout pins the on-disk keys. They are read by
@@ -77,6 +92,17 @@ func TestVectorIndexMapping_Load(t *testing.T) {
 		assert.Empty(t, records)
 	})
 
+	// a deferred deletion the process did not finish; the next load does
+	t.Run("a dropping record loads", func(t *testing.T) {
+		m, db := newTestVectorIndexMapping(t)
+		put(t, db, ".format_version", "1")
+		put(t, db, "title", `{"physical_id":"vectors_title","index_type":"hnsw","state":"dropping"}`)
+		records, initialized, err := m.Load()
+		require.NoError(t, err)
+		assert.True(t, initialized)
+		assert.Equal(t, vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "dropping"}, records["title"])
+	})
+
 	t.Run("reads every record under its logical name", func(t *testing.T) {
 		m, db := newTestVectorIndexMapping(t)
 		put(t, db, ".format_version", "1")
@@ -117,6 +143,8 @@ func TestVectorIndexMapping_Load(t *testing.T) {
 		{name: "empty physical id", key: "title", value: `{"physical_id":"","index_type":"hnsw","state":"ready"}`, wantErr: "physical id"},
 		{name: "empty index type", key: "title", value: `{"physical_id":"vectors_title","index_type":"","state":"ready"}`, wantErr: "index type"},
 		{name: "record without format version", noVersion: true, key: "title", value: `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready"}`, wantErr: "format version"},
+		{name: "config of an unknown index type", key: "title", value: `{"physical_id":"vectors_title","index_type":"none","state":"ready","config":{}}`, wantErr: `unknown vector index type "none"`},
+		{name: "unparsable config", key: "title", value: `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready","config":{"ef":"many"}}`, wantErr: `record "title": config`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -129,6 +157,121 @@ func TestVectorIndexMapping_Load(t *testing.T) {
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
+}
+
+// A record written by a newer version carries fields this one ignores; the
+// strip rewrites exactly those records and leaves a mapping it wrote alone.
+func TestVectorIndexMapping_LoadAndStrip(t *testing.T) {
+	const (
+		own   = `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready"}`
+		newer = `{"physical_id":"main","index_type":"hnsw","state":"ready","queue_id":"main","future":{"ef":64}}`
+	)
+	// lastTxID opens the closed index.db directly: bolt's transaction ID
+	// moves on every committed write, even one that changes nothing
+	lastTxID := func(t *testing.T, dir string) int {
+		t.Helper()
+		db, err := bbolt.Open(filepath.Join(dir, shardmeta.FileName), 0o600, nil)
+		require.NoError(t, err)
+		defer db.Close()
+		tx, err := db.Begin(false)
+		require.NoError(t, err)
+		defer tx.Rollback()
+		return tx.ID()
+	}
+	loadAndStrip := func(t *testing.T, dir string) (map[string]vectorIndexRecord, []string, map[string]string) {
+		t.Helper()
+		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		defer db.Close()
+		records, initialized, stripped, err := newVectorIndexMapping(db).LoadAndStrip()
+		require.NoError(t, err)
+		assert.True(t, initialized)
+		raw := map[string]string{}
+		require.NoError(t, db.Namespace(vectorIndexMappingNamespace).ForEach(func(k, v []byte) error {
+			raw[string(k)] = string(v)
+			return nil
+		}))
+		return records, stripped, raw
+	}
+	setup := func(t *testing.T, values map[string]string) string {
+		t.Helper()
+		dir := t.TempDir()
+		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		defer db.Close()
+		ns := db.Namespace(vectorIndexMappingNamespace)
+		require.NoError(t, ns.Put([]byte(".format_version"), []byte("1")))
+		for k, v := range values {
+			require.NoError(t, ns.Put([]byte(k), []byte(v)))
+		}
+		return dir
+	}
+
+	t.Run("records of a newer version are rewritten without its fields", func(t *testing.T) {
+		dir := setup(t, map[string]string{".legacy": newer, "title": own, "summary": newer})
+		records, stripped, raw := loadAndStrip(t, dir)
+		assert.Equal(t, []string{"", "summary"}, stripped)
+		assert.Equal(t, map[string]vectorIndexRecord{
+			"":        {PhysicalID: "main", IndexType: "hnsw", State: "ready", QueueID: "main"},
+			"title":   {PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"},
+			"summary": {PhysicalID: "main", IndexType: "hnsw", State: "ready", QueueID: "main"},
+		}, records)
+		assert.Equal(t, map[string]string{
+			".format_version": "1",
+			".legacy":         `{"physical_id":"main","index_type":"hnsw","state":"ready","queue_id":"main"}`,
+			"title":           own,
+			"summary":         `{"physical_id":"main","index_type":"hnsw","state":"ready","queue_id":"main"}`,
+		}, raw)
+
+		// the next load finds nothing to strip and does not write
+		before := lastTxID(t, dir)
+		_, stripped, _ = loadAndStrip(t, dir)
+		assert.Empty(t, stripped)
+		assert.Equal(t, before, lastTxID(t, dir))
+	})
+
+	t.Run("a mapping this version wrote is not written to", func(t *testing.T) {
+		dir := setup(t, map[string]string{"title": own})
+		before := lastTxID(t, dir)
+		records, stripped, raw := loadAndStrip(t, dir)
+		assert.Empty(t, stripped)
+		assert.Equal(t, map[string]vectorIndexRecord{
+			"title": {PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"},
+		}, records)
+		assert.Equal(t, map[string]string{".format_version": "1", "title": own}, raw)
+		assert.Equal(t, before, lastTxID(t, dir))
+	})
+
+	t.Run("an uninitialized mapping is not written to", func(t *testing.T) {
+		dir := t.TempDir()
+		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		require.NoError(t, db.Close())
+		before := lastTxID(t, dir)
+		db, err = shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		records, initialized, stripped, err := newVectorIndexMapping(db).LoadAndStrip()
+		require.NoError(t, err)
+		require.NoError(t, db.Close())
+		assert.False(t, initialized)
+		assert.Empty(t, records)
+		assert.Empty(t, stripped)
+		assert.Equal(t, before, lastTxID(t, dir))
+	})
+
+	// a record that does not validate refuses the load before anything is
+	// written, as Load does
+	t.Run("an invalid record refuses the load", func(t *testing.T) {
+		dir := setup(t, map[string]string{".legacy": newer, "title": `{"physical_id":"","index_type":"hnsw","state":"ready","config":{}}`})
+		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		_, _, _, err = newVectorIndexMapping(db).LoadAndStrip()
+		require.ErrorContains(t, err, "physical id")
+		v, err := db.Namespace(vectorIndexMappingNamespace).Get([]byte(".legacy"))
+		require.NoError(t, err)
+		assert.Equal(t, newer, string(v))
+		require.NoError(t, db.Close())
+	})
 }
 
 func TestVectorIndexMapping_Initialize(t *testing.T) {
@@ -235,6 +378,7 @@ func TestVectorIndexMapping_Put(t *testing.T) {
 		{name: "unknown state", rec: vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "done"}, wantErr: `state "done"`},
 		{name: "empty physical id", rec: vectorIndexRecord{IndexType: "hnsw", State: "ready"}, wantErr: "physical id"},
 		{name: "empty index type", rec: vectorIndexRecord{PhysicalID: "vectors_title", State: "ready"}, wantErr: "index type"},
+		{name: "config of another type", rec: vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready", Config: entflat.NewDefaultUserConfig()}, wantErr: "config is for a flat index, the record says hnsw"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -266,6 +410,21 @@ func TestVectorIndexMapping_Get(t *testing.T) {
 	require.NoError(t, db.Namespace(vectorIndexMappingNamespace).Put([]byte("broken"), []byte("{")))
 	_, _, err = m.Get("broken")
 	require.ErrorContains(t, err, `record "broken"`)
+}
+
+// A record whose queue outlived the index it was created with keeps both
+// IDs through a write and a read.
+func TestVectorIndexMapping_QueueIDOtherThanThePhysicalID(t *testing.T) {
+	m, _ := newTestVectorIndexMapping(t)
+	require.NoError(t, m.Initialize(nil))
+	title := vectorIndexRecord{PhysicalID: "vectors_title_2", IndexType: "hnsw", State: "ready", QueueID: "vectors_title"}
+	require.NoError(t, m.Put("title", title))
+
+	rec, ok, err := m.Get("title")
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.Equal(t, title, rec)
+	assert.Equal(t, "vectors_title", rec.queueIDOrDefault())
 }
 
 func TestVectorIndexMapping_Delete(t *testing.T) {
@@ -300,5 +459,182 @@ func TestVectorIndexMapping_Delete(t *testing.T) {
 		_, initialized, err := m.Load()
 		require.NoError(t, err)
 		assert.False(t, initialized, "a delete does not initialize the mapping")
+	})
+}
+
+// The offline reader refuses what Load refuses: a deletion must not act on
+// a record this binary cannot read.
+func TestReadVectorIndexRecordOffline(t *testing.T) {
+	valid := `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready"}`
+	tests := []struct {
+		name    string
+		version string
+		record  string
+		wantErr string
+		wantOK  bool
+	}{
+		{name: "reads a record", version: "1", record: valid, wantOK: true},
+		{name: "unsupported format version", version: "2", record: valid, wantErr: "format version"},
+		{name: "invalid record", version: "1", record: `{"physical_id":"","index_type":"hnsw","state":"ready"}`, wantErr: "physical id"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+			require.NoError(t, err)
+			ns := db.Namespace(vectorIndexMappingNamespace)
+			require.NoError(t, ns.Put([]byte(vectorIndexMappingFormatVersionKey), []byte(tt.version)))
+			require.NoError(t, ns.Put([]byte("title"), []byte(tt.record)))
+			require.NoError(t, db.Close())
+
+			rec, ok, initialized, err := readVectorIndexRecordOffline(dir, "title")
+			assert.True(t, initialized)
+			assert.Equal(t, tt.wantOK, ok)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"}, rec)
+		})
+	}
+}
+
+// TestVectorIndexRecord_Format pins the fields a record carries beyond the
+// first three: the queue ID and the adopted config, inside the same JSON
+// object, so a reader from before them still reads the record.
+func TestVectorIndexRecord_Format(t *testing.T) {
+	hnswCfg := enthnsw.NewDefaultUserConfig()
+	hnswCfg.EF = 200
+	flatCfg := entflat.NewDefaultUserConfig()
+	dynamicCfg := entdynamic.NewDefaultUserConfig()
+	hfreshCfg := enthfresh.NewDefaultUserConfig()
+
+	t.Run("every type round-trips through the store", func(t *testing.T) {
+		for _, cfg := range []schemaConfig.VectorIndexConfig{hnswCfg, flatCfg, dynamicCfg, hfreshCfg} {
+			t.Run(cfg.IndexType(), func(t *testing.T) {
+				m, _ := newTestVectorIndexMapping(t)
+				require.NoError(t, m.Initialize(nil))
+				rec := vectorIndexRecord{
+					PhysicalID: "vectors_title", IndexType: cfg.IndexType(), State: "ready",
+					QueueID: "vectors_title", Config: cfg,
+				}
+				require.NoError(t, m.Put("title", rec))
+
+				got, ok, err := m.Get("title")
+				require.NoError(t, err)
+				require.True(t, ok)
+				assert.Equal(t, rec, got)
+				records, _, err := m.Load()
+				require.NoError(t, err)
+				assert.Equal(t, map[string]vectorIndexRecord{"title": rec}, records)
+			})
+		}
+	})
+
+	t.Run("the bytes on disk", func(t *testing.T) {
+		m, db := newTestVectorIndexMapping(t)
+		require.NoError(t, m.Initialize(nil))
+		require.NoError(t, m.Put("title", vectorIndexRecord{
+			PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready",
+			QueueID: "vectors_title", Config: hnswCfg,
+		}))
+		v, err := db.Namespace(vectorIndexMappingNamespace).Get([]byte("title"))
+		require.NoError(t, err)
+
+		var onDisk map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(v, &onDisk))
+		assert.JSONEq(t, `"vectors_title"`, string(onDisk["physical_id"]))
+		assert.JSONEq(t, `"hnsw"`, string(onDisk["index_type"]))
+		assert.JSONEq(t, `"ready"`, string(onDisk["state"]))
+		assert.JSONEq(t, `"vectors_title"`, string(onDisk["queue_id"]))
+		// the config is the parsed config under its API field names
+		cfgBytes, err := json.Marshal(hnswCfg)
+		require.NoError(t, err)
+		assert.JSONEq(t, string(cfgBytes), string(onDisk["config"]))
+		var cfgOnDisk map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(onDisk["config"], &cfgOnDisk))
+		assert.JSONEq(t, `200`, string(cfgOnDisk["ef"]))
+		assert.Contains(t, cfgOnDisk, "maxConnections")
+	})
+
+	t.Run("a record without the fields loads with them empty", func(t *testing.T) {
+		m, db := newTestVectorIndexMapping(t)
+		require.NoError(t, m.Initialize(nil))
+		require.NoError(t, db.Namespace(vectorIndexMappingNamespace).Put([]byte("title"),
+			[]byte(`{"physical_id":"vectors_title","index_type":"hnsw","state":"ready"}`)))
+		rec, ok, err := m.Get("title")
+		require.NoError(t, err)
+		require.True(t, ok)
+		assert.Equal(t, vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"}, rec)
+		assert.Nil(t, rec.Config)
+		assert.Equal(t, "vectors_title", rec.queueIDOrDefault(), "the queue has always lived under the index's ID")
+	})
+
+	t.Run("a null config is no config", func(t *testing.T) {
+		m, db := newTestVectorIndexMapping(t)
+		require.NoError(t, m.Initialize(nil))
+		require.NoError(t, db.Namespace(vectorIndexMappingNamespace).Put([]byte("title"),
+			[]byte(`{"physical_id":"vectors_title","index_type":"hnsw","state":"ready","config":null}`)))
+		rec, _, err := m.Get("title")
+		require.NoError(t, err)
+		assert.Nil(t, rec.Config)
+	})
+
+	t.Run("a record without the fields writes none", func(t *testing.T) {
+		m, db := newTestVectorIndexMapping(t)
+		require.NoError(t, m.Initialize(nil))
+		require.NoError(t, m.Put("title", vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"}))
+		v, err := db.Namespace(vectorIndexMappingNamespace).Get([]byte("title"))
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready"}`, string(v))
+	})
+
+	// What a version from before the fields reads: the record's struct as it
+	// was then. Its decoder ignores the fields it does not know, and a
+	// record it rewrites loses them, which the loading shard fills back in.
+	t.Run("a reader from before the fields ignores them", func(t *testing.T) {
+		m, db := newTestVectorIndexMapping(t)
+		require.NoError(t, m.Initialize(nil))
+		require.NoError(t, m.Put("title", vectorIndexRecord{
+			PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready",
+			QueueID: "vectors_title", Config: hnswCfg,
+		}))
+		v, err := db.Namespace(vectorIndexMappingNamespace).Get([]byte("title"))
+		require.NoError(t, err)
+
+		type recordBeforeTheFields struct {
+			PhysicalID string `json:"physical_id"`
+			IndexType  string `json:"index_type"`
+			State      string `json:"state"`
+		}
+		var old recordBeforeTheFields
+		require.NoError(t, json.Unmarshal(v, &old))
+		assert.Equal(t, recordBeforeTheFields{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"}, old)
+	})
+}
+
+// adopted records cfg and fills in a missing queue ID, and says whether
+// that changed anything.
+func TestVectorIndexRecord_Adopted(t *testing.T) {
+	cfg := enthnsw.NewDefaultUserConfig()
+	other := cfg
+	other.EF = cfg.EF + 1
+
+	t.Run("fills in a record from before the fields", func(t *testing.T) {
+		old := vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"}
+		rec, changed := old.adopted(cfg)
+		assert.True(t, changed)
+		assert.Equal(t, vectorIndexRecord{
+			PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready",
+			QueueID: "vectors_title", Config: cfg,
+		}, rec)
+	})
+
+	t.Run("the same config changes nothing", func(t *testing.T) {
+		complete := vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready", QueueID: "vectors_title", Config: cfg}
+		rec, changed := complete.adopted(cfg)
+		assert.False(t, changed)
+		assert.Equal(t, complete, rec)
 	})
 }

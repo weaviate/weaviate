@@ -309,6 +309,19 @@ func parseSegmentTimestamp(dbFile string) (int64, error) {
 	return strconv.ParseInt(name, 10, 64)
 }
 
+// canonicalSegmentTimestamp returns the id in name, and whether name spells it
+// the way FormatInt would. ParseInt normalizes a leading zero or +, which no
+// derived name carries, so an id that does not survive the round trip names
+// files nothing else in the directory would look for.
+func canonicalSegmentTimestamp(name string) (int64, bool) {
+	ts, err := parseSegmentTimestamp(name)
+	if err != nil {
+		return 0, false
+	}
+
+	return ts, strconv.FormatInt(ts, 10) == segmentID(name)
+}
+
 func maxSegmentTimestamp(dbFiles []string) (int64, error) {
 	maxTS := int64(math.MinInt64)
 	for _, f := range dbFiles {

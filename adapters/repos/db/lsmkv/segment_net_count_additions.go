@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -48,6 +49,15 @@ func (s *segment) countNetPath() string {
 	return s.buildPath("%s.cna")
 }
 
+const netAdditionsOutputBufferSize = 10e6
+
+var netAdditionsBufferPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, netAdditionsOutputBufferSize)
+		return &buf
+	},
+}
+
 // computeNetAdditions takes a key exists cannot answer for as new, as
 // Bucket.existsOnDiskAndPreviousMemtable does, so the count can overstate.
 // Reported rather than returned: a flush failing here strands writes whose
@@ -73,8 +83,14 @@ func (s *segment) computeNetAdditions(exists existsOnLowerSegmentsFn) int {
 		}
 	}
 
+	// a chunked replay builds one segment per chunk, so without the pool a run of
+	// a hundred drops a gigabyte on the startup path chunking exists to keep quiet.
+	// The buffer goes back only after do returns, which is after the last callback.
+	buf := netAdditionsBufferPool.Get().(*[]byte)
+	defer netAdditionsBufferPool.Put(buf)
+
 	extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
-		s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
+		s.dataEndPos, *buf, s.secondaryIndexCount, cb)
 	extr.do()
 
 	if lookupErr != nil {

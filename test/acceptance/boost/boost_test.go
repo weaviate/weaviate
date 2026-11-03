@@ -24,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
@@ -102,22 +101,15 @@ func resultIDs(results []*pb.SearchResult) []string {
 func TestBoost(t *testing.T) {
 	ctx := context.Background()
 
-	compose, err := docker.New().
-		WithWeaviateWithGRPC().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient(helper.SharedServerURI)
 	defer helper.ResetClient()
 
-	grpcConn, err := helper.CreateGrpcConnectionClient(compose.GetWeaviate().GrpcURI())
+	grpcConn, err := helper.CreateGrpcConnectionClient(helper.SharedServerGRPCURI)
 	require.NoError(t, err)
 	defer grpcConn.Close()
 	grpcClient := helper.CreateGrpcWeaviateClient(grpcConn)
 
+	helper.DeleteClass(t, className)
 	setupTestData(t)
 	defer helper.DeleteClass(t, className)
 

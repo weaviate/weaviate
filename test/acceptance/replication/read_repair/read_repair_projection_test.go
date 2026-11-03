@@ -69,9 +69,9 @@ func (suite *ReplicationTestSuite) TestReadRepairPreservesProjectedAwayContent()
 
 	compose, err := docker.New().
 		With3NodeCluster().
-		// Vectors are explicit; contextionary only keeps container indices
+		// Vectors are explicit; the vectorizer only keeps container indices
 		// aligned with the rest of the package (slot 0).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		// Keeps the lagging replica's divergence from healing via async replication.
 		// Only on|enabled|1|true engage it; "disabled" would silently do nothing.
 		WithWeaviateEnv("ASYNC_REPLICATION_DISABLED", "true").

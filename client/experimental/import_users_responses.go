@@ -275,7 +275,7 @@ func NewImportUsersForbidden() *ImportUsersForbidden {
 /*
 ImportUsersForbidden describes a response with status code 403, with default header values.
 
-Forbidden
+Forbidden, or a record sets `expiresAt` and the node holds no Weaviate license key.
 */
 type ImportUsersForbidden struct {
 	Payload *models.ErrorResponse

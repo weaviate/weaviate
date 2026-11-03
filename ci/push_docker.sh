@@ -28,7 +28,9 @@ function release() {
     docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
   fi
 
-  # Reuse existing builder if exists
+  # Reuse the existing builder, if any. The build sets no remote cache, so only
+  # this builder's local cache applies. In the Multi-Arch-Docker-Build job it holds
+  # the scanned image, and the amd64 image reuses its `apk upgrade` layer.
   docker buildx inspect >/dev/null 2>&1 || docker buildx create --use
 
   # nightly tag was added to be pushed on merges to main branch, latest tag is used to get latest released version
@@ -41,7 +43,8 @@ function release() {
   git_revision=$(echo "$GITHUB_SHA" | cut -c1-7)
   git_branch="$GITHUB_HEAD_REF"
   build_user="ci"
-  build_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  # Commit timestamp, not wall clock, so the binary is reproducible (docs/reproducible-builds.md).
+  build_date=$(TZ=UTC git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd "$GITHUB_SHA")
 
   # Determine architecture and platform
   arch=""
@@ -91,19 +94,6 @@ function release() {
       weaviate_version="preview-${pr_title}-${git_revision}"
     fi
   fi
-
-  # BuildKit cache (GHA): use explicit scopes to avoid cache collisions.
-  # Per-arch scopes (weaviate-amd64/arm64); use "weaviate-multi" for multi-arch.
-  # GHA restores caches from the current ref, its base branch, and the default branch.
-  # Flags: --cache-from=type=gha,scope=... restores;
-  #        --cache-to=type=gha,scope=...,mode=max exports all layers (incl. intermediates).
-  # Result: layers are cached per-arch and reused across eligible refs, improving cache
-  # hit rate.
-  cache_scope="weaviate-multi"
-  if [ -n "$arch" ]; then
-    cache_scope="weaviate-$arch"
-  fi
-  echo "Using BuildKit cache scope: ${cache_scope}"
 
   args=("--build-arg=GIT_REVISION=$git_revision"
         "--build-arg=GIT_BRANCH=$git_branch"

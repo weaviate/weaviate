@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -49,9 +48,9 @@ func TestTheClusterPassSamplesItsPerShardRefusals(t *testing.T) {
 		idx.shards.Store(name, shard)
 	}
 
-	db := &DB{logger: logger, indices: map[string]*Index{"Books": idx}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Books": idx}}
 	db.migrationCluster.db = db
-	db.migrationCluster.local = func() ([]*distributedtask.Task, bool) { return nil, true }
+	db.migrationCluster.local = func() ([]distributedtask.TaskStatusEntry, bool) { return nil, true }
 	db.migrationCluster.cluster = func(context.Context) ([]*distributedtask.Task, error) {
 		return nil, nil
 	}
@@ -99,7 +98,7 @@ func TestTheClusterPassWalksARealLoadedShard(t *testing.T) {
 	settled.EXPECT().migrationRecordStore().Return(NewMigrationRecordStore(t.TempDir(), logger)).Maybe()
 	detectorIdx.shards.Store("settled", settled)
 
-	db := &DB{logger: logger, indices: map[string]*Index{"Real": realIdx, "Detector": detectorIdx}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Real": realIdx, "Detector": detectorIdx}}
 	db.migrationCluster.db = db
 	leaderQueries := 0
 	db.migrationCluster.cluster = func(context.Context) ([]*distributedtask.Task, error) {
@@ -117,13 +116,13 @@ func TestTheClusterPassWalksARealLoadedShard(t *testing.T) {
 	// decided, undecided sibling or not.
 	require.NoError(t, detectorStore.Put(NewMigrationRecordMerged(
 		testMigrationSubject(43, StrategyCodeEnableFilterable, "title"))))
-	plantUnreadableRecord(t, detectorStore.Dir())
+	unreadable := plantUnreadableRecord(t, detectorStore.Dir())
 	require.NoError(t, detectorStore.Load())
 	require.True(t, detectorStore.HasUndecided(), "fixture: the record it could read is undecided")
 	db.migrationCluster.ReconcileLoaded(ctx)
 	require.Zero(t, leaderQueries,
 		"a shard this build cannot read every record of must not open the leader-query gate")
-	require.NoError(t, os.Remove(filepath.Join(detectorStore.Dir(), "99_enable_searchable.json")))
+	require.NoError(t, os.Remove(unreadable))
 	require.NoError(t, detectorStore.Load())
 	hook.Reset()
 
@@ -197,7 +196,8 @@ func TestTheClusterPassDoesNotRebuildAShardTornDownUnderIt(t *testing.T) {
 	cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
 		idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 		false, idx.bitmapBufPool)
-	require.NoError(t, cold.Load(ctx))
+	_, _, err := cold.loadIfCold(ctx)
+	require.NoError(t, err)
 	idx.shards.Store(tenant, cold)
 	t.Cleanup(func() {
 		if cold.isLoaded() {
@@ -212,7 +212,7 @@ func TestTheClusterPassDoesNotRebuildAShardTornDownUnderIt(t *testing.T) {
 	require.NoError(t, cold.Shutdown(ctx))
 	require.False(t, cold.isLoaded(), "fixture: the tenant is down before the pass resolves it")
 
-	db := &DB{logger: logger, indices: map[string]*Index{class.Class: idx}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{class.Class: idx}}
 	db.migrationCluster.db = db
 	unresolved, shuttingDown := db.migrationCluster.samplers()
 

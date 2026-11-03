@@ -29,6 +29,10 @@ import (
 )
 
 func (h *replicationHandler) replicate(params replication.ReplicateParams, principal *models.Principal) middleware.Responder {
+	if !h.enabled.Get() {
+		return replication.NewReplicateNotImplemented()
+	}
+
 	if err := params.Body.Validate(nil /* pass nil as we don't validate formatting here*/); err != nil {
 		return replication.NewReplicateBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
@@ -54,6 +58,9 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 		if errors.Is(err, replicationTypes.ErrInvalidRequest) {
 			return replication.NewReplicateUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
+		if errors.Is(err, replicationTypes.ErrMovementBlockedByTask) {
+			return replication.NewReplicateConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
 		return replication.NewReplicateInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -72,6 +79,10 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 }
 
 func (h *replicationHandler) getReplicationDetailsByReplicationId(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
+	if !h.enabled.Get() {
+		return replication.NewReplicationDetailsNotImplemented()
+	}
+
 	ctx := params.HTTPRequest.Context()
 
 	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(params.HTTPRequest.Context(), params.ID)
@@ -184,6 +195,10 @@ func (h *replicationHandler) handleInternalServerError(principal *models.Princip
 }
 
 func (h *replicationHandler) deleteReplication(params replication.DeleteReplicationParams, principal *models.Principal) middleware.Responder {
+	if !h.enabled.Get() {
+		return replication.NewDeleteReplicationNotImplemented()
+	}
+
 	ctx := params.HTTPRequest.Context()
 
 	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(ctx, params.ID)
@@ -217,6 +232,10 @@ func (h *replicationHandler) deleteReplication(params replication.DeleteReplicat
 }
 
 func (h *replicationHandler) deleteAllReplications(params replication.DeleteAllReplicationsParams, principal *models.Principal) middleware.Responder {
+	if !h.enabled.Get() {
+		return replication.NewDeleteAllReplicationsNotImplemented()
+	}
+
 	ctx := params.HTTPRequest.Context()
 	if err := h.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Replications("*", "*")); err != nil {
 		return replication.NewDeleteAllReplicationsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
@@ -235,6 +254,10 @@ func (h *replicationHandler) deleteAllReplications(params replication.DeleteAllR
 }
 
 func (h *replicationHandler) forceDeleteReplications(params replication.ForceDeleteReplicationsParams, principal *models.Principal) middleware.Responder {
+	if !h.enabled.Get() {
+		return replication.NewForceDeleteReplicationsNotImplemented()
+	}
+
 	ctx := params.HTTPRequest.Context()
 
 	if err := h.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Replications("*", "*")); err != nil {
@@ -338,6 +361,10 @@ func (h *replicationHandler) forceDeleteReplications(params replication.ForceDel
 }
 
 func (h *replicationHandler) cancelReplication(params replication.CancelReplicationParams, principal *models.Principal) middleware.Responder {
+	if !h.enabled.Get() {
+		return replication.NewCancelReplicationNotImplemented()
+	}
+
 	ctx := params.HTTPRequest.Context()
 
 	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(ctx, params.ID)
@@ -371,6 +398,10 @@ func (h *replicationHandler) cancelReplication(params replication.CancelReplicat
 }
 
 func (h *replicationHandler) listReplication(params replication.ListReplicationParams, principal *models.Principal) middleware.Responder {
+	if !h.enabled.Get() {
+		return replication.NewListReplicationNotImplemented()
+	}
+
 	ctx := params.HTTPRequest.Context()
 
 	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Replications("*", "*")); err != nil {
@@ -425,6 +456,10 @@ func (h *replicationHandler) generateShardingState(collection string, shards map
 }
 
 func (h *replicationHandler) getCollectionShardingState(params replication.GetCollectionShardingStateParams, principal *models.Principal) middleware.Responder {
+	if !h.enabled.Get() {
+		return replication.NewGetCollectionShardingStateNotImplemented()
+	}
+
 	ctx := params.HTTPRequest.Context()
 	if params.Collection == nil {
 		return replication.NewGetCollectionShardingStateBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("collection is required")))
@@ -462,6 +497,10 @@ func (h *replicationHandler) getCollectionShardingState(params replication.GetCo
 
 // getReplicationScalePlan validates input, authorizes, and returns a scaling plan for the desired replication factor.
 func (h *replicationHandler) getReplicationScalePlan(params replication.GetReplicationScalePlanParams, principal *models.Principal) middleware.Responder {
+	if !h.enabled.Get() {
+		return replication.NewGetReplicationScalePlanNotImplemented()
+	}
+
 	ctx := params.HTTPRequest.Context()
 
 	// Validate input
@@ -515,6 +554,10 @@ func (h *replicationHandler) getReplicationScalePlan(params replication.GetRepli
 
 // applyReplicationScalePlan validates input, authorizes, and applies scaling to match the desired sharding state.
 func (h *replicationHandler) applyReplicationScalePlan(params replication.ApplyReplicationScalePlanParams, principal *models.Principal) middleware.Responder {
+	if !h.enabled.Get() {
+		return replication.NewApplyReplicationScalePlanNotImplemented()
+	}
+
 	ctx := params.HTTPRequest.Context()
 
 	modelsScalePlan := params.Body
@@ -555,6 +598,8 @@ func (h *replicationHandler) applyReplicationScalePlan(params replication.ApplyR
 	operationIDs, err := h.replicationManager.ApplyReplicationScalePlan(ctx, scalePlan)
 	if errors.Is(err, replicationTypes.ErrNotFound) {
 		return replication.NewApplyReplicationScalePlanNotFound()
+	} else if errors.Is(err, replicationTypes.ErrMovementBlockedByTask) {
+		return replication.NewApplyReplicationScalePlanConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	} else if err != nil {
 		return replication.NewApplyReplicationScalePlanInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}

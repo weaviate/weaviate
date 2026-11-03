@@ -77,6 +77,33 @@ func requireShardAbsentOnNode(t *testing.T, qualifiedClass, shardName, node stri
 	require.Positive(t, listed.Load(), "no shard listing finished for %q", qualifiedClass)
 }
 
+// requireShardReleasedOnNode waits until node has listed no such shard for three
+// seconds in a row. A shard the node opens and its sweep closes during the wait
+// restarts the window rather than failing it. live is read from node in the same
+// poll, because a node that timed out lists no shards either.
+func requireShardReleasedOnNode(t *testing.T, qualifiedClass, shardName, node string, live presentShard) {
+	t.Helper()
+
+	const window = 3 * time.Second
+	var absentSince time.Time
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		anchor, err := shardOnNode(t, live.qualifiedClass, live.name, node)
+		if !assert.NoError(c, err) || !assert.NotNil(c, anchor, "%q stopped listing %q", node, live.name) {
+			absentSince = time.Time{}
+			return
+		}
+		shard, err := shardOnNode(t, qualifiedClass, shardName, node)
+		if !assert.NoError(c, err) || !assert.Nil(c, shard, "%q still lists shard %q", node, shardName) {
+			absentSince = time.Time{}
+			return
+		}
+		if absentSince.IsZero() {
+			absentSince = time.Now()
+		}
+		assert.GreaterOrEqual(c, time.Since(absentSince), window)
+	}, 30*time.Second, 250*time.Millisecond, "%q never went %v without listing shard %q", node, window, shardName)
+}
+
 // requireNoMovementErrors holds for a window asserting the op records no error.
 // The FSM cancels a movement at 50 and drops the files its target already
 // copied, so a suspension charged here would destroy a movement that only had to
@@ -153,21 +180,23 @@ func movementState(t *testing.T, opID strfmt.UUID) (string, []string, error) {
 // its schema half and then opens the shard on the target, even though the
 // namespace holds no shards open.
 //
-// That is what happens, not what should: a suspended namespace ought to refuse
-// this command before the schema records anything. Both halves below invert when
-// it does — the scale plan is refused, and the target materializes nothing.
-// Until then a suspend leaves an open shard on a node that is not the
-// namespace's home node, and nothing closes it before the next restart.
-func TestNamespaces_SuspendMaterializesEmptyReplicaAdd(t *testing.T) {
+// That is what happens, not what should. A suspended namespace ought to refuse
+// this command before the schema records anything, and the scale-plan and
+// replica-list assertions invert when it does. Until then the target opens a
+// shard on a node that is not the namespace's home node, and the target's own
+// sweep closes it within one sweep interval. The open is not asserted, because
+// it can start and end between two polls.
+func TestNamespaces_SuspendAcceptsEmptyReplicaAdd(t *testing.T) {
 	t.Parallel()
 
 	const (
 		// The namespace pins its shards to its home node, so the addition lands
 		// on a node that holds nothing of this class.
-		homeNode   = docker.Weaviate1
-		targetNode = docker.Weaviate0
-		class      = "EmptyReplicaShard"
-		planID     = strfmt.UUID("6f1c9d84-2a70-4c1e-8b53-9e0d17a4c6b2")
+		homeNode    = docker.Weaviate1
+		targetNode  = docker.Weaviate0
+		class       = "EmptyReplicaShard"
+		anchorClass = "Anchor"
+		planID      = strfmt.UUID("6f1c9d84-2a70-4c1e-8b53-9e0d17a4c6b2")
 	)
 
 	ns := uniqueNS()
@@ -182,6 +211,17 @@ func TestNamespaces_SuspendMaterializesEmptyReplicaAdd(t *testing.T) {
 
 	// Read before the suspend: a suspended namespace reports no shards.
 	shardName := requireShardCountEventually(t, qualified, 1)[0]
+
+	// The anchor's namespace is active and homed on the target, so its shard stays
+	// open there.
+	anchorNS := uniqueNS()
+	helper.CreateNamespaceWithHomeNode(t, anchorNS, targetNode, adminKey)
+	t.Cleanup(func() { helper.DeleteNamespace(t, anchorNS, adminKey) })
+	anchorKey := createNamespacedUser(t, "u1", anchorNS, adminKey)
+	t.Cleanup(func() { helper.DeleteUser(t, anchorNS+":u1", adminKey) })
+	setupClassInNs1(t, anchorNS, anchorClass, anchorKey)
+	anchorQualified := anchorNS + ":" + anchorClass
+	anchor := presentShard{anchorQualified, requireShardCountEventually(t, anchorQualified, 1)[0]}
 
 	helper.SuspendNamespace(t, ns, adminKey)
 	t.Cleanup(func() { helper.ResumeNamespace(t, ns, adminKey) })
@@ -204,14 +244,21 @@ func TestNamespaces_SuspendMaterializesEmptyReplicaAdd(t *testing.T) {
 	require.Empty(t, resp.Payload.OperationIds,
 		"an addition with no source node registers no replication op")
 
-	t.Run("the target materializes the shard", func(t *testing.T) {
+	t.Run("the schema names the target as a replica", func(t *testing.T) {
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			shard, err := shardOnNode(t, qualified, shardName, targetNode)
-			if !assert.NoError(c, err) {
+			state, err := helper.Client(t).Replication.GetCollectionShardingState(
+				replication.NewGetCollectionShardingStateParams().WithCollection(&qualified).WithShard(&shardName),
+				helper.CreateAuth(adminKey),
+			)
+			if !assert.NoError(c, err) || !assert.Len(c, state.Payload.ShardingState.Shards, 1) {
 				return
 			}
-			assert.NotNil(c, shard, "shard %q never appeared on %q", shardName, targetNode)
-		}, 30*time.Second, 250*time.Millisecond, "the replica add opened no shard on the target")
+			assert.Contains(c, state.Payload.ShardingState.Shards[0].Replicas, targetNode)
+		}, 30*time.Second, 250*time.Millisecond, "the scale plan never named %q a replica of %q", targetNode, shardName)
+	})
+
+	t.Run("the target's sweep releases the shard", func(t *testing.T) {
+		requireShardReleasedOnNode(t, qualified, shardName, targetNode, anchor)
 	})
 }
 
@@ -295,10 +342,11 @@ func TestNamespaces_SuspendRefusesReplicaMovement(t *testing.T) {
 	t.Run("the target materializes no shard", func(t *testing.T) {
 		requireShardAbsentOnNode(t, qualified, shardName, targetNode)
 
-		// The op keeps retrying, so it is neither done nor given up on.
+		// The op still reads HYDRATING, because the target opens its shard only in
+		// FINALIZING and its own sweep would close it before the check above.
 		state, _, err := movementState(t, opID)
 		require.NoError(t, err)
-		require.NotContains(t, []string{"READY", "CANCELLED"}, state)
+		require.Equal(t, "HYDRATING", state, "the movement got past the source's refusal")
 	})
 
 	t.Run("resuming lets the movement finish", func(t *testing.T) {

@@ -217,6 +217,46 @@ func TestSnapshotWriterMemory_AbsoluteCeiling(t *testing.T) {
 	}
 }
 
+// TestSnapshotWriterAllocations_SmallBody pins that a snapshot whose body fills
+// a fraction of a block allocates far less than one block. Compaction writes a
+// snapshot for every small tenant's shard too.
+func TestSnapshotWriterAllocations_SmallBody(t *testing.T) {
+	const ceiling = defaultBlockSize / 4
+
+	conns := [][]uint64{genConns(0, benchConnsPerNode)}
+	tests := []struct {
+		name  string
+		build func(*SnapshotWriter)
+	}{
+		{"one node", func(sw *SnapshotWriter) { sw.AddNode(0, 0, conns, false) }},
+		{"100 nodes", func(sw *SnapshotWriter) {
+			for i := uint64(0); i < 100; i++ {
+				sw.AddNode(i, 0, conns, false)
+			}
+		}},
+		{"trailing tombstone only", func(sw *SnapshotWriter) { sw.AddTombstone(1000) }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			sw := NewSnapshotWriter(io.Discard).WithScratchDir(dir)
+			tt.build(sw)
+			if err := sw.Flush(); err != nil {
+				t.Fatalf("flush: %v", err)
+			}
+			runtime.ReadMemStats(&after)
+
+			if got := after.TotalAlloc - before.TotalAlloc; got > ceiling {
+				t.Fatalf("allocated %.1f MiB, want <= %.1f MiB", float64(got)/mib, float64(ceiling)/mib)
+			}
+		})
+	}
+}
+
 // BenchmarkSnapshotWritePeak reports peak heap (MiB) as a custom metric for a
 // benchstat A/B between the buffering and streaming writers (AC10). Run with
 // -benchtime=1x.

@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/entities/cron"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/parser"
@@ -74,7 +75,13 @@ func nonNilCoordinator(t *testing.T, lister stubLister) *namespacecleanup.Coordi
 // stubLister satisfies every coordinator dependency. Methods return zero
 // values. ListDeleting increments listDeletingCalls when it is non-nil, so a
 // test can tell whether a tick reached Coordinator.Tick.
-type stubLister struct{ listDeletingCalls *atomic.Int64 }
+type stubLister struct {
+	// Only DeleteClass and DeleteAlias of these writers are expected; the rest
+	// are left unset.
+	leader.ClassWriter
+	leader.AliasWriter
+	listDeletingCalls *atomic.Int64
+}
 
 func (s stubLister) ListDeleting() []string {
 	if s.listDeletingCalls != nil {

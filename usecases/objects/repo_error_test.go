@@ -27,6 +27,8 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 // An error the repo returns has to stay classifiable with errors.Is after the
@@ -350,15 +352,29 @@ func TestNewErrInternalKeepsEveryCause(t *testing.T) {
 	}
 }
 
-// Writing an object can extend its collection through auto-schema, which needs
-// a permission of its own. Reporting that denial as invalid input hides the
-// missing grant behind a 422, so PUT and PATCH have to keep its status.
-func TestAutoSchemaForbiddenKeepsItsStatus(t *testing.T) {
+// Writing an object can extend its collection through auto-schema, and POST can
+// create it. A denial and the collection limit have to keep their own status,
+// and anything else the schema refuses is invalid input rather than a 500.
+func TestAutoSchemaErrKeepsItsStatus(t *testing.T) {
 	const class = "Zoo"
 	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
 	principal := &models.Principal{Username: "admin"}
 	denied := authzerrs.NewForbidden(principal, authorization.UPDATE, "collections/Zoo")
 	rejected := errors.New("collection is being deleted")
+	limited := usagelimits.NewLimitExceededError("", usagelimits.LimitCollections, 1)
+
+	// requireStatus checks an error AddObject or UpdateObject returned.
+	requireStatus := func(t *testing.T, err error, wantForbidden, wantUserInput bool) {
+		switch {
+		case wantForbidden:
+			require.ErrorAs(t, err, &authzerrs.Forbidden{})
+			require.NotErrorAs(t, err, &ErrInvalidUserInput{})
+		case wantUserInput:
+			require.ErrorAs(t, err, &ErrInvalidUserInput{})
+		default:
+			require.NoError(t, err)
+		}
+	}
 
 	// "age" is absent from the Zoo schema, so writing it makes auto-schema
 	// extend the collection.
@@ -382,6 +398,22 @@ func TestAutoSchemaForbiddenKeepsItsStatus(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Run("add", func(t *testing.T) {
+				m, _, repo, mods, _ := newNSManagers(t, zooAnimalNSSchema(false), false,
+					withAutoSchema(tc.autoSchemaErr))
+				repo.On("Exists", class, id).Return(false, nil).Once()
+				if tc.autoSchemaErr == nil {
+					mods.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+						Return(nil, nil)
+					repo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+				}
+
+				_, err := m.AddObject(context.Background(), principal, updates(), nil)
+
+				requireStatus(t, err, tc.wantForbidden, tc.wantUserInput)
+				repo.AssertExpectations(t)
+			})
+
 			t.Run("update", func(t *testing.T) {
 				m, _, repo, mods, _ := newNSManagers(t, zooAnimalNSSchema(false), false,
 					withAutoSchema(tc.autoSchemaErr))
@@ -395,15 +427,7 @@ func TestAutoSchemaForbiddenKeepsItsStatus(t *testing.T) {
 
 				_, err := m.UpdateObject(context.Background(), principal, class, id, updates(), nil)
 
-				switch {
-				case tc.wantForbidden:
-					require.ErrorAs(t, err, &authzerrs.Forbidden{})
-					require.NotErrorAs(t, err, &ErrInvalidUserInput{})
-				case tc.wantUserInput:
-					require.ErrorAs(t, err, &ErrInvalidUserInput{})
-				default:
-					require.NoError(t, err)
-				}
+				requireStatus(t, err, tc.wantForbidden, tc.wantUserInput)
 				repo.AssertExpectations(t)
 			})
 
@@ -433,6 +457,39 @@ func TestAutoSchemaForbiddenKeepsItsStatus(t *testing.T) {
 				}
 				repo.AssertExpectations(t)
 			})
+		})
+	}
+
+	// Aquarium is absent from the schema, so POST makes auto-schema create it,
+	// and creating one is what counts against the collection limit.
+	createCases := []struct {
+		name          string
+		createErr     error
+		wantForbidden bool
+		wantUserInput bool
+		wantLimit     bool
+	}{
+		{name: "create denied", createErr: denied, wantForbidden: true},
+		{name: "create over the collection limit", createErr: limited, wantLimit: true},
+		{name: "create rejected", createErr: rejected, wantUserInput: true},
+	}
+	for _, tc := range createCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _, _, _, _ := newNSManagers(t, zooAnimalNSSchema(false), false, withAutoSchema(nil),
+				func(_ *config.WeaviateConfig, sm *fakeSchemaManager) { sm.AddClassErr = tc.createErr })
+
+			_, err := m.AddObject(context.Background(), principal, &models.Object{
+				Class:      "Aquarium",
+				Properties: map[string]interface{}{"age": float64(7)},
+			}, nil)
+
+			if tc.wantLimit {
+				_, ok := usagelimits.AsLimitExceeded(err)
+				require.True(t, ok, "want a usage limit, got %v", err)
+				require.NotErrorAs(t, err, &ErrInvalidUserInput{})
+				return
+			}
+			requireStatus(t, err, tc.wantForbidden, tc.wantUserInput)
 		})
 	}
 }

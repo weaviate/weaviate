@@ -15,10 +15,15 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -55,4 +60,19 @@ func Test_AdminListAuthorizer(t *testing.T) {
 			assert.NotNil(t, err)
 		})
 	})
+}
+
+func TestConfigureAuthorizerRefusesNamespacesWithoutController(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	appState := &state.State{
+		Logger: logger,
+		ServerConfig: &config.WeaviateConfig{Config: config.Config{
+			Namespaces: config.Namespaces{Enabled: true},
+			Authorization: config.Authorization{
+				Rbac: rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
+			},
+		}},
+	}
+
+	require.ErrorContains(t, configureAuthorizer(appState), "requires a namespace controller")
 }

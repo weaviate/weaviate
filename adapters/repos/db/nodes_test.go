@@ -29,13 +29,17 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/schema/local"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/verbosity"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	clustermocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -275,7 +279,7 @@ func TestLocalNodeShardStats(t *testing.T) {
 				}
 				idx.closed = true
 			}
-			db := &DB{logger: logger, indices: map[string]*Index{idx.ID(): idx}}
+			db := &DB{nodeSelector: clustermocks.NewMockNodeSelector("node1"), localNodeName: "node1", logger: logger, indices: map[string]*Index{idx.ID(): idx}}
 			if tt.withNilIndex {
 				db.indices["gone"] = nil
 			}
@@ -384,8 +388,9 @@ func TestLocalNodeShardStats(t *testing.T) {
 	}
 }
 
-// TestGetOneNodeStatusLocal pins how a local scan that cannot finish is reported:
-// running out of time times out this node alone, a shutdown fails the request.
+// TestGetOneNodeStatusLocal pins how this node reports a status it cannot finish,
+// to itself and to a node that asks it. Running out of time times out this node
+// alone, and a shutdown fails the request.
 func TestGetOneNodeStatusLocal(t *testing.T) {
 	const className = "Local"
 
@@ -393,9 +398,13 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 		name        string
 		expiredCtx  bool
 		closedCause error
-		wantStatus  string
-		wantShards  int
-		wantErr     error
+		// classWaitErr leaves the index unregistered and fails the wait for its
+		// class version with this error.
+		classWaitErr error
+		incoming     bool
+		wantStatus   string
+		wantShards   int
+		wantErr      error
 	}{
 		{
 			name: "healthy node", wantStatus: models.NodeStatusStatusHEALTHY, wantShards: 1,
@@ -405,8 +414,24 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 			wantStatus: models.NodeStatusStatusTIMEOUT, wantShards: 0,
 		},
 		{
+			name:         "class version wait ran out of time",
+			classWaitErr: fmt.Errorf("%w: version got=6 want=7", types.ErrDeadlineExceeded),
+			wantStatus:   models.NodeStatusStatusTIMEOUT, wantShards: 0,
+		},
+		{
+			name:         "class version wait ran out of time, asked by another node",
+			classWaitErr: fmt.Errorf("%w: version got=6 want=7", types.ErrDeadlineExceeded),
+			incoming:     true,
+			wantStatus:   models.NodeStatusStatusTIMEOUT, wantShards: 0,
+		},
+		{
 			name: "node shutting down", closedCause: errIndexShutdown,
 			wantErr: errIndexShutdown,
+		},
+		{
+			name: "node shutting down, asked by another node", closedCause: errIndexShutdown,
+			incoming: true,
+			wantErr:  errIndexShutdown,
 		},
 	}
 
@@ -419,9 +444,22 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 				idx.closed = true
 			}
 			db := &DB{
-				logger:       logger,
-				indices:      map[string]*Index{idx.ID(): idx},
-				schemaGetter: &fakeSchemaGetter{},
+				nodeSelector:  clustermocks.NewMockNodeSelector("node1"),
+				localNodeName: "node1",
+				logger:        logger,
+				indices:       map[string]*Index{idx.ID(): idx},
+				schemaGetter:  &fakeSchemaGetter{},
+			}
+			statusClass := ""
+			if tt.classWaitErr != nil {
+				const version = 7
+				schemaReader := local.NewMockSchemaReader(t)
+				schemaReader.EXPECT().ReadOnlyVersionedClass(className).
+					Return(versioned.Class{Class: &models.Class{Class: className}, Version: version})
+				schemaReader.EXPECT().WaitForUpdate(mock.Anything, uint64(version)).Return(tt.classWaitErr)
+				db.indices = map[string]*Index{}
+				db.schemaReader = schemaReader
+				statusClass = className
 			}
 
 			ctx := context.Background()
@@ -431,8 +469,14 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 				defer cancel()
 			}
 
-			status, err := db.GetOneNodeStatus(ctx, db.schemaGetter.NodeName(),
-				"", "", verbosity.OutputVerbose)
+			var status *models.NodeStatus
+			var err error
+			if tt.incoming {
+				status, err = db.IncomingGetNodeStatus(ctx, statusClass, "", verbosity.OutputVerbose)
+			} else {
+				status, err = db.GetOneNodeStatus(ctx, db.localNodeName,
+					statusClass, "", verbosity.OutputVerbose)
+			}
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -442,6 +486,7 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, status.Status)
 			assert.Equal(t, tt.wantStatus, *status.Status)
+			assert.Equal(t, db.localNodeName, status.Name)
 			assert.Len(t, status.Shards, tt.wantShards)
 		})
 	}
@@ -496,9 +541,11 @@ func TestGetNodeStatusRemoteNodeCannotAnswer(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			idx, _ := shardedIndex(t, className, []string{"s1"}, nil, nil, false)
 			db := &DB{
-				logger:       logger,
-				indices:      map[string]*Index{idx.ID(): idx},
-				schemaGetter: &nodeListSchemaGetter{nodeLists: [][]string{{"node1", "node2"}}},
+				localNodeName: "node1",
+				logger:        logger,
+				indices:       map[string]*Index{idx.ID(): idx},
+				schemaGetter:  &fakeSchemaGetter{},
+				nodeSelector:  &nodeListSelector{NodeSelector: clustermocks.NewMockNodeSelector("node1"), nodeLists: [][]string{{"node1", "node2"}}},
 				remoteNode: sharding.NewRemoteNode(
 					&fakeRouter{hostnames: map[string]string{"node2": "node2:7101"}},
 					&FakeRemoteNodeClient{
@@ -554,9 +601,11 @@ func TestGetNodeStatusMembershipChange(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			idx, _ := shardedIndex(t, className, []string{"s1"}, nil, nil, false)
 			db := &DB{
-				logger:       logger,
-				indices:      map[string]*Index{idx.ID(): idx},
-				schemaGetter: &nodeListSchemaGetter{nodeLists: tt.nodeLists},
+				localNodeName: "node1",
+				logger:        logger,
+				indices:       map[string]*Index{idx.ID(): idx},
+				schemaGetter:  &fakeSchemaGetter{},
+				nodeSelector:  &nodeListSelector{NodeSelector: clustermocks.NewMockNodeSelector("node1"), nodeLists: tt.nodeLists},
 				remoteNode: sharding.NewRemoteNode(
 					&fakeRouter{hostnames: map[string]string{"node2": "node2:7101"}},
 					&FakeRemoteNodeClient{Status: &models.NodeStatus{Name: "node2", Status: &healthy}}),
@@ -613,8 +662,10 @@ func TestGetNodeStatisticsRemoteNodeCannotAnswer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			db := &DB{
-				logger:       logger,
-				schemaGetter: &fakeSchemaGetter{},
+				nodeSelector:  clustermocks.NewMockNodeSelector("node1"),
+				localNodeName: "node1",
+				logger:        logger,
+				schemaGetter:  &fakeSchemaGetter{},
 				remoteNode: sharding.NewRemoteNode(
 					&fakeRouter{hostnames: map[string]string{"node2": "node2:7101"}},
 					&FakeRemoteNodeClient{Err: tt.remoteErr}),
@@ -638,18 +689,19 @@ func TestGetNodeStatisticsRemoteNodeCannotAnswer(t *testing.T) {
 	}
 }
 
-// nodeListSchemaGetter reports one node list per read, so a test can add or
-// remove a node between the reads of a request.
-type nodeListSchemaGetter struct {
-	fakeSchemaGetter
+// nodeListSelector reports one node list per read, so a test can add or remove a
+// node between the reads of a request. Everything else comes from the embedded
+// selector.
+type nodeListSelector struct {
+	cluster.NodeSelector
 	nodeLists [][]string
 	reads     int
 }
 
-// Nodes reports the next list, and the last one once the lists run out.
-func (g *nodeListSchemaGetter) Nodes() []string {
-	nodes := g.nodeLists[min(g.reads, len(g.nodeLists)-1)]
-	g.reads++
+// AllNames reports the next list, and the last one once the lists run out.
+func (s *nodeListSelector) AllNames() []string {
+	nodes := s.nodeLists[min(s.reads, len(s.nodeLists)-1)]
+	s.reads++
 	return nodes
 }
 
@@ -731,7 +783,7 @@ func shardedIndex(t *testing.T, className string, shardNames []string,
 // retries every non-permanent error. reads counts how often the read ran, and
 // onRead runs at the moment the state is handed out.
 type retryingSchemaReader struct {
-	schemaUC.SchemaReader
+	local.SchemaReader
 	class  *models.Class
 	state  *sharding.State
 	reads  int

@@ -93,7 +93,7 @@ func TestSplitObjectsBucketSize(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
 			idx := &Index{
 				logger: logger,
-				Config: IndexConfig{ClassName: entschema.ClassName(className)},
+				Config: IndexConfig{NodeName: "node1", ClassName: entschema.ClassName(className)},
 			}
 
 			withoutVectors, vectors := idx.splitObjectsBucketSize(shardName,

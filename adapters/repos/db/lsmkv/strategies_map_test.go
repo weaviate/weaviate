@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -349,4 +350,48 @@ func Test_MapPair_EncodingBytes(t *testing.T) {
 	assert.Nil(t, err)
 
 	assert.Equal(t, control, encoded)
+}
+
+// Key and value are each below the uint16 limit, but their combined encoded
+// size is not.
+func Test_MapPair_Bytes_CombinedSizeAboveUint16(t *testing.T) {
+	tests := []struct {
+		name     string
+		keyLen   int
+		valueLen int
+	}{
+		{name: "large value", keyLen: 8, valueLen: 65530},
+		{name: "large key", keyLen: 65530, valueLen: 8},
+		{name: "both large", keyLen: 40000, valueLen: 40000},
+		{name: "encoded size exactly 65536", keyLen: 32766, valueLen: 32766},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kv := MapPair{
+				Key:   bytes.Repeat([]byte{0xAB}, tt.keyLen),
+				Value: bytes.Repeat([]byte{0xCD}, tt.valueLen),
+			}
+
+			var encoded []byte
+			var err error
+			require.NotPanics(t, func() { encoded, err = kv.Bytes() })
+			require.NoError(t, err)
+			require.Len(t, encoded, kv.Size())
+
+			control := make([]byte, kv.Size())
+			require.NoError(t, kv.EncodeBytes(control))
+			assert.Equal(t, control, encoded)
+
+			var decoded MapPair
+			require.NoError(t, decoded.FromBytes(encoded, false))
+			assert.Equal(t, kv.Key, decoded.Key)
+			assert.Equal(t, kv.Value, decoded.Value)
+
+			var reusable MapPair
+			require.NoError(t, reusable.FromBytesReusable(encoded, false))
+			assert.Equal(t, kv.Key, reusable.Key)
+			assert.Equal(t, kv.Value, reusable.Value)
+		})
+	}
 }

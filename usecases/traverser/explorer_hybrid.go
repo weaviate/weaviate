@@ -167,7 +167,6 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 
 	subsearchWrap.ModuleParams["nearText"] = &subSearchParams
 
-	subsearchWrap.HybridSearch = nil
 	subsearchWrap.Boost = nil
 	subsearchWrap.Selection = nil
 	subsearchWrap.Group = nil
@@ -214,6 +213,19 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return nil, fmt.Errorf("hybrid search cannot have both nearText and nearVector parameters")
 	}
 
+	// The vector search and the BM25 search fetch from offset 0 to the end of
+	// the page. Check the page here so that the error has the offset and limit
+	// the client sent. Under boost, GetClass moved them to params.Boost.
+	reqOffset, reqLimit := params.Pagination.Offset, params.Pagination.Limit
+	if params.Boost != nil && params.Boost.OriginalLimit > 0 {
+		reqOffset, reqLimit = params.Boost.OriginalOffset, params.Boost.OriginalLimit
+	}
+	if reqLimit > 0 && reqOffset+reqLimit > int(e.config.QueryMaximumResults) {
+		return nil, fmt.Errorf(
+			"query maximum results exceeded: the total limit calculated from the provided offset '%d' and limit '%d' exceeds the configured value for QUERY_MAXIMUM_RESULTS '%d'. If you've supplied a negative offset or limit, this may be an underflow error",
+			reqOffset, reqLimit, e.config.QueryMaximumResults)
+	}
+
 	origParams := params
 	params.Pagination = &filters.Pagination{
 		Limit:   params.Pagination.Limit,
@@ -221,6 +233,13 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut: params.Pagination.Autocut,
 	}
 
+	subSearchLimit := params.Pagination.Limit
+	// The page is cut from the fused list, so the vector search and the BM25
+	// search have to fetch up to its end. A limit of 0 or less is a flag, not
+	// a page size.
+	if params.Pagination.Limit > 0 && params.Pagination.Offset > 0 {
+		subSearchLimit = params.Pagination.Offset + params.Pagination.Limit
+	}
 	// Sub-search sizing must cover the boost re-rank depth, not just the
 	// user's limit: a candidate can only be re-ranked by boost if some leg
 	// fetched it into the fused pool, so when Boost.Depth exceeds
@@ -228,7 +247,6 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	// QueryMaximumResults, like the non-hybrid boost overfetch). Otherwise a
 	// boost.depth beyond the hybrid default is silently truncated and a
 	// high-boost candidate below the cutoff can never be promoted.
-	subSearchLimit := params.Pagination.Limit
 	if params.Boost != nil && params.Boost.OriginalLimit > 0 {
 		subSearchLimit = e.mmrFetchDepth(params.Boost, params.Boost.OriginalOffset+params.Boost.OriginalLimit)
 	}
@@ -255,6 +273,12 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Offset:  0,
 		Autocut: -1,
 	}
+
+	// The vector search and the BM25 search load the references without
+	// resolving them. Hybrid resolves them for the returned page only.
+	propsWithoutRefs := e.withoutRefs(params.Properties)
+	vectorParams.Properties = propsWithoutRefs
+	keywordParams.Properties = propsWithoutRefs
 
 	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.ReadOnlyClass, params.ClassName, params.HybridSearch.TargetVectors)
 	if err != nil {
@@ -467,8 +491,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		results[sparseSearchIndex] = newResults
 	}
 
-	// The postProcess function is used to limit the number of results and to resolve references
-	// in the results.  It is called after all the subsearches have been completed, and before autocut
+	// postProcess cuts the fused results to the end of the page.
 	postProcess := func(results []search.Result) ([]search.Result, error) {
 		totalLimit, err := e.CalculateTotalLimit(origParams.Pagination)
 		if err != nil {
@@ -479,12 +502,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			results = results[:totalLimit]
 		}
 
-		res, err := e.searcher.ResolveReferences(ctx, results, origParams.Properties, nil, origParams.AdditionalProperties, origParams.Tenant)
-		if err != nil {
-			return nil, err
-		}
-
-		return res, nil
+		return results, nil
 	}
 
 	res, err := hybrid.HybridCombiner(ctx, &hybrid.Params{
@@ -540,6 +558,11 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		out = []search.Result{}
 	}
 
+	out, err = e.searcher.ResolveReferences(ctx, out, origParams.Properties, nil, origParams.AdditionalProperties, origParams.Tenant)
+	if err != nil {
+		return nil, err
+	}
+
 	if origParams.AdditionalProperties.QueryProfile {
 		out = helpers.AttachQueryProfileToResults(ctx, out)
 	}
@@ -552,6 +575,20 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return groupedResults, nil
 	}
 	return out, nil
+}
+
+// withoutRefs keeps the reference properties, so that a search loads them,
+// but drops the referenced classes, so that it does not resolve them.
+func (e *Explorer) withoutRefs(props search.SelectProperties) search.SelectProperties {
+	if !props.HasRefs() {
+		return props
+	}
+	out := make(search.SelectProperties, len(props))
+	for i, prop := range props {
+		prop.Refs = nil
+		out[i] = prop
+	}
+	return out
 }
 
 func withVectorTarget(src []string, target string) []string {

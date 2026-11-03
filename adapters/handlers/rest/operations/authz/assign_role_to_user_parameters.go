@@ -49,7 +49,7 @@ type AssignRoleToUserParams struct {
 	  In: body
 	*/
 	Body AssignRoleToUserBody
-	/*The name of the user.
+	/*The name of the user. Must not contain ',', '"' or control characters, and must be at most 256 bytes.
 	  Required: true
 	  In: path
 	*/

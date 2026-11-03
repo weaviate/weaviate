@@ -13,12 +13,15 @@ package db
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"maps"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,6 +34,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -48,7 +53,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
@@ -58,7 +65,7 @@ type DB struct {
 	schemaGetter              schemaUC.SchemaGetter
 	config                    Config
 	indices                   map[string]*Index
-	remoteIndex               sharding.RemoteIndexClient
+	remoteIndex               remote.IndexClient
 	asyncReplicationScheduler *AsyncReplicationScheduler
 	replicaClient             replica.Client
 	nodeResolver              cluster.NodeResolver
@@ -68,6 +75,8 @@ type DB struct {
 	shutdownOnce              sync.Once
 	startupComplete           atomic.Bool
 	startupShards             startupShardCounters
+	dimensionsReindex         startupRebuild
+	propLengthsRecount        startupRebuild
 	resourceScanState         *resourceScanState
 	memMonitor                *memwatch.Monitor
 
@@ -117,26 +126,11 @@ type DB struct {
 
 	reindexer      ShardReindexerV3
 	nodeSelector   cluster.NodeSelector
-	schemaReader   schemaUC.SchemaReader
+	schemaReader   local.SchemaReader
 	replicationFSM types.ReplicationFSMReader
 
-	// reindexAuditMu guards the audit deps installed by
-	// [DB.SetReindexAuditDeps] and the backup-gate activity lookup
-	// installed by [DB.SetShardReindexActivityLookup] so they are
-	// safely visible from any post-restore goroutine.
-	//
-	// reindexAuditDeferredRequests counts the number of times
-	// [DB.AuditOrphanReindexTrackersIfReady] was called BEFORE deps
-	// were installed (typically from the per-class-dir restore hook
-	// firing during RAFT replay while the SetReindexAuditDeps
-	// goroutine is still waiting on metaStoreReady). On the first
-	// SetReindexAuditDeps call, if the counter is non-zero, the
-	// install path runs a single replay sweep so the deferred
-	// per-class audits are not silently lost. Closes B2.
-	reindexAuditMu                     sync.RWMutex
-	reindexAuditLookupBuilder          KnownReindexTaskLookupBuilder
-	reindexAuditLogger                 logrus.FieldLogger
-	reindexAuditDeferredRequests       int
+	// reindexLookupsMu guards the two lookups below: written at scheduler start, read from backup.
+	reindexLookupsMu                   sync.RWMutex
 	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
 	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
 
@@ -151,6 +145,8 @@ type DB struct {
 	AsyncIndexingEnabled bool
 
 	tenantsManager schemaUC.TenantsActivityManager
+	// membership reports RAFT statistics for the node status.
+	membership cluster.RaftMembership
 
 	// usageLimits is propagated to each Index when it is created, so
 	// Shard.PutObject{,Batch} can call CheckObjects on the write path.
@@ -161,6 +157,9 @@ type DB struct {
 	// shard decision can read its namespace's state. nil is only for tests
 	// that build no namespaced class; a namespaced one then fails closed.
 	namespacesExister namespaces.Exister
+
+	// Set after the cluster service is up. Nil-safe: nil keeps MkdirAll behavior.
+	selfRecoveryOrchestrator SelfRecoveryOrchestrator
 }
 
 // SetUsageLimits installs the usage-limits Manager on the DB. Must be
@@ -170,19 +169,55 @@ func (db *DB) SetUsageLimits(m *usagelimits.Manager) {
 	db.usageLimits = m
 }
 
+// SelfRecoveryOrchestrator is the narrow surface avoiding an import cycle on cluster/replication.
+type SelfRecoveryOrchestrator interface {
+	// Enabled must be checked before installing a wrapper, else it blocks load forever.
+	// True whenever the flag is on, licensed or not (UnlicensedSelfRecovery), so a resuming op is still recognised.
+	Enabled() bool
+	// SubmitRecovery is non-blocking; false = not queued and the caller MUST fall back to normal init.
+	SubmitRecovery(ctx context.Context, collection, shard string, startedWithoutRaftState bool) bool
+	// SubmitActivationRecovery queues a tenant activation whose local folder is missing; same contract as SubmitRecovery.
+	SubmitActivationRecovery(ctx context.Context, collection, shard string) bool
+	// Close stops submissions and drains in-flight workers, bounded by ctx; idempotent.
+	Close(ctx context.Context) error
+}
+
+// SetSelfRecoveryOrchestrator must be called before WaitForStartup.
+func (db *DB) SetSelfRecoveryOrchestrator(o SelfRecoveryOrchestrator) {
+	db.selfRecoveryOrchestrator = o
+}
+
+// ShardPath returns the on-disk directory for (collection, shard).
+func (db *DB) ShardPath(collection, shard string) string {
+	return shardPath(
+		path.Join(db.config.RootPath, indexID(schema.ClassName(collection))),
+		shard,
+	)
+}
+
+// LoadLocalShard is the self-recovery promote callback: never creates a shard, wraps the *NotRegistered sentinels for the orchestrator.
+func (db *DB) LoadLocalShard(ctx context.Context, collection, shard string) error {
+	idx := db.GetIndex(schema.ClassName(collection))
+	if idx == nil {
+		return fmt.Errorf("load local shard: index %q: %w", collection, enterrors.ErrIndexNotRegistered)
+	}
+	return idx.PromoteRecoveringLocalShard(ctx, shard)
+}
+
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
 	return db.schemaGetter
 }
 
 func (db *DB) GetSchema() schema.Schema {
-	return db.schemaGetter.GetSchemaSkipAuth()
+	s := db.schemaGetter.ReadOnlySchema()
+	return schema.Schema{Objects: &s}
 }
 
 func (db *DB) GetConfig() Config {
 	return db.config
 }
 
-func (db *DB) GetRemoteIndex() sharding.RemoteIndexClient {
+func (db *DB) GetRemoteIndex() remote.IndexClient {
 	return db.remoteIndex
 }
 
@@ -232,12 +267,9 @@ func (db *DB) StartupLoadingProgress() *StartupProgressSnapshot {
 
 // startupClassNames returns the current class names for the startup progress scan
 func (db *DB) startupClassNames() []string {
-	s := db.schemaGetter.GetSchemaSkipAuth()
-	if s.Objects == nil {
-		return nil
-	}
-	names := make([]string, 0, len(s.Objects.Classes))
-	for _, class := range s.Objects.Classes {
+	classes := db.schemaGetter.ReadOnlySchema().Classes
+	names := make([]string, 0, len(classes))
+	for _, class := range classes {
 		names = append(names, class.Class)
 	}
 	return names
@@ -279,6 +311,10 @@ func (db *DB) scanStartupProgress(classNames []string) (loaded, total int64) {
 func (db *DB) localShardsToLoad(className string) int64 {
 	count, err := db.DesiredOpenLocalShardCount(className)
 	if err != nil {
+		// This logs at Debug because startup progress polls it per class on a ticker.
+		db.logger.WithFields(logrus.Fields{
+			"class": className, "namespace": namespacing.NamespaceFromQualified(className),
+		}).Debugf("counting no shards to load for this class: %v", err)
 		return 0
 	}
 	return int64(count)
@@ -299,10 +335,10 @@ type IndexLike interface {
 }
 
 func New(logger logrus.FieldLogger, localNodeName string, config Config,
-	remoteIndex sharding.RemoteIndexClient, nodeResolver cluster.NodeResolver,
+	remoteIndex remote.IndexClient, nodeResolver cluster.NodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
-	nodeSelector cluster.NodeSelector, schemaReader schemaUC.SchemaReader, replicationFSM types.ReplicationFSMReader,
+	nodeSelector cluster.NodeSelector, schemaReader local.SchemaReader, replicationFSM types.ReplicationFSMReader,
 	namespacesExister namespaces.Exister,
 ) (*DB, error) {
 	if memMonitor == nil {
@@ -339,6 +375,8 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		logger:                    logger,
 		localNodeName:             localNodeName,
 		config:                    config,
+		dimensionsReindex:         startupRebuild{enabled: config.ReindexVectorDimensions && config.TrackVectorDimensions},
+		propLengthsRecount:        startupRebuild{enabled: config.RecountPropertiesAtStartup},
 		indices:                   map[string]*Index{},
 		remoteIndex:               remoteIndex,
 		nodeResolver:              nodeResolver,
@@ -429,10 +467,17 @@ type Config struct {
 	MaxSegmentSize                 int64
 	TrackVectorDimensions          bool
 	TrackVectorDimensionsInterval  time.Duration
+	MigrateDimensionsToRoaringSet  bool
+	ReindexVectorDimensions        bool
 	UsageEnabled                   bool
 	ServerVersion                  string
 	GitHash                        string
 	AvoidMMap                      bool
+
+	// RecountPropertiesAtStartup rebuilds the property lengths of every shard once
+	// per process, before the shard loads or, if that fails, as it loads.
+	RecountPropertiesAtStartup bool
+
 	// EnableLazyLoadShards controls lazy shard loading.
 	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
 	EnableLazyLoadShards                *bool
@@ -453,6 +498,7 @@ type Config struct {
 	QueryAdmissionControlDisabled       *configRuntime.DynamicValue[bool]
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+	IndexRangeableInMemoryProps         map[string][]string
 	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
@@ -485,10 +531,6 @@ type Config struct {
 	OperationalMode *configRuntime.DynamicValue[string]
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
-
-	// Plumbed through for future callers under the "wl" directory; nothing in
-	// the DB layer reads it yet.
-	WeaviateLicense *configRuntime.DynamicValue[bool]
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -512,6 +554,32 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 	}, utils.NewBackoff())
 
 	return index
+}
+
+// registeredIndex returns the index registered for className, or nil, without
+// GetIndex's retries.
+func (db *DB) registeredIndex(className schema.ClassName) *Index {
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
+	return db.indices[indexID(className)]
+}
+
+// indexForRead returns className's index, or nil and no error if this node has
+// none. On a miss for a class the local schema holds, it first waits until this
+// node has applied that class version. Never call it from SchemaManager.apply,
+// which would wait for its own version.
+func (db *DB) indexForRead(ctx context.Context, className schema.ClassName) (*Index, error) {
+	if index := db.registeredIndex(className); index != nil {
+		return index, nil
+	}
+	version := db.schemaReader.ReadOnlyVersionedClass(className.String()).Version
+	if version == 0 {
+		return nil, nil
+	}
+	if err := db.schemaReader.WaitForUpdate(ctx, version); err != nil {
+		return nil, fmt.Errorf("wait for class %s to be applied locally: %w", className, err)
+	}
+	return db.registeredIndex(className), nil
 }
 
 // WaitForLocalInflightWrites blocks until this node's in-flight coordinated
@@ -548,25 +616,114 @@ func (db *DB) copyIndices() map[string]*Index {
 	return indices
 }
 
-// GetLocalShardNames returns the names of all shards local to this node for
-// the given collection. Returns an error if the collection is not found or has
-// no local shards.
-func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
+// shuttingDown reports whether DB.Shutdown has begun.
+func (db *DB) shuttingDown() bool {
+	select {
+	case <-db.shutdown:
+		return true
+	default:
+		return false
+	}
+}
+
+// LocalIndexClassNames returns the sorted class names this node holds an index for,
+// closed ones included, qualified as <ns>:<Class> where the class has a namespace.
+// It covers every namespace, so a caller serving one namespace must drop the rest.
+// Its only error wraps ErrIndexClosing, which it returns after DB.Shutdown has begun.
+// A call that finds DB.Shutdown holding indexLock waits for DB.Shutdown to return.
+func (db *DB) LocalIndexClassNames() ([]string, error) {
+	if db.shuttingDown() {
+		return nil, errIndexClosingForShutdown
+	}
+
+	indices := db.copyIndices()
+
+	// copyIndices waits on indexLock while DB.Shutdown closes every index, so a stop
+	// may have begun since the check above.
+	if db.shuttingDown() {
+		return nil, errIndexClosingForShutdown
+	}
+
+	names := make([]string, 0, len(indices))
+	for _, index := range indices {
+		// indexID lowercases the map key. Config.ClassName keeps the schema's case and
+		// is written once at construction, so reading it needs no lock.
+		names = append(names, index.Config.ClassName.String())
+	}
+	slices.Sort(names)
+	return names, nil
+}
+
+// errIndexClosingForShutdown refuses a call on a node stop. A caller outside this
+// package matches ErrIndexClosing, and one inside matches errIndexShutdown.
+var errIndexClosingForShutdown = fmt.Errorf("%w: %w", ErrIndexClosing, errIndexShutdown)
+
+// ErrIndexClosing refuses a call because the collection's index is closing, for a
+// node stop or a collection delete.
+var ErrIndexClosing = stderrors.New("collection index is closing")
+
+// OpenLocalShardNames returns the names of the collection's shards this node
+// holds open, without loading any. A lazy shard that never loaded and a shard
+// recovering from a peer are listed. A COLD tenant and a shard DB.UnloadShard
+// closed are not. A shard added or removed during the call may or may not be
+// listed. ([]string{}, nil) means this node holds none of the collection's
+// shards open.
+//
+// ErrIndexClosing means the index is closing for a delete, or DB.Shutdown has
+// begun. A call that finds DB.Shutdown holding indexLock waits for DB.Shutdown to
+// return. cluster/schema.ErrClassNotFound means this node holds no index for the
+// class, and comes back after about 150 ms of DB.GetIndex retries.
+func (db *DB) OpenLocalShardNames(collection string) ([]string, error) {
+	if db.shuttingDown() {
+		return nil, errIndexClosingForShutdown
+	}
+
 	index := db.GetIndex(schema.ClassName(collection))
 	if index == nil {
-		return nil, fmt.Errorf("collection %q not found", collection)
+		return nil, fmt.Errorf("%w: collection %q", clusterSchema.ErrClassNotFound, collection)
 	}
-	var names []string
+	if err := index.enterRead(); err != nil {
+		// The refusal wraps enterRead's error and the close cause, so errors.Is
+		// matches either.
+		return nil, fmt.Errorf("%w %q: %w: %w",
+			ErrIndexClosing, collection, err, index.closeRequestedCause())
+	}
+	defer index.exitRead()
+
+	names := make([]string, 0)
 	if err := index.ForEachShard(func(name string, _ ShardLike) error {
 		names = append(names, name)
 		return nil
 	}); err != nil {
 		return nil, err
 	}
-	if len(names) == 0 {
-		return nil, fmt.Errorf("collection %q has no local shards", collection)
+	// DB.Shutdown closes db.shutdown before it takes indexLock, so a stop may have
+	// begun since the entry check without having closed this index yet.
+	if db.shuttingDown() {
+		return nil, errIndexClosingForShutdown
+	}
+	// ForEachShard returns nil without walking a closing index, and
+	// closeRequestedCause also sees a delete that has not closed the index yet.
+	if cause := index.closeRequestedCause(); cause != nil {
+		return nil, fmt.Errorf("%w %q: %w", ErrIndexClosing, collection, cause)
 	}
 	return names, nil
+}
+
+// UnloadShard skips the namespace check, which would refuse the suspended
+// namespaces it is called for. It blocks while DB.Shutdown holds indexLock.
+// It keeps a self-recovery placeholder in the map, because a request would
+// otherwise create an empty shard before the copy from a peer finishes.
+func (db *DB) UnloadShard(ctx context.Context, className, shardName string) (ShardUnloadOutcome, error) {
+	if db.shuttingDown() {
+		return ShardUnloadOutcomeIndexClosing, fmt.Errorf("%w: %w", ErrIndexClosing, errIndexShutdown)
+	}
+
+	index := db.GetIndex(schema.ClassName(className))
+	if index == nil {
+		return ShardUnloadOutcomeFailed, fmt.Errorf("%w: collection %q", clusterSchema.ErrClassNotFound, className)
+	}
+	return index.unloadLocalShard(ctx, shardName, true)
 }
 
 // IndexExists returns if an index exists
@@ -578,11 +735,15 @@ func (db *DB) IndexExists(className schema.ClassName) bool {
 // for both sharding and replica usage. With a refactor of the interfaces this can be done and we can remove the
 // deduplication
 
-// GetIndexForIncomingSharding returns the index if it exists or nil if it doesn't
-// by default it will retry 3 times between 0-150 ms to get the index
-// to handle the eventual consistency.
-func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
-	index := db.GetIndex(className)
+// GetIndexForIncomingSharding returns the index indexForRead finds, or nil. A
+// failed wait is logged here and also returns nil, so callers report it as a
+// missing index.
+func (db *DB) GetIndexForIncomingSharding(ctx context.Context, className schema.ClassName) remote.IndexIncomingRepo {
+	index, err := db.indexForRead(ctx, className)
+	if err != nil {
+		db.logger.WithField("class", className).Warnf("look up index for incoming request: %v", err)
+		return nil
+	}
 	if index == nil {
 		return nil
 	}
@@ -604,24 +765,19 @@ func (db *DB) droppingIndex(id string) *Index {
 // DropOrphanedClass removes the data of a class the schema already dropped.
 // Unlike DeleteIndex it removes files with no index loaded, the state a
 // schema-only delete leaves behind, so callers must know this node held it.
-func (db *DB) DropOrphanedClass(className schema.ClassName) error {
-	if idx := db.GetIndex(className); idx != nil {
-		if err := db.DeleteIndex(className); err != nil {
-			return err
-		}
+// It reports a live class that shares the lowercased index ID; that class's
+// data, offloaded included, is not the orphan's to drop.
+func (db *DB) DropOrphanedClass(className schema.ClassName) (collided bool, err error) {
+	if collided, err = db.deleteIndex(className); err != nil || collided {
+		return collided, err
 	}
 
 	// The caller knows the class was ours; only the directory knows the path is.
 	path := filepath.Join(db.config.RootPath, indexID(className))
 	if !hasShardStore(path) {
-		db.logger.WithFields(logrus.Fields{
-			"action": "drop_orphaned_class",
-			"class":  className.String(),
-			"path":   path,
-		}).Warn("left class data in place: no shard store, so not our index")
-		return nil
+		return false, nil
 	}
-	return db.dropIndexData(className)
+	return false, db.dropIndexData(className)
 }
 
 // hasShardStore reports whether path holds a shard directory: a child with the
@@ -662,9 +818,25 @@ func (db *DB) dropIndexData(className schema.ClassName) error {
 
 // DeleteIndex deletes the index
 func (db *DB) DeleteIndex(className schema.ClassName) error {
+	_, err := db.deleteIndex(className)
+	return err
+}
+
+// deleteIndex reports a live class that shares the lowercased index ID and
+// leaves it alone: DELETE_CLASS validates nothing, so a name differing only by
+// case reaches the store while the schema keeps the live class.
+func (db *DB) deleteIndex(className schema.ClassName) (collided bool, err error) {
 	index := db.GetIndex(className)
 	if index == nil {
-		return nil
+		return false, nil
+	}
+	if live := index.Config.ClassName; live != className {
+		db.logger.WithFields(logrus.Fields{
+			"action":     "delete_index",
+			"class":      className.String(),
+			"live_class": live.String(),
+		}).Warn("left class data in place: index belongs to a live class that differs only by case")
+		return true, nil
 	}
 	id := indexID(className)
 
@@ -673,10 +845,9 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 	db.dropping.Store(id, index)
 	defer db.dropping.Delete(id)
 
-	// a reader holding dropIndex would block the drop below while db.indexLock is held
+	// a reader holding dropIndex would block the drop below
 	index.signalCloseRequested(errIndexDropped)
 
-	// drop index
 	db.indexLock.Lock()
 	delete(db.indices, id)
 	db.indexLock.Unlock()
@@ -691,12 +862,19 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 	if err := db.promMetrics.DeleteClass(className.String()); err != nil {
 		db.logger.Errorf("can't delete prometheus metrics: %v", err)
 	}
-	return nil
+	return false, nil
 }
 
 func (db *DB) Shutdown(ctx context.Context) error {
-	// Close, never send: the sole receiver is the resource-scan loop, and a recovered panic there would leave an unbuffered send hanging the whole shutdown until SIGKILL.
+	// Close, never send: a send reaches one receiver, and a recovered panic in
+	// scanResourceUsage would hang the whole shutdown on it until SIGKILL.
 	db.shutdownOnce.Do(func() { close(db.shutdown) })
+	// Stop self-recovery workers first so in-flight promote callbacks don't race Index.Shutdown.
+	if db.selfRecoveryOrchestrator != nil {
+		if err := db.selfRecoveryOrchestrator.Close(ctx); err != nil {
+			db.logger.Warnf("self-recovery: Close did not drain in time; workers may still be running: %v", err)
+		}
+	}
 	db.bitmapBufPoolClose()
 
 	if !db.AsyncIndexingEnabled {
@@ -775,7 +953,7 @@ func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {
 	db.nodeSelector = nodeSelector
 }
 
-func (db *DB) SetSchemaReader(schemaReader schemaUC.SchemaReader) {
+func (db *DB) SetSchemaReader(schemaReader local.SchemaReader) {
 	db.schemaReader = schemaReader
 }
 
@@ -790,4 +968,8 @@ func (db *DB) SetBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) {
 
 func (db *DB) SetTenantsActivityManager(tenantsManager schemaUC.TenantsActivityManager) {
 	db.tenantsManager = tenantsManager
+}
+
+func (db *DB) SetRaftMembership(membership cluster.RaftMembership) {
+	db.membership = membership
 }

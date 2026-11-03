@@ -12,11 +12,16 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math"
+	"runtime"
 	"testing"
+	"testing/iotest"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -154,4 +159,66 @@ func TestFetchBackupDescriptors(t *testing.T) {
 		assert.ErrorContains(t, err, k)
 		assert.ErrorContains(t, err, "boom")
 	})
+}
+
+func TestReadAllSized(t *testing.T) {
+	payload := bytes.Repeat([]byte{'x'}, 1<<20)
+	abovePresize := bytes.Repeat([]byte{'x'}, maxPresize+1<<20)
+	errRead := errors.New("connection reset")
+
+	tests := []struct {
+		name     string
+		r        io.Reader
+		size     int64
+		want     []byte
+		maxAlloc uint64
+		tightCap bool
+		wantErr  error
+	}{
+		{name: "known size allocates once", r: bytes.NewReader(payload), size: int64(len(payload)), want: payload, maxAlloc: uint64(len(payload)) * 3 / 2, tightCap: true},
+		{name: "unknown size reads everything", r: bytes.NewReader(payload), size: -1, want: payload, tightCap: true},
+		{name: "size below the object length reads everything", r: bytes.NewReader(payload), size: 10, want: payload},
+		{name: "size above the cap allocates only the cap", r: bytes.NewReader(payload), size: 4 * maxPresize, want: payload, maxAlloc: maxPresize * 3 / 2},
+		{
+			name:     "object above the cap grows to its size, not to double the cap",
+			r:        bytes.NewReader(abovePresize),
+			size:     int64(len(abovePresize)),
+			want:     abovePresize,
+			maxAlloc: uint64(maxPresize+len(abovePresize)) * 11 / 10,
+			tightCap: true,
+		},
+		{
+			name: "size overstated near MaxInt64 grows without overflowing",
+			r:    bytes.NewReader(abovePresize),
+			size: math.MaxInt64,
+			want: abovePresize,
+		},
+		{
+			name:    "read error is returned",
+			r:       io.MultiReader(bytes.NewReader(payload[:100]), iotest.ErrReader(errRead)),
+			size:    int64(len(payload)),
+			wantErr: errRead,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			// The struct hides bytes.Reader's WriteTo, which a network body does not have.
+			got, err := ReadAllSized(struct{ io.Reader }{tt.r}, tt.size)
+			runtime.ReadMemStats(&after)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+			if tt.tightCap {
+				assert.LessOrEqual(t, cap(got), len(got)*5/4, "returned capacity")
+			}
+			if tt.maxAlloc > 0 {
+				assert.Less(t, after.TotalAlloc-before.TotalAlloc, tt.maxAlloc, "bytes allocated")
+			}
+		})
+	}
 }

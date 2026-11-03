@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -128,14 +129,14 @@ func (s VersionedSchemaReader) ShardReplicas(
 }
 
 // TenantShard returns shard name for the provided tenant and its activity status
-func (s VersionedSchemaReader) TenantsShards(ctx context.Context,
+func (s VersionedSchemaReader) TenantsShardsStatus(ctx context.Context,
 	v uint64, class string, tenants ...string,
 ) (map[string]string, uint64, error) {
-	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues("TenantsShards"))
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues("TenantsShardsStatus"))
 	defer t.ObserveDuration()
 
 	err := s.WaitForUpdate(ctx, v)
-	status, version := s.schema.TenantsShards(class, tenants...)
+	status, version := s.schema.TenantsShardsStatus(class, tenants...)
 	return status, version, err
 }
 

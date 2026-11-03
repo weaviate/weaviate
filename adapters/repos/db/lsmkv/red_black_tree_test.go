@@ -139,7 +139,7 @@ func TestRBTree(t *testing.T) {
 func TestRBTreeMap(t *testing.T) {
 	for _, tt := range rbTests {
 		t.Run(tt.name, func(t *testing.T) {
-			tree := &binarySearchTreeMap{}
+			tree := &binarySearchTreeMap[MapPair]{}
 			for _, key := range tt.keys {
 				tree.insert([]byte{uint8(key)}, MapPair{
 					Key:   []byte("map-key-1"),
@@ -153,7 +153,7 @@ func TestRBTreeMap(t *testing.T) {
 			require.Equal(t, len(tt.keys), len(flatten_tree)) // no entries got lost
 
 			// add tree with the same nodes in the "optimal" order to be able to compare their order afterwards
-			treeCorrectOrder := &binarySearchTreeMap{}
+			treeCorrectOrder := &binarySearchTreeMap[MapPair]{}
 			for _, key := range tt.ReorderedKeys {
 				treeCorrectOrder.insert([]byte{uint8(key)}, MapPair{
 					Key:   []byte("map-key-1"),
@@ -299,7 +299,7 @@ func TestRBTrees_Random(t *testing.T) {
 }
 
 func TestRBTreesMap_Random(t *testing.T) {
-	tree := &binarySearchTreeMap{}
+	tree := &binarySearchTreeMap[MapPair]{}
 	amount := mustRandIntn(100000)
 	keySize := mustRandIntn(100)
 	uniqueKeys := make(map[string]void)

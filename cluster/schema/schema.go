@@ -24,6 +24,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
@@ -68,19 +69,11 @@ func (e *PartialUpdateError) Error() string {
 
 func (e *PartialUpdateError) Unwrap() []error { return e.Errs }
 
-type ClassInfo struct {
-	Exists            bool
-	MultiTenancy      models.MultiTenancyConfig
-	ReplicationFactor int
-	Tenants           int
-	Properties        int
-	ClassVersion      uint64
-	ShardVersion      uint64
-}
+// ClassInfo lives in package local, whose SchemaReader this package's SchemaReader
+// implements; local must not import this package.
+type ClassInfo = local.ClassInfo
 
-func (ci *ClassInfo) Version() uint64 {
-	return max(ci.ClassVersion, ci.ShardVersion)
-}
+var _ local.SchemaReader = SchemaReader{}
 
 type schema struct {
 	nodeID string
@@ -310,8 +303,8 @@ func (s *schema) ShardReplicas(class, shard string) ([]string, uint64, error) {
 	return meta.ShardReplicas(shard)
 }
 
-// TenantsShards returns shard name for the provided tenant and its activity status
-func (s *schema) TenantsShards(class string, tenants ...string) (map[string]string, uint64) {
+// TenantsShardsStatus returns shard name for the provided tenant and its activity status
+func (s *schema) TenantsShardsStatus(class string, tenants ...string) (map[string]string, uint64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -320,7 +313,7 @@ func (s *schema) TenantsShards(class string, tenants ...string) (map[string]stri
 		return nil, 0
 	}
 
-	return meta.TenantsShards(class, tenants...)
+	return meta.TenantsShardsStatus(class, tenants...)
 }
 
 func (s *schema) CopyShardingState(class string) (*sharding.State, uint64) {

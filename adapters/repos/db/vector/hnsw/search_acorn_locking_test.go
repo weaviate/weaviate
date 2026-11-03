@@ -192,14 +192,14 @@ func TestSearchUnlocksVertexWhenConnectionDecodePanics(t *testing.T) {
 					neighbor = 1
 				}
 				index.nodes[index.entryPointID].connections.ReplaceLayer(0, []uint64{neighbor})
-				index.nodes[neighbor].connections = packedconn.NewWithData(layerClaimingMoreEntriesThanItStores())
+				index.nodes[neighbor].connections = *packedconn.NewWithData(layerClaimingMoreEntriesThanItStores())
 				return neighbor
 			},
 		},
 		{
 			name: "entrypoint",
 			corrupt: func(index *hnsw) uint64 {
-				index.nodes[index.entryPointID].connections = packedconn.NewWithData(layerClaimingMoreEntriesThanItStores())
+				index.nodes[index.entryPointID].connections = *packedconn.NewWithData(layerClaimingMoreEntriesThanItStores())
 				return index.entryPointID
 			},
 		},
@@ -258,7 +258,7 @@ func TestSearchReleasesEntrypointLockWhenEntrypointHasNoLayers(t *testing.T) {
 	index := newSeededIndex(t, "acorn-entrypoint-without-layers", vectors, size, ent.FilterStrategyAcorn)
 
 	index.currentMaximumLayer = 0
-	index.nodes[index.entryPointID].connections = packedconn.NewWithData(nil)
+	index.nodes[index.entryPointID].connections = *packedconn.NewWithData(nil)
 
 	// small enough against the filled vector cache that acorn stays enabled
 	allowed := make([]uint64, 0, 10)
@@ -287,5 +287,153 @@ func TestSearchReleasesEntrypointLockWhenEntrypointHasNoLayers(t *testing.T) {
 		}
 	case <-time.After(15 * time.Second):
 		t.Fatal("search did not return: the entrypoint vertex mutex was never unlocked")
+	}
+}
+
+// gatedAllowList parks the ACORN seed loop mid-iteration. The seed loop is the
+// only caller of allowList.Iterator(): its first Next() runs before the loop
+// acquires the node-shard locks, and its second Next() runs at the tail of the
+// first iteration, which in the buggy code is inside shardedNodeLocks.RLockAll().
+// Gating the second Next() therefore parks the search holding exactly the locks
+// the seed loop holds while iterating — all node-shard read locks in the buggy
+// version, none in the fixed one. (The ACORN-vs-RRE decision loop earlier in
+// knnSearchByVector calls allowList.Contains, not Iterator(), so it can't trip
+// this gate.)
+type gatedAllowList struct {
+	helpers.AllowList
+	reached chan struct{}
+	proceed chan struct{}
+}
+
+func (g *gatedAllowList) Iterator() helpers.AllowListIterator {
+	return &gatedIterator{
+		AllowListIterator: g.AllowList.Iterator(),
+		reached:           g.reached,
+		proceed:           g.proceed,
+	}
+}
+
+type gatedIterator struct {
+	helpers.AllowListIterator
+	calls   int
+	reached chan struct{}
+	proceed chan struct{}
+}
+
+func (g *gatedIterator) Next() (uint64, bool) {
+	g.calls++
+	if g.calls == 2 {
+		close(g.reached)
+		<-g.proceed
+	}
+	return g.AllowListIterator.Next()
+}
+
+// Pins the ACORN filtered-search + delete deadlock (bug #663). The seed loop in
+// knnSearchByVector used to hold shardedNodeLocks.RLockAll() across hasTombstone
+// / distToNode, which take tombstoneLock. That inverts the delete/reset order
+// (resetIfEmpty / resetIfOnlyNode take tombstoneLock.Lock() and then
+// shardedNodeLocks.RLockAll()/LockAll()), so a concurrent delete deadlocks with
+// a concurrent filtered search — a queued insert's grow (LockAll) is what turns
+// the RW read locks into a hard block via writer priority.
+//
+// The test drives the real search into the seed loop, then models the delete
+// half of the cycle: hold tombstoneLock and demand every node-shard lock via
+// LockAll (exactly resetIfOnlyNode's acquisition). Without the fix the seed loop
+// still holds RLockAll while parked, and the search then blocks on tombstoneLock
+// for its next seed while holding those read locks — LockAll can never be
+// granted and the select times out. With the fix the seed loop releases each
+// node-shard lock before touching tombstoneLock, so LockAll is granted at once.
+func TestSearchSeedLoopDoesNotHoldNodeLocksAcrossTombstoneLock(t *testing.T) {
+	const size = 400
+
+	ctx := context.Background()
+	vectors, queries := testinghelpers.RandomVecs(size, 1, 8)
+	index := newSeededIndex(t, "acorn-tombstone-deadlock", vectors, size, ent.FilterStrategyAcorn)
+
+	// every tenth id keeps the allow list under AcornFilterRatio so the search
+	// stays on the ACORN seed path, and gives many seeds so the search reaches a
+	// second hasTombstone after the barrier is released.
+	allowed := make([]uint64, 0, size/10)
+	for id := uint64(0); id < size; id += 10 {
+		allowed = append(allowed, id)
+	}
+
+	gate := &gatedAllowList{
+		AllowList: helpers.NewAllowList(allowed...),
+		reached:   make(chan struct{}),
+		proceed:   make(chan struct{}),
+	}
+
+	searchDone := make(chan error, 1)
+	go func() {
+		_, _, err := index.SearchByVector(ctx, queries[0], 10, gate)
+		searchDone <- err
+	}()
+
+	// wait until the search is parked inside the seed loop
+	select {
+	case <-gate.reached:
+	case <-time.After(15 * time.Second):
+		t.Fatal("search never reached the ACORN seed loop")
+	}
+
+	// delete/reset half of the cycle: hold tombstoneLock, then demand all
+	// node-shard locks. Whether this can be granted is the whole test.
+	index.tombstoneLock.Lock()
+	lockAllAcquired := make(chan struct{})
+	go func() {
+		index.shardedNodeLocks.LockAll()
+		index.shardedNodeLocks.UnlockAll()
+		close(lockAllAcquired)
+	}()
+
+	// release the search so it advances into the tombstone check for its next
+	// seed, closing the circular wait if it still holds the node-shard locks
+	close(gate.proceed)
+
+	select {
+	case <-lockAllAcquired:
+		// fixed: the seed loop held no node-shard lock across the tombstone
+		// check, so the reset-style LockAll proceeds even under tombstoneLock
+	case <-time.After(5 * time.Second):
+		index.tombstoneLock.Unlock()
+		t.Fatal("deadlock: ACORN seed loop held node-shard locks across the tombstone lock (bug #663)")
+	}
+	index.tombstoneLock.Unlock()
+
+	require.NoError(t, <-searchDone)
+}
+
+// Pins the latent panic the deadlock fix also closed: the seed loop reads
+// h.nodes[idx] for every allow-list id, and the pre-fix code indexed the slice
+// directly, so an allow-list id >= len(h.nodes) was an out-of-range panic. The
+// nodeAbsent helper bounds-checks before the index. An allow list can outrun
+// the node slice whenever it is built from ids the store knows but the index
+// has not grown to yet (e.g. crash recovery with the object store ahead of
+// hnsw, the same skew nodeByID guards against for #1838).
+func TestSearchSeedLoopSkipsOutOfRangeAllowListID(t *testing.T) {
+	const size = 400
+
+	ctx := context.Background()
+	vectors, queries := testinghelpers.RandomVecs(size, 1, 8)
+	index := newSeededIndex(t, "acorn-out-of-range-seed", vectors, size, ent.FilterStrategyAcorn)
+
+	// an id past the end of the node slice, reached by the seed loop after a
+	// valid seed so the loop indexes h.nodes[outOfRange] on its next pass
+	outOfRange := uint64(len(index.nodes)) + 5
+	allowed := helpers.NewAllowList(0, outOfRange)
+
+	var (
+		ids []uint64
+		err error
+	)
+	require.NotPanics(t, func() {
+		ids, _, err = index.SearchByVector(ctx, queries[0], 10, allowed)
+	}, "seed loop panicked on an allow-list id past the end of the node slice")
+	require.NoError(t, err)
+	// the out-of-range id has no vector, so only the valid seed can come back
+	for _, id := range ids {
+		require.Less(t, id, uint64(len(index.nodes)))
 	}
 }

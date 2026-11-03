@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -80,7 +81,7 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 	fieldBucketName := helpers.BucketSearchableFromPropNameLSM(fieldProp)
 	wordBucketName := helpers.BucketSearchableFromPropNameLSM(wordProp)
 	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store,
-		_ reindexTracker, _ int, _ string,
+		_ int, _ string,
 	) (*lsmkv.Bucket, error) {
 		return store.SwapBucketPointer(ctx, fieldBucketName, wordBucketName)
 	}
@@ -91,41 +92,9 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 		Properties:         []string{fieldProp},
 		TargetTokenization: models.PropertyTokenizationWord,
 	}
-	require.True(t, maybeWirePerPropOverlaySet(shard, payload, []*ShardReindexTaskGeneric{task}),
+	maybeWirePerPropOverlaySet(shard, payload, []*ShardReindexTaskGeneric{task})
+	require.NotNil(t, task.swapPropAtomic,
 		"overlay wiring must be active for a tokenization-changing migration")
-
-	// Widen the flip↔overlay window so the race is deterministically observable.
-	if nonAtomic {
-		// Two-step reproduction: flip, gap, then set the overlay as a
-		// SEPARATE step (composed test-side; production has no such branch).
-		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
-			rt reindexTracker, propIdx int, propName string,
-		) (*lsmkv.Bucket, error) {
-			oldMainBucket, err := task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
-			if err != nil {
-				return nil, err
-			}
-			time.Sleep(hookSleepMs * time.Millisecond)
-			shard.SetTokenizationOverlay(propName, models.PropertyTokenizationWord)
-			return oldMainBucket, nil
-		}
-	} else {
-		// Drives the real atomic critical section (Shard.SwapBucketAndSetOverlay),
-		// widening the flip↔overlay window INSIDE the lock to prove it covers the gap.
-		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
-			rt reindexTracker, propIdx int, propName string,
-		) (*lsmkv.Bucket, error) {
-			return shard.SwapBucketAndSetOverlay(propName, models.PropertyTokenizationWord,
-				func() (*lsmkv.Bucket, error) {
-					oldMainBucket, err := task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
-					if err != nil {
-						return nil, err
-					}
-					time.Sleep(hookSleepMs * time.Millisecond)
-					return oldMainBucket, nil
-				})
-		}
-	}
 
 	var (
 		stop       atomic.Bool
@@ -135,6 +104,48 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 		badDetail  string
 		totalReads atomic.Int64
 	)
+
+	// Widen the flip↔overlay window so the race is deterministically observable.
+	if nonAtomic {
+		// Two-step reproduction: flip, gap, then set the overlay as a
+		// SEPARATE step (composed test-side; production has no such branch).
+		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
+			propIdx int, propName string,
+		) (*lsmkv.Bucket, error) {
+			oldMainBucket, err := task.processOneSwapPropFn(ctx, store, propIdx, propName)
+			if err != nil {
+				return nil, err
+			}
+			// Hold the gap open until the query lands in it: a fixed window
+			// can pass unobserved on a loaded runner.
+			deadline := time.Now().Add(10 * time.Second)
+			for !sawBad.Load() && time.Now().Before(deadline) {
+				time.Sleep(time.Millisecond)
+			}
+			shard.SetPropertyOverlay(propName, inverted.PropertyOverlay{
+				Tokenization: models.PropertyTokenizationWord,
+			})
+			return oldMainBucket, nil
+		}
+	} else {
+		// Drives the real atomic critical section (Shard.SwapBucketAndSetOverlay),
+		// widening the flip↔overlay window INSIDE the lock to prove it covers the gap.
+		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
+			propIdx int, propName string,
+		) (*lsmkv.Bucket, error) {
+			return shard.SwapBucketAndSetOverlay(propName,
+				inverted.PropertyOverlay{Tokenization: models.PropertyTokenizationWord},
+				func() (*lsmkv.Bucket, error) {
+					oldMainBucket, err := task.processOneSwapPropFn(ctx, store, propIdx, propName)
+					if err != nil {
+						return nil, err
+					}
+					time.Sleep(hookSleepMs * time.Millisecond)
+					return oldMainBucket, nil
+				})
+		}
+	}
+
 	query := func() (int, string) {
 		var (
 			tok     string
@@ -181,7 +192,7 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 	// Head start so the loop is actively reading when the swap window opens.
 	time.Sleep(5 * time.Millisecond)
 
-	oldBucket, err := task.swapPropAtomic(ctx, shard.store, nil, 0, fieldProp)
+	oldBucket, err := task.swapPropAtomic(ctx, shard.store, 0, fieldProp)
 	require.NoError(t, err)
 	require.NotNil(t, oldBucket, "swap must return the displaced old FIELD bucket")
 

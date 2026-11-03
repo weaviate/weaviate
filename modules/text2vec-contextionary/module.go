@@ -13,7 +13,6 @@ package modcontextionary
 
 import (
 	"context"
-	"net/http"
 	"time"
 
 	"github.com/pkg/errors"
@@ -29,8 +28,6 @@ import (
 	text2vecsempath "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/sempath"
 	text2vecclassification "github.com/weaviate/weaviate/modules/text2vec-contextionary/classification"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/client"
-	"github.com/weaviate/weaviate/modules/text2vec-contextionary/concepts"
-	"github.com/weaviate/weaviate/modules/text2vec-contextionary/extensions"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
 	text2vecprojector "github.com/weaviate/weaviate/usecases/modulecomponents/additional/projector"
 	text2vecneartext "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
@@ -47,13 +44,7 @@ func New() *ContextionaryModule {
 	return &ContextionaryModule{}
 }
 
-// ContextionaryModule for now only handles storage and retrieval of extensions,
-// but with making Weaviate more modular, this should contain anything related
-// to the module
 type ContextionaryModule struct {
-	storageProvider              moduletools.StorageProvider
-	extensions                   *extensions.RESTHandlers
-	concepts                     *concepts.RESTHandlers
 	vectorizer                   *vectorizer.Vectorizer
 	configValidator              configValidator
 	graphqlProvider              modulecapabilities.GraphQLArguments
@@ -67,8 +58,7 @@ type ContextionaryModule struct {
 
 type remoteClient interface {
 	vectorizer.RemoteClient
-	extensions.Proxy
-	vectorizer.InspectorClient
+	vectorizer.CorpiVectorizer
 	text2vecsempath.Remote
 	modulecapabilities.MetaProvider
 	modulecapabilities.VectorizerClient
@@ -92,7 +82,6 @@ func (m *ContextionaryModule) Type() modulecapabilities.ModuleType {
 func (m *ContextionaryModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
-	m.storageProvider = params.GetStorageProvider()
 	appState, ok := params.GetAppState().(*state.State)
 	if !ok {
 		return errors.Errorf("appState is not a *state.State")
@@ -110,14 +99,6 @@ func (m *ContextionaryModule) Init(ctx context.Context,
 	if err := m.remote.WaitForStartupAndValidateVersion(ctx,
 		MinimumRequiredRemoteVersion, 1*time.Second); err != nil {
 		return errors.Wrap(err, "validate remote inference api")
-	}
-
-	if err := m.initExtensions(); err != nil {
-		return errors.Wrap(err, "init extensions")
-	}
-
-	if err := m.initConcepts(); err != nil {
-		return errors.Wrap(err, "init concepts")
 	}
 
 	if err := m.initVectorizer(); err != nil {
@@ -153,25 +134,6 @@ func (m *ContextionaryModule) InitExtension(modules []modulecapabilities.Module)
 	return nil
 }
 
-func (m *ContextionaryModule) initExtensions() error {
-	storage, err := m.storageProvider.Storage("contextionary-extensions")
-	if err != nil {
-		return errors.Wrap(err, "initialize extensions storage")
-	}
-
-	uc := extensions.NewUseCase(storage)
-	m.extensions = extensions.NewRESTHandlers(uc, m.remote)
-
-	return nil
-}
-
-func (m *ContextionaryModule) initConcepts() error {
-	uc := vectorizer.NewInspector(m.remote)
-	m.concepts = concepts.NewRESTHandlers(uc)
-
-	return nil
-}
-
 func (m *ContextionaryModule) initVectorizer() error {
 	m.vectorizer = vectorizer.New(m.remote)
 	m.configValidator = vectorizer.NewConfigValidator(m.remote, m.logger)
@@ -198,18 +160,6 @@ func (m *ContextionaryModule) initGraphqlAdditionalPropertiesProvider() error {
 func (m *ContextionaryModule) initClassifiers() error {
 	m.classifierContextual = text2vecclassification.New(m.remote)
 	return nil
-}
-
-func (m *ContextionaryModule) RootHandler() http.Handler {
-	mux := http.NewServeMux()
-
-	mux.Handle("/extensions-storage/", http.StripPrefix("/extensions-storage",
-		m.extensions.StorageHandler()))
-	mux.Handle("/extensions", http.StripPrefix("/extensions",
-		m.extensions.UserFacingHandler()))
-	mux.Handle("/concepts/", http.StripPrefix("/concepts", m.concepts.Handler()))
-
-	return mux
 }
 
 func (m *ContextionaryModule) VectorizeObject(ctx context.Context,
@@ -272,7 +222,6 @@ func (m *ContextionaryModule) MetaInfo() (map[string]interface{}, error) {
 
 // verify we implement the modules.Module interface
 var (
-	_ = modulecapabilities.ModuleWithHTTPHandlers(New())
 	_ = modulecapabilities.Vectorizer[[]float32](New())
 	_ = modulecapabilities.InputVectorizer[[]float32](New())
 )

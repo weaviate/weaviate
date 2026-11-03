@@ -14,6 +14,7 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,11 +25,14 @@ import (
 	pkgerrors "github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	gproto "google.golang.org/protobuf/proto"
 
+	dbinverted "github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -43,10 +47,11 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 type fakeSearcher struct {
@@ -143,6 +148,35 @@ func comicClass() *models.Class {
 			{Name: "issue", DataType: schema.DataTypeInt.PropString()},
 		},
 	}
+}
+
+// catalogClass carries the property types the Movie fixture lacks; nullState
+// switches the collection's null-state index.
+func catalogClass(nullState bool) *models.Class {
+	off := false
+	return &models.Class{
+		Class:               "Catalog",
+		Vectorizer:          "text2vec-contextionary",
+		InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: nullState},
+		Properties: []*models.Property{
+			{Name: "title", DataType: schema.DataTypeText.PropString()},
+			{Name: "tags", DataType: schema.DataTypeTextArray.PropString()},
+			{Name: "year", DataType: schema.DataTypeInt.PropString()},
+			{Name: "published", DataType: schema.DataTypeDate.PropString()},
+			{Name: "meta", DataType: schema.DataTypeObject.PropString(), NestedProperties: []*models.NestedProperty{
+				{Name: "isbn", DataType: schema.DataTypeText.PropString()},
+			}},
+			{Name: "location", DataType: schema.DataTypeGeoCoordinates.PropString()},
+			{Name: "phone", DataType: schema.DataTypePhoneNumber.PropString()},
+			{Name: "hasAuthor", DataType: []string{"Author"}},
+			{Name: "secret", DataType: schema.DataTypeText.PropString(), IndexFilterable: &off, IndexSearchable: &off},
+		},
+	}
+}
+
+func newCatalogHandler(t *testing.T, nullState bool) *testDeps {
+	t.Helper()
+	return newTestHandlerWithClass(t, catalogClass(nullState))
 }
 
 // seedSchema builds a real SchemaReader over classes and aliases. The handler
@@ -252,13 +286,12 @@ func newTestHandlerSeeded(t *testing.T, extra []*models.Class, aliases map[strin
 		Traverser:    deps.searcher,
 		SchemaReader: seedSchema(t, classes, aliases),
 		Authorizer:   deps.authorizer,
+		Qualifier:    namespacing.Disabled,
 		DefaultLimit: 10,
 		// matches DefaultQueryCrossReferenceDepthLimit
 		CrossRefDepthLimit: 5,
 		MaximumResults:     10000,
-		// happy-path fixture: the experimental feature is enabled
-		Enabled: runtime.NewDynamicValue(true),
-		Logger:  logrus.New(),
+		Logger:             logrus.New(),
 	})
 	return deps
 }
@@ -364,25 +397,17 @@ func TestExecuteIsSearchTypeAgnostic(t *testing.T) {
 		}, nil
 	}
 
-	payload, apiErr := deps.handler.execute(context.Background(), nil, "Movie", "",
+	payload, apiErr := deps.handler.execute(context.Background(), nil, "near-text", "Movie", "",
 		&models.SearchCommon{}, build)
 	require.Nil(t, apiErr)
 	assert.Equal(t, "Movie", gotClass)
 	require.Len(t, payload.Results, 1)
 	assert.Equal(t, "Dune", payload.Results[0].Properties["title"])
 
-	// execute honors the not-enabled gate and the reserved-field gate,
-	// before ever calling the builder
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-	_, apiErr = deps.handler.execute(context.Background(), nil, "Movie", "",
-		&models.SearchCommon{}, build)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-
-	deps.handler.enabled = runtime.NewDynamicValue(true)
+	// execute honors the reserved-field gate before ever calling the builder
 	rerankProp := "title"
 	rerank := &models.SearchRerank{Property: &rerankProp}
-	_, apiErr = deps.handler.execute(context.Background(), nil, "Movie", "",
+	_, apiErr = deps.handler.execute(context.Background(), nil, "near-text", "Movie", "",
 		&models.SearchCommon{Rerank: rerank}, build)
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
@@ -453,58 +478,6 @@ func TestHandlerIDAlwaysReturned(t *testing.T) {
 	}
 }
 
-func TestHandlerDisabled(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-
-	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
-	require.NotNil(t, apiErr)
-	// mirrors DISABLE_GRAPHQL: the operation stays registered and rejects
-	// requests with 422
-	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "not enabled")
-	assert.Contains(t, apiErr.Error(), "EXPERIMENTAL_REST_SEARCH_ENABLED")
-}
-
-// TestHandlerDefaultDisabled guards the new opt-in default: a handler whose
-// flag is off (the unset-env default, NewDynamicValue(false)) rejects every
-// search with the not-enabled 422.
-func TestHandlerDefaultDisabled(t *testing.T) {
-	deps := newTestHandler(t)
-	// simulate the process default: EXPERIMENTAL_REST_SEARCH_ENABLED unset
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-
-	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "not enabled")
-}
-
-// TestHandlerDisabledMissingCollection: a disabled endpoint answers 422 even
-// for a missing collection (the not-enabled check runs after authz, before
-// existence).
-func TestHandlerDisabledMissingCollection(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-
-	_, apiErr := doNearText(t, deps, nil, "NoSuchCollection", `{"query":["space"]}`)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "not enabled")
-}
-
-// TestHandlerDisabledUnauthorized: unauthorized caller gets 403, not the
-// not-enabled 422 (a denied caller must not learn the endpoint is off).
-func TestHandlerDisabledUnauthorized(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-	deps.authorizer.SetErr(autherrs.NewForbidden(&models.Principal{Username: "someone"}, "read", "collections/Movie"))
-
-	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusForbidden, apiErr.Status)
-}
-
 func TestHandlerUnknownBodyFieldIgnored(t *testing.T) {
 	deps := newTestHandler(t)
 
@@ -572,6 +545,8 @@ func TestHandlerTenantAuthorization(t *testing.T) {
 	calls := deps.authorizer.Calls()
 	require.NotEmpty(t, calls)
 	assert.Contains(t, calls[0].Resources[0], "tenantA")
+	assert.Equal(t, mocks.MethodAuthorizeAndRequireActiveNamespace, calls[0].Method)
+	assert.Equal(t, "Movie", calls[0].Class, "the shard shape reaches the gate with the same class")
 	assert.Equal(t, "tenantA", deps.searcher.lastParams.Tenant)
 }
 
@@ -595,6 +570,10 @@ func (rbacLikeAuthorizer) Authorize(ctx context.Context, principal *models.Princ
 		p = &models.Principal{Username: "anonymous"}
 	}
 	return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, verb, resources...))
+}
+
+func (a rbacLikeAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return a.Authorize(ctx, principal, verb, resources...)
 }
 
 func (a rbacLikeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
@@ -639,6 +618,24 @@ func TestHandlerAliasForbiddenNoExistenceOracle(t *testing.T) {
 		"alias and non-alias denials must be indistinguishable")
 }
 
+// TestAliasDenialKeepsAuthorizerShape: a denial on an alias target must be
+// byte-identical to one on a plain collection of the alias name.
+func TestAliasDenialKeepsAuthorizerShape(t *testing.T) {
+	aliased := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
+	aliased.handler.authorizer = &denyCollections{denied: map[string]bool{"Movie": true}}
+	_, aliasErr := doNearText(t, aliased, nil, "Films", `{"query":["space"]}`)
+	require.NotNil(t, aliasErr)
+	assert.Equal(t, http.StatusForbidden, aliasErr.Status)
+
+	plain := newTestHandler(t)
+	plain.handler.authorizer = &denyCollections{denied: map[string]bool{"Films": true}}
+	_, plainErr := doNearText(t, plain, nil, "Films", `{"query":["space"]}`)
+	require.NotNil(t, plainErr)
+
+	assert.Equal(t, plainErr.Error(), aliasErr.Error())
+	assert.NotContains(t, aliasErr.Error(), "Movie")
+}
+
 // denyCollections denies READ on the named collections (by resource path) and
 // allows the rest, to test cross-collection authz for refs and filters.
 type denyCollections struct {
@@ -646,16 +643,16 @@ type denyCollections struct {
 	requests []mocks.AuthZReq
 }
 
-func (a *denyCollections) authorize(principal *models.Principal, verb string, resources []string) error {
-	a.requests = append(a.requests, mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources})
-	for _, r := range resources {
+func (a *denyCollections) authorize(req mocks.AuthZReq) error {
+	a.requests = append(a.requests, req)
+	for _, r := range req.Resources {
 		for name := range a.denied {
 			if strings.Contains(r, "/collections/"+name+"/") {
-				p := principal
+				p := req.Principal
 				if p == nil {
 					p = &models.Principal{Username: "anonymous"}
 				}
-				return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, verb, resources...))
+				return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, req.Verb, req.Resources...))
 			}
 		}
 	}
@@ -663,15 +660,22 @@ func (a *denyCollections) authorize(principal *models.Principal, verb string, re
 }
 
 func (a *denyCollections) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.authorize(principal, verb, resources)
+	return a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodAuthorize})
+}
+
+func (a *denyCollections) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return a.authorize(mocks.AuthZReq{
+		Principal: principal, Verb: verb, Resources: resources,
+		Method: mocks.MethodAuthorizeAndRequireActiveNamespace, Class: class,
+	})
 }
 
 func (a *denyCollections) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.authorize(principal, verb, resources)
+	return a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodAuthorizeSilent})
 }
 
 func (a *denyCollections) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
-	if err := a.authorize(principal, verb, resources); err != nil {
+	if err := a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodFilterAuthorizedResources}); err != nil {
 		return nil, err
 	}
 	return resources, nil
@@ -869,6 +873,116 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 	}
 }
 
+// TestStatusFromErrorMessages: engine errors reach the client with their wrap
+// chain intact, for parity with GraphQL and gRPC. The one exception is the
+// provider response, whose credential-bearing detail stays in the log.
+func TestStatusFromErrorMessages(t *testing.T) {
+	wrap := func(err error) error {
+		return fmt.Errorf("explorer: get class: vector search: object search at index movie: local shard object search movie_abc: %w", err)
+	}
+	tests := []struct {
+		name string
+		err  error
+		// wantMsg empty means the client sees err's own message, unchanged
+		wantStatus     int
+		wantMsg        string
+		wantCause      string
+		wantDocumented bool
+	}{
+		{
+			name:       "source object not found keeps the full chain",
+			err:        wrap(enterrors.NewErrSourceObjectNotFound(errors.New("nearObject search-object with id 123 not found"))),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "multi-tenancy mismatch keeps the full chain",
+			err:        wrap(objects.NewErrMultiTenancy(errors.New("class Movie has multi-tenancy disabled, but request was with tenant"))),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name:       "tenant not found keeps the full chain",
+			err:        wrap(fmt.Errorf("%w: tenant \"t1\"", enterrors.ErrTenantNotFound)),
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "only-stopwords pattern is a 400",
+			err:        wrap(dbinverted.ErrOnlyStopwords),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "query vector of the wrong dimensionality is a 422",
+			err:        wrap(fmt.Errorf("knn search: distance between entrypoint and query node: 2 vs 3: %w", distancer.ErrVectorLength)),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name:       "provider failure is a fixed 500 with the detail as cause",
+			err:        wrap(enterrors.NewErrQueryVectorization(errors.New("OpenAI API failed with status: 401, Incorrect API key provided: sk-bad"))),
+			wantStatus: http.StatusInternalServerError,
+			wantMsg:    errVectorizationFailed.Error(),
+			wantCause:  "sk-bad",
+		},
+		{
+			name:       "unclassified failure is a 500 carrying the chain",
+			err:        wrap(errors.New("trying parse time as RFC3339 string: cannot parse")),
+			wantStatus: http.StatusInternalServerError,
+			wantCause:  "RFC3339",
+		},
+		{
+			name:           "documented failure keeps the chain and matches its page",
+			err:            wrap(fmt.Errorf("cannot init shard: %w", enterrors.ErrNotEnoughMappings)),
+			wantStatus:     http.StatusInternalServerError,
+			wantCause:      "explorer:",
+			wantDocumented: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			apiErr := statusFromError(tt.err)
+			assert.Equal(t, tt.wantStatus, apiErr.Status)
+			wantMsg := tt.wantMsg
+			if wantMsg == "" {
+				wantMsg = tt.err.Error()
+			}
+			assert.Equal(t, wantMsg, apiErr.Error())
+			if tt.wantCause != "" {
+				assert.Contains(t, apiErr.Cause().Error(), tt.wantCause)
+			}
+			if tt.wantDocumented {
+				_, ok := enterrors.Documented(apiErr.Cause())
+				assert.True(t, ok, "the reply matches the docs link on the cause")
+			}
+		})
+	}
+}
+
+// TestHandlerLogsFailures: server-side failures are logged with their full
+// cause, client errors only at debug level.
+func TestHandlerLogsFailures(t *testing.T) {
+	deps := newTestHandler(t)
+	logger, hook := test.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	deps.handler.logger = logger
+
+	deps.searcher.err = enterrors.NewErrQueryVectorization(errors.New("provider said: Incorrect API key provided: sk-bad"))
+	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusInternalServerError, apiErr.Status)
+	assert.NotContains(t, apiErr.Error(), "sk-bad")
+
+	require.Len(t, hook.AllEntries(), 1)
+	entry := hook.LastEntry()
+	assert.Equal(t, logrus.ErrorLevel, entry.Level)
+	assert.Contains(t, entry.Message, "sk-bad")
+	assert.Equal(t, "near-text", entry.Data["op"])
+	assert.Equal(t, "Movie", entry.Data["collection"])
+
+	hook.Reset()
+	_, apiErr = doNearText(t, deps, nil, "Movie", `{"query":[]}`)
+	require.NotNil(t, apiErr)
+	require.Len(t, hook.AllEntries(), 1)
+	assert.Equal(t, logrus.DebugLevel, hook.LastEntry().Level)
+}
+
 // TestBm25HandlerHappyPath: the bm25 wrapper drives the same execute() flow
 // as near-text, with KeywordRanking params instead of module params, and the
 // envelope carries score/explainScore metadata. Deliberately the ONLY
@@ -1048,6 +1162,65 @@ func TestNearObjectSourceObjectErrorMapping(t *testing.T) {
 	}
 }
 
+// mustNearVectorModel is mustModel for the near-vector request model.
+func mustNearVectorModel(t *testing.T, body string) *models.SearchNearVectorRequest {
+	t.Helper()
+	var req models.SearchNearVectorRequest
+	require.NoError(t, json.Unmarshal([]byte(body), &req))
+	return &req
+}
+
+// doNearVector runs the near-vector handler the way the generated operation
+// wiring does, with the typed, already-decoded request model.
+func doNearVector(t *testing.T, deps *testDeps, principal *models.Principal,
+	collection, body string,
+) (*models.SearchResponse, *APIError) {
+	t.Helper()
+	return deps.handler.NearVector(context.Background(), principal, collection, mustNearVectorModel(t, body))
+}
+
+// TestNearVectorHandlerHappyPath: the near-vector wrapper drives the same
+// execute() flow as the other search types, with NearVector params instead of
+// module, keyword or hybrid params. The only near-vector handler test: the
+// shared gates are pinned once in TestExecuteIsSearchTypeAgnostic, the
+// near-text handler tests and the acceptance suite.
+func TestNearVectorHandlerHappyPath(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.searcher.res = []any{
+		map[string]any{
+			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"title": "Dune",
+			"_additional": map[string]any{
+				"distance": float32(0.12),
+			},
+		},
+	}
+
+	payload, apiErr := doNearVector(t, deps, nil, "Movie",
+		`{"vector":[0.1,-0.2,0.3],"limit":5,"returnProperties":["title"],"returnMetadata":["distance"]}`)
+	require.Nil(t, apiErr)
+
+	require.Len(t, payload.Results, 1)
+	obj := payload.Results[0]
+	assert.Equal(t, "Dune", obj.Properties["title"])
+	require.NotNil(t, obj.ID)
+	require.NotNil(t, obj.Metadata)
+	require.NotNil(t, obj.Metadata.Distance)
+	assert.Equal(t, float32(0.12), *obj.Metadata.Distance)
+	require.NotNil(t, payload.TookMs)
+
+	// the traverser was called with near-vector params, nothing else
+	params := deps.searcher.lastParams
+	assert.Equal(t, "Movie", params.ClassName)
+	assert.Equal(t, 5, params.Pagination.Limit)
+	require.NotNil(t, params.NearVector)
+	require.Len(t, params.NearVector.Vectors, 1)
+	assert.Equal(t, []float32{0.1, -0.2, 0.3}, params.NearVector.Vectors[0])
+	assert.Empty(t, params.ModuleParams)
+	assert.Nil(t, params.KeywordRanking)
+	assert.Nil(t, params.HybridSearch)
+}
+
 // mustHybridModel is mustModel for the hybrid request model.
 func mustHybridModel(t *testing.T, body string) *models.SearchHybridRequest {
 	t.Helper()
@@ -1109,7 +1282,7 @@ func TestHybridHandlerHappyPath(t *testing.T) {
 
 func TestHandlerStripsNamespaceFromErrors(t *testing.T) {
 	deps := newTestHandler(t)
-	deps.handler.namespacesEnabled = true
+	deps.handler.qualifier = wlnamespaces.NewPrefixing()
 	principal := &models.Principal{Username: "someone", Namespace: "ns1"}
 
 	// unknown collection: the internal error names the qualified collection

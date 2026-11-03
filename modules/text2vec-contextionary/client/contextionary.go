@@ -25,7 +25,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/weaviate/contextionary/contextionary"
-	"github.com/weaviate/weaviate/entities/models"
 	txt2vecmodels "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -290,16 +289,6 @@ func (c *Client) NearestWordsByVector(ctx context.Context, vector []float32, n i
 	}
 
 	return res.Words, res.Distances, nil
-}
-
-func (c *Client) AddExtension(ctx context.Context, extension *models.C11yExtension) error {
-	_, err := c.grpcClient.AddExtension(ctx, &pb.ExtensionInput{
-		Concept:    extension.Concept,
-		Definition: strings.ToLower(extension.Definition),
-		Weight:     extension.Weight,
-	})
-
-	return err
 }
 
 func vectorToProto(in []float32) *pb.Vector {

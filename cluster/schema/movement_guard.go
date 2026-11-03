@@ -20,6 +20,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -80,9 +81,8 @@ func vecDelta(name string, oldCfg, newCfg any) string {
 	no, normOk1 := normalizeVectorConfig(oldCfg)
 	nn, normOk2 := normalizeVectorConfig(newCfg)
 	if !normOk1 || !normOk2 {
-		// Unknown config type (e.g. the experimental hfresh index, whose fields we don't yet
-		// classify): we can't isolate its structural from its query-time fields, so fail closed on
-		// any real change — but a no-op update changes nothing on disk and must pass.
+		// Unknown config type: we can't isolate its structural from its query-time fields, so fail
+		// closed on any real change — but a no-op update changes nothing on disk and must pass.
 		if reflect.DeepEqual(oldCfg, newCfg) {
 			return ""
 		}
@@ -110,6 +110,8 @@ func normalizeVectorConfig(cfg any) (any, bool) {
 		// threshold is frozen at index construction so a user changing it does nothing
 		c.Threshold = 0
 		return c, true
+	case hfreshent.UserConfig:
+		return normalizeHFresh(c), true
 	default:
 		return nil, false
 	}
@@ -149,6 +151,15 @@ func normalizeFlat(c flatent.UserConfig) flatent.UserConfig {
 	c.BQ.RescoreLimit, c.BQ.Cache = 0, false
 	c.SQ.RescoreLimit, c.SQ.Cache = 0, false
 	c.RQ.RescoreLimit, c.RQ.Cache = 0, false
+	return c
+}
+
+// normalizeHFresh zeroes the query-time-safe leaves of an hfresh config on a value copy. Only
+// searchProbe and rq.rescoreLimit are applied to a live index (HFresh.UpdateUserConfig); every
+// other leaf stays structural, so a change to it still blocks the move.
+func normalizeHFresh(c hfreshent.UserConfig) hfreshent.UserConfig {
+	c.SearchProbe = 0
+	c.RQ.RescoreLimit = 0
 	return c
 }
 

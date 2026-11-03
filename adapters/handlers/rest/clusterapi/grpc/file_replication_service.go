@@ -15,12 +15,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/pkg/errors"
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/schema/local"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -28,17 +31,37 @@ import (
 type FileReplicationService struct {
 	pb.UnimplementedFileReplicationServiceServer
 
-	repo   sharding.RemoteIncomingRepo
-	schema sharding.RemoteIncomingSchema
+	repo   remote.IncomingRepo
+	schema local.VersionedReader
 
 	fileChunkSize int
+	// Bounds concurrent whole-file work (CRC reads + streams) this donor serves; nil = unbounded.
+	transferSem chan struct{}
 }
 
-func NewFileReplicationService(repo sharding.RemoteIncomingRepo, schema sharding.RemoteIncomingSchema, fileChunkSize int) *FileReplicationService {
+func NewFileReplicationService(repo remote.IncomingRepo, schema local.VersionedReader, fileChunkSize, transferConcurrency int) *FileReplicationService {
+	var sem chan struct{}
+	if transferConcurrency > 0 {
+		sem = make(chan struct{}, transferConcurrency)
+	}
 	return &FileReplicationService{
 		repo:          repo,
 		schema:        schema,
 		fileChunkSize: fileChunkSize,
+		transferSem:   sem,
+	}
+}
+
+// acquireTransferSlot blocks until a transfer slot frees or ctx ends.
+func (fps *FileReplicationService) acquireTransferSlot(ctx context.Context) (release func(), err error) {
+	if fps.transferSem == nil {
+		return func() {}, nil
+	}
+	select {
+	case fps.transferSem <- struct{}{}:
+		return func() { <-fps.transferSem }, nil
+	case <-ctx.Done():
+		return func() {}, status.FromContextError(ctx.Err()).Err()
 	}
 }
 
@@ -66,6 +89,10 @@ func (fps *FileReplicationService) CreateReplicaSnapshot(ctx context.Context, re
 
 	files, err := index.IncomingCreateReplicaSnapshot(ctx, shardName, opID)
 	if err != nil {
+		// A recovering source has no data to serve; Unavailable so the copier treats it as transient.
+		if errors.Is(err, enterrors.ErrShardRecovering) {
+			return nil, status.Errorf(codes.Unavailable, "shard %q on index %q is recovering: %v", shardName, indexName, err)
+		}
 		return nil, status.Errorf(codeForShardCallError(err),
 			"failed to create replica snapshot for index %q, shard %q, op %q: %v", indexName, shardName, opID, err)
 	}
@@ -77,11 +104,46 @@ func (fps *FileReplicationService) CreateReplicaSnapshot(ctx context.Context, re
 	}, nil
 }
 
+// ProbeShardData reports whether this node holds shard data without creating a snapshot; Unavailable = retry, NotFound = definitively no data here.
+func (fps *FileReplicationService) ProbeShardData(ctx context.Context, req *pb.ProbeShardDataRequest) (*pb.ProbeShardDataResponse, error) {
+	indexName := req.GetIndexName()
+	shardName := req.GetShardName()
+
+	index := fps.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
+	if index == nil {
+		// Unavailable, not NotFound: a nil index may just be schema-replay lag, and NotFound reads as "definitively empty" to a probe.
+		return nil, status.Errorf(codes.Unavailable, "local index %q not loaded yet", indexName)
+	}
+
+	hasData, hosted, err := index.IncomingProbeShardData(ctx, shardName)
+	if err != nil {
+		switch {
+		case errors.Is(err, enterrors.ErrShardRecovering):
+			return nil, status.Errorf(codes.Unavailable, "shard %q on index %q is recovering: %v", shardName, indexName, err)
+		case isShardAbsent(err):
+			return nil, status.Errorf(codes.NotFound, "shard %q not present on index %q: %v", shardName, indexName, err)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to probe shard data for index %q, shard %q: %v", indexName, shardName, err)
+	}
+
+	return &pb.ProbeShardDataResponse{HasData: hasData, Hosted: hosted}, nil
+}
+
+// isShardAbsent matches IncomingProbeShardData's shard-not-present phrasings for the NotFound mapping.
+func isShardAbsent(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "shard is nil") ||
+		strings.Contains(msg, "not found")
+}
+
 func (fps *FileReplicationService) ReleaseReplicaSnapshot(ctx context.Context, req *pb.ReleaseReplicaSnapshotRequest) (*pb.ReleaseReplicaSnapshotResponse, error) {
 	indexName := req.GetIndexName()
 	opID := req.GetOpId()
 
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := fps.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return nil, status.Errorf(codes.Internal, "local index %q not found", indexName)
 	}
@@ -101,10 +163,17 @@ func (fps *FileReplicationService) GetReplicaSnapshotFileMetadata(ctx context.Co
 	opID := req.GetOpId()
 	fileName := req.GetFileName()
 
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := fps.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return nil, status.Errorf(codes.Internal, "local index %q not found", indexName)
 	}
+
+	// CRC reads the whole file; bound it like a stream.
+	release, err := fps.acquireTransferSlot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	md, err := index.IncomingGetReplicaSnapshotFileMetadata(ctx, opID, fileName)
 	if err != nil {
@@ -129,10 +198,16 @@ func (fps *FileReplicationService) GetReplicaSnapshotFile(req *pb.GetReplicaSnap
 	opID := req.GetOpId()
 	fileName := req.GetFileName()
 
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := fps.repo.GetIndexForIncomingSharding(stream.Context(), schema.ClassName(indexName))
 	if index == nil {
 		return status.Errorf(codes.Internal, "local index %q not found", indexName)
 	}
+
+	release, err := fps.acquireTransferSlot(stream.Context())
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	reader, err := index.IncomingGetReplicaSnapshotFile(stream.Context(), opID, fileName)
 	if err != nil {
@@ -190,7 +265,7 @@ func (fps *FileReplicationService) StartChangeCapture(ctx context.Context, req *
 }
 
 func (fps *FileReplicationService) GetChangeLog(req *pb.GetChangeLogRequest, stream pb.FileReplicationService_GetChangeLogServer) error {
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	index := fps.repo.GetIndexForIncomingSharding(stream.Context(), schema.ClassName(req.IndexName))
 	if index == nil {
 		return status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
 	}
@@ -227,7 +302,7 @@ func (fps *FileReplicationService) GetChangeLog(req *pb.GetChangeLogRequest, str
 }
 
 func (fps *FileReplicationService) SnapshotChangeLogLSN(ctx context.Context, req *pb.SnapshotChangeLogLSNRequest) (*pb.SnapshotChangeLogLSNResponse, error) {
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	index := fps.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(req.IndexName))
 	if index == nil {
 		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
 	}
@@ -247,7 +322,7 @@ func (fps *FileReplicationService) SnapshotChangeLogLSN(ctx context.Context, req
 }
 
 func (fps *FileReplicationService) FinalizeChangeLog(ctx context.Context, req *pb.FinalizeChangeLogRequest) (*pb.FinalizeChangeLogResponse, error) {
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	index := fps.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(req.IndexName))
 	if index == nil {
 		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
 	}
@@ -267,7 +342,7 @@ func (fps *FileReplicationService) FinalizeChangeLog(ctx context.Context, req *p
 }
 
 func (fps *FileReplicationService) StopChangeCapture(ctx context.Context, req *pb.StopChangeCaptureRequest) (*pb.StopChangeCaptureResponse, error) {
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	index := fps.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(req.IndexName))
 	if index == nil {
 		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
 	}
@@ -286,12 +361,12 @@ func (fps *FileReplicationService) StopChangeCapture(ctx context.Context, req *p
 
 func (fps *FileReplicationService) indexForIncomingWrite(ctx context.Context, indexName string,
 	schemaVersion uint64,
-) (sharding.RemoteIndexIncomingRepo, error) {
+) (remote.IndexIncomingRepo, error) {
 	// wait for schema and store to reach version >= schemaVersion
 	if _, err := fps.schema.ReadOnlyClassWithVersion(ctx, indexName, schemaVersion); err != nil {
 		return nil, fmt.Errorf("local index %q not found: %w", indexName, err)
 	}
-	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	index := fps.repo.GetIndexForIncomingSharding(ctx, schema.ClassName(indexName))
 	if index == nil {
 		return nil, fmt.Errorf("local index %q not found", indexName)
 	}

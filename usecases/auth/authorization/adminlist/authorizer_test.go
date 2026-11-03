@@ -14,9 +14,11 @@ package adminlist
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	authZErrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
@@ -446,4 +448,57 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			assert.Nil(t, err)
 		})
 	})
+}
+
+// Test_AdminList_DenialKeepsReadOnlyGroup pins that a denied write leaves the
+// principal's groups intact, so a later read still matches the read-only group.
+func Test_AdminList_DenialKeepsReadOnlyGroup(t *testing.T) {
+	tests := []struct {
+		name   string
+		groups []string
+	}{
+		{name: "one group", groups: []string{"posse"}},
+		{name: "two groups", groups: []string{"band", "posse"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := New(Config{Enabled: true, ReadOnlyGroups: []string{"posse"}})
+			principal := &models.Principal{Username: "johndoe", Groups: slices.Clone(tt.groups)}
+
+			err := authorizer.Authorize(context.Background(), principal, "create", "things")
+			require.ErrorAs(t, err, new(authZErrors.Forbidden))
+			require.NoError(t, authorizer.Authorize(context.Background(), principal, "R", "things"))
+			assert.Equal(t, tt.groups, principal.Groups)
+		})
+	}
+}
+
+// TestAdminList_AuthorizeAndRequireActiveNamespace pins that the method still
+// authorizes when it skips the namespace check.
+func TestAdminList_AuthorizeAndRequireActiveNamespace(t *testing.T) {
+	tests := []struct {
+		name        string
+		username    string
+		wantAllowed bool
+	}{
+		{name: "an admin is allowed", username: "johndoe", wantAllowed: true},
+		{name: "a non-admin is forbidden", username: "janedoe"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := New(Config{Enabled: true, Users: []string{"johndoe"}})
+
+			err := authorizer.AuthorizeAndRequireActiveNamespace(context.Background(),
+				&models.Principal{Username: tt.username}, "R", "alpha:Movies", "things")
+
+			if tt.wantAllowed {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
+		})
+	}
 }

@@ -114,6 +114,12 @@ func MVMappingsBucketName(indexID string) string {
 	return fmt.Sprintf("%s_mv_mappings", indexID)
 }
 
+// QueueDirName is the directory under the shard of the async-indexing queue
+// with ID queueID.
+func QueueDirName(queueID string) string {
+	return fmt.Sprintf("%s.queue.d", queueID)
+}
+
 // HFresh keeps more on-disk state than the other index types: a directory of
 // its own under the shard, plus two dedicated LSM buckets. All three are keyed
 // on the index ID (vectorIndexID, i.e. "vectors_<target>" for a named vector),
@@ -196,12 +202,67 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 			// before the live drop) leaves it — and DiskQueue.Init replays stale
 			// chunks into a re-created index of the same name, so this is wrong
 			// vectors and dimension errors, not just disk cost.
-			indexID + ".queue.d",
+			QueueDirName(indexID),
 			// flat.Drop removes this on the live path only; the files-only
 			// paths leave it, same gap as the queue directory above.
 			FlatMetadataFileName(targetVector),
 		},
 	}
+}
+
+// VectorIndexArtifactNamesForID is vectorIndexArtifactNames keyed by physical
+// ID, without the queue: a queue can outlive the index it fed, so it is the
+// vector's, named by the mapping's queue ID. For a named vector the two
+// otherwise agree; for the legacy vector only this one names what the indexes
+// write (the name-based list keys off "vectors").
+func VectorIndexArtifactNamesForID(physicalID string) VectorIndexArtifacts {
+	return VectorIndexArtifacts{
+		LSMBuckets: []string{
+			VectorsBucketNameForID(physicalID),
+			CompressedBucketNameForID(physicalID),
+			MuveraBucketName(physicalID),
+			MVMappingsBucketName(physicalID),
+			HFreshPostingsBucketName(physicalID),
+			HFreshSharedBucketName(physicalID),
+			CompressedBucketNameForID(CentroidsID(physicalID)),
+		},
+		ShardDirs: []string{
+			HNSWCommitLogDirNameForID(physicalID),
+			physicalID + ".hnsw.snapshot.d",
+			HFreshDirName(physicalID),
+			FlatMetadataFileNameForID(physicalID),
+		},
+	}
+}
+
+// VectorIndexArtifactsForID is VectorIndexArtifactsFor keyed by physical ID:
+// what dropping the index at physicalID has to remove, minus any LSM bucket
+// an index at one of otherIDs owns. The mapping's record is the source of
+// these IDs; the name-based twin serves callers without a record.
+func VectorIndexArtifactsForID(physicalID string, otherIDs []string) VectorIndexArtifacts {
+	artifacts := VectorIndexArtifactNamesForID(physicalID)
+	protected := map[string]struct{}{}
+	for _, other := range otherIDs {
+		if other == physicalID {
+			continue
+		}
+		for _, name := range VectorIndexArtifactNamesForID(other).All() {
+			protected[name] = struct{}{}
+		}
+	}
+	if len(protected) == 0 {
+		return artifacts
+	}
+	// only LSM buckets can collide, see VectorIndexArtifactsFor
+	var keptBuckets []string
+	for _, name := range artifacts.LSMBuckets {
+		if _, clash := protected[name]; clash {
+			continue
+		}
+		keptBuckets = append(keptBuckets, name)
+	}
+	artifacts.LSMBuckets = keptBuckets
+	return artifacts
 }
 
 // VectorIndexArtifactsFor lists what dropping targetVector has to remove. It is
@@ -243,7 +304,7 @@ func VectorIndexArtifactsFor(targetVector string, otherTargetVectors []string) V
 	// artifact can ever equal one — filtering them would be unreachable code.
 	// A future shard directory WITHOUT a dotted suffix would break that and
 	// needs the guard extended.
-	keptBuckets := artifacts.LSMBuckets[:0:0]
+	var keptBuckets []string
 	for _, name := range artifacts.LSMBuckets {
 		if _, clash := protected[name]; clash {
 			continue

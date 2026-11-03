@@ -12,15 +12,22 @@
 package backup
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -197,6 +204,19 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		}
 	})
 
+	t.Run("RejectDedupedDescriptorOnLegacyPath", func(t *testing.T) {
+		deduped := metadata
+		deduped.Version = "3.0"
+		deduped.DedupeReplicas = true
+		backend := newFakeBackend()
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(marshalMeta(deduped), nil)
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		bm := createManager(nil, nil, backend, nil)
+		resp := bm.OnCanCommit(ctx, &req)
+		assert.Contains(t, resp.Err, "not planned as a fan-out")
+		assert.Equal(t, time.Duration(0), resp.Timeout)
+	})
+
 	t.Run("AnotherBackupIsInProgress", func(t *testing.T) {
 		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
@@ -228,7 +248,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		want1 := &CanCommitResponse{
 			Method:  OpRestore,
 			ID:      req.ID,
-			Timeout: _TimeoutShardCommit,
+			Timeout: maxBooking(false),
 		}
 		assert.Equal(t, want1, resp1)
 		err := m.OnCommit(ctx, &StatusRequest{Method: OpRestore, ID: req.ID, Backend: req.Backend})
@@ -236,6 +256,32 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		lastStatus := m.restorer.waitForCompletion(req.Backend, req.ID, 12, 50)
 		assert.Nil(t, err)
 		assert.Equal(t, lastStatus.Status, backup.Success)
+	})
+
+	t.Run("AdoptsMigrationRecordsFromTheBackupNode", func(t *testing.T) {
+		const sourceNode = "Node-0"
+		req := req
+		req.Duration = time.Hour
+		req.NodeMapping = map[string]string{sourceNode: nodeName}
+		sourceHome := backupID + "/" + sourceNode
+		dataPath := t.TempDir()
+		backend := newFakeBackend()
+		backend.chunks = map[string][]byte{chunkKey(cls, 1): tarGzWithFile(t, strings.ToLower(cls)+"/Shard1/marker")}
+		sourcer := &fakeSourcer{}
+		backend.On("GetObject", ctx, sourceHome, BackupFile).Return(marshalMeta(metadata), nil)
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		backend.On("SourceDataPath").Return(dataPath)
+		backend.On("Read", any, sourceHome, chunkKey(cls, 1), mock.Anything).Return(int64(0), nil)
+		m := createManager(sourcer, nil, backend, nil)
+		assert.Empty(t, m.OnCanCommit(ctx, &req).Err)
+		assert.Nil(t, m.OnCommit(ctx, &StatusRequest{Method: OpRestore, ID: req.ID, Backend: req.Backend}))
+		assert.Equal(t, backup.Success, m.restorer.waitForCompletion(req.Backend, req.ID, 12, 50).Status)
+		assert.Equal(t, []adoptedRecords{{
+			indexPath:    filepath.Join(dataPath, TempDirectory, cls, strings.ToLower(cls)),
+			node:         nodeName,
+			sourceNode:   sourceNode,
+			stagedShards: []string{"Shard1"},
+		}}, sourcer.adoptedCalls())
 	})
 
 	t.Run("Abort", func(t *testing.T) {
@@ -253,7 +299,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		want1 := &CanCommitResponse{
 			Method:  OpRestore,
 			ID:      req.ID,
-			Timeout: _TimeoutShardCommit,
+			Timeout: maxBooking(false),
 		}
 		assert.Equal(t, want1, resp1)
 		err := m.OnAbort(ctx, &AbortRequest{Method: OpRestore, ID: req.ID})
@@ -346,7 +392,7 @@ func TestRestoreAllCancellation(t *testing.T) {
 
 		err := restorer.restoreAll(cancelledCtx, desc, 50, nodeStore{
 			objectStore: objectStore{backend: backend, backupId: backupID},
-		}, "", "", false)
+		}, "", "", false, &stagedDirs{})
 
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "restore cancelled")
@@ -377,4 +423,214 @@ func TestWithCancellation(t *testing.T) {
 			t.Error("abort signal should have been sent")
 		}
 	})
+}
+
+func TestRestoreBookingExpiration(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		dedupe  bool
+		want    time.Duration
+		booking time.Duration
+	}{
+		{name: "legacy clamped to the booking limit", booking: 10 * time.Minute, want: _TimeoutCanCommit + _BookingPeriod},
+		{name: "legacy below the clamp", booking: 5 * time.Second, want: 5 * time.Second},
+		{name: "dedupe honors the widened booking", dedupe: true, booking: _TimeoutDedupeRestoreCanCommit + _BookingPeriod, want: _TimeoutDedupeRestoreCanCommit + _BookingPeriod},
+		{name: "dedupe clamped to the widened limit", dedupe: true, booking: 10 * time.Minute, want: _TimeoutDedupeRestoreCanCommit + _BookingPeriod},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			backend := newFakeBackend()
+			backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/1")
+			backend.On("SourceDataPath").Return(t.TempDir())
+			r := newRestorer(nodeName, logrus.New(), &fakeSourcer{}, nil, false)
+			store := nodeStore{objectStore{backend, "1/" + nodeName, "", "", nodeName}}
+			req := &Request{Method: OpRestore, ID: "1", Duration: tc.booking, DedupeReplicas: tc.dedupe}
+
+			ret, err := r.startRestore(req, store, func(context.Context, *stagedDirs) error { return nil })
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, ret.Timeout)
+
+			require.NoError(t, r.OnAbort(context.Background(), &AbortRequest{ID: req.ID}))
+			require.Eventually(t, func() bool { return r.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+		})
+	}
+}
+
+func TestRestoreFailureCleansStaging(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		stage   bool
+		workErr error
+		wantOwn bool
+	}{
+		{name: "failure removes only dirs this attempt staged", stage: true, workErr: ErrAny, wantOwn: false},
+		{name: "failure before staging removes nothing", workErr: ErrAny, wantOwn: false},
+		{name: "success keeps staged dirs for raft apply", stage: true, wantOwn: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dataPath := t.TempDir()
+			backend := newFakeBackend()
+			backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/1")
+			backend.On("SourceDataPath").Return(dataPath)
+			r := newRestorer(nodeName, logrus.New(), &fakeSourcer{}, nil, false)
+			store := nodeStore{objectStore{backend, "1/" + nodeName, "", "", nodeName}}
+
+			foreign := filepath.Join(dataPath, TempDirectory, "Class-Foreign")
+			require.NoError(t, os.MkdirAll(foreign, os.ModePerm))
+			require.NoError(t, os.WriteFile(filepath.Join(foreign, "chunk-1"), []byte("stale"), 0o644))
+			own := filepath.Join(dataPath, TempDirectory, "Class-A")
+
+			req := &Request{Method: OpRestore, ID: "1"}
+			_, err := r.startRestore(req, store, func(_ context.Context, staged *stagedDirs) error {
+				if tc.stage {
+					staged.record(own)
+					if err := os.MkdirAll(own, os.ModePerm); err != nil {
+						return err
+					}
+					if err := os.WriteFile(filepath.Join(own, "chunk-1"), []byte("data"), 0o644); err != nil {
+						return err
+					}
+				}
+				return tc.workErr
+			})
+			require.NoError(t, err)
+			require.Eventually(t, func() bool { return r.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+
+			_, statErr := os.Stat(foreign)
+			require.NoError(t, statErr)
+			_, statErr = os.Stat(own)
+			if tc.wantOwn {
+				require.NoError(t, statErr)
+			} else {
+				require.ErrorIs(t, statErr, os.ErrNotExist)
+			}
+		})
+	}
+}
+
+func TestRestoreFailureKeepsPriorAttemptStaging(t *testing.T) {
+	t.Parallel()
+	dataPath := t.TempDir()
+	backend := newFakeBackend()
+	backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/1")
+	backend.On("SourceDataPath").Return(dataPath)
+	r := newRestorer(nodeName, logrus.New(), &fakeSourcer{}, nil, false)
+	store := nodeStore{objectStore{backend, "1/" + nodeName, "", "", nodeName}}
+
+	staged := filepath.Join(dataPath, TempDirectory, "Class-A")
+	req1 := &Request{Method: OpRestore, ID: "1"}
+	_, err := r.startRestore(req1, store, func(_ context.Context, s *stagedDirs) error {
+		s.record(staged)
+		if err := os.MkdirAll(staged, os.ModePerm); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(staged, "chunk-1"), []byte("data"), 0o644)
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return r.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+	require.DirExists(t, staged)
+
+	req2 := &Request{Method: OpRestore, ID: "2", Duration: 20 * time.Millisecond}
+	_, err = r.startRestore(req2, store, func(context.Context, *stagedDirs) error { return nil })
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return r.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+
+	require.DirExists(t, staged)
+	require.FileExists(t, filepath.Join(staged, "chunk-1"))
+}
+
+func TestRestoreFailureKeepsSameClassStagingOfPriorAttempt(t *testing.T) {
+	t.Parallel()
+	dataPath := t.TempDir()
+	backend := newFakeBackend()
+	backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/1")
+	backend.On("SourceDataPath").Return(dataPath)
+	r := newRestorer(nodeName, logrus.New(), &fakeSourcer{}, nil, false)
+	store := nodeStore{objectStore{backend, "1/" + nodeName, "", "", nodeName}}
+
+	staged := filepath.Join(dataPath, TempDirectory, "Class-A")
+	req1 := &Request{Method: OpRestore, ID: "1", AttemptID: "a1"}
+	_, err := r.startRestore(req1, store, func(_ context.Context, s *stagedDirs) error {
+		fw := newFileWriter(&fakeSourcer{}, store, logrus.New()).withStagedRecorder(s.record).withAttemptID(s.attemptID)
+		if err := fw.prepare(staged); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(staged, "chunk-1"), []byte("data"), 0o644)
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return r.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+	require.DirExists(t, staged)
+
+	req2 := &Request{Method: OpRestore, ID: "2", AttemptID: "a2"}
+	_, err = r.startRestore(req2, store, func(_ context.Context, s *stagedDirs) error {
+		s.record(staged)
+		return ErrAny
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return r.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+
+	require.FileExists(t, filepath.Join(staged, "chunk-1"))
+	marker, err := os.ReadFile(filepath.Join(staged, stagingMarkerFile))
+	require.NoError(t, err)
+	assert.Equal(t, "a1", string(marker))
+}
+
+// TestAttemptGates pins OnCommit and OnAbort attempt gating: only a foreign-attempt OnCommit errors, but neither op may signal for one.
+func TestAttemptGates(t *testing.T) {
+	t.Parallel()
+	ops := []struct {
+		name   string
+		invoke func(c *shardSyncChan, reqAttempt string) error
+	}{
+		{name: "commit", invoke: func(c *shardSyncChan, reqAttempt string) error {
+			c.waitingForCoordinatorToCommit.Store(true)
+			return c.OnCommit(context.Background(), &StatusRequest{ID: "1", AttemptID: reqAttempt})
+		}},
+		{name: "abort", invoke: func(c *shardSyncChan, reqAttempt string) error {
+			return c.OnAbort(context.Background(), &AbortRequest{ID: "1", AttemptID: reqAttempt})
+		}},
+	}
+	tests := []struct {
+		name        string
+		slotAttempt string
+		reqAttempt  string
+		wantSignal  bool
+	}{
+		{name: "same attempt passes", slotAttempt: "a1", reqAttempt: "a1", wantSignal: true},
+		{name: "foreign attempt never signals", slotAttempt: "a1", reqAttempt: "a2", wantSignal: false},
+		{name: "legacy request without attempt", slotAttempt: "a1", reqAttempt: "", wantSignal: true},
+		{name: "legacy slot without attempt", slotAttempt: "", reqAttempt: "a2", wantSignal: true},
+	}
+	for _, op := range ops {
+		for _, tc := range tests {
+			t.Run(op.name+" "+tc.name, func(t *testing.T) {
+				t.Parallel()
+				c := shardSyncChan{coordChan: make(chan interface{}, 5), logger: logrus.New()}
+				require.Empty(t, c.lastOp.renew("1", tc.slotAttempt, "p", "", ""))
+				err := op.invoke(&c, tc.reqAttempt)
+				if op.name == "commit" && !tc.wantSignal {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+				assert.Equal(t, tc.wantSignal, len(c.coordChan) == 1)
+			})
+		}
+	}
+}
+
+func tarGzWithFile(t *testing.T, name string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644}))
+	require.NoError(t, tw.Close())
+	require.NoError(t, gz.Close())
+	return buf.Bytes()
 }

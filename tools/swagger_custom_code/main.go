@@ -13,12 +13,15 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"strings"
 )
 
 func main() {
-	overrideObject("entities/models/vectors.go")
+	if err := overrideObject("entities/models/vectors.go"); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func overrideObject(name string) error {

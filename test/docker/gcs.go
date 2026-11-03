@@ -17,7 +17,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -25,7 +24,7 @@ import (
 const GCS = "gcp-storage-emulator"
 
 func startGCS(ctx context.Context, networkName string) (*DockerContainer, error) {
-	port := nat.Port("9090/tcp")
+	port := "9090/tcp"
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        "oittaa/gcp-storage-emulator",
@@ -38,7 +37,7 @@ func startGCS(ctx context.Context, networkName string) (*DockerContainer, error)
 				networkName: {GCS},
 			},
 			Env: map[string]string{
-				"PORT": port.Port(),
+				"PORT": portNumber(port),
 			},
 			WaitingFor: wait.ForAll(
 				wait.ForListeningPort(port),
@@ -58,7 +57,7 @@ func startGCS(ctx context.Context, networkName string) (*DockerContainer, error)
 	envSettings := make(map[string]string)
 	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
 	envSettings["GOOGLE_CLOUD_PROJECT"] = projectID
-	envSettings["STORAGE_EMULATOR_HOST"] = fmt.Sprintf("%s:%s", GCS, port.Port())
+	envSettings["STORAGE_EMULATOR_HOST"] = fmt.Sprintf("%s:%s", GCS, portNumber(port))
 	envSettings["BACKUP_GCS_USE_AUTH"] = "false"
 	// The emulator serves the JSON API only, so it cannot answer the gRPC
 	// transport the module otherwise defaults to.

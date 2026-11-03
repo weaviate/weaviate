@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.40.0-dev"
+    "version": "1.41.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -210,8 +210,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or returnMetrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or returnMetrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -565,7 +571,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the group.",
+            "description": "The name of the group. Must not contain ',', '\"' or control characters, and must be at most 256 bytes.",
             "name": "id",
             "in": "path",
             "required": true
@@ -1411,7 +1417,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the user.",
+            "description": "The name of the user. Must not contain ',', '\"' or control characters, and must be at most 256 bytes.",
             "name": "id",
             "in": "path",
             "required": true
@@ -2627,7 +2633,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or a record sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3067,7 +3073,7 @@ func init() {
     },
     "/namespaces": {
       "get": {
-        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list rather than 403.",
         "tags": [
           "namespaces"
         ],
@@ -3082,6 +3088,12 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden: no well-formed Weaviate license key is configured on this node",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Not Found - The namespaces feature is not enabled on this cluster.",
@@ -3132,7 +3144,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3193,7 +3205,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3253,7 +3265,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3308,7 +3320,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3359,7 +3371,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3422,7 +3434,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5034,6 +5046,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
@@ -5154,6 +5172,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5560,6 +5584,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -5955,6 +5985,12 @@ func init() {
           "404": {
             "description": "Collection not found."
           },
+          "422": {
+            "description": "Invalid collection name provided (e.g. malformed namespace prefix). Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error occurred.",
             "schema": {
@@ -6113,7 +6149,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6137,7 +6173,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6378,7 +6414,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6402,7 +6438,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6526,6 +6562,12 @@ func init() {
           },
           "404": {
             "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid collection name provided (e.g. malformed namespace prefix). Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7098,8 +7140,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7162,7 +7210,7 @@ func init() {
             }
           },
           "400": {
-            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], negative paging, unknown property) or an unparseable request body.",
+            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], a vector that is empty, holds a non-number or a number outside the 32-bit float range, a vector with alpha 0, negative paging, unknown property) or an unparseable request body.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7185,8 +7233,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0 and no ` + "`" + `vector` + "`" + ` is supplied, the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7272,8 +7326,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (a missing, null or structurally invalid required ` + "`" + `id` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: the source object has no stored vector for the (target) vector searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing, null or structurally invalid required ` + "`" + `id` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: the source object has no stored vector for the (target) vector searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7359,8 +7419,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7373,6 +7439,99 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/search/{collection}/near-vector": {
+      "post": {
+        "description": "Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query ` + "`" + `vector` + "`" + ` is searched against the vector index and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with near-vector",
+        "operationId": "search.nearVector",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The near-vector search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchNearVectorRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. a vector that is empty, holds a non-number or a number outside the 32-bit float range, negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `vector` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7604,6 +7763,12 @@ func init() {
                   "type": "string",
                   "format": "date-time"
                 },
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format at which the user's API key stops authenticating, stored in UTC with millisecond precision. It must be in the future. Setting it needs a Weaviate license key on the node, else the request answers 403. On a node with a license key, a request that also sets ` + "`" + `import` + "`" + ` to true answers 422. Absent means the key never expires.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
                 "import": {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
@@ -7630,7 +7795,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or the body sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7851,6 +8016,85 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.users.db.deactivateUser"
+        ]
+      }
+    },
+    "/users/db/{user_id}/expiration": {
+      "put": {
+        "description": "Set or clear the time at which a database user's (` + "`" + `db` + "`" + ` user type) API key stops authenticating. The body sets exactly one of ` + "`" + `expiresAt` + "`" + `, which must be in the future, and ` + "`" + `neverExpires` + "`" + `, which must be true and clears the expiry. Any other body answers 422, and so do the caller's own user, root users and static users. A node without a Weaviate license key answers 403, so an expired user can then only be deleted and re-created.",
+        "tags": [
+          "users"
+        ],
+        "summary": "Set a user's expiration",
+        "operationId": "setUserExpiration",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the user.",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Set exactly one of ` + "`" + `expiresAt` + "`" + ` and ` + "`" + `neverExpires` + "`" + `.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format, stored in UTC with millisecond precision, at which the user's API key stops authenticating. It must be in the future.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
+                "neverExpires": {
+                  "description": "True clears the user's expiry, so the API key never expires. False answers 422.",
+                  "type": "boolean",
+                  "x-nullable": true
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User expiration successfully set."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden, because the caller lacks the permission or the node has no Weaviate license key.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "User not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.setUserExpiration"
         ]
       }
     },
@@ -8176,11 +8420,25 @@ func init() {
         "Path": {
           "description": "Path or key within the bucket.",
           "type": "string"
+        },
+        "dedupeConvergenceTimeoutSeconds": {
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "type": "integer",
+          "default": 60,
+          "maximum": 600,
+          "minimum": 1,
+          "x-nullable": false
+        },
+        "dedupeReplicas": {
+          "description": "If true, shards of replicated collections proven in sync by async-replication checkpoints are archived by one replica instead of all, and restore copies them back to every replica; other shards are archived by every replica. Requires async replication, BACKUP_DEDUPE_ENABLED=true (else 422) and a Weaviate license key (else 403) on every node. Such backups restore only on versions that support this option; restoring needs no license.",
+          "type": "boolean",
+          "default": false,
+          "x-nullable": false
         }
       }
     },
     "BackupCreateRequest": {
-      "description": "Request body for creating a backup for a set of collections.",
+      "description": "Request body for creating a backup. The resolved selection must contain at least one collection, dynamic user, or RBAC role.",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup creation process",
@@ -8188,7 +8446,7 @@ func init() {
           "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
-          "description": "List of collections to exclude from the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "description": "List of collections to exclude from the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. Excluding every collection is allowed when users or roles are selected, including through omitted identity selectors.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8199,21 +8457,21 @@ func init() {
           "type": "string"
         },
         "include": {
-          "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. A list made only of wildcards that match no collection is rejected.",
+          "description": "List of collections to include in the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may back up. A list that matches no collection is allowed when users or roles are selected, including through omitted identity selectors.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "includeRoles": {
-          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole RBAC state is captured as part of the cluster snapshot; when set, the RBAC blob is filtered to the matching roles. An exact role name that does not exist is rejected; wildcards that match nothing back up no roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.",
+          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole RBAC state is captured, including built-in roles and assignments. An empty list or wildcards matching nothing omit the RBAC snapshot; restoring it leaves existing roles untouched. Otherwise, only matching roles are captured. An exact role name that does not exist is rejected. Explicit selectors cannot select built-in roles: exact names are rejected and wildcards exclude them. Selected roles, including built-in roles selected by omission, permit a backup with zero collections. No per-role permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "includeUsers": {
-          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole dynamic-user store is captured as part of the cluster snapshot and no per-user permission check is applied; when set, only matching users are captured. An exact user name that does not exist is rejected; wildcards that match nothing back up no users.",
+          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole dynamic-user store is captured. An empty list or wildcards matching nothing omit the user snapshot; restoring it leaves existing users untouched. Otherwise, only matching users are captured. An exact user name that does not exist is rejected. Selected users, including those selected by omission, permit a backup with zero collections. No per-user permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8382,7 +8640,7 @@ func init() {
       }
     },
     "BackupRestoreRequest": {
-      "description": "Request body for restoring a backup for a set of collections (classes).",
+      "description": "Request body for restoring a backup. A backup with no collections can restore users or roles when the matching restore option is enabled.",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup restoration process.",
@@ -8390,14 +8648,14 @@ func init() {
           "$ref": "#/definitions/RestoreConfig"
         },
         "exclude": {
-          "description": "List of collections (classes) to exclude from the backup restoration process.",
+          "description": "List of collections (classes) to exclude from the backup restoration process. Any entry is rejected when the backup contains no collections.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "include": {
-          "description": "List of collections (classes) to include in the backup restoration process. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. A list made only of wildcards that match no collection in the backup is rejected.",
+          "description": "List of collections (classes) to include in the backup restoration process. If not set, all collections in the backup the caller may restore are included. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may restore. A list that matches no collection is rejected. Any entry is rejected when the backup contains no collections.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8505,7 +8763,7 @@ func init() {
           "x-nullable": true
         },
         "dryRun": {
-          "description": "If true, the call will show which objects would be matched using the specified filter without deleting any objects. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of affected objects, or a list of IDs.",
+          "description": "If true, the call reports what the filter matches and deletes nothing. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of matched objects, or a list of IDs. With a positive [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS) the count stops one above it, and the list holds at most ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + ` IDs. Repeating the dry run reports the same count; for an exact total use an aggregate count, which resolves no objects.",
           "type": "boolean",
           "default": false
         },
@@ -8543,7 +8801,7 @@ func init() {
           "x-nullable": true
         },
         "dryRun": {
-          "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
+          "description": "If true, the call reported what the filter matched and deleted nothing. The list holds at most [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS) IDs. Defaults to false.",
           "type": "boolean",
           "default": false
         },
@@ -8584,7 +8842,7 @@ func init() {
               "x-omitempty": false
             },
             "matches": {
-              "description": "How many objects were matched by the filter.",
+              "description": "How many objects matched the filter. With a positive ` + "`" + `limit` + "`" + ` the count stops one above ` + "`" + `limit` + "`" + `: at or below ` + "`" + `limit` + "`" + ` this is the exact number of matching objects and every one of them was handled by this call, and above ` + "`" + `limit` + "`" + ` more objects match than one call deletes, so call again. With a ` + "`" + `limit` + "`" + ` of 0 or below this is the exact number of matching objects and the call deletes none of them.",
               "type": "number",
               "format": "int64",
               "x-omitempty": false
@@ -8693,99 +8951,12 @@ func init() {
         }
       }
     },
-    "C11yExtension": {
-      "description": "A resource describing an extension to the contextinoary, containing both the identifier and the definition of the extension",
-      "properties": {
-        "concept": {
-          "description": "The new concept you want to extend. Must be an all-lowercase single word, or a space delimited compound word. Examples: 'foobarium', 'my custom concept'",
-          "type": "string",
-          "example": "foobarium"
-        },
-        "definition": {
-          "description": "A list of space-delimited words or a sentence describing what the custom concept is about. Avoid using the custom concept itself. An Example definition for the custom concept 'foobarium': would be 'a naturally occurring element which can only be seen by programmers'",
-          "type": "string"
-        },
-        "weight": {
-          "description": "Weight of the definition of the new concept where 1='override existing definition entirely' and 0='ignore custom definition'. Note that if the custom concept is not present in the contextionary yet, the weight cannot be less than 1.",
-          "type": "number",
-          "format": "float"
-        }
-      }
-    },
-    "C11yNearestNeighbors": {
-      "description": "C11y function to show the nearest neighbors to a word.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "distance": {
-            "type": "number",
-            "format": "float"
-          },
-          "word": {
-            "type": "string"
-          }
-        }
-      }
-    },
     "C11yVector": {
       "description": "A vector representation of the object in the Contextionary. If provided at object creation, this wil take precedence over any vectorizer setting.",
       "type": "array",
       "items": {
         "type": "number",
         "format": "float"
-      }
-    },
-    "C11yWordsResponse": {
-      "description": "An array of available words and contexts.",
-      "properties": {
-        "concatenatedWord": {
-          "description": "Weighted results for all words",
-          "type": "object",
-          "properties": {
-            "concatenatedNearestNeighbors": {
-              "$ref": "#/definitions/C11yNearestNeighbors"
-            },
-            "concatenatedVector": {
-              "$ref": "#/definitions/C11yVector"
-            },
-            "concatenatedWord": {
-              "type": "string"
-            },
-            "singleWords": {
-              "type": "array",
-              "items": {
-                "format": "string"
-              }
-            }
-          }
-        },
-        "individualWords": {
-          "description": "Weighted results for per individual word",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "info": {
-                "type": "object",
-                "properties": {
-                  "nearestNeighbors": {
-                    "$ref": "#/definitions/C11yNearestNeighbors"
-                  },
-                  "vector": {
-                    "$ref": "#/definitions/C11yVector"
-                  }
-                }
-              },
-              "present": {
-                "type": "boolean"
-              },
-              "word": {
-                "type": "string"
-              }
-            }
-          }
-        }
       }
     },
     "Class": {
@@ -8842,7 +9013,7 @@ func init() {
           "type": "string"
         },
         "vectorizer": {
-          "description": "Specify how the vectors for this collection should be determined. The options are either ` + "`" + `none` + "`" + ` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as ` + "`" + `text2vec-weaviate` + "`" + `. If left empty, it will use the globally configured default ([` + "`" + `DEFAULT_VECTORIZER_MODULE` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be ` + "`" + `none` + "`" + ` or a specific module.",
+          "description": "Specify how the vectors for this collection should be determined. The options are either ` + "`" + `none` + "`" + ` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as ` + "`" + `text2vec-weaviate` + "`" + `. If left empty, it defaults to ` + "`" + `none` + "`" + `.",
           "type": "string"
         }
       }
@@ -9003,6 +9174,12 @@ func init() {
           "type": "string",
           "format": "date-time"
         },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent or null means the key never expires, except that import never changes an existing user's expiry, so a record without one keeps the stored value. A new user takes the record's value, even one that has passed. A differing future value for an existing user gives that record an error result naming ` + "`" + `PUT /v1/users/db/{user_id}/expiration` + "`" + `. A differing past value gives ` + "`" + `skipped_exists` + "`" + ` for a deactivated user. For an active one it gives an error result advising to deactivate the user, or delete it and re-import, because that PUT refuses a past time. A node without a Weaviate license key refuses the whole import with 403 when any record sets a non-null ` + "`" + `expiresAt` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "namespace": {
           "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
           "type": "string"
@@ -9069,6 +9246,12 @@ func init() {
             "db_user",
             "db_env_user"
           ]
+        },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent means the key never expires. Expiry does not change ` + "`" + `active` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
         },
         "lastUsedAt": {
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
@@ -9697,12 +9880,64 @@ func init() {
           "type": "string",
           "format": "url"
         },
+        "license": {
+          "description": "License state of this Weaviate instance.",
+          "$ref": "#/definitions/MetaLicense"
+        },
         "modules": {
           "description": "Module-specific meta information.",
           "type": "object"
         },
         "version": {
           "description": "The Weaviate server version.",
+          "type": "string"
+        }
+      }
+    },
+    "MetaLicense": {
+      "description": "License state of the current Weaviate instance.",
+      "type": "object",
+      "properties": {
+        "clusterMismatch": {
+          "description": "Whether the license is used on a cluster other than the one it was issued for.",
+          "type": "boolean"
+        },
+        "documentationHref": {
+          "description": "Documentation page for the Weaviate Enterprise Edition.",
+          "type": "string"
+        },
+        "edition": {
+          "description": "The product edition: community (no license key) or enterprise (license key configured).",
+          "type": "string"
+        },
+        "enforcing": {
+          "description": "Whether license enforcement is active.",
+          "type": "boolean"
+        },
+        "expiresAt": {
+          "description": "When the license expires, if known.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "gracePeriodEndsAt": {
+          "description": "When the grace period ends, if the license is not currently valid.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "lastCheckedAt": {
+          "description": "When the license was last verified with the license service, if ever.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "licenseId": {
+          "description": "The non-secret id of the configured license, empty when unlicensed.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Current license status. Only present on Enterprise Edition; a Community Edition node has no license and therefore no license status.",
           "type": "string"
         }
       }
@@ -10161,6 +10396,7 @@ func init() {
           "type": "string",
           "enum": [
             "manage_backups",
+            "read_backups",
             "read_cluster",
             "create_data",
             "read_data",
@@ -10205,7 +10441,7 @@ func init() {
           "type": "object",
           "properties": {
             "alias": {
-              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases.",
+              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -10248,9 +10484,10 @@ func init() {
               "default": "*"
             },
             "object": {
-              "description": "A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all objects.",
+              "description": "Deprecated: Object-level permissions are not supported. This field is ignored; the permission always applies to all objects. Kept for backward compatibility.",
               "type": "string",
-              "default": "*"
+              "default": "*",
+              "x-deprecated": true
             },
             "tenant": {
               "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all tenants.",
@@ -10264,7 +10501,7 @@ func init() {
           "type": "object",
           "properties": {
             "group": {
-              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -10278,7 +10515,7 @@ func init() {
           "type": "object",
           "properties": {
             "namespace": {
-              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -10314,7 +10551,7 @@ func init() {
               "default": "*"
             },
             "shard": {
-              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -10325,7 +10562,7 @@ func init() {
           "type": "object",
           "properties": {
             "role": {
-              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles.",
+              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -10361,7 +10598,7 @@ func init() {
           "type": "object",
           "properties": {
             "users": {
-              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -10411,6 +10648,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "isDynamicDbUser": {
+          "description": "This is true when the API key resolved to a DB user record, which covers a dynamic DB user's own key and an imported static key. A login through the static API key list leaves it false, even when a DB user shares its name, though both carry userType db.",
+          "type": "boolean"
         },
         "isGlobalOperator": {
           "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
@@ -11392,7 +11633,7 @@ func init() {
       }
     },
     "SearchHybridRequest": {
-      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + `, ` + "`" + `targetVector` + "`" + ` and ` + "`" + `vector` + "`" + `.",
       "allOf": [
         {
           "$ref": "#/definitions/SearchCommon"
@@ -11404,7 +11645,7 @@ func init() {
           ],
           "properties": {
             "alpha": {
-              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + ` the query is never vectorized, so a collection without a vectorizer module is searchable.",
+              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + `, or with ` + "`" + `vector` + "`" + ` supplied, the query is never vectorized, so a collection without a vectorizer module is searchable.",
               "type": "number",
               "format": "float64",
               "x-nullable": true
@@ -11424,7 +11665,7 @@ func init() {
               "x-nullable": true
             },
             "query": {
-              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part. Must not be empty.",
+              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part, unless ` + "`" + `vector` + "`" + ` is supplied. Must not be empty.",
               "type": "string"
             },
             "queryProperties": {
@@ -11437,6 +11678,9 @@ func init() {
             "targetVector": {
               "description": "The named vector to search. Required when the collection has more than one named vector.",
               "type": "string"
+            },
+            "vector": {
+              "description": "The query vector for the vector part of the search, used instead of vectorizing ` + "`" + `query` + "`" + `. A non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. Requires ` + "`" + `alpha` + "`" + ` \u003e 0."
             }
           }
         }
@@ -11513,6 +11757,41 @@ func init() {
             "targetVector": {
               "description": "The named vector to search. Required when the collection has more than one named vector.",
               "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "SearchNearVectorRequest": {
+      "description": "Request body for the near-vector search endpoint. The caller supplies the query vector and the closest objects are returned. No query is vectorized — collections without a vectorizer module are fully searchable. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-vector-specific ` + "`" + `vector` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "vector"
+          ],
+          "properties": {
+            "certainty": {
+              "description": "Minimum normalized certainty of a match. Only for cosine-distance vector indexes. Mutually exclusive with ` + "`" + `distance` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "distance": {
+              "description": "Maximum vector distance of a match. Mutually exclusive with ` + "`" + `certainty` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "targetVector": {
+              "description": "The named vector to search (the query vector is compared against the vectors stored under this name, and must match their dimensionality). Required when the collection has more than one named vector.",
+              "type": "string"
+            },
+            "vector": {
+              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector."
             }
           }
         }
@@ -12193,6 +12472,12 @@ func init() {
         "username"
       ],
       "properties": {
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the caller's API key stops authenticating. Absent means the key never expires, the caller is not a DB user, or DB user management is disabled.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "groups": {
           "description": "The groups associated with the user.",
           "type": "array",
@@ -12583,7 +12868,7 @@ func init() {
       "name": "mcp"
     },
     {
-      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action and, on namespace-enabled clusters, a well-formed Weaviate license key on the serving node.",
       "name": "namespaces"
     }
   ],
@@ -12611,7 +12896,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.40.0-dev"
+    "version": "1.41.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -12773,8 +13058,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or returnMetrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or returnMetrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13128,7 +13419,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the group.",
+            "description": "The name of the group. Must not contain ',', '\"' or control characters, and must be at most 256 bytes.",
             "name": "id",
             "in": "path",
             "required": true
@@ -13950,7 +14241,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the user.",
+            "description": "The name of the user. Must not contain ',', '\"' or control characters, and must be at most 256 bytes.",
             "name": "id",
             "in": "path",
             "required": true
@@ -15178,7 +15469,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or a record sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15618,7 +15909,7 @@ func init() {
     },
     "/namespaces": {
       "get": {
-        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list rather than 403.",
         "tags": [
           "namespaces"
         ],
@@ -15633,6 +15924,12 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden: no well-formed Weaviate license key is configured on this node",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Not Found - The namespaces feature is not enabled on this cluster.",
@@ -15683,7 +15980,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15744,7 +16041,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15804,7 +16101,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15859,7 +16156,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15910,7 +16207,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15973,7 +16270,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -17695,6 +17992,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
@@ -17815,6 +18118,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18221,6 +18530,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -18616,6 +18931,12 @@ func init() {
           "404": {
             "description": "Collection not found."
           },
+          "422": {
+            "description": "Invalid collection name provided (e.g. malformed namespace prefix). Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error occurred.",
             "schema": {
@@ -18774,7 +19095,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18798,7 +19119,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19039,7 +19360,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19063,7 +19384,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19187,6 +19508,12 @@ func init() {
           },
           "404": {
             "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid collection name provided (e.g. malformed namespace prefix). Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19759,8 +20086,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19823,7 +20156,7 @@ func init() {
             }
           },
           "400": {
-            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], negative paging, unknown property) or an unparseable request body.",
+            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], a vector that is empty, holds a non-number or a number outside the 32-bit float range, a vector with alpha 0, negative paging, unknown property) or an unparseable request body.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19846,8 +20179,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0 and no ` + "`" + `vector` + "`" + ` is supplied, the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19933,8 +20272,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (a missing, null or structurally invalid required ` + "`" + `id` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: the source object has no stored vector for the (target) vector searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing, null or structurally invalid required ` + "`" + `id` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: the source object has no stored vector for the (target) vector searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20020,8 +20365,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20034,6 +20385,99 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/search/{collection}/near-vector": {
+      "post": {
+        "description": "Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query ` + "`" + `vector` + "`" + ` is searched against the vector index and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with near-vector",
+        "operationId": "search.nearVector",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The near-vector search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchNearVectorRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. a vector that is empty, holds a non-number or a number outside the 32-bit float range, negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `vector` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20265,6 +20709,12 @@ func init() {
                   "type": "string",
                   "format": "date-time"
                 },
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format at which the user's API key stops authenticating, stored in UTC with millisecond precision. It must be in the future. Setting it needs a Weaviate license key on the node, else the request answers 403. On a node with a license key, a request that also sets ` + "`" + `import` + "`" + ` to true answers 422. Absent means the key never expires.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
                 "import": {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
@@ -20291,7 +20741,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or the body sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20512,6 +20962,85 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.users.db.deactivateUser"
+        ]
+      }
+    },
+    "/users/db/{user_id}/expiration": {
+      "put": {
+        "description": "Set or clear the time at which a database user's (` + "`" + `db` + "`" + ` user type) API key stops authenticating. The body sets exactly one of ` + "`" + `expiresAt` + "`" + `, which must be in the future, and ` + "`" + `neverExpires` + "`" + `, which must be true and clears the expiry. Any other body answers 422, and so do the caller's own user, root users and static users. A node without a Weaviate license key answers 403, so an expired user can then only be deleted and re-created.",
+        "tags": [
+          "users"
+        ],
+        "summary": "Set a user's expiration",
+        "operationId": "setUserExpiration",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the user.",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Set exactly one of ` + "`" + `expiresAt` + "`" + ` and ` + "`" + `neverExpires` + "`" + `.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format, stored in UTC with millisecond precision, at which the user's API key stops authenticating. It must be in the future.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
+                "neverExpires": {
+                  "description": "True clears the user's expiry, so the API key never expires. False answers 422.",
+                  "type": "boolean",
+                  "x-nullable": true
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User expiration successfully set."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden, because the caller lacks the permission or the node has no Weaviate license key.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "User not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.setUserExpiration"
         ]
       }
     },
@@ -20837,11 +21366,25 @@ func init() {
         "Path": {
           "description": "Path or key within the bucket.",
           "type": "string"
+        },
+        "dedupeConvergenceTimeoutSeconds": {
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "type": "integer",
+          "default": 60,
+          "maximum": 600,
+          "minimum": 1,
+          "x-nullable": false
+        },
+        "dedupeReplicas": {
+          "description": "If true, shards of replicated collections proven in sync by async-replication checkpoints are archived by one replica instead of all, and restore copies them back to every replica; other shards are archived by every replica. Requires async replication, BACKUP_DEDUPE_ENABLED=true (else 422) and a Weaviate license key (else 403) on every node. Such backups restore only on versions that support this option; restoring needs no license.",
+          "type": "boolean",
+          "default": false,
+          "x-nullable": false
         }
       }
     },
     "BackupCreateRequest": {
-      "description": "Request body for creating a backup for a set of collections.",
+      "description": "Request body for creating a backup. The resolved selection must contain at least one collection, dynamic user, or RBAC role.",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup creation process",
@@ -20849,7 +21392,7 @@ func init() {
           "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
-          "description": "List of collections to exclude from the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "description": "List of collections to exclude from the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. Excluding every collection is allowed when users or roles are selected, including through omitted identity selectors.",
           "type": "array",
           "items": {
             "type": "string"
@@ -20860,21 +21403,21 @@ func init() {
           "type": "string"
         },
         "include": {
-          "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. A list made only of wildcards that match no collection is rejected.",
+          "description": "List of collections to include in the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may back up. A list that matches no collection is allowed when users or roles are selected, including through omitted identity selectors.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "includeRoles": {
-          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole RBAC state is captured as part of the cluster snapshot; when set, the RBAC blob is filtered to the matching roles. An exact role name that does not exist is rejected; wildcards that match nothing back up no roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.",
+          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole RBAC state is captured, including built-in roles and assignments. An empty list or wildcards matching nothing omit the RBAC snapshot; restoring it leaves existing roles untouched. Otherwise, only matching roles are captured. An exact role name that does not exist is rejected. Explicit selectors cannot select built-in roles: exact names are rejected and wildcards exclude them. Selected roles, including built-in roles selected by omission, permit a backup with zero collections. No per-role permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "includeUsers": {
-          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole dynamic-user store is captured as part of the cluster snapshot and no per-user permission check is applied; when set, only matching users are captured. An exact user name that does not exist is rejected; wildcards that match nothing back up no users.",
+          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole dynamic-user store is captured. An empty list or wildcards matching nothing omit the user snapshot; restoring it leaves existing users untouched. Otherwise, only matching users are captured. An exact user name that does not exist is rejected. Selected users, including those selected by omission, permit a backup with zero collections. No per-user permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
@@ -21046,7 +21589,7 @@ func init() {
       }
     },
     "BackupRestoreRequest": {
-      "description": "Request body for restoring a backup for a set of collections (classes).",
+      "description": "Request body for restoring a backup. A backup with no collections can restore users or roles when the matching restore option is enabled.",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup restoration process.",
@@ -21054,14 +21597,14 @@ func init() {
           "$ref": "#/definitions/RestoreConfig"
         },
         "exclude": {
-          "description": "List of collections (classes) to exclude from the backup restoration process.",
+          "description": "List of collections (classes) to exclude from the backup restoration process. Any entry is rejected when the backup contains no collections.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "include": {
-          "description": "List of collections (classes) to include in the backup restoration process. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. A list made only of wildcards that match no collection in the backup is rejected.",
+          "description": "List of collections (classes) to include in the backup restoration process. If not set, all collections in the backup the caller may restore are included. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may restore. A list that matches no collection is rejected. Any entry is rejected when the backup contains no collections.",
           "type": "array",
           "items": {
             "type": "string"
@@ -21169,7 +21712,7 @@ func init() {
           "x-nullable": true
         },
         "dryRun": {
-          "description": "If true, the call will show which objects would be matched using the specified filter without deleting any objects. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of affected objects, or a list of IDs.",
+          "description": "If true, the call reports what the filter matches and deletes nothing. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of matched objects, or a list of IDs. With a positive [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS) the count stops one above it, and the list holds at most ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + ` IDs. Repeating the dry run reports the same count; for an exact total use an aggregate count, which resolves no objects.",
           "type": "boolean",
           "default": false
         },
@@ -21223,7 +21766,7 @@ func init() {
           "x-nullable": true
         },
         "dryRun": {
-          "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
+          "description": "If true, the call reported what the filter matched and deleted nothing. The list holds at most [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS) IDs. Defaults to false.",
           "type": "boolean",
           "default": false
         },
@@ -21264,7 +21807,7 @@ func init() {
               "x-omitempty": false
             },
             "matches": {
-              "description": "How many objects were matched by the filter.",
+              "description": "How many objects matched the filter. With a positive ` + "`" + `limit` + "`" + ` the count stops one above ` + "`" + `limit` + "`" + `: at or below ` + "`" + `limit` + "`" + ` this is the exact number of matching objects and every one of them was handled by this call, and above ` + "`" + `limit` + "`" + ` more objects match than one call deletes, so call again. With a ` + "`" + `limit` + "`" + ` of 0 or below this is the exact number of matching objects and the call deletes none of them.",
               "type": "number",
               "format": "int64",
               "x-omitempty": false
@@ -21318,7 +21861,7 @@ func init() {
           "x-omitempty": false
         },
         "matches": {
-          "description": "How many objects were matched by the filter.",
+          "description": "How many objects matched the filter. With a positive ` + "`" + `limit` + "`" + ` the count stops one above ` + "`" + `limit` + "`" + `: at or below ` + "`" + `limit` + "`" + ` this is the exact number of matching objects and every one of them was handled by this call, and above ` + "`" + `limit` + "`" + ` more objects match than one call deletes, so call again. With a ` + "`" + `limit` + "`" + ` of 0 or below this is the exact number of matching objects and the call deletes none of them.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
@@ -21445,137 +21988,12 @@ func init() {
         }
       }
     },
-    "C11yExtension": {
-      "description": "A resource describing an extension to the contextinoary, containing both the identifier and the definition of the extension",
-      "properties": {
-        "concept": {
-          "description": "The new concept you want to extend. Must be an all-lowercase single word, or a space delimited compound word. Examples: 'foobarium', 'my custom concept'",
-          "type": "string",
-          "example": "foobarium"
-        },
-        "definition": {
-          "description": "A list of space-delimited words or a sentence describing what the custom concept is about. Avoid using the custom concept itself. An Example definition for the custom concept 'foobarium': would be 'a naturally occurring element which can only be seen by programmers'",
-          "type": "string"
-        },
-        "weight": {
-          "description": "Weight of the definition of the new concept where 1='override existing definition entirely' and 0='ignore custom definition'. Note that if the custom concept is not present in the contextionary yet, the weight cannot be less than 1.",
-          "type": "number",
-          "format": "float"
-        }
-      }
-    },
-    "C11yNearestNeighbors": {
-      "description": "C11y function to show the nearest neighbors to a word.",
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/C11yNearestNeighborsItems0"
-      }
-    },
-    "C11yNearestNeighborsItems0": {
-      "type": "object",
-      "properties": {
-        "distance": {
-          "type": "number",
-          "format": "float"
-        },
-        "word": {
-          "type": "string"
-        }
-      }
-    },
     "C11yVector": {
       "description": "A vector representation of the object in the Contextionary. If provided at object creation, this wil take precedence over any vectorizer setting.",
       "type": "array",
       "items": {
         "type": "number",
         "format": "float"
-      }
-    },
-    "C11yWordsResponse": {
-      "description": "An array of available words and contexts.",
-      "properties": {
-        "concatenatedWord": {
-          "description": "Weighted results for all words",
-          "type": "object",
-          "properties": {
-            "concatenatedNearestNeighbors": {
-              "$ref": "#/definitions/C11yNearestNeighbors"
-            },
-            "concatenatedVector": {
-              "$ref": "#/definitions/C11yVector"
-            },
-            "concatenatedWord": {
-              "type": "string"
-            },
-            "singleWords": {
-              "type": "array",
-              "items": {
-                "format": "string"
-              }
-            }
-          }
-        },
-        "individualWords": {
-          "description": "Weighted results for per individual word",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/C11yWordsResponseIndividualWordsItems0"
-          }
-        }
-      }
-    },
-    "C11yWordsResponseConcatenatedWord": {
-      "description": "Weighted results for all words",
-      "type": "object",
-      "properties": {
-        "concatenatedNearestNeighbors": {
-          "$ref": "#/definitions/C11yNearestNeighbors"
-        },
-        "concatenatedVector": {
-          "$ref": "#/definitions/C11yVector"
-        },
-        "concatenatedWord": {
-          "type": "string"
-        },
-        "singleWords": {
-          "type": "array",
-          "items": {
-            "format": "string"
-          }
-        }
-      }
-    },
-    "C11yWordsResponseIndividualWordsItems0": {
-      "type": "object",
-      "properties": {
-        "info": {
-          "type": "object",
-          "properties": {
-            "nearestNeighbors": {
-              "$ref": "#/definitions/C11yNearestNeighbors"
-            },
-            "vector": {
-              "$ref": "#/definitions/C11yVector"
-            }
-          }
-        },
-        "present": {
-          "type": "boolean"
-        },
-        "word": {
-          "type": "string"
-        }
-      }
-    },
-    "C11yWordsResponseIndividualWordsItems0Info": {
-      "type": "object",
-      "properties": {
-        "nearestNeighbors": {
-          "$ref": "#/definitions/C11yNearestNeighbors"
-        },
-        "vector": {
-          "$ref": "#/definitions/C11yVector"
-        }
       }
     },
     "Class": {
@@ -21632,7 +22050,7 @@ func init() {
           "type": "string"
         },
         "vectorizer": {
-          "description": "Specify how the vectors for this collection should be determined. The options are either ` + "`" + `none` + "`" + ` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as ` + "`" + `text2vec-weaviate` + "`" + `. If left empty, it will use the globally configured default ([` + "`" + `DEFAULT_VECTORIZER_MODULE` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be ` + "`" + `none` + "`" + ` or a specific module.",
+          "description": "Specify how the vectors for this collection should be determined. The options are either ` + "`" + `none` + "`" + ` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as ` + "`" + `text2vec-weaviate` + "`" + `. If left empty, it defaults to ` + "`" + `none` + "`" + `.",
           "type": "string"
         }
       }
@@ -21813,6 +22231,12 @@ func init() {
           "type": "string",
           "format": "date-time"
         },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent or null means the key never expires, except that import never changes an existing user's expiry, so a record without one keeps the stored value. A new user takes the record's value, even one that has passed. A differing future value for an existing user gives that record an error result naming ` + "`" + `PUT /v1/users/db/{user_id}/expiration` + "`" + `. A differing past value gives ` + "`" + `skipped_exists` + "`" + ` for a deactivated user. For an active one it gives an error result advising to deactivate the user, or delete it and re-import, because that PUT refuses a past time. A node without a Weaviate license key refuses the whole import with 403 when any record sets a non-null ` + "`" + `expiresAt` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "namespace": {
           "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
           "type": "string"
@@ -21879,6 +22303,12 @@ func init() {
             "db_user",
             "db_env_user"
           ]
+        },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent means the key never expires. Expiry does not change ` + "`" + `active` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
         },
         "lastUsedAt": {
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
@@ -22543,12 +22973,64 @@ func init() {
           "type": "string",
           "format": "url"
         },
+        "license": {
+          "description": "License state of this Weaviate instance.",
+          "$ref": "#/definitions/MetaLicense"
+        },
         "modules": {
           "description": "Module-specific meta information.",
           "type": "object"
         },
         "version": {
           "description": "The Weaviate server version.",
+          "type": "string"
+        }
+      }
+    },
+    "MetaLicense": {
+      "description": "License state of the current Weaviate instance.",
+      "type": "object",
+      "properties": {
+        "clusterMismatch": {
+          "description": "Whether the license is used on a cluster other than the one it was issued for.",
+          "type": "boolean"
+        },
+        "documentationHref": {
+          "description": "Documentation page for the Weaviate Enterprise Edition.",
+          "type": "string"
+        },
+        "edition": {
+          "description": "The product edition: community (no license key) or enterprise (license key configured).",
+          "type": "string"
+        },
+        "enforcing": {
+          "description": "Whether license enforcement is active.",
+          "type": "boolean"
+        },
+        "expiresAt": {
+          "description": "When the license expires, if known.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "gracePeriodEndsAt": {
+          "description": "When the grace period ends, if the license is not currently valid.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "lastCheckedAt": {
+          "description": "When the license was last verified with the license service, if ever.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "licenseId": {
+          "description": "The non-secret id of the configured license, empty when unlicensed.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Current license status. Only present on Enterprise Edition; a Community Edition node has no license and therefore no license status.",
           "type": "string"
         }
       }
@@ -23024,6 +23506,7 @@ func init() {
           "type": "string",
           "enum": [
             "manage_backups",
+            "read_backups",
             "read_cluster",
             "create_data",
             "read_data",
@@ -23068,7 +23551,7 @@ func init() {
           "type": "object",
           "properties": {
             "alias": {
-              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases.",
+              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -23111,9 +23594,10 @@ func init() {
               "default": "*"
             },
             "object": {
-              "description": "A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all objects.",
+              "description": "Deprecated: Object-level permissions are not supported. This field is ignored; the permission always applies to all objects. Kept for backward compatibility.",
               "type": "string",
-              "default": "*"
+              "default": "*",
+              "x-deprecated": true
             },
             "tenant": {
               "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all tenants.",
@@ -23127,7 +23611,7 @@ func init() {
           "type": "object",
           "properties": {
             "group": {
-              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -23141,7 +23625,7 @@ func init() {
           "type": "object",
           "properties": {
             "namespace": {
-              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -23177,7 +23661,7 @@ func init() {
               "default": "*"
             },
             "shard": {
-              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -23188,7 +23672,7 @@ func init() {
           "type": "object",
           "properties": {
             "role": {
-              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles.",
+              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -23224,7 +23708,7 @@ func init() {
           "type": "object",
           "properties": {
             "users": {
-              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -23237,7 +23721,7 @@ func init() {
       "type": "object",
       "properties": {
         "alias": {
-          "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases.",
+          "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         },
@@ -23280,9 +23764,10 @@ func init() {
           "default": "*"
         },
         "object": {
-          "description": "A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all objects.",
+          "description": "Deprecated: Object-level permissions are not supported. This field is ignored; the permission always applies to all objects. Kept for backward compatibility.",
           "type": "string",
-          "default": "*"
+          "default": "*",
+          "x-deprecated": true
         },
         "tenant": {
           "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all tenants.",
@@ -23296,7 +23781,7 @@ func init() {
       "type": "object",
       "properties": {
         "group": {
-          "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+          "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         },
@@ -23310,7 +23795,7 @@ func init() {
       "type": "object",
       "properties": {
         "namespace": {
-          "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+          "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         }
@@ -23346,7 +23831,7 @@ func init() {
           "default": "*"
         },
         "shard": {
-          "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+          "description": "string or regex. if a specific shard name, if left empty it will be ALL or *. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         }
@@ -23357,7 +23842,7 @@ func init() {
       "type": "object",
       "properties": {
         "role": {
-          "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles.",
+          "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         },
@@ -23393,7 +23878,7 @@ func init() {
       "type": "object",
       "properties": {
         "users": {
-          "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
+          "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         }
@@ -23441,6 +23926,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "isDynamicDbUser": {
+          "description": "This is true when the API key resolved to a DB user record, which covers a dynamic DB user's own key and an imported static key. A login through the static API key list leaves it false, even when a DB user shares its name, though both carry userType db.",
+          "type": "boolean"
         },
         "isGlobalOperator": {
           "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
@@ -24428,7 +24917,7 @@ func init() {
       }
     },
     "SearchHybridRequest": {
-      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + `, ` + "`" + `targetVector` + "`" + ` and ` + "`" + `vector` + "`" + `.",
       "allOf": [
         {
           "$ref": "#/definitions/SearchCommon"
@@ -24440,7 +24929,7 @@ func init() {
           ],
           "properties": {
             "alpha": {
-              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + ` the query is never vectorized, so a collection without a vectorizer module is searchable.",
+              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + `, or with ` + "`" + `vector` + "`" + ` supplied, the query is never vectorized, so a collection without a vectorizer module is searchable.",
               "type": "number",
               "format": "float64",
               "x-nullable": true
@@ -24460,7 +24949,7 @@ func init() {
               "x-nullable": true
             },
             "query": {
-              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part. Must not be empty.",
+              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part, unless ` + "`" + `vector` + "`" + ` is supplied. Must not be empty.",
               "type": "string"
             },
             "queryProperties": {
@@ -24473,6 +24962,9 @@ func init() {
             "targetVector": {
               "description": "The named vector to search. Required when the collection has more than one named vector.",
               "type": "string"
+            },
+            "vector": {
+              "description": "The query vector for the vector part of the search, used instead of vectorizing ` + "`" + `query` + "`" + `. A non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. Requires ` + "`" + `alpha` + "`" + ` \u003e 0."
             }
           }
         }
@@ -24549,6 +25041,41 @@ func init() {
             "targetVector": {
               "description": "The named vector to search. Required when the collection has more than one named vector.",
               "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "SearchNearVectorRequest": {
+      "description": "Request body for the near-vector search endpoint. The caller supplies the query vector and the closest objects are returned. No query is vectorized — collections without a vectorizer module are fully searchable. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-vector-specific ` + "`" + `vector` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "vector"
+          ],
+          "properties": {
+            "certainty": {
+              "description": "Minimum normalized certainty of a match. Only for cosine-distance vector indexes. Mutually exclusive with ` + "`" + `distance` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "distance": {
+              "description": "Maximum vector distance of a match. Mutually exclusive with ` + "`" + `certainty` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "targetVector": {
+              "description": "The named vector to search (the query vector is compared against the vectors stored under this name, and must match their dimensionality). Required when the collection has more than one named vector.",
+              "type": "string"
+            },
+            "vector": {
+              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector."
             }
           }
         }
@@ -25232,6 +25759,12 @@ func init() {
         "username"
       ],
       "properties": {
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the caller's API key stops authenticating. Absent means the key never expires, the caller is not a DB user, or DB user management is disabled.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "groups": {
           "description": "The groups associated with the user.",
           "type": "array",
@@ -25631,7 +26164,7 @@ func init() {
       "name": "mcp"
     },
     {
-      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action and, on namespace-enabled clusters, a well-formed Weaviate license key on the serving node.",
       "name": "namespaces"
     }
   ],

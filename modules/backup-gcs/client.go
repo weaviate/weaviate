@@ -12,7 +12,6 @@
 package modstggcs
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -178,14 +177,11 @@ func (g *gcsClient) getObject(ctx context.Context, bucket *storage.BucketHandle,
 	}
 	defer reader.Close()
 
-	// Read file contents using io.Copy for better memory management
-	var buf bytes.Buffer
-	_, err = io.Copy(&buf, reader)
+	content, err := ubak.ReadAllSized(reader, reader.Remain())
 	if err != nil {
 		return nil, errors.Wrapf(err, "read object: %v", objectName)
 	}
 
-	content := buf.Bytes()
 	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(Name, "class")
 	if err == nil {
 		metric.Add(float64(len(content)))
@@ -204,9 +200,9 @@ func (g *gcsClient) HomeDir(backupID, overrideBucket, overridePath string) strin
 }
 
 func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackupDescriptor, error) {
-	bucket, err := g.findBucket(ctx, "")
+	bucket, err := g.bucketHandle("")
 	if err != nil {
-		return nil, fmt.Errorf("find bucket: %w", err)
+		return nil, fmt.Errorf("resolve bucket: %w", err)
 	}
 
 	// Use delimiter listing to get one-level-deep prefixes (one per backup ID)
@@ -260,18 +256,14 @@ func (g *gcsClient) resolveBucketName(bucketOverride string) (string, error) {
 	return b, nil
 }
 
-func (g *gcsClient) findBucket(ctx context.Context, bucketOverride string) (*storage.BucketHandle, error) {
+// bucketHandle sends no request. Write and Read run once per backup chunk, and
+// the object request each makes already fails when the bucket is missing.
+func (g *gcsClient) bucketHandle(bucketOverride string) (*storage.BucketHandle, error) {
 	b, err := g.resolveBucketName(bucketOverride)
 	if err != nil {
 		return nil, err
 	}
-	bucket := g.client.Bucket(b)
-
-	if _, err := bucket.Attrs(ctx); err != nil {
-		return nil, fmt.Errorf("find bucket: %w", err)
-	}
-
-	return bucket, nil
+	return g.client.Bucket(b), nil
 }
 
 func (g *gcsClient) makeObjectName(overridePath string, parts []string) string {
@@ -291,11 +283,8 @@ func (g *gcsClient) GetObject(ctx context.Context, backupID, key, overrideBucket
 		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "get object %s", objectName))
 	}
 
-	bucket, err := g.findBucket(ctx, overrideBucket)
+	bucket, err := g.bucketHandle(overrideBucket)
 	if err != nil {
-		if errors.Is(err, storage.ErrBucketNotExist) {
-			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object %s", objectName))
-		}
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object %s", objectName))
 	}
 
@@ -311,9 +300,9 @@ func (g *gcsClient) GetObject(ctx context.Context, backupID, key, overrideBucket
 }
 
 func (g *gcsClient) PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, byes []byte) error {
-	bucket, err := g.findBucket(ctx, overrideBucket)
+	bucket, err := g.bucketHandle(overrideBucket)
 	if err != nil {
-		return errors.Wrap(err, "find bucket")
+		return errors.Wrap(err, "resolve bucket")
 	}
 
 	objectName := g.makeObjectName(overridePath, []string{backupID, key})
@@ -356,9 +345,9 @@ func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, ov
 		return errors.Wrapf(err, "failed to access-check gcs backup module %v %v %v %v", overrideBucket, overridePath, backupID, key)
 	}
 
-	bucket, err := g.findBucket(ctx, overrideBucket)
+	bucket, err := g.bucketHandle(overrideBucket)
 	if err != nil {
-		return errors.Wrap(err, "find bucket")
+		return errors.Wrap(err, "resolve bucket")
 	}
 
 	objectName := g.makeObjectName(overridePath, []string{backupID, key})
@@ -376,9 +365,9 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, ov
 		r.CloseWithError(err)
 	}()
 
-	bucket, err := g.findBucket(ctx, overrideBucket)
+	bucket, err := g.bucketHandle(overrideBucket)
 	if err != nil {
-		return 0, fmt.Errorf("write: find bucket: %w", err)
+		return 0, fmt.Errorf("write: resolve bucket: %w", err)
 	}
 
 	// create a new writer
@@ -413,13 +402,9 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, ov
 func (g *gcsClient) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
 
-	bucket, err := g.findBucket(ctx, overrideBucket)
+	bucket, err := g.bucketHandle(overrideBucket)
 	if err != nil {
-		err = fmt.Errorf("read: find bucket: %w", err)
-		if errors.Is(err, storage.ErrBucketNotExist) {
-			err = backup.NewErrNotFound(err)
-		}
-		return 0, err
+		return 0, fmt.Errorf("read: resolve bucket: %w", err)
 	}
 
 	// create reader

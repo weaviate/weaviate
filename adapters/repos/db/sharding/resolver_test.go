@@ -50,8 +50,8 @@ func (f *fakeSchemaReader) ShardFromUUID(_ string, uuidBytes []byte) string {
 	return f.shards[int(uuidBytes[0])%len(f.shards)]
 }
 
-// TenantsShards returns a copy of tenantShards or the configured error.
-func (f *fakeSchemaReader) TenantsShards(_ context.Context, _ string, _ ...string) (map[string]string, error) {
+// TenantsShardsStatus returns a copy of tenantShards or the configured error.
+func (f *fakeSchemaReader) TenantsShardsStatus(_ context.Context, _ string, _ ...string) (map[string]string, error) {
 	if f.tenantsShardErr != nil {
 		return nil, f.tenantsShardErr
 	}

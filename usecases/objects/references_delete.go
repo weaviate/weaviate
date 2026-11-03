@@ -51,17 +51,17 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	if input.Class != "" {
 		class, _, err := m.resolveNS(principal, input.Class)
 		if err != nil {
-			return &Error{err.Error(), StatusUnprocessableEntity, err}
+			return forbiddenOrUnprocessable(err)
 		}
 		input.Class = class
 	}
 
 	// We are fetching the existing object and get to know if the UUID exists
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+		return forbiddenOrUnprocessable(err)
 	}
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+		return forbiddenOrUnprocessable(err)
 	}
 
 	// Parse + prefix-validate AFTER authz so unauthorized callers get 403
@@ -151,9 +151,9 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	// silent no-op.
 	if beacon.Class != "" {
 		qualifiedTarget, _, err := namespacing.QualifyRefTarget(
-			principal, m.config.Config.Namespaces.Enabled, input.Class, beacon.Class)
+			principal, m.qualifier, input.Class, beacon.Class)
 		if err != nil {
-			return &Error{err.Error(), StatusUnprocessableEntity, err}
+			return forbiddenOrUnprocessable(err)
 		}
 		beacon.Class = qualifiedTarget
 	}
@@ -203,7 +203,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}
 
-	if err := m.updateRefVector(ctx, principal, input.Class, input.ID, tenant, class, schemaVersion); err != nil {
+	if err := m.updateRefVector(ctx, input.Class, input.ID, tenant, class, schemaVersion); err != nil {
 		return &Error{"update ref vector", StatusInternalServerError, err}
 	}
 

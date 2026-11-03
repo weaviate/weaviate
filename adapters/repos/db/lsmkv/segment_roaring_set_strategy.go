@@ -12,8 +12,8 @@
 package lsmkv
 
 import (
-	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -25,13 +25,13 @@ import (
 // method only runs for the oldest segment holding the key, whose tombstones
 // cannot mask anything older; newer segments' deletions are applied by
 // roaringSetMergeWith.
-func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool,
+func (s *segment) roaringSetGet(key []byte, h bloomhash.Hash, bitmapBufPool roaringset.BitmapBufPool,
 ) (bm *sroar.Bitmap, release func(), err error) {
 	if err := segmentindex.CheckStrategyRoaringSet(s.strategy); err != nil {
 		return nil, noopRelease, err
 	}
 
-	if s.useBloomFilter && !s.bloomFilter.Test(key) {
+	if s.useBloomFilter && !bloomhash.Test(s.bloomFilter, h) {
 		return nil, noopRelease, lsmkv.NotFound
 	}
 	start, end, err := s.index.GetOffsets(key)
@@ -75,18 +75,18 @@ func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPo
 // roaringSetMergeWith applies this segment's node for key onto additions in
 // place: the node's deletions first (masking older segments' additions),
 // then its own additions.
-func (s *segment) roaringSetMergeWith(key []byte, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
+func (s *segment) roaringSetMergeWith(key []byte, h bloomhash.Hash, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
 ) error {
 	if err := segmentindex.CheckStrategyRoaringSet(s.strategy); err != nil {
 		return err
 	}
 
-	if s.useBloomFilter && !s.bloomFilter.Test(key) {
+	if s.useBloomFilter && !bloomhash.Test(s.bloomFilter, h) {
 		return nil
 	}
 	start, end, err := s.index.GetOffsets(key)
 	if err != nil {
-		if errors.Is(err, lsmkv.NotFound) {
+		if lsmkv.IsNotFound(err) {
 			return nil
 		}
 		return s.reportIndexErr(err)
@@ -118,18 +118,11 @@ func (s *segment) segmentNodeFromBufferMmap(offset nodeOffset,
 
 func (s *segment) segmentNodeFromBufferPread(offset nodeOffset, bitmapBufPool roaringset.BitmapBufPool,
 ) (sn *roaringset.SegmentNode, release func(), err error) {
-	reader, readerRelease, err := s.bufferedReaderAt(offset.start, "roaringSetRead")
-	if err != nil {
-		return nil, noopRelease, err
-	}
-	defer readerRelease()
-
 	ln := int(offset.end - offset.start)
 	contents, release := bitmapBufPool.Get(ln)
 	contents = contents[:ln]
 
-	_, err = reader.Read(contents)
-	if err != nil {
+	if err := s.preadInto(contents, offset.start, roaringSetReadOp); err != nil {
 		release()
 		return nil, noopRelease, err
 	}

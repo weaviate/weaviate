@@ -11,17 +11,12 @@
 
 package resolver
 
+import "github.com/weaviate/weaviate/usecases/cluster"
+
 // ClusterStateReader allows the resolver to compute node-id to ip addresses.
 type ClusterStateReader interface {
-	// NodeAddress resolves node id into an ip address without the port.
-	NodeAddress(id string) string
-	// NodeHostname resolves a node id into an ip address with internal cluster api port
-	NodeHostname(nodeName string) (string, bool)
-	// LocalName returns the local node name
-	LocalName() string
-	// AllOtherClusterMembers returns all cluster members discovered via memberlist with their addresses
-	// This is useful for bootstrap when the join config is incomplete
-	AllOtherClusterMembers(port int) map[string]string
+	cluster.NodeResolver
+	cluster.NodeReader
 }
 
 type RaftConfig struct {

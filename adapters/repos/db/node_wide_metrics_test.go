@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"os"
 	"reflect"
 	"runtime"
 	"slices"
@@ -23,13 +24,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 
 	"github.com/weaviate/weaviate/entities/tenantactivity"
 )
@@ -37,6 +44,7 @@ import (
 func newActivityTestIndex(className string, partitioningEnabled bool) *Index {
 	return &Index{
 		Config: IndexConfig{
+			NodeName:          "node1",
 			ClassName:         schema.ClassName(className),
 			ReplicationFactor: 1,
 		},
@@ -75,7 +83,7 @@ func newWarmActivityObserver(tenants int) (*nodeWideMetricsObserver, *Index, *DB
 	for i := 0; i < tenants; i++ {
 		col.shards.Store(fmt.Sprintf("tenant-%d", i), &Shard{})
 	}
-	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Col1": col}}
 	o := newNodeWideMetricsObserver(db)
 	o.observeActivity()
 	return o, col, db
@@ -84,7 +92,8 @@ func newWarmActivityObserver(tenants int) (*nodeWideMetricsObserver, *Index, *DB
 func TestShardActivity(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	db := &DB{
-		logger: logger,
+		localNodeName: "node1",
+		logger:        logger,
 		indices: map[string]*Index{
 			"Col1":  newActivityTestIndex("Col1", true),
 			"NonMT": newActivityTestIndex("NonMT", false),
@@ -218,8 +227,9 @@ func TestShardActivityAcrossCycles(t *testing.T) {
 	nonMT.shards.Store("shard1", &Shard{})
 
 	db := &DB{
-		logger:  logger,
-		indices: map[string]*Index{"Col1": col1, "Col2": col2, "NonMT": nonMT},
+		localNodeName: "node1",
+		logger:        logger,
+		indices:       map[string]*Index{"Col1": col1, "Col2": col2, "NonMT": nonMT},
 	}
 	o := newNodeWideMetricsObserver(db)
 
@@ -523,7 +533,7 @@ func TestShardActivityUsageIsIndependent(t *testing.T) {
 	col1.shards.Store("t1", &Shard{})
 	col1.shards.Store("t2", &Shard{})
 
-	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Col1": col1}}
 	o := newNodeWideMetricsObserver(db)
 	o.observeActivity()
 
@@ -730,8 +740,8 @@ func TestShardActivityObserveAllocations(t *testing.T) {
 		// the counters or the usage records costs 149 or more, so the budget sits
 		// between the two
 		maxBytesPerTenant = 60
-		fewTenants        = 1000
-		manyTenants       = 8000
+		fewTenants        = 500
+		manyTenants       = 2000
 	)
 
 	perTenant := func(tenants int) uint64 {
@@ -813,6 +823,22 @@ func newColdShard(index *Index, name string) *LazyLoadShard {
 	}
 }
 
+// installLoadedShard leaves lazy in the state loadIfCold does, with shard in
+// place of the one NewShard would build.
+func installLoadedShard(lazy *LazyLoadShard, shard *Shard) {
+	lazy.mutex.Lock()
+	defer lazy.mutex.Unlock()
+	lazy.shard.Store(shard)
+}
+
+// newLoadedLazyShard returns a LazyLoadShard already holding shard, for tests
+// that only need the wrapper to report itself loaded.
+func newLoadedLazyShard(shard *Shard) *LazyLoadShard {
+	lazy := &LazyLoadShard{}
+	installLoadedShard(lazy, shard)
+	return lazy
+}
+
 // Tenant activity is polled for every shard on the node, so a cold tenant has to
 // be observable without being pulled into memory.
 func TestShardActivityColdShard(t *testing.T) {
@@ -821,7 +847,7 @@ func TestShardActivityColdShard(t *testing.T) {
 	cold := newColdShard(col1, "t_cold")
 	col1.shards.Store("t_cold", cold)
 
-	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Col1": col1}}
 	o := newNodeWideMetricsObserver(db)
 
 	t.Run("observing does not load it", func(t *testing.T) {
@@ -856,7 +882,7 @@ func TestShardActivityColdShardLoads(t *testing.T) {
 	cold := newColdShard(col1, "t_cold")
 	col1.shards.Store("t_cold", cold)
 
-	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Col1": col1}}
 	o := newNodeWideMetricsObserver(db)
 	o.observeActivity()
 	require.NotContains(t, o.Usage(tenantactivity.UsageFilterOnlyReads)["Col1"], "t_cold")
@@ -864,14 +890,110 @@ func TestShardActivityColdShardLoads(t *testing.T) {
 	loaded := &Shard{}
 	loaded.activityTrackerRead.Store(1)
 	loaded.activityTrackerWrite.Store(1)
-	cold.mutex.Lock()
-	cold.shard, cold.loaded = loaded, true
-	cold.mutex.Unlock()
+	installLoadedShard(cold, loaded)
 
 	o.observeActivity()
 
 	require.Contains(t, o.Usage(tenantactivity.UsageFilterOnlyReads)["Col1"], "t_cold")
 	require.Contains(t, o.Usage(tenantactivity.UsageFilterOnlyWrites)["Col1"], "t_cold")
+}
+
+// observeActivity walks tenants under db.indexLock, so waiting on a busy tenant
+// holds up AddClass and every GetIndex queued behind it. Freeze and unfreeze
+// hold a tenant's shardCreateLocks for the whole S3 transfer.
+func TestShardActivityWalkDoesNotWaitOnBusyTenant(t *testing.T) {
+	tests := []struct {
+		name string
+		// hold takes the lock a long-running tenant operation keeps, and returns
+		// the function releasing it
+		hold func(index *Index, tenant *LazyLoadShard) func()
+	}{
+		{
+			name: "shardCreateLocks held by a freeze",
+			hold: func(index *Index, tenant *LazyLoadShard) func() {
+				index.shardCreateLocks.Lock(tenant.Name())
+				return func() { index.shardCreateLocks.Unlock(tenant.Name()) }
+			},
+		},
+		{
+			name: "loading blocked by a backup, export or usage scan",
+			hold: func(_ *Index, tenant *LazyLoadShard) func() {
+				return tenant.blockLoading()
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			col1 := newActivityTestIndex("Col1", true)
+			busy := newColdShard(col1, "t_busy")
+			loaded := &Shard{}
+			loaded.activityTrackerRead.Store(2)
+			loaded.activityTrackerWrite.Store(1)
+			installLoadedShard(busy, loaded)
+			col1.shards.Store("t_busy", busy)
+
+			db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
+			o := newNodeWideMetricsObserver(db)
+
+			// release is deferred as well as called, so a failed wait below still lets
+			// the walk finish instead of leaving it parked on the lock
+			release := sync.OnceFunc(tt.hold(col1, busy))
+			defer release()
+
+			observed := make(chan struct{})
+			go func() {
+				defer close(observed)
+				o.observeActivity()
+			}()
+
+			select {
+			case <-observed:
+			case <-time.After(5 * time.Second):
+				t.Fatal("observeActivity waited on the busy tenant")
+			}
+			require.Contains(t, o.Usage(tenantactivity.UsageFilterOnlyReads)["Col1"], "t_busy")
+		})
+	}
+}
+
+// Activity reads the shard that loadIfCold and Shutdown publish under the mutex without
+// taking the mutex. The reader below runs throughout so -race sees those reads,
+// and each step checks that a shut down shard reports zeros again.
+func TestLazyLoadShardActivityAcrossLoadAndShutdown(t *testing.T) {
+	ctx := context.Background()
+	repo, index := newReplConfigDeadlockFixture(t, "ActivityLoadCycles")
+	lazy := soleColdShard(t, index)
+
+	stop := make(chan struct{})
+	reading := make(chan struct{})
+	go func() {
+		defer close(reading)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				lazy.Activity()
+			}
+		}
+	}()
+
+	for i := 0; i < 3; i++ {
+		_, _, err := lazy.loadIfCold(ctx)
+		require.NoError(t, err)
+		read, write := lazy.Activity()
+		require.Equal(t, [2]int32{1, 1}, [2]int32{read, write}, "a freshly loaded shard starts at its initial counters")
+
+		require.NoError(t, lazy.Shutdown(ctx))
+		read, write = lazy.Activity()
+		require.Equal(t, [2]int32{0, 0}, [2]int32{read, write}, "a shut down shard reports what a cold one does")
+	}
+
+	close(stop)
+	<-reading
+	require.NoError(t, repo.Shutdown(context.Background()))
 }
 
 // Tenant activity logs are a configurable signal operators rely on, so every
@@ -881,7 +1003,7 @@ func TestShardActivityLogging(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 
 	col1 := newActivityTestIndex("Col1", true)
-	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Col1": col1}}
 	db.config.TenantActivityReadLogLevel = configRuntime.NewDynamicValue("info")
 	db.config.TenantActivityWriteLogLevel = configRuntime.NewDynamicValue("info")
 	o := newNodeWideMetricsObserver(db)
@@ -946,4 +1068,233 @@ func TestShardActivityLogging(t *testing.T) {
 			require.Equal(t, cycle.want, logged)
 		})
 	}
+}
+
+// newDimensionObserver builds an observer over the process-global vecs with
+// grouping set per case. Group is flipped on a value copy, never on the
+// shared global.
+func newDimensionObserver(group bool) *nodeWideMetricsObserver {
+	promMetrics := *monitoring.GetMetrics()
+	promMetrics.Group = group
+	return &nodeWideMetricsObserver{db: &DB{promMetrics: &promMetrics}}
+}
+
+// dimensionGaugesOf reads both dimension gauges by label name. sendVectorDimensions
+// writes them positionally, so a reordered label set in the vec definition sends
+// the write to a series this read cannot find.
+func dimensionGaugesOf(t *testing.T, className, shardName, namespace string) (dims, segs float64) {
+	t.Helper()
+	labels := prometheus.Labels{
+		"class_name":           className,
+		"shard_name":           shardName,
+		"collection_namespace": namespace,
+	}
+	promMetrics := monitoring.GetMetrics()
+	dim, err := promMetrics.VectorDimensionsSum.GetMetricWith(labels)
+	require.NoError(t, err)
+	seg, err := promMetrics.VectorSegmentsSum.GetMetricWith(labels)
+	require.NoError(t, err)
+	return testutil.ToFloat64(dim), testutil.ToFloat64(seg)
+}
+
+func TestSendVectorDimensions(t *testing.T) {
+	t.Run("ungrouped shard carries class namespace", func(t *testing.T) {
+		o := newDimensionObserver(false)
+
+		o.sendVectorDimensions("ns_a:Send", "shard1", "ns_a", DimensionMetrics{Uncompressed: 20, Compressed: 4})
+
+		dims, segs := dimensionGaugesOf(t, "ns_a:Send", "shard1", "ns_a")
+		assert.Equal(t, 20.0, dims)
+		assert.Equal(t, 4.0, segs)
+
+		dims, segs = dimensionGaugesOf(t, "ns_a:Send", "shard1", "")
+		assert.Zero(t, dims, "the namespace must not also land on the empty label")
+		assert.Zero(t, segs)
+	})
+
+	t.Run("unqualified class carries empty namespace", func(t *testing.T) {
+		o := newDimensionObserver(false)
+
+		o.sendVectorDimensions("SendPlain", "shard1", "", DimensionMetrics{Uncompressed: 12})
+
+		dims, _ := dimensionGaugesOf(t, "SendPlain", "shard1", "")
+		assert.Equal(t, 12.0, dims)
+	})
+
+	t.Run("the grouped empty bucket carries n/a class and shard", func(t *testing.T) {
+		o := newDimensionObserver(true)
+
+		o.sendVectorDimensions("n/a", "n/a", "", DimensionMetrics{Uncompressed: 64, Compressed: 8})
+
+		dims, segs := dimensionGaugesOf(t, "n/a", "n/a", "")
+		assert.Equal(t, 64.0, dims)
+		assert.Equal(t, 8.0, segs)
+	})
+}
+
+// newObjectCountIndex builds an index whose shards report fixed object counts.
+// The observer checks a shard's directory before reading it, so each shard gets
+// a real one under the index path.
+func newObjectCountIndex(t *testing.T, rootPath, className string, shardCounts map[string]int64) *Index {
+	t.Helper()
+
+	index := &Index{
+		Config: IndexConfig{
+			ClassName: schema.ClassName(className),
+			RootPath:  rootPath,
+		},
+		namespace:        namespacing.NamespaceFromQualified(className),
+		closingCtx:       context.Background(),
+		shards:           shardMap{},
+		shardCreateLocks: esync.NewKeyRWLocker(),
+	}
+	index.closeRequestedCtx, index.signalCloseRequested = context.WithCancelCause(context.Background())
+	index.allShardsReady.Store(true)
+
+	for name, count := range shardCounts {
+		require.NoError(t, os.MkdirAll(shardPathLSM(index.path(), name), os.ModePerm))
+		shard := NewMockShardLike(t)
+		shard.EXPECT().ObjectCountAsync(mock.Anything).Return(count, nil).Maybe()
+		index.shards.Store(name, shard)
+	}
+	return index
+}
+
+// takeGroupedSeries deletes every grouped series from these vecs, and its
+// cleanup deletes them again after the test. The vecs are process-global, so
+// without it a grouped series left behind by another test would join the
+// caller's series-set assertion.
+// Per-class series are untouched: grouping only ever writes class_name "n/a".
+func takeGroupedSeries(t *testing.T, vecs ...*prometheus.GaugeVec) {
+	t.Helper()
+
+	reset := func() {
+		for _, vec := range vecs {
+			vec.DeletePartialMatch(prometheus.Labels{"class_name": "n/a"})
+		}
+	}
+	reset()
+	t.Cleanup(reset)
+}
+
+// newObjectCountObserver returns a grouped observer over the indices, writing to
+// the process-global vec. Group is flipped on a value copy, never on the shared
+// global.
+func newGroupedObjectCountObserver(t *testing.T, indices ...*Index) *nodeWideMetricsObserver {
+	t.Helper()
+
+	takeGroupedSeries(t, monitoring.GetMetrics().ObjectCount)
+
+	promMetrics := *monitoring.GetMetrics()
+	promMetrics.Group = true
+
+	byID := make(map[string]*Index, len(indices))
+	for _, index := range indices {
+		byID[index.ID()] = index
+	}
+	logger, _ := test.NewNullLogger()
+	return newNodeWideMetricsObserver(&DB{logger: logger, promMetrics: &promMetrics, indices: byID})
+}
+
+// groupedGaugeValues reads a gauge's grouped series by namespace. It reports
+// which series exist, which a value read cannot: reading a label set creates
+// the series when it is absent.
+func groupedGaugeValues(t *testing.T, vec *prometheus.GaugeVec) map[string]float64 {
+	t.Helper()
+
+	// Collect sends on the channel and returns only once it is done, so the
+	// receive has to run beside it. These vecs are process-global and carry every
+	// series the package's other tests minted, which no fixed buffer can hold.
+	ch := make(chan prometheus.Metric, 64)
+	go func() {
+		vec.Collect(ch)
+		close(ch)
+	}()
+
+	counts := map[string]float64{}
+	for metric := range ch {
+		var m dto.Metric
+		// A failed Write must not end the goroutine: the producer holds the vec's
+		// read lock until the channel is drained.
+		if !assert.NoError(t, metric.Write(&m)) {
+			continue
+		}
+		labels := make(map[string]string, len(m.GetLabel()))
+		for _, label := range m.GetLabel() {
+			labels[label.GetName()] = label.GetValue()
+		}
+		if labels["class_name"] != "n/a" {
+			continue
+		}
+		counts[labels["collection_namespace"]] = m.GetGauge().GetValue()
+	}
+	return counts
+}
+
+func groupedObjectCounts(t *testing.T) map[string]float64 {
+	t.Helper()
+	return groupedGaugeValues(t, monitoring.GetMetrics().ObjectCount)
+}
+
+func TestObserveObjectCountPerNamespace(t *testing.T) {
+	t.Run("one series per namespace plus the empty bucket", func(t *testing.T) {
+		root := t.TempDir()
+		o := newGroupedObjectCountObserver(t,
+			newObjectCountIndex(t, root, "ns_a:Docs", map[string]int64{"shard1": 3}),
+			newObjectCountIndex(t, root, "ns_a:Notes", map[string]int64{"shard1": 2}),
+			newObjectCountIndex(t, root, "ns_b:Docs", map[string]int64{"shard1": 5, "shard2": 1}))
+
+		o.observeObjectCount()
+
+		// No node total is published: the total is the sum over the namespaces,
+		// the same figure the single grouped series used to carry.
+		assert.Equal(t, map[string]float64{"": 0, "ns_a": 5, "ns_b": 6}, groupedObjectCounts(t))
+	})
+
+	t.Run("classes without a namespace land on the empty bucket", func(t *testing.T) {
+		root := t.TempDir()
+		o := newGroupedObjectCountObserver(t,
+			newObjectCountIndex(t, root, "Docs", map[string]int64{"shard1": 4}))
+
+		o.observeObjectCount()
+
+		assert.Equal(t, map[string]float64{"": 4}, groupedObjectCounts(t))
+	})
+
+	t.Run("the empty bucket is published by a node holding no indices", func(t *testing.T) {
+		o := newGroupedObjectCountObserver(t)
+
+		o.observeObjectCount()
+
+		assert.Equal(t, map[string]float64{"": 0}, groupedObjectCounts(t))
+	})
+
+	t.Run("a namespace whose last index is dropped loses its series", func(t *testing.T) {
+		root := t.TempDir()
+		nsA := newObjectCountIndex(t, root, "ns_a:Docs", map[string]int64{"shard1": 3})
+		o := newGroupedObjectCountObserver(t, nsA,
+			newObjectCountIndex(t, root, "ns_b:Docs", map[string]int64{"shard1": 5}))
+
+		o.observeObjectCount()
+		require.Equal(t, map[string]float64{"": 0, "ns_a": 3, "ns_b": 5}, groupedObjectCounts(t))
+
+		delete(o.db.indices, nsA.ID())
+		o.observeObjectCount()
+
+		assert.Equal(t, map[string]float64{"": 0, "ns_b": 5}, groupedObjectCounts(t),
+			"a namespace left behind at its last count would be billed forever")
+	})
+
+	t.Run("a pass with a shard still loading publishes nothing", func(t *testing.T) {
+		root := t.TempDir()
+		loading := newObjectCountIndex(t, root, "ns_a:Docs", map[string]int64{"shard1": 3})
+		loading.allShardsReady.Store(false)
+		o := newGroupedObjectCountObserver(t, loading,
+			newObjectCountIndex(t, root, "ns_b:Docs", map[string]int64{"shard1": 5}))
+
+		o.observeObjectCount()
+
+		assert.Empty(t, groupedObjectCounts(t),
+			"a partial count is worse than none, for every namespace")
+	})
 }

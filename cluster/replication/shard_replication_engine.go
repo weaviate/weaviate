@@ -149,7 +149,9 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 
 	e.engineMetricCallbacks.OnEngineStart(e.nodeId)
 	// Channels are creating while starting the replication engine to allow start/stop.
-	e.opsChan = make(chan ShardReplicationOpAndStatus, e.opBufferSize)
+	// Kept in a local too, so a restart's channel is never the one this run closes.
+	opsChan := make(chan ShardReplicationOpAndStatus, e.opBufferSize)
+	e.opsChan = opsChan
 	e.stopChan = make(chan struct{})
 
 	engineCtx, engineCancel := context.WithCancel(ctx)
@@ -166,7 +168,7 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 		defer e.engineMetricCallbacks.OnProducerStop(e.nodeId)
 		e.engineMetricCallbacks.OnProducerStart(e.nodeId)
 		e.logger.WithField("producer", e.producer).Info("starting replication engine producer")
-		err := e.producer.Produce(engineCtx, e.opsChan)
+		err := e.producer.Produce(engineCtx, opsChan)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			e.logger.WithField("producer", e.producer).WithError(err).Error("stopping producer after failure")
 			producerErrChan <- err
@@ -181,7 +183,7 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 		defer e.engineMetricCallbacks.OnConsumerStop(e.nodeId)
 		e.engineMetricCallbacks.OnConsumerStart(e.nodeId)
 		e.logger.WithField("consumer", e.consumer).Info("starting replication engine consumer")
-		err := e.consumer.Consume(engineCtx, e.opsChan)
+		err := e.consumer.Consume(engineCtx, opsChan)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			e.logger.WithField("consumer", e.consumer).WithError(err).Error("stopping consumer after failure")
 			consumerErrChan <- err
@@ -210,9 +212,10 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 
 	// Always cancel the replication engine context and wait for the producer and consumers to terminate to gracefully
 	// shut down the replication engine the both the producer and consumer.
+	// Close only after the wait: a producer parked in a send would panic on a closed channel.
 	engineCancel()
-	close(e.opsChan)
 	e.wg.Wait()
+	close(opsChan)
 	e.isRunning.Store(false)
 	return err
 }

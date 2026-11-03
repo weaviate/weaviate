@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -26,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -162,6 +164,309 @@ func Test_CompressedEntrypointRecoveryOnRestart(t *testing.T) {
 	results, _, err := index.SearchByVector(ctx, queries[0], vectorsSize, nil)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, control, results, "search results should match after entrypoint recovery")
+}
+
+// Compression drops the float32 vector cache, and recovering a missing
+// compressed vector reads through it. The read must serve the vector without
+// regrowing the dropped cache.
+func Test_CompressedVectorRecoveryBypassesFloatCache(t *testing.T) {
+	dimensions := 20
+	vectorsSize := 50
+	vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, dimensions)
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	withCompression := func(enable func(*ent.UserConfig)) ent.UserConfig {
+		uc := userConfig(dimensions/10, 5, 32, 64, 32, vectorsSize)
+		uc.PQ.Enabled = false
+		enable(&uc)
+		return uc
+	}
+	tests := []struct {
+		name string
+		uc   ent.UserConfig
+	}{
+		{name: "PQ", uc: withCompression(func(uc *ent.UserConfig) { uc.PQ.Enabled = true })},
+		{name: "SQ", uc: withCompression(func(uc *ent.UserConfig) { uc.SQ = ent.SQConfig{Enabled: true} })},
+		{name: "BQ", uc: withCompression(func(uc *ent.UserConfig) { uc.BQ.Enabled = true })},
+		{name: "RQ 8 bits", uc: withCompression(func(uc *ent.UserConfig) { uc.RQ = ent.RQConfig{Enabled: true, Bits: 8} })},
+		{name: "RQ 1 bit", uc: withCompression(func(uc *ent.UserConfig) { uc.RQ = ent.RQConfig{Enabled: true, Bits: 1} })},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			store := testinghelpers.NewDummyStoreFromFolder(tempDir, t)
+			// readErrs holds the error the object store returns per id
+			var readErrs sync.Map
+			cfg := indexConfig("recovery", tempDir, logger, vectors, distancer.NewCosineDistanceProvider())
+			cfg.WaitForCachePrefill = true
+			cfg.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+				if err, ok := readErrs.Load(id); ok {
+					return nil, err.(error)
+				}
+				if int(id) >= len(vectors) {
+					return nil, storobj.NewErrNotFoundf(id, "deleted")
+				}
+				return vectors[id], nil
+			}
+
+			index, err := New(cfg, withCompression(func(*ent.UserConfig) {}), cyclemanager.NewCallbackGroupNoop(), store)
+			require.NoError(t, err)
+			floatCache := index.cache
+			require.NoError(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(vectorsSize), func(id uint64) error {
+				return index.Add(ctx, id, vectors[id])
+			}))
+			compressed := make(chan struct{})
+			require.NoError(t, index.UpdateUserConfig(tt.uc, func() { close(compressed) }))
+			<-compressed
+			require.True(t, index.compressed.Load())
+			require.NotNil(t, index.cache, "a reader racing the compressed flag must find a dropped cache, not nil")
+			requireRecoveryBypassesFloatCache(t, index, floatCache, &readErrs, 1, 2, 3)
+
+			require.NoError(t, index.Flush())
+			require.NoError(t, index.Shutdown(ctx))
+			store.FlushMemtables(ctx)
+
+			index, err = New(cfg, tt.uc, cyclemanager.NewCallbackGroupNoop(), store)
+			require.NoError(t, err)
+			defer index.Shutdown(ctx)
+			index.PostStartup(ctx)
+			require.True(t, index.compressed.Load())
+			require.Nil(t, index.cache, "a restored compressed index holds no float32 cache")
+			requireRecoveryBypassesFloatCache(t, index, nil, &readErrs, 4, 5, 6)
+		})
+	}
+}
+
+// requireRecoveryBypassesFloatCache drops the compressed vectors of a live, a
+// deleted and an unreadable node, then reads each back through the
+// compressor's recovery.
+func requireRecoveryBypassesFloatCache(t *testing.T, index *hnsw, floatCache cache.Cache[float32],
+	readErrs *sync.Map, live, gone, unreadable uint64,
+) {
+	t.Helper()
+	ctx := context.Background()
+	errStore := errors.New("object store read failed")
+	want, err := index.compressor.GetCompressed(live)
+	require.NoError(t, err)
+	readErrs.Store(gone, storobj.NewErrNotFoundf(gone, "deleted"))
+	readErrs.Store(unreadable, errStore)
+	for _, id := range []uint64{live, gone, unreadable} {
+		index.compressor.Delete(ctx, id)
+	}
+
+	got, err := index.compressor.GetCompressed(live)
+	require.NoError(t, err)
+	require.Equal(t, want, got, "recovery must encode the normalized vector, as insert does")
+
+	var notFound storobj.ErrNotFound
+	_, err = index.compressor.GetCompressed(gone)
+	require.ErrorAs(t, err, &notFound)
+	_, err = index.compressor.GetCompressed(unreadable)
+	require.ErrorIs(t, err, errStore, "a failed read must not look like a deleted object")
+
+	// a recovery that went through a float32 cache would serve the vector again
+	readErrs.Store(live, storobj.NewErrNotFoundf(live, "deleted"))
+	index.compressor.Delete(ctx, live)
+	_, err = index.compressor.GetCompressed(live)
+	require.ErrorAs(t, err, &notFound)
+
+	if floatCache != nil {
+		require.Zero(t, floatCache.Len(), "the dropped float32 cache must stay empty")
+	}
+}
+
+// A multivector or muvera BQ index compresses in New on every start.
+// Recovering a node's missing compressed vector must read that node's own vector.
+func Test_MultiVectorBQRecoveryOnRestart(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	// BQ keeps only signs, so doc 0's token encodes differently from doc 1's
+	docs := [][][]float32{
+		{{-1, -2, -3}},
+		{{1, 2, 3}, {3, 2, 1}},
+	}
+	tests := []struct {
+		name   string
+		muvera ent.MuveraConfig
+		// node returns the node holding doc 1's first token, or doc 1's
+		// muvera encoding when muvera is on
+		node func(*hnsw) uint64
+	}{
+		{
+			name: "multivector",
+			node: func(index *hnsw) uint64 { return index.docIDVectors[1][0] },
+		},
+		{
+			name:   "muvera",
+			muvera: ent.MuveraConfig{Enabled: true, KSim: 2, DProjections: 3, Repetitions: 5},
+			node:   func(*hnsw) uint64 { return 1 },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			store := testinghelpers.NewDummyStoreFromFolder(tempDir, t)
+			id := "vectors_multi_bq"
+			cfg := Config{
+				RootPath: tempDir,
+				ID:       id,
+				MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+					return NewCommitLogger(tempDir, id, logger, cyclemanager.NewCallbackGroupNoop(), opts...)
+				},
+				DistanceProvider: distancer.NewDotProductProvider(),
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					return nil, errors.New("multivector index reads MultiVectorForIDThunk")
+				},
+				MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
+					return docs[id], nil
+				},
+				GetViewThunk:        func() common.BucketView { return &noopBucketView{} },
+				MakeBucketOptions:   lsmkv.MakeNoopBucketOptions,
+				AllocChecker:        memwatch.NewDummyMonitor(),
+				WaitForCachePrefill: true,
+			}
+			uc := ent.UserConfig{
+				VectorCacheMaxObjects: 1e12,
+				MaxConnections:        8,
+				EFConstruction:        64,
+				EF:                    64,
+				Multivector:           ent.MultivectorConfig{Enabled: true, MuveraConfig: tt.muvera},
+				BQ:                    ent.BQConfig{Enabled: true},
+			}
+
+			index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), store)
+			require.NoError(t, err)
+			for docID, vecs := range docs {
+				require.NoError(t, index.AddMulti(ctx, uint64(docID), vecs))
+			}
+			node := tt.node(index)
+			want, err := index.compressor.GetCompressed(node)
+			require.NoError(t, err)
+			require.NoError(t, index.Flush())
+			require.NoError(t, index.Shutdown(ctx))
+			store.FlushMemtables(ctx)
+
+			bucket := store.Bucket(helpers.GetCompressedBucketName("multi_bq"))
+			require.NotNil(t, bucket)
+			idBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(idBytes, node)
+			require.NoError(t, bucket.Delete(idBytes))
+			store.FlushMemtables(ctx)
+
+			index, err = New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), store)
+			require.NoError(t, err)
+			defer index.Shutdown(ctx)
+			index.PostStartup(ctx)
+
+			got, err := index.compressor.GetCompressed(node)
+			require.NoError(t, err)
+			require.Equal(t, want, got)
+		})
+	}
+}
+
+// A distancer built before compression keeps reading through the float32
+// path. Compression drops that cache; the straggler must not bring it back.
+func Test_StragglerReadAfterCompressionLeavesCacheDropped(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	t.Run("single vector reads through to the object store", func(t *testing.T) {
+		dimensions, vectorsSize := 20, 50
+		vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, dimensions)
+		tempDir := t.TempDir()
+		store := testinghelpers.NewDummyStoreFromFolder(tempDir, t)
+		cfg := indexConfig("straggler", tempDir, logger, vectors, distancer.NewCosineDistanceProvider())
+		cfg.WaitForCachePrefill = true
+		uc := userConfig(dimensions/10, 5, 32, 64, 32, vectorsSize)
+		uc.PQ.Enabled = false
+
+		index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), store)
+		require.NoError(t, err)
+		defer index.Shutdown(ctx)
+		floatCache := index.cache
+		for id := range vectors {
+			require.NoError(t, index.Add(ctx, uint64(id), vectors[id]))
+		}
+		straggler := index.QueryVectorDistancer(vectors[0])
+		want, err := straggler.DistanceFunc(1)
+		require.NoError(t, err)
+
+		uc.BQ.Enabled = true
+		compressed := make(chan struct{})
+		require.NoError(t, index.UpdateUserConfig(uc, func() { close(compressed) }))
+		<-compressed
+		require.Zero(t, floatCache.Len())
+
+		got, err := straggler.DistanceFunc(1)
+		require.NoError(t, err)
+		assert.InDelta(t, want, got, 1e-6, "a straggler still reads the right vector")
+		assert.Zero(t, floatCache.Len(), "but must not bring the dropped cache back")
+		assert.Zero(t, floatCache.CountVectors())
+	})
+
+	t.Run("multivector fails without looking deleted", func(t *testing.T) {
+		docs := [][][]float32{
+			{{-1, -2, -3}},
+			{{1, 2, 3}, {3, 2, 1}},
+		}
+		tempDir := t.TempDir()
+		store := testinghelpers.NewDummyStoreFromFolder(tempDir, t)
+		id := "straggler_multi"
+		cfg := Config{
+			RootPath: tempDir,
+			ID:       id,
+			MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+				return NewCommitLogger(tempDir, id, logger, cyclemanager.NewCallbackGroupNoop(), opts...)
+			},
+			DistanceProvider: distancer.NewDotProductProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return nil, errors.New("multivector index reads MultiVectorForIDThunk")
+			},
+			MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
+				return docs[id], nil
+			},
+			GetViewThunk:        func() common.BucketView { return &noopBucketView{} },
+			MakeBucketOptions:   lsmkv.MakeNoopBucketOptions,
+			AllocChecker:        memwatch.NewDummyMonitor(),
+			WaitForCachePrefill: true,
+		}
+		uc := ent.UserConfig{
+			VectorCacheMaxObjects: 1e12,
+			MaxConnections:        8,
+			EFConstruction:        64,
+			EF:                    64,
+			Multivector:           ent.MultivectorConfig{Enabled: true},
+		}
+
+		index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), store)
+		require.NoError(t, err)
+		defer index.Shutdown(ctx)
+		floatCache := index.cache
+		for docID, vecs := range docs {
+			require.NoError(t, index.AddMulti(ctx, uint64(docID), vecs))
+		}
+		node := index.docIDVectors[1][0]
+		straggler := index.QueryVectorDistancer(docs[1][0])
+		_, err = straggler.DistanceFunc(node)
+		require.NoError(t, err)
+
+		uc.BQ.Enabled = true
+		compressed := make(chan struct{})
+		require.NoError(t, index.UpdateUserConfig(uc, func() { close(compressed) }))
+		<-compressed
+		require.Zero(t, floatCache.Len())
+
+		// the keys a read needs went with the cache, so there is nothing left
+		// to read through to; a not-found here would tombstone a live node
+		_, err = straggler.DistanceFunc(node)
+		require.ErrorIs(t, err, cache.ErrDropped)
+		var notFound storobj.ErrNotFound
+		assert.False(t, errors.As(err, &notFound))
+		assert.Zero(t, floatCache.Len(), "the straggler must not bring the dropped cache back")
+		assert.Zero(t, floatCache.CountVectors())
+	})
 }
 
 func Test_CompressAndInsertDoNotRace(t *testing.T) {

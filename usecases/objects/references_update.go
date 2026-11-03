@@ -54,13 +54,13 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	if input.Class != "" {
 		class, _, err := m.resolveNS(principal, input.Class)
 		if err != nil {
-			return &Error{err.Error(), StatusUnprocessableEntity, err}
+			return forbiddenOrUnprocessable(err)
 		}
 		input.Class = class
 	}
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, input.Class, authorization.ShardsData(input.Class, tenant)...); err != nil {
+		return forbiddenOrUnprocessable(err)
 	}
 
 	if input.Class == "" {
@@ -101,7 +101,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	}
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.config.Config.Namespaces.Enabled)
+		principal, m.qualifier)
 	parsedTargetRefs, err := input.validate(validator, class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
@@ -134,9 +134,9 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		if parsedTargetRefs[i].Class != "" {
 			// Qualified for authz/existence, short for the stored beacon.
 			qualifiedTarget, shortTarget, err := namespacing.QualifyRefTarget(
-				principal, m.config.Config.Namespaces.Enabled, input.Class, parsedTargetRefs[i].Class)
+				principal, m.qualifier, input.Class, parsedTargetRefs[i].Class)
 			if err != nil {
-				return &Error{err.Error(), StatusUnprocessableEntity, err}
+				return forbiddenOrUnprocessable(err)
 			}
 			parsedTargetRefs[i].Class = qualifiedTarget
 			input.Refs[i].Class = strfmt.URI(shortTarget)

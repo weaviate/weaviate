@@ -14,6 +14,7 @@ package db
 import (
 	"bytes"
 	"cmp"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -23,6 +24,8 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
@@ -58,14 +61,37 @@ const maxMigrationFaultReasonBytes = 512
 // Both ends, because the quoted handle sits in the middle: the head says which
 // record and which role, the tail says what is wrong with it.
 func migrationFaultReason(err error) string {
-	reason := err.Error()
-	if len(reason) <= maxMigrationFaultReasonBytes {
-		return reason
+	reason, advice := err.Error(), ""
+	var advised *migrationAdvisedError
+	if errors.As(err, &advised) {
+		reason, advice = advised.err.Error(), ". "+advised.advice
 	}
-	const half = maxMigrationFaultReasonBytes / 2
-	return strings.ToValidUTF8(reason[:half], "") + "…(truncated)…" +
-		strings.ToValidUTF8(reason[len(reason)-half:], "")
+	if len(reason) > maxMigrationFaultReasonBytes {
+		const half = maxMigrationFaultReasonBytes / 2
+		reason = strings.ToValidUTF8(reason[:half], "") + "…(truncated)…" +
+			strings.ToValidUTF8(reason[len(reason)-half:], "")
+	}
+	return reason + advice
 }
+
+// Only the code that detects a fault knows its cause, so it states the remedy.
+const (
+	migrationAdviceClearAndRestart = "clear that error, then restart the node"
+	migrationAdviceOverBound       = "this build reads no record over that bound: run the build that wrote it, " +
+		"or remove it once you have confirmed what it claims, then restart the node (or deactivate and reactivate the tenant)"
+	migrationAdviceDowngrade = "normally a downgrade: run the build that wrote it, " +
+		"or remove it once you have confirmed what it claims, then restart the node (or deactivate and reactivate the tenant)"
+)
+
+// Kept apart from the reason so the length cut never drops the remedy.
+type migrationAdvisedError struct {
+	err    error
+	advice string
+}
+
+func (e *migrationAdvisedError) Error() string { return e.err.Error() + ". " + e.advice }
+
+func (e *migrationAdvisedError) Unwrap() error { return e.err }
 
 // Readers are served from the map: activating a tenant loads its shard on
 // the RAFT apply loop, where a read that went to disk would hold up the log.
@@ -86,6 +112,8 @@ type MigrationRecordStore struct {
 	// Records no pass on this build could advance. Cleared on every load, since
 	// the pass that follows a load re-derives it.
 	wedged map[MigrationRecordKey]bool
+	// Caches what a pass deferred, since the schema may flip before the load hook serves it.
+	deferredPromotions map[MigrationRecordKey][]string
 }
 
 // The store names no unit, so every record it loads reads as local. Callers
@@ -173,56 +201,14 @@ func (s *MigrationRecordStore) Load() error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	entries, err := os.ReadDir(s.dir)
+	records, foreign, unreadable, err := s.scan()
 	if err != nil {
-		if os.IsNotExist(err) {
-			s.publish(map[MigrationRecordKey]MigrationRecord{}, nil)
-			return nil
-		}
 		s.publish(map[MigrationRecordKey]MigrationRecord{}, []MigrationRecordUnreadable{{
 			FileName: migrationRecordsDirName,
-			Reason:   fmt.Sprintf("read migration records dir: %v", err),
+			Reason:   fmt.Sprintf("read migration records dir: %v. %s", err, migrationAdviceClearAndRestart),
 			Scope:    MigrationRecordFaultStore,
 		}})
 		return fmt.Errorf("read migration records dir %q: %w", s.dir, err)
-	}
-
-	records := make(map[MigrationRecordKey]MigrationRecord, len(entries))
-	var unreadable, foreign []MigrationRecordUnreadable
-
-	for _, entry := range entries {
-		name := entry.Name()
-		if strings.HasSuffix(name, tmpExt) {
-			continue
-		}
-
-		rec, outcome, err := loadMigrationRecordFile(filepath.Join(s.dir, name))
-		switch outcome {
-		case MigrationRecordLoaded:
-			if got := rec.Subject().Key.fileName(); got != name {
-				unreadable = append(unreadable, MigrationRecordUnreadable{
-					FileName: name,
-					Reason:   fmt.Sprintf("content names record file %q", got),
-					Scope:    MigrationRecordFaultFile,
-				})
-				continue
-			}
-			if s.foreignUnit(rec.Subject().Key) {
-				foreign = append(foreign, MigrationRecordUnreadable{
-					FileName: name,
-					Reason:   fmt.Sprintf("unit %q is not this shard's own", rec.Subject().Key.UnitID),
-					Scope:    MigrationRecordFaultFile,
-				})
-				continue
-			}
-			records[rec.Subject().Key] = rec
-		case MigrationRecordAbsent:
-			continue
-		case MigrationRecordNotUnderstood:
-			unreadable = append(unreadable, MigrationRecordUnreadable{
-				FileName: name, Reason: migrationFaultReason(err), Scope: MigrationRecordFaultFile,
-			})
-		}
 	}
 
 	unreadable = append(unreadable, refuseRecordsOfSeveralUnits(records)...)
@@ -247,29 +233,190 @@ func (s *MigrationRecordStore) Load() error {
 	return nil
 }
 
+func (s *MigrationRecordStore) scan() (own, foreign map[MigrationRecordKey]MigrationRecord,
+	unreadable []MigrationRecordUnreadable, err error,
+) {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, nil, nil, err
+	}
+
+	own = make(map[MigrationRecordKey]MigrationRecord, len(entries))
+	foreign = map[MigrationRecordKey]MigrationRecord{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasSuffix(name, tmpExt) {
+			continue
+		}
+
+		rec, outcome, err := loadMigrationRecordFile(filepath.Join(s.dir, name))
+		switch outcome {
+		case MigrationRecordLoaded:
+			if got := rec.Subject().Key.fileName(); got != name {
+				unreadable = append(unreadable, MigrationRecordUnreadable{
+					FileName: name,
+					Reason:   fmt.Sprintf("content names record file %q. give it back that name or remove it, then restart the node (or deactivate and reactivate the tenant)", got),
+					Scope:    MigrationRecordFaultFile,
+				})
+				continue
+			}
+			if s.foreignUnit(rec.Subject().Key) {
+				foreign[rec.Subject().Key] = rec
+				continue
+			}
+			own[rec.Subject().Key] = rec
+		case MigrationRecordAbsent:
+			continue
+		case MigrationRecordNotUnderstood:
+			unreadable = append(unreadable, MigrationRecordUnreadable{
+				FileName: name, Reason: migrationFaultReason(err), Scope: MigrationRecordFaultFile,
+			})
+		}
+	}
+	return own, foreign, unreadable, nil
+}
+
 // A backup restore and a replica move both land another replica's record file
 // under this shard, where nothing else tells it apart from a local one: it is
 // granted a seal no local worker holds and is then reconciled as local work.
-// Set aside rather than adopted, and left on disk for whoever put it there.
+// Set aside, not adopted; AdoptArrivedMigrationRecords renames a shard copy's
+// records before the shard loads.
 func (s *MigrationRecordStore) foreignUnit(key MigrationRecordKey) bool {
 	return s.unitID != "" && key.UnitID != s.unitID
 }
 
 // One line per load, not one per file: Load runs once per tenant on a
 // multi-tenant collection, and a restore lands every replica's records at once.
-func (s *MigrationRecordStore) reportForeign(foreign []MigrationRecordUnreadable) {
+func (s *MigrationRecordStore) reportForeign(foreign map[MigrationRecordKey]MigrationRecord) {
 	if len(foreign) == 0 {
 		return
 	}
 	names := make([]string, 0, len(foreign))
-	for _, f := range foreign {
-		names = append(names, f.FileName)
+	for key := range foreign {
+		names = append(names, key.fileName())
 	}
 	s.logger.WithField("path", s.dir).WithField("file_count", len(foreign)).Warnf(
 		"%d migration record(s) here belong to another replica of this shard and are ignored; "+
 			"they were most likely left by a restore or a replica move, and the directories they "+
 			"name are not this shard's to reclaim. Files: %s",
 		len(foreign), strings.Join(migrationReportedNames(names), ", "))
+}
+
+// AdoptArrivedMigrationRecords renames a shard copy's migration records from
+// sourceNode to this node's unit. Call it after the copy lands and before the
+// shard loads: only the load finalizes a swap, whose old directory is already
+// gone, so a record left set aside serves an empty index. It returns why it
+// left them set aside, if it did, for the caller to log once per operation.
+func AdoptArrivedMigrationRecords(indexPath, shardName, node, sourceNode string) (refusal string, err error) {
+	return AdoptArrivedMigrationRecordsInDir(indexPath, shardName, shardName, node, sourceNode)
+}
+
+// AdoptArrivedMigrationRecordsInDir is [AdoptArrivedMigrationRecords] for a
+// copy staged in shardDir rather than in the shard's own directory.
+func AdoptArrivedMigrationRecordsInDir(indexPath, shardDir, shardName, node, sourceNode string) (refusal string, err error) {
+	store := NewMigrationRecordStoreForUnit(shardPathLSM(indexPath, shardDir), MigrationUnitID(shardName, node), nil)
+	return store.adoptUnit(MigrationUnitID(shardName, sourceNode))
+}
+
+// A restore stages its files outside the data path, so indexPath is the staged
+// copy. An I/O error fails the restore: silently continuing would leave a
+// shard serving its migrated indexes empty.
+func (db *DB) AdoptRestoredMigrationRecords(indexPath string, desc *backup.ClassDescriptor,
+	node, sourceNode string,
+) error {
+	setAside, example := 0, ""
+	for _, shard := range desc.Shards {
+		refusal, err := AdoptArrivedMigrationRecords(indexPath, shard.Name, node, sourceNode)
+		if err != nil {
+			return fmt.Errorf("adopt the migration records of shard %q restored from %s: %w",
+				shard.Name, sourceNode, err)
+		}
+		if refusal == "" {
+			continue
+		}
+		if setAside == 0 {
+			example = fmt.Sprintf("shard %q: %s", shard.Name, refusal)
+		}
+		setAside++
+	}
+	// One line per class, not per shard: a multi-tenant class restores every tenant at once.
+	if setAside > 0 {
+		db.logger.WithField("action", "restore").WithField("class", desc.Name).
+			WithField("shard_count", setAside).
+			Warnf("the migration records of %d restored shard(s) taken on %s stay set aside; first, %s",
+				setAside, sourceNode, example)
+	}
+	return nil
+}
+
+// Renames only if the source is the sole claimant of its records; a record
+// already here from this node or a third replica may name the same directories,
+// so it blocks the rename. An own record byte-equal to the source's is a
+// crash-interrupted rename that resumes.
+func (s *MigrationRecordStore) adoptUnit(source string) (refusal string, err error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	own, foreign, unreadable, err := s.scan()
+	if err != nil {
+		return "", fmt.Errorf("read migration records dir %q: %w", s.dir, err)
+	}
+
+	renamed := map[MigrationRecordKey][]byte{}
+	for key, rec := range foreign {
+		if key.UnitID != source {
+			continue
+		}
+		env := rec.toEnvelope()
+		env.Subject.Key.UnitID = s.unitID
+		data, encodeErr := encodeMigrationEnvelope(env)
+		if encodeErr != nil {
+			// The reader accepts files the writer refuses. Failing here would
+			// fail every copy of this shard, so the records stay set aside.
+			return fmt.Sprintf("record %q cannot be renamed: %v", key, encodeErr), nil
+		}
+		renamed[key] = data
+	}
+	if len(renamed) == 0 {
+		return "", nil
+	}
+
+	switch {
+	case len(unreadable) > 0:
+		refusal = fmt.Sprintf("%d record file(s) here are not understood", len(unreadable))
+	case len(renamed) < len(foreign):
+		refusal = "records of a replica other than the copy's source are here too"
+	}
+	for key, rec := range own {
+		ownData, encodeErr := encodeMigrationRecord(rec)
+		sourceKey := key
+		sourceKey.UnitID = source
+		if encodeErr != nil || !bytes.Equal(ownData, renamed[sourceKey]) {
+			refusal = "this shard already holds records of its own"
+		}
+	}
+	if refusal != "" {
+		return refusal, nil
+	}
+
+	for key, data := range renamed {
+		ownKey := key
+		ownKey.UnitID = s.unitID
+		if _, written := own[ownKey]; !written {
+			if err := writeFileAtomic(s.dir, ownKey.fileName(), data); err != nil {
+				return "", fmt.Errorf("write migration record %q: %w", ownKey, err)
+			}
+		}
+		if err := os.Remove(s.path(key)); err != nil && !os.IsNotExist(err) {
+			return "", fmt.Errorf("remove migration record %q: %w", key, err)
+		}
+	}
+	// A crash before this sync fails the copy; its retry re-downloads the
+	// source's records and adopts them again.
+	if err := diskio.Fsync(s.dir); err != nil {
+		return "", fmt.Errorf("publish the removal of the records of unit %q: %w", source, err)
+	}
+	return "", nil
 }
 
 // A fault, not a preference: a teardown always seals a foreign unit, so
@@ -298,17 +445,6 @@ func refuseRecordsOfSeveralUnits(records map[MigrationRecordKey]MigrationRecord)
 	}}
 }
 
-// A tracker directory sits under .migrations and every other claim at the shard
-// root, so the two are kept apart here or one name shared across them reads as a
-// collision over a directory that does not exist.
-func migrationExclusiveClaims(subject MigrationSubject) []string {
-	claims := migrationOwnedDirs(subject)
-	if subject.TrackerDir != "" {
-		claims = append(claims, filepath.Join(migrationsDir, subject.TrackerDir))
-	}
-	return claims
-}
-
 // Both claimants leave the live set: nothing here can tell which one the data
 // belongs to, and either answer would delete the other's only copy.
 func refuseRecordsOfDuplicateClaims(records map[MigrationRecordKey]MigrationRecord) []MigrationRecordUnreadable {
@@ -323,7 +459,7 @@ func refuseRecordsOfDuplicateClaims(records map[MigrationRecordKey]MigrationReco
 	shared := map[MigrationRecordKey]string{}
 	against := map[MigrationRecordKey]MigrationRecordKey{}
 	for _, key := range keys {
-		for _, dir := range migrationExclusiveClaims(records[key].Subject()) {
+		for _, dir := range migrationOwnedDirs(records[key].Subject()) {
 			claim := claimedBy{key.UnitID, dir}
 			first, taken := held[claim]
 			if !taken {
@@ -347,7 +483,7 @@ func refuseRecordsOfDuplicateClaims(records map[MigrationRecordKey]MigrationReco
 			Reason: fmt.Sprintf(
 				"this record and %q both claim directory %q, and this node cannot tell which one holds "+
 					"its data. Confirm which migration the directory belongs to, then move or remove the "+
-					"record file of the other one",
+					"record file of the other one, then restart the node (or deactivate and reactivate the tenant)",
 				against[key].fileName(), claim),
 			Scope: MigrationRecordFaultFile,
 		})
@@ -361,6 +497,7 @@ func (s *MigrationRecordStore) publish(records map[MigrationRecordKey]MigrationR
 	s.records = records
 	s.unreadable = unreadable
 	s.wedged = nil
+	s.deferredPromotions = nil
 }
 
 // MarkWedged records that nothing this build runs can move this record on. The
@@ -374,6 +511,23 @@ func (s *MigrationRecordStore) MarkWedged(key MigrationRecordKey) {
 		s.wedged = map[MigrationRecordKey]bool{}
 	}
 	s.wedged[key] = true
+}
+
+// The schema may flip before the load hook serves a deferred promotion, so
+// the hook reads this cache instead of the schema.
+func (s *MigrationRecordStore) DeferPromotions(key MigrationRecordKey, props []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.deferredPromotions == nil {
+		s.deferredPromotions = map[MigrationRecordKey][]string{}
+	}
+	s.deferredPromotions[key] = props
+}
+
+func (s *MigrationRecordStore) DeferredPromotions(key MigrationRecordKey) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.deferredPromotions[key]
 }
 
 // Read by every later pass in this incarnation. The reconciler that diagnosed
@@ -408,6 +562,8 @@ func (s *MigrationRecordStore) Put(rec MigrationRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.records[rec.Subject().Key] = rec
+	delete(s.wedged, rec.Subject().Key)
+	delete(s.deferredPromotions, rec.Subject().Key)
 	return nil
 }
 
@@ -448,6 +604,7 @@ func (s *MigrationRecordStore) removeSynced(key MigrationRecordKey, sync func(st
 		defer s.mu.Unlock()
 		delete(s.records, key)
 		delete(s.wedged, key)
+		delete(s.deferredPromotions, key)
 	}()
 
 	if removed != nil {
@@ -471,15 +628,8 @@ func (s *MigrationRecordStore) mayWrite(key MigrationRecordKey) error {
 	if len(s.unreadable) == 0 {
 		return nil
 	}
-	name := key.fileName()
-	for _, u := range s.unreadable {
-		if u.Scope == MigrationRecordFaultFile && u.FileName == name {
-			return fmt.Errorf("refusing to write migration record %q over a file this build could not read: %s",
-				key, u.Reason)
-		}
-	}
 	u := s.unreadable[0]
-	return fmt.Errorf("refusing to write migration record %q: this build could not read %q, "+
+	return fmt.Errorf("refusing to write migration record %q: the record store cannot answer for %q, "+
 		"so it cannot tell what is already recorded here: %s", key, u.FileName, u.Reason)
 }
 
@@ -523,7 +673,7 @@ func (s *MigrationRecordStore) HasUndecided() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for key, rec := range s.records {
-		if !rec.PointerSwapped() && !s.wedged[key] {
+		if !rec.FlipDecided() && !s.wedged[key] {
 			return true
 		}
 	}
@@ -549,11 +699,16 @@ func loadMigrationRecordFile(path string) (MigrationRecord, MigrationRecordLoadO
 		if os.IsNotExist(err) {
 			return nil, MigrationRecordAbsent, nil
 		}
-		return nil, MigrationRecordNotUnderstood, fmt.Errorf("stat %q: %w", filepath.Base(path), err)
+		return nil, MigrationRecordNotUnderstood, &migrationAdvisedError{
+			fmt.Errorf("stat %q: %w", filepath.Base(path), err), migrationAdviceClearAndRestart,
+		}
 	}
 	if info.Size() > maxMigrationRecordBytes {
-		return nil, MigrationRecordNotUnderstood, fmt.Errorf(
-			"record %q holds %d bytes, bound is %d", filepath.Base(path), info.Size(), maxMigrationRecordBytes)
+		return nil, MigrationRecordNotUnderstood, &migrationAdvisedError{
+			fmt.Errorf(
+				"record %q holds %d bytes, bound is %d", filepath.Base(path), info.Size(), maxMigrationRecordBytes),
+			migrationAdviceOverBound,
+		}
 	}
 
 	data, err := os.ReadFile(path)
@@ -561,12 +716,14 @@ func loadMigrationRecordFile(path string) (MigrationRecord, MigrationRecordLoadO
 		if os.IsNotExist(err) {
 			return nil, MigrationRecordAbsent, nil
 		}
-		return nil, MigrationRecordNotUnderstood, fmt.Errorf("read %q: %w", filepath.Base(path), err)
+		return nil, MigrationRecordNotUnderstood, &migrationAdvisedError{
+			fmt.Errorf("read %q: %w", filepath.Base(path), err), migrationAdviceClearAndRestart,
+		}
 	}
 
 	rec, err := decodeMigrationRecord(data)
 	if err != nil {
-		return nil, MigrationRecordNotUnderstood, err
+		return nil, MigrationRecordNotUnderstood, &migrationAdvisedError{err, migrationAdviceDowngrade}
 	}
 	return rec, MigrationRecordLoaded, nil
 }

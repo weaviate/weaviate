@@ -206,3 +206,52 @@ func TestPhysicalNamesForIDMatchTargetVectorHelpers(t *testing.T) {
 	assert.Equal(t, "main", VectorIndexIDForTarget(""))
 	assert.Equal(t, "vectors_title", VectorIndexIDForTarget("title"))
 }
+
+// TestVectorIndexArtifactNamesForID pins the physical names an index owns,
+// derived from its ID: what the mapping's collision check compares.
+func TestVectorIndexArtifactNamesForID(t *testing.T) {
+	tests := []struct {
+		id      string
+		buckets []string
+		dirs    []string
+	}{
+		{
+			id: "main",
+			buckets: []string{
+				"vectors", "vectors_compressed", "main_muvera_vectors", "main_mv_mappings",
+				"hfresh_postings_main", "hfresh_shared_main", "vectors_compressed",
+			},
+			dirs: []string{"main.hnsw.commitlog.d", "main.hnsw.snapshot.d", "main.hfresh.d", "meta.db"},
+		},
+		{
+			id: "vectors_title",
+			buckets: []string{
+				"vectors_title", "vectors_compressed_title", "vectors_title_muvera_vectors", "vectors_title_mv_mappings",
+				"hfresh_postings_vectors_title", "hfresh_shared_vectors_title", "vectors_compressed_title_centroids",
+			},
+			dirs: []string{"vectors_title.hnsw.commitlog.d", "vectors_title.hnsw.snapshot.d", "vectors_title.hfresh.d", "meta_title.db"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.id, func(t *testing.T) {
+			got := VectorIndexArtifactNamesForID(tc.id)
+			assert.Equal(t, tc.buckets, got.LSMBuckets)
+			assert.Equal(t, tc.dirs, got.ShardDirs)
+		})
+	}
+
+	// a named vector's list agrees with the name-based catalogue, which also
+	// names the queue under the index's ID
+	byName := vectorIndexArtifactNames("title")
+	assert.Equal(t, byName.LSMBuckets, VectorIndexArtifactNamesForID("vectors_title").LSMBuckets)
+	assert.ElementsMatch(t, byName.ShardDirs, append(VectorIndexArtifactNamesForID("vectors_title").ShardDirs, "vectors_title.queue.d"))
+}
+
+// An index whose raw bucket is another index's muvera bucket keeps it.
+func TestVectorIndexArtifactsForID(t *testing.T) {
+	got := VectorIndexArtifactsForID("vectors_title", []string{"vectors_title_muvera_vectors", "vectors_title"})
+	assert.NotContains(t, got.LSMBuckets, "vectors_title_muvera_vectors", "owned by the sibling")
+	assert.Contains(t, got.LSMBuckets, "vectors_title", "its own raw bucket, the sibling list naming itself changes nothing")
+	assert.Equal(t, VectorIndexArtifactNamesForID("vectors_title").ShardDirs, got.ShardDirs)
+	assert.Equal(t, VectorIndexArtifactNamesForID("vectors_title"), VectorIndexArtifactsForID("vectors_title", nil))
+}

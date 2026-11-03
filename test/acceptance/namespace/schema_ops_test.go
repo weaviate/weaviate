@@ -236,6 +236,24 @@ func TestNamespaces_DeleteClassPropertyIndex(t *testing.T) {
 	})
 }
 
+// classWithTwoVectors returns a class with two named vectors (vec1, vec2),
+// both backed by HNSW. Dropping one toggles its VectorIndexType to "none".
+func classWithTwoVectors(name string) *models.Class {
+	return &models.Class{
+		Class: name,
+		VectorConfig: map[string]models.VectorConfig{
+			"vec1": {
+				Vectorizer:      map[string]any{"none": map[string]any{}},
+				VectorIndexType: "hnsw",
+			},
+			"vec2": {
+				Vectorizer:      map[string]any{"none": map[string]any{}},
+				VectorIndexType: "hnsw",
+			},
+		},
+	}
+}
+
 func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
 	t.Parallel()
 	ns1 := uniqueNS()
@@ -245,24 +263,6 @@ func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
 
 	user1Key := createNamespacedUser(t, "u1", ns1, adminKey)
 	t.Cleanup(func() { helper.DeleteUser(t, ns1+":u1", adminKey) })
-
-	// classWithTwoVectors returns a class with two named vectors (vec1, vec2),
-	// both backed by HNSW. Dropping one toggles its VectorIndexType to "none".
-	classWithTwoVectors := func(name string) *models.Class {
-		return &models.Class{
-			Class: name,
-			VectorConfig: map[string]models.VectorConfig{
-				"vec1": {
-					Vectorizer:      map[string]any{"none": map[string]any{}},
-					VectorIndexType: "hnsw",
-				},
-				"vec2": {
-					Vectorizer:      map[string]any{"none": map[string]any{}},
-					VectorIndexType: "hnsw",
-				},
-			},
-		}
-	}
 
 	// vectorIndexType returns the VectorIndexType of `vec` on `qualified`.
 	vectorIndexType := func(t *testing.T, qualified, vec string) string {
