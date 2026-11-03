@@ -103,6 +103,20 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 		return err
 	}
 
+	held := true
+	defer func() {
+		if !held {
+			return
+		}
+		// Otherwise the shard refuses writes until a restart.
+		logger := r.logger.WithField("action", "inverted_reindex").WithField("shard", r.shard.Name())
+		if err := r.shard.Store().ResumeCompaction(context.Background()); err != nil {
+			logger.Errorf("resume compaction after a failed reindex: %v", err)
+		}
+		if err := r.shard.setReindexing(false); err != nil {
+			logger.Errorf("resume background I/O after a failed reindex: %v", err)
+		}
+	}()
 	if err := r.pauseStoreActivity(ctx); err != nil {
 		r.logError(err, "failed pausing store activity")
 		return err
@@ -192,6 +206,7 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 		return err
 	}
 
+	held = false
 	if err := r.resumeStoreActivity(ctx, task); err != nil {
 		r.logError(err, "failed resuming store activity")
 		return err
