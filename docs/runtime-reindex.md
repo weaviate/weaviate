@@ -1074,14 +1074,15 @@ Then, per shard load:
      failing disk, an unreadable record on the shard (the store then
      refuses every write), and a migration already swapped in (a stamp
      would block the promotion that serves its new index). The shard loads
-     `READONLY` with its own status reason: it serves reads, takes no writes
-     (so the staged copy stays current), and every migration step on the
-     shard (prepare, swap, a repair or rebuild unit) waits instead of
-     failing; the scheduler runs it again on a later tick. A unit on a
-     shard that also holds an unreadable record still fails its migration,
-     as on any shard. The shard's
-     status (`GET /v1/schema/<class>/shards`) shows READONLY with this
-     reason, and the node logs once that its migrations wait.
+     `READONLY` with its own status reason: it serves reads and takes no
+     writes, so the staged copy stays current. The held migration's own
+     prepare and swap wait instead of failing, and the scheduler runs them
+     again on a later tick. Another migration's repair, rebuild or
+     iteration unit, prepare or swap waits the same way, unless the shard
+     also holds an unreadable record: then it fails its migration, as on
+     any shard. The shard's status (`GET /v1/schema/<class>/shards`) shows
+     READONLY with this reason, and the node logs once that its migrations
+     wait.
      - Only a manual status update lifts the hold. A vector-index config
        change is refused while the shard is READONLY, and disk-pressure
        recovery lifts only its own reason.

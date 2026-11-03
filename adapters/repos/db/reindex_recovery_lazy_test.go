@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -424,25 +425,43 @@ func TestLiftingAHeldShardDoesNotWaitOnAStuckDisk(t *testing.T) {
 // caller gave up would fail a healthy migration for good.
 func TestALiftThatStopsWaitingStillArmsTheMirror(t *testing.T) {
 	fx := newDoubleFaultFixture(t, "tenant-lift-gives-up")
-	fx.idx.bucketLoadLimiter = loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "buckets", 1)
+	reg := prometheus.NewRegistry()
+	fx.idx.bucketLoadLimiter = loadlimiter.NewLoadLimiter(reg, "buckets", 1)
 	fx.breakDisk(t)
 	shard := fx.load(t)
 	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
 	fx.healRecords(t)
 	require.NoError(t, os.Remove(fx.corrupt))
 
-	// A busy limiter parks the arm; the caller stops waiting while it is parked.
+	// A busy limiter parks the arm; the caller stops waiting only once it is parked.
 	require.NoError(t, fx.idx.bucketLoadLimiter.Acquire(fx.ctx))
+	lift := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		lift <- shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate)
+	}, fx.logger)
+	require.Eventually(t, func() bool {
+		families, err := reg.Gather()
+		require.NoError(t, err)
+		for _, f := range families {
+			if f.GetName() == "buckets_waiting_for_permit_to_load" {
+				return f.GetMetric()[0].GetGauge().GetValue() == 1
+			}
+		}
+		return false
+	}, 10*time.Second, 10*time.Millisecond, "the arm parks on the limiter")
 	shard.shutCtxCancel(errors.New("dropped"))
-	require.Error(t, shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate))
+	require.Error(t, receiveWithin(t, lift))
 	fx.idx.bucketLoadLimiter.Release()
 
 	require.Eventually(t, func() bool { return len(shard.migrationMirrors.heldUnarmed()) == 0 },
 		10*time.Second, 10*time.Millisecond, "the arm releases the hold")
-	require.NotZero(t, shard.migrationMirrors.ArmedMigrationMirrors())
 	rec, ok := shard.migrationRecords.Get(fx.subject.Key)
 	require.True(t, ok)
-	require.False(t, rec.Subject().Unmirrored)
+	require.False(t, rec.Subject().Unmirrored, "a caller giving up must not stamp the migration")
+	require.NotZero(t, shard.migrationMirrors.ArmedMigrationMirrors())
+	for name, b := range shard.store.GetBucketsByName() {
+		require.Equalf(t, storagestate.StatusReadOnly, b.GetStatus(), "bucket %s opened after the caller left", name)
+	}
 }
 
 func receiveWithin[T any](t *testing.T, ch <-chan T) T {

@@ -220,13 +220,14 @@ func (s *Shard) retryHeldMigrations(in string) error {
 		defer release()
 		defer s.liftRetry.Unlock()
 		_, err := s.armRecoveredMigrations(context.WithoutCancel(s.shutCtx), held)
-		if err == nil {
-			s.migrationMirrors.releaseHeld()
-		}
 		// The arm may open buckets after its caller left, while the shard is still READONLY.
 		ec := errorcompounder.New()
 		ec.Add(err)
 		ec.Add(s.store.UpdateBucketsStatus(storagestate.StatusReadOnly))
+		// Released last: while anything is held, the gate refuses a lift that could race the reset.
+		if err == nil {
+			s.migrationMirrors.releaseHeld()
+		}
 		done <- ec.ToError()
 	}, s.index.logger)
 	wait := time.NewTimer(liftRetryTimeout)
