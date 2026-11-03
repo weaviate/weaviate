@@ -42,6 +42,7 @@ func TestRerankCorePath(t *testing.T) {
 	compose, err := docker.New().
 		WithWeaviateWithGRPC().
 		WithWeaviateEnv("ENABLE_MODULES", "reranker-dummy").
+		WithWeaviateEnv("QUERY_MAXIMUM_RESULTS", "10000").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, compose.Terminate(ctx)) }()
@@ -142,12 +143,21 @@ func TestRerankCorePath(t *testing.T) {
 		}
 	})
 
-	t.Run("a limit above the maximum is rejected by the search, as today", func(t *testing.T) {
+	t.Run("a limit above the maximum is rejected by the search", func(t *testing.T) {
 		req := searchRequest([]float32{1, 0}, "text")
 		req.Limit = 10001
 		_, err := grpcClient.Search(ctx, req)
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "query maximum results exceeded")
+	})
+
+	t.Run("the property check runs before the search", func(t *testing.T) {
+		req := searchRequest([]float32{1, 0}, "tags")
+		req.Limit = 10001
+		_, err := grpcClient.Search(ctx, req)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "is of type text[]")
+		assert.NotContains(t, err.Error(), "query maximum results exceeded")
 	})
 }
 
