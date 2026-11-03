@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -29,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -230,7 +232,7 @@ func TestShardLoadWhenAMirrorFailsToArmAndAnotherRecordIsUnreadable(t *testing.T
 	require.Equal(t, statusReasonMirrorUnarmed, shard.GetStatusReason())
 	require.EqualError(t, shard.PutObject(fx.ctx, createTestObjectWithText(fx.className, "late")),
 		storagestate.ErrStatusReadOnlyWithReason(statusReasonMirrorUnarmed).Error())
-	fx.requirePhasesRefused(t, shard, "is READONLY because its double-write mirror")
+	fx.requirePhasesRefused(t, shard, errShardHeldReadOnly.Error(), true)
 }
 
 // A mirror that fails to arm while its stamp cannot be written holds the shard
@@ -248,7 +250,7 @@ func TestShardLoadWhenAMirrorFailsToArmAndItsStampCannotBeWritten(t *testing.T) 
 	require.EqualError(t, shard.PutObject(fx.ctx, createTestObjectWithText(fx.className, "late")),
 		storagestate.ErrStatusReadOnlyWithReason(statusReasonMirrorUnarmed).Error())
 
-	fx.requirePhasesRefused(t, shard, "is READONLY because its double-write mirror")
+	fx.requirePhasesRefused(t, shard, errShardHeldReadOnly.Error(), true)
 }
 
 // Every path that can lift READONLY first retries the recovery a double fault left undone.
@@ -327,14 +329,14 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 					require.NoError(t, err)
 					require.Equal(t, want, shard.GetStatus())
 					require.True(t, rec.Subject().Unmirrored)
-					fx.requirePhasesRefused(t, shard, "no double-write mirror armed")
+					fx.requirePhasesRefused(t, shard, "no double-write mirror armed", false)
 				default:
 					if l.name != "restart" {
 						require.ErrorContains(t, err, "the disk is not accepting writes")
 					}
 					require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
 					require.False(t, rec.Subject().Unmirrored)
-					fx.requirePhasesRefused(t, shard, "is READONLY because its double-write mirror")
+					fx.requirePhasesRefused(t, shard, errShardHeldReadOnly.Error(), true)
 				}
 			})
 		}
@@ -388,6 +390,112 @@ func receiveWithin[T any](t *testing.T, ch <-chan T) T {
 		var zero T
 		return zero
 	}
+}
+
+// A step that meets the hold waits instead of failing its migration, and the
+// scheduler runs it again on a later tick once the shard is lifted.
+func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status distributedtask.TaskStatus
+		// The migration whose step meets the hold.
+		payload func(fx *doubleFaultFixture) ReindexTaskPayload
+		unit    distributedtask.UnitStatus
+	}{
+		{
+			name: "prepare of the held migration", status: distributedtask.TaskStatusPreparing,
+			unit:    distributedtask.UnitStatusCompleted,
+			payload: func(fx *doubleFaultFixture) ReindexTaskPayload { return fx.subject.reindexPayload() },
+		},
+		{
+			name: "repair unit on the held shard", status: distributedtask.TaskStatusStarted,
+			unit: distributedtask.UnitStatusPending,
+			payload: func(fx *doubleFaultFixture) ReindexTaskPayload {
+				return ReindexTaskPayload{
+					MigrationType: ReindexTypeRepairFilterable, Collection: fx.className, Properties: []string{"title"},
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newDoubleFaultFixture(t, "tenant-held-step")
+			fx.breakDisk(t)
+			shard := fx.load(t)
+			fx.idx.db.indexLock.Lock()
+			fx.idx.db.indices[indexID(schema.ClassName(fx.className))] = fx.idx
+			fx.idx.db.indexLock.Unlock()
+			fx.provider.concurrency = func() int { return 1 }
+
+			unitID, node := fx.subject.Key.UnitID, fx.idx.getSchema.NodeName()
+			payload := tc.payload(fx)
+			payload.UnitToShard, payload.UnitToNode = map[string]string{unitID: fx.name}, map[string]string{unitID: node}
+			raw, err := json.Marshal(payload)
+			require.NoError(t, err)
+			task := &distributedtask.Task{
+				Namespace: ReindexNamespace, TaskDescriptor: fx.desc, Payload: raw, Status: tc.status,
+				NeedsPreparationBarrier: true,
+				Units: map[string]*distributedtask.Unit{unitID: {
+					ID: unitID, GroupID: fx.name, NodeID: node, Status: tc.unit,
+				}},
+			}
+			outcome := &heldStepOutcome{task: task, done: make(chan string, 4)}
+			sched := distributedtask.NewScheduler(distributedtask.SchedulerParams{
+				CompletionRecorder: outcome, AckRecorder: outcome,
+				TaskLister: outcome,
+				Providers:  map[string]distributedtask.Provider{ReindexNamespace: fx.provider},
+				Logger:     fx.logger, LocalNode: node, TickInterval: 20 * time.Millisecond,
+			})
+			require.NoError(t, sched.Start(fx.ctx))
+			t.Cleanup(sched.Close)
+
+			require.Never(t, func() bool { return len(outcome.done) > 0 }, time.Second, 20*time.Millisecond,
+				"the step must wait while the shard is held")
+			fx.healRecords(t)
+			require.NoError(t, os.Remove(fx.corrupt))
+			require.NoError(t, shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate))
+			require.Equal(t, "succeeded", receiveWithin(t, outcome.done))
+		})
+	}
+}
+
+// heldStepOutcome reports the first verdict on the step: a prepare ack or a unit result.
+type heldStepOutcome struct {
+	task *distributedtask.Task
+	done chan string
+}
+
+func (o *heldStepOutcome) verdict(ok bool, msg string) {
+	if ok {
+		msg = "succeeded"
+	}
+	o.done <- msg
+}
+
+func (o *heldStepOutcome) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
+	return map[string][]*distributedtask.Task{ReindexNamespace: {o.task}}, nil
+}
+
+func (o *heldStepOutcome) RecordDistributedTaskPreparationCompleteAck(_ context.Context, _, _ string, _ uint64, _ string, ok bool, msg string) error {
+	o.verdict(ok, msg)
+	return nil
+}
+
+func (o *heldStepOutcome) RecordDistributedTaskUnitFailure(_ context.Context, _, _ string, _ uint64, _, _, msg string) error {
+	o.verdict(false, msg)
+	return nil
+}
+
+func (o *heldStepOutcome) RecordDistributedTaskUnitCompletion(context.Context, string, string, uint64, string, string) error {
+	o.verdict(true, "")
+	return nil
+}
+
+func (o *heldStepOutcome) RecordDistributedTaskPostCompletionAck(context.Context, string, string, uint64, string, bool, string) error {
+	return nil
+}
+
+func (o *heldStepOutcome) UpdateDistributedTaskUnitProgress(context.Context, string, string, uint64, string, string, float32) error {
+	return nil
 }
 
 // doubleFaultFixture is a shard holding one written object and one merged
@@ -469,16 +577,19 @@ func (fx *doubleFaultFixture) healRecords(t *testing.T) {
 	require.NoError(t, os.Chmod(fx.recordsDir, 0o700))
 }
 
-func (fx *doubleFaultFixture) requirePhasesRefused(t *testing.T, shard *Shard, want string) {
+// waits: the scheduler retries the step on a later tick instead of failing the task.
+func (fx *doubleFaultFixture) requirePhasesRefused(t *testing.T, shard *Shard, want string, waits bool) {
 	tasks := []*ShardReindexTaskGeneric{fx.task}
 	prepOK, prep := fx.provider.runShardPrepPhase(fx.ctx, fx.subject.Key.UnitID, shard, tasks, false, fx.logger)
 	require.False(t, prepOK)
 	require.Len(t, prep.Errs, 1)
 	require.Contains(t, prep.Errs[0], want)
+	require.Equal(t, waits, prep.Transient)
 	payload := fx.subject.reindexPayload()
 	swap := fx.provider.runShardSwapPhase(fx.ctx, &payload, fx.subject.Key.UnitID, fx.name, shard, tasks, fx.logger)
 	require.NotEmpty(t, swap.Errs)
 	require.Contains(t, swap.Errs[0], want)
+	require.Equal(t, waits, swap.Transient)
 	rec, ok := shard.migrationRecords.Get(fx.subject.Key)
 	require.True(t, ok)
 	require.False(t, rec.FlipDecided(), "nothing flipped")

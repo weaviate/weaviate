@@ -98,15 +98,10 @@ func (r *migrationMirrorRegistry) releaseHeld() {
 	r.held = nil
 }
 
-func (r *migrationMirrorRegistry) isHeld(key MigrationRecordKey) bool {
+func (r *migrationMirrorRegistry) holding() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, t := range r.held {
-		if t.migrationRecordKey() == key {
-			return true
-		}
-	}
-	return false
+	return len(r.held) > 0
 }
 
 var _ migrationMirrorDisarmer = (*Shard)(nil)

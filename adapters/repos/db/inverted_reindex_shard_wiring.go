@@ -63,7 +63,8 @@ func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardRe
 func (s *Shard) holdReadOnlyForUnarmed(unarmed []*ShardReindexTaskGeneric, cause error) {
 	s.migrationMirrors.holdUnarmed(unarmed)
 	s.index.logger.WithField("shard", s.ID()).Errorf("shard is %s until the disk accepts writes again and its "+
-		"status is set back to %s: %v", storagestate.StatusReadOnly, storagestate.StatusReady, cause)
+		"status is set back to %s, and its reindex migrations wait until then: %v",
+		storagestate.StatusReadOnly, storagestate.StatusReady, cause)
 	if err := s.SetStatusReadonly(statusReasonMirrorUnarmed); err != nil {
 		s.index.logger.WithField("shard", s.ID()).Errorf("mark shard %s: %v", storagestate.StatusReadOnly, err)
 	}

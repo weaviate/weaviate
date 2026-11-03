@@ -1061,8 +1061,11 @@ Then, per shard load:
    swap phase checks every task of the unit first and swaps none of them
    if any record is `Unmirrored`. If the stamp cannot be written either,
    the shard loads `READONLY` with its own status reason: it serves reads,
-   takes no writes (so the staged copy stays current), and refuses that
-   migration's prepare and swap. Every switch back to a writable status
+   takes no writes (so the staged copy stays current), and every migration
+   step on the shard (prepare, swap, a repair or rebuild unit) waits instead
+   of failing: the scheduler runs it again on a later tick. The shard's
+   status (`GET /v1/schema/<class>/shards`) shows READONLY with this reason,
+   and the node logs once that its migrations wait. Every switch back to a writable status
    (manual status update, the end of a vector-index config change) first
    retries: if the mirror now arms, the shard goes writable and the
    migration continues; if only the stamp lands, it goes writable and the
