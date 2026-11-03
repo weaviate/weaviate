@@ -980,8 +980,15 @@ func TestBarrier_G8_SnapshotRestoreMidPreparing(t *testing.T) {
 		"restored task must preserve PREPARING status — a follower joining mid-barrier must see the same FSM state as the leader")
 	require.True(t, restored.NeedsPreparationBarrier,
 		"NeedsPreparationBarrier must survive snapshot/restore — otherwise the follower silently degrades to legacy SWAPPING semantics")
-	require.Equal(t, tasks[0].PreparedGroups, restored.PreparedGroups,
-		"partial PreparedGroups must survive snapshot/restore exactly")
+	// AckedAt is compared with Equal: the JSON round trip changes its Location.
+	require.Len(t, restored.PreparedGroups, 1)
+	require.Len(t, restored.PreparedGroups[""], 2)
+	for node, want := range tasks[0].PreparedGroups[""] {
+		got := restored.PreparedGroups[""][node]
+		require.True(t, want.AckedAt.Equal(got.AckedAt), "%s: AckedAt", node)
+		want.AckedAt, got.AckedAt = time.Time{}, time.Time{}
+		require.Equal(t, want, got, "%s: partial PreparedGroups must survive snapshot/restore exactly", node)
+	}
 	require.False(t, restored.GroupSwapDecided(""),
 		"the group must stay undecided on the restored partial state")
 

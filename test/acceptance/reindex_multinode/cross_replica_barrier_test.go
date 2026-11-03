@@ -256,8 +256,8 @@ func TestMultiNode_CrossReplicaPrepBarrier(t *testing.T) {
 //     (barrier mode)" — fires once per node per task in PHASE A. The
 //     non-barrier path emits a different message ("group-completion
 //     → starting swap phase (no-barrier path)") instead.
-//   - "reindex provider: swap-requested → starting OVERLAY+SWAP after
-//     cluster-wide PREP barrier" — fires once per node per task in
+//   - "reindex provider: swap-requested → starting OVERLAY+SWAP for a
+//     decided group" — fires once per node per decided group in
 //     PHASE B. The non-barrier path never invokes OnSwapRequested at
 //     all.
 //
@@ -278,7 +278,7 @@ func scanForBarrierPhaseLogs(ctx context.Context, t *testing.T, compose *docker.
 	t.Helper()
 	const (
 		prepNeedle = "group-completion → starting PREP phase (barrier mode)"
-		swapNeedle = "swap-requested → starting OVERLAY+SWAP after cluster-wide PREP barrier"
+		swapNeedle = "swap-requested → starting OVERLAY+SWAP for a decided group"
 	)
 	var prepFound, swapFound bool
 	for i := 1; i <= 3; i++ {

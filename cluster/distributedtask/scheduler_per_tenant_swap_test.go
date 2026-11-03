@@ -173,7 +173,12 @@ func TestPerTenantSwap_DecisionSurvivesSnapshot(t *testing.T) {
 	require.NoError(t, restored.Restore(snap))
 	tasks, err := restored.ListDistributedTasks(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, h.getTask(t, "T").SwapDecidedGroups, tasks[h.namespace][0].SwapDecidedGroups)
+	// Compared with Equal: the JSON round trip changes each time's Location.
+	want, got := h.getTask(t, "T").SwapDecidedGroups, tasks[h.namespace][0].SwapDecidedGroups
+	require.Len(t, got, len(want))
+	for g, at := range want {
+		require.True(t, at.Equal(got[g]), "group %q: decided at %v, restored %v", g, at, got[g])
+	}
 
 	legacy := []byte(`{"tasks":{"ns":[{"namespace":"ns","id":"old","version":1,"status":"FAILED",` +
 		`"units":{"u":{"id":"u","groupId":"g","nodeId":"n","status":"COMPLETED"}}}]}}`)
