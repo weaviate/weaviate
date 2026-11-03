@@ -237,16 +237,40 @@ func (c *recordingPropertyClient) RankProperty(_ context.Context, query, propert
 	return &ent.RankResult{Query: query, DocumentScores: out}, nil
 }
 
-func TestRankPropertyReceivesTheRerankProperty(t *testing.T) {
-	client := &recordingPropertyClient{}
-	provider := NewWithProperty(client)
-	in := []search.Result{{ID: "some-uuid", Schema: map[string]interface{}{"photo": "aGVsbG8="}}}
-	property := "photo"
-	query := "q"
-	limit := len(in)
+// propertyAndTextClient has both methods; the provider must call RankProperty.
+type propertyAndTextClient struct{ *recordingPropertyClient }
 
-	_, err := provider.AdditionalPropertyFn(context.Background(), in,
-		&Params{Property: &property, Query: &query}, &limit, nil, nil)
-	require.NoError(t, err)
-	assert.Equal(t, "photo", client.property)
+func (c *propertyAndTextClient) Rank(context.Context, string, []string, moduletools.ClassConfig) (*ent.RankResult, error) {
+	return nil, errors.New("Rank called on a client that implements RankProperty")
+}
+
+func TestRankPropertyReceivesTheRerankProperty(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider func(*recordingPropertyClient) *ReRankerProvider
+	}{
+		{
+			name:     "NewWithProperty",
+			provider: func(c *recordingPropertyClient) *ReRankerProvider { return NewWithProperty(c) },
+		},
+		{
+			name:     "New with a client that has both methods",
+			provider: func(c *recordingPropertyClient) *ReRankerProvider { return New(&propertyAndTextClient{c}) },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &recordingPropertyClient{}
+			provider := tt.provider(client)
+			in := []search.Result{{ID: "some-uuid", Schema: map[string]interface{}{"photo": "aGVsbG8="}}}
+			property := "photo"
+			query := "q"
+			limit := len(in)
+
+			_, err := provider.AdditionalPropertyFn(context.Background(), in,
+				&Params{Property: &property, Query: &query}, &limit, nil, nil)
+			require.NoError(t, err)
+			assert.Equal(t, "photo", client.property)
+		})
+	}
 }
