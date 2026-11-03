@@ -2647,3 +2647,21 @@ func TestRetention_BackupEndDeletesChunksBeforeTheMark(t *testing.T) {
 	assert.True(t, tombstoned[chunks[1]])
 	assert.NoFileExists(t, chunks[0]+".processed")
 }
+
+// A processed chunk that cannot be removed keeps its tombstone: without one
+// it would be processed again after a restart.
+func TestCleanupKeepsTheTombstoneOfAChunkItCannotRemove(t *testing.T) {
+	s := makeScheduler(t)
+	q := makeQueueSize(t, s, discardExecutor(), 50)
+	q.EnableMaintenanceMode()
+
+	// a non-empty directory under a chunk's name cannot be removed
+	stuck := chunkPath(q.dir, 1)
+	require.NoError(t, os.Mkdir(stuck, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(stuck, "f"), nil, 0o644))
+	require.NoError(t, os.WriteFile(stuck+".processed", nil, 0o644))
+
+	require.NoError(t, q.DisableMaintenanceMode(), "a backup's end logs a file it cannot remove")
+	assert.FileExists(t, stuck+".processed")
+}
+
