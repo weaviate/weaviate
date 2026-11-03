@@ -179,18 +179,35 @@ func indexResourceURL(restURI, collection, property, indexType, verb string, ten
 type IndexesResponse struct {
 	Collection string `json:"collection"`
 	Properties []struct {
-		Name    string `json:"name"`
-		Indexes []struct {
-			Type               string  `json:"type"`
-			Status             string  `json:"status"`
-			Progress           float32 `json:"progress"`
-			TaskID             string  `json:"taskId,omitempty"`
-			Tokenization       string  `json:"tokenization,omitempty"`
-			TargetTokenization string  `json:"targetTokenization,omitempty"`
-			Algorithm          string  `json:"algorithm,omitempty"`
-			TargetAlgorithm    string  `json:"targetAlgorithm,omitempty"`
-		} `json:"indexes"`
+		Name    string       `json:"name"`
+		Indexes []IndexEntry `json:"indexes"`
 	} `json:"properties"`
+}
+
+// IndexEntry is one index's status in an IndexesResponse.
+type IndexEntry struct {
+	Type               string  `json:"type"`
+	Status             string  `json:"status"`
+	Progress           float32 `json:"progress"`
+	TaskID             string  `json:"taskId,omitempty"`
+	Tokenization       string  `json:"tokenization,omitempty"`
+	TargetTokenization string  `json:"targetTokenization,omitempty"`
+	Algorithm          string  `json:"algorithm,omitempty"`
+	TargetAlgorithm    string  `json:"targetAlgorithm,omitempty"`
+}
+
+func (r *IndexesResponse) find(property, indexType string) (IndexEntry, bool) {
+	for _, prop := range r.Properties {
+		if prop.Name != property {
+			continue
+		}
+		for _, idx := range prop.Indexes {
+			if idx.Type == indexType {
+				return idx, true
+			}
+		}
+	}
+	return IndexEntry{}, false
 }
 
 // GetIndexes fires GET /v1/schema/{collection}/indexes and returns the
@@ -440,6 +457,61 @@ func AwaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexTy
 		t.Logf("index monitoring: saw indexing->ready for %s/%s (final progress: %f)", property, indexType, lastProgress.Load())
 	} else {
 		t.Logf("index monitoring: task completed too fast for %s/%s", property, indexType)
+	}
+}
+
+// IndexWant is the index state AwaitIndexOnNodes waits for. An empty field
+// matches any value.
+type IndexWant struct {
+	Status    string
+	Algorithm string
+}
+
+func (w IndexWant) matches(e IndexEntry) bool {
+	return (w.Status == "" || w.Status == e.Status) &&
+		(w.Algorithm == "" || w.Algorithm == e.Algorithm)
+}
+
+const nodeCatchUpTimeout = 10 * time.Second
+
+// AwaitIndexOnNodes waits until each node's own GET /indexes reports want
+// for (property, indexType). Call it before asserting per-node index state
+// after AwaitReindexFinished: /v1/tasks answers from the leader, while
+// /indexes answers from the queried node's copy of the task list, so a
+// follower can still report "indexing" for a moment after FINISHED.
+func AwaitIndexOnNodes(t *testing.T, nodeURIs []string, collection, property, indexType string, want IndexWant) {
+	t.Helper()
+	for _, uri := range nodeURIs {
+		polls, err := awaitIndexOnNode(uri, collection, property, indexType, want, nodeCatchUpTimeout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if polls > 1 {
+			t.Logf("node %s: %s/%s reached %+v after %d polls", uri, property, indexType, want, polls)
+		}
+	}
+}
+
+// awaitIndexOnNode returns how many reads it took, so callers can show the
+// wait was needed.
+func awaitIndexOnNode(uri, collection, property, indexType string, want IndexWant, timeout time.Duration) (int, error) {
+	last := "no successful read"
+	deadline := time.Now().Add(timeout)
+	for polls := 1; ; polls++ {
+		if resp, ok := TryGetIndexes(uri, collection); ok {
+			last = fmt.Sprintf("no %s/%s entry", property, indexType)
+			if e, found := resp.find(property, indexType); found {
+				if want.matches(e) {
+					return polls, nil
+				}
+				last = fmt.Sprintf("status=%q algorithm=%q", e.Status, e.Algorithm)
+			}
+		}
+		if time.Now().After(deadline) {
+			return polls, fmt.Errorf("node %s: %s.%s %s index did not reach %+v within %s (last: %s)",
+				uri, collection, property, indexType, want, timeout, last)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
