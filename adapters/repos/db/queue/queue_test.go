@@ -2421,3 +2421,63 @@ func TestRetention_AndBackupKeepChunksIndependently(t *testing.T) {
 		assert.False(t, exists(processed+".processed"))
 	})
 }
+
+// The mark is the oldest chunk not processed when the retention starts, or
+// the next chunk the queue creates.
+func TestRetention_Mark(t *testing.T) {
+	t.Run("the oldest chunk not processed yet", func(t *testing.T) {
+		s := makeScheduler(t)
+		q := makeQueueSize(t, s, discardExecutor(), 50)
+		pushMany(t, q, 1, 1, 2, 3, 4, 5, 6, 7)
+		chunks, _ := chunksOf(t, q)
+		require.Len(t, chunks, 3)
+		processNext(t, q)
+
+		r, err := q.Retain()
+		require.NoError(t, err)
+		assert.Equal(t, chunks[1], r.Mark())
+	})
+
+	t.Run("the chunk being written", func(t *testing.T) {
+		s := makeScheduler(t)
+		q := makeQueueSize(t, s, discardExecutor(), 50)
+		pushMany(t, q, 1, 1)
+		chunks, _ := chunksOf(t, q)
+		require.Len(t, chunks, 1)
+
+		r, err := q.Retain()
+		require.NoError(t, err)
+		assert.Equal(t, chunks[0], r.Mark())
+	})
+
+	t.Run("an empty queue marks the next chunk", func(t *testing.T) {
+		s := makeScheduler(t)
+		q := makeQueueSize(t, s, discardExecutor(), 50)
+		pushMany(t, q, 1, 1, 2, 3, 4)
+		processNext(t, q)
+		time.Sleep(q.staleTimeout)
+		processNext(t, q)
+		chunks, _ := chunksOf(t, q)
+		require.Empty(t, chunks)
+
+		r, err := q.Retain()
+		require.NoError(t, err)
+		assert.Empty(t, r.Mark(), "nothing to replay yet")
+		pushMany(t, q, 1, 5, 6, 7, 8)
+		chunks, _ = chunksOf(t, q)
+		require.Len(t, chunks, 2)
+		assert.Equal(t, chunks[0], r.Mark())
+	})
+
+	t.Run("one retention at a time", func(t *testing.T) {
+		s := makeScheduler(t)
+		q := makeQueueSize(t, s, discardExecutor(), 50)
+		r, err := q.Retain()
+		require.NoError(t, err)
+		_, err = q.Retain()
+		require.ErrorContains(t, err, "already retained")
+		require.NoError(t, r.Release())
+		_, err = q.Retain()
+		require.NoError(t, err)
+	})
+}
