@@ -36,7 +36,7 @@ func TestBatchWriteRefusalReportsOneErrorPerItem(t *testing.T) {
 	className := "BatchWriteRefusal"
 
 	idx, shard := refCountTestIndex(t, className)
-	require.NoError(t, shard.SetStatusReadonly(statusReasonResourcePressure))
+	setResourcePressure(t, idx, shard, true)
 	unloadable := newColdShard(idx, shard.name+"_unloadable")
 
 	tests := []struct {

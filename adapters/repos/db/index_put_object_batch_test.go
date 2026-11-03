@@ -79,7 +79,7 @@ func TestPutObjectBatchReportsErrorAtEveryGroupPosition(t *testing.T) {
 		{
 			name: "read-only shard",
 			setup: func(t *testing.T, idx *Index, shard *Shard) {
-				require.NoError(t, shard.SetStatusReadonly(statusReasonResourcePressure))
+				setResourcePressure(t, idx, shard, true)
 			},
 			wantErrAt: map[int]string{
 				0: "store is read-only",
@@ -91,7 +91,7 @@ func TestPutObjectBatchReportsErrorAtEveryGroupPosition(t *testing.T) {
 			name:              "read-only shard, group not starting at position 0",
 			unresolvableFirst: true,
 			setup: func(t *testing.T, idx *Index, shard *Shard) {
-				require.NoError(t, shard.SetStatusReadonly(statusReasonResourcePressure))
+				setResourcePressure(t, idx, shard, true)
 			},
 			wantErrAt: map[int]string{
 				0: "parse uuid",

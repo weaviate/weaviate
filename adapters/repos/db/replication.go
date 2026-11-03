@@ -377,7 +377,7 @@ func (i *Index) writableShard(ctx context.Context, name string, f func(shard rep
 			{Code: replicaerrors.StatusShardNotFound, Msg: fmt.Sprintf("error getting or initializing shard %q: %v", name, err), Err: err},
 		}}
 	}
-	if localShard.isReadOnly() != nil {
+	if localShard.refuseWhilePaused() != nil {
 		return replica.SimpleResponse{Errors: []replicaerrors.Error{{
 			Code: replicaerrors.StatusReadOnly, Msg: name,
 		}}}

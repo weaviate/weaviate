@@ -32,7 +32,7 @@ import (
 
 func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	s.activityTrackerWrite.Add(1)
-	if err := s.isReadOnly(); err != nil {
+	if err := s.refuseWhilePaused(); err != nil {
 		return err
 	}
 	if err := s.index.usageLimits.CheckObjects(ctx, 1, s.index.Config.ClassName.String()); err != nil {

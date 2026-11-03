@@ -32,7 +32,7 @@ import (
 // as written.
 func (s *Shard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
 	s.activityTrackerWrite.Add(1)
-	if err := s.isReadOnly(); err != nil {
+	if err := s.refuseWhilePaused(); err != nil {
 		return duplicateErr(err, len(refs))
 	}
 

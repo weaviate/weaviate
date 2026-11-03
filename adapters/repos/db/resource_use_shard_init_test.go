@@ -90,21 +90,18 @@ func TestLazyLoadShard_InheritsResourcePressureOnLoad(t *testing.T) {
 		name         string
 		du           diskUse
 		wantStatus   storagestate.Status
-		wantReason   string
 		wantReadOnly bool
 	}{
 		{
 			name:         "disk over readonly threshold at load time",
 			du:           diskUse{total: 100, free: 5, avail: 5},
 			wantStatus:   storagestate.StatusReadOnly,
-			wantReason:   statusReasonResourcePressure,
 			wantReadOnly: true,
 		},
 		{
 			name:       "disk below readonly threshold at load time",
 			du:         diskUse{total: 100, free: 50, avail: 50},
 			wantStatus: storagestate.StatusReady,
-			wantReason: statusReasonNotifyReady,
 		},
 	}
 
@@ -119,11 +116,10 @@ func TestLazyLoadShard_InheritsResourcePressureOnLoad(t *testing.T) {
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.wantStatus, cold.GetStatus())
-			assert.Equal(t, tt.wantReason, cold.GetStatusReason())
 
 			err = cold.PutObject(ctx, testObject(f.className))
 			if tt.wantReadOnly {
-				require.ErrorContains(t, err, "store is read-only",
+				require.ErrorContains(t, err, statusReasonResourcePressure,
 					"a shard loaded under resource pressure must reject writes")
 			} else {
 				require.NoError(t, err)
@@ -177,14 +173,11 @@ func TestNewTenant_InheritsResourcePressure(t *testing.T) {
 			require.ErrorContains(t, shard.PutObject(ctx, testObject(f.className)), "store is read-only",
 				"a tenant created under resource pressure must not take writes")
 			assert.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
-			assert.Equal(t, statusReasonResourcePressure, shard.GetStatusReason())
 		})
 	}
 }
 
-// The status a shard inherits when it is built must carry the reason the
-// recovery sweep looks for, or the shard would stay READONLY after the pressure
-// clears.
+// A shard built under pressure must not stay READONLY after the pressure clears.
 func TestLazyLoadShard_InheritedReadOnlyRecovers(t *testing.T) {
 	ctx := testCtx()
 	f := newResourcePressureFixture(t)
@@ -198,7 +191,7 @@ func TestLazyLoadShard_InheritedReadOnlyRecovers(t *testing.T) {
 	mon := newTestMemMonitor(0, 100)
 	f.repo.resourceUseRecovery(mon, diskUse{total: 100, free: 50, avail: 50})
 
-	assert.False(t, f.repo.resourceScanState.isReadOnly.Load())
+	assert.False(t, f.repo.nodeOverlay.ResourcePressure())
 	assert.Equal(t, storagestate.StatusReady, cold.GetStatus())
 	require.NoError(t, cold.PutObject(ctx, testObject(f.className)),
 		"a shard recovered from resource pressure must take writes again")
@@ -211,7 +204,7 @@ func testResourcePressureIndex(t *testing.T, readOnly bool) (*DB, *Index) {
 	db := testResourceDB(t, 90, 0, nil)
 	index := db.indices["TestIndex"]
 	index.db = db
-	db.resourceScanState.isReadOnly.Store(readOnly)
+	db.nodeOverlay.SetResourcePressure(readOnly)
 	return db, index
 }
 
@@ -222,76 +215,57 @@ func testResourcePressureIndex(t *testing.T, readOnly bool) (*DB, *Index) {
 func TestPublishShard_ReconcilesAgainstPressureTransition(t *testing.T) {
 	tests := []struct {
 		name           string
-		statusAtBuild  ShardStatus
+		statusAtBuild  storagestate.Status
 		readOnlyAtPush bool
 		noOwningDB     bool
 		wantStatus     storagestate.Status
-		wantReason     string
 	}{
 		{
 			name:           "built before pressure, published after",
-			statusAtBuild:  ShardStatus{Status: storagestate.StatusReady, Reason: statusReasonNotifyReady},
+			statusAtBuild:  storagestate.StatusReady,
 			readOnlyAtPush: true,
 			wantStatus:     storagestate.StatusReadOnly,
-			wantReason:     statusReasonResourcePressure,
 		},
 		{
 			name:           "built under pressure, published after recovery",
-			statusAtBuild:  ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure},
+			statusAtBuild:  storagestate.StatusReadOnly,
 			readOnlyAtPush: false,
 			wantStatus:     storagestate.StatusReady,
-			wantReason:     statusReasonResourceRecovery,
 		},
 		{
 			name:           "built and published under pressure",
-			statusAtBuild:  ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure},
+			statusAtBuild:  storagestate.StatusReadOnly,
 			readOnlyAtPush: true,
 			wantStatus:     storagestate.StatusReadOnly,
-			wantReason:     statusReasonResourcePressure,
 		},
 		{
 			name:           "built and published without pressure",
-			statusAtBuild:  ShardStatus{Status: storagestate.StatusReady, Reason: statusReasonNotifyReady},
+			statusAtBuild:  storagestate.StatusReady,
 			readOnlyAtPush: false,
 			wantStatus:     storagestate.StatusReady,
-			wantReason:     statusReasonNotifyReady,
-		},
-		{
-			name:           "read-only for a manual toggle is not recovered",
-			statusAtBuild:  ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate},
-			readOnlyAtPush: false,
-			wantStatus:     storagestate.StatusReadOnly,
-			wantReason:     statusReasonManualUpdate,
-		},
-		{
-			name:           "read-only for a manual toggle keeps its reason under pressure",
-			statusAtBuild:  ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate},
-			readOnlyAtPush: true,
-			wantStatus:     storagestate.StatusReadOnly,
-			wantReason:     statusReasonManualUpdate,
 		},
 		{
 			name:           "index without an owning DB leaves the shard alone",
-			statusAtBuild:  ShardStatus{Status: storagestate.StatusReady, Reason: statusReasonNotifyReady},
+			statusAtBuild:  storagestate.StatusReady,
 			readOnlyAtPush: true,
 			noOwningDB:     true,
 			wantStatus:     storagestate.StatusReady,
-			wantReason:     statusReasonNotifyReady,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, index := testResourcePressureIndex(t, tt.readOnlyAtPush)
+			db, index := testResourcePressureIndex(t, tt.readOnlyAtPush)
 			if tt.noOwningDB {
 				index.db = nil
 			}
 			shard := newStatusShard(t, tt.statusAtBuild)
+			shard.overlay = db.nodeOverlay
 
 			index.publishShard("shard1", shard)
 
 			require.NotNil(t, index.shards.Load("shard1"), "the shard must be published")
-			assert.Equal(t, ShardStatus{Status: tt.wantStatus, Reason: tt.wantReason}, shard.get())
+			assert.Equal(t, tt.wantStatus, shard.get())
 		})
 	}
 }
@@ -322,7 +296,8 @@ func TestPublishShard_ReconcileFailure(t *testing.T) {
 			db, index := testResourcePressureIndex(t, true)
 			hook := test.NewLocal(db.logger.(*logrus.Logger))
 
-			shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReady})
+			shard := newStatusShard(t, storagestate.StatusReady)
+			shard.overlay = db.nodeOverlay
 			shard.updateErr = tt.shardErr
 
 			assert.NotPanics(t, func() { index.publishShard("shard1", shard) })
@@ -370,8 +345,8 @@ func TestReconcileIndexResourcePressure_ShardCounts(t *testing.T) {
 
 			shards := make([]*statusShard, 0, tt.loadedCount)
 			for n := range tt.loadedCount {
-				shard := newStatusShard(t,
-					ShardStatus{Status: storagestate.StatusReady, Reason: statusReasonNotifyReady})
+				shard := newStatusShard(t, storagestate.StatusReady)
+				shard.overlay = db.nodeOverlay
 				index.shards.Store(fmt.Sprintf("loaded_shard_%d", n), shard)
 				shards = append(shards, shard)
 			}
@@ -381,10 +356,7 @@ func TestReconcileIndexResourcePressure_ShardCounts(t *testing.T) {
 			db.reconcileIndexResourcePressure(index)
 
 			for _, shard := range shards {
-				assert.Equal(t, ShardStatus{
-					Status: storagestate.StatusReadOnly,
-					Reason: statusReasonResourcePressure,
-				}, shard.get())
+				assert.Equal(t, storagestate.StatusReadOnly, shard.get())
 			}
 			assert.False(t, cold.isLoaded(), "a cold shard must not be loaded when its index is published")
 		})
@@ -401,11 +373,12 @@ func TestReconcileShardResourcePressure_HoldsOffFlagFlip(t *testing.T) {
 	release := make(chan struct{})
 	var flagDuringSettle atomic.Bool
 
-	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReady})
+	shard := newStatusShard(t, storagestate.StatusReady)
+	shard.overlay = db.nodeOverlay
 	shard.onUpdate = func() {
 		close(settling)
 		<-release
-		flagDuringSettle.Store(db.resourceScanState.isReadOnly.Load())
+		flagDuringSettle.Store(db.nodeOverlay.ResourcePressure())
 	}
 
 	published := make(chan struct{})
@@ -459,14 +432,13 @@ func TestLoadLocalShardForMovement_ReconcilesAfterPublishing(t *testing.T) {
 
 	// The pressure clears while the shard sits in that window, i.e. at the point
 	// a recovery sweep would already have walked past it.
-	f.repo.resourceScanState.isReadOnly.Store(false)
+	f.repo.nodeOverlay.SetResourcePressure(false)
 	f.repo.resourceScanState.transition.Unlock()
 	require.NoError(t, <-published)
 
 	shard := f.index.shards.Load(shardName)
 	require.NotNil(t, shard)
 	assert.Equal(t, storagestate.StatusReady, shard.GetStatus())
-	assert.Equal(t, statusReasonResourceRecovery, shard.GetStatusReason())
 	require.NoError(t, shard.PutObject(ctx, testObject(f.className)),
 		"a shard published after the pressure cleared must take writes")
 }
@@ -498,7 +470,6 @@ func TestNewCollection_InheritsResourcePressure(t *testing.T) {
 	require.NoError(t, index.ForEachLoadedShard(func(name string, shard ShardLike) error {
 		eagerShards++
 		assert.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
-		assert.Equal(t, statusReasonResourcePressure, shard.GetStatusReason())
 		require.ErrorContains(t, shard.PutObject(ctx, testObject(className)), "store is read-only",
 			"a collection created under resource pressure must not take writes")
 		return nil
@@ -540,7 +511,6 @@ func TestNewCollection_InheritsResourcePressureBeforeReconcile(t *testing.T) {
 	require.NoError(t, index.ForEachLoadedShard(func(name string, shard ShardLike) error {
 		eagerShards++
 		assert.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
-		assert.Equal(t, statusReasonResourcePressure, shard.GetStatusReason())
 		return nil
 	}))
 	require.Positive(t, eagerShards, "the collection must have brought up at least one eager shard")

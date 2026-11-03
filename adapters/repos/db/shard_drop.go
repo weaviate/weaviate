@@ -64,6 +64,7 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	}
 
 	defer s.releaseCountedStatus()
+	defer s.dropPhase()
 
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
 

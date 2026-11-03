@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -81,8 +82,6 @@ type shardWriter interface {
 	DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error
 	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
-	UpdateStatus(status, reason string) error
-	UpdateStatusIf(cond func(ShardStatus) bool, status, reason string) error // Set shard status if cond holds, without loading an unloaded shard
 }
 
 type ShardLike interface {
@@ -93,8 +92,6 @@ type ShardLike interface {
 	Store() *lsmkv.Store                                                                           // Get the underlying store
 	NotifyReady()                                                                                  // Set shard status to ready
 	GetStatus() storagestate.Status                                                                // Return the shard status
-	GetStatusReason() string                                                                       // Return the reason for the current status
-	SetStatusReadonly(reason string) error                                                         // Set shard status to readonly with reason
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) // Resolve a filter to the UUIDs it matches; see Shard.FindUUIDs
 
 	Counter() *indexcounter.Counter
@@ -156,7 +153,9 @@ type ShardLike interface {
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
-	isReadOnly() error
+	refuseWhilePaused() error
+	syncStorePause() error
+	setReindexing(reindexing bool) error
 	pathLSM() string
 	migrationRecordStore() *MigrationRecordStore
 	migrationMirrorRegistry() *migrationMirrorRegistry
@@ -344,7 +343,7 @@ type Shard struct {
 	haltForTransferCount     atomic.Int64
 	haltForTransferCtxCancel context.CancelFunc
 
-	status ShardStatus
+	phase *clusterschema.ShardPhase
 	// countedStatus is the weaviate_index_shards_total bucket this shard is in, ""
 	// if uncounted. Separate from status.Status so a failed update cannot make
 	// release decrement a bucket never entered. Guarded by statusLock.
@@ -516,7 +515,7 @@ func (s *Shard) uuidToIdLockPoolId(uuidBytes []byte) uint {
 func noopCallback() {}
 
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
-	if err := s.isReadOnly(); err != nil {
+	if err := s.refuseWhilePaused(); err != nil {
 		return err
 	}
 
@@ -531,7 +530,7 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 }
 
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
-	if err := s.isReadOnly(); err != nil {
+	if err := s.refuseWhilePaused(); err != nil {
 		return err
 	}
 

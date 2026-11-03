@@ -265,10 +265,9 @@ func TestShardStatusGaugeReleasedWhenShardLeavesNode(t *testing.T) {
 			name:    "status update fails then collection dropped",
 			counted: map[storagestate.Status]float64{storagestate.StatusReady: 1},
 			prepare: func(t *testing.T, e env) {
-				// The failed update changes the shard's status but not the gauge;
-				// the release must still take the shard out of READY.
+				// The failed update moves no gauge; the release must still take it out of READY.
 				require.NoError(t, e.shard.(*Shard).store.Shutdown(ctx))
-				require.Error(t, e.shard.UpdateStatus(storagestate.StatusReadOnly.String(), "closed store"))
+				require.Error(t, e.shard.setReindexing(true))
 			},
 			act: func(t *testing.T, e env) {
 				_ = e.h.migrator.DropClass(ctx, e.className, false, 1)
@@ -474,8 +473,8 @@ func TestShardStatusGaugeReleasedWhileStatusIsAccessed(t *testing.T) {
 						}
 						// Updates fail once the store is closed, which is expected here.
 						_ = concrete.GetStatus()
-						_ = concrete.UpdateStatus(storagestate.StatusReadOnly.String(), "race")
-						_ = concrete.UpdateStatus(storagestate.StatusReady.String(), "race")
+						_ = concrete.setReindexing(true)
+						_ = concrete.setReindexing(false)
 					}
 				}()
 			}
@@ -515,11 +514,69 @@ func TestShardStatusGaugeMovesFromCountedBucketOnWrite(t *testing.T) {
 	h.requireBuckets(t, "after GetStatus saw a backlog",
 		map[storagestate.Status]float64{storagestate.StatusReady: 1})
 
-	require.NoError(t, concrete.UpdateStatus(storagestate.StatusReadOnly.String(), "test"))
+	require.NoError(t, concrete.setReindexing(true))
 	h.requireBuckets(t, "after the shard went read-only",
 		map[storagestate.Status]float64{storagestate.StatusReadOnly: 1})
 
 	queue.Resume()
 	require.NoError(t, h.migrator.DropClass(ctx, className, false, 1))
 	h.requireBuckets(t, "after the collection is dropped", nil)
+}
+
+// A user's READONLY pauses nothing, so only the overlay can tell the gauge.
+func TestShardStatusGaugeFollowsUserReadOnly(t *testing.T) {
+	h := newStatusGaugeHarness(t, statusGaugeOpts{})
+	className := "StatusGaugeUser"
+	idx := h.addClass(t, statusGaugeClass(className, false))
+	name, _ := onlyShard(t, idx)
+
+	eventuallyCounted := func(want storagestate.Status) {
+		t.Helper()
+		require.Eventually(t, func() bool {
+			return testutil.ToFloat64(h.shardsCount.WithLabelValues(want.String())) == 1
+		}, 5*time.Second, 5*time.Millisecond, "the gauge never moved to %s", want)
+	}
+
+	h.repo.nodeOverlay.SetReadOnly(className, name, true)
+	eventuallyCounted(storagestate.StatusReadOnly)
+
+	h.repo.nodeOverlay.SetReadOnly(className, name, false)
+	eventuallyCounted(storagestate.StatusReady)
+}
+
+// A shard loading under a user's READONLY missed the change the overlay announced.
+func TestShardStatusGaugeUserReadOnlyBeforeLoad(t *testing.T) {
+	ctx := testCtx()
+	h := newStatusGaugeHarness(t, statusGaugeOpts{multiTenant: true})
+	className := "StatusGaugeUserLoad"
+	idx := h.addClass(t, statusGaugeClass(className, true))
+	name, shard := onlyShard(t, idx)
+
+	h.repo.nodeOverlay.SetReadOnly(className, name, true)
+	_, _, err := shard.(*LazyLoadShard).loadIfCold(ctx)
+	require.NoError(t, err)
+
+	h.requireBuckets(t, "after loading under a user's READONLY",
+		map[storagestate.Status]float64{storagestate.StatusReadOnly: 1})
+}
+
+func TestShardStatusGaugeFollowsTheOverlay(t *testing.T) {
+	h := newStatusGaugeHarness(t, statusGaugeOpts{})
+	className := "StatusGaugeView"
+	idx := h.addClass(t, statusGaugeClass(className, false))
+	_, shard := onlyShard(t, idx)
+	concrete := shard.(*Shard)
+
+	readOnly := map[storagestate.Status]float64{storagestate.StatusReadOnly: 1}
+	ready := map[storagestate.Status]float64{storagestate.StatusReady: 1}
+
+	setResourcePressure(t, idx, concrete, true)
+	h.requireBuckets(t, "under pressure", readOnly)
+
+	require.NoError(t, concrete.setReindexing(true))
+	setResourcePressure(t, idx, concrete, false)
+	h.requireBuckets(t, "pressure lifted during a reindex", readOnly)
+
+	require.NoError(t, concrete.setReindexing(false))
+	h.requireBuckets(t, "reindex ended", ready)
 }

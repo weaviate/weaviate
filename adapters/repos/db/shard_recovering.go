@@ -72,13 +72,3 @@ func (r *RecoveringShard) GetStatus() storagestate.Status {
 	}
 	return storagestate.StatusRecovering
 }
-
-func (r *RecoveringShard) GetStatusReason() string {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
-	if shard := r.currentShard(); shard != nil {
-		return shard.GetStatusReason()
-	}
-	return storagestate.StatusRecovering.String()
-}
