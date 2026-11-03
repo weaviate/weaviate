@@ -768,10 +768,18 @@ func (q *DiskQueue) ReleaseRetention() error {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
 
-	if !q.retained.Swap(false) || q.maintenanceMode.Load() {
+	if !q.retained.Load() {
 		return nil
 	}
-	return q.cleanupProcessedChunks()
+	// retained until the cleanup succeeds, so a failed release can be retried
+	if !q.maintenanceMode.Load() {
+		err := q.cleanupProcessedChunks()
+		if err != nil {
+			return err
+		}
+	}
+	q.retained.Store(false)
+	return nil
 }
 
 // cleanupProcessedChunks scans the queue directory for tombstone files
