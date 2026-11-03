@@ -2357,9 +2357,9 @@ func TestRetention_KeepsProcessedChunksUntilReleased(t *testing.T) {
 	chunks, _ := chunksOf(t, q)
 	require.Len(t, chunks, 3)
 
-	r, err := q.Retain()
+	mark, err := q.Retain()
 	require.NoError(t, err)
-	assert.Equal(t, chunks[0], r.Mark())
+	assert.Equal(t, chunks[0], mark)
 
 	processNext(t, q)
 	processNext(t, q)
@@ -2370,11 +2370,11 @@ func TestRetention_KeepsProcessedChunksUntilReleased(t *testing.T) {
 	assert.False(t, tombstoned[chunks[2]])
 	assert.EqualValues(t, 3, q.Size(), "the consumer moved past the kept chunks")
 
-	require.NoError(t, r.Release())
+	require.NoError(t, q.ReleaseRetention())
 	kept, tombstoned = chunksOf(t, q)
 	assert.Equal(t, chunks[2:], kept)
 	assert.Empty(t, tombstoned)
-	require.NoError(t, r.Release(), "a second release is a no-op")
+	require.NoError(t, q.ReleaseRetention(), "a second release is a no-op")
 
 	// without a retention a processed chunk goes at once
 	time.Sleep(q.staleTimeout)
@@ -2386,17 +2386,17 @@ func TestRetention_KeepsProcessedChunksUntilReleased(t *testing.T) {
 // A backup and a retention each keep processed chunks; the end of either
 // deletes them only once the other is done too.
 func TestRetention_AndBackupKeepChunksIndependently(t *testing.T) {
-	setup := func(t *testing.T) (*DiskQueue, *Retention, string) {
+	setup := func(t *testing.T) (*DiskQueue, string) {
 		s := makeScheduler(t)
 		q := makeQueueSize(t, s, discardExecutor(), 50)
 		pushMany(t, q, 1, 1, 2, 3, 4)
 		chunks, _ := chunksOf(t, q)
 		require.Len(t, chunks, 2)
-		r, err := q.Retain()
+		_, err := q.Retain()
 		require.NoError(t, err)
 		q.EnableMaintenanceMode()
 		processNext(t, q)
-		return q, r, chunks[0]
+		return q, chunks[0]
 	}
 	exists := func(path string) bool {
 		_, err := os.Stat(path)
@@ -2404,17 +2404,17 @@ func TestRetention_AndBackupKeepChunksIndependently(t *testing.T) {
 	}
 
 	t.Run("backup ends first", func(t *testing.T) {
-		q, r, processed := setup(t)
+		q, processed := setup(t)
 		require.NoError(t, q.DisableMaintenanceMode())
 		assert.True(t, exists(processed), "the retention still keeps it")
-		require.NoError(t, r.Release())
+		require.NoError(t, q.ReleaseRetention())
 		assert.False(t, exists(processed))
 		assert.False(t, exists(processed+".processed"))
 	})
 
 	t.Run("retention ends first", func(t *testing.T) {
-		q, r, processed := setup(t)
-		require.NoError(t, r.Release())
+		q, processed := setup(t)
+		require.NoError(t, q.ReleaseRetention())
 		assert.True(t, exists(processed), "the backup still keeps it")
 		require.NoError(t, q.DisableMaintenanceMode())
 		assert.False(t, exists(processed))
@@ -2433,9 +2433,9 @@ func TestRetention_Mark(t *testing.T) {
 		require.Len(t, chunks, 3)
 		processNext(t, q)
 
-		r, err := q.Retain()
+		mark, err := q.Retain()
 		require.NoError(t, err)
-		assert.Equal(t, chunks[1], r.Mark())
+		assert.Equal(t, chunks[1], mark)
 	})
 
 	t.Run("the chunk being written", func(t *testing.T) {
@@ -2445,9 +2445,9 @@ func TestRetention_Mark(t *testing.T) {
 		chunks, _ := chunksOf(t, q)
 		require.Len(t, chunks, 1)
 
-		r, err := q.Retain()
+		mark, err := q.Retain()
 		require.NoError(t, err)
-		assert.Equal(t, chunks[0], r.Mark())
+		assert.Equal(t, chunks[0], mark)
 	})
 
 	t.Run("an empty queue marks the next chunk name", func(t *testing.T) {
@@ -2460,23 +2460,23 @@ func TestRetention_Mark(t *testing.T) {
 		chunks, _ := chunksOf(t, q)
 		require.Empty(t, chunks)
 
-		r, err := q.Retain()
+		mark, err := q.Retain()
 		require.NoError(t, err)
 		pushMany(t, q, 1, 5, 6, 7, 8)
 		chunks, _ = chunksOf(t, q)
 		require.Len(t, chunks, 2)
-		assert.LessOrEqual(t, filepath.Base(r.Mark()), filepath.Base(chunks[0]),
+		assert.LessOrEqual(t, filepath.Base(mark), filepath.Base(chunks[0]),
 			"every chunk created after Retain replays")
 	})
 
 	t.Run("one retention at a time", func(t *testing.T) {
 		s := makeScheduler(t)
 		q := makeQueueSize(t, s, discardExecutor(), 50)
-		r, err := q.Retain()
+		_, err := q.Retain()
 		require.NoError(t, err)
 		_, err = q.Retain()
 		require.ErrorContains(t, err, "already retained")
-		require.NoError(t, r.Release())
+		require.NoError(t, q.ReleaseRetention())
 		_, err = q.Retain()
 		require.NoError(t, err)
 	})
@@ -2489,9 +2489,9 @@ func TestRetention_KeepsAChunkWhoseTombstoneFails(t *testing.T) {
 	q := makeQueueSize(t, s, discardExecutor(), 50)
 	pushMany(t, q, 1, 1, 2, 3, 4)
 	chunks, _ := chunksOf(t, q)
-	r, err := q.Retain()
+	_, err := q.Retain()
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = r.Release() })
+	t.Cleanup(func() { _ = q.ReleaseRetention() })
 
 	// a directory where the tombstone goes makes its creation fail
 	blocker := chunks[0] + ".processed"

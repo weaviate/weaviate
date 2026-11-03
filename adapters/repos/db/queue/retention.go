@@ -14,74 +14,53 @@ package queue
 import (
 	"fmt"
 	"path/filepath"
-	"sync"
 
 	"github.com/pkg/errors"
 )
 
-// Retention keeps every chunk from its mark on, processed or not, until it is
-// released: a replacement index replays them while the current consumer
-// carries on. Processed chunks are kept as a backup keeps them, behind a
-// .processed tombstone, so a restart deletes them: a replacement is never
-// resumed after one.
-type Retention struct {
-	q *DiskQueue
-
-	m sync.Mutex
-	// mark is the first chunk to replay
-	mark string
-}
-
-// Retain starts keeping the queue's chunks, from the oldest one not processed
-// yet. On a queue with none, the mark is the name a chunk created now would
-// get: chunks replay in name order, and names follow the clock. A queue
-// holds one retention at a time.
-func (q *DiskQueue) Retain() (*Retention, error) {
+// Retain keeps every chunk from the returned mark on, processed or not,
+// until ReleaseRetention: a replacement index replays them while the current
+// consumer carries on. Processed chunks are kept as a backup keeps them,
+// behind a .processed tombstone, so a restart deletes them: a replacement is
+// never resumed after one.
+//
+// The mark is the path of the first chunk to replay, and every chunk named
+// at or after it replays: the oldest chunk not processed yet, or on a queue
+// with none the name a chunk created now would get, since names follow the
+// clock. The file may not exist yet. A queue is retained once at a time.
+func (q *DiskQueue) Retain() (mark string, err error) {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
 
 	if q.r == nil {
-		return nil, errors.New("queue not initialized")
+		return "", errors.New("queue not initialized")
 	}
-	if q.retention.Load() != nil {
-		return nil, errors.New("queue already retained")
+	if q.retained.Load() {
+		return "", errors.New("queue already retained")
 	}
 
-	r := Retention{q: q}
 	// under the writer's lock, so no chunk is created in between
 	q.m.Lock()
 	defer q.m.Unlock()
-	r.mark = q.r.firstUnprocessed()
-	if r.mark == "" && q.w.f != nil {
-		r.mark = q.w.f.Name()
+	mark = q.r.firstUnprocessed()
+	if mark == "" && q.w.f != nil {
+		mark = q.w.f.Name()
 	}
-	if r.mark == "" {
-		r.mark = filepath.Join(q.dir, fmt.Sprintf(chunkFileFmt, chunkTimeNow()))
+	if mark == "" {
+		mark = filepath.Join(q.dir, fmt.Sprintf(chunkFileFmt, chunkTimeNow()))
 	}
-	q.retention.Store(&r)
-	return &r, nil
+	q.retained.Store(true)
+	return mark, nil
 }
 
-// Mark is the path of the first chunk to replay: every chunk named at or
-// after it. The file may not exist yet.
-func (r *Retention) Mark() string {
-	r.m.Lock()
-	defer r.m.Unlock()
-	return r.mark
-}
-
-// Release stops keeping chunks and deletes the processed ones, unless a
-// backup still keeps them. Releasing twice is a no-op.
-func (r *Retention) Release() error {
-	q := r.q
+// ReleaseRetention stops keeping chunks and deletes the processed ones,
+// unless a backup still keeps them. Releasing a queue not retained is a
+// no-op.
+func (q *DiskQueue) ReleaseRetention() error {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
 
-	if q.retention.Load() != r {
-		return nil
-	}
-	q.retention.Store(nil)
-	if q.maintenanceMode.Load() {
+	if !q.retained.Swap(false) || q.maintenanceMode.Load() {
 		return nil
 	}
 	return q.cleanupProcessedChunks()

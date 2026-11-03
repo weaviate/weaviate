@@ -122,9 +122,9 @@ type DiskQueue struct {
 	// This is used during backup to keep chunk files available for copying.
 	maintenanceMode atomic.Bool
 
-	// retention, when set, keeps processed chunks for a replacement index
-	// the same way. Set and cleared under rmLock.
-	retention atomic.Pointer[Retention]
+	// retained keeps processed chunks the same way for a replacement index,
+	// see Retain. Set and cleared under rmLock.
+	retained atomic.Bool
 }
 
 type DiskQueueOptions struct {
@@ -713,7 +713,7 @@ func (q *DiskQueue) DisableMaintenanceMode() error {
 	defer q.rmLock.Unlock()
 
 	q.maintenanceMode.Store(false)
-	if q.retention.Load() != nil {
+	if q.retained.Load() {
 		return nil
 	}
 	return q.cleanupProcessedChunks()
@@ -722,7 +722,7 @@ func (q *DiskQueue) DisableMaintenanceMode() error {
 // keepsProcessed reports whether a processed chunk is kept rather than
 // deleted. The caller holds rmLock.
 func (q *DiskQueue) keepsProcessed() bool {
-	return q.maintenanceMode.Load() || q.retention.Load() != nil
+	return q.maintenanceMode.Load() || q.retained.Load()
 }
 
 // cleanupProcessedChunks scans the queue directory for tombstone files
@@ -763,7 +763,7 @@ func (q *DiskQueue) removeChunk(path string) error {
 			return nil
 		}
 		// a retention's chunks are needed for a replay: retry instead
-		if q.retention.Load() != nil {
+		if q.retained.Load() {
 			return errors.Wrap(err, "failed to create tombstone")
 		}
 		q.Logger.WithField("file", path).Errorf("failed to create tombstone, falling back to deletion: %v", err)
