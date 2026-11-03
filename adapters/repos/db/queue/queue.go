@@ -66,18 +66,6 @@ const (
 	minEncodedRecordSize = 4 + 1
 )
 
-// chunkPath is the path of the chunk numbered seq in dir.
-func chunkPath(dir string, seq int64) string {
-	return filepath.Join(dir, fmt.Sprintf(chunkFileFmt, seq))
-}
-
-// chunkSeq is the number a chunk file is named after.
-func chunkSeq(path string) (int64, bool) {
-	name := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "chunk-"), ".bin")
-	seq, err := strconv.ParseInt(name, 10, 64)
-	return seq, err == nil
-}
-
 // regex pattern for the chunk files.
 // It is anchored so that derived files (e.g. .processed tombstones or
 // .corrupt quarantined chunks) never match.
@@ -1914,4 +1902,16 @@ func getBufioWriter(f *os.File) *bufio.Writer {
 func putBufioWriter(w *bufio.Writer) {
 	w.Reset(nil)
 	bufioWriterPool.Put(w)
+}
+
+// chunkPath is the path of the chunk numbered seq in dir.
+func chunkPath(dir string, seq int64) string {
+	return filepath.Join(dir, fmt.Sprintf(chunkFileFmt, seq))
+}
+
+// chunkSeq is the number a chunk file is named after.
+func chunkSeq(path string) (int64, bool) {
+	name := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "chunk-"), ".bin")
+	seq, err := strconv.ParseInt(name, 10, 64)
+	return seq, err == nil
 }
