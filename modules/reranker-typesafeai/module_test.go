@@ -13,7 +13,6 @@ package modrerankertypesafeai
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,27 +27,21 @@ import (
 func TestMaxConcurrentRequestsFromEnv(t *testing.T) {
 	tests := []struct {
 		name    string
-		set     bool
 		value   string
 		want    int
 		wantErr string
 	}{
-		{name: "unset uses the default", want: 16},
-		{name: "lower bound", set: true, value: "1", want: 1},
-		{name: "upper bound", set: true, value: "256", want: 256},
-		{name: "zero", set: true, value: "0", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "0"`},
-		{name: "above the limit", set: true, value: "257", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "257"`},
-		{name: "negative", set: true, value: "-4", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "-4"`},
-		{name: "not a number", set: true, value: "many", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "many"`},
+		{name: "unset or empty", value: "", want: 16},
+		{name: "lower bound", value: "1", want: 1},
+		{name: "upper bound", value: "256", want: 256},
+		{name: "zero", value: "0", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "0"`},
+		{name: "above the limit", value: "257", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "257"`},
+		{name: "negative", value: "-4", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "-4"`},
+		{name: "not a number", value: "many", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "many"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(maxConcurrentRequestsEnv, "")
-			if tt.set {
-				t.Setenv(maxConcurrentRequestsEnv, tt.value)
-			} else {
-				require.NoError(t, os.Unsetenv(maxConcurrentRequestsEnv))
-			}
+			t.Setenv(maxConcurrentRequestsEnv, tt.value)
 			got, err := maxConcurrentRequestsFromEnv()
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
