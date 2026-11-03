@@ -12,6 +12,7 @@
 package filters_tests
 
 import (
+	"acceptance_tests_with_client/fixtures"
 	"context"
 	"fmt"
 	"testing"
@@ -21,7 +22,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate-go-client/v6"
 	"github.com/weaviate/weaviate-go-client/v6/collections"
+	"github.com/weaviate/weaviate-go-client/v6/collections/vectorindex"
 	"github.com/weaviate/weaviate-go-client/v6/data"
+	"github.com/weaviate/weaviate-go-client/v6/modules/model2vec"
 	"github.com/weaviate/weaviate-go-client/v6/query"
 	"github.com/weaviate/weaviate-go-client/v6/query/filter"
 )
@@ -92,6 +95,12 @@ func testContains(c *weaviate.Client) func(t *testing.T) {
 					{
 						Name:     "uuids",
 						DataType: collections.DataTypeUUIDArray,
+					},
+				},
+				Vectors: map[string]collections.VectorConfig{
+					fixtures.DefaultVectorName: {
+						Index:      vectorindex.HNSW{},
+						Vectorizer: model2vec.Text2Vec{},
 					},
 				},
 			})
