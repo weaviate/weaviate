@@ -13,9 +13,12 @@ package roaringsetrange
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
+	"unsafe"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,14 +48,6 @@ func TestSegmentInMemory(t *testing.T) {
 
 	t.Run("merging", func(t *testing.T) {
 		mt1, mt2, mt3 := createTestMemtables(logger)
-		expectedElemsByBit := map[int][]uint64{
-			0: {10, 20, 14, 24, 15, 25, 113, 213, 117, 217, 119, 219},
-			1: {119, 219, 117, 217, 15, 25, 113, 213},
-			2: {119, 219},
-			3: {14, 24, 15, 25, 113, 213},
-			4: {113, 213},
-			5: {119, 219, 117, 217},
-		}
 
 		t.Run("segments", func(t *testing.T) {
 			cur1 := newFakeSegmentCursor(mt1)
@@ -64,7 +59,7 @@ func TestSegmentInMemory(t *testing.T) {
 			seg.MergeSegmentByCursor(cur2)
 			seg.MergeSegmentByCursor(cur3)
 
-			assertElemsByBit(t, seg, expectedElemsByBit)
+			assertElemsByBit(t, seg, testMemtablesElemsByBit)
 		})
 
 		t.Run("memtables", func(t *testing.T) {
@@ -74,7 +69,7 @@ func TestSegmentInMemory(t *testing.T) {
 			seg.MergeMemtableEventually(mt3)
 
 			waitUntilMemtablesMerged(t, seg)
-			assertElemsByBit(t, seg, expectedElemsByBit)
+			assertElemsByBit(t, seg, testMemtablesElemsByBit)
 		})
 
 		t.Run("segments + memtable", func(t *testing.T) {
@@ -87,7 +82,7 @@ func TestSegmentInMemory(t *testing.T) {
 			seg.MergeMemtableEventually(mt3)
 
 			waitUntilMemtablesMerged(t, seg)
-			assertElemsByBit(t, seg, expectedElemsByBit)
+			assertElemsByBit(t, seg, testMemtablesElemsByBit)
 		})
 	})
 
@@ -546,13 +541,7 @@ func TestSegmentInMemoryFoldOrderValueIntegrity(t *testing.T) {
 
 	equalDocIDs := func(t *testing.T, seg *SegmentInMemory, value uint64) []uint64 {
 		t.Helper()
-		readers, release := seg.Readers(bufPool)
-		defer release()
-		require.Len(t, readers, 1)
-		layer, relRead, err := readers[0].Read(context.Background(), value, filters.OperatorEqual)
-		require.NoError(t, err)
-		defer relRead()
-		return layer.Additions.ToArray()
+		return readDocIDs(t, seg, bufPool, value, filters.OperatorEqual)
 	}
 
 	t.Run("correct oldest->newest fold: newest value wins", func(t *testing.T) {
@@ -576,6 +565,17 @@ func TestSegmentInMemoryFoldOrderValueIntegrity(t *testing.T) {
 	})
 }
 
+// testMemtablesElemsByBit is what the three createTestMemtables memtables
+// merge to, per bit layer. Layers the map omits end up empty.
+var testMemtablesElemsByBit = map[int][]uint64{
+	0: {10, 20, 14, 24, 15, 25, 113, 213, 117, 217, 119, 219},
+	1: {119, 219, 117, 217, 15, 25, 113, 213},
+	2: {119, 219},
+	3: {14, 24, 15, 25, 113, 213},
+	4: {113, 213},
+	5: {119, 219, 117, 217},
+}
+
 func assertElemsByBit(t *testing.T, s *SegmentInMemory, expectedElemsByBit map[int][]uint64) {
 	t.Helper()
 	for bit := 0; bit < 65; bit++ {
@@ -590,4 +590,218 @@ func assertElemsByBit(t *testing.T, s *SegmentInMemory, expectedElemsByBit map[i
 func waitUntilMemtablesMerged(t *testing.T, s *SegmentInMemory) {
 	t.Helper()
 	require.Eventually(t, func() bool { return s.countPendingMemtables() == 0 }, time.Second, 10*time.Millisecond)
+}
+
+// TestSegmentInMemoryShrink pins that Shrink hands the layer bitmaps' spare
+// capacity back to the heap without changing what the rep serves.
+func TestSegmentInMemoryShrink(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	bufPool := roaringset.NewBitmapBufPoolNoop()
+
+	t.Run("spare capacity is gone and reads are unchanged", func(t *testing.T) {
+		s := newOvergrownSegmentInMemory(t, logger)
+		require.Positive(t, spareCapacityInBytes(t, s), "fixture must leave the layers overgrown")
+
+		testCases := []struct {
+			name     string
+			value    uint64
+			operator filters.Operator
+			noMatch  bool
+		}{
+			{name: "equal", value: valueStride, operator: filters.OperatorEqual},
+			{name: "equal lowest value", value: 0, operator: filters.OperatorEqual},
+			{name: "equal max uint64", value: math.MaxUint64, operator: filters.OperatorEqual, noMatch: true},
+			{name: "not equal", value: valueStride, operator: filters.OperatorNotEqual},
+			{name: "less than", value: valueStride, operator: filters.OperatorLessThan},
+			{name: "less than lowest value", value: 0, operator: filters.OperatorLessThan, noMatch: true},
+			{name: "less than equal", value: valueStride, operator: filters.OperatorLessThanEqual},
+			{name: "less than equal max uint64", value: math.MaxUint64, operator: filters.OperatorLessThanEqual},
+			{name: "greater than", value: valueStride, operator: filters.OperatorGreaterThan},
+			{name: "greater than max uint64", value: math.MaxUint64, operator: filters.OperatorGreaterThan, noMatch: true},
+			{name: "greater than equal", value: valueStride, operator: filters.OperatorGreaterThanEqual},
+			{name: "greater than equal lowest value", value: 0, operator: filters.OperatorGreaterThanEqual},
+		}
+
+		beforeShrink := make([][]uint64, len(testCases))
+		for i, tc := range testCases {
+			beforeShrink[i] = readDocIDs(t, s, bufPool, tc.value, tc.operator)
+			if !tc.noMatch {
+				require.NotEmpty(t, beforeShrink[i], "%s must match before the shrink, or it proves nothing", tc.name)
+			}
+		}
+
+		s.Shrink()
+		assert.Zero(t, spareCapacityInBytes(t, s))
+
+		for i, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				assert.Equal(t, beforeShrink[i], readDocIDs(t, s, bufPool, tc.value, tc.operator))
+			})
+		}
+	})
+
+	t.Run("layers left empty by the merge survive the shrink", func(t *testing.T) {
+		mt1, mt2, _ := createTestMemtables(logger)
+		s := NewSegmentInMemory(logger)
+		require.NoError(t, s.MergeSegmentByCursor(newFakeSegmentCursor(mt1)))
+		require.NoError(t, s.MergeSegmentByCursor(newFakeSegmentCursor(mt2)))
+
+		beforeShrink := make([][]uint64, len(s.bitmaps))
+		emptyLayers := 0
+		for i := range s.bitmaps {
+			beforeShrink[i] = s.bitmaps[i].ToArray()
+			if len(beforeShrink[i]) == 0 {
+				emptyLayers++
+			}
+		}
+		require.Positive(t, emptyLayers, "fixture must leave some layers empty")
+
+		s.Shrink()
+
+		for i := range s.bitmaps {
+			require.NotNil(t, s.bitmaps[i], "layer %d", i)
+			assert.Equal(t, beforeShrink[i], s.bitmaps[i].ToArray(), "layer %d", i)
+		}
+		assert.ElementsMatch(t, []uint64{15, 25, 113, 213},
+			readDocIDs(t, s, bufPool, 20, filters.OperatorGreaterThanEqual))
+	})
+
+	t.Run("a rep with no merged segment survives the shrink", func(t *testing.T) {
+		s := NewSegmentInMemory(logger)
+		s.Shrink()
+
+		for i := range s.bitmaps {
+			require.NotNil(t, s.bitmaps[i], "layer %d", i)
+			assert.True(t, s.bitmaps[i].IsEmpty(), "layer %d", i)
+		}
+		assert.Empty(t, readDocIDs(t, s, bufPool, 0, filters.OperatorGreaterThanEqual))
+
+		mt := NewMemtable(logger)
+		mt.Insert(7, []uint64{70, 71})
+		require.NoError(t, s.MergeSegmentByCursor(newFakeSegmentCursor(mt)))
+		assert.ElementsMatch(t, []uint64{70, 71}, readDocIDs(t, s, bufPool, 7, filters.OperatorEqual))
+	})
+
+	t.Run("a memtable merged in after the shrink still lands", func(t *testing.T) {
+		mt1, mt2, mt3 := createTestMemtables(logger)
+		s := NewSegmentInMemory(logger)
+		require.NoError(t, s.MergeSegmentByCursor(newFakeSegmentCursor(mt1)))
+		require.NoError(t, s.MergeSegmentByCursor(newFakeSegmentCursor(mt2)))
+
+		s.Shrink()
+		s.MergeMemtableEventually(mt3)
+		waitUntilMemtablesMerged(t, s)
+
+		assertElemsByBit(t, s, testMemtablesElemsByBit)
+	})
+
+	t.Run("a segment merged in after the shrink regrows the layers", func(t *testing.T) {
+		s := newOvergrownSegmentInMemory(t, logger)
+		s.Shrink()
+		require.Zero(t, spareCapacityInBytes(t, s))
+
+		// Segment index overgrownSegments is the first doc-ID space the fixture leaves free.
+		require.NoError(t, s.MergeSegmentByCursor(overgrowingSegmentCursor(logger, overgrownSegments)))
+		assert.Positive(t, spareCapacityInBytes(t, s),
+			"callers must shrink only once no further merge is pending")
+	})
+
+	t.Run("shrink waits for an outstanding reader", func(t *testing.T) {
+		s := newOvergrownSegmentInMemory(t, logger)
+		readers, release := s.Readers(bufPool)
+		require.Len(t, readers, 1)
+
+		shrunk := make(chan struct{})
+		go func() {
+			s.Shrink()
+			close(shrunk)
+		}()
+
+		layer, releaseRead, err := readers[0].Read(context.Background(), valueStride, filters.OperatorEqual)
+		require.NoError(t, err)
+		docIDs := layer.Additions.ToArray()
+		releaseRead()
+
+		select {
+		case <-shrunk:
+			t.Fatal("shrink swapped the layers while a reader still held them")
+		default:
+		}
+
+		release()
+		select {
+		case <-shrunk:
+		case <-time.After(5 * time.Second):
+			t.Fatal("shrink did not return after the reader released")
+		}
+
+		assert.Equal(t, docIDs, readDocIDs(t, s, bufPool, valueStride, filters.OperatorEqual))
+	})
+}
+
+// overgrowingSegmentCursor spreads data over many of the 65 layers and over many
+// sroar containers, which is what makes sroar's doubling growth overshoot.
+const (
+	overgrownSegments      = 4
+	valuesPerSegment       = 600
+	docIDsPerValue         = 20
+	valueStride            = 99991
+	docIDSpacePerSegment   = 1_000_000
+	docIDStridePerValue    = 37
+	docIDStrideWithinValue = 7919
+)
+
+func newOvergrownSegmentInMemory(t *testing.T, logger logrus.FieldLogger) *SegmentInMemory {
+	t.Helper()
+
+	s := NewSegmentInMemory(logger)
+	for segment := 0; segment < overgrownSegments; segment++ {
+		require.NoError(t, s.MergeSegmentByCursor(overgrowingSegmentCursor(logger, segment)))
+	}
+	return s
+}
+
+func overgrowingSegmentCursor(logger logrus.FieldLogger, segment int) SegmentCursor {
+	mt := NewMemtable(logger)
+	for v := uint64(0); v < valuesPerSegment; v++ {
+		docIDs := make([]uint64, docIDsPerValue)
+		for d := range docIDs {
+			docIDs[d] = uint64(segment)*docIDSpacePerSegment +
+				v*docIDStridePerValue + uint64(d)*docIDStrideWithinValue
+		}
+		mt.Insert(v*valueStride, docIDs)
+	}
+	return newFakeSegmentCursor(mt)
+}
+
+// spareCapacityInBytes is the capacity the layer bitmaps hold beyond their
+// content, which sroar does not export. It reads Bitmap's first field as
+// the data slice, and fails if that length stops matching LenInBytes.
+func spareCapacityInBytes(t *testing.T, s *SegmentInMemory) int {
+	t.Helper()
+
+	spare := 0
+	for i := range s.bitmaps {
+		data := *(*[]uint16)(unsafe.Pointer(s.bitmaps[i]))
+		require.Equal(t, s.bitmaps[i].LenInBytes(), len(data)*2,
+			"sroar.Bitmap's first field is no longer its data slice")
+		spare += (cap(data) - len(data)) * 2
+	}
+	return spare
+}
+
+func readDocIDs(t *testing.T, s *SegmentInMemory, bufPool roaringset.BitmapBufPool,
+	value uint64, operator filters.Operator,
+) []uint64 {
+	t.Helper()
+
+	readers, release := s.Readers(bufPool)
+	defer release()
+	require.Len(t, readers, 1)
+
+	layer, releaseRead, err := readers[0].Read(context.Background(), value, operator)
+	require.NoError(t, err)
+	defer releaseRead()
+
+	return layer.Additions.ToArray()
 }
