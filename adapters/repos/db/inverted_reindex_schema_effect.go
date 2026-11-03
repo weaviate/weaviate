@@ -130,15 +130,15 @@ func migrationCanonicalIndexFlag(code MigrationStrategyCode, prop *models.Proper
 
 // Follows the load-time sweep's own rule, an explicit false: [migrationEffectStatus]
 // reads an unset flag as not-enabled and would defer every retokenize promotion.
-// A migration that turns the index on is never swept: its flag stays off until
-// its flip lands, and the sweeps spare the bucket it promotes.
+// A migration that turns the index on is not swept while its record overrides
+// the schema: its flag may still be off, and the sweeps spare that bucket.
 func migrationCanonicalSweptBySchema(class *models.Class, subject MigrationSubject,
-	prop string,
+	prop string, overridesSchema bool,
 ) (swept bool, why string) {
 	if class == nil {
 		return true, fmt.Sprintf("property %q: the collection is not in the locally applied schema", prop)
 	}
-	if _, enables := migrationEnablesIndexType(subject.MigrationType); enables {
+	if _, enables := migrationEnablesIndexType(subject.MigrationType); enables && overridesSchema {
 		return false, ""
 	}
 	for _, p := range class.Properties {

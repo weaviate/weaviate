@@ -15,6 +15,7 @@ import (
 	"cmp"
 	"slices"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -33,21 +34,37 @@ func migrationEnablesIndexType(mt ReindexMigrationType) (string, bool) {
 	}
 }
 
+// migrationOverridesSchema reports whether rec, not the schema, answers for
+// what it migrated: from its flip decision until its owning task finishes or
+// is gone, either of which means the flip landed. A task list not readable
+// yet keeps the record answering, which a migration in flight needs.
+func migrationOverridesSchema(rec MigrationRecord, tasks []distributedtask.TaskStatusEntry, readable bool) bool {
+	if !rec.FlipDecided() {
+		return false
+	}
+	if !readable {
+		return true
+	}
+	task, found := findMigrationTask(rec.Subject(), tasks)
+	return found && task.Status != distributedtask.TaskStatusFinished
+}
+
 // restoreMigratedOverlays re-installs the overlay a swap left in memory
-// for a migration promoted here but not yet flipped in the schema (a
-// sibling tenant failed, or the flip is in flight); without it, reload
-// would read and write those buckets under the schema's stale settings.
+// for a migration promoted here whose flip may not have landed (a sibling
+// tenant failed, or the flip is in flight); without it, reload would read
+// and write those buckets under the schema's stale settings.
 func (s *Shard) restoreMigratedOverlays(class *models.Class) {
 	if s.migrationRecords == nil || class == nil {
 		return
 	}
+	tasks, readable := s.migrations().LocalTasks()
 	all := s.migrationRecords.Records()
 	records := slices.SortedFunc(slices.Values(all), func(a, b MigrationRecord) int {
 		return cmp.Compare(a.Subject().Key.TaskVersion, b.Subject().Key.TaskVersion)
 	})
 	for _, rec := range records {
 		subject := rec.Subject()
-		if !rec.FlipDecided() {
+		if !migrationOverridesSchema(rec, tasks, readable) {
 			continue
 		}
 		payload := subject.reindexPayload()
@@ -87,16 +104,17 @@ func (s *Shard) restoreMigratedOverlays(class *models.Class) {
 }
 
 // migratedIndexStands reports whether one of this shard's own migrations
-// turned the index on: a swap the schema does not show yet, whose bucket the
-// schema's index-off sweeps must leave alone.
+// turned the index on and still answers for it, so the schema's index-off
+// sweeps must leave its bucket alone.
 func (s *Shard) migratedIndexStands(propName, indexType string) bool {
 	if s.migrationRecords == nil {
 		return false
 	}
+	tasks, readable := s.migrations().LocalTasks()
 	for _, rec := range s.migrationRecords.Records() {
 		subject := rec.Subject()
 		enabled, ok := migrationEnablesIndexType(subject.MigrationType)
-		if !ok || enabled != indexType || !rec.FlipDecided() {
+		if !ok || enabled != indexType || !migrationOverridesSchema(rec, tasks, readable) {
 			continue
 		}
 		if _, covers := subject.Props[propName]; !covers {

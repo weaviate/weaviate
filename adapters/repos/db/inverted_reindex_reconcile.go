@@ -559,7 +559,7 @@ func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 	}
 
 	// Above clearForPromotion, not just above the rename: clearing deletes the canonical and displaced dirs.
-	if swept, why := migrationCanonicalSweptBySchema(r.deps.Class(), subject, prop); swept {
+	if swept, why := migrationCanonicalSweptBySchema(r.deps.Class(), subject, prop, r.overridesSchema(rec)); swept {
 		return rec, false, why, nil
 	}
 
@@ -715,8 +715,9 @@ func (r *migrationReconciler) reconcilePromoted(ctx context.Context, rec Migrati
 func (r *migrationReconciler) reconcilePromotedSealed(ctx context.Context, rec MigrationRecordPromoted) error {
 	subject := rec.Subject()
 	all := r.store.Records()
+	overrides := r.overridesSchema(rec)
 
-	withheld, err := r.repromoteWhatTheRecordOutran(ctx, all, subject)
+	withheld, err := r.repromoteWhatTheRecordOutran(ctx, all, subject, overrides)
 	if err != nil {
 		return err
 	}
@@ -738,7 +739,7 @@ func (r *migrationReconciler) reconcilePromotedSealed(ctx context.Context, rec M
 			"a promoted migration's collection is not in the schema, so nothing here can confirm its effect; keeping the record")
 		return nil
 	}
-	if effect, missing := migrationEffectStatus(class, subject); effect == migrationEffectPending {
+	if effect, missing := migrationEffectStatus(class, subject); effect == migrationEffectPending && overrides {
 		r.logger.WithField("record", subject.Key.String()).WithField("properties_pending", len(missing)).Warn(
 			"this shard promoted a migration whose effect is not in the schema; keeping the record, " +
 				"which is what answers for the property until the effect lands")
@@ -755,7 +756,7 @@ func (r *migrationReconciler) reconcilePromotedSealed(ctx context.Context, rec M
 }
 
 func (r *migrationReconciler) repromoteWhatTheRecordOutran(ctx context.Context, all []MigrationRecord,
-	subject MigrationSubject,
+	subject MigrationSubject, overridesSchema bool,
 ) (withheld []string, err error) {
 	var ambiguous, repromoted []string
 	deferring := errorcompounder.New()
@@ -798,7 +799,7 @@ func (r *migrationReconciler) repromoteWhatTheRecordOutran(ctx context.Context, 
 			ambiguous = append(ambiguous, prop)
 			continue
 		}
-		if swept, why := migrationCanonicalSweptBySchema(r.deps.Class(), subject, prop); swept {
+		if swept, why := migrationCanonicalSweptBySchema(r.deps.Class(), subject, prop, overridesSchema); swept {
 			withheld = append(withheld, prop)
 			deferring.Addf("%s", why)
 			continue
@@ -828,6 +829,11 @@ const migrationTaskMapUnreadable = "this node's task map cannot be read yet"
 // A task list not yet applied licenses no decision.
 func (r *migrationReconciler) localTasks() ([]distributedtask.TaskStatusEntry, bool) {
 	return r.deps.LocalTasks()
+}
+
+func (r *migrationReconciler) overridesSchema(rec MigrationRecord) bool {
+	tasks, readable := r.localTasks()
+	return migrationOverridesSchema(rec, tasks, readable)
 }
 
 func (r *migrationReconciler) localVerdict(subject MigrationSubject) (migrationVerdict, string) {

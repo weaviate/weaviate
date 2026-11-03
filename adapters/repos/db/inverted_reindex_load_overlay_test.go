@@ -128,56 +128,77 @@ func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 	}
 }
 
-// Pins that an index a tenant's migration turned on survives a reload and the
-// schema's index-off sweeps while the schema still has it off: the bucket
-// opens, takes writes, and neither the load nor a property update removes it.
+// Pins that an index a tenant's migration turned on stands while its owning
+// task may still flip the schema: the bucket survives a reload and the
+// index-off sweeps, and takes writes. Once the task finished or is gone, the
+// flip landed, so the schema's "off" is a drop and the bucket goes.
 func TestReloadKeepsAnIndexATenantEnabledAheadOfTheSchema(t *testing.T) {
 	const propName = "title"
-	ctx := testCtx()
-	className := "Enable511_" + uuid.NewString()[:8]
-	class := newEnableSearchableTestClass(className, []string{propName})
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
-	shard := shd.(*Shard)
-	for _, obj := range makeConvergenceTestObjects(t, 25, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
+	for _, tc := range []struct {
+		name   string
+		status distributedtask.TaskStatus // empty: the task is gone
+		stands bool
+	}{
+		{name: "a retained failed run keeps it", status: distributedtask.TaskStatusFailed, stands: true},
+		{name: "a finished run hands it to the schema", status: distributedtask.TaskStatusFinished},
+		{name: "a run that is gone hands it to the schema"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "Enable511_" + uuid.NewString()[:8]
+			class := newEnableSearchableTestClass(className, []string{propName})
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			for _, obj := range makeConvergenceTestObjects(t, 25, className) {
+				require.NoError(t, shard.PutObject(ctx, obj))
+			}
+			task, _ := newEnableSearchableTask(t, idx, className, propName, models.PropertyTokenizationWord, shard.migrationUnit())
+			payload := &ReindexTaskPayload{
+				Collection: className, MigrationType: ReindexTypeEnableSearchable, Properties: []string{propName},
+				TargetTokenization: models.PropertyTokenizationWord,
+			}
+			desc := distributedtask.TaskDescriptor{ID: "T511e", Version: 1}
+			task.setMigrationIdentity(desc, shard.migrationUnit(), payload)
+			maybeWirePerPropOverlaySet(shard, payload, []*ShardReindexTaskGeneric{task})
+			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+			require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+			require.NoError(t, task.RunSwapOnShard(ctx, shard))
+
+			idx.db.indices[indexID(idx.Config.ClassName)] = idx
+			var tasks []*distributedtask.Task
+			if tc.status != "" {
+				tasks = append(tasks, &distributedtask.Task{Namespace: ReindexNamespace, TaskDescriptor: desc, Status: tc.status})
+			}
+			installTestMigrationTaskSources(ctx, idx.db, nil, tasks...)
+			bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+			sweep := func(shard *Shard) {
+				eg := enterrors.NewErrorGroupWrapper(shard.index.logger)
+				var counts migrationSweepCounts
+				shard.updatePropertyBuckets(ctx, eg, class.Properties[0], &counts)
+				require.NoError(t, eg.Wait())
+				require.Equal(t, tc.stands, shard.store.Bucket(bucketName) != nil, "after a property update with the flag off")
+			}
+			sweep(shard)
+
+			name := shard.Name()
+			require.NoError(t, shard.Shutdown(ctx))
+			idx.shardReindexer = &noRecoveryTaskReindexer{}
+			loaded, err := idx.initShard(ctx, name, class, nil, true, true)
+			require.NoError(t, err)
+			idx.shards.Store(name, loaded)
+			re := loaded.(*Shard)
+			defer re.Shutdown(ctx)
+
+			require.Equal(t, tc.stands, re.store.Bucket(bucketName) != nil, "after a reload")
+			require.NoError(t, re.PutObject(ctx, createTestObjectWithText(className, "zulu one")))
+			if tc.stands {
+				rec, ok := task.migrationRecord(re)
+				require.True(t, ok)
+				require.Equal(t, MigrationStatePromoted, rec.State(), "the staged data is promoted even though the schema flag is off")
+				_, indexed := fingerprintInvertedBucket(t, re.store.Bucket(bucketName))["zulu"]
+				require.True(t, indexed, "a write after the reload reaches the migrated index")
+			}
+			sweep(re)
+		})
 	}
-	task, _ := newEnableSearchableTask(t, idx, className, propName, models.PropertyTokenizationWord, shard.migrationUnit())
-	payload := &ReindexTaskPayload{
-		Collection: className, MigrationType: ReindexTypeEnableSearchable, Properties: []string{propName},
-		TargetTokenization: models.PropertyTokenizationWord,
-	}
-	desc := distributedtask.TaskDescriptor{ID: "T511e", Version: 1}
-	task.setMigrationIdentity(desc, shard.migrationUnit(), payload)
-	maybeWirePerPropOverlaySet(shard, payload, []*ShardReindexTaskGeneric{task})
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-	require.NoError(t, task.RunSwapOnShard(ctx, shard))
-
-	idx.db.indices[indexID(idx.Config.ClassName)] = idx
-	installTestMigrationTaskSources(ctx, idx.db, nil, &distributedtask.Task{
-		Namespace: ReindexNamespace, TaskDescriptor: desc, Status: distributedtask.TaskStatusFailed,
-	})
-	name := shard.Name()
-	require.NoError(t, shard.Shutdown(ctx))
-	idx.shardReindexer = &noRecoveryTaskReindexer{}
-	loaded, err := idx.initShard(ctx, name, class, nil, true, true)
-	require.NoError(t, err)
-	idx.shards.Store(name, loaded)
-	re := loaded.(*Shard)
-	defer re.Shutdown(ctx)
-
-	rec, ok := task.migrationRecord(re)
-	require.True(t, ok)
-	require.Equal(t, MigrationStatePromoted, rec.State(), "the staged data is promoted even though the schema flag is off")
-	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-	require.NotNil(t, re.store.Bucket(bucketName), "the migrated index's bucket is opened")
-	require.NoError(t, re.PutObject(ctx, createTestObjectWithText(className, "zulu one")))
-	_, indexed := fingerprintInvertedBucket(t, re.store.Bucket(bucketName))["zulu"]
-	require.True(t, indexed, "a write after the reload reaches the migrated index")
-
-	eg := enterrors.NewErrorGroupWrapper(re.index.logger)
-	var counts migrationSweepCounts
-	re.updatePropertyBuckets(ctx, eg, class.Properties[0], &counts)
-	require.NoError(t, eg.Wait())
-	require.NotNil(t, re.store.Bucket(bucketName), "a property update with the flag still off spares it")
 }
