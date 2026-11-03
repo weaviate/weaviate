@@ -23,7 +23,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -2543,8 +2542,8 @@ func TestChunkNamesGrowWhenTheClockStepsBack(t *testing.T) {
 	}
 	seqOf := func(t *testing.T, path string) int64 {
 		t.Helper()
-		seq, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "chunk-"), ".bin"), 10, 64)
-		require.NoError(t, err)
+		seq, ok := chunkSeq(path)
+		require.True(t, ok)
 		return seq
 	}
 

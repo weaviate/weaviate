@@ -65,6 +65,18 @@ const (
 	minEncodedRecordSize = 4 + 1
 )
 
+// chunkPath is the path of the chunk numbered seq in dir.
+func chunkPath(dir string, seq int64) string {
+	return filepath.Join(dir, fmt.Sprintf(chunkFileFmt, seq))
+}
+
+// chunkSeq is the number a chunk file is named after.
+func chunkSeq(path string) (int64, bool) {
+	name := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "chunk-"), ".bin")
+	seq, err := strconv.ParseInt(name, 10, 64)
+	return seq, err == nil
+}
+
 // regex pattern for the chunk files.
 // It is anchored so that derived files (e.g. .processed tombstones or
 // .corrupt quarantined chunks) never match.
@@ -755,7 +767,7 @@ func (q *DiskQueue) Retain() (mark string, err error) {
 		mark = q.w.f.Name()
 	}
 	if mark == "" {
-		mark = filepath.Join(q.dir, fmt.Sprintf(chunkFileFmt, q.w.nextSeq()))
+		mark = chunkPath(q.dir, q.w.nextSeq())
 	}
 	q.retained = true
 	return mark, nil
@@ -1399,7 +1411,7 @@ func (w *chunkWriter) Create() error {
 	// retention's mark is a name).
 	ts := w.nextSeq()
 	for i := 0; ; i++ {
-		path := filepath.Join(w.dir, fmt.Sprintf(chunkFileFmt, ts))
+		path := chunkPath(w.dir, ts)
 		w.f, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o644)
 		if err == nil {
 			break
@@ -1465,8 +1477,8 @@ func (w *chunkWriter) Open() error {
 			continue
 		}
 		lastChunk = entry.Name()
-		seq, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(lastChunk, "chunk-"), ".bin"), 10, 64)
-		if err == nil && seq > w.lastSeq {
+		seq, ok := chunkSeq(lastChunk)
+		if ok && seq > w.lastSeq {
 			w.lastSeq = seq
 		}
 	}
