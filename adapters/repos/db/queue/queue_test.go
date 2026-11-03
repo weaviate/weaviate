@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -2529,4 +2530,66 @@ func TestRetention_KeepsAChunkWhoseTombstoneFails(t *testing.T) {
 	kept, tombstoned := chunksOf(t, q)
 	assert.Contains(t, kept, chunks[0])
 	assert.True(t, tombstoned[chunks[0]])
+}
+
+// Chunk names only grow when the clock steps back: replay follows name order,
+// and a retention's mark is a name.
+func TestChunkNamesGrowWhenTheClockStepsBack(t *testing.T) {
+	stubChunkTime := func(t *testing.T, ts int64) {
+		t.Helper()
+		prev := chunkTimeNow
+		chunkTimeNow = func() int64 { return ts }
+		t.Cleanup(func() { chunkTimeNow = prev })
+	}
+	seqOf := func(t *testing.T, path string) int64 {
+		t.Helper()
+		seq, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "chunk-"), ".bin"), 10, 64)
+		require.NoError(t, err)
+		return seq
+	}
+
+	t.Run("after an empty queue's mark", func(t *testing.T) {
+		stubChunkTime(t, 2_000_000)
+		s := makeScheduler(t)
+		q := makeQueueSize(t, s, discardExecutor(), 50)
+		mark, err := q.Retain()
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = q.ReleaseRetention() })
+
+		stubChunkTime(t, 1_000_000)
+		pushMany(t, q, 1, 1)
+		chunks, _ := chunksOf(t, q)
+		require.Len(t, chunks, 1)
+		assert.Greater(t, seqOf(t, chunks[0]), seqOf(t, mark))
+	})
+
+	t.Run("within a queue", func(t *testing.T) {
+		stubChunkTime(t, 2_000_000)
+		s := makeScheduler(t)
+		q := makeQueueSize(t, s, discardExecutor(), 50)
+		pushMany(t, q, 1, 1, 2, 3)
+		stubChunkTime(t, 1_000_000)
+		pushMany(t, q, 1, 4)
+		chunks, _ := chunksOf(t, q)
+		require.Len(t, chunks, 2)
+		assert.Equal(t, int64(2_000_000), seqOf(t, chunks[0]))
+		assert.Greater(t, seqOf(t, chunks[1]), seqOf(t, chunks[0]))
+	})
+
+	t.Run("across a restart", func(t *testing.T) {
+		stubChunkTime(t, 2_000_000)
+		s := makeScheduler(t)
+		dir := t.TempDir()
+		q := makeQueueWith(t, s, discardExecutor(), 50, dir)
+		pushMany(t, q, 1, 1, 2, 3)
+		require.NoError(t, q.Close(t.Context()))
+
+		stubChunkTime(t, 1_000_000)
+		q = makeQueueWith(t, s, discardExecutor(), 50, dir)
+		pushMany(t, q, 1, 4)
+		chunks, _ := chunksOf(t, q)
+		require.Len(t, chunks, 2)
+		assert.Equal(t, int64(2_000_000), seqOf(t, chunks[0]))
+		assert.Greater(t, seqOf(t, chunks[1]), seqOf(t, chunks[0]))
+	})
 }
