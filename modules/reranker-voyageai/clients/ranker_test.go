@@ -213,3 +213,42 @@ func (f *testRankHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.Write(outBytes)
 }
+
+func TestRankMapsPartialAndInvalidResults(t *testing.T) {
+	tests := []struct {
+		name    string
+		results []Data
+		want    []ent.DocumentScore
+		wantErr string
+	}{
+		{
+			name:    "documents cut off by top-N are unscored",
+			results: []Data{{Index: 2, RelevanceScore: 0.8}, {Index: 0, RelevanceScore: 0.3}},
+			want: []ent.DocumentScore{
+				{Document: "doc1", Score: 0.3},
+				{Document: "doc2", Unscored: true},
+				{Document: "doc3", Score: 0.8},
+			},
+		},
+		{
+			name:    "index out of range is an error",
+			results: []Data{{Index: 0, RelevanceScore: 0.3}, {Index: 5, RelevanceScore: 0.8}},
+			wantErr: "reranker result index 5 out of range for 3 documents",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(&testRankHandler{t: t, response: RankResponse{Data: tt.results}})
+			defer server.Close()
+			c := New("apiKey", 0, nullLogger())
+			c.host = server.URL
+			res, err := c.Rank(context.Background(), "q", []string{"doc1", "doc2", "doc3"}, nil)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, res.DocumentScores)
+		})
+	}
+}

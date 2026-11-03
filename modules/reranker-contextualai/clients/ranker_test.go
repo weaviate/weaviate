@@ -23,6 +23,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
 const (
@@ -245,6 +247,53 @@ func TestRankWithDifferentConfigs(t *testing.T) {
 				require.NotNil(t, capturedRequest.Instruction)
 				assert.Equal(t, *tt.expectedInstr, *capturedRequest.Instruction)
 			}
+		})
+	}
+}
+
+func TestRankMapsPartialAndInvalidResults(t *testing.T) {
+	tests := []struct {
+		name    string
+		results []RerankedResult
+		want    []ent.DocumentScore
+		wantErr string
+	}{
+		{
+			name:    "documents cut off by top-N are unscored",
+			results: []RerankedResult{{Index: 2, RelevanceScore: 0.8}, {Index: 0, RelevanceScore: 0.3}},
+			want: []ent.DocumentScore{
+				{Document: "doc1", Score: 0.3},
+				{Document: "doc2", Unscored: true},
+				{Document: "doc3", Score: 0.8},
+			},
+		},
+		{
+			name:    "index out of range is an error",
+			results: []RerankedResult{{Index: 0, RelevanceScore: 0.3}, {Index: 5, RelevanceScore: 0.8}},
+			wantErr: "reranker result index 5 out of range for 3 documents",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				json.NewEncoder(w).Encode(RankResponse{Results: tt.results})
+			}))
+			defer server.Close()
+			c := &client{
+				apiKey:       testAPIKey,
+				httpClient:   &http.Client{Timeout: 30 * time.Second},
+				host:         server.URL,
+				path:         rerankPath,
+				maxDocuments: 1000,
+				logger:       logrus.New(),
+			}
+			res, err := c.Rank(context.Background(), "q", []string{"doc1", "doc2", "doc3"}, fakeClassConfig{classConfig: map[string]any{"topN": 2}})
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, res.DocumentScores)
 		})
 	}
 }

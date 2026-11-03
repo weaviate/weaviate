@@ -241,3 +241,55 @@ func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
 }
+
+func TestRankMapsPartialAndInvalidResults(t *testing.T) {
+	tests := []struct {
+		name    string
+		results []ranking
+		want    []ent.DocumentScore
+		wantErr string
+	}{
+		{
+			name:    "documents cut off by top-N are unscored",
+			results: []ranking{{Index: 2, Logit: 0.8}, {Index: 0, Logit: 0.3}},
+			want: []ent.DocumentScore{
+				{Document: "doc1", Score: 0.3},
+				{Document: "doc2", Unscored: true},
+				{Document: "doc3", Score: 0.8},
+			},
+		},
+		{
+			name:    "index out of range is an error",
+			results: []ranking{{Index: 0, Logit: 0.3}, {Index: 5, Logit: 0.8}},
+			wantErr: "reranker result index 5 out of range for 3 documents",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(&testCrossRankerHandler{t: t, res: rankResponse{Rankings: tt.results}})
+			defer server.Close()
+			c := New("apiKey", 0, nullLogger())
+			res, err := c.Rank(context.Background(), "q", []string{"doc1", "doc2", "doc3"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, res.DocumentScores)
+		})
+	}
+}
+
+func TestRank422ReportsEveryDetail(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		w.Write([]byte(`{"detail":[{"msg":"first problem"},{"msg":"second problem"}]}`))
+	}))
+	defer server.Close()
+	c := New("key", 0, nullLogger())
+
+	cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
+	_, err := c.Rank(context.Background(), "q", []string{"doc"}, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "error: first problem second problem")
+}
