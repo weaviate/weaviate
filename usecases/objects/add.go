@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 // AddObject Class Instance to the connected DB.
@@ -110,6 +111,9 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil, fetchedClasses)
 	if err != nil {
+		if errors.Is(err, replicaerrors.ErrReplicas) {
+			return nil, NewErrInternal("validate object: %w", err)
+		}
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 

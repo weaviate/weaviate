@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 // An error the repo returns has to stay classifiable with errors.Is after the
@@ -434,5 +435,162 @@ func TestAutoSchemaForbiddenKeepsItsStatus(t *testing.T) {
 				repo.AssertExpectations(t)
 			})
 		})
+	}
+}
+
+// Validating a write checks that each cross-reference target exists, at the
+// request's consistency level. Too few reachable replicas is a server fault
+// and must reach the handlers as 500; any other outcome of that check stays
+// the client's fault and keeps its 4xx.
+func TestRefTargetReplicasErrIsInternal(t *testing.T) {
+	const class, target = "Zoo", "Animal"
+	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
+	refID := strfmt.UUID("a0b1c2d3-1e0d-42ae-bd52-ee09cb5f31cc")
+	beacon := "weaviate://localhost/" + target + "/" + string(refID)
+	found := &search.Result{ID: id, ClassName: class}
+	withRef := func() *models.Object {
+		return &models.Object{
+			Class: class, ID: id,
+			Properties: map[string]interface{}{
+				"hasAnimals": []interface{}{map[string]interface{}{"beacon": beacon}},
+			},
+		}
+	}
+
+	// The create and PUT handlers check for ErrInvalidUserInput first. An error
+	// that matches it never reaches the 500 branch.
+	requireInternal := func(t *testing.T, err error) {
+		require.ErrorAs(t, err, &ErrInternal{})
+		require.NotErrorAs(t, err, &ErrInvalidUserInput{})
+	}
+	requireUserInput := func(t *testing.T, err error) {
+		require.ErrorAs(t, err, &ErrInvalidUserInput{})
+	}
+	requireCode := func(code int) func(t *testing.T, err error) {
+		return func(t *testing.T, err error) {
+			var objErr *Error
+			require.ErrorAs(t, err, &objErr)
+			require.Equal(t, code, objErr.Code)
+		}
+	}
+	// A nil *Error must stay a nil error interface.
+	asErr := func(objErr *Error) error {
+		if objErr != nil {
+			return objErr
+		}
+		return nil
+	}
+
+	outcomes := []struct {
+		name     string
+		err      error
+		internal bool
+	}{
+		{
+			name:     "replicas unreachable",
+			err:      fmt.Errorf("exists: %w", replicaerrors.NewNotEnoughReplicasError(errors.New("2 of 3 nodes down"))),
+			internal: true,
+		},
+		{name: "other existence error", err: errors.New("shard refused")},
+		{name: "target missing"},
+	}
+
+	ops := []struct {
+		name      string
+		arrange   func(repo *fakeVectorRepo)
+		call      func(m *Manager) error
+		internal  func(t *testing.T, err error)
+		userFault func(t *testing.T, err error)
+	}{
+		{
+			name: "add object",
+			call: func(m *Manager) error {
+				obj := withRef()
+				obj.ID = ""
+				_, err := m.AddObject(context.Background(), &models.Principal{}, obj, nil)
+				return err
+			},
+			internal:  requireInternal,
+			userFault: requireUserInput,
+		},
+		{
+			name: "validate object",
+			call: func(m *Manager) error {
+				return m.ValidateObject(context.Background(), &models.Principal{}, withRef(), nil)
+			},
+			internal:  requireInternal,
+			userFault: requireUserInput,
+		},
+		{
+			name: "update object",
+			arrange: func(repo *fakeVectorRepo) {
+				repo.On("Object", class, id, mock.Anything, mock.Anything, "").Return(found, nil).Once()
+			},
+			call: func(m *Manager) error {
+				_, err := m.UpdateObject(context.Background(), &models.Principal{}, class, id, withRef(), nil)
+				return err
+			},
+			internal:  requireInternal,
+			userFault: requireUserInput,
+		},
+		{
+			name: "merge object",
+			arrange: func(repo *fakeVectorRepo) {
+				repo.On("Object", class, id, mock.Anything, mock.Anything, "").Return(found, nil).Once()
+			},
+			call: func(m *Manager) error {
+				return asErr(m.MergeObject(context.Background(), &models.Principal{}, withRef(), nil))
+			},
+			internal:  requireCode(StatusInternalServerError),
+			userFault: requireCode(StatusBadRequest),
+		},
+		{
+			name: "add reference",
+			call: func(m *Manager) error {
+				input := &AddReferenceInput{
+					Class: class, ID: id, Property: "hasAnimals",
+					Ref: models.SingleRef{Beacon: strfmt.URI(beacon)},
+				}
+				return asErr(m.AddObjectReference(context.Background(), &models.Principal{}, input, nil, ""))
+			},
+			internal:  requireCode(StatusInternalServerError),
+			userFault: requireCode(StatusBadRequest),
+		},
+		{
+			name: "replace references",
+			arrange: func(repo *fakeVectorRepo) {
+				repo.On("Object", class, id, mock.Anything, mock.Anything, "").Return(found, nil).Once()
+			},
+			call: func(m *Manager) error {
+				input := &PutReferenceInput{
+					Class: class, ID: id, Property: "hasAnimals",
+					Refs: models.MultipleRef{{Beacon: strfmt.URI(beacon)}},
+				}
+				return asErr(m.UpdateObjectReferences(context.Background(), &models.Principal{}, input, nil, ""))
+			},
+			internal:  requireCode(StatusInternalServerError),
+			userFault: requireCode(StatusBadRequest),
+		},
+	}
+
+	for _, o := range outcomes {
+		for _, op := range ops {
+			t.Run(o.name+"/"+op.name, func(t *testing.T) {
+				m, _, repo, _, _ := newNSManagers(t, zooAnimalNSSchema(false), false)
+				if op.arrange != nil {
+					op.arrange(repo)
+				}
+				repo.On("Exists", target, refID).Return(false, o.err).Once()
+
+				err := op.call(m)
+				if o.internal {
+					op.internal(t, err)
+					require.ErrorIs(t, err, replicaerrors.ErrReplicas)
+				} else {
+					op.userFault(t, err)
+				}
+				repo.AssertExpectations(t)
+			})
+		}
 	}
 }
