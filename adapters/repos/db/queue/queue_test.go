@@ -2510,8 +2510,13 @@ func TestRetention_Mark(t *testing.T) {
 func TestRetention_KeepsAChunkWhoseTombstoneFails(t *testing.T) {
 	s := makeScheduler(t)
 	q := makeQueueSize(t, s, discardExecutor(), 50)
-	pushMany(t, q, 1, 1, 2, 3, 4)
+	// one sealed chunk and no partial one, so nothing turns stale meanwhile
+	pushMany(t, q, 1, 1, 2, 3)
+	q.m.Lock()
+	require.NoError(t, q.w.Promote())
+	q.m.Unlock()
 	chunks, _ := chunksOf(t, q)
+	require.Len(t, chunks, 1)
 	_, err := q.Retain()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = q.ReleaseRetention() })
