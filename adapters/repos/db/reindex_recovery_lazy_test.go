@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -379,18 +380,12 @@ func TestLiftingAHeldShardDoesNotWaitOnAStuckDisk(t *testing.T) {
 	// Opening a pipe with no writer blocks in the kernel, like a hung network volume.
 	require.NoError(t, os.Remove(fx.corrupt))
 	require.NoError(t, syscall.Mkfifo(fx.corrupt, 0o600))
-	t.Cleanup(func() {
+	answer := sync.OnceFunc(func() {
 		w, err := os.OpenFile(fx.corrupt, os.O_WRONLY, 0)
 		require.NoError(t, err)
 		require.NoError(t, w.Close())
-		require.Eventually(t, func() bool {
-			if !shard.liftRetry.TryLock() {
-				return false
-			}
-			shard.liftRetry.Unlock()
-			return true
-		}, 10*time.Second, 10*time.Millisecond, "the retry finishes once the disk answers")
 	})
+	t.Cleanup(answer)
 
 	lifts := make(chan error, 2)
 	for range 2 {
@@ -404,8 +399,40 @@ func TestLiftingAHeldShardDoesNotWaitOnAStuckDisk(t *testing.T) {
 	require.Equal(t, storagestate.StatusReadOnly, receiveWithin(t, status))
 
 	shard.shutCtxCancel(errors.New("dropped"))
-	require.ErrorIs(t, receiveWithin(t, lifts), context.Canceled)
+	require.Error(t, receiveWithin(t, lifts))
 	require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+	shutdown := make(chan error, 1)
+	enterrors.GoWrapper(func() { shutdown <- shard.Shutdown(context.Background()) }, fx.logger)
+	require.ErrorIs(t, receiveWithin(t, shutdown), errShardStillInUse, "the arm holds the shard")
+
+	answer()
+	require.Eventually(t, shard.shut.Load, 10*time.Second, 10*time.Millisecond,
+		"the shutdown completes once the arm ends")
+}
+
+// A lift that stops waiting must not end the arm: a stamp written because a
+// caller gave up would fail a healthy migration for good.
+func TestALiftThatStopsWaitingStillArmsTheMirror(t *testing.T) {
+	fx := newDoubleFaultFixture(t, "tenant-lift-gives-up")
+	fx.idx.bucketLoadLimiter = loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "buckets", 1)
+	fx.breakDisk(t)
+	shard := fx.load(t)
+	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
+	fx.healRecords(t)
+	require.NoError(t, os.Remove(fx.corrupt))
+
+	// A busy limiter parks the arm; the caller stops waiting while it is parked.
+	require.NoError(t, fx.idx.bucketLoadLimiter.Acquire(fx.ctx))
+	shard.shutCtxCancel(errors.New("dropped"))
+	require.Error(t, shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate))
+	fx.idx.bucketLoadLimiter.Release()
+
+	require.Eventually(t, func() bool { return len(shard.migrationMirrors.heldUnarmed()) == 0 },
+		10*time.Second, 10*time.Millisecond, "the arm releases the hold")
+	require.NotZero(t, shard.migrationMirrors.ArmedMigrationMirrors())
+	rec, ok := shard.migrationRecords.Get(fx.subject.Key)
+	require.True(t, ok)
+	require.False(t, rec.Subject().Unmirrored)
 }
 
 func receiveWithin[T any](t *testing.T, ch <-chan T) T {

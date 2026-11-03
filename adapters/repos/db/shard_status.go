@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
@@ -197,41 +198,49 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 const liftRetryTimeout = 30 * time.Second
 
 // retryHeldMigrations runs before the status lock so reads never wait on the
-// disk, and in its own goroutine because a hung disk call cannot be cancelled.
+// disk. Only the caller's wait is bounded: a stamp is permanent, so the arm runs
+// to its end under its own shard reference, which shutdown waits for.
 func (s *Shard) retryHeldMigrations(in string) error {
 	target, err := storagestate.ValidateStatus(strings.ToUpper(in))
 	held := s.migrationMirrors.heldUnarmed()
-	if err != nil || target == storagestate.StatusReadOnly || len(held) == 0 || s.shutOrDropped() {
+	// The shutdown's own status write runs under the lock preventShutdown takes.
+	if err != nil || target == storagestate.StatusReadOnly || len(held) == 0 || s.shut.Load() {
+		return nil
+	}
+	release, err := s.preventShutdown()
+	if err != nil {
 		return nil
 	}
 	if !s.liftRetry.TryLock() {
+		release()
 		return s.heldReadOnlyErr(errors.New("a recovery retry is already running"))
 	}
-	ctx, cancel := context.WithTimeout(s.shutCtx, liftRetryTimeout)
-	defer cancel()
 	done := make(chan error, 1)
 	enterrors.GoWrapper(func() {
+		defer release()
 		defer s.liftRetry.Unlock()
-		_, err := s.armRecoveredMigrations(ctx, held)
+		_, err := s.armRecoveredMigrations(context.WithoutCancel(s.shutCtx), held)
 		if err == nil {
 			s.migrationMirrors.releaseHeld()
-			done <- nil
-			return
 		}
-		// The retry may have opened buckets, and the shard stays READONLY.
-		if rerr := s.store.UpdateBucketsStatus(storagestate.StatusReadOnly); rerr != nil {
-			err = fmt.Errorf("%w (its buckets could not be set back to %s: %w)", err, storagestate.StatusReadOnly, rerr)
-		}
-		done <- err
+		// The arm may open buckets after its caller left, while the shard is still READONLY.
+		ec := errorcompounder.New()
+		ec.Add(err)
+		ec.Add(s.store.UpdateBucketsStatus(storagestate.StatusReadOnly))
+		done <- ec.ToError()
 	}, s.index.logger)
+	wait := time.NewTimer(liftRetryTimeout)
+	defer wait.Stop()
 	select {
 	case err := <-done:
 		if err != nil {
 			return s.heldReadOnlyErr(err)
 		}
 		return nil
-	case <-ctx.Done():
-		return s.heldReadOnlyErr(fmt.Errorf("the disk did not answer within %s: %w", liftRetryTimeout, ctx.Err()))
+	case <-wait.C:
+		return s.heldReadOnlyErr(fmt.Errorf("the disk did not answer within %s", liftRetryTimeout))
+	case <-s.shutCtx.Done():
+		return s.heldReadOnlyErr(fmt.Errorf("the shard is shutting down: %w", context.Cause(s.shutCtx)))
 	}
 }
 

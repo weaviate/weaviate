@@ -1086,7 +1086,10 @@ Then, per shard load:
        the lift is refused because the disk is not accepting writes, and
        any bucket the retry opened is set back to READONLY.
      - Reads are served while the retry waits on the disk, a second lift
-       meanwhile is refused, and a lift waits at most 30 s.
+       meanwhile is refused, and a lift waits at most 30 s. A retry still
+       running then keeps going, and the shard's shutdown waits for it: a
+       migration is stamped only because the disk failed, never because a
+       caller stopped waiting. If it arms, the next lift goes writable.
      - On a multi-node cluster the status PUT can answer 200 while the
        owning node refused the lift. Confirm with
        `GET /v1/schema/<class>/shards` and the owning node's log.
