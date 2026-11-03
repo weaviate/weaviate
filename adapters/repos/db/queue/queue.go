@@ -798,16 +798,29 @@ func (q *DiskQueue) cleanupProcessedChunks() error {
 }
 
 // cleanupProcessedChunksBefore is cleanupProcessedChunks for the chunks
-// numbered below seq.
+// numbered below seq. A file it cannot remove is logged and left for the
+// next cleanup.
 func (q *DiskQueue) cleanupProcessedChunksBefore(seq int64) error {
+	removeErr, err := q.removeProcessedChunks(seq)
+	if removeErr != nil {
+		q.Logger.Warnf("failed to remove processed chunks, will retry at the next cleanup: %v", removeErr)
+	}
+	return err
+}
+
+// removeProcessedChunks removes the tombstoned chunks numbered below seq and
+// their tombstones. removeErr reports the files it could not remove; err a
+// directory it could not read.
+func (q *DiskQueue) removeProcessedChunks(seq int64) (removeErr, err error) {
 	entries, err := os.ReadDir(q.dir)
 	if err != nil {
 		if stderrors.Is(err, fs.ErrNotExist) {
-			return nil
+			return nil, nil
 		}
-		return errors.Wrap(err, "failed to read directory during tombstone cleanup")
+		return nil, errors.Wrap(err, "failed to read directory during tombstone cleanup")
 	}
 
+	var errs []error
 	for _, entry := range entries {
 		if !processedChunkFilePattern.MatchString(entry.Name()) {
 			continue
@@ -818,11 +831,19 @@ func (q *DiskQueue) cleanupProcessedChunksBefore(seq int64) error {
 		if ok && n >= seq {
 			continue
 		}
-		_ = os.Remove(chunk)
-		_ = os.Remove(tombstonePath)
+		// the tombstone goes last: a chunk without one is processed again
+		err := os.Remove(chunk)
+		if err != nil && !stderrors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, err)
+			continue
+		}
+		err = os.Remove(tombstonePath)
+		if err != nil && !stderrors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, err)
+		}
 	}
 
-	return nil
+	return stderrors.Join(errs...), nil
 }
 
 func (q *DiskQueue) removeChunk(path string) error {
