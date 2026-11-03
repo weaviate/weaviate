@@ -145,3 +145,38 @@ func (c *fakeRankClient) Rank(ctx context.Context, query string, documents []str
 	}
 	return result, nil
 }
+
+type fixedCountClient struct{ scores int }
+
+func (c *fixedCountClient) Rank(_ context.Context, query string, _ []string, _ moduletools.ClassConfig) (*ent.RankResult, error) {
+	return &ent.RankResult{Query: query, DocumentScores: make([]ent.DocumentScore, c.scores)}, nil
+}
+
+func TestRankFailsWhenScoresDoNotMatchDocuments(t *testing.T) {
+	tests := []struct {
+		name    string
+		scores  int
+		wantErr string
+	}{
+		{name: "fewer scores than documents", scores: 1, wantErr: "client rank: 1 scores for 2 documents"},
+		{name: "no scores", scores: 0, wantErr: "client rank: 0 scores for 2 documents"},
+		{name: "more scores than documents", scores: 3, wantErr: "client rank: 3 scores for 2 documents"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := []search.Result{
+				{ID: "a", Schema: map[string]interface{}{"content": "a"}},
+				{ID: "b", Schema: map[string]interface{}{"content": "b"}},
+			}
+			provider := New(&fixedCountClient{scores: tt.scores})
+			property := "content"
+			query := "query"
+			limit := len(in)
+
+			_, err := provider.AdditionalPropertyFn(context.Background(), in,
+				&Params{Property: &property, Query: &query}, &limit, nil, nil)
+			require.EqualError(t, err, tt.wantErr)
+		})
+	}
+}
