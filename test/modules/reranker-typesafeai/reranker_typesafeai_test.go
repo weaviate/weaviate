@@ -81,11 +81,10 @@ func testRerankerTypeSafeAI(restURI, grpcURI string) func(t *testing.T) {
 		white := grayPNG(t, 400, 0xff)
 		cross := crossPNG(t, 400)
 		tests := []struct {
-			name      string
-			tickets   []ticket
-			property  string
-			condition string
-			// wantLowest is the ticket that scores below every other one.
+			name       string
+			tickets    []ticket
+			property   string
+			condition  string
 			wantLowest string
 		}{
 			{

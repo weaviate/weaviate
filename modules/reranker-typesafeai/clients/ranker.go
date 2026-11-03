@@ -95,7 +95,6 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 		return nil, err
 	}
 
-	// owner maps a document to the position that holds its score.
 	owner := make(map[string]int, len(documents))
 	var pending []int
 	for i, document := range documents {
