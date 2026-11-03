@@ -164,7 +164,7 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 	}
 	// Same test as the write guards: every status but READONLY takes writes.
 	if targetStatus != storagestate.StatusReadOnly && len(s.migrationMirrors.heldUnarmed()) > 0 {
-		return s.heldReadOnlyErr(errors.New("no recovery retry has re-armed its mirror or recorded it as unarmed"))
+		return s.heldReadOnlyErr(errors.New("no recovery retry has re-armed its mirror or stamped it Unmirrored"))
 	}
 	oldStatus := s.status.Status
 	s.status.Status = targetStatus
@@ -215,6 +215,12 @@ func (s *Shard) retryHeldMigrations(in string) error {
 		_, err := s.armRecoveredMigrations(ctx, held)
 		if err == nil {
 			s.migrationMirrors.releaseHeld()
+			done <- nil
+			return
+		}
+		// The retry may have opened buckets, and the shard stays READONLY.
+		if rerr := s.store.UpdateBucketsStatus(storagestate.StatusReadOnly); rerr != nil {
+			err = fmt.Errorf("%w (its buckets could not be set back to %s: %w)", err, storagestate.StatusReadOnly, rerr)
 		}
 		done <- err
 	}, s.index.logger)
@@ -231,6 +237,6 @@ func (s *Shard) retryHeldMigrations(in string) error {
 
 func (s *Shard) heldReadOnlyErr(cause error) error {
 	return fmt.Errorf("shard %q stays %s: the disk is not accepting writes, so a reindex migration "+
-		"can neither re-arm its double-write mirror nor record that it is unarmed: %w",
+		"can neither re-arm its double-write mirror nor stamp it Unmirrored: %w",
 		s.name, storagestate.StatusReadOnly, cause)
 }

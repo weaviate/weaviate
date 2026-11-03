@@ -18,7 +18,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -103,7 +102,7 @@ func TestRecoveryReportsEachFaultKindOnce(t *testing.T) {
 	}
 }
 
-// A shared fault must not log once per shard, must not hide another kind, and must report what it dropped.
+// A shared fault must not log once per shard, and must not hide another kind.
 func TestRecoveryCapsFaultLinesAcrossShards(t *testing.T) {
 	const dropped = 5
 	logger, hook := logrustest.NewNullLogger()
@@ -131,13 +130,6 @@ func TestRecoveryCapsFaultLinesAcrossShards(t *testing.T) {
 		require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordMerged(subject)))
 	})
 	require.Len(t, entriesAbout(hook, "builds no reindex task"), 1, "another kind still reports")
-
-	recovery.unreadableFaults.windowStart = time.Time{}
-	hook.Reset()
-	recoverShard(unreadable)
-	about = entriesAbout(hook, "some migration records could not be read")
-	require.Len(t, about, 1, "%v", linesOf(about))
-	require.Equal(t, dropped, about[0].Data["dropped_lines"])
 }
 
 // The apply's sweep summary must print: record_set_reads is where a

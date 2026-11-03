@@ -1028,10 +1028,14 @@ loads (a cold tenant) costs nothing. `MakeAppState` builds the reindex
 provider and the `MigrationRecoveryReindexer` before any shard loads.
 Then, per shard load:
 
-1. The shard loads its migration records once. A records directory that
+1. `Shard.finalizeLegacyMigrations` runs before any record is read and
+   before any bucket opens, because it renames bucket directories. It
+   finishes the migrations a previous version left finished, as named by
+   their tracker files. See §9 for the multi-gen algorithm.
+2. The shard loads its migration records once. A records directory that
    cannot be read is reported by the load reconciler, and nothing is
    recovered.
-2. `RecoverMigrations` reads those records. Raft may not be open yet, so
+3. `RecoverMigrations` reads those records. Raft may not be open yet, so
    the record is its only source. For each record whose iteration
    finished and whose flip is not promoted, it rebuilds a per-shard
    `ShardReindexTaskGeneric`: the generation is the record's task
@@ -1043,46 +1047,51 @@ Then, per shard load:
    the armed instances instead of calling `OnAfterLsmInit` a second
    time (which would attempt to load already-loaded ingest buckets). A
    reload of the same shard gets back the instances the provider holds.
-3. The load reconciler runs over the same records. It runs after the
+4. The load reconciler runs over the same records. It runs after the
    stamp, because it must not promote stale staged data over the live
    bucket.
-4. Once the shard's buckets are open, `Shard.armRecoveredMigrations`
+5. Once the shard's buckets are open, `Shard.armRecoveredMigrations`
    calls `OnAfterLsmInit` on each recovered task, re-installing the
    double-write callbacks before any post-restart write can reach the
    shard. Without this, writes that arrive between shard init and the
    swap that completes a deferred reindex go only to the old main bucket
-   and are lost when the swap replaces it with the ingest bucket. If a
-   mirror fails to arm, the shard still loads; `AbandonUnarmed` stamps
-   the record `Unmirrored` and drops the unit's tasks from the provider's
-   cache. `RunPrepareOnShard` refuses an `Unmirrored` record, so this
-   node's PREPARING ack fails and the task goes `FAILED` before any
-   replica or sibling half swaps; it has to be resubmitted. A task can
-   already be past its prepare, as when the node restarts mid-swap, so the
-   swap phase checks every task of the unit first and swaps none of them
-   if any record is `Unmirrored`. If the stamp cannot be written either,
-   the shard loads `READONLY` with its own status reason: it serves reads,
-   takes no writes (so the staged copy stays current), and every migration
-   step on the shard (prepare, swap, a repair or rebuild unit) waits instead
-   of failing: the scheduler runs it again on a later tick. The shard's
-   status (`GET /v1/schema/<class>/shards`) shows READONLY with this reason,
-   and the node logs once that its migrations wait. Every switch back to a writable status
-   (manual status update, the end of a vector-index config change) first
-   retries: if the mirror now arms, the shard goes writable and the
-   migration continues; if only the stamp lands, it goes writable and the
-   migration must be resubmitted; otherwise the switch is refused because
-   the disk is not accepting writes. Reads are served while the retry
-   waits on the disk, a second switch meanwhile is refused, and a switch
-   waits at most 30 s. Disk-pressure recovery lifts only its
-   own reason, so it never lifts this one. A restart retries too. A migration already swapped in is never
-   stamped, because the stamp would block the promotion that serves its new
-   index; the shard is held the same way. An unreadable record on the shard makes the
-   store refuse the stamp too, so the shard is held the same way until the
-   mirror arms or the record is repaired and the node restarted.
-5. `FinalizeCompletedMigrations` runs per shard before LSM init
-   reloads any buckets. For each `(prop, indexType)`, finds the
-   highest tidied (or merged-but-not-tidied) generation, promotes
-   its ingest dir to the canonical name, deletes lower-gen
-   sidecars. See §9 for the multi-gen algorithm.
+   and are lost when the swap replaces it with the ingest bucket. The arm
+   does not use the request's context, so a client that gives up on a
+   lazy load cannot fail it. The outcomes:
+   - **The mirror arms.** The migration continues.
+   - **The mirror fails to arm and the stamp lands.** The shard loads
+     writable. `AbandonUnarmed` stamps the record `Unmirrored` and drops
+     the unit's tasks from the provider's cache. `RunPrepareOnShard`
+     refuses an `Unmirrored` record, so this node's PREPARING ack fails and
+     the task goes `FAILED` before any replica or sibling half swaps; it
+     has to be resubmitted. A task can already be past its prepare, as when
+     the node restarts mid-swap, so the swap phase checks every task of the
+     unit first and swaps none of them if any record is `Unmirrored`.
+   - **The mirror fails to arm and no stamp can be written.** This covers a
+     failing disk, an unreadable record on the shard (the store then
+     refuses every write), and a migration already swapped in (a stamp
+     would block the promotion that serves its new index). The shard loads
+     `READONLY` with its own status reason: it serves reads, takes no writes
+     (so the staged copy stays current), and every migration step on the
+     shard (prepare, swap, a repair or rebuild unit) waits instead of
+     failing; the scheduler runs it again on a later tick. The shard's
+     status (`GET /v1/schema/<class>/shards`) shows READONLY with this
+     reason, and the node logs once that its migrations wait.
+     - Only a manual status update lifts the hold. A vector-index config
+       change is refused while the shard is READONLY, and disk-pressure
+       recovery lifts only its own reason.
+     - The lift first retries the arm: if the mirror now arms, the shard
+       goes writable and the migration continues; if only the stamp lands,
+       it goes writable and the migration must be resubmitted; otherwise
+       the lift is refused because the disk is not accepting writes, and
+       any bucket the retry opened is set back to READONLY.
+     - Reads are served while the retry waits on the disk, a second lift
+       meanwhile is refused, and a lift waits at most 30 s.
+     - On a multi-node cluster the status PUT can answer 200 while the
+       owning node refused the lift. Confirm with
+       `GET /v1/schema/<class>/shards` and the owning node's log.
+     - A restart retries too. An unreadable record stays unreadable until
+       it is repaired and the node restarted.
 
 ### 6.3 The two-phase ack barrier (PREPARING + SWAPPING)
 

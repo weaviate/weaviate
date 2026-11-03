@@ -16,7 +16,7 @@ import "sync"
 type migrationMirrorRegistry struct {
 	mu      sync.Mutex
 	disarms map[migrationMirrorKey]func()
-	// Neither armed nor recorded as unarmed; the shard stays read-only for them.
+	// Neither armed nor stamped Unmirrored, so the shard stays READONLY while any remain.
 	held []*ShardReindexTaskGeneric
 }
 

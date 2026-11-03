@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -31,12 +32,12 @@ type MigrationRecoveryReindexer struct {
 	enabled       bool
 	logger        logrus.FieldLogger
 	schemaManager *schema.Manager
-	// Seeded so OnGroupCompleted swaps on the armed instances instead of rehydrating.
+	// OnGroupCompleted swaps on the instances whose mirrors are armed, so it must not rebuild them.
 	provider *ReindexProvider
 
-	// One fault, such as a disk failing under every tenant, would otherwise log
-	// once per shard load. Per kind, so one flooding kind cannot hide another.
-	unreadableFaults, unbuildableFaults, unarmedFaults, armFaults, stampFaults recoveryFaultLog
+	// A fault shared by every tenant, such as a failing disk, would otherwise log once per
+	// shard load. Each kind has its own sampler so that one kind cannot hide another.
+	unreadableFaults, unbuildableFaults, unarmedFaults, armFaults, stampFaults *logrusext.Sampler
 
 	mu sync.Mutex
 	// A reloaded shard re-arms the instances the provider already holds, so its
@@ -47,12 +48,16 @@ type MigrationRecoveryReindexer struct {
 func NewMigrationRecoveryReindexer(runtimeReindexEnabled bool, logger logrus.FieldLogger,
 	schemaManager *schema.Manager, provider *ReindexProvider,
 ) *MigrationRecoveryReindexer {
+	faults := func() *logrusext.Sampler { return logrusext.NewSampler(logger, maxReportedErrors, time.Minute) }
 	return &MigrationRecoveryReindexer{
 		enabled:       runtimeReindexEnabled,
 		logger:        logger,
 		schemaManager: schemaManager,
 		provider:      provider,
 		recovered:     map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric{},
+
+		unreadableFaults: faults(), unbuildableFaults: faults(), unarmedFaults: faults(),
+		armFaults: faults(), stampFaults: faults(),
 	}
 }
 
@@ -63,14 +68,9 @@ func (r *MigrationRecoveryReindexer) RecoverMigrations(shard *Shard) []*ShardRei
 }
 
 // AbandonUnarmed stamps a migration whose mirror failed to arm, so a later swap of
-// now-stale data is blocked; resubmitting is the way out. A failed stamp write is
-// returned, and the tasks stay cached so the shard can still arm them later.
+// its now-stale data is blocked. When it cannot, it returns why and keeps the tasks
+// cached, so the shard can still arm them later.
 func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*ShardReindexTaskGeneric, cause error) error {
-	shardName := shard.Name()
-	r.armFaults.report(r.logger.WithField("shard", shardName), func(l logrus.FieldLogger) {
-		l.Errorf("reindex recovery: %d migration(s) could not re-arm their double-write mirror, so they will "+
-			"not be swapped in: %v. %s", len(unarmed), cause, migrationUnmirroredRemedy)
-	})
 	var records []MigrationRecord
 	for _, t := range unarmed {
 		rec, ok := shard.migrationRecords.Get(t.migrationRecordKey())
@@ -85,14 +85,19 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 		records = append(records, rec)
 	}
 	if _, err := stampUnmirroredRecords(shard.migrationRecords, records, nil); err != nil {
-		return fmt.Errorf("record that a migration's mirror stayed unarmed: %w", err)
+		return fmt.Errorf("stamp Unmirrored the migrations whose mirror failed to arm (%w): %w", cause, err)
 	}
 	r.forget(unarmed)
+	r.armFaults.WithSampling(func(logrus.FieldLogger) {
+		r.logger.WithField("shard", shard.Name()).Errorf("reindex recovery: %d migration(s) could not re-arm "+
+			"their double-write mirror, so they will not be swapped in: %v. %s", len(unarmed), cause,
+			migrationUnmirroredRemedy)
+	})
 	return nil
 }
 
-// forget drops every task of each unarmed task's unit: a cached sibling alone
-// would swap one half of the migration and report the unit done.
+// forget drops every task of each unarmed task's unit, because a cached sibling
+// alone would swap one half of the migration and report the unit done.
 func (r *MigrationRecoveryReindexer) forget(unarmed []*ShardReindexTaskGeneric) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -112,8 +117,8 @@ func (r *MigrationRecoveryReindexer) recoverFromStore(store *MigrationRecordStor
 	logger := r.logger.WithField("shard", shardName)
 	someRecordsUnreadable := len(store.Unreadable()) > 0
 	if someRecordsUnreadable {
-		r.unreadableFaults.report(logger, func(l logrus.FieldLogger) {
-			l.Warn("reindex recovery: some migration records could not be read; " +
+		r.unreadableFaults.WithSampling(func(logrus.FieldLogger) {
+			logger.Warn("reindex recovery: some migration records could not be read; " +
 				"recovering only the migrations the readable records name")
 		})
 	}
@@ -138,8 +143,8 @@ func (r *MigrationRecoveryReindexer) recoverFromStore(store *MigrationRecordStor
 		tasks = append(tasks, built...)
 	}
 	if unbuildableCount > 0 {
-		r.unbuildableFaults.report(logger, func(l logrus.FieldLogger) {
-			l.Warnf("reindex recovery: the record of %d migration(s) builds no reindex task, so those "+
+		r.unbuildableFaults.WithSampling(func(logrus.FieldLogger) {
+			logger.Warnf("reindex recovery: the record of %d migration(s) builds no reindex task, so those "+
 				"migrations' mirrors stay unarmed: %v", unbuildableCount, unbuildable.ToErrorLimited(maxReportedErrors))
 		})
 	}
@@ -150,8 +155,8 @@ func (r *MigrationRecoveryReindexer) recoverFromStore(store *MigrationRecordStor
 
 	stamped, stampErr := stampUnmirroredRecords(store, records, armable)
 	if len(stamped) > 0 {
-		r.unarmedFaults.report(logger, func(l logrus.FieldLogger) {
-			l.Errorf("reindex recovery: %d migration(s) awaiting their flip could not be armed with a double-write "+
+		r.unarmedFaults.WithSampling(func(logrus.FieldLogger) {
+			logger.Errorf("reindex recovery: %d migration(s) awaiting their flip could not be armed with a double-write "+
 				"mirror, so writes this shard takes now reach the pre-migration bucket only. "+
 				"Their staged data is stale and will not be promoted over it. %s",
 				len(stamped), migrationUnmirroredRemedy)
@@ -164,8 +169,8 @@ func (r *MigrationRecoveryReindexer) recoverFromStore(store *MigrationRecordStor
 }
 
 func (r *MigrationRecoveryReindexer) reportStampFault(shardName string, err error) {
-	r.stampFaults.report(r.logger.WithField("shard", shardName), func(l logrus.FieldLogger) {
-		l.Errorf("reindex recovery: could not record that a migration's mirror stayed unarmed, "+
+	r.stampFaults.WithSampling(func(logrus.FieldLogger) {
+		r.logger.WithField("shard", shardName).Errorf("reindex recovery: could not record that a migration's mirror stayed unarmed, "+
 			"so a later promotion may still rename its stale staged data over the live bucket: %v", err)
 	})
 }
@@ -206,41 +211,6 @@ func (r *MigrationRecoveryReindexer) knownTask(desc distributedtask.TaskDescript
 		}
 	}
 	return nil
-}
-
-// recoveryFaultLog caps one fault kind at maxReportedErrors lines a minute
-// across shard loads; the next line it lets through counts the ones it dropped.
-type recoveryFaultLog struct {
-	mu          sync.Mutex
-	windowStart time.Time
-	logged      int
-	dropped     int
-}
-
-func (f *recoveryFaultLog) report(l logrus.FieldLogger, emit func(logrus.FieldLogger)) {
-	dropped, ok := f.admit(time.Now())
-	if !ok {
-		return
-	}
-	if dropped > 0 {
-		l = l.WithField("dropped_lines", dropped)
-	}
-	emit(l)
-}
-
-func (f *recoveryFaultLog) admit(now time.Time) (dropped int, ok bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if now.Sub(f.windowStart) > time.Minute {
-		f.windowStart, f.logged = now, 0
-	}
-	if f.logged >= maxReportedErrors {
-		f.dropped++
-		return 0, false
-	}
-	f.logged++
-	dropped, f.dropped = f.dropped, 0
-	return dropped, true
 }
 
 const migrationUnmirroredRemedy = "The migration fails at its next prepare or swap step; once it has failed and " +
