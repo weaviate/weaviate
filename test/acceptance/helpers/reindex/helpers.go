@@ -474,11 +474,9 @@ func (w IndexWant) matches(e IndexEntry) bool {
 
 const nodeCatchUpTimeout = 10 * time.Second
 
-// AwaitIndexOnNodes waits until each node's own GET /indexes reports want
-// for (property, indexType). Call it before asserting per-node index state
-// after AwaitReindexFinished: /v1/tasks answers from the leader, while
-// /indexes answers from the queried node's copy of the task list, so a
-// follower can still report "indexing" for a moment after FINISHED.
+// AwaitIndexOnNodes waits until each node's own GET /indexes reports want.
+// Use after AwaitReindexFinished: /v1/tasks answers from the leader, but
+// /indexes from the node's own task copy, which can lag FINISHED.
 func AwaitIndexOnNodes(t *testing.T, nodeURIs []string, collection, property, indexType string, want IndexWant) {
 	t.Helper()
 	for _, uri := range nodeURIs {
