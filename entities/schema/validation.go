@@ -29,6 +29,11 @@ const (
 	InternalRangeableSuffix      = "_rangeable"
 	InternalTempSuffix           = "_temp"
 	InternalMetaCountSuffix      = "__meta_count"
+	// InternalReplacedBucketSuffix names the dir a displaced bucket sits at
+	// between a crashed and a completed replacement. Re-exported as
+	// lsmkv.ReplacedBucketDirSuffix, which builds those dirs; kept here so the
+	// property-name check and the cleanup sweep read one value.
+	InternalReplacedBucketSuffix = "___del"
 )
 
 var (
@@ -48,6 +53,7 @@ var (
 		InternalMetaCountSuffix,
 		InternalPropertyLengthSuffix,
 		InternalNullStateSuffix,
+		InternalReplacedBucketSuffix,
 	}
 
 	// NamespaceNameRegexCore is the single source of truth for the namespace
