@@ -311,7 +311,9 @@ func (q *DiskQueue) Push(record []byte) error {
 
 	n, err := q.w.Write(buf.Bytes())
 	if err != nil {
-		return errors.Wrap(err, "failed to write record")
+		err = errors.Wrap(err, "failed to write record")
+		q.recordLoss("", err)
+		return err
 	}
 
 	q.recordCount++
@@ -549,6 +551,7 @@ func (q *DiskQueue) readChunk() (*chunk, error) {
 		case stderrors.Is(err, fs.ErrNotExist):
 			q.dropMissingChunk(ref)
 		case stderrors.Is(err, errEmptyChunk):
+			q.recordLoss(ref.path, err)
 			err := q.removeChunk(ref.path)
 			if err != nil {
 				return nil, err
@@ -581,6 +584,7 @@ func (q *DiskQueue) dropMissingChunk(ref chunkRef) {
 	defer q.rmLock.Unlock()
 
 	q.forgetChunk(ref.path)
+	q.recordLoss(ref.path, fs.ErrNotExist)
 	q.Logger.WithField("file", ref.path).Errorf("chunk file is missing, its %d records are lost", ref.count)
 }
 
@@ -822,6 +826,7 @@ func (q *DiskQueue) quarantineChunk(path string, cause error) error {
 	}
 	if stderrors.Is(err, fs.ErrNotExist) {
 		q.forgetChunk(path)
+		q.recordLoss(path, cause)
 		q.Logger.WithField("file", path).Errorf("corrupt chunk file is missing, nothing to quarantine: %v", cause)
 		return nil
 	}
@@ -829,6 +834,7 @@ func (q *DiskQueue) quarantineChunk(path string, cause error) error {
 		return errors.Wrap(err, "failed to quarantine corrupt chunk")
 	}
 	q.forgetChunk(path)
+	q.recordLoss(path, cause)
 
 	if !kept {
 		q.Logger.WithField("file", path).
