@@ -1,0 +1,79 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package modrerankertypesafeai
+
+import (
+	"context"
+	"os"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modules"
+)
+
+func TestMaxConcurrentRequestsFromEnv(t *testing.T) {
+	tests := []struct {
+		name    string
+		set     bool
+		value   string
+		want    int
+		wantErr string
+	}{
+		{name: "unset uses the default", want: 16},
+		{name: "lower bound", set: true, value: "1", want: 1},
+		{name: "upper bound", set: true, value: "256", want: 256},
+		{name: "zero", set: true, value: "0", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "0"`},
+		{name: "above the limit", set: true, value: "257", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "257"`},
+		{name: "negative", set: true, value: "-4", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "-4"`},
+		{name: "not a number", set: true, value: "many", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "many"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(maxConcurrentRequestsEnv, "")
+			if tt.set {
+				t.Setenv(maxConcurrentRequestsEnv, tt.value)
+			} else {
+				require.NoError(t, os.Unsetenv(maxConcurrentRequestsEnv))
+			}
+			got, err := maxConcurrentRequestsFromEnv()
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestRerankPropertyDataTypes(t *testing.T) {
+	assert.Equal(t, []schema.DataType{schema.DataTypeText, schema.DataTypeBlob}, New().RerankPropertyDataTypes())
+}
+
+func TestValidateClassRejectsAWrongSetting(t *testing.T) {
+	class := &models.Class{
+		Class: "Doc",
+		ModuleConfig: map[string]any{
+			Name: map[string]any{"model": 42},
+		},
+	}
+	cfg := modules.NewClassBasedModuleConfig(class, Name, "", "", &config.Config{})
+
+	err := New().ValidateClass(context.Background(), class, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "model")
+}
