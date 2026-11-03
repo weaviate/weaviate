@@ -58,23 +58,31 @@ type generativeParser interface {
 	ReturnDebugForGrouped() bool
 }
 
+// A nil rerankPropertyValidator accepts every rerank property.
+type rerankPropertyValidator interface {
+	ValidateRerankProperty(class *models.Class, property string) error
+}
+
 type Parser struct {
 	generative         generativeParser
 	authorizedGetClass classGetterWithAuthzFunc
 	principal          *models.Principal
 	qualifier          namespacing.Qualifier
+	rerankValidator    rerankPropertyValidator
 }
 
 func NewParser(uses127Api bool,
 	authorizedGetClass classGetterWithAuthzFunc,
 	principal *models.Principal,
 	qualifier namespacing.Qualifier,
+	rerankValidator rerankPropertyValidator,
 ) *Parser {
 	return &Parser{
 		generative:         generative.NewParser(uses127Api),
 		authorizedGetClass: authorizedGetClass,
 		principal:          principal,
 		qualifier:          qualifier,
+		rerankValidator:    rerankValidator,
 	}
 }
 
@@ -381,6 +389,11 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.Rerank != nil {
+		if p.rerankValidator != nil {
+			if err := p.rerankValidator.ValidateRerankProperty(class, req.Rerank.Property); err != nil {
+				return dto.GetParams{}, err
+			}
+		}
 		if out.AdditionalProperties.ModuleParams == nil {
 			out.AdditionalProperties.ModuleParams = make(map[string]interface{})
 		}
