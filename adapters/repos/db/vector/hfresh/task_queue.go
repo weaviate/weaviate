@@ -303,6 +303,15 @@ func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64) error {
 // A non-nil error keeps the processed chunk on disk so the queue replays it
 // on a later cycle.
 func (tq *TaskQueue) OnBatchProcessed() error {
+	// postings live in the shard's buckets, and the centroid commit log must
+	// not reach the file before them
+	if tq.index.store != nil {
+		err := tq.index.store.WriteWALs()
+		if err != nil {
+			return err
+		}
+	}
+
 	return tq.index.Flush()
 }
 
