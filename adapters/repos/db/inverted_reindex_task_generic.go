@@ -1420,8 +1420,8 @@ func (t *ShardReindexTaskGeneric) recordCheckpoint(shard ShardLike, subject Migr
 
 // Temporary: a held shard takes no writes, so its staged data stays current.
 var errShardHeldReadOnly = errors.New("the shard is READONLY because a reindex migration's double-write " +
-	"mirror could not be armed and the disk refused to record that; this step waits until the disk accepts " +
-	"writes and the shard is set back to READY, or the migration is cancelled")
+	"mirror is not armed and cannot be stamped Unmirrored; this step waits until the shard is set back to " +
+	"READY, or the migration is cancelled")
 
 // Not logged: the scheduler retries every tick, and the hold logs once when it starts.
 func (t *ShardReindexTaskGeneric) refuseHeld(shard ShardLike) error {

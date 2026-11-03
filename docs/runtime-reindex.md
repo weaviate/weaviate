@@ -1089,12 +1089,20 @@ Then, per shard load:
      - The lift first retries the arm: if the mirror now arms, the shard
        goes writable and the migration continues; if only the stamp lands,
        it goes writable and the migration must be resubmitted; otherwise
-       the lift is refused because the disk is not accepting writes, and
-       any bucket the retry opened is set back to READONLY.
+       the lift is refused with the cause, and any bucket the retry opened
+       is set back to READONLY.
+     - The way out depends on what stopped the arm, which the hold log and
+       the refusal name. An unreadable record or a migration already
+       swapped in only rules out the stamp; it does not change the way out.
+
+       | What stopped the arm | Way out |
+       |---|---|
+       | The disk fails reads or writes | Once it works, set the shard READY |
+       | A staged bucket cannot open because a segment file is damaged | Repair or restore that file, then set the shard READY or restart the node |
      - Reads are served while the retry waits on the disk, a second lift
        meanwhile is refused, and a lift waits at most 30 s. A retry still
        running then keeps going, and the shard's shutdown waits for it: a
-       migration is stamped only because the disk failed, never because a
+       migration is stamped only because its arm failed, never because a
        caller stopped waiting. If it arms, the next lift goes writable, and
        the migration's steps wait until then.
      - On a multi-node cluster the status PUT can answer 200 while the

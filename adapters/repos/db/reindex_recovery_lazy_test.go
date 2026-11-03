@@ -352,7 +352,7 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 					require.True(t, rec.Subject().Unmirrored)
 					fx.requirePhasesRefused(t, shard, "no double-write mirror armed", false)
 				default:
-					require.ErrorContains(t, err, "the disk is not accepting writes")
+					require.ErrorContains(t, err, "cannot be stamped Unmirrored")
 					require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
 					require.False(t, rec.Subject().Unmirrored)
 					fx.requirePhasesRefused(t, shard, errShardHeldReadOnly.Error(), true)
@@ -376,7 +376,7 @@ func TestAFailedLiftLeavesTheBucketsItOpenedReadOnly(t *testing.T) {
 	// Now the sidecar opens and the staged bucket fails after it.
 	require.NoError(t, os.Rename(filepath.Join(sidecar, "segment-1.db"), fx.corrupt))
 	require.ErrorContains(t, shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate),
-		"the disk is not accepting writes")
+		"cannot be stamped Unmirrored")
 	opened := shard.store.Bucket(fx.subject.Props["title"].Sidecar)
 	require.NotNil(t, opened)
 	require.Equal(t, storagestate.StatusReadOnly, opened.GetStatus())

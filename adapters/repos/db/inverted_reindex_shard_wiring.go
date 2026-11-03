@@ -62,9 +62,10 @@ func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardRe
 // because a write would miss the staged copy that nothing on disk stops from being swapped in.
 func (s *Shard) holdReadOnlyForUnarmed(unarmed []*ShardReindexTaskGeneric, cause error) {
 	s.migrationMirrors.holdUnarmed(unarmed)
-	s.index.logger.WithField("shard", s.ID()).Errorf("shard is %s until the disk accepts writes again and its "+
-		"status is set back to %s, and its reindex migrations wait until then: %v",
-		storagestate.StatusReadOnly, storagestate.StatusReady, cause)
+	s.index.logger.WithField("shard", s.ID()).Errorf("shard is %s and its reindex migrations wait: "+
+		"%v. Clear that cause, then set the shard to %s or restart the node; if a staged bucket cannot "+
+		"open because a segment file is damaged, repair or restore that file first",
+		storagestate.StatusReadOnly, cause, storagestate.StatusReady)
 	if err := s.SetStatusReadonly(statusReasonMirrorUnarmed); err != nil {
 		s.index.logger.WithField("shard", s.ID()).Errorf("mark shard %s: %v", storagestate.StatusReadOnly, err)
 	}
