@@ -296,8 +296,9 @@ func (p *Provider) IsReranker(modName string) bool {
 }
 
 // ValidateRerankProperty rejects a rerank about a property that the class's
-// reranker module does not read. It accepts every property when the class has
-// no reranker module or when that module declares no property types.
+// reranker module does not read, or that the class does not have. It accepts
+// every property when the class has no reranker module or when that module
+// declares no property types.
 func (p *Provider) ValidateRerankProperty(class *models.Class, property string) error {
 	reranker := p.classReranker(class)
 	declared, ok := reranker.(modulecapabilities.RerankPropertyDataTypes)
@@ -312,7 +313,11 @@ func (p *Provider) ValidateRerankProperty(class *models.Class, property string) 
 		if prop.Name != property {
 			continue
 		}
-		if slices.Contains(dataTypes, schema.DataType(prop.DataType[0])) {
+		if len(prop.DataType) == 0 {
+			return fmt.Errorf("rerank: property %q of collection %q has no data type", property, class.Class)
+		}
+		dataType := rerankPropertyDataType(prop)
+		if slices.Contains(dataTypes, dataType) {
 			return nil
 		}
 		names := make([]string, len(dataTypes))
@@ -320,9 +325,27 @@ func (p *Provider) ValidateRerankProperty(class *models.Class, property string) 
 			names[i] = dataType.String()
 		}
 		return fmt.Errorf("rerank: property %q of collection %q is of type %s; %s reranks %s properties",
-			property, class.Class, prop.DataType[0], reranker.Name(), strings.Join(names, " and "))
+			property, class.Class, dataType, reranker.Name(), strings.Join(names, ", "))
 	}
 	return fmt.Errorf("rerank: property %q does not exist in collection %q", property, class.Class)
+}
+
+// rerankPropertyDataType is the data type matched against the declared list.
+// A reference is cref. The string types deprecated in v1.19 are their text
+// counterparts: the migration runs on a schema write, so a class created
+// before v1.19 and never changed still stores them.
+func rerankPropertyDataType(prop *models.Property) schema.DataType {
+	if schema.IsRefDataType(prop.DataType) {
+		return schema.DataTypeCRef
+	}
+	switch dataType := schema.DataType(prop.DataType[0]); dataType {
+	case schema.DataTypeString:
+		return schema.DataTypeText
+	case schema.DataTypeStringArray:
+		return schema.DataTypeTextArray
+	default:
+		return dataType
+	}
 }
 
 // classReranker returns the reranker module that serves the rerank of the

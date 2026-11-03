@@ -68,14 +68,34 @@ func TestValidateRerankProperty(t *testing.T) {
 			modules:      onlyTyped,
 			moduleConfig: typedConfig,
 			property:     "tags",
-			wantErr:      `rerank: property "tags" of collection "Tickets" is of type text[]; reranker-typed reranks text and blob properties`,
+			wantErr:      `rerank: property "tags" of collection "Tickets" is of type text[]; reranker-typed reranks text, blob properties`,
 		},
 		{
 			name:         "int",
 			modules:      onlyTyped,
 			moduleConfig: typedConfig,
 			property:     "count",
-			wantErr:      `rerank: property "count" of collection "Tickets" is of type int; reranker-typed reranks text and blob properties`,
+			wantErr:      `rerank: property "count" of collection "Tickets" is of type int; reranker-typed reranks text, blob properties`,
+		},
+		{
+			name:         "deprecated string property reads as text",
+			modules:      onlyTyped,
+			moduleConfig: typedConfig,
+			property:     "legacy",
+		},
+		{
+			name:         "reference property",
+			modules:      onlyTyped,
+			moduleConfig: typedConfig,
+			property:     "author",
+			wantErr:      `rerank: property "author" of collection "Tickets" is of type cref; reranker-typed reranks text, blob properties`,
+		},
+		{
+			name:         "property without a data type",
+			modules:      onlyTyped,
+			moduleConfig: typedConfig,
+			property:     "broken",
+			wantErr:      `rerank: property "broken" of collection "Tickets" has no data type`,
 		},
 		{
 			name:         "unknown property",
@@ -115,7 +135,7 @@ func TestValidateRerankProperty(t *testing.T) {
 			modules:      onlyTyped,
 			moduleConfig: configOf(),
 			property:     "tags",
-			wantErr:      `rerank: property "tags" of collection "Tickets" is of type text[]; reranker-typed reranks text and blob properties`,
+			wantErr:      `rerank: property "tags" of collection "Tickets" is of type text[]; reranker-typed reranks text, blob properties`,
 		},
 		{
 			// The rerank of a class that names two rerankers runs with the
@@ -124,7 +144,7 @@ func TestValidateRerankProperty(t *testing.T) {
 			modules:      []modulecapabilities.Module{typed, reranker("reranker-plain")},
 			moduleConfig: configOf("reranker-typed", "reranker-plain"),
 			property:     "tags",
-			wantErr:      `rerank: property "tags" of collection "Tickets" is of type text[]; reranker-typed reranks text and blob properties`,
+			wantErr:      `rerank: property "tags" of collection "Tickets" is of type text[]; reranker-typed reranks text, blob properties`,
 		},
 		{
 			name:         "class names two rerankers, the plain one last by name",
@@ -148,6 +168,9 @@ func TestValidateRerankProperty(t *testing.T) {
 					{Name: "photo", DataType: schema.DataTypeBlob.PropString()},
 					{Name: "tags", DataType: schema.DataTypeTextArray.PropString()},
 					{Name: "count", DataType: schema.DataTypeInt.PropString()},
+					{Name: "legacy", DataType: schema.DataTypeString.PropString()},
+					{Name: "author", DataType: []string{"Author"}},
+					{Name: "broken", DataType: []string{}},
 				},
 				ModuleConfig: tt.moduleConfig,
 			}
