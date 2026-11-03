@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
@@ -33,7 +34,7 @@ func integerSettingError(settings map[string]any, name string) error {
 	if !ok {
 		return nil
 	}
-	asFloat, err := number.Float64()
+	_, err := number.Float64()
 	if errors.Is(err, strconv.ErrRange) {
 		return fmt.Errorf("%s is out of range, got %s", name, number)
 	}
@@ -42,7 +43,7 @@ func integerSettingError(settings map[string]any, name string) error {
 		// returns the wrong value and the module decides.
 		return nil
 	}
-	if asFloat != math.Trunc(asFloat) {
+	if hasFraction(number) {
 		return fmt.Errorf("%s must be an integer, got %s", name, number)
 	}
 	if _, integral := integralValue(number); !integral {
@@ -96,9 +97,36 @@ func integralValue(number json.Number) (int64, bool) {
 		return asInt, true
 	}
 	asFloat, err := number.Float64()
-	// NaN fails the Trunc comparison and ±Inf fails the bound.
-	if err != nil || asFloat != math.Trunc(asFloat) || math.Abs(asFloat) >= maxExactInt {
+	if err != nil || hasFraction(number) || math.Abs(asFloat) >= maxExactInt {
 		return 0, false
 	}
 	return int64(asFloat), true
+}
+
+// hasFraction reports whether a number that parses as a float64 has a
+// nonzero fraction. It reads the digits, because the float64 rounds a
+// fraction below its precision away: 1024.0000000000000000001 to 1024, 1e-400
+// to 0. NaN, Inf and hex count as a fraction.
+func hasFraction(number json.Number) bool {
+	mantissa, exponent, _ := strings.Cut(strings.ToLower(string(number)), "e")
+	whole, fraction, _ := strings.Cut(strings.TrimLeft(mantissa, "+-"), ".")
+	if strings.Trim(whole, "0123456789") != "" || strings.Trim(fraction, "0123456789") != "" {
+		return true
+	}
+	exp := 0
+	if exponent != "" {
+		var err error
+		// Atoi clamps an exponent beyond int to its bound, which keeps the sign.
+		if exp, err = strconv.Atoi(exponent); err != nil && !errors.Is(err, strconv.ErrRange) {
+			return true
+		}
+	}
+	// The last nonzero digit decides.
+	if digits := strings.TrimRight(fraction, "0"); digits != "" {
+		return exp < len(digits)
+	}
+	if digits := strings.TrimRight(whole, "0"); digits != "" {
+		return exp < -(len(whole) - len(digits))
+	}
+	return false
 }

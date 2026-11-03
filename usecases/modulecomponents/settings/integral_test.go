@@ -34,11 +34,20 @@ func TestIntegralValue(t *testing.T) {
 		{number: "1024.0", want: 1024, ok: true},
 		{number: "1e3", want: 1000, ok: true},
 		{number: "-2.0", want: -2, ok: true},
+		{number: "1.5e1", want: 15, ok: true},
+		{number: "100e-2", want: 1, ok: true},
+		{number: "0e-5000000", want: 0, ok: true},
 		{number: "9007199254740991", want: 9007199254740991, ok: true},
 		{number: "-9007199254740991", want: -9007199254740991, ok: true},
 		{number: "100.5"},
 		{number: "0.1"},
 		{number: "1e-3"},
+		{number: "1.05e1"},
+		// A float64 rounds these to an integer.
+		{number: "1024.0000000000000000001"},
+		{number: "1e-400"},
+		{number: "NaN"},
+		{number: "Inf"},
 		// Too large for a float64 to hold the integer exactly, however written.
 		{number: "9007199254740992"},
 		{number: "-9007199254740992"},
@@ -53,6 +62,31 @@ func TestIntegralValue(t *testing.T) {
 			got, ok := integralValue(json.Number(tt.number))
 			assert.Equal(t, tt.ok, ok)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestHasFraction(t *testing.T) {
+	tests := []struct {
+		number string
+		want   bool
+	}{
+		{number: "125", want: false},
+		{number: "-0.0", want: false},
+		{number: "1.25e2", want: false},
+		{number: "120e-1", want: false},
+		{number: "1.255e2", want: true},
+		{number: "125e-1", want: true},
+		{number: "-1024.0000000000000000001", want: true},
+		// Exponents beyond int.
+		{number: "5e99999999999999999999", want: false},
+		{number: "0.0e-99999999999999999999", want: false},
+		{number: "1e-99999999999999999999", want: true},
+		{number: "0x1p3", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.number, func(t *testing.T) {
+			assert.Equal(t, tt.want, hasFraction(json.Number(tt.number)))
 		})
 	}
 }
@@ -103,6 +137,8 @@ func TestIntGettersReportAFractionToAClassUnderValidation(t *testing.T) {
 	}{
 		{name: "fraction", value: json.Number("100.5"), wantErr: "dimensions must be an integer, got 100.5"},
 		{name: "small fraction", value: json.Number("1e-3"), wantErr: "dimensions must be an integer, got 1e-3"},
+		{name: "fraction a float64 rounds away", value: json.Number("1024.0000000000000000001"), wantErr: "dimensions must be an integer, got 1024.0000000000000000001"},
+		{name: "fraction a float64 rounds to zero", value: json.Number("1e-400"), wantErr: "dimensions must be an integer, got 1e-400"},
 		{name: "integer", value: json.Number("1024")},
 		{name: "float without a fraction", value: json.Number("1024.0")},
 		{name: "missing", value: nil},
