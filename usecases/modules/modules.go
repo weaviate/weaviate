@@ -295,6 +295,50 @@ func (p *Provider) IsReranker(modName string) bool {
 	return mod.Type() == modulecapabilities.Text2TextReranker
 }
 
+// ValidateRerankProperty rejects a rerank about a property that the class's
+// reranker module does not read. It accepts every property when the class has
+// no reranker module or when that module declares no property types.
+func (p *Provider) ValidateRerankProperty(class *models.Class, property string) error {
+	reranker := p.classReranker(class)
+	declared, ok := reranker.(modulecapabilities.RerankPropertyDataTypes)
+	if !ok {
+		return nil
+	}
+	dataTypes := declared.RerankPropertyDataTypes()
+	if len(dataTypes) == 0 {
+		return nil
+	}
+	for _, prop := range class.Properties {
+		if prop.Name != property {
+			continue
+		}
+		if slices.Contains(dataTypes, schema.DataType(prop.DataType[0])) {
+			return nil
+		}
+		names := make([]string, len(dataTypes))
+		for i, dataType := range dataTypes {
+			names[i] = dataType.String()
+		}
+		return fmt.Errorf("rerank: property %q of collection %q is of type %s; %s reranks %s properties",
+			property, class.Class, prop.DataType[0], reranker.Name(), strings.Join(names, " and "))
+	}
+	return fmt.Errorf("rerank: property %q does not exist in collection %q", property, class.Class)
+}
+
+// classReranker returns the reranker module that serves the rerank of the
+// class, or nil. Of two rerankers the class names, it is the last by name, as
+// in classAdditionalProperties.
+func (p *Provider) classReranker(class *models.Class) modulecapabilities.Module {
+	var reranker modulecapabilities.Module
+	for _, module := range p.modulesByName() {
+		if module.Type() == modulecapabilities.Text2TextReranker &&
+			p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
+			reranker = module
+		}
+	}
+	return reranker
+}
+
 func (p *Provider) IsMultiVector(modName string) bool {
 	mod := p.GetByName(modName)
 	if mod == nil {
