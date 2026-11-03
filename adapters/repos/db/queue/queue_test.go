@@ -2382,3 +2382,42 @@ func TestRetention_KeepsProcessedChunksUntilReleased(t *testing.T) {
 	kept, _ = chunksOf(t, q)
 	assert.Empty(t, kept)
 }
+
+// A backup and a retention each keep processed chunks; the end of either
+// deletes them only once the other is done too.
+func TestRetention_AndBackupKeepChunksIndependently(t *testing.T) {
+	setup := func(t *testing.T) (*DiskQueue, *Retention, string) {
+		s := makeScheduler(t)
+		q := makeQueueSize(t, s, discardExecutor(), 50)
+		pushMany(t, q, 1, 1, 2, 3, 4)
+		chunks, _ := chunksOf(t, q)
+		require.Len(t, chunks, 2)
+		r, err := q.Retain()
+		require.NoError(t, err)
+		q.EnableMaintenanceMode()
+		processNext(t, q)
+		return q, r, chunks[0]
+	}
+	exists := func(path string) bool {
+		_, err := os.Stat(path)
+		return err == nil
+	}
+
+	t.Run("backup ends first", func(t *testing.T) {
+		q, r, processed := setup(t)
+		require.NoError(t, q.DisableMaintenanceMode())
+		assert.True(t, exists(processed), "the retention still keeps it")
+		require.NoError(t, r.Release())
+		assert.False(t, exists(processed))
+		assert.False(t, exists(processed+".processed"))
+	})
+
+	t.Run("retention ends first", func(t *testing.T) {
+		q, r, processed := setup(t)
+		require.NoError(t, r.Release())
+		assert.True(t, exists(processed), "the backup still keeps it")
+		require.NoError(t, q.DisableMaintenanceMode())
+		assert.False(t, exists(processed))
+		assert.False(t, exists(processed+".processed"))
+	})
+}
