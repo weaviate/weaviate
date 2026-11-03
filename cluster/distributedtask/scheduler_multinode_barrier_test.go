@@ -528,9 +528,8 @@ func TestBarrier_G2_PartialPhaseBFailure(t *testing.T) {
 //
 // Production scenario: node-1's PreparationCompleteAck applies last
 // and trips the SWAPPING transition. node-2's tick re-emits its ack
-// (its preparationAckEmitted didn't reflect the first apply because
-// the wire-side return errored and the in-memory map was not flipped
-// at scheduler.go:561). node-2's ack now arrives in SWAPPING. The
+// (the wire-side return errored, so the PREP result stayed pending
+// on node-2 and was sent again). node-2's ack now arrives in SWAPPING. The
 // drop path is at manager.go:564-567.
 func TestBarrier_G3_LatePrepAckArrivesInSwapping(t *testing.T) {
 	defer leaktest.Check(t)()
@@ -548,8 +547,8 @@ func TestBarrier_G3_LatePrepAckArrivesInSwapping(t *testing.T) {
 	require.True(t, decided, "prerequisite: both nodes' prep acks decided the group by SWAPPING")
 
 	// Inject a duplicate prep ack on node-2 with Success=false — the
-	// shape a retried wire-call would land in if the in-memory
-	// preparationAckEmitted flag was never set. The Manager MUST drop
+	// shape a retried wire-call would land in if the PREP result was never
+	// cleared as sent. The Manager MUST drop
 	// it: status stays SWAPPING, the original successful ack remains.
 	h.clock.Advance(time.Minute)
 	require.NoError(t, h.ackRecorder.RecordDistributedTaskPreparationCompleteAck(
@@ -815,8 +814,8 @@ func TestBarrier_G6_RestartMidPhaseARecovery(t *testing.T) {
 
 	// Simulate node-2 restart: replace its scheduler with a new one
 	// bound to the same manager + same provider. The new scheduler's
-	// in-memory maps (preparationCallbackFired, preparationAckEmitted,
-	// etc.) start empty. The provider survives the restart (it's
+	// in-memory state (the pending group sets and PREP results) starts
+	// empty. The provider survives the restart (it's
 	// per-node and lives outside the scheduler instance, like a
 	// persistent on-disk reindex sentinel).
 	freshScheduler := h.restart(1)
@@ -824,8 +823,8 @@ func TestBarrier_G6_RestartMidPhaseARecovery(t *testing.T) {
 	// node-3 also restarted; rebuild it the same way for completeness.
 	freshScheduler3 := h.restart(2)
 
-	// Fresh schedulers tick: their empty preparationCallbackFired maps
-	// MUST re-fire OnGroupCompleted (production rehydrate path), and
+	// Fresh schedulers tick: their pending sets start with every group, so
+	// they MUST re-fire OnGroupCompleted (production rehydrate path), and
 	// the PHASE A.5 ack MUST be emitted. The Manager's idempotency on
 	// duplicate acks (manager.go:580-583) means even if node-2 had
 	// already acked pre-restart, the post-restart re-ack is harmless.

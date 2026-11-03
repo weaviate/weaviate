@@ -105,6 +105,47 @@ func TestPerTenantSwap(t *testing.T) {
 		require.Equal(t, landed, failing.swapCount("T3"), "a swap that landed is not run again")
 		require.Equal(t, 1, h.nodes[0].provider.swapCount("T3"), "node-1's swap succeeded the first time")
 	})
+
+	t.Run("a failing swap keeps retrying after another tenant is deleted", func(t *testing.T) {
+		defer leaktest.Check(t)()
+		h := newBarrierHarness(t, []string{"node-1", "node-2"})
+		defer h.close()
+		h.manager.RegisterCollectionExtractor(h.namespace, func([]byte) (string, bool) { return "Docs", true })
+		addTwoTenantTask(t, h, "T4")
+		failing := h.nodes[1].provider
+		failing.SetSwapRequestedError(errors.New("synthetic EIO"))
+		for unit, node := range map[string]string{"b-1": "node-1", "b-2": "node-2"} {
+			require.NoError(t, h.completionRec.RecordDistributedTaskUnitCompletion(
+				context.Background(), h.namespace, "T4", 1, node, unit))
+		}
+		for range 4 {
+			h.tickAll()
+		}
+		require.Equal(t, TaskStatusFailed, h.getTask(t, "T4").Status, "node-2's failed swap ack fails the task")
+
+		h.manager.ForgetGroupsForCollection("Docs", []string{"tenant-a"})
+		before := failing.swapCount("T4")
+		h.tickAll()
+		h.tickAll()
+		require.Equal(t, before+2, failing.swapCount("T4"), "node-2 still retries tenant-b")
+	})
+
+	t.Run("a terminal task drops its undecided tenants after one tick", func(t *testing.T) {
+		defer leaktest.Check(t)()
+		h := newBarrierHarness(t, []string{"node-1", "node-2"})
+		defer h.close()
+		addTwoTenantTask(t, h, "T5")
+		require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+			Namespace: h.namespace, Id: "T5", Version: 1, CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+		h.tickAll()
+		for _, n := range h.nodes {
+			n.scheduler.mu.Lock()
+			pending := n.scheduler.perTaskState[h.getTask(t, "T5").TaskDescriptor].swapPending
+			n.scheduler.mu.Unlock()
+			require.Empty(t, pending, "%s: tenant-b can never be decided, so nothing is left to visit", n.id)
+		}
+	})
 }
 
 // Pins that a swap decision survives a RAFT snapshot/restore, and that a

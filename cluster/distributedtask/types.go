@@ -814,7 +814,15 @@ func (t *Task) groupNodes(groupID string) map[string]struct{} {
 	return nodes
 }
 
-func (t *Task) GroupCount() int { return t.groupCount }
+// groupSet returns every group of the task, the groups a scheduler phase
+// starts out still having to act on.
+func (t *Task) groupSet() map[string]struct{} {
+	set := make(map[string]struct{}, t.groupCount)
+	for _, group := range t.Groups() {
+		set[group] = struct{}{}
+	}
+	return set
+}
 
 func (t *Task) groupHasUnitOn(groupID, nodeID string) bool {
 	return slices.ContainsFunc(t.groups[groupID], func(id string) bool { u := t.units[id]; return u != nil && u.NodeID == nodeID })

@@ -165,7 +165,7 @@ func TestTask_ForgetGroupsKeepsTheSharedIndex(t *testing.T) {
 
 	require.Equal(t, index, reflect.ValueOf(task.groups).UnsafePointer(), "the index is not rebuilt")
 	require.ElementsMatch(t, []string{"g1", "g3"}, task.Groups())
-	require.Equal(t, 2, task.GroupCount())
+	require.Equal(t, 2, task.groupCount)
 	require.Equal(t, 2, task.UnitCount())
 	require.Empty(t, task.LocalGroupUnitIDs("g2", "n1"))
 	require.Empty(t, task.groupNodes("g2"))
