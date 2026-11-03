@@ -1070,10 +1070,9 @@ Then, per shard load:
    the disk is not accepting writes. Reads are served while the retry
    waits on the disk, a second switch meanwhile is refused, and a switch
    waits at most 30 s. Disk-pressure recovery lifts only its
-   own reason, so it never lifts this one. A restart retries too. The exception is an unreadable record on the shard: the
-   store then refuses every write, but it also keeps the reconciler frozen
-   and the provider from rebuilding the evicted tasks, so the shard loads
-   unstamped.
+   own reason, so it never lifts this one. A restart retries too. An unreadable record on the shard makes the
+   store refuse the stamp too, so the shard is held the same way until the
+   mirror arms or the record is repaired and the node restarted.
 5. `FinalizeCompletedMigrations` runs per shard before LSM init
    reloads any buckets. For each `(prop, indexType)`, finds the
    highest tidied (or merged-but-not-tidied) generation, promotes

@@ -219,20 +219,18 @@ func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) 
 	}
 }
 
-// An unreadable record freezes the store, so no task is rebuilt from it and the
-// shard loads writable with no phase able to run.
+// An unreadable record makes the store refuse the stamp, and a later load would
+// rebuild the task from a fresh store, so the shard is held READONLY.
 func TestShardLoadWhenAMirrorFailsToArmAndAnotherRecordIsUnreadable(t *testing.T) {
 	fx := newDoubleFaultFixture(t, "tenant-arm-fails-unreadable")
 	plantUnreadableRecord(t, fx.recordsDir)
 
 	shard := fx.load(t)
-	require.Equal(t, storagestate.StatusReady, shard.GetStatus())
-	require.Empty(t, fx.provider.cachedReindexTasks(fx.desc, fx.subject.Key.UnitID))
-	payload := fx.subject.reindexPayload()
-	payload.UnitToShard = map[string]string{fx.subject.Key.UnitID: fx.name}
-	res := fx.provider.resolveUnitForPhase(fx.ctx, &distributedtask.Task{TaskDescriptor: fx.desc}, &payload,
-		fx.subject.Key.UnitID, fx.idx, fx.logger)
-	require.NotEmpty(t, res.Errs, "no phase runs on the stale staged data")
+	require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+	require.Equal(t, statusReasonMirrorUnarmed, shard.GetStatusReason())
+	require.EqualError(t, shard.PutObject(fx.ctx, createTestObjectWithText(fx.className, "late")),
+		storagestate.ErrStatusReadOnlyWithReason(statusReasonMirrorUnarmed).Error())
+	fx.requirePhasesRefused(t, shard, "is READONLY because its double-write mirror")
 }
 
 // A mirror that fails to arm while its stamp cannot be written holds the shard
