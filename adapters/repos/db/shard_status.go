@@ -103,6 +103,9 @@ func (s *Shard) refuseWhilePaused() error {
 	if s.phase.Reindexing() {
 		return storagestate.ErrStatusReadOnly
 	}
+	if s.phase.Transferring() {
+		return errTenantInTransition
+	}
 	return nil
 }
 
@@ -122,7 +125,7 @@ func (s *Shard) syncStorePause() error {
 
 	paused := s.backgroundIOPaused()
 	// A reindex writes its temp buckets while it holds the rest of the store.
-	reindexOnly := s.phase.Reindexing() && !s.phase.MigrationHeld() && s.index.refuseResourcePressure() == nil
+	reindexOnly := s.phase.Reindexing() && !s.phase.MigrationHeld() && !s.phase.Transferring() && s.index.refuseResourcePressure() == nil
 	if err := s.store.PauseBackgroundIOExcept(paused, func(bucket string) bool {
 		return reindexOnly && strings.HasSuffix(bucket, schema.InternalTempSuffix)
 	}); err != nil {

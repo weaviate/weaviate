@@ -132,6 +132,7 @@ type ShardPhase struct {
 	status        atomic.Pointer[storagestate.Status]
 	reindexing    atomic.Bool
 	migrationHeld atomic.Bool
+	transferring  atomic.Bool
 }
 
 func NewShardPhase(status storagestate.Status) *ShardPhase {
@@ -164,6 +165,15 @@ func (p *ShardPhase) MigrationHeld() bool {
 
 func (p *ShardPhase) SetMigrationHeld(held bool) {
 	p.migrationHeld.Store(held)
+}
+
+// Transferring holds the store for a freeze's upload, which would miss any later write.
+func (p *ShardPhase) Transferring() bool {
+	return p.transferring.Load()
+}
+
+func (p *ShardPhase) SetTransferring(transferring bool) {
+	p.transferring.Store(transferring)
 }
 
 func (s *SchemaManager) NodeOverlay() *NodeOverlay {
