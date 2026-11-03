@@ -117,7 +117,7 @@ func TestRerankCorePath(t *testing.T) {
 			errParts []string
 		}{
 			{
-				name:     "text array is rejected before the search",
+				name:     "text array is rejected",
 				property: "tags",
 				errParts: []string{"is of type text[]", "reranks text and blob properties"},
 			},
