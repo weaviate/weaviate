@@ -124,8 +124,8 @@ type DiskQueue struct {
 	maintenanceMode atomic.Bool
 
 	// retained keeps processed chunks the same way for a replacement index,
-	// see Retain. Set and cleared under rmLock.
-	retained atomic.Bool
+	// see Retain. Guarded by rmLock.
+	retained bool
 }
 
 type DiskQueueOptions struct {
@@ -714,7 +714,7 @@ func (q *DiskQueue) DisableMaintenanceMode() error {
 	defer q.rmLock.Unlock()
 
 	q.maintenanceMode.Store(false)
-	if q.retained.Load() {
+	if q.retained {
 		return nil
 	}
 	return q.cleanupProcessedChunks()
@@ -723,7 +723,7 @@ func (q *DiskQueue) DisableMaintenanceMode() error {
 // keepsProcessed reports whether a processed chunk is kept rather than
 // deleted. The caller holds rmLock.
 func (q *DiskQueue) keepsProcessed() bool {
-	return q.maintenanceMode.Load() || q.retained.Load()
+	return q.maintenanceMode.Load() || q.retained
 }
 
 // Retain keeps every chunk from the returned mark on, processed or not,
@@ -743,7 +743,7 @@ func (q *DiskQueue) Retain() (mark string, err error) {
 	if q.r == nil || q.w == nil {
 		return "", errors.New("queue not initialized")
 	}
-	if q.retained.Load() {
+	if q.retained {
 		return "", errors.New("queue already retained")
 	}
 
@@ -757,7 +757,7 @@ func (q *DiskQueue) Retain() (mark string, err error) {
 	if mark == "" {
 		mark = filepath.Join(q.dir, fmt.Sprintf(chunkFileFmt, q.w.nextSeq()))
 	}
-	q.retained.Store(true)
+	q.retained = true
 	return mark, nil
 }
 
@@ -768,7 +768,7 @@ func (q *DiskQueue) ReleaseRetention() error {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
 
-	if !q.retained.Load() {
+	if !q.retained {
 		return nil
 	}
 	// retained until the cleanup succeeds, so a failed release can be retried
@@ -778,7 +778,7 @@ func (q *DiskQueue) ReleaseRetention() error {
 			return err
 		}
 	}
-	q.retained.Store(false)
+	q.retained = false
 	return nil
 }
 
@@ -820,7 +820,7 @@ func (q *DiskQueue) removeChunk(path string) error {
 			return nil
 		}
 		// a retention's chunks are needed for a replay: retry instead
-		if q.retained.Load() {
+		if q.retained {
 			return errors.Wrap(err, "failed to create tombstone")
 		}
 		q.Logger.WithField("file", path).Errorf("failed to create tombstone, falling back to deletion: %v", err)
