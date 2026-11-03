@@ -256,6 +256,16 @@ func TestShardLoadWhenAMirrorFailsToArmAndItsStampCannotBeWritten(t *testing.T) 
 		storagestate.ErrStatusReadOnlyWithReason(statusReasonMirrorUnarmed).Error())
 
 	fx.requirePhasesRefused(t, shard, errShardHeldReadOnly.Error(), true)
+
+	// Only the lift's retry may clear the hold: the status gate refuses a write that skips it,
+	require.Error(t, shard.UpdateStatusIf(func(ShardStatus) bool { return true },
+		storagestate.StatusReady.String(), statusReasonManualUpdate))
+	require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+	// and a step arms nothing even once the disk has healed.
+	fx.healRecords(t)
+	require.NoError(t, os.Remove(fx.corrupt))
+	require.ErrorIs(t, fx.task.RunReindexOnlyOnShard(fx.ctx, shard), errShardHeldReadOnly)
+	require.Zero(t, shard.migrationMirrors.ArmedMigrationMirrors())
 }
 
 // Every path that can lift READONLY first retries the recovery a double fault left undone.

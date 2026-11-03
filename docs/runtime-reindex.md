@@ -1077,7 +1077,9 @@ Then, per shard load:
      `READONLY` with its own status reason: it serves reads, takes no writes
      (so the staged copy stays current), and every migration step on the
      shard (prepare, swap, a repair or rebuild unit) waits instead of
-     failing; the scheduler runs it again on a later tick. The shard's
+     failing; the scheduler runs it again on a later tick. A unit on a
+     shard that also holds an unreadable record still fails its migration,
+     as on any shard. The shard's
      status (`GET /v1/schema/<class>/shards`) shows READONLY with this
      reason, and the node logs once that its migrations wait.
      - Only a manual status update lifts the hold. A vector-index config
