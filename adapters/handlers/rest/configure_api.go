@@ -75,6 +75,7 @@ import (
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entconfig "github.com/weaviate/weaviate/entities/config"
@@ -715,6 +716,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		UsageLimitsErrorMessage:                appState.ServerConfig.Config.UsageLimits.ErrorMessage,
 		ReplicaMovementEnabled:                 appState.ServerConfig.Config.Replication.ReplicaMovementEnabled,
 		ReplicaRebalanceEnabled:                appState.ServerConfig.Config.Replication.ReplicaRebalanceEnabled,
+		RebalanceMeasure: func(ctx context.Context, node string) (replicationTypes.RebalanceNodeMeasurement, error) {
+			host, ok := appState.Cluster.NodeHostname(node)
+			if !ok {
+				return replicationTypes.RebalanceNodeMeasurement{}, fmt.Errorf("resolve host of node %q: node not in cluster membership", node)
+			}
+			return remoteNodesClient.GetRebalanceMeasurement(ctx, host)
+		},
 		ReplicaMovementCleanupEnabled:          appState.ServerConfig.Config.Replication.ReplicaMovementCleanupEnabled,
 		ReplicaMovementCleanupMaxAge:           appState.ServerConfig.Config.Replication.ReplicaMovementCleanupMaxAge,
 		ReplicaMovementCleanupInterval:         appState.ServerConfig.Config.Replication.ReplicaMovementCleanupInterval,
