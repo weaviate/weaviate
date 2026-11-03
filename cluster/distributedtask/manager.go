@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -406,6 +407,25 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 		}
 	}
 	return removed
+}
+
+// ForgetGroupsForCollection removes deleted tenants from every finished
+// barrier task of collection, the tasks that record per-tenant swap
+// decisions, so a tenant recreated under the same name inherits none.
+// Active tasks are left alone: the tenant delete is refused while one runs.
+func (m *Manager) ForgetGroupsForCollection(collection string, groups []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for namespace := range m.collectionExtractors {
+		for _, task := range m.tasks[namespace] {
+			if task.Status.IsActive() || !task.NeedsPreparationBarrier ||
+				!strings.EqualFold(task.collection, collection) || !slices.ContainsFunc(groups, task.hasGroup) {
+				continue
+			}
+			task.forgetGroups(groups)
+		}
+	}
 }
 
 func (m *Manager) CollectionOfTask(namespace string, payload []byte) string {

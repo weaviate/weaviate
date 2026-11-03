@@ -671,6 +671,25 @@ func (t *Task) SetUnits(units map[string]*Unit) {
 	t.units, t.groups = units, groups
 }
 
+// forgetGroups removes the groups and their units. It builds a new index:
+// clones still share the old one.
+func (t *Task) forgetGroups(groups []string) {
+	units := maps.Clone(t.units)
+	for _, group := range groups {
+		for _, id := range t.groups[group] {
+			delete(units, id)
+		}
+		delete(t.SwapDecidedGroups, group)
+		delete(t.PreparedGroups, group)
+	}
+	t.SetUnits(units)
+}
+
+func (t *Task) hasGroup(group string) bool {
+	_, ok := t.groups[group]
+	return ok
+}
+
 // Units iterates the task's units by ID.
 func (t *Task) Units() iter.Seq2[string, *Unit] { return maps.All(t.units) }
 

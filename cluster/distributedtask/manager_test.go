@@ -2614,3 +2614,52 @@ func TestLocalTaskStatusesCopiesNoUnits(t *testing.T) {
 	require.Empty(t, m.LocalTaskStatuses("other", "g"))
 	require.LessOrEqual(t, testing.AllocsPerRun(10, func() { m.LocalTaskStatuses("reindex", "g") }), 1.0)
 }
+
+// Pins that deleting a tenant removes it from every finished per-tenant run of
+// its collection, so a tenant recreated under the name inherits no decision.
+func TestManager_ForgetGroupsForCollection(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		collection string
+		status     TaskStatus
+		barrier    bool
+		wantForget bool
+	}{
+		{name: "a cancelled per-tenant run forgets the tenant", collection: "Foo", status: TaskStatusCancelled, barrier: true, wantForget: true},
+		{name: "a finished per-tenant run forgets it too", collection: "fOO", status: TaskStatusFinished, barrier: true, wantForget: true},
+		{name: "an active run is left alone", collection: "Foo", status: TaskStatusPreparing, barrier: true},
+		{name: "a run of another collection is left alone", collection: "Bar", status: TaskStatusCancelled, barrier: true},
+		{name: "a run without per-tenant decisions is left alone", collection: "Foo", status: TaskStatusCancelled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			h.manager.RegisterCollectionExtractor("ns", func(payload []byte) (string, bool) { return string(payload), true })
+			require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+				Namespace: "ns", Id: "T", Payload: []byte(tc.collection), SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+				UnitSpecs: []*cmd.UnitSpec{
+					{Id: "a-1", GroupId: "a"}, {Id: "a-2", GroupId: "a"}, {Id: "b-1", GroupId: "b"},
+				},
+				NeedsPreparationBarrier: tc.barrier,
+			}), 1))
+			task := h.manager.tasks["ns"]["T"]
+			task.Status = tc.status
+			task.SwapDecidedGroups = map[string]time.Time{"a": {}, "b": {}}
+			before := task.Clone()
+
+			h.manager.ForgetGroupsForCollection("Foo", []string{"a", "gone"})
+
+			if !tc.wantForget {
+				require.ElementsMatch(t, []string{"a", "b"}, task.Groups())
+				require.True(t, task.GroupSwapDecided("a"))
+				return
+			}
+			require.Equal(t, []string{"b"}, task.Groups())
+			require.Nil(t, task.Unit("a-1"))
+			require.Equal(t, 1, task.UnitCount())
+			require.False(t, task.GroupSwapDecided("a"))
+			require.True(t, task.GroupSwapDecided("b"))
+			require.True(t, task.AllGroupsSwapDecided())
+			require.ElementsMatch(t, []string{"a", "b"}, before.Groups(), "a copy taken earlier keeps its own index")
+		})
+	}
+}

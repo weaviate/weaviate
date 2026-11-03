@@ -89,6 +89,7 @@ type MutationGuard interface {
 type distributedTaskCascadeDeleter interface {
 	DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor
 	PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error)
+	ForgetGroupsForCollection(collection string, groups []string)
 }
 
 type SchemaManager struct {
@@ -1082,6 +1083,9 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 					return err
 				}
 				s.cascadeDeleteReplicationOpsForTenants(cmd.Class, req.Tenants)
+				if s.distributedTaskManager != nil {
+					s.distributedTaskManager.ForgetGroupsForCollection(cmd.Class, req.Tenants)
+				}
 				return nil
 			},
 			updateStore: func() error {

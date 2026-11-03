@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -918,6 +919,7 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 // issues on drop-vector marker introduction.
 type fakeCascadeDeleter struct {
 	collectionCalls []string
+	forgotten       []string
 	activeMatch     bool
 	purgeErr        error // non-sentinel purge failure
 	targetCalls     []struct {
@@ -929,6 +931,10 @@ type fakeCascadeDeleter struct {
 func (f *fakeCascadeDeleter) DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor {
 	f.collectionCalls = append(f.collectionCalls, collection)
 	return nil
+}
+
+func (f *fakeCascadeDeleter) ForgetGroupsForCollection(collection string, groups []string) {
+	f.forgotten = append(f.forgotten, collection+":"+strings.Join(groups, ","))
 }
 
 func (f *fakeCascadeDeleter) PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error) {
@@ -1239,6 +1245,16 @@ func TestSchemaManager_DeleteTenants_MutationGuard(t *testing.T) {
 		require.Contains(t, err.Error(), "tenants blocked")
 		require.Equal(t, 1, guard.called)
 		require.Equal(t, "C", guard.lastClass)
+	})
+
+	t.Run("a deleted tenant is forgotten by the collection's finished runs", func(t *testing.T) {
+		sm := newSM(nil)
+		deleter := &fakeCascadeDeleter{}
+		sm.SetDistributedTaskManager(deleter)
+		require.NoError(t, sm.schema.addClass(&models.Class{Class: "C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
+			&sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"t1": {Name: "t1"}}}, 1))
+		require.NoError(t, sm.DeleteTenants(mkRequest("C", []string{"t1"}), true))
+		require.Equal(t, []string{"C:t1"}, deleter.forgotten)
 	})
 
 	t.Run("empty tenants list does not consult the guard", func(t *testing.T) {
