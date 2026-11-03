@@ -100,6 +100,13 @@ func (s *Shard) haltForTransfer(ctx context.Context, offloading bool, inactivity
 			}
 		}
 	}()
+	// A panic must still run the cleanup above, or the shard stays halted.
+	defer func() {
+		if r := recover(); r != nil {
+			enterrors.PrintStack(s.index.logger)
+			err = fmt.Errorf("halt for transfer panicked: %v", r)
+		}
+	}()
 
 	// Pause steps run only on the first halt. Re-pausing per halt would strand the
 	// per-bucket pause-timer refcount (1 pause : 1 stop) and never observe the

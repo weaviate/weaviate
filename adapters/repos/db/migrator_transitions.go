@@ -216,9 +216,6 @@ func (t *transitionManager) freeze(ctx context.Context, record clusterschema.Ten
 	if idx == nil {
 		return false, fmt.Errorf("cannot find index for %q", record.Class)
 	}
-	idx.backupLock.RLock(name)
-	defer idx.backupLock.RUnlock(name)
-
 	attempt := record.Transition.Attempt
 	t.deleteOldAttempts(ctx, record.Class, name, 0, attempt)
 
@@ -229,19 +226,38 @@ func (t *transitionManager) freeze(ctx context.Context, record clusterschema.Ten
 	defer release()
 
 	if shard != nil {
+		// The write lock waits out in-flight writes so the halt flushes them; later ones are refused.
 		err := func() error {
+			idx.backupLock.Lock(name)
+			defer idx.backupLock.Unlock(name)
 			idx.shardCreateLocks.Lock(name)
 			defer idx.shardCreateLocks.Unlock(name)
-			return shard.HaltForTransfer(ctx, true, 0)
+			phase := idx.nodeOverlay().PhaseOf(record.Class, name)
+			if phase != nil && phase.Transferring() {
+				// An ended attempt leaves Transferring set until finish runs; the halt can't flush a paused store.
+				phase.SetTransferring(false)
+				if err := shard.syncStorePause(); err != nil {
+					return err
+				}
+			}
+			if err := shard.HaltForTransfer(ctx, true, 0); err != nil {
+				return err
+			}
+			worker.halted.Store(true)
+			if phase != nil {
+				phase.SetTransferring(true)
+			}
+			return shard.syncStorePause()
 		}()
 		if err != nil {
-			// The halt stops async replication before any step that can fail.
-			if err := idx.rebuildAsyncReplication(ctx, name); err != nil {
-				t.logger(record).Errorf("restart async replication after a failed halt: %v", err)
+			if !worker.halted.Load() {
+				// The halt stops async replication before any step that can fail.
+				if err := idx.rebuildAsyncReplication(ctx, name); err != nil {
+					t.logger(record).Errorf("restart async replication after a failed halt: %v", err)
+				}
 			}
 			return false, fmt.Errorf("halt for transfer: %w", err)
 		}
-		worker.halted.Store(true)
 	} else if resumed {
 		entries, err := os.ReadDir(path.Join(idx.path(), name))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -251,6 +267,9 @@ func (t *transitionManager) freeze(ctx context.Context, record clusterschema.Ten
 			return false, fmt.Errorf("resumed freeze found no local data")
 		}
 	}
+
+	idx.backupLock.RLock(name)
+	defer idx.backupLock.RUnlock(name)
 
 	copyPath := cloudCopyPath(attempt, t.m.nodeId)
 	if err := t.m.cloud.Upload(ctx, record.Class, name, copyPath); err != nil {
@@ -377,7 +396,30 @@ func (t *transitionManager) finish(ctx context.Context, key transitionKey, worke
 		t.deleteOldAttempts(ctx, key.class, key.tenant, 0, worker.attempt+1)
 		return
 	}
-	tenant, ok, err := tenantPhysical(idx, key.class, key.tenant)
+
+	var tenant sharding.Physical
+	var ok, newer, aborted, fenced bool
+	// A newer attempt sets Transferring under this lock, so finish leaves it set.
+	err := func() (err error) {
+		idx.shardCreateLocks.Lock(key.tenant)
+		defer idx.shardCreateLocks.Unlock(key.tenant)
+		if tenant, ok, err = tenantPhysical(idx, key.class, key.tenant); err != nil {
+			return err
+		}
+		newer = tenant.Transition != nil
+		aborted = ok && !newer && tenant.Status != models.TenantActivityStatusFROZEN
+		if !aborted {
+			return nil
+		}
+		if phase := idx.nodeOverlay().PhaseOf(key.class, key.tenant); phase != nil {
+			fenced = phase.Transferring()
+			phase.SetTransferring(false)
+		}
+		if shard := idx.shards.Loaded(key.tenant); shard != nil {
+			return shard.syncStorePause()
+		}
+		return nil
+	}()
 	if err != nil {
 		logger.Errorf("finish transition: %v", err)
 		return
@@ -388,9 +430,16 @@ func (t *transitionManager) finish(ctx context.Context, key transitionKey, worke
 		return
 	}
 
-	if worker.halted.Load() && tenant.ActivityStatus() != models.TenantActivityStatusFROZEN {
+	switch {
+	case aborted && (fenced || worker.halted.Load()):
 		if err := idx.resumeAfterAbortedOffload(ctx, key.tenant); err != nil {
 			logger.Errorf("resume after aborted freeze: %v", err)
+		}
+	case newer && worker.halted.Load():
+		if shard := idx.shards.Loaded(key.tenant); shard != nil {
+			if err := shard.resumeMaintenanceCycles(ctx); err != nil {
+				logger.Errorf("release the halt of attempt %d: %v", worker.attempt, err)
+			}
 		}
 	}
 	t.deleteOldAttempts(ctx, key.class, key.tenant, tenant.CloudAttempt, worker.attempt+1)

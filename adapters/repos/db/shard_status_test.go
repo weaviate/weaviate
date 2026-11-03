@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -314,4 +315,26 @@ func TestLazyLoadShardReportsReindex(t *testing.T) {
 
 	require.NoError(t, lazy.setReindexing(false))
 	require.NoError(t, lazy.refuseWhilePaused())
+}
+
+// A leaked halt keeps compaction and async replication off until a restart.
+func TestHaltForTransferPanicReleasesTheHalt(t *testing.T) {
+	sl, _ := testShard(t, t.Context(), "HaltPanic")
+	shard := underlyingShard(t, sl)
+	var original VectorIndex
+	_, err := shard.WithVectorIndex("", func(index VectorIndex) error {
+		original = index
+		return nil
+	})
+	require.NoError(t, err)
+	panicking := NewMockVectorIndex(t)
+	panicking.EXPECT().PrepareForBackup(mock.Anything).RunAndReturn(func(context.Context) error { panic("prepare") })
+	panicking.EXPECT().ResumeAfterBackup(mock.Anything).Return(nil).Maybe()
+	shard.setVectorIndex("", panicking)
+	defer shard.setVectorIndex("", original)
+
+	err = shard.HaltForTransfer(t.Context(), true, 0)
+
+	require.ErrorContains(t, err, "halt for transfer panicked: prepare")
+	require.Zero(t, shard.haltForTransferCount.Load())
 }

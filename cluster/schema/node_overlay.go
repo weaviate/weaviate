@@ -129,8 +129,9 @@ func (o *NodeOverlay) PhaseOf(class, shard string) *ShardPhase {
 
 // ShardPhase is a shard object's lifecycle phase, held by the shard so reads need no lookup.
 type ShardPhase struct {
-	status     atomic.Pointer[storagestate.Status]
-	reindexing atomic.Bool
+	status       atomic.Pointer[storagestate.Status]
+	reindexing   atomic.Bool
+	transferring atomic.Bool
 }
 
 func NewShardPhase(status storagestate.Status) *ShardPhase {
@@ -154,6 +155,15 @@ func (p *ShardPhase) Reindexing() bool {
 
 func (p *ShardPhase) SetReindexing(reindexing bool) {
 	p.reindexing.Store(reindexing)
+}
+
+// Transferring holds the store for a freeze's upload, which would miss any later write.
+func (p *ShardPhase) Transferring() bool {
+	return p.transferring.Load()
+}
+
+func (p *ShardPhase) SetTransferring(transferring bool) {
+	p.transferring.Store(transferring)
 }
 
 func (s *SchemaManager) NodeOverlay() *NodeOverlay {
