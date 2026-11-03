@@ -740,7 +740,7 @@ func (q *DiskQueue) Retain() (mark string, err error) {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
 
-	if q.r == nil {
+	if q.r == nil || q.w == nil {
 		return "", errors.New("queue not initialized")
 	}
 	if q.retained.Load() {
