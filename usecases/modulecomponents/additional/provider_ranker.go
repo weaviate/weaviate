@@ -34,6 +34,8 @@ func NewRankerProvider(client reRankerClient) *GraphQLAdditionalRankerProvider {
 	return &GraphQLAdditionalRankerProvider{rankerrank.New(client)}
 }
 
+// NewPropertyRankerProvider is for a client without a Rank method; a client
+// with both methods can go through NewRankerProvider.
 func NewPropertyRankerProvider(client rankerrank.PropertyReRankerClient) *GraphQLAdditionalRankerProvider {
 	return &GraphQLAdditionalRankerProvider{rankerrank.NewWithProperty(client)}
 }
