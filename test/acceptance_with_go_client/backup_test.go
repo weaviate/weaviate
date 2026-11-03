@@ -57,7 +57,7 @@ func TestBackupWithConcurrentDelete(t *testing.T) {
 							Name:            "make",
 							DataType:        collections.DataTypeText,
 							Tokenization:    collections.TokenizationField,
-							IndexFilterable: true,
+							IndexFilterable: new(true),
 						},
 					},
 				},
@@ -109,8 +109,8 @@ func TestBackupWithConcurrentDelete(t *testing.T) {
 	// De-activate tenants to simplify usage stats checking.
 	for i := range collectionNames {
 		h := c.Collections.Use(collectionNames[i])
-		require.NoError(t, h.Tenants.Update(ctx, tenant.Tenant{Name: tenantName, Status: tenant.Cold}), "set %s=%s", tenantName, tenant.Cold)
-		require.NoError(t, h.Tenants.Update(ctx, tenant.Tenant{Name: tenantName, Status: tenant.Hot}), "set %s=%s", tenantName, tenant.Hot)
+		require.NoError(t, h.Tenants.Update(ctx, tenant.Tenant{Name: tenantName, Status: tenant.Inactive}), "set %s=%s", tenantName, tenant.Inactive)
+		require.NoError(t, h.Tenants.Update(ctx, tenant.Tenant{Name: tenantName, Status: tenant.Active}), "set %s=%s", tenantName, tenant.Active)
 	}
 
 	usageReports := make([]usage.CollectionUsage, len(collectionNames))
