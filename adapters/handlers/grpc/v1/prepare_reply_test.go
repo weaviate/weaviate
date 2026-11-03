@@ -1161,10 +1161,10 @@ func TestGRPCReply(t *testing.T) {
 					},
 				},
 			},
-			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{
+			searchParams: dto.GetParams{ClassName: className, AdditionalProperties: additional.Properties{
 				ID:     true,
 				Vector: true,
-			}, GroupBy: &searchparams.GroupBy{Groups: 3, ObjectsPerGroup: 4, Property: "name"}},
+			}, GroupBy: &searchparams.GroupBy{Groups: 3, ObjectsPerGroup: 4, Property: "word"}},
 			outGroup: []*pb.GroupByResult{{
 				Name:            "GroupByValue1",
 				MaxDistance:     0.2,
@@ -1271,6 +1271,7 @@ func TestGRPCReply(t *testing.T) {
 				},
 			},
 			searchParams: dto.GetParams{
+				ClassName: className,
 				AdditionalProperties: additional.Properties{
 					ID:     true,
 					Vector: true,
@@ -1282,7 +1283,7 @@ func TestGRPCReply(t *testing.T) {
 						"rerank": "must be present for extraction",
 					},
 				},
-				GroupBy: &searchparams.GroupBy{Groups: 3, ObjectsPerGroup: 4, Property: "name"},
+				GroupBy: &searchparams.GroupBy{Groups: 3, ObjectsPerGroup: 4, Property: "word"},
 			},
 			outGroup: []*pb.GroupByResult{{
 				Name:            "GroupByValue1",
@@ -1578,6 +1579,81 @@ func TestRefTargetCollectionStripping(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, got)
 			require.Equal(t, tc.want, got.TargetCollection)
+		})
+	}
+}
+
+func TestGroupByNameStripsOwnNamespace(t *testing.T) {
+	const uuid = "11111111-2222-3333-4444-555555555555"
+	beacon := func(class string) string { return "weaviate://localhost/" + class + "/" + uuid }
+	namespaced := &models.Principal{Username: "u", Namespace: "customer1"}
+
+	scheme := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{{
+				Class: "customer1:Zoo",
+				Properties: []*models.Property{
+					{Name: "hasAnimals", DataType: []string{"customer1:Animal"}},
+					{Name: "name", DataType: schema.DataTypeText.PropString()},
+				},
+			}},
+		},
+	}
+
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		property  string
+		value     string
+		wantName  string
+		wantErr   bool
+	}{
+		{
+			name:      "namespaced caller, ref property: own namespace stripped from beacon",
+			principal: namespaced,
+			property:  "hasAnimals",
+			value:     beacon("customer1:Animal"),
+			wantName:  beacon("Animal"),
+		},
+		{
+			name:      "namespaced caller, text property: beacon-shaped value kept",
+			principal: namespaced,
+			property:  "name",
+			value:     beacon("customer1:Animal"),
+			wantName:  beacon("customer1:Animal"),
+		},
+		{
+			name:      "group-by property missing from the schema",
+			principal: namespaced,
+			property:  "missing",
+			value:     "anything",
+			wantErr:   true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := []interface{}{map[string]interface{}{
+				"_additional": map[string]interface{}{
+					"group": &additional.Group{
+						GroupedBy: &additional.GroupedBy{Value: tc.value, Path: []string{tc.property}},
+					},
+				},
+			}}
+			searchParams := dto.GetParams{
+				ClassName: "customer1:Zoo",
+				GroupBy:   &searchparams.GroupBy{Property: tc.property},
+			}
+			getClass := func(className string) (*models.Class, error) { return scheme.GetClass(className), nil }
+			replier := NewReplier(false, fakeGenerativeParams{}, tc.principal, nil)
+
+			out, err := replier.Search(context.Background(), res, time.Now(), searchParams, newSchemaResolver(getClass))
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, out.GroupByResults, 1)
+			require.Equal(t, tc.wantName, out.GroupByResults[0].Name)
 		})
 	}
 }

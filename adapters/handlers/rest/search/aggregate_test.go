@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	pkgerrors "github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -573,68 +574,48 @@ func TestBuildAggregateResponseGrouped(t *testing.T) {
 	})
 }
 
-// TestGroupValueBeaconStrip: grouping by a ref property yields beacon URIs;
-// the caller's own namespace prefix is stripped from the embedded class
-// (gRPC replier parity), foreign prefixes and non-beacon values stay
-// untouched.
+// TestGroupValueBeaconStrip: grouping by a ref property sends string and
+// strfmt.URI values through namespacing.StripBeacon, whose own tests cover the
+// strip itself; non-ref groups and other value types stay untouched.
 func TestGroupValueBeaconStrip(t *testing.T) {
 	ns1 := &models.Principal{Username: "someone", Namespace: "ns1"}
+	const qualified = "weaviate://localhost/ns1:Author/73f2eb5f-5abf-447a-81ca-74b1dd168247"
+	const short = "weaviate://localhost/Author/73f2eb5f-5abf-447a-81ca-74b1dd168247"
 
 	tests := []struct {
-		name      string
-		value     any
-		isRef     bool
-		principal *models.Principal
-		want      any
+		name  string
+		value any
+		isRef bool
+		want  any
 	}{
 		{
-			name:      "own namespace stripped from beacon",
-			value:     "weaviate://localhost/ns1:Author/73f2eb5f-5abf-447a-81ca-74b1dd168247",
-			isRef:     true,
-			principal: ns1,
-			want:      "weaviate://localhost/Author/73f2eb5f-5abf-447a-81ca-74b1dd168247",
+			name:  "string beacon on ref group stripped",
+			value: qualified,
+			isRef: true,
+			want:  short,
 		},
 		{
-			name:      "foreign namespace stays",
-			value:     "weaviate://localhost/ns2:Author/73f2eb5f-5abf-447a-81ca-74b1dd168247",
-			isRef:     true,
-			principal: ns1,
-			want:      "weaviate://localhost/ns2:Author/73f2eb5f-5abf-447a-81ca-74b1dd168247",
+			name:  "strfmt.URI beacon on ref group stripped",
+			value: strfmt.URI(qualified),
+			isRef: true,
+			want:  short,
 		},
 		{
-			name:      "global principal leaves beacon untouched",
-			value:     "weaviate://localhost/Author/73f2eb5f-5abf-447a-81ca-74b1dd168247",
-			isRef:     true,
-			principal: nil,
-			want:      "weaviate://localhost/Author/73f2eb5f-5abf-447a-81ca-74b1dd168247",
+			name:  "non-ref group never touches values",
+			value: qualified,
+			isRef: false,
+			want:  qualified,
 		},
 		{
-			// the scheme guard: a ref-typed group with a non-beacon value
-			// must not be run through the beacon rewriter
-			name:      "non-beacon string on ref group passes through",
-			value:     "ns1:not-a-beacon",
-			isRef:     true,
-			principal: ns1,
-			want:      "ns1:not-a-beacon",
-		},
-		{
-			name:      "non-ref group never touches values",
-			value:     "weaviate://localhost/ns1:Author/73f2eb5f-5abf-447a-81ca-74b1dd168247",
-			isRef:     false,
-			principal: ns1,
-			want:      "weaviate://localhost/ns1:Author/73f2eb5f-5abf-447a-81ca-74b1dd168247",
-		},
-		{
-			name:      "non-string value on ref group passes through",
-			value:     float64(3),
-			isRef:     true,
-			principal: ns1,
-			want:      float64(3),
+			name:  "non-string value on ref group passes through",
+			value: float64(3),
+			isRef: true,
+			want:  float64(3),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, groupValue(tt.value, tt.isRef, tt.principal))
+			assert.Equal(t, tt.want, groupValue(tt.value, tt.isRef, ns1))
 		})
 	}
 }

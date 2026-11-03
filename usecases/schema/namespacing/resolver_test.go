@@ -1128,6 +1128,85 @@ func TestStripRefBeacon(t *testing.T) {
 	}
 }
 
+func TestStripBeacon(t *testing.T) {
+	mk := func(class string) string { return "weaviate://localhost/" + class + "/" + refBeaconUUID }
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		in        string
+		want      string
+	}{
+		{
+			name:      "namespaced caller: own prefix stripped",
+			principal: namespacedPrincipal,
+			in:        mk("customer1:Animal"),
+			want:      mk("Animal"),
+		},
+		{
+			name:      "namespaced caller: short beacon unchanged",
+			principal: namespacedPrincipal,
+			in:        mk("Animal"),
+			want:      mk("Animal"),
+		},
+		{
+			name:      "namespaced caller: foreign prefix left intact",
+			principal: namespacedPrincipal,
+			in:        mk("customer2:Animal"),
+			want:      mk("customer2:Animal"),
+		},
+		{
+			name:      "global principal: qualified beacon preserved",
+			principal: globalPrincipal,
+			in:        mk("customer1:Animal"),
+			want:      mk("customer1:Animal"),
+		},
+		{
+			name:      "IsGlobalOperator with own-NS namespace set still skips strip",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true, Namespace: "customer1"},
+			in:        mk("customer1:Animal"),
+			want:      mk("customer1:Animal"),
+		},
+		{
+			name:      "nil principal: pass-through (NS-disabled cluster)",
+			principal: nil,
+			in:        mk("customer1:Animal"),
+			want:      mk("customer1:Animal"),
+		},
+		{
+			// Ref.String() drops the query, so only a skipped parse keeps it.
+			name:      "global principal: beacon returned verbatim, not re-serialized",
+			principal: globalPrincipal,
+			in:        mk("customer1:Animal") + "?q=1",
+			want:      mk("customer1:Animal") + "?q=1",
+		},
+		{
+			name:      "namespaced caller: non-beacon string passed through",
+			principal: namespacedPrincipal,
+			in:        "customer1:not-a-beacon",
+			want:      "customer1:not-a-beacon",
+		},
+		{
+			// crossref.Parse accepts this shape, but the scheme guard must keep
+			// it from being re-serialized as a weaviate:// beacon.
+			name:      "namespaced caller: non-beacon URI with beacon-shaped path not rewritten",
+			principal: namespacedPrincipal,
+			in:        "http://example.com/customer1:Animal/" + refBeaconUUID + "?q=1",
+			want:      "http://example.com/customer1:Animal/" + refBeaconUUID + "?q=1",
+		},
+		{
+			name:      "namespaced caller: unparseable beacon passed through",
+			principal: namespacedPrincipal,
+			in:        "weaviate://localhost/customer1:Animal/not-a-uuid",
+			want:      "weaviate://localhost/customer1:Animal/not-a-uuid",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, namespacing.StripBeacon(tc.principal, tc.in))
+		})
+	}
+}
+
 func TestStripPointingTo(t *testing.T) {
 	const beaconUUID = "11111111-2222-3333-4444-555555555555"
 	mkURI := func(class string) string {

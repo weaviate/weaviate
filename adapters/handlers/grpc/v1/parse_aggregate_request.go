@@ -58,7 +58,7 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 
 	if req.GroupBy != nil {
 		params.GroupBy = &filters.Path{
-			Class:    schema.ClassName(req.GroupBy.Collection),
+			Class:    params.ClassName,
 			Property: schema.PropertyName(req.GroupBy.Property),
 		}
 	}

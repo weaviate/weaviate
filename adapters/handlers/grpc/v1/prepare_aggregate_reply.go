@@ -13,13 +13,11 @@ package v1
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -120,20 +118,12 @@ func (r *AggregateReplier) groupByIsRef(path []string) bool {
 	return schema.IsRefDataType([]string{dataType})
 }
 
-const beaconScheme = "weaviate://"
-
-// groupedByText builds a text bucket. For a ref beacon it strips the caller's
-// own "<ns>:" from the embedded class (foreign prefixes stay). The scheme
-// guard matters: crossref.Parse ignores the scheme and Ref.String() rewrites
-// to weaviate:// dropping any query/fragment, so without it a non-beacon
-// "/Class/<uuid>" URI would be mangled. Defense in depth — writes already
-// store beacons short.
+// groupedByText builds a text bucket. It passes a ref bucket's beacon through
+// namespacing.StripBeacon as defense in depth, since writes already store a
+// beacon's class without the namespace prefix.
 func (r *AggregateReplier) groupedByText(path []string, val string, isRef bool) *pb.AggregateReply_Group_GroupedBy {
-	if isRef && strings.HasPrefix(val, beaconScheme) {
-		if ref, err := crossref.Parse(val); err == nil {
-			ref.Class = namespacing.StripOwnNamespace(r.principal, ref.Class)
-			val = ref.String()
-		}
+	if isRef {
+		val = namespacing.StripBeacon(r.principal, val)
 	}
 	return &pb.AggregateReply_Group_GroupedBy{
 		Path:  path,

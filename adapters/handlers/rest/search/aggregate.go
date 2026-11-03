@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -244,15 +243,10 @@ func buildAggregateResponse(res any, grouped, groupByIsRef bool,
 	return reply, nil
 }
 
-const beaconScheme = "weaviate://"
-
 // groupValue renders one group's value. Grouping by a ref-typed property
-// yields beacon URIs: strip the caller's own "<ns>:" from the embedded class
-// (foreign prefixes stay) — gRPC replier parity (prepare_aggregate_reply.go).
-// The scheme guard matters: crossref.Parse ignores the scheme and
-// Ref.String() rewrites to weaviate:// dropping any query/fragment, so a
-// non-beacon string must pass through untouched. Every other value type is
-// returned verbatim — JSON carries the property's native type.
+// yields beacon URIs, which go through namespacing.StripBeacon like the gRPC
+// replier's. Every other value type is returned verbatim — JSON carries the
+// property's native type.
 func groupValue(value any, groupByIsRef bool, principal *models.Principal) any {
 	if !groupByIsRef {
 		return value
@@ -268,13 +262,5 @@ func groupValue(value any, groupByIsRef bool, principal *models.Principal) any {
 		}
 		str = string(uri)
 	}
-	if !strings.HasPrefix(str, beaconScheme) {
-		return str
-	}
-	ref, err := crossref.Parse(str)
-	if err != nil {
-		return str
-	}
-	ref.Class = namespacing.StripOwnNamespace(principal, ref.Class)
-	return ref.String()
+	return namespacing.StripBeacon(principal, str)
 }

@@ -411,6 +411,17 @@ func TestNamespaces_GRPC(t *testing.T) {
 			"admin's aggregate over the qualified class must return the same shape")
 	})
 
+	t.Run("Aggregate GroupBy ignores another namespace's group-by collection", func(t *testing.T) {
+		resp, err := grpcClient.Aggregate(authCtx(user1Key), &pb.AggregateRequest{
+			Collection:   class,
+			ObjectsCount: true,
+			GroupBy:      &pb.AggregateRequest_GroupBy{Collection: ns2 + ":" + class, Property: "title"},
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, resp.GetGroupedResults().GetGroups(),
+			"the group-by runs on the request's own collection")
+	})
+
 	// End-to-end: ref-target group-by emits a short bucket URI (own-NS
 	// stripped) and merges every source into one bucket. Many zoos reference
 	// one animal so sources spread across shards on a multi-node cluster — if

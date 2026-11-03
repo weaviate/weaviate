@@ -437,8 +437,13 @@ func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, resolver *sc
 		return nil, "", fmt.Errorf("cannot parse _additional %v", groupRaw)
 	}
 
+	name, err := r.groupName(group.GroupedBy.Value, searchParams, resolver)
+	if err != nil {
+		return nil, "", err
+	}
+
 	ret := &pb.GroupByResult{
-		Name:            group.GroupedBy.Value,
+		Name:            name,
 		MaxDistance:     group.MaxDistance,
 		MinDistance:     group.MinDistance,
 		NumberOfObjects: int64(group.Count),
@@ -513,6 +518,23 @@ func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, resolver *sc
 	ret.Objects = objects
 
 	return ret, groupedGenerativeResults, nil
+}
+
+// groupName returns the name a search group reports. A group-by on a reference
+// property groups by beacon, which goes through namespacing.StripBeacon.
+func (r *Replier) groupName(value string, searchParams dto.GetParams, resolver *schemaResolver) (string, error) {
+	class, err := resolver.resolve(searchParams.ClassName)
+	if err != nil {
+		return "", err
+	}
+	prop, err := class.property(searchParams.GroupBy.Property)
+	if err != nil {
+		return "", err
+	}
+	if !schema.IsRefDataType(prop.DataType) {
+		return value, nil
+	}
+	return namespacing.StripBeacon(r.principal, value), nil
 }
 
 // extractPropertiesAnswer fills the top-level result for one hit.

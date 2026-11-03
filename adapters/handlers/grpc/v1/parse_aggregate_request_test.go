@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -290,6 +291,20 @@ func TestGRPCAggregateRequest(t *testing.T) {
 					},
 					TargetVectors: []string{"first_vec"},
 				},
+			},
+			error: false,
+		},
+		{
+			name: "group-by class is the request's collection, not the group-by's",
+			req: &pb.AggregateRequest{
+				Collection:   mixedVectorsClass,
+				ObjectsCount: true,
+				GroupBy:      &pb.AggregateRequest_GroupBy{Collection: "customer2:" + mixedVectorsClass, Property: "first"},
+			},
+			out: &aggregation.Params{
+				ClassName:        schema.ClassName(mixedVectorsClass),
+				IncludeMetaCount: true,
+				GroupBy:          &filters.Path{Class: schema.ClassName(mixedVectorsClass), Property: "first"},
 			},
 			error: false,
 		},

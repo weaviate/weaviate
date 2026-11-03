@@ -12,6 +12,7 @@
 package v1
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -73,82 +74,28 @@ func TestGRPCAggregateReply_ReferenceAggregationStripsPointingTo(t *testing.T) {
 	}
 }
 
-// Pins the ref-target group-by strip (isRef=true): own "<ns>:" stripped from
-// the embedded class, foreign prefixes and short beacons left intact. Each
-// case runs through both string (grouper/remote shape) and strfmt.URI (the
-// defensive local-shard path) so they strip identically.
+// Pins that a ref-target group-by bucket (isRef=true) goes through
+// namespacing.StripBeacon, whose own tests cover the strip itself, both as a
+// string (grouper/remote shape) and as a strfmt.URI (defensive local-shard
+// path).
 func TestGRPCAggregateReply_GroupByOnRefTargetStripsOwnNamespace(t *testing.T) {
+	const prefix = "weaviate://localhost/"
 	const uuid = "11111111-2222-3333-4444-555555555555"
-	mk := func(class string) string {
-		return "weaviate://localhost/" + class + "/" + uuid
-	}
-	cases := []struct {
-		name      string
-		principal *models.Principal
-		in        string
-		wantText  string
-	}{
-		{
-			name:      "namespaced caller: own-NS stripped from embedded class",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			in:        mk("customer1:Animal"),
-			wantText:  mk("Animal"),
-		},
-		{
-			name:      "namespaced caller: foreign-NS preserved",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			in:        mk("customer2:Animal"),
-			wantText:  mk("customer2:Animal"),
-		},
-		{
-			name:      "namespaced caller: already-short beacon unchanged",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			in:        mk("Animal"),
-			wantText:  mk("Animal"),
-		},
-		{
-			name:      "global principal: qualified beacon preserved",
-			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
-			in:        mk("customer1:Animal"),
-			wantText:  mk("customer1:Animal"),
-		},
-		{
-			name:      "nil principal: pass-through (NS-disabled cluster)",
-			principal: nil,
-			in:        mk("customer1:Animal"),
-			wantText:  mk("customer1:Animal"),
-		},
-		{
-			name:      "unparseable URI: passed through unchanged",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			in:        "not-a-real-beacon",
-			wantText:  "not-a-real-beacon",
-		},
-		{
-			// crossref.Parse accepts this shape (path + UUID) but it isn't a
-			// weaviate:// beacon, so the scheme guard must leave it verbatim
-			// rather than re-serialize it as weaviate:// (dropping the query).
-			name:      "non-beacon URI with beacon-shaped path: not rewritten",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			in:        "http://example.com/customer1:Animal/" + uuid + "?q=1",
-			wantText:  "http://example.com/customer1:Animal/" + uuid + "?q=1",
-		},
-	}
-	for _, tc := range cases {
-		for _, val := range []interface{}{tc.in, strfmt.URI(tc.in)} {
-			t.Run(tc.name, func(t *testing.T) {
-				replier := NewAggregateReplier(tc.principal, nil, nil)
-				got, err := replier.parseAggregateGroupedBy(&aggregation.GroupedBy{
-					Path:  []string{"hasAnimals"},
-					Value: val,
-				}, true)
-				require.NoError(t, err)
-				require.NotNil(t, got)
-				textVal, ok := got.Value.(*pb.AggregateReply_Group_GroupedBy_Text)
-				require.True(t, ok, "expected Text value, got %T", got.Value)
-				assert.Equal(t, tc.wantText, textVal.Text)
-			})
-		}
+	principal := &models.Principal{Username: "u", Namespace: "customer1"}
+	in := prefix + "customer1:Animal/" + uuid
+	for _, val := range []interface{}{in, strfmt.URI(in)} {
+		t.Run(fmt.Sprintf("%T", val), func(t *testing.T) {
+			replier := NewAggregateReplier(principal, nil, nil)
+			got, err := replier.parseAggregateGroupedBy(&aggregation.GroupedBy{
+				Path:  []string{"hasAnimals"},
+				Value: val,
+			}, true)
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			textVal, ok := got.Value.(*pb.AggregateReply_Group_GroupedBy_Text)
+			require.True(t, ok, "expected Text value, got %T", got.Value)
+			assert.Equal(t, prefix+"Animal/"+uuid, textVal.Text)
+		})
 	}
 }
 

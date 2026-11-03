@@ -370,6 +370,24 @@ func StripRefBeacon(principal *models.Principal, r *crossref.Ref) strfmt.URI {
 	return strfmt.URI(out.String())
 }
 
+const beaconScheme = "weaviate://"
+
+// StripBeacon is StripRefBeacon for a beacon held as a string, such as a
+// group-by value on a reference property. It returns s unchanged for a caller
+// without a namespace, and for a value that lacks the beaconScheme prefix or
+// does not parse: crossref.Parse ignores the scheme, and Ref.String() would
+// rewrite any other URI as a beacon.
+func StripBeacon(principal *models.Principal, s string) string {
+	if ConfinedNamespace(principal) == "" || !strings.HasPrefix(s, beaconScheme) {
+		return s
+	}
+	ref, err := crossref.Parse(s)
+	if err != nil {
+		return s
+	}
+	return string(StripRefBeacon(principal, ref))
+}
+
 // StripPointingTo strips the caller's own NS from each entry of the gRPC
 // Reference.PointingTo field. Entries come in two shapes:
 //   - Beacon URI ("weaviate://localhost/<class>/<uuid>") — populated by
