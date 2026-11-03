@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"sort"
@@ -250,8 +251,18 @@ func (p *ReindexProvider) SeedReindexTaskCache(
 	}
 }
 
+// GetLocalTasks reports the tasks this provider caches state for, so the
+// scheduler calls CleanupTask once a task leaves the task list.
 func (p *ReindexProvider) GetLocalTasks() []distributedtask.TaskDescriptor {
-	return nil
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	descs := slices.Collect(maps.Keys(p.payloads))
+	for desc := range p.reindexTasks {
+		if _, ok := p.payloads[desc]; !ok {
+			descs = append(descs, desc)
+		}
+	}
+	return descs
 }
 
 // Lock-coupled getters/setters for the in-memory caches keyed by
@@ -282,6 +293,12 @@ func (p *ReindexProvider) cachedPayload(desc distributedtask.TaskDescriptor) *Re
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.payloads[desc]
+}
+
+func (p *ReindexProvider) cachePayload(desc distributedtask.TaskDescriptor, payload *ReindexTaskPayload) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.payloads[desc] = payload
 }
 
 func (p *ReindexProvider) cachedReindexTasks(desc distributedtask.TaskDescriptor, unitID string) []*ShardReindexTaskGeneric {
@@ -404,7 +421,8 @@ func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescripto
 	}
 }
 
-func (p *ReindexProvider) CleanupTask(_ distributedtask.TaskDescriptor) error {
+func (p *ReindexProvider) CleanupTask(desc distributedtask.TaskDescriptor) error {
+	p.clearTaskCaches(desc)
 	return nil
 }
 
@@ -879,6 +897,8 @@ func (p *ReindexProvider) loadPayload(task *distributedtask.Task) (*ReindexTaskP
 	if err := json.Unmarshal(task.Payload, &pl); err != nil {
 		return nil, fmt.Errorf("unmarshal payload: %w", err)
 	}
+	// A decided swap retried after OnTaskCompleted would decode it every tick.
+	p.cachePayload(task.TaskDescriptor, &pl)
 	return &pl, nil
 }
 

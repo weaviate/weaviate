@@ -303,12 +303,8 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
-			p := &ReindexProvider{
-				logger:    logger,
-				serverCtx: context.Background(),
-				// Terminal-status cleanup needs a DB; an empty one is a no-op.
-				db: &DB{},
-			}
+			// Terminal-status cleanup needs a DB; an empty one is a no-op.
+			p := NewReindexProvider(&DB{}, nil, nil, logger, "", nil, context.Background())
 
 			require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
 				Namespace:          ReindexNamespace,
