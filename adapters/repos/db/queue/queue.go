@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -733,8 +734,8 @@ func (q *DiskQueue) keepsProcessed() bool {
 //
 // The mark is the path of the first chunk to replay, and every chunk named
 // at or after it replays: the oldest chunk not processed yet, or on a queue
-// with none the name a chunk created now would get, since names follow the
-// clock. The file may not exist yet. A queue is retained once at a time.
+// with none a name reserved below every chunk created next. The file may not
+// exist yet. A queue is retained once at a time.
 func (q *DiskQueue) Retain() (mark string, err error) {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
@@ -754,7 +755,7 @@ func (q *DiskQueue) Retain() (mark string, err error) {
 		mark = q.w.f.Name()
 	}
 	if mark == "" {
-		mark = filepath.Join(q.dir, fmt.Sprintf(chunkFileFmt, chunkTimeNow()))
+		mark = filepath.Join(q.dir, fmt.Sprintf(chunkFileFmt, q.w.nextSeq()))
 	}
 	q.retained.Store(true)
 	return mark, nil
@@ -1273,6 +1274,9 @@ type chunkWriter struct {
 	buf         [8]byte
 
 	reader *chunkReader
+	// lastSeq is the highest chunk number handed out, so names only grow
+	// even if the clock steps back
+	lastSeq int64
 }
 
 func newChunkWriter(dir string, reader *chunkReader, logger logrus.FieldLogger, maxSize uint64) (*chunkWriter, error) {
@@ -1382,13 +1386,10 @@ func (w *chunkWriter) Create() error {
 	// existing chunk and later header writes would clobber it. Create
 	// exclusively and bump the timestamp until a free name is found.
 	//
-	// The bump preserves per-writer chunk ordering, which is load-bearing:
-	// the filename doubles as the replay ordering key (chunks are reloaded
-	// in name order). It only ever moves the name forward from the current
-	// clock, and a later Create in the same microsecond starts at the same
-	// timestamp and re-collides with every name taken so far, so it always
-	// lands after this one.
-	ts := chunkTimeNow()
+	// Names only grow, which is load-bearing: the filename doubles as the
+	// replay ordering key (chunks are reloaded in name order, and a
+	// retention's mark is a name).
+	ts := w.nextSeq()
 	for i := 0; ; i++ {
 		path := filepath.Join(w.dir, fmt.Sprintf(chunkFileFmt, ts))
 		w.f, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o644)
@@ -1405,6 +1406,7 @@ func (w *chunkWriter) Create() error {
 		}
 		ts++
 	}
+	w.lastSeq = ts
 
 	w.w.Reset(w.f)
 
@@ -1429,6 +1431,17 @@ func (w *chunkWriter) Create() error {
 	return nil
 }
 
+// nextSeq hands out the number of the next chunk name: the clock, or one
+// past the last number if the clock is behind it.
+func (w *chunkWriter) nextSeq() int64 {
+	seq := chunkTimeNow()
+	if seq <= w.lastSeq {
+		seq = w.lastSeq + 1
+	}
+	w.lastSeq = seq
+	return seq
+}
+
 func (w *chunkWriter) Open() error {
 	entries, err := os.ReadDir(w.dir)
 	if err != nil {
@@ -1444,6 +1457,10 @@ func (w *chunkWriter) Open() error {
 			continue
 		}
 		lastChunk = entry.Name()
+		seq, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(lastChunk, "chunk-"), ".bin"), 10, 64)
+		if err == nil && seq > w.lastSeq {
+			w.lastSeq = seq
+		}
 	}
 
 	if lastChunk == "" {
