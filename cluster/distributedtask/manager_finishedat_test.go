@@ -192,7 +192,7 @@ func TestManager_UnitUpdatedAtIncludesTheTerminalTransition(t *testing.T) {
 				updateProgress(t, h, ns, id, version, node, unitID, 0.5)
 			}
 
-			before := h.manager.tasks[ns][id].Units[unitID]
+			before := h.manager.tasks[ns][id].Unit(unitID)
 			require.Equal(t, tt.reportsProgress, !before.UpdatedAt.IsZero(),
 				"before going terminal a unit carries an update time iff it reported progress")
 
@@ -200,7 +200,7 @@ func TestManager_UnitUpdatedAtIncludesTheTerminalTransition(t *testing.T) {
 			wantUpdatedAt := h.clock.Now()
 			tt.terminal(t, h)
 
-			got := h.manager.tasks[ns][id].Units[unitID]
+			got := h.manager.tasks[ns][id].Unit(unitID)
 			require.Equal(t, tt.wantStatus, got.Status)
 			require.False(t, got.UpdatedAt.IsZero(),
 				"a terminal unit must report when it was last touched")

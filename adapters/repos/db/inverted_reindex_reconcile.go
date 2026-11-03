@@ -347,7 +347,7 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 	if len(r.store.Unreadable()) > 0 {
 		return
 	}
-	statuses := migrationTaskStatuses(tasks)
+	statuses := migrationTaskStatuses(tasks, r.deps.Group)
 	for _, rec := range r.store.Records() {
 		if ctx.Err() != nil {
 			return
@@ -917,7 +917,7 @@ func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []dist
 // A decided group is past its point of no return: its record commits whatever
 // the task's status, or this replica would disagree with its siblings for good.
 func (r *migrationReconciler) verdictForTask(task distributedtask.TaskStatusEntry) (migrationVerdict, string) {
-	if _, decided := task.DecidedGroups[r.deps.Group]; decided {
+	if task.GroupDecided {
 		return migrationVerdictCommit, fmt.Sprintf("owning task (%s) decided this shard's swap", task.Status)
 	}
 	switch task.Status {
@@ -940,11 +940,11 @@ func findMigrationTask(subject MigrationSubject, tasks []distributedtask.TaskSta
 	return distributedtask.TaskStatusEntry{}, false
 }
 
-func migrationTaskStatuses(tasks []*distributedtask.Task) []distributedtask.TaskStatusEntry {
+func migrationTaskStatuses(tasks []*distributedtask.Task, group string) []distributedtask.TaskStatusEntry {
 	out := make([]distributedtask.TaskStatusEntry, 0, len(tasks))
 	for _, task := range tasks {
 		if task != nil {
-			out = append(out, task.StatusEntry())
+			out = append(out, task.StatusEntryFor(group))
 		}
 	}
 	return out
@@ -963,11 +963,12 @@ func (r *migrationReconciler) DiscardTask(ctx context.Context, task *distributed
 	if len(r.store.Unreadable()) > 0 {
 		return errors.New("a migration record on this shard cannot be read, so no record is discarded")
 	}
-	verdict, why := r.verdictForTask(task.StatusEntry())
+	entry := task.StatusEntryFor(r.deps.Group)
+	verdict, why := r.verdictForTask(entry)
 	if verdict != migrationVerdictDiscard {
 		return nil
 	}
-	tasks := []distributedtask.TaskStatusEntry{task.StatusEntry()}
+	tasks := []distributedtask.TaskStatusEntry{entry}
 	discarding := errorcompounder.New()
 	for _, rec := range r.store.Records() {
 		if err := ctx.Err(); err != nil {

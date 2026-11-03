@@ -28,8 +28,9 @@ const migrationClusterQueryTimeout = 5 * time.Second
 const migrationClusterReconcileInterval = time.Minute
 
 // MigrationLocalTaskSource reads this node's own applied view of the reindex
-// task namespace. ok=false means "not installed", which licenses no discard.
-type MigrationLocalTaskSource func() ([]distributedtask.TaskStatusEntry, bool)
+// task namespace, each entry answering for group. ok=false means "not
+// installed", which licenses no discard.
+type MigrationLocalTaskSource func(group string) ([]distributedtask.TaskStatusEntry, bool)
 
 // MigrationClusterTaskSource reads the reindex task namespace from the leader.
 type MigrationClusterTaskSource func(context.Context) ([]*distributedtask.Task, error)
@@ -187,7 +188,7 @@ func (r *migrationClusterReconciler) shardsWithUndecidedRecords() []migrationUnd
 	return found
 }
 
-func (r *migrationClusterReconciler) LocalTasks() ([]distributedtask.TaskStatusEntry, bool) {
+func (r *migrationClusterReconciler) LocalTasks(group string) ([]distributedtask.TaskStatusEntry, bool) {
 	source := func() MigrationLocalTaskSource {
 		r.mu.RLock()
 		defer r.mu.RUnlock()
@@ -197,7 +198,7 @@ func (r *migrationClusterReconciler) LocalTasks() ([]distributedtask.TaskStatusE
 	if source == nil {
 		return nil, false
 	}
-	return source()
+	return source(group)
 }
 
 // clusterTasksBounded puts a timeout on the leader query alone, so an

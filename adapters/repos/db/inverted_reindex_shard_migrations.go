@@ -57,7 +57,7 @@ func (m shardMigrations) LocalTasks() ([]distributedtask.TaskStatusEntry, bool) 
 	if m.shard.index == nil || m.shard.index.db == nil {
 		return nil, false
 	}
-	return m.shard.index.db.migrationCluster.LocalTasks()
+	return m.shard.index.db.migrationCluster.LocalTasks(m.shard.name)
 }
 
 func (m shardMigrations) SealUnit(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {

@@ -474,7 +474,7 @@ func (p *ReindexProvider) processUnits(
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	for _, unitID := range localUnits {
-		unit := task.Units[unitID]
+		unit := task.Unit(unitID)
 		if unit != nil && (unit.Status == distributedtask.UnitStatusCompleted || unit.Status == distributedtask.UnitStatusFailed) {
 			continue
 		}
@@ -1034,7 +1034,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	idx *Index,
 	logger logrus.FieldLogger,
 ) phaseUnitResolution {
-	unit := task.Units[unitID]
+	unit := task.Unit(unitID)
 	if unit != nil && unit.Status == distributedtask.UnitStatusFailed {
 		logger.WithField("unit", unitID).Warn("reindex provider: skipping failed unit")
 		return phaseUnitResolution{Skip: true}
@@ -1190,8 +1190,8 @@ func (p *ReindexProvider) runShardSwapPhase(
 		logger.WithField("unit", unitID).WithField("shard", shardName).
 			Info("reindex provider: swap complete")
 	} else {
-		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Error("reindex provider: swap INCOMPLETE for this shard — at least one task's RunSwapOnShard returned an error; the cluster-wide post-completion ack will report this as a failure")
+		logger.WithField("unit", unitID).WithField("shard", shardName).WithField("node", p.localNode).
+			Error("reindex provider: swap INCOMPLETE for this shard — at least one task's RunSwapOnShard returned an error")
 	}
 	return out
 }

@@ -114,8 +114,8 @@ func (s *Raft) LocalDistributedTasks() map[string][]*distributedtask.Task {
 
 // LocalTaskStatuses is the decider's read of this node's FSM. It can trail the
 // leader, so a task missing from it licenses no decision.
-func (s *Raft) LocalTaskStatuses(namespace string) []distributedtask.TaskStatusEntry {
-	return s.store.LocalTaskStatuses(namespace)
+func (s *Raft) LocalTaskStatuses(namespace, group string) []distributedtask.TaskStatusEntry {
+	return s.store.LocalTaskStatuses(namespace, group)
 }
 
 func (s *Raft) Ready() bool {

@@ -43,7 +43,7 @@ func buildTask(t *testing.T, id string, status distributedtask.TaskStatus,
 	t.Helper()
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	return &distributedtask.Task{
+	task := &distributedtask.Task{
 		Namespace: db.ReindexNamespace,
 		TaskDescriptor: distributedtask.TaskDescriptor{
 			ID:      id,
@@ -52,8 +52,9 @@ func buildTask(t *testing.T, id string, status distributedtask.TaskStatus,
 		Payload:   raw,
 		Status:    status,
 		StartedAt: time.Now(),
-		Units:     units,
 	}
+	task.SetUnits(units)
+	return task
 }
 
 func tasksMap(tasks ...*distributedtask.Task) []db.ReindexRun {

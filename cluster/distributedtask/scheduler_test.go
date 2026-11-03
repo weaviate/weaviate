@@ -1281,17 +1281,8 @@ func TestPreMarkTerminalCallbacksLocked_OnlyTerminalsAreMarked(t *testing.T) {
 	startedDesc := TaskDescriptor{ID: "started", Version: 4}
 
 	mkTask := func(d TaskDescriptor, status TaskStatus, groups ...string) *Task {
-		task := &Task{
-			TaskDescriptor: d,
-			Status:         status,
-			Units:          map[string]*Unit{},
-		}
-		// Add one unit per group so Task.Groups() yields each group.
-		for i, g := range groups {
-			id := fmt.Sprintf("u-%d", i)
-			task.Units[id] = &Unit{ID: id, GroupID: g, NodeID: "node-a"}
-		}
-		return task
+		// One unit per group so Task.Groups() yields each group.
+		return withUnits(&Task{TaskDescriptor: d, Status: status}, unitPerGroup(groups))
 	}
 
 	snapshot := map[string]map[TaskDescriptor]*Task{
@@ -1392,16 +1383,7 @@ func TestPreMarkTerminalCallbacksLocked_RecoveryAwareSkipsPending(t *testing.T) 
 	})
 
 	mkTask := func(d TaskDescriptor, status TaskStatus, groups ...string) *Task {
-		task := &Task{
-			TaskDescriptor: d,
-			Status:         status,
-			Units:          map[string]*Unit{},
-		}
-		for i, g := range groups {
-			id := fmt.Sprintf("u-%d", i)
-			task.Units[id] = &Unit{ID: id, GroupID: g, NodeID: "node-a"}
-		}
-		return task
+		return withUnits(&Task{TaskDescriptor: d, Status: status}, unitPerGroup(groups))
 	}
 
 	snapshot := map[string]map[TaskDescriptor]*Task{
@@ -1453,13 +1435,12 @@ func TestPreMarkTerminalCallbacksLocked_NonRecoveryAwareProviderUnchanged(t *tes
 		TaskCleaner:        nil,
 	})
 
-	task := &Task{
+	task := withUnits(&Task{
 		TaskDescriptor: finishedDesc,
 		Status:         TaskStatusFinished,
-		Units: map[string]*Unit{
-			"u-0": {ID: "u-0", GroupID: "g1", NodeID: "node-a"},
-		},
-	}
+	}, map[string]*Unit{
+		"u-0": {ID: "u-0", GroupID: "g1", NodeID: "node-a"},
+	})
 	snapshot := map[string]map[TaskDescriptor]*Task{
 		"ns": {finishedDesc: task},
 	}
@@ -1521,17 +1502,7 @@ func TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked(t *testing.T) 
 	})
 
 	mkBarrierTask := func(d TaskDescriptor, status TaskStatus, groups ...string) *Task {
-		task := &Task{
-			TaskDescriptor:          d,
-			Status:                  status,
-			NeedsPreparationBarrier: true,
-			Units:                   map[string]*Unit{},
-		}
-		for i, g := range groups {
-			id := fmt.Sprintf("u-%d", i)
-			task.Units[id] = &Unit{ID: id, GroupID: g, NodeID: "node-a"}
-		}
-		return task
+		return withUnits(&Task{TaskDescriptor: d, Status: status, NeedsPreparationBarrier: true}, unitPerGroup(groups))
 	}
 
 	snapshot := map[string]map[TaskDescriptor]*Task{

@@ -78,10 +78,9 @@ func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 				require.NoError(t, task.RunSwapOnShard(ctx, shard))
 			}
 
-			failed := &distributedtask.Task{
+			failed := withUnits(&distributedtask.Task{
 				Namespace: ReindexNamespace, TaskDescriptor: desc, Status: distributedtask.TaskStatusFailed,
-				Units: map[string]*distributedtask.Unit{shard.migrationUnit(): {ID: shard.migrationUnit(), GroupID: shard.Name()}},
-			}
+			}, map[string]*distributedtask.Unit{shard.migrationUnit(): {ID: shard.migrationUnit(), GroupID: shard.Name()}})
 			if tc.decided {
 				failed.SwapDecidedGroups = map[string]time.Time{shard.Name(): {}}
 			}

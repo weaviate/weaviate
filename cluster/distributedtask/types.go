@@ -13,7 +13,10 @@ package distributedtask
 
 import (
 	"context"
+	"encoding/json"
+	"iter"
 	"maps"
+	"slices"
 	"time"
 )
 
@@ -532,22 +535,15 @@ type TaskDescriptor struct {
 type TaskStatusEntry struct {
 	TaskDescriptor
 	Status TaskStatus
-	// DecidedGroups holds the groups whose swap is decided, so a record can be
-	// committed on the decision alone, whatever the task status. Keyed by group,
-	// not unit: a copied replica's record is renamed to a unit the task never had.
-	DecidedGroups map[string]struct{}
+	// GroupDecided is whether the asking group's swap is decided, so a record
+	// can be committed on the decision alone, whatever the task status.
+	GroupDecided bool
 }
 
-func (t *Task) StatusEntry() TaskStatusEntry {
-	entry := TaskStatusEntry{TaskDescriptor: t.TaskDescriptor, Status: t.Status}
-	if len(t.SwapDecidedGroups) == 0 {
-		return entry
-	}
-	entry.DecidedGroups = make(map[string]struct{}, len(t.SwapDecidedGroups))
-	for group := range t.SwapDecidedGroups {
-		entry.DecidedGroups[group] = struct{}{}
-	}
-	return entry
+// StatusEntryFor answers for one group: a copy of every decided group would
+// cost the tenant count on each of the tenant count's shards.
+func (t *Task) StatusEntryFor(group string) TaskStatusEntry {
+	return TaskStatusEntry{TaskDescriptor: t.TaskDescriptor, Status: t.Status, GroupDecided: t.GroupSwapDecided(group)}
 }
 
 // Task represents a distributed task tracked across the cluster via Raft consensus.
@@ -588,8 +584,13 @@ type Task struct {
 	// Error is an optional field to store the error which moved the task to FAILED status.
 	Error string `json:"error,omitempty"`
 
-	// Units tracks per-unit progress. Always non-nil for valid tasks.
-	Units map[string]*Unit `json:"units,omitempty"`
+	// units tracks per-unit progress, serialized as "units". Only Task methods
+	// add or remove units, so groups stays in step.
+	units map[string]*Unit
+
+	// groups maps each group to its unit IDs. Immutable once built, so every
+	// clone shares it at no per-tick cost; a change builds a new one.
+	groups map[string][]string
 
 	collection string
 
@@ -640,13 +641,53 @@ type PostCompletionAck struct {
 	AckedAt time.Time `json:"ackedAt"`
 }
 
+// taskFields is Task without its JSON methods, so it encodes by default rules.
+type taskFields Task
+
+type taskJSON struct {
+	*taskFields
+	Units map[string]*Unit `json:"units,omitempty"`
+}
+
+func (t Task) MarshalJSON() ([]byte, error) {
+	return json.Marshal(taskJSON{taskFields: (*taskFields)(&t), Units: t.units})
+}
+
+func (t *Task) UnmarshalJSON(data []byte) error {
+	decoded := taskJSON{taskFields: (*taskFields)(t)}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	t.SetUnits(decoded.Units)
+	return nil
+}
+
+// SetUnits replaces the task's units, taking ownership of the map.
+func (t *Task) SetUnits(units map[string]*Unit) {
+	groups := map[string][]string{}
+	for id, u := range units {
+		groups[u.GroupID] = append(groups[u.GroupID], id)
+	}
+	t.units, t.groups = units, groups
+}
+
+// Units iterates the task's units by ID.
+func (t *Task) Units() iter.Seq2[string, *Unit] { return maps.All(t.units) }
+
+// Unit returns the unit with the ID, or nil.
+func (t *Task) Unit(id string) *Unit { return t.units[id] }
+
+func (t *Task) UnitCount() int { return len(t.units) }
+
 func (t *Task) Clone() *Task {
 	clone := *t
-	if t.Units != nil {
-		clone.Units = make(map[string]*Unit, len(t.Units))
-		for k, v := range t.Units {
-			uCopy := *v
-			clone.Units[k] = &uCopy
+	if t.units != nil {
+		// One allocation for every unit copy, not one each: this runs per tick.
+		copies := make([]Unit, 0, len(t.units))
+		clone.units = make(map[string]*Unit, len(t.units))
+		for k, v := range t.units {
+			copies = append(copies, *v)
+			clone.units[k] = &copies[len(copies)-1]
 		}
 	}
 	if t.PostCompletionAcks != nil {
@@ -671,14 +712,10 @@ func (t *Task) GroupSwapDecided(groupID string) bool {
 	return ok
 }
 
-// AllGroupsSwapDecided is false while any group still prepares.
+// AllGroupsSwapDecided is false while any group still prepares. Decided groups
+// are always groups of the task, so counting them is enough.
 func (t *Task) AllGroupsSwapDecided() bool {
-	for _, u := range t.Units {
-		if !t.GroupSwapDecided(u.GroupID) {
-			return false
-		}
-	}
-	return true
+	return len(t.SwapDecidedGroups) == len(t.groups)
 }
 
 // markTerminal stamps status and FinishedAt together so a terminal
@@ -692,7 +729,7 @@ func (t *Task) markTerminal(status TaskStatus, at time.Time) {
 
 // AllUnitsTerminal returns true if all units are in a terminal state (COMPLETED or FAILED).
 func (t *Task) AllUnitsTerminal() bool {
-	for _, u := range t.Units {
+	for _, u := range t.units {
 		if u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
 			return false
 		}
@@ -702,7 +739,7 @@ func (t *Task) AllUnitsTerminal() bool {
 
 // AnyUnitFailed returns true if any unit has FAILED status.
 func (t *Task) AnyUnitFailed() bool {
-	for _, u := range t.Units {
+	for _, u := range t.units {
 		if u.Status == UnitStatusFailed {
 			return true
 		}
@@ -712,24 +749,13 @@ func (t *Task) AnyUnitFailed() bool {
 
 // Groups returns the distinct GroupIDs across all units (includes "" for ungrouped).
 func (t *Task) Groups() []string {
-	seen := map[string]bool{}
-	for _, u := range t.Units {
-		seen[u.GroupID] = true
-	}
-	groups := make([]string, 0, len(seen))
-	for g := range seen {
-		groups = append(groups, g)
-	}
-	return groups
+	return slices.Collect(maps.Keys(t.groups))
 }
 
 // AllGroupUnitsTerminal returns true if all units in the given group are terminal.
 func (t *Task) AllGroupUnitsTerminal(groupID string) bool {
-	for _, u := range t.Units {
-		if u.GroupID != groupID {
-			continue
-		}
-		if u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
+	for _, id := range t.groups[groupID] {
+		if u := t.units[id]; u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
 			return false
 		}
 	}
@@ -740,19 +766,25 @@ func (t *Task) AllGroupUnitsTerminal(groupID string) bool {
 // PREP acks decide the group's swap.
 func (t *Task) groupNodes(groupID string) map[string]struct{} {
 	nodes := map[string]struct{}{}
-	for _, u := range t.Units {
-		if u.GroupID == groupID && u.NodeID != "" {
-			nodes[u.NodeID] = struct{}{}
+	for _, id := range t.groups[groupID] {
+		if node := t.units[id].NodeID; node != "" {
+			nodes[node] = struct{}{}
 		}
 	}
 	return nodes
 }
 
+func (t *Task) GroupCount() int { return len(t.groups) }
+
+func (t *Task) groupHasUnitOn(groupID, nodeID string) bool {
+	return slices.ContainsFunc(t.groups[groupID], func(id string) bool { return t.units[id].NodeID == nodeID })
+}
+
 // LocalGroupUnitIDs returns the IDs of units in the given group assigned to the given node.
 func (t *Task) LocalGroupUnitIDs(groupID, nodeID string) []string {
 	var ids []string
-	for id, u := range t.Units {
-		if u.GroupID == groupID && u.NodeID == nodeID {
+	for _, id := range t.groups[groupID] {
+		if t.units[id].NodeID == nodeID {
 			ids = append(ids, id)
 		}
 	}
@@ -762,7 +794,7 @@ func (t *Task) LocalGroupUnitIDs(groupID, nodeID string) []string {
 // NodeHasNonTerminalUnits returns true if the given node has units that are not yet terminal.
 // Unassigned units (empty NodeID) are considered as belonging to any node.
 func (t *Task) NodeHasNonTerminalUnits(nodeID string) bool {
-	for _, u := range t.Units {
+	for _, u := range t.units {
 		if u.Status == UnitStatusCompleted || u.Status == UnitStatusFailed {
 			continue
 		}
@@ -784,7 +816,7 @@ func (t *Task) NodeHasNonTerminalUnits(nodeID string) bool {
 // it themselves.
 func (t *Task) NodesWithLocalUnits() []string {
 	seen := map[string]struct{}{}
-	for _, u := range t.Units {
+	for _, u := range t.units {
 		if u.NodeID == "" {
 			continue
 		}

@@ -36,11 +36,13 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 		task := buildTask(t, "T", status, db.ReindexTaskPayload{
 			Collection: "C", Properties: []string{"title"}, MigrationType: mt,
 			TargetTokenization: tok, BucketStrategy: "mapcollection",
-		}, map[string]*distributedtask.Unit{})
+		}, nil)
 		task.Version, task.StartedAt = version, start.Add(time.Duration(version)*time.Minute)
+		units := map[string]*distributedtask.Unit{}
 		for _, g := range held {
-			task.Units[string(g)] = &distributedtask.Unit{ID: string(g), GroupID: string(g)}
+			units[string(g)] = &distributedtask.Unit{ID: string(g), GroupID: string(g)}
 		}
+		task.SetUnits(units)
 		for _, g := range decided {
 			if task.SwapDecidedGroups == nil {
 				task.SwapDecidedGroups = map[string]time.Time{}

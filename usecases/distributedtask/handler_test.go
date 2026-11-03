@@ -73,18 +73,17 @@ func TestHandler_ListTasks(t *testing.T) {
 		},
 		{
 			name: "task mid-coordination omits finishedAt, and so does its unfinished unit",
-			task: &distributedtask.Task{
+			task: withUnits(&distributedtask.Task{
 				Namespace:      namespace,
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "test-task-2", Version: 11},
 				Payload:        []byte(`{}`),
 				Status:         distributedtask.TaskStatusSwapping,
 				StartedAt:      anHourGo,
-				Units: map[string]*distributedtask.Unit{
-					"u-done": {ID: "u-done", NodeID: "n1", Status: distributedtask.UnitStatusCompleted, Progress: 1, UpdatedAt: now, FinishedAt: now},
-					"u-live": {ID: "u-live", NodeID: "n2", Status: distributedtask.UnitStatusInProgress, Progress: 0.5, UpdatedAt: now},
-					"u-idle": {ID: "u-idle", NodeID: "n3", Status: distributedtask.UnitStatusPending},
-				},
-			},
+			}, map[string]*distributedtask.Unit{
+				"u-done": {ID: "u-done", NodeID: "n1", Status: distributedtask.UnitStatusCompleted, Progress: 1, UpdatedAt: now, FinishedAt: now},
+				"u-live": {ID: "u-live", NodeID: "n2", Status: distributedtask.UnitStatusInProgress, Progress: 0.5, UpdatedAt: now},
+				"u-idle": {ID: "u-idle", NodeID: "n3", Status: distributedtask.UnitStatusPending},
+			}),
 			want: models.DistributedTask{
 				ID:        "test-task-2",
 				Version:   11,
@@ -150,4 +149,9 @@ type taskListerStub struct {
 
 func (t taskListerStub) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	return t.items, nil
+}
+
+func withUnits(task *distributedtask.Task, units map[string]*distributedtask.Unit) *distributedtask.Task {
+	task.SetUnits(units)
+	return task
 }

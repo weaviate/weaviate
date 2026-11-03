@@ -227,7 +227,7 @@ func structuralInvariantSeedTask(
 	if _, ok := m.tasks[namespace]; !ok {
 		m.tasks[namespace] = map[string]*Task{}
 	}
-	m.tasks[namespace][id] = &Task{
+	m.tasks[namespace][id] = withUnits(&Task{
 		Namespace: namespace,
 		TaskDescriptor: TaskDescriptor{
 			ID:      id,
@@ -236,10 +236,9 @@ func structuralInvariantSeedTask(
 		Payload:   payload,
 		Status:    TaskStatusStarted,
 		StartedAt: now,
-		Units: map[string]*Unit{
-			"u-1": {ID: "u-1", Status: UnitStatusPending},
-		},
-	}
+	}, map[string]*Unit{
+		"u-1": {ID: "u-1", Status: UnitStatusPending},
+	})
 }
 
 // TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer pins the fact

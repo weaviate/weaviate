@@ -13,6 +13,7 @@ package distributedtask
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/fortytw2/leaktest"
@@ -80,6 +81,30 @@ func TestPerTenantSwap(t *testing.T) {
 			require.Equal(t, []string{"tenant-a"}, n.provider.swapGroups, "%s: tenant-a swaps, tenant-b never does", n.id)
 		}
 	})
+
+	t.Run("a decided tenant whose swap fails on a replica is retried until it lands", func(t *testing.T) {
+		defer leaktest.Check(t)()
+		h := newBarrierHarness(t, []string{"node-1", "node-2"})
+		defer h.close()
+		failing := h.nodes[1].provider
+		failing.SetSwapRequestedError(errors.New("synthetic EIO"))
+
+		addTwoTenantTask(t, h, "T3")
+		require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+			Namespace: h.namespace, Id: "T3", Version: 1, CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+		h.tickAll()
+		h.tickAll()
+		require.Greater(t, failing.swapCount("T3"), 1, "node-2 retries the swap after the task was cancelled")
+
+		failing.SetSwapRequestedError(nil)
+		h.tickAll()
+		landed := failing.swapCount("T3")
+		h.tickAll()
+		h.tickAll()
+		require.Equal(t, landed, failing.swapCount("T3"), "a swap that landed is not run again")
+		require.Equal(t, 1, h.nodes[0].provider.swapCount("T3"), "node-1's swap succeeded the first time")
+	})
 }
 
 // Pins that a swap decision survives a RAFT snapshot/restore, and that a
@@ -115,5 +140,5 @@ func TestPerTenantSwap_DecisionSurvivesSnapshot(t *testing.T) {
 	tasks, err = restored.ListDistributedTasks(context.Background())
 	require.NoError(t, err)
 	require.False(t, tasks["ns"][0].GroupSwapDecided("g"))
-	require.Empty(t, tasks["ns"][0].StatusEntry().DecidedGroups)
+	require.False(t, tasks["ns"][0].StatusEntryFor("g").GroupDecided)
 }

@@ -842,28 +842,18 @@ func (s *Scheduler) runPreparationPhase(
 	task *Task,
 	suProvider UnitAwareProvider,
 ) {
-	// One pass over the units, not one per group: this runs every tick for
-	// as long as the task does, and a task can hold a group per tenant.
-	running := map[string]bool{}
-	localIDs := map[string][]string{}
-	for id, u := range task.Units {
-		if u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
-			running[u.GroupID] = true
-		}
-		if u.NodeID == s.localNode {
-			localIDs[u.GroupID] = append(localIDs[u.GroupID], id)
-		}
-	}
 	worklist := func() []preparationGroupWork {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		var list []preparationGroupWork
-		for groupID, ids := range localIDs {
-			if running[groupID] || task.GroupSwapDecided(groupID) {
+		for _, groupID := range task.Groups() {
+			state := s.perTaskStateLockedOrInit(desc)
+			if state.preparationCallbackFired[groupID] || task.GroupSwapDecided(groupID) ||
+				!task.AllGroupUnitsTerminal(groupID) {
 				continue
 			}
-			state := s.perTaskStateLockedOrInit(desc)
-			if state.preparationCallbackFired[groupID] {
+			ids := task.LocalGroupUnitIDs(groupID, s.localNode)
+			if len(ids) == 0 {
 				continue
 			}
 			if state.preparationCallbackFired == nil {
@@ -985,6 +975,10 @@ func (s *Scheduler) runSwapPhase(
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		var list []swapGroupWork
+		// Every group done here: the steady state of a long task, so skip the walk.
+		if state := s.perTaskStateLocked(desc); state != nil && len(state.groupCallbackFired) == task.GroupCount() {
+			return nil
+		}
 		for _, groupID := range task.Groups() {
 			state := s.perTaskStateLocked(desc)
 			if state != nil && state.groupCallbackFired[groupID] {
@@ -999,15 +993,16 @@ func (s *Scheduler) runSwapPhase(
 					continue
 				}
 			}
-			localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
-			if len(localIDs) == 0 {
-				continue
-			}
 			state = s.perTaskStateLockedOrInit(desc)
 			if state.groupCallbackFired == nil {
 				state.groupCallbackFired = map[string]bool{}
 			}
+			// Marked even with nothing local, so later ticks skip the group.
 			state.groupCallbackFired[groupID] = true
+			localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
+			if len(localIDs) == 0 {
+				continue
+			}
 			list = append(list, swapGroupWork{
 				groupID:  groupID,
 				localIDs: localIDs,
@@ -1049,20 +1044,29 @@ func (s *Scheduler) runSwapPhase(
 					Info("SWAP callback did not complete and is retryable; a later tick or the next boot re-fires it and emits the post-completion ack")
 				continue
 			}
-			// Record nil too so the ack-emission gate can tell "fired and
-			// succeeded" from "not fired yet".
+			// A decided group is past its point of no return, and once the task
+			// is terminal no ack reports the failure, so only a retry heals it.
+			if w.isSwap && groupErr != nil {
+				delete(state.groupCallbackFired, w.groupID)
+				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
+					l.WithField("taskID", desc.ID).WithField("groupID", w.groupID).WithField("node", s.localNode).
+						Errorf("swap of a decided group failed on this node; retrying it next tick: %v", groupErr)
+				})
+			}
+			// Record nil too so the ack-emission gate can tell "returned and
+			// succeeded" from "not returned yet".
 			if state.postCompletionGroupErrors == nil {
 				state.postCompletionGroupErrors = map[string]error{}
 			}
 			state.postCompletionGroupErrors[w.groupID] = groupErr
 		}
 		ackState := s.perTaskStateLocked(desc)
-		// A barrier group swaps while the task is still STARTED or PREPARING,
-		// but the ack gates finalize and is only accepted from SWAPPING on.
+		// A barrier group swaps in any status, but the FSM takes the ack only
+		// in SWAPPING and drops it once the task is terminal.
 		if s.ackRecorder == nil ||
 			(ackState != nil && ackState.postCompletionAckEmitted) ||
-			task.Status == TaskStatusStarted || task.Status == TaskStatusPreparing ||
-			!s.allLocalGroupsFiredLocked(task, desc) {
+			task.Status != TaskStatusSwapping ||
+			!s.allLocalGroupsReturnedLocked(task, desc) {
 			return swapAckSnapshot{}
 		}
 		success, joined := s.aggregateAckErrorsLocked(task, desc)
@@ -1344,26 +1348,20 @@ func (s *Scheduler) loggerWithTask(namespace string, taskDesc TaskDescriptor) *l
 	})
 }
 
-// allLocalGroupsFiredLocked returns true iff every group of the task
-// for which this node has at least one local unit has had its
-// OnGroupCompleted fire on THIS scheduler instance (i.e.
-// s.groupCallbackFired[desc][groupID] == true). Caller must hold s.mu.
-//
-// Used as the gating predicate for emitting the per-node post-completion
-// ack: we only ack after every relevant local group has fired, so the
-// aggregated success/error reflects the full local picture for the task.
-//
-// Groups in which this node has zero local units are skipped — those
-// groups' OnGroupCompleted only fires on the nodes that own units in
-// them, so this node never has anything to ack for them.
-func (s *Scheduler) allLocalGroupsFiredLocked(task *Task, desc TaskDescriptor) bool {
+// allLocalGroupsReturnedLocked reports whether every group with a unit on
+// this node has returned from its callback at least once, so the ack reflects
+// the full local picture. A group being retried has returned, or the ack
+// would hold SWAPPING forever. Caller must hold s.mu.
+func (s *Scheduler) allLocalGroupsReturnedLocked(task *Task, desc TaskDescriptor) bool {
 	state := s.perTaskStateLocked(desc)
 	for _, groupID := range task.Groups() {
-		localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
-		if len(localIDs) == 0 {
+		if !task.groupHasUnitOn(groupID, s.localNode) {
 			continue
 		}
-		if state == nil || !state.groupCallbackFired[groupID] {
+		if state == nil {
+			return false
+		}
+		if _, returned := state.postCompletionGroupErrors[groupID]; !returned {
 			return false
 		}
 	}

@@ -683,19 +683,18 @@ func TestBarrier_G4_ParallelMigrationDifferentPropDuringBarrier(t *testing.T) {
 func TestBarrier_G5_SchemaVersionMismatchRollingUpgrade(t *testing.T) {
 	// Build a Task in the new (post-PR) shape with the barrier on.
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	postPRTask := &Task{
+	postPRTask := withUnits(&Task{
 		Namespace:               "ns",
 		TaskDescriptor:          TaskDescriptor{ID: "barrier-task", Version: 7},
 		NeedsPreparationBarrier: true,
 		Status:                  TaskStatusPreparing,
 		StartedAt:               now,
-		Units: map[string]*Unit{
-			"u-1": {ID: "u-1", NodeID: "node-1", Status: UnitStatusCompleted, FinishedAt: now},
-		},
 		PreparedGroups: map[string]map[string]PostCompletionAck{
 			"": {"node-1": {Success: true, AckedAt: now}},
 		},
-	}
+	}, map[string]*Unit{
+		"u-1": {ID: "u-1", NodeID: "node-1", Status: UnitStatusCompleted, FinishedAt: now},
+	})
 
 	wireBytes, err := json.Marshal(postPRTask)
 	require.NoError(t, err)
@@ -729,7 +728,7 @@ func TestBarrier_G5_SchemaVersionMismatchRollingUpgrade(t *testing.T) {
 	// the TaskStatusPreparing constant). The follower's switch/case on
 	// status would silently fall through to a default branch.
 	require.Equal(t, postPRTask.Namespace, legacy.Namespace)
-	require.Equal(t, postPRTask.Units["u-1"].ID, legacy.Units["u-1"].ID)
+	require.Equal(t, postPRTask.Unit("u-1").ID, legacy.Units["u-1"].ID)
 	require.Equal(t, postPRTask.PreparedGroups, legacy.PreparedGroups,
 		"PreparedGroups must round-trip even on a legacy follower (the field name is the same, only NeedsPreparationBarrier is new)")
 	require.Equal(t, TaskStatus("PREPARING"), legacy.Status,

@@ -12,6 +12,8 @@
 package distributedtask
 
 import (
+	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -56,10 +58,7 @@ func TestTaskStatus_IsTerminal(t *testing.T) {
 // bleed into the FSM-stored Task and break determinism / safety.
 func TestTask_Clone_DeepCopiesAckMaps(t *testing.T) {
 	now := time.UnixMilli(1_700_000_000_000)
-	orig := &Task{
-		Units: map[string]*Unit{
-			"u-1": {ID: "u-1", NodeID: "node-1", Status: UnitStatusCompleted},
-		},
+	orig := withUnits(&Task{
 		PostCompletionAcks: map[string]PostCompletionAck{
 			"node-1": {Success: true, AckedAt: now},
 		},
@@ -67,12 +66,14 @@ func TestTask_Clone_DeepCopiesAckMaps(t *testing.T) {
 			"g1": {"node-1": {Success: true, AckedAt: now}},
 		},
 		SwapDecidedGroups: map[string]time.Time{"g0": now},
-	}
+	}, map[string]*Unit{
+		"u-1": {ID: "u-1", NodeID: "node-1", Status: UnitStatusCompleted},
+	})
 
 	clone := orig.Clone()
 
 	// Mutate every map on the clone.
-	clone.Units["u-1"].Status = UnitStatusFailed
+	clone.Unit("u-1").Status = UnitStatusFailed
 	clone.PostCompletionAcks["node-1"] = PostCompletionAck{Success: false, Error: "swap"}
 	clone.PostCompletionAcks["node-2"] = PostCompletionAck{Success: true}
 	clone.PreparedGroups["g1"]["node-1"] = PostCompletionAck{Success: false, Error: "prep"}
@@ -80,10 +81,47 @@ func TestTask_Clone_DeepCopiesAckMaps(t *testing.T) {
 	clone.SwapDecidedGroups["g1"] = now
 
 	// Original must be untouched on EVERY map.
-	assert.Equal(t, UnitStatusCompleted, orig.Units["u-1"].Status, "Units value-level deep copy")
+	assert.Equal(t, UnitStatusCompleted, orig.Unit("u-1").Status, "Units value-level deep copy")
 	assert.True(t, orig.PostCompletionAcks["node-1"].Success, "PostCompletionAcks must not alias clone")
 	assert.NotContains(t, orig.PostCompletionAcks, "node-2", "PostCompletionAcks must not alias clone")
 	assert.True(t, orig.PreparedGroups["g1"]["node-1"].Success, "PreparedGroups must not alias clone")
 	assert.NotContains(t, orig.PreparedGroups, "g2", "PreparedGroups must not alias clone")
 	assert.NotContains(t, orig.SwapDecidedGroups, "g1", "SwapDecidedGroups must not alias clone")
+}
+
+// Pins that every copy of a task answers per-group questions: the RAFT copy,
+// a snapshot or leader-list decode, and the scheduler's per-tick clone.
+func TestTask_GroupIndexSurvivesEveryCopy(t *testing.T) {
+	orig := withUnits(&Task{SwapDecidedGroups: map[string]time.Time{"g1": {}}}, map[string]*Unit{
+		"a": {ID: "a", GroupID: "g1", NodeID: "n1", Status: UnitStatusCompleted},
+		"b": {ID: "b", GroupID: "g1", NodeID: "n2", Status: UnitStatusCompleted},
+		"c": {ID: "c", GroupID: "g2", NodeID: "n1"},
+	})
+	raw, err := json.Marshal(orig)
+	assert.NoError(t, err)
+	var decoded Task
+	assert.NoError(t, json.Unmarshal(raw, &decoded))
+
+	for name, task := range map[string]*Task{"original": orig, "decoded": &decoded, "clone": orig.Clone()} {
+		assert.ElementsMatch(t, []string{"g1", "g2"}, task.Groups(), name)
+		assert.Equal(t, []string{"a"}, task.LocalGroupUnitIDs("g1", "n1"), name)
+		assert.Equal(t, map[string]struct{}{"n1": {}, "n2": {}}, task.groupNodes("g1"), name)
+		assert.True(t, task.AllGroupUnitsTerminal("g1"), name)
+		assert.False(t, task.AllGroupUnitsTerminal("g2"), name)
+		assert.False(t, task.AllGroupsSwapDecided(), name)
+	}
+}
+
+func withUnits(task *Task, units map[string]*Unit) *Task {
+	task.SetUnits(units)
+	return task
+}
+
+func unitPerGroup(groups []string) map[string]*Unit {
+	units := map[string]*Unit{}
+	for i, g := range groups {
+		id := fmt.Sprintf("u-%d", i)
+		units[id] = &Unit{ID: id, GroupID: g, NodeID: "node-a"}
+	}
+	return units
 }

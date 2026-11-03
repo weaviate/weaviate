@@ -490,19 +490,20 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		StartedAt:               time.UnixMilli(r.SubmittedAtUnixMillis),
 	}
 
+	var units map[string]*Unit
 	if len(r.UnitSpecs) > 0 {
-		newTask.Units = make(map[string]*Unit, len(r.UnitSpecs))
+		units = make(map[string]*Unit, len(r.UnitSpecs))
 		for _, spec := range r.UnitSpecs {
-			newTask.Units[spec.Id] = &Unit{
+			units[spec.Id] = &Unit{
 				ID:      spec.Id,
 				GroupID: spec.GroupId,
 				Status:  UnitStatusPending,
 			}
 		}
 	} else if len(r.UnitIds) > 0 {
-		newTask.Units = make(map[string]*Unit, len(r.UnitIds))
+		units = make(map[string]*Unit, len(r.UnitIds))
 		for _, id := range r.UnitIds {
-			newTask.Units[id] = &Unit{
+			units[id] = &Unit{
 				ID:     id,
 				Status: UnitStatusPending,
 			}
@@ -510,6 +511,7 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	} else {
 		return fmt.Errorf("task %s/%s must have at least one unit", r.Namespace, r.Id)
 	}
+	newTask.SetUnits(units)
 
 	m.cacheCollectionWithLock(newTask)
 	m.setTaskWithLock(newTask)
@@ -530,8 +532,8 @@ func (m *Manager) findStartedUnitWithLock(namespace, taskID string, version uint
 		return nil, nil, errTaskNotRunning(namespace, taskID, task.Version)
 	}
 
-	u, ok := task.Units[unitID]
-	if !ok {
+	u := task.Unit(unitID)
+	if u == nil {
 		// "unit ... does not exist" → ErrTaskDoesNotExist is the closest
 		// existing sentinel; both phrases use the "does not exist"
 		// substring and are classified as the same permanent state.
@@ -1029,14 +1031,15 @@ func (m *Manager) LocalDistributedTasks() map[string][]*Task {
 
 // LocalTaskStatuses copies no units: a decider can read once per record, under
 // the lock RAFT applies wait on, where [Manager.LocalDistributedTasks] clones them all.
-func (m *Manager) LocalTaskStatuses(namespace string) []TaskStatusEntry {
+// Each entry answers for group alone.
+func (m *Manager) LocalTaskStatuses(namespace, group string) []TaskStatusEntry {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	tasks := m.tasks[namespace]
 	out := make([]TaskStatusEntry, 0, len(tasks))
 	for _, task := range tasks {
-		out = append(out, task.StatusEntry())
+		out = append(out, task.StatusEntryFor(group))
 	}
 	return out
 }

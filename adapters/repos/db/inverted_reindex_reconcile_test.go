@@ -180,7 +180,7 @@ func (f *reconcileFixture) deps() migrationReconcileDeps {
 		// The shard testMigrationSubject's unit names.
 		Group: "shard-1",
 		LocalTasks: func() ([]distributedtask.TaskStatusEntry, bool) {
-			return migrationTaskStatuses(f.tasks), f.tasksReadable
+			return migrationTaskStatuses(f.tasks, "shard-1"), f.tasksReadable
 		},
 		SealUnit: func(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
 			f.asked = append(f.asked, liveUnitKey{desc, unitID})
@@ -528,7 +528,7 @@ func TestReconcileMergedDisposition(t *testing.T) {
 			subject.TaskID = taskID
 			subject.Unmirrored = tt.unmirrored
 			if tt.decided {
-				tt.task.Units = map[string]*distributedtask.Unit{subject.Key.UnitID: {ID: subject.Key.UnitID, GroupID: "shard-1"}}
+				tt.task.SetUnits(map[string]*distributedtask.Unit{subject.Key.UnitID: {ID: subject.Key.UnitID, GroupID: "shard-1"}})
 				tt.task.SwapDecidedGroups = map[string]time.Time{"shard-1": {}}
 			}
 			if tt.adopted {

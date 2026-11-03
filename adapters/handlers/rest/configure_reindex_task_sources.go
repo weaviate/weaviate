@@ -20,17 +20,17 @@ import (
 )
 
 type migrationTaskRaft interface {
-	LocalTaskStatuses(namespace string) []distributedtask.TaskStatusEntry
+	LocalTaskStatuses(namespace, group string) []distributedtask.TaskStatusEntry
 	FSMHasCaughtUp() bool
 	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
 }
 
 func newMigrationLocalTaskSource(raft migrationTaskRaft) db.MigrationLocalTaskSource {
-	return func() ([]distributedtask.TaskStatusEntry, bool) {
+	return func(group string) ([]distributedtask.TaskStatusEntry, bool) {
 		if !raft.FSMHasCaughtUp() {
 			return nil, false
 		}
-		return raft.LocalTaskStatuses(db.ReindexNamespace), true
+		return raft.LocalTaskStatuses(db.ReindexNamespace, group), true
 	}
 }
 
