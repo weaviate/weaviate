@@ -888,7 +888,7 @@ func (q *DiskQueue) quarantineChunk(path string, cause error) error {
 	kept := true
 	var err error
 	if q.keepsProcessed() {
-		kept, err = q.quarantineDuringBackup(path, quarantinePath)
+		kept, err = q.quarantineKeptChunk(path, quarantinePath)
 	} else {
 		err = os.Rename(path, quarantinePath)
 	}
@@ -904,7 +904,7 @@ func (q *DiskQueue) quarantineChunk(path string, cause error) error {
 
 	if !kept {
 		q.Logger.WithField("file", path).
-			Errorf("chunk is truncated or corrupt, it will be removed after the backup without a quarantined copy; its unreadable records are lost: %v", cause)
+			Errorf("chunk is truncated or corrupt, it will be removed once no backup or retention keeps it, without a quarantined copy; its unreadable records are lost: %v", cause)
 		return nil
 	}
 	q.Logger.WithField("file", quarantinePath).
@@ -916,11 +916,11 @@ func (q *DiskQueue) quarantineChunk(path string, cause error) error {
 // links.
 var hardLink = os.Link
 
-// quarantineDuringBackup quarantines a chunk that a backup may be copying:
+// quarantineKeptChunk quarantines a chunk that a backup or a retention keeps:
 // the quarantined copy is a hard link, and the chunk itself is removed with
-// the processed ones once the backup completes. It reports whether the
+// the processed ones once nothing keeps them. It reports whether the
 // quarantined copy was kept.
-func (q *DiskQueue) quarantineDuringBackup(path, quarantinePath string) (kept bool, err error) {
+func (q *DiskQueue) quarantineKeptChunk(path, quarantinePath string) (kept bool, err error) {
 	// a leftover from an interrupted attempt
 	_ = os.Remove(quarantinePath)
 
@@ -930,7 +930,7 @@ func (q *DiskQueue) quarantineDuringBackup(path, quarantinePath string) (kept bo
 	}
 	if linkErr != nil {
 		q.Logger.WithField("file", path).
-			Warnf("cannot hard link the corrupt chunk, it will be removed after the backup instead of kept: %v", linkErr)
+			Warnf("cannot hard link the corrupt chunk, it will be removed once no backup or retention keeps it instead of kept: %v", linkErr)
 	}
 
 	f, err := os.Create(path + ".processed")
