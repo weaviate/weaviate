@@ -31,7 +31,10 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -58,19 +61,23 @@ import (
 type barrierRecordingProvider struct {
 	*testTaskProvider
 
-	mu             sync.Mutex
-	groupCalls     []string // taskID per OnGroupCompleted fire (PHASE A in barrier mode)
-	swapCalls      []string // taskID per OnSwapRequested fire (PHASE B in barrier mode)
-	taskCalls      []string // taskID per OnTaskCompleted fire
-	swapCallsBy    map[string]int
-	groupCallsBy   map[string]int
-	taskCallsBy    map[string]int
-	groupCompErr   error
+	mu           sync.Mutex
+	groupCalls   []string // taskID per OnGroupCompleted fire (PHASE A in barrier mode)
+	swapCalls    []string // taskID per OnSwapRequested fire (PHASE B in barrier mode)
+	taskCalls    []string // taskID per OnTaskCompleted fire
+	swapCallsBy  map[string]int
+	groupCallsBy map[string]int
+	taskCallsBy  map[string]int
+	groupCompErr error
+	// failGroup, if set, limits groupCompErr to that group.
+	failGroup      string
 	swapRequestErr error
 	// Status each callback was handed: the provider's only view of the task.
 	swapStatuses []TaskStatus
 	taskStatuses []TaskStatus
 	swapGroups   []string
+	// taskDecided is the decided groups each OnTaskCompleted was handed.
+	taskDecided [][]string
 }
 
 func newBarrierRecordingProvider(t *testing.T) *barrierRecordingProvider {
@@ -82,12 +89,12 @@ func newBarrierRecordingProvider(t *testing.T) *barrierRecordingProvider {
 	}
 }
 
-func (p *barrierRecordingProvider) OnGroupCompleted(task *Task, _ string, _ []string) error {
+func (p *barrierRecordingProvider) OnGroupCompleted(task *Task, groupID string, _ []string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.groupCalls = append(p.groupCalls, task.ID)
 	p.groupCallsBy[task.ID]++
-	if p.groupCompErr != nil {
+	if p.groupCompErr != nil && (p.failGroup == "" || p.failGroup == groupID) {
 		return p.groupCompErr
 	}
 	return nil
@@ -112,6 +119,7 @@ func (p *barrierRecordingProvider) OnTaskCompleted(task *Task) error {
 	p.taskCalls = append(p.taskCalls, task.ID)
 	p.taskCallsBy[task.ID]++
 	p.taskStatuses = append(p.taskStatuses, task.Status)
+	p.taskDecided = append(p.taskDecided, slices.Sorted(maps.Keys(task.SwapDecidedGroups)))
 	return nil
 }
 
@@ -214,6 +222,29 @@ func newBarrierHarness(t *testing.T, nodeIDs []string) *barrierHarness {
 
 func (h *barrierHarness) tick(nodeIdx int) {
 	h.nodes[nodeIdx].scheduler.tick()
+}
+
+// restart replaces a node's scheduler with a fresh one, as after a process
+// restart; the provider stands for on-disk state and survives.
+func (h *barrierHarness) restart(nodeIdx int) *Scheduler {
+	node := h.nodes[nodeIdx]
+	logger, _ := logrustest.NewNullLogger()
+	node.scheduler.Close()
+	node.scheduler = NewScheduler(SchedulerParams{
+		CompletionRecorder: h.completionRec,
+		TaskLister:         h.manager,
+		TaskCleaner:        h.cleaner,
+		TaskFinalizer:      h.finalizer,
+		Providers:          map[string]Provider{h.namespace: node.provider},
+		Clock:              h.clock,
+		Logger:             logger,
+		MetricsRegisterer:  monitoring.NoopRegisterer,
+		LocalNode:          node.id,
+		CompletedTaskTTL:   24 * time.Hour,
+		TickInterval:       30 * time.Second,
+		AckRecorder:        h.ackRecorder,
+	})
+	return node.scheduler
 }
 
 func (h *barrierHarness) tickAll() {
@@ -788,43 +819,10 @@ func TestBarrier_G6_RestartMidPhaseARecovery(t *testing.T) {
 	// etc.) start empty. The provider survives the restart (it's
 	// per-node and lives outside the scheduler instance, like a
 	// persistent on-disk reindex sentinel).
-	freshLogger, _ := logrustest.NewNullLogger()
-	freshScheduler := NewScheduler(SchedulerParams{
-		CompletionRecorder: h.completionRec,
-		TaskLister:         h.manager,
-		TaskCleaner:        h.cleaner,
-		TaskFinalizer:      h.finalizer,
-		Providers:          map[string]Provider{h.namespace: h.nodes[1].provider},
-		Clock:              h.clock,
-		Logger:             freshLogger,
-		MetricsRegisterer:  monitoring.NoopRegisterer,
-		LocalNode:          "node-2",
-		CompletedTaskTTL:   24 * time.Hour,
-		TickInterval:       30 * time.Second,
-		AckRecorder:        h.ackRecorder,
-	})
-	// Drop the old scheduler (no Start was ever called, no goroutines
-	// to leak) and patch the harness's node slot.
-	h.nodes[1].scheduler.Close()
-	h.nodes[1].scheduler = freshScheduler
+	freshScheduler := h.restart(1)
 
 	// node-3 also restarted; rebuild it the same way for completeness.
-	freshScheduler3 := NewScheduler(SchedulerParams{
-		CompletionRecorder: h.completionRec,
-		TaskLister:         h.manager,
-		TaskCleaner:        h.cleaner,
-		TaskFinalizer:      h.finalizer,
-		Providers:          map[string]Provider{h.namespace: h.nodes[2].provider},
-		Clock:              h.clock,
-		Logger:             freshLogger,
-		MetricsRegisterer:  monitoring.NoopRegisterer,
-		LocalNode:          "node-3",
-		CompletedTaskTTL:   24 * time.Hour,
-		TickInterval:       30 * time.Second,
-		AckRecorder:        h.ackRecorder,
-	})
-	h.nodes[2].scheduler.Close()
-	h.nodes[2].scheduler = freshScheduler3
+	freshScheduler3 := h.restart(2)
 
 	// Fresh schedulers tick: their empty preparationCallbackFired maps
 	// MUST re-fire OnGroupCompleted (production rehydrate path), and
@@ -915,23 +913,7 @@ func TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode(t *testing.T) {
 	// (which would be backed by an on-disk reindex sentinel in
 	// production) survives the restart so OnGroupCompleted can re-fire
 	// idempotently.
-	freshLogger, _ := logrustest.NewNullLogger()
-	freshScheduler := NewScheduler(SchedulerParams{
-		CompletionRecorder: h.completionRec,
-		TaskLister:         h.manager,
-		TaskCleaner:        h.cleaner,
-		TaskFinalizer:      h.finalizer,
-		Providers:          map[string]Provider{h.namespace: h.nodes[1].provider},
-		Clock:              h.clock,
-		Logger:             freshLogger,
-		MetricsRegisterer:  monitoring.NoopRegisterer,
-		LocalNode:          "node-2",
-		CompletedTaskTTL:   24 * time.Hour,
-		TickInterval:       30 * time.Second,
-		AckRecorder:        h.ackRecorder,
-	})
-	h.nodes[1].scheduler.Close()
-	h.nodes[1].scheduler = freshScheduler
+	freshScheduler := h.restart(1)
 
 	// Restarted node-2 ticks: fresh map allows OnGroupCompleted to fire
 	// for group-b, then PHASE A.5 emits node-2's prep-ack.
@@ -982,11 +964,10 @@ func TestBarrier_G8_SnapshotRestoreMidPreparing(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, snapshotBytes)
 
-	freshLogger, _ := logrustest.NewNullLogger()
 	freshManager := NewManager(ManagerParameters{
 		Clock:            h.clock,
 		CompletedTaskTTL: 24 * time.Hour,
-		Logger:           freshLogger,
+		Logger:           h.logger,
 	})
 	require.NoError(t, freshManager.Restore(snapshotBytes))
 
@@ -1112,6 +1093,8 @@ func TestBarrier_FailedPhaseHandsCallbacksFailedStatus(t *testing.T) {
 				"node-2's failed ack must fail the task")
 			require.Equal(t, tt.swapStatuses, failing.swapStatuses,
 				"node-2 must not run a swap the barrier did not lift")
+			// A failed PREP ack reaches the callbacks through RAFT, on the next tick.
+			h.tick(1)
 			require.Equal(t, []TaskStatus{TaskStatusFailed}, failing.taskStatuses,
 				"node-2 must run FAILED cleanup, never the SWAPPING schema flip")
 
@@ -1121,6 +1104,87 @@ func TestBarrier_FailedPhaseHandsCallbacksFailedStatus(t *testing.T) {
 				require.Equal(t, []TaskStatus{TaskStatusFailed}, n.provider.taskStatuses,
 					"node %s: OnTaskCompleted must fire once, on FAILED", n.id)
 			}
+		})
+	}
+}
+
+// Pins that FAILED cleanup reads the status RAFT committed, never one a node
+// assumed from its own failed PREP ack: RAFT may hold a decision the tick's
+// copy has not seen, or may have dropped the ack altogether.
+func TestBarrier_FailedPrepAckLeavesStatusToRaft(t *testing.T) {
+	addTask := func(t *testing.T, h *barrierHarness, units map[string]string) {
+		specs := []*cmd.UnitSpec{}
+		for unit := range units {
+			specs = append(specs, &cmd.UnitSpec{Id: unit, GroupId: "tenant-" + unit[:1]})
+		}
+		require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace: h.namespace, Id: "T", SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+			UnitSpecs: specs, NeedsPreparationBarrier: true,
+		}), 1))
+		for unit, node := range units {
+			require.NoError(t, h.completionRec.UpdateDistributedTaskUnitProgress(
+				context.Background(), h.namespace, "T", 1, node, unit, 0.1))
+		}
+		h.tickAll()
+	}
+	complete := func(t *testing.T, h *barrierHarness, unit, node string) {
+		require.NoError(t, h.completionRec.RecordDistributedTaskUnitCompletion(
+			context.Background(), h.namespace, "T", 1, node, unit))
+	}
+	units := map[string]string{"a-1": "node-1", "a-2": "node-2", "b-1": "node-1", "b-2": "node-2"}
+
+	for _, tc := range []struct {
+		name string
+		run  func(t *testing.T, h *barrierHarness)
+		// wantDecided is what node-2's FAILED cleanup must see decided; nil
+		// means the task never failed and no cleanup may run.
+		wantDecided []string
+	}{
+		{
+			name: "a tenant decided in the same tick as another tenant's failure",
+			run: func(t *testing.T, h *barrierHarness) {
+				for _, unit := range []string{"a-1", "a-2", "b-1"} {
+					complete(t, h, unit, units[unit])
+				}
+				h.tick(0)
+				complete(t, h, "b-2", "node-2")
+				h.nodes[1].provider.failGroup = "tenant-b"
+				h.nodes[1].provider.SetGroupCompletedError(errors.New("synthetic EIO"))
+				h.tick(1)
+				h.tick(1)
+				require.Contains(t, h.nodes[1].provider.swapGroups, "tenant-a", "node-2 swaps the decided tenant")
+			},
+			wantDecided: []string{"tenant-a"},
+		},
+		{
+			name: "a failed PREP re-run whose success RAFT already recorded",
+			run: func(t *testing.T, h *barrierHarness) {
+				complete(t, h, "a-1", "node-1")
+				complete(t, h, "a-2", "node-2")
+				h.tick(1)
+				h.restart(1)
+				h.nodes[1].provider.SetGroupCompletedError(errors.New("synthetic EIO"))
+				h.tick(1)
+				h.tick(1)
+				require.Equal(t, TaskStatusStarted, h.getTask(t, "T").Status, "RAFT dropped the second ack")
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer leaktest.Check(t)()
+			h := newBarrierHarness(t, []string{"node-1", "node-2"})
+			defer h.close()
+			addTask(t, h, units)
+
+			tc.run(t, h)
+
+			if tc.wantDecided == nil {
+				require.Empty(t, h.nodes[1].provider.taskStatuses, "no cleanup on a task that did not fail")
+				return
+			}
+			require.Equal(t, []TaskStatus{TaskStatusFailed}, h.nodes[1].provider.taskStatuses)
+			require.Equal(t, [][]string{tc.wantDecided}, h.nodes[1].provider.taskDecided,
+				"FAILED cleanup must see every decision RAFT holds")
 		})
 	}
 }

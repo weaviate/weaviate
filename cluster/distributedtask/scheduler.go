@@ -934,10 +934,6 @@ func (s *Scheduler) runPreparationPhase(
 				}
 				state.preparationAckEmitted[ack.groupID] = true
 			}
-			// Mirrors the FSM's FAILED flip so later phases this tick see it on task.Status.
-			if ack.err != nil && task.Status.IsActive() {
-				task.markTerminal(TaskStatusFailed, s.clock.Now())
-			}
 		}()
 	}
 }
