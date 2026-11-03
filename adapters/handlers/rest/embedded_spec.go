@@ -6679,6 +6679,15 @@ func init() {
             "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true.",
             "name": "consistency",
             "in": "header"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to filter the results to. If omitted, all tenants are returned.",
+            "name": "names",
+            "in": "query"
           }
         ],
         "responses": {
@@ -19625,6 +19634,15 @@ func init() {
             "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true.",
             "name": "consistency",
             "in": "header"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to filter the results to. If omitted, all tenants are returned.",
+            "name": "names",
+            "in": "query"
           }
         ],
         "responses": {
