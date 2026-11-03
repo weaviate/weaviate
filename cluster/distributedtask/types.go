@@ -13,7 +13,6 @@ package distributedtask
 
 import (
 	"context"
-	"encoding/json"
 	"iter"
 	"maps"
 	"slices"
@@ -642,34 +641,41 @@ type PostCompletionAck struct {
 	AckedAt time.Time `json:"ackedAt"`
 }
 
-// taskFields is Task without its JSON methods, so it encodes by default rules.
-type taskFields Task
-
+// taskJSON is a task as the task list and snapshots carry it. Task has no
+// JSON methods: encoding/json scans a custom method's output again, which
+// doubles the cost of the list every node fetches per tick.
 type taskJSON struct {
-	*taskFields
+	*Task
 	Units map[string]*Unit `json:"units,omitempty"`
 }
 
-func (t Task) MarshalJSON() ([]byte, error) {
-	return json.Marshal(taskJSON{taskFields: (*taskFields)(&t), Units: t.units})
-}
-
-func (t *Task) UnmarshalJSON(data []byte) error {
-	decoded := taskJSON{taskFields: (*taskFields)(t)}
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	t.SetUnits(decoded.Units)
-	return nil
+type taskListJSON struct {
+	Tasks map[string][]taskJSON `json:"tasks,omitempty"`
 }
 
 // SetUnits replaces the task's units, taking ownership of the map.
 func (t *Task) SetUnits(units map[string]*Unit) {
+	t.units = units
+	t.indexGroups()
+}
+
+func (t *Task) indexGroups() {
 	groups := map[string][]string{}
-	for id, u := range units {
+	for id, u := range t.units {
 		groups[u.GroupID] = append(groups[u.GroupID], id)
 	}
-	t.units, t.groups = units, groups
+	t.groups = groups
+}
+
+// shareGroups takes held's index when held is the same run with as many
+// units: units are only ever removed, and both copies follow one RAFT log, so
+// equal counts mean equal units.
+func (t *Task) shareGroups(held *Task) {
+	if held == nil || held.Version != t.Version || len(held.units) != len(t.units) {
+		t.indexGroups()
+		return
+	}
+	t.groups = held.groups
 }
 
 // forgetGroups removes the groups and their units. It builds a new index:
@@ -868,8 +874,4 @@ func (t *Task) MissingPostCompletionAckNodes() []string {
 		}
 	}
 	return missing
-}
-
-type ListDistributedTasksResponse struct {
-	Tasks map[string][]*Task `json:"tasks"`
 }

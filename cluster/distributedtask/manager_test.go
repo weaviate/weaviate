@@ -469,10 +469,10 @@ func TestManager_ListDistributedTasksPayload(t *testing.T) {
 	payload, err := h.manager.ListDistributedTasksPayload(context.Background())
 	require.NoError(t, err)
 
-	var resp ListDistributedTasksResponse
-	require.NoError(t, json.Unmarshal(payload, &resp))
+	tasks, err := h.manager.DecodeTaskList(payload)
+	require.NoError(t, err)
 
-	assertTasks(t, expectedTasks, resp.Tasks)
+	assertTasks(t, expectedTasks, tasks)
 }
 
 func TestManager_SnapshotRestore(t *testing.T) {

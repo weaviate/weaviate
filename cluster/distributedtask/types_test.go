@@ -12,12 +12,13 @@
 package distributedtask
 
 import (
-	"encoding/json"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestTaskStatus_IsTerminal pins the terminal-status classification used
@@ -89,20 +90,55 @@ func TestTask_Clone_DeepCopiesAckMaps(t *testing.T) {
 	assert.NotContains(t, orig.SwapDecidedGroups, "g1", "SwapDecidedGroups must not alias clone")
 }
 
-// Pins that every copy of a task answers per-group questions: the RAFT copy,
-// a snapshot or leader-list decode, and the scheduler's per-tick clone.
+// Pins that every copy of a task answers per-group questions, and that a
+// decode of the leader's list builds no index for a run this node holds.
 func TestTask_GroupIndexSurvivesEveryCopy(t *testing.T) {
-	orig := withUnits(&Task{SwapDecidedGroups: map[string]time.Time{"g1": {}}}, map[string]*Unit{
-		"a": {ID: "a", GroupID: "g1", NodeID: "n1", Status: UnitStatusCompleted},
-		"b": {ID: "b", GroupID: "g1", NodeID: "n2", Status: UnitStatusCompleted},
-		"c": {ID: "c", GroupID: "g2", NodeID: "n1"},
-	})
-	raw, err := json.Marshal(orig)
-	assert.NoError(t, err)
-	var decoded Task
-	assert.NoError(t, json.Unmarshal(raw, &decoded))
+	newTask := func() *Task {
+		return withUnits(&Task{
+			Namespace: "ns", TaskDescriptor: TaskDescriptor{ID: "T", Version: 3},
+			SwapDecidedGroups: map[string]time.Time{"g1": {}},
+		}, map[string]*Unit{
+			"a": {ID: "a", GroupID: "g1", NodeID: "n1", Status: UnitStatusCompleted},
+			"b": {ID: "b", GroupID: "g1", NodeID: "n2", Status: UnitStatusCompleted},
+			"c": {ID: "c", GroupID: "g2", NodeID: "n1"},
+		})
+	}
+	orig := newTask()
+	holding := NewManager(ManagerParameters{})
+	holding.tasks["ns"] = map[string]*Task{"T": orig}
+	raw, err := holding.ListDistributedTasksPayload(t.Context())
+	require.NoError(t, err)
+	decode := func(m *Manager) *Task {
+		tasks, err := m.DecodeTaskList(raw)
+		require.NoError(t, err)
+		return tasks["ns"][0]
+	}
+	shrunk := newTask()
+	shrunk.forgetGroups([]string{"g2"})
+	differentRun := NewManager(ManagerParameters{})
+	differentRun.tasks["ns"] = map[string]*Task{"T": shrunk}
+	restored := NewManager(ManagerParameters{})
+	snap, err := holding.Snapshot()
+	require.NoError(t, err)
+	require.NoError(t, restored.Restore(snap))
 
-	for name, task := range map[string]*Task{"original": orig, "decoded": &decoded, "clone": orig.Clone()} {
+	sameIndex := func(a, b *Task) bool {
+		return reflect.ValueOf(a.groups).UnsafePointer() == reflect.ValueOf(b.groups).UnsafePointer()
+	}
+	for _, tc := range []struct {
+		name   string
+		task   *Task
+		shares bool
+	}{
+		{name: "original", task: orig, shares: true},
+		{name: "clone", task: orig.Clone(), shares: true},
+		{name: "decoded where the run is held", task: decode(holding), shares: true},
+		{name: "decoded where the run is unknown", task: decode(NewManager(ManagerParameters{}))},
+		{name: "decoded where the run has fewer units", task: decode(differentRun)},
+		{name: "restored", task: restored.tasks["ns"]["T"]},
+	} {
+		task, name := tc.task, tc.name
+		assert.Equal(t, tc.shares, sameIndex(orig, task), name)
 		assert.ElementsMatch(t, []string{"g1", "g2"}, task.Groups(), name)
 		assert.Equal(t, []string{"a"}, task.LocalGroupUnitIDs("g1", "n1"), name)
 		assert.Equal(t, map[string]struct{}{"n1": {}, "n2": {}}, task.groupNodes("g1"), name)

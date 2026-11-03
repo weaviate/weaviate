@@ -12,7 +12,6 @@
 package distributedtask
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -118,7 +117,7 @@ func TestManager_Restore_ClearsFinishedAtOnNonTerminalTasks(t *testing.T) {
 		t.Run(string(status), func(t *testing.T) {
 			h := newTestHarness(t).init(t)
 
-			bytes, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{
+			bytes, err := h.manager.encodeTasks(map[string][]*Task{
 				ns: {{
 					Namespace:      ns,
 					TaskDescriptor: TaskDescriptor{ID: id, Version: version},
@@ -126,7 +125,7 @@ func TestManager_Restore_ClearsFinishedAtOnNonTerminalTasks(t *testing.T) {
 					StartedAt:      startedAt,
 					FinishedAt:     stamped,
 				}},
-			}})
+			})
 			require.NoError(t, err)
 			require.NoError(t, h.manager.Restore(bytes))
 

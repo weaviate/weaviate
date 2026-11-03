@@ -727,7 +727,7 @@ func TestBarrier_G5_SchemaVersionMismatchRollingUpgrade(t *testing.T) {
 		"u-1": {ID: "u-1", NodeID: "node-1", Status: UnitStatusCompleted, FinishedAt: now},
 	})
 
-	wireBytes, err := json.Marshal(postPRTask)
+	wireBytes, err := json.Marshal(taskJSON{Task: postPRTask, Units: postPRTask.units})
 	require.NoError(t, err)
 	require.Contains(t, string(wireBytes), `"needsPreparationBarrier":true`,
 		"post-PR serialization MUST emit the barrier field — without it pre-PR followers see only the legacy shape")

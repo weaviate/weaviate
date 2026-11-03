@@ -1139,9 +1139,54 @@ func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, erro
 		return nil, fmt.Errorf("list distributed tasks: %w", err)
 	}
 
-	return json.Marshal(&ListDistributedTasksResponse{
-		Tasks: tasks,
-	})
+	return m.encodeTasks(tasks)
+}
+
+// DecodeTaskList decodes the leader's task list. A run this node holds lends
+// its group index, so a tick builds none.
+func (m *Manager) DecodeTaskList(data []byte) (map[string][]*Task, error) {
+	tasks, err := m.decodeTasks(data)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for namespace, list := range tasks {
+		for _, task := range list {
+			task.shareGroups(m.tasks[namespace][task.ID])
+		}
+	}
+	return tasks, nil
+}
+
+func (m *Manager) encodeTasks(tasks map[string][]*Task) ([]byte, error) {
+	list := taskListJSON{Tasks: make(map[string][]taskJSON, len(tasks))}
+	for namespace, ts := range tasks {
+		encoded := make([]taskJSON, len(ts))
+		for i, task := range ts {
+			encoded[i] = taskJSON{Task: task, Units: task.units}
+		}
+		list.Tasks[namespace] = encoded
+	}
+	return json.Marshal(&list)
+}
+
+// decodeTasks leaves the group index unset: the caller builds or shares it.
+func (m *Manager) decodeTasks(data []byte) (map[string][]*Task, error) {
+	var list taskListJSON
+	if err := json.Unmarshal(data, &list); err != nil {
+		return nil, err
+	}
+	tasks := make(map[string][]*Task, len(list.Tasks))
+	for namespace, encoded := range list.Tasks {
+		ts := make([]*Task, len(encoded))
+		for i, e := range encoded {
+			e.units = e.Units
+			ts[i] = e.Task
+		}
+		tasks[namespace] = ts
+	}
+	return tasks, nil
 }
 
 func (m *Manager) findVersionedTaskWithLock(namespace, taskID string, taskVersion uint64) (*Task, error) {
@@ -1176,10 +1221,6 @@ func (m *Manager) setTaskWithLock(task *Task) {
 	m.tasks[task.Namespace][task.ID] = task
 }
 
-type snapshot struct {
-	Tasks map[string][]*Task `json:"tasks,omitempty"`
-}
-
 // Snapshot serialises the full task state to JSON for Raft snapshotting. The inverse
 // operation is [Manager.Restore].
 func (m *Manager) Snapshot() ([]byte, error) {
@@ -1188,9 +1229,7 @@ func (m *Manager) Snapshot() ([]byte, error) {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
 
-	bytes, err := json.Marshal(&snapshot{
-		Tasks: tasks,
-	})
+	bytes, err := m.encodeTasks(tasks)
 	if err != nil {
 		return nil, fmt.Errorf("marshal snapshot: %w", err)
 	}
@@ -1202,8 +1241,8 @@ func (m *Manager) Snapshot() ([]byte, error) {
 // [Manager.Snapshot]. It is called during Raft leader election or when a follower installs
 // a snapshot from the leader.
 func (m *Manager) Restore(bytes []byte) error {
-	var s snapshot
-	if err := json.Unmarshal(bytes, &s); err != nil {
+	decoded, err := m.decodeTasks(bytes)
+	if err != nil {
 		return fmt.Errorf("unmarshal snapshot: %w", err)
 	}
 
@@ -1214,8 +1253,8 @@ func (m *Manager) Restore(bytes []byte) error {
 	// state: merging would resurrect tasks the snapshot's producer deleted
 	// (e.g. records purged on a drop-vector marker introduction), and this
 	// node alone would then refuse applies its peers accept.
-	m.tasks = make(map[string]map[string]*Task, len(s.Tasks))
-	for namespace, tasks := range s.Tasks {
+	m.tasks = make(map[string]map[string]*Task, len(decoded))
+	for namespace, tasks := range decoded {
 		for _, task := range tasks {
 			if _, ok := m.tasks[namespace]; !ok {
 				m.tasks[namespace] = make(map[string]*Task)
@@ -1228,6 +1267,7 @@ func (m *Manager) Restore(bytes []byte) error {
 				task.FinishedAt = time.Time{}
 			}
 
+			task.indexGroups()
 			m.cacheCollectionWithLock(task)
 			m.tasks[namespace][task.ID] = task
 		}
