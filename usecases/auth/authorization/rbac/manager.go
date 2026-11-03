@@ -17,8 +17,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -63,18 +61,16 @@ type Manager struct {
 	namespacesEnabled bool
 	namespaces        NamespaceLister
 	restoreLock       sync.RWMutex
-	// rbacDir holds the policy.csv and version files of earlier releases.
-	rbacDir string
 }
 
 // New builds the RBAC manager. namespaces must be non-nil when namespacesEnabled is
 // true, because the first namespace-qualified class reads its state.
 // configureAuthorizer refuses to boot without it.
-func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, namespaces NamespaceLister, logger logrus.FieldLogger) (*Manager, error) {
+func New(raftDir string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, namespaces NamespaceLister, logger logrus.FieldLogger) (*Manager, error) {
 	if !rbacConf.Enabled {
 		rbacConf = rbacconf.Config{}
 	}
-	csbin, err := Init(rbacConf, rbacStoragePath, authNconf, namespacesEnabled)
+	csbin, err := Init(rbacConf, raftDir, authNconf, namespacesEnabled, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +82,6 @@ func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Auth
 		rbacConf:          rbacConf,
 		namespacesEnabled: namespacesEnabled,
 		namespaces:        namespaces,
-		rbacDir:           rbacDirIn(rbacStoragePath),
 	}, nil
 }
 
@@ -754,7 +749,6 @@ type snapshot struct {
 // come along too. A selection of custom roles carries no admin or viewer assignments
 // ([Manager.BuiltInAssignments] and [Manager.OIDCBuiltInAssignments] carry those).
 func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
-	// Defensive nil guard: a nil Manager returns an empty snapshot instead of panicking.
 	if m == nil {
 		return []byte{}, nil
 	}
@@ -843,9 +837,10 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 		snapshot = stripped
 	}
 
-	// Like the strip above, refuse before ClearPolicy. The previous release stores
-	// rows in a CSV file, and a row it can't hold fails its next load, or loads as
-	// rows the snapshot never had.
+	// Like the strip above, refuse before ClearPolicy. A node rolled back to a
+	// release that still writes policy.csv saves these rows there. A row the CSV
+	// can't hold fails that release's next load, or loads as rows the snapshot
+	// never had.
 	if err := validateStorableRows("p", snapshot.Policy); err != nil {
 		return fmt.Errorf("%w: %w", ErrRestoreRefused, err)
 	}
@@ -857,13 +852,14 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 }
 
 // RestoreRaftSnapshot replaces the policy store with a RAFT snapshot. It drops
-// and logs each row the previous release's CSV policy file cannot store, since
-// refusing the snapshot keeps the node from starting or catching up. Dropping a
-// row only removes a grant.
+// and logs each row a rolled-back release could not store in policy.csv.
+// Refusing the snapshot would keep the node from starting or catching up, and
+// dropping a row only removes a grant.
 func (m *Manager) RestoreRaftSnapshot(b []byte) error {
-	// An empty payload comes from a snapshot taken before RAFT carried RBAC.
-	// Returning keeps the current state, including roles seeded from the legacy
-	// policy file, until a snapshot carries RBAC.
+	// Snapshots from releases before RAFT carried RBAC, and from earlier
+	// releases running with RBAC disabled, have no RBAC field, and Store.Restore
+	// skips them. This return treats an empty b the same way, so roles seeded
+	// from policy.csv stay.
 	if m == nil || len(b) == 0 || m.casbin == nil {
 		return nil
 	}
@@ -875,33 +871,7 @@ func (m *Manager) RestoreRaftSnapshot(b []byte) error {
 	snapshot.Policy = m.dropUnstorableRows("p", snapshot.Policy)
 	snapshot.GroupingPolicy = m.dropUnstorableRows("g", snapshot.GroupingPolicy)
 
-	if err := m.replacePolicies(snapshot); err != nil {
-		return err
-	}
-	m.removeLegacyFiles()
-	return nil
-}
-
-// removeLegacyFiles deletes the policy.csv and version files of earlier
-// releases. Callers run it only after a RAFT snapshot carrying RBAC was
-// restored, so the files hold nothing the node still needs. A failed removal
-// is logged and does not fail the restore.
-func (m *Manager) removeLegacyFiles() {
-	var removed []string
-	for _, name := range []string{"policy.csv", "version"} {
-		p := filepath.Join(m.rbacDir, name)
-		if err := os.Remove(p); err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				m.logger.WithField("path", p).Warnf("failed to remove legacy rbac file: %v", err)
-				return
-			}
-			continue
-		}
-		removed = append(removed, p)
-	}
-	if len(removed) > 0 {
-		m.logger.WithField("paths", removed).Info("removed legacy rbac files: the restored RAFT snapshot carries the RBAC state")
-	}
+	return m.replacePolicies(snapshot)
 }
 
 // replacePolicies clears the policy store and loads snapshot into it.

@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rolevisibility"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -1452,6 +1453,10 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		return authz.NewRevokeRoleFromUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
+	if err := h.validateNotConfiguredGrant(internalID, authentication.AuthType(params.Body.UserType), roleNames); err != nil {
+		return authz.NewRevokeRoleFromUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
 	existedRoles, err := h.controller.GetRoles(roleNames...)
 	if err != nil {
 		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRoles: %w", err)))
@@ -1699,6 +1704,41 @@ func (h *authZHandlers) getUserTypesAndValidateExistence(id string, userTypePara
 func validateEnvVarRoles(name string) error {
 	if slices.Contains(authorization.EnvVarRoles, name) {
 		return fmt.Errorf("modifying '%s' role or changing its assignments is not allowed", name)
+	}
+	return nil
+}
+
+// configuredGrantSettings maps each role rbac.AdminViewerGrants can return to
+// the environment variable and the config-file key that grant it.
+var configuredGrantSettings = map[string]string{
+	authorization.Admin:  "the EXPERIMENTAL_AUTHORIZATION_RBAC_ADMIN_USERS env var or the admin_users config key",
+	authorization.Viewer: "the EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_USERS env var or the viewer_users config key",
+}
+
+// validateNotConfiguredGrant refuses to revoke a role that this node's config
+// grants to internalID (see rbac.AdminViewerGrants). Every boot adds such a
+// grant back. With RBAC disabled, config grants take no effect, so this
+// refuses nothing. An empty userType checks both user types, as
+// getUserTypesAndValidateExistence does. A user with such a grant always passes
+// that existence check, so this check does not need to call the controller.
+func (h *authZHandlers) validateNotConfiguredGrant(internalID string, userType authentication.AuthType, roleNames []string) error {
+	if !h.rbacconfig.Enabled {
+		return nil
+	}
+	userTypes := []authentication.AuthType{userType}
+	if userType == "" {
+		userTypes = []authentication.AuthType{authentication.AuthTypeOIDC, authentication.AuthTypeDb}
+	}
+	grants := rbac.AdminViewerGrants(h.rbacconfig, config.Authentication{APIKey: h.apiKeysConfigs, OIDC: h.oidcConfigs})
+	for _, g := range grants {
+		if !slices.Contains(roleNames, g.Role) {
+			continue
+		}
+		for _, t := range userTypes {
+			if g.Subject == conv.UserNameWithTypeFromId(internalID, t) {
+				return fmt.Errorf("revoking: role '%s' of user '%s' is set by %s; remove the user from that setting instead", g.Role, internalID, configuredGrantSettings[g.Role])
+			}
+		}
 	}
 	return nil
 }

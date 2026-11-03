@@ -741,7 +741,7 @@ func roleHasResourceVerb(rows [][]string, resourceContains, verb string) bool {
 func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T) {
 	dir := freshPolicyDir(t)
 	conf := rbacconf.Config{Enabled: true}
-	enforcer, err := Init(conf, dir, config.Authentication{}, true)
+	enforcer, err := Init(conf, dir, config.Authentication{}, true, discardLogger())
 	require.NoError(t, err)
 	require.NotNil(t, enforcer)
 
@@ -813,7 +813,7 @@ func TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSDisabled(t *testing
 	dir := freshPolicyDir(t)
 	conf := rbacconf.Config{Enabled: true}
 
-	enforcer, err := Init(conf, dir, config.Authentication{}, false)
+	enforcer, err := Init(conf, dir, config.Authentication{}, false, discardLogger())
 	require.NoError(t, err)
 
 	// API-assign admin to a DB user.
@@ -836,7 +836,7 @@ func TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSEnabledAdmin(t *tes
 	dir := freshPolicyDir(t)
 	conf := rbacconf.Config{Enabled: true}
 
-	enforcer, err := Init(conf, dir, config.Authentication{}, true)
+	enforcer, err := Init(conf, dir, config.Authentication{}, true, discardLogger())
 	require.NoError(t, err)
 
 	beforeRows, err := enforcer.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Admin))
@@ -866,7 +866,7 @@ func TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSEnabledViewer(t *te
 	dir := freshPolicyDir(t)
 	conf := rbacconf.Config{Enabled: true}
 
-	enforcer, err := Init(conf, dir, config.Authentication{}, true)
+	enforcer, err := Init(conf, dir, config.Authentication{}, true, discardLogger())
 	require.NoError(t, err)
 
 	beforeRows, err := enforcer.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Viewer))
@@ -905,7 +905,7 @@ func TestApplyPredefinedRoles_RootReadOnlyGroupingsWipedOnRestart(t *testing.T) 
 			dir := freshPolicyDir(t)
 			conf := rbacconf.Config{Enabled: true}
 
-			enforcer, err := Init(conf, dir, config.Authentication{}, false)
+			enforcer, err := Init(conf, dir, config.Authentication{}, false, discardLogger())
 			require.NoError(t, err)
 
 			user := conv.UserNameWithTypeFromId("alice", authentication.AuthTypeDb)
@@ -941,7 +941,7 @@ func TestApplyPredefinedRoles_RootReadOnlyRemovedFromConfigDropAfterRestart(t *t
 		APIKey: config.StaticAPIKey{Enabled: true, Users: []string{rootUser}},
 	}
 
-	enforcer, err := Init(confBefore, dir, authNconf, false)
+	enforcer, err := Init(confBefore, dir, authNconf, false, discardLogger())
 	require.NoError(t, err)
 
 	rootSubject := conv.UserNameWithTypeFromId(rootUser, authentication.AuthTypeDb)
@@ -995,7 +995,7 @@ func TestApplyPredefinedRoles_AdminViewerEnvVarRemovalDoesNotPropagate(t *testin
 				APIKey: config.StaticAPIKey{Enabled: true, Users: []string{user}},
 			}
 
-			enforcer, err := Init(confBefore, dir, authNconf, tc.namespacesEnabled)
+			enforcer, err := Init(confBefore, dir, authNconf, tc.namespacesEnabled, discardLogger())
 			require.NoError(t, err)
 
 			subject := conv.UserNameWithTypeFromId(user, authentication.AuthTypeDb)
@@ -1035,7 +1035,7 @@ func TestApplyPredefinedRoles_RootReadOnlyGroupingsReappliedFromConfig(t *testin
 		APIKey: config.StaticAPIKey{Enabled: true, Users: []string{rootUser}},
 	}
 
-	enforcer, err := Init(conf, dir, authNconf, false)
+	enforcer, err := Init(conf, dir, authNconf, false, discardLogger())
 	require.NoError(t, err)
 
 	rootSubject := conv.UserNameWithTypeFromId(rootUser, authentication.AuthTypeDb)
@@ -1083,7 +1083,7 @@ func TestApplyPredefinedRoles_RejectsNamespacedRootUser(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := freshPolicyDir(t)
 			conf := rbacconf.Config{Enabled: true, RootUsers: tt.rootUsers}
-			_, err := Init(conf, dir, config.Authentication{}, tt.namespacesEnabled)
+			_, err := Init(conf, dir, config.Authentication{}, tt.namespacesEnabled, discardLogger())
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -1099,7 +1099,7 @@ func TestApplyPredefinedRoles_RejectsNamespacedRootUser(t *testing.T) {
 func TestEnforce_GlobalRoleAssignedToNamespacedSubject(t *testing.T) {
 	dir := freshPolicyDir(t)
 	conf := rbacconf.Config{Enabled: true}
-	enforcer, err := Init(conf, dir, config.Authentication{}, true)
+	enforcer, err := Init(conf, dir, config.Authentication{}, true, discardLogger())
 	require.NoError(t, err)
 	require.NotNil(t, enforcer)
 

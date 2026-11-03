@@ -31,6 +31,7 @@ import (
 	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
 	casbinutil "github.com/casbin/casbin/v2/util"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -61,7 +62,8 @@ const (
 )
 
 // Init builds the in-memory enforcer. It attaches no persistence adapter: RAFT snapshot restore and log replay rebuild the RBAC state on every start.
-func Init(conf rbacconf.Config, policyPath string, authNconf config.Authentication, namespacesEnabled bool) (*casbin.SyncedCachedEnforcer, error) {
+// If the legacy seed fails and conf.Enabled is false, Init logs the error and keeps no seeded rows. If conf.Enabled is true, Init returns the error.
+func Init(conf rbacconf.Config, raftDir string, authNconf config.Authentication, namespacesEnabled bool, logger logrus.FieldLogger) (*casbin.SyncedCachedEnforcer, error) {
 	m, err := model.NewModelFromString(MODEL)
 	if err != nil {
 		return nil, fmt.Errorf("load rbac model: %w", err)
@@ -78,8 +80,19 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 	// explicitly invalidating the cache.
 	enforcer.SetExpireTime(1 * time.Hour)
 
-	if err := seedFromLegacyPolicyFile(enforcer, rbacDirIn(policyPath), authNconf); err != nil {
-		return nil, err
+	legacyDir := legacyRBACDir(raftDir)
+	if err := seedFromLegacyPolicyFile(enforcer, legacyDir, authNconf); err != nil {
+		if conf.Enabled {
+			return nil, err
+		}
+		// The seed can fail after LoadPolicy added rows and role links.
+		// ClearPolicy drops the rows but keeps the links. BuildRoleLinks then
+		// rebuilds the links from the empty model.
+		enforcer.ClearPolicy()
+		if err := enforcer.BuildRoleLinks(); err != nil {
+			return nil, fmt.Errorf("clear legacy role links: %w", err)
+		}
+		logger.WithField("path", filepath.Join(legacyDir, "policy.csv")).Warnf("RBAC is disabled, booting without the legacy RBAC policy files: %v", err)
 	}
 
 	// docs: https://casbin.org/docs/function/
@@ -92,18 +105,17 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 	return enforcer, nil
 }
 
-// rbacDirIn returns the dir under storagePath where earlier releases wrote policy.csv and version.
-func rbacDirIn(storagePath string) string {
-	return filepath.Join(storagePath, "rbac")
+// legacyRBACDir returns the dir under raftDir where earlier releases wrote policy.csv and version.
+func legacyRBACDir(raftDir string) string {
+	return filepath.Join(raftDir, "rbac")
 }
 
-// seedFromLegacyPolicyFile loads the policy.csv that earlier releases wrote
-// under rbacDir, so a cluster upgraded from them keeps its roles until a RAFT
-// snapshot carries RBAC state. A missing file is a no-op. The seed never writes:
-// the file and its version stay as the earlier release left them, so the <1.30
-// upgrade sees the same rows on every boot.
-func seedFromLegacyPolicyFile(enforcer *casbin.SyncedCachedEnforcer, rbacDir string, authNconf config.Authentication) error {
-	policyFile := filepath.Join(rbacDir, "policy.csv")
+// seedFromLegacyPolicyFile loads the policy.csv earlier releases wrote under
+// legacyDir, so an upgraded cluster keeps its roles until a RAFT snapshot
+// carries RBAC state. It never writes policy.csv or the version file, so the
+// <1.30 upgrade reads the same rows on every boot.
+func seedFromLegacyPolicyFile(enforcer *casbin.SyncedCachedEnforcer, legacyDir string, authNconf config.Authentication) error {
+	policyFile := filepath.Join(legacyDir, "policy.csv")
 	if _, err := os.Stat(policyFile); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -121,11 +133,14 @@ func seedFromLegacyPolicyFile(enforcer *casbin.SyncedCachedEnforcer, rbacDir str
 	}
 
 	// parse version string to check if upgrade is needed
-	policyVersion, err := getVersion(rbacDir)
+	policyVersion, err := getVersion(legacyDir)
 	if err != nil {
 		return err
 	}
 	versionParts := strings.Split(policyVersion, ".")
+	if len(versionParts) < 2 {
+		return fmt.Errorf("legacy version file %s: version %q has no minor part", filepath.Join(legacyDir, "version"), policyVersion)
+	}
 	minorVersion, err := strconv.Atoi(versionParts[1])
 	if err != nil {
 		return err
@@ -153,8 +168,8 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 	}
 
 	// Wipe all built-in role policies before re-registering. The
-	// canonical shape lives in code, so rows from a legacy seed or a
-	// restored snapshot are replaced by it on every boot and restore.
+	// canonical shape lives in code, so rows seedFromLegacyPolicyFile loaded or a
+	// restored snapshot held are replaced by it on every boot and restore.
 	for _, role := range authorization.BuiltInRoles {
 		if _, err := enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(role)); err != nil {
 			return err
@@ -271,10 +286,9 @@ type RoleGrant struct {
 	Role    string
 }
 
-// AdminViewerGrants returns the admin and viewer assignments conf.AdminUsers
-// and conf.ViewerUsers configure: a db: subject for each user listed in an
-// enabled APIKey config, and an oidc: subject for each user when OIDC is
-// enabled. Blank entries grant nothing.
+// AdminViewerGrants returns the grants conf.AdminUsers and conf.ViewerUsers
+// configure. A user gets a db: grant when an enabled APIKey config lists it,
+// and an oidc: grant when OIDC is enabled.
 func AdminViewerGrants(conf rbacconf.Config, authNconf config.Authentication) []RoleGrant {
 	var grants []RoleGrant
 	// temporary to enable import of existing keys to WCD (Admin + readonly)

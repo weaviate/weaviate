@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -25,6 +26,8 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // fakeAssigner fails each subject's first failures[subject] calls.
@@ -40,6 +43,58 @@ func (f *fakeAssigner) AddRolesForUser(user string, roles []string) error {
 		return errors.New("leader not found")
 	}
 	return nil
+}
+
+func TestBootEnvRoleGrants(t *testing.T) {
+	authNconf := config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"alice", "bob"}}}
+	withGrants := rbacconf.Config{Enabled: true, AdminUsers: []string{"alice"}, ViewerUsers: []string{"bob"}}
+	tests := []struct {
+		name     string
+		rbacConf rbacconf.Config
+		waitErr  error
+		// wantCalls lists the wait ("wait") and every submission, in order.
+		wantCalls []string
+		wantError bool
+	}{
+		{
+			name:     "RBAC disabled submits nothing and does not wait",
+			rbacConf: rbacconf.Config{AdminUsers: []string{"alice"}, ViewerUsers: []string{"bob"}},
+		},
+		{
+			name:     "no configured grant submits nothing",
+			rbacConf: rbacconf.Config{Enabled: true},
+		},
+		{
+			name:      "every grant is submitted after the wait returns",
+			rbacConf:  withGrants,
+			wantCalls: []string{"wait", "db:alice=admin", "db:bob=viewer"},
+		},
+		{
+			name:      "a failed wait submits nothing and is logged",
+			rbacConf:  withGrants,
+			waitErr:   errors.New("meta store failed"),
+			wantCalls: []string{"wait"},
+			wantError: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			assigner := &fakeAssigner{}
+			wait := func() error {
+				assigner.calls = append(assigner.calls, "wait")
+				return tt.waitErr
+			}
+
+			bootEnvRoleGrants(tt.rbacConf, authNconf, assigner, wait, backoff.WithMaxRetries(&backoff.ZeroBackOff{}, 0), logger)
+
+			assert.Equal(t, tt.wantCalls, assigner.calls)
+			logged := slices.ContainsFunc(hook.AllEntries(), func(e *logrus.Entry) bool {
+				return e.Level == logrus.ErrorLevel && strings.Contains(e.Message, "meta store failed")
+			})
+			assert.Equal(t, tt.wantError, logged)
+		})
+	}
 }
 
 func TestWriteEnvRoleGrants(t *testing.T) {
@@ -58,11 +113,6 @@ func TestWriteEnvRoleGrants(t *testing.T) {
 		wantCalls   []string
 		wantPending []string
 	}{
-		{
-			name:      "every grant is submitted once",
-			backoff:   backoff.WithMaxRetries(&backoff.ZeroBackOff{}, 2),
-			wantCalls: []string{"db:alice=admin", "db:bob=viewer"},
-		},
 		{
 			name:      "a failed grant is resubmitted alone",
 			failures:  map[string]int{"db:alice": 1},

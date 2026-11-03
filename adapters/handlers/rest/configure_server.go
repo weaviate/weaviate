@@ -196,10 +196,9 @@ func configureAuthorizer(appState *state.State) error {
 	return nil
 }
 
-// roleAPIController returns the controller behind the /authz endpoints. With
-// RBAC disabled they use an inert controller. RBAC reads return nothing.
-// Mutations are dropped and do not take effect if RBAC is enabled later. User
-// lookups still go to raft.
+// roleAPIController returns the controller behind the /authz endpoints, which
+// is authz.InertController when RBAC is disabled. A mutation InertController
+// accepts does not take effect when RBAC is enabled later.
 func roleAPIController(rbacEnabled bool, raft authz.ControllerAndGetUsers) authz.ControllerAndGetUsers {
 	if rbacEnabled {
 		return raft

@@ -20,6 +20,8 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // roleAssigner submits a role assignment as a RAFT log entry.
@@ -44,11 +46,30 @@ func envGrantBackoff(ctx context.Context) backoff.BackOff {
 	)
 }
 
+// bootEnvRoleGrants writes the admin and viewer grants from rbacConf to RAFT
+// after wait returns nil. If RBAC is disabled or there are no grants, it calls
+// neither wait nor the assigner.
+func bootEnvRoleGrants(rbacConf rbacconf.Config, authNconf config.Authentication, assigner roleAssigner,
+	wait func() error, b backoff.BackOff, logger logrus.FieldLogger,
+) {
+	if !rbacConf.Enabled {
+		return
+	}
+	grants := rbac.AdminViewerGrants(rbacConf, authNconf)
+	if len(grants) == 0 {
+		return
+	}
+	if err := wait(); err != nil {
+		logger.Errorf("writing env admin/viewer grants to RAFT skipped: %v", err)
+		return
+	}
+	writeEnvRoleGrants(assigner, grants, b, logger)
+}
+
 // writeEnvRoleGrants submits each AdminUsers/ViewerUsers grant as a RAFT entry,
 // so the grant replays on every restart path like an API assignment. The
-// entries are idempotent upserts, so every node submitting them on every boot
-// is safe. Each round resubmits only the grants that failed; when b stops, the
-// grants still pending are logged as a warning.
+// entries are idempotent upserts, so every node may submit them on every boot.
+// revokeRoleFromUser refuses to revoke a grant the handling node's config lists.
 func writeEnvRoleGrants(assigner roleAssigner, grants []rbac.RoleGrant, b backoff.BackOff, logger logrus.FieldLogger) {
 	pending := grants
 	err := backoff.Retry(func() error {

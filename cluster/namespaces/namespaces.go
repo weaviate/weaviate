@@ -62,8 +62,8 @@ type Manager struct {
 
 // NewManager wraps the controller and the listers RemoveEntity consults
 // to verify the namespace is empty. Panics on a nil controller or nil
-// schema lister. The dynusers and rbac listers are optional: deployments
-// without dynamic users or RBAC pass nil and the respective check is skipped.
+// schema lister. A nil dynusers or rbac lister skips that check; only tests
+// pass nil.
 func NewManager(
 	controller *usecasesNamespaces.Controller,
 	schema SchemaNamespaceLister,
@@ -166,13 +166,13 @@ func (m *Manager) RemoveEntity(c *cmd.ApplyRequest) error {
 	if aliases := m.schema.AliasesInNamespace(req.Name); len(aliases) > 0 {
 		return fmt.Errorf("%w: %d alias(es) remain in %q", usecasesNamespaces.ErrNamespaceNotEmpty, len(aliases), req.Name)
 	}
-	// dynusers is nil when dynamic users are disabled.
+	// Only tests pass a nil dynusers, which skips the dynamic-user check.
 	if m.dynusers != nil {
 		if users := m.dynusers.UsersInNamespace(req.Name); len(users) > 0 {
 			return fmt.Errorf("%w: %d user(s) remain in %q", usecasesNamespaces.ErrNamespaceNotEmpty, len(users), req.Name)
 		}
 	}
-	// Defensive nil guard: a nil rbac skips the RBAC-row emptiness check.
+	// Only tests pass a nil rbac, which skips the RBAC-row emptiness check.
 	if m.rbac != nil {
 		rbacRows, err := m.rbac.CountNamespaceLocalRBAC(req.Name)
 		if err != nil {

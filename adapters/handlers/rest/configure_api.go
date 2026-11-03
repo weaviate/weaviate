@@ -841,12 +841,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.RemoteIndexIncoming = remote.NewIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 
-	// Assigned only when RBAC is enabled. With a nil rbacSourcer a backup carries
-	// no roles and an includeRoles request is refused.
-	var rbacSourcer backup.RBACSnapshotter
-	if appState.ServerConfig.Config.Authorization.Rbac.Enabled {
-		rbacSourcer = appState.RBAC
-	}
+	rbacSourcer, _ := rbacBackupCapabilities(appState.ServerConfig.Config.Authorization.Rbac.Enabled, appState.RBAC)
 	backupManager := backup.NewHandler(appState.Logger, appState.ServerConfig.Config.Backup, appState.Authorizer,
 		schemaManager, appState.Cluster.LocalName(), repo, appState.Modules, rbacSourcer, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
@@ -909,19 +904,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 	}, appState.Logger)
 
-	if appState.ServerConfig.Config.Authorization.Rbac.Enabled {
-		envGrants := rbac.AdminViewerGrants(appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.Authentication)
-		if len(envGrants) > 0 {
-			enterrors.GoWrapper(func() {
-				l := appState.Logger.WithField("action", "rbac_env_grants")
-				if err := metaStoreReady.waitForMetaStore(); err != nil {
-					l.Errorf("writing env admin/viewer grants to RAFT skipped: %v", err)
-					return
-				}
-				writeEnvRoleGrants(appState.ClusterService.Raft, envGrants, envGrantBackoff(serverShutdownCtx), l)
-			}, appState.Logger)
-		}
-	}
+	enterrors.GoWrapper(func() {
+		bootEnvRoleGrants(appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.Authentication,
+			appState.ClusterService.Raft, metaStoreReady.waitForMetaStore, envGrantBackoff(serverShutdownCtx),
+			appState.Logger.WithField("action", "rbac_env_grants"))
+	}, appState.Logger)
 
 	// TODO-RAFT: refactor remove this wait
 	// it blocks GraphQL for up to 2s to give RAFT time to start.
@@ -1745,6 +1732,16 @@ func shutdownHooks(d shutdownHooksConfig) (func(), func()) {
 	return preShutdownHook, shutdownHook
 }
 
+// rbacBackupCapabilities returns the snapshotter that backups use to capture
+// roles, and the role lister the backup scheduler uses. With RBAC disabled both
+// are untyped nil, because the backup package compares each one with nil.
+func rbacBackupCapabilities(rbacEnabled bool, m *rbac.Manager) (backup.RBACSnapshotter, backup.RoleLister) {
+	if !rbacEnabled {
+		return nil, nil
+	}
+	return m, m
+}
+
 func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	// userLister lets the scheduler resolve includeUsers selectors. It stays
 	// nil when dynamic DB users are disabled, in which case includeUsers
@@ -1754,12 +1751,8 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 		userLister = appState.APIKey.Dynamic
 	}
 	// roleLister lets the scheduler resolve includeRoles selectors. It stays nil
-	// when RBAC is disabled, in which case includeRoles requests are rejected
-	// with a clear error.
-	var roleLister backup.RoleLister
-	if appState.ServerConfig.Config.Authorization.Rbac.Enabled {
-		roleLister = appState.RBAC
-	}
+	// when RBAC is disabled, so the scheduler rejects includeRoles requests.
+	_, roleLister := rbacBackupCapabilities(appState.ServerConfig.Config.Authorization.Rbac.Enabled, appState.RBAC)
 	dedupeMode := dedupeModeFor(appState.ServerConfig.Config)
 	logUnlicensedDedupe(appState.Logger, dedupeMode)
 	dedupePlanner, err := dedupePlannerFor(dedupeMode, func() (backup.DedupePlanner, error) {

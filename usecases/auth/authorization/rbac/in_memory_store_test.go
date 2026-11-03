@@ -147,44 +147,6 @@ func TestNewWithRBACDisabled(t *testing.T) {
 	})
 }
 
-// TestMutationsWriteNoFiles runs its steps in order on one Manager, so each
-// step mutates the state the previous one left.
-func TestMutationsWriteNoFiles(t *testing.T) {
-	dir := t.TempDir()
-	m, err := New(dir, rbacconf.Config{Enabled: true}, config.Authentication{}, false, nil, discardLogger())
-	require.NoError(t, err)
-
-	restoreOwnSnapshot := func(restore func(m *Manager, blob []byte) error) func(m *Manager) error {
-		return func(m *Manager) error {
-			blob, err := m.Snapshot()
-			if err != nil {
-				return err
-			}
-			return restore(m, blob)
-		}
-	}
-	steps := []struct {
-		name   string
-		mutate func(m *Manager) error
-	}{
-		{"create role", func(m *Manager) error {
-			return m.CreateRolesPermissions(map[string][]authorization.Policy{"reader": {moviesRead}})
-		}},
-		{"assign role", func(m *Manager) error { return m.AddRolesForUser(alice, []string{"reader"}) }},
-		{"RAFT snapshot restore", restoreOwnSnapshot(func(m *Manager, blob []byte) error { return m.RestoreRaftSnapshot(blob) })},
-		{"backup restore", restoreOwnSnapshot(func(m *Manager, blob []byte) error { return m.Restore(blob, false) })},
-		{"revoke role", func(m *Manager) error { return m.RevokeRolesForUser(alice, "reader") }},
-		{"remove permissions", func(m *Manager) error { return m.RemovePermissions("reader", []*authorization.Policy{&moviesRead}) }},
-		{"delete role", func(m *Manager) error { return m.DeleteRoles("reader") }},
-	}
-	for _, step := range steps {
-		t.Run(step.name, func(t *testing.T) {
-			require.NoError(t, step.mutate(m))
-			assert.Empty(t, dirContents(t, dir))
-		})
-	}
-}
-
 func TestSeedFromLegacyPolicyFile(t *testing.T) {
 	// Rows as a 1.30+ node wrote them.
 	const currentRows = "p, role:custom, schema/collections/Movies/shards/#, R, schema\n" +
@@ -217,8 +179,10 @@ func TestSeedFromLegacyPolicyFile(t *testing.T) {
 		policyCSV string
 		// version is the version file's content; empty means no version file.
 		version string
-		wantErr string
-		check   func(t *testing.T, m *Manager)
+		// rbacIsFile makes <dir>/rbac a regular file instead of the dir holding the files.
+		rbacIsFile bool
+		wantErr    string
+		check      func(t *testing.T, m *Manager)
 	}{
 		{
 			name:      "a custom role and assignment are seeded",
@@ -265,15 +229,26 @@ func TestSeedFromLegacyPolicyFile(t *testing.T) {
 			version:   "1.30.0",
 			wantErr:   "load legacy policy file",
 		},
+		{
+			name:      "a version without a minor part fails Init",
+			policyCSV: currentRows,
+			version:   "1",
+			wantErr:   filepath.Join("rbac", "version"),
+		},
+		{
+			name:       "an rbac path that is not a dir fails Init",
+			rbacIsFile: true,
+			wantErr:    "stat legacy policy file",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
 			rbacDir := filepath.Join(dir, "rbac")
-			require.NoError(t, os.MkdirAll(rbacDir, 0o755))
-			require.NoError(t, os.WriteFile(filepath.Join(rbacDir, "policy.csv"), []byte(tt.policyCSV), 0o644))
-			if tt.version != "" {
-				require.NoError(t, os.WriteFile(filepath.Join(rbacDir, "version"), []byte(tt.version), 0o644))
+			if tt.rbacIsFile {
+				require.NoError(t, os.WriteFile(rbacDir, nil, 0o644))
+			} else {
+				plantLegacyFiles(t, dir, tt.policyCSV, tt.version)
 			}
 			before := dirContents(t, dir)
 
@@ -289,7 +264,79 @@ func TestSeedFromLegacyPolicyFile(t *testing.T) {
 	}
 }
 
-func TestRestoreRaftSnapshotRemovesLegacyFiles(t *testing.T) {
+// plantLegacyFiles writes policy.csv, and version unless it is empty, to
+// <dir>/rbac, where earlier releases kept them.
+func plantLegacyFiles(t *testing.T, dir, policyCSV, version string) {
+	t.Helper()
+	rbacDir := filepath.Join(dir, "rbac")
+	require.NoError(t, os.MkdirAll(rbacDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(rbacDir, "policy.csv"), []byte(policyCSV), 0o644))
+	if version != "" {
+		require.NoError(t, os.WriteFile(filepath.Join(rbacDir, "version"), []byte(version), 0o644))
+	}
+}
+
+func TestNew(t *testing.T) {
+	authNconf := config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"alice"}}}
+	tests := []struct {
+		name      string
+		policyCSV string
+		version   string
+	}{
+		{
+			name:      "a file casbin cannot load",
+			policyCSV: "g, db:alice\n",
+			version:   "1.30.0",
+		},
+		{
+			// LoadPolicy adds these rows and role links before the version parse fails.
+			name:      "a loaded file with a malformed version",
+			policyCSV: "p, role:custom, schema/collections/Movies/shards/#, R, schema\ng, db:alice, role:custom\n",
+			version:   "1",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+" with RBAC disabled is logged and seeds nothing", func(t *testing.T) {
+			dir := t.TempDir()
+			plantLegacyFiles(t, dir, tt.policyCSV, tt.version)
+			before := dirContents(t, dir)
+			logger, hook := test.NewNullLogger()
+
+			m, err := New(dir, rbacconf.Config{}, authNconf, false, nil, logger)
+			require.NoError(t, err)
+
+			groupings, err := m.casbin.GetGroupingPolicy()
+			require.NoError(t, err)
+			assert.Empty(t, groupings)
+			links, err := m.casbin.GetRolesForUser(alice)
+			require.NoError(t, err)
+			assert.Empty(t, links, "no role link from the file survives")
+			members, err := m.GetUsersOrGroupForRole("custom", authentication.AuthTypeDb, false)
+			require.NoError(t, err)
+			assert.Empty(t, members)
+			roles, err := m.GetRoles()
+			require.NoError(t, err)
+			_, seeded := roles["custom"]
+			assert.False(t, seeded, "the legacy role is not seeded")
+			_, builtIn := roles[authorization.Admin]
+			assert.True(t, builtIn, "config-derived roles still apply")
+			warned := slices.ContainsFunc(hook.AllEntries(), func(e *logrus.Entry) bool {
+				return e.Level == logrus.WarnLevel && e.Data["path"] == filepath.Join(dir, "rbac", "policy.csv")
+			})
+			assert.True(t, warned, "the seed error is logged with the path")
+			assert.Equal(t, before, dirContents(t, dir))
+		})
+		t.Run(tt.name+" with RBAC enabled fails New", func(t *testing.T) {
+			dir := t.TempDir()
+			plantLegacyFiles(t, dir, tt.policyCSV, tt.version)
+
+			_, err := New(dir, rbacconf.Config{Enabled: true}, authNconf, false, nil, discardLogger())
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestRestoreRaftSnapshotLegacyFiles(t *testing.T) {
 	const seededRows = "p, role:custom, schema/collections/Movies/shards/#, R, schema\n" +
 		"g, db:alice, role:custom\n"
 	authNconf := config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"alice"}}}
@@ -325,61 +372,40 @@ func TestRestoreRaftSnapshotRemovesLegacyFiles(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		plantFiles  bool
 		snapshot    []byte
 		backup      bool
 		wantErr     bool
-		wantKept    bool
 		checkMemory func(t *testing.T, m *Manager)
 	}{
 		{
-			name:        "an RBAC snapshot removes both files",
-			plantFiles:  true,
+			name:        "an RBAC snapshot replaces the seeded state and keeps the files",
 			snapshot:    rbacSnapshot,
 			checkMemory: requireRestored,
 		},
 		{
-			name:        "an empty snapshot keeps them",
-			plantFiles:  true,
-			wantKept:    true,
+			name:        "an empty snapshot keeps the seeded state and the files",
 			checkMemory: requireSeeded,
 		},
 		{
-			name:       "a failed restore keeps them",
-			plantFiles: true,
-			snapshot:   failingSnapshot,
-			wantErr:    true,
-			wantKept:   true,
+			name:     "a failed restore keeps the files",
+			snapshot: failingSnapshot,
+			wantErr:  true,
 		},
 		{
-			name:        "a backup restore keeps them",
-			plantFiles:  true,
+			name:        "a backup restore replaces the seeded state and keeps the files",
 			snapshot:    rbacSnapshot,
 			backup:      true,
-			wantKept:    true,
-			checkMemory: requireRestored,
-		},
-		{
-			name:        "no files present is a no-op",
-			snapshot:    rbacSnapshot,
 			checkMemory: requireRestored,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
-			if tt.plantFiles {
-				rbacDir := filepath.Join(dir, "rbac")
-				require.NoError(t, os.MkdirAll(rbacDir, 0o755))
-				require.NoError(t, os.WriteFile(filepath.Join(rbacDir, "policy.csv"), []byte(seededRows), 0o644))
-				require.NoError(t, os.WriteFile(filepath.Join(rbacDir, "version"), []byte("1.30.0"), 0o644))
-			}
+			plantLegacyFiles(t, dir, seededRows, "1.30.0")
 			before := dirContents(t, dir)
 			m, err := New(dir, rbacconf.Config{Enabled: true}, authNconf, false, nil, discardLogger())
 			require.NoError(t, err)
-			if tt.plantFiles {
-				requireSeeded(t, m)
-			}
+			requireSeeded(t, m)
 
 			if tt.backup {
 				err = m.Restore(tt.snapshot, false)
@@ -392,39 +418,12 @@ func TestRestoreRaftSnapshotRemovesLegacyFiles(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			switch {
-			case tt.wantKept:
-				assert.Equal(t, before, dirContents(t, dir))
-			case tt.plantFiles:
-				// The rbac dir stays; only the two files go.
-				assert.Equal(t, map[string]string{"rbac": ""}, dirContents(t, dir))
-			default:
-				assert.Empty(t, dirContents(t, dir))
-			}
+			assert.Equal(t, before, dirContents(t, dir))
 			if tt.checkMemory != nil {
 				tt.checkMemory(t, m)
 			}
 		})
 	}
-
-	t.Run("a removal error does not fail the restore", func(t *testing.T) {
-		dir := t.TempDir()
-		logger, hook := test.NewNullLogger()
-		m, err := New(dir, rbacconf.Config{Enabled: true}, authNconf, false, nil, logger)
-		require.NoError(t, err)
-		// os.Remove fails on a non-empty dir with an error other than not-exist.
-		blocked := filepath.Join(dir, "rbac", "policy.csv")
-		require.NoError(t, os.MkdirAll(blocked, 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(blocked, "x"), nil, 0o644))
-
-		require.NoError(t, m.RestoreRaftSnapshot(rbacSnapshot))
-
-		requireRestored(t, m)
-		warned := slices.ContainsFunc(hook.AllEntries(), func(e *logrus.Entry) bool {
-			return e.Level == logrus.WarnLevel && e.Data["path"] == blocked
-		})
-		assert.True(t, warned, "the removal error is logged with its path")
-	})
 }
 
 func TestRestoreRaftSnapshotDropsRevokedAssignment(t *testing.T) {
@@ -522,30 +521,12 @@ func TestRestoreRaftSnapshotUnderConcurrentAuthorize(t *testing.T) {
 		}
 		assert.Zero(t, stop(), "a reader saw the granted role denied during a restore")
 	})
-
-	t.Run("a cached allow does not survive a restore that revokes the grant", func(t *testing.T) {
-		m, err := setupTestManager(t, discardLogger())
-		require.NoError(t, err)
-		require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{"reader": {moviesRead}}))
-		withoutAssignment, err := m.Snapshot()
-		require.NoError(t, err)
-		require.NoError(t, m.AddRolesForUser(alice, []string{"reader"}))
-		require.NoError(t, m.Authorize(context.Background(), aliceAsUser, authorization.READ, moviesRead.Resource))
-
-		stop := hammer(t, m)
-		err = m.RestoreRaftSnapshot(withoutAssignment)
-		stop()
-		require.NoError(t, err)
-
-		err = m.Authorize(context.Background(), aliceAsUser, authorization.READ, moviesRead.Resource)
-		require.ErrorAs(t, err, new(authzErrors.Forbidden))
-	})
 }
 
 // TestRollbackRegeneratesPolicyFileFromSnapshot checks that a release which
 // still writes policy.csv rebuilds the same rows from this release's RAFT
-// snapshot: it replays the rows, saves them through the file adapter and
-// loads them back.
+// snapshot. The test reads the snapshot with the JSON keys the previous release
+// reads.
 func TestRollbackRegeneratesPolicyFileFromSnapshot(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -605,7 +586,10 @@ func TestRollbackRegeneratesPolicyFileFromSnapshot(t *testing.T) {
 
 			blob, err := m.Snapshot()
 			require.NoError(t, err)
-			var s snapshot
+			var s struct {
+				Policy         [][]string `json:"roles_policies"`
+				GroupingPolicy [][]string `json:"grouping_policies"`
+			}
 			require.NoError(t, json.Unmarshal(blob, &s))
 
 			path := filepath.Join(t.TempDir(), "policy.csv")

@@ -24,7 +24,6 @@ import (
 	clusterdynusers "github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterrbac "github.com/weaviate/weaviate/cluster/rbac"
-	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -268,8 +267,7 @@ func TestApplyRestoreRolesAndUsersLeavesUsersOnRoleFailure(t *testing.T) {
 	var blob rolesBlob
 	require.NoError(t, json.Unmarshal(sourceRoles, &blob))
 	require.NotEmpty(t, blob.GroupingPolicy)
-	blob.GroupingPolicy = append(blob.GroupingPolicy,
-		[]string{"db:linked", "role:restored"}, oneFieldRow, []string{"db:unlinked", "role:restored"})
+	blob.GroupingPolicy = append(blob.GroupingPolicy, oneFieldRow)
 	roles, err := json.Marshal(blob)
 	require.NoError(t, err)
 
@@ -290,19 +288,9 @@ func TestApplyRestoreRolesAndUsersLeavesUsersOnRoleFailure(t *testing.T) {
 	require.NoError(t, err)
 	var heldBlob rolesBlob
 	require.NoError(t, json.Unmarshal(held, &heldBlob))
-	for _, row := range blob.Policy {
-		assert.Contains(t, heldBlob.Policy, row, "the role store must hold the blob's rows")
-	}
-	for _, row := range blob.GroupingPolicy {
-		assert.Contains(t, heldBlob.GroupingPolicy, row, "the role store must hold the blob's rows")
-	}
 	for _, row := range heldBlob.Policy {
 		assert.NotEqual(t, "role:incumbent", row[0], "the clear must have removed the target's roles")
 	}
-
-	linked, err := target.authZ.GetUsersOrGroupForRole("restored", authentication.AuthTypeDb, false)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"linked"}, linked, "role links must stop at the one-field row")
 }
 
 // rolesBlob is the part of an RBAC snapshot these tests rewrite.

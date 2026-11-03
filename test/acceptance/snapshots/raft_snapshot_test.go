@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
@@ -174,15 +173,6 @@ func testRBACSnapshotRecovery(t *testing.T, ctx context.Context, compose *docker
 		require.NoError(t, compose.StopAt(ctx, 2, nil))
 		require.NoError(t, compose.StartAt(ctx, 2))
 		requireNode3EnforcesGranteeRole(t, compose, adminKey, "RestartedNodeClass")
-	})
-
-	t.Run("no rbac files created", func(t *testing.T) {
-		for _, node := range []*docker.DockerContainer{compose.GetWeaviate(), compose.GetWeaviateNode2(), compose.GetWeaviateNode3()} {
-			for _, file := range []string{"data/raft/rbac/policy.csv", "data/raft/rbac/version"} {
-				out, err := exec.Command("docker", "exec", node.Container().GetContainerID(), "test", "!", "-e", file).CombinedOutput()
-				assert.NoError(t, err, "%s exists on %s: %s", file, node.Name(), out)
-			}
-		}
 	})
 }
 

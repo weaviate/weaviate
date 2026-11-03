@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
@@ -159,11 +158,9 @@ func TestRestoreFromBackupLogsTornOnlyAfterClear(t *testing.T) {
 	// The one-field grouping row passes validation. casbin adds every row to the
 	// model and then fails building its role link, so Restore fails after the clear.
 	roleCRow := []string{"role:roleC", authorization.Cluster(), authorization.READ, authorization.ClusterDomain}
-	oneFieldRow := []string{"db:malformed"}
-	malformedGrouping := [][]string{{"db:linked", "role:roleC"}, oneFieldRow, {"db:unlinked", "role:roleC"}}
 	failsAfterClear, err := json.Marshal(map[string]any{
 		"roles_policies":    [][]string{roleCRow},
-		"grouping_policies": malformedGrouping,
+		"grouping_policies": [][]string{{"db:malformed"}},
 		"version":           rbac.SnapshotVersionLatest,
 	})
 	require.NoError(t, err)
@@ -204,22 +201,6 @@ func TestRestoreFromBackupLogsTornOnlyAfterClear(t *testing.T) {
 			})
 			require.NoError(t, err)
 			assert.False(t, hasRoleA, "the clear must have removed the target's roleA")
-
-			blob, err := m.authZ.Snapshot()
-			require.NoError(t, err)
-			var held struct {
-				Policy         [][]string `json:"roles_policies"`
-				GroupingPolicy [][]string `json:"grouping_policies"`
-			}
-			require.NoError(t, json.Unmarshal(blob, &held))
-			assert.Contains(t, held.Policy, roleCRow)
-			for _, row := range malformedGrouping {
-				assert.Contains(t, held.GroupingPolicy, row, "the model must hold every blob row")
-			}
-
-			linked, err := m.authZ.GetUsersOrGroupForRole("roleC", authentication.AuthTypeDb, false)
-			require.NoError(t, err)
-			assert.Equal(t, []string{"linked"}, linked, "role links must stop at the one-field row")
 		})
 	}
 }

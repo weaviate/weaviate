@@ -62,7 +62,7 @@ type State struct {
 	Authorizer      authorization.Authorizer
 	// RBAC is the RBAC state the RAFT FSM applies, snapshots and restores.
 	// configureAuthorizer always sets it, even with RBAC disabled.
-	// Authorization.Rbac.Enabled decides whether RBAC features run.
+	// A non-nil RBAC does not mean RBAC is enabled: check Authorization.Rbac.Enabled.
 	RBAC  *rbac.Manager
 	Crons *cron.Crons
 
