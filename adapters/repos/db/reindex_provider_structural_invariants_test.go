@@ -50,6 +50,7 @@ func structuralInvariantNewBareProvider() *ReindexProvider {
 		runningHandles: make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
 		payloads:       make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		reindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
+		endedTasks:     make(map[distributedtask.TaskDescriptor]struct{}),
 		activeWorkers:  make(map[distributedtask.TaskDescriptor]map[string]bool),
 	}
 }

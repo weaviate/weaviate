@@ -14,7 +14,6 @@ package db
 import (
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -38,11 +37,6 @@ type MigrationRecoveryReindexer struct {
 	// A fault shared by every tenant, such as a failing disk, would otherwise log once per
 	// shard load. Each kind has its own sampler so that one kind cannot hide another.
 	unreadableFaults, unbuildableFaults, unarmedFaults, armFaults, stampFaults *logrusext.Sampler
-
-	mu sync.Mutex
-	// A reloaded shard re-arms the instances the provider already holds, so its
-	// swap still finds the callbacks it registered.
-	recovered map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric
 }
 
 func NewMigrationRecoveryReindexer(runtimeReindexEnabled bool, logger logrus.FieldLogger,
@@ -54,7 +48,6 @@ func NewMigrationRecoveryReindexer(runtimeReindexEnabled bool, logger logrus.Fie
 		logger:        logger,
 		schemaManager: schemaManager,
 		provider:      provider,
-		recovered:     map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric{},
 
 		unreadableFaults: faults(), unbuildableFaults: faults(), unarmedFaults: faults(),
 		armFaults: faults(), stampFaults: faults(),
@@ -99,12 +92,8 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 // forget drops every task of each unarmed task's unit, because a cached sibling
 // alone would swap one half of the migration and report the unit done.
 func (r *MigrationRecoveryReindexer) forget(unarmed []*ShardReindexTaskGeneric) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	for _, t := range unarmed {
-		desc := distributedtask.TaskDescriptor{ID: t.taskID, Version: t.taskVersion}
-		delete(r.recovered[desc], t.unitID)
-		r.provider.evictReindexTasks(desc, t.unitID)
+		r.provider.evictReindexTasks(distributedtask.TaskDescriptor{ID: t.taskID, Version: t.taskVersion}, t.unitID)
 	}
 }
 
@@ -175,23 +164,18 @@ func (r *MigrationRecoveryReindexer) reportStampFault(shardName string, err erro
 	})
 }
 
-// remember replaces each built task with the instance an earlier load of the
-// same shard recovered, and seeds the provider with new ones.
+// remember replaces each built task with the instance the provider already
+// holds, so a reloaded shard re-arms the callbacks its swap will use, and
+// seeds the provider with the rest.
 func (r *MigrationRecoveryReindexer) remember(built []*ShardReindexTaskGeneric) []*ShardReindexTaskGeneric {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	out := make([]*ShardReindexTaskGeneric, 0, len(built))
 	fresh := map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric{}
 	for _, t := range built {
 		desc := distributedtask.TaskDescriptor{ID: t.taskID, Version: t.taskVersion}
-		if known := r.knownTask(desc, t); known != nil {
+		if known := r.provider.cachedReindexTask(desc, t.unitID, t.migrationRecordKey()); known != nil {
 			out = append(out, known)
 			continue
 		}
-		if r.recovered[desc] == nil {
-			r.recovered[desc] = map[string][]*ShardReindexTaskGeneric{}
-		}
-		r.recovered[desc][t.unitID] = append(r.recovered[desc][t.unitID], t)
 		if fresh[desc] == nil {
 			fresh[desc] = map[string][]*ShardReindexTaskGeneric{}
 		}
@@ -200,17 +184,6 @@ func (r *MigrationRecoveryReindexer) remember(built []*ShardReindexTaskGeneric) 
 	}
 	r.provider.SeedReindexTaskCache(fresh)
 	return out
-}
-
-func (r *MigrationRecoveryReindexer) knownTask(desc distributedtask.TaskDescriptor,
-	t *ShardReindexTaskGeneric,
-) *ShardReindexTaskGeneric {
-	for _, known := range r.recovered[desc][t.unitID] {
-		if known.migrationRecordKey() == t.migrationRecordKey() {
-			return known
-		}
-	}
-	return nil
 }
 
 const migrationUnmirroredRemedy = "The migration fails at its next prepare or swap step; once it has failed and " +

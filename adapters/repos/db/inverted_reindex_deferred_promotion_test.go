@@ -105,11 +105,14 @@ func TestDeferredPromotionServesStagedDataAcrossTheFlip(t *testing.T) {
 			unmirrored bool
 			// A stamp would block the promotion, so the load holds the shard until the mirror arms.
 			armFails bool
+			// The load still arms a task that ended, without caching it.
+			endedBeforeLoad bool
 		}{
 			{name: "flip after the load"},
 			{name: "flip during the load", flipDuringLoad: true},
 			{name: "unmirrored record", unmirrored: true},
 			{name: "mirror fails to arm at the load", armFails: true},
+			{name: "task ended before the load", endedBeforeLoad: true},
 		} {
 			t.Run(tc.name+"/"+sc.name, func(t *testing.T) {
 				ctx := testCtx()
@@ -144,6 +147,12 @@ func TestDeferredPromotionServesStagedDataAcrossTheFlip(t *testing.T) {
 				}
 				p := NewReindexProvider(idx.db, nil, nil, idx.logger, idx.getSchema.NodeName(), nil, ctx)
 				idx.shardReindexer = NewMigrationRecoveryReindexer(true, idx.logger, nil, p)
+				desc := distributedtask.TaskDescriptor{ID: task.taskID, Version: task.taskVersion}
+				if sc.endedBeforeLoad {
+					require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
+						TaskDescriptor: desc, Status: distributedtask.TaskStatusCancelled,
+					}))
+				}
 				loadClass := class
 				if sc.flipDuringLoad {
 					snapshot := *class
@@ -153,8 +162,12 @@ func TestDeferredPromotionServesStagedDataAcrossTheFlip(t *testing.T) {
 					tc.flip(class.Properties[0])
 				}
 				shard = openShardFromDisk(t, ctx, idx, loadClass, name)
-				require.Len(t, p.cachedReindexTasks(distributedtask.TaskDescriptor{ID: task.taskID, Version: task.taskVersion},
-					task.unitID), 1, "the load must recover the migration whose promotion it defers")
+				wantCached := 1
+				if sc.endedBeforeLoad {
+					wantCached = 0
+				}
+				require.Len(t, p.cachedReindexTasks(desc, task.unitID), wantCached,
+					"the load must recover the migration whose promotion it defers")
 				if sc.armFails {
 					require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
 					rec, ok := task.migrationRecord(shard)

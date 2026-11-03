@@ -1046,7 +1046,10 @@ Then, per shard load:
    provider's per-descriptor task cache, so `OnGroupCompleted` reuses
    the armed instances instead of calling `OnAfterLsmInit` a second
    time (which would attempt to load already-loaded ingest buckets). A
-   reload of the same shard gets back the instances the provider holds.
+   reload of the same shard gets back the instances the provider holds,
+   which is their only owner. A load after the task ended still arms its
+   migration from the record but caches nothing, so ended tasks do not
+   accumulate in memory.
 4. The load reconciler runs over the same records. It runs after the
    stamp, because it must not promote stale staged data over the live
    bucket.

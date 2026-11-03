@@ -91,6 +91,9 @@ type ReindexProvider struct {
 	// the double-write callbacks registered via OnAfterLsmInit. Creating new
 	// task instances in OnGroupCompleted would lose those callbacks.
 	reindexTasks map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric
+	// A shard load after a task ended must not cache its instances again, or
+	// they would outlive the task. Holds only descriptors, guarded by [mu].
+	endedTasks map[distributedtask.TaskDescriptor]struct{}
 
 	// activeWorkers tracks units that currently have a per-unit goroutine
 	// inside processOneUnit's iteration body. The re-entry guard reads
@@ -208,6 +211,7 @@ func NewReindexProvider(
 		runningHandles:    make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
 		payloads:          make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		reindexTasks:      make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
+		endedTasks:        make(map[distributedtask.TaskDescriptor]struct{}),
 		activeWorkers:     make(map[distributedtask.TaskDescriptor]map[string]bool),
 		cleanupInProgress: make(map[reindexCleanupKey]int),
 	}
@@ -238,6 +242,9 @@ func (p *ReindexProvider) SeedReindexTaskCache(
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for desc, byUnit := range cache {
+		if _, ended := p.endedTasks[desc]; ended {
+			continue
+		}
 		if p.reindexTasks[desc] == nil {
 			p.reindexTasks[desc] = map[string][]*ShardReindexTaskGeneric{}
 		}
@@ -289,6 +296,19 @@ func (p *ReindexProvider) cachedReindexTasks(desc distributedtask.TaskDescriptor
 	return p.reindexTasks[desc][unitID]
 }
 
+func (p *ReindexProvider) cachedReindexTask(desc distributedtask.TaskDescriptor, unitID string,
+	key MigrationRecordKey,
+) *ShardReindexTaskGeneric {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, t := range p.reindexTasks[desc][unitID] {
+		if t.migrationRecordKey() == key {
+			return t
+		}
+	}
+	return nil
+}
+
 func (p *ReindexProvider) cacheReindexTasks(desc distributedtask.TaskDescriptor, unitID string, tasks []*ShardReindexTaskGeneric) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -309,6 +329,7 @@ func (p *ReindexProvider) clearTaskCaches(desc distributedtask.TaskDescriptor) {
 	defer p.mu.Unlock()
 	delete(p.payloads, desc)
 	delete(p.reindexTasks, desc)
+	p.endedTasks[desc] = struct{}{}
 }
 
 // claimActiveWorker reserves the (desc, unitID) slot in activeWorkers.

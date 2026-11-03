@@ -554,35 +554,55 @@ func (o *heldStepOutcome) UpdateDistributedTaskUnitProgress(context.Context, str
 
 // Shards that load at once share one recovery reindexer, which must keep every unit.
 func TestShardsLoadingAtOnceShareOneRecoveryReindexer(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	p := NewReindexProvider(nil, nil, nil, logger, "node1", nil, testCtx())
-	recovery := NewMigrationRecoveryReindexer(true, logger, nil, p)
-	desc := distributedtask.TaskDescriptor{ID: "T", Version: 1}
-	shards := make([]*Shard, 8)
-	for i := range shards {
-		name := fmt.Sprintf("tenant-%d", i)
-		subject := testMigrationSubject(desc.Version, StrategyCodeSearchableRetokenize, "title")
-		subject.TaskID, subject.Collection = desc.ID, "Books"
-		subject.Key.UnitID = MigrationUnitID(name, "node1")
-		lsm := t.TempDir()
-		require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordMerged(subject)))
-		store := NewMigrationRecordStore(lsm, logger)
-		require.NoError(t, store.Load())
-		shards[i] = &Shard{name: name, migrationRecords: store}
-	}
-
+	p, recovery := newBareRecovery()
+	names := make([]string, 8)
 	var wg sync.WaitGroup
-	for _, s := range shards {
+	for i := range names {
+		names[i] = fmt.Sprintf("tenant-%d", i)
+		shard := bareShardWithMergedRecord(t, names[i])
 		wg.Add(1)
 		enterrors.GoWrapper(func() {
 			defer wg.Done()
-			recovery.RecoverMigrations(s)
-		}, logger)
+			recovery.RecoverMigrations(shard)
+		}, recovery.logger)
 	}
 	wg.Wait()
-	for _, s := range shards {
-		require.Len(t, p.cachedReindexTasks(desc, MigrationUnitID(s.name, "node1")), 1, s.name)
+	for _, name := range names {
+		require.Len(t, p.cachedReindexTasks(bareRecoveryTask, MigrationUnitID(name, "node1")), 1, name)
 	}
+}
+
+// A shard that loads after its migration ended still arms it, but must not
+// cache its tasks again: nothing would ever clear them.
+func TestALoadAfterAMigrationEndedCachesNothing(t *testing.T) {
+	p, recovery := newBareRecovery()
+	require.Len(t, recovery.RecoverMigrations(bareShardWithMergedRecord(t, "tenant-a")), 1)
+	require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
+		TaskDescriptor: bareRecoveryTask, Status: distributedtask.TaskStatusCancelled,
+	}))
+
+	require.Len(t, recovery.RecoverMigrations(bareShardWithMergedRecord(t, "tenant-b")), 1, "still armed")
+	require.Empty(t, p.cachedReindexTasks(bareRecoveryTask, MigrationUnitID("tenant-b", "node1")))
+}
+
+var bareRecoveryTask = distributedtask.TaskDescriptor{ID: "T", Version: 1}
+
+func newBareRecovery() (*ReindexProvider, *MigrationRecoveryReindexer) {
+	logger, _ := test.NewNullLogger()
+	p := NewReindexProvider(nil, nil, nil, logger, "node1", nil, testCtx())
+	return p, NewMigrationRecoveryReindexer(true, logger, nil, p)
+}
+
+func bareShardWithMergedRecord(t *testing.T, name string) *Shard {
+	logger, _ := test.NewNullLogger()
+	subject := testMigrationSubject(bareRecoveryTask.Version, StrategyCodeSearchableRetokenize, "title")
+	subject.TaskID, subject.Collection = bareRecoveryTask.ID, "Books"
+	subject.Key.UnitID = MigrationUnitID(name, "node1")
+	lsm := t.TempDir()
+	require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordMerged(subject)))
+	store := NewMigrationRecordStore(lsm, logger)
+	require.NoError(t, store.Load())
+	return &Shard{name: name, migrationRecords: store}
 }
 
 // A client that gives up on a lazy load must not stamp a healthy migration
