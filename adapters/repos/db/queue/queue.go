@@ -763,6 +763,10 @@ func (q *DiskQueue) removeChunk(path string) error {
 			q.forgetChunk(path)
 			return nil
 		}
+		// a retention's chunks are needed for a replay: retry instead
+		if q.retention.Load() != nil {
+			return errors.Wrap(err, "failed to create tombstone")
+		}
 		q.Logger.WithField("file", path).Errorf("failed to create tombstone, falling back to deletion: %v", err)
 		// fall through to normal deletion
 	}
