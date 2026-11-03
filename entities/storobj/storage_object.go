@@ -486,6 +486,34 @@ func ObjectsByDocIDWithEmpty(bucket bucket, ids []uint64,
 	return objectsByDocID(bucket, ids, additional, properties, logger, true)
 }
 
+// ObjectsByDocIDWithDists resolves the doc IDs of a vector search together
+// with their distances: dists[i] belongs to ids[i]. A doc ID the vector index
+// still knows but the bucket no longer has (deleted behind the index's back, or
+// a torn delete whose tombstone has not landed yet) is dropped together with
+// its distance, so the returned slices keep the same length and pairing and
+// the order of the surviving hits. Both slices are compacted in place.
+func ObjectsByDocIDWithDists(bucket bucket, ids []uint64, dists []float32,
+	additional additional.Properties, properties []string, logger logrus.FieldLogger,
+) ([]*Object, []float32, error) {
+	if len(dists) != len(ids) {
+		return nil, nil, fmt.Errorf("objects by doc id: %d ids but %d distances", len(ids), len(dists))
+	}
+	objs, err := objectsByDocID(bucket, ids, additional, properties, logger, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	j := 0
+	for i := range objs {
+		if objs[i] == nil {
+			continue
+		}
+		objs[j] = objs[i]
+		dists[j] = dists[i]
+		j++
+	}
+	return objs[:j], dists[:j], nil
+}
+
 func objectsByDocID(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 	includeEmpty bool,
@@ -1894,7 +1922,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 		return nil, err
 	}
 	if vecLen == 0 {
-		return nil, fmt.Errorf("vector length is 0")
+		return nil, ErrNoVector
 	}
 
 	var out []float32

@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"sort"
 
@@ -127,7 +126,7 @@ func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 
 		node, err := m.key.getNode(secondaryToPrimary[skey])
 		if err != nil {
-			if errors.Is(err, lsmkv.Deleted) {
+			if lsmkv.IsDeleted(err) {
 				data[i] = &binarySearchNode{
 					key:       []byte(skey),
 					tombstone: true,

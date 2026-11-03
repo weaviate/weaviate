@@ -1275,7 +1275,7 @@ func TestParquetWriter_Statistics(t *testing.T) {
 				assert.Less(t, parquet.Search(columnIndex, value, chunk.Type()), columnIndex.NumPages(),
 					"column index search for %v", value)
 			}
-			assert.Equal(t, []int64{tc.wantNulls}, file.ColumnIndexes()[i].NullCounts, "column index null counts")
+			assert.Equal(t, []int64{tc.wantNulls}, []int64(file.ColumnIndexes()[i].NullCounts), "column index null counts")
 
 			chunkStats := file.Metadata().RowGroups[0].Columns[i].MetaData.Statistics
 			assert.NotEmpty(t, chunkStats.MaxValue, "column chunk bounds")

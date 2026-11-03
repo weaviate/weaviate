@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -215,10 +214,10 @@ func scanTargetedMemtable(ctx context.Context, c innerCursorReplace, peekSize in
 	for {
 		serve := false
 		if err != nil {
-			if errors.Is(err, entlsmkv.NotFound) {
+			if entlsmkv.IsNotFound(err) {
 				return nil
 			}
-			if !errors.Is(err, entlsmkv.Deleted) {
+			if !entlsmkv.IsDeleted(err) {
 				return err
 			}
 			// tombstone: not served, but it still hides older versions

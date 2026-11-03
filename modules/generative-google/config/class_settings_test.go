@@ -106,6 +106,45 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("region must be a Google region name, got \"attacker.example.com/\""),
 		},
 		{
+			name: "projectId carrying path segments",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId": "a/../../other",
+				},
+			},
+			wantErr: errors.Errorf("projectId must be a Google Cloud project id, got \"a/../../other\""),
+		},
+		{
+			name: "model that is a dot segment",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId": "cloud-project",
+					"model":     "..",
+				},
+			},
+			wantErr: errors.Errorf("model must be a Google model name, got \"..\""),
+		},
+		{
+			name: "modelId that is a dot segment",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId": "cloud-project",
+					"modelId":   "..",
+				},
+			},
+			wantErr: errors.Errorf("model must be a Google model name, got \"..\""),
+		},
+		{
+			name: "endpointId that is a dot segment",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId":  "cloud-project",
+					"endpointId": "..",
+				},
+			},
+			wantErr: errors.Errorf("model must be a Google model name, got \"..\""),
+		},
+		{
 			name: "wrong temperature",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{

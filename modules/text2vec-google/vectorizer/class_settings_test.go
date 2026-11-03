@@ -164,6 +164,25 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("location must be a Google region name, got \"attacker.example.com/\""),
 		},
 		{
+			name: "projectId carrying path segments",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId": "a/../../other",
+				},
+			},
+			wantErr: errors.Errorf("projectId must be a Google Cloud project id, got \"a/../../other\""),
+		},
+		{
+			name: "model that is a dot segment",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId": "projectId",
+					"model":     "..",
+				},
+			},
+			wantErr: errors.Errorf("model must be a Google model name, got \"..\""),
+		},
+		{
 			name: "wrong taskType",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{

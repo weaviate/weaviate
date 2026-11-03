@@ -472,10 +472,10 @@ func TestFlushRoaringSetKeysDoNotAliasNodeBuffers(t *testing.T) {
 	require.Equal(t, m.roaringSet.Count(), cap(keys),
 		"the tree's count is what presizes keys, so a wrong one silently regrows it")
 
-	for i, node := range flat {
-		require.Equal(t, node.Key, keys[i].Key,
+	for i := range flat {
+		require.Equal(t, flat[i].Key, keys[i].Key,
 			"key %d does not hold its node's key bytes", i)
-		require.Same(t, unsafe.SliceData(node.Key), unsafe.SliceData(keys[i].Key),
+		require.Same(t, unsafe.SliceData(flat[i].Key), unsafe.SliceData(keys[i].Key),
 			"key %d points into the node's serialization, holding the segment body", i)
 	}
 }

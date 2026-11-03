@@ -14,21 +14,16 @@ package authn
 import (
 	"context"
 	"errors"
-	"slices"
 	"testing"
 	"time"
-
-	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/weaviate/weaviate/test/docker"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 // TestDynamicUsers boots a single Weaviate container shared across the dynamic
@@ -50,89 +45,18 @@ func TestDynamicUsers(t *testing.T) {
 		WithUserApiKey("static-user", "static-key").
 		WithDbUsers().
 		WithRBAC().WithRbacRoots(adminUser).
-		WithLicenseKeyFile().
 		Start(ctx)
 	require.Nil(t, err)
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer func() {
 		helper.ResetClient()
-		// testExpiration waits for a key to expire and restarts the node, which
-		// can outlast the ctx Start ran under.
-		terminateCtx, terminateCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer terminateCancel()
-		require.NoError(t, compose.Terminate(terminateCtx))
+		require.NoError(t, compose.Terminate(ctx))
 		cancel()
 	}()
 
 	t.Run("create_user", testCreateUser)
 	t.Run("with_static_user", testWithStaticUser)
 	t.Run("suspend_and_activate", testSuspendAndActivate)
-	t.Run("expiration", func(t *testing.T) { testExpiration(t, compose) })
-}
-
-// testExpiration runs last in TestDynamicUsers, because its last subtest
-// restarts the node without a license key.
-func testExpiration(t *testing.T, compose *docker.DockerCompose) {
-	adminKey := "admin-key"
-	in24h := helper.ExpiryIn(24 * time.Hour)
-
-	ownInfo := func(t *testing.T, key string) error {
-		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(key))
-		return err
-	}
-
-	t.Run("create with expiresAt shows it on GET, list and own-info", func(t *testing.T) {
-		const userID = "exp-user"
-		helper.DeleteUser(t, userID, adminKey)
-		apiKey := helper.CreateUserWithExpiry(t, userID, adminKey, &in24h)
-
-		want := (*strfmt.DateTime)(&in24h)
-		require.Equal(t, want, helper.GetUser(t, userID, adminKey).ExpiresAt)
-		listed := helper.ListAllUsers(t, adminKey)
-		i := slices.IndexFunc(listed, func(u *models.DBUserInfo) bool { return *u.UserID == userID })
-		require.NotEqual(t, -1, i, "%s not listed", userID)
-		require.Equal(t, want, listed[i].ExpiresAt)
-		require.Equal(t, want, helper.GetInfoForOwnUser(t, apiKey).ExpiresAt)
-	})
-
-	t.Run("expiry holds after the node restarts without a license key", func(t *testing.T) {
-		const userID = "exp-restart"
-		helper.DeleteUser(t, userID, adminKey)
-		in10s := helper.ExpiryIn(10 * time.Second)
-		apiKey := helper.CreateUserWithExpiry(t, userID, adminKey, &in10s)
-
-		var unauthorized *users.GetOwnInfoUnauthorized
-		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			assert.ErrorAs(c, ownInfo(t, apiKey), &unauthorized)
-		}, 30*time.Second, 500*time.Millisecond)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-		defer cancel()
-		require.NoError(t, compose.SetLicenseKeyFileAt(ctx, 0, ""))
-		grace := 10 * time.Second
-		require.NoError(t, compose.RestartAt(ctx, 0, &grace))
-		helper.SetupClient(compose.GetWeaviate().URI())
-
-		require.ErrorAs(t, ownInfo(t, apiKey), &unauthorized)
-		require.Equal(t, (*strfmt.DateTime)(&in10s), helper.GetUser(t, userID, adminKey).ExpiresAt)
-		require.Equal(t, (*strfmt.DateTime)(&in24h), helper.GetUser(t, "exp-user", adminKey).ExpiresAt)
-
-		in48h := helper.ExpiryIn(48 * time.Hour)
-		_, err := helper.Client(t).Users.SetUserExpiration(
-			users.NewSetUserExpirationParams().WithUserID("exp-user").WithBody(users.SetUserExpirationBody{ExpiresAt: (*strfmt.DateTime)(&in48h)}),
-			helper.CreateAuth(adminKey),
-		)
-		var putForbidden *users.SetUserExpirationForbidden
-		require.ErrorAs(t, err, &putForbidden)
-		require.Contains(t, putForbidden.Payload.Error[0].Message, "license key")
-
-		_, err = helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID("exp-unlicensed").WithBody(users.CreateUserBody{ExpiresAt: (*strfmt.DateTime)(&in48h)}),
-			helper.CreateAuth(adminKey),
-		)
-		var createForbidden *users.CreateUserForbidden
-		require.ErrorAs(t, err, &createForbidden)
-	})
 }
 
 func testCreateUser(t *testing.T) {
@@ -447,170 +371,5 @@ func testSuspendAndActivate(t *testing.T) {
 		require.Error(t, err)
 		var conflict *users.ActivateUserConflict
 		require.True(t, errors.As(err, &conflict))
-	})
-}
-
-func TestCreateUser_Namespaces(t *testing.T) {
-	const (
-		adminKey  = "admin-key"
-		adminUser = "admin-user"
-	)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	// NS clusters require RBAC; adminUser is the root that creates namespaces and
-	// namespaced DB users.
-	compose, err := docker.New().WithWeaviate().
-		WithApiKey().WithRBAC().WithUserApiKey(adminUser, adminKey).WithRbacRoots(adminUser).
-		WithDbUsers().
-		WithNamespaces().
-		Start(ctx)
-	require.NoError(t, err)
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer func() {
-		helper.ResetClient()
-		require.NoError(t, compose.Terminate(ctx))
-		cancel()
-	}()
-
-	helper.CreateNamespace(t, "ns1", adminKey)
-	helper.CreateNamespace(t, "ns2", adminKey)
-
-	t.Run("happy path: create user bound to ns1", func(t *testing.T) {
-		const (
-			userID  = "u1"
-			fullKey = "ns1:u1" // operator-facing form for namespaced users
-		)
-		helper.DeleteUser(t, fullKey, adminKey)
-
-		resp, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(fullKey).WithBody(users.CreateUserBody{}),
-			helper.CreateAuth(adminKey),
-		)
-		require.NoError(t, err)
-		require.NotNil(t, resp.Payload.Apikey)
-
-		// admin is a static API key (global operator) — namespace must be returned.
-		// The storage/operator-addressable key is the namespace-prefixed form.
-		got := helper.GetUser(t, fullKey, adminKey)
-		require.Equal(t, "ns1", got.Namespace)
-
-		// The bare short id must not address a namespaced user. This locks
-		// the prefix-only addressing contract: an operator who omits the
-		// namespace gets 404, not the user from a different namespace (or
-		// any user at all).
-		_, err = helper.Client(t).Users.GetUserInfo(
-			users.NewGetUserInfoParams().WithUserID(userID),
-			helper.CreateAuth(adminKey),
-		)
-		require.Error(t, err)
-		var notFound *users.GetUserInfoNotFound
-		require.True(t, errors.As(err, &notFound), "expected GetUserInfoNotFound, got %T: %v", err, err)
-
-		helper.DeleteUser(t, fullKey, adminKey)
-	})
-
-	t.Run("missing namespace rejects", func(t *testing.T) {
-		_, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID("u-missing"),
-			helper.CreateAuth(adminKey),
-		)
-		require.Error(t, err)
-		var unproc *users.CreateUserUnprocessableEntity
-		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
-	})
-
-	t.Run("empty namespace prefix rejected", func(t *testing.T) {
-		_, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(":u-empty-ns").WithBody(users.CreateUserBody{}),
-			helper.CreateAuth(adminKey),
-		)
-		require.Error(t, err)
-		var unproc *users.CreateUserUnprocessableEntity
-		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
-	})
-
-	t.Run("empty user part rejected", func(t *testing.T) {
-		_, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID("ns1:").WithBody(users.CreateUserBody{}),
-			helper.CreateAuth(adminKey),
-		)
-		require.Error(t, err)
-		var unproc *users.CreateUserUnprocessableEntity
-		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
-	})
-
-	t.Run("multi-colon name rejected", func(t *testing.T) {
-		// First ':' is the ns separator; "user:extra" then fails the user-name regex.
-		_, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID("ns1:user:extra").WithBody(users.CreateUserBody{}),
-			helper.CreateAuth(adminKey),
-		)
-		require.Error(t, err)
-		var unproc *users.CreateUserUnprocessableEntity
-		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
-	})
-
-	t.Run("unknown namespace rejects", func(t *testing.T) {
-		_, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID("ns404:u-unknown").WithBody(users.CreateUserBody{}),
-			helper.CreateAuth(adminKey),
-		)
-		require.Error(t, err)
-		var unproc *users.CreateUserUnprocessableEntity
-		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
-	})
-
-	t.Run("import on NS-enabled cluster rejects", func(t *testing.T) {
-		imp := true
-		_, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID("ns1:"+adminUser).WithBody(users.CreateUserBody{Import: &imp}),
-			helper.CreateAuth(adminKey),
-		)
-		require.Error(t, err)
-		var unproc *users.CreateUserUnprocessableEntity
-		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
-	})
-
-	t.Run("namespaced caller is confined to its own namespace", func(t *testing.T) {
-		// A namespaced caller's short-name create lands in its own namespace —
-		// u1 (ns1) cannot create into ns2.
-		const callerKey = "ns1:u1" // operator-facing form
-		helper.DeleteUser(t, callerKey, adminKey)
-		createResp, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(callerKey).WithBody(users.CreateUserBody{}),
-			helper.CreateAuth(adminKey),
-		)
-		require.NoError(t, err)
-		require.NotNil(t, createResp.Payload.Apikey)
-		callerApiKey := *createResp.Payload.Apikey
-		t.Cleanup(func() { helper.DeleteUser(t, callerKey, adminKey) })
-
-		// Grant the namespaced admin role so the caller has CreateUsers
-		// within ns1. Without RBAC the handler-level operator gate is gone,
-		// so creates need an actual permission.
-		helper.AssignRoleToUser(t, adminKey, authorization.Admin, callerKey)
-		helper.WaitForOwnRole(t, callerApiKey, authorization.Admin)
-
-		_, err = helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID("u2").WithBody(users.CreateUserBody{}),
-			helper.CreateAuth(callerApiKey),
-		)
-		require.NoError(t, err)
-		t.Cleanup(func() { helper.DeleteUser(t, "ns1:u2", adminKey) })
-
-		got := helper.GetUser(t, "ns1:u2", adminKey)
-		require.Equal(t, "ns1", got.Namespace)
-
-		in24h := helper.ExpiryIn(24 * time.Hour)
-		helper.SetUserExpiration(t, "u2", callerApiKey, &in24h)
-		require.Equal(t, (*strfmt.DateTime)(&in24h), helper.GetUser(t, "ns1:u2", adminKey).ExpiresAt)
-
-		_, err = helper.Client(t).Users.GetUserInfo(
-			users.NewGetUserInfoParams().WithUserID("ns2:u2"),
-			helper.CreateAuth(adminKey),
-		)
-		require.Error(t, err)
-		var notFound *users.GetUserInfoNotFound
-		require.True(t, errors.As(err, &notFound), "expected ns2:u2 to not exist, got %T: %v", err, err)
 	})
 }

@@ -17,12 +17,18 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // boolPtr is defined in handlers_indexes_gaps_test.go (same package).
@@ -431,10 +437,16 @@ func TestResolveUpsertPlan_Filterable(t *testing.T) {
 			wantNoop: true,
 		},
 		{
-			name:   "present + different tokenization -> filterable retokenize",
-			prop:   textProp("t", "word", boolPtr(true), boolPtr(true)),
+			name:   "present + different tokenization, no searchable index -> filterable retokenize",
+			prop:   textProp("t", "word", boolPtr(false), boolPtr(true)),
 			body:   &models.IndexUpsertRequest{Tokenization: "lowercase"},
 			wantMT: db.ReindexTypeChangeTokenizationFilterable,
+		},
+		{
+			name:    "present + different tokenization, searchable index too -> 400",
+			prop:    textProp("t", "word", boolPtr(true), boolPtr(true)),
+			body:    &models.IndexUpsertRequest{Tokenization: "lowercase"},
+			wantErr: "would silently desynchronize the searchable index",
 		},
 		{
 			name:    "algorithm on filterable -> 400",
@@ -630,4 +642,116 @@ func TestValidateTenantScope(t *testing.T) {
 		require.Len(t, body.Error, 1)
 		assert.Contains(t, body.Error[0].Message, "cannot be used with semantic migrations")
 	})
+}
+
+func dbWithTenants(t *testing.T, statuses map[string]string) *db.DB {
+	state := &sharding.State{Physical: map[string]sharding.Physical{}}
+	for name, status := range statuses {
+		state.Physical[name] = sharding.Physical{BelongsToNodes: []string{"node1"}, Status: status}
+	}
+	reader := local.NewMockSchemaReader(t)
+	reader.EXPECT().Read("C", true, mock.Anything).RunAndReturn(
+		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
+			return fn(nil, state)
+		})
+	database := &db.DB{}
+	database.SetSchemaReader(reader)
+	return database
+}
+
+func TestValidateTenants(t *testing.T) {
+	database := dbWithTenants(t, map[string]string{
+		"hot":  models.TenantActivityStatusHOT,
+		"cold": models.TenantActivityStatusCOLD,
+	})
+
+	cases := []struct {
+		tenant  string
+		wantErr string
+	}{
+		{tenant: "hot"},
+		{tenant: "cold"},
+		{tenant: "missing", wantErr: `tenant "missing" does not exist`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.tenant, func(t *testing.T) {
+			err := validateTenants(database, context.Background(), "C", []string{tc.tenant})
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Equal(t, tc.wantErr, err.Error())
+		})
+	}
+}
+
+// TestSubmitReindexTask_RefusesNonHotTenants pins that a submit targeting a
+// non-HOT tenant starts no task.
+func TestSubmitReindexTask_RefusesNonHotTenants(t *testing.T) {
+	cases := []struct {
+		name     string
+		statuses map[string]string
+		tenants  []string
+		plan     upsertPlan
+		wantCode int
+		wantErr  string
+	}{
+		{
+			name:     "named COLD tenant",
+			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "cold": models.TenantActivityStatusCOLD},
+			tenants:  []string{"cold"},
+			plan:     upsertPlan{migrationType: db.ReindexTypeRepairFilterable},
+			wantErr:  db.ErrTenantsNotHot.Error(),
+		},
+		{
+			name:     "collection-wide with a COLD tenant",
+			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "cold": models.TenantActivityStatusCOLD},
+			plan:     upsertPlan{migrationType: db.ReindexTypeEnableFilterable},
+			wantErr:  db.ErrTenantsNotHot.Error(),
+		},
+		{
+			name:     "collection-wide with a FROZEN tenant",
+			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "frozen": models.TenantActivityStatusFROZEN},
+			plan:     upsertPlan{migrationType: db.ReindexTypeEnableFilterable},
+			wantErr:  db.ErrTenantsNotHot.Error(),
+		},
+		{
+			name:     "collection-wide format-only with an OFFLOADED tenant",
+			statuses: map[string]string{"hot": models.TenantActivityStatusHOT, "off": models.TenantActivityStatusOFFLOADED},
+			plan:     upsertPlan{migrationType: db.ReindexTypeRepairFilterable},
+			wantErr:  db.ErrTenantsNotHot.Error(),
+		},
+		{
+			// Past the tenant check, the stale-state sweep stops the submit
+			// because the collection has no local index here.
+			name:     "collection-wide with all tenants HOT, ACTIVE or unset",
+			statuses: map[string]string{"a": models.TenantActivityStatusHOT, "b": models.TenantActivityStatusACTIVE, "c": ""},
+			plan:     upsertPlan{migrationType: db.ReindexTypeEnableFilterable},
+			wantCode: http.StatusInternalServerError,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := &indexesHandlers{appState: &state.State{
+				Logger: logrus.New(), DB: dbWithTenants(t, tc.statuses), ClusterService: &rCluster.Service{},
+			}}
+			class := &models.Class{
+				Class:              "C",
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				Properties:         []*models.Property{{Name: "p", DataType: []string{"text"}}},
+			}
+
+			resp := h.submitReindexTask(context.Background(), nil, class, "C", "p", tc.plan, tc.tenants, nil)
+
+			code, body := statusOf(t, resp)
+			if tc.wantErr == "" {
+				require.Equal(t, tc.wantCode, code)
+				return
+			}
+			require.Equal(t, http.StatusBadRequest, code)
+			require.Len(t, body.Error, 1)
+			assert.Equal(t, tc.wantErr, body.Error[0].Message)
+		})
+	}
 }

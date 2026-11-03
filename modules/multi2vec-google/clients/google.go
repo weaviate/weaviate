@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -32,8 +33,9 @@ import (
 
 func buildURL(apiEndpoint, location, projectID, model string) string {
 	if apiEndpoint == "generativelanguage.googleapis.com" {
-		return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:batchEmbedContents", model)
+		return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:batchEmbedContents", url.PathEscape(model))
 	}
+	projectID, model = url.PathEscape(projectID), url.PathEscape(model)
 	if usesVertexEmbedContent(model) {
 		// The configured location is ignored: these models exist only on the global location.
 		return fmt.Sprintf("https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:embedContent",
@@ -97,6 +99,12 @@ func (v *google) vectorize(ctx context.Context,
 		return nil, err
 	}
 	if err := modulecomponents.ValidateGoogleLocation("location", config.Location); err != nil {
+		return nil, err
+	}
+	if err := modulecomponents.ValidateGoogleProjectID(config.ProjectID); err != nil {
+		return nil, err
+	}
+	if err := modulecomponents.ValidateGoogleModel(config.Model); err != nil {
 		return nil, err
 	}
 

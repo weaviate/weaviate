@@ -528,6 +528,9 @@ func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexI
 		if stderrors.As(err, &eTV) {
 			return nil, storobj.NewErrNotFoundf(indexID, "target vector %q not found", targetVector)
 		}
+		if stderrors.Is(err, storobj.ErrNoVector) {
+			return nil, storobj.NewErrNotFoundf(indexID, "object has no vector")
+		}
 		return nil, err
 	}
 	return vec, nil
@@ -580,7 +583,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 			"shard":           s.ID(),
 			"tenant":          s.tenant(),
 			"query":           "ObjectSearch",
-			"filters":         filters,
+			"filters":         filters.LogSummary(),
 			"limit":           limit,
 			"sort":            sort,
 			"cursor":          cursor,
@@ -714,7 +717,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			"shard":      s.ID(),
 			"tenant":     s.tenant(),
 			"query":      "ObjectVectorSearch",
-			"filters":    filters,
+			"filters":    filters.LogSummary(),
 			"limit":      limit,
 			"sort":       sort,
 			"version":    s.versioner.Version(),
@@ -906,7 +909,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		return nil, nil, err
 	}
 	defer release()
-	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger)
+	// a doc ID the vector index still knows but the objects bucket no longer
+	// has is dropped together with its distance, instead of shifting the
+	// distances of every later hit onto the wrong object
+	objs, distCombined, err := storobj.ObjectsByDocIDWithDists(bucket, idsCombined, distCombined,
+		additional, properties, s.index.logger)
 	if err != nil {
 		return nil, nil, err
 	}

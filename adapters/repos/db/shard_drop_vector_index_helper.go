@@ -114,11 +114,17 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 			if err != nil {
 				return err
 			}
-			if ok {
-				otherIDs = append(otherIDs, otherRec.PhysicalID)
+			if !ok {
+				continue
 			}
+			// the sibling would lose its pending work; a load refuses the pair
+			if otherRec.queueIDOrDefault() == rec.queueIDOrDefault() {
+				return fmt.Errorf("vectors %q and %q both record queue %q", other, targetVector, rec.queueIDOrDefault())
+			}
+			otherIDs = append(otherIDs, otherRec.PhysicalID)
 		}
 		artifacts = helpers.VectorIndexArtifactsForID(id, otherIDs)
+		artifacts.ShardDirs = append(artifacts.ShardDirs, helpers.QueueDirName(rec.queueIDOrDefault()))
 	}
 
 	var dirs []string

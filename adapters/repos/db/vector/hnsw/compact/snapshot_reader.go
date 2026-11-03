@@ -155,9 +155,8 @@ func (r *SnapshotReader) readMetadata(reader io.Reader, fileSize int64, res *ent
 
 	switch version {
 	case snapshotVersionV1, snapshotVersionV2:
-		return 0, fmt.Errorf("legacy snapshot version %d detected; upgrade not supported. "+
-			"Please downgrade Weaviate and either: (1) delete the snapshot file and let it "+
-			"regenerate, or (2) run a compaction cycle to create a V3 snapshot before upgrading", version)
+		// The migrator discards these before loading; only V3 is ever written here.
+		return 0, fmt.Errorf("legacy snapshot version %d is not supported", version)
 	case snapshotVersionV3:
 		// V3 is supported, continue with reading
 	default:

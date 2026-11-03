@@ -76,7 +76,7 @@ func (t *DiskTree) GetOffsets(key []byte) (start, end uint64, err error) {
 // either.
 func (t *DiskTree) Contains(key []byte) (bool, error) {
 	if _, _, err := t.GetOffsets(key); err != nil {
-		if errors.Is(err, lsmkv.NotFound) {
+		if lsmkv.IsNotFound(err) {
 			return false, nil
 		}
 		return false, err

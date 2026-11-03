@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -117,7 +118,7 @@ func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID, region, loc
 		// https://developers.generativeai.google/models/language#model_variations
 		// https://developers.generativeai.google/api/rest/generativelanguage/models/generateMessage
 		if strings.HasPrefix(modelID, "gemini") {
-			return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", modelID)
+			return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", url.PathEscape(modelID))
 		}
 		return "https://generativelanguage.googleapis.com/v1beta2/models/chat-bison-001:generateMessage"
 	}
@@ -130,10 +131,10 @@ func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID, region, loc
 			host = "aiplatform.googleapis.com"
 		}
 		urlTemplate := "https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:generateContent"
-		return fmt.Sprintf(urlTemplate, host, projectID, location, modelID)
+		return fmt.Sprintf(urlTemplate, host, url.PathEscape(projectID), location, url.PathEscape(modelID))
 	}
 	urlTemplate := "https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:predict"
-	return fmt.Sprintf(urlTemplate, apiEndpoint, projectID, location, modelID)
+	return fmt.Sprintf(urlTemplate, apiEndpoint, url.PathEscape(projectID), location, url.PathEscape(modelID))
 }
 
 type google struct {
@@ -174,7 +175,7 @@ func (v *google) GenerateAllResults(ctx context.Context, properties []*modulecap
 
 func (v *google) generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, imageProperties []map[string]*string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	params := v.getParameters(cfg, options, imageProperties)
-	if err := validateEndpoint(params); err != nil {
+	if err := v.validateURLSettings(params); err != nil {
 		return nil, err
 	}
 	debugInformation := v.getDebugInformation(debug, prompt)
@@ -253,18 +254,26 @@ func (v *google) parseGenerateMessageResponse(statusCode int, bodyBytes []byte, 
 	}, nil
 }
 
-// validateEndpoint rejects endpoint overrides that would send the operator's
-// Google credential off Google's domain. apiEndpoint, region and location all
-// end up in the request host, and a GraphQL or gRPC request can set all three
-// without any schema permission, so the class config check alone is not enough.
-func validateEndpoint(params googleparams.Params) error {
+// validateURLSettings rejects settings that would send the request off Google's
+// domain or to a different API. A GraphQL or gRPC request can set them without
+// any schema permission, so the class config check alone is not enough.
+func (v *google) validateURLSettings(params googleparams.Params) error {
 	if err := modulecomponents.ValidateGoogleApiEndpoint(params.ApiEndpoint); err != nil {
 		return err
 	}
 	if err := modulecomponents.ValidateGoogleLocation("region", params.Region); err != nil {
 		return err
 	}
-	return modulecomponents.ValidateGoogleLocation("location", params.Location)
+	if err := modulecomponents.ValidateGoogleLocation("location", params.Location); err != nil {
+		return err
+	}
+	if err := modulecomponents.ValidateGoogleProjectID(params.ProjectID); err != nil {
+		return err
+	}
+	if err := modulecomponents.ValidateGoogleModel(params.Model); err != nil {
+		return err
+	}
+	return modulecomponents.ValidateGoogleModel(params.EndpointID)
 }
 
 func (v *google) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]*string) googleparams.Params {

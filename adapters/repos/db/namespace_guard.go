@@ -58,7 +58,9 @@ var (
 type shardLoadCaller int
 
 const (
-	// callerUserRequest is a load driven by a user request. It gets the full check.
+	// callerUserRequest is a load driven by a user request, or by
+	// DB.EditOpBucketsForShards resolving a drop-vector task's buckets. It gets
+	// the full check.
 	callerUserRequest shardLoadCaller = iota
 	// callerResume is a resuming namespace reopening its own shards. It is still
 	// refused for a namespace that keeps no shards open, so a stale reopen cannot

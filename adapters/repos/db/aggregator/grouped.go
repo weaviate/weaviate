@@ -73,7 +73,11 @@ func (ga *groupedAggregator) aggregateGroup(ctx context.Context,
 ) (aggregation.Group, error) {
 	out := in
 	fa := newFilteredAggregator(ga.Aggregator)
-	props, err := fa.properties(ctx, ids)
+	// the live count is deliberately discarded: in.Count was built by the
+	// grouper from ids that resolved to a stored object during the group
+	// scan (a deleted id resolves to nothing and cannot be grouped), so it
+	// is already live-only — see TestGroupedAggregateCountSkipsDeletedIDs
+	props, _, err := fa.properties(ctx, ids)
 	if err != nil {
 		return out, errors.Wrap(err, "aggregate properties")
 	}
