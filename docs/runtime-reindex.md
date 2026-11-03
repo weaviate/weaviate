@@ -1067,7 +1067,9 @@ Then, per shard load:
    retries: if the mirror now arms, the shard goes writable and the
    migration continues; if only the stamp lands, it goes writable and the
    migration must be resubmitted; otherwise the switch is refused because
-   the disk is not accepting writes. Disk-pressure recovery lifts only its
+   the disk is not accepting writes. Reads are served while the retry
+   waits on the disk, a second switch meanwhile is refused, and a switch
+   waits at most 30 s. Disk-pressure recovery lifts only its
    own reason, so it never lifts this one. A restart retries too. The exception is an unreadable record on the shard: the
    store then refuses every write, but it also keeps the reconciler frozen
    and the provider from rebuilding the evicted tasks, so the shard loads

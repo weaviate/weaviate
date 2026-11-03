@@ -15,10 +15,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
@@ -129,6 +131,9 @@ func (s *Shard) SetStatusReadonly(reason string) error {
 }
 
 func (s *Shard) UpdateStatus(in, reason string) error {
+	if err := s.retryHeldMigrations(in); err != nil {
+		return err
+	}
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
@@ -157,10 +162,9 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 	if err != nil {
 		return errors.Wrap(err, in)
 	}
-	if targetStatus == storagestate.StatusReady || targetStatus == storagestate.StatusIndexing {
-		if err := s.rearmHeldMigrationsUnlocked(); err != nil {
-			return err
-		}
+	// Same test as the write guards: every status but READONLY takes writes.
+	if targetStatus != storagestate.StatusReadOnly && len(s.migrationMirrors.heldUnarmed()) > 0 {
+		return s.heldReadOnlyErr(errors.New("no recovery retry has re-armed its mirror or recorded it as unarmed"))
 	}
 	oldStatus := s.status.Status
 	s.status.Status = targetStatus
@@ -189,18 +193,44 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 	return nil
 }
 
-// rearmHeldMigrationsUnlocked lets a shard held read-only by unarmed migrations
-// take writes again only once each one is mirrored or recorded as unmirrored.
-func (s *Shard) rearmHeldMigrationsUnlocked() error {
+// A status change can run inside a RAFT apply.
+const liftRetryTimeout = 30 * time.Second
+
+// retryHeldMigrations runs before the status lock so reads never wait on the
+// disk, and in its own goroutine because a hung disk call cannot be cancelled.
+func (s *Shard) retryHeldMigrations(in string) error {
+	target, err := storagestate.ValidateStatus(strings.ToUpper(in))
 	held := s.migrationMirrors.heldUnarmed()
-	if len(held) == 0 {
+	if err != nil || target == storagestate.StatusReadOnly || len(held) == 0 || s.shutOrDropped() {
 		return nil
 	}
-	if _, err := s.armRecoveredMigrations(context.Background(), held); err != nil {
-		return fmt.Errorf("shard %q stays %s: the disk is not accepting writes, so a reindex migration "+
-			"can neither re-arm its double-write mirror nor record that it is unarmed: %w",
-			s.name, storagestate.StatusReadOnly, err)
+	if !s.liftRetry.TryLock() {
+		return s.heldReadOnlyErr(errors.New("a recovery retry is already running"))
 	}
-	s.migrationMirrors.releaseHeld()
-	return nil
+	ctx, cancel := context.WithTimeout(s.shutCtx, liftRetryTimeout)
+	defer cancel()
+	done := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		defer s.liftRetry.Unlock()
+		_, err := s.armRecoveredMigrations(ctx, held)
+		if err == nil {
+			s.migrationMirrors.releaseHeld()
+		}
+		done <- err
+	}, s.index.logger)
+	select {
+	case err := <-done:
+		if err != nil {
+			return s.heldReadOnlyErr(err)
+		}
+		return nil
+	case <-ctx.Done():
+		return s.heldReadOnlyErr(fmt.Errorf("the disk did not answer within %s: %w", liftRetryTimeout, ctx.Err()))
+	}
+}
+
+func (s *Shard) heldReadOnlyErr(cause error) error {
+	return fmt.Errorf("shard %q stays %s: the disk is not accepting writes, so a reindex migration "+
+		"can neither re-arm its double-write mirror nor record that it is unarmed: %w",
+		s.name, storagestate.StatusReadOnly, cause)
 }

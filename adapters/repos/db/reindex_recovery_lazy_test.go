@@ -13,9 +13,12 @@ package db
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -24,6 +27,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -257,9 +261,13 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 		lift lift
 		// A path that only lifts its own read-only reason never lifts this one.
 		neverLifts bool
+		want       storagestate.Status
 	}{
 		{name: "manual status update", lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
 			return shard, fx.idx.IncomingUpdateShardStatus(fx.ctx, fx.name, storagestate.StatusReady.String(), 0)
+		}},
+		{name: "manual shutdown status", want: storagestate.StatusShutdown, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
+			return shard, fx.idx.IncomingUpdateShardStatus(fx.ctx, fx.name, storagestate.StatusShutdown.String(), 0)
 		}},
 		{name: "vector index config change", lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
 			return shard, shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonVectorIndexUpdate)
@@ -302,6 +310,10 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 
 				rec, ok := shard.migrationRecords.Get(fx.subject.Key)
 				require.True(t, ok)
+				want := l.want
+				if want == "" {
+					want = storagestate.StatusReady
+				}
 				switch {
 				case l.neverLifts:
 					require.NoError(t, err)
@@ -309,13 +321,13 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 					require.Equal(t, statusReasonMirrorUnarmed, shard.GetStatusReason())
 				case d.recovers == "armed":
 					require.NoError(t, err)
-					require.Equal(t, storagestate.StatusReady, shard.GetStatus())
+					require.Equal(t, want, shard.GetStatus())
 					require.False(t, rec.Subject().Unmirrored)
 					require.NotZero(t, shard.migrationMirrors.ArmedMigrationMirrors())
 					fx.requireSwapProceeds(t, shard)
 				case d.recovers == "stamped":
 					require.NoError(t, err)
-					require.Equal(t, storagestate.StatusReady, shard.GetStatus())
+					require.Equal(t, want, shard.GetStatus())
 					require.True(t, rec.Subject().Unmirrored)
 					fx.requirePhasesRefused(t, shard, "no double-write mirror armed")
 				default:
@@ -328,6 +340,55 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A lift waits on the disk outside the status lock, so a stuck disk call stalls
+// neither status reads nor a second lift, and the wait ends with the shard.
+func TestLiftingAHeldShardDoesNotWaitOnAStuckDisk(t *testing.T) {
+	fx := newDoubleFaultFixture(t, "tenant-stuck-disk")
+	fx.breakDisk(t)
+	shard := fx.load(t)
+	// Opening a pipe with no writer blocks in the kernel, like a hung network volume.
+	require.NoError(t, os.Remove(fx.corrupt))
+	require.NoError(t, syscall.Mkfifo(fx.corrupt, 0o600))
+	t.Cleanup(func() {
+		w, err := os.OpenFile(fx.corrupt, os.O_WRONLY, 0)
+		require.NoError(t, err)
+		require.NoError(t, w.Close())
+		require.Eventually(t, func() bool {
+			if !shard.liftRetry.TryLock() {
+				return false
+			}
+			shard.liftRetry.Unlock()
+			return true
+		}, 10*time.Second, 10*time.Millisecond, "the retry finishes once the disk answers")
+	})
+
+	lifts := make(chan error, 2)
+	for range 2 {
+		enterrors.GoWrapper(func() {
+			lifts <- shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate)
+		}, fx.logger)
+	}
+	require.ErrorContains(t, receiveWithin(t, lifts), "a recovery retry is already running")
+	status := make(chan storagestate.Status, 1)
+	enterrors.GoWrapper(func() { status <- shard.GetStatus() }, fx.logger)
+	require.Equal(t, storagestate.StatusReadOnly, receiveWithin(t, status))
+
+	shard.shutCtxCancel(errors.New("dropped"))
+	require.ErrorIs(t, receiveWithin(t, lifts), context.Canceled)
+	require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+}
+
+func receiveWithin[T any](t *testing.T, ch <-chan T) T {
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(10 * time.Second):
+		t.Fatal("blocked on the stuck disk")
+		var zero T
+		return zero
 	}
 }
 
