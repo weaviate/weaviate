@@ -1052,7 +1052,7 @@ func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
 	}{
 		{status: distributedtask.TaskStatusStarted, wantCancelAdvice: true},
 		{status: distributedtask.TaskStatusPreparing, wantCancelAdvice: true},
-		{status: distributedtask.TaskStatusSwapping, wantCancelAdvice: true},
+		{status: distributedtask.TaskStatusSwapping, wantReason: "wait for the migration to finish"},
 		{
 			status:     unknownFutureStatus,
 			wantReason: "cannot classify that status",
@@ -1068,7 +1068,7 @@ func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
 					return
 				}
 				require.NotContains(t, err.Error(), guard.cancelAdvice,
-					"a cancel for %q is refused with 409, so the refusal must not name one", tc.status)
+					"a cancel for %q does nothing, so the refusal must not name one", tc.status)
 				require.Contains(t, err.Error(), tc.wantReason)
 			})
 		}

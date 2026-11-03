@@ -1021,8 +1021,8 @@ func TestBarrier_G8_SnapshotRestoreMidPreparing(t *testing.T) {
 		"after the restored Manager records node-3's prep-ack, the barrier must lift to SWAPPING — proving the restore preserved enough state for the FSM transition to fire correctly")
 }
 
-// Pins: a cancel after the swap is decided is accepted, the replica that has
-// not swapped yet still swaps, and the schema flip is skipped.
+// Pins: a cancel once every group's swap is decided has nothing left to
+// cancel, so the migration still swaps on every replica, finishes and flips.
 func TestBarrier_G9_CancelAfterDecisionStillSwapsEveryReplica(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -1038,22 +1038,22 @@ func TestBarrier_G9_CancelAfterDecisionStillSwapsEveryReplica(t *testing.T) {
 	require.Equal(t, 1, h.nodes[0].provider.swapCount("T9"), "node-1 must have run its swap")
 	require.Equal(t, 0, h.nodes[1].provider.swapCount("T9"), "node-2 must not have ticked into its swap yet")
 
-	require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+	err := h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
 		Namespace:             h.namespace,
 		Id:                    "T9",
 		Version:               1,
 		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-	})), "a cancel is never refused while the task is in flight")
-	require.Equal(t, TaskStatusCancelled, h.getTask(t, "T9").Status)
+	}))
+	require.ErrorIs(t, err, ErrNothingLeftToCancel)
+	require.Equal(t, TaskStatusSwapping, h.getTask(t, "T9").Status)
 
 	h.tickAll()
 	h.tickAll()
-	require.Equal(t, 1, h.nodes[1].provider.swapCount("T9"),
-		"node-2 must still swap: the group was decided before the cancel")
-	for _, n := range h.nodes {
-		require.Equal(t, []TaskStatus{TaskStatusCancelled}, n.provider.taskStatuses,
-			"%s: OnTaskCompleted runs the cancel cleanup, never the SWAPPING schema flip", n.id)
-	}
+	require.Equal(t, 1, h.nodes[1].provider.swapCount("T9"), "node-2 still swaps")
+	require.Equal(t, TaskStatusFinished, h.getTask(t, "T9").Status)
+	require.ElementsMatch(t, []TaskStatus{TaskStatusSwapping, TaskStatusFinished},
+		append(h.nodes[0].provider.taskStatuses, h.nodes[1].provider.taskStatuses...),
+		"the first node to see every ack runs the SWAPPING schema flip; the other sees it finished")
 }
 
 // Regression: a node's own failed PREP/SWAP ack must hand callbacks FAILED, not a stale PREPARING/SWAPPING.

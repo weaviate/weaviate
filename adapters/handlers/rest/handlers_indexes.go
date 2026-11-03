@@ -368,7 +368,7 @@ func reindexTaskDescriptorsForProperty(tasks []*distributedtask.Task, collection
 // FSM guard applies, so the two answers cannot drift.
 func (h *indexesHandlers) cancelPreflight(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	switch {
-	case target == nil:
+	case target == nil, target.Status == distributedtask.TaskStatusSwapping:
 		return h.cancelNoOpResponder(collection, propertyName, indexType, principal)
 	case !target.Status.IsCancellable():
 		return h.cancelRefusedResponder(target, collection, propertyName, indexType, principal)
@@ -384,14 +384,15 @@ func (h *indexesHandlers) cancelApplyFailureResponder(err error, target *distrib
 	switch {
 	case errors.Is(err, distributedtask.ErrTaskNotRunning):
 		return h.cancelRacedResponder(target, collection, propertyName, indexType, principal)
-	case errors.Is(err, distributedtask.ErrTaskDoesNotExist):
+	case errors.Is(err, distributedtask.ErrTaskDoesNotExist), errors.Is(err, distributedtask.ErrNothingLeftToCancel):
 		return h.cancelNoOpResponder(collection, propertyName, indexType, principal)
 	}
 	return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 		fmt.Sprintf("cancelling task: %v", err)))
 }
 
-// cancelNoOpResponder answers a cancel that has nothing to cancel.
+// cancelNoOpResponder answers a cancel that has nothing to cancel: no task, or
+// one whose every tenant already passed its point of no return.
 func (h *indexesHandlers) cancelNoOpResponder(collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event": "reindex_task_cancel_noop",
@@ -399,7 +400,7 @@ func (h *indexesHandlers) cancelNoOpResponder(collection, propertyName, indexTyp
 		"property":    propertyName,
 		"index_type":  indexType,
 		"principal":   principalUsername(principal),
-	}).Info("cancel: no in-flight task to cancel; returning NO_OP")
+	}).Info("cancel: nothing left to cancel; returning NO_OP")
 	return jsonResponder(http.StatusAccepted, &models.IndexUpdateResponse{
 		Status: reindexCancelStatusNoOp,
 	})

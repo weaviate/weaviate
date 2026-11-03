@@ -511,15 +511,16 @@ func (t TaskStatus) IsRecognized() bool {
 	return false
 }
 
-// IsCancellable is true for every in-flight status. A cancel never waits on
-// a reindex that may itself be the incident: it stops every group whose swap
-// is not decided yet, and leaves decided groups to swap.
+// IsCancellable is true while some group's swap may still be undecided. A
+// cancel never waits on a reindex that may itself be the incident: it stops
+// every group whose swap is not decided yet, and leaves decided groups to
+// swap. In SWAPPING every group is decided, so nothing is left to cancel.
 //
 // A literal comparison, not a classification: the FSM apply that reads it
 // must reach the same verdict on every binary that replays the entry,
 // including one that cannot name the status.
 func (t TaskStatus) IsCancellable() bool {
-	return t == TaskStatusStarted || t == TaskStatusPreparing || t == TaskStatusSwapping
+	return t == TaskStatusStarted || t == TaskStatusPreparing
 }
 
 // TaskDescriptor is a struct identifying a task execution under a certain task namespace.

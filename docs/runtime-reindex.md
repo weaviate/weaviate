@@ -56,6 +56,8 @@ typical journeys it unlocks:
 - Cancel a migration at any point while it runs. Every tenant whose swap
   is not decided yet stops and is cleaned up; a tenant past that point
   keeps its swap, which can leave the collection partly migrated (§6.3, §12).
+  Once every tenant is decided (`SWAPPING`) nothing is left to cancel: the
+  cancel answers `NO_OP` and the migration finishes, schema flip included.
 
 The whole feature is built on top of three substrates:
 
@@ -138,8 +140,9 @@ rejected — migrate to Blockmax first via `PUT {"algorithm":"blockmax"}`.
 Cancel the in-flight task on `(class, property, indexType)`. No request
 body. Idempotent: `202` + `Status: CANCELLED` (with `taskId`) when an in-flight
 task is cancelled, `202` + `Status: NO_OP` (no `taskId`) when nothing
-matches (already finished, never submitted, or already cancelled), `409`
-only for a status this build does not recognize. A cancel is never refused
+matches (already finished, never submitted, or already cancelled) or the
+task is `SWAPPING` (every tenant already passed its point of no return, so
+it finishes), `409` only for a status this build does not recognize. A cancel is never refused
 while the reindex runs, because the reindex itself may be the incident.
 Tenants whose swap is already decided (§6.3) keep it; every other tenant
 stops. See §12. Never `404` for "nothing to cancel".
@@ -673,7 +676,7 @@ Key types & contracts:
 | `IsActive()` | everything else (defined as the exact negation of `IsTerminal()`) |
 | `IsCompleted()` | `SWAPPING`, `FINISHED` — every unit succeeded |
 | `IsRecognized()` | any status this build declares |
-| `IsCancellable()` | `STARTED`, `PREPARING`, `SWAPPING` |
+| `IsCancellable()` | `STARTED`, `PREPARING` (in `SWAPPING` nothing is left to cancel) |
 
 `IsCancellable()` is a literal comparison rather than a classification,
 which is what makes it different from the other four. `Manager.CancelTask`

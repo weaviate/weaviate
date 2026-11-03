@@ -2418,14 +2418,15 @@ func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
 	for _, tc := range []struct {
 		status   TaskStatus
 		accepted bool
+		wantErr  string // when refused
 	}{
-		{TaskStatusStarted, true},
-		{unknownFutureStatus, false},
-		{TaskStatusPreparing, true},
-		{TaskStatusSwapping, true},
-		{TaskStatusFinished, false},
-		{TaskStatusFailed, false},
-		{TaskStatusCancelled, false},
+		{TaskStatusStarted, true, ""},
+		{unknownFutureStatus, false, "no longer running"},
+		{TaskStatusPreparing, true, ""},
+		{TaskStatusSwapping, false, "point of no return"},
+		{TaskStatusFinished, false, "no longer running"},
+		{TaskStatusFailed, false, "no longer running"},
+		{TaskStatusCancelled, false, "no longer running"},
 	} {
 		t.Run(string(tc.status), func(t *testing.T) {
 			h := newTestHarness(t).init(t)
@@ -2442,7 +2443,7 @@ func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
 
 			task := h.manager.tasks[ns][id]
 			if !tc.accepted {
-				require.ErrorContains(t, err, "no longer running")
+				require.ErrorContains(t, err, tc.wantErr)
 				require.Equal(t, tc.status, task.Status,
 					"a task in %q must survive the cancel attempt", tc.status)
 				require.Equal(t, finishedAtBefore, task.FinishedAt,

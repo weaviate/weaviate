@@ -105,7 +105,7 @@ func TestCheckReindexConflictForPropertyMutation_EndsOnTheFSMGuardsRemedy(t *tes
 	}{
 		{distributedtask.TaskStatusStarted, true},
 		{distributedtask.TaskStatusPreparing, true},
-		{distributedtask.TaskStatusSwapping, true},
+		{distributedtask.TaskStatusSwapping, false},
 		{unknownFutureStatus, false},
 	} {
 		t.Run(string(tc.status), func(t *testing.T) {
@@ -122,7 +122,7 @@ func TestCheckReindexConflictForPropertyMutation_EndsOnTheFSMGuardsRemedy(t *tes
 				return
 			}
 			require.NotContains(t, remedy, "cancel",
-				"the cancel verb answers 409 for %q, so the closing advice must not "+
+				"the cancel verb does nothing for %q, so the closing advice must not "+
 					"send the operator to it", tc.status)
 			require.NotContains(t, restReason, cancellableRemedy,
 				"the cancel advice has to be gone, not joined by a caveat")
@@ -245,11 +245,13 @@ func TestDeleteClassPropertyIndex_NamesACancelOnlyWhereTheCancelVerbAcceptsOne(t
 	for _, tc := range []struct {
 		status             distributedtask.TaskStatus
 		wantCancelAccepted bool
+		// cancelCode is what a cancel answers where it is not accepted.
+		cancelCode int
 	}{
 		{status: distributedtask.TaskStatusStarted, wantCancelAccepted: true},
 		{status: distributedtask.TaskStatusPreparing, wantCancelAccepted: true},
-		{status: distributedtask.TaskStatusSwapping, wantCancelAccepted: true},
-		{status: unknownFutureStatus},
+		{status: distributedtask.TaskStatusSwapping, cancelCode: http.StatusAccepted},
+		{status: unknownFutureStatus, cancelCode: http.StatusConflict},
 	} {
 		t.Run(string(tc.status), func(t *testing.T) {
 			task := buildTask(t, "T1", tc.status, payload, nil)
@@ -285,9 +287,9 @@ func TestDeleteClassPropertyIndex_NamesACancelOnlyWhereTheCancelVerbAcceptsOne(t
 
 			cancelRec := httptest.NewRecorder()
 			cancelResp.WriteResponse(cancelRec, runtime.JSONProducer())
-			require.Equal(t, http.StatusConflict, cancelRec.Code)
+			require.Equal(t, tc.cancelCode, cancelRec.Code)
 			require.NotContains(t, body, cancelAdvice,
-				"the cancel this refusal recommends answers 409 for %q", tc.status)
+				"a cancel cannot stop the task in %q, so the refusal must not recommend one", tc.status)
 		})
 	}
 }

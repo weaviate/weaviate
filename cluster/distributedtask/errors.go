@@ -95,6 +95,10 @@ var (
 	ErrTaskBlockedByReplicaMovement = errors.New("task blocked by an in-flight replica movement")
 
 	ErrTaskReplicasChanged = errors.New("task built against replicas that have since changed")
+
+	// ErrNothingLeftToCancel is a cancel of a SWAPPING task: every group's swap
+	// is decided, past its point of no return, so the task finishes regardless.
+	ErrNothingLeftToCancel = errors.New("nothing left to cancel")
 )
 
 func NewBlockedByReplicaMovementError(collection string) error {
@@ -141,6 +145,7 @@ var permanentMarkers = []permanentMarker{
 	{ErrTaskConflict, "task-conflict"},
 	{ErrTaskBlockedByReplicaMovement, "task-blocked-by-movement"},
 	{ErrTaskReplicasChanged, "task-replicas-changed"},
+	{ErrNothingLeftToCancel, "nothing-left-to-cancel"},
 }
 
 // markerByID looks up a sentinel by its on-wire id.

@@ -776,7 +776,8 @@ func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
 			http.StatusConflict, "cannot classify that status",
 		},
 		{"PREPARING", distributedtask.TaskStatusPreparing, payload.Properties, 0, ""},
-		{"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties, 0, ""},
+		// Every tenant already passed its point of no return.
+		{"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties, http.StatusAccepted, ""},
 		// The three terminal rows never reach the refusal logic: they
 		// are filtered out as cancel targets, so what they pin is that a
 		// finished task is a NO_OP rather than a 409.
@@ -918,6 +919,15 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 			wantBody:  reindexCancelStatusNoOp,
 		},
 		{
+			name: "the task reached SWAPPING before the cancel applied",
+			err: fmt.Errorf("executing command: %w",
+				fmt.Errorf("[dtm-perm/nothing-left-to-cancel] task reindex/T1/1 is SWAPPING: %w",
+					distributedtask.ErrNothingLeftToCancel)),
+			wantCode:  http.StatusAccepted,
+			wantAudit: "reindex_task_cancel_noop",
+			wantBody:  reindexCancelStatusNoOp,
+		},
+		{
 			name:     "anything else",
 			err:      errors.New("raft unavailable"),
 			wantCode: http.StatusInternalServerError,
@@ -979,9 +989,9 @@ func TestFindCancelTarget_PrefersACancellableTask(t *testing.T) {
 			name: "a cancellable task behind one this build cannot name",
 			tasks: []*distributedtask.Task{
 				task("unknown", unknownFutureStatus),
-				task("swapping", distributedtask.TaskStatusSwapping),
+				task("preparing", distributedtask.TaskStatusPreparing),
 			},
-			wantID: "swapping",
+			wantID: "preparing",
 		},
 		{
 			name: "none cancellable, so the first match is refused",
