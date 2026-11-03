@@ -18,11 +18,15 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -211,75 +215,225 @@ func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) 
 	}
 }
 
-// The shard loads only when the same fault that blocks stamping also blocks the stale swap.
+// An unreadable record freezes the store, so no task is rebuilt from it and the
+// shard loads writable with no phase able to run.
+func TestShardLoadWhenAMirrorFailsToArmAndAnotherRecordIsUnreadable(t *testing.T) {
+	fx := newDoubleFaultFixture(t, "tenant-arm-fails-unreadable")
+	plantUnreadableRecord(t, fx.recordsDir)
+
+	shard := fx.load(t)
+	require.Equal(t, storagestate.StatusReady, shard.GetStatus())
+	require.Empty(t, fx.provider.cachedReindexTasks(fx.desc, fx.subject.Key.UnitID))
+	payload := fx.subject.reindexPayload()
+	payload.UnitToShard = map[string]string{fx.subject.Key.UnitID: fx.name}
+	res := fx.provider.resolveUnitForPhase(fx.ctx, &distributedtask.Task{TaskDescriptor: fx.desc}, &payload,
+		fx.subject.Key.UnitID, fx.idx, fx.logger)
+	require.NotEmpty(t, res.Errs, "no phase runs on the stale staged data")
+}
+
+// A mirror that fails to arm while its stamp cannot be written holds the shard
+// READONLY: it serves reads, refuses writes, and refuses the stale swap.
 func TestShardLoadWhenAMirrorFailsToArmAndItsStampCannotBeWritten(t *testing.T) {
-	for _, tt := range []struct {
-		name       string
-		breakStore func(t *testing.T, recordsDir string)
-		wantErr    string
+	fx := newDoubleFaultFixture(t, "tenant-double-fault")
+	fx.breakDisk(t)
+
+	shard := fx.load(t)
+	require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+	require.Equal(t, statusReasonMirrorUnarmed, shard.GetStatusReason())
+	found, err := shard.ObjectByID(fx.ctx, fx.written.ID(), nil, additional.Properties{})
+	require.NoError(t, err)
+	require.NotNil(t, found, "reads are served")
+	require.EqualError(t, shard.PutObject(fx.ctx, createTestObjectWithText(fx.className, "late")),
+		storagestate.ErrStatusReadOnlyWithReason(statusReasonMirrorUnarmed).Error())
+
+	fx.requirePhasesRefused(t, shard, "is READONLY because its double-write mirror")
+}
+
+// Every path that can lift READONLY first retries the recovery a double fault left undone.
+func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
+	type lift func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error)
+	lifts := []struct {
+		name string
+		lift lift
+		// A path that only lifts its own read-only reason never lifts this one.
+		neverLifts bool
 	}{
-		{
-			name: "records dir read-only",
-			breakStore: func(t *testing.T, recordsDir string) {
-				if os.Geteuid() == 0 {
-					t.Skip("root ignores the read-only records dir")
-				}
-				require.NoError(t, os.Chmod(recordsDir, 0o500))
-				t.Cleanup(func() { require.NoError(t, os.Chmod(recordsDir, 0o700)) })
-			},
-			wantErr: "mirror stayed unarmed",
-		},
-		{
-			// An unreadable record freezes the store, so no task is rebuilt from it.
-			name:       "another record unreadable",
-			breakStore: func(t *testing.T, recordsDir string) { plantUnreadableRecord(t, recordsDir) },
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			const name = "tenant-arm-and-stamp-fail"
-			ctx := testCtx()
-			className := "LazyRecoveryStampFail_" + uuid.NewString()[:8]
-			class := newTestClassWithProps(className, []string{"title"})
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
-			defer shd.Shutdown(context.Background())
-
-			logger, _ := test.NewNullLogger()
-			p := NewReindexProvider(idx.db, nil, nil, logger, idx.getSchema.NodeName(), nil, ctx)
-			idx.shardReindexer = NewMigrationRecoveryReindexer(true, logger, nil, p)
-
-			desc := distributedtask.TaskDescriptor{ID: "T", Version: 3}
-			subject := testMigrationSubject(desc.Version, StrategyCodeSearchableRetokenize, "title")
-			subject.TaskID, subject.Collection = desc.ID, className
-			subject.Key.UnitID = testMigrationUnitFor(idx, name)
-			built, err := buildRecoveryTasks(subject, name, logger, nil)
-			require.NoError(t, err)
-			subject.Props["title"] = MigrationPropertyDirs{
-				Staged:    built[0].ingestBucketName("title"),
-				Canonical: subject.Props["title"].Canonical,
-				Sidecar:   built[0].reindexBucketName("title"),
-			}
-			lsm := shardPathLSM(idx.path(), name)
-			staged := filepath.Join(lsm, subject.Props["title"].Staged)
-			require.NoError(t, os.MkdirAll(staged, 0o777))
-			require.NoError(t, os.WriteFile(filepath.Join(staged, "segment-1.db"), []byte("not a segment"), 0o600))
-			require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordMerged(subject)))
-			tt.breakStore(t, filepath.Join(lsm, migrationsDir, migrationRecordsDirName))
-
-			loaded, err := idx.initShard(ctx, name, class, nil, true, true)
-			if tt.wantErr != "" {
-				require.ErrorContains(t, err, tt.wantErr)
-				return
-			}
-			require.NoError(t, err)
-			defer loaded.Shutdown(context.Background())
-			idx.shards.Store(name, loaded)
-
-			require.Empty(t, p.cachedReindexTasks(desc, subject.Key.UnitID))
-			payload := subject.reindexPayload()
-			payload.UnitToShard = map[string]string{subject.Key.UnitID: name}
-			res := p.resolveUnitForPhase(ctx, &distributedtask.Task{TaskDescriptor: desc}, &payload,
-				subject.Key.UnitID, idx, logger)
-			require.NotEmpty(t, res.Errs, "no phase runs on the stale staged data")
-		})
+		{name: "manual status update", lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
+			return shard, fx.idx.IncomingUpdateShardStatus(fx.ctx, fx.name, storagestate.StatusReady.String(), 0)
+		}},
+		{name: "vector index config change", lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
+			return shard, shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonVectorIndexUpdate)
+		}},
+		{name: "disk pressure recovery", neverLifts: true, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
+			require.True(t, fx.idx.db.markShardReady(fx.name, shard))
+			return shard, nil
+		}},
+		{name: "restart", lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
+			require.NoError(t, shard.Shutdown(context.Background()))
+			return fx.load(t), nil
+		}},
 	}
+	disks := []struct {
+		name string
+		heal func(t *testing.T, fx *doubleFaultFixture)
+		// What the retry gets done: "armed", "stamped", or "" when the disk still refuses.
+		recovers string
+	}{
+		{name: "mirror arms", recovers: "armed", heal: func(t *testing.T, fx *doubleFaultFixture) {
+			fx.healRecords(t)
+			require.NoError(t, os.Remove(fx.corrupt))
+		}},
+		{name: "only the stamp lands", recovers: "stamped", heal: func(t *testing.T, fx *doubleFaultFixture) {
+			fx.healRecords(t)
+		}},
+		{name: "disk still broken", heal: func(*testing.T, *doubleFaultFixture) {}},
+	}
+	for _, l := range lifts {
+		for _, d := range disks {
+			t.Run(l.name+"/"+d.name, func(t *testing.T) {
+				fx := newDoubleFaultFixture(t, "tenant-lift")
+				fx.breakDisk(t)
+				shard := fx.load(t)
+				require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+
+				d.heal(t, fx)
+				shard, err := l.lift(t, fx, shard)
+				t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
+
+				rec, ok := shard.migrationRecords.Get(fx.subject.Key)
+				require.True(t, ok)
+				switch {
+				case l.neverLifts:
+					require.NoError(t, err)
+					require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+					require.Equal(t, statusReasonMirrorUnarmed, shard.GetStatusReason())
+				case d.recovers == "armed":
+					require.NoError(t, err)
+					require.Equal(t, storagestate.StatusReady, shard.GetStatus())
+					require.False(t, rec.Subject().Unmirrored)
+					require.NotZero(t, shard.migrationMirrors.ArmedMigrationMirrors())
+					fx.requireSwapProceeds(t, shard)
+				case d.recovers == "stamped":
+					require.NoError(t, err)
+					require.Equal(t, storagestate.StatusReady, shard.GetStatus())
+					require.True(t, rec.Subject().Unmirrored)
+					fx.requirePhasesRefused(t, shard, "no double-write mirror armed")
+				default:
+					if l.name != "restart" {
+						require.ErrorContains(t, err, "the disk is not accepting writes")
+					}
+					require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+					require.False(t, rec.Subject().Unmirrored)
+					fx.requirePhasesRefused(t, shard, "is READONLY because its double-write mirror")
+				}
+			})
+		}
+	}
+}
+
+// doubleFaultFixture is a shard holding one written object and one merged
+// migration whose staged segment cannot be opened, so its mirror fails to arm.
+type doubleFaultFixture struct {
+	ctx        context.Context
+	name       string
+	className  string
+	class      *models.Class
+	idx        *Index
+	provider   *ReindexProvider
+	logger     logrus.FieldLogger
+	desc       distributedtask.TaskDescriptor
+	subject    MigrationSubject
+	task       *ShardReindexTaskGeneric
+	written    *storobj.Object
+	corrupt    string
+	recordsDir string
+}
+
+func newDoubleFaultFixture(t *testing.T, name string) *doubleFaultFixture {
+	ctx := testCtx()
+	className := "LazyRecoveryDoubleFault_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{"title"})
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	t.Cleanup(func() { _ = shd.Shutdown(context.Background()) })
+
+	logger, _ := test.NewNullLogger()
+	p := NewReindexProvider(idx.db, nil, nil, logger, idx.getSchema.NodeName(), nil, ctx)
+	idx.shardReindexer = NewMigrationRecoveryReindexer(true, logger, nil, p)
+	fx := &doubleFaultFixture{
+		ctx: ctx, name: name, className: className, class: class, idx: idx, provider: p, logger: logger,
+		desc: distributedtask.TaskDescriptor{ID: "T", Version: 3},
+	}
+
+	shard := fx.load(t)
+	fx.written = createTestObjectWithText(className, "written before the fault")
+	require.NoError(t, shard.PutObject(ctx, fx.written))
+	require.NoError(t, shard.Shutdown(context.Background()))
+
+	fx.subject = testMigrationSubject(fx.desc.Version, StrategyCodeSearchableRetokenize, "title")
+	fx.subject.TaskID, fx.subject.Collection = fx.desc.ID, className
+	fx.subject.Key.UnitID = testMigrationUnitFor(idx, name)
+	built, err := buildRecoveryTasks(fx.subject, name, logger, nil)
+	require.NoError(t, err)
+	fx.task = built[0]
+	fx.subject.Props["title"] = MigrationPropertyDirs{
+		Staged:    fx.task.ingestBucketName("title"),
+		Canonical: fx.subject.Props["title"].Canonical,
+		Sidecar:   fx.task.reindexBucketName("title"),
+	}
+	lsm := shardPathLSM(idx.path(), name)
+	staged := filepath.Join(lsm, fx.subject.Props["title"].Staged)
+	require.NoError(t, os.MkdirAll(staged, 0o777))
+	fx.corrupt = filepath.Join(staged, "segment-1.db")
+	require.NoError(t, os.WriteFile(fx.corrupt, []byte("not a segment"), 0o600))
+	require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordMerged(fx.subject)))
+	fx.recordsDir = filepath.Join(lsm, migrationsDir, migrationRecordsDirName)
+	return fx
+}
+
+func (fx *doubleFaultFixture) load(t *testing.T) *Shard {
+	loaded, err := fx.idx.initShard(fx.ctx, fx.name, fx.class, nil, true, true)
+	require.NoError(t, err)
+	fx.idx.shards.Store(fx.name, loaded)
+	return loaded.(*Shard)
+}
+
+// breakDisk makes the records dir refuse the unmirrored stamp.
+func (fx *doubleFaultFixture) breakDisk(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the read-only records dir")
+	}
+	require.NoError(t, os.Chmod(fx.recordsDir, 0o500))
+	t.Cleanup(func() { fx.healRecords(t) })
+}
+
+func (fx *doubleFaultFixture) healRecords(t *testing.T) {
+	require.NoError(t, os.Chmod(fx.recordsDir, 0o700))
+}
+
+func (fx *doubleFaultFixture) requirePhasesRefused(t *testing.T, shard *Shard, want string) {
+	tasks := []*ShardReindexTaskGeneric{fx.task}
+	prepOK, prep := fx.provider.runShardPrepPhase(fx.ctx, fx.subject.Key.UnitID, shard, tasks, false, fx.logger)
+	require.False(t, prepOK)
+	require.Len(t, prep.Errs, 1)
+	require.Contains(t, prep.Errs[0], want)
+	payload := fx.subject.reindexPayload()
+	swap := fx.provider.runShardSwapPhase(fx.ctx, &payload, fx.subject.Key.UnitID, fx.name, shard, tasks, fx.logger)
+	require.NotEmpty(t, swap.Errs)
+	require.Contains(t, swap.Errs[0], want)
+	rec, ok := shard.migrationRecords.Get(fx.subject.Key)
+	require.True(t, ok)
+	require.False(t, rec.FlipDecided(), "nothing flipped")
+}
+
+func (fx *doubleFaultFixture) requireSwapProceeds(t *testing.T, shard *Shard) {
+	tasks := fx.provider.cachedReindexTasks(fx.desc, fx.subject.Key.UnitID)
+	require.Len(t, tasks, 1, "the swap reuses the task whose mirror is armed")
+	prepOK, prep := fx.provider.runShardPrepPhase(fx.ctx, fx.subject.Key.UnitID, shard, tasks, false, fx.logger)
+	require.True(t, prepOK, "%v", prep.Errs)
+	payload := fx.subject.reindexPayload()
+	swap := fx.provider.runShardSwapPhase(fx.ctx, &payload, fx.subject.Key.UnitID, fx.name, shard, tasks, fx.logger)
+	require.Empty(t, swap.Errs)
+	rec, ok := shard.migrationRecords.Get(fx.subject.Key)
+	require.True(t, ok)
+	require.True(t, rec.FlipDecided())
 }

@@ -196,8 +196,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(start))
 	}
 
-	if err = s.armRecoveredMigrations(ctx, recovered); err != nil {
-		return nil, fmt.Errorf("arm recovered migrations of shard %q: %w", s.ID(), err)
+	if unarmed, err := s.armRecoveredMigrations(ctx, recovered); err != nil {
+		s.holdReadOnlyForUnarmed(unarmed, err)
 	}
 	return s, nil
 }

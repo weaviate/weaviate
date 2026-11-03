@@ -1172,7 +1172,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 		if !ok {
 			continue
 		}
-		if err := reindexTask.refuseUnmirrored(rec.Subject()); err != nil {
+		if err := reindexTask.refuseUnmirrored(shard, rec.Subject()); err != nil {
 			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s swap: %v", unitID, reindexTask.Name(), err))
 		}
 	}

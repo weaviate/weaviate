@@ -16,6 +16,8 @@ import "sync"
 type migrationMirrorRegistry struct {
 	mu      sync.Mutex
 	disarms map[migrationMirrorKey]func()
+	// Neither armed nor recorded as unarmed; the shard stays read-only for them.
+	held []*ShardReindexTaskGeneric
 }
 
 type migrationMirrorKey struct {
@@ -76,6 +78,35 @@ func (r *migrationMirrorRegistry) takeAll(key MigrationRecordKey) []func() {
 		delete(r.disarms, mirrorKey)
 	}
 	return disarms
+}
+
+func (r *migrationMirrorRegistry) holdUnarmed(tasks []*ShardReindexTaskGeneric) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.held = tasks
+}
+
+func (r *migrationMirrorRegistry) heldUnarmed() []*ShardReindexTaskGeneric {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.held
+}
+
+func (r *migrationMirrorRegistry) releaseHeld() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.held = nil
+}
+
+func (r *migrationMirrorRegistry) isHeld(key MigrationRecordKey) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, t := range r.held {
+		if t.migrationRecordKey() == key {
+			return true
+		}
+	}
+	return false
 }
 
 var _ migrationMirrorDisarmer = (*Shard)(nil)

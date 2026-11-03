@@ -64,17 +64,17 @@ func (r *MigrationRecoveryReindexer) RecoverMigrations(shard *Shard) []*ShardRei
 
 // AbandonUnarmed stamps a migration whose mirror failed to arm, so a later swap of
 // now-stale data is blocked; resubmitting is the way out. A failed stamp write is
-// returned so the shard load fails instead of leaving that swap unguarded.
+// returned, and the tasks stay cached so the shard can still arm them later.
 func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*ShardReindexTaskGeneric, cause error) error {
 	shardName := shard.Name()
 	r.armFaults.report(r.logger.WithField("shard", shardName), func(l logrus.FieldLogger) {
 		l.Errorf("reindex recovery: %d migration(s) could not re-arm their double-write mirror, so they will "+
 			"not be swapped in: %v. %s", len(unarmed), cause, migrationUnmirroredRemedy)
 	})
-	r.forget(unarmed)
 	if len(shard.migrationRecords.Unreadable()) > 0 {
 		// The store refuses every write, so the stamp would fail each restart, yet
 		// the frozen store already keeps the evicted tasks from being rebuilt.
+		r.forget(unarmed)
 		return nil
 	}
 	var records []MigrationRecord
@@ -86,6 +86,7 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 	if _, err := stampUnmirroredRecords(shard.migrationRecords, records, nil); err != nil {
 		return fmt.Errorf("record that a migration's mirror stayed unarmed: %w", err)
 	}
+	r.forget(unarmed)
 	return nil
 }
 

@@ -1060,8 +1060,15 @@ Then, per shard load:
    already be past its prepare, as when the node restarts mid-swap, so the
    swap phase checks every task of the unit first and swaps none of them
    if any record is `Unmirrored`. If the stamp cannot be written either,
-   the shard load fails: nothing else would stop the stale swap once the
-   fault clears. The exception is an unreadable record on the shard: the
+   the shard loads `READONLY` with its own status reason: it serves reads,
+   takes no writes (so the staged copy stays current), and refuses that
+   migration's prepare and swap. Every switch back to a writable status
+   (manual status update, the end of a vector-index config change) first
+   retries: if the mirror now arms, the shard goes writable and the
+   migration continues; if only the stamp lands, it goes writable and the
+   migration must be resubmitted; otherwise the switch is refused because
+   the disk is not accepting writes. Disk-pressure recovery lifts only its
+   own reason, so it never lifts this one. A restart retries too. The exception is an unreadable record on the shard: the
    store then refuses every write, but it also keeps the reconciler frozen
    and the provider from rebuilding the evicted tasks, so the shard loads
    unstamped.

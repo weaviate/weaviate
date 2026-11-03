@@ -16,6 +16,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -36,9 +37,10 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 	return recovered
 }
 
-// The shard loads even when a mirror fails to arm, as long as the reindexer can
-// keep that migration from swapping in staged data that misses this shard's writes.
-func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardReindexTaskGeneric) error {
+// armRecoveredMigrations returns the tasks it could neither arm nor record as
+// unarmed, along with why.
+func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardReindexTaskGeneric,
+) ([]*ShardReindexTaskGeneric, error) {
 	var unarmed []*ShardReindexTaskGeneric
 	causes := errorcompounder.New()
 	for _, t := range recovered {
@@ -48,9 +50,23 @@ func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardRe
 		}
 	}
 	if len(unarmed) == 0 {
-		return nil
+		return nil, nil
 	}
-	return s.reindexer.AbandonUnarmed(s, unarmed, causes.ToErrorLimited(maxReportedErrors))
+	if err := s.reindexer.AbandonUnarmed(s, unarmed, causes.ToErrorLimited(maxReportedErrors)); err != nil {
+		return unarmed, err
+	}
+	return nil, nil
+}
+
+// holdReadOnlyForUnarmed serves reads but no writes: a write would miss the
+// staged copy, and nothing on disk would stop that copy being swapped in.
+func (s *Shard) holdReadOnlyForUnarmed(unarmed []*ShardReindexTaskGeneric, cause error) {
+	s.migrationMirrors.holdUnarmed(unarmed)
+	s.index.logger.WithField("shard", s.ID()).Errorf("shard is %s until the disk accepts writes again and its "+
+		"status is set back to %s: %v", storagestate.StatusReadOnly, storagestate.StatusReady, cause)
+	if err := s.SetStatusReadonly(statusReasonMirrorUnarmed); err != nil {
+		s.index.logger.WithField("shard", s.ID()).Errorf("mark shard %s: %v", storagestate.StatusReadOnly, err)
+	}
 }
 
 func (s *Shard) migrationUnit() string { return migrationUnitOf(s.index, s.name) }

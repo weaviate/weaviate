@@ -228,7 +228,7 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	concreteShard, logger := entry.shard, entry.logger
 
 	// Refused here, not only at swap: a failed prepare fails the task before any replica swaps.
-	if err := t.refuseUnmirrored(entry.rec.Subject()); err != nil {
+	if err := t.refuseUnmirrored(concreteShard, entry.rec.Subject()); err != nil {
 		return err
 	}
 
@@ -1127,7 +1127,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		return err
 	}
 	// Kept here too: the record can turn unmirrored after prepare already passed.
-	if err := t.refuseUnmirrored(subject); err != nil {
+	if err := t.refuseUnmirrored(shard, subject); err != nil {
 		return err
 	}
 	// Read here, not at the call sites: rewriting a decided record drops promotion marks.
@@ -1414,7 +1414,12 @@ func (t *ShardReindexTaskGeneric) recordCheckpoint(shard ShardLike, subject Migr
 	}))
 }
 
-func (t *ShardReindexTaskGeneric) refuseUnmirrored(subject MigrationSubject) error {
+func (t *ShardReindexTaskGeneric) refuseUnmirrored(shard ShardLike, subject MigrationSubject) error {
+	if registry := shard.migrationMirrorRegistry(); registry != nil && registry.isHeld(t.migrationRecordKey()) {
+		return fmt.Errorf("migration %s: this shard is READONLY because its double-write mirror could not be "+
+			"armed and the disk refused to record that, so its staged data is not swapped in until the disk "+
+			"accepts writes and the shard is set back to READY", t.migrationRecordKey())
+	}
 	if !subject.Unmirrored {
 		return nil
 	}

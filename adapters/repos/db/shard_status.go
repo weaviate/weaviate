@@ -12,6 +12,8 @@
 package db
 
 import (
+	"context"
+	"fmt"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -30,6 +32,7 @@ const (
 	statusReasonVectorIndexUpdate = "update vector index config"
 	statusReasonShutdown          = "shutdown"
 	statusReasonNotifyReady       = "notify ready"
+	statusReasonMirrorUnarmed     = "a reindex migration could not re-arm its double-write mirror"
 )
 
 type ShardStatus struct {
@@ -154,6 +157,11 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 	if err != nil {
 		return errors.Wrap(err, in)
 	}
+	if targetStatus == storagestate.StatusReady || targetStatus == storagestate.StatusIndexing {
+		if err := s.rearmHeldMigrationsUnlocked(); err != nil {
+			return err
+		}
+	}
 	oldStatus := s.status.Status
 	s.status.Status = targetStatus
 	s.status.Reason = reason
@@ -178,5 +186,21 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 		lvl = logrus.WarnLevel
 	}
 	logger.Log(lvl, "shard status changed")
+	return nil
+}
+
+// rearmHeldMigrationsUnlocked lets a shard held read-only by unarmed migrations
+// take writes again only once each one is mirrored or recorded as unmirrored.
+func (s *Shard) rearmHeldMigrationsUnlocked() error {
+	held := s.migrationMirrors.heldUnarmed()
+	if len(held) == 0 {
+		return nil
+	}
+	if _, err := s.armRecoveredMigrations(context.Background(), held); err != nil {
+		return fmt.Errorf("shard %q stays %s: the disk is not accepting writes, so a reindex migration "+
+			"can neither re-arm its double-write mirror nor record that it is unarmed: %w",
+			s.name, storagestate.StatusReadOnly, err)
+	}
+	s.migrationMirrors.releaseHeld()
 	return nil
 }
