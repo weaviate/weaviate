@@ -464,6 +464,35 @@ func TestALiftThatStopsWaitingStillArmsTheMirror(t *testing.T) {
 	}
 }
 
+// An arm that ends before the lift writes the status keeps the steps waiting
+// until that write: the shard is still READONLY until then.
+func TestAHeldStepWaitsUntilTheLiftWritesTheStatus(t *testing.T) {
+	fx := newDoubleFaultFixture(t, "tenant-lift-late-arm")
+	lsm := shardPathLSM(fx.idx.path(), fx.name)
+	require.NoError(t, NewMigrationRecordStore(lsm, fx.logger).Put(NewMigrationRecordIterated(fx.subject)))
+	fx.breakDisk(t)
+	shard := fx.load(t)
+	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
+	fx.healRecords(t)
+	require.NoError(t, os.Remove(fx.corrupt))
+
+	shard.statusLock.Lock()
+	unlock := sync.OnceFunc(shard.statusLock.Unlock)
+	t.Cleanup(unlock)
+	lift := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		lift <- shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate)
+	}, fx.logger)
+	require.Eventually(t, func() bool { return len(shard.migrationMirrors.heldUnarmed()) == 0 },
+		10*time.Second, 10*time.Millisecond, "the arm ends")
+	fx.requirePhasesRefused(t, shard, errShardHeldReadOnly.Error(), true)
+	unlock()
+
+	require.NoError(t, receiveWithin(t, lift))
+	require.Equal(t, storagestate.StatusReady, shard.GetStatus())
+	fx.requireSwapProceeds(t, shard)
+}
+
 func receiveWithin[T any](t *testing.T, ch <-chan T) T {
 	select {
 	case v := <-ch:

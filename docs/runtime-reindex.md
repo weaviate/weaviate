@@ -1095,7 +1095,8 @@ Then, per shard load:
        meanwhile is refused, and a lift waits at most 30 s. A retry still
        running then keeps going, and the shard's shutdown waits for it: a
        migration is stamped only because the disk failed, never because a
-       caller stopped waiting. If it arms, the next lift goes writable.
+       caller stopped waiting. If it arms, the next lift goes writable, and
+       the migration's steps wait until then.
      - On a multi-node cluster the status PUT can answer 200 while the
        owning node refused the lift. Confirm with
        `GET /v1/schema/<class>/shards` and the owning node's log.

@@ -18,6 +18,8 @@ type migrationMirrorRegistry struct {
 	disarms map[migrationMirrorKey]func()
 	// Neither armed nor stamped Unmirrored, so the shard stays READONLY while any remain.
 	held []*ShardReindexTaskGeneric
+	// A retry settled every held migration, but the steps wait until a status write makes the shard writable.
+	heldArmed bool
 }
 
 type migrationMirrorKey struct {
@@ -83,19 +85,28 @@ func (r *migrationMirrorRegistry) takeAll(key MigrationRecordKey) []func() {
 func (r *migrationMirrorRegistry) holdUnarmed(tasks []*ShardReindexTaskGeneric) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.held = tasks
+	r.held, r.heldArmed = tasks, false
 }
 
 func (r *migrationMirrorRegistry) heldUnarmed() []*ShardReindexTaskGeneric {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.heldArmed {
+		return nil
+	}
 	return r.held
+}
+
+func (r *migrationMirrorRegistry) markHeldArmed() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.heldArmed = len(r.held) > 0
 }
 
 func (r *migrationMirrorRegistry) releaseHeld() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.held = nil
+	r.held, r.heldArmed = nil, false
 }
 
 func (r *migrationMirrorRegistry) holding() bool {

@@ -184,6 +184,9 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 		return err
 	}
 
+	if targetStatus != storagestate.StatusReadOnly {
+		s.migrationMirrors.releaseHeld()
+	}
 	s.moveCountedStatusUnlocked(targetStatus)
 
 	lvl := logrus.DebugLevel
@@ -224,9 +227,9 @@ func (s *Shard) retryHeldMigrations(in string) error {
 		ec := errorcompounder.New()
 		ec.Add(err)
 		ec.Add(s.store.UpdateBucketsStatus(storagestate.StatusReadOnly))
-		// Released last: while anything is held, the gate refuses a lift that could race the reset.
+		// Marked last, so no lift races the reset. The steps keep waiting until a status write ends the hold.
 		if err == nil {
-			s.migrationMirrors.releaseHeld()
+			s.migrationMirrors.markHeldArmed()
 		}
 		done <- ec.ToError()
 	}, s.index.logger)
