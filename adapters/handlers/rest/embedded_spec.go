@@ -8724,6 +8724,11 @@ func init() {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
+        "completedAt": {
+          "description": "Timestamp when the restoration process completed (successfully or with failure)",
+          "type": "string",
+          "format": "date-time"
+        },
         "error": {
           "description": "Error message if backup restoration failed.",
           "type": "string"
@@ -8735,6 +8740,16 @@ func init() {
         "path": {
           "description": "Destination path of backup files valid for the selected backup backend, contains bucket and path.",
           "type": "string"
+        },
+        "size": {
+          "description": "Size of the backup in Gibs",
+          "type": "number",
+          "format": "float64"
+        },
+        "startedAt": {
+          "description": "Timestamp when the restoration process started",
+          "type": "string",
+          "format": "date-time"
         },
         "status": {
           "description": "Phase of backup restoration process.",
@@ -21673,6 +21688,11 @@ func init() {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
+        "completedAt": {
+          "description": "Timestamp when the restoration process completed (successfully or with failure)",
+          "type": "string",
+          "format": "date-time"
+        },
         "error": {
           "description": "Error message if backup restoration failed.",
           "type": "string"
@@ -21684,6 +21704,16 @@ func init() {
         "path": {
           "description": "Destination path of backup files valid for the selected backup backend, contains bucket and path.",
           "type": "string"
+        },
+        "size": {
+          "description": "Size of the backup in Gibs",
+          "type": "number",
+          "format": "float64"
+        },
+        "startedAt": {
+          "description": "Timestamp when the restoration process started",
+          "type": "string",
+          "format": "date-time"
         },
         "status": {
           "description": "Phase of backup restoration process.",
