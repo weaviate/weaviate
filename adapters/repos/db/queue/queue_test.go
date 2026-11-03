@@ -2469,6 +2469,29 @@ func TestRetention_Mark(t *testing.T) {
 			"every chunk created after Retain replays")
 	})
 
+	t.Run("a chunk a backup kept from before is not replayed", func(t *testing.T) {
+		s := makeScheduler(t)
+		q := makeQueueSize(t, s, discardExecutor(), 50)
+		q.EnableMaintenanceMode()
+		pushMany(t, q, 1, 1, 2, 3, 4)
+		processNext(t, q)
+		time.Sleep(q.staleTimeout)
+		processNext(t, q)
+		kept, tombstoned := chunksOf(t, q)
+		require.Len(t, kept, 2)
+		require.Len(t, tombstoned, 2, "precondition: the queue is empty but a backup keeps its chunks")
+
+		mark, err := q.Retain()
+		require.NoError(t, err)
+		pushMany(t, q, 1, 5)
+		chunks, _ := chunksOf(t, q)
+		require.Len(t, chunks, 3)
+		for _, c := range kept {
+			assert.Less(t, filepath.Base(c), filepath.Base(mark), "a chunk processed before Retain")
+		}
+		assert.LessOrEqual(t, filepath.Base(mark), filepath.Base(chunks[2]), "a chunk created after Retain")
+	})
+
 	t.Run("one retention at a time", func(t *testing.T) {
 		s := makeScheduler(t)
 		q := makeQueueSize(t, s, discardExecutor(), 50)
