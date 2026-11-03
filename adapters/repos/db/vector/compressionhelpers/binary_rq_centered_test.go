@@ -317,6 +317,28 @@ func TestRestoreCenteredRQ1Identity(t *testing.T) {
 	require.Error(t, err, "mean dimension mismatch must be rejected on restore")
 }
 
+// TestCenteredRQ1ShortInputCentersOmittedDims pins the padding semantics of
+// the shared centerInto helper: a short input is zero-padded BEFORE
+// centering, so an omitted coordinate centers to -mean[i] exactly as an
+// explicit zero would. Encoding a short vector and its explicitly
+// zero-padded twin must produce byte-identical codes, for data codes and
+// query codes alike.
+func TestCenteredRQ1ShortInputCentersOmittedDims(t *testing.T) {
+	const dim = 128
+	_, mean := crqTestData(16, dim, 3)
+	rq, err := NewCenteredBinaryRotationalQuantizer(dim, 42, mean, distancer.NewCosineDistanceProvider())
+	require.NoError(t, err)
+
+	short := []float32{0.25, -0.5, 0.75}
+	padded := make([]float32, dim)
+	copy(padded, short)
+
+	assert.Equal(t, rq.Encode(padded), rq.Encode(short),
+		"short input must encode like its zero-padded twin")
+	assert.Equal(t, rq.encodeQuery(padded), rq.encodeQuery(short),
+		"short query must encode like its zero-padded twin")
+}
+
 // Centering remains restricted to bits 1 and 4 on the restore path.
 func TestRestoreRQCompressorRejectsCenteredBits8(t *testing.T) {
 	_, err := RestoreRQCompressor(distancer.NewCosineDistanceProvider(), 1e6, nil,
