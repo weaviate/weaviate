@@ -75,9 +75,9 @@ func f64Dot(a, b []float32) float64 {
 }
 
 // TestCenteredRQ1HeaderAccessors pins the 8-byte header layout: step as
-// float32 in the low 32 bits, squaredNorm as bfloat16 in bits 32..47, ⟨μ,x⟩
-// as bfloat16 in bits 48..63. Step must round-trip exactly; the bf16 fields
-// within RNE error.
+// float32 in the low 32 bits, squaredNorm as bfloat16 in bits 32..47, the
+// CENTERED dot ⟨μ,x-μ⟩ as bfloat16 in bits 48..63. Step must round-trip
+// exactly; the bf16 fields within RNE error.
 func TestCenteredRQ1HeaderAccessors(t *testing.T) {
 	vecs, mean := crqTestData(4, 128, 1)
 	rq, err := NewCenteredBinaryRotationalQuantizer(128, 42, mean, distancer.NewCosineDistanceProvider())
@@ -88,14 +88,14 @@ func TestCenteredRQ1HeaderAccessors(t *testing.T) {
 	h := rq.header(code)
 	assert.Equal(t, float32(0.12345678), h.step, "step is float32-exact")
 	assert.InDelta(t, 0.87654321, h.norm2, 0.87654321/256, "norm2 within bf16 RNE error")
-	assert.InDelta(t, -0.31415927, h.muX, 0.31415927/256, "muX within bf16 RNE error")
+	assert.InDelta(t, -0.31415927, h.dmu, 0.31415927/256, "dmu within bf16 RNE error")
 
-	// the stored muX of a real code matches the float64 reference within
+	// the stored dmu of a real code matches the float64 reference within
 	// bf16 error
 	x := vecs[0]
 	c := rq.Encode(x)
-	exactMuX := f64Dot(mean, x)
-	assert.InDelta(t, exactMuX, float64(rq.header(c).muX), math.Abs(exactMuX)/256+1e-7)
+	exactDmu := f64Dot(mean, x) - f64Dot(mean, mean)
+	assert.InDelta(t, exactDmu, float64(rq.header(c).dmu), math.Abs(exactDmu)/256+1e-7)
 }
 
 // TestCenteredRQ1DispatchAndPlainUnchanged pins that the centered code has
@@ -125,7 +125,7 @@ func TestCenteredRQ1DispatchAndPlainUnchanged(t *testing.T) {
 			assert.Greater(t, pcode.Step(), float32(0), "plain layout: f32 step in lower bits")
 
 			// centered layout: step f32 in low bits, centered norm ≪ 1 in
-			// bf16, muX in bf16
+			// bf16, centered dot ⟨μ,x-μ⟩ in bf16
 			h := centered.header(cc)
 			assert.Greater(t, h.step, float32(0))
 			exactN2 := func() float64 {
@@ -137,7 +137,8 @@ func TestCenteredRQ1DispatchAndPlainUnchanged(t *testing.T) {
 				return s
 			}()
 			assert.InDelta(t, exactN2, float64(h.norm2), exactN2/128+1e-6, "centered norm2 stores |x-μ|²")
-			assert.InDelta(t, f64Dot(mean, x), float64(h.muX), math.Abs(f64Dot(mean, x))/128+1e-6)
+			exactDmu := f64Dot(mean, x) - f64Dot(mean, mean)
+			assert.InDelta(t, exactDmu, float64(h.dmu), math.Abs(exactDmu)/128+1e-6)
 		})
 	}
 }
@@ -194,9 +195,9 @@ func TestCenteredRQ1EstimatorVsF32Arm(t *testing.T) {
 			require.NoError(t, err)
 
 			// f32 arm: the only bf16 field in the query->code cosine path is
-			// muX; substitute the float64-exact value.
-			muXExact := f64Dot(mean, x)
-			estF32 := float64(est) + float64(rq.header(code).muX) - muXExact
+			// the centered dot; substitute the float64-exact value.
+			dmuExact := f64Dot(mean, x) - mu2
+			estF32 := float64(est) + float64(rq.header(code).dmu) - dmuExact
 
 			exact := 1 - f64Dot(q, x)
 			errBF := float64(est) - exact
@@ -218,16 +219,18 @@ func TestCenteredRQ1EstimatorVsF32Arm(t *testing.T) {
 	// estimator quality: 1-bit codes on hard anisotropic data
 	assert.Less(t, math.Abs(sumErrBF/nF), 0.02, "estimator bias")
 	assert.Less(t, sumAbsBF/nF, 0.08, "estimator mean abs error")
-	// bf16 vs f32 arm: per-pair difference bounded by bf16 RNE on muX
-	// (|muX| ≲ 1 → ≤ ~2^-8), and the aggregate error must not move
-	assert.Less(t, maxPairDiff, 0.005, "bf16 muX may not move any distance more than RNE allows")
+	// bf16 vs f32 arm: per-pair difference bounded by bf16 RNE on the
+	// centered dot (|⟨μ,x-μ⟩| ≪ 1 → ≤ ~2^-8), and the aggregate error must
+	// not move
+	assert.Less(t, maxPairDiff, 0.005, "bf16 dmu may not move any distance more than RNE allows")
 	assert.Less(t, math.Abs(sumErrBF/nF-sumErrF32/nF), 1e-3, "bf16 must not shift the estimator bias")
 	assert.Less(t, math.Abs(sumAbsBF/nF-sumAbsF32/nF), 1e-3, "bf16 must not widen the estimator error")
 }
 
 // TestCenteredRQ1CompressedCompressed checks the code-to-code estimator
 // (graph maintenance path), which reads both bf16 fields — norms via the
-// angle estimate, muX via the correction — against the float64 reference.
+// angle estimate, the centered dots via the correction — against the
+// float64 reference.
 // The constant term must come from the code's own Dimension(), so codes of
 // one width computed by a quantizer of another width fail loudly rather
 // than silently misscale (the OutputDim-assumption class of bug).
@@ -337,6 +340,99 @@ func TestCenteredRQ1ShortInputCentersOmittedDims(t *testing.T) {
 		"short input must encode like its zero-padded twin")
 	assert.Equal(t, rq.encodeQuery(padded), rq.encodeQuery(short),
 		"short query must encode like its zero-padded twin")
+}
+
+// TestCenteredRQ1HighBiasDotRanking pins why the header stores the CENTERED
+// dot ⟨μ,x-μ⟩ and not the absolute ⟨μ,x⟩: with μ = q = 1000·e₁ and data
+// points straddling μ at ±0.25, the absolute dots 999750 and 1000250 both
+// round to the same bf16 value, erasing the ranking before rescoring can see
+// it. The centered dots are ∓250, bf16-exact, so the distances come out
+// exact and ordered.
+func TestCenteredRQ1HighBiasDotRanking(t *testing.T) {
+	const dim = 128
+	dot := distancer.NewDotProductProvider()
+	mean := make([]float32, dim)
+	mean[0] = 1000
+	rq, err := NewCenteredBinaryRotationalQuantizer(dim, 42, mean, dot)
+	require.NoError(t, err)
+
+	q := make([]float32, dim)
+	q[0] = 1000
+	near := make([]float32, dim)
+	near[0] = 999.75
+	far := make([]float32, dim)
+	far[0] = 1000.25
+
+	d := rq.NewDistancer(q)
+	dNear, err := d.Distance(rq.Encode(near))
+	require.NoError(t, err)
+	dFar, err := d.Distance(rq.Encode(far))
+	require.NoError(t, err)
+
+	// q-μ = 0, so the code estimate contributes nothing and the correction
+	// carries the whole distance: -⟨x,q⟩ exactly.
+	assert.InDelta(t, -999750, dNear, 1)
+	assert.InDelta(t, -1000250, dFar, 1)
+	assert.Greater(t, dNear, dFar,
+		"dot ranking near μ must survive bf16; absolute ⟨μ,x⟩ storage collapses it to a tie")
+}
+
+// TestCenteredRQ1EmptyQuery pins the empty-query (zero-vector) semantics:
+// the query must be centered unconditionally, so its centered form is -μ and
+// the correction constant is ⟨μ,0⟩ = 0. Skipping the centering (the old
+// len(q)>0 guard) made the L2 distance from an empty query to x=μ come out
+// 0 instead of ‖μ‖², and the dot distance -‖μ‖² instead of 0.
+func TestCenteredRQ1EmptyQuery(t *testing.T) {
+	const dim = 128
+	_, mean := crqTestData(16, dim, 6)
+	var mu2 float64
+	for _, m := range mean {
+		mu2 += float64(m) * float64(m)
+	}
+
+	t.Run("dot", func(t *testing.T) {
+		rq, err := NewCenteredBinaryRotationalQuantizer(dim, 42, mean, distancer.NewDotProductProvider())
+		require.NoError(t, err)
+		got, err := rq.NewDistancer(nil).Distance(rq.Encode(mean))
+		require.NoError(t, err)
+		assert.InDelta(t, 0, got, 0.02*mu2+1e-4, "dot distance to the zero query is -⟨x,0⟩ = 0")
+	})
+
+	t.Run("l2", func(t *testing.T) {
+		rq, err := NewCenteredBinaryRotationalQuantizer(dim, 42, mean, distancer.NewL2SquaredProvider())
+		require.NoError(t, err)
+		got, err := rq.NewDistancer(nil).Distance(rq.Encode(mean))
+		require.NoError(t, err)
+		assert.InDelta(t, mu2, got, 0.05*mu2+1e-4, "l2 distance from the zero query to x=μ is ‖μ‖²")
+	})
+}
+
+// TestCenteredRQ1L2SkipsNonFiniteCorrection pins that the L2 path branches
+// around the centering correction instead of multiplying it by zero: with
+// mean entries around 1e20 the mean products overflow float32, and
+// 0·(±Inf) = NaN would poison a perfectly finite centered estimate. Both the
+// query→code and the code→code estimators are covered.
+func TestCenteredRQ1L2SkipsNonFiniteCorrection(t *testing.T) {
+	const dim = 128
+	l2 := distancer.NewL2SquaredProvider()
+	mean := make([]float32, dim)
+	mean[0] = 1e20 // meanNorm2 = 1e40 → +Inf in float32
+	rq, err := NewCenteredBinaryRotationalQuantizer(dim, 42, mean, l2)
+	require.NoError(t, err)
+
+	x := make([]float32, dim)
+	x[0] = 1e20
+	code := rq.Encode(x)
+
+	got, err := rq.NewDistancer(x).Distance(code)
+	require.NoError(t, err)
+	assert.False(t, math.IsNaN(float64(got)), "l2 distance must not be NaN")
+	assert.InDelta(t, 0, got, 1e-3, "x and q coincide with μ, the centered l2 distance is 0")
+
+	cc, err := rq.DistanceBetweenCompressedVectors(code, code)
+	require.NoError(t, err)
+	assert.False(t, math.IsNaN(float64(cc)), "code-to-code l2 distance must not be NaN")
+	assert.InDelta(t, 0, cc, 1e-3)
 }
 
 // Centering remains restricted to bits 1 and 4 on the restore path.

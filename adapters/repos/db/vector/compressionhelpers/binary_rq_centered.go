@@ -32,9 +32,15 @@ import (
 //	word 0, bits  0..31: step  = ‖x-μ‖²/‖x-μ‖₁ of the rotated centered
 //	                     vector, float32 (exact, it scales every estimate)
 //	word 0, bits 32..47: squaredNorm = ‖x-μ‖², bfloat16
-//	word 0, bits 48..63: ⟨μ, x⟩, bfloat16 (the additive centering
-//	                     correction; RNE error ≤2⁻⁸ is far below 1-bit
-//	                     estimator noise)
+//	word 0, bits 48..63: ⟨μ, x-μ⟩, bfloat16 (the data-side term of the
+//	                     centering correction). The CENTERED dot is stored,
+//	                     not ⟨μ, x⟩: centering makes x-μ small, so bf16's
+//	                     2⁻⁸ relative error lands on a small magnitude.
+//	                     Storing the absolute ⟨μ, x⟩ would attach that
+//	                     relative error to the large shared-mean component
+//	                     and erase the very differences between neighbors
+//	                     the header exists to preserve (x≈μ with a large
+//	                     ‖μ‖ collapses to bf16 ties).
 //	words 1..: sign bits, 64 dimensions per word
 //
 // The layout is dispatched by construction — this type writes and reads
@@ -167,20 +173,20 @@ func RestoreCenteredBinaryRotationalQuantizer(inputDim int, outputDim int, round
 type crqHeader struct {
 	step  float32
 	norm2 float32 // ‖x-μ‖²
-	muX   float32 // ⟨μ, x⟩
+	dmu   float32 // ⟨μ, x-μ⟩, see the layout comment for why it is centered
 }
 
-func (rq *CenteredBinaryRotationalQuantizer) putHeader(c []uint64, step, norm2, muX float32) {
+func (rq *CenteredBinaryRotationalQuantizer) putHeader(c []uint64, step, norm2, dmu float32) {
 	c[0] = uint64(math.Float32bits(step)) |
 		uint64(float32ToBFloat16(norm2))<<32 |
-		uint64(float32ToBFloat16(muX))<<48
+		uint64(float32ToBFloat16(dmu))<<48
 }
 
 func (rq *CenteredBinaryRotationalQuantizer) header(c []uint64) crqHeader {
 	return crqHeader{
 		step:  math.Float32frombits(uint32(c[0])),
 		norm2: bfloat16ToFloat32(uint16(c[0] >> 32)),
-		muX:   bfloat16ToFloat32(uint16(c[0] >> 48)),
+		dmu:   bfloat16ToFloat32(uint16(c[0] >> 48)),
 	}
 }
 
@@ -190,8 +196,8 @@ func (rq *CenteredBinaryRotationalQuantizer) Encode(x []float32) []uint64 {
 	// The package-level centerInto (rq4.go) runs both the subtraction and
 	// the dot product on SIMD kernels and zero-pads short inputs before
 	// centering, so omitted coordinates center to -mean[i] exactly like an
-	// explicit zero would. It returns ⟨x-μ, μ⟩; the header stores
-	// ⟨μ, x⟩ = ⟨x-μ, μ⟩ + ⟨μ, μ⟩.
+	// explicit zero would. Its ⟨x-μ, μ⟩ return is exactly what the header
+	// stores.
 	cx, dmu := centerInto(scratch.cx, x, rq.mean)
 	rx := rq.rotation.RotateInto(cx, scratch.rx)
 	d := len(rx)
@@ -220,8 +226,8 @@ func (rq *CenteredBinaryRotationalQuantizer) Encode(x []float32) []uint64 {
 		step = l2NormSquared / l1Norm
 	}
 	// The header is written even for the degenerate x == μ case: the
-	// centering correction ⟨μ,x⟩ still applies to the distance.
-	rq.putHeader(code, step, l2NormSquared, dmu+rq.meanNorm2)
+	// centering correction still applies to the distance.
+	rq.putHeader(code, step, l2NormSquared, dmu)
 	return code
 }
 
@@ -329,42 +335,44 @@ type CenteredBinaryRQDistancer struct {
 	distancer distancer.Provider
 	rq        *CenteredBinaryRotationalQuantizer
 	cq        RQMultiBitCode
-	corrQ     float32 // ⟨μ,q⟩ - ⟨μ,μ⟩, query-side constant of the correction
+	corrQ     float32 // ⟨μ,q⟩, query-side constant of the correction
 }
 
 func (rq *CenteredBinaryRotationalQuantizer) NewDistancer(q []float32) *CenteredBinaryRQDistancer {
 	// Center once: the SIMD centerInto yields both the centered query for
-	// the code and ⟨q-μ, μ⟩ = ⟨μ,q⟩ - ⟨μ,μ⟩, the query-side constant of the
-	// correction, so the full-length ⟨μ,q⟩ pass of the scalar version is
-	// gone.
-	var corrQ float32
-	var cq RQMultiBitCode
-	if len(q) > 0 {
-		scratch := rq.scratch.Get().(*crq1Scratch)
-		cqv, qmd := centerInto(scratch.cx, q, rq.mean)
-		corrQ = qmd
-		cq = rq.encodeRotatedQuery(rq.rotation.RotateInto(cqv, scratch.rx))
-		rq.scratch.Put(scratch)
-	}
+	// the code and ⟨q-μ, μ⟩; the correction needs ⟨μ,q⟩ = ⟨q-μ, μ⟩ + ⟨μ,μ⟩,
+	// so the full-length ⟨μ,q⟩ pass of the scalar version is gone. The
+	// centering is unconditional: an empty query is the zero vector, whose
+	// centered form is -μ — skipping it would leave a zero code whose L2
+	// distance to x=μ comes out 0 instead of ‖μ‖², and a zero corrQ where
+	// ⟨μ,0⟩=0 only by luck of the old formula.
+	scratch := rq.scratch.Get().(*crq1Scratch)
+	cqv, qmd := centerInto(scratch.cx, q, rq.mean)
+	cq := rq.encodeRotatedQuery(rq.rotation.RotateInto(cqv, scratch.rx))
+	rq.scratch.Put(scratch)
 	return &CenteredBinaryRQDistancer{
 		query:     q,
 		distancer: rq.distancer,
 		rq:        rq,
 		cq:        cq,
-		corrQ:     corrQ,
+		corrQ:     qmd + rq.meanNorm2,
 	}
 }
 
 // Distance estimates the distance between the query and a centered 1-bit
 // code. The multi-bit/1-bit dot product estimates ⟨x-μ, q-μ⟩; for
-// dot-based distancers the additive correction ⟨μ,x⟩ + ⟨μ,q⟩ - ⟨μ,μ⟩
-// restores an estimate of ⟨x, q⟩. For l2 no correction is needed:
-// distances are translation-invariant, so the centered norms and dot are
-// used directly.
+// dot-based distancers the additive correction ⟨μ,x-μ⟩ + ⟨μ,q⟩ restores an
+// estimate of ⟨x, q⟩. For l2 the correction is skipped entirely, not
+// multiplied by zero: distances are translation-invariant so none is
+// needed, and 0·(±Inf) from an overflowing mean product would poison the
+// finite centered estimate with a NaN.
 func (d *CenteredBinaryRQDistancer) Distance(x []uint64) (float32, error) {
 	h := d.rq.header(x)
 	codeBits := x[oneBitFieldWords:]
-	corr := d.rq.dotFam * (h.muX + d.corrQ)
+	var corr float32
+	if d.rq.dotFam != 0 {
+		corr = h.dmu + d.corrQ
+	}
 
 	const hammingDistSIMDThreshold = 512
 	var dot float32
@@ -485,9 +493,11 @@ func (rq *CenteredBinaryRotationalQuantizer) Stats() CompressionStats {
 
 // DistanceBetweenCompressedVectors estimates the distance between two
 // centered 1-bit codes via the Hamming angle estimate on the centered
-// vectors, plus the centering correction for dot-based distancers. The
-// dimension comes from the code itself, never from the quantizer's rotation
-// width.
+// vectors, plus the centering correction ⟨μ,x-μ⟩ + ⟨μ,y-μ⟩ + ⟨μ,μ⟩ for
+// dot-based distancers (⟨x,y⟩ = ⟨x-μ,y-μ⟩ + ⟨μ,x-μ⟩ + ⟨μ,y-μ⟩ + ⟨μ,μ⟩).
+// For l2 the correction is skipped entirely, not multiplied by zero — see
+// Distance. The dimension comes from the code itself, never from the
+// quantizer's rotation width.
 func (rq *CenteredBinaryRotationalQuantizer) DistanceBetweenCompressedVectors(x, y []uint64) (float32, error) {
 	if len(x) != len(y) {
 		return 0, errors.Errorf("code lengths don't match: %d vs %d", len(x), len(y))
@@ -497,6 +507,9 @@ func (rq *CenteredBinaryRotationalQuantizer) DistanceBetweenCompressedVectors(x,
 	fractionDiff := float64(HammingDist(x[oneBitFieldWords:], y[oneBitFieldWords:])) / float64(dim)
 	cosEstimate := math.Cos(math.Pi * fractionDiff)
 	dotEstimate := float32(math.Sqrt(float64(hx.norm2)) * math.Sqrt(float64(hy.norm2)) * cosEstimate)
-	corr := rq.dotFam * (hx.muX + hy.muX - rq.meanNorm2)
+	var corr float32
+	if rq.dotFam != 0 {
+		corr = hx.dmu + hy.dmu + rq.meanNorm2
+	}
 	return rq.l2*(hx.norm2+hy.norm2) + rq.cos - (1.0+rq.l2)*dotEstimate - corr, nil
 }
