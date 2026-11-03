@@ -87,9 +87,7 @@ func newClusterClient(t *testing.T, dc *docker.DockerContainer) *weaviate.Client
 	require.NoErrorf(t, err, "split REST URI", dc.URI())
 
 	grpcHost, grpcPort, err := net.SplitHostPort(dc.GrpcURI())
-	require.NoErrorf(t, err,
-		"split gRPC URI: %s\nmore data: (cluster_uri=%s)",
-		dc.GrpcURI(), dc.ClusterURI())
+	require.NoErrorf(t, err, "split gRPC URI: %s", dc.GrpcURI())
 
 	return wvhost.NewClient(t,
 		weaviate.WithHTTPHost(restHost),
