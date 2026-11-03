@@ -1112,9 +1112,9 @@ func initReindexAndDistributedTasks(
 		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 		serverShutdownCtx,
 	)
-	// Seed re-uses the SAME task instances ShardReindexerV3 registered, so
-	// OnGroupCompleted's swap phase doesn't take the rehydrate path and try
-	// to load already-loaded ingest buckets.
+	// Seed the task instances shard load already armed, so a recovered unit's
+	// PREP and swap reuse them instead of rebuilding them from disk. The
+	// scheduler keeps the seed until its task leaves the task list.
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider

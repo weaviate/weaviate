@@ -328,7 +328,7 @@ func (s *Scheduler) bootstrapProviders(tasksByNamespace map[string]map[TaskDescr
 	for namespace, provider := range s.providers {
 		startedTasks := s.filterStartedTasks(tasksByNamespace[namespace])
 
-		s.cleanupStaleTasks(namespace, provider, startedTasks)
+		s.cleanupStaleTasks(namespace, provider, tasksByNamespace[namespace])
 		s.startActiveTasks(namespace, provider, startedTasks)
 
 		s.tasksRunning.
@@ -401,10 +401,10 @@ func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]m
 }
 
 // cleanupStaleTasks removes local state for tasks that the provider knows about
-// but that are no longer active in the cluster.
-func (s *Scheduler) cleanupStaleTasks(namespace string, provider Provider, startedTasks map[TaskDescriptor]*Task) {
+// but that are no longer in the task list, the same rule as the tick's cleanup.
+func (s *Scheduler) cleanupStaleTasks(namespace string, provider Provider, tasks map[TaskDescriptor]*Task) {
 	for _, taskDesc := range provider.GetLocalTasks() {
-		if _, ok := startedTasks[taskDesc]; ok {
+		if _, ok := tasks[taskDesc]; ok {
 			continue
 		}
 

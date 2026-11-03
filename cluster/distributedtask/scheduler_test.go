@@ -366,6 +366,28 @@ func TestRemoveCleanedUpTaskLocalStateOnStartup(t *testing.T) {
 	}
 }
 
+func TestKeepLocalStateOfListedTasksOnStartup(t *testing.T) {
+	desc := TaskDescriptor{ID: "1", Version: 7}
+	for _, status := range []TaskStatus{
+		TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping, TaskStatusFinished,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			provider := newTestTaskProvider(t, []TaskDescriptor{desc})
+			h := newTestHarness(t)
+			h.registeredProviders = map[string]Provider{h.tasksNamespace: provider}
+			h = h.init(t)
+			defer h.Close()
+
+			// The local unit is done, so a STARTED task is not restarted either.
+			task := &Task{Namespace: h.tasksNamespace, TaskDescriptor: desc, Status: status}
+			task.SetUnits(map[string]*Unit{"su-1": {ID: "su-1", NodeID: h.localNodeID, Status: UnitStatusCompleted}})
+			h.scheduler.bootstrapProviders(map[string]map[TaskDescriptor]*Task{h.tasksNamespace: {desc: task}})
+
+			require.Len(t, provider.cleanedUpCh, 0)
+		})
+	}
+}
+
 func TestRemoveCleanedUpTaskLocalStateDuringRuntime(t *testing.T) {
 	defer leaktest.Check(t)()
 
