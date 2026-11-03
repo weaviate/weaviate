@@ -251,11 +251,9 @@ func NewShardReindexerV3FromRecovered(
 
 // SeedReindexProviderFromRecovery pre-populates the provider's
 // per-descriptor task cache with instances reconstructed during startup
-// recovery. The purpose is to make [ReindexProvider.OnGroupCompleted]
-// reuse the recovered instances — whose double-write callbacks were
-// re-registered during shard init — rather than fall through to the
-// rehydrate branch and call [OnAfterLsmInit] a second time (which would
-// attempt to load already-loaded ingest buckets).
+// recovery, so [ReindexProvider.OnGroupCompleted] and
+// [ReindexProvider.OnSwapRequested] reuse them rather than rebuild them from
+// disk and run OnAfterLsmInit a second time.
 //
 // Pass the same slice as was given to [NewShardReindexerV3FromRecovered]
 // so the in-memory instances stay in sync between the two consumers.

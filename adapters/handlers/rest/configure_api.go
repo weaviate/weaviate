@@ -1113,8 +1113,7 @@ func initReindexAndDistributedTasks(
 		serverShutdownCtx,
 	)
 	// Seed the task instances shard load already armed, so a recovered unit's
-	// PREP and swap reuse them instead of rebuilding them from disk. The
-	// scheduler keeps the seed until its task leaves the task list.
+	// PREP and swap reuse them instead of rebuilding them from disk.
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
