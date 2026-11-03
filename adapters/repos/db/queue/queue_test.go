@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -2317,4 +2318,67 @@ func TestStartupRemovesStrayEmptyChunk(t *testing.T) {
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 	require.Empty(t, entries)
+}
+
+// chunksOf returns the chunk files in q's directory, oldest first, and
+// whether each carries a .processed tombstone.
+func chunksOf(t *testing.T, q *DiskQueue) (chunks []string, tombstoned map[string]bool) {
+	t.Helper()
+	entries, err := os.ReadDir(q.dir)
+	require.NoError(t, err)
+	tombstoned = map[string]bool{}
+	for _, e := range entries {
+		switch {
+		case chunkFilePattern.MatchString(e.Name()):
+			chunks = append(chunks, filepath.Join(q.dir, e.Name()))
+		case processedChunkFilePattern.MatchString(e.Name()):
+			tombstoned[filepath.Join(q.dir, strings.TrimSuffix(e.Name(), ".processed"))] = true
+		}
+	}
+	return chunks, tombstoned
+}
+
+// processNext dequeues the next batch and marks it done.
+func processNext(t *testing.T, q *DiskQueue) {
+	t.Helper()
+	batch, err := q.DequeueBatch()
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+	batch.Done()
+}
+
+// A retention keeps every processed chunk from its mark on, while the
+// consumer moves past it, and its release deletes them.
+func TestRetention_KeepsProcessedChunksUntilReleased(t *testing.T) {
+	s := makeScheduler(t)
+	q := makeQueueSize(t, s, discardExecutor(), 50)
+	// three chunks of three records, the last one still being written
+	pushMany(t, q, 1, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+	chunks, _ := chunksOf(t, q)
+	require.Len(t, chunks, 3)
+
+	r, err := q.Retain()
+	require.NoError(t, err)
+	assert.Equal(t, chunks[0], r.Mark())
+
+	processNext(t, q)
+	processNext(t, q)
+	kept, tombstoned := chunksOf(t, q)
+	assert.Equal(t, chunks, kept, "processed chunks stay on disk")
+	assert.True(t, tombstoned[chunks[0]])
+	assert.True(t, tombstoned[chunks[1]])
+	assert.False(t, tombstoned[chunks[2]])
+	assert.EqualValues(t, 3, q.Size(), "the consumer moved past the kept chunks")
+
+	require.NoError(t, r.Release())
+	kept, tombstoned = chunksOf(t, q)
+	assert.Equal(t, chunks[2:], kept)
+	assert.Empty(t, tombstoned)
+	require.NoError(t, r.Release(), "a second release is a no-op")
+
+	// without a retention a processed chunk goes at once
+	time.Sleep(q.staleTimeout)
+	processNext(t, q)
+	kept, _ = chunksOf(t, q)
+	assert.Empty(t, kept)
 }
