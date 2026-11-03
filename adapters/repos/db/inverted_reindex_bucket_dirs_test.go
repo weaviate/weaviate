@@ -102,7 +102,7 @@ func TestPromoteGuardsBothHandles(t *testing.T) {
 		{name: "the directory to promote escapes", from: "..", to: "property_title_searchable", refused: true},
 		{name: "the name to promote onto escapes", from: "property_title__g42_ingest", to: "..", refused: true},
 		{name: "neither names a directory", from: "", to: "", refused: true},
-		// Promote doesn't clear the destination. The caller does.
+		// Promote doesn't clear the destination; that's the caller's job.
 		{name: "both name one directory", from: "property_title__g42_ingest", to: "property_title_rangeable"},
 	}
 
@@ -130,9 +130,9 @@ func TestPromoteGuardsBothHandles(t *testing.T) {
 	}
 }
 
-// Only a missing path reads as absent. Any other stat error must fail the
-// probe, or a promotion probe takes "cannot see it" as proof a rename ran.
-func TestBucketDirsExistsSeparatesAbsentFromUnreadable(t *testing.T) {
+// A stat failure must not read as absent, or a promotion probe takes
+// "cannot see it" as proof a rename already ran.
+func TestDirExistsSeparatesAbsentFromUnreadable(t *testing.T) {
 	tests := []struct {
 		name     string
 		dir      string
@@ -176,6 +176,8 @@ func TestBucketDirsExistsSeparatesAbsentFromUnreadable(t *testing.T) {
 	}
 }
 
+// removeBucketsDirs is the task-level caller of Discard; this pins that the
+// guard still holds one level up, through the task's bucket namer.
 func TestRemoveBucketsDirsRemovesOnlyTheNamedDirectory(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -195,7 +197,7 @@ func TestRemoveBucketsDirsRemovesOnlyTheNamedDirectory(t *testing.T) {
 			shard := NewMockShardLike(t)
 			shard.EXPECT().pathLSM().Return(f.lsmPath)
 			logger, _ := test.NewNullLogger()
-			task := newTestTask(logger, &MapToBlockmaxStrategy{generation: 1})
+			task := newTestTask(logger, &MapToBlockmaxStrategy{generation: 1}, "test-unit")
 
 			err := task.removeBucketsDirs(testCtx(), logger, shard, []string{"title"},
 				func(string) string { return tt.bucket })

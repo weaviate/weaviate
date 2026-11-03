@@ -14,36 +14,81 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/diskio"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func mkTrackerDir(t *testing.T, lsmPath, name string, sentinels ...string) {
+func mkMigrationRecord(t *testing.T, lsmPath string, code MigrationStrategyCode, version uint64,
+	state MigrationState, staged map[string]string,
+) {
 	t.Helper()
-	dir := filepath.Join(lsmPath, ".migrations", name)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	for _, s := range sentinels {
-		require.NoError(t, os.WriteFile(filepath.Join(dir, s), []byte("x"), 0o644))
+	subject := MigrationSubject{
+		Key: MigrationRecordKey{
+			TaskVersion:  version,
+			StrategyCode: code,
+			UnitID:       "shard-1__node-0",
+		},
+		TaskID:        fixtureTaskID(code, version),
+		MigrationType: fixtureMigrationTypes[code],
+		Collection:    "Books",
+		Props:         map[string]MigrationPropertyDirs{},
 	}
+	for prop, dir := range staged {
+		subject.Props[prop] = MigrationPropertyDirs{
+			Staged: dir,
+			// The canonical directory is the strategy's own source bucket;
+			// the record writer refuses any other name.
+			Canonical: sourceBucketNameFor(code, prop),
+			Sidecar:   fixtureSidecarFor(dir),
+		}
+	}
+
+	rec := newMigrationRecordAt(t, subject, state)
+
+	logger, _ := test.NewNullLogger()
+	require.NoError(t, os.MkdirAll(lsmPath, 0o777))
+	store := NewMigrationRecordStore(lsmPath, logger)
+	if len(subject.Properties()) == 0 {
+		plantMigrationRecordFile(t, store, rec)
+		return
+	}
+	require.NoError(t, store.Put(rec))
 }
 
-// mkRecoveryPayload writes the payload.mig a task persists before it starts,
-// which is what says whose properties a tracker dir belongs to.
-func mkRecoveryPayload(t *testing.T, lsmPath, trackerName string, props ...string) {
+// plantMigrationRecordFile writes a record the way the store's Put does, minus
+// the refusal of a property-less record: the writer never makes one, but the
+// read path still meets them on disk.
+func plantMigrationRecordFile(t *testing.T, store *MigrationRecordStore, rec MigrationRecord) {
 	t.Helper()
-	payload, err := json.Marshal(map[string]any{
-		"payload": map[string]any{"properties": props},
-	})
+	data, err := json.MarshalIndent(rec.toEnvelope(), "", "  ")
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, ".migrations", trackerName, reindexRecoveryPayloadFile),
-		payload, 0o644))
+	require.NoError(t, os.MkdirAll(store.Dir(), 0o777))
+	require.NoError(t, writeFileAtomic(store.Dir(), rec.Subject().Key.fileName(), data))
+}
+
+var fixtureMigrationTypes = map[MigrationStrategyCode]ReindexMigrationType{
+	StrategyCodeSearchableMapToBlockmax:     ReindexTypeChangeAlgorithm,
+	StrategyCodeFilterableRoaringsetRefresh: ReindexTypeRepairFilterable,
+	StrategyCodeFilterableToRangeable:       ReindexTypeEnableRangeable,
+	StrategyCodeSearchableRetokenize:        ReindexTypeChangeTokenization,
+	StrategyCodeFilterableRetokenize:        ReindexTypeChangeTokenizationFilterable,
+	StrategyCodeEnableFilterable:            ReindexTypeEnableFilterable,
+	StrategyCodeEnableSearchable:            ReindexTypeEnableSearchable,
+	StrategyCodeRebuildSearchable:           ReindexTypeRebuildSearchable,
+}
+
+func fixtureTaskID(code MigrationStrategyCode, version uint64) string {
+	return fmt.Sprintf("fixture:%s:%d", code, version)
 }
 
 func mkSidecarDir(t *testing.T, lsmPath, name string) {
@@ -53,23 +98,29 @@ func mkSidecarDir(t *testing.T, lsmPath, name string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "segment-0.db"), []byte("x"), 0o644))
 }
 
-// cleanSweep runs one shard's partial-reindex sweep, requires it to succeed,
-// and hands back the tracker payloads it read.
-func cleanSweep(t *testing.T, ctx context.Context, shard *Shard, propName, indexType string) int {
+// cleanSweep runs one shard's partial-reindex sweep and requires it to succeed.
+func cleanSweep(t *testing.T, ctx context.Context, shard *Shard, propName, indexType string) {
 	t.Helper()
-	reads, err := shard.CleanStalePartialReindexState(ctx, propName, indexType)
+	require.NoError(t, shard.CleanStalePartialReindexState(ctx, propName, indexType))
+}
+
+func fixtureSidecarFor(staged string) string {
+	if reindex := strings.Replace(staged, "_ingest_", "_reindex_", 1); reindex != staged {
+		return reindex
+	}
+	return staged + "__reindex"
+}
+
+func dirExists(t *testing.T, path string) bool {
+	t.Helper()
+	there, err := diskio.DirExists(path)
 	require.NoError(t, err)
-	return reads
+	return there
 }
 
 func dirExistsAt(t *testing.T, lsmPath, name string) bool {
 	t.Helper()
-	info, err := os.Stat(filepath.Join(lsmPath, name))
-	if err != nil {
-		require.True(t, os.IsNotExist(err), "unexpected stat error: %v", err)
-		return false
-	}
-	return info.IsDir()
+	return dirExists(t, filepath.Join(lsmPath, name))
 }
 
 // TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize pins
@@ -80,36 +131,33 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 		name      string
 		propName  string
 		indexType string
-		// class-level completed tracker + its live ingest sidecar
-		classTracker string
-		liveSidecar  string
-		// per-prop completed tracker + its live ingest sidecar
-		propTracker     string
+		// class-level completed migration + its live ingest sidecar
+		classCode   MigrationStrategyCode
+		liveSidecar string
+		// per-prop completed migration + its live ingest sidecar
+		propCode        MigrationStrategyCode
 		propLiveSidecar string
 		// stale cancelled class-level attempt, must still be deleted
-		staleTracker string
 		staleSidecar string
 	}{
 		{
 			name:            "filterable: roaringset refresh gen 2 survives",
 			propName:        "category",
 			indexType:       "filterable",
-			classTracker:    "filterable_roaringset_refresh_2",
+			classCode:       StrategyCodeFilterableRoaringsetRefresh,
 			liveSidecar:     "property_category__roaringset_ingest_2",
-			propTracker:     "enable_filterable_category_1",
+			propCode:        StrategyCodeEnableFilterable,
 			propLiveSidecar: "property_category__enable_filterable_ingest_1",
-			staleTracker:    "filterable_roaringset_refresh_3",
 			staleSidecar:    "property_category__roaringset_ingest_3",
 		},
 		{
 			name:            "searchable: map_to_blockmax gen 2 survives",
 			propName:        "descr",
 			indexType:       "searchable",
-			classTracker:    "searchable_map_to_blockmax_2",
+			classCode:       StrategyCodeSearchableMapToBlockmax,
 			liveSidecar:     "property_descr_searchable__blockmax_ingest_2",
-			propTracker:     "searchable_retokenize_descr_1",
+			propCode:        StrategyCodeSearchableRetokenize,
 			propLiveSidecar: "property_descr_searchable__retokenize_ingest_1",
-			staleTracker:    "searchable_map_to_blockmax_3",
 			staleSidecar:    "property_descr_searchable__blockmax_ingest_3",
 		},
 	}
@@ -125,19 +173,21 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 			defer shard.Shutdown(ctx)
 			lsm := shard.pathLSM()
 
-			// Completed class-level migration in deferred-finalize state.
-			mkTrackerDir(t, lsm, tc.classTracker,
-				"started.mig", "merged.mig", "swapped.mig", "tidied.mig", "properties.mig")
+			mkMigrationRecord(t, lsm, tc.classCode, 2, MigrationStateSwapped,
+				map[string]string{tc.propName: tc.liveSidecar})
 			mkSidecarDir(t, lsm, tc.liveSidecar)
+			mkSidecarDir(t, lsm, fixtureSidecarFor(tc.liveSidecar))
 
-			// Completed per-prop migration in deferred-finalize state.
-			mkTrackerDir(t, lsm, tc.propTracker,
-				"started.mig", "merged.mig", "swapped.mig", "tidied.mig")
+			mkMigrationRecord(t, lsm, tc.propCode, 1, MigrationStateSwapped,
+				map[string]string{tc.propName: tc.propLiveSidecar})
 			mkSidecarDir(t, lsm, tc.propLiveSidecar)
+			mkSidecarDir(t, lsm, fixtureSidecarFor(tc.propLiveSidecar))
 
 			// Cancelled (partial) class-level attempt: stale, must be wiped.
-			mkTrackerDir(t, lsm, tc.staleTracker, "started.mig")
+			mkMigrationRecord(t, lsm, tc.classCode, 3, MigrationStateIterating,
+				map[string]string{tc.propName: tc.staleSidecar})
 			mkSidecarDir(t, lsm, tc.staleSidecar)
+			mkSidecarDir(t, lsm, fixtureSidecarFor(tc.staleSidecar))
 
 			cleanSweep(t, ctx, shard, tc.propName, tc.indexType)
 
@@ -151,14 +201,12 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 			require.False(t, dirExistsAt(t, lsm, tc.staleSidecar),
 				"stale sidecar %s of a cancelled attempt must be wiped", tc.staleSidecar)
 
-			// Tracker-deletion semantics must be unchanged by the fix.
-			require.True(t,
-				dirExistsAt(t, filepath.Join(lsm, ".migrations"), tc.classTracker),
-				"class-level tracker %s must not be touched by per-prop cleanup",
-				tc.classTracker)
-			require.True(t,
-				dirExistsAt(t, filepath.Join(lsm, ".migrations"), tc.propTracker),
-				"completed per-prop tracker %s must be preserved", tc.propTracker)
+			require.True(t, dirExistsAt(t, lsm, fixtureSidecarFor(tc.liveSidecar)),
+				"the reindex sidecar of the live class-level migration must survive with its ingest dir")
+			require.True(t, dirExistsAt(t, lsm, fixtureSidecarFor(tc.propLiveSidecar)),
+				"the reindex sidecar of the live per-prop migration must survive with its ingest dir")
+			require.False(t, dirExistsAt(t, lsm, fixtureSidecarFor(tc.staleSidecar)),
+				"the reindex sidecar of the cancelled attempt must be wiped with its ingest dir")
 		})
 	}
 }
@@ -168,31 +216,43 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 // (suffix-base, gen), not the generation int alone.
 func TestCleanStalePartialReindexState_GenCollisionAcrossStrategies(t *testing.T) {
 	cases := []struct {
-		name                 string
-		completedTracker     string
-		completedTrackerMigs []string
-		liveSidecar          string
-		staleTracker         string
-		staleSidecar         string
-		wipeReason           string
+		name          string
+		completedCode MigrationStrategyCode
+		liveSidecar   string
+		staleCode     MigrationStrategyCode
+		staleSidecar  string
+		gen           uint64
+		wipeReason    string
+		loadBuckets   bool
 	}{
 		{
-			name:                 "completed enable_filterable gen 1 must not preserve stale roaringset ingest_1",
-			completedTracker:     "enable_filterable_category_1",
-			completedTrackerMigs: []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"},
-			liveSidecar:          "property_category__enable_filterable_ingest_1",
-			staleTracker:         "filterable_roaringset_refresh_1",
-			staleSidecar:         "property_category__roaringset_ingest_1",
+			name:          "completed enable_filterable gen 1 must not preserve stale roaringset ingest_1",
+			completedCode: StrategyCodeEnableFilterable,
+			liveSidecar:   "property_category__enable_filterable_ingest_1",
+			staleCode:     StrategyCodeFilterableRoaringsetRefresh,
+			staleSidecar:  "property_category__roaringset_ingest_1",
+			gen:           1,
 			wipeReason: "stale roaringset ingest_1 must be wiped even though an unrelated " +
 				"completed migration shares gen 1 (bare-int keying bug, issue #295)",
 		},
 		{
-			name:                 "completed roaringset gen 2 must not preserve stale enable_filterable ingest_2",
-			completedTracker:     "filterable_roaringset_refresh_2",
-			completedTrackerMigs: []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig", "properties.mig"},
-			liveSidecar:          "property_category__roaringset_ingest_2",
-			staleTracker:         "enable_filterable_category_2",
-			staleSidecar:         "property_category__enable_filterable_ingest_2",
+			name:          "completed roaringset gen 2 must not preserve stale enable_filterable ingest_2",
+			completedCode: StrategyCodeFilterableRoaringsetRefresh,
+			liveSidecar:   "property_category__roaringset_ingest_2",
+			staleCode:     StrategyCodeEnableFilterable,
+			staleSidecar:  "property_category__enable_filterable_ingest_2",
+			gen:           2,
+			wipeReason: "stale enable_filterable ingest_2 must be wiped even though the " +
+				"completed roaringset migration shares gen 2",
+		},
+		{
+			name:          "the same collision with both sidecar buckets loaded",
+			completedCode: StrategyCodeFilterableRoaringsetRefresh,
+			liveSidecar:   "property_category__roaringset_ingest_2",
+			staleCode:     StrategyCodeEnableFilterable,
+			staleSidecar:  "property_category__enable_filterable_ingest_2",
+			gen:           2,
+			loadBuckets:   true,
 			wipeReason: "stale enable_filterable ingest_2 must be wiped even though the " +
 				"completed roaringset migration shares gen 2",
 		},
@@ -209,56 +269,32 @@ func TestCleanStalePartialReindexState_GenCollisionAcrossStrategies(t *testing.T
 			defer shard.Shutdown(ctx)
 			lsm := shard.pathLSM()
 
-			mkTrackerDir(t, lsm, tc.completedTracker, tc.completedTrackerMigs...)
-			mkSidecarDir(t, lsm, tc.liveSidecar)
-			mkTrackerDir(t, lsm, tc.staleTracker, "started.mig")
-			mkSidecarDir(t, lsm, tc.staleSidecar)
+			mkMigrationRecord(t, lsm, tc.completedCode, tc.gen, MigrationStateSwapped,
+				map[string]string{"category": tc.liveSidecar})
+			mkMigrationRecord(t, lsm, tc.staleCode, tc.gen, MigrationStateIterating,
+				map[string]string{"category": tc.staleSidecar})
+			for _, name := range []string{tc.liveSidecar, tc.staleSidecar} {
+				if !tc.loadBuckets {
+					mkSidecarDir(t, lsm, name)
+					continue
+				}
+				require.NoError(t, shard.store.CreateOrLoadBucket(ctx, name,
+					lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
+			}
 
 			cleanSweep(t, ctx, shard, "category", "filterable")
 
 			require.True(t, dirExistsAt(t, lsm, tc.liveSidecar),
 				"live completed-migration sidecar must survive")
 			require.False(t, dirExistsAt(t, lsm, tc.staleSidecar), tc.wipeReason)
+			if tc.loadBuckets {
+				require.NotNil(t, shard.store.Bucket(tc.liveSidecar),
+					"live completed-migration sidecar bucket must not be shut down")
+				require.Nil(t, shard.store.Bucket(tc.staleSidecar),
+					"stale sidecar bucket must be shut down despite the shared gen")
+			}
 		})
 	}
-}
-
-// TestCleanStalePartialReindexState_ShutdownSkipKeyedBySuffix pins the
-// bucket-shutdown half of the bare-gen keying bug (issue #295).
-func TestCleanStalePartialReindexState_ShutdownSkipKeyedBySuffix(t *testing.T) {
-	ctx := testCtx()
-	className := "CleanupShutdownSkip_" + uuid.NewString()[:8]
-	class := newTestClassWithProps(className, []string{"category"})
-	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
-	lsm := shard.pathLSM()
-
-	// Completed class-level migration at gen 2 with its ingest bucket loaded.
-	mkTrackerDir(t, lsm, "filterable_roaringset_refresh_2",
-		"started.mig", "merged.mig", "swapped.mig", "tidied.mig", "properties.mig")
-	liveName := "property_category__roaringset_ingest_2"
-	require.NoError(t, shard.store.CreateOrLoadBucket(ctx, liveName,
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
-
-	// Cancelled per-prop attempt at the same gen; its bucket is stale.
-	mkTrackerDir(t, lsm, "enable_filterable_category_2", "started.mig")
-	staleName := "property_category__enable_filterable_ingest_2"
-	require.NoError(t, shard.store.CreateOrLoadBucket(ctx, staleName,
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
-
-	cleanSweep(t, ctx, shard, "category", "filterable")
-
-	require.NotNil(t, shard.store.Bucket(liveName),
-		"live deferred-finalize sidecar bucket must not be shut down")
-	require.True(t, dirExistsAt(t, lsm, liveName),
-		"live deferred-finalize sidecar dir must survive")
-	require.Nil(t, shard.store.Bucket(staleName),
-		"stale sidecar bucket must be shut down despite sharing gen 2 with "+
-			"the completed class-level migration")
-	require.False(t, dirExistsAt(t, lsm, staleName),
-		"stale sidecar dir must be wiped")
 }
 
 // Pins that "__" in a property name (e.g. "category__extra") is not
@@ -296,7 +332,7 @@ func TestCleanStalePartialReindexState_ShutdownSkipsOtherPropertiesBuckets(t *te
 			name:         "a sidecar a cancelled run left behind",
 			bucket:       "property_category__enable_filterable_ingest_1",
 			wantShutDown: true,
-			reason:       "a real sidecar with no completed tracker behind it is what the sweep is for",
+			reason:       "a real sidecar with no completed migration behind it is what the sweep is for",
 		},
 	}
 

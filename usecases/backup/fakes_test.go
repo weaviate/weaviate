@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/stretchr/testify/mock"
@@ -54,6 +55,35 @@ func (bsp *fakeBackupBackendProvider) EnabledBackupBackends() []modulecapabiliti
 
 type fakeSourcer struct {
 	mock.Mock
+	adoptMu sync.Mutex
+	adopted []adoptedRecords
+}
+
+type adoptedRecords struct {
+	indexPath, node, sourceNode string
+	// Shards already staged under indexPath when the call ran.
+	stagedShards []string
+}
+
+func (s *fakeSourcer) AdoptRestoredMigrationRecords(indexPath string, desc *backup.ClassDescriptor,
+	node, sourceNode string,
+) error {
+	var staged []string
+	for _, shard := range desc.Shards {
+		if _, err := os.Stat(filepath.Join(indexPath, shard.Name)); err == nil {
+			staged = append(staged, shard.Name)
+		}
+	}
+	s.adoptMu.Lock()
+	defer s.adoptMu.Unlock()
+	s.adopted = append(s.adopted, adoptedRecords{indexPath, node, sourceNode, staged})
+	return nil
+}
+
+func (s *fakeSourcer) adoptedCalls() []adoptedRecords {
+	s.adoptMu.Lock()
+	defer s.adoptMu.Unlock()
+	return append([]adoptedRecords(nil), s.adopted...)
 }
 
 func (s *fakeSourcer) ReleaseBackup(ctx context.Context, id, class string) error {

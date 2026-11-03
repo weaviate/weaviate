@@ -38,4 +38,9 @@ type Sourcer interface { // implemented by the index
 	// BackupDescriptors acquires resources so that a call to ReleaseBackup() is mandatory to free acquired resources.
 	BackupDescriptors(_ context.Context, bakid string, classes []string, baseDescr []*backup.BaseBackupDescriptor,
 	) <-chan backup.ClassDescriptor
+
+	// AdoptRestoredMigrationRecords renames the records of desc's shards staged
+	// under indexPath from sourceNode (the backup's origin) to node, before the
+	// shards load.
+	AdoptRestoredMigrationRecords(indexPath string, desc *backup.ClassDescriptor, node, sourceNode string) error
 }

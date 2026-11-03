@@ -17,6 +17,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -233,6 +234,9 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	tenantsToBeDeletedFromCloud := sync.Map{}
+	// One line per batch, not per tenant: a batch can name every tenant of a class.
+	var setAside atomic.Int64
+	var setAsideExample atomic.Pointer[string]
 	cmd := command.TenantProcessRequest{
 		Node:             m.nodeId,
 		Action:           command.TenantProcessRequest_ACTION_UNFREEZING,
@@ -265,7 +269,16 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 			idx.shardCreateLocks.Lock(name)
 			defer idx.shardCreateLocks.Unlock(name)
 
-			if err := m.cloud.Download(ctx, class, name, nodeID); err != nil {
+			refusal, err := "", m.cloud.Download(ctx, class, name, nodeID)
+			if err == nil {
+				refusal, err = AdoptArrivedMigrationRecords(idx.path(), name, m.nodeId, nodeID)
+			}
+			if refusal != "" {
+				setAside.Add(1)
+				example := fmt.Sprintf("tenant %q, frozen on %s: %s", name, nodeID, refusal)
+				setAsideExample.CompareAndSwap(nil, &example)
+			}
+			if err != nil {
 				m.logger.WithFields(logrus.Fields{
 					"action": "download_tenant_from_cloud",
 					"error":  err,
@@ -296,6 +309,13 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 		})
 	}
 	eg.Wait()
+
+	if n := setAside.Load(); n > 0 {
+		m.logger.WithField("action", "download_tenant_from_cloud").WithField("name", class).
+			WithField("tenant_count", n).Warnf(
+			"%d unfrozen tenant(s) keep the migration records of the node that froze them set aside, for example %s",
+			n, *setAsideExample.Load())
+	}
 
 	if len(cmd.TenantsProcesses) == 0 {
 		m.logger.WithFields(logrus.Fields{

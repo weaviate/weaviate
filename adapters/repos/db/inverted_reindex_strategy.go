@@ -32,13 +32,9 @@ import (
 // to collide with a suffix base.
 
 // MigrationStrategy encapsulates the parts that differ per migration type
-// (e.g., Map→Blockmax, Set→RoaringSet). The lifecycle logic (state machine,
-// merge/swap/tidy, object iteration, progress tracking) lives in
-// ShardReindexTaskGeneric.
+// (e.g., Map→Blockmax, Set→RoaringSet); the lifecycle lives in ShardReindexTaskGeneric.
 type MigrationStrategy interface {
-	// MigrationDirName returns the subdirectory name under .migrations/
-	// e.g. "searchable_map_to_blockmax"
-	MigrationDirName() string
+	StrategyCode() MigrationStrategyCode
 
 	// SourceBucketName returns the original bucket name for the given property.
 	// e.g. helpers.BucketSearchableFromPropNameLSM(propName)
@@ -52,10 +48,6 @@ type MigrationStrategy interface {
 	// Default is "__ingest"; blockmax overrides to "__blockmax_ingest" for backward compat.
 	IngestSuffix() string
 
-	// BackupSuffix returns the suffix for backup buckets.
-	// Default is "__backup"; blockmax overrides to "__blockmax_map" for backward compat.
-	BackupSuffix() string
-
 	// SourceStrategy returns the LSM strategy of source buckets to discover.
 	// e.g. lsmkv.StrategyMapCollection
 	SourceStrategy() string
@@ -68,24 +60,18 @@ type MigrationStrategy interface {
 	// e.g. lsmkv.StrategyInverted
 	TargetStrategy() string
 
-	// BackupStrategy returns the LSM strategy for backup buckets.
-	// Usually the same as SourceStrategy.
-	BackupStrategy() string
-
 	// WriteToReindexBucket writes a single property's data for one object
 	// into the reindex bucket during the async reindex loop.
 	WriteToReindexBucket(shard ShardLike, bucket *lsmkv.Bucket, docID uint64,
 		prop inverted.Property) error
 
 	// MakeAddCallback creates a double-write callback for property additions.
-	// forTargetStrategy=true during ingest phase, false during backup phase.
-	MakeAddCallback(bucketNamer func(string) string, propsByName map[string]struct{},
-		forTargetStrategy bool) onAddToPropertyValueIndex
+	MakeAddCallback(bucketNamer func(string) string, armed armedMirror,
+	) onAddToPropertyValueIndex
 
 	// MakeDeleteCallback creates a double-write callback for property deletions.
-	// forTargetStrategy=true during ingest phase, false during backup phase.
-	MakeDeleteCallback(bucketNamer func(string) string, propsByName map[string]struct{},
-		forTargetStrategy bool) onDeleteFromPropertyValueIndex
+	MakeDeleteCallback(bucketNamer func(string) string, armed armedMirror,
+	) onDeleteFromPropertyValueIndex
 
 	// PreReindexHook is called before the reindex/ingest phase begins on a shard.
 	// e.g. shard.markSearchableBlockmaxProperties(props...)
@@ -95,47 +81,7 @@ type MigrationStrategy interface {
 	// analyzer; without it a property whose schema flag is false is skipped.
 	AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay
 
-	// OnMigrationComplete is called when the migration is fully tidied on a
-	// single shard. Implementations can read the shard's current bucket state
-	// to decide whether collection-level finalization (e.g. flipping the
-	// UsingBlockMaxWAND class flag) is safe — important for per-property
-	// migrations, where the flag must only flip once every searchable property
-	// has been migrated.
-	//
-	// Allowed work in this position:
-	//
-	//   - In-memory mutation of shard-local state the query path consults.
-	//     [FilterableToRangeableStrategy.OnMigrationComplete] calls
-	//     [Shard.setRangeableLocallyReady] so range queries reach the bucket
-	//     the swap just made canonical.
-	//
-	//   - RAFT calls for strategies whose schema flip is NOT batched in
-	//     OnTaskCompleted: [MapToBlockmaxStrategy]'s
-	//     updateToBlockMaxInvertedIndexConfig (class-level UsingBlockMaxWAND).
-	//     These are slow (hundreds of ms) — correctness is preserved by
-	//     the overlay covering the per-shard window — but they widen
-	//     the FINALIZING duration beyond what the per-shard atomic
-	//     contract intends. The long-term fix is to split this hook
-	//     into "local-in-memory (atomic-safe)" and "cluster-wide-RAFT
-	//     (outside-atomic)" callbacks.
-	//
-	// Forbidden work in this position:
-	//
-	//   - Heavy disk I/O on the new main bucket (the LIVE post-swap
-	//     bucket). The bucket is being queried — any operation that
-	//     stalls its compaction or flush pipeline propagates as query
-	//     latency. Disk I/O on the OLD bucket is fine (it's been
-	//     shut down in Phase 2b) but conventionally also moved to
-	//     Phase 2b.
-	//
-	//   - Anything that requires the cluster-wide schema flip to have
-	//     already happened. For semantic migrations the flip lives in
-	//     OnTaskCompleted (after every shard's OnMigrationComplete);
-	//     for non-semantic, this hook may itself drive the flip but
-	//     must not assume it has already propagated to other replicas.
-	//     A per-property index flag flipped from here must land before the
-	//     task reaches FINISHED, or GET /v1/schema/{class}/indexes drops
-	//     that index from the response.
+	// No heavy disk I/O on the new main bucket: it is live, and a stalled compaction shows as latency.
 	OnMigrationComplete(ctx context.Context, shard ShardLike) error
 }
 
@@ -230,7 +176,6 @@ func applyPerPropertySchemaUpdate(
 type reindexTaskConfig struct {
 	concurrency                   int
 	memtableOptFactor             int
-	backupMemtableOptFactor       int
 	processingDuration            time.Duration
 	pauseDuration                 time.Duration
 	checkProcessingEveryNoObjects int
