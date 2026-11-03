@@ -222,7 +222,7 @@ func distributedTaskShardReplicasExtractors() map[string]distributedtask.ShardRe
 }
 
 // rebalanceMeasure builds the RebalanceMeasure func. For a node missing from
-// cluster membership it returns an error, never a zero-filled measurement.
+// cluster membership it returns an error, never a zero measurement with a nil error.
 func rebalanceMeasure(nodeHostname func(string) (string, bool), client *clients.RemoteNode) func(context.Context, string) (replicationTypes.RebalanceNodeMeasurement, error) {
 	return func(ctx context.Context, node string) (replicationTypes.RebalanceNodeMeasurement, error) {
 		host, ok := nodeHostname(node)
@@ -818,7 +818,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		setupRaftDebugHandlers(appState, appState.ClusterService.Raft)
 	}
 
-	executor := schema.NewExecutor(migrator,
+	executor := schema.NewExecutor(
+		migrator,
 		appState.ClusterService.SchemaReader(),
 		appState.Logger, restoreClassDirWithAudit,
 	)
