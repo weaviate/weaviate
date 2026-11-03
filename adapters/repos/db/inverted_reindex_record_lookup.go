@@ -133,9 +133,12 @@ func migrationRecordFor(records []MigrationRecord, migrationType ReindexMigratio
 	return false
 }
 
-// Only a record awaiting its flip can fall behind: before there is nothing staged, after the canonical name holds the data.
+// Every record short of promoted has staged data that can fall behind; once promoted, the canonical name holds it.
 func migrationRecordStampedUnmirrored(rec MigrationRecord) (MigrationRecord, bool) {
 	switch typed := rec.(type) {
+	case MigrationRecordIterating:
+		typed.subject.Unmirrored = true
+		return typed, true
 	case MigrationRecordIterated:
 		typed.subject.Unmirrored = true
 		return typed, true

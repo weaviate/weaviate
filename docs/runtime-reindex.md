@@ -1036,12 +1036,10 @@ Then, per shard load:
    cannot be read is reported by the load reconciler, and nothing is
    recovered.
 3. `RecoverMigrations` reads those records. Raft may not be open yet, so
-   the record is its only source. For each record whose iteration
-   finished and whose flip is not promoted, it rebuilds a per-shard
-   `ShardReindexTaskGeneric`: the generation is the record's task
-   version, and a change-tokenization half is chosen by the record's
-   strategy code. The narrow window — "iterated but not yet promoted" —
-   is exactly the recovery gap the design exists to close. A record it
+   the record is its only source. For each record not yet promoted, it
+   rebuilds a per-shard `ShardReindexTaskGeneric`: the generation is the
+   record's task version, and a change-tokenization half is chosen by
+   the record's strategy code. A record it
    cannot build a task from is stamped `Unmirrored`, unless another record
    on the shard is unreadable, which freezes the store and the load
    reconciler instead. New tasks seed the

@@ -154,7 +154,7 @@ func (r *MigrationRecoveryReindexer) recoverFromStore(store *MigrationRecordStor
 	unbuildable := errorcompounder.New()
 	unbuildableCount := 0
 	for _, rec := range records {
-		if !rec.IterationComplete() || rec.State() == MigrationStatePromoted {
+		if rec.State() == MigrationStatePromoted {
 			continue
 		}
 		subject := rec.Subject()

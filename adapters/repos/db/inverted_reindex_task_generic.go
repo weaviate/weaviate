@@ -664,7 +664,7 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitGuarded(ctx context.Context, sha
 // is live. No closing check: some NewShard routes already hold closeLock.RLock.
 func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Shard) error {
 	rec, hasRecord := t.migrationRecord(shard)
-	if !hasRecord || !rec.IterationComplete() || rec.State() == MigrationStatePromoted {
+	if !hasRecord || rec.State() == MigrationStatePromoted {
 		return nil
 	}
 	// Only a task verdict wedges an unflipped record at load, and its copy is never read.
