@@ -1993,8 +1993,10 @@ func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 }
 
 // reindexRunsWith returns every reindex run the cluster holds, with task in
-// it as this node sees it. Only this run when the list cannot be read: the
-// guidance then understates what earlier runs migrated, nothing worse.
+// it as this node sees it. Only this run when the list cannot be read: a run
+// that migrated no tenant is then pointed at a rebuild even if an earlier run
+// migrated some, and the server refuses that rebuild with a 409 that names
+// the resubmit.
 func (p *ReindexProvider) reindexRunsWith(task *distributedtask.Task, payload *ReindexTaskPayload) []ReindexRun {
 	runs := []ReindexRun{{Task: task, Payload: *payload}}
 	if p.taskLister == nil {
