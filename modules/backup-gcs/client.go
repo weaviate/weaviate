@@ -28,8 +28,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
@@ -293,7 +296,7 @@ func (g *gcsClient) GetObject(ctx context.Context, backupID, key, overrideBucket
 		if errors.Is(err, storage.ErrObjectNotExist) {
 			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object %s", objectName))
 		}
-		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object %s", objectName))
+		return nil, markTransient(err, backup.NewErrInternal(errors.Wrapf(err, "get object %s", objectName)))
 	}
 
 	return contents, nil
@@ -313,10 +316,10 @@ func (g *gcsClient) PutObject(ctx context.Context, backupID, key, overrideBucket
 		"backup-id": backupID,
 	}
 	if _, err := writer.Write(byes); err != nil {
-		return errors.Wrapf(err, "write file: %v", objectName)
+		return markTransient(err, errors.Wrapf(err, "write file: %v", objectName))
 	}
 	if err := writer.Close(); err != nil {
-		return errors.Wrapf(err, "close writer for file: %v", objectName)
+		return markTransient(err, errors.Wrapf(err, "close writer for file: %v", objectName))
 	}
 
 	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues("backup-gcs", "class")
@@ -385,11 +388,11 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, ov
 		// it would take needs the context that was just cancelled.
 		cancel()
 		writer.Close()
-		return written, fmt.Errorf("io.copy for gcs write %q: %w", objectPath, err)
+		return written, markTransient(err, fmt.Errorf("io.copy for gcs write %q: %w", objectPath, err))
 	}
 
 	if err := writer.Close(); err != nil {
-		return written, fmt.Errorf("close writer for gcs write %q: %w", objectPath, err)
+		return written, markTransient(err, fmt.Errorf("close writer for gcs write %q: %w", objectPath, err))
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.
@@ -411,18 +414,18 @@ func (g *gcsClient) Read(ctx context.Context, backupID, key, overrideBucket, ove
 	path := g.makeObjectName(overridePath, []string{backupID, key})
 	rc, err := bucket.Object(path).NewReader(ctx)
 	if err != nil {
-		err = fmt.Errorf("create reader %s: %w", path, err)
+		wrapped := fmt.Errorf("create reader %s: %w", path, err)
 		if errors.Is(err, storage.ErrObjectNotExist) {
-			err = backup.NewErrNotFound(err)
+			return 0, backup.NewErrNotFound(wrapped)
 		}
-		return 0, err
+		return 0, markTransient(err, wrapped)
 	}
 	defer rc.Close()
 
 	// copy
 	read, err := io.Copy(w, rc)
 	if err != nil {
-		return read, fmt.Errorf("io.copy for read %q: %w", path, err)
+		return read, markTransient(err, fmt.Errorf("io.copy for read %q: %w", path, err))
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.
@@ -435,4 +438,23 @@ func (g *gcsClient) Read(ctx context.Context, backupID, key, overrideBucket, ove
 
 func (g *gcsClient) SourceDataPath() string {
 	return g.dataPath
+}
+
+// markTransient returns err wrapped in backup.ErrTransient when cause carries a
+// GCS response with a transient status, and err unchanged otherwise.
+// cause is the raw SDK error: err may be an ErrInternal, which does not unwrap.
+func markTransient(cause, err error) error {
+	var apiErr *googleapi.Error
+	if errors.As(cause, &apiErr) && backup.IsTransientHTTPStatus(apiErr.Code) {
+		return backup.NewErrTransient(err)
+	}
+	// The gRPC transport reports 500, 503, 504, and 429 as these codes.
+	if s, ok := status.FromError(cause); ok {
+		switch s.Code() {
+		case codes.Internal, codes.Unavailable, codes.DeadlineExceeded, codes.ResourceExhausted:
+			return backup.NewErrTransient(err)
+		default:
+		}
+	}
+	return err
 }

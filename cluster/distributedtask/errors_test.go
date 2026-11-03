@@ -99,7 +99,8 @@ func TestToRPCError(t *testing.T) {
 
 // RehydratePermanentRejection reconstructs the specific sentinel from
 // the (status.Code, message) pair after a gRPC round-trip. Every
-// sentinel must survive.
+// sentinel must survive, including when the leader wraps the FSM error
+// before it crosses the wire.
 func TestRehydratePermanentRejection_RoundTripsEverySentinel(t *testing.T) {
 	// The round-trip loop visits only permanentMarkers, so this list catches a sentinel missing from it.
 	registered := make(map[error]bool, len(permanentMarkers))
@@ -113,21 +114,30 @@ func TestRehydratePermanentRejection_RoundTripsEverySentinel(t *testing.T) {
 		require.True(t, registered[sentinel], "%v is not registered in permanentMarkers", sentinel)
 	}
 
-	for _, marker := range permanentMarkers {
-		t.Run(marker.id, func(t *testing.T) {
-			// Simulate the leader's side: wrap → ToRPCError.
-			leaderErr := wrapPermanent(marker.sentinel, "any human message")
-			onWire := ToRPCError(leaderErr)
-			require.NotNil(t, onWire)
+	wraps := []struct {
+		name string
+		wrap func(error) error
+	}{
+		{"unwrapped", func(err error) error { return err }},
+		{"wrapped by store.Query", func(err error) error { return fmt.Errorf("could not get distributed task: %w", err) }},
+	}
+	for _, m := range permanentMarkers {
+		for _, w := range wraps {
+			t.Run(m.id+"/"+w.name, func(t *testing.T) {
+				// Simulate the leader's side: wrap → ToRPCError.
+				leaderErr := w.wrap(wrapPermanent(m.sentinel, "any human message"))
+				onWire := ToRPCError(leaderErr)
+				require.NotNil(t, onWire)
 
-			// Simulate the follower's side: status.FromError happens
-			// implicitly inside RehydratePermanentRejection.
-			rehydrated := RehydratePermanentRejection(onWire)
-			require.True(t, errors.Is(rehydrated, marker.sentinel),
-				"after rehydration, the specific sentinel must be reachable via errors.Is")
-			require.True(t, errors.Is(rehydrated, ErrPermanentRejection),
-				"after rehydration, the umbrella sentinel must be reachable via errors.Is")
-		})
+				// Simulate the follower's side: status.FromError happens
+				// implicitly inside RehydratePermanentRejection.
+				rehydrated := RehydratePermanentRejection(onWire)
+				require.True(t, errors.Is(rehydrated, m.sentinel),
+					"after rehydration, the specific sentinel must be reachable via errors.Is")
+				require.True(t, errors.Is(rehydrated, ErrPermanentRejection),
+					"after rehydration, the umbrella sentinel must be reachable via errors.Is")
+			})
+		}
 	}
 }
 
@@ -172,15 +182,17 @@ func TestRehydratePermanentRejection_PassesThroughNonPermanentErrors(t *testing.
 	}
 }
 
-// extractMarkerID parses the on-wire prefix; covers happy path, no
-// marker, and malformed marker.
+// extractMarkerID parses the on-wire marker; covers happy path, a marker
+// behind wrapping prefixes, no marker, and malformed marker.
 func TestExtractMarkerID(t *testing.T) {
 	cases := map[string]string{
-		"[dtm-perm/task-not-running] hello":                  "task-not-running",
-		"[dtm-perm/unit-terminal] longer message with [text": "unit-terminal",
-		"no marker at all":                                   "",
-		"[dtm-perm/] empty id":                               "",
-		"[dtm-perm/no-closing-bracket and rest":              "",
+		"[dtm-perm/task-not-running] hello":                                  "task-not-running",
+		"[dtm-perm/unit-terminal] longer message with [text":                 "unit-terminal",
+		"could not get distributed task: [dtm-perm/task-not-exist] t":        "task-not-exist",
+		"outer: inner: [dtm-perm/task-conflict] a [dtm-perm/task-not-exist]": "task-conflict",
+		"no marker at all":                      "",
+		"[dtm-perm/] empty id":                  "",
+		"[dtm-perm/no-closing-bracket and rest": "",
 	}
 	for in, want := range cases {
 		require.Equal(t, want, extractMarkerID(in), "input: %q", in)

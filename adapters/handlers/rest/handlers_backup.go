@@ -327,7 +327,9 @@ func (s *backupHandlers) cancel(params backups.BackupsCancelParams,
 	if params.Path != nil {
 		overridePath = *params.Path
 	}
-	err := s.manager.Cancel(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
+	force := params.Force != nil && *params.Force
+
+	err := s.manager.CancelWithForce(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath, force)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {

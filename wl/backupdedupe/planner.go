@@ -137,7 +137,8 @@ func orDefault(d, def time.Duration) time.Duration {
 
 // PlanDesignatedShards designates one archiving node per convergence-proven shard; failures only downgrade shards to all-replica fallback, and checkpoints are deleted before returning (archiving needs no live checkpoint).
 // Designations only ever name members of participants: a designated non-participant would archive nothing while every replica skips.
-// cancelled reports the operation's external cancel signal; nil means never cancelled.
+// cancelled reports that the backup is ending, by a user cancel or the end of the caller's flow; nil means never cancelled.
+// Once cancelled is true, planning returns early and records no fallback.
 func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, budget time.Duration,
 	participants map[string]struct{}, preferred map[string]map[string]string, cancelled func() bool,
 ) *backup.DedupePlan {

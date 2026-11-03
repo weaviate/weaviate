@@ -70,16 +70,19 @@ type taskSchedulerState struct {
 	completedCallbackAttempts int
 
 	// Stale detection records the local time each unit's state was first
-	// observed. A unit is stale when (now - firstObserved) exceeds the
-	// task's timeout. Watermarks reset on restart, which delays detection
-	// by at most one timeout (the safe direction).
+	// observed. A node's latest activity is the newest firstObserved across
+	// its units. An unclaimed unit's latest activity is its own firstObserved.
+	// A PENDING or IN_PROGRESS unit is stale when (now - latest activity)
+	// reaches the task's timeout.
+	// Watermarks reset on restart, which delays detection by at most one
+	// timeout (the safe direction).
 	unitWatermarks map[string]staleWatermark // key: unitID
 	ackWatermark   *time.Time                // local time the ack set was first observed unchanged
 }
 
 // staleWatermark records when a unit's state was first observed. The
 // progress/updatedAt/status fields form a fingerprint: any change resets
-// firstObserved.
+// firstObserved, which counts as activity for the unit's node.
 type staleWatermark struct {
 	firstObserved time.Time
 	progress      float32
@@ -150,6 +153,7 @@ type Scheduler struct {
 	// sharing sampledLogger's budget would crowd out its one-off errors.
 	unrecognizedStatusLogger *logrusext.Sampler
 	postCompletionAckLogger  *logrusext.Sampler
+	completionAwaitingLogger *logrusext.Sampler
 
 	tasksRunning *prometheus.GaugeVec
 
@@ -263,6 +267,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 
 		unrecognizedStatusLogger: logrusext.NewSampler(params.Logger, 3, unrecognizedStatusWarnWindow),
 		postCompletionAckLogger:  logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
+		completionAwaitingLogger: logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
 
 		tasksRunning: promauto.With(params.MetricsRegisterer).NewGaugeVec(prometheus.GaugeOpts{
 			Name: "weaviate_distributed_tasks_running",
@@ -395,11 +400,12 @@ func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]m
 			}
 			// A [RecoveryAwareProvider] that reports local callback work
 			// as not done skips the pre-mark, so the next tick
-			// re-dispatches this task's callbacks. That recovers
-			// nothing: every callback is a no-op at terminal status. The
-			// one durable effect is a re-issued post-completion ack, once
-			// per process start, until the completed-task TTL drops the
-			// task (see [RecoveryAwareProvider.LocalCallbacksDone]). Only
+			// re-dispatches this task's callbacks. They may re-run
+			// durable terminal work, so they must be idempotent at
+			// terminal status. The post-completion ack is also
+			// re-issued, once per process start, until the
+			// completed-task TTL drops the task (see
+			// [RecoveryAwareProvider.LocalCallbacksDone]). Only
 			// FINISHED tasks are asked: a failed or cancelled task has no
 			// completed swap that could be missing.
 			if task.Status == TaskStatusFinished {
@@ -1197,6 +1203,8 @@ func (s *Scheduler) runSwapPhase(
 // error withholds FINISHED and retries next tick; [ErrTaskCompletionPermanent]
 // or exhausting [maxCompletedCallbackAttempts] fails the task instead.
 // Terminal-status errors are best-effort cleanup and never reopen the task.
+// [ErrTaskCompletionAwaiting] on any status retries next tick without
+// counting an attempt and without failing the task.
 func (s *Scheduler) runCompletedCallbackPhase(
 	namespace string,
 	desc TaskDescriptor,
@@ -1235,6 +1243,20 @@ func (s *Scheduler) runCompletedCallbackPhase(
 	// note at the matching rollback site in runFinalizePhase.
 	cbErr := suProvider.OnTaskCompleted(task)
 	if cbErr == nil {
+		return
+	}
+
+	if errors.Is(cbErr, ErrTaskCompletionAwaiting) {
+		s.completionAwaitingLogger.WithSampling(func(l logrus.FieldLogger) {
+			s.loggerWithTask(namespace, desc).Infof("OnTaskCompleted is awaiting another node on status %s; will retry next tick: %v", task.Status, cbErr)
+		})
+		func() {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if state := s.perTaskStateLocked(desc); state != nil {
+				state.completedCallbackFired = false
+			}
+		}()
 		return
 	}
 
@@ -1545,10 +1567,15 @@ func (s *Scheduler) deletePerTaskStateLocked(desc TaskDescriptor) {
 	delete(s.perTaskState, desc)
 }
 
-// runStaleDetectionPhase proposes force-terminate for tasks whose units
-// or acks have not changed within stale_timeout_ms. Detection is
-// proposal-side only: the FSM never reads clocks. Watermarks compare
-// local observations only, never another node's timestamps.
+// runStaleDetectionPhase proposes force-terminate for a task when one of
+// its PENDING or IN_PROGRESS units is stale, or when its acks have not
+// changed for stale_timeout_ms. A unit that a node has claimed is stale
+// when none of that node's units in the task changed within
+// stale_timeout_ms, counting units that already completed or failed. An
+// unclaimed unit is stale when its own state has not
+// changed within stale_timeout_ms. Detection is proposal-side only: the FSM never reads
+// clocks. Watermarks compare local observations only, never another
+// node's timestamps.
 //
 // No env-flag check: tasks with stale_timeout_ms > 0 can only exist
 // if an operator-controlled gate admitted them.
@@ -1578,26 +1605,41 @@ func (s *Scheduler) runStaleDetectionPhase(tasks map[TaskDescriptor]*Task) {
 				state.unitWatermarks = map[string]staleWatermark{}
 			}
 
+			// This loop has no early exit. A unit is judged by its node's
+			// newest activity, and any of the node's units can supply it.
+			nodeActivity := map[string]time.Time{}
 			for unitID, u := range task.Units {
 				wm, exists := state.unitWatermarks[unitID]
 
 				// The state changed, or this is the first observation; reset the watermark.
 				if !exists || wm.progress != u.Progress || !wm.updatedAt.Equal(u.UpdatedAt) || wm.status != u.Status {
-					state.unitWatermarks[unitID] = staleWatermark{
+					wm = staleWatermark{
 						firstObserved: now,
 						progress:      u.Progress,
 						updatedAt:     u.UpdatedAt,
 						status:        u.Status,
 					}
+					state.unitWatermarks[unitID] = wm
+				}
+
+				if u.NodeID != "" && wm.firstObserved.After(nodeActivity[u.NodeID]) {
+					nodeActivity[u.NodeID] = wm.firstObserved
+				}
+			}
+
+			for unitID, u := range task.Units {
+				if u.Status != UnitStatusPending && u.Status != UnitStatusInProgress {
 					continue
 				}
 
-				elapsed := now.Sub(wm.firstObserved)
-				if elapsed < timeout {
-					continue
+				// An unclaimed unit has no owner, so only its own watermark counts.
+				lastActivity := state.unitWatermarks[unitID].firstObserved
+				if u.NodeID != "" {
+					lastActivity = nodeActivity[u.NodeID]
 				}
 
-				if u.Status == UnitStatusPending || u.Status == UnitStatusInProgress {
+				elapsed := now.Sub(lastActivity)
+				if elapsed >= timeout {
 					staleReason = fmt.Sprintf("unit %s on node %q stale for %s (status %s, progress %.2f)",
 						unitID, u.NodeID, elapsed.Round(time.Second), u.Status, u.Progress)
 					break

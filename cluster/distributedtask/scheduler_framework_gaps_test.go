@@ -281,6 +281,127 @@ func TestStaleTaskDetection(t *testing.T) {
 		assert.GreaterOrEqual(t, ft.callCount(), 1)
 	})
 
+	t.Run("liveness is judged per owning node", func(t *testing.T) {
+		refresh := func(u *Unit) { u.UpdatedAt = u.UpdatedAt.Add(time.Second) }
+		complete := func(u *Unit) { u.Status = UnitStatusCompleted }
+		inProgress := func(id, node string) *Unit {
+			return &Unit{ID: id, NodeID: node, GroupID: "g1", Status: UnitStatusInProgress}
+		}
+
+		// Each step advances the clock, applies its updates and runs one
+		// detection pass. It expects a force-terminate whose reason contains
+		// wantReason, or none when wantReason is empty.
+		type step struct {
+			advance    time.Duration
+			updates    map[string]func(*Unit)
+			wantReason string
+		}
+		tests := []struct {
+			name  string
+			units []*Unit
+			steps []step
+		}{
+			{
+				name:  "one refreshed unit keeps the node's other units alive",
+				units: []*Unit{inProgress("u1", "node-1"), inProgress("u2", "node-1")},
+				steps: []step{
+					{},
+					{advance: 3 * time.Second, updates: map[string]func(*Unit){"u1": refresh}},
+					{advance: 3 * time.Second},
+					{advance: 3 * time.Second, wantReason: `on node "node-1"`},
+				},
+			},
+			{
+				name:  "a node with no refreshed unit is force-terminated",
+				units: []*Unit{inProgress("u1", "node-1"), inProgress("u2", "node-1")},
+				steps: []step{
+					{},
+					{advance: 6 * time.Second, wantReason: `on node "node-1"`},
+				},
+			},
+			{
+				name:  "a completed unit keeps the node's other units alive",
+				units: []*Unit{inProgress("u1", "node-1"), inProgress("u2", "node-1")},
+				steps: []step{
+					{},
+					{advance: 3 * time.Second, updates: map[string]func(*Unit){"u1": complete}},
+					{advance: 3 * time.Second},
+					{advance: 3 * time.Second, wantReason: `unit u2 on node "node-1"`},
+				},
+			},
+			{
+				name: "a refreshing node does not hide a silent node",
+				units: []*Unit{
+					inProgress("u1", "node-1"), inProgress("u3", "node-1"), inProgress("u2", "node-2"),
+				},
+				steps: []step{
+					{},
+					{advance: 3 * time.Second, updates: map[string]func(*Unit){"u1": refresh}},
+					{advance: 3 * time.Second, wantReason: `unit u2 on node "node-2"`},
+				},
+			},
+			{
+				name: "unclaimed units are judged on their own fingerprint",
+				units: []*Unit{
+					{ID: "u1", Status: UnitStatusPending},
+					{ID: "u2", Status: UnitStatusPending},
+					inProgress("u3", "node-1"),
+				},
+				steps: []step{
+					{},
+					{advance: 3 * time.Second, updates: map[string]func(*Unit){
+						"u2": func(u *Unit) { u.Progress = 0.1 },
+						"u3": refresh,
+					}},
+					{advance: 3 * time.Second, wantReason: `unit u1 on node ""`},
+				},
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				logger, _ := test.NewNullLogger()
+				clock := clockwork.NewFakeClock()
+				ft := &fakeForceTerminator{}
+				scheduler := &Scheduler{
+					forceTerminator: ft,
+					clock:           clock,
+					logger:          logger,
+					perTaskState:    map[TaskDescriptor]*taskSchedulerState{},
+					localNode:       nodeID,
+				}
+
+				desc := TaskDescriptor{ID: taskID, Version: 1}
+				task := &Task{
+					Namespace:      ns,
+					TaskDescriptor: desc,
+					Status:         TaskStatusStarted,
+					StaleTimeoutMs: staleTimeMs,
+					Units:          map[string]*Unit{},
+				}
+				for _, u := range tc.units {
+					task.Units[u.ID] = u
+				}
+				tasks := map[TaskDescriptor]*Task{desc: task}
+
+				for i, s := range tc.steps {
+					clock.Advance(s.advance)
+					for id, update := range s.updates {
+						update(task.Units[id])
+					}
+					before := ft.callCount()
+					scheduler.runStaleDetectionPhase(tasks)
+					if s.wantReason == "" {
+						require.Equal(t, before, ft.callCount(), "step %d: unexpected force-terminate: %s", i, ft.lastReason())
+						continue
+					}
+					require.Equal(t, before+1, ft.callCount(), "step %d: expected a force-terminate", i)
+					assert.Contains(t, ft.lastReason(), s.wantReason, "step %d", i)
+				}
+			})
+		}
+	})
+
 	t.Run("missing post-completion ack triggers force-terminate", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		clock := clockwork.NewFakeClock()
@@ -817,14 +938,16 @@ func (c *stubCleaner) CleanUpDistributedTask(context.Context, string, string, ui
 }
 
 type fakeForceTerminator struct {
-	mu    sync.Mutex
-	calls int
+	mu      sync.Mutex
+	calls   int
+	reasons []string
 }
 
-func (f *fakeForceTerminator) ForceTerminateDistributedTask(_ context.Context, _, _ string, _ uint64, _, _ string) error {
+func (f *fakeForceTerminator) ForceTerminateDistributedTask(_ context.Context, _, _ string, _ uint64, reason, _ string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
+	f.reasons = append(f.reasons, reason)
 	return nil
 }
 
@@ -832,6 +955,15 @@ func (f *fakeForceTerminator) callCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.calls
+}
+
+func (f *fakeForceTerminator) lastReason() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.reasons) == 0 {
+		return ""
+	}
+	return f.reasons[len(f.reasons)-1]
 }
 
 type unitAwareStubProvider struct {

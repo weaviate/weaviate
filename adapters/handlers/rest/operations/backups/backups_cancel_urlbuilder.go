@@ -21,6 +21,8 @@ import (
 	"net/url"
 	golangswaggerpaths "path"
 	"strings"
+
+	"github.com/go-openapi/swag"
 )
 
 // BackupsCancelURL generates an URL for the backups cancel operation
@@ -29,6 +31,7 @@ type BackupsCancelURL struct {
 	ID      string
 
 	Bucket *string
+	Force  *bool
 	Path   *string
 
 	_basePath string
@@ -85,6 +88,14 @@ func (o *BackupsCancelURL) Build() (*url.URL, error) {
 	}
 	if bucketQ != "" {
 		qs.Set("bucket", bucketQ)
+	}
+
+	var forceQ string
+	if o.Force != nil {
+		forceQ = swag.FormatBool(*o.Force)
+	}
+	if forceQ != "" {
+		qs.Set("force", forceQ)
 	}
 
 	var pathQ string

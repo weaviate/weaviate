@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -28,7 +29,8 @@ import (
 
 // DedupePlanner plans a deduplicated backup; nil on coordinators and nodes that never dedupe.
 type DedupePlanner interface {
-	// PlanDesignatedShards designates one archiving node per convergence-proven shard, naming only members of participants; a nil cancelled is never cancelled.
+	// PlanDesignatedShards designates one archiving node per convergence-proven shard, naming only members of participants.
+	// cancelled reports that the backup is ending; once it is true, planning returns early and records no fallback. A nil cancelled is never cancelled.
 	PlanDesignatedShards(ctx context.Context, classes []string, budget time.Duration,
 		participants map[string]struct{}, preferred map[string]map[string]string, cancelled func() bool) *DedupePlan
 }
@@ -56,6 +58,39 @@ func (p *DedupePlan) Designated() int {
 // Fallback counts candidate shards that ended up archived by all replicas.
 func (p *DedupePlan) Fallback() int {
 	return p.CandidateShards - p.Designated()
+}
+
+// stamp writes the planning outcome onto desc and returns whether the artifact is deduped.
+// A nil plan stamps an artifact with no plan fields.
+// An artifact with zero deduped shards is stored in the legacy layout, so pre-3.0 releases can restore it.
+// The exception: if its base chain includes a deduped artifact, it gets the dedupe version.
+func (p *DedupePlan) stamp(desc *backup.DistributedBackupDescriptor, baseChainDeduped bool) bool {
+	dedupeEffective := p != nil && p.Designated() > 0
+	desc.Version = Version
+	if dedupeEffective || baseChainDeduped {
+		desc.Version = VersionDedupeReplicas
+	}
+	desc.DedupeReplicas = dedupeEffective
+	if p == nil {
+		return false
+	}
+	desc.DedupeDesignatedShards = p.Designated()
+	desc.DedupeFallbackShards = p.Fallback()
+	// Maps are copied, not shared. Non-Success artifacts carry them too; that is harmless because chain validation refuses those artifacts.
+	for class, shards := range p.Designations {
+		if len(shards) == 0 {
+			continue
+		}
+		if desc.DedupeCutoffsMs == nil {
+			desc.DedupeCutoffsMs = make(map[string]int64, len(p.Designations))
+		}
+		desc.DedupeCutoffsMs[class] = p.Cutoffs[class]
+		if desc.DedupeDesignations == nil {
+			desc.DedupeDesignations = make(map[string]map[string]string, len(p.Designations))
+		}
+		desc.DedupeDesignations[class] = maps.Clone(shards)
+	}
+	return dedupeEffective
 }
 
 // projectDesignations returns the entries for shards the node replicates; nil when none apply.
@@ -90,7 +125,10 @@ func projectDesignations(plan *DedupePlan, nodeName string) map[string]map[strin
 
 // verifyDesignatedCoverage confirms every designated shard is present in its designated node's uploaded descriptor.
 // A miss means the shard is in nobody's archive (replica set changed mid-backup) and the backup must fail rather than report Success over silent loss.
-func (c *coordinator) verifyDesignatedCoverage(ctx context.Context, req *StatusRequest, plan *DedupePlan, nodeMetas map[string]*backup.BackupDescriptor) error {
+// pollInterval paces readNodeMeta's retries.
+func verifyDesignatedCoverage(ctx context.Context, backends BackupBackendProvider, pollInterval time.Duration,
+	req *StatusRequest, plan *DedupePlan, nodeMetas map[string]*backup.BackupDescriptor,
+) error {
 	byNode := make(map[string]map[string][]string)
 	for class, shards := range plan.Designations {
 		for shard, node := range shards {
@@ -106,11 +144,11 @@ func (c *coordinator) verifyDesignatedCoverage(ctx context.Context, req *StatusR
 	}
 	sort.Strings(nodes)
 	for _, node := range nodes {
-		// commit already fetched most per-node descriptors; re-read only the ones it could not.
+		// The caller already fetched most per-node descriptors; re-read only the ones it could not.
 		meta := nodeMetas[node]
 		if meta == nil {
 			var err error
-			meta, err = c.readNodeMeta(ctx, req, node)
+			meta, err = readNodeMeta(ctx, backends, pollInterval, req, node)
 			if err != nil {
 				return fmt.Errorf("verify designated shards of node %q: %w", node, err)
 			}
@@ -133,9 +171,9 @@ func (c *coordinator) verifyDesignatedCoverage(ctx context.Context, req *StatusR
 	return nil
 }
 
-// readNodeMeta reads one node's per-node descriptor, retrying backend errors on the poll cadence; a missing descriptor is deterministic and fails immediately.
-func (c *coordinator) readNodeMeta(ctx context.Context, req *StatusRequest, node string) (*backup.BackupDescriptor, error) {
-	backend, err := c.backends.BackupBackend(req.Backend, modulecapabilities.BackendUseCaseBackup)
+// readNodeMeta reads one node's per-node descriptor, retrying backend errors every pollInterval; a missing descriptor is deterministic and fails immediately.
+func readNodeMeta(ctx context.Context, backends BackupBackendProvider, pollInterval time.Duration, req *StatusRequest, node string) (*backup.BackupDescriptor, error) {
+	backend, err := backends.BackupBackend(req.Backend, modulecapabilities.BackendUseCaseBackup)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +193,7 @@ func (c *coordinator) readNodeMeta(ctx context.Context, req *StatusRequest, node
 		if errors.As(err, &notFound) {
 			return nil, err
 		}
-		if attempt >= 2 || !sleepUntil(ctx, time.Now().Add(c.dedupePollInterval)) {
+		if attempt >= 2 || !sleepUntil(ctx, time.Now().Add(pollInterval)) {
 			return nil, err
 		}
 	}

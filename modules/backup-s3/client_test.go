@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -759,6 +760,8 @@ func newFakeS3Client(t *testing.T, object func(key string) (status int, body []b
 	minioClient, err := minio.New(srv.Listener.Addr().String(), &minio.Options{
 		Creds:  credentials.NewStaticV4("key", "secret", ""),
 		Region: "us-east-1",
+		// One attempt, so an error status surfaces on the first request.
+		MaxRetries: 1,
 	})
 	require.NoError(t, err)
 	return &s3Client{
@@ -767,6 +770,68 @@ func newFakeS3Client(t *testing.T, object func(key string) (status int, body []b
 		logger: logrus.New(),
 	}
 }
+
+// The DTM scheduler retries only errors that isRetryableUploadError accepts.
+// For provider responses, it accepts only backup.ErrTransient.
+func TestProviderErrorClassification(t *testing.T) {
+	ctx := context.Background()
+	calls := []struct {
+		name string
+		call func(*s3Client) error
+	}{
+		{"GetObject", func(c *s3Client) error {
+			_, err := c.GetObject(ctx, "backup-1", ubak.BackupFile, "", "")
+			return err
+		}},
+		{"PutObject", func(c *s3Client) error {
+			return c.PutObject(ctx, "backup-1", ubak.BackupFile, "", "", []byte("{}"))
+		}},
+		{"Write", func(c *s3Client) error {
+			_, err := c.Write(ctx, "backup-1", "chunk-1", "", "", payloadReader{strings.NewReader("payload")})
+			return err
+		}},
+		{"Read", func(c *s3Client) error {
+			_, err := c.Read(ctx, "backup-1", "chunk-1", "", "", nopWriteCloser{io.Discard})
+			return err
+		}},
+	}
+	statuses := []struct {
+		status    int
+		transient bool
+	}{
+		{http.StatusRequestTimeout, true},
+		{http.StatusTooManyRequests, true},
+		{http.StatusInternalServerError, true},
+		{http.StatusBadGateway, true},
+		{http.StatusServiceUnavailable, true},
+		{http.StatusGatewayTimeout, true},
+		{http.StatusBadRequest, false},
+		{http.StatusUnauthorized, false},
+		{http.StatusForbidden, false},
+		{http.StatusNotFound, false},
+	}
+	for _, c := range calls {
+		for _, s := range statuses {
+			t.Run(fmt.Sprintf("%s answered %d", c.name, s.status), func(t *testing.T) {
+				s3c := newFakeS3Client(t, func(string) (int, []byte) { return s.status, nil })
+
+				err := c.call(s3c)
+				require.Error(t, err)
+				assert.Equal(t, s.transient, errors.As(err, &backup.ErrTransient{}), "error %v reports transient", err)
+			})
+		}
+	}
+}
+
+type payloadReader struct{ io.Reader }
+
+func (payloadReader) Close() error { return nil }
+
+func (payloadReader) CloseWithError(error) error { return nil }
+
+type nopWriteCloser struct{ io.Writer }
+
+func (nopWriteCloser) Close() error { return nil }
 
 func TestGetObject(t *testing.T) {
 	payload := bytes.Repeat([]byte{'x'}, 1<<20)

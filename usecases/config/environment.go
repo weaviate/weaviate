@@ -66,6 +66,13 @@ const (
 	maxDropVectorReconcileIntervalSeconds = 7 * 24 * 60 * 60
 	DefaultReindexConcurrency             = 2
 
+	// DefaultBackupStaleTimeout is the per-task stale-detection bound for
+	// DTM backup tasks. Matches the legacy 7-minute node-down check.
+	DefaultBackupStaleTimeout = 7 * time.Minute
+	// DefaultBackupMaxUnitRetries is the per-unit retry budget for transient
+	// upload failures. 3 re-opens = up to 4 total executions.
+	DefaultBackupMaxUnitRetries int32 = 3
+
 	DefaultReplicationEngineMaxWorkers        = 10
 	DefaultReplicationEngineFileCopyWorkers   = 10
 	DefaultReplicationEngineFileCopyChunkSize = 1 * 1024 * 1024 // 1 MB
@@ -832,6 +839,37 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("BACKUP_SKIP_ACCESS_CHECK")) {
 		config.Backup.SkipAccessCheck = true
+	}
+
+	if entcfg.Enabled(os.Getenv("BACKUP_DISTRIBUTED_TASKS_ENABLED")) {
+		config.Backup.DistributedTasksEnabled = true
+	}
+
+	if v := os.Getenv("BACKUP_STALE_TIMEOUT"); v != "" {
+		parsed, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse BACKUP_STALE_TIMEOUT: %w", err)
+		}
+		config.Backup.StaleTimeout = parsed
+	} else if config.Backup.StaleTimeout == 0 {
+		config.Backup.StaleTimeout = DefaultBackupStaleTimeout
+	}
+	// The DTM stores the timeout in whole milliseconds and reads 0 as disabled,
+	// so a positive value under 1ms would silently disable stale detection.
+	if st := config.Backup.StaleTimeout; st < 0 {
+		return fmt.Errorf("BACKUP_STALE_TIMEOUT must be non-negative, got %s", st)
+	} else if st > 0 && st < time.Millisecond {
+		return fmt.Errorf("BACKUP_STALE_TIMEOUT must be 0 (disabled) or at least 1ms, got %s", st)
+	}
+
+	if v := os.Getenv("BACKUP_MAX_UNIT_RETRIES"); v != "" {
+		parsed, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse BACKUP_MAX_UNIT_RETRIES: %w", err)
+		}
+		config.Backup.MaxUnitRetries = int32(parsed)
+	} else if config.Backup.MaxUnitRetries == 0 {
+		config.Backup.MaxUnitRetries = DefaultBackupMaxUnitRetries
 	}
 
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {

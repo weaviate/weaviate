@@ -236,6 +236,19 @@ type uploader struct {
 	// until the descriptor is written to the backend.
 	slot statusPublisher
 	log  logrus.FieldLogger
+
+	// onClassUploaded runs after every shard in a class uploads. The node
+	// descriptor is written after all callbacks return.
+	onClassUploaded func(className string)
+
+	// releases counts the ReleaseBackup calls releaseIndexes has in flight.
+	// Every releaseIndexes call runs on all's goroutine or in a pool job that
+	// eg.Wait drains before all's final defer, so each Add happens before the
+	// Wait there. A call from any other goroutine breaks that ordering.
+	releases sync.WaitGroup
+	// awaitRelease makes all wait for every release before it writes the node
+	// descriptor, so the node reports done only once its indexes are free.
+	awaitRelease bool
 }
 
 // statusPublisher is the observable half of a node's operation slot. Failing
@@ -284,6 +297,11 @@ func (u *uploader) withShardDesignations(designations map[string]map[string]stri
 	return u
 }
 
+func (u *uploader) withReleaseWait() *uploader {
+	u.awaitRelease = true
+	return u
+}
+
 // all uploads all files in addition to the metadata file
 func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BaseBackupDescriptor, overrideBucket, overridePath string) (err error) {
 	u.slot.set(backup.Transferring)
@@ -312,6 +330,9 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	defer func() {
 		//  release indexes under all conditions
 		u.releaseIndexes(classes, desc.ID)
+		if u.awaitRelease {
+			u.releases.Wait()
+		}
 
 		//  make sure context is not cancelled when uploading metadata. Its own
 		//  name, so the cancellation check below still reads the operation's
@@ -521,7 +542,9 @@ func labelErr(label string, err error) error {
 func (u *uploader) releaseIndexes(classes []string, bakID string) {
 	for _, class := range classes {
 		className := class
+		u.releases.Add(1)
 		enterrors.GoWrapper(func() {
+			defer u.releases.Done()
 			if err := u.sourcer.ReleaseBackup(context.Background(), bakID, className); err != nil {
 				u.log.WithFields(logrus.Fields{
 					"class":    className,
@@ -587,16 +610,18 @@ func (u *uploader) submitClass(ctx context.Context, eg *enterrors.ErrorGroupWrap
 		"duration": storeTimeout,
 	}).Debug("context.WithTimeout")
 
-	// finish runs when the last shard job of the class has returned. That is the
-	// earliest the index may be released, since releasing it deletes the staging
-	// dir the jobs read from. It is also late enough for complete to know whether
-	// the class made it into the backup.
+	// finish runs after the last shard job returns. Releasing the index sooner
+	// would delete staging files still in use. At that point, complete can tell
+	// whether the backup contains the class.
 	cu.finish = func() {
 		cancel()
 		observe()
 		u.releaseIndexes([]string{cu.desc.Name}, id)
 		if cu.complete() {
 			u.log.WithField("class", cu.desc.Name).Info("finish uploading files")
+			if u.onClassUploaded != nil {
+				u.onClassUploaded(cu.desc.Name)
+			}
 			return
 		}
 		u.log.WithFields(logrus.Fields{

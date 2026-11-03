@@ -330,7 +330,7 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 		if errors.As(err, &s3Err) && s3Err.StatusCode == http.StatusNotFound {
 			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object contents from %s:%s not found %s", bucket, remotePath, remotePath))
 		}
-		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object contents from %s:%s %s", bucket, remotePath, remotePath))
+		return nil, markTransient(err, backup.NewErrInternal(errors.Wrapf(err, "get object contents from %s:%s %s", bucket, remotePath, remotePath)))
 	}
 
 	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(Name, "class")
@@ -361,9 +361,9 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 
 	_, err = client.PutObject(ctx, bucket, remotePath, reader, objectSize, opt)
 	if err != nil {
-		return backup.NewErrInternal(
+		return markTransient(err, backup.NewErrInternal(
 			errors.Wrapf(err, "put object: %s:%s", bucket, remotePath),
-		)
+		))
 	}
 
 	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(Name, "class")
@@ -426,7 +426,7 @@ func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, ove
 
 	info, err := client.PutObject(ctx, bucket, remotePath, r, -1, opt)
 	if err != nil {
-		return info.Size, fmt.Errorf("write object %q failed after %v seconds with: %w", remotePath, time.Since(start).Seconds(), err)
+		return info.Size, markTransient(err, fmt.Errorf("write object %q failed after %v seconds with: %w", remotePath, time.Since(start).Seconds(), err))
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.
@@ -455,12 +455,12 @@ func (s *s3Client) Read(ctx context.Context, backupID, key, overrideBucket, over
 
 	read, err := io.Copy(w, obj)
 	if err != nil {
-		err = fmt.Errorf("get object %q: %w", remotePath, err)
+		wrapped := fmt.Errorf("get object %q: %w", remotePath, err)
 		var s3Err minio.ErrorResponse
 		if errors.As(err, &s3Err) && s3Err.StatusCode == http.StatusNotFound {
-			err = backup.NewErrNotFound(err)
+			return 0, backup.NewErrNotFound(wrapped)
 		}
-		return 0, err
+		return 0, markTransient(err, wrapped)
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.
@@ -473,4 +473,15 @@ func (s *s3Client) Read(ctx context.Context, backupID, key, overrideBucket, over
 
 func (s *s3Client) SourceDataPath() string {
 	return s.dataPath
+}
+
+// markTransient returns err wrapped in backup.ErrTransient when cause carries an
+// S3 response with a transient status, and err unchanged otherwise.
+// cause is the raw SDK error: err may be an ErrInternal, which does not unwrap.
+func markTransient(cause, err error) error {
+	var s3Err minio.ErrorResponse
+	if errors.As(cause, &s3Err) && backup.IsTransientHTTPStatus(s3Err.StatusCode) {
+		return backup.NewErrTransient(err)
+	}
+	return err
 }

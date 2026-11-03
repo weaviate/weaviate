@@ -14,6 +14,7 @@ package backup
 import (
 	"errors"
 	"io"
+	"net/http"
 )
 
 // ErrBackupBlockedByInFlightReindex is the canonical sentinel returned when
@@ -62,6 +63,40 @@ func (e ErrNotFound) Error() string {
 
 func NewErrNotFound(err error) ErrNotFound {
 	return ErrNotFound{err}
+}
+
+// ErrTransient marks a backend failure worth retrying: the provider answered
+// with a transient status (IsTransientHTTPStatus, or its gRPC equivalent).
+type ErrTransient struct {
+	err error
+}
+
+func (e ErrTransient) Error() string {
+	if e.err != nil {
+		return e.err.Error()
+	}
+	return ""
+}
+
+func (e ErrTransient) Unwrap() error {
+	return e.err
+}
+
+func NewErrTransient(err error) ErrTransient {
+	return ErrTransient{err}
+}
+
+// IsTransientHTTPStatus reports whether a provider response with this status
+// is worth retrying: 408, 429, 500, 502, 503, or 504.
+func IsTransientHTTPStatus(status int) bool {
+	switch status {
+	case http.StatusRequestTimeout, http.StatusTooManyRequests,
+		http.StatusInternalServerError, http.StatusBadGateway,
+		http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
 }
 
 type ErrContextExpired struct {
