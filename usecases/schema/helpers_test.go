@@ -304,7 +304,8 @@ func dummyValidateInvertedConfig(in *models.InvertedIndexConfig) error {
 
 type fakeMigrator struct {
 	mock.Mock
-	onUpdateIndex func(context.Context)
+	onUpdateIndex      func(context.Context)
+	replicationUpdates int
 }
 
 func (f *fakeMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
@@ -420,6 +421,7 @@ func (f *fakeMigrator) UpdateInvertedIndexConfig(ctx context.Context, className 
 }
 
 func (f *fakeMigrator) UpdateReplicationConfig(ctx context.Context, className string, cfg *models.ReplicationConfig) error {
+	f.replicationUpdates++
 	return nil
 }
 

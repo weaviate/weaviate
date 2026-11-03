@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"encoding/binary"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"path"
@@ -344,6 +345,8 @@ type Shard struct {
 	haltForTransferCtxCancel context.CancelFunc
 
 	phase *clusterschema.ShardPhase
+	// vectorConfigStale is set when a paused store refused a config update; resuming applies it.
+	vectorConfigStale atomic.Bool
 	// countedStatus is the weaviate_index_shards_total bucket this shard is in, ""
 	// if uncounted. Separate from status.Status so a failed update cannot make
 	// release decrement a bucket never entered. Guarded by statusLock.
@@ -508,6 +511,37 @@ func (s *Shard) uuidToIdLockPoolId(uuidBytes []byte) uint {
 	return uint((lo ^ hi) % IdLockPoolSize)
 }
 
+// refuseVectorConfigUpdate refuses while paused, as enabling compression writes; the resume applies it.
+func (s *Shard) refuseVectorConfigUpdate() error {
+	s.vectorConfigStale.Store(true)
+	if err := s.refuseWhilePaused(); err != nil {
+		return err
+	}
+	s.vectorConfigStale.Store(false)
+	return nil
+}
+
+func (s *Shard) applyRefusedVectorConfig() {
+	release, err := s.preventShutdown()
+	defer release()
+	if err != nil {
+		return
+	}
+	s.index.vectorConfigUpdateMu.Lock()
+	defer s.index.vectorConfigUpdateMu.Unlock()
+	var errs []error
+	if cfg := s.index.GetVectorIndexConfig(""); cfg != nil {
+		errs = append(errs, s.UpdateVectorIndexConfig(s.shutCtx, cfg))
+	}
+	if cfgs := s.index.getTargetVectorIndexConfigs(); len(cfgs) > 0 {
+		errs = append(errs, s.UpdateVectorIndexConfigs(s.shutCtx, cfgs))
+	}
+	if err := stderrors.Join(errs...); err != nil {
+		s.index.logger.WithFields(logrus.Fields{"action": "update_vector_index_config", "shard": s.name}).
+			Warnf("apply the vector index config the paused store refused: %v", err)
+	}
+}
+
 // noopCallback is passed to VectorIndex.UpdateUserConfig, which invokes the
 // callback unconditionally once the (possibly long, async) config apply settles.
 // The callback used to restore the shard from READONLY to READY; the shard is no
@@ -515,7 +549,7 @@ func (s *Shard) uuidToIdLockPoolId(uuidBytes []byte) uint {
 func noopCallback() {}
 
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
-	if err := s.refuseWhilePaused(); err != nil {
+	if err := s.refuseVectorConfigUpdate(); err != nil {
 		return err
 	}
 
@@ -530,7 +564,7 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 }
 
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
-	if err := s.refuseWhilePaused(); err != nil {
+	if err := s.refuseVectorConfigUpdate(); err != nil {
 		return err
 	}
 

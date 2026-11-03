@@ -17,6 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	clusterschema "github.com/weaviate/weaviate/cluster/schema"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
@@ -121,6 +122,9 @@ func (s *Shard) syncStorePause() error {
 		return reindexOnly && strings.HasSuffix(bucket, schema.InternalTempSuffix)
 	}); err != nil {
 		return err
+	}
+	if !paused && s.vectorConfigStale.CompareAndSwap(true, false) {
+		enterrors.GoWrapper(s.applyRefusedVectorConfig, s.index.logger)
 	}
 
 	if next == storagestate.StatusReady && (paused || s.index.userReadOnly(s.name)) {

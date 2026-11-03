@@ -189,13 +189,15 @@ func (e *executor) RestoreClassDir(class string) error {
 	return e.restoreClassDir(class)
 }
 
+// UpdateClass applies every part even if one fails, as the schema already holds all of it.
 func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 	className := req.Class.Class
 	ctx := context.Background()
+	var errs []error
 
 	if cfg, ok := req.Class.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
 		if err := e.migrator.UpdateVectorIndexConfig(ctx, className, cfg); err != nil {
-			return fmt.Errorf("vector index config update: %w", err)
+			errs = append(errs, fmt.Errorf("vector index config update: %w", err))
 		}
 	}
 
@@ -216,7 +218,7 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 
 		if !hasDroppedVector {
 			if err := e.migrator.UpdateVectorIndexConfigs(ctx, className, cfgs); err != nil {
-				return fmt.Errorf("vector index configs update: %w", err)
+				errs = append(errs, fmt.Errorf("vector index configs update: %w", err))
 			}
 		}
 	}
@@ -237,21 +239,21 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 		}
 		if cfg, exists := req.Class.VectorConfig[targetVector]; exists && modelsext.IsVectorIndexDropped(cfg) {
 			if err := e.migrator.DropVectorIndex(ctx, className, targetVector); err != nil {
-				return fmt.Errorf("drop vector index %q: %w", targetVector, err)
+				errs = append(errs, fmt.Errorf("drop vector index %q: %w", targetVector, err))
 			}
 		}
 	}
 
 	if err := e.migrator.UpdateInvertedIndexConfig(ctx, className,
 		req.Class.InvertedIndexConfig); err != nil {
-		return fmt.Errorf("inverted index config: %w", err)
+		errs = append(errs, fmt.Errorf("inverted index config: %w", err))
 	}
 
 	if err := e.migrator.UpdateReplicationConfig(ctx, className, req.Class.ReplicationConfig); err != nil {
-		return fmt.Errorf("update replication config: %w", err)
+		errs = append(errs, fmt.Errorf("update replication config: %w", err))
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 func (e *executor) DeleteClass(cls string, hasFrozen bool, v uint64) error {

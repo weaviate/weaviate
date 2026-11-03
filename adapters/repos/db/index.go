@@ -276,8 +276,10 @@ type Index struct {
 	replicator       *replica.Replicator
 
 	vectorIndexUserConfigLock sync.Mutex
-	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
-	vectorIndexUserConfigs    map[string]schemaConfig.VectorIndexConfig
+	// vectorConfigUpdateMu makes a shard's late apply of a refused config wait for the update to finish.
+	vectorConfigUpdateMu   sync.Mutex
+	vectorIndexUserConfig  schemaConfig.VectorIndexConfig
+	vectorIndexUserConfigs map[string]schemaConfig.VectorIndexConfig
 
 	partitioningEnabled  bool
 	AsyncIndexingEnabled bool
@@ -1392,43 +1394,41 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 	return nil
 }
 
+// updateVectorIndexConfig sets the config first: later-loaded or paused shards apply it from there.
 func (i *Index) updateVectorIndexConfig(ctx context.Context,
 	updated schemaConfig.VectorIndexConfig,
 ) error {
-	// an updated is not specific to one shard, but rather all
-	err := i.withEachLoadedShard(func(name string, shard ShardLike) error {
-		// At the moment, we don't do anything in an update that could fail, but
-		// technically this should be part of some sort of a two-phase commit  or
-		// have another way to rollback if we have updates that could potentially
-		// fail in the future. For now that's not a realistic risk.
+	i.vectorConfigUpdateMu.Lock()
+	defer i.vectorConfigUpdateMu.Unlock()
+	func() {
+		i.vectorIndexUserConfigLock.Lock()
+		defer i.vectorIndexUserConfigLock.Unlock()
+		i.vectorIndexUserConfig = updated
+	}()
+
+	var errs []error
+	_ = i.withEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.UpdateVectorIndexConfig(ctx, updated); err != nil {
-			return errors.Wrapf(err, "shard %s", name)
+			errs = append(errs, fmt.Errorf("shard %s: %w", name, err))
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-	i.vectorIndexUserConfigLock.Lock()
-	defer i.vectorIndexUserConfigLock.Unlock()
-
-	i.vectorIndexUserConfig = updated
-
-	return nil
+	return stderrors.Join(errs...)
 }
 
+// updateVectorIndexConfigs sets the configs last: the shards' compression migration diffs the old ones.
 func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 	updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
-	err := i.withEachLoadedShard(func(name string, shard ShardLike) error {
+	i.vectorConfigUpdateMu.Lock()
+	defer i.vectorConfigUpdateMu.Unlock()
+	var errs []error
+	_ = i.withEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.UpdateVectorIndexConfigs(ctx, updated); err != nil {
-			return fmt.Errorf("shard %q: %w", name, err)
+			errs = append(errs, fmt.Errorf("shard %q: %w", name, err))
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
 
 	i.vectorIndexUserConfigLock.Lock()
 	defer i.vectorIndexUserConfigLock.Unlock()
@@ -1437,7 +1437,7 @@ func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 		i.vectorIndexUserConfigs[targetName] = targetCfg
 	}
 
-	return nil
+	return stderrors.Join(errs...)
 }
 
 func (i *Index) dropVectorIndex(ctx context.Context, targetVector string) error {

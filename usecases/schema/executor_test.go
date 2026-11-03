@@ -100,10 +100,12 @@ func TestExecutor(t *testing.T) {
 	t.Run("UpdateVectorIndexConfig", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(ErrAny)
-		migrator.On("UpdateReplicationConfig", context.Background(), "A", false).Return(nil)
+		migrator.On("UpdateInvertedIndexConfig", Anything, "A", Anything).Return(nil)
 
 		x := newMockExecutor(migrator, store)
 		assert.ErrorIs(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}), ErrAny)
+		migrator.AssertCalled(t, "UpdateInvertedIndexConfig", Anything, "A", Anything)
+		assert.Equal(t, 1, migrator.replicationUpdates, "a refused vector config must not skip the rest")
 	})
 	t.Run("UpdateInvertedIndexConfig", func(t *testing.T) {
 		migrator := &fakeMigrator{}
