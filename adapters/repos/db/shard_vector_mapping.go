@@ -12,6 +12,7 @@
 package db
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -184,6 +185,38 @@ func (r vectorIndexRecord) validate() error {
 // the mapping cannot account for fails the load: an unknown format version,
 // a key that names no vector, a record that does not parse or validate.
 func (m *vectorIndexMapping) Load() (records map[string]vectorIndexRecord, initialized bool, err error) {
+	records, initialized, _, err = m.load()
+	return records, initialized, err
+}
+
+// LoadAndStrip is Load, then rewrites in one transaction every record whose
+// stored value is not what this binary writes, and returns their names. A
+// later version adds fields an older reader ignores but keeps on disk; they
+// would go stale here and be trusted again after an upgrade. A mapping this
+// binary wrote is not written to.
+func (m *vectorIndexMapping) LoadAndStrip() (records map[string]vectorIndexRecord, initialized bool, stripped []string, err error) {
+	records, initialized, stripped, err = m.load()
+	if err != nil || len(stripped) == 0 {
+		return records, initialized, nil, err
+	}
+	err = m.ns.Update(func(b *shardmeta.Batch) error {
+		for _, name := range stripped {
+			err := putVectorIndexRecord(b, name, records[name])
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, false, nil, fmt.Errorf("strip vector index mapping records: %w", err)
+	}
+	return records, initialized, stripped, nil
+}
+
+// load is Load, and also names the records whose stored value differs from
+// what this binary would write for them.
+func (m *vectorIndexMapping) load() (records map[string]vectorIndexRecord, initialized bool, foreign []string, err error) {
 	records = map[string]vectorIndexRecord{}
 	err = m.ns.ForEach(func(key, value []byte) error {
 		k := string(key)
@@ -208,16 +241,23 @@ func (m *vectorIndexMapping) Load() (records map[string]vectorIndexRecord, initi
 		if err != nil {
 			return fmt.Errorf("record %q: %w", name, err)
 		}
+		own, err := json.Marshal(rec)
+		if err != nil {
+			return fmt.Errorf("record %q: %w", name, err)
+		}
+		if !bytes.Equal(own, value) {
+			foreign = append(foreign, name)
+		}
 		records[name] = rec
 		return nil
 	})
 	if err != nil {
-		return nil, false, fmt.Errorf("load vector index mapping: %w", err)
+		return nil, false, nil, fmt.Errorf("load vector index mapping: %w", err)
 	}
 	if !initialized && len(records) > 0 {
-		return nil, false, errors.New("load vector index mapping: records without a format version")
+		return nil, false, nil, errors.New("load vector index mapping: records without a format version")
 	}
-	return records, initialized, nil
+	return records, initialized, foreign, nil
 }
 
 // Get returns name's record, and whether the mapping has one.

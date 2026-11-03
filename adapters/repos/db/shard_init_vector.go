@@ -70,9 +70,12 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	// The mapping decides the physical ID of each index. A shard without one
 	// creates everything under the naming rule; a shard with one checks its
 	// records against the schema and the disk first.
-	records, initialized, err := s.mapping.Load()
+	records, initialized, stripped, err := s.mapping.LoadAndStrip()
 	if err != nil {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
+	}
+	if len(stripped) > 0 {
+		s.index.logger.WithField("shard", s.ID()).Infof("rewrote vector index mapping records written by a newer version, dropping fields this version does not know: %v", stripped)
 	}
 	if initialized {
 		records, err = s.reconcileVectorIndexMapping(ctx, active, records)
