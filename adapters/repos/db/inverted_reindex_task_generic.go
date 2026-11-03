@@ -2092,7 +2092,7 @@ func (t *ShardReindexTaskGeneric) removeReindexBucketsDirs(ctx context.Context, 
 func (t *ShardReindexTaskGeneric) removeBucketsDirs(ctx context.Context, logger logrus.FieldLogger,
 	shard ShardLike, props []string, bucketNamer func(string) string,
 ) error {
-	lsmPath := shard.pathLSM()
+	dirs := shardBucketDirs(shard.pathLSM())
 	eg, _ := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
 	eg.SetLimit(t.config.concurrency)
 	for i := range props {
@@ -2100,11 +2100,10 @@ func (t *ShardReindexTaskGeneric) removeBucketsDirs(ctx context.Context, logger 
 
 		eg.Go(func() error {
 			bucketName := bucketNamer(propName)
-			bucketPath := filepath.Join(lsmPath, bucketName)
 
 			logger.WithField("bucket", bucketName).Debug("removing bucket")
 
-			return os.RemoveAll(bucketPath)
+			return dirs.Discard(bucketName, "a migration bucket directory")
 		})
 	}
 	return eg.Wait()

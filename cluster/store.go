@@ -140,6 +140,7 @@ type Config struct {
 	BootstrapExpect int
 
 	// ConsistencyWaitTimeout is the duration we will wait for a schema version to land on that node
+	// and the default bound on a follower's task-list query, including its leader lookup.
 	ConsistencyWaitTimeout time.Duration
 	// NodeSelector is the memberlist interface to RAFT
 	NodeSelector cluster.NodeSelector
@@ -208,6 +209,10 @@ type Config struct {
 	// DistributedTaskTargetVectorExtractors mirror the collection extractors for
 	// per-target cascade deletion (drop-vector marker introduction).
 	DistributedTaskTargetVectorExtractors map[string]distributedtask.TargetVectorExtractor
+	// DistributedTaskShardReplicasExtractors let admitTaskReplicas refuse a task
+	// whose units no longer match the current replicas of the shards they name.
+	// A namespace without a collection extractor is never checked.
+	DistributedTaskShardReplicasExtractors map[string]distributedtask.ShardReplicasExtractor
 
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.
@@ -342,6 +347,8 @@ type Store struct {
 	// pre-commit collection-cap check cannot race the apply that increments the
 	// count.
 	collectionAddLocks *entsync.KeyLocker
+
+	taskMovementLocks *entsync.KeyLocker
 
 	// authZController is the authz controller for the store
 	authZController authorization.Controller
@@ -502,6 +509,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		schemaManager:           schemaManager,
 		tenantAddLocks:          entsync.NewKeyLocker(),
 		collectionAddLocks:      entsync.NewKeyLocker(),
+		taskMovementLocks:       entsync.NewKeyLocker(),
 		authZController:         authZController,
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),

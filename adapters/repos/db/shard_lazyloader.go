@@ -784,12 +784,12 @@ func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDe
 	return shard.ListBackupFiles(ctx, ret)
 }
 
-func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
+func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate reindexGate) ([]string, error) {
 	shard, _, err := l.loadIfCold(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return shard.CreateBackupSnapshot(ctx, sd, stagingRoot)
+	return shard.CreateBackupSnapshot(ctx, sd, stagingRoot, gate)
 }
 
 func (l *LazyLoadShard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error) {

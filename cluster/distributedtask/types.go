@@ -47,6 +47,9 @@ type SchedulerNotifier interface {
 // weaviate/0-weaviate-issues#231.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
 
+// ShardReplicasExtractor lets the leader refuse a task built against a replica set that has since changed; ok=false admits the task unchecked.
+type ShardReplicasExtractor func(payload []byte) (nodesByShard map[string][]string, ok bool)
+
 // TargetVectorExtractor reads a task payload's (collection, target vectors) binding
 // for [Manager.PurgeTasksForCollectionTargetVectors]; ok=false skips the record.
 // Same determinism contract as [CollectionExtractor].
@@ -664,6 +667,8 @@ type Task struct {
 
 	// Units tracks per-unit progress. Always non-nil for valid tasks.
 	Units map[string]*Unit `json:"units,omitempty"`
+
+	collection string
 
 	// PreparationCompletionAcks records per-node PREP-phase confirmations during
 	// PREPARING. The FSM gates PREPARING → SWAPPING on every expected ack
