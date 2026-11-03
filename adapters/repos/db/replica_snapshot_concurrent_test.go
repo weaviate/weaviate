@@ -140,3 +140,19 @@ func TestIncomingCreateReplicaSnapshotConcurrent(t *testing.T) {
 
 	require.NoError(t, index.IncomingReleaseReplicaSnapshot(ctx, opID))
 }
+
+func TestIncomingCreateReplicaSnapshotRefusesWithoutHardlinks(t *testing.T) {
+	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+	index, shard := newSharedHaltTestShard(t)
+	ctx := context.Background()
+	const opID = "op-no-hardlink"
+
+	_, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", opID)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "supports hard links")
+
+	require.Zero(t, shard.haltForTransferCount.Load(), "the refusal must not halt the shard")
+	require.NoDirExists(t, replicaStagingDir(index.Config.RootPath, opID, schema.ClassName(index.Config.ClassName)))
+	_, err = index.IncomingGetReplicaSnapshotFile(ctx, opID, "indexcount")
+	require.ErrorContains(t, err, "no replica snapshot registered")
+}

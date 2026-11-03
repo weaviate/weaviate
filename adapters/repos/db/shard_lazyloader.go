@@ -801,14 +801,6 @@ func (l *LazyLoadShard) CreateReplicaSnapshot(ctx context.Context, stagingRoot s
 	return shard.CreateReplicaSnapshot(ctx, stagingRoot)
 }
 
-func (l *LazyLoadShard) ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error) {
-	shard, _, err := l.loadIfCold(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return shard.ListReplicaSnapshotFiles(ctx, stagingRoot)
-}
-
 func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context) error {
 	shard, _, err := l.loadIfCold(ctx)
 	if err != nil {

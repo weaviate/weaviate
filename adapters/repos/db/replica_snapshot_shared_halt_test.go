@@ -54,12 +54,9 @@ import (
 // consumer's flush lived only in the active memtable/WAL — excluded from
 // ListBackupFiles — so the second consumer's snapshot silently dropped it.
 //
-// Both replica modes are covered: hardlink (segments staged) and fallback
-// halt-for-duration (segments served from the live shard root). The two
-// overlapping ops prove the re-seal is repeatable, not one-shot. In fallback
-// mode each op's halt outlives its call, so obj2 halts at count 1->2 and obj3 at
-// 2->3. In hardlink mode CreateReplicaSnapshot self-resumes after collecting
-// files, so obj2 and obj3 each drive an independent 1->2 shared-halt transition.
+// The two overlapping ops prove the re-seal repeats, not just fires once.
+// CreateReplicaSnapshot resumes the shard after collecting files, so obj2 and
+// obj3 each take the shared halt count from 1 to 2 on their own.
 func TestReplicaSnapshotSharedHaltSealsLateWrites(t *testing.T) {
 	const (
 		obj1 = strfmt.UUID("40d3be3e-2ecc-49c8-b37c-d8983164848b")
@@ -70,17 +67,11 @@ func TestReplicaSnapshotSharedHaltSealsLateWrites(t *testing.T) {
 	)
 
 	for _, tc := range []struct {
-		name            string
-		forceNoHardlink bool
+		name string
 	}{
-		{name: "hardlink mode", forceNoHardlink: false},
-		{name: "fallback halt-for-duration mode", forceNoHardlink: true},
+		{name: "hardlink mode"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.forceNoHardlink {
-				t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
-			}
-
 			index, shard := newSharedHaltTestShard(t)
 			ctx := context.Background()
 
@@ -120,9 +111,6 @@ func TestReplicaSnapshotSharedHaltSealsLateWrites(t *testing.T) {
 				// file list — this is what the target receives over the wire.
 				sourceRoot := replicaStagingDir(index.Config.RootPath, ov.opID,
 					schema.ClassName(index.Config.ClassName))
-				if tc.forceNoHardlink {
-					sourceRoot = shard.path()
-				}
 				require.Truef(t, snapshotHasObject(t, sourceRoot, files, ov.objID),
 					"write %s applied before op %s's halt is missing from its snapshot — "+
 						"the shared halt skipped the re-seal", ov.objID, ov.opID)
@@ -287,23 +275,18 @@ func newSharedHaltTestShard(t *testing.T) (*Index, *Shard) {
 }
 
 // A replica transfer delivers the files the snapshot lists, and index.db was
-// not among them in either mode. The target of a moved legacy dynamic index
+// not among them. The target of a moved legacy dynamic index
 // that had upgraded to hnsw then reads no verdict, treats the index as flat,
 // deletes the hnsw commit log it just received, and has no flat stage left
 // to fall back to. Pins that the verdict, and the graph, travel with the
 // replica.
 func TestReplicaTransferCarriesTheDynamicUpgrade(t *testing.T) {
 	for _, tc := range []struct {
-		name            string
-		forceNoHardlink bool
+		name string
 	}{
 		{name: "hardlink mode"},
-		{name: "fallback halt-for-duration mode", forceNoHardlink: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.forceNoHardlink {
-				t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
-			}
 			ctx := context.Background()
 			const className = "TransferDynamicLegacy"
 			duc := dynamicent.UserConfig{}

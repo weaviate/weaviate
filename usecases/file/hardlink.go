@@ -46,7 +46,7 @@ func SafeStagingDirName(prefix string, parts ...string) string {
 
 // ProbeHardlinkSupport reports whether the filesystem backing dir supports hardlinks.
 func ProbeHardlinkSupport(dir string) bool {
-	// Test-only: forces fallback mode without needing a non-hardlink FS.
+	// Test-only: forces an unsupported result without needing a filesystem that lacks hard links.
 	if os.Getenv("WEAVIATE_TEST_FORCE_NO_HARDLINK") == "true" {
 		return false
 	}

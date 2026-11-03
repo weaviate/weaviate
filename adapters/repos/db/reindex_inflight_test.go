@@ -317,11 +317,9 @@ func TestShard_HaltForTransfer_OffloadIgnoresInFlightReindex(t *testing.T) {
 // A movement that waited on an unreachable task manager would retry for the whole outage and report no error.
 func TestReplicaSnapshotDefersOnlyForALiveReindex(t *testing.T) {
 	for _, tc := range []struct {
-		name         string
-		builder      ShardReindexActivityLookupBuilder
-		wantDefer    bool
-		hardlinkOnly bool
-		fallbackOnly bool
+		name      string
+		builder   ShardReindexActivityLookupBuilder
+		wantDefer bool
 	}{
 		{
 			name:      "a live reindex task",
@@ -329,10 +327,9 @@ func TestReplicaSnapshotDefersOnlyForALiveReindex(t *testing.T) {
 			wantDefer: true,
 		},
 		{
-			name:         "the task manager is unreachable",
-			builder:      unreachableActivityBuilder,
-			wantDefer:    false,
-			fallbackOnly: true,
+			name:      "the task manager is unreachable",
+			builder:   unreachableActivityBuilder,
+			wantDefer: false,
 		},
 		{
 			// A wrapped status here would let IsReversibleRefusal match its message and make the movement wait.
@@ -340,37 +337,24 @@ func TestReplicaSnapshotDefersOnlyForALiveReindex(t *testing.T) {
 			builder: func() (ShardReindexActivityLookup, error) {
 				return nil, status.Error(codes.FailedPrecondition, enterrors.ErrShardBusyStructuralOp.Error())
 			},
-			wantDefer:    false,
-			hardlinkOnly: true,
+			wantDefer: false,
 		},
 	} {
-		// IncomingCreateReplicaSnapshot defers on both the hardlink snapshot and the halt-for-duration fallback.
-		for _, mode := range []struct {
-			name         string
-			withHardlink bool
-		}{{name: "hardlink mode", withHardlink: true}, {name: "fallback halt-for-duration mode"}} {
-			if tc.hardlinkOnly && !mode.withHardlink || tc.fallbackOnly && mode.withHardlink {
-				continue
-			}
-			t.Run(tc.name+", "+mode.name, func(t *testing.T) {
-				if !mode.withHardlink {
-					t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
-				}
-				index, _ := newSharedHaltTestShard(t)
-				putSharedHaltObject(t, index, strfmt.UUID("2b1d4bd0-3f52-4f0f-9f75-b0cb2e29b3a3"), 0)
-				index.db.SetShardReindexActivityLookup(tc.builder)
+		t.Run(tc.name+", hardlink mode", func(t *testing.T) {
+			index, _ := newSharedHaltTestShard(t)
+			putSharedHaltObject(t, index, strfmt.UUID("2b1d4bd0-3f52-4f0f-9f75-b0cb2e29b3a3"), 0)
+			index.db.SetShardReindexActivityLookup(tc.builder)
 
-				_, err := index.IncomingCreateReplicaSnapshot(context.Background(), "shard1", "op-reindex")
-				require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
-					"the reindex sentinel must survive so the backup path keeps its own response")
-				require.Equal(t, tc.wantDefer, replication.IsReversibleRefusal(err),
-					"only a refusal that names a live task may make the movement wait")
-				if tc.wantDefer {
-					require.ErrorIs(t, err, enterrors.ErrShardBusyStructuralOp,
-						"the shard-busy sentinel is what writes the text a remote caller matches on")
-				}
-			})
-		}
+			_, err := index.IncomingCreateReplicaSnapshot(context.Background(), "shard1", "op-reindex")
+			require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
+				"the reindex sentinel must survive so the backup path keeps its own response")
+			require.Equal(t, tc.wantDefer, replication.IsReversibleRefusal(err),
+				"only a refusal that names a live task may make the movement wait")
+			if tc.wantDefer {
+				require.ErrorIs(t, err, enterrors.ErrShardBusyStructuralOp,
+					"the shard-busy sentinel is what writes the text a remote caller matches on")
+			}
+		})
 	}
 }
 

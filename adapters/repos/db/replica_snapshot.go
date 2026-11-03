@@ -38,8 +38,6 @@ func replicaStagingDir(rootPath, opID string, className schema.ClassName) string
 
 type replicaSnapshotState struct {
 	shardName string
-	// isSnapshot=false means halt-for-duration mode; Release must resume the shard.
-	isSnapshot bool
 }
 
 // IncomingProbeShardData reports whether this node holds shard data; hosted means a usable copy answered. ErrShardRecovering means "not usable now".
@@ -118,8 +116,13 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	}
 
 	// On retry the prior snapshot may be stale relative to current shard contents.
-	if rerr := i.releaseReplicaSnapshot(ctx, opID, shard); rerr != nil {
+	if rerr := i.releaseReplicaSnapshot(opID); rerr != nil {
 		return nil, fmt.Errorf("clean prior replica snapshot for op %q: %w", opID, rerr)
+	}
+
+	if !file.ProbeHardlinkSupport(i.Config.RootPath) {
+		return nil, fmt.Errorf("replica movement requires a filesystem that supports hard links; "+
+			"the data directory for class %s does not", i.Config.ClassName)
 	}
 
 	stagingRoot := replicaStagingDir(i.Config.RootPath, opID, schema.ClassName(i.Config.ClassName))
@@ -127,35 +130,14 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 		return nil, fmt.Errorf("create replica staging dir: %w", err)
 	}
 
-	if file.ProbeHardlinkSupport(i.Config.RootPath) {
-		files, err := shard.CreateReplicaSnapshot(ctx, stagingRoot)
-		if err != nil {
-			i.cleanupFailedReplicaSnapshot(stagingRoot, opID, false, nil)
-			return nil, i.asShardBusyIfReindexInFlight(err)
-		}
-		i.logger.WithField("op_id", opID).WithField("shard", shardName).
-			Debugf("created replica snapshot: %d files", len(files))
-		i.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName, isSnapshot: true})
-		return files, nil
-	}
-
-	// Halt-for-duration fallback: shard stays halted until Release; segments
-	// are served from the live shard root in this mode. The inactivity timeout
-	// backstops a target crash so the halt can't leak forever waiting on a peer that's gone.
-	if err := shard.HaltForTransfer(ctx, false, i.Config.TransferInactivityTimeout); err != nil {
-		i.cleanupFailedReplicaSnapshot(stagingRoot, opID, false, nil)
-		return nil, i.asShardBusyIfReindexInFlight(fmt.Errorf("halt shard %q for transfer: %w", shardName, err))
-	}
-
-	files, err := shard.ListReplicaSnapshotFiles(ctx, stagingRoot)
+	files, err := shard.CreateReplicaSnapshot(ctx, stagingRoot)
 	if err != nil {
-		i.cleanupFailedReplicaSnapshot(stagingRoot, opID, true, shard)
-		return nil, fmt.Errorf("shard %q could not list replica snapshot files: %w", shardName, err)
+		i.cleanupFailedReplicaSnapshot(stagingRoot, opID)
+		return nil, i.asShardBusyIfReindexInFlight(err)
 	}
-
 	i.logger.WithField("op_id", opID).WithField("shard", shardName).
 		Debugf("created replica snapshot: %d files", len(files))
-	i.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName, isSnapshot: false})
+	i.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName})
 	return files, nil
 }
 
@@ -165,8 +147,7 @@ func (i *Index) IncomingReleaseReplicaSnapshot(ctx context.Context, opID string)
 	i.replicaSnapshotOpLocks.Lock(opID)
 	defer i.replicaSnapshotOpLocks.Unlock(opID)
 
-	// No shard pinned here, unlike IncomingCreateReplicaSnapshot.
-	return i.releaseReplicaSnapshot(ctx, opID, nil)
+	return i.releaseReplicaSnapshot(opID)
 }
 
 func (i *Index) IncomingGetReplicaSnapshotFileMetadata(ctx context.Context, opID, relativeFilePath string) (file.FileMetadata, error) {
@@ -190,40 +171,14 @@ func (i *Index) IncomingGetReplicaSnapshotFile(ctx context.Context, opID, relati
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(abs)
-	if err != nil {
-		return nil, err
-	}
-
-	i.replicaSnapshotsMu.Lock()
-	st, ok := i.replicaSnapshots[opID]
-	i.replicaSnapshotsMu.Unlock()
-	if ok && !st.isSnapshot {
-		return &transferActivityReader{
-			ReadCloser: f,
-			reset:      func() { i.mayResetReplicaSnapshotInactivity(opID) },
-		}, nil
-	}
-	return f, nil
+	return os.Open(abs)
 }
 
-type transferActivityReader struct {
-	io.ReadCloser
-	reset func()
-}
-
-func (r *transferActivityReader) Read(p []byte) (int, error) {
-	r.reset()
-	return r.ReadCloser.Read(p)
-}
-
-// rel is shard-relative. Resolution prefers the staging dir (snapshot mode, or
-// bookkeeping files in halt-for-duration mode); falls back to the live shard
-// root for segments under halt-for-duration mode. Both bases are inherently
-// shard-scoped, so the only escape to defend against is `..` traversal.
+// rel is shard-relative and resolves inside the op's staging dir. The staging
+// dir is shard-scoped, so the only escape to defend against is `..` traversal.
 func (i *Index) resolveReplicaSnapshotPath(opID, rel string) (string, error) {
 	i.replicaSnapshotsMu.Lock()
-	st, ok := i.replicaSnapshots[opID]
+	_, ok := i.replicaSnapshots[opID]
 	i.replicaSnapshotsMu.Unlock()
 	if !ok {
 		return "", fmt.Errorf("no replica snapshot registered for op %q", opID)
@@ -234,33 +189,10 @@ func (i *Index) resolveReplicaSnapshotPath(opID, rel string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := os.Stat(stagingCandidate); err == nil {
-		return stagingCandidate, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(stagingCandidate); err != nil {
 		return "", fmt.Errorf("stat staging %q: %w", rel, err)
 	}
-
-	// Halt-for-duration serves segments from the live root; without this
-	// reset, a slow transfer trips the watchdog and compaction can delete
-	// segments mid-stream.
-	i.mayResetReplicaSnapshotInactivity(opID)
-
-	shardRoot := shardPath(i.path(), st.shardName)
-	return containedPath(shardRoot, rel)
-}
-
-func (i *Index) mayResetReplicaSnapshotInactivity(opID string) {
-	i.replicaSnapshotsMu.Lock()
-	st, ok := i.replicaSnapshots[opID]
-	i.replicaSnapshotsMu.Unlock()
-	if !ok || st.isSnapshot {
-		return
-	}
-	// A shard that is not loaded has no live timer to reset. Needs no shutdown
-	// guard: resetting the deadline on a torn-down shard restarts nothing.
-	if shard := i.shards.Loaded(st.shardName); shard != nil {
-		shard.MayResetTransferInactivityTimer()
-	}
+	return stagingCandidate, nil
 }
 
 // containedPath joins base and rel, rejecting any rel that escapes base via `..`.
@@ -274,14 +206,8 @@ func containedPath(base, rel string) (string, error) {
 }
 
 // Logs rather than returns so the caller's primary error stays the signal;
-// silent failures here would leak a halted shard or staging dir.
-func (i *Index) cleanupFailedReplicaSnapshot(stagingRoot, opID string, resumeShard bool, shard ShardLike) {
-	if resumeShard && shard != nil {
-		if rerr := shard.resumeMaintenanceCycles(context.Background()); rerr != nil {
-			i.logger.WithField("op_id", opID).WithField("staging_dir", stagingRoot).
-				Error(fmt.Errorf("resume maintenance after failed replica snapshot: %w", rerr))
-		}
-	}
+// silent failures here would leak a staging dir.
+func (i *Index) cleanupFailedReplicaSnapshot(stagingRoot, opID string) {
 	if rerr := os.RemoveAll(stagingRoot); rerr != nil {
 		i.logger.WithField("op_id", opID).WithField("staging_dir", stagingRoot).
 			Error(fmt.Errorf("remove staging dir after failed replica snapshot: %w", rerr))
@@ -297,52 +223,16 @@ func (i *Index) recordReplicaSnapshot(opID string, st replicaSnapshotState) {
 	i.replicaSnapshots[opID] = st
 }
 
-// releaseReplicaSnapshot reads the shard from the map so a namespace that is not
-// active cannot refuse the resume. A failed resume cannot be retried:
-// resumeMaintenanceCycles clears the halt count before the work that can fail,
-// so a later release finds nothing halted.
-//
-// held is the caller's already-pinned shard for this op, or nil when the caller
-// holds no pin — then the shard is resolved under the shutdown guard instead.
-func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string, held ShardLike) error {
+// releaseReplicaSnapshot has no halt to undo: CreateReplicaSnapshot resumes
+// the shard before it returns.
+func (i *Index) releaseReplicaSnapshot(opID string) error {
 	i.replicaSnapshotsMu.Lock()
-	st, ok := i.replicaSnapshots[opID]
 	delete(i.replicaSnapshots, opID)
 	i.replicaSnapshotsMu.Unlock()
 
 	stagingRoot := replicaStagingDir(i.Config.RootPath, opID, schema.ClassName(i.Config.ClassName))
-	var removeErr error
-	if rerr := os.RemoveAll(stagingRoot); rerr != nil {
-		removeErr = fmt.Errorf("remove replica staging dir: %w", rerr)
+	if err := os.RemoveAll(stagingRoot); err != nil {
+		return fmt.Errorf("remove replica staging dir: %w", err)
 	}
-	// Return early if the snapshot isn't local anymore or if it was a hardlink snapshot (already resumed at create time).
-	if !ok || st.isSnapshot {
-		return removeErr
-	}
-
-	shard := held
-	if shard == nil {
-		// The pinned caller must not take these locks: it would invert the order
-		// an unload acquires them in, which holds them while waiting on the pin.
-		loaded, release, err := i.getLoadedShard(st.shardName)
-		if err != nil {
-			if removeErr != nil {
-				return fmt.Errorf("%w; resume maintenance after replica transfer: %w", removeErr, err)
-			}
-			return fmt.Errorf("resume maintenance after replica transfer: %w", err)
-		}
-		defer release()
-		shard = loaded
-	}
-
-	// A shard that is not loaded has nothing halted.
-	if shard != nil {
-		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
-			if removeErr != nil {
-				return fmt.Errorf("%w; resume maintenance after replica transfer: %w", removeErr, err)
-			}
-			return fmt.Errorf("resume maintenance after replica transfer: %w", err)
-		}
-	}
-	return removeErr
+	return nil
 }
