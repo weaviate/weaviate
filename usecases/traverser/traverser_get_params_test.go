@@ -745,3 +745,30 @@ outer:
 
 	return out[:i]
 }
+
+// Ref resolution only looks at the first selection of a property name, so
+// GetClass merges repeated selections before searching: whatever a repeat
+// (GraphQL fragments, repeated gRPC references) adds would otherwise be lost.
+func TestGetClassMergesRepeatedProperties(t *testing.T) {
+	logger, _ := logrus.NewNullLogger()
+	explorer := &fakeExplorer{}
+	cfg := config.WeaviateConfig{Config: config.Config{QueryCrossReferenceDepthLimit: 5}}
+	traverser := NewTraverser(&cfg, logger, mocks.NewMockAuthorizer(),
+		&fakeVectorRepo{}, explorer, &fakeSchemaGetter{schema: aggregateTestSchema}, nil, nil, -1)
+
+	ref := func(props ...search.SelectProperty) search.SelectProperty {
+		return search.SelectProperty{Name: "a ref", Refs: []search.SelectClass{{ClassName: "MyClass", RefProperties: props}}}
+	}
+	label := search.SelectProperty{Name: "label", IsPrimitive: true}
+	number := search.SelectProperty{Name: "number", IsPrimitive: true}
+
+	_, err := traverser.GetClass(context.Background(), nil, dto.GetParams{
+		ClassName:  "MyClass",
+		Properties: search.SelectProperties{ref(label), number, ref(number)},
+		GroupBy:    &searchparams.GroupBy{Property: "label", Properties: search.SelectProperties{ref(label), ref(number)}},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, search.SelectProperties{ref(label, number), number}, explorer.getParams.Properties)
+	assert.Equal(t, search.SelectProperties{ref(label, number)}, explorer.getParams.GroupBy.Properties)
+}

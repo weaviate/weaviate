@@ -34,6 +34,8 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal, 
 		params.ClassName = schema.ClassName(cls)
 	}
 
+	params.Properties = mergeRepeatedProperties(params.Properties)
+
 	// validate here, because filters can contain references that need to be authorized
 	if err := t.validateFilters(ctx, principal, params.Filters); err != nil {
 		return nil, errors.Wrap(err, "invalid 'where' filter")
@@ -182,4 +184,26 @@ func addTypeInformation(r *aggregation.Result, params *aggregation.Params, getCl
 	}
 
 	return nil
+}
+
+// mergeRepeatedProperties folds a property requested more than once (GraphQL
+// fragments, repeated gRPC aggregations) into a single entry. The shard
+// aggregators key their results by property name, so repeats would otherwise
+// overwrite each other's aggregations.
+func mergeRepeatedProperties(props []aggregation.ParamProperty) []aggregation.ParamProperty {
+	if len(props) < 2 {
+		return props
+	}
+	positions := make(map[schema.PropertyName]int, len(props))
+	merged := make([]aggregation.ParamProperty, 0, len(props))
+	for _, prop := range props {
+		if i, ok := positions[prop.Name]; ok {
+			// Clip so the append never writes into the caller's backing array
+			merged[i].Aggregators = append(slices.Clip(merged[i].Aggregators), prop.Aggregators...)
+			continue
+		}
+		positions[prop.Name] = len(merged)
+		merged = append(merged, prop)
+	}
+	return merged
 }

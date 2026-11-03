@@ -329,6 +329,48 @@ func Test_Traverser_Aggregate(t *testing.T) {
 		require.Nil(t, err)
 		assert.Equal(t, &agg, res)
 	})
+
+	// The shard aggregators key their results by property name, so a property
+	// requested more than once (GraphQL fragments, repeated gRPC aggregations)
+	// lost all but the last request's aggregations.
+	t.Run("with a property requested more than once", func(t *testing.T) {
+		params := aggregation.Params{
+			ClassName: "MyClass",
+			Properties: []aggregation.ParamProperty{
+				{Name: "number", Aggregators: []aggregation.Aggregator{aggregation.SumAggregator}},
+				{Name: "int", Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator}},
+				{Name: "number", Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator}},
+				{Name: "number", Aggregators: []aggregation.Aggregator{aggregation.MaximumAggregator}},
+			},
+		}
+		merged := aggregation.Params{
+			ClassName: "MyClass",
+			Properties: []aggregation.ParamProperty{
+				{Name: "number", Aggregators: []aggregation.Aggregator{
+					aggregation.SumAggregator, aggregation.MeanAggregator, aggregation.MaximumAggregator,
+				}},
+				{Name: "int", Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator}},
+			},
+		}
+
+		agg := aggregation.Result{Groups: []aggregation.Group{{
+			Properties: map[string]aggregation.Property{
+				"number": {
+					Type:                  aggregation.PropertyTypeNumerical,
+					NumericalAggregations: map[string]interface{}{"sum": 200, "mean": 20, "maximum": 50},
+				},
+				"int": {
+					Type:                  aggregation.PropertyTypeNumerical,
+					NumericalAggregations: map[string]interface{}{"mean": 10},
+				},
+			},
+		}}}
+
+		vectorRepo.On("Aggregate", merged).Return(&agg, nil).Once()
+		res, err := traverser.Aggregate(context.Background(), principal, &params)
+		require.Nil(t, err)
+		assert.Equal(t, &agg, res)
+	})
 }
 
 var aggregateTestSchema = schema.Schema{

@@ -584,6 +584,40 @@ func TestBatchUpdateVector_VectorlessClassIsNoop(t *testing.T) {
 	}
 }
 
+// Explore validates module search params without a class. When no module
+// validated the param, building the error dereferenced the nil class and
+// panicked instead of returning an error (gh-4050).
+func TestCrossClassValidateSearchParam(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		modules     []string
+		param       string
+		errContains string
+	}{
+		{name: "single vectorizer, known param", modules: []string{"mod1"}, param: "nearArgument"},
+		{name: "single vectorizer, unknown param", modules: []string{"mod1"}, param: "nearOther", errContains: "nearOther"},
+		{name: "multiple vectorizers", modules: []string{"mod1", "mod2"}, param: "nearArgument", errContains: "nearArgument"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			p := NewProvider(logger, config.Config{})
+			p.SetSchemaGetter(getMockSchemaReader(t))
+			for _, m := range tc.modules {
+				p.Register(newGraphQLModule(m).withArg("nearArgument"))
+			}
+			require.NoError(t, p.Init(context.Background(), nil, logger))
+
+			var err error
+			require.NotPanics(t, func() { err = p.CrossClassValidateSearchParam(tc.param, nil) })
+			if tc.errContains == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.errContains)
+		})
+	}
+}
+
 type dummyMutableSettingsModule struct {
 	dummyText2VecModuleNoCapabilities
 }
