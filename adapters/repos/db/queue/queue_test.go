@@ -2481,3 +2481,29 @@ func TestRetention_Mark(t *testing.T) {
 		require.NoError(t, err)
 	})
 }
+
+// A chunk a retention keeps stays when its tombstone cannot be created, and
+// is kept once it can.
+func TestRetention_KeepsAChunkWhoseTombstoneFails(t *testing.T) {
+	s := makeScheduler(t)
+	q := makeQueueSize(t, s, discardExecutor(), 50)
+	pushMany(t, q, 1, 1, 2, 3, 4)
+	chunks, _ := chunksOf(t, q)
+	r, err := q.Retain()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = r.Release() })
+
+	// a directory where the tombstone goes makes its creation fail
+	blocker := chunks[0] + ".processed"
+	require.NoError(t, os.Mkdir(blocker, 0o755))
+	processNext(t, q)
+	assert.FileExists(t, chunks[0], "the retention still needs it")
+
+	require.NoError(t, os.Remove(blocker))
+	batch, err := q.DequeueBatch()
+	require.NoError(t, err)
+	require.Nil(t, batch, "the retried removal tombstones the chunk without reading it again")
+	kept, tombstoned := chunksOf(t, q)
+	assert.Contains(t, kept, chunks[0])
+	assert.True(t, tombstoned[chunks[0]])
+}
