@@ -56,7 +56,7 @@ func buildTask(t *testing.T, id string, status distributedtask.TaskStatus,
 	}
 }
 
-func tasksMap(tasks ...*distributedtask.Task) []parsedReindexTask {
+func tasksMap(tasks ...*distributedtask.Task) []db.ReindexRun {
 	return parseReindexTasks(tasks)
 }
 

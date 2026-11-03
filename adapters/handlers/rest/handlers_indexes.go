@@ -158,7 +158,7 @@ type classReader interface {
 // ReadOnlyClass below, after the task read, so the order above holds for
 // every class this returns. A collection deleted between the two reads
 // leaves ReadOnlyClass answering nil against an Exists that was true.
-func readClassAndTasks(collection string, taskSource localTaskLister, classes classReader) (*models.Class, []parsedReindexTask) {
+func readClassAndTasks(collection string, taskSource localTaskLister, classes classReader) (*models.Class, []db.ReindexRun) {
 	if !classes.ClassInfo(collection).Exists {
 		return nil, nil
 	}
@@ -201,16 +201,16 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	// fast paths still take precedence in SearchablePropertyIsBlockmaxParsed.
 	finishedBlockmaxProps := make(map[string]struct{})
 	for _, pt := range parsedTasks {
-		if pt.task.Status != distributedtask.TaskStatusFinished {
+		if pt.Task.Status != distributedtask.TaskStatusFinished {
 			continue
 		}
-		if !strings.EqualFold(pt.payload.Collection, collection) {
+		if !strings.EqualFold(pt.Payload.Collection, collection) {
 			continue
 		}
-		if _, _, producesBlockmax, _ := db.ReindexBucketEffect(pt.payload.MigrationType); !producesBlockmax {
+		if _, _, producesBlockmax, _ := db.ReindexBucketEffect(pt.Payload.MigrationType); !producesBlockmax {
 			continue
 		}
-		for _, p := range pt.payload.Properties {
+		for _, p := range pt.Payload.Properties {
 			finishedBlockmaxProps[p] = struct{}{}
 		}
 	}
@@ -750,33 +750,6 @@ func firstActiveReindexTask(
 	return nil, db.ReindexTaskPayload{}, false
 }
 
-// parsedReindexTask pairs a distributed task with its already-unmarshalled
-// reindex payload. The handler builds a slice of these once per request so
-// mergeReindexStatus doesn't re-unmarshal task.Payload N times where N is the
-// number of properties in the collection.
-type parsedReindexTask struct {
-	task    *distributedtask.Task
-	payload db.ReindexTaskPayload
-}
-
-// migratedTenantCounts counts decided vs. total tenant groups; a
-// single-tenant collection's unnamed group never counts as a tenant.
-func migratedTenantCounts(task *distributedtask.Task) (migrated, total int64) {
-	if !db.ReindexLeftPartial(task) {
-		return 0, 0
-	}
-	for _, group := range task.Groups() {
-		if group == "" {
-			continue
-		}
-		total++
-		if task.GroupSwapDecided(group) {
-			migrated++
-		}
-	}
-	return migrated, total
-}
-
 // parseReindexTasks unmarshals every reindex task's payload once. Tasks
 // with unparseable payloads are skipped — those are flagged elsewhere by
 // checkReindexConflict at submit time; for the read-side merge they're
@@ -792,14 +765,14 @@ func migratedTenantCounts(task *distributedtask.Task) (migrated, total int64) {
 // [mergeReindexStatus] needs them for a second, independent reason: a
 // completed migration must outrank an older FAILED attempt on the same
 // property, or the entry reports "failed" after the retry succeeded.
-func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
-	parsed := make([]parsedReindexTask, 0, len(tasks))
+func parseReindexTasks(tasks []*distributedtask.Task) []db.ReindexRun {
+	parsed := make([]db.ReindexRun, 0, len(tasks))
 	for _, task := range tasks {
 		var payload db.ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
 			continue
 		}
-		parsed = append(parsed, parsedReindexTask{task: task, payload: payload})
+		parsed = append(parsed, db.ReindexRun{Task: task, Payload: payload})
 	}
 	return parsed
 }
@@ -845,7 +818,7 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 // added without updating this switch would otherwise silently report "ready"
 // for an in-flight task. Passing a nil logger is allowed (test callers may
 // rely on this); the entry is still skipped, just without a log line.
-func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, parsedTasks []parsedReindexTask, logger logrus.FieldLogger) {
+func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, parsedTasks []db.ReindexRun, logger logrus.FieldLogger) {
 	// Two tasks for the same (collection, prop, indexType) may coexist —
 	// e.g. a freshly retried STARTED enable-filterable plus the original
 	// FAILED attempt that the operator just retried (terminal tasks
@@ -859,8 +832,8 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload
 	for _, pt := range parsedTasks {
-		task := pt.task
-		payload := pt.payload
+		task := pt.Task
+		payload := pt.Payload
 
 		if !strings.EqualFold(payload.Collection, collection) {
 			continue
@@ -930,9 +903,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			idx.Status = models.IndexStatusStatusCancelled
 		}
 		// Per-tenant counts, not a list: a collection can hold 100k tenants.
-		if migrated, total := migratedTenantCounts(best); migrated > 0 {
+		if migrated, covered := db.ReindexMigratedTenants(parsedTasks, propName, &bestPayload); len(migrated) > 0 {
 			idx.Status = models.IndexStatusStatusPartial
-			idx.MigratedTenants, idx.TotalTenants = migrated, total
+			idx.MigratedTenants, idx.TotalTenants = int64(len(migrated)), int64(len(covered))
 		}
 		idx.Progress = aggregateProgress(best)
 		surfaceSyntheticFields = true

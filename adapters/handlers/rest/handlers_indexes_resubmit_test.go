@@ -22,19 +22,25 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// Pins that resubmitting skips only tenants the latest identical run decided.
-func TestSkipTenantsAlreadyMigrated(t *testing.T) {
-	ownership := map[string][]string{"n1": {"a", "b"}, "n2": {"a", "b"}}
+// Pins that the resubmit skip and the partial status agree on which tenants
+// already serve the target, across every run since the last flip.
+func TestMigratedTenantsAcrossRuns(t *testing.T) {
+	ownership := map[string][]string{"n1": {"a", "b", "c"}, "n2": {"a", "b", "c"}}
 	plan := upsertPlan{
 		migrationType: db.ReindexTypeChangeTokenization, targetTok: models.PropertyTokenizationField,
 		bucketStrategy: "mapcollection",
 	}
-	run := func(version uint64, status distributedtask.TaskStatus, mt db.ReindexMigrationType, tok string, decided ...string) *distributedtask.Task {
+	start := time.Now()
+	// run builds a task holding tenants held, of which decided swapped.
+	run := func(version uint64, status distributedtask.TaskStatus, mt db.ReindexMigrationType, tok string, held string, decided ...string) *distributedtask.Task {
 		task := buildTask(t, "T", status, db.ReindexTaskPayload{
 			Collection: "C", Properties: []string{"title"}, MigrationType: mt,
 			TargetTokenization: tok, BucketStrategy: "mapcollection",
-		}, nil)
-		task.Version = version
+		}, map[string]*distributedtask.Unit{})
+		task.Version, task.StartedAt = version, start.Add(time.Duration(version)*time.Minute)
+		for _, g := range held {
+			task.Units[string(g)] = &distributedtask.Unit{ID: string(g), GroupID: string(g)}
+		}
 		for _, g := range decided {
 			if task.SwapDecidedGroups == nil {
 				task.SwapDecidedGroups = map[string]time.Time{}
@@ -43,50 +49,103 @@ func TestSkipTenantsAlreadyMigrated(t *testing.T) {
 		}
 		return task
 	}
-	changeTok := db.ReindexTypeChangeTokenization
+	changeTok, rebuild := db.ReindexTypeChangeTokenization, db.ReindexTypeRebuildSearchable
 	field, whitespace := models.PropertyTokenizationField, models.PropertyTokenizationWhitespace
+	failed, cancelled, finished := distributedtask.TaskStatusFailed, distributedtask.TaskStatusCancelled, distributedtask.TaskStatusFinished
+	only := func(tenants ...string) map[string][]string { return map[string][]string{"n1": tenants, "n2": tenants} }
 
 	for _, tc := range []struct {
 		name  string
 		tasks []*distributedtask.Task
 		want  map[string][]string
+		// status of the filterable entry; migrated and total apply to partial.
+		status          string
+		migrated, total int64
 	}{
 		{
-			name:  "a failed identical run skips the tenants it decided",
-			tasks: []*distributedtask.Task{run(1, distributedtask.TaskStatusFailed, changeTok, field, "a")},
-			want:  map[string][]string{"n1": {"b"}, "n2": {"b"}},
+			name:   "a failed identical run skips the tenants it decided",
+			tasks:  []*distributedtask.Task{run(1, failed, changeTok, field, "abc", "a")},
+			want:   only("b", "c"),
+			status: "partial", migrated: 1, total: 3,
 		},
 		{
-			name:  "a cancelled identical run skips them too",
-			tasks: []*distributedtask.Task{run(1, distributedtask.TaskStatusCancelled, changeTok, field, "a")},
-			want:  map[string][]string{"n1": {"b"}, "n2": {"b"}},
+			name:   "a cancelled identical run skips them too",
+			tasks:  []*distributedtask.Task{run(1, cancelled, changeTok, field, "abc", "a")},
+			want:   only("b", "c"),
+			status: "partial", migrated: 1, total: 3,
 		},
 		{
-			name:  "another target reruns everything",
-			tasks: []*distributedtask.Task{run(1, distributedtask.TaskStatusFailed, changeTok, whitespace, "a")},
-			want:  ownership,
+			name:   "another target reruns everything",
+			tasks:  []*distributedtask.Task{run(1, failed, changeTok, whitespace, "abc", "a")},
+			want:   ownership,
+			status: "partial", migrated: 1, total: 3,
 		},
 		{
-			name: "only the latest run on the property counts",
+			name:   "a run that decided nothing skips nothing",
+			tasks:  []*distributedtask.Task{run(1, failed, changeTok, field, "abc")},
+			want:   ownership,
+			status: "failed",
+		},
+		{
+			name:   "every tenant decided: rerun them all, the flip still has to land",
+			tasks:  []*distributedtask.Task{run(1, failed, changeTok, field, "abc", "a", "b", "c")},
+			want:   ownership,
+			status: "partial", migrated: 3, total: 3,
+		},
+		{
+			name: "a resubmit that swapped nothing keeps the first run's tenants",
 			tasks: []*distributedtask.Task{
-				run(1, distributedtask.TaskStatusFailed, changeTok, field, "a"),
-				run(2, distributedtask.TaskStatusFailed, changeTok, whitespace, "b"),
+				run(1, cancelled, changeTok, field, "abc", "a", "b"),
+				run(2, cancelled, changeTok, field, "c"),
 			},
-			want: ownership,
+			want:   only("c"),
+			status: "partial", migrated: 2, total: 3,
 		},
 		{
-			name:  "a run that decided nothing skips nothing",
-			tasks: []*distributedtask.Task{run(1, distributedtask.TaskStatusFailed, changeTok, field)},
-			want:  ownership,
+			name: "a resubmit that swapped some adds them to the first run's",
+			tasks: []*distributedtask.Task{
+				run(1, cancelled, changeTok, field, "abc", "a"),
+				run(2, failed, changeTok, field, "bc", "b"),
+			},
+			want:   only("c"),
+			status: "partial", migrated: 2, total: 3,
 		},
 		{
-			name:  "every tenant decided: rerun them all, the flip still has to land",
-			tasks: []*distributedtask.Task{run(1, distributedtask.TaskStatusFailed, changeTok, field, "a", "b")},
-			want:  ownership,
+			name: "a finished rebuild flips nothing and hides nothing",
+			tasks: []*distributedtask.Task{
+				run(1, cancelled, changeTok, field, "abc", "a"),
+				run(2, finished, rebuild, "", "abc"),
+			},
+			want:   only("b", "c"),
+			status: "partial", migrated: 1, total: 3,
+		},
+		{
+			name: "a newer swap to another target takes the tenant back",
+			tasks: []*distributedtask.Task{
+				run(1, failed, changeTok, field, "abc", "a", "b"),
+				run(2, failed, changeTok, whitespace, "abc", "b"),
+			},
+			want:   only("b", "c"),
+			status: "partial", migrated: 1, total: 3,
+		},
+		{
+			name: "a finished flip of another target rewrote every tenant",
+			tasks: []*distributedtask.Task{
+				run(1, failed, changeTok, field, "abc", "a"),
+				run(2, finished, changeTok, whitespace, "abc"),
+			},
+			want:   ownership,
+			status: "ready",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, skipTenantsAlreadyMigrated(ownership, "C", "title", plan, tc.tasks))
+
+			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+			mergeReindexStatus(idx, "C", "title", "filterable", parseReindexTasks(tc.tasks), nil)
+			require.Equal(t, tc.status, idx.Status)
+			require.Equal(t, tc.migrated, idx.MigratedTenants, "migrated tenants")
+			require.Equal(t, tc.total, idx.TotalTenants, "total tenants")
 		})
 	}
 }

@@ -12,6 +12,7 @@
 package db
 
 import (
+	"cmp"
 	"encoding/json"
 	"slices"
 	"strings"
@@ -43,6 +44,56 @@ func ReindexIndexTypes(mt ReindexMigrationType) (indexTypes []string, known bool
 func ReindexLeftPartial(task *distributedtask.Task) bool {
 	return (task.Status == distributedtask.TaskStatusFailed || task.Status == distributedtask.TaskStatusCancelled) &&
 		len(task.SwapDecidedGroups) > 0
+}
+
+// ReindexRun pairs a reindex task with its decoded payload.
+type ReindexRun struct {
+	Task    *distributedtask.Task
+	Payload ReindexTaskPayload
+}
+
+// ReindexMigratedTenants answers which tenants of property already serve
+// target, from every failed or cancelled run of target since the newest
+// finished schema flip on its index types: that flip covered every tenant.
+// covered is every tenant those runs held. A tenant whose newest swap was to
+// another target no longer serves this one.
+func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexTaskPayload) (migrated, covered map[string]struct{}) {
+	targetTypes, _ := ReindexIndexTypes(target.MigrationType)
+	var onProperty []ReindexRun
+	for _, run := range runs {
+		if strings.EqualFold(run.Payload.Collection, target.Collection) && slices.Contains(run.Payload.Properties, property) {
+			onProperty = append(onProperty, run)
+		}
+	}
+	slices.SortFunc(onProperty, func(a, b ReindexRun) int { return cmp.Compare(b.Task.Version, a.Task.Version) })
+
+	migrated, covered = map[string]struct{}{}, map[string]struct{}{}
+	swappedSince := map[string]struct{}{}
+	for _, run := range onProperty {
+		types, _ := ReindexIndexTypes(run.Payload.MigrationType)
+		if run.Task.Status == distributedtask.TaskStatusFinished && IsSemanticMigration(run.Payload.MigrationType) &&
+			!slices.ContainsFunc(targetTypes, func(t string) bool { return !slices.Contains(types, t) }) {
+			break
+		}
+		overlaps := slices.ContainsFunc(types, func(t string) bool { return slices.Contains(targetTypes, t) })
+		if !overlaps || (run.Task.Status != distributedtask.TaskStatusFailed && run.Task.Status != distributedtask.TaskStatusCancelled) {
+			continue
+		}
+		same := run.Payload.MigrationType == target.MigrationType &&
+			run.Payload.TargetTokenization == target.TargetTokenization && run.Payload.BucketStrategy == target.BucketStrategy
+		for group := range run.Task.SwapDecidedGroups {
+			if _, seen := swappedSince[group]; same && !seen && group != "" {
+				migrated[group] = struct{}{}
+			}
+			swappedSince[group] = struct{}{}
+		}
+		for _, group := range run.Task.Groups() {
+			if same && group != "" {
+				covered[group] = struct{}{}
+			}
+		}
+	}
+	return migrated, covered
 }
 
 // ShouldRetainCompletedTask keeps a FAILED or partly-migrated record alive

@@ -1251,7 +1251,9 @@ collection-wide schema flip lands after the last tenant. A failure
 leaves the decided tenants migrated and the rest not: the indexes
 endpoint reads `partial` with `migratedTenants` / `totalTenants`, and
 the operator migrates forward by submitting the same migration again,
-which skips the tenants already migrated. Migrating back is not
+which skips the tenants already migrated. Both count every run of that
+migration since the last finished flip, so a resubmit that stops partway
+too still reads `partial` over all tenants. Migrating back is not
 supported yet.
 
 Status after cancelling a tenant-scoped task is reported at the

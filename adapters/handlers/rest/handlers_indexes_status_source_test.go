@@ -187,7 +187,7 @@ func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 				return
 			}
 			require.Len(t, parsed, 1)
-			require.Equal(t, tt.wantStatus, parsed[0].task.Status)
+			require.Equal(t, tt.wantStatus, parsed[0].Task.Status)
 			require.Equal(t, tt.wantFlagOn, *class.Properties[0].IndexSearchable)
 		})
 	}
