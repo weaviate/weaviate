@@ -171,6 +171,9 @@ func (h *indexesHandlers) rebuildIndex(params schema.SchemaObjectsIndexRebuildPa
 	}
 
 	plan, err := h.resolveRebuildPlan(class, prop, indexType, reindexTasks)
+	if errors.Is(err, errRebuildPartlyMigrated) {
+		return jsonResponder(http.StatusConflict, errorResponse(principal, err.Error()))
+	}
 	if err != nil {
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
 	}
@@ -585,9 +588,14 @@ func resolveRangeableUpsert(class *models.Class, collection string, prop *models
 	return upsertPlan{migrationType: db.ReindexTypeEnableRangeable}, nil
 }
 
+var errRebuildPartlyMigrated = errors.New("cannot rebuild an index some tenants already migrated")
+
 // resolveRebuildPlan validates the rebuild preconditions for the internal
 // index-type token and returns the repair/rebuild migration to submit.
 func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.Property, indexType string, reindexTasks []*distributedtask.Task) (upsertPlan, error) {
+	if err := refusePartlyMigratedRebuild(class.Class, prop.Name, indexType, reindexTasks); err != nil {
+		return upsertPlan{}, err
+	}
 	switch indexType {
 	case "searchable":
 		if !searchableIndexOn(prop) {
@@ -619,6 +627,25 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 	}
 	// Unreachable: normalizeIndexTypeParam already validated the token.
 	return upsertPlan{}, fmt.Errorf("unsupported index type %q", indexType)
+}
+
+// refusePartlyMigratedRebuild refuses a rebuild of an index some tenants
+// already migrated: a rebuild analyzes with the schema's settings, which those
+// tenants no longer use. Finishing the migration rebuilds the rest anyway.
+func refusePartlyMigratedRebuild(collection, propName, indexType string, reindexTasks []*distributedtask.Task) error {
+	runs := parseReindexTasks(reindexTasks)
+	for _, run := range runs {
+		indexTypes, _ := db.ReindexIndexTypes(run.Payload.MigrationType)
+		if !strings.EqualFold(run.Payload.Collection, collection) || !slices.Contains(run.Payload.Properties, propName) ||
+			!db.ReindexLeftPartial(run.Task) || !slices.Contains(indexTypes, indexType) {
+			continue
+		}
+		if migrated, covered := db.ReindexMigratedTenants(runs, propName, &run.Payload); len(migrated) > 0 {
+			return fmt.Errorf("%w: %d of %d tenants of property %q serve the migrated index; finish the migration with %s",
+				errRebuildPartlyMigrated, len(migrated), len(covered), propName, db.ReindexResubmitCommand(&run.Payload, propName))
+		}
+	}
+	return nil
 }
 
 // validateTenantScope enforces the tenants contract: honored only on

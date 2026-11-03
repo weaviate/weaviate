@@ -49,7 +49,7 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_ChangeTokenizationBoth
 		Properties:         []string{"name"},
 		TargetTokenization: "field",
 	}
-	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T1"), payload, distributedtask.TaskStatusFailed)
+	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T1"), payload, distributedtask.TaskStatusFailed, nil)
 
 	require.Len(t, hook.Entries, 1, "expected one error entry per property")
 	entry := hook.Entries[0]
@@ -78,7 +78,7 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_ChangeTokenizationFilt
 		Properties:         []string{"category"},
 		TargetTokenization: "field",
 	}
-	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T2"), payload, distributedtask.TaskStatusFailed)
+	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T2"), payload, distributedtask.TaskStatusFailed, nil)
 
 	require.Len(t, hook.Entries, 1)
 	entry := hook.Entries[0]
@@ -97,7 +97,7 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_MultipleProperties(t *
 		MigrationType: ReindexTypeEnableFilterable,
 		Properties:    []string{"a", "b", "c"},
 	}
-	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T3"), payload, distributedtask.TaskStatusFailed)
+	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T3"), payload, distributedtask.TaskStatusFailed, nil)
 
 	// One entry per property — easier for log scrapers to alert per-prop.
 	require.Len(t, hook.Entries, 3)
@@ -106,6 +106,49 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_MultipleProperties(t *
 		gotProps[i] = entry.Data["property"].(string)
 	}
 	require.ElementsMatch(t, []string{"a", "b", "c"}, gotProps)
+}
+
+// Pins that a property some tenants migrated is finished by a resubmit, never
+// repaired by a rebuild, counting every run since the last flip.
+func TestLogOperatorRepairGuidanceOnPartialSwap_MigratedTenantsGetResubmit(t *testing.T) {
+	payload := &ReindexTaskPayload{
+		Collection: "Products", MigrationType: ReindexTypeChangeTokenization,
+		Properties: []string{"name"}, TargetTokenization: "field",
+	}
+	run := func(version uint64, held []string, decided ...string) ReindexRun {
+		units := map[string]*distributedtask.Unit{}
+		for _, g := range held {
+			units[g] = &distributedtask.Unit{ID: g, GroupID: g}
+		}
+		task := &distributedtask.Task{TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: version}, Status: distributedtask.TaskStatusCancelled}
+		task.SetUnits(units)
+		task.SwapDecidedGroups = map[string]time.Time{}
+		for _, g := range decided {
+			task.SwapDecidedGroups[g] = time.Time{}
+		}
+		return ReindexRun{Task: task, Payload: *payload}
+	}
+	for _, tc := range []struct {
+		name            string
+		runs            []ReindexRun
+		migrated, total int
+	}{
+		{name: "this run migrated some tenants", runs: []ReindexRun{run(1, []string{"a", "b"}, "a")}, migrated: 1, total: 2},
+		{name: "an earlier run migrated them, this one none", runs: []ReindexRun{run(1, []string{"a", "b"}, "a"), run(2, []string{"b"})}, migrated: 1, total: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			logOperatorRepairGuidanceOnPartialSwap(logger, payload, distributedtask.TaskStatusCancelled, tc.runs)
+			require.Len(t, hook.Entries, 1)
+			entry := hook.Entries[0]
+			require.Equal(t, logrus.WarnLevel, entry.Level)
+			require.Equal(t, tc.migrated, entry.Data["migrated_tenants"])
+			require.Equal(t, tc.total, entry.Data["total_tenants"])
+			require.Equal(t, `PUT /v1/schema/Products/properties/name/index/searchable -d '{"tokenization":"field"}'`, entry.Data["resubmit_command"])
+			require.NotContains(t, entry.Message, "rebuild")
+			require.NotContains(t, entry.Message, "reverted")
+		})
+	}
 }
 
 // Tenant counts can run into the thousands.
@@ -188,7 +231,7 @@ func TestRepairCommandsForFailedMigration_EnableAndAlgorithmUsePut(t *testing.T)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
-			logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T"), tc.payload, distributedtask.TaskStatusFailed)
+			logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T"), tc.payload, distributedtask.TaskStatusFailed, nil)
 			require.Len(t, hook.Entries, 1)
 			got := hook.Entries[0].Data["repair_command"].(string)
 			require.Equal(t, tc.wantCommand, got)
@@ -213,7 +256,7 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_FormatOnlyMigrationIsN
 				MigrationType: mt,
 				Properties:    []string{"name"},
 			}
-			logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T"), payload, distributedtask.TaskStatusFailed)
+			logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T"), payload, distributedtask.TaskStatusFailed, nil)
 			require.Empty(t, hook.Entries,
 				"format-only migration %s must not produce repair guidance", mt)
 		})
@@ -228,7 +271,7 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_EmptyPropertiesEmitsGe
 		MigrationType: ReindexTypeChangeTokenization,
 		Properties:    nil, // reserved for future whole-collection rebuild
 	}
-	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T4"), payload, distributedtask.TaskStatusFailed)
+	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T4"), payload, distributedtask.TaskStatusFailed, nil)
 
 	require.Len(t, hook.Entries, 1, "empty Properties → one generic guidance entry")
 	require.Contains(t, hook.Entries[0].Message, "empty Properties")

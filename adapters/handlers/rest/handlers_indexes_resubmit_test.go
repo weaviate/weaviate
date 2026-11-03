@@ -151,3 +151,37 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 		})
 	}
 }
+
+// Pins that a rebuild of an index some tenants already migrated is refused
+// with the resubmit that finishes the migration, and only that index.
+func TestRebuildRefusedOnPartlyMigratedIndex(t *testing.T) {
+	partial := buildTask(t, "T", distributedtask.TaskStatusCancelled, db.ReindexTaskPayload{
+		Collection: "C", Properties: []string{"title"}, MigrationType: db.ReindexTypeChangeTokenizationFilterable,
+		TargetTokenization: models.PropertyTokenizationField,
+	}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
+	partial.SwapDecidedGroups = map[string]time.Time{"a": {}}
+	prop := &models.Property{Name: "title", DataType: []string{"text"}, IndexFilterable: boolPtr(true), IndexSearchable: boolPtr(true)}
+	class := &models.Class{Class: "C", Properties: []*models.Property{prop}, InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: true}}
+
+	for _, tc := range []struct {
+		name      string
+		indexType string
+		tasks     []*distributedtask.Task
+		refused   bool
+	}{
+		{name: "the migrated index is refused", indexType: "filterable", tasks: []*distributedtask.Task{partial}, refused: true},
+		{name: "another index of the property is not", indexType: "searchable", tasks: []*distributedtask.Task{partial}},
+		{name: "no partial run, no refusal", indexType: "filterable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := (&indexesHandlers{}).resolveRebuildPlan(class, prop, tc.indexType, tc.tasks)
+			if !tc.refused {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, errRebuildPartlyMigrated)
+			require.Contains(t, err.Error(), "1 of 2 tenants")
+			require.Contains(t, err.Error(), `PUT /v1/schema/C/properties/title/index/filterable -d '{"tokenization":"field"}'`)
+		})
+	}
+}

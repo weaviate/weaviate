@@ -1522,7 +1522,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 		if payloadErr == nil {
 			switch task.Status {
 			case distributedtask.TaskStatusFailed:
-				logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
+				logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status, p.reindexRunsWith(task, payload))
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusCancelled:
 				// Acks can be missing: a late ack on an already-CANCELLED task is dropped, so the costlier shard walk backs them up.
@@ -1533,7 +1533,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				}
 				p.autoCleanupAfterTerminal(task, payload, logger)
 				if tornLocally {
-					logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
+					logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status, p.reindexRunsWith(task, payload))
 				}
 			case distributedtask.TaskStatusFinished,
 				distributedtask.TaskStatusStarted,
@@ -1972,7 +1972,35 @@ func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 	return true
 }
 
-func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome distributedtask.TaskStatus) {
+// reindexRunsWith returns every reindex run the cluster holds, with task in
+// it as this node sees it. Only this run when the list cannot be read: the
+// guidance then understates what earlier runs migrated, nothing worse.
+func (p *ReindexProvider) reindexRunsWith(task *distributedtask.Task, payload *ReindexTaskPayload) []ReindexRun {
+	runs := []ReindexRun{{Task: task, Payload: *payload}}
+	if p.taskLister == nil {
+		return runs
+	}
+	tasksByNS, err := p.taskLister.ListDistributedTasks(p.serverCtx)
+	if err != nil {
+		p.logger.WithField("taskID", task.ID).Warnf("reindex provider: cannot list earlier runs for the repair guidance: %v", err)
+		return runs
+	}
+	for _, other := range tasksByNS[ReindexNamespace] {
+		var otherPayload ReindexTaskPayload
+		if other.TaskDescriptor == task.TaskDescriptor || json.Unmarshal(other.Payload, &otherPayload) != nil {
+			continue
+		}
+		runs = append(runs, ReindexRun{Task: other, Payload: otherPayload})
+	}
+	return runs
+}
+
+// logOperatorRepairGuidanceOnPartialSwap names the way forward once a semantic
+// migration stopped: a property some tenants already migrated is finished by
+// resubmitting the request; one no tenant migrated is repaired in place.
+func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *ReindexTaskPayload,
+	outcome distributedtask.TaskStatus, runs []ReindexRun,
+) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return
 	}
@@ -1985,6 +2013,18 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 		return
 	}
 	for _, propName := range payload.Properties {
+		if migrated, covered := ReindexMigratedTenants(runs, propName, payload); len(migrated) > 0 {
+			logger.WithFields(map[string]any{
+				"property":         propName,
+				"migration_type":   payload.MigrationType,
+				"migrated_tenants": len(migrated),
+				"total_tenants":    len(covered),
+				"resubmit_command": ReindexResubmitCommand(payload, propName),
+			}).Warnf("reindex provider: %s on %s.%s %s; %d of %d tenants migrated successfully; "+
+				"resubmit the same request to migrate the rest", payload.MigrationType, payload.Collection,
+				propName, outcome, len(migrated), len(covered))
+			continue
+		}
 		repairCommands := repairCommandsForFailedMigration(payload, propName)
 		logger.WithFields(map[string]any{
 			"property":       propName,
@@ -2003,32 +2043,42 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 	}
 }
 
+// ReindexResubmitCommand is the request that submits payload's migration of
+// propName again, which migrates every tenant it has not migrated yet.
+func ReindexResubmitCommand(payload *ReindexTaskPayload, propName string) string {
+	put := func(indexType, body string) string {
+		return fmt.Sprintf("PUT /v1/schema/%s/properties/%s/index/%s -d '%s'", payload.Collection, propName, indexType, body)
+	}
+	tok := payload.TargetTokenization
+	if tok == "" {
+		tok = "<tokenization>"
+	}
+	switch payload.MigrationType {
+	case ReindexTypeEnableFilterable:
+		return put("filterable", "{}")
+	case ReindexTypeEnableRangeable:
+		return put("rangeFilters", "{}")
+	case ReindexTypeChangeAlgorithm:
+		return put("searchable", `{"algorithm":"blockmax"}`)
+	case ReindexTypeChangeTokenizationFilterable:
+		return put("filterable", fmt.Sprintf(`{"tokenization":%q}`, tok))
+	default:
+		return put("searchable", fmt.Sprintf(`{"tokenization":%q}`, tok))
+	}
+}
+
 // repairCommandsForFailedMigration returns the operator command(s) to recover
 // propName after payload's migration stopped without succeeding (FAILED or
 // CANCELLED). enable-*/change-algorithm never flip their flag then, so
 // /rebuild would 400 — those re-run via PUT instead; retokenize migrations
 // rebuild the pre-existing bucket.
 func repairCommandsForFailedMigration(payload *ReindexTaskPayload, propName string) []string {
-	c := payload.Collection
 	rebuild := func(indexType string) string {
-		return fmt.Sprintf("POST /v1/schema/%s/properties/%s/index/%s/rebuild", c, propName, indexType)
-	}
-	put := func(indexType, body string) string {
-		return fmt.Sprintf("PUT /v1/schema/%s/properties/%s/index/%s -d '%s'", c, propName, indexType, body)
+		return fmt.Sprintf("POST /v1/schema/%s/properties/%s/index/%s/rebuild", payload.Collection, propName, indexType)
 	}
 	switch payload.MigrationType {
-	case ReindexTypeEnableSearchable:
-		tok := payload.TargetTokenization
-		if tok == "" {
-			tok = "<tokenization>"
-		}
-		return []string{put("searchable", fmt.Sprintf(`{"tokenization":%q}`, tok))}
-	case ReindexTypeEnableFilterable:
-		return []string{put("filterable", "{}")}
-	case ReindexTypeEnableRangeable:
-		return []string{put("rangeFilters", "{}")}
-	case ReindexTypeChangeAlgorithm:
-		return []string{put("searchable", `{"algorithm":"blockmax"}`)}
+	case ReindexTypeEnableSearchable, ReindexTypeEnableFilterable, ReindexTypeEnableRangeable, ReindexTypeChangeAlgorithm:
+		return []string{ReindexResubmitCommand(payload, propName)}
 	case ReindexTypeChangeTokenization:
 		return []string{rebuild("filterable"), rebuild("searchable")}
 	case ReindexTypeChangeTokenizationFilterable:
