@@ -544,6 +544,127 @@ func TestRankChecksTheAnswers(t *testing.T) {
 	}
 }
 
+func TestRankSendsABlobPropertyAsImages(t *testing.T) {
+	const damaged = "The photo shows a damaged car"
+
+	t.Run("two images share a request", func(t *testing.T) {
+		images := []string{encodedImage(t, "png", 300, 300), encodedImage(t, "png", 320, 300)}
+		f := newFake(t)
+		f.probabilities = map[string]float64{images[0]: 0.9, images[1]: 0.2}
+
+		res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), damaged, "photo",
+			images, classConfig(f.url(), nil))
+
+		require.NoError(t, err)
+		assert.Equal(t, expectedScores(images, f.probabilities), res.DocumentScores)
+		requests := f.received()
+		require.Len(t, requests, 1)
+		assert.Equal(t, "true", requests[0].imagesHeader)
+		body := requests[0].body
+		assert.Equal(t, map[string]any{"document_0": "image_0", "document_1": "image_1"}, body.State)
+		assert.Equal(t, map[string]wireAsset{
+			"image_0": {Type: "image", DataBase64: images[0], Format: "png"},
+			"image_1": {Type: "image", DataBase64: images[1], Format: "png"},
+		}, body.Assets)
+		assert.Equal(t, wireQuestion{Type: "noul", Instructions: "In document_1: " + damaged}, body.Questions["document_1"])
+	})
+
+	t.Run("five images are two requests of 4 and 1", func(t *testing.T) {
+		images := make([]string, 5)
+		for i := range images {
+			images[i] = encodedImage(t, "png", 300+i, 300)
+		}
+		f := newFake(t)
+		f.probabilities = distinctProbabilities(images)
+
+		res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), damaged, "photo",
+			images, classConfig(f.url(), nil))
+
+		require.NoError(t, err)
+		assert.Equal(t, expectedScores(images, f.probabilities), res.DocumentScores)
+		requests := f.received()
+		assert.Equal(t, []int{1, 4}, sizes(requests))
+		for _, r := range requests {
+			assert.Equal(t, "true", r.imagesHeader)
+			if r.documents() == 1 {
+				assert.Equal(t, "image_0", r.body.State)
+				assert.Equal(t, map[string]wireAsset{"image_0": {Type: "image", DataBase64: images[4], Format: "png"}}, r.body.Assets)
+				assert.Equal(t, wireQuestion{Type: "noul", Instructions: damaged}, r.body.Questions["q"])
+			}
+		}
+	})
+
+	t.Run("a pair the API rejects for its size is sent as two requests", func(t *testing.T) {
+		images := []string{encodedImage(t, "jpeg", 300, 300), encodedImage(t, "png", 300, 300)}
+		f := newFake(t)
+		f.tooLarge = func(documents int) bool { return documents > 1 }
+		f.probabilities = map[string]float64{images[0]: 0.7, images[1]: 0.1}
+
+		res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), damaged, "photo",
+			images, classConfig(f.url(), nil))
+
+		require.NoError(t, err)
+		assert.Equal(t, expectedScores(images, f.probabilities), res.DocumentScores)
+		requests := f.received()
+		assert.Equal(t, []int{1, 1, 2}, sizes(requests))
+		for _, r := range requests {
+			assert.Equal(t, "true", r.imagesHeader)
+		}
+		assert.Equal(t, "image_0", requests[1].body.State)
+		assert.Equal(t, wireAsset{Type: "image", DataBase64: images[0], Format: "jpeg"}, requests[1].body.Assets["image_0"])
+		assert.Equal(t, "image_0", requests[2].body.State)
+		assert.Equal(t, wireAsset{Type: "image", DataBase64: images[1], Format: "png"}, requests[2].body.Assets["image_0"])
+	})
+}
+
+func TestRankRejectsAnImageOutsideTheLimitsBeforeSending(t *testing.T) {
+	valid, small := encodedImage(t, "png", 300, 300), encodedImage(t, "png", 100, 100)
+	tests := []struct {
+		name      string
+		documents []string
+		wantErr   string
+	}{
+		{
+			name:      "at position 1",
+			documents: []string{valid, small},
+			wantErr:   "document 1: image: 100x100 pixels: the API takes 280 to 1568 pixels per side",
+		},
+		{
+			name:      "after an empty document",
+			documents: []string{valid, "", small},
+			wantErr:   "document 2: image: 100x100 pixels: the API takes 280 to 1568 pixels per side",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+
+			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), "The photo shows a damaged car", "photo",
+				tt.documents, classConfig(f.url(), nil))
+
+			require.EqualError(t, err, tt.wantErr)
+			assert.Empty(t, f.received())
+		})
+	}
+}
+
+func TestRankSendsBase64TextAsText(t *testing.T) {
+	encoded := encodedImage(t, "png", 300, 300)
+	f := newFake(t)
+	f.probabilities = map[string]float64{encoded: 0.4}
+
+	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+		[]string{encoded}, classConfig(f.url(), nil))
+
+	require.NoError(t, err)
+	assert.Equal(t, []ent.DocumentScore{{Document: encoded, Score: 0.4}}, res.DocumentScores)
+	requests := f.received()
+	require.Len(t, requests, 1)
+	assert.Equal(t, encoded, requests[0].body.State)
+	assert.Empty(t, requests[0].body.Assets)
+	assert.Empty(t, requests[0].imagesHeader)
+}
+
 func nullLogger() logrus.FieldLogger {
 	logger, _ := test.NewNullLogger()
 	return logger
@@ -621,12 +742,19 @@ type wireQuestion struct {
 	Instructions string `json:"instructions"`
 }
 
+type wireAsset struct {
+	Type       string `json:"type"`
+	DataBase64 string `json:"data_base64"`
+	Format     string `json:"format"`
+}
+
 // wireRequest decodes the request body with the API's field names,
 // independent of the client's types.
 type wireRequest struct {
 	Model     string                  `json:"model"`
 	State     any                     `json:"state"`
 	Questions map[string]wireQuestion `json:"questions"`
+	Assets    map[string]wireAsset    `json:"assets"`
 }
 
 type fakeRequest struct {
@@ -651,7 +779,8 @@ type fakeReply struct {
 }
 
 // fakeTypeSafeAI stands for POST /v1/systemone. It answers every question
-// with the probability of its state value, 0.5 when unknown.
+// with the probability of its state value, or of the image the value refers
+// to, 0.5 when unknown.
 type fakeTypeSafeAI struct {
 	t             *testing.T
 	server        *httptest.Server
@@ -748,7 +877,11 @@ func (f *fakeTypeSafeAI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (f *fakeTypeSafeAI) answers(body wireRequest) map[string]any {
 	answer := func(value any) map[string]any {
-		probability, ok := f.probabilities[value.(string)]
+		document := value.(string)
+		if asset, ok := body.Assets[document]; ok {
+			document = asset.DataBase64
+		}
+		probability, ok := f.probabilities[document]
 		if !ok {
 			probability = 0.5
 		}
@@ -757,7 +890,8 @@ func (f *fakeTypeSafeAI) answers(body wireRequest) map[string]any {
 	if state, ok := body.State.(map[string]any); ok {
 		answers := make(map[string]any, len(state))
 		for key, value := range state {
-			assert.Equal(f.t, "In "+key+": ", strings.TrimSuffix(body.Questions[key].Instructions, churn))
+			assert.True(f.t, strings.HasPrefix(body.Questions[key].Instructions, "In "+key+": "),
+				"the question of %s names it", key)
 			answers[key] = answer(value)
 		}
 		return answers
