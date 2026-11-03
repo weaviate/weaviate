@@ -16,7 +16,8 @@ import "github.com/weaviate/weaviate/entities/schema"
 // RerankPropertyDataTypes is implemented by a reranker module that reads only
 // some property data types. The gRPC search rejects a rerank about a
 // property of another type before the search. A reranker without it receives
-// every property as text, as before.
+// the value of a text, blob, date or uuid property, and an empty string for
+// any other type, as before.
 type RerankPropertyDataTypes interface {
 	RerankPropertyDataTypes() []schema.DataType
 }
