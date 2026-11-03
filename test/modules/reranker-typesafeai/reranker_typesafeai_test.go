@@ -126,6 +126,22 @@ func testRerankerTypeSafeAI(restURI, grpcURI string) func(t *testing.T) {
 				assert.Less(t, scores[last], scores[last-1])
 			})
 		}
+
+		t.Run("a page of one is a request of one document", func(t *testing.T) {
+			createTickets(t, map[string]any{}, tickets())
+			request := rerankRequest("text", new(churn))
+			request.Limit = 1
+
+			reply, err := grpcClient.Search(context.Background(), request)
+
+			require.NoError(t, err)
+			require.Len(t, reply.Results, 1)
+			metadata := reply.Results[0].Metadata
+			t.Logf("rerank score: %v of %v", metadata.RerankScore, metadata.Id)
+			assert.True(t, metadata.RerankScorePresent)
+			assert.GreaterOrEqual(t, metadata.RerankScore, 0.0)
+			assert.LessOrEqual(t, metadata.RerankScore, 1.0)
+		})
 	}
 }
 
@@ -319,7 +335,8 @@ func rerankScores(results []*pb.SearchResult) []float64 {
 	return scores
 }
 
-// grayPNG returns the base64 of a side by side PNG of one gray level.
+// grayPNG returns the base64 of a square PNG of side pixels in one gray
+// level.
 func grayPNG(t *testing.T, side int, level uint8) string {
 	t.Helper()
 	img := image.NewGray(image.Rect(0, 0, side, side))
@@ -327,8 +344,8 @@ func grayPNG(t *testing.T, side int, level uint8) string {
 	return encodePNG(t, img)
 }
 
-// crossPNG returns the base64 of a white side by side PNG with a black cross
-// through its middle, each bar a fifth of the side wide.
+// crossPNG returns the base64 of a white square PNG of side pixels with a
+// black cross through its middle, each bar a fifth of the side wide.
 func crossPNG(t *testing.T, side int) string {
 	t.Helper()
 	img := image.NewGray(image.Rect(0, 0, side, side))
