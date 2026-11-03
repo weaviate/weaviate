@@ -2623,3 +2623,27 @@ func TestRetention_ReleaseCanBeRetried(t *testing.T) {
 	assert.NoFileExists(t, chunks[0], "the retry deletes the kept chunk")
 	assert.NoFileExists(t, chunks[0]+".processed")
 }
+
+// The end of a backup during a retention deletes the chunks the backup kept
+// from before the mark, and keeps the ones the retention needs.
+func TestRetention_BackupEndDeletesChunksBeforeTheMark(t *testing.T) {
+	s := makeScheduler(t)
+	q := makeQueueSize(t, s, discardExecutor(), 50)
+	q.EnableMaintenanceMode()
+	pushMany(t, q, 1, 1, 2, 3, 4, 5, 6, 7)
+	chunks, _ := chunksOf(t, q)
+	require.Len(t, chunks, 3)
+	processNext(t, q) // kept by the backup only
+
+	mark, err := q.Retain()
+	require.NoError(t, err)
+	require.Equal(t, chunks[1], mark)
+	processNext(t, q) // kept by both
+
+	require.NoError(t, q.DisableMaintenanceMode())
+	kept, tombstoned := chunksOf(t, q)
+	assert.Equal(t, chunks[1:], kept)
+	assert.False(t, tombstoned[chunks[0]])
+	assert.True(t, tombstoned[chunks[1]])
+	assert.NoFileExists(t, chunks[0]+".processed")
+}
