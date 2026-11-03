@@ -3059,45 +3059,43 @@ func TestSearchRejectsRerankPropertyBeforeTheSearch(t *testing.T) {
 		return tickets, nil
 	}
 	property, query := "tags", "billing"
-	rejection := errors.New(`rerank: property "tags" of collection "Tickets" is of type text[]; reranker-dummy reranks text and blob properties`)
+	rerank := &pb.Rerank{Property: property, Query: &query}
+	rejection := errors.New(`rerank: property "tags" of collection "Tickets" is of type text[]; reranker-dummy reranks text, blob properties`)
+	plain := dto.GetParams{
+		ClassName:  tickets.Class,
+		Pagination: &filters.Pagination{Limit: 10},
+		Properties: search.SelectProperties{{Name: property, IsPrimitive: true}},
+	}
+	withRerank := plain
+	withRerank.AdditionalProperties = additional.Properties{
+		ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &property, Query: &query}},
+	}
 
 	tests := []struct {
 		name    string
+		rerank  *pb.Rerank
 		verdict error
-		out     dto.GetParams
+		wantErr error
+		// property the validator saw; empty when it was not called
+		wantSeen string
+		out      dto.GetParams
 	}{
-		{
-			name:    "validator rejects",
-			verdict: rejection,
-		},
-		{
-			name: "validator accepts",
-			out: dto.GetParams{
-				ClassName:  tickets.Class,
-				Pagination: &filters.Pagination{Limit: 10},
-				Properties: search.SelectProperties{{Name: property, IsPrimitive: true}},
-				AdditionalProperties: additional.Properties{
-					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &property, Query: &query}},
-				},
-			},
-		},
+		{name: "validator rejects", rerank: rerank, verdict: rejection, wantErr: rejection, wantSeen: property},
+		{name: "validator accepts", rerank: rerank, wantSeen: property, out: withRerank},
+		{name: "no rerank, validator not called", verdict: rejection, out: plain},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			validator := &fakeRerankValidator{verdict: tt.verdict}
 			parser := NewParser(false, getTickets, nil, namespacing.Disabled, validator)
-			req := &pb.SearchRequest{
-				Collection: tickets.Class,
-				Rerank:     &pb.Rerank{Property: property, Query: &query},
-			}
+			req := &pb.SearchRequest{Collection: tickets.Class, Rerank: tt.rerank}
 
 			out, err := parser.Search(req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 
-			require.Equal(t, tt.verdict, err)
+			require.Equal(t, tt.wantErr, err)
 			require.Equal(t, tt.out, out)
-			require.Equal(t, tickets.Class, validator.class)
-			require.Equal(t, property, validator.property)
+			require.Equal(t, tt.wantSeen, validator.property)
 		})
 	}
 }

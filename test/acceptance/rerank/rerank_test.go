@@ -13,6 +13,8 @@ package rerank
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -28,8 +30,9 @@ import (
 )
 
 const (
-	className = "RerankDummy"
-	pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+	className     = "RerankDummy"
+	tiesClassName = "RerankDummyTies"
+	pngBase64     = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 
 	idAAAA   = "00000000-0000-0000-0000-00000000000a"
 	idBB     = "00000000-0000-0000-0000-00000000000b"
@@ -64,8 +67,8 @@ func TestRerankCorePath(t *testing.T) {
 		},
 	})
 
-	// reranker-dummy scores a document by its length. bb and cc score the same:
-	// the search near {1, 0} returns bb first, the search near {0, 1} cc first.
+	// reranker-dummy scores a document by its length. bb and cc score the same
+	// and the search near {1, 0} returns bb first.
 	objects := []struct {
 		id     string
 		text   string
@@ -96,9 +99,47 @@ func TestRerankCorePath(t *testing.T) {
 	})
 
 	t.Run("equal scores keep the search order", func(t *testing.T) {
-		reply, err := grpcClient.Search(ctx, searchRequest([]float32{0, 1}, "text"))
+		// sort.Slice keeps ties in place below 13 elements and reorders two
+		// interleaved score groups above that. 16 objects alternate between
+		// two text lengths; their vectors spread along the arc from {1, 0}
+		// to {0, 1}, so the search near {1, 0} returns them in index order.
+		helper.CreateClass(t, &models.Class{
+			Class:        tiesClassName,
+			Vectorizer:   "none",
+			ModuleConfig: map[string]any{"reranker-dummy": map[string]any{}},
+			Properties:   []*models.Property{{Name: "text", DataType: schema.DataTypeText.PropString()}},
+		})
+		const count = 16
+		ids := make([]string, count)
+		for i := range count {
+			ids[i] = fmt.Sprintf("00000000-0000-0000-0000-0000000001%02d", i)
+			text := "ccc"
+			if i%2 == 1 {
+				text = "dd"
+			}
+			angle := float64(i) / float64(count-1) * math.Pi / 2
+			require.NoError(t, helper.CreateObject(t, &models.Object{
+				Class:      tiesClassName,
+				ID:         strfmt.UUID(ids[i]),
+				Vector:     []float32{float32(math.Cos(angle)), float32(math.Sin(angle))},
+				Properties: map[string]any{"text": text},
+			}))
+		}
+		req := searchRequest([]float32{1, 0}, "text")
+		req.Collection = tiesClassName
+		req.Limit = count
+
+		reply, err := grpcClient.Search(ctx, req)
 		require.NoError(t, err)
-		assert.Equal(t, []string{idDDDDDD, idAAAA, idCC, idBB}, resultIDs(reply.Results))
+
+		var want []string
+		for i := 0; i < count; i += 2 {
+			want = append(want, ids[i])
+		}
+		for i := 1; i < count; i += 2 {
+			want = append(want, ids[i])
+		}
+		assert.Equal(t, want, resultIDs(reply.Results))
 	})
 
 	t.Run("blob property reaches the module", func(t *testing.T) {
