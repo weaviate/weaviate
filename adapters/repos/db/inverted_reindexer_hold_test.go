@@ -15,6 +15,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -54,6 +55,21 @@ func TestReindexGivesTheStoreBack(t *testing.T) {
 			mid: func(_ *clusterschema.NodeOverlay, shard ShardLike) error {
 				return shard.syncStorePause()
 			},
+		},
+		{
+			name: "resource pressure stops the reindex",
+			mid: func(overlay *clusterschema.NodeOverlay, shard ShardLike) error {
+				overlay.SetResourcePressure(true)
+				return shard.syncStorePause()
+			},
+			wantErr: true,
+		},
+		{
+			name: "a failed task",
+			mid: func(*clusterschema.NodeOverlay, ShardLike) error {
+				return errors.New("iterator failed")
+			},
+			wantErr: true,
 		},
 	}
 	for _, tc := range cases {
