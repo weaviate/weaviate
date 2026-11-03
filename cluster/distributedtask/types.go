@@ -588,9 +588,13 @@ type Task struct {
 	// add or remove units, so groups stays in step.
 	units map[string]*Unit
 
-	// groups maps each group to its unit IDs. Immutable once built, so every
-	// clone shares it at no per-tick cost; a change builds a new one.
+	// groups maps each group to the unit IDs it started with. It never changes
+	// during a run, so every copy shares it at no per-tick cost; a deleted
+	// group keeps its IDs here, and lookups skip IDs that have no unit.
 	groups map[string][]string
+
+	// groupCount is the number of groups that still have units.
+	groupCount int
 
 	collection string
 
@@ -664,7 +668,7 @@ func (t *Task) indexGroups() {
 	for id, u := range t.units {
 		groups[u.GroupID] = append(groups[u.GroupID], id)
 	}
-	t.groups = groups
+	t.groups, t.groupCount = groups, len(groups)
 }
 
 // shareGroups takes held's index when held is the same run with as many
@@ -675,26 +679,27 @@ func (t *Task) shareGroups(held *Task) {
 		t.indexGroups()
 		return
 	}
-	t.groups = held.groups
+	t.groups, t.groupCount = held.groups, held.groupCount
 }
 
-// forgetGroups removes the groups and their units. It builds a new index:
-// clones still share the old one.
+// forgetGroups removes the groups' units, decisions and acks in place: every
+// copy owns its units, and the shared index stays as it is.
 func (t *Task) forgetGroups(groups []string) {
-	units := maps.Clone(t.units)
 	for _, group := range groups {
-		for _, id := range t.groups[group] {
-			delete(units, id)
+		if !t.hasGroup(group) {
+			continue
 		}
+		for _, id := range t.groups[group] {
+			delete(t.units, id)
+		}
+		t.groupCount--
 		delete(t.SwapDecidedGroups, group)
 		delete(t.PreparedGroups, group)
 	}
-	t.SetUnits(units)
 }
 
 func (t *Task) hasGroup(group string) bool {
-	_, ok := t.groups[group]
-	return ok
+	return slices.ContainsFunc(t.groups[group], func(id string) bool { return t.units[id] != nil })
 }
 
 // Units iterates the task's units by ID.
@@ -741,7 +746,7 @@ func (t *Task) GroupSwapDecided(groupID string) bool {
 // AllGroupsSwapDecided is false while any group still prepares. Decided groups
 // are always groups of the task, so counting them is enough.
 func (t *Task) AllGroupsSwapDecided() bool {
-	return len(t.SwapDecidedGroups) == len(t.groups)
+	return len(t.SwapDecidedGroups) == t.groupCount
 }
 
 // markTerminal stamps status and FinishedAt together so a terminal
@@ -775,13 +780,22 @@ func (t *Task) AnyUnitFailed() bool {
 
 // Groups returns the distinct GroupIDs across all units (includes "" for ungrouped).
 func (t *Task) Groups() []string {
-	return slices.Collect(maps.Keys(t.groups))
+	if t.groupCount == len(t.groups) {
+		return slices.Collect(maps.Keys(t.groups))
+	}
+	groups := make([]string, 0, t.groupCount)
+	for group := range t.groups {
+		if t.hasGroup(group) {
+			groups = append(groups, group)
+		}
+	}
+	return groups
 }
 
 // AllGroupUnitsTerminal returns true if all units in the given group are terminal.
 func (t *Task) AllGroupUnitsTerminal(groupID string) bool {
 	for _, id := range t.groups[groupID] {
-		if u := t.units[id]; u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
+		if u := t.units[id]; u != nil && u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
 			return false
 		}
 	}
@@ -793,24 +807,24 @@ func (t *Task) AllGroupUnitsTerminal(groupID string) bool {
 func (t *Task) groupNodes(groupID string) map[string]struct{} {
 	nodes := map[string]struct{}{}
 	for _, id := range t.groups[groupID] {
-		if node := t.units[id].NodeID; node != "" {
-			nodes[node] = struct{}{}
+		if u := t.units[id]; u != nil && u.NodeID != "" {
+			nodes[u.NodeID] = struct{}{}
 		}
 	}
 	return nodes
 }
 
-func (t *Task) GroupCount() int { return len(t.groups) }
+func (t *Task) GroupCount() int { return t.groupCount }
 
 func (t *Task) groupHasUnitOn(groupID, nodeID string) bool {
-	return slices.ContainsFunc(t.groups[groupID], func(id string) bool { return t.units[id].NodeID == nodeID })
+	return slices.ContainsFunc(t.groups[groupID], func(id string) bool { u := t.units[id]; return u != nil && u.NodeID == nodeID })
 }
 
 // LocalGroupUnitIDs returns the IDs of units in the given group assigned to the given node.
 func (t *Task) LocalGroupUnitIDs(groupID, nodeID string) []string {
 	var ids []string
 	for _, id := range t.groups[groupID] {
-		if t.units[id].NodeID == nodeID {
+		if u := t.units[id]; u != nil && u.NodeID == nodeID {
 			ids = append(ids, id)
 		}
 	}

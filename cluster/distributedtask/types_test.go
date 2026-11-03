@@ -148,6 +148,35 @@ func TestTask_GroupIndexSurvivesEveryCopy(t *testing.T) {
 	}
 }
 
+// Pins that a tenant delete costs the tenant, not the run: it removes the
+// tenant's units in place and leaves the index every copy shares untouched.
+func TestTask_ForgetGroupsKeepsTheSharedIndex(t *testing.T) {
+	task := withUnits(&Task{SwapDecidedGroups: map[string]time.Time{"g2": {}, "g3": {}}}, map[string]*Unit{
+		"a": {ID: "a", GroupID: "g1", NodeID: "n1"},
+		"b": {ID: "b", GroupID: "g2", NodeID: "n1"},
+		"c": {ID: "c", GroupID: "g2", NodeID: "n2"},
+		"d": {ID: "d", GroupID: "g3", NodeID: "n1"},
+	})
+	clone := task.Clone()
+	index := reflect.ValueOf(task.groups).UnsafePointer()
+
+	task.forgetGroups([]string{"g2", "unknown"})
+	task.forgetGroups([]string{"g2"})
+
+	require.Equal(t, index, reflect.ValueOf(task.groups).UnsafePointer(), "the index is not rebuilt")
+	require.ElementsMatch(t, []string{"g1", "g3"}, task.Groups())
+	require.Equal(t, 2, task.GroupCount())
+	require.Equal(t, 2, task.UnitCount())
+	require.Empty(t, task.LocalGroupUnitIDs("g2", "n1"))
+	require.Empty(t, task.groupNodes("g2"))
+	require.False(t, task.AllGroupsSwapDecided(), "g1 is still undecided")
+	task.SwapDecidedGroups["g1"] = time.Time{}
+	require.True(t, task.AllGroupsSwapDecided())
+
+	require.ElementsMatch(t, []string{"g1", "g2", "g3"}, clone.Groups(), "a copy taken before keeps the tenant")
+	require.Equal(t, []string{"b"}, clone.LocalGroupUnitIDs("g2", "n1"))
+}
+
 func withUnits(task *Task, units map[string]*Unit) *Task {
 	task.SetUnits(units)
 	return task
