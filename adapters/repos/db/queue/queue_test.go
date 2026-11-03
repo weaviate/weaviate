@@ -2593,3 +2593,29 @@ func TestChunkNamesGrowWhenTheClockStepsBack(t *testing.T) {
 		assert.Greater(t, seqOf(t, chunks[1]), seqOf(t, chunks[0]))
 	})
 }
+
+// A release whose cleanup fails stays retained, so retrying it deletes the
+// kept chunks.
+func TestRetention_ReleaseCanBeRetried(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("permission errors are not enforced for root")
+	}
+	s := makeScheduler(t)
+	q := makeQueueSize(t, s, discardExecutor(), 50)
+	pushMany(t, q, 1, 1, 2, 3, 4)
+	chunks, _ := chunksOf(t, q)
+	_, err := q.Retain()
+	require.NoError(t, err)
+	processNext(t, q)
+
+	// an unreadable directory fails the cleanup
+	require.NoError(t, os.Chmod(q.dir, 0o300))
+	t.Cleanup(func() { _ = os.Chmod(q.dir, 0o755) })
+	require.Error(t, q.ReleaseRetention())
+	require.NoError(t, os.Chmod(q.dir, 0o755))
+	assert.FileExists(t, chunks[0])
+
+	require.NoError(t, q.ReleaseRetention())
+	assert.NoFileExists(t, chunks[0], "the retry deletes the kept chunk")
+	assert.NoFileExists(t, chunks[0]+".processed")
+}
