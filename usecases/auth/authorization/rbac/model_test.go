@@ -400,6 +400,20 @@ func TestNamespaceAwareMatcher(t *testing.T) {
 			"",
 			true,
 		},
+		{
+			"ns=customer1, cross-ns data request, bare * policy → mismatch (no rewrite, denied)",
+			authorization.Objects("customer2:Movies", "t1"),
+			"*",
+			"customer1",
+			false,
+		},
+		{
+			"ns=customer1, mcp request, bare * policy → match (namespaceFreeResource)",
+			authorization.Mcp(),
+			"*",
+			"customer1",
+			true,
+		},
 	}
 
 	for _, tt := range tests {

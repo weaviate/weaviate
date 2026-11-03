@@ -739,6 +739,20 @@ func TestAddAlias(t *testing.T) {
 	}
 }
 
+func TestUpdateAlias_RejectsCrossNamespaceTarget(t *testing.T) {
+	t.Parallel()
+	handler, sm := newTestHandlerWithNamespaces(t, true)
+	sm.On("GetAliases", mock.Anything, "customer1:Films", mock.Anything).
+		Return([]*models.Alias{{Alias: "customer1:Films", Class: "customer1:Movies"}}, nil)
+	sm.On("ReadOnlyClass", "customer2:Secret").Return(&models.Class{Class: "customer2:Secret"})
+	sm.On("ReplaceAlias", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	_, err := handler.UpdateAlias(context.Background(), globalPrincipal(), "customer1:Films", "customer2:Secret")
+	require.ErrorIs(t, err, ErrValidation)
+	assert.ErrorContains(t, err, "are in different namespaces")
+	sm.AssertNotCalled(t, "ReplaceAlias", mock.Anything, mock.Anything, mock.Anything)
+}
+
 // TestUpdateClass_QualifiesPropertyDataTypes pins the GET→PUT round-trip.
 // A short cross-ref DataType gets the class's namespace before it reaches the
 // SchemaManager, and a target in another namespace is rejected for every caller.
@@ -922,7 +936,7 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 // MAXIMUM_ALLOWED_COLLECTIONS_COUNT cap is enforced per namespace when
 // namespaces are enabled, using principal.Namespace as the selector.
 //
-// The mock matcher on CollectionsCountFromLeader(<principalNS>) is what proves
+// The mock matcher on CollectionsCount(<principalNS>) is what proves
 // the selector: a row only passes if AddClass requested the count for the
 // caller's namespace.
 func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
@@ -963,7 +977,7 @@ func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
 			handler, sm := newTestHandlerWithNamespaces(t, true)
 			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(tt.limit)
 
-			sm.On("CollectionsCountFromLeader", tt.principalNS).Return(tt.existingCount, nil)
+			sm.On("CollectionsCount", tt.principalNS).Return(tt.existingCount)
 			if !tt.wantErr {
 				sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
 					return c.Class == tt.principalNS+":Movies"

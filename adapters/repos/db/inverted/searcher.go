@@ -43,11 +43,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-// IsRangeableLocallyReady reports whether this shard's rangeable bucket for
-// the property is safe to query; true when no migration is in flight. False
-// makes the filter resolver fall back to the filterable bucket walk on THIS
-// shard only — slow but correct while a repair-rangeable rebuild runs with
-// the schema flag already true.
+// IsRangeableLocallyReady reports whether this shard's rangeable bucket for the
+// property is safe to query. False while a migration on it is not promoted here,
+// or while a migration record on the shard cannot be read; the resolver then walks
+// the filterable bucket, and a property without one fails the filter.
 type IsRangeableLocallyReady func(propName string) bool
 
 type Searcher struct {
@@ -113,6 +112,13 @@ func (s *Searcher) WithBatchedContainsEnabled(v *runtime.DynamicValue[bool]) *Se
 // removes the per-call-site reminder.
 func (s *Searcher) hasUsableRangeableIndex(prop *models.Property) bool {
 	return HasRangeableIndex(prop) && s.isRangeableLocallyReady(prop.Name)
+}
+
+func missingFilterIndexError(prop *models.Property) error {
+	if HasRangeableIndex(prop) {
+		return inverted.NewWithheldRangeableIndexError(prop.Name)
+	}
+	return inverted.NewMissingFilterableIndexError(prop.Name)
 }
 
 var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided. " +
@@ -656,7 +662,7 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 	hasRangeableIndex := s.hasUsableRangeableIndex(prop)
 
 	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
-		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
+		return nil, missingFilterIndexError(prop)
 	}
 
 	return &propValuePair{
@@ -737,7 +743,7 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 	hasRangeableIndex := s.hasUsableRangeableIndex(prop)
 
 	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
-		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
+		return nil, missingFilterIndexError(prop)
 	}
 
 	return &propValuePair{
@@ -896,7 +902,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 	hasRangeableIndex := s.hasUsableRangeableIndex(prop)
 
 	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
-		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
+		return nil, missingFilterIndexError(prop)
 	}
 
 	propValuePairs := make([]*propValuePair, 0, len(terms))

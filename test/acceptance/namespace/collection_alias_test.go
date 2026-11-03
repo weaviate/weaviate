@@ -500,6 +500,28 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		require.Equal(t, ns1+":AdminAliasQualifiedUpdateB", got.Class)
 	})
 
+	// user1 reads through its alias, so a target in ns2 would hand user1 ns2's objects.
+	t.Run("alias update to another namespace's class is rejected", func(t *testing.T) {
+		helper.CreateClassAuth(t, &models.Class{Class: "CrossNSAliasOwn"}, user1Key)
+		defer helper.DeleteClassAuth(t, ns1+":CrossNSAliasOwn", adminKey)
+		helper.CreateClassAuth(t, &models.Class{Class: "CrossNSAliasSecret"}, user2Key)
+		defer helper.DeleteClassAuth(t, ns2+":CrossNSAliasSecret", adminKey)
+		helper.CreateAliasAuth(t, &models.Alias{Alias: "CrossNSAlias", Class: "CrossNSAliasOwn"}, user1Key)
+		defer helper.DeleteAliasWithAuthz(t, ns1+":CrossNSAlias", helper.CreateAuth(adminKey))
+
+		_, err := helper.UpdateAliasAuthWithReturn(t, ns1+":CrossNSAlias", ns2+":CrossNSAliasSecret", adminKey)
+		var unproc *schema.AliasesUpdateUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected AliasesUpdateUnprocessableEntity, got %T: %v", err, err)
+		assert.Contains(t, unproc.Payload.Error[0].Message, "are in different namespaces")
+
+		_, err = helper.UpdateAliasAuthWithReturn(t, "CrossNSAlias", ns2+":CrossNSAliasSecret", user1Key)
+		require.True(t, errors.As(err, &unproc), "expected AliasesUpdateUnprocessableEntity, got %T: %v", err, err)
+		assert.Contains(t, unproc.Payload.Error[0].Message, "is not a valid class name")
+
+		got := helper.GetAliasWithAuthz(t, ns1+":CrossNSAlias", helper.CreateAuth(adminKey))
+		require.Equal(t, ns1+":CrossNSAliasOwn", got.Class)
+	})
+
 	// Read paths (GET /aliases/{name} and GET /aliases?class=) qualify in
 	// the same way the write paths do: namespaced callers reach their own
 	// aliases via short names, global operators by the qualified name, and

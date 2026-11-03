@@ -81,6 +81,12 @@ type ShardReplicationFSM struct {
 	statusById map[uint64]ShardReplicationOpStatus
 
 	opsByStateGauge *prometheus.GaugeVec
+
+	// planLock guards plan and plansByStateGauge. planLock and opsLock are never
+	// held together.
+	planLock          sync.Mutex
+	plan              *Plan
+	plansByStateGauge *prometheus.GaugeVec
 }
 
 func NewShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
@@ -102,11 +108,20 @@ func NewShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 		Help:      "Current number of replication operations in each state of the FSM lifecycle",
 	}, []string{"state"})
 
+	fsm.plansByStateGauge = promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "weaviate",
+		Name:      "replication_rebalance_plans",
+		Help:      "Rebalance plan state: 1 for the current plan's state, no series when no plan exists",
+	}, []string{"state"})
+
 	return fsm
 }
 
 type snapshot struct {
 	Ops map[ShardReplicationOp]ShardReplicationOpStatus
+	// Plan is a pointer with omitempty, so a snapshot without a plan encodes
+	// the same as one from a version that had no Plan field.
+	Plan *Plan `json:"plan,omitempty"`
 }
 
 func (s *ShardReplicationFSM) Snapshot() ([]byte, error) {
@@ -114,7 +129,7 @@ func (s *ShardReplicationFSM) Snapshot() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(&snapshot{Ops: ops})
+	return json.Marshal(&snapshot{Ops: ops, Plan: s.snapshotPlan()})
 }
 
 // snapshotOps copies the ops under the read lock so Snapshot can encode them
@@ -140,6 +155,8 @@ func (s *ShardReplicationFSM) Restore(bytes []byte) error {
 	if err := json.Unmarshal(bytes, &snap); err != nil {
 		return fmt.Errorf("unmarshal snapshot: %w", err)
 	}
+
+	s.restorePlan(snap.Plan)
 
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()

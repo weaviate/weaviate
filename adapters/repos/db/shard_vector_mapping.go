@@ -12,6 +12,7 @@
 package db
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -59,8 +60,8 @@ var (
 // fields inside the record so an older reader ignores them. A record from
 // before then has neither: the shard fills both in when it loads, the queue
 // ID from the physical ID (the queue has always lived under the index's ID)
-// and the config from the schema. The two IDs are equal for now; validate
-// refuses a record where they differ.
+// and the config from the schema. The IDs differ once the queue outlives
+// the index it was created with.
 type vectorIndexRecord struct {
 	PhysicalID string `json:"physical_id"`
 	IndexType  string `json:"index_type"`
@@ -165,11 +166,6 @@ func (r vectorIndexRecord) validate() error {
 	default:
 		return fmt.Errorf("unknown state %q", r.State)
 	}
-	// Drop cleanup removes the queue under the physical ID; a record with
-	// another queue ID would leave its queue behind.
-	if r.QueueID != "" && r.QueueID != r.PhysicalID {
-		return fmt.Errorf("queue id %q differs from physical id %q, which nothing supports yet", r.QueueID, r.PhysicalID)
-	}
 	// Catches a mismatched write only: a read decodes the config by
 	// IndexType, so a mismatch already on disk is not seen here.
 	if r.Config != nil && r.Config.IndexType() != r.IndexType {
@@ -184,6 +180,38 @@ func (r vectorIndexRecord) validate() error {
 // the mapping cannot account for fails the load: an unknown format version,
 // a key that names no vector, a record that does not parse or validate.
 func (m *vectorIndexMapping) Load() (records map[string]vectorIndexRecord, initialized bool, err error) {
+	records, initialized, _, err = m.load()
+	return records, initialized, err
+}
+
+// LoadAndStrip is Load, then rewrites in one transaction every record whose
+// stored value is not what this binary writes, and returns their names. A
+// later version adds fields an older reader ignores but keeps on disk; they
+// would go stale here and be trusted again after an upgrade. A mapping this
+// binary wrote is not written to.
+func (m *vectorIndexMapping) LoadAndStrip() (records map[string]vectorIndexRecord, initialized bool, stripped []string, err error) {
+	records, initialized, stripped, err = m.load()
+	if err != nil || len(stripped) == 0 {
+		return records, initialized, nil, err
+	}
+	err = m.ns.Update(func(b *shardmeta.Batch) error {
+		for _, name := range stripped {
+			err := putVectorIndexRecord(b, name, records[name])
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, false, nil, fmt.Errorf("strip vector index mapping records: %w", err)
+	}
+	return records, initialized, stripped, nil
+}
+
+// load is Load, and also names the records whose stored value differs from
+// what this binary would write for them.
+func (m *vectorIndexMapping) load() (records map[string]vectorIndexRecord, initialized bool, foreign []string, err error) {
 	records = map[string]vectorIndexRecord{}
 	err = m.ns.ForEach(func(key, value []byte) error {
 		k := string(key)
@@ -208,16 +236,23 @@ func (m *vectorIndexMapping) Load() (records map[string]vectorIndexRecord, initi
 		if err != nil {
 			return fmt.Errorf("record %q: %w", name, err)
 		}
+		own, err := json.Marshal(rec)
+		if err != nil {
+			return fmt.Errorf("record %q: %w", name, err)
+		}
+		if !bytes.Equal(own, value) {
+			foreign = append(foreign, name)
+		}
 		records[name] = rec
 		return nil
 	})
 	if err != nil {
-		return nil, false, fmt.Errorf("load vector index mapping: %w", err)
+		return nil, false, nil, fmt.Errorf("load vector index mapping: %w", err)
 	}
 	if !initialized && len(records) > 0 {
-		return nil, false, errors.New("load vector index mapping: records without a format version")
+		return nil, false, nil, errors.New("load vector index mapping: records without a format version")
 	}
-	return records, initialized, nil
+	return records, initialized, foreign, nil
 }
 
 // Get returns name's record, and whether the mapping has one.
