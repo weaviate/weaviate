@@ -53,6 +53,9 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 			return batch.NewBatchObjectsCreateTooManyRequests().
 				WithPayload(newUsageLimitPayload(le))
 		}
+		if res := memoryShedResponder(principal, err); res != nil {
+			return res
+		}
 		switch {
 		case errors.As(err, &autherrs.Forbidden{}):
 			return batch.NewBatchObjectsCreateForbidden().
@@ -182,6 +185,9 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 		params.Body.Match, params.Body.DeletionTimeUnixMilli, params.Body.DryRun, params.Body.Output, repl, tenant)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
+		if res := memoryShedResponder(principal, err); res != nil {
+			return res
+		}
 		if errors.As(err, &objects.ErrInvalidUserInput{}) {
 			return batch.NewBatchObjectsDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))

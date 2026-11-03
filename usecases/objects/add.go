@@ -57,8 +57,8 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	}
 
 	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(object)); err != nil {
-		m.logger.WithError(err).Errorf("memory pressure: cannot process add object")
-		return nil, fmt.Errorf("cannot process add object: %w", err)
+		m.logger.Errorf("memory pressure: cannot process add object: %v", err)
+		return nil, NewMemoryShedError("cannot process add object", err)
 	}
 
 	maxSchemaVersion := fetchedClasses[object.Class].Version

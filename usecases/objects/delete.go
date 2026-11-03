@@ -45,8 +45,8 @@ func (m *Manager) DeleteObject(ctx context.Context,
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectDeleteMemory()); err != nil {
-		m.logger.WithError(err).Errorf("memory pressure: cannot process delete object")
-		return fmt.Errorf("cannot process delete object: %w", err)
+		m.logger.Errorf("memory pressure: cannot process delete object: %v", err)
+		return NewMemoryShedError("cannot process delete object", err)
 	}
 
 	m.metrics.DeleteObjectInc()
