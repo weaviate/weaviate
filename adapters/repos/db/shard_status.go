@@ -131,6 +131,9 @@ func (s *Shard) syncStorePause() error {
 	}); err != nil {
 		return err
 	}
+	if !paused && s.vectorConfigStale.CompareAndSwap(true, false) {
+		enterrors.GoWrapper(s.applyRefusedVectorConfig, s.index.logger)
+	}
 
 	if next == storagestate.StatusReady && (paused || s.index.userReadOnly(s.name)) {
 		next = storagestate.StatusReadOnly

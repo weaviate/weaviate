@@ -16,6 +16,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -23,7 +24,9 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // storePaused probes below every shard check: a paused bucket refuses on its own.
@@ -315,6 +318,51 @@ func TestLazyLoadShardReportsReindex(t *testing.T) {
 
 	require.NoError(t, lazy.setReindexing(false))
 	require.NoError(t, lazy.refuseWhilePaused())
+}
+
+// The paused store's refusal must not skip the other shards or the index's config.
+func TestPausedShardAppliesTheVectorConfigOnResume(t *testing.T) {
+	tests := []struct {
+		name  string
+		pause func(t *testing.T, idx *Index, shard *Shard, on bool)
+	}{
+		{name: "reindex", pause: func(t *testing.T, _ *Index, shard *Shard, on bool) {
+			require.NoError(t, shard.setReindexing(on))
+		}},
+		{name: "freeze upload", pause: func(t *testing.T, _ *Index, shard *Shard, on bool) {
+			shard.phase.SetTransferring(on)
+			require.NoError(t, shard.syncStorePause())
+		}},
+		{name: "resource pressure", pause: func(t *testing.T, idx *Index, shard *Shard, on bool) {
+			setResourcePressure(t, idx, shard, on)
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := t.Context()
+			sl, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PausedVectorConfig"}, enthnsw.NewDefaultUserConfig(), false, false)
+			shard := underlyingShard(t, sl)
+			shardEF := func() int64 {
+				var ef int64
+				_, err := shard.WithVectorIndex("", func(index VectorIndex) error {
+					ef = index.(interface{ EF() int64 }).EF()
+					return nil
+				})
+				require.NoError(t, err)
+				return ef
+			}
+			cfg := enthnsw.NewDefaultUserConfig()
+			cfg.EF = 321
+
+			tt.pause(t, idx, shard, true)
+			require.Error(t, idx.updateVectorIndexConfig(ctx, cfg))
+			require.Equal(t, 321, idx.GetVectorIndexConfig("").(enthnsw.UserConfig).EF, "later loads read the index's config")
+			require.NotEqual(t, int64(321), shardEF())
+
+			tt.pause(t, idx, shard, false)
+			require.Eventually(t, func() bool { return shardEF() == 321 }, 5*time.Second, 10*time.Millisecond)
+		})
+	}
 }
 
 // A leaked halt keeps compaction and async replication off until a restart.
