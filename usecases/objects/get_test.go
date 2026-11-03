@@ -374,6 +374,31 @@ func Test_GetAction(t *testing.T) {
 		})
 
 		t.Run("on list requests", func(t *testing.T) {
+			// the module may compute its prop from the vector, which objects of
+			// remote shards only carry if it is requested
+			t.Run("loads the vector for the module without returning it", func(t *testing.T) {
+				reset()
+				result := []search.Result{
+					{
+						ID:        "99ee9968-22ec-416a-9032-cff80f2f7fdf",
+						ClassName: "ActionClass",
+						Schema:    map[string]interface{}{"foo": "bar"},
+						Vector:    []float32{1, 2, 3},
+					},
+				}
+				extender.multi = result
+				moduleParams := map[string]interface{}{"nearestNeighbors": true}
+				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+					additional.Properties{Vector: true, ModuleParams: moduleParams}).Return(result, nil).Once()
+
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil, nil,
+					additional.Properties{ModuleParams: moduleParams}, "")
+				require.Nil(t, err)
+				require.Len(t, res, 1)
+				assert.Empty(t, res[0].Vector)
+				vectorRepo.AssertExpectations(t)
+			})
+
 			t.Run("nearest neighbors", func(t *testing.T) {
 				reset()
 				id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")

@@ -105,7 +105,9 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 		return nil, &Error{err.Error(), StatusForbidden, err}
 	}
 
-	res, rerr := m.vectorRepo.Query(ctx, filteredQuery[0])
+	searchQuery := *filteredQuery[0]
+	searchQuery.Additional = withVectorForModuleParams(searchQuery.Additional)
+	res, rerr := m.vectorRepo.Query(ctx, &searchQuery)
 	if rerr != nil {
 		return nil, rerr
 	}
