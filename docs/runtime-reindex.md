@@ -1070,7 +1070,9 @@ Then, per shard load:
    the disk is not accepting writes. Reads are served while the retry
    waits on the disk, a second switch meanwhile is refused, and a switch
    waits at most 30 s. Disk-pressure recovery lifts only its
-   own reason, so it never lifts this one. A restart retries too. An unreadable record on the shard makes the
+   own reason, so it never lifts this one. A restart retries too. A migration already swapped in is never
+   stamped, because the stamp would block the promotion that serves its new
+   index; the shard is held the same way. An unreadable record on the shard makes the
    store refuse the stamp too, so the shard is held the same way until the
    mirror arms or the record is repaired and the node restarted.
 5. `FinalizeCompletedMigrations` runs per shard before LSM init

@@ -73,9 +73,16 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 	})
 	var records []MigrationRecord
 	for _, t := range unarmed {
-		if rec, ok := shard.migrationRecords.Get(t.migrationRecordKey()); ok {
-			records = append(records, rec)
+		rec, ok := shard.migrationRecords.Get(t.migrationRecordKey())
+		if !ok {
+			continue
 		}
+		// Past the swap, a stamp would block the promotion that serves the new index.
+		if rec.FlipDecided() {
+			return fmt.Errorf("migration %s is already swapped in, so only its mirror can finish it: %w",
+				t.migrationRecordKey(), cause)
+		}
+		records = append(records, rec)
 	}
 	if _, err := stampUnmirroredRecords(shard.migrationRecords, records, nil); err != nil {
 		return fmt.Errorf("record that a migration's mirror stayed unarmed: %w", err)

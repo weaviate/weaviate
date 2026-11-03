@@ -13,6 +13,8 @@ package db
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
@@ -24,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -100,10 +103,13 @@ func TestDeferredPromotionServesStagedDataAcrossTheFlip(t *testing.T) {
 			flipDuringLoad bool
 			// Only an unmirrored record refuses promotion over a canonical dir left on disk.
 			unmirrored bool
+			// A stamp would block the promotion, so the load holds the shard until the mirror arms.
+			armFails bool
 		}{
 			{name: "flip after the load"},
 			{name: "flip during the load", flipDuringLoad: true},
 			{name: "unmirrored record", unmirrored: true},
+			{name: "mirror fails to arm at the load", armFails: true},
 		} {
 			t.Run(tc.name+"/"+sc.name, func(t *testing.T) {
 				ctx := testCtx()
@@ -132,6 +138,10 @@ func TestDeferredPromotionServesStagedDataAcrossTheFlip(t *testing.T) {
 
 				name, lsm := shard.Name(), shard.pathLSM()
 				require.NoError(t, shard.Shutdown(ctx))
+				corrupt := filepath.Join(lsm, task.ingestBucketName(propName), "segment-1.db")
+				if sc.armFails {
+					require.NoError(t, os.WriteFile(corrupt, []byte("not a segment"), 0o600))
+				}
 				p := NewReindexProvider(idx.db, nil, nil, idx.logger, idx.getSchema.NodeName(), nil, ctx)
 				idx.shardReindexer = NewMigrationRecoveryReindexer(true, idx.logger, nil, p)
 				loadClass := class
@@ -145,6 +155,14 @@ func TestDeferredPromotionServesStagedDataAcrossTheFlip(t *testing.T) {
 				shard = openShardFromDisk(t, ctx, idx, loadClass, name)
 				require.Len(t, p.cachedReindexTasks(distributedtask.TaskDescriptor{ID: task.taskID, Version: task.taskVersion},
 					task.unitID), 1, "the load must recover the migration whose promotion it defers")
+				if sc.armFails {
+					require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+					rec, ok := task.migrationRecord(shard)
+					require.True(t, ok)
+					require.False(t, rec.Subject().Unmirrored)
+					require.NoError(t, os.Remove(corrupt))
+					require.NoError(t, shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate))
+				}
 				require.Equal(t, []MigrationState{MigrationStateSwapped}, migrationRecordStates(t, lsm),
 					"the unflipped schema must defer the promotion")
 
