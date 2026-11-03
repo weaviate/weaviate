@@ -39,7 +39,6 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -79,9 +78,8 @@ type SegmentGroup struct {
 	// not guaranteed to be sorted yet
 	mapRequiresSorting bool
 
-	status     storagestate.Status
-	statusLock sync.Mutex
-	metrics    *Metrics
+	paused  atomic.Bool
+	metrics *Metrics
 
 	// all "replace" buckets support counting through net additions, but not all
 	// produce a meaningful count. Typically, the only count we're interested in
@@ -1394,18 +1392,12 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (sg *SegmentGroup) UpdateStatus(status storagestate.Status) {
-	sg.statusLock.Lock()
-	defer sg.statusLock.Unlock()
-
-	sg.status = status
+func (sg *SegmentGroup) pauseBackgroundIO(paused bool) {
+	sg.paused.Store(paused)
 }
 
-func (sg *SegmentGroup) isReadyOnly() bool {
-	sg.statusLock.Lock()
-	defer sg.statusLock.Unlock()
-
-	return sg.status == storagestate.StatusReadOnly
+func (sg *SegmentGroup) backgroundIOPaused() bool {
+	return sg.paused.Load()
 }
 
 // levelEnabled reports whether the logger emits entries of the given level, so

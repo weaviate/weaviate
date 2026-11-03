@@ -178,7 +178,7 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 		"prev":   oldStatus.String(),
 		"reason": reason,
 	})
-	if err = s.store.UpdateBucketsStatus(targetStatus); err != nil {
+	if err = s.store.PauseBackgroundIO(targetStatus == storagestate.StatusReadOnly); err != nil {
 		logger.WithError(err).Error("shard status change failed")
 		return err
 	}
@@ -236,8 +236,8 @@ func (s *Shard) rearmHeld() error {
 	unarmed, err := s.armRecoveredMigrations(context.WithoutCancel(s.shutCtx), claimed)
 	ec := errorcompounder.New()
 	ec.Add(err)
-	// Buckets the arm opened go back to READONLY before the hold changes, so no lift races the reset.
-	ec.Add(s.store.UpdateBucketsStatus(storagestate.StatusReadOnly))
+	// Buckets the arm opened pause background I/O again before the hold changes, so no lift races the reset.
+	ec.Add(s.store.PauseBackgroundIO(true))
 	if len(skipped) > 0 {
 		ec.Add(fmt.Errorf("a teardown holds the unit of %d migration(s); set the status again once it ends", len(skipped)))
 	}

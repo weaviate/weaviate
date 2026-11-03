@@ -74,7 +74,7 @@ func recoveryIDBytes(id uint64) []byte {
 // the encoded vector with a nil error (the write-back is skipped).
 func TestRecoverCompressedVector_BucketReadOnly_ReturnsVectorAndNilError(t *testing.T) {
 	bucket := newTestBucketReplace(t)
-	bucket.UpdateStatus(storagestate.StatusReadOnly)
+	bucket.PauseBackgroundIO(true)
 
 	vectorForID := func(_ context.Context, _ uint64) ([]float32, error) {
 		return rawVecRecover, nil

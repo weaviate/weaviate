@@ -511,7 +511,7 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 	}
 }
 
-// A lift whose retry opens a bucket and then fails leaves that bucket as READONLY as the shard.
+// A lift whose retry opens a bucket and then fails leaves that bucket paused, as the shard's are.
 func TestAFailedLiftLeavesTheBucketsItOpenedReadOnly(t *testing.T) {
 	fx := newDoubleFaultFixture(t, "tenant-lift-buckets")
 	lsm := shardPathLSM(fx.idx.path(), fx.name)
@@ -528,7 +528,7 @@ func TestAFailedLiftLeavesTheBucketsItOpenedReadOnly(t *testing.T) {
 		"stamp Unmirrored the migrations whose mirror failed to arm")
 	opened := shard.store.Bucket(fx.subject.Props["title"].Sidecar)
 	require.NotNil(t, opened)
-	require.Equal(t, storagestate.StatusReadOnly, opened.GetStatus())
+	require.ErrorIs(t, opened.FlushAndSwitch(), storagestate.ErrStatusReadOnly)
 }
 
 // A lift that arms or stamps only some held migrations keeps holding just the others.
