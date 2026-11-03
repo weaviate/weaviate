@@ -64,6 +64,7 @@ func TestWhereFilter_Cluster(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateExposeGRPCPort().
 		WithText2VecModel2Vec().
 		Start(ctx)
 	require.NoError(t, err)
