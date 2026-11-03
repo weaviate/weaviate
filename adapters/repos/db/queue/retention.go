@@ -12,6 +12,8 @@
 package queue
 
 import (
+	"fmt"
+	"path/filepath"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -26,12 +28,14 @@ type Retention struct {
 	q *DiskQueue
 
 	m sync.Mutex
-	// mark is the first chunk to replay, empty until the queue holds one
+	// mark is the first chunk to replay
 	mark string
 }
 
 // Retain starts keeping the queue's chunks, from the oldest one not processed
-// yet. A queue holds one retention at a time.
+// yet. On a queue with none, the mark is the name a chunk created now would
+// get: chunks replay in name order, and names follow the clock. A queue
+// holds one retention at a time.
 func (q *DiskQueue) Retain() (*Retention, error) {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
@@ -44,19 +48,22 @@ func (q *DiskQueue) Retain() (*Retention, error) {
 	}
 
 	r := Retention{q: q}
-	// under the writer's lock, so a chunk created next sees the retention
+	// under the writer's lock, so no chunk is created in between
 	q.m.Lock()
 	defer q.m.Unlock()
 	r.mark = q.r.firstUnprocessed()
 	if r.mark == "" && q.w.f != nil {
 		r.mark = q.w.f.Name()
 	}
+	if r.mark == "" {
+		r.mark = filepath.Join(q.dir, fmt.Sprintf(chunkFileFmt, chunkTimeNow()))
+	}
 	q.retention.Store(&r)
 	return &r, nil
 }
 
-// Mark is the path of the first chunk to replay. Empty: nothing was queued
-// since Retain.
+// Mark is the path of the first chunk to replay: every chunk named at or
+// after it. The file may not exist yet.
 func (r *Retention) Mark() string {
 	r.m.Lock()
 	defer r.m.Unlock()
@@ -78,19 +85,6 @@ func (r *Retention) Release() error {
 		return nil
 	}
 	return q.cleanupProcessedChunks()
-}
-
-// chunkCreated gives a retention without a mark its first chunk.
-func (q *DiskQueue) chunkCreated(path string) {
-	r := q.retention.Load()
-	if r == nil {
-		return
-	}
-	r.m.Lock()
-	defer r.m.Unlock()
-	if r.mark == "" {
-		r.mark = path
-	}
 }
 
 // firstUnprocessed is the path of the oldest chunk whose records are not

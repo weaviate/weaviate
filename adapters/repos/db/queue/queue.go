@@ -209,7 +209,6 @@ func (q *DiskQueue) Init() error {
 	if err != nil {
 		return errors.Wrap(err, "failed to create chunk writer")
 	}
-	q.w.onCreate = q.chunkCreated
 	// the writer may have cut a torn record off the partial chunk, or started
 	// a new chunk
 	q.recordCount += q.w.recordCount
@@ -1226,8 +1225,6 @@ type chunkWriter struct {
 	buf         [8]byte
 
 	reader *chunkReader
-	// onCreate is told the path of each chunk the writer creates
-	onCreate func(path string)
 }
 
 func newChunkWriter(dir string, reader *chunkReader, logger logrus.FieldLogger, maxSize uint64) (*chunkWriter, error) {
@@ -1380,10 +1377,6 @@ func (w *chunkWriter) Create() error {
 		return errors.Wrap(err, "failed to write size")
 	}
 	w.size = uint64(chunkHeaderSize)
-
-	if w.onCreate != nil {
-		w.onCreate(w.f.Name())
-	}
 
 	return nil
 }
