@@ -781,9 +781,12 @@ func (q *DiskQueue) ReleaseRetention() error {
 	}
 	// retained until the cleanup succeeds, so a failed release can be retried
 	if !q.maintenanceMode.Load() {
-		err := q.cleanupProcessedChunks()
+		removeErr, err := q.removeProcessedChunks(math.MaxInt64)
 		if err != nil {
 			return err
+		}
+		if removeErr != nil {
+			return errors.Wrap(removeErr, "failed to remove processed chunks")
 		}
 	}
 	q.retained = false
