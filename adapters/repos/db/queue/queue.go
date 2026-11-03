@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -136,8 +137,9 @@ type DiskQueue struct {
 	maintenanceMode atomic.Bool
 
 	// retained keeps processed chunks the same way for a replacement index,
-	// see Retain. Guarded by rmLock.
-	retained bool
+	// from the chunk numbered retainedFrom on, see Retain. Guarded by rmLock.
+	retained     bool
+	retainedFrom int64
 }
 
 type DiskQueueOptions struct {
@@ -727,7 +729,7 @@ func (q *DiskQueue) DisableMaintenanceMode() error {
 
 	q.maintenanceMode.Store(false)
 	if q.retained {
-		return nil
+		return q.cleanupProcessedChunksBefore(q.retainedFrom)
 	}
 	return q.cleanupProcessedChunks()
 }
@@ -747,7 +749,8 @@ func (q *DiskQueue) keepsProcessed() bool {
 // The mark is the path of the first chunk to replay, and every chunk named
 // at or after it replays: the oldest chunk not processed yet, or on a queue
 // with none a name reserved below every chunk created next. The file may not
-// exist yet. A queue is retained once at a time.
+// exist yet. Chunks a backup kept from before the mark go when the backup
+// ends. A queue is retained once at a time.
 func (q *DiskQueue) Retain() (mark string, err error) {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
@@ -769,7 +772,12 @@ func (q *DiskQueue) Retain() (mark string, err error) {
 	if mark == "" {
 		mark = chunkPath(q.dir, q.w.nextSeq())
 	}
+	from, ok := chunkSeq(mark)
+	if !ok {
+		return "", fmt.Errorf("unexpected chunk name %q", mark)
+	}
 	q.retained = true
+	q.retainedFrom = from
 	return mark, nil
 }
 
@@ -798,6 +806,12 @@ func (q *DiskQueue) ReleaseRetention() error {
 // (.bin.processed) and deletes both the tombstone and its corresponding chunk file.
 // This is called on startup (crash recovery) and when disabling maintenance mode.
 func (q *DiskQueue) cleanupProcessedChunks() error {
+	return q.cleanupProcessedChunksBefore(math.MaxInt64)
+}
+
+// cleanupProcessedChunksBefore is cleanupProcessedChunks for the chunks
+// numbered below seq.
+func (q *DiskQueue) cleanupProcessedChunksBefore(seq int64) error {
 	entries, err := os.ReadDir(q.dir)
 	if err != nil {
 		if stderrors.Is(err, fs.ErrNotExist) {
@@ -811,8 +825,12 @@ func (q *DiskQueue) cleanupProcessedChunks() error {
 			continue
 		}
 		tombstonePath := filepath.Join(q.dir, entry.Name())
-		chunkPath := strings.TrimSuffix(tombstonePath, ".processed")
-		_ = os.Remove(chunkPath)
+		chunk := strings.TrimSuffix(tombstonePath, ".processed")
+		n, ok := chunkSeq(chunk)
+		if ok && n >= seq {
+			continue
+		}
+		_ = os.Remove(chunk)
 		_ = os.Remove(tombstonePath)
 	}
 
