@@ -161,3 +161,82 @@ func Test_CompressCenteredRQ1RecallAfterCompression(t *testing.T) {
 	t.Logf("centered rq1 recall@%d after compression: %.4f", k, recall)
 	assert.Greater(t, recall, 0.85, "centered rq1 with rescore must keep recall high on biased data")
 }
+
+// The full centered-RQ1 journey across a restart: activation writes the
+// AddRQCentered record (rotation + mean, no rounding), and the restored
+// quantizer regenerates the query-encoder rounding deterministically from
+// the seed — so the reopened index must return exactly the results it
+// returned before the shutdown.
+func Test_CompressCenteredRQ1SurvivesRestart(t *testing.T) {
+	ctx := context.Background()
+	const (
+		dimensions  = 256
+		vectorsSize = 1000
+		queriesSize = 20
+		k           = 10
+	)
+
+	all := biasedUnitVecs(vectorsSize+queriesSize, dimensions, 11)
+	vectors, queries := all[:vectorsSize], all[vectorsSize:]
+	provider := distancer.NewCosineDistanceProvider()
+	logger, _ := test.NewNullLogger()
+	tempDir := t.TempDir()
+	dummyStore := testinghelpers.NewDummyStoreFromFolder(tempDir, t)
+
+	uc := ent.UserConfig{}
+	uc.SetDefaults()
+	uc.MaxConnections = 32
+	uc.EFConstruction = 64
+	uc.EF = 100
+	uc.VectorCacheMaxObjects = 10e12
+	uc.RQ = ent.RQConfig{
+		Enabled:       true,
+		Bits:          1,
+		Centering:     true,
+		TrainingLimit: 500,
+		RescoreLimit:  100,
+	}
+
+	index, err := New(indexConfig("rq1-centered-restart", tempDir, logger, vectors, provider),
+		uc, cyclemanager.NewCallbackGroupNoop(), dummyStore)
+	require.NoError(t, err)
+	index.PostStartup(ctx)
+
+	require.NoError(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(vectorsSize), func(id uint64) error {
+		return index.Add(ctx, id, vectors[id])
+	}))
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	require.NoError(t, index.Upgrade(wg.Done))
+	wg.Wait()
+	require.True(t, index.Compressed(), "index must be compressed after upgrade")
+
+	control := make([][]uint64, queriesSize)
+	for i := range queries {
+		control[i], _, err = index.SearchByVector(ctx, queries[i], k, nil)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, index.Flush())
+	require.NoError(t, index.Shutdown(ctx))
+	dummyStore.FlushMemtables(ctx)
+
+	// Restart: mean and rotation come back out of the commit log, rounding
+	// out of the deterministic regeneration.
+	restarted, err := New(indexConfig("rq1-centered-restart", tempDir, logger, vectors, provider),
+		uc, cyclemanager.NewCallbackGroupNoop(), dummyStore)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = restarted.Shutdown(context.Background()) })
+	restarted.PostStartup(ctx)
+
+	require.True(t, restarted.compressed.Load(), "index must still be compressed after restart")
+	assert.Equal(t, "rq", restarted.CompressionStats().CompressionType())
+
+	for i := range queries {
+		results, _, err := restarted.SearchByVector(ctx, queries[i], k, nil)
+		require.NoError(t, err, "search must work against the restored quantizer")
+		assert.ElementsMatch(t, control[i], results,
+			"restored index must return the same results as before the restart")
+	}
+}

@@ -1055,18 +1055,24 @@ func RestoreRQCompressor(
 	bucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
-	if mean != nil && bits != 4 {
-		return nil, errors.New("RQ centering requires bits=4")
+	if mean != nil && bits != 4 && bits != 1 {
+		return nil, errors.New("RQ centering requires bits=4 or bits=1")
 	}
 	var rqVectorsCompressor VectorCompressor
 	switch bits {
 	case 1:
-		quantizer, err := RestoreBinaryRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, rounding, distance)
+		var rq1Quantizer quantizer[uint64]
+		var err error
+		if mean != nil {
+			rq1Quantizer, err = RestoreCenteredBinaryRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, mean, distance)
+		} else {
+			rq1Quantizer, err = RestoreBinaryRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, rounding, distance)
+		}
 		if err != nil {
 			return nil, err
 		}
 		rqVectorsCompressor = &quantizedVectorsCompressor[uint64]{
-			quantizer:         quantizer,
+			quantizer:         rq1Quantizer,
 			compressedStore:   store,
 			storeId:           binary.BigEndian.PutUint64,
 			loadId:            binary.BigEndian.Uint64,

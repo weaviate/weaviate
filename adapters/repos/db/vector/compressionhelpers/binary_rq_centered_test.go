@@ -268,15 +268,59 @@ func TestCenteredRQ1Validation(t *testing.T) {
 	assert.Error(t, err, "mean dimension mismatch must be rejected")
 }
 
-// TestRestoreRQCompressorRejectsCenteredBits1 pins the restore boundary: the
-// AddRQ/AddRQCentered record does not persist the query-encoder rounding
-// that centered rq1 needs, so restoring a centered bits=1 index must fail
-// loudly rather than reconstruct a quantizer whose query codes differ from
-// the ones the graph was built with. Companion of
+// TestRestoreCenteredRQ1Identity pins the restore boundary: the
+// AddRQ/AddRQCentered record carries the rotation and the mean but not the
+// query-encoder rounding, so restore regenerates the rounding from
+// DefaultFastRotationSeed. This test proves the regeneration is exact — the
+// restored quantizer must be observationally identical to the original:
+// byte-identical rounding, byte-identical data codes, byte-identical query
+// codes and bit-identical distances. Companion of
 // compact.TestWALRoundTrip_AddRQCenteredBits1.
-func TestRestoreRQCompressorRejectsCenteredBits1(t *testing.T) {
+func TestRestoreCenteredRQ1Identity(t *testing.T) {
+	for _, dim := range []int{64, 128, 1536} {
+		t.Run(fmt.Sprintf("dim%d", dim), func(t *testing.T) {
+			vecs, mean := crqTestData(8, dim, uint64(dim))
+			cos := distancer.NewCosineDistanceProvider()
+			rq, err := NewCenteredBinaryRotationalQuantizer(dim, DefaultFastRotationSeed, mean, cos)
+			require.NoError(t, err)
+
+			// Restore from exactly what the AddRQCentered record carries:
+			// dims, rotation (output dim, rounds, swaps, signs) and mean.
+			data := rq.Data()
+			restored, err := RestoreCenteredBinaryRotationalQuantizer(
+				int(data.InputDim), int(data.Rotation.OutputDim), int(data.Rotation.Rounds),
+				data.Rotation.Swaps, data.Rotation.Signs, data.Mean, cos)
+			require.NoError(t, err)
+
+			require.Equal(t, rq.rounding, restored.rounding,
+				"regenerated rounding must be byte-identical to the original")
+
+			q := vecs[0]
+			origQ, restQ := rq.encodeQuery(q), restored.encodeQuery(q)
+			assert.Equal(t, origQ, restQ, "query codes must be byte-identical after restore")
+
+			for _, v := range vecs[1:] {
+				origCode, restCode := rq.Encode(v), restored.Encode(v)
+				require.Equal(t, origCode, restCode, "data codes must be byte-identical after restore")
+				od, err := rq.NewDistancer(q).Distance(origCode)
+				require.NoError(t, err)
+				rd, err := restored.NewDistancer(q).Distance(restCode)
+				require.NoError(t, err)
+				require.Equal(t, od, rd, "distances must be bit-identical after restore")
+			}
+		})
+	}
+
+	// mean/dim mismatch stays rejected on the restore path
+	_, err := RestoreCenteredBinaryRotationalQuantizer(4, 256, 3, nil, nil,
+		[]float32{0.5}, distancer.NewCosineDistanceProvider())
+	require.Error(t, err, "mean dimension mismatch must be rejected on restore")
+}
+
+// Centering remains restricted to bits 1 and 4 on the restore path.
+func TestRestoreRQCompressorRejectsCenteredBits8(t *testing.T) {
 	_, err := RestoreRQCompressor(distancer.NewCosineDistanceProvider(), 1e6, nil,
-		4, 1, 256, 3, nil, nil, []float32{0.1}, []float32{0.5, 0.5, 0.5, 0.5},
+		4, 8, 256, 3, nil, nil, nil, []float32{0.5, 0.5, 0.5, 0.5},
 		nil, nil, nil, "", nil)
-	require.Error(t, err, "centered bits=1 restore must be rejected until rounding persists")
+	require.Error(t, err, "centered bits=8 restore must be rejected")
 }

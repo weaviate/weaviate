@@ -25,12 +25,11 @@ import (
 //  1. The record itself is bits-agnostic: InputDim, Bits=1, the rotation and
 //     the mean all survive the round trip with no bits=1-specific WAL code.
 //  2. The record does NOT carry RQData.Rounding — the field is dropped on
-//     write. The centered 1-bit query encoder needs it, which is why
-//     RestoreRQCompressor rejects centered bits=1 (see
-//     TestRestoreRQCompressorRejectsCenteredBits1) instead of restoring a
-//     quantizer that would encode queries differently from the one that
-//     built the graph. If rounding persistence is ever added, assertion 2
-//     flips and the restore rejection can be lifted.
+//     write, by design: the centered 1-bit restore path regenerates the
+//     identical rounding from DefaultFastRotationSeed (see
+//     compressionhelpers.RestoreCenteredBinaryRotationalQuantizer and its
+//     identity test TestRestoreCenteredRQ1Identity), so the record never
+//     needs the field.
 func TestWALRoundTrip_AddRQCenteredBits1(t *testing.T) {
 	mean := []float32{0.5, -1.25, 3.75, 0}
 	rqData := makeTestRQData(uint32(len(mean)), 1, 64, 2, mean)
@@ -54,8 +53,8 @@ func TestWALRoundTrip_AddRQCenteredBits1(t *testing.T) {
 	assert.Equal(t, rqData.Rotation.Swaps, addRQ.Data.Rotation.Swaps)
 	assert.Equal(t, rqData.Rotation.Signs, addRQ.Data.Rotation.Signs)
 
-	// the load-bearing limitation: rounding does not survive
+	// rounding deliberately does not survive: restore regenerates it from
+	// DefaultFastRotationSeed instead
 	assert.Empty(t, addRQ.Data.Rounding,
-		"AddRQCentered does not persist rounding; if this starts passing rounding through, "+
-			"lift the centered bits=1 restore rejection and delete this assertion")
+		"AddRQCentered must not persist rounding; the restore path regenerates it deterministically")
 }

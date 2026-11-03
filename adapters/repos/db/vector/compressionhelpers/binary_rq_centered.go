@@ -13,7 +13,6 @@ package compressionhelpers
 
 import (
 	"math"
-	"math/rand/v2"
 
 	"github.com/pkg/errors"
 
@@ -83,11 +82,7 @@ func NewCenteredBinaryRotationalQuantizer(inputDim int, seed uint64, mean []floa
 
 	// Same randomized rounding for the multi-bit query codes as the
 	// uncentered quantizer, same derivation from the seed.
-	rounding := make([]float32, rotation.OutputDim)
-	rng := rand.New(rand.NewPCG(seed, 0x4f8ebf70e130707f))
-	for i := range rounding {
-		rounding[i] = rng.Float32()
-	}
+	rounding := rqQueryRounding(seed, int(rotation.OutputDim))
 
 	var mu2 float32
 	for _, m := range mean {
@@ -100,6 +95,48 @@ func NewCenteredBinaryRotationalQuantizer(inputDim int, seed uint64, mean []floa
 		rotation:    rotation,
 		distancer:   distancer,
 		rounding:    rounding,
+		mean:        mean,
+		meanNorm2:   mu2,
+		cos:         cos,
+		l2:          l2,
+		dotFam:      1 - l2,
+	}, nil
+}
+
+// RestoreCenteredBinaryRotationalQuantizer rebuilds a centered 1-bit
+// quantizer from a persisted AddRQCentered record. The record carries the
+// rotation and the mean but not the query-encoder rounding: the rounding is
+// regenerated from DefaultFastRotationSeed — the only seed production code
+// ever constructs with — through the same PCG stream as the constructor, so
+// the restored offsets are identical to the ones the index was built with.
+// The offsets only perturb transient query codes (data codes carry no
+// rounding), so this regeneration has no stored state to disagree with.
+func RestoreCenteredBinaryRotationalQuantizer(inputDim int, outputDim int, rounds int, swaps [][]compression.Swap, signs [][]float32, mean []float32, distancer distancer.Provider) (*CenteredBinaryRotationalQuantizer, error) {
+	if len(mean) != inputDim {
+		return nil, errors.Errorf("centering mean has %d dims, input has %d", len(mean), inputDim)
+	}
+
+	cos, l2, err := distancerIndicatorsAndError(distancer)
+	if err != nil {
+		return nil, err
+	}
+
+	originalDim := inputDim
+	if inputDim < minCodeBits {
+		inputDim = minCodeBits
+	}
+
+	var mu2 float32
+	for _, m := range mean {
+		mu2 += m * m
+	}
+
+	return &CenteredBinaryRotationalQuantizer{
+		inputDim:    uint32(inputDim),
+		originalDim: uint32(originalDim),
+		rotation:    RestoreFastRotation(outputDim, rounds, swaps, signs),
+		distancer:   distancer,
+		rounding:    rqQueryRounding(DefaultFastRotationSeed, outputDim),
 		mean:        mean,
 		meanNorm2:   mu2,
 		cos:         cos,
@@ -398,20 +435,16 @@ func (rq *CenteredBinaryRotationalQuantizer) FromCompressedBytesWithSubsliceBuff
 	return slice
 }
 
-// PersistCompression writes the centered RQ record (rotation + mean). KNOWN
-// LIMITATION, load-bearing: the AddRQ/AddRQCentered commit does not persist
-// RQData.Rounding, which the centered 1-bit query encoder needs, so a
-// restart cannot reconstruct this quantizer yet — the restore path rejects
-// centered bits=1 explicitly rather than restoring a quantizer that would
-// encode queries differently from the one that built the graph. Wiring the
-// rounding into the record (or dropping randomized rounding for centered
-// rq1) is a decision for the rq4c branch owners.
+// PersistCompression writes the centered RQ record (rotation + mean). The
+// query-encoder rounding is deliberately absent: the AddRQ/AddRQCentered
+// commit has no field for it, and none is needed — restore regenerates the
+// identical offsets from DefaultFastRotationSeed (see
+// RestoreCenteredBinaryRotationalQuantizer).
 func (rq *CenteredBinaryRotationalQuantizer) PersistCompression(logger CommitLogger) {
 	logger.AddRQCompression(compression.RQData{
 		InputDim: rq.originalDim,
 		Bits:     1,
 		Rotation: *rq.rotation,
-		Rounding: rq.rounding,
 		Mean:     rq.mean,
 	})
 }
