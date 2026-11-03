@@ -15,6 +15,7 @@ import (
 	"context"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -30,9 +31,9 @@ import (
 // In a tiny graph every live node can be transiently unusable as an
 // entrypoint: under maintenance by a concurrent insert or by tombstone
 // cleanup, or with its vector gone between the object store delete and the
-// index delete. The async queue discards a batch on a permanent error, so the
-// insert must fail with a transient one and succeed when retried after the
-// state clears.
+// index delete. The insert waits for the state to clear; if its context ends
+// first, the error must be transient so the async queue retries instead of
+// discarding the batch.
 func TestPickEntrypoint_TransientMaintenanceIsRetryable(t *testing.T) {
 	ctx := context.Background()
 	vectors := [][]float32{{0.1, 0.2, 0.3}, {0.4, 0.5, 0.6}, {0.7, 0.8, 0.9}, {0.5, 0.5, 0.5}}
@@ -90,8 +91,9 @@ func TestPickEntrypoint_TransientMaintenanceIsRetryable(t *testing.T) {
 			f.index.nodeByID(uint64(i)).markAsMaintenance()
 		}
 
-		err := f.index.Add(ctx, 3, vectors[3])
+		err := addWithDeadline(f.index, 3, vectors[3])
 		require.ErrorIs(t, err, enterrors.ErrNoUsableEntrypoint)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
 		require.True(t, enterrors.IsTransient(err), "queue must retry, not discard: %v", err)
 
 		for i := 0; i < 3; i++ {
@@ -123,7 +125,7 @@ func TestPickEntrypoint_TransientMaintenanceIsRetryable(t *testing.T) {
 		// the remaining live node is being rewired by a cleanup worker
 		f.index.nodeByID(other).markAsMaintenance()
 
-		err := f.index.Add(ctx, 3, vectors[3])
+		err := addWithDeadline(f.index, 3, vectors[3])
 		require.ErrorIs(t, err, enterrors.ErrNoUsableEntrypoint)
 		require.ErrorContains(t, err, "local fallback exhausted")
 		require.True(t, enterrors.IsTransient(err), "queue must retry, not discard: %v", err)
@@ -132,4 +134,12 @@ func TestPickEntrypoint_TransientMaintenanceIsRetryable(t *testing.T) {
 		f.index.nodeByID(other).unmarkAsMaintenance()
 		requireRetrySucceeds(t, f.index)
 	})
+}
+
+// addWithDeadline inserts with a context that ends while maintenance is still
+// held, so the insert gives up instead of waiting for it to clear
+func addWithDeadline(index *hnsw, id uint64, vec []float32) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	return index.Add(ctx, id, vec)
 }

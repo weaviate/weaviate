@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sync"
 	"time"
 
@@ -62,6 +63,7 @@ type neighborFinderConnector struct {
 	// bufLinksLog     BufferedLinksLogger
 	tombstoneCleanupNodes bool
 	bootstrapped          bool // node became the entrypoint, nothing to connect to
+	waitedForEntrypoint   bool // node was usable by other inserts while it waited
 	processedIDs          *sync.Map
 	connectionsBuf        []uint64 // reusable buffer to avoid allocations in CopyLayer
 	pendingBuf            []uint64 // reusable buffer for accumulating pending IDs
@@ -263,7 +265,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		// use dynamic max connections only during tombstone cleanup
 		maxConnections = n.maximumConnections(level)
 	} else {
-		if err := n.pickEntrypoint(); err != nil {
+		if err := n.pickEntrypoint(ctx); err != nil {
 			return errors.Wrap(err, "pick entrypoint at level beginning")
 		}
 		if n.bootstrapped {
@@ -303,12 +305,18 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 	n.graph.pools.pqResults.Put(results)
 
 	neighborsCpy := neighbors
-	// the node will potentially own the neighbors slice (cf. hnsw.vertex#setConnectionsAtLevel).
-	// if so, we need to create a copy
-	n.node.setConnectionsAtLevel(level, neighbors)
+	if n.waitedForEntrypoint {
+		if err := n.replaceLinksKeepingExisting(level, neighbors, maxConnections); err != nil {
+			return err
+		}
+	} else {
+		// the node will potentially own the neighbors slice (cf. hnsw.vertex#setConnectionsAtLevel).
+		// if so, we need to create a copy
+		n.node.setConnectionsAtLevel(level, neighbors)
 
-	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.nodeID, level, neighborsCpy); err != nil {
-		return errors.Wrapf(err, "ReplaceLinksAtLevel node %d at level %d", n.nodeID, level)
+		if err := n.graph.commitLog.ReplaceLinksAtLevel(n.nodeID, level, neighborsCpy); err != nil {
+			return errors.Wrapf(err, "ReplaceLinksAtLevel node %d at level %d", n.nodeID, level)
+		}
 	}
 
 	if !n.tombstoneCleanupNodes {
@@ -443,7 +451,74 @@ func (n *neighborFinderConnector) maximumConnections(level int) int {
 	return n.graph.maximumConnections
 }
 
-func (n *neighborFinderConnector) pickEntrypoint() error {
+func (n *neighborFinderConnector) pickEntrypoint(ctx context.Context) error {
+	err := n.tryPickEntrypoint()
+	if !errors.Is(err, errNoUsableEntrypoint) {
+		return err
+	}
+	return n.waitForEntrypoint(ctx, err)
+}
+
+// waitForEntrypoint runs when every other live node is under maintenance, e.g.
+// concurrent inserts into a graph whose existing objects are gone. Maintenance
+// is always transient, so instead of failing the insert the node drops its own
+// mark, which lets those inserts connect to it, and retries until one of them
+// is usable. Cleanup never waits on inserts, so the wait cannot deadlock.
+func (n *neighborFinderConnector) waitForEntrypoint(ctx context.Context, cause error) error {
+	n.node.unmarkAsMaintenance()
+	n.waitedForEntrypoint = true
+
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	backoff := time.Millisecond
+	for {
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("%w: %w", cause, ctx.Err())
+		case <-n.ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("%w: %w", cause, n.ctx.Err())
+		case <-timer.C:
+		}
+		backoff = min(2*backoff, 50*time.Millisecond)
+
+		n.entryPointID = n.graph.getEntrypoint()
+		err := n.tryPickEntrypoint()
+		if !errors.Is(err, errNoUsableEntrypoint) {
+			return err
+		}
+	}
+}
+
+// replaceLinksKeepingExisting replaces the node's links at level like the
+// regular path, but keeps the links other inserts added while the node waited:
+// they may be the only way to reach those inserts.
+func (n *neighborFinderConnector) replaceLinksKeepingExisting(level int, neighbors []uint64, maxConnections int) error {
+	n.node.Lock()
+	defer n.node.Unlock()
+
+	merged := slices.Clone(neighbors)
+	n.connectionsBuf = n.node.connections.CopyLayer(n.connectionsBuf[:0], uint8(level))
+	for _, id := range n.connectionsBuf {
+		if len(merged) >= maxConnections {
+			break
+		}
+		if id != n.nodeID && !slices.Contains(merged, id) {
+			merged = append(merged, id)
+		}
+	}
+
+	n.node.connections.ReplaceLayer(uint8(level), merged)
+	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.nodeID, level, merged); err != nil {
+		return errors.Wrapf(err, "ReplaceLinksAtLevel node %d at level %d", n.nodeID, level)
+	}
+	return nil
+}
+
+func (n *neighborFinderConnector) tryPickEntrypoint() error {
 	// the neighborFinderConnector always has a suggestion for an entrypoint that
 	// it got from the outside, most of the times we can use this, but in some
 	// cases we can't. To see if we can use it, three conditions need to be met:
@@ -467,7 +542,7 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 	// the global candidate is unusable: repair the global entrypoint, then keep
 	// trying candidates locally, denying every node already found unusable
 	localDeny := n.denyList.WrapOnWrite()
-	localDeny.Insert(candidate)
+	localDeny.Insert(candidate, n.nodeID)
 
 	candidate, err = n.graph.repairGlobalEntrypoint(candidate, localDeny)
 	if err != nil {
@@ -503,7 +578,8 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 		if err != nil {
 			return err
 		}
-		if localDeny.Contains(alternative) && alternative != n.graph.getEntrypoint() {
+		if alternative == n.nodeID ||
+			(localDeny.Contains(alternative) && alternative != n.graph.getEntrypoint()) {
 			return n.bootstrapOrFail(fmt.Errorf("%w: local fallback exhausted", errNoUsableEntrypoint))
 		}
 		// an alternative on the deny list is retried when it is the current
@@ -527,6 +603,11 @@ func (n *neighborFinderConnector) bootstrapOrFail(cause error) error {
 }
 
 func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error) {
+	if candidate == n.nodeID {
+		// searching from itself finds nothing to connect to
+		return false, nil
+	}
+
 	node := n.graph.nodeByID(candidate)
 	if node == nil {
 		return false, nil

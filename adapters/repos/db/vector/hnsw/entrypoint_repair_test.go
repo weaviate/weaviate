@@ -77,6 +77,9 @@ func TestEntrypointRepair_GlobalEntrypointUnderMaintenance(t *testing.T) {
 	}, cyclemanager.NewCallbackGroupNoop(), store)
 	require.NoError(t, err)
 	defer index.Drop(ctx, false)
+	// every node on level 0: an upper-layer descent could otherwise hop past
+	// the broken entrypoint, so the repair this test asserts never runs
+	index.randFunc = func() float64 { return 0.5 }
 
 	// Insert initial nodes to establish the index
 	for i := 0; i < len(vectors); i++ {
@@ -135,7 +138,7 @@ func TestEntrypointRepair_GlobalEntrypointUnderMaintenance(t *testing.T) {
 }
 
 // TestEntrypointRepair_RepairSelectsAlsoUnusableNode tests Case B:
-// repair selects a node that is also unusable → insert ends in clean error, no hang.
+// repair selects a node that is also unusable → insert waits for maintenance to clear.
 func TestEntrypointRepair_RepairSelectsAlsoUnusableNode(t *testing.T) {
 	ctx := context.Background()
 	vectors := vectorsForEntrypointRepairTest()
@@ -179,7 +182,7 @@ func TestEntrypointRepair_RepairSelectsAlsoUnusableNode(t *testing.T) {
 		}
 	}
 
-	// Perform an insert - should fail with clean error, not hang
+	// the insert waits while every node is held, and finishes once they are released
 	insertDone := make(chan error, 1)
 	newVector := []float32{0.5, 0.5, 0.5}
 	newID := uint64(len(vectors))
@@ -190,22 +193,25 @@ func TestEntrypointRepair_RepairSelectsAlsoUnusableNode(t *testing.T) {
 
 	select {
 	case err := <-insertDone:
-		// Should get a clean error, not success (no usable entrypoint)
-		assert.Error(t, err, "expected error when all nodes are under maintenance")
-		// The error should indicate no usable entrypoint, not a timeout
-		assert.NotContains(t, err.Error(), "context deadline exceeded",
-			"should fail with entrypoint error, not timeout")
-
-	case <-time.After(5 * time.Second):
-		t.Fatal("insert did not terminate — spinning in pickEntrypoint")
+		t.Fatalf("insert finished while every node was under maintenance: %v", err)
+	case <-time.After(100 * time.Millisecond):
 	}
 
-	// Cleanup
 	for i := 0; i < len(vectors); i++ {
 		node := index.nodeByID(uint64(i))
 		if node != nil {
 			node.unmarkAsMaintenance()
 		}
+	}
+
+	select {
+	case err := <-insertDone:
+		require.NoError(t, err)
+		ids, _, err := index.SearchByVector(ctx, newVector, len(vectors)+1, nil)
+		require.NoError(t, err)
+		assert.Contains(t, ids, newID)
+	case <-time.After(5 * time.Second):
+		t.Fatal("insert did not terminate after maintenance was released")
 	}
 }
 

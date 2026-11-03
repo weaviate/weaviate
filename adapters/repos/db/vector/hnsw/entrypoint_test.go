@@ -114,7 +114,8 @@ func (f *bootstrapFixture) deleteFromObjectStore(id uint64) {
 	}
 }
 
-// leaveGhost fails the insert with every live node under maintenance
+// leaveGhost fails the insert by ending its context while every live node is
+// under maintenance
 func (f *bootstrapFixture) leaveGhost(t *testing.T, id uint64) {
 	var live []*vertex
 	for i := uint64(0); i < uint64(len(f.vectors)); i++ {
@@ -125,7 +126,7 @@ func (f *bootstrapFixture) leaveGhost(t *testing.T, id uint64) {
 	for _, node := range live {
 		node.markAsMaintenance()
 	}
-	err := f.index.Add(f.ctx, id, f.vectors[id])
+	err := addWithDeadline(f.index, id, f.vectors[id])
 	require.ErrorIs(t, err, enterrors.ErrNoUsableEntrypoint)
 	for _, node := range live {
 		node.unmarkAsMaintenance()
@@ -261,7 +262,7 @@ func TestEntrypoint_BootstrapLastLiveNode(t *testing.T) {
 				ep := f.index.getEntrypoint()
 				f.index.nodeByID(ep).markAsMaintenance()
 
-				err := f.index.Add(f.ctx, 3, f.vectors[3])
+				err := addWithDeadline(f.index, 3, f.vectors[3])
 				require.ErrorIs(t, err, enterrors.ErrNoUsableEntrypoint)
 				require.True(t, enterrors.IsTransient(err))
 				require.Equal(t, ep, f.index.getEntrypoint())
@@ -269,6 +270,88 @@ func TestEntrypoint_BootstrapLastLiveNode(t *testing.T) {
 				f.index.nodeByID(ep).unmarkAsMaintenance()
 				f.addWithin(t, 3, 10*time.Second)
 				f.requireReachable(t, ep, 3)
+			})
+
+			t.Run("insert waits for the node held by cleanup", func(t *testing.T) {
+				f := newBootstrapFixture(t, variant.compressed)
+				require.NoError(t, f.index.Delete(f.nonEntrypointNodes()...))
+				ep := f.index.getEntrypoint()
+				f.index.nodeByID(ep).markAsMaintenance()
+
+				done := make(chan error, 1)
+				go func() { done <- f.index.Add(f.ctx, 3, f.vectors[3]) }()
+				select {
+				case err := <-done:
+					t.Fatalf("insert finished while cleanup held the only live node: %v", err)
+				case <-time.After(100 * time.Millisecond):
+				}
+
+				f.index.nodeByID(ep).unmarkAsMaintenance()
+				select {
+				case err := <-done:
+					require.NoError(t, err)
+				case <-time.After(10 * time.Second):
+					t.Fatal("insert did not finish after cleanup released the node")
+				}
+				f.requireReachable(t, ep, 3)
+			})
+
+			t.Run("waiting insert stops on shutdown", func(t *testing.T) {
+				f := newBootstrapFixture(t, variant.compressed)
+				require.NoError(t, f.index.Delete(f.nonEntrypointNodes()...))
+				ep := f.index.getEntrypoint()
+				f.index.nodeByID(ep).markAsMaintenance()
+				defer f.index.nodeByID(ep).unmarkAsMaintenance()
+
+				done := make(chan error, 1)
+				go func() { done <- f.index.Add(f.ctx, 3, f.vectors[3]) }()
+				require.Eventually(t, func() bool {
+					node := f.index.nodeByID(3)
+					return node != nil && !node.isUnderMaintenance()
+				}, 10*time.Second, time.Millisecond, "insert of 3 should be waiting")
+
+				// the first step of Shutdown; the full Shutdown runs in cleanup
+				f.index.shutdownCtxCancel()
+				select {
+				case err := <-done:
+					require.ErrorIs(t, err, enterrors.ErrNoUsableEntrypoint)
+					require.ErrorIs(t, err, context.Canceled)
+					require.True(t, enterrors.IsTransient(err))
+				case <-time.After(10 * time.Second):
+					t.Fatal("waiting insert did not stop on shutdown")
+				}
+			})
+
+			t.Run("insert connected to a waiting insert stays reachable", func(t *testing.T) {
+				f := newBootstrapFixture(t, variant.compressed)
+				require.NoError(t, f.index.Delete(f.nonEntrypointNodes()...))
+				ep := f.index.getEntrypoint()
+				f.index.nodeByID(ep).markAsMaintenance()
+
+				done := make(chan error, 1)
+				go func() { done <- f.index.Add(f.ctx, 3, f.vectors[3]) }()
+				require.Eventually(t, func() bool {
+					node := f.index.nodeByID(3)
+					return node != nil && !node.isUnderMaintenance()
+				}, 10*time.Second, time.Millisecond, "insert of 3 should wait without its maintenance mark")
+
+				// 4 can only connect to the waiting 3, so 3 holds the only link to 4
+				f.addWithin(t, 4, 10*time.Second)
+				// hold 4 so that 3 resumes from the released entrypoint, which does
+				// not lead to 4
+				f.index.nodeByID(4).markAsMaintenance()
+				f.index.nodeByID(ep).unmarkAsMaintenance()
+				select {
+				case err := <-done:
+					require.NoError(t, err)
+				case <-time.After(10 * time.Second):
+					t.Fatal("insert of 3 did not finish after cleanup released the entrypoint")
+				}
+				f.index.nodeByID(4).unmarkAsMaintenance()
+
+				f.requireReachable(t, ep, 3, 4)
+				f.restart(t)
+				f.requireReachable(t, ep, 3, 4)
 			})
 		})
 	}
