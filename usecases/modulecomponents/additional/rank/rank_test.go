@@ -14,8 +14,10 @@ package rank
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 
@@ -144,4 +146,80 @@ func (c *fakeRankClient) Rank(ctx context.Context, query string, documents []str
 		Query: query,
 	}
 	return result, nil
+}
+
+type fixedScoresClient struct{ scores map[string]float64 }
+
+func (c *fixedScoresClient) Rank(_ context.Context, query string, documents []string, _ moduletools.ClassConfig) (*ent.RankResult, error) {
+	out := make([]ent.DocumentScore, len(documents))
+	for i, d := range documents {
+		out[i] = ent.DocumentScore{Document: d, Score: c.scores[d]}
+	}
+	return &ent.RankResult{Query: query, DocumentScores: out}, nil
+}
+
+func TestRankKeepsSearchOrderOnEqualScores(t *testing.T) {
+	manyIDs := make([]string, 100)
+	manyScores := make(map[string]float64, len(manyIDs))
+	manyWant := make([]string, 0, len(manyIDs))
+	for i := range manyIDs {
+		manyIDs[i] = fmt.Sprintf("id-%03d", i)
+		manyScores[manyIDs[i]] = float64(i % 3)
+	}
+	for _, score := range []float64{2, 1, 0} {
+		for _, id := range manyIDs {
+			if manyScores[id] == score {
+				manyWant = append(manyWant, id)
+			}
+		}
+	}
+
+	tests := []struct {
+		name   string
+		ids    []string
+		scores map[string]float64
+		want   []string
+	}{
+		{
+			name:   "ties among five results",
+			ids:    []string{"a", "b", "c", "d", "e"},
+			scores: map[string]float64{"a": 0.5, "b": 0.9, "c": 0.5, "d": 0.5, "e": 0.9},
+			want:   []string{"b", "e", "a", "c", "d"},
+		},
+		{
+			name:   "all scores equal",
+			ids:    []string{"a", "b", "c", "d", "e"},
+			scores: map[string]float64{"a": 0.5, "b": 0.5, "c": 0.5, "d": 0.5, "e": 0.5},
+			want:   []string{"a", "b", "c", "d", "e"},
+		},
+		{
+			name:   "ties among many results",
+			ids:    manyIDs,
+			scores: manyScores,
+			want:   manyWant,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := make([]search.Result, len(tt.ids))
+			for i, id := range tt.ids {
+				in[i] = search.Result{ID: strfmt.UUID(id), Schema: map[string]interface{}{"content": id}}
+			}
+			provider := New(&fixedScoresClient{scores: tt.scores})
+			property := "content"
+			query := "query"
+			limit := len(in)
+
+			out, err := provider.AdditionalPropertyFn(context.Background(), in,
+				&Params{Property: &property, Query: &query}, &limit, nil, nil)
+			require.NoError(t, err)
+
+			got := make([]string, len(out))
+			for i := range out {
+				got[i] = string(out[i].ID)
+			}
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
