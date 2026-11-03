@@ -28,11 +28,8 @@ import (
 // provably missing. A stat error must not be read as absence, or a pending
 // migration gets marked complete without its index ever rebuilt.
 func migrationTrackerDirAbsent(lsmPath, dirName string) bool {
-	info, err := os.Stat(filepath.Join(lsmPath, migrationsDir, dirName))
-	if err != nil {
-		return os.IsNotExist(err)
-	}
-	return !info.IsDir()
+	there, err := shardBucketDirs(lsmPath).Trackers().Exists(dirName)
+	return err == nil && !there
 }
 
 // completedMigrationGens returns the set of generation numbers whose
@@ -352,7 +349,6 @@ func schemaAuthorizesFinalization(class *models.Class, lsmPath, migName string) 
 	for _, prop := range class.Properties {
 		byName[prop.Name] = prop
 	}
-	sweep := newPropertyDeleteIndexHelper()
 	for _, propName := range props {
 		prop, listed := byName[propName]
 		if !listed {
@@ -367,7 +363,7 @@ func schemaAuthorizesFinalization(class *models.Class, lsmPath, migName string) 
 		case helpers.BucketRangeableFromPropNameLSM(propName):
 			index = prop.IndexRangeFilters
 		}
-		if sweep.isPropertyIndexRemoved(index) {
+		if propertyIndexRemoved(index) {
 			return false
 		}
 	}

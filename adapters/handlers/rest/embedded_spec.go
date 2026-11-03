@@ -6149,7 +6149,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Nothing was started: the collection has either a conflicting in-flight reindex task or a replica movement in flight. The message says which.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6414,7 +6414,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Nothing was started: the collection has either a conflicting in-flight reindex task or a replica movement in flight. The message says which.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19095,7 +19095,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Nothing was started: the collection has either a conflicting in-flight reindex task or a replica movement in flight. The message says which.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19360,7 +19360,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Nothing was started: the collection has either a conflicting in-flight reindex task or a replica movement in flight. The message says which.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

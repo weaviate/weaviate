@@ -718,7 +718,7 @@ func backupAndRestoreInPlace(t *testing.T, ctx context.Context, shard *Shard, id
 	t.Helper()
 	stagingRoot := t.TempDir()
 	sd := backup.ShardDescriptor{}
-	files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot)
+	files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot, newReindexGate(idx.db, reindexGateMaxAge))
 	require.NoError(t, err)
 
 	shardName := shard.Name()
