@@ -2665,3 +2665,23 @@ func TestCleanupKeepsTheTombstoneOfAChunkItCannotRemove(t *testing.T) {
 	assert.FileExists(t, stuck+".processed")
 }
 
+// A release that cannot remove a kept chunk fails and stays retained, so a
+// retry removes it.
+func TestRetention_ReleaseFailsOnAChunkItCannotRemove(t *testing.T) {
+	s := makeScheduler(t)
+	q := makeQueueSize(t, s, discardExecutor(), 50)
+	_, err := q.Retain()
+	require.NoError(t, err)
+
+	stuck := chunkPath(q.dir, 1)
+	require.NoError(t, os.Mkdir(stuck, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(stuck, "f"), nil, 0o644))
+	require.NoError(t, os.WriteFile(stuck+".processed", nil, 0o644))
+
+	require.Error(t, q.ReleaseRetention())
+	assert.FileExists(t, stuck+".processed")
+
+	require.NoError(t, os.RemoveAll(stuck))
+	require.NoError(t, q.ReleaseRetention())
+	assert.NoFileExists(t, stuck+".processed", "the retry finishes the cleanup")
+}
