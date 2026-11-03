@@ -248,3 +248,34 @@ func TestRankWithDifferentConfigs(t *testing.T) {
 		})
 	}
 }
+
+func TestRankRejectsOutOfRangeIndex(t *testing.T) {
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := RankResponse{
+			Results: []RerankedResult{
+				{Index: 5, RelevanceScore: 0.9},
+				{Index: 0, RelevanceScore: 0.8},
+			},
+		}
+
+		w.Header().Set(contentTypeHeader, applicationJSON)
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer testServer.Close()
+
+	client := &client{
+		apiKey:       testAPIKey,
+		httpClient:   &http.Client{Timeout: 30 * time.Second},
+		host:         testServer.URL,
+		path:         rerankPath,
+		maxDocuments: 1000,
+		logger:       logrus.New(),
+	}
+
+	fakeConfig := fakeClassConfig{classConfig: map[string]any{"model": testModel}}
+	_, err := client.Rank(context.Background(), testQuery, []string{"doc1", "doc2"}, fakeConfig)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reranker returned index 5 for 2 documents")
+	assert.NotContains(t, err.Error(), "panic")
+}

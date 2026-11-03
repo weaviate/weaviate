@@ -159,6 +159,29 @@ func TestRank(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("when the server returns an index outside the documents", func(t *testing.T) {
+		handler := &testRankHandler{
+			t: t,
+			response: RankResponse{
+				Results: []Result{
+					{Index: 5, RelevanceScore: 0.9},
+					{Index: 0, RelevanceScore: 0.8},
+				},
+			},
+		}
+		server := httptest.NewServer(handler)
+		defer server.Close()
+
+		c := New("apiKey", 0, nullLogger())
+		c.urlBuilder = &fakeUrlBuilder{server.URL}
+
+		_, err := c.Rank(context.Background(), "Where do I work?", []string{"I work at Apple", "I work at Google"}, nil)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "reranker returned index 5 for 2 documents")
+		assert.NotContains(t, err.Error(), "panic")
+	})
 }
 
 type testRankHandler struct {

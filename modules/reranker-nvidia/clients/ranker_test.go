@@ -130,6 +130,27 @@ func TestGetScore(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("when the server returns an index outside the documents", func(t *testing.T) {
+		server := httptest.NewServer(&testCrossRankerHandler{
+			t: t,
+			res: rankResponse{
+				Rankings: []ranking{
+					{Index: 5, Logit: 0.9},
+					{Index: 0, Logit: 0.8},
+				},
+			},
+		})
+		defer server.Close()
+		c := New("key", 0, nullLogger())
+
+		cfg := fakeClassConfig{classConfig: map[string]interface{}{"Model": "large", "baseURL": server.URL}}
+		_, err := c.Rank(context.Background(), "Where do I work?", []string{"I work at Apple", "I work at Google"}, cfg)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "reranker returned index 5 for 2 documents")
+		assert.NotContains(t, err.Error(), "panic")
+	})
 }
 
 type testCrossRankerHandler struct {
