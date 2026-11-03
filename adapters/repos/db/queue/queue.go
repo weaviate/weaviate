@@ -121,6 +121,10 @@ type DiskQueue struct {
 	// instead a tombstone (.bin.processed) is created alongside them.
 	// This is used during backup to keep chunk files available for copying.
 	maintenanceMode atomic.Bool
+
+	// retention, when set, keeps processed chunks for a replacement index
+	// the same way. Set and cleared under rmLock.
+	retention atomic.Pointer[Retention]
 }
 
 type DiskQueueOptions struct {
@@ -205,6 +209,7 @@ func (q *DiskQueue) Init() error {
 	if err != nil {
 		return errors.Wrap(err, "failed to create chunk writer")
 	}
+	q.w.onCreate = q.chunkCreated
 	// the writer may have cut a torn record off the partial chunk, or started
 	// a new chunk
 	q.recordCount += q.w.recordCount
@@ -702,10 +707,23 @@ func (q *DiskQueue) EnableMaintenanceMode() {
 }
 
 // DisableMaintenanceMode re-enables normal chunk deletion and cleans up all
-// tombstone files and their corresponding chunk files left from the freeze period.
+// tombstone files and their corresponding chunk files left from the freeze
+// period, unless a retention still keeps them.
 func (q *DiskQueue) DisableMaintenanceMode() error {
+	q.rmLock.Lock()
+	defer q.rmLock.Unlock()
+
 	q.maintenanceMode.Store(false)
+	if q.retention.Load() != nil {
+		return nil
+	}
 	return q.cleanupProcessedChunks()
+}
+
+// keepsProcessed reports whether a processed chunk is kept rather than
+// deleted. The caller holds rmLock.
+func (q *DiskQueue) keepsProcessed() bool {
+	return q.maintenanceMode.Load() || q.retention.Load() != nil
 }
 
 // cleanupProcessedChunks scans the queue directory for tombstone files
@@ -737,7 +755,7 @@ func (q *DiskQueue) removeChunk(path string) error {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
 
-	if q.maintenanceMode.Load() {
+	if q.keepsProcessed() {
 		tombstonePath := path + ".processed"
 		f, err := os.Create(tombstonePath)
 		if err == nil {
@@ -797,7 +815,7 @@ func (q *DiskQueue) quarantineChunk(path string, cause error) error {
 	quarantinePath := path + ".corrupt"
 	kept := true
 	var err error
-	if q.maintenanceMode.Load() {
+	if q.keepsProcessed() {
 		kept, err = q.quarantineDuringBackup(path, quarantinePath)
 	} else {
 		err = os.Rename(path, quarantinePath)
@@ -1204,6 +1222,8 @@ type chunkWriter struct {
 	buf         [8]byte
 
 	reader *chunkReader
+	// onCreate is told the path of each chunk the writer creates
+	onCreate func(path string)
 }
 
 func newChunkWriter(dir string, reader *chunkReader, logger logrus.FieldLogger, maxSize uint64) (*chunkWriter, error) {
@@ -1356,6 +1376,10 @@ func (w *chunkWriter) Create() error {
 		return errors.Wrap(err, "failed to write size")
 	}
 	w.size = uint64(chunkHeaderSize)
+
+	if w.onCreate != nil {
+		w.onCreate(w.f.Name())
+	}
 
 	return nil
 }
