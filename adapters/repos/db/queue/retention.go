@@ -12,10 +12,6 @@
 package queue
 
 import (
-	"fmt"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -32,8 +28,6 @@ type Retention struct {
 	m sync.Mutex
 	// mark is the first chunk to replay, empty until the queue holds one
 	mark string
-	// gap is the first loss of a record the replay needs
-	gap error
 }
 
 // Retain starts keeping the queue's chunks, from the oldest one not processed
@@ -69,14 +63,6 @@ func (r *Retention) Mark() string {
 	return r.mark
 }
 
-// Gap is the first loss of a record from the mark on, or nil. A replay with
-// a gap misses that record.
-func (r *Retention) Gap() error {
-	r.m.Lock()
-	defer r.m.Unlock()
-	return r.gap
-}
-
 // Release stops keeping chunks and deletes the processed ones, unless a
 // backup still keeps them. Releasing twice is a no-op.
 func (r *Retention) Release() error {
@@ -105,47 +91,6 @@ func (q *DiskQueue) chunkCreated(path string) {
 	if r.mark == "" {
 		r.mark = path
 	}
-}
-
-// recordLoss tells a retention that records were lost: those of the chunk
-// at path, or with no path a record that never reached a chunk. A chunk
-// before the mark is no loss to the replay.
-func (q *DiskQueue) recordLoss(path string, cause error) {
-	r := q.retention.Load()
-	if r == nil {
-		return
-	}
-	r.m.Lock()
-	defer r.m.Unlock()
-	if r.gap != nil {
-		return
-	}
-	if path == "" {
-		r.gap = fmt.Errorf("a record was not queued: %w", cause)
-		return
-	}
-	if r.mark == "" || !chunkAtOrAfter(path, r.mark) {
-		return
-	}
-	r.gap = fmt.Errorf("records of chunk %s were lost: %w", filepath.Base(path), cause)
-}
-
-// chunkAtOrAfter reports whether the chunk at path comes at or after the
-// one at mark in replay order. A name that does not parse counts as after.
-func chunkAtOrAfter(path, mark string) bool {
-	seq, ok := chunkSeq(path)
-	markSeq, markOK := chunkSeq(mark)
-	if !ok || !markOK {
-		return true
-	}
-	return seq >= markSeq
-}
-
-// chunkSeq is the number a chunk file is named after.
-func chunkSeq(path string) (int64, bool) {
-	name := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "chunk-"), ".bin")
-	seq, err := strconv.ParseInt(name, 10, 64)
-	return seq, err == nil
 }
 
 // firstUnprocessed is the path of the oldest chunk whose records are not
