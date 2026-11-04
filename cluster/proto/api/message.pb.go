@@ -2244,8 +2244,10 @@ type RecordDistributedTaskPostCompletionAckRequest struct {
 	Success           bool                   `protobuf:"varint,5,opt,name=success,proto3" json:"success,omitempty"`
 	Error             string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
 	AckedAtUnixMillis int64                  `protobuf:"varint,7,opt,name=acked_at_unix_millis,json=ackedAtUnixMillis,proto3" json:"acked_at_unix_millis,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// A barrier task's ack pays one group's swap; empty speaks for every group of the node.
+	GroupId       string `protobuf:"bytes,8,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RecordDistributedTaskPostCompletionAckRequest) Reset() {
@@ -2325,6 +2327,13 @@ func (x *RecordDistributedTaskPostCompletionAckRequest) GetAckedAtUnixMillis() i
 		return x.AckedAtUnixMillis
 	}
 	return 0
+}
+
+func (x *RecordDistributedTaskPostCompletionAckRequest) GetGroupId() string {
+	if x != nil {
+		return x.GroupId
+	}
+	return ""
 }
 
 type RecordDistributedTaskPreparationCompleteAckRequest struct {
@@ -2706,7 +2715,7 @@ const file_api_message_proto_rawDesc = "" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x14\n" +
 	"\x05error\x18\x04 \x01(\tR\x05error\x121\n" +
-	"\x15failed_at_unix_millis\x18\x05 \x01(\x03R\x12failedAtUnixMillis\"\xf1\x01\n" +
+	"\x15failed_at_unix_millis\x18\x05 \x01(\x03R\x12failedAtUnixMillis\"\x8c\x02\n" +
 	"-RecordDistributedTaskPostCompletionAckRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
@@ -2714,7 +2723,8 @@ const file_api_message_proto_rawDesc = "" +
 	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x18\n" +
 	"\asuccess\x18\x05 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x06 \x01(\tR\x05error\x12/\n" +
-	"\x14acked_at_unix_millis\x18\a \x01(\x03R\x11ackedAtUnixMillis\"\x91\x02\n" +
+	"\x14acked_at_unix_millis\x18\a \x01(\x03R\x11ackedAtUnixMillis\x12\x19\n" +
+	"\bgroup_id\x18\b \x01(\tR\agroupId\"\x91\x02\n" +
 	"2RecordDistributedTaskPreparationCompleteAckRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +

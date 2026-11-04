@@ -1550,8 +1550,8 @@ func TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked(t *testing.T) 
 		"FINISHED barrier task MUST be pre-marked — bootstrap pre-mark applies to terminal tasks regardless of barrier flag")
 	require.True(t, finished.completedCallbackFired,
 		"FINISHED barrier task MUST be pre-marked — bootstrap pre-mark applies to terminal tasks regardless of barrier flag")
-	require.Equal(t, map[string]struct{}{}, finished.swapPending,
-		"FINISHED barrier task has no group left to swap")
+	require.Nil(t, finished.swapPending,
+		"a terminal barrier task's swaps are refilled from what RAFT says this node still owes")
 	require.Equal(t, map[string]struct{}{}, finished.prepPending,
 		"FINISHED barrier task has no group left to prepare — both phases already cleared the ack barrier pre-restart")
 	require.True(t, finished.postCompletionAckEmitted,
@@ -1904,7 +1904,7 @@ func TestSchedulerTick_UnrecognizedStatusGaugeSurvivesAFailingList(t *testing.T)
 type alwaysFailingAckRecorder struct{}
 
 func (alwaysFailingAckRecorder) RecordDistributedTaskPostCompletionAck(
-	context.Context, string, string, uint64, string, bool, string,
+	context.Context, string, string, uint64, string, string, bool, string,
 ) error {
 	return errors.New("raft unavailable")
 }
@@ -2231,12 +2231,7 @@ func TestScheduler_AckErrorIsCappedAcrossManyFailingGroups(t *testing.T) {
 	for i := range 1000 {
 		groupErrs[fmt.Sprintf("tenant-%04d", i)] = errors.New("swap failed")
 	}
-	desc := TaskDescriptor{ID: "T", Version: 1}
-	s := &Scheduler{perTaskState: map[TaskDescriptor]*taskSchedulerState{desc: {
-		postCompletionGroupErrors: groupErrs,
-	}}}
-
-	success, msg := s.aggregateAckErrorsLocked(nil, desc)
+	success, msg := (&Scheduler{}).joinGroupErrors(groupErrs)
 
 	require.False(t, success)
 	require.Less(t, len(msg), 1000)

@@ -914,16 +914,15 @@ func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []dist
 	return migrationVerdictDiscard, "owning task is gone and the schema does not show its effect"
 }
 
-// A decided group is past its point of no return: its record commits whatever
-// the task's status, or this replica would disagree with its siblings for good.
 func (r *migrationReconciler) verdictForTask(task distributedtask.TaskStatusEntry) (migrationVerdict, string) {
-	if task.GroupDecided {
-		return migrationVerdictCommit, fmt.Sprintf("owning task (%s) decided this shard's swap", task.Status)
-	}
 	switch task.Status {
 	case distributedtask.TaskStatusFinished:
 		return migrationVerdictCommit, "owning task finished"
 	case distributedtask.TaskStatusCancelled, distributedtask.TaskStatusFailed:
+		// The swap stays owed in RAFT; the scheduler pays it and the record then says so.
+		if task.GroupDecided {
+			return migrationVerdictLeave, fmt.Sprintf("owning task (%s) decided this shard's swap, which the scheduler runs", task.Status)
+		}
 		return migrationVerdictDiscard, fmt.Sprintf("owning task %s", task.Status)
 	default:
 		// Active, or a status this build does not recognize.

@@ -650,7 +650,8 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 // Gates SWAPPING → FINISHED on every expected ack landing successfully;
 // any Success=false flips to FAILED, which skips the cluster-wide schema
 // flip in OnTaskCompleted. Idempotent: first ack per (task, node) wins;
-// late acks against terminal states are silently dropped.
+// late acks against terminal states are silently dropped. A barrier task's
+// ack pays a swap debt instead.
 func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	var r api.RecordDistributedTaskPostCompletionAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -666,6 +667,11 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
 	if err != nil {
 		return err
+	}
+	if task.NeedsPreparationBarrier {
+		recordSwapAck(task, &r)
+		m.notifySchedulerWithLock()
+		return nil
 	}
 
 	switch task.Status {
@@ -709,6 +715,75 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	return nil
 }
 
+// recordSwapAck takes an ack in any status, since a decided swap stays owed
+// after the task ends; an ack naming no group pays for every group of its node.
+func recordSwapAck(task *Task, r *api.RecordDistributedTaskPostCompletionAckRequest) {
+	if r.Success {
+		if r.GroupId != "" {
+			task.paySwap(r.GroupId, r.NodeId)
+			return
+		}
+		for group := range task.SwapsOwed {
+			task.paySwap(group, r.NodeId)
+		}
+		return
+	}
+	if task.Status != TaskStatusSwapping {
+		return
+	}
+	ackErr := fmt.Sprintf("post-completion swap failed on node %s: %s", r.NodeId, r.Error)
+	if r.GroupId != "" {
+		ackErr = fmt.Sprintf("post-completion swap failed on node %s for group %q: %s", r.NodeId, r.GroupId, r.Error)
+	}
+	if task.Error != "" {
+		task.Error = task.Error + "; " + ackErr
+	} else {
+		task.Error = ackErr
+	}
+	task.markTerminal(TaskStatusFailed, time.UnixMilli(r.AckedAtUnixMillis))
+}
+
+// recordNodePreparationAck applies a groupless PREP ack by the rule of the
+// released binaries that wrote it: it speaks for every group of its node.
+func recordNodePreparationAck(task *Task, r *api.RecordDistributedTaskPreparationCompleteAckRequest) {
+	if _, present := task.NodePreparationAcks[r.NodeId]; present {
+		return
+	}
+	if task.NodePreparationAcks == nil {
+		task.NodePreparationAcks = map[string]PostCompletionAck{}
+	}
+	ackedAt := time.UnixMilli(r.AckedAtUnixMillis)
+	task.NodePreparationAcks[r.NodeId] = PostCompletionAck{Success: r.Success, Error: r.Error, AckedAt: ackedAt}
+	if task.Status != TaskStatusPreparing {
+		return
+	}
+	if !r.Success {
+		ackErr := fmt.Sprintf("prep failed on node %s: %s", r.NodeId, r.Error)
+		if task.Error != "" {
+			task.Error = task.Error + "; " + ackErr
+		} else {
+			task.Error = ackErr
+		}
+		task.markTerminal(TaskStatusFailed, ackedAt)
+		return
+	}
+	for _, node := range task.NodesWithLocalUnits() {
+		if ack, ok := task.NodePreparationAcks[node]; !ok || !ack.Success {
+			return
+		}
+	}
+	if task.SwapDecidedGroups == nil && task.SwapsOwed == nil {
+		task.SwapDecidedGroups = make(map[string]time.Time, task.groupCount)
+		task.SwapsOwed = make(map[string][]string, task.groupCount)
+	}
+	for _, group := range task.Groups() {
+		if !task.GroupSwapDecided(group) {
+			task.decideSwap(group, ackedAt)
+		}
+	}
+	task.Status = TaskStatusSwapping
+}
+
 // RecordPreparationCompleteAck records one node's PREP ack for a group. A
 // group's swap is decided once every node owning one of its units acks
 // success, and stays decided no matter what happens to the rest of the task
@@ -749,6 +824,12 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
 
+	if r.GroupId == "" && !task.hasGroup("") {
+		recordNodePreparationAck(task, &r)
+		m.notifySchedulerWithLock()
+		return nil
+	}
+
 	expected := task.groupNodes(r.GroupId)
 	if task.GroupSwapDecided(r.GroupId) || !task.AllGroupUnitsTerminal(r.GroupId) {
 		return nil
@@ -783,11 +864,7 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 	}
 	acks[r.NodeId] = PostCompletionAck{Success: true, AckedAt: ackedAt}
 	if len(acks) == len(expected) {
-		if task.SwapDecidedGroups == nil {
-			task.SwapDecidedGroups = map[string]time.Time{}
-		}
-		task.SwapDecidedGroups[r.GroupId] = ackedAt
-		delete(task.PreparedGroups, r.GroupId)
+		task.decideSwap(r.GroupId, ackedAt)
 		if task.Status == TaskStatusPreparing && task.AllGroupsSwapDecided() {
 			task.Status = TaskStatusSwapping
 		}

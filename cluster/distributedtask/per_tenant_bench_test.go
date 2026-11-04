@@ -125,10 +125,10 @@ func BenchmarkSwapPhaseTick(b *testing.B) {
 			benchSizes(b, func(b *testing.B, tenants int) {
 				s, task := benchScheduler(), task(tenants)
 				provider := newBarrierRecordingProvider(nil)
-				s.runSwapPhase("ns", task.TaskDescriptor, task, provider)
+				s.runDecidedSwapPhase("ns", task.TaskDescriptor, task, provider)
 				b.ResetTimer()
 				for i := 0; i < b.N; i++ {
-					s.runSwapPhase("ns", task.TaskDescriptor, task, provider)
+					s.runDecidedSwapPhase("ns", task.TaskDescriptor, task, provider)
 				}
 			})
 		})
@@ -235,3 +235,4 @@ func BenchmarkTaskClone(b *testing.B) {
 		}
 	})
 }
+

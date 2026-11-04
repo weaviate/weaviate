@@ -44,7 +44,7 @@ func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 		wantRecord   MigrationState
 	}{
 		{name: "swapped, then reloaded", swap: true, decided: true, wantMigrated: true, wantRecord: MigrationStatePromoted},
-		{name: "crashed before the swap, tenant decided", decided: true, wantMigrated: true, wantRecord: MigrationStatePromoted},
+		{name: "crashed before the swap, tenant decided", decided: true, wantMigrated: false, wantRecord: MigrationStateMerged},
 		{name: "crashed before any decision", wantMigrated: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

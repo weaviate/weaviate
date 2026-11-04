@@ -229,7 +229,7 @@ func (r *fanoutAckRecorder) RecordDistributedTaskPostCompletionAck(
 	_ context.Context,
 	ns, id string,
 	version uint64,
-	nodeID string,
+	groupID, nodeID string,
 	success bool,
 	errMsg string,
 ) error {
@@ -237,6 +237,7 @@ func (r *fanoutAckRecorder) RecordDistributedTaskPostCompletionAck(
 		Namespace:         ns,
 		Id:                id,
 		Version:           version,
+		GroupId:           groupID,
 		NodeId:            nodeID,
 		Success:           success,
 		Error:             errMsg,
@@ -847,7 +848,7 @@ func TestMultiScheduler_AckBarrier_LateSuccessAckSurvivesIdempotently(t *testing
 	// retry that landed after the task transitioned past FINALIZING.
 	// The Manager must silently drop it.
 	require.NoError(t, h.ackRecorder.RecordDistributedTaskPostCompletionAck(
-		context.Background(), h.namespace, taskID, 1, "node-1", false, "duplicate stale ack",
+		context.Background(), h.namespace, taskID, 1, "", "node-1", false, "duplicate stale ack",
 	))
 	tasks = h.listManagerTasks(t)[h.namespace]
 	require.Equal(t, TaskStatusFinished, tasks[0].Status,

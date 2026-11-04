@@ -101,7 +101,7 @@ type TaskFinalizer interface {
 // having an ack from every node that has local units in the task, and
 // transitions the task to FAILED if any ack reports failure — which
 // makes [UnitAwareProvider.OnTaskCompleted] skip the cluster-wide
-// schema flip on that path.
+// schema flip on that path. A barrier task acks per group and finalizes once [Task.SwapsOutstanding] is zero.
 //
 // The recorded state is stored on the [Task] (see [Task.PostCompletionAcks])
 // and survives RAFT snapshot/restore so a node restart during the
@@ -117,7 +117,7 @@ type PostCompletionAckRecorder interface {
 		ctx context.Context,
 		namespace, taskID string,
 		taskVersion uint64,
-		nodeID string,
+		groupID, nodeID string,
 		success bool,
 		errMsg string,
 	) error
@@ -535,8 +535,7 @@ type TaskDescriptor struct {
 type TaskStatusEntry struct {
 	TaskDescriptor
 	Status TaskStatus
-	// GroupDecided is whether the asking group's swap is decided, so a record
-	// can be committed on the decision alone, whatever the task status.
+	// GroupDecided keeps a failed or cancelled run's record for the swap its replica still owes.
 	GroupDecided bool
 }
 
@@ -612,6 +611,15 @@ type Task struct {
 	// the one fact every replica of the group obeys, and it outlives a later
 	// FAILED or CANCELLED status: a decided group is past its point of no return.
 	SwapDecidedGroups map[string]time.Time `json:"swapDecidedGroups,omitempty"`
+
+	// SwapsOwed maps each decided group to the replicas yet to report its swap, whatever the status.
+	SwapsOwed map[string][]string `json:"swapsOwed,omitempty"`
+
+	// SwapsOutstanding counts SwapsOwed's entries, so readers need no walk.
+	SwapsOutstanding int `json:"swapsOutstanding,omitempty"`
+
+	// NodePreparationAcks holds released binaries' groupless PREP acks, under their JSON name.
+	NodePreparationAcks map[string]PostCompletionAck `json:"preparationCompletionAcks,omitempty"`
 
 	// PostCompletionAcks records per-node confirmations that the node's
 	// SWAP phase (the second half of the split OnGroupCompleted —
@@ -698,6 +706,8 @@ func (t *Task) forgetGroups(groups []string) {
 			delete(t.units, id)
 		}
 		t.groupCount--
+		t.SwapsOutstanding -= len(t.SwapsOwed[group])
+		delete(t.SwapsOwed, group)
 		delete(t.SwapDecidedGroups, group)
 		delete(t.PreparedGroups, group)
 	}
@@ -739,7 +749,51 @@ func (t *Task) Clone() *Task {
 		}
 	}
 	clone.SwapDecidedGroups = maps.Clone(t.SwapDecidedGroups)
+	// Shallow: paySwap replaces a slice, never edits it.
+	clone.SwapsOwed = maps.Clone(t.SwapsOwed)
+	clone.NodePreparationAcks = maps.Clone(t.NodePreparationAcks)
 	return &clone
+}
+
+func (t *Task) decideSwap(group string, at time.Time) {
+	if t.SwapDecidedGroups == nil {
+		t.SwapDecidedGroups = map[string]time.Time{}
+	}
+	t.SwapDecidedGroups[group] = at
+	delete(t.PreparedGroups, group)
+	var nodes []string
+	for _, id := range t.groups[group] {
+		if u := t.units[id]; u != nil && u.NodeID != "" && !slices.Contains(nodes, u.NodeID) {
+			nodes = append(nodes, u.NodeID)
+		}
+	}
+	if len(nodes) == 0 {
+		return
+	}
+	slices.Sort(nodes)
+	if t.SwapsOwed == nil {
+		t.SwapsOwed = map[string][]string{}
+	}
+	t.SwapsOwed[group] = nodes
+	t.SwapsOutstanding += len(nodes)
+}
+
+func (t *Task) paySwap(group, node string) {
+	owed := t.SwapsOwed[group]
+	i := slices.Index(owed, node)
+	if i < 0 {
+		return
+	}
+	t.SwapsOutstanding--
+	if len(owed) == 1 {
+		delete(t.SwapsOwed, group)
+		return
+	}
+	t.SwapsOwed[group] = slices.Delete(slices.Clone(owed), i, i+1)
+}
+
+func (t *Task) SwapOwedBy(group, node string) bool {
+	return slices.Contains(t.SwapsOwed[group], node)
 }
 
 // GroupSwapDecided reports whether every replica of the group may swap.

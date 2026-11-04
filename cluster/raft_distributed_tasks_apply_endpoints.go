@@ -190,7 +190,7 @@ func (s *Raft) RecordDistributedTaskPostCompletionAck(
 	ctx context.Context,
 	namespace, taskID string,
 	taskVersion uint64,
-	nodeID string,
+	groupID, nodeID string,
 	success bool,
 	errMsg string,
 ) error {
@@ -199,6 +199,7 @@ func (s *Raft) RecordDistributedTaskPostCompletionAck(
 			Namespace:         namespace,
 			Id:                taskID,
 			Version:           taskVersion,
+			GroupId:           groupID,
 			NodeId:            nodeID,
 			Success:           success,
 			Error:             errMsg,

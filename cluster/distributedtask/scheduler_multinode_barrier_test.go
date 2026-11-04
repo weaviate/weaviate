@@ -462,61 +462,39 @@ func TestBarrier_G2_PartialPhaseBFailure(t *testing.T) {
 	task := h.getTask(t, taskID)
 	require.Equal(t, TaskStatusSwapping, task.Status)
 
-	// node-2 ticks: SetSwapRequestedError makes OnSwapRequested return
-	// the synthetic error. The scheduler emits the swap-ack with
-	// Success=false. The Manager's RecordPostCompletionAck apply flips
-	// the FSM SWAPPING → FAILED. node-2's local-clone status reflects
-	// FAILED in the same tick (scheduler reflects !success ack to
-	// FAILED on the clone — scheduler.go:669-671), so OnTaskCompleted
-	// fires on FAILED on node-2 in the same tick (per-node cleanup
-	// must run on FAILED).
+	// node-2's swap fails: its failure ack fails the SWAPPING task, and the
+	// swap it owes stays owed.
 	h.tick(1)
 	task = h.getTask(t, taskID)
 	require.Equal(t, TaskStatusFailed, task.Status,
 		"task must transition to FAILED on any node's swap-ack failure")
-	require.NotEmpty(t, task.Error,
-		"FAILED task must carry the per-node failure message for forensics")
-	require.Contains(t, task.PostCompletionAcks, "node-2")
-	require.False(t, task.PostCompletionAcks["node-2"].Success,
-		"node-2's ack must record Success=false")
-	require.Contains(t, task.PostCompletionAcks["node-2"].Error,
-		"synthetic ENOSPC during swap on node-2",
+	require.Contains(t, task.Error, "synthetic ENOSPC during swap on node-2",
 		"node-2's swap error message must be preserved for forensics")
-	require.GreaterOrEqual(t, h.nodes[1].provider.taskCount(taskID), 1,
-		"node-2: OnTaskCompleted must fire on FAILED for per-node cleanup")
+	require.True(t, task.SwapOwedBy("", "node-2"), "a failed swap is not paid")
+	require.False(t, task.SwapOwedBy("", "node-1"), "node-1 paid its swap")
 
-	// node-3 ticks: observes FAILED. PHASE B still fires on FAILED
-	// (postStarted=true includes FAILED on scheduler.go:586-588) so the
-	// per-shard SWAP runs on node-3 too — production reindex provider
-	// guards against the FAILED gate at the schema-flip level (the
-	// OnTaskCompleted call below), not at the per-shard swap level.
-	// node-1 also re-ticks and observes FAILED; OnTaskCompleted fires
-	// for per-node cleanup.
-	h.tick(2)
+	// Every node's next tick sees FAILED: OnTaskCompleted fires once for
+	// cleanup, node-3 pays its swap, and node-2 retries its own.
 	h.tick(0)
+	h.tick(1)
+	h.tick(2)
 	for _, n := range h.nodes {
 		require.Equal(t, 1, n.provider.taskCount(taskID),
 			"node %s: OnTaskCompleted must fire exactly once on FAILED across ticks", n.id)
 	}
-
-	// MarkTaskFinalized must NOT have fired — FAILED is terminal at the
-	// FSM layer; the barrier blocked SWAPPING → FINISHED precisely to
-	// prevent a cluster-wide schema flip with one replica still on the
-	// old tokenization.
 	task = h.getTask(t, taskID)
 	require.Equal(t, TaskStatusFailed, task.Status,
 		"task must remain FAILED — MarkTaskFinalized must not promote past FAILED")
+	require.Equal(t, 1, task.SwapsOutstanding, "only node-2 still owes its swap")
 
-	// Total PHASE B fires across the cluster: exactly 3 (one per node).
-	// node-1 fired SWAP successfully, node-2 fired SWAP and errored,
-	// node-3 fired SWAP after observing FAILED (PHASE B post-FAILED
-	// still runs for cleanup symmetry).
-	total := 0
-	for _, n := range h.nodes {
-		total += n.provider.swapCount(taskID)
-	}
-	require.Equal(t, 3, total,
-		"OnSwapRequested must fire exactly once per node across the cluster, regardless of success/failure")
+	// Once node-2's swap succeeds, the debt is paid on a FAILED task.
+	h.nodes[1].provider.SetSwapRequestedError(nil)
+	h.tick(1)
+	task = h.getTask(t, taskID)
+	require.Equal(t, 0, task.SwapsOutstanding)
+	require.Equal(t, 1, h.nodes[0].provider.swapCount(taskID))
+	require.Equal(t, 1, h.nodes[2].provider.swapCount(taskID))
+	require.Equal(t, 3, h.nodes[1].provider.swapCount(taskID), "node-2 swapped until it succeeded")
 }
 
 // TestBarrier_G3_LatePrepAckArrivesInSwapping pins gap G3: a late
@@ -1193,4 +1171,30 @@ func TestBarrier_FailedPrepAckLeavesStatusToRaft(t *testing.T) {
 				"FAILED cleanup must see every decision RAFT holds")
 		})
 	}
+}
+
+// Pins: a decided swap a replica still owes survives that replica's restart,
+// even once the task is terminal. node-2's swap fails, failing the task, and
+// node-2 restarts before retrying; its fresh scheduler must still swap.
+func TestBarrier_RestartKeepsADecidedSwapOfATerminalTask(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newBarrierHarness(t, []string{"node-1", "node-2"})
+	defer h.close()
+
+	barrierAddTaskOneUnitPerNode(t, h, "T-owed")
+	barrierDriveToPreparing(t, h, "T-owed")
+	barrierDriveAllAcksAndAssertSwapping(t, h, "T-owed")
+
+	h.tick(0)
+	h.nodes[1].provider.SetSwapRequestedError(fmt.Errorf("synthetic EIO during swap on node-2"))
+	h.tick(1)
+	require.Equal(t, TaskStatusFailed, h.getTask(t, "T-owed").Status, "node-2's failed swap fails the task")
+	require.Equal(t, 1, h.nodes[1].provider.swapCount("T-owed"))
+
+	h.nodes[1].provider.SetSwapRequestedError(nil)
+	h.restart(1)
+	h.tick(1)
+	require.Equal(t, 2, h.nodes[1].provider.swapCount("T-owed"),
+		"the restarted replica still owes the decided swap and runs it")
 }

@@ -354,8 +354,7 @@ func TestReconcileMergedDisposition(t *testing.T) {
 		// decided marks the record's shard as one whose group's swap the task decided.
 		decided bool
 		// adopted renames the record's unit to a node the task never had, as a replica copy does.
-		adopted    bool
-		unmirrored bool
+		adopted bool
 		// A second property the record names one directory for, and only a
 		// sidecar: a property does not have to reach the staging phase.
 		secondProperty bool
@@ -408,53 +407,39 @@ func TestReconcileMergedDisposition(t *testing.T) {
 			wantCanonical:  "property_title_searchable",
 		},
 		{
-			name:           "task failed after this unit's group was decided: commit and promote",
-			task:           testTask(taskID, 42, distributedtask.TaskStatusFailed),
-			decided:        true,
-			class:          testClassWithTokenization(models.PropertyTokenizationWord, "title"),
-			wantState:      MigrationStatePromoted,
-			wantRecord:     true,
-			wantStagedGone: true,
-			wantCanonical:  "property_title__g42_ingest",
-		},
-		{
-			name:           "task cancelled after this unit's group was decided: commit and promote",
-			task:           testTask(taskID, 42, distributedtask.TaskStatusCancelled),
-			decided:        true,
-			class:          testClassWithTokenization(models.PropertyTokenizationWord, "title"),
-			wantState:      MigrationStatePromoted,
-			wantRecord:     true,
-			wantStagedGone: true,
-			wantCanonical:  "property_title__g42_ingest",
-		},
-		{
-			name:           "task still running and this unit's group decided: commit and promote",
-			task:           testTask(taskID, 42, distributedtask.TaskStatusStarted),
-			decided:        true,
-			class:          testClassWithTokenization(models.PropertyTokenizationWord, "title"),
-			wantState:      MigrationStatePromoted,
-			wantRecord:     true,
-			wantStagedGone: true,
-			wantCanonical:  "property_title__g42_ingest",
-		},
-		{
-			name:           "a record a replica copy adopted commits on its shard's decision",
-			task:           testTask(taskID, 42, distributedtask.TaskStatusCancelled),
-			decided:        true,
-			adopted:        true,
-			class:          testClassWithTokenization(models.PropertyTokenizationWord, "title"),
-			wantState:      MigrationStatePromoted,
-			wantRecord:     true,
-			wantStagedGone: true,
-			wantCanonical:  "property_title__g42_ingest",
-		},
-		{
-			name:          "decided but its mirror was never armed: commit, never promote the stale copy",
+			name:          "task failed after this unit's group was decided: leave it for the swap the replica still owes",
 			task:          testTask(taskID, 42, distributedtask.TaskStatusFailed),
 			decided:       true,
-			unmirrored:    true,
 			class:         testClassWithTokenization(models.PropertyTokenizationWord, "title"),
-			wantState:     MigrationStateSwapped,
+			wantState:     MigrationStateMerged,
+			wantRecord:    true,
+			wantCanonical: "property_title_searchable",
+		},
+		{
+			name:          "task cancelled after this unit's group was decided: leave it for the swap the replica still owes",
+			task:          testTask(taskID, 42, distributedtask.TaskStatusCancelled),
+			decided:       true,
+			class:         testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			wantState:     MigrationStateMerged,
+			wantRecord:    true,
+			wantCanonical: "property_title_searchable",
+		},
+		{
+			name:          "task still running and this unit's group decided: leave it for the swap the replica still owes",
+			task:          testTask(taskID, 42, distributedtask.TaskStatusStarted),
+			decided:       true,
+			class:         testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			wantState:     MigrationStateMerged,
+			wantRecord:    true,
+			wantCanonical: "property_title_searchable",
+		},
+		{
+			name:          "a record a replica copy adopted reads its shard's decision",
+			task:          testTask(taskID, 42, distributedtask.TaskStatusCancelled),
+			decided:       true,
+			adopted:       true,
+			class:         testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			wantState:     MigrationStateMerged,
 			wantRecord:    true,
 			wantCanonical: "property_title_searchable",
 		},
@@ -526,7 +511,6 @@ func TestReconcileMergedDisposition(t *testing.T) {
 			}
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
 			subject.TaskID = taskID
-			subject.Unmirrored = tt.unmirrored
 			if tt.decided {
 				tt.task.SetUnits(map[string]*distributedtask.Unit{subject.Key.UnitID: {ID: subject.Key.UnitID, GroupID: "shard-1"}})
 				tt.task.SwapDecidedGroups = map[string]time.Time{"shard-1": {}}

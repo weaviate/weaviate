@@ -1063,20 +1063,21 @@ The post-completion barrier is split into two phases.
 2. Once every node owning a unit of the group acked success, the FSM
    records the group's swap as decided (`Task.SwapDecidedGroups`). That
    RAFT fact is the group's point of no return: every replica of the
-   group swaps, even if the task later fails or is cancelled, and a
-   record of a decided group commits at load whatever the task status.
+   group owes its swap (`Task.SwapsOwed`), even if the task later fails
+   or is cancelled, and the task is kept until every replica paid.
    `PREPARING → SWAPPING` happens once every group is decided.
 3. `OnSwapRequested` (PHASE B) runs OVERLAY+SWAP per local shard of a
-   decided group. Returns a non-nil error iff any task's RunSwapOnShard
-   failed. From SWAPPING on, the scheduler emits
-   `RecordPostCompletionAck(Success=bool)` per node.
+   group this node owes, in any task status, and retries a failed swap
+   every tick. The shard writes its `swapped` record before its first
+   pointer flip. The scheduler emits `RecordPostCompletionAck(group,
+   Success=bool)` per node and group; a success pays that debt, and a
+   failure in SWAPPING fails the task.
 4. `OnTaskCompleted` fires → cluster-wide schema flip commits. The
    scheduler runs this phase (`runCompletedCallbackPhase`) before it
    proposes finalization.
-5. FSM transitions `SWAPPING → FINISHED` only when every expected
-   PostCompletionAck has landed with `Success=true` AND this node's
-   `OnTaskCompleted` has fired — `runFinalizePhase` skips any task whose
-   `completedCallbackFired` is unset.
+5. FSM transitions `SWAPPING → FINISHED` only when no swap is owed
+   AND this node's `OnTaskCompleted` has fired — `runFinalizePhase`
+   skips any task whose `completedCallbackFired` is unset.
 
 **Format-only migrations (NeedsPreparationBarrier=false):** PHASE A is
 skipped; the FSM goes `STARTED → SWAPPING` directly. PREP and SWAP have
