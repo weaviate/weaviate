@@ -77,6 +77,10 @@ func (d *DB) scanResourceUsage() {
 // because both branches read from it: without it, shards held read-only by
 // memory pressure would never see the usage drop back below the threshold.
 func (db *DB) scanResourceUsageOnce(mon *memwatch.Monitor, du diskUse, now time.Time) {
+	// A failed disk read reports a zero total: keep the last reading rather than clear the flag.
+	if du.total > 0 {
+		db.resourceScanState.diskReadOnly.Store(db.diskAboveReadonlyThreshold(du))
+	}
 	mon.Refresh(false)
 	if mon.MappingsReadDue(now) {
 		db.warnMappingsReadFailed(mon.ReadMappings(now))
@@ -105,13 +109,13 @@ type resourceScanState struct {
 	// See [Shard.inheritResourcePressureReadOnly].
 	isReadOnly atomic.Bool
 
-	// diskReadOnly reports that disk usage put the node read-only; cleared
-	// with isReadOnly. A shard unload must not flush then: a flush failing on
-	// a full disk tears the shard until restart.
+	// diskReadOnly reports that the last scan read disk usage above its read-only
+	// threshold, whatever else holds the node read-only. A shard unload must not
+	// flush then: a flush failing on a full disk tears the shard until restart.
 	diskReadOnly atomic.Bool
 }
 
-// diskPressureReadOnly reports whether disk usage holds the node read-only.
+// diskPressureReadOnly reports whether disk usage is above its read-only threshold.
 func (db *DB) diskPressureReadOnly() bool {
 	return db != nil && db.resourceScanState != nil && db.resourceScanState.diskReadOnly.Load()
 }
@@ -207,7 +211,6 @@ func (db *DB) diskUseReadonly(du diskUse) {
 	diskROPercent := db.config.ResourceUsage.DiskUse.ReadOnlyPercentage
 	if diskROPercent > 0 {
 		if pu := du.percentUsed(); pu > float64(diskROPercent) {
-			db.resourceScanState.diskReadOnly.Store(true)
 			db.setShardsReadOnly(fmt.Sprintf("disk usage too high. Set to read-only at %.2f%%, threshold set to %.2f%%", pu, float64(diskROPercent)))
 			db.logger.WithField("action", "set_shard_read_only").
 				WithField("path", db.config.RootPath).
@@ -391,7 +394,6 @@ func (db *DB) setShardsReady() {
 	// nothing would flip it back - this recovery pass only runs while the flag
 	// is set. It goes back up below if any shard failed to transition.
 	db.setReadOnlyFlag(false)
-	db.resourceScanState.diskReadOnly.Store(false)
 
 	var failedCount atomic.Int64
 	db.forEachIndexOutsideIndexLock(func(index *Index) {
