@@ -624,6 +624,11 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 			payload: func(fx *doubleFaultFixture) ReindexTaskPayload { return fx.subject.reindexPayload() },
 		},
 		{
+			name: "swap of the held migration", status: distributedtask.TaskStatusSwapping,
+			unit:    distributedtask.UnitStatusCompleted,
+			payload: func(fx *doubleFaultFixture) ReindexTaskPayload { return fx.subject.reindexPayload() },
+		},
+		{
 			name: "repair unit on the held shard", status: distributedtask.TaskStatusStarted,
 			unit: distributedtask.UnitStatusPending,
 			payload: func(fx *doubleFaultFixture) ReindexTaskPayload {
@@ -655,6 +660,8 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 				}},
 			}
 			outcome := &heldStepOutcome{task: task, done: make(chan string, 4)}
+			fx.logger.(*logrus.Logger).SetLevel(logrus.DebugLevel)
+			logs := test.NewLocal(fx.logger.(*logrus.Logger))
 			sched := distributedtask.NewScheduler(distributedtask.SchedulerParams{
 				CompletionRecorder: outcome, AckRecorder: outcome,
 				TaskLister: outcome,
@@ -666,6 +673,16 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 
 			require.Never(t, func() bool { return len(outcome.done) > 0 }, time.Second, 20*time.Millisecond,
 				"the step must wait while the shard is held")
+			// The step retries every tick, so it may log nothing per tick at Info.
+			retries := 0
+			for _, e := range logs.AllEntries() {
+				if e.Data["groupID"] == fx.name {
+					retries++
+					require.Greaterf(t, e.Level, logrus.InfoLevel, "per-tick line: %s", e.Message)
+					require.Contains(t, e.Message, "is held READONLY")
+				}
+			}
+			require.Equal(t, tc.status != distributedtask.TaskStatusStarted, retries > 0)
 			fx.healRecords(t)
 			require.NoError(t, os.Remove(fx.corrupt))
 			require.NoError(t, shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate))
@@ -706,7 +723,8 @@ func (o *heldStepOutcome) RecordDistributedTaskUnitCompletion(context.Context, s
 	return nil
 }
 
-func (o *heldStepOutcome) RecordDistributedTaskPostCompletionAck(context.Context, string, string, uint64, string, bool, string) error {
+func (o *heldStepOutcome) RecordDistributedTaskPostCompletionAck(_ context.Context, _, _ string, _ uint64, _ string, ok bool, msg string) error {
+	o.verdict(ok, msg)
 	return nil
 }
 

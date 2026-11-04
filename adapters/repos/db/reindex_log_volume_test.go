@@ -13,13 +13,11 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -27,8 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/entities/schema"
-
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -163,64 +159,6 @@ func TestUpdatePropertySummaryCountsRecordSetReads(t *testing.T) {
 	require.Len(t, about, 1, "one summary line for the apply: %v", linesOf(about))
 	require.GreaterOrEqual(t, about[0].Data["record_set_reads"], int64(1),
 		"the summary reports the record-set read the sweep still paid")
-}
-
-// A step waiting on a held shard is retried every tick, but logs its wait once, when the hold
-// starts. Per tick it adds no Info line, and the retry line at Debug names the hold.
-func TestAHeldStepLogsNoInfoLinePerTick(t *testing.T) {
-	for _, status := range []distributedtask.TaskStatus{distributedtask.TaskStatusPreparing, distributedtask.TaskStatusSwapping} {
-		t.Run(string(status), func(t *testing.T) {
-			fx := newDoubleFaultFixture(t, "tenant-held-log")
-			fx.breakDisk(t)
-			fx.load(t)
-			fx.idx.db.indexLock.Lock()
-			fx.idx.db.indices[indexID(schema.ClassName(fx.className))] = fx.idx
-			fx.idx.db.indexLock.Unlock()
-			logger := fx.logger.(*logrus.Logger)
-			logger.SetLevel(logrus.DebugLevel)
-			hook := logrustest.NewLocal(logger)
-
-			unitID, node := fx.subject.Key.UnitID, fx.idx.getSchema.NodeName()
-			payload := fx.subject.reindexPayload()
-			payload.UnitToShard, payload.UnitToNode = map[string]string{unitID: fx.name}, map[string]string{unitID: node}
-			raw, err := json.Marshal(payload)
-			require.NoError(t, err)
-			task := &distributedtask.Task{
-				Namespace: ReindexNamespace, TaskDescriptor: fx.desc, Payload: raw, Status: status,
-				NeedsPreparationBarrier: true,
-				Units: map[string]*distributedtask.Unit{unitID: {
-					ID: unitID, GroupID: fx.name, NodeID: node, Status: distributedtask.UnitStatusCompleted,
-				}},
-			}
-			outcome := &heldStepOutcome{task: task, done: make(chan string, 64)}
-			sched := distributedtask.NewScheduler(distributedtask.SchedulerParams{
-				CompletionRecorder: outcome, AckRecorder: outcome, TaskLister: outcome,
-				Providers: map[string]distributedtask.Provider{ReindexNamespace: fx.provider},
-				Logger:    logger, LocalNode: node, TickInterval: 20 * time.Millisecond,
-			})
-			require.NoError(t, sched.Start(fx.ctx))
-			t.Cleanup(sched.Close)
-
-			retries := func() (n int) {
-				for _, e := range hook.AllEntries() {
-					if e.Data["groupID"] == fx.name && strings.Contains(e.Message, "did not complete and is retryable") {
-						n++
-					}
-				}
-				return n
-			}
-			require.Eventually(t, func() bool { return retries() >= 10 }, 10*time.Second, 20*time.Millisecond,
-				"the step is retried every tick")
-			for _, e := range hook.AllEntries() {
-				if e.Data["groupID"] != fx.name {
-					continue
-				}
-				require.Greaterf(t, e.Level, logrus.InfoLevel, "per-tick line at %s: %s", e.Level, e.Message)
-				require.Contains(t, e.Message, "is held READONLY", "the retry line names the hold")
-			}
-			require.Empty(t, outcome.done, "the step waits instead of failing")
-		})
-	}
 }
 
 // A unit waiting on a held shard names its task, unit and shard in a Warn, so a migration
