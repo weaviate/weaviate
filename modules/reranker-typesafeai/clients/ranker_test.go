@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -49,7 +50,7 @@ func TestRankSingleDocument(t *testing.T) {
 	f.probabilities = map[string]float64{noRefund: 0.93}
 
 	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-		[]string{noRefund}, classConfig(f.url(), nil))
+		documentsOf(noRefund), classConfig(f.url(), nil))
 
 	require.NoError(t, err)
 	assert.Equal(t, &ent.RankResult{Query: churn, DocumentScores: []ent.DocumentScore{{Document: noRefund, Score: 0.93}}}, res)
@@ -73,7 +74,7 @@ func TestRankPacksDocuments(t *testing.T) {
 	documents := []string{noRefund, chargedTwice, changeEmail}
 
 	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-		documents, classConfig(f.url(), map[string]any{"model": "jev-test"}))
+		documentsOf(documents...), classConfig(f.url(), map[string]any{"model": "jev-test"}))
 
 	require.NoError(t, err)
 	assert.Equal(t, []ent.DocumentScore{
@@ -118,7 +119,7 @@ func TestRankBatchesByCountAndCharacters(t *testing.T) {
 			f.probabilities = distinctProbabilities(tt.documents)
 
 			res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-				tt.documents, classConfig(f.url(), nil))
+				documentsOf(tt.documents...), classConfig(f.url(), nil))
 
 			require.NoError(t, err)
 			assert.Equal(t, expectedScores(tt.documents, f.probabilities), res.DocumentScores)
@@ -137,7 +138,7 @@ func TestRankHalvesARequestTheAPIRejectsForItsSize(t *testing.T) {
 		logger.SetLevel(logrus.DebugLevel)
 		c := New(defaultFakeKey, testTimeout, DefaultMaxConcurrentRequests, logger)
 
-		res, err := c.RankProperty(context.Background(), churn, "text", documents, classConfig(f.url(), nil))
+		res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(documents...), classConfig(f.url(), nil))
 
 		require.NoError(t, err)
 		assert.Equal(t, expectedScores(documents, f.probabilities), res.DocumentScores)
@@ -152,7 +153,7 @@ func TestRankHalvesARequestTheAPIRejectsForItsSize(t *testing.T) {
 		f.tooLarge = func(int) bool { return true }
 
 		_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-			[]string{noRefund}, classConfig(f.url(), nil))
+			documentsOf(noRefund), classConfig(f.url(), nil))
 
 		require.ErrorContains(t, err, "connection to TypeSafe AI API failed with status 400")
 		assert.ErrorContains(t, err, `{"error_type":"max_tokens_exceeded"}`)
@@ -165,7 +166,7 @@ func TestRankSkipsEmptyAndDuplicateDocuments(t *testing.T) {
 	f.probabilities = map[string]float64{"a": 0.8, "b": 0.2}
 
 	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-		[]string{"", "a", "a", "b"}, classConfig(f.url(), nil))
+		documentsOf("", "a", "a", "b"), classConfig(f.url(), nil))
 
 	require.NoError(t, err)
 	assert.Equal(t, []ent.DocumentScore{
@@ -183,7 +184,7 @@ func TestRankWithEveryDocumentEmpty(t *testing.T) {
 	f := newFake(t)
 
 	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-		[]string{"", ""}, classConfig(f.url(), nil))
+		documentsOf("", ""), classConfig(f.url(), nil))
 
 	require.NoError(t, err)
 	assert.Equal(t, []ent.DocumentScore{{Document: "", Score: 0}, {Document: "", Score: 0}}, res.DocumentScores)
@@ -194,7 +195,7 @@ func TestRankRequiresAQuery(t *testing.T) {
 	f := newFake(t)
 
 	_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), "", "text",
-		[]string{noRefund}, classConfig(f.url(), nil))
+		documentsOf(noRefund), classConfig(f.url(), nil))
 
 	require.EqualError(t, err, "rerank.query is required by reranker-typesafeai: the query is the condition the model judges")
 	assert.Empty(t, f.received())
@@ -230,7 +231,7 @@ func TestRankRejectsAPropertyOfAnotherType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, tt.property,
-				[]string{noRefund}, tt.cfg)
+				documentsOf(noRefund), tt.cfg)
 
 			require.EqualError(t, err, tt.wantErr)
 		})
@@ -245,7 +246,7 @@ func TestRankReadsTheDeprecatedStringTypeAsText(t *testing.T) {
 	f.probabilities = map[string]float64{noRefund: 0.9}
 
 	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "legacy",
-		[]string{noRefund}, classConfig(f.url(), nil))
+		documentsOf(noRefund), classConfig(f.url(), nil))
 
 	require.NoError(t, err)
 	assert.Equal(t, []ent.DocumentScore{{Document: noRefund, Score: 0.9}}, res.DocumentScores)
@@ -280,7 +281,7 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 			f.replies = map[int]fakeReply{0: {status: tt.status, body: tt.body}}
 
 			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-				[]string{noRefund}, classConfig(f.url(), nil))
+				documentsOf(noRefund), classConfig(f.url(), nil))
 
 			require.ErrorContains(t, err, tt.wantErr)
 			assert.Len(t, f.received(), 1)
@@ -339,7 +340,7 @@ func TestRankHeaders(t *testing.T) {
 			}
 
 			_, err := newTestClient(tt.serverKey).RankProperty(ctx, churn, "text",
-				[]string{noRefund}, classConfig(classServer.url(), nil))
+				documentsOf(noRefund), classConfig(classServer.url(), nil))
 
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
@@ -364,7 +365,7 @@ func TestRankKeepsTheBaseURLPath(t *testing.T) {
 	f := newFake(t)
 
 	_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-		[]string{noRefund}, classConfig(f.url()+"/typesafe", nil))
+		documentsOf(noRefund), classConfig(f.url()+"/typesafe", nil))
 
 	require.NoError(t, err)
 	requests := f.received()
@@ -387,7 +388,7 @@ func TestRankCapsRequestsInFlight(t *testing.T) {
 	for i, documents := range queries {
 		require.Equal(t, 3_000, len(documents[0]))
 		wg.Go(func() {
-			_, errs[i] = c.RankProperty(context.Background(), churn, "text", documents, classConfig(f.url(), nil))
+			_, errs[i] = c.RankProperty(context.Background(), churn, "text", documentsOf(documents...), classConfig(f.url(), nil))
 		})
 	}
 	wg.Wait()
@@ -420,7 +421,7 @@ func TestRankStopsOnContextCancel(t *testing.T) {
 		release()
 		waitFor(t, &f.handlers)
 		assert.Len(t, f.received(), inFlight, "the requests waiting for a slot are not sent")
-		res, err := c.RankProperty(context.Background(), churn, "text", []string{noRefund}, classConfig(f.url(), nil))
+		res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
 		require.NoError(t, err)
 		assert.Len(t, res.DocumentScores, 1)
 	})
@@ -457,7 +458,7 @@ func rankInBackground(t *testing.T, ctx context.Context, c *client, f *fakeTypeS
 	t.Cleanup(calls.Wait)
 	result := make(chan error, 1)
 	calls.Go(func() {
-		_, err := c.RankProperty(ctx, churn, "text", documents, classConfig(f.url(), nil))
+		_, err := c.RankProperty(ctx, churn, "text", documentsOf(documents...), classConfig(f.url(), nil))
 		result <- err
 	})
 	return result
@@ -491,7 +492,7 @@ func TestNewRaisesACapBelowOneToOne(t *testing.T) {
 			c := New(defaultFakeKey, testTimeout, tt.maxConcurrentRequests, nullLogger())
 
 			require.Equal(t, tt.wantCap, cap(c.inFlight))
-			res, err := c.RankProperty(context.Background(), churn, "text", []string{noRefund, chargedTwice},
+			res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund, chargedTwice),
 				classConfig(f.url(), nil))
 			require.NoError(t, err)
 			assert.Len(t, res.DocumentScores, 2)
@@ -598,7 +599,7 @@ func TestRankChecksTheAnswers(t *testing.T) {
 			f.replies = map[int]fakeReply{0: {status: http.StatusOK, body: tt.body}}
 
 			res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-				tt.documents, classConfig(f.url(), nil))
+				documentsOf(tt.documents...), classConfig(f.url(), nil))
 
 			require.ErrorContains(t, err, tt.wantErr)
 			assert.Nil(t, res)
@@ -616,7 +617,7 @@ func TestRankSendsABlobPropertyAsImages(t *testing.T) {
 		f.probabilities = map[string]float64{images[0]: 0.9, images[1]: 0.2}
 
 		res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), damaged, "photo",
-			images, classConfig(f.url(), nil))
+			documentsOf(images...), classConfig(f.url(), nil))
 
 		require.NoError(t, err)
 		assert.Equal(t, expectedScores(images, f.probabilities), res.DocumentScores)
@@ -641,7 +642,7 @@ func TestRankSendsABlobPropertyAsImages(t *testing.T) {
 		f.probabilities = distinctProbabilities(images)
 
 		res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), damaged, "photo",
-			images, classConfig(f.url(), nil))
+			documentsOf(images...), classConfig(f.url(), nil))
 
 		require.NoError(t, err)
 		assert.Equal(t, expectedScores(images, f.probabilities), res.DocumentScores)
@@ -664,7 +665,7 @@ func TestRankSendsABlobPropertyAsImages(t *testing.T) {
 		f.probabilities = map[string]float64{images[0]: 0.7, images[1]: 0.1}
 
 		res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), damaged, "photo",
-			images, classConfig(f.url(), nil))
+			documentsOf(images...), classConfig(f.url(), nil))
 
 		require.NoError(t, err)
 		assert.Equal(t, expectedScores(images, f.probabilities), res.DocumentScores)
@@ -690,12 +691,12 @@ func TestRankRejectsAnImageOutsideTheLimitsBeforeSending(t *testing.T) {
 		{
 			name:      "at position 1",
 			documents: []string{valid, small},
-			wantErr:   "document 1: image: 100x100 pixels: the API takes 280 to 1568 pixels per side",
+			wantErr:   "object 00000000-0000-0000-0000-000000000001: image: 100x100 pixels: the API takes 280 to 1568 pixels per side",
 		},
 		{
 			name:      "after an empty document",
 			documents: []string{valid, "", small},
-			wantErr:   "document 2: image: 100x100 pixels: the API takes 280 to 1568 pixels per side",
+			wantErr:   "object 00000000-0000-0000-0000-000000000002: image: 100x100 pixels: the API takes 280 to 1568 pixels per side",
 		},
 	}
 	for _, tt := range tests {
@@ -703,7 +704,7 @@ func TestRankRejectsAnImageOutsideTheLimitsBeforeSending(t *testing.T) {
 			f := newFake(t)
 
 			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), "The photo shows a damaged car", "photo",
-				tt.documents, classConfig(f.url(), nil))
+				documentsOf(tt.documents...), classConfig(f.url(), nil))
 
 			require.EqualError(t, err, tt.wantErr)
 			assert.Empty(t, f.received())
@@ -717,7 +718,7 @@ func TestRankSendsBase64TextAsText(t *testing.T) {
 	f.probabilities = map[string]float64{encoded: 0.4}
 
 	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-		[]string{encoded}, classConfig(f.url(), nil))
+		documentsOf(encoded), classConfig(f.url(), nil))
 
 	require.NoError(t, err)
 	assert.Equal(t, []ent.DocumentScore{{Document: encoded, Score: 0.4}}, res.DocumentScores)
@@ -735,6 +736,16 @@ func nullLogger() logrus.FieldLogger {
 
 func newTestClient(apiKey string) *client {
 	return New(apiKey, testTimeout, DefaultMaxConcurrentRequests, nullLogger())
+}
+
+// documentsOf gives the value at position i the ID
+// 00000000-0000-0000-0000-<i in 12 digits>.
+func documentsOf(values ...string) []ent.Document {
+	out := make([]ent.Document, len(values))
+	for i, value := range values {
+		out[i] = ent.Document{ID: strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", i)), Value: value}
+	}
+	return out
 }
 
 func numbered(format string, n int) []string {

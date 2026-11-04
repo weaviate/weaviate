@@ -44,7 +44,7 @@ type ReRankerTypeSafeAIModule struct {
 }
 
 type ReRankerTypeSafeAIClient interface {
-	RankProperty(ctx context.Context, query, property string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
+	RankProperty(ctx context.Context, query, property string, documents []ent.Document, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 	MetaInfo() (map[string]any, error)
 }
 
