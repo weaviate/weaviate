@@ -739,9 +739,8 @@ func (h *hnsw) repairGlobalEntrypoint(oldEntrypoint uint64, denyList helpers.All
 }
 
 // bootstrapEntrypoint makes the inserting node the entrypoint if every other
-// node is nil or tombstoned; nodes under maintenance count as live. An insert
-// that has not joined the graph yet joins it here, under the same lock, so the
-// node is never visible without being the entrypoint.
+// node is nil or tombstoned; nodes under maintenance count as live. A node that
+// has not joined the graph yet joins it here.
 func (h *hnsw) bootstrapEntrypoint(id uint64, node *vertex, vec []float32) (bool, error) {
 	if h.hasOtherLiveNode(id) {
 		return false, nil
@@ -763,7 +762,7 @@ func (h *hnsw) bootstrapEntrypoint(id uint64, node *vertex, vec []float32) (bool
 	level := int(node.level)
 	node.Unlock()
 
-	// h.nodes is read directly: nodeByID would take h.RLock under h.Lock
+	// nodeByID would take h.RLock under h.Lock
 	h.shardedNodeLocks.RLock(id)
 	published := h.nodes[id] == node
 	h.shardedNodeLocks.RUnlock(id)
@@ -916,9 +915,7 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, oldEntrypoint 
 			candidate.Unlock()
 
 			if candidateLevel < l {
-				// not reaching up to the current level, skip in hope of finding another candidate.
-				// Nodes above it are fine: an insert drawn above the maximum layer
-				// only raises it once connected.
+				// too low; a node above the maximum layer is a valid candidate
 				continue
 			}
 
@@ -927,8 +924,7 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, oldEntrypoint 
 		}
 	}
 
-	// a concurrent insert may have become the entrypoint above the level read
-	// at the start, so the scan skipped it
+	// the entrypoint may have changed above the level the scan started at
 	if entryPointID := h.getEntrypoint(); entryPointID != oldEntrypoint {
 		return entryPointID, nil
 	}
@@ -941,7 +937,7 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, oldEntrypoint 
 		return 0, nil
 	}
 
-	// a node joined after the scan passed its slot; transient, so the caller retries
+	// transient: a node joined after the scan passed its slot
 	return 0, fmt.Errorf("%w: class %s: shard %s: graph changed while searching for a local entrypoint",
 		errNoUsableEntrypoint, h.className, h.shardName)
 }

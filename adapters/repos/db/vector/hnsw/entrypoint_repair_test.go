@@ -77,8 +77,7 @@ func TestEntrypointRepair_GlobalEntrypointUnderMaintenance(t *testing.T) {
 	}, cyclemanager.NewCallbackGroupNoop(), store)
 	require.NoError(t, err)
 	defer index.Drop(ctx, false)
-	// every node on level 0: an upper-layer descent could otherwise hop past
-	// the broken entrypoint, so the repair this test asserts never runs
+	// all on level 0, so the descent cannot hop past the broken entrypoint
 	index.randFunc = func() float64 { return 0.5 }
 
 	// Insert initial nodes to establish the index
@@ -182,7 +181,6 @@ func TestEntrypointRepair_RepairSelectsAlsoUnusableNode(t *testing.T) {
 		}
 	}
 
-	// the insert waits while every node is held, and finishes once they are released
 	insertDone := make(chan error, 1)
 	newVector := []float32{0.5, 0.5, 0.5}
 	newID := uint64(len(vectors))

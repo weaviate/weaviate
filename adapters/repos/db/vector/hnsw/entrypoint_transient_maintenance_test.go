@@ -31,9 +31,7 @@ import (
 // In a tiny graph every live node can be transiently unusable as an
 // entrypoint: under maintenance by a concurrent insert or by tombstone
 // cleanup, or with its vector gone between the object store delete and the
-// index delete. The insert waits for the state to clear; if its context ends
-// first, the error must be transient so the async queue retries instead of
-// discarding the batch.
+// index delete. A timed-out wait must be a transient error so the queue retries.
 func TestPickEntrypoint_TransientMaintenanceIsRetryable(t *testing.T) {
 	ctx := context.Background()
 	vectors := [][]float32{{0.1, 0.2, 0.3}, {0.4, 0.5, 0.6}, {0.7, 0.8, 0.9}, {0.5, 0.5, 0.5}}
@@ -136,8 +134,7 @@ func TestPickEntrypoint_TransientMaintenanceIsRetryable(t *testing.T) {
 	})
 }
 
-// addWithDeadline inserts with a context that ends while maintenance is still
-// held, so the insert gives up instead of waiting for it to clear
+// addWithDeadline gives up while maintenance is still held
 func addWithDeadline(index *hnsw, id uint64, vec []float32) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()

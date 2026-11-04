@@ -435,10 +435,8 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	return nil
 }
 
-// addOne inserts a node. While every live node is transiently unusable as an
-// entrypoint (under maintenance or with its object gone), the insert waits
-// outside the index locks and starts over. It has not joined the graph at that
-// point, so nothing can link to it and a failure leaves nothing behind.
+// addOne inserts a node, waiting outside the index locks while no live node is
+// usable as an entrypoint. A waiting node has not joined the graph.
 func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *vertex) error {
 	var wait entrypointWait
 	defer wait.stop()
@@ -453,24 +451,19 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 	}
 }
 
-// entrypointWait paces the retries of an insert that found no usable
-// entrypoint. The zero value is ready and costs nothing until the first wait.
+// entrypointWait paces an insert's retries while no entrypoint is usable
 type entrypointWait struct {
-	cause    error // why the insert started waiting
+	cause    error
 	deadline context.Context
 	cancel   context.CancelFunc
 	backoff  time.Duration
 }
 
-// next sleeps before the next attempt. The waiting ends with an error after
-// 60s in total, when ctx is done or when the index shuts down. The error names
-// the first cause: a later attempt fails on whatever it last tried, not on the
-// reason the insert started waiting.
+// next waits before the next attempt, bounded by 60s, ctx and shutdown
 func (w *entrypointWait) next(ctx context.Context, h *hnsw, id uint64, err error) error {
 	if w.cause == nil {
 		w.cause = err
 		w.backoff = time.Millisecond
-		// bounds only the waiting, not the insert itself
 		w.deadline, w.cancel = context.WithTimeout(ctx, 60*time.Second)
 		h.logger.WithField("action", "hnsw_insert").WithField("id", id).
 			Debugf("no usable entrypoint for node %d, waiting: %v", id, err)
@@ -496,10 +489,8 @@ func (w *entrypointWait) stop() {
 	}
 }
 
-// tryAddOne picks a usable entrypoint before the node joins the graph, so a
-// node is never visible without a way to connect it. joined reports whether
-// the node was published; from then on the connector itself waits for an
-// entrypoint, so the error must not be retried here.
+// tryAddOne picks an entrypoint before the node joins the graph. joined reports
+// whether the node was published; after that the connector waits itself.
 func (h *hnsw) tryAddOne(ctx context.Context, id uint64, vector []float32, node *vertex) (joined bool, err error) {
 	h.compressActionLock.RLock()
 	h.deleteVsInsertLock.RLock()
@@ -554,14 +545,12 @@ func (h *hnsw) tryAddOne(ctx context.Context, id uint64, vector []float32, node 
 		return false, errors.Wrap(err, "pick entrypoint")
 	}
 	if nfc.bootstrapped {
-		// bootstrapEntrypoint published the node as the entrypoint
 		return true, nil
 	}
 
 	h.insertMetrics.findEntrypoint(before)
 	before = time.Now()
 
-	// nobody may start a search from the node until it is connected
 	node.markAsMaintenance()
 	defer node.unmarkAsMaintenance()
 	if err := h.publishNode(id, node, vector); err != nil {
@@ -605,8 +594,7 @@ func (h *hnsw) tryAddOne(ctx context.Context, id uint64, vector []float32, node 
 	return true, nil
 }
 
-// publishNode makes the node part of the graph: logged, stored and with its
-// vector cached so other nodes can compute distances to it
+// publishNode makes the node part of the graph
 func (h *hnsw) publishNode(id uint64, node *vertex, vector []float32) error {
 	if err := h.commitLog.AddNode(id, node.level); err != nil {
 		return err

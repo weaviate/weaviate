@@ -30,9 +30,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-// Concurrent inserts into a graph whose objects are gone from the store while
-// their index deletes are still queued: each insert finds only the others,
-// all under maintenance. None of them may fail.
+// Concurrent inserts into a graph whose objects are gone: each one finds only
+// the others, all under maintenance. None may fail.
 func TestEntrypoint_ConcurrentInsertsIntoGoneGraph(t *testing.T) {
 	type testCase struct {
 		inserts     int
@@ -59,8 +58,7 @@ func TestEntrypoint_ConcurrentInsertsIntoGoneGraph(t *testing.T) {
 			t.Cleanup(func() { store.Shutdown(ctx) })
 
 			var gone sync.Map
-			// every insert reaches the gone entrypoint before any of them moves
-			// on, so each one sees all the others under maintenance
+			// all inserts reach the gone entrypoint before any moves on
 			var arrived atomic.Int32
 			barrier := make(chan struct{})
 			index, err := New(Config{

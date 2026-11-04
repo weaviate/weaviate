@@ -20,8 +20,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-// onContainsAllowList runs hook on the first lookup of trigger, i.e. while the
-// local entrypoint scan is in progress
+// onContainsAllowList runs hook once, during the local entrypoint scan
 type onContainsAllowList struct {
 	helpers.AllowList
 	trigger uint64
@@ -36,8 +35,7 @@ func (l *onContainsAllowList) Contains(id uint64) bool {
 	return l.AllowList.Contains(id)
 }
 
-// Inserts join the graph and change the entrypoint while findNewLocalEntrypoint
-// scans for a candidate. None of these may end in a permanent error.
+// The graph changes while findNewLocalEntrypoint scans; none may be a permanent error.
 func TestFindNewLocalEntrypoint_ConcurrentGraphChanges(t *testing.T) {
 	join := func(f *bootstrapFixture, id uint64, level int) {
 		node := &vertex{level: uint16(level)}
@@ -55,8 +53,7 @@ func TestFindNewLocalEntrypoint_ConcurrentGraphChanges(t *testing.T) {
 	}{
 		{
 			name: "insert above the maximum layer is a candidate",
-			// drawn at level 2 while the graph's maximum layer is 0; it only
-			// raises the maximum layer once connected
+			// drawn above the maximum layer, which only rises once connected
 			arrange: func(f *bootstrapFixture) { join(f, 5, 2) },
 			want:    5,
 		},

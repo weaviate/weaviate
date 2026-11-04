@@ -253,10 +253,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		// use dynamic max connections only during tombstone cleanup
 		maxConnections = n.maximumConnections(level)
 	} else {
-		// the entrypoint picked before the node joined can have become unusable
-		// since, and each lower level starts from a neighbor found above. The
-		// node is in the graph by now, so a missing entrypoint is waited out
-		// here rather than by leaving the node behind without links.
+		// the node is in the graph by now, so a missing entrypoint is waited out here
 		var wait entrypointWait
 		defer wait.stop()
 		for {
@@ -534,7 +531,7 @@ func (n *neighborFinderConnector) bootstrapOrFail(cause error) error {
 
 func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error) {
 	if candidate == n.nodeID {
-		// a ghost of a failed earlier attempt at this id has no links to search
+		// a leftover of an earlier attempt at this id has no links
 		return false, nil
 	}
 

@@ -32,19 +32,17 @@ import (
 )
 
 type bootstrapFixture struct {
-	index   *hnsw
-	vectors [][]float32
-	gone    sync.Map
-	ctx     context.Context
-	cfg     Config
-	uc      ent.UserConfig
-	store   *lsmkv.Store
-	logs    *test.Hook
-	// onAddNode runs when a node is logged, i.e. the moment it joins the graph
+	index     *hnsw
+	vectors   [][]float32
+	gone      sync.Map
+	ctx       context.Context
+	cfg       Config
+	uc        ent.UserConfig
+	store     *lsmkv.Store
+	logs      *test.Hook
 	onAddNode func(id uint64)
 }
 
-// hookedCommitLogger reports every node that joins the graph
 type hookedCommitLogger struct {
 	CommitLogger
 	onAddNode func(id uint64)
@@ -139,9 +137,7 @@ func (f *bootstrapFixture) deleteFromObjectStore(id uint64) {
 	}
 }
 
-// leaveGhost leaves a node without links in the graph, like an insert that
-// failed after joining it, or one from a version that joined before picking an
-// entrypoint
+// leaveGhost adds a node without links, like an insert that failed after joining
 func (f *bootstrapFixture) leaveGhost(t *testing.T, id uint64) {
 	node := &vertex{level: 0}
 	node.connections.GrowLayersTo(0)
@@ -178,7 +174,7 @@ func (f *bootstrapFixture) startAdd(ctx context.Context, id uint64) <-chan error
 	return done
 }
 
-// waits counts how often an insert of id started waiting for an entrypoint
+// waits counts the times the insert of id started waiting
 func (f *bootstrapFixture) waits(id uint64) int {
 	n := 0
 	for _, e := range f.logs.AllEntries() {
@@ -189,14 +185,12 @@ func (f *bootstrapFixture) waits(id uint64) int {
 	return n
 }
 
-// waitUntilWaiting blocks until the insert of id started waiting for the n-th time
 func (f *bootstrapFixture) waitUntilWaiting(t *testing.T, id uint64, n int) {
 	t.Helper()
 	require.Eventually(t, func() bool { return f.waits(id) >= n },
 		10*time.Second, time.Millisecond, "insert of %d should be waiting for an entrypoint", id)
 }
 
-// requireNotJoined checks that waiting inserts are not part of the graph
 func (f *bootstrapFixture) requireNotJoined(t *testing.T, ids ...uint64) {
 	t.Helper()
 	for _, id := range ids {
@@ -255,9 +249,7 @@ func TestEntrypoint_BootstrapLastLiveNode(t *testing.T) {
 	for _, variant := range variants {
 		t.Run(variant.name, func(t *testing.T) {
 			t.Run("every live node taken by cleanup after the node joined", func(t *testing.T) {
-				// the entrypoint was usable when the insert picked it, then
-				// cleanup took every live node under maintenance before the
-				// insert connected; the insert must wait, not fail
+				// every live node is taken under maintenance the moment the node joins
 				f := newBootstrapFixture(t, variant.compressed)
 				live := []*vertex{f.index.nodeByID(0), f.index.nodeByID(1), f.index.nodeByID(2)}
 				var once sync.Once
@@ -510,7 +502,6 @@ func TestEntrypoint_BootstrapLastLiveNode(t *testing.T) {
 				case <-time.After(10 * time.Second):
 					t.Fatal("insert of 3 did not stop when its context ended")
 				}
-				// the failed insert left nothing behind
 				f.requireNotJoined(t, 3)
 
 				retry := f.startAdd(f.ctx, 3)
