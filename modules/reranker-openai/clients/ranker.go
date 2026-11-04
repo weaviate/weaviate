@@ -86,7 +86,8 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	if query == "" {
 		return nil, errors.New("rerank.query is required by reranker-openai: the query is the condition the model judges")
 	}
-	if err := propertyInput(cfg, property); err != nil {
+	image, err := propertyInput(cfg, property)
+	if err != nil {
 		return nil, err
 	}
 	settings := config.NewClassSettings(cfg)
@@ -108,9 +109,15 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 		pending = append(pending, i)
 	}
 
+	if image {
+		if err := checkImages(documents, pending); err != nil {
+			return nil, err
+		}
+	}
+
 	request := judgeRequest{
 		endpointURL: endpointURL, apiKey: apiKey, organization: c.organizationFor(ctx, hostFromHeader),
-		hostFromHeader: hostFromHeader, model: settings.Model(), query: query,
+		hostFromHeader: hostFromHeader, model: settings.Model(), query: query, image: image,
 	}
 	scores := make([]float64, len(documents))
 	tokensPerRequest := make([]int64, len(pending))
@@ -152,19 +159,21 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	return &ent.RankResult{Query: query, DocumentScores: documentScores}, nil
 }
 
-// propertyInput fails unless the documents of the property are text. The
+// propertyInput says whether the documents of the property are images. The
 // gRPC parser runs the same check before the search; GraphQL has none and
 // reaches this one only.
-func propertyInput(cfg moduletools.ClassConfig, property string) error {
+func propertyInput(cfg moduletools.ClassConfig, property string) (image bool, err error) {
 	if cfg == nil {
-		return errors.New("no class config")
+		return false, errors.New("no class config")
 	}
 	switch cfg.PropertiesDataTypes()[property] {
 	// string is the text type deprecated in v1.19 that old classes still store.
 	case schema.DataTypeText, schema.DataTypeString:
-		return nil
+		return false, nil
+	case schema.DataTypeBlob:
+		return true, nil
 	default:
-		return fmt.Errorf("property %q is not a text property; reranker-openai reranks text properties", property)
+		return false, fmt.Errorf("property %q is not a text or blob property; reranker-openai reranks text and blob properties", property)
 	}
 }
 
@@ -178,12 +187,18 @@ type judgeRequest struct {
 	hostFromHeader bool
 	model          string
 	query          string
+	// image says the documents are the base64 content of images.
+	image bool
 }
 
 // judge returns the probability of one document and the input tokens it
 // cost. A 400 and an answer the checks reject name the document's object.
 func (c *client) judge(ctx context.Context, r judgeRequest, document ent.Document) (float64, int64, error) {
-	response, err := c.send(ctx, r, document.Value)
+	input, err := newInput(document.Value, r.image)
+	if err != nil {
+		return 0, 0, fmt.Errorf("object %s: image: %w", document.ID, err)
+	}
+	response, err := c.send(ctx, r, input)
 	if err != nil {
 		var rejected rejectedError
 		if errors.As(err, &rejected) && rejected.status == http.StatusBadRequest {
@@ -203,7 +218,7 @@ func (c *client) judge(ctx context.Context, r judgeRequest, document ent.Documen
 
 // send builds and sends the request of one document while it holds an
 // in-flight slot, so that the slots also bound the request bodies in memory.
-func (c *client) send(ctx context.Context, r judgeRequest, document string) (decisionResponse, error) {
+func (c *client) send(ctx context.Context, r judgeRequest, input any) (decisionResponse, error) {
 	// select picks at random among ready cases, so a free slot could win over
 	// a cancellation.
 	if err := ctx.Err(); err != nil {
@@ -218,7 +233,7 @@ func (c *client) send(ctx context.Context, r judgeRequest, document string) (dec
 
 	body, err := json.Marshal(decisionRequest{
 		Model:     r.model,
-		Input:     document,
+		Input:     input,
 		Questions: []decisionQuestion{{Type: predicateType, Name: questionName, Instructions: r.query}},
 	})
 	if err != nil {
