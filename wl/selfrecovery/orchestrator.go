@@ -129,7 +129,7 @@ type Orchestrator struct {
 	queueMu        sync.Mutex
 	queueCond      *sync.Cond
 	pending        *list.List
-	parked         map[string]submission // submissions a namespace refusal parked, by ShardRef.key, under queueMu
+	parked         map[string]submission // submissions waiting for their namespace to stop reading suspended or resuming, by ShardRef.key, under queueMu
 	closed         bool
 	active         int // workers inside runOne, under queueMu
 	workerWg       sync.WaitGroup
@@ -138,7 +138,7 @@ type Orchestrator struct {
 
 	// wipeMarker outlives a restart mid-drain so the round's remaining fallbacks keep the benign bucket; "" disables it.
 	wipeMarker    string
-	wipeRoundOpen bool // under queueMu: marker written (or found at startup) and the queue has not drained since
+	wipeRoundOpen bool // under queueMu: marker written (or found at startup) and not yet removed by closeWipeRoundLocked
 
 	// shardLocks serialises runOne and Restart per "collection/shard"; never shrinks.
 	shardLocks sync.Map
@@ -277,9 +277,10 @@ func (o *Orchestrator) noteWipeRoundLocked(startedWithoutRaftState bool) bool {
 	return true
 }
 
-// closeWipeRoundLocked removes the marker once the queue drained; under queueMu.
+// closeWipeRoundLocked removes the marker once the queue drained and nothing is parked; under queueMu.
+// A parked shard keeps it, so a restart before the shard's namespace is active still counts that shard as wiped.
 func (o *Orchestrator) closeWipeRoundLocked() {
-	if !o.wipeRoundOpen || o.pending.Len() > 0 || o.active > 0 {
+	if !o.wipeRoundOpen || o.pending.Len() > 0 || o.active > 0 || len(o.parked) > 0 {
 		return
 	}
 	if err := os.Remove(o.wipeMarker); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -547,7 +548,7 @@ func (o *Orchestrator) AcceptEmpty(ctx context.Context, ref ShardRef) (string, e
 }
 
 // runOne probes peers, acts, and backs off up to maxAttempts. A give-up leaves the shard RECOVERING for operator recovery.
-// runOne returns parked true when a suspended or resuming namespace refused the registration, which also leaves the shard RECOVERING.
+// runOne returns parked true when the shard's namespace reads suspended or resuming at dequeue or refuses the registration. A parked shard stays RECOVERING.
 func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, startedWithoutRaftState bool) (parked bool) {
 	unlock := o.lockShard(ref)
 	defer unlock()
@@ -559,6 +560,12 @@ func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, startedWithoutR
 			o.recordOutcome("skipped", time.Now())
 			return false
 		}
+	}
+	// runOne parks before probing, so a shard no peer holds is not created empty while its namespace waits.
+	if o.namespaceKeepsParked(ref) {
+		o.logger.WithFields(logrus.Fields{"event": "self_recovery.parked", "collection": ref.Collection, "shard": ref.Shard}).
+			Info("self-recovery waits for its namespace to become active")
+		return true
 	}
 	// bind per-op ctx to shutdownCtx so probes/polls bail when Close fires
 	ctx, cancel := mergedCtx(ctx, o.shutdownCtx)
@@ -1181,7 +1188,7 @@ func (o *Orchestrator) pollParked() {
 }
 
 // releaseParked requeues each parked submission whose namespace no longer reads suspended or resuming.
-// It pushes onto pending itself, because Submit would rewrite the wipe marker for a wiped submission.
+// It pushes onto pending itself, because Submit declines in maintenance mode and would drop the submission.
 func (o *Orchestrator) releaseParked() {
 	o.queueMu.Lock()
 	parked := maps.Clone(o.parked)
@@ -1208,7 +1215,8 @@ func (o *Orchestrator) releaseParked() {
 	}
 }
 
-// namespaceKeepsParked reports whether ref's namespace reads suspended or resuming. A failed read releases the submission.
+// namespaceKeepsParked reports whether ref's namespace reads suspended or resuming.
+// A failed read answers false. A registration the namespace refuses still parks the submission, but an empty fallback does not check the namespace.
 func (o *Orchestrator) namespaceKeepsParked(ref ShardRef) bool {
 	if o.namespaceStateForClass == nil {
 		return false
@@ -1216,13 +1224,13 @@ func (o *Orchestrator) namespaceKeepsParked(ref ShardRef) bool {
 	state, err := o.namespaceStateForClass(ref.Collection)
 	if err != nil {
 		o.logger.WithFields(logrus.Fields{"collection": ref.Collection, "shard": ref.Shard}).
-			Warnf("self-recovery: requeueing a parked shard whose namespace state cannot be read: %v", err)
+			Warnf("self-recovery: proceeding with a shard whose namespace state cannot be read: %v", err)
 		return false
 	}
 	return state == api.NamespaceStateSuspended || state == api.NamespaceStateResuming
 }
 
-// Close waits for workers, bounded by ctx, and drops parked submissions. The next startup re-discovers un-started items, except in a namespace that is suspended then.
+// Close waits for workers, bounded by ctx, and drops queued and parked submissions, which the next startup re-discovers.
 // Close is idempotent.
 func (o *Orchestrator) Close(ctx context.Context) error {
 	o.queueMu.Lock()

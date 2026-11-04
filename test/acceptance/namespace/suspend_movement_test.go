@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -596,4 +597,49 @@ func TestNamespaces_SuspendKeepsSelfRecovery(t *testing.T) {
 
 	requireSuspendedMovementFinishes(t, ns, opID, waitMovementState(t, opID, api.HYDRATING),
 		qualified, shardName, live, targetNode)
+}
+
+// A node that boots while its namespace is suspended and misses a shard's
+// directory holds the shard RECOVERING, and recovers it from a peer once the
+// namespace resumes. Not parallel, as it kills and restarts a node.
+func TestNamespaces_SuspendedBootRecoversMissingShard(t *testing.T) {
+	const (
+		sourceNode = docker.Weaviate1
+		targetNode = restartNodeName
+		class      = "RecoveredAfterResume"
+	)
+	ns, userKey := newNamespaceOnNode(t, sourceNode)
+	qualified, shardName := newSingleShardClass(t, ns, class, userKey)
+	// A probe that finds no objects on any peer sends the recovery to the empty
+	// fallback, which registers no op.
+	seedObjects(t, class, userKey, 1000)
+
+	// The COPY gives targetNode the replica whose directory its boot then misses.
+	waitMovementState(t, startCopyMovement(t, qualified, shardName, sourceNode, targetNode), api.READY)
+	helper.SuspendNamespace(t, ns, adminKey)
+	t.Cleanup(func() { helper.ResumeNamespace(t, ns, adminKey) })
+	removeShardDirAndKill(t, targetNode, qualified, shardName)
+	require.NoError(t, sharedCompose.StartNode(context.Background(), restartNodeIndex))
+
+	recovering := storagestate.StatusRecovering.String()
+	t.Run("the booted node holds the shard RECOVERING while suspended", func(t *testing.T) {
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			shard, _, err := shardOnNode(t, qualified, shardName, targetNode)
+			if assert.NoError(c, err) && assert.NotNil(c, shard, "%q lists no shard %q", targetNode, shardName) {
+				assert.Equal(c, recovering, shard.VectorIndexingStatus)
+			}
+		}, movementTimeout, 250*time.Millisecond)
+	})
+
+	helper.ResumeNamespace(t, ns, adminKey)
+
+	t.Run("the resume recovers the shard from its peer", func(t *testing.T) {
+		waitMovementState(t, waitSelfRecoveryOp(t, qualified, shardName, targetNode), api.READY)
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			shard, _, err := shardOnNode(t, qualified, shardName, targetNode)
+			if assert.NoError(c, err) && assert.NotNil(c, shard, "%q lists no shard %q", targetNode, shardName) {
+				assert.NotEqual(c, recovering, shard.VectorIndexingStatus)
+			}
+		}, movementTimeout, 250*time.Millisecond)
+	})
 }

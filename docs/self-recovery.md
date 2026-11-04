@@ -111,17 +111,24 @@ the shard is left in `RECOVERING`; use `restart` to try again from
 scratch, or `accept-empty` to accept the loss. (Recoveries are also
 retried automatically on the next node restart.)
 
-A recovery whose op RAFT refuses because the shard's namespace is
-`suspended` or `resuming` is parked and logs `event=self_recovery.parked`.
-A parked shard stays `RECOVERING` with no op and no give-up, and holds no
-worker. It is resubmitted within 5 s of its namespace reading `active`.
-A restart of the node while the namespace is still suspended drops a
-parked recovery, and nothing resubmits it. Restart the node again after
-the resume, before the shard takes a write, so its boot finds the missing
-directory and recovers it. A recovery whose op was already registered
-when the suspend landed is not parked. It keeps its worker until the
-namespace resumes, so up to `SELF_RECOVERY_CONCURRENCY` such shards delay
-every other recovery on the node. Cancelling the op frees the worker.
+A recovery is parked, and logs `event=self_recovery.parked`, when its
+shard's namespace reads `suspended` or `resuming` as a worker picks it up,
+or when RAFT refuses its op for that reason. A parked recovery probes no
+peer, so a shard no peer holds is not created empty while its namespace
+is suspended. A parked shard stays `RECOVERING` with no op and no give-up,
+and holds no worker. It is resubmitted within 5 s of its namespace reading
+`active`.
+
+A node that boots while the namespace is suspended parks each
+of the namespace's shards whose directory is missing, so a restart does
+not lose a parked recovery. A wiped node keeps its wipe marker while any
+recovery is parked, so every empty fallback on that node counts under
+`no_data_during_bootstrap_total` until the parked recoveries have run.
+
+A recovery whose op was already registered when the suspend landed is
+not parked. It keeps its worker until the namespace resumes, so up to
+`SELF_RECOVERY_CONCURRENCY` such shards delay every other recovery on the
+node. Cancelling the op frees the worker.
 
 The in-process submission queue is unbounded and never drops: a node
 missing thousands of shards queues them all, and `SELF_RECOVERY_CONCURRENCY`

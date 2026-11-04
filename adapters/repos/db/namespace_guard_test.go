@@ -2161,8 +2161,8 @@ func TestGuardBoot(t *testing.T) {
 		})
 	}
 
-	// No Read expectation is registered, so the test fails if boot walks the
-	// tenants when nothing may be open.
+	// No Read expectation is registered, so the test fails if a node without
+	// self-recovery walks the tenants when nothing may be open.
 	for _, state := range []api.NamespaceState{
 		api.NamespaceStateSuspended, api.NamespaceStateDeleting,
 	} {
