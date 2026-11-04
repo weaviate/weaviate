@@ -390,6 +390,24 @@ func TestRankHeaders(t *testing.T) {
 			wantOrganization:   []string{"org-header"},
 		},
 		{
+			name:               "server organization not sent to a host the request names",
+			serverKey:          "env",
+			serverOrganization: "org-env",
+			headerKey:          "headerKey",
+			headerBaseURL:      true,
+			wantAuth:           "Bearer headerKey",
+		},
+		{
+			name:               "organization header sent to a host the request names",
+			serverKey:          "env",
+			serverOrganization: "org-env",
+			headerKey:          "headerKey",
+			headerOrganization: "org-header",
+			headerBaseURL:      true,
+			wantAuth:           "Bearer headerKey",
+			wantOrganization:   []string{"org-header"},
+		},
+		{
 			name: "no key anywhere",
 			wantErr: "OpenAI API key: no api key found neither in request header: X-Openai-Api-Key " +
 				"nor in environment variable under OPENAI_APIKEY",
