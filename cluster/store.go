@@ -239,7 +239,8 @@ type Config struct {
 	ReplicaMovementCleanupIncludeCancelled *runtime.DynamicValue[bool]
 
 	// The rebalance planner runs only when both flags are on. It re-reads them
-	// on every pass, so a change takes effect without a restart.
+	// on every pass, but a pass fires only on a wake: enabling a flag later
+	// does not retry a plan whose wake was consumed while a flag was off.
 	ReplicaMovementEnabled  *runtime.DynamicValue[bool]
 	ReplicaRebalanceEnabled *runtime.DynamicValue[bool]
 
