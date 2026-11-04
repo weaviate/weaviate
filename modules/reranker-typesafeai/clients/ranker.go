@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -347,6 +348,14 @@ func withBody(err error, body []byte, hostFromHeader bool) error {
 	return fmt.Errorf("%w: %s", err, body[:min(len(body), maxErrorBodyBytes)])
 }
 
+// truncate cuts s to maxErrorBodyBytes without splitting a character.
+func truncate(s string) string {
+	if len(s) <= maxErrorBodyBytes {
+		return s
+	}
+	return strings.ToValidUTF8(s[:maxErrorBodyBytes], "")
+}
+
 // apiError is a status other than 200. message is empty for a host the
 // request header named.
 type apiError struct {
@@ -519,7 +528,7 @@ func (r typesafeaiResponse) value(key string) (float64, error) {
 		return 0, fmt.Errorf("TypeSafe AI response has no answer for %q", key)
 	}
 	if answer.Type != noulType {
-		return 0, fmt.Errorf("TypeSafe AI answer for %q has type %q, want %q", key, answer.Type, noulType)
+		return 0, fmt.Errorf("TypeSafe AI answer for %q has type %q, want %q", key, truncate(answer.Type), noulType)
 	}
 	if answer.Noul == nil {
 		return 0, fmt.Errorf("TypeSafe AI answer for %q has no probability", key)

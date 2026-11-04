@@ -753,6 +753,12 @@ func TestRankChecksTheAnswers(t *testing.T) {
 			wantErr:   `TypeSafe AI answer for "q" has type "score", want "noul"`,
 		},
 		{
+			name:      "a type above 512 bytes is cut",
+			documents: []string{noRefund},
+			body:      `{"answers":{"q":{"type":"` + strings.Repeat("x", 600) + `","noul":0.5}}}`,
+			wantErr:   `TypeSafe AI answer for "q" has type "` + strings.Repeat("x", 512) + `", want "noul"`,
+		},
+		{
 			name:      "no noul value",
 			documents: []string{noRefund},
 			body:      `{"answers":{"q":{"type":"noul"}}}`,
