@@ -189,6 +189,16 @@ weaviate_shards{state="loaded",registration="lazy"}
 | `weaviate_replication_engine_producer_running_status` | Replication engine producer running status (0:not running, 1:running) | `Gauge` | `node` | - Low 
 | `weaviate_replication_engine_consumer_running_status` | Replication engine consumer running status (0:not running, 1:running) | `Gauge` | `node` | - Low 
 
+#### Replication Coordinator Metrics
+A write aborted only because replicas refused it at the object cap (`MAXIMUM_ALLOWED_OBJECTS_COUNT`) increments none of the three write counters but is still observed in `weaviate_replication_coordinator_writes_duration_seconds`. So the three counters sum to the histogram's `_count` minus those refusals.
+
+| Name | Description | Type | Labels | High Cardinality |
+|---|---|---|---|---|
+| `weaviate_replication_coordinator_writes_succeed_all` | Replicated writes every write replica committed | `Counter` | `-` | - Low 
+| `weaviate_replication_coordinator_writes_succeed_some` | Replicated writes some but not all write replicas committed | `Counter` | `-` | - Low 
+| `weaviate_replication_coordinator_writes_failed` | Replicated writes no replica committed, excluding writes refused only at the object cap | `Counter` | `-` | - Low 
+| `weaviate_replication_coordinator_writes_duration_seconds` | Duration of every replicated write, writes refused at the object cap included; buckets ~1ms to ~136s | `Histogram` | `-` | - Low 
+
 #### Self-Recovery Metrics
 Registered only on a node with `SELF_RECOVERY_ENABLED=true` and a well-formed Weaviate license key (`LICENSE_KEY` or `LICENSE_KEY_FILE`); a node with the flag off or without a license exposes none of them. No metric carries collection or shard labels, so a wiped node with many shards adds no series per shard. See `docs/self-recovery.md`.
 

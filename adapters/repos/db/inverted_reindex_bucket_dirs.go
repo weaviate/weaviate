@@ -19,21 +19,12 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
-// bucketDirs resolves recorded directory names under one root. Path refuses a
-// name that is not one path element, because joined unguarded, "" or "x/.."
-// resolves to the root itself and ".." to its parent.
+// bucketDirs refuses an empty or escaping handle, which filepath.Join would resolve to the root that callers then remove.
 type bucketDirs struct {
 	root string
 }
 
 func shardBucketDirs(lsmPath string) bucketDirs { return bucketDirs{root: lsmPath} }
-
-// Trackers returns the bucketDirs rooted at the shard's .migrations directory.
-// Tracker names come from the same migration records as bucket names, so they
-// take the same guard.
-func (b bucketDirs) Trackers() bucketDirs {
-	return bucketDirs{root: filepath.Join(b.root, migrationsDir)}
-}
 
 func (b bucketDirs) Path(dir, what string) (string, error) {
 	if !migrationHandleIsOneElement(dir) {
@@ -43,9 +34,7 @@ func (b bucketDirs) Path(dir, what string) (string, error) {
 	return filepath.Join(b.root, dir), nil
 }
 
-// Exists reads only a missing path, or no recorded name, as absent. Any other
-// stat error stops the caller, or a promotion probe would take "cannot see it"
-// as proof a rename ran.
+// A stat failure must stop the caller: "cannot see it" is not proof a rename ran.
 func (b bucketDirs) Exists(dir string) (bool, error) {
 	if dir == "" {
 		return false, nil
@@ -59,6 +48,29 @@ func (b bucketDirs) Exists(dir string) (bool, error) {
 		return false, fmt.Errorf("stat migration directory %q: %w", path, err)
 	}
 	return there, nil
+}
+
+func (b bucketDirs) Empty(dir string) (bool, error) {
+	path, err := b.Path(dir, "a recorded directory")
+	if err != nil {
+		return false, err
+	}
+	empty, err := diskio.IsDirEmpty(path)
+	if err != nil {
+		return false, fmt.Errorf("list migration directory %q: %w", path, err)
+	}
+	return empty, nil
+}
+
+func (b bucketDirs) Create(dir, what string) error {
+	path, err := b.Path(dir, what)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return fmt.Errorf("create %s %q: %w", what, dir, err)
+	}
+	return nil
 }
 
 func (b bucketDirs) Discard(dir, what string) error {
@@ -75,9 +87,7 @@ func (b bucketDirs) Discard(dir, what string) error {
 	return nil
 }
 
-// Promote syncs the rename because the reconciler records the promotion as
-// finished once it returns. A rename lost in a crash leaves that record naming
-// a directory that was never made.
+// The Promoted record rests on this rename, so the rename must be durable too.
 func (b bucketDirs) Promote(from, to string) error {
 	fromPath, err := b.Path(from, "the directory to promote")
 	if err != nil {

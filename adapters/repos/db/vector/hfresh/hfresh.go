@@ -52,7 +52,6 @@ var _ common.VectorIndex = (*HFresh)(nil)
 // HFresh is an implementation of a vector index using the SPFresh algorithm.
 // It spawns background workers to handle split, merge, and reassign operations,
 // while exposing a synchronous API for searching and updating vectors.
-// Note: this is a work in progress and not all features are implemented yet.
 type HFresh struct {
 	id               string
 	logger           logrus.FieldLogger
