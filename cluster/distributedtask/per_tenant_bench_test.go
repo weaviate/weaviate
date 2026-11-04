@@ -236,3 +236,31 @@ func BenchmarkTaskClone(b *testing.B) {
 	})
 }
 
+// A released binary's last PREP ack, which decides every tenant in one apply.
+func BenchmarkNodePrepAckDecidesEveryGroup(b *testing.B) {
+	benchSizes(b, func(b *testing.B, tenants int) {
+		m := NewManager(ManagerParameters{})
+		ack := func(node int) *cmd.ApplyRequest {
+			raw, _ := json.Marshal(&cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+				Namespace: "ns", Id: "T", Version: 1, NodeId: fmt.Sprintf("node-%d", node), Success: true,
+			})
+			return &cmd.ApplyRequest{SubCommand: raw}
+		}
+		for i := 0; i < b.N; i++ {
+			b.StopTimer()
+			m.tasks["ns"] = map[string]*Task{"T": benchTask(tenants, TaskStatusPreparing, noneDecided, UnitStatusCompleted)}
+			for n := 1; n < benchNodes; n++ {
+				if err := m.RecordPreparationCompleteAck(ack(n)); err != nil {
+					b.Fatal(err)
+				}
+			}
+			b.StartTimer()
+			if err := m.RecordPreparationCompleteAck(ack(0)); err != nil {
+				b.Fatal(err)
+			}
+			if m.tasks["ns"]["T"].Status != TaskStatusSwapping {
+				b.Fatal("every tenant is decided")
+			}
+		}
+	})
+}

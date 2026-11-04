@@ -767,13 +767,16 @@ func recordNodePreparationAck(task *Task, r *api.RecordDistributedTaskPreparatio
 		task.markTerminal(TaskStatusFailed, ackedAt)
 		return
 	}
-	for _, node := range task.NodesWithLocalUnits() {
-		if ack, ok := task.NodePreparationAcks[node]; !ok || !ack.Success {
+	// Stops at the first unit whose node has not acked, so only the last ack walks every unit.
+	for _, u := range task.units {
+		if ack, ok := task.NodePreparationAcks[u.NodeID]; u.NodeID != "" && (!ok || !ack.Success) {
 			return
 		}
 	}
-	if task.SwapDecidedGroups == nil && task.SwapsOwed == nil {
+	if len(task.SwapDecidedGroups) == 0 {
 		task.SwapDecidedGroups = make(map[string]time.Time, task.groupCount)
+	}
+	if len(task.SwapsOwed) == 0 {
 		task.SwapsOwed = make(map[string][]string, task.groupCount)
 	}
 	for _, group := range task.Groups() {

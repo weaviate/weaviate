@@ -761,7 +761,7 @@ func (t *Task) decideSwap(group string, at time.Time) {
 	}
 	t.SwapDecidedGroups[group] = at
 	delete(t.PreparedGroups, group)
-	var nodes []string
+	nodes := make([]string, 0, len(t.groups[group]))
 	for _, id := range t.groups[group] {
 		if u := t.units[id]; u != nil && u.NodeID != "" && !slices.Contains(nodes, u.NodeID) {
 			nodes = append(nodes, u.NodeID)
@@ -839,12 +839,10 @@ func (t *Task) AnyUnitFailed() bool {
 
 // Groups returns the distinct GroupIDs across all units (includes "" for ungrouped).
 func (t *Task) Groups() []string {
-	if t.groupCount == len(t.groups) {
-		return slices.Collect(maps.Keys(t.groups))
-	}
+	all := t.groupCount == len(t.groups)
 	groups := make([]string, 0, t.groupCount)
 	for group := range t.groups {
-		if t.hasGroup(group) {
+		if all || t.hasGroup(group) {
 			groups = append(groups, group)
 		}
 	}
