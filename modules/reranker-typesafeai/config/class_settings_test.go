@@ -70,6 +70,11 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.New(`baseURL must be an absolute http or https URL, got "ftp://api.typesafe.ai"`),
 		},
 		{
+			name:    "base URL with a port and no host",
+			cfg:     fakeClassConfig{classConfig: map[string]any{"baseURL": "https://:443"}},
+			wantErr: errors.New(`baseURL must be an absolute http or https URL, got "https://:443"`),
+		},
+		{
 			name:        "base URL with a path",
 			cfg:         fakeClassConfig{classConfig: map[string]any{"baseURL": "https://gateway.example/typesafe"}},
 			wantModel:   "jev-latest",

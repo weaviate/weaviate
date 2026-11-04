@@ -452,6 +452,38 @@ func TestRankHeaders(t *testing.T) {
 	}
 }
 
+func TestRankRejectsABaseURLHeaderThatIsNotAnAbsoluteURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL string
+		wantErr string
+	}{
+		{
+			name:    "no scheme",
+			baseURL: "api.typesafe.ai",
+			wantErr: `X-Typesafeai-Baseurl header must be an absolute http or https URL, got "api.typesafe.ai"`,
+		},
+		{
+			name:    "a port without a host",
+			baseURL: "https://:443",
+			wantErr: `X-Typesafeai-Baseurl header must be an absolute http or https URL, got "https://:443"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+			ctx := context.WithValue(context.Background(), "X-Typesafeai-Api-Key", []string{"headerKey"})
+			ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{tt.baseURL})
+
+			_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text",
+				documentsOf(noRefund), classConfig(f.url(), nil))
+
+			require.EqualError(t, err, tt.wantErr)
+			assert.Empty(t, f.received())
+		})
+	}
+}
+
 // Anyone who may query can name a host in the base URL header, so the errors
 // quote nothing of its replies.
 func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
