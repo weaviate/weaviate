@@ -194,7 +194,7 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 
 // roaringSetGetWithLayers folds key's disk row with the memtable layers the
 // caller already read. It returns a nil bitmap when no segment and no layer
-// holds key. h must be bloomhash.Sum(key).
+// holds key. h must be bloomhash.Sum(key), and is not read when segments is empty.
 //
 // layers must be oldest first, flushing before active: the merger replays each
 // layer's deletions before its additions, so a document deleted while flushing
@@ -500,9 +500,13 @@ func (r *RoaringSetBatchReader) Next(mergeConc int) (*sroar.Bitmap, func(), erro
 		w.layer[at] = roaringset.BitmapLayer{}
 	}
 	key := r.keys.At(r.pos)
-	h, ok := r.keys.HashAt(r.pos)
-	if !ok {
-		h = bloomhash.Sum(key)
+	// Without segments no bloom filter reads h, and HashAt would hash every key.
+	var h inverted.BloomHash
+	if len(r.segments) > 0 {
+		var ok bool
+		if h, ok = r.keys.HashAt(r.pos); !ok {
+			h = bloomhash.Sum(key)
+		}
 	}
 	bm, release, err := r.bucket.roaringSetGetWithLayers(
 		r.segments, key, h, mergeConc, layers[:found])

@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"math/rand"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -300,6 +302,90 @@ func hashOf(key []byte) BloomHash {
 	return BloomHash{
 		binary.LittleEndian.Uint64(s[0:]), binary.LittleEndian.Uint64(s[8:]),
 		binary.LittleEndian.Uint64(s[16:]), binary.LittleEndian.Uint64(s[24:]),
+	}
+}
+
+func countingHashOf() (func(key []byte) BloomHash, *atomic.Int64) {
+	calls := &atomic.Int64{}
+	return func(key []byte) BloomHash {
+		calls.Add(1)
+		return hashOf(key)
+	}, calls
+}
+
+// TestSortedKeysHashesLazily pins that WithHashes defers sum to the first HashAt,
+// and that this one call hashes each key once for every list sharing the table.
+func TestSortedKeysHashesLazily(t *testing.T) {
+	layouts := []struct {
+		name string
+		keys SortedKeys
+	}{
+		{name: "offsets", keys: buildVariable(t, []string{"a", "bb", "c", "dd", "e", "ff"})},
+		{name: "width", keys: buildFixed(t, 1)([]string{"a", "b", "c", "d", "e", "f"})},
+	}
+	require.NotNil(t, layouts[0].keys.offs, "fixture must build the layout under test")
+	require.Nil(t, layouts[1].keys.offs, "fixture must build the layout under test")
+	readAll := func(t *testing.T, list SortedKeys) {
+		for i := range list.Len() {
+			h, ok := list.HashAt(i)
+			if assert.Truef(t, ok, "HashAt(%d)", i) {
+				assert.Equalf(t, hashOf(list.At(i)), h, "HashAt(%d) must be key %d's", i, i)
+			}
+		}
+	}
+	readers := []struct {
+		name string
+		read func(t *testing.T, lists []SortedKeys)
+	}{
+		{
+			name: "one caller",
+			read: func(t *testing.T, lists []SortedKeys) {
+				for _, list := range lists {
+					readAll(t, list)
+				}
+			},
+		},
+		{
+			name: "concurrent callers",
+			read: func(t *testing.T, lists []SortedKeys) {
+				var wg sync.WaitGroup
+				start := make(chan struct{})
+				for _, list := range lists {
+					wg.Go(func() {
+						<-start
+						readAll(t, list)
+					})
+				}
+				close(start)
+				wg.Wait()
+			},
+		},
+	}
+
+	for _, lay := range layouts {
+		for _, reader := range readers {
+			t.Run(lay.name+"/"+reader.name, func(t *testing.T) {
+				sum, calls := countingHashOf()
+				hashed := lay.keys.WithHashes(sum)
+				lists := []SortedKeys{
+					hashed,
+					hashed.Sub(0, 4),
+					hashed.Sub(2, 6),
+					hashed.Sub(1, 5).Sub(1, 3),
+				}
+				require.Zero(t, calls.Load(), "WithHashes and Sub must not hash")
+
+				reader.read(t, lists)
+				assert.EqualValues(t, hashed.Len(), calls.Load())
+			})
+		}
+
+		t.Run(lay.name+"/attached to a subrange", func(t *testing.T) {
+			sum, calls := countingHashOf()
+			hashed := lay.keys.Sub(2, 6).WithHashes(sum)
+			readAll(t, hashed.Sub(1, 3))
+			assert.EqualValues(t, hashed.Len(), calls.Load(), "only the receiver's keys are hashed")
+		})
 	}
 }
 

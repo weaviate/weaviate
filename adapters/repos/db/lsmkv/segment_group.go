@@ -1266,7 +1266,8 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 // deletions and additions onto it in place. Disk reads produce additions
 // only — the base segment's own deletions are never read, as they cannot
 // mask anything older. If no segment has the key, a nil bitmap and noop
-// release are returned. h must be bloomhash.Sum(key).
+// release are returned. h must be bloomhash.Sum(key), and is not read when
+// segments is empty.
 func (sg *SegmentGroup) roaringSetGet(key []byte, h inverted.BloomHash, segments []Segment, maxConc int,
 ) (bm *sroar.Bitmap, release func(), err error) {
 	ln := len(segments)
