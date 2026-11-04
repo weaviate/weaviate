@@ -13,6 +13,7 @@ package mocks
 
 import (
 	"context"
+	"fmt"
 
 	models "github.com/weaviate/weaviate/entities/models"
 )
@@ -25,6 +26,7 @@ type AuthZReq struct {
 
 type FakeAuthorizer struct {
 	err      error
+	denied   map[string]struct{}
 	requests []AuthZReq
 }
 
@@ -36,11 +38,24 @@ func (a *FakeAuthorizer) SetErr(err error) {
 	a.err = err
 }
 
+// Deny refuses resource, matched literally, while other resources stay allowed.
+func (a *FakeAuthorizer) Deny(resource string) {
+	if a.denied == nil {
+		a.denied = map[string]struct{}{}
+	}
+	a.denied[resource] = struct{}{}
+}
+
 // Authorize provides a mock function with given fields: principal, verb, resource
 func (a *FakeAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
 	a.requests = append(a.requests, AuthZReq{principal, verb, resources})
 	if a.err != nil {
 		return a.err
+	}
+	for _, resource := range resources {
+		if _, ok := a.denied[resource]; ok {
+			return fmt.Errorf("forbidden: %s", resource)
+		}
 	}
 	return nil
 }
@@ -50,10 +65,17 @@ func (a *FakeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.
 }
 
 func (a *FakeAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
-	if err := a.Authorize(ctx, principal, verb, resources...); err != nil {
-		return nil, err
+	a.requests = append(a.requests, AuthZReq{principal, verb, resources})
+	if a.err != nil {
+		return nil, a.err
 	}
-	return resources, nil
+	allowed := make([]string, 0, len(resources))
+	for _, resource := range resources {
+		if _, ok := a.denied[resource]; !ok {
+			allowed = append(allowed, resource)
+		}
+	}
+	return allowed, nil
 }
 
 func (a *FakeAuthorizer) Calls() []AuthZReq {
