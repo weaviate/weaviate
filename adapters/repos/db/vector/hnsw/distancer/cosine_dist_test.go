@@ -146,3 +146,42 @@ func TestNoNegativeDistance(t *testing.T) {
 		}
 	})
 }
+
+// TestCosineDistanceSubnormalStoredVector is a regression test for
+// https://github.com/weaviate/weaviate/issues/13751. A stored vector whose
+// only nonzero component is the smallest positive float32 subnormal is
+// finite and nonzero, so cosine search must not treat it as a zero vector.
+// This mirrors the flat index cosine path: both vectors are normalized, then
+// the distance is 1 - dot(normalizedQuery, normalizedStored).
+func TestCosineDistanceSubnormalStoredVector(t *testing.T) {
+	// smallest positive float32 subnormal: 1.4012984643248171e-45 (2^-149)
+	const minSubnormal = float32(0x1p-149)
+	require.Equal(t, float32(1.4012984643248171e-45), minSubnormal)
+
+	stored := []float32{0, 0, 0, minSubnormal, 0, 0, 0}
+	query := []float32{
+		0.17601971328258514, 0.47528129816055298, -0.18733160197734833,
+		0.81845384836196899, -0.083336517214775085, 0.071197532117366791,
+		0.16171225905418396,
+	}
+
+	storedNorm := Normalize(stored)
+	assert.Equal(t, []float32{0, 0, 0, 1, 0, 0, 0}, storedNorm,
+		"the normalized stored vector is the 4th unit vector")
+
+	dist, err := NewCosineDistanceProvider().New(Normalize(query)).Distance(storedNorm)
+	require.NoError(t, err)
+
+	// expected cosine distance computed independently in float64 from the
+	// same float32 inputs, see issue #13751
+	assert.InDelta(t, 0.181546151638031, dist, 1e-6)
+
+	// the same query scaled by a positive constant must not change the result
+	scaled := make([]float32, len(query))
+	for i, x := range query {
+		scaled[i] = x * 37
+	}
+	scaledDist, err := NewCosineDistanceProvider().New(Normalize(scaled)).Distance(storedNorm)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.181546151638031, scaledDist, 1e-6)
+}

@@ -168,3 +168,57 @@ func BenchmarkNormalize(b *testing.B) {
 		}
 	})
 }
+
+// TestNormalizeExtremeMagnitudes covers vectors that are finite and nonzero
+// but whose float32 squares underflow to zero (subnormals, tiny normals) or
+// overflow to +Inf (huge components). See issues #13751 and #11671.
+func TestNormalizeExtremeMagnitudes(t *testing.T) {
+	// smallest positive float32 subnormal: 1.4012984643248171e-45 (2^-149)
+	const minSubnormal = float32(0x1p-149)
+
+	t.Run("issue 13751: subnormal vector normalizes to unit vector", func(t *testing.T) {
+		mk := func() []float32 {
+			return []float32{0, 0, 0, minSubnormal, 0, 0, 0}
+		}
+		want := []float32{0, 0, 0, 1, 0, 0, 0}
+
+		assert.Equal(t, want, Normalize(mk()))
+
+		v := mk()
+		NormalizeInPlace(v)
+		assert.Equal(t, want, v)
+
+		got := NormalizeInto([]float32{99, 99, 99, 99, 99, 99, 99}, mk())
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("smallest subnormal normalizes to one", func(t *testing.T) {
+		assert.Equal(t, []float32{1}, Normalize([]float32{minSubnormal}))
+	})
+
+	t.Run("tiny normal components do not read as zero", func(t *testing.T) {
+		v := []float32{1e-23, -1e-23}
+		got := Normalize(v)
+		assert.InDelta(t, math.Sqrt2/2, got[0], 1e-6)
+		assert.InDelta(t, -math.Sqrt2/2, got[1], 1e-6)
+	})
+
+	t.Run("large vectors do not collapse to zero", func(t *testing.T) {
+		// squares overflow float32 (+Inf) even though the vector is finite
+		v := []float32{1e20, 1e20}
+		got := Normalize(v)
+		assert.InDelta(t, math.Sqrt2/2, got[0], 1e-6)
+		assert.InDelta(t, math.Sqrt2/2, got[1], 1e-6)
+	})
+
+	t.Run("genuine zero vectors keep zero semantics", func(t *testing.T) {
+		assert.Equal(t, []float32{0, 0, 0}, Normalize([]float32{0, 0, 0}))
+
+		v := []float32{0, 0, 0}
+		NormalizeInPlace(v)
+		assert.Equal(t, []float32{0, 0, 0}, v)
+
+		got := NormalizeInto([]float32{99, 99, 99}, []float32{0, 0, 0})
+		assert.Equal(t, []float32{0, 0, 0}, got)
+	})
+}
