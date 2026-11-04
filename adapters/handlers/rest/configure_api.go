@@ -131,6 +131,7 @@ import (
 	modrerankerdummy "github.com/weaviate/weaviate/modules/reranker-dummy"
 	modrerankerjinaai "github.com/weaviate/weaviate/modules/reranker-jinaai"
 	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
+	modrerankeropenai "github.com/weaviate/weaviate/modules/reranker-openai"
 	modrerankertransformers "github.com/weaviate/weaviate/modules/reranker-transformers"
 	modrerankertypesafeai "github.com/weaviate/weaviate/modules/reranker-typesafeai"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
@@ -2015,6 +2016,7 @@ func registerModules(appState *state.State) error {
 		modrerankerjinaai.Name,
 		modrerankernvidia.Name,
 		modrerankertypesafeai.Name,
+		modrerankeropenai.Name,
 	}
 
 	defaultModules := append(defaultVectorizers, defaultGenerative...)
@@ -2137,6 +2139,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modrerankertypesafeai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modrerankeropenai.Name]; ok {
+		appState.Modules.Register(modrerankeropenai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modrerankeropenai.Name).
 			Debug("enabled module")
 	}
 
