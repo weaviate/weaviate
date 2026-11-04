@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -27,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -56,6 +58,9 @@ const (
 	metricLoaded  = "weaviate_lazy_shard_unloading_loaded_shards"
 	metricLimit   = "weaviate_lazy_shard_unloading_limit"
 	metricUnloads = "weaviate_lazy_shard_unloading_unloads_total"
+
+	// listLimit is the server's default QUERY_MAXIMUM_RESULTS.
+	listLimit = 10_000
 )
 
 // knobs are lazy_shard_unloading_* runtime overrides, keyed without the prefix.
@@ -343,13 +348,16 @@ func tenantStatuses(ctx context.Context, cl *apiclient.Weaviate, class string) (
 	return out, nil
 }
 
-// ledger records every acknowledged write, keyed by class and tenant ("" for single-tenant classes).
+// ledger records every acknowledged write and every attempted ID, keyed by class and tenant ("" for single-tenant classes).
 type ledger struct {
-	mu   sync.Mutex
-	objs map[string][]strfmt.UUID
+	mu        sync.Mutex
+	objs      map[string][]strfmt.UUID
+	attempted map[string]map[strfmt.UUID]struct{}
 }
 
-func newLedger() *ledger { return &ledger{objs: map[string][]strfmt.UUID{}} }
+func newLedger() *ledger {
+	return &ledger{objs: map[string][]strfmt.UUID{}, attempted: map[string]map[strfmt.UUID]struct{}{}}
+}
 
 func ledgerKey(class, tenant string) string { return class + "/" + tenant }
 
@@ -357,6 +365,24 @@ func (l *ledger) add(class, tenant string, ids ...strfmt.UUID) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.objs[ledgerKey(class, tenant)] = append(l.objs[ledgerKey(class, tenant)], ids...)
+}
+
+func (l *ledger) attempt(class, tenant string, ids ...strfmt.UUID) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	key := ledgerKey(class, tenant)
+	if l.attempted[key] == nil {
+		l.attempted[key] = make(map[strfmt.UUID]struct{}, len(ids))
+	}
+	for _, id := range ids {
+		l.attempted[key][id] = struct{}{}
+	}
+}
+
+func (l *ledger) attemptedIDs(class, tenant string) map[strfmt.UUID]struct{} {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return maps.Clone(l.attempted[ledgerKey(class, tenant)])
 }
 
 func (l *ledger) ids(class, tenant string) []strfmt.UUID {
@@ -404,6 +430,7 @@ func writeObjects(ctx context.Context, cl *apiclient.Weaviate, l *ledger, class,
 			Vector:     randomVector(r),
 		}
 	}
+	l.attempt(class, tenant, ids...)
 	params := batch.NewBatchObjectsCreateParams().WithContext(ctx).WithBody(batch.BatchObjectsCreateBody{Objects: objs})
 	if consistency != nil {
 		params = params.WithConsistencyLevel(consistency)
@@ -455,14 +482,30 @@ func objectGone(ctx context.Context, cl *apiclient.Weaviate, class, tenant strin
 	return false, err
 }
 
-func countObjects(ctx context.Context, cl *apiclient.Weaviate, class, tenant string) (int, error) {
-	limit := int64(10_000)
+// listObjectIDs returns one ID per listed object, so a duplicate stays visible; a full page may be cut short and is an error.
+func listObjectIDs(ctx context.Context, cl *apiclient.Weaviate, class, tenant string) ([]strfmt.UUID, error) {
+	limit := int64(listLimit)
 	resp, err := cl.Objects.ObjectsList(objects.NewObjectsListParams().WithContext(ctx).WithClass(&class).
 		WithTenant(tenantPtr(tenant)).WithLimit(&limit), nil)
 	if err != nil {
-		return 0, fmt.Errorf("list %s/%s: %w", class, tenant, err)
+		return nil, fmt.Errorf("list %s/%s: %w", class, tenant, err)
 	}
-	return len(resp.Payload.Objects), nil
+	if len(resp.Payload.Objects) >= listLimit {
+		return nil, fmt.Errorf("list %s/%s: %d objects reach the listing limit", class, tenant, len(resp.Payload.Objects))
+	}
+	ids := make([]strfmt.UUID, len(resp.Payload.Objects))
+	for i, o := range resp.Payload.Objects {
+		ids[i] = o.ID
+	}
+	return ids, nil
+}
+
+func countObjects(ctx context.Context, cl *apiclient.Weaviate, class, tenant string) (int, error) {
+	ids, err := listObjectIDs(ctx, cl, class, tenant)
+	if err != nil {
+		return 0, err
+	}
+	return len(ids), nil
 }
 
 // verifyAll checks every acknowledged object reads back and every shard holds exactly the ledger's count.
@@ -489,6 +532,76 @@ func verifyAll(ctx context.Context, t *testing.T, cl *apiclient.Weaviate, l *led
 		})
 	}
 	require.NoError(t, g.Wait())
+}
+
+// checkListing compares one shard's listing with its ledger and returns how many unacknowledged writes it holds.
+func checkListing(acked, listed []strfmt.UUID, attempted map[strfmt.UUID]struct{}) (int, error) {
+	counts := make(map[strfmt.UUID]int, len(listed))
+	for _, id := range listed {
+		counts[id]++
+	}
+	var missing, duplicated, neverAttempted []strfmt.UUID
+	for _, id := range acked {
+		if counts[id] == 0 {
+			missing = append(missing, id)
+		}
+	}
+	for id, n := range counts {
+		if n > 1 {
+			duplicated = append(duplicated, id)
+		}
+		if _, ok := attempted[id]; !ok {
+			neverAttempted = append(neverAttempted, id)
+		}
+	}
+	slices.Sort(duplicated)
+	slices.Sort(neverAttempted)
+	var errs []error
+	if len(missing) > 0 {
+		errs = append(errs, fmt.Errorf("acknowledged but not listed: %v", missing))
+	}
+	if len(duplicated) > 0 {
+		errs = append(errs, fmt.Errorf("listed more than once: %v", duplicated))
+	}
+	if len(neverAttempted) > 0 {
+		errs = append(errs, fmt.Errorf("listed but never attempted: %v", neverAttempted))
+	}
+	if err := errors.Join(errs...); err != nil {
+		return 0, err
+	}
+	return len(counts) - len(acked), nil
+}
+
+// verifyAcknowledged is verifyAll for writers that lose responses: an unacknowledged write may or may not exist, nothing else may differ.
+func verifyAcknowledged(ctx context.Context, t *testing.T, cl *apiclient.Weaviate, l *ledger, class string, tenants []string) {
+	t.Helper()
+	var applied, unacknowledged atomic.Int64
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(8)
+	for _, tenant := range tenants {
+		g.Go(func() error {
+			acked := l.ids(class, tenant)
+			listed, err := listObjectIDs(gctx, cl, class, tenant)
+			if err != nil {
+				return err
+			}
+			attempted := l.attemptedIDs(class, tenant)
+			n, err := checkListing(acked, listed, attempted)
+			if err != nil {
+				return fmt.Errorf("%s/%s: %w", class, tenant, err)
+			}
+			applied.Add(int64(n))
+			unacknowledged.Add(int64(len(attempted) - len(acked)))
+			for _, id := range acked {
+				if err := readObject(gctx, cl, class, tenant, id, nil); err != nil {
+					return fmt.Errorf("acknowledged but does not read back: %w", err)
+				}
+			}
+			return nil
+		})
+	}
+	require.NoError(t, g.Wait())
+	t.Logf("%s: %d of %d unacknowledged writes turned out applied", class, applied.Load(), unacknowledged.Load())
 }
 
 // seed writes perShard objects to every shard concurrently.
@@ -531,6 +644,56 @@ func randomWorkload(ctx context.Context, cl *apiclient.Weaviate, l *ledger, clas
 		})
 	}
 	return g.Wait()
+}
+
+func TestCheckListing(t *testing.T) {
+	t.Parallel()
+	const a, b, c, d strfmt.UUID = "a", "b", "c", "d"
+	attempted := map[strfmt.UUID]struct{}{a: {}, b: {}, c: {}}
+	tests := []struct {
+		name        string
+		acked       []strfmt.UUID
+		listed      []strfmt.UUID
+		wantApplied int
+		wantErrs    []string
+	}{
+		{name: "only acknowledged writes", acked: []strfmt.UUID{a, b}, listed: []strfmt.UUID{b, a}},
+		{name: "unacknowledged write lost", acked: []strfmt.UUID{a}, listed: []strfmt.UUID{a}},
+		{name: "unacknowledged writes applied", acked: []strfmt.UUID{a}, listed: []strfmt.UUID{a, b, c}, wantApplied: 2},
+		{
+			name: "acknowledged write missing", acked: []strfmt.UUID{a, b}, listed: []strfmt.UUID{a, c},
+			wantErrs: []string{"acknowledged but not listed: [b]"},
+		},
+		{
+			name: "acknowledged write listed twice", acked: []strfmt.UUID{a}, listed: []strfmt.UUID{a, a},
+			wantErrs: []string{"listed more than once: [a]"},
+		},
+		{
+			name: "unacknowledged write listed twice", acked: []strfmt.UUID{a}, listed: []strfmt.UUID{a, b, b},
+			wantErrs: []string{"listed more than once: [b]"},
+		},
+		{
+			name: "listed but never attempted", acked: []strfmt.UUID{a}, listed: []strfmt.UUID{a, d},
+			wantErrs: []string{"listed but never attempted: [d]"},
+		},
+		{
+			name: "every check breaks at once", acked: []strfmt.UUID{a, b}, listed: []strfmt.UUID{b, b, d},
+			wantErrs: []string{"acknowledged but not listed: [a]", "listed more than once: [b]", "listed but never attempted: [d]"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			applied, err := checkListing(tt.acked, tt.listed, attempted)
+			if len(tt.wantErrs) == 0 {
+				require.NoError(t, err)
+				require.Equal(t, tt.wantApplied, applied)
+				return
+			}
+			for _, want := range tt.wantErrs {
+				require.ErrorContains(t, err, want)
+			}
+		})
+	}
 }
 
 func envInt(t *testing.T, name string, def int) int {
