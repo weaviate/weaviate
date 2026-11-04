@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -330,19 +331,24 @@ func TestRankRejectsAClassBaseURLBeforeSending(t *testing.T) {
 			wantErr: `baseURL must be an absolute http or https URL, got "api.openai.com"`,
 		},
 		{
-			name:    "a port without a host",
-			baseURL: "https://:443",
-			wantErr: `baseURL must be an absolute http or https URL, got "https://:443"`,
+			// <port> stands for the fake's port.
+			name:    "the fake's port without a host",
+			baseURL: "http://:<port>",
+			wantErr: `baseURL must be an absolute http or https URL, got "http://:<port>"`,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFake(t)
+			fakeURL, err := url.Parse(f.url())
+			require.NoError(t, err)
+			baseURL := strings.ReplaceAll(tt.baseURL, "<port>", fakeURL.Port())
+			wantErr := strings.ReplaceAll(tt.wantErr, "<port>", fakeURL.Port())
 
-			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-				documentsOf(noRefund), classConfig(tt.baseURL, nil))
+			_, err = newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+				documentsOf(noRefund), classConfig(baseURL, nil))
 
-			require.EqualError(t, err, tt.wantErr)
+			require.EqualError(t, err, wantErr)
 			assert.Empty(t, f.received())
 		})
 	}
@@ -614,6 +620,8 @@ func TestRankNormalizesTheBaseURL(t *testing.T) {
 		{name: "class base URL ending in /v1/", path: "/v1/", wantPath: "/v1/decisions"},
 		{name: "class base URL with a gateway path", path: "/gateway", wantPath: "/gateway/v1/decisions"},
 		{name: "class base URL with a gateway path ending in /v1", path: "/gateway/v1", wantPath: "/gateway/v1/decisions"},
+		{name: "class base URL ending in /v1/v1", path: "/v1/v1", wantPath: "/v1/v1/decisions"},
+		{name: "header base URL ending in /v1/v1", path: "/v1/v1", fromHeader: true, wantPath: "/v1/v1/decisions"},
 		{name: "header base URL ending in /v1/", path: "/v1/", fromHeader: true, wantPath: "/v1/decisions"},
 		{name: "header base URL with a gateway path ending in /v1", path: "/gateway/v1", fromHeader: true, wantPath: "/gateway/v1/decisions"},
 	}
@@ -642,7 +650,7 @@ func TestRankNormalizesTheBaseURL(t *testing.T) {
 	}
 }
 
-// A host named in the base URL header is untrusted: errors quote nothing of its replies.
+// A host named in the base URL header is untrusted: status errors quote no reply body of it.
 func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 	const banner = `{"error":{"message":"internal banner"}}`
 	tests := []struct {

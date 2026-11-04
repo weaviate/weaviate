@@ -343,10 +343,10 @@ func (c *client) organizationFor(ctx context.Context, hostFromHeader bool) strin
 func (c *client) endpoint(ctx context.Context, classBaseURL string,
 ) (endpointURL, apiKey string, hostFromHeader bool, err error) {
 	apiKey = modulecomponents.GetValueFromContext(ctx, apiKeyHeader)
-	baseURL, err := config.NormalizeBaseURL(classBaseURL)
-	if err != nil {
+	if _, err := config.NormalizeBaseURL(classBaseURL); err != nil {
 		return "", "", false, fmt.Errorf("baseURL %w", err)
 	}
+	baseURL := classBaseURL
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
 		if apiKey == "" {
 			return "", "", false, fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
