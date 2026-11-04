@@ -508,3 +508,60 @@ func TestRemoteIndexAggregateNon429NotOverloaded(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, queryadmission.ErrOverloaded)
 }
+
+// TestRemoteIndexAggregateBoundedByCallerDeadline pins that a remote
+// aggregation with a caller deadline is bounded by that deadline alone, as it
+// scans a whole shard, and falls back to the query timeout without one.
+func TestRemoteIndexAggregateBoundedByCallerDeadline(t *testing.T) {
+	t.Parallel()
+
+	path := "/indices/C1/shards/S1/objects/_aggregations"
+	fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
+	ts := fs.server(t)
+	defer ts.Close()
+	client := newRemoteIndex(ts.Client())
+	queryTimeout := client.timeoutUnit * QUERY_TIMEOUT_VALUE
+
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(2 * queryTimeout):
+		case <-r.Context().Done():
+			return
+		}
+		payload, err := clusterapi.IndicesPayloads.AggregationResult.Marshal(
+			&aggregation.Result{Groups: []aggregation.Group{{Count: 7}}})
+		require.NoError(t, err)
+		clusterapi.IndicesPayloads.AggregationResult.SetContentTypeHeader(w)
+		_, _ = w.Write(payload)
+	}
+
+	tests := []struct {
+		name string
+		// callerDeadline is the caller's own deadline, none when 0
+		callerDeadline time.Duration
+		wantErr        error
+	}{
+		{name: "caller deadline past the query timeout", callerDeadline: 10 * queryTimeout},
+		{name: "caller deadline before the answer", callerDeadline: queryTimeout / 2, wantErr: context.DeadlineExceeded},
+		{name: "no caller deadline", wantErr: context.DeadlineExceeded},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := t.Context()
+			if tt.callerDeadline > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tt.callerDeadline)
+				defer cancel()
+			}
+
+			res, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{})
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, res.Groups, 1)
+			require.Equal(t, 7, res.Groups[0].Count)
+		})
+	}
+}
