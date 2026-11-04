@@ -82,7 +82,7 @@ func New(apiKey string, timeout time.Duration, maxConcurrentRequests int, logger
 // RankProperty returns, per document, the probability that the query holds
 // for it. Documents that share a request influence each other's probability
 // a little.
-func (c *client) RankProperty(ctx context.Context, query, property string, documents []string,
+func (c *client) RankProperty(ctx context.Context, query, property string, documents []ent.Document,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
 	if query == "" {
@@ -101,13 +101,13 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	owner := make(map[string]int, len(documents))
 	var pending []int
 	for i, document := range documents {
-		if document == "" {
+		if document.Value == "" {
 			continue
 		}
-		if _, ok := owner[document]; ok {
+		if _, ok := owner[document.Value]; ok {
 			continue
 		}
-		owner[document] = i
+		owner[document.Value] = i
 		pending = append(pending, i)
 	}
 	if image {
@@ -130,7 +130,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 		eg.Go(func() error {
 			batchDocuments := make([]string, len(batch))
 			for j, index := range batch {
-				batchDocuments[j] = documents[index]
+				batchDocuments[j] = documents[index].Value
 			}
 			probabilities, usage, err := c.judge(ctx, request, batchDocuments)
 			if err != nil {
@@ -161,10 +161,10 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	documentScores := make([]ent.DocumentScore, len(documents))
 	for i, document := range documents {
 		score := 0.0
-		if position, ok := owner[document]; ok {
+		if position, ok := owner[document.Value]; ok {
 			score = scores[position]
 		}
-		documentScores[i] = ent.DocumentScore{Document: document, Score: score}
+		documentScores[i] = ent.DocumentScore{Document: document.Value, Score: score}
 	}
 	return &ent.RankResult{Query: query, DocumentScores: documentScores}, nil
 }
@@ -190,12 +190,12 @@ func propertyInput(cfg moduletools.ClassConfig, property string) (image bool, er
 // batches splits the positions of the documents into requests of at most
 // maxDocuments documents and maxCharacters bytes, in order. A document longer
 // than maxCharacters goes alone.
-func batches(indexes []int, documents []string, maxDocuments, maxCharacters int) [][]int {
+func batches(indexes []int, documents []ent.Document, maxDocuments, maxCharacters int) [][]int {
 	var out [][]int
 	var batch []int
 	characters := 0
 	for _, index := range indexes {
-		length := len(documents[index])
+		length := len(documents[index].Value)
 		if len(batch) > 0 && (len(batch) == maxDocuments || characters+length > maxCharacters) {
 			out = append(out, batch)
 			batch, characters = nil, 0
