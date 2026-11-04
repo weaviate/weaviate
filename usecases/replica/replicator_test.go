@@ -17,14 +17,17 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	clusterRouter "github.com/weaviate/weaviate/cluster/router"
@@ -41,6 +44,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 var (
@@ -780,6 +784,287 @@ func TestReplicatorPutObjects(t *testing.T) {
 	}
 }
 
+const (
+	metricWritesFailed      = "weaviate_replication_coordinator_writes_failed"
+	metricWritesSucceedSome = "weaviate_replication_coordinator_writes_succeed_some"
+	metricWriteDuration     = "weaviate_replication_coordinator_writes_duration_seconds"
+)
+
+// prepareAnswer is how a mocked replica answers a write's prepare.
+type prepareAnswer int
+
+const (
+	prepareYes prepareAnswer = iota
+	prepareRefuse
+	prepareUnreachable
+)
+
+// capRefusal is the limit error a refusing replica encodes in its answer.
+var capRefusal = usagelimits.NewLimitExceededError("", usagelimits.LimitObjects, 10)
+
+// prepareReply answers a prepare as answer says. A refusal carries only Code
+// and Msg, the fields the HTTP and gRPC replica clients decode.
+func prepareReply(answer prepareAnswer) (replica.SimpleResponse, error) {
+	switch answer {
+	case prepareRefuse:
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{{
+			Code: replicaerrors.StatusUsageLimitExceeded, Msg: capRefusal.BodyJSON(),
+		}}}, nil
+	case prepareUnreachable:
+		return replica.SimpleResponse{}, errors.New("connection refused")
+	default:
+		return replica.SimpleResponse{}, nil
+	}
+}
+
+// expectPutObject has each host answer PutObject's prepare on shard with
+// answer(host), and lets any host commit or abort.
+func expectPutObject(f *fakeFactory, shard string, answer func(host string) prepareAnswer) {
+	f.WClient.EXPECT().PutObject(mock.Anything, mock.Anything, f.CLS, shard, anyVal, anyVal, anyVal).
+		RunAndReturn(func(_ context.Context, host, _, _, _ string, _ *storobj.Object, _ uint64) (replica.SimpleResponse, error) {
+			return prepareReply(answer(host))
+		})
+	f.WClient.EXPECT().Commit(mock.Anything, mock.Anything, f.CLS, shard, anyVal, anyVal).Return(nil).Maybe()
+	f.WClient.EXPECT().Abort(mock.Anything, mock.Anything, f.CLS, shard, anyVal).Return(replica.SimpleResponse{}, nil).Maybe()
+}
+
+// clientError is the error Replicator.PutObject{,s} hand the client.
+type clientError int
+
+const (
+	noClientError clientError = iota
+	// limitClientError is the bare *LimitExceededError a write at RF=1 gets.
+	limitClientError
+	// replicasClientError is the retryable "cannot reach enough replicas" error.
+	replicasClientError
+)
+
+func requireClientError(t *testing.T, want clientError, err error) {
+	t.Helper()
+	switch want {
+	case limitClientError:
+		// Equal, unlike ErrorAs, fails on an error wrapping the limit error.
+		require.Equal(t, capRefusal, err)
+	case replicasClientError:
+		require.ErrorIs(t, err, replicaerrors.ErrReplicas)
+		_, isLimit := usagelimits.AsLimitExceeded(err)
+		require.False(t, isLimit, "a limit error is reachable from %v", err)
+	default:
+		require.NoError(t, err)
+	}
+}
+
+// warnOrAbove returns the entries hook holds at Warn or a more severe level.
+func warnOrAbove(hook *test.Hook) []*logrus.Entry {
+	var entries []*logrus.Entry
+	for _, e := range hook.AllEntries() {
+		if e.Level <= logrus.WarnLevel {
+			entries = append(entries, e)
+		}
+	}
+	return entries
+}
+
+// saltedClass names a class no other test writes to, because the refusal
+// warning's throttle is shared by every coordinator in the package.
+func saltedClass() string {
+	return fmt.Sprintf("C%d", time.Now().UnixNano())
+}
+
+// waitForWrites waits until reg holds a duration sample for each of writes,
+// because commitAll records a write's metrics after PutObject can return.
+func waitForWrites(t *testing.T, reg *prometheus.Registry, writes int) {
+	t.Helper()
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		got := gatheredMetric(c, reg, metricWriteDuration).GetHistogram().GetSampleCount()
+		assert.Equal(c, uint64(writes), got)
+	}, 5*time.Second, 10*time.Millisecond, "commitAll never recorded write %d", writes)
+}
+
+func TestReplicatorPutObject_LimitRefusalMetricsAndLogs(t *testing.T) {
+	const shard = "SH1"
+	nodes := []string{"A", "B", "C"}
+	obj := &storobj.Object{}
+	noEntries := func(t *testing.T, entries []*logrus.Entry) { require.Empty(t, entries) }
+
+	tests := []struct {
+		name    string
+		level   types.ConsistencyLevel
+		answers map[string]prepareAnswer
+		want    clientError
+		// counter names the write counter the case reads, and wantCount is its value.
+		counter   string
+		wantCount float64
+		// checkLogs asserts on the entries at Warn or above, unless nil.
+		checkLogs func(t *testing.T, entries []*logrus.Entry)
+	}{
+		{
+			name:      "remote replicas refuse at ALL",
+			level:     types.ConsistencyLevelAll,
+			answers:   map[string]prepareAnswer{"A": prepareYes, "B": prepareRefuse, "C": prepareRefuse},
+			want:      limitClientError,
+			counter:   metricWritesFailed,
+			wantCount: 0,
+			checkLogs: noEntries,
+		},
+		{
+			name:      "two refusals beside a yes",
+			level:     types.ConsistencyLevelQuorum,
+			answers:   map[string]prepareAnswer{"A": prepareYes, "B": prepareRefuse, "C": prepareRefuse},
+			want:      limitClientError,
+			counter:   metricWritesFailed,
+			wantCount: 0,
+			checkLogs: noEntries,
+		},
+		{
+			name:      "two refusals beside an unreachable replica",
+			level:     types.ConsistencyLevelQuorum,
+			answers:   map[string]prepareAnswer{"A": prepareUnreachable, "B": prepareRefuse, "C": prepareRefuse},
+			want:      limitClientError,
+			counter:   metricWritesFailed,
+			wantCount: 1,
+			checkLogs: func(t *testing.T, entries []*logrus.Entry) {
+				require.True(t, slices.ContainsFunc(entries, func(e *logrus.Entry) bool {
+					return e.Level == logrus.ErrorLevel && e.Message == "abort" && e.Data["limit_refused"] == 2
+				}), "no abort at Error with limit_refused=2 in %v", entries)
+			},
+		},
+		{
+			name:      "one refusal beside an unreachable replica and a yes",
+			level:     types.ConsistencyLevelQuorum,
+			answers:   map[string]prepareAnswer{"A": prepareUnreachable, "B": prepareRefuse, "C": prepareYes},
+			want:      replicasClientError,
+			counter:   metricWritesFailed,
+			wantCount: 1,
+		},
+		{
+			name:      "one refusal beside two yes",
+			level:     types.ConsistencyLevelQuorum,
+			answers:   map[string]prepareAnswer{"A": prepareRefuse, "B": prepareYes, "C": prepareYes},
+			want:      noClientError,
+			counter:   metricWritesSucceedSome,
+			wantCount: 1,
+			checkLogs: func(t *testing.T, entries []*logrus.Entry) {
+				require.Len(t, entries, 1)
+				require.Equal(t, logrus.WarnLevel, entries[0].Level)
+				require.Equal(t, "A", entries[0].Data["replica"])
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeFactory(t, saltedClass(), shard, nodes, false)
+			expectPutObject(f, shard, func(host string) prepareAnswer { return tc.answers[host] })
+			reg := prometheus.NewRegistry()
+			rep := f.newReplicatorWithMetrics(&monitoring.PrometheusMetrics{Registerer: reg})
+
+			err := rep.PutObject(context.Background(), shard, obj, tc.level, 0)
+			waitForWrites(t, reg, 1)
+
+			requireClientError(t, tc.want, err)
+			require.Equal(t, tc.wantCount, gatheredMetric(t, reg, tc.counter).GetCounter().GetValue())
+			if tc.checkLogs != nil {
+				tc.checkLogs(t, warnOrAbove(f.hook))
+			}
+		})
+	}
+
+	t.Run("refusal warnings are throttled per class, shard and replica", func(t *testing.T) {
+		const otherShard = "SH2"
+		var refusing atomic.Pointer[string]
+		answer := func(host string) prepareAnswer {
+			if host == *refusing.Load() {
+				return prepareRefuse
+			}
+			return prepareYes
+		}
+		f := newFakeFactory(t, saltedClass(), shard, nodes, false)
+		f.AddShard(otherShard, nodes)
+		other := newFakeFactory(t, saltedClass(), shard, nodes, false)
+		expectPutObject(f, shard, answer)
+		expectPutObject(f, otherShard, answer)
+		expectPutObject(other, shard, answer)
+		reg := prometheus.NewRegistry()
+		metrics := &monitoring.PrometheusMetrics{Registerer: reg}
+		rep, otherRep := f.newReplicatorWithMetrics(metrics), other.newReplicatorWithMetrics(metrics)
+
+		writes := []struct {
+			rep       *replica.Replicator
+			shard     string
+			refusing  string
+			wantWarns int
+		}{
+			{rep: rep, shard: shard, refusing: "A", wantWarns: 1},
+			{rep: rep, shard: shard, refusing: "A", wantWarns: 1},
+			{rep: rep, shard: shard, refusing: "B", wantWarns: 2},
+			{rep: rep, shard: otherShard, refusing: "A", wantWarns: 3},
+			{rep: otherRep, shard: shard, refusing: "A", wantWarns: 4},
+		}
+		for i, w := range writes {
+			refusing.Store(&w.refusing)
+			require.NoError(t, w.rep.PutObject(context.Background(), w.shard, obj, types.ConsistencyLevelQuorum, 0))
+			waitForWrites(t, reg, i+1)
+			warns := append(warnOrAbove(f.hook), warnOrAbove(other.hook)...)
+			require.Len(t, warns, w.wantWarns, "after write %d", i+1)
+		}
+	})
+}
+
+func TestReplicatorPutObjects_LimitAbortClassification(t *testing.T) {
+	const shard = "SH1"
+	nodes := []string{"A", "B", "C"}
+	objs := []*storobj.Object{{}, {}, {}}
+
+	tests := []struct {
+		name    string
+		level   types.ConsistencyLevel
+		answers map[string]prepareAnswer
+		want    clientError
+		// quiet requires that nothing logs at Warn or above.
+		quiet bool
+	}{
+		{
+			name:    "remote replicas refuse at ALL",
+			level:   types.ConsistencyLevelAll,
+			answers: map[string]prepareAnswer{"A": prepareYes, "B": prepareRefuse, "C": prepareRefuse},
+			want:    limitClientError,
+			quiet:   true,
+		},
+		{
+			name:    "one refusal beside an unreachable replica and a yes",
+			level:   types.ConsistencyLevelQuorum,
+			answers: map[string]prepareAnswer{"A": prepareUnreachable, "B": prepareRefuse, "C": prepareYes},
+			want:    replicasClientError,
+		},
+		{
+			name:    "two refusals beside an unreachable replica",
+			level:   types.ConsistencyLevelQuorum,
+			answers: map[string]prepareAnswer{"A": prepareUnreachable, "B": prepareRefuse, "C": prepareRefuse},
+			want:    limitClientError,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeFactory(t, "C1", shard, nodes, false)
+			f.WClient.EXPECT().PutObjects(mock.Anything, mock.Anything, f.CLS, shard, anyVal, anyVal, anyVal).
+				RunAndReturn(func(_ context.Context, host, _, _, _ string, _ []*storobj.Object, _ uint64) (replica.SimpleResponse, error) {
+					return prepareReply(tc.answers[host])
+				})
+			f.WClient.EXPECT().Abort(mock.Anything, mock.Anything, f.CLS, shard, anyVal).Return(replica.SimpleResponse{}, nil).Maybe()
+
+			errs := f.newReplicator().PutObjects(context.Background(), shard, objs, tc.level, 0)
+
+			require.Len(t, errs, len(objs))
+			for _, err := range errs {
+				requireClientError(t, tc.want, err)
+			}
+			if tc.quiet {
+				require.Empty(t, warnOrAbove(f.hook))
+			}
+		})
+	}
+}
+
 func TestReplicatorAddReferences(t *testing.T) {
 	var (
 		cls   = "C1"
@@ -1008,6 +1293,11 @@ func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Repl
 }
 
 func (f *fakeFactory) newReplicator() *replica.Replicator {
+	return f.newReplicatorWithMetrics(monitoring.GetMetrics())
+}
+
+// newReplicatorWithMetrics is newReplicator with its metrics registered on metrics.
+func (f *fakeFactory) newReplicatorWithMetrics(metrics *monitoring.PrometheusMetrics) *replica.Replicator {
 	router := f.newRouter("")
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
@@ -1019,8 +1309,6 @@ func (f *fakeFactory) newReplicator() *replica.Replicator {
 	}
 	// used in TestFinderNodeObject unresolved branch
 	nodeResolver.EXPECT().NodeHostname("N").Return("", false).Maybe()
-
-	metrics := monitoring.GetMetrics()
 
 	rep, err := replica.NewReplicator(
 		f.CLS,

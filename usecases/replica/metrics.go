@@ -78,7 +78,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) (*Metrics, error) {
 		return nil, err
 	}
 	m.writesFailed, err = newCounter(prom.Registerer,
-		"replication_coordinator_writes_failed", "Count of requests failing due to consistency level")
+		"replication_coordinator_writes_failed", "Count of requests failing due to consistency level, excluding requests refused only at the object cap")
 	if err != nil {
 		return nil, err
 	}

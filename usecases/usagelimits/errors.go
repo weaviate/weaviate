@@ -90,15 +90,31 @@ func NewLimitExceededError(template string, limit LimitName, value int64) *Limit
 	}
 }
 
+// limitExceededBody is the 429 body BodyJSON writes and FromBodyJSON reads.
+type limitExceededBody struct {
+	ErrorCode string `json:"errorCode"`
+	Limit     string `json:"limit"`
+	Value     int64  `json:"value"`
+	Message   string `json:"message"`
+}
+
+// BodyJSON encodes e as the 429 body FromBodyJSON parses back, with Error()
+// as its message.
+func (e *LimitExceededError) BodyJSON() string {
+	// Marshal cannot fail on a struct of strings and an int64.
+	b, _ := json.Marshal(limitExceededBody{
+		ErrorCode: ErrorCode,
+		Limit:     string(e.Limit),
+		Value:     e.Value,
+		Message:   e.Error(),
+	})
+	return string(b)
+}
+
 // FromBodyJSON parses a *LimitExceededError from a USAGE_LIMIT_EXCEEDED
 // 429 body. Returns false on any other shape.
 func FromBodyJSON(body []byte) (*LimitExceededError, bool) {
-	var payload struct {
-		ErrorCode string `json:"errorCode"`
-		Limit     string `json:"limit"`
-		Value     int64  `json:"value"`
-		Message   string `json:"message"`
-	}
+	var payload limitExceededBody
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, false
 	}
