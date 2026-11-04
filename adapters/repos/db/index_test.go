@@ -771,13 +771,24 @@ func TestIndex_getShardsStorageStatus(t *testing.T) {
 
 	// Arrange
 	schemaReader := local.NewMockSchemaReader(t)
+	listed := 0
 	schemaReader.EXPECT().
 		Shards("Songs").
 		RunAndReturn(func(collectionName string) (shards []string, _ error) {
+			listed++
 			for s := range shardReplicas {
 				shards = append(shards, s)
 			}
 			return
+		}).Maybe()
+	schemaReader.EXPECT().
+		Read("Songs", true, mock.Anything).
+		RunAndReturn(func(_ string, _ bool, read func(*models.Class, *sharding.State) error) error {
+			state := &sharding.State{Physical: map[string]sharding.Physical{}}
+			for s, nodes := range shardReplicas {
+				state.Physical[s] = sharding.Physical{Name: s, BelongsToNodes: nodes}
+			}
+			return read(nil, state)
 		}).Maybe()
 	schemaReader.EXPECT().
 		ShardReplicas("Songs", mock.Anything).
@@ -834,6 +845,16 @@ func TestIndex_getShardsStorageStatus(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, want, got, "shard statuses")
 	assert.Equal(t, wantLegacy, gotLegacy, "legacy statuses")
+
+	for tenant, wantOne := range map[string]map[string]map[string]string{
+		"shard_not_local": {"shard_not_local": want["shard_not_local"]},
+		"unknown":         {},
+	} {
+		got, _, err := index.getShardsStorageStatus(t.Context(), tenant)
+		assert.NoError(t, err)
+		assert.Equal(t, wantOne, got, tenant)
+	}
+	assert.Equal(t, 1, listed, "one tenant's status lists no other shard")
 }
 
 // TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMovement pins the
