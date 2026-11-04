@@ -49,7 +49,7 @@ func rbacMockStore(t *testing.T, m MockStore, rbacDir string) MockStore {
 	authZ, err := rbac.New(rbacDir, rbacconf.Config{Enabled: true}, config.Authentication{}, false, nil, m.logger)
 	require.NoError(t, err)
 	m.cfg.RBAC = authZ
-	s := NewFSM(m.cfg, nil, prometheus.NewPedanticRegistry())
+	s := NewFSM(m.cfg, prometheus.NewPedanticRegistry())
 	s.schemaManager.SetReplicationFSM(m.replicationFSM)
 	m.store = &s
 	return m
