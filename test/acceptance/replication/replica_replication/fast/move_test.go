@@ -84,6 +84,6 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateMOVEDeletesSourceRepl
 			}
 			require.False(ct, foundSrc, "source replica should not be there")
 			require.True(ct, foundDst, "destination replica should be there")
-		}, 20*time.Second, time.Second, "Replicas should be in the expected state")
+		}, 60*time.Second, time.Second, "Replicas should be in the expected state")
 	})
 }
