@@ -16,6 +16,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
@@ -39,16 +40,25 @@ type inputPart struct {
 }
 
 // imageTypes are the image formats the API accepts, by the bytes a file of
-// that format starts with. WebP has "WEBP" at offset 8 behind a RIFF header.
+// that format starts with. WebP has "WEBP" at offset 8 behind a RIFF header,
+// which a WAVE file shares.
 var imageTypes = []struct {
 	mime   string
-	offset int
-	magic  []byte
+	magics []magic
 }{
-	{"image/png", 0, []byte("\x89PNG")},
-	{"image/jpeg", 0, []byte("\xff\xd8\xff")},
-	{"image/gif", 0, []byte("GIF8")},
-	{"image/webp", 8, []byte("WEBP")},
+	{"image/png", []magic{{0, []byte("\x89PNG")}}},
+	{"image/jpeg", []magic{{0, []byte("\xff\xd8\xff")}}},
+	{"image/gif", []magic{{0, []byte("GIF8")}}},
+	{"image/webp", []magic{{0, []byte("RIFF")}, {8, []byte("WEBP")}}},
+}
+
+type magic struct {
+	offset int
+	bytes  []byte
+}
+
+func (m magic) matches(decoded []byte) bool {
+	return len(decoded) >= m.offset+len(m.bytes) && bytes.Equal(decoded[m.offset:m.offset+len(m.bytes)], m.bytes)
 }
 
 // magicChars is how many base64 characters hold the bytes that decide the
@@ -80,10 +90,10 @@ func imageMIME(encoded string) (string, error) {
 		}
 	}
 	for _, format := range imageTypes {
-		if len(decoded) >= format.offset+len(format.magic) &&
-			bytes.Equal(decoded[format.offset:format.offset+len(format.magic)], format.magic) {
-			return format.mime, nil
+		if slices.ContainsFunc(format.magics, func(m magic) bool { return !m.matches(decoded) }) {
+			continue
 		}
+		return format.mime, nil
 	}
 	return "", errors.New("not a PNG, JPEG, GIF or WebP image")
 }

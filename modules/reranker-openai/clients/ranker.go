@@ -194,12 +194,12 @@ type judgeRequest struct {
 // judge returns the probability of one document and the input tokens it
 // cost. A 400 and an answer the checks reject name the document's object.
 func (c *client) judge(ctx context.Context, r judgeRequest, document ent.Document) (float64, int64, error) {
-	input, err := newInput(document.Value, r.image)
+	response, err := c.send(ctx, r, document.Value)
 	if err != nil {
-		return 0, 0, fmt.Errorf("object %s: image: %w", document.ID, err)
-	}
-	response, err := c.send(ctx, r, input)
-	if err != nil {
+		var imageErr imageInputError
+		if errors.As(err, &imageErr) {
+			return 0, 0, fmt.Errorf("object %s: %w", document.ID, err)
+		}
 		var rejected rejectedError
 		if errors.As(err, &rejected) && rejected.status == http.StatusBadRequest {
 			return 0, 0, fmt.Errorf("object %s: %w", document.ID, err)
@@ -216,9 +216,16 @@ func (c *client) judge(ctx context.Context, r judgeRequest, document ent.Documen
 	return score, inputTokens(response.Usage), nil
 }
 
-// send builds and sends the request of one document while it holds an
-// in-flight slot, so that the slots also bound the request bodies in memory.
-func (c *client) send(ctx context.Context, r judgeRequest, input any) (decisionResponse, error) {
+// imageInputError is an image that newInput cannot turn into an input.
+type imageInputError struct{ err error }
+
+func (e imageInputError) Error() string { return "image: " + e.err.Error() }
+func (e imageInputError) Unwrap() error { return e.err }
+
+// send builds the input, which copies an image, and sends the request of one
+// document while it holds an in-flight slot, so that the slots bound the
+// copies and the request bodies in memory.
+func (c *client) send(ctx context.Context, r judgeRequest, document string) (decisionResponse, error) {
 	// select picks at random among ready cases, so a free slot could win over
 	// a cancellation.
 	if err := ctx.Err(); err != nil {
@@ -231,6 +238,10 @@ func (c *client) send(ctx context.Context, r judgeRequest, input any) (decisionR
 		return decisionResponse{}, ctx.Err()
 	}
 
+	input, err := newInput(document, r.image)
+	if err != nil {
+		return decisionResponse{}, imageInputError{err}
+	}
 	body, err := json.Marshal(decisionRequest{
 		Model:     r.model,
 		Input:     input,
