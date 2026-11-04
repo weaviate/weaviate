@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -260,4 +261,22 @@ func TestRepairIgnoresUserReadOnly(t *testing.T) {
 	found, err := shard.Exists(ctx, uuidLow)
 	require.NoError(t, err)
 	require.True(t, found, "replicas must not diverge over read-only")
+}
+
+// A reindex writes temp buckets while holding the store; a freeze upload would miss those writes.
+func TestFreezeHoldsAReindexsTempBuckets(t *testing.T) {
+	const class = "FreezeReindex"
+	ctx := context.Background()
+	shard, _, overlay := userReadOnlyIndex(t, class)
+	s := concreteShard(t, shard)
+	temp := "property_probe" + schema.InternalTempSuffix
+	require.NoError(t, s.store.CreateOrLoadBucket(ctx, temp, lsmkv.WithStrategy(lsmkv.StrategyReplace)))
+	put := func() error { return s.store.Bucket(temp).Put([]byte("k"), []byte("v")) }
+
+	require.NoError(t, s.setReindexing(true))
+	require.NoError(t, put(), "a reindex writes its temp buckets")
+
+	overlay.PhaseOf(class, s.name).SetTransferring(true)
+	require.NoError(t, s.syncStorePause())
+	require.ErrorIs(t, put(), storagestate.ErrStatusReadOnly)
 }
