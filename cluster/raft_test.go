@@ -698,6 +698,78 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, after.Physical[shard].BelongsToNodes, "Node-7")
 	})
+
+	t.Run("While its namespace is suspended a copy is refused before any step, and applies once it is active", func(t *testing.T) {
+		const nsClass = "alpha:Books"
+		namespaces := m.cfg.NamespacesController
+		require.NoError(t, namespaces.Create(command.Namespace{Name: "alpha", HomeNodes: []string{sourceNode}}, nsCreateIndex))
+		_, err := r.AddClass(ctx, &models.Class{Class: nsClass}, &sharding.State{
+			PartitioningEnabled: true,
+			Physical: map[string]sharding.Physical{
+				shard:      {Name: shard, BelongsToNodes: []string{sourceNode, removeNode}},
+				otherShard: {Name: otherShard, BelongsToNodes: []string{sourceNode}},
+			},
+		})
+		require.NoError(t, err)
+		require.NoError(t, namespaces.ChangeState("alpha", command.NamespaceStateSuspended,
+			usecasesNamespaces.StateChange{AppliedIndex: nsFlipIndex}))
+
+		// The removal on the copying shard runs ahead of its copy, so a refusal
+		// that comes only from the copy's own command leaves the removal applied.
+		plan := command.ReplicationScalePlan{
+			Collection: nsClass,
+			ShardReplicationScaleActions: map[string]command.ShardReplicationScaleActions{
+				shard: {
+					AddNodes:    map[string]string{destNode: sourceNode},
+					RemoveNodes: map[string]struct{}{removeNode: {}},
+				},
+				otherShard: {AddNodes: map[string]string{destNode: ""}},
+			},
+		}
+		_, err = r.ApplyReplicationScalePlan(ctx, plan)
+		require.ErrorIs(t, err, usecasesNamespaces.ErrNamespaceSuspended)
+
+		after, err := readShardingState(r.SchemaReader(), nsClass)
+		require.NoError(t, err)
+		require.ElementsMatch(t, []string{sourceNode, removeNode}, after.Physical[shard].BelongsToNodes)
+		require.ElementsMatch(t, []string{sourceNode}, after.Physical[otherShard].BelongsToNodes)
+
+		require.NoError(t, namespaces.ChangeState("alpha", command.NamespaceStateActive,
+			usecasesNamespaces.StateChange{AppliedIndex: nsFlipIndex + 1}))
+		uuids, err := r.ApplyReplicationScalePlan(ctx, plan)
+		require.NoError(t, err)
+		require.Len(t, uuids, 1)
+	})
+
+	t.Run("While its namespace is being deleted a copy is refused before any step", func(t *testing.T) {
+		const nsClass = "beta:Books"
+		namespaces := m.cfg.NamespacesController
+		require.NoError(t, namespaces.Create(command.Namespace{Name: "beta", HomeNodes: []string{sourceNode}}, nsCreateIndex))
+		_, err := r.AddClass(ctx, &models.Class{Class: nsClass}, &sharding.State{
+			PartitioningEnabled: true,
+			Physical: map[string]sharding.Physical{
+				shard: {Name: shard, BelongsToNodes: []string{sourceNode, removeNode}},
+			},
+		})
+		require.NoError(t, err)
+		require.NoError(t, namespaces.ChangeState("beta", command.NamespaceStateDeleting,
+			usecasesNamespaces.StateChange{AppliedIndex: nsFlipIndex}))
+
+		_, err = r.ApplyReplicationScalePlan(ctx, command.ReplicationScalePlan{
+			Collection: nsClass,
+			ShardReplicationScaleActions: map[string]command.ShardReplicationScaleActions{
+				shard: {
+					AddNodes:    map[string]string{destNode: sourceNode},
+					RemoveNodes: map[string]struct{}{removeNode: {}},
+				},
+			},
+		})
+		require.ErrorIs(t, err, usecasesNamespaces.ErrNamespaceDeleting)
+
+		after, err := readShardingState(r.SchemaReader(), nsClass)
+		require.NoError(t, err)
+		require.ElementsMatch(t, []string{sourceNode, removeNode}, after.Physical[shard].BelongsToNodes)
+	})
 }
 
 // TestClusterID_CommittedByRealRaftLeader drives cluster-id commit through a

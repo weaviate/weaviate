@@ -5590,6 +5590,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "422": {
+            "description": "The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -18532,6 +18538,12 @@ func init() {
           },
           "409": {
             "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

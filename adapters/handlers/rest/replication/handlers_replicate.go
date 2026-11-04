@@ -55,7 +55,7 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 		replicationType = *params.Body.Type
 	}
 	if err := h.replicationManager.ReplicationReplicateReplica(params.HTTPRequest.Context(), uuid, *params.Body.SourceNode, collection, *params.Body.Shard, *params.Body.TargetNode, replicationType); err != nil {
-		if errors.Is(err, replicationTypes.ErrInvalidRequest) || cerrors.NamespaceErrRendersUnprocessable(err) {
+		if isUnprocessableMovement(err) {
 			return replication.NewReplicateUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
 		if errors.Is(err, replicationTypes.ErrMovementBlockedByTask) {
@@ -76,6 +76,13 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	}).Info("replicate operation registered")
 
 	return h.handleReplicationReplicateResponse(uuid)
+}
+
+// isUnprocessableMovement reports whether err refuses a replica movement for
+// the values the request names, or because the collection's namespace is
+// suspended, deleting or gone.
+func isUnprocessableMovement(err error) bool {
+	return errors.Is(err, replicationTypes.ErrInvalidRequest) || cerrors.NamespaceErrRendersUnprocessable(err)
 }
 
 func (h *replicationHandler) getReplicationDetailsByReplicationId(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
@@ -600,6 +607,8 @@ func (h *replicationHandler) applyReplicationScalePlan(params replication.ApplyR
 		return replication.NewApplyReplicationScalePlanNotFound()
 	} else if errors.Is(err, replicationTypes.ErrMovementBlockedByTask) {
 		return replication.NewApplyReplicationScalePlanConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	} else if isUnprocessableMovement(err) {
+		return replication.NewApplyReplicationScalePlanUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	} else if err != nil {
 		return replication.NewApplyReplicationScalePlanInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}

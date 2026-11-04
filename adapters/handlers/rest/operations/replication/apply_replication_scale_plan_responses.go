@@ -274,6 +274,51 @@ func (o *ApplyReplicationScalePlanConflict) WriteResponse(rw http.ResponseWriter
 	}
 }
 
+// ApplyReplicationScalePlanUnprocessableEntityCode is the HTTP code returned for type ApplyReplicationScalePlanUnprocessableEntity
+const ApplyReplicationScalePlanUnprocessableEntityCode int = 422
+
+/*
+ApplyReplicationScalePlanUnprocessableEntity The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.
+
+swagger:response applyReplicationScalePlanUnprocessableEntity
+*/
+type ApplyReplicationScalePlanUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewApplyReplicationScalePlanUnprocessableEntity creates ApplyReplicationScalePlanUnprocessableEntity with default headers values
+func NewApplyReplicationScalePlanUnprocessableEntity() *ApplyReplicationScalePlanUnprocessableEntity {
+
+	return &ApplyReplicationScalePlanUnprocessableEntity{}
+}
+
+// WithPayload adds the payload to the apply replication scale plan unprocessable entity response
+func (o *ApplyReplicationScalePlanUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *ApplyReplicationScalePlanUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the apply replication scale plan unprocessable entity response
+func (o *ApplyReplicationScalePlanUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ApplyReplicationScalePlanUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ApplyReplicationScalePlanInternalServerErrorCode is the HTTP code returned for type ApplyReplicationScalePlanInternalServerError
 const ApplyReplicationScalePlanInternalServerErrorCode int = 500
 

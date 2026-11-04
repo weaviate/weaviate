@@ -70,6 +70,12 @@ func (o *ApplyReplicationScalePlanReader) ReadResponse(response runtime.ClientRe
 			return nil, err
 		}
 		return nil, result
+	case 422:
+		result := NewApplyReplicationScalePlanUnprocessableEntity()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewApplyReplicationScalePlanInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -472,6 +478,74 @@ func (o *ApplyReplicationScalePlanConflict) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ApplyReplicationScalePlanConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewApplyReplicationScalePlanUnprocessableEntity creates a ApplyReplicationScalePlanUnprocessableEntity with default headers values
+func NewApplyReplicationScalePlanUnprocessableEntity() *ApplyReplicationScalePlanUnprocessableEntity {
+	return &ApplyReplicationScalePlanUnprocessableEntity{}
+}
+
+/*
+ApplyReplicationScalePlanUnprocessableEntity describes a response with status code 422, with default header values.
+
+The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.
+*/
+type ApplyReplicationScalePlanUnprocessableEntity struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this apply replication scale plan unprocessable entity response has a 2xx status code
+func (o *ApplyReplicationScalePlanUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this apply replication scale plan unprocessable entity response has a 3xx status code
+func (o *ApplyReplicationScalePlanUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this apply replication scale plan unprocessable entity response has a 4xx status code
+func (o *ApplyReplicationScalePlanUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this apply replication scale plan unprocessable entity response has a 5xx status code
+func (o *ApplyReplicationScalePlanUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this apply replication scale plan unprocessable entity response a status code equal to that given
+func (o *ApplyReplicationScalePlanUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the apply replication scale plan unprocessable entity response
+func (o *ApplyReplicationScalePlanUnprocessableEntity) Code() int {
+	return 422
+}
+
+func (o *ApplyReplicationScalePlanUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[POST /replication/scale][%d] applyReplicationScalePlanUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *ApplyReplicationScalePlanUnprocessableEntity) String() string {
+	return fmt.Sprintf("[POST /replication/scale][%d] applyReplicationScalePlanUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *ApplyReplicationScalePlanUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ApplyReplicationScalePlanUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

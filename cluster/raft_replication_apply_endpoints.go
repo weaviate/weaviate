@@ -24,6 +24,8 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.ReplicationScalePlan) (opsUUIDs []strfmt.UUID, err error) {
@@ -72,6 +74,11 @@ func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.Repl
 		return nil, fmt.Errorf("collection %q: %w", scalePlan.Collection, replicationTypes.ErrNotFound)
 	}
 	if copiesReplica {
+		// admitPropose runs both checks on each copy too, but only after the
+		// removals and empty additions the loop reaches first have committed.
+		if err := usecasesNamespaces.RequireActive(s.store.namespaceManager, namespacing.NamespaceFromQualified(scalePlan.Collection)); err != nil {
+			return nil, fmt.Errorf("replica movement of %q: %w", scalePlan.Collection, err)
+		}
 		if err := s.store.admitTaskOrMovement(api.ApplyRequest_TYPE_REPLICATION_REPLICATE, scalePlan.Collection); err != nil {
 			return nil, err
 		}

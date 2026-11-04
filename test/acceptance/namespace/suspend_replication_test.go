@@ -133,6 +133,23 @@ func registerMovement(t *testing.T, qualifiedClass, shardName, sourceNode, targe
 	return *resp.Payload.ID, nil
 }
 
+// applyScalePlan applies a plan that adds replicas of one shard. Each addNodes
+// entry maps a new node to the node it copies from, or to "" for an empty one.
+func applyScalePlan(t *testing.T, qualifiedClass, shardName string, addNodes map[string]string) (*replication.ApplyReplicationScalePlanOK, error) {
+	t.Helper()
+
+	return helper.Client(t).Replication.ApplyReplicationScalePlan(
+		replication.NewApplyReplicationScalePlanParams().WithBody(&models.ReplicationScalePlan{
+			PlanID:     strfmt.UUID("6f1c9d84-2a70-4c1e-8b53-9e0d17a4c6b2"),
+			Collection: qualifiedClass,
+			ShardScaleActions: map[string]models.ReplicationScalePlanShardScaleActionsAnon{
+				shardName: {AddNodes: addNodes, RemoveNodes: []string{}},
+			},
+		}),
+		helper.CreateAuth(adminKey),
+	)
+}
+
 // startCopyMovement registers a COPY of one shard onto targetNode and returns the
 // op id.
 func startCopyMovement(t *testing.T, qualifiedClass, shardName, sourceNode, targetNode string) strfmt.UUID {
@@ -164,7 +181,6 @@ func TestNamespaces_SuspendAcceptsEmptyReplicaAdd(t *testing.T) {
 		homeNode   = docker.Weaviate1
 		targetNode = docker.Weaviate0
 		class      = "EmptyReplicaShard"
-		planID     = strfmt.UUID("6f1c9d84-2a70-4c1e-8b53-9e0d17a4c6b2")
 	)
 
 	ns, userKey := newNamespaceOnNode(t, homeNode)
@@ -179,19 +195,7 @@ func TestNamespaces_SuspendAcceptsEmptyReplicaAdd(t *testing.T) {
 	helper.SuspendNamespace(t, ns, adminKey)
 	t.Cleanup(func() { helper.ResumeNamespace(t, ns, adminKey) })
 
-	resp, err := helper.Client(t).Replication.ApplyReplicationScalePlan(
-		replication.NewApplyReplicationScalePlanParams().WithBody(&models.ReplicationScalePlan{
-			PlanID:     planID,
-			Collection: qualified,
-			ShardScaleActions: map[string]models.ReplicationScalePlanShardScaleActionsAnon{
-				shardName: {
-					AddNodes:    map[string]string{targetNode: ""},
-					RemoveNodes: []string{},
-				},
-			},
-		}),
-		helper.CreateAuth(adminKey),
-	)
+	resp, err := applyScalePlan(t, qualified, shardName, map[string]string{targetNode: ""})
 	require.NoError(t, err, "a suspended namespace must not fail the scale plan")
 	require.NotNil(t, resp.Payload)
 	require.Empty(t, resp.Payload.OperationIds,
@@ -252,6 +256,12 @@ func TestNamespaces_SuspendRefusesReplicaMovement(t *testing.T) {
 	t.Run("the registration is refused with 422", func(t *testing.T) {
 		_, err := registerMovement(t, qualified, shardName, sourceNode, targetNode, api.COPY.String())
 		var unprocessable *replication.ReplicateUnprocessableEntity
+		require.ErrorAs(t, err, &unprocessable)
+	})
+
+	t.Run("a scale plan copying the shard is refused with 422", func(t *testing.T) {
+		_, err := applyScalePlan(t, qualified, shardName, map[string]string{targetNode: sourceNode})
+		var unprocessable *replication.ApplyReplicationScalePlanUnprocessableEntity
 		require.ErrorAs(t, err, &unprocessable)
 	})
 
