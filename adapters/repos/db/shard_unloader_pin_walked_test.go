@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // loadRecorder lists the wrappers that attempted a load, so a second open is seen even when it fails.
@@ -296,6 +298,63 @@ func TestPinWhileUnloadingHelper(t *testing.T) {
 
 		require.Nil(t, shard)
 	})
+}
+
+type mappingsRefusedChecker struct{ memwatch.AllocChecker }
+
+func (mappingsRefusedChecker) CheckMappingAndReserve(int64, int) error {
+	return enterrors.ErrNotEnoughMappings
+}
+
+// The walks replace a mustLoad that skips memwatch, and only the filter migration's caller would notice a refusal, fatally.
+func TestPinWhileUnloadingLoadsThroughMemoryPressure(t *testing.T) {
+	for _, site := range pinWalkSites() {
+		t.Run(site.name, func(t *testing.T) {
+			f := newUnloadFixture(t)
+			site.setup(t, f)
+			if f.lazy.isLoaded() {
+				f.coldThenHot(t)
+			}
+			resident, ok := f.index.shards.Load(f.name).(*LazyLoadShard)
+			require.True(t, ok)
+			require.False(t, resident.isLoaded())
+			resident.memMonitor = mappingsRefusedChecker{resident.memMonitor}
+
+			require.NoError(t, site.run(f))
+
+			require.True(t, resident.isLoaded())
+			require.NoError(t, resident.Shutdown(testCtx()))
+			_, _, err := resident.loadIfCold(testCtx())
+			require.ErrorIs(t, err, enterrors.ErrNotEnoughMappings, "everything but the walk's pin still honours memwatch")
+		})
+	}
+}
+
+func TestInvertedReindexLogsAPinItCouldNotTake(t *testing.T) {
+	f := newUnloadFixture(t)
+	f.put(t)
+	logged := make(errorMessages, 8)
+	logger, ok := f.migrator.logger.(*logrus.Logger)
+	require.True(t, ok)
+	logger.AddHook(logged)
+	s := f.lazy.currentShard()
+	f.transitionAtPin(1, func() {
+		replaceLegacyVectorIndex(t, s, func(v VectorIndex) VectorIndex { return failingShutdownVectorIndex{v} })
+		assert.Equal(t, UnloadOutcomeTorn, f.lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
+	})
+
+	require.Error(t, f.migrator.InvertedReindex(testCtx(), map[string]any{
+		"ShardInvertedReindexTask_SpecifiedIndex": map[string][]string{f.index.Config.ClassName.String(): {"warm"}},
+	}))
+
+	close(logged)
+	var messages []string
+	for msg := range logged {
+		messages = append(messages, msg)
+	}
+	require.Condition(t, func() bool {
+		return slices.ContainsFunc(messages, func(m string) bool { return strings.Contains(m, "failed pinning shard") })
+	}, "configure_api drops this error, so the log line is all an operator gets: %v", messages)
 }
 
 func TestWalkSkipsPinRefusal(t *testing.T) {

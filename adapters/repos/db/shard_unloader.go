@@ -447,12 +447,22 @@ func (i *Index) pinWhileUnloading(name string, walked ShardLike) (shard ShardLik
 		return nil, func() {}, err
 	}
 	defer i.exitRead()
-	shard, release, err = i.pinResidentShard(name, false)
-	if err != nil {
-		return nil, func() {}, err
-	}
+	// One create lock across lookup, load and pin: a teardown in between would leave the load an orphan.
+	i.shardCreateLocks.RLock(name)
+	defer i.shardCreateLocks.RUnlock(name)
+	shard = i.shards.Load(name)
 	if shard == nil {
 		return nil, func() {}, fmt.Errorf("shard %q: %w", name, enterrors.ErrShardNotRegistered)
+	}
+	// Skips memwatch like the mustLoad the walk replaces, which no refusal could fail.
+	if lazy, ok := asLazyLoadShard(shard); ok {
+		if _, _, err := lazy.load(context.Background(), loadOpts{skipMemoryCheck: true}); err != nil {
+			return nil, func() {}, fmt.Errorf("shard %q: %w", name, err)
+		}
+	}
+	release, err = shard.preventShutdown()
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("shard %q, no shutdown: %w", name, err)
 	}
 	return shard, release, nil
 }
