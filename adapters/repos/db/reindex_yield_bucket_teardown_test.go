@@ -287,11 +287,12 @@ func TestCancelledStagedBucketCloseDoesNotAbandonIt(t *testing.T) {
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
 
-	require.NoError(t, f.hot.ShutdownStagedBucketsAt(cancelled, []string{staged}))
+	closeErr := f.hot.ShutdownStagedBucketsAt(cancelled, []string{staged})
 
 	require.Nil(t, f.hot.store.Bucket(staged))
 	require.NoError(t, task.loadIngestBuckets(ctx, f.idx.logger, f.hot, []string{pinSweepProp}, true, true),
 		"the staged directory must stay reopenable")
+	require.NoError(t, closeErr)
 }
 
 // The after-load hook only logs a failure, and an unloader's reload then opens the same directories.
