@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -133,33 +134,65 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 	})
 
 	t.Run("object without class", func(t *testing.T) {
-		reset()
-		objectFinder.On("BatchPutObjects", mock.Anything).Return(nil).Once()
-		objects := []*models.Object{
+		ids := []strfmt.UUID{"8d5a3aa2-3c8c-4f4e-9a3c-7d6f2bfa0c11", "8d5a3aa2-3c8c-4f4e-9a3c-7d6f2bfa0c12"}
+		namespaced := &models.Principal{Username: "u", Namespace: "customer1"}
+		tests := []struct {
+			name          string
+			principal     *models.Principal
+			nsEnabled     bool
+			class         string
+			secondClass   string
+			denyAll       bool
+			wantActivated map[string][]string
+		}{
+			{name: "namespaces off", class: "Foo", secondClass: "Foo", wantActivated: map[string][]string{"Foo": {"t1"}}},
 			{
-				Class:  "",
-				Vector: []float32{0.1, 0.1, 0.1111},
+				name: "namespaced caller", principal: namespaced, nsEnabled: true, class: "customer1:Foo", secondClass: "Foo",
+				wantActivated: map[string][]string{"customer1:Foo": {"t1"}},
 			},
-			{
-				Class:  "Foo",
-				Vector: []float32{0.2, 0.2, 0.2222},
-			},
+			{name: "every object, caller denied everything", class: "Foo", denyAll: true},
 		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				classes := []*models.Class{{
+					Class: tt.class, Vectorizer: config.VectorizerModuleNone, VectorIndexConfig: hnsw.UserConfig{},
+					MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				}}
+				var sm *fakeSchemaManager
+				_, b, repo, mp, authz := newNSManagers(t, classes, tt.nsEnabled, func(_ *config.WeaviateConfig, s *fakeSchemaManager) { sm = s })
+				// Deny the every-collection resource, as RBAC does for a caller scoped to named collections.
+				authz.Deny(authorization.ShardsData("", "")...)
+				if tt.denyAll {
+					authz.SetErr(errors.New("forbidden"))
+				}
+				repo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+				mp.On("BatchUpdateVector").Return(nil, nil)
 
-		for range objects {
-			modulesProvider.On("BatchUpdateVector").
-				Return(nil, nil)
+				objs := []*models.Object{
+					{Class: "", ID: ids[0], Tenant: "t2", Vector: []float32{0.1, 0.1, 0.1111}},
+					{Class: tt.secondClass, ID: ids[1], Tenant: "t1", Vector: []float32{0.2, 0.2, 0.2222}},
+				}
+				resp, err := b.AddObjects(ctx, tt.principal, objs, []*string{}, nil)
+				require.NoError(t, err)
+				require.Len(t, resp, 2)
+
+				for i, entry := range resp {
+					if objs[i].Class != "" {
+						require.NoError(t, entry.Err)
+						require.Equal(t, tt.class, entry.Object.Class)
+						continue
+					}
+					require.ErrorIs(t, entry.Err, ErrEmptyClass)
+					require.Same(t, objs[i], entry.Object)
+					require.Equal(t, ids[i], entry.UUID)
+				}
+				if tt.denyAll {
+					require.Empty(t, authz.Calls())
+				}
+				// BatchPutObjects writes no failed entry, so its tenant stays inactive.
+				require.Equal(t, tt.wantActivated, sm.ActivatedTenants)
+			})
 		}
-
-		resp, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
-		repoCalledWithObjects := objectFinder.Calls[0].Arguments[0].(BatchObjects)
-		assert.Nil(t, err)
-		assert.NotNil(t, resp)
-		require.Len(t, repoCalledWithObjects, 2)
-
-		require.NotNil(t, resp[0].Err)
-		require.Equal(t, resp[0].Err.Error(), "object has an empty class")
-		require.Nil(t, resp[1].Err)
 	})
 
 	t.Run("with objects without IDs and nonexistent class and auto schema enabled", func(t *testing.T) {
