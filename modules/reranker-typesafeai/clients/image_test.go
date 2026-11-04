@@ -75,6 +75,12 @@ func TestCheckImage(t *testing.T) {
 	}
 }
 
+func TestAssetsOfNamesTheObjectOfAnImageItCannotRead(t *testing.T) {
+	_, _, err := assetsOf(documentsOf(encodedImage(t, "png", 300, 300), "!!!!"))
+
+	require.EqualError(t, err, "object 00000000-0000-0000-0000-000000000001: image: not base64")
+}
+
 func encodedImage(t *testing.T, format string, width, height int) string {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, width, height))

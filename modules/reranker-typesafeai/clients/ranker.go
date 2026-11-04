@@ -128,9 +128,9 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	eg.SetLimit(cap(c.inFlight))
 	for b, batch := range requestBatches {
 		eg.Go(func() error {
-			batchDocuments := make([]string, len(batch))
+			batchDocuments := make([]ent.Document, len(batch))
 			for j, index := range batch {
-				batchDocuments[j] = documents[index].Value
+				batchDocuments[j] = documents[index]
 			}
 			probabilities, usage, err := c.judge(ctx, request, batchDocuments)
 			if err != nil {
@@ -220,7 +220,8 @@ type judgeRequest struct {
 
 // judge returns the probability of every document, in order. A request the
 // API rejects for its size is sent again as two halves, down to one document.
-func (c *client) judge(ctx context.Context, r judgeRequest, documents []string) ([]float64, typesafeaiUsage, error) {
+// A 400 to a request of one document names its object.
+func (c *client) judge(ctx context.Context, r judgeRequest, documents []ent.Document) ([]float64, typesafeaiUsage, error) {
 	response, tooLarge, err := c.post(ctx, r, documents)
 	if tooLarge && len(documents) > 1 {
 		half := len(documents) / 2
@@ -235,6 +236,10 @@ func (c *client) judge(ctx context.Context, r judgeRequest, documents []string) 
 		return append(first, second...), typesafeaiUsage{requests: 1}.add(firstUsage).add(secondUsage), nil
 	}
 	if err != nil {
+		var rejected apiError
+		if len(documents) == 1 && errors.As(err, &rejected) && rejected.status == http.StatusBadRequest {
+			return nil, typesafeaiUsage{}, fmt.Errorf("object %s: %w", documents[0].ID, err)
+		}
 		return nil, typesafeaiUsage{}, err
 	}
 	values, err := response.values(len(documents))
@@ -248,7 +253,7 @@ func (c *client) judge(ctx context.Context, r judgeRequest, documents []string) 
 
 // post builds and sends the request of one batch while it holds an in-flight
 // slot, so that the slots also bound the request bodies in memory.
-func (c *client) post(ctx context.Context, r judgeRequest, documents []string) (typesafeaiResponse, bool, error) {
+func (c *client) post(ctx context.Context, r judgeRequest, documents []ent.Document) (typesafeaiResponse, bool, error) {
 	select {
 	case c.inFlight <- struct{}{}:
 		defer func() { <-c.inFlight }()
@@ -290,8 +295,7 @@ func (c *client) send(ctx context.Context, url, apiKey string, body []byte, imag
 	if res.StatusCode != http.StatusOK {
 		errorBody, _ := io.ReadAll(io.LimitReader(res.Body, maxErrorBodyBytes))
 		tooLarge = res.StatusCode == http.StatusBadRequest && bytes.Contains(errorBody, []byte(tooLargeError))
-		return typesafeaiResponse{}, tooLarge, fmt.Errorf("connection to TypeSafe AI API failed with status %d: %s",
-			res.StatusCode, errorBody)
+		return typesafeaiResponse{}, tooLarge, apiError{status: res.StatusCode, message: string(errorBody)}
 	}
 
 	responseBody, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBodyBytes+1))
@@ -311,6 +315,16 @@ func (c *client) send(ctx context.Context, url, apiKey string, body []byte, imag
 			responseBody[:min(len(responseBody), maxErrorBodyBytes)])
 	}
 	return response, false, nil
+}
+
+// apiError is a status other than 200.
+type apiError struct {
+	status  int
+	message string
+}
+
+func (e apiError) Error() string {
+	return fmt.Sprintf("connection to TypeSafe AI API failed with status %d: %s", e.status, e.message)
 }
 
 // endpoint returns the URL and the key of the requests. A base URL from the
@@ -359,14 +373,19 @@ type typesafeaiQuestion struct {
 // documents become a map with one question per document, which names the
 // document it is about. An image is an asset and the state holds its
 // reference.
-func newRequest(r judgeRequest, documents []string) (typesafeaiRequest, error) {
-	values := documents
+func newRequest(r judgeRequest, documents []ent.Document) (typesafeaiRequest, error) {
+	var values []string
 	var assets map[string]imageAsset
 	if r.image {
 		var err error
 		assets, values, err = assetsOf(documents)
 		if err != nil {
 			return typesafeaiRequest{}, err
+		}
+	} else {
+		values = make([]string, len(documents))
+		for i, document := range documents {
+			values[i] = document.Value
 		}
 	}
 	if len(documents) == 1 {
