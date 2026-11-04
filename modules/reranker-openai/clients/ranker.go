@@ -435,7 +435,7 @@ func (r decisionResponse) score(name string) (float64, error) {
 	}
 	answer := r.Answers[0]
 	if answer.Name != name {
-		return 0, fmt.Errorf("OpenAI answer is for %q, want %q", answer.Name, name)
+		return 0, fmt.Errorf("OpenAI answer is for %q, want %q", truncate(answer.Name), name)
 	}
 	switch answer.Type {
 	case refusalType:
@@ -449,6 +449,6 @@ func (r decisionResponse) score(name string) (float64, error) {
 		}
 		return *answer.Probability, nil
 	default:
-		return 0, fmt.Errorf("OpenAI answer has type %q, want %q", answer.Type, predicateType)
+		return 0, fmt.Errorf("OpenAI answer has type %q, want %q", truncate(answer.Type), predicateType)
 	}
 }
