@@ -21,7 +21,10 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-const fakeOrganization = "fake-organization"
+const (
+	fakeAPIKey       = "fake"
+	fakeOrganization = "fake-organization"
+)
 
 func TestRerankerOpenAI(t *testing.T) {
 	apiKey := os.Getenv("OPENAI_APIKEY")
