@@ -153,35 +153,33 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 
 		photos := []string{grayPNG(t, 300, 0x40), grayPNG(t, 300, 0x80), grayPNG(t, 300, 0xc0)}
 		oversized := oversizedImage(t)
-		unauthorized := fakeReply{
-			status: http.StatusUnauthorized,
-			body:   `{"error":{"message":"Incorrect API key provided: sk-fake-leaked-key"}}`,
-		}
+		allProbabilities := map[string]float64{changeEmail: 0.2, noRefund: 0.9, chargedTwice: 0.5}
 		tests := []struct {
 			name          string
 			photos        []string
 			probabilities map[string]float64
 			refusals      map[string]bool
-			failure       *fakeReply
+			failures      map[string]fakeReply
 			property      string
 			query         *string
 			wantIDs       []string
 			wantScores    []float64
 			wantInputs    []any
-			// wantRequests is the least and the most requests received.
-			wantRequests [2]int
-			wantErr      []string
-			wantNotInErr []string
+			minRequests   int
+			maxRequests   int
+			wantErr       []string
+			wantNotInErr  []string
 		}{
 			{
 				name:          "the page is sorted by the probabilities",
-				probabilities: map[string]float64{changeEmail: 0.2, noRefund: 0.9, chargedTwice: 0.5},
+				probabilities: allProbabilities,
 				property:      "text",
 				query:         new(churn),
 				wantIDs:       []string{noRefundID, chargedTwiceID, changeEmailID},
 				wantScores:    []float64{0.9, 0.5, 0.2},
 				wantInputs:    []any{changeEmail, noRefund, chargedTwice},
-				wantRequests:  [2]int{3, 3},
+				minRequests:   3,
+				maxRequests:   3,
 			},
 			{
 				name:          "an image request carries the photo as a data URL",
@@ -192,61 +190,74 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 				wantIDs:       []string{noRefundID, chargedTwiceID, changeEmailID},
 				wantScores:    []float64{0.9, 0.5, 0.2},
 				wantInputs:    []any{imageInput(photos[0]), imageInput(photos[1]), imageInput(photos[2])},
-				wantRequests:  [2]int{3, 3},
+				minRequests:   3,
+				maxRequests:   3,
 			},
 			{
-				name:         "a 429 fails the query without retries",
-				failure:      &fakeReply{status: http.StatusTooManyRequests, body: `{"error":{"message":"rate limited"}}`},
-				property:     "text",
-				query:        new(churn),
-				wantErr:      []string{"connection to OpenAI API failed with status 429: rate limited"},
-				wantRequests: [2]int{1, 3},
+				name:          "a 429 fails the query without retries",
+				probabilities: allProbabilities,
+				failures:      map[string]fakeReply{noRefund: {status: http.StatusTooManyRequests, body: `{"error":{"message":"rate limited"}}`}},
+				property:      "text",
+				query:         new(churn),
+				wantErr:       []string{"connection to OpenAI API failed with status 429: rate limited"},
+				minRequests:   1,
+				maxRequests:   3,
 			},
 			{
-				name:         "a 500 fails the query without retries",
-				failure:      &fakeReply{status: http.StatusInternalServerError, body: `{"error":{"message":"internal error"}}`},
-				property:     "text",
-				query:        new(churn),
-				wantErr:      []string{"connection to OpenAI API failed with status 500: internal error"},
-				wantRequests: [2]int{1, 3},
+				name:          "a 500 fails the query without retries",
+				probabilities: allProbabilities,
+				failures:      map[string]fakeReply{noRefund: {status: http.StatusInternalServerError, body: `{"error":{"message":"internal error"}}`}},
+				property:      "text",
+				query:         new(churn),
+				wantErr:       []string{"connection to OpenAI API failed with status 500: internal error"},
+				minRequests:   1,
+				maxRequests:   3,
 			},
 			{
-				name:         "a 401 does not quote the reply",
-				failure:      &unauthorized,
+				name:          "a 401 does not quote the reply",
+				probabilities: allProbabilities,
+				failures: map[string]fakeReply{noRefund: {
+					status: http.StatusUnauthorized,
+					body:   `{"error":{"message":"Incorrect API key provided: sk-fake-leaked-key"}}`,
+				}},
 				property:     "text",
 				query:        new(churn),
 				wantErr:      []string{"OpenAI rejected the API key (status 401)"},
 				wantNotInErr: []string{"sk-fake-leaked-key", "Incorrect API key"},
-				wantRequests: [2]int{1, 3},
+				minRequests:  1,
+				maxRequests:  3,
 			},
 			{
 				name:          "a refusal fails the query and names its object",
-				probabilities: map[string]float64{changeEmail: 0.2, noRefund: 0.9, chargedTwice: 0.5},
+				probabilities: allProbabilities,
 				refusals:      map[string]bool{noRefund: true},
 				property:      "text",
 				query:         new(churn),
 				wantErr:       []string{noRefundID, `OpenAI refused to judge the condition "` + churn + `"`},
 				wantNotInErr:  []string{changeEmailID, chargedTwiceID},
-				wantRequests:  [2]int{1, 3},
+				minRequests:   1,
+				maxRequests:   3,
 			},
 			{
-				name:         "a missing query fails before any request",
-				property:     "text",
-				wantErr:      []string{"rerank.query", "reranker-openai"},
-				wantRequests: [2]int{0, 0},
+				name:        "a missing query fails before any request",
+				property:    "text",
+				wantErr:     []string{"rerank.query is required by reranker-openai"},
+				minRequests: 0,
+				maxRequests: 0,
 			},
 			{
-				name:         "an image above 20 MiB fails before any request",
-				photos:       []string{oversized},
-				property:     "photo",
-				query:        new(churn),
-				wantErr:      []string{changeEmailID, "exceed the limit of 20 MiB per image"},
-				wantRequests: [2]int{0, 0},
+				name:        "an image above 20 MiB fails before any request",
+				photos:      []string{oversized},
+				property:    "photo",
+				query:       new(churn),
+				wantErr:     []string{changeEmailID, "exceed the limit of 20 MiB per image"},
+				minRequests: 0,
+				maxRequests: 0,
 			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				fake.reset(tt.probabilities, tt.refusals, tt.failure)
+				fake.reset(tt.probabilities, tt.refusals, tt.failures)
 				createTickets(t, map[string]any{"baseURL": fake.baseURL()}, tickets(tt.photos...))
 
 				reply, err := grpcClient.Search(context.Background(), rerankRequest(tt.property, tt.query))
@@ -265,16 +276,21 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 					assert.Equal(t, tt.wantIDs, resultIDs(reply.Results))
 					assert.Equal(t, tt.wantScores, rerankScores(reply.Results))
 				}
-				assert.GreaterOrEqual(t, len(requests), tt.wantRequests[0])
-				assert.LessOrEqual(t, len(requests), tt.wantRequests[1])
+				assert.GreaterOrEqual(t, len(requests), tt.minRequests)
+				assert.LessOrEqual(t, len(requests), tt.maxRequests)
 				inputs := make([]any, len(requests))
+				sent := map[string]int{}
 				for i, r := range requests {
+					sent[documentOf(r.body.Input)]++
 					assert.Equal(t, "/v1/decisions", r.path)
 					assert.Equal(t, "Bearer "+fakeAPIKey, r.authorization)
 					assert.Equal(t, fakeOrganization, r.organization)
 					assert.Equal(t, "gpt-6-luna", r.body.Model)
 					assert.Equal(t, []wireQuestion{{Type: "predicate", Name: "condition", Instructions: churn}}, r.body.Questions)
 					inputs[i] = r.body.Input
+				}
+				for document, n := range sent {
+					assert.Equalf(t, 1, n, "document %.40q sent %d times", document, n)
 				}
 				if tt.wantInputs != nil {
 					assert.ElementsMatch(t, tt.wantInputs, inputs)
