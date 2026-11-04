@@ -41,6 +41,9 @@ type fakeShard struct {
 	queueBusy  atomic.Bool
 	block      atomic.Pointer[chan struct{}]
 	panics     atomic.Bool
+	retryAt    [2]atomic.Uint32
+	// refuse, when set, is the correctness refusal every TryUnload answers.
+	refuse atomic.Pointer[db.UnloadOutcome]
 
 	mu   sync.Mutex
 	reqs []db.UnloadRequest
@@ -63,6 +66,14 @@ func (f *fakeShard) UnloadedAt() time.Time {
 }
 
 func (f *fakeShard) Namespace() string { return f.namespace }
+
+func (f *fakeShard) BackgroundRetryAt() uint32 { return f.retryAt[0].Load() }
+
+func (f *fakeShard) SetBackgroundRetryAt(at uint32) { f.retryAt[0].Store(at) }
+
+func (f *fakeShard) MakeRoomRetryAt() uint32 { return f.retryAt[1].Load() }
+
+func (f *fakeShard) SetMakeRoomRetryAt(at uint32) { f.retryAt[1].Store(at) }
 
 func (f *fakeShard) UnloadCandidate() bool {
 	return f.loadedAt.Load() != 0 && !f.pending.Load() && !f.inUse.Load()
@@ -89,6 +100,9 @@ func (f *fakeShard) TryUnload(_ context.Context, req db.UnloadRequest) db.Unload
 	if f.inUse.Load() {
 		return db.UnloadOutcomeInUse
 	}
+	if o := f.refuse.Load(); o != nil {
+		return *o
+	}
 	if req.Mode == db.UnloadModeBackground {
 		if req.MinResidency > 0 && time.Since(f.LoadedAt()) < req.MinResidency {
 			return db.UnloadOutcomeMinResidency
@@ -111,6 +125,8 @@ func (f *fakeShard) requests() []db.UnloadRequest {
 	defer f.mu.Unlock()
 	return append([]db.UnloadRequest(nil), f.reqs...)
 }
+
+func (f *fakeShard) refuseWith(o db.UnloadOutcome) { f.refuse.Store(&o) }
 
 func (f *fakeShard) loaded() bool { return f.loadedAt.Load() != 0 }
 
@@ -210,6 +226,7 @@ func (r *fakeRegistry) AppendChunk(dst []*fakeShard, from, limit int) ([]*fakeSh
 
 type testKnobs struct {
 	idleTTL, idleCheckInterval, minResidency, interval *runtime.DynamicValue[time.Duration]
+	retryRefusedAfter                                  *runtime.DynamicValue[time.Duration]
 	maxLoaded, rate, candidates, workers               *runtime.DynamicValue[int]
 	high, low, share                                   *runtime.DynamicValue[float64]
 	paused                                             *runtime.DynamicValue[bool]
@@ -229,6 +246,7 @@ func newTestKnobs() *testKnobs {
 		low:               runtime.NewDynamicValue(0.0),
 		share:             runtime.NewDynamicValue(0.0),
 		paused:            runtime.NewDynamicValue(false),
+		retryRefusedAfter: runtime.NewDynamicValue(time.Duration(0)),
 	}
 }
 
@@ -237,6 +255,7 @@ func (k *testKnobs) knobs() Knobs {
 		IdleTTL: k.idleTTL, IdleCheckInterval: k.idleCheckInterval, MinResidency: k.minResidency, Interval: k.interval,
 		MaxLoadedShards: k.maxLoaded, UnloadRate: k.rate, MakeRoomCandidates: k.candidates, UnloadWorkers: k.workers,
 		MemoryHighWatermark: k.high, MemoryLowWatermark: k.low, NamespaceMaxShare: k.share, Paused: k.paused,
+		RetryRefusedAfter: k.retryRefusedAfter,
 	}
 }
 

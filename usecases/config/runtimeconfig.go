@@ -136,6 +136,7 @@ type WeaviateRuntimeConfig struct {
 	LazyShardUnloadingUnloadWorkers       *runtime.DynamicValue[int]           `json:"lazy_shard_unloading_unload_workers" yaml:"lazy_shard_unloading_unload_workers"`
 	LazyShardUnloadingNamespaceMaxShare   *runtime.DynamicValue[float64]       `json:"lazy_shard_unloading_namespace_max_share" yaml:"lazy_shard_unloading_namespace_max_share"`
 	LazyShardUnloadingPaused              *runtime.DynamicValue[bool]          `json:"lazy_shard_unloading_paused" yaml:"lazy_shard_unloading_paused"`
+	LazyShardUnloadingRetryRefusedAfter   *runtime.DynamicValue[time.Duration] `json:"lazy_shard_unloading_retry_refused_after" yaml:"lazy_shard_unloading_retry_refused_after"`
 
 	// MCP Server settings
 	MCPEnabled            *runtime.DynamicValue[bool] `json:"mcp_server_enabled" yaml:"mcp_server_enabled"`
@@ -513,6 +514,7 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.LazyShardUnloadingUnloadWorkers = cfg.LazyShardUnloading.UnloadWorkers
 	registered.LazyShardUnloadingNamespaceMaxShare = cfg.LazyShardUnloading.NamespaceMaxShare
 	registered.LazyShardUnloadingPaused = cfg.LazyShardUnloading.Paused
+	registered.LazyShardUnloadingRetryRefusedAfter = cfg.LazyShardUnloading.RetryRefusedAfter
 
 	if cfg.Authentication.OIDC.Enabled {
 		registered.OIDCIssuer = cfg.Authentication.OIDC.Issuer

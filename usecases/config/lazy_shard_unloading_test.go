@@ -28,6 +28,7 @@ func lazyShardUnloadingValues(c LazyShardUnloading) map[string]any {
 		"min_residency": c.MinResidency.Get(), "unload_rate": c.UnloadRate.Get(), "interval": c.Interval.Get(),
 		"make_room_candidates": c.MakeRoomCandidates.Get(), "unload_workers": c.UnloadWorkers.Get(),
 		"namespace_max_share": c.NamespaceMaxShare.Get(), "paused": c.Paused.Get(),
+		"retry_refused_after": c.RetryRefusedAfter.Get(),
 	}
 }
 
@@ -36,7 +37,7 @@ func defaultLazyShardUnloadingValues() map[string]any {
 		"idle_ttl": time.Duration(0), "idle_check_interval": 30 * time.Second, "max_loaded_shards": 0,
 		"memory_high_watermark": 0.0, "memory_low_watermark": 0.0, "min_residency": 30 * time.Second,
 		"unload_rate": 50, "interval": 5 * time.Second, "make_room_candidates": 16, "unload_workers": 4,
-		"namespace_max_share": 0.0, "paused": false,
+		"namespace_max_share": 0.0, "paused": false, "retry_refused_after": 30 * time.Second,
 	}
 }
 
@@ -89,6 +90,7 @@ lazy_shard_unloading_make_room_candidates: 8
 lazy_shard_unloading_unload_workers: 2
 lazy_shard_unloading_namespace_max_share: 0.5
 lazy_shard_unloading_paused: true
+lazy_shard_unloading_retry_refused_after: 5m
 `))
 	require.NoError(t, err)
 	require.NoError(t, UpdateRuntimeConfig(log, registered, parsed, nil, nil))
@@ -96,13 +98,14 @@ lazy_shard_unloading_paused: true
 		"idle_ttl": time.Hour, "idle_check_interval": 2 * time.Minute, "max_loaded_shards": 100,
 		"memory_high_watermark": 0.8, "memory_low_watermark": 0.6, "min_residency": time.Minute,
 		"unload_rate": 7, "interval": 3 * time.Second, "make_room_candidates": 8, "unload_workers": 2,
-		"namespace_max_share": 0.5, "paused": true,
+		"namespace_max_share": 0.5, "paused": true, "retry_refused_after": 5 * time.Minute,
 	}, lazyShardUnloadingValues(conf.LazyShardUnloading))
 
 	parsed, err = ParseRuntimeConfig([]byte(`lazy_shard_unloading_unload_workers: 0
 lazy_shard_unloading_interval: 10ms
 lazy_shard_unloading_memory_high_watermark: 2
 lazy_shard_unloading_max_loaded_shards: 5
+lazy_shard_unloading_retry_refused_after: 500ms
 `))
 	require.NoError(t, err)
 	require.NoError(t, UpdateRuntimeConfig(log, registered, parsed, nil, nil))
@@ -111,7 +114,13 @@ lazy_shard_unloading_max_loaded_shards: 5
 	require.Equal(t, 3*time.Second, got["interval"])
 	require.Equal(t, 0.8, got["memory_high_watermark"])
 	require.Equal(t, 5, got["max_loaded_shards"])
+	require.Equal(t, 5*time.Minute, got["retry_refused_after"], "below 1s and not 0 is invalid")
 	require.Equal(t, time.Duration(0), got["idle_ttl"], "a removed key reverts to its default")
+
+	parsed, err = ParseRuntimeConfig([]byte("lazy_shard_unloading_retry_refused_after: 0s\n"))
+	require.NoError(t, err)
+	require.NoError(t, UpdateRuntimeConfig(log, registered, parsed, nil, nil))
+	require.Equal(t, time.Duration(0), lazyShardUnloadingValues(conf.LazyShardUnloading)["retry_refused_after"], "0 turns the cooldown off")
 
 	parsed, err = ParseRuntimeConfig(nil)
 	require.NoError(t, err)

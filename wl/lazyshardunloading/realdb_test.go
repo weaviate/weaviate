@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -287,6 +288,39 @@ func TestRealIndexUnloadsIdleShardsWithoutAnyLimit(t *testing.T) {
 	}
 	time.Sleep(2500 * time.Millisecond)
 	require.Equal(t, 4, r.loaded(t), "idle_ttl 0 keeps idle shards loaded")
+	r.requireTenantsUnchanged(t)
+}
+
+func TestRealIndexKeepsUnloadingPastAManualReadOnlyShard(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	reg := prometheus.NewPedanticRegistry()
+	u := New(Config{Logger: logger, Registerer: reg, Knobs: realKnobs(func(k *testKnobs) {
+		set(t, k.idleTTL, time.Second)
+		set(t, k.rate, 1)
+		set(t, k.retryRefusedAfter, 2*time.Second)
+	})})
+	r := newRealDB(t, u, 4)
+	oldest := r.tenants[0]
+	r.put(t, oldest)
+	require.NoError(t, r.index.IncomingUpdateShardStatus(context.Background(), oldest, storagestate.StatusReadOnly.String(), 0))
+	time.Sleep(1100 * time.Millisecond)
+	for _, tenant := range r.tenants[1:] {
+		r.put(t, tenant)
+	}
+
+	require.Eventually(t, func() bool { return r.loaded(t) == 1 && u.Registry().Loaded() == 1 }, 10*time.Second, 20*time.Millisecond,
+		"a manual read-only oldest shard starved the newer idle ones")
+	require.Positive(t, gatherCounter(t, reg, "weaviate_lazy_shard_unloading_unloads_total", "outcome", "manual_readonly"))
+	var left []string
+	require.NoError(t, r.index.ForEachLoadedShard(func(name string, _ db.ShardLike) error {
+		left = append(left, name)
+		return nil
+	}))
+	require.Equal(t, []string{oldest}, left, "the refused shard is the one left loaded")
+
+	require.NoError(t, r.index.IncomingUpdateShardStatus(context.Background(), oldest, storagestate.StatusReady.String(), 0))
+	require.Eventually(t, func() bool { return r.loaded(t) == 0 }, 10*time.Second, 20*time.Millisecond,
+		"it unloads after its cooldown once the blocker lifts")
 	r.requireTenantsUnchanged(t)
 }
 

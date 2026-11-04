@@ -26,6 +26,7 @@ const (
 	DefaultLazyShardUnloadingInterval           = 5 * time.Second
 	DefaultLazyShardUnloadingMakeRoomCandidates = 16
 	DefaultLazyShardUnloadingUnloadWorkers      = 4
+	DefaultLazyShardUnloadingRetryRefusedAfter  = 30 * time.Second
 	MaxLazyShardUnloadingMakeRoomCandidates     = 1024
 	MaxLazyShardUnloadingUnloadWorkers          = 64
 )
@@ -47,6 +48,9 @@ type LazyShardUnloading struct {
 	UnloadWorkers       *runtime.DynamicValue[int]           `json:"-" yaml:"-"`
 	NamespaceMaxShare   *runtime.DynamicValue[float64]       `json:"-" yaml:"-"`
 	Paused              *runtime.DynamicValue[bool]          `json:"-" yaml:"-"`
+	// RetryRefusedAfter keeps a refused shard off victim selection for this long; 0 retries on the
+	// next tick. A change applies to new refusals, except that 0 also ends the running cooldowns.
+	RetryRefusedAfter *runtime.DynamicValue[time.Duration] `json:"-" yaml:"-"`
 }
 
 // ValidateLazyShardUnloadingOptionalDuration accepts 0 (off) or at least 1s.
@@ -99,6 +103,7 @@ func NewLazyShardUnloading() LazyShardUnloading {
 		UnloadWorkers:       mustDynamicValue(DefaultLazyShardUnloadingUnloadWorkers, validateIntBetween(1, MaxLazyShardUnloadingUnloadWorkers)),
 		NamespaceMaxShare:   mustDynamicValue(0.0, ValidateLazyShardUnloadingFraction),
 		Paused:              runtime.NewDynamicValue(false),
+		RetryRefusedAfter:   mustDynamicValue(DefaultLazyShardUnloadingRetryRefusedAfter, ValidateLazyShardUnloadingOptionalDuration),
 	}
 }
 

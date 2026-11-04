@@ -30,6 +30,7 @@ func TestDefaultsMatchTheRuntimeConfig(t *testing.T) {
 	require.Equal(t, config.DefaultLazyShardUnloadingInterval, DefaultInterval)
 	require.Equal(t, config.DefaultLazyShardUnloadingMakeRoomCandidates, DefaultMakeRoomCandidates)
 	require.Equal(t, config.DefaultLazyShardUnloadingUnloadWorkers, DefaultUnloadWorkers)
+	require.Equal(t, config.DefaultLazyShardUnloadingRetryRefusedAfter, DefaultRetryRefusedAfter)
 	require.Equal(t, config.MaxLazyShardUnloadingMakeRoomCandidates, MaxMakeRoomCandidates)
 	require.Equal(t, config.MaxLazyShardUnloadingUnloadWorkers, MaxUnloadWorkers)
 }
@@ -45,12 +46,14 @@ func TestRuntimeConfigUpdatesReachThePolicy(t *testing.T) {
 		require.Equal(t, &snapshot{
 			idleCheckInterval: DefaultIdleCheckInterval, minResidency: DefaultMinResidency, interval: DefaultInterval,
 			rate: DefaultUnloadRate, candidates: DefaultMakeRoomCandidates, workers: DefaultUnloadWorkers,
+			retryRefusedAfter: DefaultRetryRefusedAfter,
 		}, h.p.snap.Load())
 
 		parsed, err := config.ParseRuntimeConfig([]byte(`lazy_shard_unloading_max_loaded_shards: 2
 lazy_shard_unloading_min_residency: 0s
 lazy_shard_unloading_unload_workers: 3
 lazy_shard_unloading_interval: 1s
+lazy_shard_unloading_retry_refused_after: 1m
 `))
 		require.NoError(t, err)
 		shards := h.loadN(5, "")
@@ -58,6 +61,7 @@ lazy_shard_unloading_interval: 1s
 		h.p.refreshConfig()
 		synctest.Wait()
 		require.EqualValues(t, 2, h.p.snap.Load().maxLoaded)
+		require.Equal(t, time.Minute, h.p.snap.Load().retryRefusedAfter)
 		require.Equal(t, 2, h.loadedCount(shards))
 		require.EqualValues(t, 3, h.p.workersRunning.Load())
 

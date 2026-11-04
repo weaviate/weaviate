@@ -538,6 +538,22 @@ func tryUnloadPromptly(t *testing.T, l *LazyLoadShard, req UnloadRequest) Unload
 	}
 }
 
+func TestLazyLoadShard_ReloadClearsTheRetryCooldown(t *testing.T) {
+	f := newUnloadFixture(t)
+	f.put(t)
+	f.lazy.SetBackgroundRetryAt(100)
+	f.lazy.SetMakeRoomRetryAt(200)
+	require.EqualValues(t, 100, f.lazy.BackgroundRetryAt())
+	require.EqualValues(t, 200, f.lazy.MakeRoomRetryAt())
+
+	require.Equal(t, UnloadOutcomeOK, f.lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
+	require.EqualValues(t, 100, f.lazy.BackgroundRetryAt(), "only a load starts a new instance")
+
+	f.put(t)
+	require.Zero(t, f.lazy.BackgroundRetryAt())
+	require.Zero(t, f.lazy.MakeRoomRetryAt())
+}
+
 func TestLazyLoadShard_TryUnloadTornTeardown(t *testing.T) {
 	f := newUnloadFixture(t)
 	f.put(t)

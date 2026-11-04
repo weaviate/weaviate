@@ -33,6 +33,10 @@ type shard interface {
 	LoadedAt() time.Time
 	UnloadedAt() time.Time
 	Namespace() string
+	BackgroundRetryAt() uint32
+	SetBackgroundRetryAt(at uint32)
+	MakeRoomRetryAt() uint32
+	SetMakeRoomRetryAt(at uint32)
 	UnloadCandidate() bool
 	TryMarkUnloadPending() bool
 	ClearUnloadPending()
@@ -249,10 +253,12 @@ func (p *policy[S]) pickMakeRoomVictim(s *snapshot, loading S) (S, uint32, bool)
 		*bp = buf[:0]
 		p.bufs.Put(bp)
 	}()
+	clock := p.clock()
 	for range buf {
 		best, bestAt, bestPreferred := -1, uint32(0), false
 		for i, c := range buf {
-			if c == zero || c == loading || !c.UnloadCandidate() || !p.namespaceActive(c.Namespace()) {
+			if c == zero || c == loading || (s.retryRefusedAfter > 0 && clock < c.MakeRoomRetryAt()) ||
+				!c.UnloadCandidate() || !p.namespaceActive(c.Namespace()) {
 				buf[i] = zero
 				continue
 			}

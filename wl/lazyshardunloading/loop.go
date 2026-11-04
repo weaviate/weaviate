@@ -168,6 +168,9 @@ func (p *policy[S]) rank(s *snapshot, now time.Time, k int, idle bool) []ranked[
 	idleSeconds := uint32(min(s.idleTTL/time.Second, 1<<31))
 	p.ranked = p.ranked[:0]
 	for _, c := range p.loopBuf {
+		if s.retryRefusedAfter > 0 && clock < c.BackgroundRetryAt() {
+			continue
+		}
 		if !c.UnloadCandidate() || !p.loopNamespaceActive(c.Namespace()) {
 			continue
 		}

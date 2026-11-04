@@ -662,6 +662,7 @@ func newAllocHarness(tb testing.TB, inUse bool, maxLoaded int) (*harness, *fakeS
 		set(tb, k.maxLoaded, maxLoaded)
 		set(tb, k.share, 0.5)
 		set(tb, k.interval, time.Hour)
+		set(tb, k.retryRefusedAfter, time.Minute)
 	}, withNamespaces())
 	for i := range 64 {
 		s := h.reg.load("s", "ns")
