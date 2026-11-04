@@ -196,10 +196,6 @@ func (t *ShardReindexTaskGeneric) runReindexOnlyOnShard(ctx context.Context, sha
 	if err != nil {
 		return false, fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
 	}
-	// refuseHeld runs before any bucket opens, because only the lift's retry may reopen a held shard's staged buckets.
-	if err := t.refuseHeld(concreteShard); err != nil {
-		return false, err
-	}
 
 	// context.Canceled means the index is closing — propagate unwrapped so
 	// callers treat it as a clean stop, consistent with OnAfterLsmInitAsync.
@@ -1417,22 +1413,7 @@ func (t *ShardReindexTaskGeneric) recordCheckpoint(shard ShardLike, subject Migr
 	}))
 }
 
-// The scheduler retries a step that returns this, because a held shard's staged data stays current.
-var errShardHeldReadOnly = errors.New("the shard is READONLY because a reindex migration's double-write " +
-	"mirror is not armed and cannot be stamped Unmirrored; this step waits until the shard is set back to " +
-	"READY, or the migration is cancelled")
-
-func (t *ShardReindexTaskGeneric) refuseHeld(shard ShardLike) error {
-	if registry := shard.migrationMirrorRegistry(); registry != nil && registry.holding() {
-		return fmt.Errorf("migration %s on shard %q: %w", t.migrationRecordKey(), shard.Name(), errShardHeldReadOnly)
-	}
-	return nil
-}
-
 func (t *ShardReindexTaskGeneric) refuseUnmirrored(shard ShardLike, subject MigrationSubject) error {
-	if err := t.refuseHeld(shard); err != nil {
-		return err
-	}
 	if !subject.Unmirrored {
 		return nil
 	}

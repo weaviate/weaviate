@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -252,17 +253,12 @@ func TestShardLoadWhenAMirrorFailsToArmAndItsStampCannotBeWritten(t *testing.T) 
 			require.EqualError(t, shard.PutObject(fx.ctx, createTestObjectWithText(fx.className, "late")),
 				storagestate.ErrStatusReadOnlyWithReason(statusReasonMirrorUnarmed).Error())
 
-			fx.requirePhasesRefused(t, shard, errShardHeldReadOnly.Error(), true)
+			fx.requireStepsWait(t)
 
 			// Only the lift's retry clears the hold. The status gate refuses a write that skips the retry.
 			require.Error(t, shard.UpdateStatusIf(func(ShardStatus) bool { return true },
 				storagestate.StatusReady.String(), statusReasonManualUpdate))
 			require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
-			// A step arms nothing either, even once the disk has healed.
-			fx.healRecords(t)
-			require.NoError(t, os.Remove(fx.corrupt))
-			require.ErrorIs(t, fx.task.RunReindexOnlyOnShard(fx.ctx, shard), errShardHeldReadOnly)
-			require.Zero(t, shard.migrationMirrors.ArmedMigrationMirrors())
 		})
 	}
 }
@@ -348,12 +344,12 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 					require.NoError(t, err)
 					require.Equal(t, want, shard.GetStatus())
 					require.True(t, rec.Subject().Unmirrored)
-					fx.requirePhasesRefused(t, shard, "no double-write mirror armed", false)
+					fx.requirePhasesRefused(t, shard, "no double-write mirror armed")
 				default:
 					require.ErrorContains(t, err, "cannot be stamped Unmirrored")
 					require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
 					require.False(t, rec.Subject().Unmirrored)
-					fx.requirePhasesRefused(t, shard, errShardHeldReadOnly.Error(), true)
+					fx.requireStepsWait(t)
 				}
 			})
 		}
@@ -629,7 +625,7 @@ func TestAHeldStepWaitsUntilTheLiftWritesTheStatus(t *testing.T) {
 	}, fx.logger)
 	require.Eventually(t, func() bool { return len(shard.migrationMirrors.heldUnarmed()) == 0 },
 		10*time.Second, 10*time.Millisecond, "the arm ends")
-	fx.requirePhasesRefused(t, shard, errShardHeldReadOnly.Error(), true)
+	fx.requireStepsWait(t)
 	unlock()
 
 	require.NoError(t, receiveWithin(t, lift))
@@ -920,29 +916,41 @@ func (fx *doubleFaultFixture) healRecords(t *testing.T) {
 	require.NoError(t, os.Chmod(fx.recordsDir, 0o700))
 }
 
-// waits says whether the scheduler retries the step on a later tick instead of failing the task.
-func (fx *doubleFaultFixture) requirePhasesRefused(t *testing.T, shard *Shard, want string, waits bool) {
+func (fx *doubleFaultFixture) requirePhasesRefused(t *testing.T, shard *Shard, want string) {
 	tasks := []*ShardReindexTaskGeneric{fx.task}
 	prepOK, prep := fx.provider.runShardPrepPhase(fx.ctx, fx.subject.Key.UnitID, shard, tasks, false, fx.logger)
 	require.False(t, prepOK)
 	require.Len(t, prep.Errs, 1)
 	require.Contains(t, prep.Errs[0], want)
-	require.Equal(t, waits, prep.Transient)
-	if waits {
-		rehydrateOK, rehydrate := fx.provider.runShardPrepPhase(fx.ctx, fx.subject.Key.UnitID, shard, tasks, true, fx.logger)
-		require.False(t, rehydrateOK)
-		require.Len(t, rehydrate.Errs, 1)
-		require.Contains(t, rehydrate.Errs[0], errShardHeldReadOnly.Error())
-		require.True(t, rehydrate.Transient)
-	}
+	require.False(t, prep.Transient)
 	payload := fx.subject.reindexPayload()
 	swap := fx.provider.runShardSwapPhase(fx.ctx, &payload, fx.subject.Key.UnitID, fx.name, shard, tasks, fx.logger)
 	require.NotEmpty(t, swap.Errs)
 	require.Contains(t, swap.Errs[0], want)
-	require.Equal(t, waits, swap.Transient)
+	require.False(t, swap.Transient)
 	rec, ok := shard.migrationRecords.Get(fx.subject.Key)
 	require.True(t, ok)
 	require.False(t, rec.FlipDecided(), "nothing flipped")
+}
+
+// requireStepsWait runs prepare and swap through the unit entry: on a held shard neither runs,
+// and the scheduler retries both on a later tick.
+func (fx *doubleFaultFixture) requireStepsWait(t *testing.T) {
+	payload := fx.subject.reindexPayload()
+	payload.UnitToShard = map[string]string{fx.subject.Key.UnitID: fx.name}
+	for _, callback := range []string{"group-completion", "swap-requested"} {
+		var ran atomic.Bool
+		err := fx.provider.runPerUnitPhase(&distributedtask.Task{TaskDescriptor: fx.desc}, &payload,
+			[]string{fx.subject.Key.UnitID}, fx.idx, fx.logger, callback, "starting", callback == "swap-requested",
+			func(string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult {
+				ran.Store(true)
+				return phaseResult{}
+			})
+		require.ErrorIs(t, err, context.Canceled, callback)
+		require.ErrorContains(t, err, "is held READONLY", callback)
+		require.False(t, ran.Load(), "%s ran on a held shard", callback)
+	}
+	require.Len(t, fx.provider.cachedReindexTasks(fx.desc, fx.subject.Key.UnitID), 1, "the waiting unit keeps its cached task")
 }
 
 func (fx *doubleFaultFixture) requireSwapProceeds(t *testing.T, shard *Shard) {

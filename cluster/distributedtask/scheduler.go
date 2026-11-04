@@ -930,9 +930,10 @@ func (s *Scheduler) runPreparationPhase(
 			// context.Canceled is the provider's retryable signal; dropping the mark lets a retry happen.
 			if errors.Is(groupErr, context.Canceled) {
 				delete(state.preparationCallbackFired, w.groupID)
+				// Debug: a step waiting on an operator re-fires every tick, and its wait was logged once when it began.
 				s.loggerWithTask(namespace, desc).
 					WithField("groupID", w.groupID).
-					Info("PREP phase did not complete and is retryable; a later tick or the next boot re-fires it and emits the prep-complete ack")
+					Debugf("PREP phase did not complete and is retryable; a later tick or the next boot re-fires it and emits the prep-complete ack: %v", groupErr)
 				continue
 			}
 			if state.preparationCompletionGroupErrors == nil {
@@ -1080,7 +1081,7 @@ func (s *Scheduler) runSwapPhase(
 				delete(state.groupCallbackFired, w.groupID)
 				s.loggerWithTask(namespace, desc).
 					WithField("groupID", w.groupID).
-					Info("SWAP callback did not complete and is retryable; a later tick or the next boot re-fires it and emits the post-completion ack")
+					Debugf("SWAP callback did not complete and is retryable; a later tick or the next boot re-fires it and emits the post-completion ack: %v", groupErr)
 				continue
 			}
 			// Record nil too so the ack-emission gate can tell "fired and

@@ -1132,7 +1132,7 @@ func unreadableRecordFault(unitID string, store *MigrationRecordStore) string {
 }
 
 func phaseErrWaits(err error) bool {
-	return errors.Is(err, context.Canceled) || errors.Is(err, errShardHeldReadOnly)
+	return errors.Is(err, context.Canceled)
 }
 
 // runShardPrepPhase runs the disk-I/O PREP phase for one unit on one shard.
@@ -1267,6 +1267,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 	idx *Index,
 	logger logrus.FieldLogger,
 	callbackName string,
+	start string,
 	parallel bool,
 	runPhase func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult,
 ) error {
@@ -1274,6 +1275,8 @@ func (p *ReindexProvider) runPerUnitPhase(
 	var agg phaseResult
 	var aggMu sync.Mutex
 	refused := map[string]struct{}{}
+	// Logged once a unit passes the hold check, so a group that only waits on a hold adds no line per tick.
+	var started sync.Once
 
 	runOne := func(unitID string) {
 		res := p.resolveUnitForPhase(ctx, task, payload, unitID, idx, logger)
@@ -1292,6 +1295,18 @@ func (p *ReindexProvider) runPerUnitPhase(
 			return
 		}
 
+		if registry := res.Shard.migrationMirrorRegistry(); registry != nil && registry.holding() {
+			func() {
+				aggMu.Lock()
+				defer aggMu.Unlock()
+				agg.Errs = append(agg.Errs, fmt.Sprintf("unit %s: shard %q is held READONLY for a reindex "+
+					"migration's double-write mirror; the step waits until a status update makes it writable",
+					unitID, res.Shard.Name()))
+				agg.Transient = true
+			}()
+			return
+		}
+		started.Do(func() { logger.Info(start) })
 		release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
 		if !entered {
 			func() {
@@ -1399,10 +1414,9 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		return nil
 	}
 
-	if task.NeedsPreparationBarrier {
-		logger.Info("reindex provider: group-completion → starting PREP phase (barrier mode)")
-	} else {
-		logger.Info("reindex provider: group-completion → starting swap phase (no-barrier path)")
+	start := "reindex provider: group-completion → starting PREP phase (barrier mode)"
+	if !task.NeedsPreparationBarrier {
+		start = "reindex provider: group-completion → starting swap phase (no-barrier path)"
 	}
 
 	className := entschema.ClassName(payload.Collection)
@@ -1417,7 +1431,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		// Sequential: prep is heavy disk work on every shard (flush, bucket
 		// shutdown, segment prepend), and until its swap a shard's queries
 		// still read its old buckets.
-		"group-completion", false,
+		"group-completion", start, false,
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onGroupCompletedRunPhaseForUnit(ctx, task, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})
@@ -1488,8 +1502,6 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 		return nil
 	}
 
-	logger.Info("reindex provider: swap-requested → starting OVERLAY+SWAP after cluster-wide PREP barrier")
-
 	className := entschema.ClassName(payload.Collection)
 	idx := p.db.GetIndex(className)
 	if idx == nil {
@@ -1499,7 +1511,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 
 	ctx := p.serverCtx
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
-		"swap-requested", true,
+		"swap-requested", "reindex provider: swap-requested → starting OVERLAY+SWAP after cluster-wide PREP barrier", true,
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onSwapRequestedRunPhaseForUnit(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})
