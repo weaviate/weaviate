@@ -783,7 +783,7 @@ func (t *ShardReindexTaskGeneric) serveDeferredPromotions(ctx context.Context, s
 		if displaced == nil {
 			continue
 		}
-		if err := displaced.Shutdown(ctx); err != nil {
+		if err := withBucketTeardownCtx(ctx, displaced.Shutdown); err != nil {
 			return fmt.Errorf("shutting down the canonical bucket displaced for %q: %w", propName, err)
 		}
 		// Empty since the load-time sweep; left on disk, the next load refuses to promote an unmirrored record over it.
@@ -1078,7 +1078,9 @@ func (t *ShardReindexTaskGeneric) runtimePrepare(ctx context.Context,
 		reindexDir := reindexBucket.GetDir()
 		// FOLLOW-UP: ShutdownBucket waits out a running compaction, then fails with
 		// ctx's error, so a graceful shutdown fails the prep. Tracked separately.
-		if err := store.ShutdownBucket(ctx, reindexName); err != nil {
+		if err := withBucketTeardownCtx(ctx, func(teardownCtx context.Context) error {
+			return store.ShutdownBucket(teardownCtx, reindexName)
+		}); err != nil {
 			return fmt.Errorf("shutting down reindex bucket %q: %w", reindexName, err)
 		}
 		if err := ingestBucket.PrependSegmentsFromBucket(ctx, reindexDir); err != nil {
@@ -1177,7 +1179,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		if !ok {
 			continue
 		}
-		if err := oldMainBucket.Shutdown(ctx); err != nil {
+		if err := withBucketTeardownCtx(ctx, oldMainBucket.Shutdown); err != nil {
 			return fmt.Errorf("shutting down old main bucket for %q: %w", propName, err)
 		}
 		dir := filepath.Base(oldMainBucket.GetDir())
@@ -1191,6 +1193,11 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		if err := dirs.Discard(dir, "the displaced directory"); err != nil {
 			return fmt.Errorf("removing displaced dir for %q: %w", propName, err)
 		}
+	}
+
+	// The teardowns ran past any cancellation; the swap still stops on it, as it did at the first of them.
+	if err := ctx.Err(); err != nil && len(oldMainBuckets) > 0 {
+		return fmt.Errorf("swap cancelled after its displaced buckets closed: %w", err)
 	}
 
 	logger.Debug("runtime swap: displaced dirs removed (staged→canonical rename deferred to next load)")

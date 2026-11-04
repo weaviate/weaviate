@@ -74,7 +74,9 @@ func (s *Shard) ShutdownStagedBucketsAt(ctx context.Context, dirs []string) erro
 		if s.store.Bucket(dir) == nil {
 			continue
 		}
-		if err := s.store.ShutdownBucket(ctx, dir); err != nil {
+		if err := withBucketTeardownCtx(ctx, func(teardownCtx context.Context) error {
+			return s.store.ShutdownBucket(teardownCtx, dir)
+		}); err != nil {
 			return err
 		}
 	}
