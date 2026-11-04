@@ -1214,10 +1214,10 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 				defer release()
 				if err != nil {
 					if index.walkSkipsPinRefusal(name, err) {
-						m.logger.WithField("action", "inverted_reindex").WithField("shard", walked.ID()).
-							Debugf("skipping shard that left the walk: %v", err)
+						m.logInvertedReindexShard(walked).Debugf("skipping shard that left the walk: %v", err)
 						return nil
 					}
+					m.logInvertedReindexShard(walked).Errorf("failed pinning shard for reindexing: %v", err)
 					return errors.Wrapf(err, "pin shard '%s' for reindexing", walked.ID())
 				}
 				reindexer := NewShardInvertedReindexer(shard, m.logger)
@@ -1279,8 +1279,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 					defer release()
 					if err != nil {
 						if index.walkSkipsPinRefusal(name, err) {
-							m.logMissingFilterableIndex(index).WithField("shard", walked.ID()).
-								Debugf("skipping shard that left the walk: %v", err)
+							m.logMissingFilterableShard(walked).Debugf("skipping shard that left the walk: %v", err)
 							return nil
 						}
 						return errors.Wrapf(err, "pin shard '%s' for filterable indexing", walked.ID())
