@@ -1257,8 +1257,9 @@ endpoint reads `partial` with `migratedTenants` / `totalTenants`, and
 the operator migrates forward by submitting the same migration again,
 which skips the tenants already migrated. Both count every run of that
 migration since the last finished flip, so a resubmit that stops partway
-too still reads `partial` over all tenants. Migrating back is not
-supported yet.
+too still reads `partial` over all tenants. Migrating back, or on to
+another target, is not supported yet: while a partial run stands, a `PUT`
+of anything but its resubmit answers `409` and names the resubmit.
 
 Status after cancelling a tenant-scoped task is reported at the
 collection level: `GET /v1/schema/{className}/indexes` renders

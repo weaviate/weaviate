@@ -334,6 +334,9 @@ func resolveUpsertPlan(class *models.Class, collection string, prop *models.Prop
 	if err != nil {
 		return plan, err
 	}
+	if conflict := refuseOtherThanPartialRun(collection, prop.Name, indexType, tok, plan, reindexTasks); conflict != "" {
+		return upsertPlan{conflict: conflict}, nil
+	}
 
 	// A noop plan answers before the submit path's conflict check runs, so an
 	// undecodable in-flight task must fail closed (503) here rather than slip
@@ -633,19 +636,38 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 // already migrated: a rebuild analyzes with the schema's settings, which those
 // tenants no longer use. Finishing the migration rebuilds the rest anyway.
 func refusePartlyMigratedRebuild(collection, propName, indexType string, reindexTasks []*distributedtask.Task) error {
-	runs := parseReindexTasks(reindexTasks)
-	for _, run := range runs {
-		indexTypes, _ := db.ReindexIndexTypes(run.Payload.MigrationType)
-		if !strings.EqualFold(run.Payload.Collection, collection) || !slices.Contains(run.Payload.Properties, propName) ||
-			!db.ReindexLeftPartial(run.Task) || !slices.Contains(indexTypes, indexType) {
-			continue
-		}
-		if migrated, covered := db.ReindexMigratedTenants(runs, propName, &run.Payload); len(migrated) > 0 {
-			return fmt.Errorf("%w: %d of %d tenants of property %q serve the migrated index; finish the migration with %s",
-				errRebuildPartlyMigrated, len(migrated), len(covered), propName, db.ReindexResubmitCommand(&run.Payload, propName))
-		}
+	if msg := partialRunMessage(collection, propName, []string{indexType}, reindexTasks, nil); msg != "" {
+		return fmt.Errorf("%w: %s", errRebuildPartlyMigrated, msg)
 	}
 	return nil
+}
+
+// refuseOtherThanPartialRun accepts only a partial run's resubmit on the index types it migrated.
+func refuseOtherThanPartialRun(collection, propName, indexType, tok string, plan upsertPlan, reindexTasks []*distributedtask.Task) string {
+	indexTypes := []string{indexType}
+	switch {
+	case plan.joinTaskID != "":
+		return ""
+	case plan.migrationType != "":
+		indexTypes, _ = db.ReindexIndexTypes(plan.migrationType)
+	case !plan.noop || tok == "":
+		return ""
+	}
+	return partialRunMessage(collection, propName, indexTypes, reindexTasks, &plan)
+}
+
+// partialRunMessage decodes payloads only when some run is partial.
+func partialRunMessage(collection, propName string, indexTypes []string, reindexTasks []*distributedtask.Task, plan *upsertPlan) string {
+	if !slices.ContainsFunc(reindexTasks, db.ReindexLeftPartial) {
+		return ""
+	}
+	run, migrated, covered := db.ReindexPartialRun(parseReindexTasks(reindexTasks), collection, propName, indexTypes)
+	if run == nil || (plan != nil && plan.migrationType == run.Payload.MigrationType &&
+		plan.targetTok == run.Payload.TargetTokenization && plan.bucketStrategy == run.Payload.BucketStrategy) {
+		return ""
+	}
+	return fmt.Sprintf("%d of %d tenants of property %q serve the migrated index; finish the migration with %s",
+		len(migrated), len(covered), propName, db.ReindexResubmitCommand(&run.Payload, propName))
 }
 
 // validateTenantScope enforces the tenants contract: honored only on

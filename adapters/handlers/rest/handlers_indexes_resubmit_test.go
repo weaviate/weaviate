@@ -185,3 +185,45 @@ func TestRebuildRefusedOnPartlyMigratedIndex(t *testing.T) {
 		})
 	}
 }
+
+// Pins that while a partial run stands, a PUT is refused with the resubmit
+// unless it is that resubmit, so no second target can hide the partial run.
+func TestUpsertRefusedOnPartlyMigratedIndex(t *testing.T) {
+	prop := &models.Property{
+		Name: "title", DataType: []string{"text"}, Tokenization: models.PropertyTokenizationWord,
+		IndexFilterable: boolPtr(true), IndexSearchable: boolPtr(true),
+	}
+	class := &models.Class{Class: "C", Properties: []*models.Property{prop}, InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: true}}
+	resubmit := &models.IndexUpsertRequest{Tokenization: models.PropertyTokenizationField}
+	want, err := resolveUpsertPlan(class, "C", prop, "searchable", resubmit, nil)
+	require.NoError(t, err)
+	partial := buildTask(t, "T", distributedtask.TaskStatusCancelled, db.ReindexTaskPayload{
+		Collection: "C", Properties: []string{"title"}, MigrationType: want.migrationType,
+		TargetTokenization: want.targetTok, BucketStrategy: want.bucketStrategy,
+	}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
+	partial.SwapDecidedGroups = map[string]time.Time{"a": {}}
+
+	for _, tc := range []struct {
+		name      string
+		indexType string
+		body      *models.IndexUpsertRequest
+		refused   bool
+	}{
+		{name: "back to the schema's value", indexType: "searchable", body: &models.IndexUpsertRequest{Tokenization: models.PropertyTokenizationWord}, refused: true},
+		{name: "back to it on the other index", indexType: "filterable", body: &models.IndexUpsertRequest{Tokenization: models.PropertyTokenizationWord}, refused: true},
+		{name: "a third target", indexType: "searchable", body: &models.IndexUpsertRequest{Tokenization: models.PropertyTokenizationWhitespace}, refused: true},
+		{name: "the resubmit", indexType: "searchable", body: resubmit},
+		{name: "a request naming no tokenization", indexType: "searchable", body: &models.IndexUpsertRequest{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan, err := resolveUpsertPlan(class, "C", prop, tc.indexType, tc.body, []*distributedtask.Task{partial})
+			require.NoError(t, err)
+			if !tc.refused {
+				require.Empty(t, plan.conflict)
+				return
+			}
+			require.Contains(t, plan.conflict, "1 of 2 tenants")
+			require.Contains(t, plan.conflict, `PUT /v1/schema/C/properties/title/index/searchable -d '{"tokenization":"field"}'`)
+		})
+	}
+}

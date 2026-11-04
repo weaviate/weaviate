@@ -96,6 +96,27 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 	return migrated, covered
 }
 
+// ReindexPartialRun returns the newest run on property that left some tenants
+// of indexTypes on its target, with those tenants; nil once a flip covered it.
+func ReindexPartialRun(runs []ReindexRun, collection, property string, indexTypes []string) (partial *ReindexRun, migrated, covered map[string]struct{}) {
+	for i := range runs {
+		run := &runs[i]
+		types, _ := ReindexIndexTypes(run.Payload.MigrationType)
+		if strings.EqualFold(run.Payload.Collection, collection) && slices.Contains(run.Payload.Properties, property) &&
+			ReindexLeftPartial(run.Task) && slices.ContainsFunc(types, func(t string) bool { return slices.Contains(indexTypes, t) }) &&
+			(partial == nil || run.Task.Version > partial.Task.Version) {
+			partial = run
+		}
+	}
+	if partial == nil {
+		return nil, nil, nil
+	}
+	if migrated, covered = ReindexMigratedTenants(runs, property, &partial.Payload); len(migrated) == 0 {
+		return nil, nil, nil // a newer finished flip covered it
+	}
+	return partial, migrated, covered
+}
+
 // ShouldRetainCompletedTask keeps a task while a replica owes one of its decided
 // swaps, and a FAILED or partly-migrated task until a newer run (for a partial
 // one, a finished flip) covers its index types, so the status keeps reading it.

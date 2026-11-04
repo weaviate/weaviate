@@ -904,7 +904,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			idx.Status = models.IndexStatusStatusCancelled
 		}
 		// Per-tenant counts, not a list: a collection can hold 100k tenants.
-		if migrated, covered := db.ReindexMigratedTenants(parsedTasks, propName, &bestPayload); len(migrated) > 0 {
+		if _, migrated, covered := db.ReindexPartialRun(parsedTasks, collection, propName, []string{indexType}); len(migrated) > 0 {
 			idx.Status = models.IndexStatusStatusPartial
 			idx.MigratedTenants, idx.TotalTenants = int64(len(migrated)), int64(len(covered))
 		}
