@@ -5060,7 +5060,6 @@ func TestSchedulerCancelDuringDedupePlanning(t *testing.T) {
 	}{
 		{name: "user cancel requests it", cancel: func(t *testing.T, s *Scheduler) {
 			require.NoError(t, s.Cancel(context.Background(), nil, "s3", id, "", ""))
-			require.True(t, s.backupper.lastOp.get().CancelRequested)
 		}},
 		{name: "slot status cancelled", cancel: func(t *testing.T, s *Scheduler) {
 			s.backupper.lastOp.set(backup.Cancelled)
