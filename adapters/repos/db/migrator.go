@@ -1208,12 +1208,17 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU)
 	for _, index := range m.db.indices {
-		index.forEachShardSkipRecovering(func(name string, shard ShardLike) error {
+		index.forEachShardSkipRecovering(func(name string, walked ShardLike) error {
 			eg.Go(func() error {
-				release, err := index.pinWhileUnloading(name)
+				shard, release, err := index.pinWhileUnloading(name, walked)
 				defer release()
 				if err != nil {
-					return errors.Wrapf(err, "pin shard '%s' for reindexing", shard.ID())
+					if index.walkSkipsPinRefusal(name, err) {
+						m.logger.WithField("action", "inverted_reindex").WithField("shard", walked.ID()).
+							Debugf("skipping shard that left the walk: %v", err)
+						return nil
+					}
+					return errors.Wrapf(err, "pin shard '%s' for reindexing", walked.ID())
 				}
 				reindexer := NewShardInvertedReindexer(shard, m.logger)
 				for taskName, task := range tasks {
@@ -1268,12 +1273,17 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 
 		eg.Go(func() error {
 			errgrpShards := enterrors.NewErrorGroupWrapper(m.logger)
-			index.forEachShardSkipRecovering(func(name string, shard ShardLike) error {
+			index.forEachShardSkipRecovering(func(name string, walked ShardLike) error {
 				errgrpShards.Go(func() error {
-					release, err := index.pinWhileUnloading(name)
+					shard, release, err := index.pinWhileUnloading(name, walked)
 					defer release()
 					if err != nil {
-						return errors.Wrapf(err, "pin shard '%s' for filterable indexing", shard.ID())
+						if index.walkSkipsPinRefusal(name, err) {
+							m.logMissingFilterableIndex(index).WithField("shard", walked.ID()).
+								Debugf("skipping shard that left the walk: %v", err)
+							return nil
+						}
+						return errors.Wrapf(err, "pin shard '%s' for filterable indexing", walked.ID())
 					}
 					m.logMissingFilterableShard(shard).
 						Info("starting filterable indexing on shard, this may take a while")
@@ -1291,7 +1301,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 					m.logMissingFilterableShard(shard).
 						Info("finished filterable indexing on shard")
 					return nil
-				}, shard.ID())
+				}, walked.ID())
 				return nil
 			})
 

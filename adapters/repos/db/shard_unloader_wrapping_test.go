@@ -314,8 +314,9 @@ func TestPinWhileUnloading(t *testing.T) {
 			}
 			f := newAddPropertyLazyFixture(t, "PinWalk", singleShardState(), opts...)
 			for name, lazy := range f.coldShards(t) {
-				release, err := f.index.pinWhileUnloading(name)
+				shard, release, err := f.index.pinWhileUnloading(name, lazy)
 				require.NoError(t, err)
+				require.Same(t, lazy, shard)
 				if !tt.unloader {
 					require.False(t, lazy.isLoaded(), "without an unloader the walk is left as it was")
 					release()

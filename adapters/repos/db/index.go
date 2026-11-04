@@ -331,6 +331,8 @@ type Index struct {
 
 	// legacyBackupBeforeHalt, when set by a test, runs once the legacy backup has released shardCreateLocks.
 	legacyBackupBeforeHalt func()
+	// beforeUnloadingPin, when set by a test, runs in pinWhileUnloading ahead of the pin.
+	beforeUnloadingPin func(name string)
 
 	// Release uses this to decide whether to resume the shard (halt-for-duration
 	// fallback) or skip resume (snapshot already resumed at create time).
@@ -5282,13 +5284,13 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 
 	// Repair in the background
 	enterrors.GoWrapper(func() {
-		unpin, err := i.pinWhileUnloading(shardName)
+		pinned, unpin, err := i.pinWhileUnloading(shardName, shard)
 		defer unpin()
 		if err != nil {
 			i.logger.WithField("shard", shardName).Errorf("failed to pin the shard to repair its vector index: %v", err)
 			return
 		}
-		err = shard.RepairIndex(context.Background(), targetVector)
+		err = pinned.RepairIndex(context.Background(), targetVector)
 		if err != nil {
 			i.logger.WithField("shard", shardName).WithError(err).Error("failed to repair vector index")
 			return
@@ -5340,13 +5342,13 @@ func (i *Index) DebugRequantizeIndex(ctx context.Context, shardName, targetVecto
 
 	// Repair in the background
 	enterrors.GoWrapper(func() {
-		unpin, err := i.pinWhileUnloading(shardName)
+		pinned, unpin, err := i.pinWhileUnloading(shardName, shard)
 		defer unpin()
 		if err != nil {
 			i.logger.WithField("shard", shardName).Errorf("failed to pin the shard to requantize its vector index: %v", err)
 			return
 		}
-		err = shard.RequantizeIndex(context.Background(), targetVector)
+		err = pinned.RequantizeIndex(context.Background(), targetVector)
 		if err != nil {
 			i.logger.WithField("shard", shardName).WithError(err).Error("failed to requantize vector index")
 			return

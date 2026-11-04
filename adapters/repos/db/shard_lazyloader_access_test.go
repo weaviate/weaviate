@@ -64,7 +64,7 @@ func TestLazyLoadShard_OnlyRequestPinsRecordAccess(t *testing.T) {
 		{
 			name: "maintenance pin",
 			pin: func(t *testing.T, f *unloadFixture) {
-				release, err := f.index.pinWhileUnloading(f.name)
+				_, release, err := f.index.pinWhileUnloading(f.name, f.lazy)
 				defer release()
 				require.NoError(t, err)
 			},
