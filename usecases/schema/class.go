@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -187,9 +188,9 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	// Read the limit before the count: no cap is the default, and the count
-	// costs a round trip to the leader whose answer an uncapped cluster
-	// discards.
+	// This check fails fast on the local schema, which can lag the leader.
+	// The authoritative cap check runs in the schema FSM's PreApplyFilter
+	// before the AddClass commits.
 	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
 	if limit != config.DefaultMaximumAllowedCollectionsCount {
 		// On namespace-enabled clusters the cap is enforced per namespace.
@@ -200,12 +201,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 			countNamespace = principal.Namespace
 		}
 
-		existingCollectionsCount, err := h.schemaManager.CollectionsCountFromLeader(countNamespace)
-		if err != nil {
-			h.logger.WithField("namespace", countNamespace).Errorf("could not query the collections count: %v", err)
-		}
-
-		if existingCollectionsCount >= limit {
+		if h.schemaReader.CollectionsCount(countNamespace) >= limit {
 			// Migrated from a free-text 422 to a typed 429 / RESOURCE_EXHAUSTED
 			// in the usage-limits work; see docs/usage_limits.md for the wire
 			// contract.
@@ -384,6 +380,14 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 			alias.Alias = namespacing.StripQualification(alias.Alias)
 		}
 		shardingState.IndexID = class.Class
+	}
+
+	// Refuse a cross-namespace alias before schemaManager.RestoreClass commits the
+	// class and the alias loop below deletes the live alias under overwriteAlias.
+	for _, alias := range aliases {
+		if err := namespacing.ValidateAliasTarget(alias.Alias, class.Class); err != nil {
+			return fmt.Errorf("restore class %s: %w", class.Class, err)
+		}
 	}
 
 	metric, err := monitoring.GetMetrics().BackupRestoreClassDurations.GetMetricWithLabelValues(class.Class)
@@ -1283,10 +1287,16 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 				if !entcfg.Enabled(os.Getenv("USE_GSE")) && !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
 					return fmt.Errorf("the GSE tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE' to 'true' to enable")
 				}
+				if !tokenizer.UseGse {
+					return fmt.Errorf("the GSE tokenizer is enabled but failed to load its dictionary; see the startup log")
+				}
 				return nil
 			case models.PropertyTokenizationGseCh:
 				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE_CH")) {
 					return fmt.Errorf("the Chinese tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE_CH' to 'true' to enable")
+				}
+				if !tokenizer.UseGseCh {
+					return fmt.Errorf("the Chinese tokenizer is enabled but failed to load its dictionary; see the startup log")
 				}
 				return nil
 			case models.PropertyTokenizationKagomeKr:

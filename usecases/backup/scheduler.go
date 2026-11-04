@@ -209,7 +209,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		if errors.As(err, &authzerrors.Forbidden{}) {
 			return nil, err
 		}
-		return nil, backup.NewErrUnprocessable(err)
+		return nil, backup.NewErrUnprocessable(withReindexRefusalHint(err))
 	}
 
 	// After validation so an unauthorized caller never learns the flag or license state; restores are never gated.
@@ -1979,4 +1979,13 @@ func expandWildcards(patterns, candidates []string) []string {
 	}
 
 	return result
+}
+
+// withReindexRefusalHint lives here, not in the storage-layer text, because replica movement reuses that text.
+func withReindexRefusalHint(err error) error {
+	if !errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) {
+		return err
+	}
+	return fmt.Errorf("%w; for the runtime-reindex refusals: if a reindex is running on a refused collection, "+
+		"exclude that collection (other collections may be refused too); otherwise retry later", err)
 }

@@ -47,7 +47,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -140,6 +139,7 @@ type Config struct {
 	BootstrapExpect int
 
 	// ConsistencyWaitTimeout is the duration we will wait for a schema version to land on that node
+	// and the default bound on a follower's task-list query, including its leader lookup.
 	ConsistencyWaitTimeout time.Duration
 	// NodeSelector is the memberlist interface to RAFT
 	NodeSelector cluster.NodeSelector
@@ -179,10 +179,8 @@ type Config struct {
 	// WipedJoinerBarrierTimeout bounds the no-progress wait; 0 ⇒ wipedJoinerNoProgressTimeout.
 	WipedJoinerBarrierTimeout time.Duration
 
-	// 	AuthzController to manage RBAC commands and apply it to casbin
-	AuthzController authorization.Controller
-	AuthNConfig     config.Authentication
-	RBAC            *rbac.Manager
+	AuthNConfig config.Authentication
+	RBAC        *rbac.Manager
 
 	DynamicUserController *apikey.DBUser
 
@@ -208,6 +206,10 @@ type Config struct {
 	// DistributedTaskTargetVectorExtractors mirror the collection extractors for
 	// per-target cascade deletion (drop-vector marker introduction).
 	DistributedTaskTargetVectorExtractors map[string]distributedtask.TargetVectorExtractor
+	// DistributedTaskShardReplicasExtractors let admitTaskReplicas refuse a task
+	// whose units no longer match the current replicas of the shards they name.
+	// A namespace without a collection extractor is never checked.
+	DistributedTaskShardReplicasExtractors map[string]distributedtask.ShardReplicasExtractor
 
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.
@@ -334,8 +336,7 @@ type Store struct {
 	// count.
 	collectionAddLocks *entsync.KeyLocker
 
-	// authZController is the authz controller for the store
-	authZController authorization.Controller
+	taskMovementLocks *entsync.KeyLocker
 
 	metrics *storeMetrics
 
@@ -427,7 +428,7 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 	}
 }
 
-func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus.Registerer) Store {
+func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 	schemaManager.SetMetadataOnly(cfg.MetadataOnlyVoters)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
@@ -493,7 +494,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		schemaManager:           schemaManager,
 		tenantAddLocks:          entsync.NewKeyLocker(),
 		collectionAddLocks:      entsync.NewKeyLocker(),
-		authZController:         authZController,
+		taskMovementLocks:       entsync.NewKeyLocker(),
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
 		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, rbacLister, monitoring.GetMetrics(), cfg.Logger),
@@ -554,6 +555,10 @@ func (st *Store) ForceSnapshot() error {
 		return fmt.Errorf("raft not initialised")
 	}
 	return rn.Snapshot().Error()
+}
+
+func (st *Store) LocalTaskStatuses(namespace string) []distributedtask.TaskStatusEntry {
+	return st.distributedTasksManager.LocalTaskStatuses(namespace)
 }
 
 // lastIndex returns the last index in stable storage,
@@ -1550,7 +1555,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 	recoveryConfig.DB = nil
 	// we don't use actual registry here, because we don't want to register metrics, it's already registered
 	// in actually FSM and this is FSM is temporary for recovery.
-	tempFSM := NewFSM(recoveryConfig, st.authZController, prometheus.NewPedanticRegistry())
+	tempFSM := NewFSM(recoveryConfig, prometheus.NewPedanticRegistry())
 	if err := raft.RecoverCluster(st.raftConfig(),
 		&tempFSM,
 		st.logCache,

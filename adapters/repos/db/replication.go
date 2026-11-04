@@ -88,7 +88,7 @@ func (db *DB) ReplicateObject(ctx context.Context, class,
 		return *resp
 	}
 
-	index, pr := db.replicatedIndex(class)
+	index, pr := db.replicatedIndex(ctx, class)
 	if pr != nil {
 		return *pr
 	}
@@ -103,7 +103,7 @@ func (db *DB) ReplicateObjects(ctx context.Context, class,
 		return *resp
 	}
 
-	index, pr := db.replicatedIndex(class)
+	index, pr := db.replicatedIndex(ctx, class)
 	if pr != nil {
 		return *pr
 	}
@@ -119,7 +119,7 @@ func (db *DB) ReplicateUpdate(ctx context.Context, class,
 		return *resp
 	}
 
-	index, pr := db.replicatedIndex(class)
+	index, pr := db.replicatedIndex(ctx, class)
 	if pr != nil {
 		return *pr
 	}
@@ -135,7 +135,7 @@ func (db *DB) ReplicateDeletion(ctx context.Context, class,
 		return *resp
 	}
 
-	index, pr := db.replicatedIndex(class)
+	index, pr := db.replicatedIndex(ctx, class)
 	if pr != nil {
 		return *pr
 	}
@@ -150,7 +150,7 @@ func (db *DB) ReplicateDeletions(ctx context.Context, class,
 		return *resp
 	}
 
-	index, pr := db.replicatedIndex(class)
+	index, pr := db.replicatedIndex(ctx, class)
 	if pr != nil {
 		return *pr
 	}
@@ -166,7 +166,7 @@ func (db *DB) ReplicateReferences(ctx context.Context, class,
 		return *resp
 	}
 
-	index, pr := db.replicatedIndex(class)
+	index, pr := db.replicatedIndex(ctx, class)
 	if pr != nil {
 		return *pr
 	}
@@ -175,7 +175,7 @@ func (db *DB) ReplicateReferences(ctx context.Context, class,
 }
 
 func (db *DB) OverwriteObjects(ctx context.Context, className, shard string, vobjects []*objects.VObject) ([]types.RepairResponse, error) {
-	index, pr := db.replicatedIndex(className)
+	index, pr := db.replicatedIndex(ctx, className)
 	if pr != nil {
 		return nil, pr.FirstError()
 	}
@@ -183,7 +183,7 @@ func (db *DB) OverwriteObjects(ctx context.Context, className, shard string, vob
 }
 
 func (db *DB) FetchObject(ctx context.Context, className, shardName string, id strfmt.UUID) (replica.Replica, error) {
-	index, pr := db.replicatedIndex(className)
+	index, pr := db.replicatedIndex(ctx, className)
 	if pr != nil {
 		return replica.Replica{}, pr.FirstError()
 	}
@@ -191,7 +191,7 @@ func (db *DB) FetchObject(ctx context.Context, className, shardName string, id s
 }
 
 func (db *DB) FetchObjects(ctx context.Context, className, shardName string, ids []strfmt.UUID) ([]replica.Replica, error) {
-	index, pr := db.replicatedIndex(className)
+	index, pr := db.replicatedIndex(ctx, className)
 	if pr != nil {
 		return nil, pr.FirstError()
 	}
@@ -199,7 +199,7 @@ func (db *DB) FetchObjects(ctx context.Context, className, shardName string, ids
 }
 
 func (db *DB) DigestObjects(ctx context.Context, className, shardName string, ids []strfmt.UUID) (result []types.RepairResponse, err error) {
-	index, pr := db.replicatedIndex(className)
+	index, pr := db.replicatedIndex(ctx, className)
 	if pr != nil {
 		return nil, pr.FirstError()
 	}
@@ -207,7 +207,7 @@ func (db *DB) DigestObjects(ctx context.Context, className, shardName string, id
 }
 
 func (db *DB) DigestObjectsInRange(ctx context.Context, className, shardName string, initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairDigest, err error) {
-	index, pr := db.replicatedIndex(className)
+	index, pr := db.replicatedIndex(ctx, className)
 	if pr != nil {
 		return nil, pr.FirstError()
 	}
@@ -215,7 +215,7 @@ func (db *DB) DigestObjectsInRange(ctx context.Context, className, shardName str
 }
 
 func (db *DB) CompareDigests(ctx context.Context, className, shardName string, digests []types.RepairDigest) ([]types.RepairDigest, error) {
-	index, pr := db.replicatedIndex(className)
+	index, pr := db.replicatedIndex(ctx, className)
 	if pr != nil {
 		return nil, pr.FirstError()
 	}
@@ -223,7 +223,7 @@ func (db *DB) CompareDigests(ctx context.Context, className, shardName string, d
 }
 
 func (db *DB) HashTreeLevel(ctx context.Context, className, shardName string, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
-	index, pr := db.replicatedIndex(className)
+	index, pr := db.replicatedIndex(ctx, className)
 	if pr != nil {
 		return nil, pr.FirstError()
 	}
@@ -231,7 +231,7 @@ func (db *DB) HashTreeLevel(ctx context.Context, className, shardName string, le
 }
 
 func (db *DB) CompareHashTreeRoots(ctx context.Context, className string, roots map[string]hashtree.Digest) ([]string, error) {
-	index, pr := db.replicatedIndex(className)
+	index, pr := db.replicatedIndex(ctx, className)
 	if pr != nil {
 		return nil, pr.FirstError()
 	}
@@ -239,7 +239,7 @@ func (db *DB) CompareHashTreeRoots(ctx context.Context, className string, roots 
 }
 
 func (db *DB) CountObjects(ctx context.Context, indexName string, shardName string) (int, error) {
-	index, pr := db.replicatedIndex(indexName)
+	index, pr := db.replicatedIndex(ctx, indexName)
 	if pr != nil {
 		return 0, pr.FirstError()
 	}
@@ -249,7 +249,7 @@ func (db *DB) CountObjects(ctx context.Context, indexName string, shardName stri
 func (db *DB) FindUUIDs(ctx context.Context, indexName, shardName string,
 	f *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
-	index, pr := db.replicatedIndex(indexName)
+	index, pr := db.replicatedIndex(ctx, indexName)
 	if pr != nil {
 		return nil, pr.FirstError()
 	}
@@ -257,7 +257,7 @@ func (db *DB) FindUUIDs(ctx context.Context, indexName, shardName string,
 }
 
 func (db *DB) CreateAsyncCheckpoint(ctx context.Context, className string, shardNames []string, cutoffMs int64, createdAt time.Time) error {
-	index, pr := db.replicatedIndex(className)
+	index, pr := db.replicatedIndex(ctx, className)
 	if pr != nil {
 		return pr.FirstError()
 	}
@@ -265,7 +265,7 @@ func (db *DB) CreateAsyncCheckpoint(ctx context.Context, className string, shard
 }
 
 func (db *DB) DeleteAsyncCheckpoint(ctx context.Context, className string, shardNames []string) error {
-	index, pr := db.replicatedIndex(className)
+	index, pr := db.replicatedIndex(ctx, className)
 	if pr != nil {
 		return pr.FirstError()
 	}
@@ -273,7 +273,7 @@ func (db *DB) DeleteAsyncCheckpoint(ctx context.Context, className string, shard
 }
 
 func (db *DB) GetAsyncCheckpointStatus(ctx context.Context, className string, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
-	index, pr := db.replicatedIndex(className)
+	index, pr := db.replicatedIndex(ctx, className)
 	if pr != nil {
 		return nil, pr.FirstError()
 	}
@@ -282,7 +282,7 @@ func (db *DB) GetAsyncCheckpointStatus(ctx context.Context, className string, sh
 }
 
 func (db *DB) CreateAsyncCheckpoints(ctx context.Context, className string, cutoffMs int64, shards []string) error {
-	index, pr := db.replicatedIndex(className)
+	index, pr := db.replicatedIndex(ctx, className)
 	if pr != nil {
 		return pr.FirstError()
 	}
@@ -290,7 +290,7 @@ func (db *DB) CreateAsyncCheckpoints(ctx context.Context, className string, cuto
 }
 
 func (db *DB) DeleteAsyncCheckpoints(ctx context.Context, className string, shards []string) error {
-	index, pr := db.replicatedIndex(className)
+	index, pr := db.replicatedIndex(ctx, className)
 	if pr != nil {
 		return pr.FirstError()
 	}
@@ -298,7 +298,7 @@ func (db *DB) DeleteAsyncCheckpoints(ctx context.Context, className string, shar
 }
 
 func (db *DB) GetAsyncCheckpointNodeStatuses(ctx context.Context, className string, shards []string) (map[string][]replica.AsyncCheckpointNodeStatus, error) {
-	index, pr := db.replicatedIndex(className)
+	index, pr := db.replicatedIndex(ctx, className)
 	if pr != nil {
 		return nil, pr.FirstError()
 	}
@@ -308,7 +308,7 @@ func (db *DB) GetAsyncCheckpointNodeStatuses(ctx context.Context, className stri
 func (db *DB) CommitReplication(ctx context.Context,
 	class, shard, requestID string,
 ) any {
-	index, pr := db.replicatedIndex(class)
+	index, pr := db.replicatedIndex(ctx, class)
 	if pr != nil {
 		return *pr
 	}
@@ -319,7 +319,7 @@ func (db *DB) CommitReplication(ctx context.Context,
 func (db *DB) AbortReplication(ctx context.Context,
 	class, shard, requestID string,
 ) any {
-	index, pr := db.replicatedIndex(class)
+	index, pr := db.replicatedIndex(ctx, class)
 	if pr != nil {
 		return *pr
 	}
@@ -327,14 +327,20 @@ func (db *DB) AbortReplication(ctx context.Context,
 	return index.AbortReplication(ctx, shard, requestID)
 }
 
-func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResponse) {
+func (db *DB) replicatedIndex(ctx context.Context, name string) (idx *Index, resp *replica.SimpleResponse) {
 	if !db.StartupComplete() {
 		return nil, &replica.SimpleResponse{Errors: []replicaerrors.Error{
 			*replicaerrors.NewError(replicaerrors.StatusNotReady, name),
 		}}
 	}
 
-	if idx = db.GetIndex(schema.ClassName(name)); idx == nil {
+	idx, err := db.indexForRead(ctx, schema.ClassName(name))
+	if err != nil {
+		return nil, &replica.SimpleResponse{Errors: []replicaerrors.Error{{
+			Code: replicaerrors.StatusPreconditionFailed, Msg: err.Error(), Err: err,
+		}}}
+	}
+	if idx == nil {
 		return nil, &replica.SimpleResponse{Errors: []replicaerrors.Error{
 			*replicaerrors.NewError(replicaerrors.StatusClassNotFound, name),
 		}}
