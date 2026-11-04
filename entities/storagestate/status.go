@@ -27,6 +27,20 @@ const (
 	StatusRecovering  Status = "RECOVERING"
 )
 
+// Conditions that hold a shard read-only on a node.
+const (
+	ConditionUserReadOnly     = "USER_READONLY"
+	ConditionResourcePressure = "RESOURCE_PRESSURE"
+	ConditionReindexing       = "REINDEXING"
+	ConditionFreezing         = "FREEZING"
+)
+
+// Report is a shard's status on one node; nil Conditions means the node did not report them.
+type Report struct {
+	Status     string   `json:"status"`
+	Conditions []string `json:"conditions"`
+}
+
 var ErrStatusReadOnlyWithReason = func(reason string) error {
 	return fmt.Errorf("store is read-only due to: %v", reason)
 }

@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -95,7 +96,7 @@ type IndexClient interface {
 	DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
 		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	GetShardQueueSize(ctx context.Context, hostName, indexName, shardName string) (int64, error)
-	GetShardStatus(ctx context.Context, hostName, indexName, shardName string) (string, error)
+	GetShardStatus(ctx context.Context, hostName, indexName, shardName string) (storagestate.Report, error)
 
 	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
 		payload io.ReadSeekCloser) error
@@ -388,10 +389,10 @@ func (ri *Index) GetShardQueueSize(ctx context.Context, shardName string) (int64
 	return ri.client.GetShardQueueSize(ctx, host, ri.class, shardName)
 }
 
-func (ri *Index) GetShardStatus(ctx context.Context, shardName, nodeName string) (string, error) {
+func (ri *Index) GetShardStatus(ctx context.Context, shardName, nodeName string) (storagestate.Report, error) {
 	host, ok := ri.nodeResolver.NodeHostname(nodeName)
 	if !ok {
-		return "", fmt.Errorf("resolve node name %q to host", nodeName)
+		return storagestate.Report{}, fmt.Errorf("resolve node name %q to host", nodeName)
 	}
 
 	return ri.client.GetShardStatus(ctx, host, ri.class, shardName)

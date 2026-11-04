@@ -384,15 +384,17 @@ func TestIndex_getShardsStorageStatus(t *testing.T) {
 	}
 
 	// NodeUnresponsive should not be in the final response.
-	want := maps.Clone(shardStatus)
-	want["remote_not_reachable"] = maps.Clone(want["remote_not_reachable"])
-	want["remote_not_reachable"]["node-2"] = storagestate.StatusUnavailable.String()
-
-	want["local_not_reachable"] = maps.Clone(want["local_not_reachable"])
-	want["local_not_reachable"]["node-0"] = storagestate.StatusUnavailable.String()
-
-	want["no_local_none_reachable"] = maps.Clone(want["no_local_none_reachable"])
-	want["no_local_none_reachable"]["node-1"] = storagestate.StatusUnavailable.String()
+	want := make(map[string]map[string]storagestate.Report, len(shardStatus))
+	for shard, byNode := range shardStatus {
+		want[shard] = make(map[string]storagestate.Report, len(byNode))
+		for node, status := range byNode {
+			if status == NodeUnresponsive {
+				want[shard][node] = storagestate.Report{Status: storagestate.StatusUnavailable.String()}
+				continue
+			}
+			want[shard][node] = storagestate.Report{Status: status, Conditions: []string{}}
+		}
+	}
 
 	wantLegacy := map[string]string{
 		"shard_local":             storagestate.StatusReady.String(),
@@ -504,7 +506,7 @@ func TestIndex_getShardsStorageStatus(t *testing.T) {
 	assert.Equal(t, want, got, "shard statuses")
 	assert.Equal(t, wantLegacy, gotLegacy, "legacy statuses")
 
-	for tenant, wantOne := range map[string]map[string]map[string]string{
+	for tenant, wantOne := range map[string]map[string]map[string]storagestate.Report{
 		"shard_not_local": {"shard_not_local": want["shard_not_local"]},
 		"unknown":         {},
 	} {

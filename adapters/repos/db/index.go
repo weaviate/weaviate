@@ -4629,15 +4629,15 @@ func shardQueueSize(shard ShardLike) int64 {
 // getShardsStorageStatus returns the status of the collection's shards on each of its
 // replica nodes. Example:
 //
-//	map[string]map[string]string{
-//		"shard-0": { "node-0": "READY", "node-1": "READONLY" },
-//		"shard-1": { "node-1": "READY", "node-2": "READONLY" },
+//	map[string]map[string]storagestate.Report{
+//		"shard-0": { "node-0": {Status: "READY"}, "node-1": {Status: "READONLY"} },
+//		"shard-1": { "node-1": {Status: "READY"}, "node-2": {Status: "READONLY"} },
 //	}
 //
 // The second return value are shard statuses mirroring the legacy implementation,
 // where the status is returned based on the first replica to contain the shard,
 // preferably local.
-func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[string]map[string]string, map[string]string, error) {
+func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[string]map[string]storagestate.Report, map[string]string, error) {
 	thisNode := i.Config.NodeName
 	className := i.Config.ClassName.String()
 	shardNames := []string{tenant}
@@ -4658,7 +4658,7 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 	}
 
 	var mu sync.Mutex // guards shardsStatus and legacyStatus
-	shardsStatus := make(map[string]map[string]string, len(shardNames))
+	shardsStatus := make(map[string]map[string]storagestate.Report, len(shardNames))
 	legacyStatus := make(map[string]string, len(shardNames))
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
@@ -4673,25 +4673,24 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 
 			var (
 				oneNodeStatus atomic.Value
-				perNodeStatus = make(map[string]string, len(replicas))
+				perNodeStatus = make(map[string]storagestate.Report, len(replicas))
 			)
 
 			for _, nodeName := range replicas {
-				perNodeStatus[nodeName] = storagestate.StatusUnavailable.String()
+				perNodeStatus[nodeName] = storagestate.Report{Status: storagestate.StatusUnavailable.String()}
 				var err error
+				var report storagestate.Report
 				if nodeName == thisNode {
-					var status string
-					if status, err = i.localShardStatus(ctx, shardName); err == nil && status != "" {
-						oneNodeStatus.Store(status)
-						perNodeStatus[nodeName] = status
+					if report, err = i.localShardStatus(ctx, shardName); err == nil && report.Status != "" {
+						oneNodeStatus.Store(report.Status)
+						perNodeStatus[nodeName] = report
 					} else {
 						oneNodeStatus.Store(storagestate.StatusUnavailable.String())
 					}
 				} else {
-					var status string
-					if status, err = i.remote.GetShardStatus(ctx, shardName, nodeName); err == nil {
-						oneNodeStatus.CompareAndSwap(nil, status)
-						perNodeStatus[nodeName] = status
+					if report, err = i.remote.GetShardStatus(ctx, shardName, nodeName); err == nil {
+						oneNodeStatus.CompareAndSwap(nil, report.Status)
+						perNodeStatus[nodeName] = report
 					} else {
 						oneNodeStatus.CompareAndSwap(nil, storagestate.StatusUnavailable.String())
 					}
@@ -4718,12 +4717,11 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 	return shardsStatus, legacyStatus, nil
 }
 
-// localShardStatus returns "" when the local shard can't serve reads. A cold
-// shard reports its status without being loaded.
-func (i *Index) localShardStatus(ctx context.Context, shardName string) (string, error) {
+// localShardStatus returns an empty status when the shard can't serve reads; it never loads a cold one.
+func (i *Index) localShardStatus(ctx context.Context, shardName string) (storagestate.Report, error) {
 	cold, err := i.unloadedLazyShard(shardName)
 	if err != nil {
-		return "", err
+		return storagestate.Report{}, err
 	}
 	if cold != nil {
 		return i.reportedStatus(shardName, cold), nil
@@ -4731,31 +4729,31 @@ func (i *Index) localShardStatus(ctx context.Context, shardName string) (string,
 	shard, release, err := i.getShardForDirectLocalOperation(ctx, shardName, shardName, localShardOperationRead, 0)
 	defer release()
 	if err != nil || shard == nil {
-		return "", err
+		return storagestate.Report{}, err
 	}
 	return i.reportedStatus(shardName, shard), nil
 }
 
-func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
+func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (storagestate.Report, error) {
 	cold, err := i.unloadedLazyShard(shardName)
 	if err != nil {
-		return "", err
+		return storagestate.Report{}, err
 	}
 	if cold != nil {
 		return i.reportedStatus(shardName, cold), nil
 	}
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return "", err
+		return storagestate.Report{}, err
 	}
 	defer release()
 
 	if shard == nil {
-		return "", fmt.Errorf("local %s shard not found", shardName)
+		return storagestate.Report{}, fmt.Errorf("local %s shard not found", shardName)
 	}
 
 	if err := i.ensureShardLocallyReady(shard); err != nil {
-		return "", err
+		return storagestate.Report{}, err
 	}
 	return i.reportedStatus(shardName, shard), nil
 }

@@ -327,9 +327,9 @@ func TestUnloadedLazyShardReportsWriteRefusals(t *testing.T) {
 			idx.db.nodeOverlay.SetReadOnly(idx.Config.ClassName.String(), "cold_tenant", tt.readOnly)
 			idx.db.nodeOverlay.SetResourcePressure(tt.pressure)
 
-			status := idx.reportedStatus("cold_tenant", cold)
+			report := idx.reportedStatus("cold_tenant", cold)
 
-			assert.Equal(t, tt.want.String(), status)
+			assert.Equal(t, tt.want.String(), report.Status)
 			assert.False(t, cold.isLoaded())
 		})
 	}

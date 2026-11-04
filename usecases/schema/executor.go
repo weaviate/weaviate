@@ -404,12 +404,21 @@ func (e *executor) GetShardsStorageStatus(ctx context.Context, class, tenant str
 	}
 
 	resp := make(models.ShardStatusList, 0, len(shardsStatus))
-	for shardName, status := range shardsStatus {
+	for shardName, reports := range shardsStatus {
+		perNodeStatus := make(map[string]string, len(reports))
+		perNodeConditions := make(map[string][]string, len(reports))
+		for node, report := range reports {
+			perNodeStatus[node] = report.Status
+			if report.Conditions != nil {
+				perNodeConditions[node] = report.Conditions
+			}
+		}
 		resp = append(resp, &models.ShardStatusGetResponse{
-			Name:            shardName,
-			Status:          legacyStatus[shardName],
-			PerNodeStatus:   status,
-			VectorQueueSize: shardsQueueSize[shardName],
+			Name:              shardName,
+			Status:            legacyStatus[shardName],
+			PerNodeStatus:     perNodeStatus,
+			PerNodeConditions: perNodeConditions,
+			VectorQueueSize:   shardsQueueSize[shardName],
 		})
 	}
 

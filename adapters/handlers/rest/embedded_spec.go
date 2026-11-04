@@ -12063,6 +12063,16 @@ func init() {
           "description": "Name of the shard",
           "type": "string"
         },
+        "per_node_conditions": {
+          "description": "Lists why each replica refuses writes, if it does. ` + "`" + `USER_READONLY` + "`" + ` is set through ` + "`" + `PUT /schema/{className}/shards/{shardName}` + "`" + `. ` + "`" + `RESOURCE_PRESSURE` + "`" + ` means disk or memory use on that node is over its read-only limit. ` + "`" + `REINDEXING` + "`" + ` means an inverted index of the shard is being rebuilt. ` + "`" + `FREEZING` + "`" + ` means the tenant's data is being uploaded for a freeze. A node that did not report is missing.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
         "per_node_status": {
           "description": "Status of the shard on each of its replicas",
           "type": "object",
@@ -25396,6 +25406,16 @@ func init() {
         "name": {
           "description": "Name of the shard",
           "type": "string"
+        },
+        "per_node_conditions": {
+          "description": "Lists why each replica refuses writes, if it does. ` + "`" + `USER_READONLY` + "`" + ` is set through ` + "`" + `PUT /schema/{className}/shards/{shardName}` + "`" + `. ` + "`" + `RESOURCE_PRESSURE` + "`" + ` means disk or memory use on that node is over its read-only limit. ` + "`" + `REINDEXING` + "`" + ` means an inverted index of the shard is being rebuilt. ` + "`" + `FREEZING` + "`" + ` means the tenant's data is being uploaded for a freeze. A node that did not report is missing.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
         "per_node_status": {
           "description": "Status of the shard on each of its replicas",

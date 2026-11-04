@@ -39,6 +39,7 @@ import (
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/queryadmission"
@@ -155,7 +156,7 @@ type shards interface {
 	DeleteObjectBatch(ctx context.Context, indexName, shardName string,
 		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	GetShardQueueSize(ctx context.Context, indexName, shardName string) (int64, error)
-	GetShardStatus(ctx context.Context, indexName, shardName string) (string, error)
+	GetShardStatus(ctx context.Context, indexName, shardName string) (storagestate.Report, error)
 
 	// Replication-specific
 	OverwriteObjects(ctx context.Context, indexName, shardName string,
@@ -1253,7 +1254,7 @@ func (i *indices) getGetShardStatus() http.Handler {
 			"action": "GetShardStatus",
 		}).Debug("getting shard status ...")
 
-		status, err := i.shards.GetShardStatus(r.Context(), index, shard)
+		report, err := i.shards.GetShardStatus(r.Context(), index, shard)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
@@ -1263,7 +1264,18 @@ func (i *indices) getGetShardStatus() http.Handler {
 			return
 		}
 
-		statusBytes, err := shared.IndicesPayloads.GetShardStatusResults.Marshal(status)
+		if shared.IndicesPayloads.ShardStatusReport.Accepted(r) {
+			reportBytes, err := shared.IndicesPayloads.ShardStatusReport.Marshal(report)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			shared.IndicesPayloads.ShardStatusReport.SetContentTypeHeader(w)
+			w.Write(reportBytes)
+			return
+		}
+
+		statusBytes, err := shared.IndicesPayloads.GetShardStatusResults.Marshal(report.Status)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

@@ -39,6 +39,7 @@ import (
 	"github.com/stretchr/testify/require"
 	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
@@ -152,7 +153,7 @@ func TestRemoteIndexShardStatus(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		st, err := client.GetShardStatus(ctx, fs.host, "C1", "S1")
 		assert.Nil(t, err)
-		assert.Equal(t, "READONLY", st)
+		assert.Equal(t, storagestate.Report{Status: "READONLY"}, st)
 	})
 }
 

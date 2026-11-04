@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
@@ -382,9 +383,9 @@ func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants 
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) GetShardsStorageStatus(ctx context.Context, className, tenant string) (map[string]map[string]string, map[string]string, error) {
+func (f *fakeMigrator) GetShardsStorageStatus(ctx context.Context, className, tenant string) (map[string]map[string]storagestate.Report, map[string]string, error) {
 	args := f.Called(ctx, className, tenant)
-	return args.Get(0).(map[string]map[string]string), args.Get(1).(map[string]string), args.Error(2)
+	return args.Get(0).(map[string]map[string]storagestate.Report), args.Get(1).(map[string]string), args.Error(2)
 }
 
 func (f *fakeMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schemaConfig.VectorIndexConfig) error {
