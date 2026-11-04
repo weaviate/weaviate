@@ -347,10 +347,9 @@ func TestInvertedReindexLogsAPinItCouldNotTake(t *testing.T) {
 		"ShardInvertedReindexTask_SpecifiedIndex": map[string][]string{f.index.Config.ClassName.String(): {"warm"}},
 	}))
 
-	close(logged)
 	var messages []string
-	for msg := range logged {
-		messages = append(messages, msg)
+	for len(logged) > 0 {
+		messages = append(messages, <-logged)
 	}
 	require.Condition(t, func() bool {
 		return slices.ContainsFunc(messages, func(m string) bool { return strings.Contains(m, "failed pinning shard") })
