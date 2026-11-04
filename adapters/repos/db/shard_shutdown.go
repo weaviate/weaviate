@@ -608,18 +608,18 @@ type yieldingPin struct {
 // soon as a shutdown or drop is requested, so the work can stop and release
 // before the teardown's first retry. The returned release is idempotent and
 // replaces releasePin.
-func (s *Shard) yieldOnTeardown(ctx context.Context, releasePin func()) (context.Context, func()) {
+func (s *Shard) yieldOnTeardown(ctx context.Context, releasePin func()) (*yieldingPin, func()) {
 	return s.yieldingPin(ctx, releasePin, false)
 }
 
 // yieldOnDrop is yieldOnTeardown for work that must not stop half-way on a
 // shutdown, such as a reindex swap renaming dirs: a shutdown waits for it
 // (Shutdown's bounded retries, then the release completes it), a drop does not.
-func (s *Shard) yieldOnDrop(ctx context.Context, releasePin func()) (context.Context, func()) {
+func (s *Shard) yieldOnDrop(ctx context.Context, releasePin func()) (*yieldingPin, func()) {
 	return s.yieldingPin(ctx, releasePin, true)
 }
 
-func (s *Shard) yieldingPin(ctx context.Context, releasePin func(), dropOnly bool) (context.Context, func()) {
+func (s *Shard) yieldingPin(ctx context.Context, releasePin func(), dropOnly bool) (*yieldingPin, func()) {
 	yieldCtx, cancel := context.WithCancelCause(ctx)
 	pin := &yieldingPin{ctx: yieldCtx, cancel: cancel, dropOnly: dropOnly}
 	s.yieldMu.Lock()
@@ -633,7 +633,7 @@ func (s *Shard) yieldingPin(ctx context.Context, releasePin func(), dropOnly boo
 		cancel(errShardYielded)
 	}
 	var released atomic.Bool
-	return yieldCtx, func() {
+	return pin, func() {
 		if !released.CompareAndSwap(false, true) {
 			return
 		}
@@ -642,6 +642,32 @@ func (s *Shard) yieldingPin(ctx context.Context, releasePin func(), dropOnly boo
 		s.yieldMu.Unlock()
 		cancel(nil)
 		releasePin()
+	}
+}
+
+// pinHold narrows a held yieldOnTeardown pin in place to yieldOnDrop until the
+// returned restore runs, so no gap opens between the two for a shutdown to land
+// in. A shutdown requested first has cancelled the pin, so check its context
+// after holding; one requested during the hold cancels it at restore.
+type pinHold func() (restore func())
+
+func (s *Shard) holdThroughShutdown(pin *yieldingPin) (restore func()) {
+	s.yieldMu.Lock()
+	wasDropOnly := pin.dropOnly
+	pin.dropOnly = true
+	s.yieldMu.Unlock()
+	// Requests set their flag before yieldPins: either it cancelled the pin or saw it narrowed, and then this sees the flag.
+	cancelIfRequested := func() {
+		if !wasDropOnly && s.shutdownRequested.Load() {
+			pin.cancel(errShardYielded)
+		}
+	}
+	cancelIfRequested()
+	return func() {
+		s.yieldMu.Lock()
+		pin.dropOnly = wasDropOnly
+		s.yieldMu.Unlock()
+		cancelIfRequested()
 	}
 }
 
