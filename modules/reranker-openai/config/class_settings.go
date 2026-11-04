@@ -66,9 +66,7 @@ func (cs *classSettings) Validate(class *models.Class) error {
 	return cs.propertyValuesHelper.ValidateBaseURL(cs.BaseURL())
 }
 
-// NormalizeBaseURL fails unless baseURL is an absolute http or https URL that
-// names a host, then strips one trailing "/" and one trailing "/v1". The
-// client appends the /v1 path itself. A URL with a port and no host, such as
+// The client appends /v1 itself. A URL with a port and no host, such as
 // https://:443, dials the local host.
 func NormalizeBaseURL(baseURL string) (string, error) {
 	u, err := url.Parse(baseURL)
@@ -78,8 +76,7 @@ func NormalizeBaseURL(baseURL string) (string, error) {
 	return strings.TrimSuffix(strings.TrimSuffix(baseURL, "/"), "/v1"), nil
 }
 
-// rawSettings mirrors the lookup of the property helper's getters, which the
-// PropertyValuesHelper interface does not expose.
+// rawSettings mirrors the helper's getters, which PropertyValuesHelper does not expose.
 func (cs *classSettings) rawSettings() map[string]any {
 	if settings := cs.cfg.ClassByModuleName(ModuleName); len(settings) > 0 {
 		return settings
@@ -87,8 +84,8 @@ func (cs *classSettings) rawSettings() map[string]any {
 	return cs.cfg.Class()
 }
 
-// BaseURL returns the normalised class value. A value that does not normalise
-// is returned unchanged; Validate rejects it at class create.
+// A value that does not normalise is returned unchanged; Validate rejects it
+// at class create.
 func (cs *classSettings) BaseURL() string {
 	raw := cs.getStringProperty("baseURL", DefaultBaseURL)
 	if normalised, err := NormalizeBaseURL(raw); err == nil {

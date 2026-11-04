@@ -26,8 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// wireRequest decodes the request body with the API's field names,
-// independent of the module's types. Input is a string or a message list.
+// wireRequest uses the API's field names, independent of the module's types.
 type wireRequest struct {
 	Model     string         `json:"model"`
 	Input     any            `json:"input"`
@@ -47,16 +46,13 @@ type fakeRequest struct {
 	body          wireRequest
 }
 
-// fakeReply answers a request with a status and a body instead of the
-// probabilities.
 type fakeReply struct {
 	status int
 	body   string
 }
 
-// fakeProvider stands for POST /v1/decisions of the OpenAI API. It listens
-// on every interface of the host, which the Weaviate container reaches as
-// host.docker.internal.
+// fakeProvider listens on every interface so the Weaviate container reaches it
+// as host.docker.internal.
 type fakeProvider struct {
 	server *httptest.Server
 	port   int
@@ -84,10 +80,7 @@ func (f *fakeProvider) baseURL() string {
 	return fmt.Sprintf("http://host.docker.internal:%d", f.port)
 }
 
-// reset forgets the requests received and sets how the next ones are
-// answered: probabilities holds the probability of each document, a text or
-// the base64 of an image, refusals the documents the model refuses to judge,
-// and failures the documents answered with a status and a body instead.
+// Documents are keyed by text or by the base64 of an image.
 func (f *fakeProvider) reset(probabilities map[string]float64, refusals map[string]bool, failures map[string]fakeReply) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -147,8 +140,6 @@ func (f *fakeProvider) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// documentOf returns the text of an input, or the base64 of the image of its
-// data URL.
 func documentOf(input any) string {
 	if text, ok := input.(string); ok {
 		return text
