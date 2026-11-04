@@ -14,7 +14,6 @@ package backup
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -80,7 +79,7 @@ func nilIfEmpty(ids []string) []string {
 func roleOnlySnapshot(t *testing.T, roleNames ...string) []byte {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
-	m, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true}, config.Authentication{}, false, nil, logger)
+	m, err := rbac.New(t.TempDir(), rbacconf.Config{Enabled: true}, config.Authentication{}, false, nil, logger)
 	require.NoError(t, err)
 	perms := make(map[string][]authorization.Policy, len(roleNames))
 	for _, r := range roleNames {

@@ -1470,10 +1470,10 @@ func lastSnapshotIndex(snapshotStore *raft.FileSnapshotStore) uint64 {
 	return ls[0].Index
 }
 
-// resetRBACIfNoSnapshot wipes the RBAC store, casbin memory and policy.csv
-// both, down to the predefined roles. It runs when no raft snapshot exists:
-// raft then replays the whole log, and each replayed write saves the file
-// again, so replay rebuilds exactly what the wipe removed.
+// resetRBACIfNoSnapshot wipes the in-memory RBAC store, including any state
+// seeded from a legacy policy.csv, down to the predefined roles. It runs when
+// no raft snapshot exists: raft then replays the whole log, so replay rebuilds
+// exactly what the wipe removed.
 func (st *Store) resetRBACIfNoSnapshot() error {
 	if st.cfg.RBAC == nil {
 		return nil
@@ -1490,7 +1490,7 @@ func (st *Store) resetRBACIfNoSnapshot() error {
 		return fmt.Errorf("read first raft log index before rbac reset: %w", err)
 	}
 	if first > 1 {
-		st.log.Warnf("rbac reset skipped: no raft snapshot but the log starts at index %d, keeping policy.csv", first)
+		st.log.Warnf("rbac reset skipped: no raft snapshot but the log starts at index %d, keeping the seeded RBAC state", first)
 		return nil
 	}
 	if err := st.cfg.RBAC.ResetForReplay(); err != nil {

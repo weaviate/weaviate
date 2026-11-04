@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,6 +54,16 @@ func rbacMockStore(t *testing.T, m MockStore, rbacDir string) MockStore {
 	s.schemaManager.SetReplicationFSM(m.replicationFSM)
 	m.store = &s
 	return m
+}
+
+// writeLegacyPolicy fabricates the policy.csv and version files a pre-1.41
+// release left under rbacDir, for rbac.New's legacy seed to load.
+func writeLegacyPolicy(t *testing.T, rbacDir, version string, rows ...string) {
+	t.Helper()
+	legacyDir := filepath.Join(rbacDir, "rbac")
+	require.NoError(t, os.MkdirAll(legacyDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "policy.csv"), []byte(strings.Join(rows, "\n")+"\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "version"), []byte(version), 0o600))
 }
 
 func openMockStore(t *testing.T, m MockStore) *Raft {
@@ -124,10 +135,10 @@ func TestRBACMigrationReplayAfterRestart(t *testing.T) {
 	require.NoError(t, srv.Close(ctx))
 	require.Zero(t, lastSnapshotIndex(m.store.snapshotStore), "the node closes without a raft snapshot")
 
-	// Restart: a fresh RBAC store loads policy.csv, then raft restores and
-	// replays. Tests leave build.Version empty, so the version file the
-	// first boot wrote is replaced with a real one.
-	require.NoError(t, os.WriteFile(filepath.Join(rbacDir, "rbac", "version"), []byte("1.39.6"), 0o600))
+	// Restart: the fresh RBAC store seeds from a legacy policy.csv standing in
+	// for the file the last pre-upgrade boot wrote, which already holds Books.
+	writeLegacyPolicy(t, rbacDir, "1.39.6",
+		fmt.Sprintf("p, %s, %s, %s, %s", conv.PrefixRoleName("operator"), books.Resource, books.Verb, books.Domain))
 	base.indexer = m.indexer
 	m = rbacMockStore(t, base, rbacDir)
 	srv = openMockStore(t, m)

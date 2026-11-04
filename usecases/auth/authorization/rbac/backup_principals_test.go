@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -191,7 +190,7 @@ func TestRestoreBackupPrincipalGrants(t *testing.T) {
 	newManager := func(t *testing.T, dir string) *Manager {
 		t.Helper()
 		logger, _ := test.NewNullLogger()
-		m, err := New(filepath.Join(dir, "policy.csv"), rbacconf.Config{Enabled: true},
+		m, err := New(dir, rbacconf.Config{Enabled: true},
 			config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, false, nil, logger)
 		require.NoError(t, err)
 		return m
@@ -199,22 +198,13 @@ func TestRestoreBackupPrincipalGrants(t *testing.T) {
 
 	for _, version := range []int{SnapshotVersionV0, SnapshotVersionV1} {
 		t.Run("an older snapshot gives collections grants the users and roles grants", func(t *testing.T) {
-			dir := t.TempDir()
-			m := newManager(t, dir)
+			m := newManager(t, t.TempDir())
 
 			require.NoError(t, m.Restore(snapshotAt(t, version, allCollections, oneCollection, schemaOnly), false), "version %d", version)
 
-			check := func(t *testing.T, m *Manager) {
-				assert.ElementsMatch(t, []authorization.Policy{collectionsRow(allCollections), usersGrant, rolesGrant}, rowsOf(t, m, "all-collections"))
-				assert.ElementsMatch(t, []authorization.Policy{collectionsRow(oneCollection), usersGrant, rolesGrant}, rowsOf(t, m, "one-collection"))
-				assert.Equal(t, []authorization.Policy{collectionsRow(schemaOnly)}, rowsOf(t, m, "schema-only"))
-			}
-			t.Run("once the restore returns", func(t *testing.T) { check(t, m) })
-			t.Run("after a reload from policy.csv", func(t *testing.T) {
-				// Drops in-memory state and reloads the persisted file, as a restart does.
-				require.NoError(t, m.casbin.LoadPolicy())
-				check(t, m)
-			})
+			assert.ElementsMatch(t, []authorization.Policy{collectionsRow(allCollections), usersGrant, rolesGrant}, rowsOf(t, m, "all-collections"))
+			assert.ElementsMatch(t, []authorization.Policy{collectionsRow(oneCollection), usersGrant, rolesGrant}, rowsOf(t, m, "one-collection"))
+			assert.Equal(t, []authorization.Policy{collectionsRow(schemaOnly)}, rowsOf(t, m, "schema-only"))
 		})
 	}
 

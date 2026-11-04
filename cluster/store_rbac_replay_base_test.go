@@ -14,8 +14,8 @@ package cluster
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -73,13 +74,11 @@ func TestRBACReplayBase(t *testing.T) {
 		require.False(t, hasRBAC, "the RBAC-disabled boot writes a snapshot without an RBAC section")
 		require.NoError(t, srv.Close(ctx))
 
-		// Roles written before that snapshot exist only in policy.csv. Tests
-		// leave build.Version empty, so the version file gets a real one.
+		// Roles written before that snapshot exist only in the legacy
+		// policy.csv; rbacMockStore's manager seeds them at construction.
 		rbacDir := t.TempDir()
-		authZ, err := rbac.New(rbacDir, rbacconf.Config{Enabled: true}, config.Authentication{}, false, nil, m.logger)
-		require.NoError(t, err)
-		require.NoError(t, authZ.CreateRolesPermissions(map[string][]authorization.Policy{"operator": {books}}))
-		require.NoError(t, os.WriteFile(filepath.Join(rbacDir, "rbac", "version"), []byte("1.39.6"), 0o600))
+		writeLegacyPolicy(t, rbacDir, "1.39.6",
+			fmt.Sprintf("p, %s, %s, %s, %s", conv.PrefixRoleName("operator"), books.Resource, books.Verb, books.Domain))
 
 		base.indexer = m.indexer
 		m = rbacMockStore(t, base, rbacDir)

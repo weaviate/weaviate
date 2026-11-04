@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -3799,7 +3798,7 @@ func makeUserSnapshot(t *testing.T, ids ...string) []byte {
 func makeRbacSnapshot(t *testing.T, roleNames ...string) []byte {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
-	m, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true},
+	m, err := rbac.New(t.TempDir(), rbacconf.Config{Enabled: true},
 		config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, true, nil, logger)
 	require.NoError(t, err)
 	perms := make(map[string][]authorization.Policy, len(roleNames))
@@ -3822,7 +3821,7 @@ func makeRbacSnapshot(t *testing.T, roleNames ...string) []byte {
 func makeRbacSnapshotWithSubjects(t *testing.T, role string, dbUserIDs ...string) []byte {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
-	m, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true},
+	m, err := rbac.New(t.TempDir(), rbacconf.Config{Enabled: true},
 		config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, true, nil, logger)
 	require.NoError(t, err)
 	require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
