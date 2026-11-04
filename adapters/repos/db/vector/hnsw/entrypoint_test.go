@@ -536,9 +536,16 @@ func TestEntrypoint_BootstrapLastLiveNode(t *testing.T) {
 				others := f.nonEntrypointNodes()
 				f.deleteFromObjectStore(ep)
 				ctx, cancel := context.WithCancel(f.ctx)
-				cancel()
+				// the context ends as the entrypoint is found gone, before the
+				// repair picks the next candidate
+				hookRan := false
+				f.setVectorHook(ep, func() {
+					hookRan = true
+					cancel()
+				})
 
 				err := f.index.Add(ctx, 3, f.vectors[3])
+				require.True(t, hookRan)
 				require.ErrorIs(t, err, context.Canceled)
 				require.Nil(t, f.index.nodeByID(3), "a failed insert must not leave a node behind")
 

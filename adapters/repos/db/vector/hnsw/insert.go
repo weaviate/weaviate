@@ -499,8 +499,10 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 		return errors.Wrap(err, "find best entrypoint")
 	}
 
+	// the node denies itself: a node that joined meanwhile and linked to it
+	// can lead its own search back to it
 	nfc := newNeighborFinderConnector(h, id, node, entryPointID, vector, distancer, targetLevel,
-		currentMaximumLayer, helpers.NewAllowList(), false, nil)
+		currentMaximumLayer, helpers.NewAllowList(id), false, nil)
 	if err := nfc.pickEntrypoint(ctx, min(targetLevel, currentMaximumLayer)); err != nil {
 		return errors.Wrap(err, "pick entrypoint")
 	}

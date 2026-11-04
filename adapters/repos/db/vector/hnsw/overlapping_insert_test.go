@@ -89,3 +89,40 @@ func TestInsert_NeighborAlreadyLinkedBack(t *testing.T) {
 		})
 	}
 }
+
+// TestInsert_SelfInSearchResultsSkipsSelf: node 40 is linked to by node x
+// before it is inserted, so its own search returns it. With enough results
+// for the heuristic to run, the node must not be a candidate against which
+// the others are pruned: the layer equals the one it gets without the
+// backlink.
+func TestInsert_SelfInSearchResultsSkipsSelf(t *testing.T) {
+	for _, compressed := range []bool{false, true} {
+		t.Run(map[bool]string{false: "uncompressed", true: "rq8"}[compressed], func(t *testing.T) {
+			const nodes, id = 40, uint64(40)
+			control := newBootstrapFixtureWith(t, compressed, 4, nodes)
+			require.NoError(t, control.index.Add(control.ctx, id, control.vectors[id]))
+			want := control.layer(id, 0)
+			require.NotEmpty(t, want)
+
+			f := newBootstrapFixtureWith(t, compressed, 4, nodes)
+			var x uint64
+			for x = range uint64(nodes) {
+				if len(f.layer(x, 0)) < f.index.maximumConnectionsLayerZero && !containsID(want, x) {
+					break
+				}
+			}
+			require.Less(t, x, uint64(nodes), "no node with room that is not a neighbor of %d", id)
+			f.leaveGhost(t, id)
+			node := f.index.nodeByID(x)
+			node.Lock()
+			node.appendConnectionAtLevelNoLock(0, id, f.index.maximumConnectionsLayerZero)
+			node.Unlock()
+			require.NoError(t, f.index.commitLog.AddLinkAtLevel(x, 0, id))
+
+			require.NoError(t, f.index.Add(f.ctx, id, f.vectors[id]))
+			require.ElementsMatch(t, want, f.layer(id, 0))
+			require.Contains(t, f.layer(x, 0), id)
+			f.requireLayersWellFormed(t)
+		})
+	}
+}

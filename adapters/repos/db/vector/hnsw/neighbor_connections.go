@@ -290,8 +290,8 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 	for results.Len() > 0 {
 		id := results.Pop().ID
 		if id == n.nodeID {
-			// a node that joined meanwhile and linked to this one led the
-			// search back here
+			// the heuristic denies the node itself but is skipped when the
+			// search returned fewer results than the layer holds
 			continue
 		}
 		neighbors = append(neighbors, id)
@@ -438,7 +438,9 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			candidates.Insert(existingConnection, dist)
 		}
 
-		err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)
+		// no deny list: the inserting node is a candidate here and denies
+		// itself in n.denyList
+		err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, nil)
 		if err != nil {
 			return errors.Wrap(err, "connect neighbors")
 		}
@@ -514,7 +516,6 @@ func (n *neighborFinderConnector) pickEntrypoint(ctx context.Context, level int)
 
 		if deny == nil {
 			deny = n.denyList.WrapOnWrite()
-			deny.Insert(n.nodeID)
 		}
 		deny.Insert(candidate)
 		next, err := n.graph.repairGlobalEntrypoint(candidate, deny)
