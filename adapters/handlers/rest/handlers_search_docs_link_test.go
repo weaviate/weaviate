@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	aggregateops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/aggregate"
 	restsearch "github.com/weaviate/weaviate/adapters/handlers/rest/search"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
@@ -160,4 +161,13 @@ func TestSearchErrPayloadDocsLinkThroughHandler(t *testing.T) {
 			assertBody(aggregateErr)
 		})
 	}
+}
+
+func TestAggregateErrResponderTooManyRequests(t *testing.T) {
+	resp := aggregateErrResponder(&restsearch.APIError{Status: http.StatusTooManyRequests, Err: enterrors.NewErrRateLimit()})
+	require.IsType(t, &aggregateops.AggregateTooManyRequests{}, resp)
+	code, body := statusOf(t, resp)
+	require.Equal(t, http.StatusTooManyRequests, code)
+	require.Len(t, body.Error, 1)
+	require.Contains(t, body.Error[0].Message, "429 Too many requests")
 }

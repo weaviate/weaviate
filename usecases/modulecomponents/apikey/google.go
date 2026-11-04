@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"sync"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -62,9 +63,9 @@ func (g *GoogleApiKey) GetApiKey(ctx context.Context, envApiKeyValue string, use
 	if envApiKeyValue != "" {
 		return envApiKeyValue, nil
 	}
-	return "", errors.New("no api key found " +
+	return "", enterrors.NewErrModulePrecondition(errors.New("no api key found " +
 		"neither in request header: X-Palm-Api-Key or X-Goog-Api-Key or X-Goog-Vertex-Api-Key or X-Goog-Studio-Api-Key " +
-		"nor in environment variable under PALM_APIKEY or GOOGLE_APIKEY")
+		"nor in environment variable under PALM_APIKEY or GOOGLE_APIKEY"))
 }
 
 func (g *GoogleApiKey) getAuthToken(ctx context.Context) (string, error) {

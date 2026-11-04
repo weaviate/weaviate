@@ -225,8 +225,7 @@ func searchNearVectorErrResponder(apiErr *restsearch.APIError) middleware.Respon
 }
 
 // aggregateErrResponder translates an aggregate APIError into the generated
-// responder for its status, keeping the standard REST error shape. aggregate
-// declares no 429 (the traverser's aggregate path is not rate limited).
+// responder for its status, keeping the standard REST error shape.
 func aggregateErrResponder(apiErr *restsearch.APIError) middleware.Responder {
 	payload := searchErrPayload(apiErr)
 
@@ -239,6 +238,10 @@ func aggregateErrResponder(apiErr *restsearch.APIError) middleware.Responder {
 		return aggregateops.NewAggregateNotFound().WithPayload(payload)
 	case http.StatusUnprocessableEntity:
 		return aggregateops.NewAggregateUnprocessableEntity().WithPayload(payload)
+	case http.StatusTooManyRequests:
+		// a where filter on a cross-reference runs a nested search, which the
+		// server can turn away when it is too busy
+		return aggregateops.NewAggregateTooManyRequests().WithPayload(payload)
 	case http.StatusInternalServerError:
 		return aggregateops.NewAggregateInternalServerError().WithPayload(payload)
 	default:

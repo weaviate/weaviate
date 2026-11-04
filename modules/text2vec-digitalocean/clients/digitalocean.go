@@ -26,6 +26,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-digitalocean/ent"
 	"github.com/weaviate/weaviate/usecases/build"
@@ -306,5 +307,5 @@ func (c *Client) getApiKey(ctx context.Context) (string, error) {
 	if c.apiKey != "" {
 		return c.apiKey, nil
 	}
-	return "", fmt.Errorf("no api key found neither in request header: X-Digitalocean-Api-Key nor in environment variable under DIGITALOCEAN_APIKEY")
+	return "", enterrors.NewErrModulePrecondition(fmt.Errorf("no api key found neither in request header: X-Digitalocean-Api-Key nor in environment variable under DIGITALOCEAN_APIKEY"))
 }

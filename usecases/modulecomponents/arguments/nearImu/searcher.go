@@ -13,8 +13,8 @@ package nearImu
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -32,7 +32,7 @@ func NewSearcher[T dto.Embedding](vectorizer bindVectorizer[T]) *Searcher[T] {
 		// find vector for given search query
 		vector, err := vectorizer.VectorizeIMU(ctx, params.(*NearIMUParams).IMU, cfg)
 		if err != nil {
-			return nil, errors.Errorf("vectorize imu: %v", err)
+			return nil, fmt.Errorf("vectorize imu: %w", err)
 		}
 		return vector, nil
 	}}
