@@ -480,36 +480,27 @@ const nodeCatchUpTimeout = 10 * time.Second
 func AwaitIndexOnNodes(t *testing.T, nodeURIs []string, collection, property, indexType string, want IndexWant) {
 	t.Helper()
 	for _, uri := range nodeURIs {
-		polls, err := awaitIndexOnNode(uri, collection, property, indexType, want, nodeCatchUpTimeout)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if polls > 1 {
-			t.Logf("node %s: %s/%s reached %+v after %d polls", uri, property, indexType, want, polls)
-		}
-	}
-}
-
-// awaitIndexOnNode returns how many reads it took, so callers can show the
-// wait was needed.
-func awaitIndexOnNode(uri, collection, property, indexType string, want IndexWant, timeout time.Duration) (int, error) {
-	last := "no successful read"
-	deadline := time.Now().Add(timeout)
-	for polls := 1; ; polls++ {
-		if resp, ok := TryGetIndexes(uri, collection); ok {
-			last = fmt.Sprintf("no %s/%s entry", property, indexType)
-			if e, found := resp.find(property, indexType); found {
-				if want.matches(e) {
-					return polls, nil
+		last := "no successful read"
+		deadline := time.Now().Add(nodeCatchUpTimeout)
+		for polls := 1; ; polls++ {
+			if resp, ok := TryGetIndexes(uri, collection); ok {
+				last = fmt.Sprintf("no %s/%s entry", property, indexType)
+				if e, found := resp.find(property, indexType); found {
+					if want.matches(e) {
+						if polls > 1 {
+							t.Logf("node %s: %s/%s reached %+v after %d polls", uri, property, indexType, want, polls)
+						}
+						break
+					}
+					last = fmt.Sprintf("status=%q algorithm=%q", e.Status, e.Algorithm)
 				}
-				last = fmt.Sprintf("status=%q algorithm=%q", e.Status, e.Algorithm)
 			}
+			if time.Now().After(deadline) {
+				t.Fatalf("node %s: %s.%s %s index did not reach %+v within %s (last: %s)",
+					uri, collection, property, indexType, want, nodeCatchUpTimeout, last)
+			}
+			time.Sleep(50 * time.Millisecond)
 		}
-		if time.Now().After(deadline) {
-			return polls, fmt.Errorf("node %s: %s.%s %s index did not reach %+v within %s (last: %s)",
-				uri, collection, property, indexType, want, timeout, last)
-		}
-		time.Sleep(50 * time.Millisecond)
 	}
 }
 
