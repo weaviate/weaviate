@@ -5060,7 +5060,9 @@ func TestSchedulerCancelDuringDedupePlanning(t *testing.T) {
 	}{
 		{name: "user cancel requests it", cancel: func(t *testing.T, s *Scheduler) {
 			require.NoError(t, s.Cancel(context.Background(), nil, "s3", id, "", ""))
-			require.True(t, s.backupper.lastOp.get().CancelRequested)
+			// The create can unwind and reset the op before this read.
+			op := s.backupper.lastOp.get()
+			require.True(t, op.CancelRequested || op.ID == "", "cancel was neither recorded on the op nor had the op unwound; op=%+v", op)
 		}},
 		{name: "slot status cancelled", cancel: func(t *testing.T, s *Scheduler) {
 			s.backupper.lastOp.set(backup.Cancelled)
