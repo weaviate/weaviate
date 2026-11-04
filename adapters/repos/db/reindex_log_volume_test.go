@@ -222,3 +222,34 @@ func TestAHeldStepLogsNoInfoLinePerTick(t *testing.T) {
 		})
 	}
 }
+
+// A unit waiting on a held shard names its task, unit and shard in a Warn, so a migration
+// submitted after the hold began is not silent. The lines share the teardown sampler's budget.
+func TestAUnitWaitingOnAHoldLogsASampledWarn(t *testing.T) {
+	fx := newDoubleFaultFixture(t, "tenant-held-warn")
+	fx.breakDisk(t)
+	fx.load(t)
+	hook := logrustest.NewLocal(fx.logger.(*logrus.Logger))
+
+	unitID := fx.subject.Key.UnitID
+	repair := ReindexTaskPayload{
+		MigrationType: ReindexTypeRepairFilterable, Collection: fx.className, Properties: []string{"title"},
+		UnitToShard: map[string]string{unitID: fx.name},
+	}
+	task := &distributedtask.Task{TaskDescriptor: fx.desc}
+	for range maxReportedErrors {
+		fx.provider.processOneUnit(fx.ctx, task, &repair, fx.idx, unitID, nil)
+		fx.requireStepsWait(t)
+	}
+
+	var waits int
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "this unit waits because its shard is held READONLY") {
+			require.Equal(t, fx.desc.ID, e.Data["taskID"])
+			require.Equal(t, unitID, e.Data["unit"])
+			require.Equal(t, fx.name, e.Data["shard"])
+			waits++
+		}
+	}
+	require.Equal(t, maxReportedErrors, waits, "three waits per round, capped at the sampler's budget")
+}

@@ -400,6 +400,20 @@ func (p *ReindexProvider) ReindexUnitSealBuilder() ReindexUnitSealBuilder {
 	}
 }
 
+// unitWaitsOnHold reports whether the unit's shard is held READONLY, so the unit must not be entered.
+// The wait is logged because a migration submitted after the hold began has no other line naming it.
+func (p *ReindexProvider) unitWaitsOnHold(shard ShardLike, taskID, unitID string) bool {
+	if registry := shard.migrationMirrorRegistry(); registry == nil || !registry.holding() {
+		return false
+	}
+	p.teardownHeldSampler().WithSampling(func(l logrus.FieldLogger) {
+		l.WithField("taskID", taskID).WithField("unit", unitID).WithField("shard", shard.Name()).
+			Warn("reindex provider: this unit waits because its shard is held READONLY for a reindex " +
+				"migration's double-write mirror; the shard's hold line names the cause and the way out")
+	})
+	return true
+}
+
 func (p *ReindexProvider) teardownHeldSampler() *logrusext.Sampler {
 	p.teardownHeldOnce.Do(func() {
 		p.teardownHeld = logrusext.NewSampler(p.logger, maxReportedErrors, migrationUnitContentionWindow)
@@ -544,8 +558,8 @@ func (p *ReindexProvider) processOneUnit(
 			return
 		}
 	}
-	// A held shard's unit is not failed, so the next tick relaunches it. holdReadOnlyForUnarmed logged the hold.
-	if concreteShard.migrationMirrors.holding() {
+	// A held shard's unit is not failed, so the next tick relaunches it.
+	if p.unitWaitsOnHold(concreteShard, task.ID, unitID) {
 		return
 	}
 
@@ -1295,7 +1309,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 			return
 		}
 
-		if registry := res.Shard.migrationMirrorRegistry(); registry != nil && registry.holding() {
+		if p.unitWaitsOnHold(res.Shard, task.ID, unitID) {
 			func() {
 				aggMu.Lock()
 				defer aggMu.Unlock()

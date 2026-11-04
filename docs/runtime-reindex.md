@@ -1088,6 +1088,10 @@ Then, per shard load:
      owning node logs one Error line per hold, when it starts, naming the
      shard, the cause and the way out. A waiting step adds no Info line
      per tick; the scheduler's retry line is at Debug and names the hold.
+     A unit that waits, including one of a migration submitted after the
+     hold began, logs a Warn naming its task, unit and shard. These lines
+     share one budget with the line about a teardown holding a unit: at
+     most 10 a minute per node.
      A refused write and a refused lift carry the cause too.
      - Only a manual status update lifts the hold. A vector-index config
        change is refused while the shard is READONLY, and disk-pressure
