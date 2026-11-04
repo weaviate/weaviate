@@ -19,9 +19,11 @@
 // in adapters/repos/db/) so it covers both local and forwarded writes to a
 // single-replica shard. It also runs at replica prepare
 // (Shard.preparePutObject{,s}), so a shard with more than one write replica is
-// covered too. On namespace-enabled clusters the cap applies per namespace: the
-// chokepoint passes the (namespace-qualified) class name and CheckObjects
-// extracts the namespace so the counter sums only indices in that namespace.
+// covered too. The target of a MOVE that is not yet READY skips it there, as
+// docs/usage_limits.md explains. On namespace-enabled clusters the cap applies
+// per namespace: the chokepoint passes the (namespace-qualified) class name and
+// CheckObjects extracts the namespace so the counter sums only indices in that
+// namespace.
 //
 // Schema-side limits (collections, tenants, shards) do their own counting
 // inline in usecases/schema/ and only reach into this package for the typed

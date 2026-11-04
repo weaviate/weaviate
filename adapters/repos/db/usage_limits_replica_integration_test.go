@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -130,19 +131,27 @@ func TestObjectCap_ReplicaPrepare(t *testing.T) {
 		counter fakeObjectCounter
 		// batch is the object count of a preparePutObjects call, and 0 calls
 		// preparePutObject with one object.
-		batch    int
-		wantCode replicaerrors.StatusCode
+		batch int
+		// moveTarget is set where a MOVE of the shard targets
+		// setupObjectCapShard's node, node1.
+		moveTarget bool
+		wantCode   replicaerrors.StatusCode
 	}{
 		{name: "single at the cap", counter: fakeObjectCounter{count: objectCap}, wantCode: replicaerrors.StatusUsageLimitExceeded},
 		{name: "single filling the cap", counter: fakeObjectCounter{count: objectCap - 1}, wantCode: replicaerrors.StatusOK},
 		{name: "batch crossing the cap", counter: fakeObjectCounter{count: objectCap - 2}, batch: 3, wantCode: replicaerrors.StatusUsageLimitExceeded},
 		{name: "batch filling the cap", counter: fakeObjectCounter{count: objectCap - 3}, batch: 3, wantCode: replicaerrors.StatusOK},
 		{name: "single with a failing counter", counter: fakeObjectCounter{err: errCount}, wantCode: replicaerrors.StatusConflict},
+		// A failing counter is skipped on a MOVE target the same way.
+		{name: "single at the cap on a MOVE target", counter: fakeObjectCounter{count: objectCap}, moveTarget: true, wantCode: replicaerrors.StatusOK},
+		{name: "batch crossing the cap on a MOVE target", counter: fakeObjectCounter{count: objectCap - 2}, batch: 3, moveTarget: true, wantCode: replicaerrors.StatusOK},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			repo, idx, shard, class := setupObjectCapShard(t, &tt.counter)
+			idx.getReplicationFSMReader().(*replicationTypes.MockReplicationFSMReader).EXPECT().
+				HasActiveMoveTargetingShard(class.Class, shard, "node1").Return(tt.moveTarget).Maybe()
 			objs := make([]*storobj.Object, max(tt.batch, 1))
 			for i := range objs {
 				objs[i] = storobj.FromObject(&models.Object{

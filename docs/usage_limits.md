@@ -11,7 +11,7 @@ All limits are **opt-in**: env vars unset means no enforcement.
 | Variable | Type | Default | Effect |
 |---|---|---|---|
 | `USAGE_LIMITS_ERROR_MESSAGE` | string | `"{limit} count limit of {value} reached for this instance."` | Operator-overridable template for the user-facing error message. Placeholders: `{limit}` (resource type) and `{value}` (configured threshold). |
-| `MAXIMUM_ALLOWED_OBJECTS_COUNT` | int | `-1` (unlimited) | Cap on live object count, summed across all loaded local shards (node-wide). Checked on every single + batch insert at the storage chokepoint. |
+| `MAXIMUM_ALLOWED_OBJECTS_COUNT` | int | `-1` (unlimited) | Cap on live object count, summed across all loaded local shards (node-wide). Checked on every single + batch insert at the storage chokepoint, except on the target of a `MOVE` that is not yet `READY` (see *Accepted imperfections*). |
 | `MAXIMUM_ALLOWED_COLLECTIONS_COUNT` | int | `-1` (unlimited) | Cap on number of collections. Cluster-global when `NAMESPACES_ENABLED=false`; per namespace when `NAMESPACES_ENABLED=true`. |
 | `MAXIMUM_ALLOWED_TENANTS_PER_COLLECTION` | int | `-1` (unlimited) | Cap on tenants per multi-tenant collection. Checked at tenant-create time only. |
 | `MAXIMUM_ALLOWED_SHARDS_PER_COLLECTION` | int | `-1` (unlimited) | Cap on `desiredCount` of a class create request's `shardingConfig`. Config-time check. |
@@ -36,7 +36,7 @@ The object/tenant/shard caps only work in the RF=1 deployment shape (see *Scope*
 | Tenants | `usecases/schema/tenant.go` `AddTenants()` | `usecases/schema/tenant.go` |
 | Shards | `usecases/schema/class.go` `AddClass()` (sharding-config validation) | `usecases/schema/class.go` |
 
-The object check sits at the **storage chokepoint** rather than at the use-case layer. A write to a single-replica shard with no active replica movement converges at `Shard.PutObject{,Batch}`, whether it arrived locally or was forwarded from another node. Any other write, one during a replica movement included, is checked at `Shard.preparePutObject{,s}` on every write replica. Repair and change-log replay writes skip the check, because they copy objects the cluster already accepted. The use-case layer (`usecases/objects/`) does not enforce the object cap; that hook was deliberately removed when we moved the chokepoint deeper.
+The object check sits at the **storage chokepoint** rather than at the use-case layer. A write to a single-replica shard with no active replica movement converges at `Shard.PutObject{,Batch}`, whether it arrived locally or was forwarded from another node. Any other write, one during a replica movement included, is checked at `Shard.preparePutObject{,s}` on every write replica but the target of a `MOVE` that is not yet `READY`. Repair and change-log replay writes skip the check, because they copy objects the cluster already accepted. The use-case layer (`usecases/objects/`) does not enforce the object cap; that hook was deliberately removed when we moved the chokepoint deeper.
 
 The schema-side limits (collections, tenants, shards) stay at the use-case layer because that's the single coordinator path — `AddClass`/`AddTenants` go through RAFT, no forwarded-write concern.
 
@@ -83,7 +83,7 @@ Supported deployment shapes (where the cap is meaningful and exact):
 
 **Out of scope:**
 
-- **RF > 1.** Every write replica checks the cap at prepare, but counts only its own node's objects, so the cap is not exact across replicas. Namespaced clusters boot only at `REPLICATION_MAXIMUM_FACTOR=1`.
+- **RF > 1.** Every write replica except the target of a `MOVE` that is not yet `READY` checks the cap at prepare, but each counts only its own node's objects, so the cap is not exact across replicas. Namespaced clusters boot only at `REPLICATION_MAXIMUM_FACTOR=1`.
 - **Hypothetical multi-node, non-namespaced, RF=1, single-shard clusters where collections are distributed across nodes.** Each node would only see its local slice of the count, so the effective cap stacks (`cap × min(N_collections, N_nodes_with_shards)`). Not a deployment shape we ship the cap in.
 - **Phase-2 namespaces** that spread a namespace's collections across nodes — same problem as the previous bullet.
 
@@ -99,7 +99,7 @@ The pre-existing `MAXIMUM_ALLOWED_COLLECTIONS_COUNT` enforcement previously retu
 - **Tenants checked at create time only**, not on subsequent multi-tenancy config changes.
 - **Schema-side caps are not transactional with RAFT.** Read-check-write is not atomic across the RAFT-replicated `AddClass`/`AddTenants` call, so two concurrent creates can both pass the check. Bounded overshoot; next request is correctly rejected.
 - **Repair writes past the cap.** A write can commit without one replica, because that replica was down, unreachable or refused it at its cap. Repair then copies the write onto that replica, past its cap.
-- **A `MOVE` caps per node.** From a `MOVE`'s `DEHYDRATING` state on, and for good once it is `READY`, the target is the shard's only write replica and counts only its own node's objects. So a namespace whose shards a `MOVE` split across nodes is capped per node.
+- **A `MOVE`'s target skips the cap until the `MOVE` is `READY`.** A put the target refused could otherwise commit on the source alone at `ONE`, and the `MOVE` then deletes the source's copy. So from `INTEGRATING` on, the target's yes alone commits a put at `ONE`, and from `DEHYDRATING` on, when the target is the shard's only write replica, at every consistency level. From `READY` on the target counts only its own node's objects, so a namespace whose shards a `MOVE` split across nodes is capped per node. Nothing times the window out: it lasts until every node in the RAFT configuration has reported `INTEGRATING` and then `DEHYDRATING`, so a node that is down holds it open until it returns or is removed from the cluster. A `MOVE` cannot be cancelled once its target has joined the sharding state; only force-deleting the operation ends the window early.
 - **One replica's yes can commit past another's cap.** Whenever a shard has two write replicas (during a movement, after a `COPY`, or with a cap set by runtime override on an RF>1 cluster), the coordinator commits once the consistency level's count of replicas say yes. So at `ONE`, one replica's yes commits a write another refused at the cap.
 - **Missed deletes keep counting.** A replica that was down while objects were deleted still counts them when it returns. Until async replication deletes them there (its hashtree init plus one hashbeat cycle), it refuses capped puts to the shards it holds, and a put whose consistency level needs its yes fails. With async replication disabled, or a class on the `NoAutomatedResolution` deletion strategy, it lasts until an operator deletes the objects on that replica.
 - **A refused put waits for the slowest replica.** Where the limit refusals alone make the consistency level unreachable, the coordinator still waits for every write replica's prepare answer before it returns the 429. So a stalled replica delays the 429 by up to the coordinator's 20-second deadline.
