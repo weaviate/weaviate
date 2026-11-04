@@ -306,6 +306,48 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 	}
 }
 
+func TestRankStopsAfterTheFirstProviderError(t *testing.T) {
+	f := newFake(t)
+	f.replies = map[int]fakeReply{0: {status: http.StatusTooManyRequests, body: `{"error":{"message":"slow down"}}`}}
+
+	res, err := New(defaultFakeKey, "", testTimeout, 1, nullLogger()).RankProperty(context.Background(), churn, "text",
+		documentsOf("first", "second", "third"), classConfig(f.url(), nil))
+
+	require.EqualError(t, err, "connection to OpenAI API failed with status 429: slow down")
+	assert.Nil(t, res)
+	assert.Len(t, f.received(), 1)
+}
+
+func TestRankRejectsAClassBaseURLBeforeSending(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL string
+		wantErr string
+	}{
+		{
+			name:    "no scheme",
+			baseURL: "api.openai.com",
+			wantErr: `baseURL must be an absolute http or https URL, got "api.openai.com"`,
+		},
+		{
+			name:    "a port without a host",
+			baseURL: "https://:443",
+			wantErr: `baseURL must be an absolute http or https URL, got "https://:443"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+
+			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+				documentsOf(noRefund), classConfig(tt.baseURL, nil))
+
+			require.EqualError(t, err, tt.wantErr)
+			assert.Empty(t, f.received())
+		})
+	}
+}
+
 func TestRankReportsARejectedKeyWithoutTheBody(t *testing.T) {
 	const secret = "sk-secret"
 	tests := []struct {
