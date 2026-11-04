@@ -435,6 +435,8 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	return nil
 }
 
+// addOne picks an entrypoint before the node joins the graph, so an insert
+// that fails before then leaves nothing behind
 func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *vertex) error {
 	h.compressActionLock.RLock()
 	h.deleteVsInsertLock.RLock()
@@ -456,14 +458,8 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 		}
 	})
 	if wasFirst {
-		if firstInsertError != nil {
-			return firstInsertError
-		}
-		return nil
+		return firstInsertError
 	}
-
-	node.markAsMaintenance()
-	defer node.unmarkAsMaintenance()
 
 	h.RLock()
 	// initially use the "global" entrypoint which is guaranteed to be on the
@@ -477,47 +473,40 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 	targetLevel := int(node.level)
 	node.connections.GrowLayersTo(uint8(targetLevel))
 
-	var err error
-	if err = h.commitLog.AddNode(id, node.level); err != nil {
-		return err
-	}
-
-	nodeId := id
-
-	h.shardedNodeLocks.Lock(nodeId)
-	h.nodes[nodeId] = node
-	h.shardedNodeLocks.Unlock(nodeId)
-
-	singleVector := !h.multivector.Load() || h.muvera.Load()
-	if singleVector {
-		if h.compressed.Load() {
-			h.compressor.Preload(nodeId, vector)
-		} else {
-			h.cache.Preload(nodeId, vector)
-		}
-	}
-
-	h.insertMetrics.prepareAndInsertNode(before)
-	before = time.Now()
-
 	var distancer compressionhelpers.CompressorDistancer
-	var returnFn compressionhelpers.ReturnDistancerFn
 	if h.compressed.Load() {
+		var returnFn compressionhelpers.ReturnDistancerFn
 		distancer, returnFn = h.compressor.NewDistancer(vector)
 		defer returnFn()
 	}
-	entryPointID, err = h.findBestEntrypointForNode(ctx, currentMaximumLayer, targetLevel,
+	entryPointID, err := h.findBestEntrypointForNode(ctx, currentMaximumLayer, targetLevel,
 		entryPointID, vector, distancer)
 	if err != nil {
 		return errors.Wrap(err, "find best entrypoint")
 	}
 
+	nfc := newNeighborFinderConnector(h, id, node, entryPointID, vector, distancer, targetLevel,
+		currentMaximumLayer, helpers.NewAllowList(), false, nil)
+	if err := nfc.pickEntrypoint(ctx, min(targetLevel, currentMaximumLayer)); err != nil {
+		return errors.Wrap(err, "pick entrypoint")
+	}
+	if nfc.bootstrapped {
+		return nil
+	}
+
 	h.insertMetrics.findEntrypoint(before)
 	before = time.Now()
 
-	// TODO: check findAndConnectNeighbors...
-	if err := h.findAndConnectNeighbors(ctx, id, node, entryPointID, vector, distancer,
-		targetLevel, currentMaximumLayer, helpers.NewAllowList()); err != nil {
+	node.markAsMaintenance()
+	defer node.unmarkAsMaintenance()
+	if err := h.publishNode(id, node, vector); err != nil {
+		return err
+	}
+
+	h.insertMetrics.prepareAndInsertNode(before)
+	before = time.Now()
+
+	if err := nfc.Do(ctx); err != nil {
 		return errors.Wrap(err, "find and connect neighbors")
 	}
 
@@ -535,12 +524,12 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 		h.Lock()
 		// check again to avoid changes from RUnlock to Lock again
 		if targetLevel > h.currentMaximumLayer {
-			if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
+			if err := h.commitLog.SetEntryPointWithMaxLayer(id, targetLevel); err != nil {
 				h.Unlock()
 				return err
 			}
 
-			h.entryPointID = nodeId
+			h.entryPointID = id
 			h.currentMaximumLayer = targetLevel
 		}
 		h.Unlock()
@@ -548,6 +537,20 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 		h.RUnlock()
 	}
 
+	return nil
+}
+
+// publishNode makes the node part of the graph
+func (h *hnsw) publishNode(id uint64, node *vertex, vector []float32) error {
+	if err := h.commitLog.AddNode(id, node.level); err != nil {
+		return err
+	}
+
+	h.shardedNodeLocks.Lock(id)
+	h.nodes[id] = node
+	h.shardedNodeLocks.Unlock(id)
+
+	h.Preload(id, vector)
 	return nil
 }
 
