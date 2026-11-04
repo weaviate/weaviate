@@ -1110,7 +1110,11 @@ Then, per shard load:
        running then keeps going, and the shard's shutdown waits for it: a
        migration is stamped only because its arm failed, never because a
        caller stopped waiting. If it arms, the next lift goes writable, and
-       the migration's steps wait until then.
+       the migration's steps wait until then. A cancel or failure that
+       ends the migration while the retry runs waits for it, then disarms
+       the mirror and removes the staged data. A lift that meets such a
+       cleanup leaves that migration held and is refused; set the status
+       again once the cleanup ends.
      - On a multi-node cluster the status PUT can answer 200 while the
        owning node refused the lift. Confirm that the shard is still
        READONLY with `GET /v1/schema/<class>/shards`, and read the cause in

@@ -85,6 +85,25 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 	return nil
 }
 
+func (r *MigrationRecoveryReindexer) ClaimUnits(tasks []*ShardReindexTaskGeneric,
+) (claimed, skipped []*ShardReindexTaskGeneric, release func()) {
+	var releases []func()
+	for _, t := range tasks {
+		drop, entered := r.provider.enterLocalUnit(distributedtask.TaskDescriptor{ID: t.taskID, Version: t.taskVersion}, t.unitID)
+		if !entered {
+			skipped = append(skipped, t)
+			continue
+		}
+		claimed = append(claimed, t)
+		releases = append(releases, drop)
+	}
+	return claimed, skipped, func() {
+		for _, drop := range releases {
+			drop()
+		}
+	}
+}
+
 // evictUnits drops whole units, because a cached sibling alone would swap half a migration.
 func (r *MigrationRecoveryReindexer) evictUnits(unarmed []*ShardReindexTaskGeneric) {
 	for _, t := range unarmed {

@@ -468,16 +468,7 @@ func TestALiftThatStopsWaitingStillArmsTheMirror(t *testing.T) {
 	enterrors.GoWrapper(func() {
 		lift <- shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate)
 	}, fx.logger)
-	require.Eventually(t, func() bool {
-		families, err := reg.Gather()
-		require.NoError(t, err)
-		for _, f := range families {
-			if f.GetName() == "buckets_waiting_for_permit_to_load" {
-				return f.GetMetric()[0].GetGauge().GetValue() == 1
-			}
-		}
-		return false
-	}, 10*time.Second, 10*time.Millisecond, "the arm parks on the limiter")
+	requireArmParked(t, reg)
 	shard.shutCtxCancel(errors.New("dropped"))
 	require.Error(t, receiveWithin(t, lift))
 	fx.idx.bucketLoadLimiter.Release()
@@ -491,6 +482,130 @@ func TestALiftThatStopsWaitingStillArmsTheMirror(t *testing.T) {
 	for name, b := range shard.store.GetBucketsByName() {
 		require.Equalf(t, storagestate.StatusReadOnly, b.GetStatus(), "bucket %s opened after the caller left", name)
 	}
+}
+
+func requireArmParked(t *testing.T, reg *prometheus.Registry) {
+	require.Eventually(t, func() bool {
+		families, err := reg.Gather()
+		require.NoError(t, err)
+		for _, f := range families {
+			if f.GetName() == "buckets_waiting_for_permit_to_load" {
+				return f.GetMetric()[0].GetGauge().GetValue() == 1
+			}
+		}
+		return false
+	}, 10*time.Second, 10*time.Millisecond, "the arm parks on the limiter")
+}
+
+// newParkedLift loads a held shard, heals both faults and starts a lift whose arm parks on a busy limiter.
+func newParkedLift(t *testing.T, name string) (*doubleFaultFixture, *Shard, <-chan error) {
+	fx := newDoubleFaultFixture(t, name)
+	reg := prometheus.NewRegistry()
+	fx.idx.bucketLoadLimiter = loadlimiter.NewLoadLimiter(reg, "buckets", 1)
+	fx.breakDisk(t)
+	shard := fx.load(t)
+	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
+	fx.healRecords(t)
+	require.NoError(t, os.Remove(fx.corrupt))
+
+	require.NoError(t, fx.idx.bucketLoadLimiter.Acquire(fx.ctx))
+	lift := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		lift <- shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate)
+	}, fx.logger)
+	requireArmParked(t, reg)
+	return fx, shard, lift
+}
+
+// A migration cancelled while a lift's arm runs is cleaned up only after the arm, so no mirror
+// keeps copying writes into a staged directory that no record answers for.
+func TestCleanupOfACancelledMigrationWaitsForTheLiftsArm(t *testing.T) {
+	fx, shard, lift := newParkedLift(t, "tenant-lift-cleanup")
+	staged := filepath.Join(shardPathLSM(fx.idx.path(), fx.name), fx.subject.Props["title"].Staged)
+
+	cleaned := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		ctx, cancel := context.WithTimeout(fx.ctx, 20*time.Second)
+		defer cancel()
+		unseal, err := fx.provider.SealLocalTaskDrain(ctx, fx.desc)
+		if err != nil {
+			cleaned <- err
+			return
+		}
+		defer unseal()
+		task := &distributedtask.Task{TaskDescriptor: fx.desc, Status: distributedtask.TaskStatusCancelled}
+		cleaned <- fx.idx.discardTaskRecordsOn(fx.ctx, fx.name, task)
+	}, fx.logger)
+	// Unclaimed, the cleanup finishes while the arm is parked; claimed, it waits for the arm.
+	var cleanupErr error
+	finished := false
+	select {
+	case cleanupErr = <-cleaned:
+		finished = true
+	case <-time.After(time.Second):
+	}
+	fx.idx.bucketLoadLimiter.Release()
+
+	require.NoError(t, receiveWithin(t, lift))
+	if !finished {
+		cleanupErr = receiveWithin(t, cleaned)
+	}
+	require.NoError(t, cleanupErr)
+	_, ok := shard.migrationRecords.Get(fx.subject.Key)
+	require.False(t, ok, "the record is removed")
+	require.Zero(t, shard.migrationMirrors.ArmedMigrationMirrors(), "no mirror outlives its record")
+	require.NoDirExists(t, staged)
+}
+
+// A lift whose migration a teardown already sealed arms nothing for it and stays refused.
+func TestALiftSkipsAMigrationATeardownHolds(t *testing.T) {
+	fx := newDoubleFaultFixture(t, "tenant-lift-sealed")
+	fx.breakDisk(t)
+	shard := fx.load(t)
+	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
+	fx.healRecords(t)
+	require.NoError(t, os.Remove(fx.corrupt))
+
+	unseal, sealed := fx.provider.SealLocalUnit(fx.desc, fx.subject.Key.UnitID)
+	require.True(t, sealed)
+	defer unseal()
+	err := shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate)
+	require.ErrorContains(t, err, "a teardown holds the unit")
+	require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+	require.Zero(t, shard.migrationMirrors.ArmedMigrationMirrors())
+	require.Len(t, shard.migrationMirrors.heldUnarmed(), 1)
+}
+
+// A second lift that read the held set before the first lift's arm settled it must not arm again.
+// If that second arm failed, it would stamp a migration the first arm had armed.
+func TestASecondLiftDoesNotRearmWhatTheFirstSettled(t *testing.T) {
+	fx, shard, liftA := newParkedLift(t, "tenant-lift-second")
+	staged := filepath.Join(shardPathLSM(fx.idx.path(), fx.name), fx.subject.Props["title"].Staged)
+
+	// Holding shutdownLock parks lift B after its first read of the held set, before liftRetry.
+	shard.shutdownLock.Lock()
+	unlock := sync.OnceFunc(shard.shutdownLock.Unlock)
+	t.Cleanup(unlock)
+	liftB := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		liftB <- shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate)
+	}, fx.logger)
+	time.Sleep(200 * time.Millisecond) // no observable point between B's read and its wait on the lock
+
+	fx.idx.bucketLoadLimiter.Release()
+	require.NoError(t, receiveWithin(t, liftA))
+	// A stat on a self-referencing symlink fails, so any second arm fails and would stamp.
+	require.NoError(t, os.Rename(staged, staged+".moved"))
+	require.NoError(t, os.Symlink(filepath.Base(staged), staged))
+	unlock()
+	require.NoError(t, receiveWithin(t, liftB))
+	require.NoError(t, os.Remove(staged))
+	require.NoError(t, os.Rename(staged+".moved", staged))
+
+	rec, ok := shard.migrationRecords.Get(fx.subject.Key)
+	require.True(t, ok)
+	require.False(t, rec.Subject().Unmirrored, "the migration the first lift armed is not stamped")
+	require.Len(t, fx.provider.cachedReindexTasks(fx.desc, fx.subject.Key.UnitID), 1)
 }
 
 // An arm that ends before the lift writes the status keeps the steps waiting

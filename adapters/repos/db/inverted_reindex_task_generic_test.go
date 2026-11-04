@@ -62,6 +62,11 @@ func (r *testShardReindexer) AbandonUnarmed(*Shard, []*ShardReindexTaskGeneric, 
 	return nil
 }
 
+func (r *testShardReindexer) ClaimUnits(tasks []*ShardReindexTaskGeneric,
+) ([]*ShardReindexTaskGeneric, []*ShardReindexTaskGeneric, func()) {
+	return tasks, nil, func() {}
+}
+
 func createTestObjectWithText(className, text string) *storobj.Object {
 	return &storobj.Object{
 		MarshallerVersion: 1,

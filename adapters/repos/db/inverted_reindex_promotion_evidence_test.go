@@ -224,3 +224,8 @@ func (r *noRecoveryTaskReindexer) RecoverMigrations(*Shard) []*ShardReindexTaskG
 func (r *noRecoveryTaskReindexer) AbandonUnarmed(*Shard, []*ShardReindexTaskGeneric, error) error {
 	return nil
 }
+
+func (r *noRecoveryTaskReindexer) ClaimUnits(tasks []*ShardReindexTaskGeneric,
+) ([]*ShardReindexTaskGeneric, []*ShardReindexTaskGeneric, func()) {
+	return tasks, nil, func() {}
+}

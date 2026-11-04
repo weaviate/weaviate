@@ -221,7 +221,7 @@ func (s *Shard) retryHeldMigrations(in string) error {
 	enterrors.GoWrapper(func() {
 		defer release()
 		defer s.liftRetry.Unlock()
-		done <- s.rearmHeld(held)
+		done <- s.rearmHeld()
 	}, s.index.logger)
 	wait := time.NewTimer(liftRetryTimeout)
 	defer wait.Stop()
@@ -238,14 +238,25 @@ func (s *Shard) retryHeldMigrations(in string) error {
 	}
 }
 
-func (s *Shard) rearmHeld(held []*ShardReindexTaskGeneric) error {
-	unarmed, err := s.armRecoveredMigrations(context.WithoutCancel(s.shutCtx), held)
+// rearmHeld reads the held set under liftRetry, because an earlier lift's late arm may have settled it.
+// It arms under the unit claims cleanup's seal waits on, so a teardown cannot remove what the arm re-creates.
+func (s *Shard) rearmHeld() error {
+	held := s.migrationMirrors.heldUnarmed()
+	if len(held) == 0 {
+		return nil
+	}
+	claimed, skipped, releaseClaims := s.reindexer.ClaimUnits(held)
+	defer releaseClaims()
+	unarmed, err := s.armRecoveredMigrations(context.WithoutCancel(s.shutCtx), claimed)
 	ec := errorcompounder.New()
 	ec.Add(err)
 	// Buckets the arm opened go back to READONLY before the hold changes, so no lift races the reset.
 	ec.Add(s.store.UpdateBucketsStatus(storagestate.StatusReadOnly))
-	if err != nil {
-		s.migrationMirrors.holdUnarmed(unarmed)
+	if len(skipped) > 0 {
+		ec.Add(fmt.Errorf("a teardown holds the unit of %d migration(s); set the status again once it ends", len(skipped)))
+	}
+	if err != nil || len(skipped) > 0 {
+		s.migrationMirrors.holdUnarmed(append(unarmed, skipped...))
 	} else {
 		s.migrationMirrors.markHeldArmed()
 	}
