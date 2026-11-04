@@ -1109,6 +1109,7 @@ Then, per shard load:
        |---|---|
        | The disk fails reads or writes | Once it works, set the shard READY |
        | A staged bucket cannot open because a segment file is damaged | Repair or restore that file, then set the shard READY or restart the node |
+       | A migration already swapped in, whose segment cannot be repaired while a second fault (an unwritable records dir or another unreadable record) blocks its promotion | No supported exit. Its task blocks tenant and class changes on the collection; on several nodes, another node's failed step moves the task to FAILED, which lifts that block but not the hold. Clearing the second fault and restarting makes the shard fail to load. The general exit is tracked in weaviate/etienne-claude-issues#221 |
      - Reads are served while the retry waits on the disk, a second lift
        meanwhile is refused, and a lift waits at most 30 s. A retry still
        running then keeps going, and the shard's shutdown waits for it: a
