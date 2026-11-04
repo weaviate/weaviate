@@ -1779,9 +1779,9 @@ func CleanupSweepSummary(phase string, outcome CleanupSweepOutcome) (msg string,
 			logrus.ErrorLevel
 	case CleanupSweepWithheld:
 		return phase + ": a shard holds a migration record that is not understood, so its cleanup " +
-				"is withheld. Fix that record and reload the shard while this task is still listed; " +
-				"after that, a repair or rebuild record is left in place and needs a new migration " +
-				"on its properties",
+				"is withheld. Fix that record and reload the shard; the cleanup then runs if this task " +
+				"is still listed, and a repair or rebuild record whose task has left the list stays " +
+				"and needs a new migration on its properties",
 			logrus.ErrorLevel
 	default:
 		// Also the CleanupSweepUnknown arm: an outcome this build cannot name
