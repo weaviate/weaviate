@@ -172,6 +172,7 @@ const (
 	StatusPreconditionFailed
 	StatusReadOnly
 	StatusObjectNotFound
+	StatusUsageLimitExceeded
 )
 
 // StatusText returns a text for the status code. It returns the empty string
@@ -198,6 +199,8 @@ func StatusText(code StatusCode) string {
 		return "read only"
 	case StatusObjectNotFound:
 		return "object not found"
+	case StatusUsageLimitExceeded:
+		return "usage limit exceeded"
 	default:
 		return ""
 	}
