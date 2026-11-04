@@ -96,6 +96,6 @@ func TestNamespaceSuspendResumeWhileUnloading(t *testing.T) {
 	wg.Wait()
 
 	require.NoError(t, randomWorkload(ctx, cl, l, class, tenants, 300, 4), "every request succeeds after the resume")
-	verifyAll(ctx, t, cl, l, class, tenants)
+	verifyAcknowledged(ctx, t, cl, l, class, tenants)
 	eventuallyLoaded(ctx, t, compose, 1, time.Minute, atLimit, "the resumed namespace drains to the limit")
 }

@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 
-	apiclient "github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -357,31 +356,5 @@ func TestKillDuringUnloadingKeepsAcknowledgedWrites(t *testing.T) {
 	}
 
 	cl = newClient(compose.GetWeaviate().URI())
-	verifyAtLeast(ctx, t, cl, l, class, tenants)
-}
-
-// verifyAtLeast checks every acknowledged write survived; writes cut by a kill may also exist.
-func verifyAtLeast(ctx context.Context, t *testing.T, cl *apiclient.Weaviate, l *ledger, class string, tenants []string) {
-	t.Helper()
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(8)
-	for _, tenant := range tenants {
-		g.Go(func() error {
-			ids := l.ids(class, tenant)
-			n, err := countObjects(gctx, cl, class, tenant)
-			if err != nil {
-				return err
-			}
-			if n < len(ids) {
-				return fmt.Errorf("%s/%s holds %d objects, %d acknowledged", class, tenant, n, len(ids))
-			}
-			for _, id := range ids {
-				if err := readObject(gctx, cl, class, tenant, id, nil); err != nil {
-					return err
-				}
-			}
-			return nil
-		})
-	}
-	require.NoError(t, g.Wait())
+	verifyAcknowledged(ctx, t, cl, l, class, tenants)
 }
