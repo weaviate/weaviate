@@ -18,8 +18,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
@@ -58,26 +60,28 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateMOVEDeletesSourceRepl
 	}, 20*time.Second, time.Second, "Replication operation should be in READY state")
 
 	t.Run("ensure target and source replicas are there/gone respectively", func(t *testing.T) {
+		verbose := verbosity.OutputVerbose
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			shardingState, err := helper.Client(t).Replication.GetCollectionShardingState(replication.NewGetCollectionShardingStateParams().WithCollection(&paragraphClass.Class).WithShard(req.Shard), nil)
-			require.NoError(ct, err, "failed to get nodes for class: %+v", err)
-
-			require.Len(ct, shardingState.Payload.ShardingState.Shards, 1, "there should be exactly one shard")
-			shard := shardingState.Payload.ShardingState.Shards[0]
-
+			nodes, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class), nil)
+			require.NoError(t, err, "failed to get nodes for class: %+v", err)
 			foundSrc := false
 			foundDst := false
-			if shard.Shard == *req.Shard {
-				for _, replica := range shard.Replicas {
-					if replica == *req.SourceNode {
-						foundSrc = true
+			for _, node := range nodes.Payload.Nodes {
+				if *req.SourceNode == node.Name {
+					for _, shard := range node.Shards {
+						if shard.Name == *req.Shard {
+							foundSrc = true
+						}
 					}
-					if replica == *req.TargetNode {
-						foundDst = true
+				}
+				if *req.TargetNode == node.Name {
+					for _, shard := range node.Shards {
+						if shard.Name == *req.Shard {
+							foundDst = true
+						}
 					}
 				}
 			}
-
 			require.False(ct, foundSrc, "source replica should not be there")
 			require.True(ct, foundDst, "destination replica should be there")
 		}, 60*time.Second, time.Second, "Replicas should be in the expected state")
