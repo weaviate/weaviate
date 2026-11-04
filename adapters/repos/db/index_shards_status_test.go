@@ -83,9 +83,9 @@ func (c *shardStatusRemoteClient) reply(ctx context.Context, host, shard string)
 	return r, r.err
 }
 
-func (c *shardStatusRemoteClient) GetShardStatus(ctx context.Context, host, _, shard string) (string, error) {
+func (c *shardStatusRemoteClient) GetShardStatus(ctx context.Context, host, _, shard string) (storagestate.Report, error) {
 	r, err := c.reply(ctx, host, shard)
-	return r.status, err
+	return storagestate.Report{Status: r.status}, err
 }
 
 func (c *shardStatusRemoteClient) GetShardQueueSize(ctx context.Context, host, _, shard string) (int64, error) {

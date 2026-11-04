@@ -858,7 +858,7 @@ func TestARetryThatWorksLeavesAShardReadOnlyForAnotherReason(t *testing.T) {
 			set: func(fx *doubleFaultFixture, on bool) {
 				fx.idx.db.nodeOverlay.SetReadOnly(fx.className, fx.name, on)
 			},
-			check: func(fx *doubleFaultFixture, shard *Shard) string { return fx.idx.reportedStatus(fx.name, shard) },
+			check: func(fx *doubleFaultFixture, shard *Shard) string { return fx.idx.reportedStatus(fx.name, shard.GetStatus()).Status },
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

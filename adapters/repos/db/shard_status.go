@@ -272,15 +272,30 @@ func (i *Index) updateShardStatus(_ context.Context, shardName, targetStatus str
 	return shard.retryHeldMigrations(targetStatus)
 }
 
-func (i *Index) reportedStatus(shardName string, shard ShardLike) string {
+func (i *Index) reportedStatus(shardName string, status storagestate.Status) storagestate.Report {
+	conditions := []string{}
+	if i.userReadOnly(shardName) {
+		conditions = append(conditions, storagestate.ConditionUserReadOnly)
+	}
+	if i.db.resourcePressureReadOnly() {
+		conditions = append(conditions, storagestate.ConditionResourcePressure)
+	}
+	if phase := i.nodeOverlay().PhaseOf(i.Config.ClassName.String(), shardName); phase != nil {
+		if phase.Reindexing() || phase.MigrationHeld() {
+			conditions = append(conditions, storagestate.ConditionReindexing)
+		}
+		if phase.Transferring() {
+			conditions = append(conditions, storagestate.ConditionFreezing)
+		}
+	}
+
 	// An unloaded lazy shard or an indexing one refuses writes like any other.
-	status := shard.GetStatus()
 	switch status {
 	case storagestate.StatusReady, storagestate.StatusIndexing, storagestate.StatusLazyLoading:
-		if i.userReadOnly(shardName) || i.db.resourcePressureReadOnly() {
+		if len(conditions) > 0 {
 			status = storagestate.StatusReadOnly
 		}
 	default:
 	}
-	return status.String()
+	return storagestate.Report{Status: status.String(), Conditions: conditions}
 }

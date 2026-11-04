@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/queryadmission"
@@ -627,17 +628,18 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
-) (string, error) {
+) (storagestate.Report, error) {
 	ctx, cancel := context.WithTimeout(ctx, shardStatusTimeout)
 	defer cancel()
 	req, err := setupRequest(ctx, http.MethodGet, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName),
 		"", nil)
 	if err != nil {
-		return "", errors.Wrap(err, "open http request")
+		return storagestate.Report{}, errors.Wrap(err, "open http request")
 	}
-	var status string
+	var report storagestate.Report
 	clusterapi.IndicesPayloads.GetShardStatusParams.SetContentTypeHeaderReq(req)
+	clusterapi.IndicesPayloads.ShardStatusReport.SetAcceptHeader(req)
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
@@ -654,18 +656,27 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 			return false, errors.Wrap(err, "read body")
 		}
 
+		if clusterapi.IndicesPayloads.ShardStatusReport.CheckContentTypeHeader(res) {
+			report, err = clusterapi.IndicesPayloads.ShardStatusReport.Unmarshal(resBytes)
+			if err != nil {
+				return false, errors.Wrap(err, "unmarshal body")
+			}
+			return false, nil
+		}
+
 		ct, ok := clusterapi.IndicesPayloads.GetShardStatusResults.CheckContentTypeHeader(res)
 		if !ok {
 			return false, errors.Errorf("unexpected content type: %s", ct)
 		}
 
-		status, err = clusterapi.IndicesPayloads.GetShardStatusResults.Unmarshal(resBytes)
+		status, err := clusterapi.IndicesPayloads.GetShardStatusResults.Unmarshal(resBytes)
 		if err != nil {
 			return false, errors.Wrap(err, "unmarshal body")
 		}
+		report = storagestate.Report{Status: status}
 		return false, nil
 	}
-	return status, c.retry(ctx, 0, try)
+	return report, c.retry(ctx, 0, try)
 }
 
 func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
