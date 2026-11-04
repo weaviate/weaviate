@@ -106,7 +106,10 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	// revisit when index idempotence exists and/or allowing merging properties on index.
 	props := schema.DedupProperties(class.Properties, newProps)
 	if len(props) == 0 {
-		return class, h.schemaReader.ReadOnlyVersionedClass(className).Version, nil
+		if vclass := h.schemaReader.ReadOnlyVersionedClass(className); vclass.Class != nil {
+			return class, vclass.Version, nil
+		}
+		return class, 0, nil
 	}
 
 	migratePropertySettings(props...)
