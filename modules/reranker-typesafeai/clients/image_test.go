@@ -52,14 +52,14 @@ func TestCheckImage(t *testing.T) {
 		{name: "a PNG signature without IHDR", encoded: base64.StdEncoding.EncodeToString([]byte("\x89PNG\r\n\x1a\nshort")), wantErr: "PNG without an IHDR chunk"},
 		{name: "a JPEG without a frame header", encoded: base64.StdEncoding.EncodeToString([]byte("\xff\xd8\xff\xda\x00\x02")), wantErr: "JPEG without a frame header"},
 		{
-			name:    "above 16 MB, rejected by its length",
+			name:    "above 16 MiB, rejected by its length",
 			encoded: strings.Repeat("A", maxImageChars+4),
-			wantErr: "16777221 bytes exceed the limit of 16 MB per image",
+			wantErr: "16777221 bytes exceed the limit of 16 MiB per image",
 		},
 		{
-			name:    "one byte above 16 MB",
+			name:    "one byte above 16 MiB",
 			encoded: pngOfSize(t, maxImageBytes+1),
-			wantErr: "16777217 bytes exceed the limit of 16 MB per image",
+			wantErr: "16777217 bytes exceed the limit of 16 MiB per image",
 		},
 	}
 	for _, tt := range tests {

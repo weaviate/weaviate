@@ -45,8 +45,7 @@ func TestRerankerTypeSafeAIAgainstAFakeProvider(t *testing.T) {
 	compose, err := docker.New().
 		WithWeaviateWithGRPC().
 		WithWeaviateHostGateway().
-		WithWeaviateEnv("ENABLE_MODULES", "reranker-typesafeai").
-		WithWeaviateEnv("TYPESAFEAI_APIKEY", fakeAPIKey).
+		WithRerankerTypeSafeAI(fakeAPIKey).
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {

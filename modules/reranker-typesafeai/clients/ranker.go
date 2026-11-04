@@ -179,8 +179,8 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 }
 
 // propertyInput says whether the documents of the property are images. The
-// gRPC parser runs the same check before the search; GraphQL and classes
-// created before the module was enabled reach this one only.
+// gRPC parser runs the same check before the search; GraphQL has none and
+// reaches this one only.
 func propertyInput(cfg moduletools.ClassConfig, property string) (image bool, err error) {
 	if cfg == nil {
 		return false, errors.New("no class config")
