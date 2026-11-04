@@ -223,15 +223,6 @@ type SlowestEntries struct {
 	Slowest []map[string]any `json:"slowest"`
 }
 
-// ReduceToSlowest keeps the entries with the largest "took" duration.
-func ReduceToSlowest(entries []map[string]any) SlowestEntries {
-	var slowest []map[string]any
-	for _, entry := range entries {
-		slowest = insertSlowest(slowest, entry)
-	}
-	return SlowestEntries{Count: len(entries), Slowest: slowest}
-}
-
 // insertSlowest inserts entry into kept, sorted slowest first, after those at
 // least as slow. kept holds at most slowestEntriesKept, so an entry no slower
 // than the last of a full list is dropped.
