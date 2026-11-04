@@ -219,6 +219,7 @@ func TestUpdateTenants(t *testing.T) {
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(uint64(0), nil)
+				fakeMetaHandler.On("Read", mock.Anything, mock.Anything).Return(nil)
 				fakeMetaHandler.On("TenantsShardsStatusWithVersion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
 					map[string]string{"USER1": models.TenantActivityStatusCOLD, "USER2": models.TenantActivityStatusCOLD}, nil)
 			},
@@ -231,6 +232,7 @@ func TestUpdateTenants(t *testing.T) {
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(uint64(0), nil)
+				fakeMetaHandler.On("Read", mock.Anything, mock.Anything).Return(nil)
 				fakeMetaHandler.On("TenantsShardsStatusWithVersion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
 					map[string]string{"USER1": models.TenantActivityStatusCOLD, "USER2": models.TenantActivityStatusCOLD}, nil)
 			},
@@ -243,6 +245,7 @@ func TestUpdateTenants(t *testing.T) {
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(uint64(0), nil)
+				fakeMetaHandler.On("Read", mock.Anything, mock.Anything).Return(nil)
 				fakeMetaHandler.On("TenantsShardsStatusWithVersion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
 					map[string]string{"USER1": models.TenantActivityStatusCOLD, "USER2": models.TenantActivityStatusCOLD}, nil)
 			},
@@ -297,6 +300,7 @@ func TestUpdateTenants(t *testing.T) {
 			},
 			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(uint64(0), nil)
+				fakeMetaHandler.On("Read", mock.Anything, mock.Anything).Return(nil)
 				fakeMetaHandler.On("TenantsShardsStatusWithVersion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
 					map[string]string{"USER1": models.TenantActivityStatusCOLD, "USER2": models.TenantActivityStatusHOT}, nil)
 			},
@@ -321,6 +325,28 @@ func TestUpdateTenants(t *testing.T) {
 			fakeSchemaManager.AssertExpectations(t)
 		})
 	}
+}
+
+func TestUpdateTenantsReportsTheTransition(t *testing.T) {
+	handler, sm := newTestHandler(t, &fakeDB{})
+	sm.On("UpdateTenants", mock.Anything, mock.Anything).Return(uint64(7), nil)
+	sm.On("TenantsShardsStatusWithVersion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
+		map[string]string{"USER1": models.TenantActivityStatusFREEZING}, nil)
+	transition := &sharding.Transition{
+		Kind: sharding.TransitionFreeze, Target: models.TenantActivityStatusFROZEN, Attempt: 7,
+		Participants: map[string]sharding.TransitionParticipant{"n1": {Progress: sharding.ProgressStarted}},
+	}
+	sm.On("Read", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		read := args.Get(1).(func(*models.Class, *sharding.State) error)
+		_ = read(nil, &sharding.State{Physical: map[string]sharding.Physical{"USER1": {Name: "USER1", Transition: transition}}})
+	}).Return(nil)
+
+	got, err := handler.UpdateTenants(context.Background(), nil, "MTenabled",
+		[]*models.Tenant{{Name: "USER1", ActivityStatus: models.TenantActivityStatusCOLD}})
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, transition.Model(), got[0].Transition)
 }
 
 func TestDeleteTenants(t *testing.T) {
@@ -665,6 +691,14 @@ func TestGetTenantsWithoutConsistency(t *testing.T) {
 	freezing := &models.Tenant{
 		Name:           "freezing",
 		ActivityStatus: models.TenantActivityStatusFREEZING,
+		Transition: &models.TenantTransition{
+			Kind:         "FREEZE",
+			TargetStatus: models.TenantActivityStatusFROZEN,
+			Participants: []*models.TenantTransitionParticipant{
+				{Node: "n1", Progress: "STARTED"},
+				{Node: "n2", Progress: "DONE"},
+			},
+		},
 	}
 
 	tests := []struct {

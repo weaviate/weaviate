@@ -720,6 +720,7 @@ func TestUpdateTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 				captured = req
 				return true
 			})).Return(nil)
+			sm.On("Read", mock.Anything, mock.Anything).Return(nil).Maybe()
 			sm.On("TenantsShardsFromLeader", mock.Anything, names).Return(held, tt.leaderErr)
 			sm.On("TenantsShardsStatusWithVersion", mock.Anything, uint64(0), mock.Anything, names).
 				Return(local, nil)

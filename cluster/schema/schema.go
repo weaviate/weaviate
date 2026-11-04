@@ -720,6 +720,7 @@ func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, e
 				res[i] = &models.Tenant{
 					Name:           tenantName,
 					ActivityStatus: physical.ActivityStatus(),
+					Transition:     physical.Transition.Model(),
 				}
 
 				// Increment our result iterator
@@ -735,6 +736,7 @@ func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, e
 					res = append(res, &models.Tenant{
 						Name:           tenantName,
 						ActivityStatus: physical.ActivityStatus(),
+						Transition:     physical.Transition.Model(),
 					})
 				}
 			}

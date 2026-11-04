@@ -37,6 +37,9 @@ type Tenant struct {
 
 	// The name of the tenant (required).
 	Name string `json:"name,omitempty"`
+
+	// transition
+	Transition *TenantTransition `json:"transition,omitempty"`
 }
 
 // Validate validates this tenant
@@ -44,6 +47,10 @@ func (m *Tenant) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateActivityStatus(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTransition(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -119,8 +126,52 @@ func (m *Tenant) validateActivityStatus(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this tenant based on context it is used
+func (m *Tenant) validateTransition(formats strfmt.Registry) error {
+	if swag.IsZero(m.Transition) { // not required
+		return nil
+	}
+
+	if m.Transition != nil {
+		if err := m.Transition.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("transition")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("transition")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this tenant based on the context it is used
 func (m *Tenant) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateTransition(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *Tenant) contextValidateTransition(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Transition != nil {
+		if err := m.Transition.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("transition")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("transition")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 
