@@ -1122,11 +1122,9 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		return err
 	}
 	// Read here, not at the call sites: rewriting a decided record drops promotion marks.
-	// Read before the flips, which repoint the canonical name at the staged bucket.
-	var displaced map[string]string
-	var stagedEmpty []string
 	if rec, ok := t.migrationRecord(shard); !ok || !rec.FlipDecided() {
-		displaced = make(map[string]string, len(props))
+		displaced := make(map[string]string, len(props))
+		var stagedEmpty []string
 		for _, propName := range props {
 			if bucket := store.Bucket(t.strategy.SourceBucketName(propName)); bucket != nil {
 				displaced[propName] = filepath.Base(bucket.GetDir())
@@ -1134,6 +1132,10 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 			if t.stagedBucketHoldsNothing(store, propName) {
 				stagedEmpty = append(stagedEmpty, propName)
 			}
+		}
+		swapped := NewMigrationRecordSwapped(subject, props, displaced).WithStagedEmpty(stagedEmpty)
+		if err := t.putMigrationRecord(shard, swapped); err != nil {
+			return fmt.Errorf("recording the flip decision: %w", err)
 		}
 	}
 
@@ -1163,16 +1165,6 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		}
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")
-
-	// After the flips, so no I/O sits between the swap signal and the swap. A
-	// crash before this write leaves the record merged, and the RAFT decision
-	// that licensed the swap commits it at the next load.
-	if displaced != nil {
-		swapped := NewMigrationRecordSwapped(subject, props, displaced).WithStagedEmpty(stagedEmpty)
-		if err := t.putMigrationRecord(shard, swapped); err != nil {
-			return fmt.Errorf("recording the flip decision: %w", err)
-		}
-	}
 
 	if concrete, err := unwrapShard(ctx, shard); err == nil {
 		concrete.migrations().RetireSuperseded(ctx)

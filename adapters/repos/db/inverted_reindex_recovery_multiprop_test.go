@@ -156,11 +156,9 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 		"recovered panic not from hook (want prefix %q; got %T %v)",
 		haltPanicPrefix, panicValue, panicValue)
 
-	// The flip decision is written after every flip, so a crash mid-loop
-	// leaves the record merged and the restart re-runs the swap.
-	merged, ok := task.migrationRecord(shard)
-	require.True(t, ok, "the merge must have left a record")
-	require.Equal(t, MigrationStateMerged, merged.State())
+	swapped, ok := task.migrationRecord(shard)
+	require.True(t, ok, "the flip decision must have left a record")
+	require.Equal(t, MigrationStateSwapped, swapped.State())
 
 	flippedCount := 0
 	for _, p := range props {

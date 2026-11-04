@@ -29,14 +29,14 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Pins that a tenant migrated ahead of the schema survives a reload, even
-// across a crash between the swap's pointer flips and its record write.
+// Pins that a tenant migrated ahead of the schema survives a reload, and that
+// the swap writes its record before any pointer flip.
 func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 	const propName = "title"
 	for _, tc := range []struct {
 		name string
 		// swap runs the live swap before the reload; otherwise the reload
-		// stands in for a crash right after the pointer flips.
+		// stands in for a crash before the swap began.
 		swap    bool
 		decided bool
 		// wantMigrated: the reloaded tenant serves field tokenization.
@@ -44,7 +44,7 @@ func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 		wantRecord   MigrationState
 	}{
 		{name: "swapped, then reloaded", swap: true, decided: true, wantMigrated: true, wantRecord: MigrationStatePromoted},
-		{name: "crashed after the flips, tenant decided", decided: true, wantMigrated: true, wantRecord: MigrationStatePromoted},
+		{name: "crashed before the swap, tenant decided", decided: true, wantMigrated: true, wantRecord: MigrationStatePromoted},
 		{name: "crashed before any decision", wantMigrated: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -69,7 +69,7 @@ func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 			flip := task.swapPropAtomic
 			task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store, propIdx int, prop string) (*lsmkv.Bucket, error) {
 				rec, _ := task.migrationRecord(shard)
-				require.Equal(t, MigrationStateMerged, rec.State(), "no record write may precede the pointer flip")
+				require.True(t, rec.FlipDecided(), "the swap's record precedes its first pointer flip")
 				return flip(ctx, store, propIdx, prop)
 			}
 			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
