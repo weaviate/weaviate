@@ -915,6 +915,38 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	assert.Equal(t, "int[]", getProperty(schemaAfter.Objects.Classes[0].Properties, "numberArray").DataType[0])
 }
 
+// A concurrent request that finds its properties already added gets no new
+// version back from AddClassProperty. The batch must still be gated on the
+// version the class was fetched at, not on 0 (weaviate/0-weaviate-issues#697).
+func Test_autoSchemaManager_autoSchema_keepsFetchedVersionWhenNothingIsAdded(t *testing.T) {
+	class := &models.Class{
+		Class:      "Movie",
+		Properties: []*models.Property{{Name: "title", DataType: schema.DataTypeText.PropString()}},
+	}
+	schemaManager := &fakeSchemaManager{
+		GetSchemaResponse: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}},
+		AutoSchemaVersion: 0, // what AddClassProperty reports when it adds nothing
+	}
+	logger, _ := test.NewNullLogger()
+	m := &AutoSchemaManager{
+		schemaManager: schemaManager,
+		objectFinder:  &fakeObjectFinder{},
+		config: config.AutoSchema{
+			Enabled:       runtime.NewDynamicValue(true),
+			DefaultString: schema.DataTypeText.String(),
+		},
+		logger: logger,
+	}
+	const fetchedAt uint64 = 17
+	classes := map[string]versioned.Class{class.Class: {Class: class, Version: fetchedAt}}
+
+	version, err := m.autoSchema(context.Background(), &models.Principal{}, true, classes,
+		&models.Object{Class: class.Class, Properties: map[string]interface{}{"title": "Heat", "director": "Mann"}})
+	require.NoError(t, err)
+	assert.Equal(t, fetchedAt, version, "a write gated on 0 would not wait for the class at all")
+	assert.Equal(t, fetchedAt, classes[class.Class].Version)
+}
+
 // laggingSchemaManager holds one class on a node whose local schema lags the
 // leader. Its AddClassProperty reads the class as of the last version
 // WaitForUpdate caught up to.

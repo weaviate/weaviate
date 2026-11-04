@@ -108,7 +108,17 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	// revisit when index idempotence exists and/or allowing merging properties on index.
 	props := schema.DedupProperties(class.Properties, newProps)
 	if len(props) == 0 {
-		return class, 0, nil
+		// Nothing to write, but the caller still gates its data writes on the
+		// returned version: the owner shard creates a property's buckets only
+		// when it applies the version that added it, and a 0 skips that wait.
+		// Concurrent auto-schema batches reach this branch when another
+		// request added the same properties first; their objects then landed
+		// before the buckets existed and were stored without an inverted
+		// index ("no bucket for prop", weaviate/0-weaviate-issues#697).
+		// Return the version this node holds the class at: the class already
+		// has the properties, so it is at least the version that added them,
+		// and class versions are the RAFT apply indexes WaitForUpdate waits on.
+		return class, h.schemaReader.ReadOnlyVersionedClass(className).Version, nil
 	}
 
 	migratePropertySettings(props...)
