@@ -903,6 +903,37 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	assert.Equal(t, "int[]", getProperty(schemaAfter.Objects.Classes[0].Properties, "numberArray").DataType[0])
 }
 
+// The batch must stay gated on the version the class was fetched at when
+// AddClassProperty reports none (0-weaviate-issues#697).
+func Test_autoSchemaManager_autoSchema_keepsFetchedVersionWhenNothingIsAdded(t *testing.T) {
+	class := &models.Class{
+		Class:      "Movie",
+		Properties: []*models.Property{{Name: "title", DataType: schema.DataTypeText.PropString()}},
+	}
+	schemaManager := &fakeSchemaManager{
+		GetSchemaResponse: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}},
+		AutoSchemaVersion: 0,
+	}
+	logger, _ := test.NewNullLogger()
+	m := &AutoSchemaManager{
+		schemaManager: schemaManager,
+		vectorRepo:    &fakeVectorRepo{},
+		config: config.AutoSchema{
+			Enabled:       runtime.NewDynamicValue(true),
+			DefaultString: schema.DataTypeText.String(),
+		},
+		logger: logger,
+	}
+	const fetchedAt uint64 = 17
+	classes := map[string]versioned.Class{class.Class: {Class: class, Version: fetchedAt}}
+
+	version, err := m.autoSchema(context.Background(), &models.Principal{}, true, classes,
+		&models.Object{Class: class.Class, Properties: map[string]interface{}{"title": "Heat", "director": "Mann"}})
+	require.NoError(t, err)
+	assert.Equal(t, fetchedAt, version)
+	assert.Equal(t, fetchedAt, classes[class.Class].Version)
+}
+
 func Test_autoSchemaManager_getProperties(t *testing.T) {
 	type testCase struct {
 		name               string
