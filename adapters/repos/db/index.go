@@ -421,8 +421,6 @@ func (i *Index) debugLoggingEnabled() bool {
 	return logrusext.LevelEnabled(i.logger, logrus.DebugLevel)
 }
 
-// NewIndex creates an index with the specified amount of shards, using only
-// the shards that are local to a node
 // NewIndex builds an index and every shard it owns. db is the owning DB, wired
 // in here rather than by the caller because the shards built below read state
 // off it while they come up ([Shard.NotifyReady]); assigning it after this returns races those reads.
@@ -4642,7 +4640,19 @@ func shardQueueSize(shard ShardLike) int64 {
 func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[string]map[string]string, map[string]string, error) {
 	thisNode := i.Config.NodeName
 	className := i.Config.ClassName.String()
-	shardNames, err := i.schemaReader.Shards(className)
+	shardNames := []string{tenant}
+	var err error
+	if tenant == "" {
+		shardNames, err = i.schemaReader.Shards(className)
+	} else {
+		// Listing and sorting every tenant to report one costs O(N log N).
+		err = i.schemaReader.Read(className, true, func(_ *models.Class, s *sharding.State) error {
+			if _, ok := s.Physical[tenant]; !ok {
+				shardNames = nil
+			}
+			return nil
+		})
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -4655,10 +4665,6 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 	eg.SetLimit(min(len(shardNames), runtime.GOMAXPROCS(0)*4))
 
 	for _, shardName := range shardNames {
-		if tenant != "" && shardName != tenant {
-			continue
-		}
-
 		eg.Go(func() error {
 			replicas, err := i.schemaReader.ShardReplicas(className, shardName)
 			if err != nil {
