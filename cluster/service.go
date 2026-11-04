@@ -32,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/rpc"
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -114,10 +113,10 @@ type Service struct {
 // New returns a Service configured with cfg. The service will initialize internals gRPC api & clients to other cluster
 // nodes.
 // Raft store will be initialized and ready to be started. To start the service call Open().
-func New(cfg Config, authZController authorization.Controller, svrMetrics *monitoring.GRPCServerMetrics) *Service {
+func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 	client := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
 
-	fsm := NewFSM(cfg, authZController, prometheus.DefaultRegisterer)
+	fsm := NewFSM(cfg, prometheus.DefaultRegisterer)
 	raft := NewRaft(cfg.NodeSelector, &fsm, client)
 	// Every state-transition apply on this node broadcasts the new state
 	// into every peer's PerNodeState map; the consumer waits on it locally.
