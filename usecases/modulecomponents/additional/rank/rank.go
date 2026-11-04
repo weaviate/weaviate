@@ -30,16 +30,22 @@ type ReRankerClient interface {
 }
 
 // PropertyReRankerClient is a reranker client that is given the name of the
-// rerank property, so that a module can read a blob property as an image. It
-// returns one score per document, in the order of documents.
+// rerank property and, per document, the object ID and the property value. The
+// property name lets a module read a blob property as an image. It returns one
+// score per document, in the order of documents. An error about a document's
+// value names the object's ID.
 type PropertyReRankerClient interface {
-	RankProperty(ctx context.Context, query, property string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
+	RankProperty(ctx context.Context, query, property string, documents []ent.Document, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 }
 
 type textOnly struct{ ReRankerClient }
 
-func (t textOnly) RankProperty(ctx context.Context, query, _ string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error) {
-	return t.Rank(ctx, query, documents, cfg)
+func (t textOnly) RankProperty(ctx context.Context, query, _ string, documents []ent.Document, cfg moduletools.ClassConfig) (*ent.RankResult, error) {
+	values := make([]string, len(documents))
+	for i := range documents {
+		values[i] = documents[i].Value
+	}
+	return t.Rank(ctx, query, values, cfg)
 }
 
 type ReRankerProvider struct {

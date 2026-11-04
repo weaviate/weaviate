@@ -226,10 +226,25 @@ func TestRankKeepsSearchOrderOnEqualScores(t *testing.T) {
 	}
 }
 
-type recordingPropertyClient struct{ property string }
+type recordingPropertyClient struct {
+	property  string
+	documents []ent.Document
+}
 
-func (c *recordingPropertyClient) RankProperty(_ context.Context, query, property string, documents []string, _ moduletools.ClassConfig) (*ent.RankResult, error) {
+func (c *recordingPropertyClient) RankProperty(_ context.Context, query, property string, documents []ent.Document, _ moduletools.ClassConfig) (*ent.RankResult, error) {
 	c.property = property
+	c.documents = documents
+	out := make([]ent.DocumentScore, len(documents))
+	for i, d := range documents {
+		out[i] = ent.DocumentScore{Document: d.Value, Score: 1}
+	}
+	return &ent.RankResult{Query: query, DocumentScores: out}, nil
+}
+
+type recordingTextClient struct{ documents []string }
+
+func (c *recordingTextClient) Rank(_ context.Context, query string, documents []string, _ moduletools.ClassConfig) (*ent.RankResult, error) {
+	c.documents = documents
 	out := make([]ent.DocumentScore, len(documents))
 	for i, d := range documents {
 		out[i] = ent.DocumentScore{Document: d, Score: 1}
@@ -271,6 +286,56 @@ func TestRankPropertyReceivesTheRerankProperty(t *testing.T) {
 				&Params{Property: &property, Query: &query}, &limit, nil, nil)
 			require.NoError(t, err)
 			assert.Equal(t, "photo", client.property)
+		})
+	}
+}
+
+func TestRankClientsReceiveTheDocuments(t *testing.T) {
+	first := strfmt.UUID("00000000-0000-0000-0000-000000000001")
+	second := strfmt.UUID("00000000-0000-0000-0000-000000000002")
+	tests := []struct {
+		name       string
+		in         []search.Result
+		wantDocs   []ent.Document
+		wantValues []string
+	}{
+		{
+			name: "both results have the property",
+			in: []search.Result{
+				{ID: first, Schema: map[string]interface{}{"content": "a"}},
+				{ID: second, Schema: map[string]interface{}{"content": "b"}},
+			},
+			wantDocs:   []ent.Document{{ID: first, Value: "a"}, {ID: second, Value: "b"}},
+			wantValues: []string{"a", "b"},
+		},
+		{
+			name: "a result without the property",
+			in: []search.Result{
+				{ID: first, Schema: map[string]interface{}{"content": "a"}},
+				{ID: second, Schema: map[string]interface{}{"title": "b"}},
+			},
+			wantDocs:   []ent.Document{{ID: first, Value: "a"}, {ID: second, Value: ""}},
+			wantValues: []string{"a", ""},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			property := "content"
+			query := "q"
+			limit := len(tt.in)
+			params := &Params{Property: &property, Query: &query}
+
+			propertyClient := &recordingPropertyClient{}
+			_, err := NewWithProperty(propertyClient).AdditionalPropertyFn(context.Background(),
+				append([]search.Result(nil), tt.in...), params, &limit, nil, nil)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantDocs, propertyClient.documents)
+
+			textClient := &recordingTextClient{}
+			_, err = New(textClient).AdditionalPropertyFn(context.Background(),
+				append([]search.Result(nil), tt.in...), params, &limit, nil, nil)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantValues, textClient.documents)
 		})
 	}
 }
