@@ -1677,6 +1677,16 @@ derives its preserve set from the `tidied.mig` / `merged.mig` markers, which
 this build never writes, so **disabling the index to fix the empty results is
 what destroys the data**. Upgrade again instead and let reconciliation promote.
 
+**Rolling back after a cancel in PREPARING.** This build accepts a cancel while
+a run is PREPARING; older releases refuse it. A node of an older release that
+replays such a cancel from its RAFT log keeps the run PREPARING: it refuses
+schema changes on the collection that the rest of the cluster commits, or, if
+the leader replayed it too, finishes the cancelled run and flips the schema.
+Before rolling back below this version, make every node snapshot past its last
+reindex run: restart each node on this version with
+`RAFT_SNAPSHOT_THRESHOLD=1 RAFT_SNAPSHOT_INTERVAL=5`, wait for it to write a new
+snapshot, then roll back.
+
 ## 15. Files of interest
 
 **REST**
