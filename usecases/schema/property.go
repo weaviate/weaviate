@@ -106,9 +106,6 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	// revisit when index idempotence exists and/or allowing merging properties on index.
 	props := schema.DedupProperties(class.Properties, newProps)
 	if len(props) == 0 {
-		// Callers gate their writes on this version. The class already holds
-		// the properties, so its version is at least the one that added them;
-		// a 0 would let writes reach the owner before the buckets exist (#697).
 		return class, h.schemaReader.ReadOnlyVersionedClass(className).Version, nil
 	}
 
