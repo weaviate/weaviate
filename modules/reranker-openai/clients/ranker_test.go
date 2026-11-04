@@ -590,6 +590,14 @@ func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 			fromHeader: true,
 			wantErr:    "parse OpenAI response: invalid character 'o' in literal null (expecting 'u')",
 		},
+		{
+			// A reply in the API's own shape carries no body text of use, so
+			// its answer name is quoted for every host.
+			name:       "a wrong answer name from the header base URL",
+			reply:      fakeReply{status: http.StatusOK, body: `{"answers":[{"type":"predicate","name":"internal banner","probability":0.5}]}`},
+			fromHeader: true,
+			wantErr:    "object " + firstID + `: OpenAI answer is for "internal banner", want "condition"`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -770,6 +778,16 @@ func TestRankChecksTheAnswers(t *testing.T) {
 			name:    "an answer without a name",
 			body:    `{"answers":[{"type":"predicate","probability":0.9}]}`,
 			wantErr: "object " + secondID + `: OpenAI answer is for "", want "condition"`,
+		},
+		{
+			name:    "a name above 512 bytes is cut",
+			body:    `{"answers":[{"type":"predicate","name":"` + strings.Repeat("x", 600) + `","probability":0.9}]}`,
+			wantErr: "object " + secondID + `: OpenAI answer is for "` + strings.Repeat("x", 512) + `", want "condition"`,
+		},
+		{
+			name:    "a type above 512 bytes is cut",
+			body:    `{"answers":[{"type":"` + strings.Repeat("x", 600) + `","name":"condition","probability":0.9}]}`,
+			wantErr: "object " + secondID + `: OpenAI answer has type "` + strings.Repeat("x", 512) + `", want "predicate"`,
 		},
 		{
 			name:    "a refusal of another question",
