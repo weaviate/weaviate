@@ -452,6 +452,72 @@ func TestRankHeaders(t *testing.T) {
 	}
 }
 
+// Anyone who may query can name a host in the base URL header, so the errors
+// quote nothing of its replies.
+func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
+	const banner = `{"error":"internal banner"}`
+	tests := []struct {
+		name       string
+		reply      fakeReply
+		fromHeader bool
+		wantErr    string
+	}{
+		{
+			name:    "a 400 from the class base URL",
+			reply:   fakeReply{status: http.StatusBadRequest, body: banner},
+			wantErr: `object 00000000-0000-0000-0000-000000000000: connection to TypeSafe AI API failed with status 400: {"error":"internal banner"}`,
+		},
+		{
+			name:       "a 400 from the header base URL",
+			reply:      fakeReply{status: http.StatusBadRequest, body: banner},
+			fromHeader: true,
+			wantErr:    "object 00000000-0000-0000-0000-000000000000: connection to TypeSafe AI API failed with status 400",
+		},
+		{
+			name:    "a 200 without answers from the class base URL",
+			reply:   fakeReply{status: http.StatusOK, body: banner},
+			wantErr: `TypeSafe AI response has no answers: {"error":"internal banner"}`,
+		},
+		{
+			name:       "a 200 without answers from the header base URL",
+			reply:      fakeReply{status: http.StatusOK, body: banner},
+			fromHeader: true,
+			wantErr:    "TypeSafe AI response has no answers",
+		},
+		{
+			name:    "a 200 that is not JSON from the class base URL",
+			reply:   fakeReply{status: http.StatusOK, body: "not json"},
+			wantErr: "parse TypeSafe AI response: invalid character 'o' in literal null (expecting 'u'): not json",
+		},
+		{
+			name:       "a 200 that is not JSON from the header base URL",
+			reply:      fakeReply{status: http.StatusOK, body: "not json"},
+			fromHeader: true,
+			wantErr:    "parse TypeSafe AI response: invalid character 'o' in literal null (expecting 'u')",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			classServer, headerServer := newFake(t), newFake(t)
+			used, unused := classServer, headerServer
+			ctx := context.Background()
+			if tt.fromHeader {
+				used, unused = headerServer, classServer
+				ctx = context.WithValue(ctx, "X-Typesafeai-Api-Key", []string{"headerKey"})
+				ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{headerServer.url()})
+			}
+			used.replies = map[int]fakeReply{0: tt.reply}
+
+			_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text",
+				documentsOf(noRefund), classConfig(classServer.url(), nil))
+
+			require.EqualError(t, err, tt.wantErr)
+			assert.Len(t, used.received(), 1)
+			assert.Empty(t, unused.received())
+		})
+	}
+}
+
 func TestRankKeepsTheBaseURLPath(t *testing.T) {
 	f := newFake(t)
 
@@ -676,7 +742,7 @@ func TestRankChecksTheAnswers(t *testing.T) {
 			name:      "not JSON",
 			documents: []string{noRefund},
 			body:      `<html>`,
-			wantErr:   "parse TypeSafe AI response",
+			wantErr:   "parse TypeSafe AI response: invalid character '<' looking for beginning of value: <html>",
 		},
 		{
 			name:      "a body above the limit",
@@ -696,6 +762,36 @@ func TestRankChecksTheAnswers(t *testing.T) {
 			require.ErrorContains(t, err, tt.wantErr)
 			assert.Nil(t, res)
 			assert.Len(t, f.received(), 1)
+		})
+	}
+}
+
+func TestRankDoesNotFailOnTheUsage(t *testing.T) {
+	const answers = `"answers":{"q":{"type":"noul","noul":0.7}}`
+	tests := []struct {
+		name            string
+		body            string
+		wantInputTokens int64
+	}{
+		{name: "a whole number", body: `{` + answers + `,"usage":{"input_tokens":120}}`, wantInputTokens: 120},
+		{name: "a fraction", body: `{` + answers + `,"usage":{"input_tokens":1.5}}`, wantInputTokens: 1},
+		{name: "a string", body: `{` + answers + `,"usage":{"input_tokens":"many"}}`},
+		{name: "a usage that is not an object", body: `{` + answers + `,"usage":"n/a"}`},
+		{name: "no usage", body: `{` + answers + `}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+			f.replies = map[int]fakeReply{0: {status: http.StatusOK, body: tt.body}}
+			logger, hook := test.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+			c := New(defaultFakeKey, testTimeout, DefaultMaxConcurrentRequests, logger)
+
+			res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
+
+			require.NoError(t, err)
+			assert.Equal(t, []ent.DocumentScore{{Document: noRefund, Score: 0.7}}, res.DocumentScores)
+			assert.Equal(t, tt.wantInputTokens, rankLogFields(t, hook)["input_tokens"])
 		})
 	}
 }

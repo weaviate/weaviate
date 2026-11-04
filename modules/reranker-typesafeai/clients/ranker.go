@@ -94,7 +94,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 		return nil, err
 	}
 	settings := config.NewClassSettings(cfg)
-	endpointURL, apiKey, err := c.endpoint(ctx, settings.BaseURL())
+	endpointURL, apiKey, hostFromHeader, err := c.endpoint(ctx, settings.BaseURL())
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +126,10 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	if image {
 		maxDocuments, maxCharacters = MaxBatchImages, MaxBatchImageChars
 	}
-	request := judgeRequest{url: endpointURL, apiKey: apiKey, model: settings.Model(), query: query, image: image}
+	request := judgeRequest{
+		url: endpointURL, apiKey: apiKey, hostFromHeader: hostFromHeader,
+		model: settings.Model(), query: query, image: image,
+	}
 	requestBatches := batches(pending, documents, maxDocuments, maxCharacters, questionBytes)
 	scores := make([]float64, len(documents))
 	usages := make([]typesafeaiUsage, len(requestBatches))
@@ -220,9 +223,12 @@ func batches(indexes []int, documents []ent.Document, maxDocuments, maxCharacter
 type judgeRequest struct {
 	url    string
 	apiKey string
-	model  string
-	query  string
-	image  bool
+	// hostFromHeader says the request header named the host. Anyone who may
+	// query can name one, so the errors then quote nothing of its replies.
+	hostFromHeader bool
+	model          string
+	query          string
+	image          bool
 }
 
 // judge returns the probability of every document, in order. A request the
@@ -253,14 +259,17 @@ func (c *client) judge(ctx context.Context, r judgeRequest, documents []ent.Docu
 	if err != nil {
 		return nil, typesafeaiUsage{}, err
 	}
-	usage := response.Usage
-	usage.requests = 1
-	return values, usage, nil
+	return values, typesafeaiUsage{InputTokens: inputTokens(response.Usage), requests: 1}, nil
 }
 
 // post builds and sends the request of one batch while it holds an in-flight
 // slot, so that the slots also bound the request bodies in memory.
 func (c *client) post(ctx context.Context, r judgeRequest, documents []ent.Document) (typesafeaiResponse, bool, error) {
+	// select picks at random among ready cases, so a free slot could win over
+	// a cancellation.
+	if err := ctx.Err(); err != nil {
+		return typesafeaiResponse{}, false, err
+	}
 	select {
 	case c.inFlight <- struct{}{}:
 		defer func() { <-c.inFlight }()
@@ -276,14 +285,14 @@ func (c *client) post(ctx context.Context, r judgeRequest, documents []ent.Docum
 	if err != nil {
 		return typesafeaiResponse{}, false, fmt.Errorf("marshal TypeSafe AI request: %w", err)
 	}
-	return c.send(ctx, r.url, r.apiKey, body, r.image)
+	return c.send(ctx, r.url, r.apiKey, body, r.image, r.hostFromHeader)
 }
 
 // send makes one attempt. tooLarge says the API rejected the request for its
 // size.
-func (c *client) send(ctx context.Context, url, apiKey string, body []byte, images bool,
+func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []byte, images, hostFromHeader bool,
 ) (response typesafeaiResponse, tooLarge bool, err error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, bytes.NewReader(body))
 	if err != nil {
 		return typesafeaiResponse{}, false, fmt.Errorf("create TypeSafe AI request: %w", err)
 	}
@@ -302,7 +311,11 @@ func (c *client) send(ctx context.Context, url, apiKey string, body []byte, imag
 	if res.StatusCode != http.StatusOK {
 		errorBody, _ := io.ReadAll(io.LimitReader(res.Body, maxErrorBodyBytes))
 		tooLarge = res.StatusCode == http.StatusBadRequest && bytes.Contains(errorBody, []byte(tooLargeError))
-		return typesafeaiResponse{}, tooLarge, apiError{status: res.StatusCode, message: string(errorBody)}
+		rejected := apiError{status: res.StatusCode}
+		if !hostFromHeader {
+			rejected.message = string(errorBody)
+		}
+		return typesafeaiResponse{}, tooLarge, rejected
 	}
 
 	responseBody, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBodyBytes+1))
@@ -313,55 +326,72 @@ func (c *client) send(ctx context.Context, url, apiKey string, body []byte, imag
 		return typesafeaiResponse{}, false, fmt.Errorf("TypeSafe AI response exceeds %d bytes", maxResponseBodyBytes)
 	}
 	if err := json.Unmarshal(responseBody, &response); err != nil {
-		return typesafeaiResponse{}, false, fmt.Errorf("parse TypeSafe AI response: %w", err)
+		return typesafeaiResponse{}, false, withBody(fmt.Errorf("parse TypeSafe AI response: %w", err),
+			responseBody, hostFromHeader)
 	}
 	// The shape of an error in a 200 is not documented, so the body is the
 	// provider's message.
 	if len(response.Answers) == 0 {
-		return typesafeaiResponse{}, false, fmt.Errorf("TypeSafe AI response has no answers: %s",
-			responseBody[:min(len(responseBody), maxErrorBodyBytes)])
+		return typesafeaiResponse{}, false, withBody(errors.New("TypeSafe AI response has no answers"),
+			responseBody, hostFromHeader)
 	}
 	return response, false, nil
 }
 
-// apiError is a status other than 200.
+// withBody appends the start of the body to err, unless the request header
+// named the host.
+func withBody(err error, body []byte, hostFromHeader bool) error {
+	if hostFromHeader || len(body) == 0 {
+		return err
+	}
+	return fmt.Errorf("%w: %s", err, body[:min(len(body), maxErrorBodyBytes)])
+}
+
+// apiError is a status other than 200. message is empty for a host the
+// request header named.
 type apiError struct {
 	status  int
 	message string
 }
 
 func (e apiError) Error() string {
+	if e.message == "" {
+		return fmt.Sprintf("connection to TypeSafe AI API failed with status %d", e.status)
+	}
 	return fmt.Sprintf("connection to TypeSafe AI API failed with status %d: %s", e.status, e.message)
 }
 
-// endpoint returns the URL and the key of the requests. A base URL from the
-// request header is used only with a key from the request header, so the
-// server's key never goes to a host the request names.
-func (c *client) endpoint(ctx context.Context, classBaseURL string) (endpointURL, apiKey string, err error) {
+// endpoint returns the URL and the key of the requests, and whether the
+// request header named the host. A base URL from the request header is used
+// only with a key from the request header, so the server's key never goes to
+// a host the request names.
+func (c *client) endpoint(ctx context.Context, classBaseURL string,
+) (endpointURL, apiKey string, hostFromHeader bool, err error) {
 	apiKey = modulecomponents.GetValueFromContext(ctx, apiKeyHeader)
 	baseURL := classBaseURL
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
 		if apiKey == "" {
-			return "", "", fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
+			return "", "", false, fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
 				baseURLHeader, apiKeyHeader)
 		}
 		if err := modulecomponents.ValidateBaseURL(headerBaseURL); err != nil {
-			return "", "", err
+			return "", "", false, err
 		}
 		baseURL = headerBaseURL
+		hostFromHeader = true
 	}
 	if apiKey == "" {
 		apiKey = c.apiKey
 	}
 	if apiKey == "" {
-		return "", "", fmt.Errorf("TypeSafe AI API key: no api key found neither in request header: %s "+
+		return "", "", false, fmt.Errorf("TypeSafe AI API key: no api key found neither in request header: %s "+
 			"nor in environment variable under TYPESAFEAI_APIKEY", apiKeyHeader)
 	}
 	endpointURL, err = url.JoinPath(baseURL, apiPath)
 	if err != nil {
-		return "", "", fmt.Errorf("TypeSafe AI base URL %q: %w", baseURL, err)
+		return "", "", false, fmt.Errorf("TypeSafe AI base URL %q: %w", baseURL, err)
 	}
-	return endpointURL, apiKey, nil
+	return endpointURL, apiKey, hostFromHeader, nil
 }
 
 type typesafeaiRequest struct {
@@ -419,7 +449,9 @@ func documentKey(i int) string {
 
 type typesafeaiResponse struct {
 	Answers map[string]typesafeaiAnswer `json:"answers"`
-	Usage   typesafeaiUsage             `json:"usage"`
+	// Usage is decoded apart, so that a usage of another shape does not fail
+	// the answers.
+	Usage json.RawMessage `json:"usage"`
 }
 
 type typesafeaiAnswer struct {
@@ -431,8 +463,24 @@ type typesafeaiAnswer struct {
 // API reports, and the requests sent, including those rejected for their
 // size.
 type typesafeaiUsage struct {
-	InputTokens int64 `json:"input_tokens"`
+	InputTokens int64
 	requests    int64
+}
+
+// inputTokens returns the input tokens of a usage, truncated to a whole
+// number, or 0 when the usage holds no number of them.
+func inputTokens(usage json.RawMessage) int64 {
+	var u struct {
+		InputTokens json.Number `json:"input_tokens"`
+	}
+	if json.Unmarshal(usage, &u) != nil {
+		return 0
+	}
+	tokens, err := u.InputTokens.Float64()
+	if err != nil {
+		return 0
+	}
+	return int64(tokens)
 }
 
 func (u typesafeaiUsage) add(other typesafeaiUsage) typesafeaiUsage {
