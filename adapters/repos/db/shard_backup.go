@@ -314,10 +314,11 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	s.haltForTransferMux.Lock()
 	err := s.mayForceResumeMaintenanceCycles(ctx)
-	fullyResumed := s.haltForTransferCount.Load() == 0
+	fullyResumed := s.haltForTransferCount.Load() == 0 && !s.resumeIncomplete.Load()
 	s.haltForTransferMux.Unlock()
 
 	// Enables skipped while halted have no other re-derive path for plain halts.
+	// A failed resume defers the re-apply to the retry that completes it.
 	if fullyResumed {
 		s.reapplyAsyncReplicationAfterResume(ctx)
 	}
@@ -350,17 +351,21 @@ func (s *Shard) reapplyAsyncReplicationAfterResume(ctx context.Context) {
 	}
 }
 
+// mayForceResumeMaintenanceCycles must be called with haltForTransferMux held.
 func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context) error {
 	if s.haltForTransferCount.Load() == 0 {
-		// noop, maintenance cycles not halted
-		return nil
-	}
+		if !s.resumeIncomplete.Load() {
+			// noop, maintenance cycles not halted
+			return nil
+		}
+		// a previous resume failed after dropping the count to 0; retry its work
+	} else {
+		s.haltForTransferCount.Add(-1)
 
-	s.haltForTransferCount.Add(-1)
-
-	if s.haltForTransferCount.Load() > 0 {
-		// maintenance cycles are not resumed as there is at least one active halt request
-		return nil
+		if s.haltForTransferCount.Load() > 0 {
+			// maintenance cycles are not resumed as there is at least one active halt request
+			return nil
+		}
 	}
 
 	g := enterrors.NewErrorGroupWrapper(s.index.logger)
@@ -410,9 +415,11 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context) error {
 	})
 
 	if err := g.Wait(); err != nil {
+		s.resumeIncomplete.Store(true)
 		return fmt.Errorf("failed to resume maintenance cycles for shard '%s': %w", s.name, err)
 	}
 
+	s.resumeIncomplete.Store(false)
 	return nil
 }
 

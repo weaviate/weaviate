@@ -147,22 +147,49 @@ func TestHaltForTransferSharedHaltPrepErrorKeepsShardHalted(t *testing.T) {
 	shard.haltForTransferMux.Unlock()
 }
 
-// Documents current behaviour, not the behaviour we want. mayForceResumeMaintenanceCycles
-// drops the halt count to zero before the errgroup that can fail, and does not restore it.
-// So a failed resume leaves the count at zero while the cycles it could not restart stay
-// paused. Every later resume then sees zero and returns early.
-func TestResumeMaintenanceCyclesFailureClearsHalt(t *testing.T) {
-	_, shard := newSharedHaltTestShard(t)
+// A resume drops the halt count to 0 before it restarts the cycles. If the
+// restart fails, the count stays 0 and the cycles stay paused. resumeIncomplete
+// lets a later resume at count 0 retry the restart.
+func TestResumeMaintenanceCyclesRetry(t *testing.T) {
 	ctx := context.Background()
 
-	require.NoError(t, shard.HaltForTransfer(ctx, false))
+	t.Run("a failed resume is retried by a later resume at count 0", func(t *testing.T) {
+		_, shard := newSharedHaltTestShard(t)
+		require.NoError(t, shard.HaltForTransfer(ctx, false))
 
-	// Unregistering makes the resume's Activate fail with ErrorCallbackNotFound.
-	require.NoError(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.Unregister(ctx))
-	require.Error(t, shard.resumeMaintenanceCycles(ctx))
+		// Unregistering makes the resume's Activate fail with ErrorCallbackNotFound.
+		cc := shard.cycleCallbacks
+		require.NoError(t, cc.vectorCombinedCallbacksCtrl.Unregister(ctx))
+		require.Error(t, shard.resumeMaintenanceCycles(ctx))
+		require.Zero(t, shard.haltForTransferCount.Load())
+		require.True(t, shard.resumeIncomplete.Load())
 
-	require.Zero(t, shard.haltForTransferCount.Load(),
-		"the halt count is cleared ahead of the resume work, so a failed resume drops it")
+		// Register the callbacks again as inactive, the state the halt left
+		// them in, so only a retried Activate can make them active.
+		cc.vectorCombinedCallbacksCtrl = cyclemanager.NewCombinedCallbackCtrl(2, shard.index.logger,
+			shard.index.cycleCallbacks.vectorCommitLoggerCallbacks.Register(
+				"retry/commit_logger", cc.vectorCommitLoggerCallbacks.CycleCallback, cyclemanager.AsInactive()),
+			shard.index.cycleCallbacks.vectorTombstoneCleanupCallbacks.Register(
+				"retry/tombstone_cleanup", cc.vectorTombstoneCleanupCallbacks.CycleCallback, cyclemanager.AsInactive()))
+
+		require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+		require.Zero(t, shard.haltForTransferCount.Load())
+		require.False(t, shard.resumeIncomplete.Load())
+		require.True(t, cc.vectorCombinedCallbacksCtrl.IsActive(), "the retry re-ran the resume work")
+	})
+
+	t.Run("a resume at count 0 after a clean cycle does nothing", func(t *testing.T) {
+		_, shard := newSharedHaltTestShard(t)
+		require.NoError(t, shard.HaltForTransfer(ctx, false))
+		require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+		require.False(t, shard.resumeIncomplete.Load())
+
+		ctrl := shard.cycleCallbacks.vectorCombinedCallbacksCtrl
+		require.NoError(t, ctrl.Deactivate(ctx))
+		require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+		require.False(t, ctrl.IsActive(), "a count-0 resume with no failed resume behind it must not run resume work")
+		require.NoError(t, ctrl.Activate())
+	})
 }
 
 // snapshotHasObject reconstructs the snapshot's objects bucket from the wire

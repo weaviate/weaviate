@@ -620,20 +620,6 @@ func TestMigratorAddClass_LogsBackgroundWarmup(t *testing.T) {
 	}
 }
 
-// Resuming maintenance cycles after a backup must not force-load cold shards:
-// an unloaded shard has no running cycles to resume.
-func TestResumeMaintenanceCycles_DoesNotForceLoadColdShards(t *testing.T) {
-	ctx := testCtx()
-	f := newAddPropertyLazyFixture(t, "ResumeMaintenance", multiShardState())
-	cold := f.coldShards(t)
-
-	require.NoError(t, f.index.resumeMaintenanceCycles(ctx))
-
-	for name, shard := range cold {
-		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
-	}
-}
-
 // noLoadReaders lists the LazyLoadShard readers that never load the shard, each
 // with the answer it must return while the shard is cold.
 var noLoadReaders = []struct {

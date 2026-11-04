@@ -336,6 +336,10 @@ type Shard struct {
 	haltForTransferMux sync.Mutex
 	// Mutations under haltForTransferMux; atomic so halt probes read lock-free.
 	haltForTransferCount atomic.Int64
+	// resumeIncomplete is true when a resume brought the halt count to 0 but
+	// failed to restart the maintenance cycles. The next resume at count 0
+	// retries the restart. Mutations under haltForTransferMux.
+	resumeIncomplete atomic.Bool
 
 	status ShardStatus
 	// countedStatus is the weaviate_index_shards_total bucket this shard is in, ""

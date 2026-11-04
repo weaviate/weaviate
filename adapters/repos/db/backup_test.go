@@ -822,6 +822,24 @@ func TestDescriptorReleaseCleansUpStagingDir(t *testing.T) {
 	assert.Nil(t, idx.lastBackup.Load(), "backup state should be reset")
 }
 
+func TestReleaseBackupForeignHalt(t *testing.T) {
+	t.Run("a halt held by another operation survives the release", func(t *testing.T) {
+		ctx := context.Background()
+		index, shard := newSharedHaltTestShard(t)
+
+		require.NoError(t, shard.HaltForTransfer(ctx, false))
+		defer func() { require.NoError(t, shard.resumeMaintenanceCycles(ctx)) }()
+
+		require.NoError(t, index.ReleaseBackup(ctx, "backup-1"))
+
+		assert.EqualValues(t, 1, shard.haltForTransferCount.Load())
+		assert.False(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.IsActive(),
+			"vector maintenance must stay paused for the operation that halted the shard")
+		assert.False(t, shard.cycleCallbacks.geoPropsCombinedCallbacksCtrl.IsActive(),
+			"geo maintenance must stay paused for the operation that halted the shard")
+	})
+}
+
 func TestDescriptorHardlinksUnsupported(t *testing.T) {
 	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
 	rootDir := t.TempDir()

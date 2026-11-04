@@ -2290,7 +2290,7 @@ func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string)
 		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
 	}
 
-	// Idempotent when not halted (e.g. HaltForTransfer failed and self-resumed).
+	// At halt count 0 this leaves the maintenance cycles untouched, unless a previous resume failed; then it retries that resume.
 	if err := shard.resumeMaintenanceCycles(ctx); err != nil {
 		return fmt.Errorf("resume maintenance cycles on shard %q: %w", shardName, err)
 	}

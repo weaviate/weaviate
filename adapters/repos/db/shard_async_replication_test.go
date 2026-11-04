@@ -41,6 +41,7 @@ import (
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	localschema "github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	entreplication "github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -2502,6 +2503,58 @@ func TestResumeMaintenanceCyclesReappliesSkippedEnable(t *testing.T) {
 	installed = s.hashtree != nil
 	s.asyncReplicationRWMux.RUnlock()
 	require.True(t, installed, "the halt-skipped enable must be re-derived on resume")
+}
+
+// TestResumeMaintenanceCyclesReapplyGate: the re-apply of a halt-skipped enable fires only once a resume completes.
+func TestResumeMaintenanceCyclesReapplyGate(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("a failed resume defers the re-apply to the successful retry", func(t *testing.T) {
+		const class = "ResumeReapplyGateTest"
+		// testShard installs noop cycle callbacks whose Activate never fails, so install real ones.
+		sl, _ := testShard(t, ctx, class, withAsyncScheduler(t), func(i *Index) { i.initCycleCallbacks() })
+		s := concreteShard(t, sl)
+		t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+		s.index.replicationConfigLock.Lock()
+		s.index.Config.AsyncReplicationConfig = minAsyncReplicationConfig()
+		s.index.replicationConfigLock.Unlock()
+
+		treeInstalled := func() bool {
+			s.asyncReplicationRWMux.RLock()
+			defer s.asyncReplicationRWMux.RUnlock()
+			return s.hashtree != nil
+		}
+
+		require.NoError(t, s.HaltForTransfer(ctx, false))
+		require.NoError(t, s.addTargetNodeOverride(ctx, additional.AsyncReplicationTargetNodeOverride{
+			CollectionID:   class,
+			ShardID:        s.name,
+			SourceNode:     "nodeA",
+			TargetNode:     "nodeB",
+			UpperTimeBound: time.Now().Add(time.Hour).UnixMilli(),
+		}))
+		require.False(t, treeInstalled(), "the enable must be skipped while halted")
+
+		// Unregistering makes the resume's Activate fail with ErrorCallbackNotFound.
+		cc := s.cycleCallbacks
+		require.NoError(t, cc.vectorCombinedCallbacksCtrl.Unregister(ctx))
+		require.Error(t, s.resumeMaintenanceCycles(ctx))
+		require.Zero(t, s.haltForTransferCount.Load())
+		require.True(t, s.resumeIncomplete.Load())
+		require.False(t, treeInstalled(), "a failed resume must not re-apply the skipped enable")
+
+		// Register the callbacks again as inactive, the state the halt left them in.
+		cc.vectorCombinedCallbacksCtrl = cyclemanager.NewCombinedCallbackCtrl(2, s.index.logger,
+			s.index.cycleCallbacks.vectorCommitLoggerCallbacks.Register(
+				"retry/commit_logger", cc.vectorCommitLoggerCallbacks.CycleCallback, cyclemanager.AsInactive()),
+			s.index.cycleCallbacks.vectorTombstoneCleanupCallbacks.Register(
+				"retry/tombstone_cleanup", cc.vectorTombstoneCleanupCallbacks.CycleCallback, cyclemanager.AsInactive()))
+
+		require.NoError(t, s.resumeMaintenanceCycles(ctx))
+		require.False(t, s.resumeIncomplete.Load())
+		require.True(t, treeInstalled(), "the successful retry must re-apply the skipped enable")
+	})
 }
 
 // TestHaltedForTransferDoesNotBlockOnHeldMux: haltedForTransfer must report the true count promptly while the mux is held — neither parking on the backup prep nor misreading a concurrent holder as halted.

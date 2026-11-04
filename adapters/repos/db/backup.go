@@ -577,9 +577,9 @@ func backupStagingDir(rootPath, backupID string, className schema.ClassName) str
 	return filepath.Join(rootPath, name)
 }
 
-// ReleaseBackup marks the specified backup as inactive and restarts all
-// async background and maintenance processes. It errors if the backup does not exist
-// or is already inactive.
+// ReleaseBackup removes the backup's staging directory and marks the backup as
+// inactive. It does not change shard halt counts. Each snapshot resumes its own
+// halt, so any halt still held belongs to another operation.
 func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	i.logger.WithField("backup_id", id).WithField("class", i.Config.ClassName).Info("release backup")
 
@@ -590,20 +590,6 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	}
 
 	i.resetBackupState()
-
-	// A concurrent drop can shut the shard stores down. Resuming their cycles
-	// after that is a use-after-drop, so a closing index skips the resume.
-	if err := i.enterRead(); err != nil {
-		return nil
-	}
-	defer i.exitRead()
-
-	// resumeMaintenanceCycles is still called for safety, but is a no-op since
-	// CreateBackupSnapshot already resumed compaction. Handles edge cases where
-	// a snapshot creation failed mid-way.
-	if err := i.resumeMaintenanceCycles(ctx); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -628,20 +614,6 @@ func (i *Index) initBackup(id string) error {
 
 func (i *Index) resetBackupState() {
 	i.lastBackup.Store(nil)
-}
-
-func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
-	// Only loaded shards have maintenance cycles to resume; a cold shard has
-	// none, so skip it rather than force-load every shard after a backup.
-	i.withEachLoadedShard(func(name string, shard ShardLike) error {
-		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
-			lastErr = err
-			i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Error(err)
-		}
-		time.Sleep(time.Millisecond * 10)
-		return nil
-	})
-	return lastErr
 }
 
 func (i *Index) marshalSchema() ([]byte, error) {
