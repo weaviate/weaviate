@@ -56,8 +56,8 @@ var errRefused = errors.New("refusal")
 
 type client struct {
 	apiKey string
-	// organization is sent as the OpenAI-Organization header when set. A
-	// request header overrides it.
+	// organization is sent as the OpenAI-Organization header to the class or
+	// default host when set. A request header overrides it.
 	organization string
 	httpClient   *http.Client
 	// inFlight holds a slot per request being sent. It is shared by every
@@ -109,7 +109,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	}
 
 	request := judgeRequest{
-		endpointURL: endpointURL, apiKey: apiKey, organization: c.organizationFor(ctx),
+		endpointURL: endpointURL, apiKey: apiKey, organization: c.organizationFor(ctx, hostFromHeader),
 		hostFromHeader: hostFromHeader, model: settings.Model(), query: query,
 	}
 	scores := make([]float64, len(documents))
@@ -332,10 +332,14 @@ func truncate(s string) string {
 }
 
 // organizationFor returns the organization of the requests: the request
-// header, else the server's.
-func (c *client) organizationFor(ctx context.Context) string {
+// header, else the server's. The server's is never sent to a host the request
+// header named, as its key is not.
+func (c *client) organizationFor(ctx context.Context, hostFromHeader bool) string {
 	if organization := modulecomponents.GetValueFromContext(ctx, organizationHeader); organization != "" {
 		return organization
+	}
+	if hostFromHeader {
+		return ""
 	}
 	return c.organization
 }
