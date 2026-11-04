@@ -148,17 +148,28 @@ func TestRankHalvesARequestTheAPIRejectsForItsSize(t *testing.T) {
 			rankLogFields(t, hook))
 	})
 
-	t.Run("a single document", func(t *testing.T) {
-		f := newFake(t)
-		f.tooLarge = func(int) bool { return true }
+	rejectedAtEverySize := []struct {
+		name         string
+		documents    []string
+		wantRequests int
+	}{
+		{name: "a single document", documents: []string{noRefund}, wantRequests: 1},
+		// 2 is rejected, then 1, the first document; the second is not sent.
+		{name: "two documents", documents: []string{noRefund, chargedTwice}, wantRequests: 2},
+	}
+	for _, tt := range rejectedAtEverySize {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+			f.tooLarge = func(int) bool { return true }
 
-		_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-			documentsOf(noRefund), classConfig(f.url(), nil))
+			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+				documentsOf(tt.documents...), classConfig(f.url(), nil))
 
-		require.ErrorContains(t, err, "connection to TypeSafe AI API failed with status 400")
-		assert.ErrorContains(t, err, `{"error_type":"max_tokens_exceeded"}`)
-		assert.Len(t, f.received(), 1)
-	})
+			require.EqualError(t, err, "object 00000000-0000-0000-0000-000000000000: "+
+				`connection to TypeSafe AI API failed with status 400: {"error_type":"max_tokens_exceeded"}`)
+			assert.Len(t, f.received(), tt.wantRequests)
+		})
+	}
 }
 
 func TestRankSkipsEmptyAndDuplicateDocuments(t *testing.T) {
@@ -257,22 +268,40 @@ func TestRankReadsTheDeprecatedStringTypeAsText(t *testing.T) {
 
 func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 	tests := []struct {
-		name    string
-		status  int
-		body    string
-		wantErr string
+		name      string
+		documents []string
+		status    int
+		body      string
+		wantErr   string
 	}{
 		{
-			name:    "429",
-			status:  http.StatusTooManyRequests,
-			body:    `{"error":"rate limited"}`,
-			wantErr: `connection to TypeSafe AI API failed with status 429: {"error":"rate limited"}`,
+			name:      "429",
+			documents: []string{noRefund},
+			status:    http.StatusTooManyRequests,
+			body:      `{"error":"rate limited"}`,
+			wantErr:   `connection to TypeSafe AI API failed with status 429: {"error":"rate limited"}`,
 		},
 		{
-			name:    "500",
-			status:  http.StatusInternalServerError,
-			body:    `{"error":"internal error"}`,
-			wantErr: `connection to TypeSafe AI API failed with status 500: {"error":"internal error"}`,
+			name:      "500",
+			documents: []string{noRefund},
+			status:    http.StatusInternalServerError,
+			body:      `{"error":"internal error"}`,
+			wantErr:   `connection to TypeSafe AI API failed with status 500: {"error":"internal error"}`,
+		},
+		{
+			name:      "400 to a single document names its object",
+			documents: []string{noRefund},
+			status:    http.StatusBadRequest,
+			body:      `{"error":"unsupported content"}`,
+			wantErr: "object 00000000-0000-0000-0000-000000000000: " +
+				`connection to TypeSafe AI API failed with status 400: {"error":"unsupported content"}`,
+		},
+		{
+			name:      "400 to two documents",
+			documents: []string{noRefund, chargedTwice},
+			status:    http.StatusBadRequest,
+			body:      `{"error":"unsupported content"}`,
+			wantErr:   `connection to TypeSafe AI API failed with status 400: {"error":"unsupported content"}`,
 		},
 	}
 	for _, tt := range tests {
@@ -281,9 +310,9 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 			f.replies = map[int]fakeReply{0: {status: tt.status, body: tt.body}}
 
 			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-				documentsOf(noRefund), classConfig(f.url(), nil))
+				documentsOf(tt.documents...), classConfig(f.url(), nil))
 
-			require.ErrorContains(t, err, tt.wantErr)
+			require.EqualError(t, err, tt.wantErr)
 			assert.Len(t, f.received(), 1)
 		})
 	}
