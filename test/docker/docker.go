@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"strings"
 	"time"
@@ -200,6 +201,9 @@ func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time
 					stoppedHostname, survivorURI, pollCtx.Err())
 			}
 			if !isNodeHealthy(pollCtx, survivorURI, stoppedHostname) {
+				if pollCtx.Err() != nil {
+					continue // cut off by the timeout, not detected as down
+				}
 				break
 			}
 			time.Sleep(200 * time.Millisecond)
@@ -213,7 +217,8 @@ func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time
 // a surviving node. Returns false if the node is missing, unhealthy, or the
 // request fails.
 func isNodeHealthy(ctx context.Context, survivorURI, nodeName string) bool {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://%s/v1/nodes", survivorURI), nil)
+	u := url.URL{Scheme: "http", Host: survivorURI, Path: "/v1/nodes"}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return false
 	}
