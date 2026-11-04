@@ -75,9 +75,9 @@ func (k knobs) yaml() string {
 	return b.String()
 }
 
-// fastKnobs makes the background loop tick every second and keep nothing resident.
+// fastKnobs makes the background loop tick every second, keep nothing resident and retry a refused shard soon.
 func fastKnobs(extra knobs) knobs {
-	k := knobs{"interval": "1s", "min_residency": "0s", "idle_check_interval": "1s"}
+	k := knobs{"interval": "1s", "min_residency": "0s", "idle_check_interval": "1s", "retry_refused_after": "1s"}
 	for key, v := range extra {
 		k[key] = v
 	}

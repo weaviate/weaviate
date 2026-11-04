@@ -20,6 +20,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	clschema "github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
@@ -86,6 +88,40 @@ func TestIdleTTLUnloadsWhileNodesAPIIsPolled(t *testing.T) {
 	eventuallyLoaded(ctx, t, compose, 1, time.Minute, func(n int) bool { return n == 0 },
 		"idle shards unload although the verbose nodes API reads them continuously")
 	require.GreaterOrEqual(t, polls.Load(), minPollsAcrossIdleTTL, "the poll ran across the idle ttl")
+	verifyAll(ctx, t, cl, l, class, tenants)
+}
+
+func TestManualReadOnlyOldestTenantDoesNotStopTheDrain(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	compose := start(ctx, t, newCompose(t, true, 1, fastKnobs(knobs{
+		"idle_ttl": "5s", "unload_rate": "1", "retry_refused_after": "1h",
+	})))
+	node := compose.GetWeaviate()
+	cl := newClient(node.URI())
+	waitLimit(ctx, t, compose, 1, 0)
+
+	const class = "ManualReadOnlyOldest"
+	tenants := tenantNames("t", 6)
+	l := newLedger()
+	createClass(ctx, t, cl, vectorClass(class, true, 1))
+	createTenants(ctx, t, cl, class, tenants)
+	seed(ctx, t, cl, l, class, tenants[:1], 2, nil)
+	_, err := cl.Schema.SchemaObjectsShardsUpdate(clschema.NewSchemaObjectsShardsUpdateParams().
+		WithContext(ctx).WithClassName(class).WithShardName(tenants[0]).
+		WithBody(&models.ShardStatus{Status: "READONLY"}), nil)
+	require.NoError(t, err)
+	// The access clock ticks in seconds, and only a strictly oldest shard is tried first.
+	time.Sleep(2 * time.Second)
+	seed(ctx, t, cl, l, class, tenants[1:], 2, nil)
+
+	eventuallyLoaded(ctx, t, compose, 1, time.Minute, func(n int) bool { return n == 1 },
+		"with one unload a tick, the refused oldest tenant must not hold the rest loaded")
+	refused, ok, err := metric(ctx, node, metricUnloads, `outcome="manual_readonly"`)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Positive(t, refused)
 	verifyAll(ctx, t, cl, l, class, tenants)
 }
 
