@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -38,13 +39,29 @@ type bootstrapFixture struct {
 	cfg     Config
 	uc      ent.UserConfig
 	store   *lsmkv.Store
+	logs    *test.Hook
+	// onAddNode runs when a node is logged, i.e. the moment it joins the graph
+	onAddNode func(id uint64)
+}
+
+// hookedCommitLogger reports every node that joins the graph
+type hookedCommitLogger struct {
+	CommitLogger
+	onAddNode func(id uint64)
+}
+
+func (l *hookedCommitLogger) AddNode(id uint64, level uint16) error {
+	l.onAddNode(id)
+	return l.CommitLogger.AddNode(id, level)
 }
 
 func newBootstrapFixture(t *testing.T, compressed bool) *bootstrapFixture {
 	ctx := context.Background()
 	f := &bootstrapFixture{ctx: ctx}
 	f.vectors, _ = testinghelpers.RandomVecsFixedSeed(8, 1, 16)
-	logger, _ := test.NewNullLogger()
+	logger, logs := test.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	f.logs = logs
 	store := testinghelpers.NewDummyStore(t)
 	t.Cleanup(func() { store.Shutdown(ctx) })
 	dir := t.TempDir()
@@ -65,7 +82,15 @@ func newBootstrapFixture(t *testing.T, compressed bool) *bootstrapFixture {
 		ID:       indexID,
 		Logger:   logger,
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dir, indexID, logger, cyclemanager.NewCallbackGroupNoop())
+			commitLog, err := NewCommitLogger(dir, indexID, logger, cyclemanager.NewCallbackGroupNoop())
+			if err != nil {
+				return nil, err
+			}
+			return &hookedCommitLogger{CommitLogger: commitLog, onAddNode: func(id uint64) {
+				if f.onAddNode != nil {
+					f.onAddNode(id)
+				}
+			}}, nil
 		},
 		DistanceProvider: distancer.NewL2SquaredProvider(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
@@ -114,23 +139,13 @@ func (f *bootstrapFixture) deleteFromObjectStore(id uint64) {
 	}
 }
 
-// leaveGhost fails the insert by ending its context while every live node is
-// under maintenance
+// leaveGhost leaves a node without links in the graph, like an insert that
+// failed after joining it, or one from a version that joined before picking an
+// entrypoint
 func (f *bootstrapFixture) leaveGhost(t *testing.T, id uint64) {
-	var live []*vertex
-	for i := uint64(0); i < uint64(len(f.vectors)); i++ {
-		if node := f.index.nodeByID(i); node != nil && !f.index.hasTombstone(i) {
-			live = append(live, node)
-		}
-	}
-	for _, node := range live {
-		node.markAsMaintenance()
-	}
-	err := addWithDeadline(f.index, id, f.vectors[id])
-	require.ErrorIs(t, err, enterrors.ErrNoUsableEntrypoint)
-	for _, node := range live {
-		node.unmarkAsMaintenance()
-	}
+	node := &vertex{level: 0}
+	node.connections.GrowLayersTo(0)
+	require.NoError(t, f.index.publishNode(id, node, f.vectors[id]))
 	require.NotNil(t, f.index.nodeByID(id))
 	require.False(t, f.index.hasTombstone(id))
 }
@@ -157,6 +172,65 @@ func (f *bootstrapFixture) requireReachable(t *testing.T, ids ...uint64) {
 	}
 }
 
+func (f *bootstrapFixture) startAdd(ctx context.Context, id uint64) <-chan error {
+	done := make(chan error, 1)
+	go func() { done <- f.index.Add(ctx, id, f.vectors[id]) }()
+	return done
+}
+
+// waits counts how often an insert of id started waiting for an entrypoint
+func (f *bootstrapFixture) waits(id uint64) int {
+	n := 0
+	for _, e := range f.logs.AllEntries() {
+		if e.Data["action"] == "hnsw_insert" && e.Data["id"] == id {
+			n++
+		}
+	}
+	return n
+}
+
+// waitUntilWaiting blocks until the insert of id started waiting for the n-th time
+func (f *bootstrapFixture) waitUntilWaiting(t *testing.T, id uint64, n int) {
+	t.Helper()
+	require.Eventually(t, func() bool { return f.waits(id) >= n },
+		10*time.Second, time.Millisecond, "insert of %d should be waiting for an entrypoint", id)
+}
+
+// requireNotJoined checks that waiting inserts are not part of the graph
+func (f *bootstrapFixture) requireNotJoined(t *testing.T, ids ...uint64) {
+	t.Helper()
+	for _, id := range ids {
+		require.Nil(t, f.index.nodeByID(id), "waiting insert %d joined the graph", id)
+	}
+}
+
+func (f *bootstrapFixture) requireDone(t *testing.T, dones ...<-chan error) {
+	t.Helper()
+	for _, done := range dones {
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(10 * time.Second):
+			t.Fatal("insert did not finish after maintenance was released")
+		}
+	}
+}
+
+func (f *bootstrapFixture) requireNoSelfLinks(t *testing.T) {
+	t.Helper()
+	for i := range uint64(len(f.vectors)) {
+		node := f.index.nodeByID(i)
+		if node == nil {
+			continue
+		}
+		node.Lock()
+		for level := uint8(0); level < node.connections.Layers(); level++ {
+			require.NotContains(t, node.connections.GetLayer(level), i, "node %d links to itself at level %d", i, level)
+		}
+		node.Unlock()
+	}
+}
+
 func (f *bootstrapFixture) addWithin(t *testing.T, id uint64, timeout time.Duration) {
 	t.Helper()
 	done := make(chan error, 1)
@@ -180,6 +254,36 @@ func TestEntrypoint_BootstrapLastLiveNode(t *testing.T) {
 
 	for _, variant := range variants {
 		t.Run(variant.name, func(t *testing.T) {
+			t.Run("every live node taken by cleanup after the node joined", func(t *testing.T) {
+				// the entrypoint was usable when the insert picked it, then
+				// cleanup took every live node under maintenance before the
+				// insert connected; the insert must wait, not fail
+				f := newBootstrapFixture(t, variant.compressed)
+				live := []*vertex{f.index.nodeByID(0), f.index.nodeByID(1), f.index.nodeByID(2)}
+				var once sync.Once
+				f.onAddNode = func(id uint64) {
+					if id != 3 {
+						return
+					}
+					once.Do(func() {
+						for _, node := range live {
+							node.markAsMaintenance()
+						}
+						go func() {
+							time.Sleep(30 * time.Millisecond)
+							for _, node := range live {
+								node.unmarkAsMaintenance()
+							}
+						}()
+					})
+				}
+
+				f.addWithin(t, 3, 10*time.Second)
+				require.GreaterOrEqual(t, f.waits(3), 1, "insert should have waited for maintenance to end")
+				f.requireReachable(t, 0, 1, 2, 3)
+				f.requireNoSelfLinks(t)
+			})
+
 			t.Run("ghost promoted by deleting the last live nodes", func(t *testing.T) {
 				f := newBootstrapFixture(t, variant.compressed)
 				f.leaveGhost(t, 3)
@@ -221,7 +325,7 @@ func TestEntrypoint_BootstrapLastLiveNode(t *testing.T) {
 				node := f.index.nodeByID(3)
 				node.markAsMaintenance()
 
-				ok, err := f.index.bootstrapEntrypoint(3, node)
+				ok, err := f.index.bootstrapEntrypoint(3, node, f.vectors[3])
 				require.NoError(t, err)
 				require.True(t, ok)
 				require.Equal(t, uint64(3), f.index.getEntrypoint())
@@ -305,10 +409,7 @@ func TestEntrypoint_BootstrapLastLiveNode(t *testing.T) {
 
 				done := make(chan error, 1)
 				go func() { done <- f.index.Add(f.ctx, 3, f.vectors[3]) }()
-				require.Eventually(t, func() bool {
-					node := f.index.nodeByID(3)
-					return node != nil && !node.isUnderMaintenance()
-				}, 10*time.Second, time.Millisecond, "insert of 3 should be waiting")
+				f.waitUntilWaiting(t, 3, 1)
 
 				// the first step of Shutdown; the full Shutdown runs in cleanup
 				f.index.shutdownCtxCancel()
@@ -322,34 +423,102 @@ func TestEntrypoint_BootstrapLastLiveNode(t *testing.T) {
 				}
 			})
 
-			t.Run("insert connected to a waiting insert stays reachable", func(t *testing.T) {
+			t.Run("concurrent inserts do not strand the node held by cleanup", func(t *testing.T) {
 				f := newBootstrapFixture(t, variant.compressed)
 				require.NoError(t, f.index.Delete(f.nonEntrypointNodes()...))
 				ep := f.index.getEntrypoint()
 				f.index.nodeByID(ep).markAsMaintenance()
 
-				done := make(chan error, 1)
-				go func() { done <- f.index.Add(f.ctx, 3, f.vectors[3]) }()
-				require.Eventually(t, func() bool {
-					node := f.index.nodeByID(3)
-					return node != nil && !node.isUnderMaintenance()
-				}, 10*time.Second, time.Millisecond, "insert of 3 should wait without its maintenance mark")
+				done3 := f.startAdd(f.ctx, 3)
+				f.waitUntilWaiting(t, 3, 1)
+				done4 := f.startAdd(f.ctx, 4)
+				f.waitUntilWaiting(t, 4, 1)
+				f.requireNotJoined(t, 3, 4)
+				require.Equal(t, ep, f.index.getEntrypoint())
 
-				// 4 can only connect to the waiting 3, so 3 holds the only link to 4
-				f.addWithin(t, 4, 10*time.Second)
-				// hold 4 so that 3 resumes from the released entrypoint, which does
-				// not lead to 4
-				f.index.nodeByID(4).markAsMaintenance()
 				f.index.nodeByID(ep).unmarkAsMaintenance()
-				select {
-				case err := <-done:
-					require.NoError(t, err)
-				case <-time.After(10 * time.Second):
-					t.Fatal("insert of 3 did not finish after cleanup released the entrypoint")
-				}
-				f.index.nodeByID(4).unmarkAsMaintenance()
-
+				f.requireDone(t, done3, done4)
 				f.requireReachable(t, ep, 3, 4)
+				f.requireNoSelfLinks(t)
+				f.restart(t)
+				f.requireReachable(t, ep, 3, 4)
+			})
+
+			t.Run("waiting insert does not block deletes", func(t *testing.T) {
+				f := newBootstrapFixture(t, variant.compressed)
+				require.NoError(t, f.index.Delete(f.nonEntrypointNodes()...))
+				ep := f.index.getEntrypoint()
+				f.index.nodeByID(ep).markAsMaintenance()
+
+				done3 := f.startAdd(f.ctx, 3)
+				f.waitUntilWaiting(t, 3, 1)
+
+				deleted := make(chan error, 1)
+				go func() { deleted <- f.index.Delete(5) }()
+				select {
+				case err := <-deleted:
+					require.NoError(t, err)
+				case <-time.After(5 * time.Second):
+					t.Fatal("delete blocked behind a waiting insert")
+				}
+
+				f.index.nodeByID(ep).unmarkAsMaintenance()
+				f.requireDone(t, done3)
+				f.requireReachable(t, ep, 3)
+			})
+
+			t.Run("waiting inserts stay out of the graph", func(t *testing.T) {
+				f := newBootstrapFixture(t, variant.compressed)
+				require.NoError(t, f.index.Delete(f.nonEntrypointNodes()...))
+				ep := f.index.getEntrypoint()
+				f.index.nodeByID(ep).markAsMaintenance()
+
+				var dones []<-chan error
+				for id := uint64(3); id < uint64(len(f.vectors)); id++ {
+					dones = append(dones, f.startAdd(f.ctx, id))
+				}
+				for id := uint64(3); id < uint64(len(f.vectors)); id++ {
+					f.waitUntilWaiting(t, id, 1)
+				}
+				f.requireNotJoined(t, 3, 4, 5, 6, 7)
+
+				f.index.nodeByID(ep).unmarkAsMaintenance()
+				f.requireDone(t, dones...)
+				f.requireReachable(t, ep, 3, 4, 5, 6, 7)
+				f.requireNoSelfLinks(t)
+				f.restart(t)
+				f.requireReachable(t, ep, 3, 4, 5, 6, 7)
+			})
+
+			t.Run("insert retried after its deadline keeps every insert reachable", func(t *testing.T) {
+				f := newBootstrapFixture(t, variant.compressed)
+				require.NoError(t, f.index.Delete(f.nonEntrypointNodes()...))
+				ep := f.index.getEntrypoint()
+				f.index.nodeByID(ep).markAsMaintenance()
+
+				deadline, cancel := context.WithCancel(f.ctx)
+				timedOut := f.startAdd(deadline, 3)
+				f.waitUntilWaiting(t, 3, 1)
+				done4 := f.startAdd(f.ctx, 4)
+				f.waitUntilWaiting(t, 4, 1)
+
+				cancel()
+				select {
+				case err := <-timedOut:
+					require.ErrorIs(t, err, enterrors.ErrNoUsableEntrypoint)
+					require.True(t, enterrors.IsTransient(err))
+				case <-time.After(10 * time.Second):
+					t.Fatal("insert of 3 did not stop when its context ended")
+				}
+				// the failed insert left nothing behind
+				f.requireNotJoined(t, 3)
+
+				retry := f.startAdd(f.ctx, 3)
+				f.waitUntilWaiting(t, 3, 2)
+				f.index.nodeByID(ep).unmarkAsMaintenance()
+				f.requireDone(t, retry, done4)
+				f.requireReachable(t, ep, 3, 4)
+				f.requireNoSelfLinks(t)
 				f.restart(t)
 				f.requireReachable(t, ep, 3, 4)
 			})

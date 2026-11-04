@@ -739,8 +739,10 @@ func (h *hnsw) repairGlobalEntrypoint(oldEntrypoint uint64, denyList helpers.All
 }
 
 // bootstrapEntrypoint makes the inserting node the entrypoint if every other
-// node is nil or tombstoned; nodes under maintenance count as live.
-func (h *hnsw) bootstrapEntrypoint(id uint64, node *vertex) (bool, error) {
+// node is nil or tombstoned; nodes under maintenance count as live. An insert
+// that has not joined the graph yet joins it here, under the same lock, so the
+// node is never visible without being the entrypoint.
+func (h *hnsw) bootstrapEntrypoint(id uint64, node *vertex, vec []float32) (bool, error) {
 	if h.hasOtherLiveNode(id) {
 		return false, nil
 	}
@@ -761,6 +763,15 @@ func (h *hnsw) bootstrapEntrypoint(id uint64, node *vertex) (bool, error) {
 	level := int(node.level)
 	node.Unlock()
 
+	// h.nodes is read directly: nodeByID would take h.RLock under h.Lock
+	h.shardedNodeLocks.RLock(id)
+	published := h.nodes[id] == node
+	h.shardedNodeLocks.RUnlock(id)
+	if !published {
+		if err := h.publishNode(id, node, vec); err != nil {
+			return false, err
+		}
+	}
 	if err := h.commitLog.SetEntryPointWithMaxLayer(id, level); err != nil {
 		return false, fmt.Errorf("persist entrypoint: %w", err)
 	}
@@ -904,14 +915,22 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, oldEntrypoint 
 			candidateLevel := int(candidate.level)
 			candidate.Unlock()
 
-			if candidateLevel != l {
-				// not reaching up to the current level, skip in hope of finding another candidate
+			if candidateLevel < l {
+				// not reaching up to the current level, skip in hope of finding another candidate.
+				// Nodes above it are fine: an insert drawn above the maximum layer
+				// only raises it once connected.
 				continue
 			}
 
 			// we have a node that matches
 			return uint64(i), nil
 		}
+	}
+
+	// a concurrent insert may have become the entrypoint above the level read
+	// at the start, so the scan skipped it
+	if entryPointID := h.getEntrypoint(); entryPointID != oldEntrypoint {
+		return entryPointID, nil
 	}
 
 	if h.isEmpty() {
@@ -922,7 +941,9 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, oldEntrypoint 
 		return 0, nil
 	}
 
-	return 0, fmt.Errorf("class %s: shard %s: findNewLocalEntrypoint called on an empty hnsw graph", h.className, h.shardName)
+	// a node joined after the scan passed its slot; transient, so the caller retries
+	return 0, fmt.Errorf("%w: class %s: shard %s: graph changed while searching for a local entrypoint",
+		errNoUsableEntrypoint, h.className, h.shardName)
 }
 
 func (h *hnsw) isOnlyNode(needleID uint64, denyList helpers.AllowList) bool {

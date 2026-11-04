@@ -435,7 +435,72 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	return nil
 }
 
+// addOne inserts a node. While every live node is transiently unusable as an
+// entrypoint (under maintenance or with its object gone), the insert waits
+// outside the index locks and starts over. It has not joined the graph at that
+// point, so nothing can link to it and a failure leaves nothing behind.
 func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *vertex) error {
+	var wait entrypointWait
+	defer wait.stop()
+	for {
+		joined, err := h.tryAddOne(ctx, id, vector, node)
+		if joined || !errors.Is(err, errNoUsableEntrypoint) {
+			return err
+		}
+		if err := wait.next(ctx, h, id, err); err != nil {
+			return err
+		}
+	}
+}
+
+// entrypointWait paces the retries of an insert that found no usable
+// entrypoint. The zero value is ready and costs nothing until the first wait.
+type entrypointWait struct {
+	cause    error // why the insert started waiting
+	deadline context.Context
+	cancel   context.CancelFunc
+	backoff  time.Duration
+}
+
+// next sleeps before the next attempt. The waiting ends with an error after
+// 60s in total, when ctx is done or when the index shuts down. The error names
+// the first cause: a later attempt fails on whatever it last tried, not on the
+// reason the insert started waiting.
+func (w *entrypointWait) next(ctx context.Context, h *hnsw, id uint64, err error) error {
+	if w.cause == nil {
+		w.cause = err
+		w.backoff = time.Millisecond
+		// bounds only the waiting, not the insert itself
+		w.deadline, w.cancel = context.WithTimeout(ctx, 60*time.Second)
+		h.logger.WithField("action", "hnsw_insert").WithField("id", id).
+			Debugf("no usable entrypoint for node %d, waiting: %v", id, err)
+	}
+
+	timer := time.NewTimer(w.backoff)
+	select {
+	case <-w.deadline.Done():
+		timer.Stop()
+		return fmt.Errorf("%w: %w", w.cause, w.deadline.Err())
+	case <-h.shutdownCtx.Done():
+		timer.Stop()
+		return fmt.Errorf("%w: %w", w.cause, h.shutdownCtx.Err())
+	case <-timer.C:
+	}
+	w.backoff = min(2*w.backoff, 50*time.Millisecond)
+	return nil
+}
+
+func (w *entrypointWait) stop() {
+	if w.cancel != nil {
+		w.cancel()
+	}
+}
+
+// tryAddOne picks a usable entrypoint before the node joins the graph, so a
+// node is never visible without a way to connect it. joined reports whether
+// the node was published; from then on the connector itself waits for an
+// entrypoint, so the error must not be retried here.
+func (h *hnsw) tryAddOne(ctx context.Context, id uint64, vector []float32, node *vertex) (joined bool, err error) {
 	h.compressActionLock.RLock()
 	h.deleteVsInsertLock.RLock()
 
@@ -456,14 +521,8 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 		}
 	})
 	if wasFirst {
-		if firstInsertError != nil {
-			return firstInsertError
-		}
-		return nil
+		return true, firstInsertError
 	}
-
-	node.markAsMaintenance()
-	defer node.unmarkAsMaintenance()
 
 	h.RLock()
 	// initially use the "global" entrypoint which is guaranteed to be on the
@@ -477,48 +536,43 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 	targetLevel := int(node.level)
 	node.connections.GrowLayersTo(uint8(targetLevel))
 
-	var err error
-	if err = h.commitLog.AddNode(id, node.level); err != nil {
-		return err
-	}
-
-	nodeId := id
-
-	h.shardedNodeLocks.Lock(nodeId)
-	h.nodes[nodeId] = node
-	h.shardedNodeLocks.Unlock(nodeId)
-
-	singleVector := !h.multivector.Load() || h.muvera.Load()
-	if singleVector {
-		if h.compressed.Load() {
-			h.compressor.Preload(nodeId, vector)
-		} else {
-			h.cache.Preload(nodeId, vector)
-		}
-	}
-
-	h.insertMetrics.prepareAndInsertNode(before)
-	before = time.Now()
-
 	var distancer compressionhelpers.CompressorDistancer
-	var returnFn compressionhelpers.ReturnDistancerFn
 	if h.compressed.Load() {
+		var returnFn compressionhelpers.ReturnDistancerFn
 		distancer, returnFn = h.compressor.NewDistancer(vector)
 		defer returnFn()
 	}
 	entryPointID, err = h.findBestEntrypointForNode(ctx, currentMaximumLayer, targetLevel,
 		entryPointID, vector, distancer)
 	if err != nil {
-		return errors.Wrap(err, "find best entrypoint")
+		return false, errors.Wrap(err, "find best entrypoint")
+	}
+
+	nfc := newNeighborFinderConnector(h, id, node, entryPointID, vector, distancer, targetLevel,
+		currentMaximumLayer, helpers.NewAllowList(), false, nil)
+	if err := nfc.pickEntrypoint(); err != nil {
+		return false, errors.Wrap(err, "pick entrypoint")
+	}
+	if nfc.bootstrapped {
+		// bootstrapEntrypoint published the node as the entrypoint
+		return true, nil
 	}
 
 	h.insertMetrics.findEntrypoint(before)
 	before = time.Now()
 
-	// TODO: check findAndConnectNeighbors...
-	if err := h.findAndConnectNeighbors(ctx, id, node, entryPointID, vector, distancer,
-		targetLevel, currentMaximumLayer, helpers.NewAllowList()); err != nil {
-		return errors.Wrap(err, "find and connect neighbors")
+	// nobody may start a search from the node until it is connected
+	node.markAsMaintenance()
+	defer node.unmarkAsMaintenance()
+	if err := h.publishNode(id, node, vector); err != nil {
+		return false, err
+	}
+
+	h.insertMetrics.prepareAndInsertNode(before)
+	before = time.Now()
+
+	if err := nfc.Do(ctx); err != nil {
+		return true, errors.Wrap(err, "find and connect neighbors")
 	}
 
 	h.insertMetrics.findAndConnectTotal(before)
@@ -535,12 +589,12 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 		h.Lock()
 		// check again to avoid changes from RUnlock to Lock again
 		if targetLevel > h.currentMaximumLayer {
-			if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
+			if err := h.commitLog.SetEntryPointWithMaxLayer(id, targetLevel); err != nil {
 				h.Unlock()
-				return err
+				return true, err
 			}
 
-			h.entryPointID = nodeId
+			h.entryPointID = id
 			h.currentMaximumLayer = targetLevel
 		}
 		h.Unlock()
@@ -548,6 +602,21 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 		h.RUnlock()
 	}
 
+	return true, nil
+}
+
+// publishNode makes the node part of the graph: logged, stored and with its
+// vector cached so other nodes can compute distances to it
+func (h *hnsw) publishNode(id uint64, node *vertex, vector []float32) error {
+	if err := h.commitLog.AddNode(id, node.level); err != nil {
+		return err
+	}
+
+	h.shardedNodeLocks.Lock(id)
+	h.nodes[id] = node
+	h.shardedNodeLocks.Unlock(id)
+
+	h.Preload(id, vector)
 	return nil
 }
 
