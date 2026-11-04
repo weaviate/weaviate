@@ -12219,6 +12219,56 @@ func init() {
         "name": {
           "description": "The name of the tenant (required).",
           "type": "string"
+        },
+        "transition": {
+          "$ref": "#/definitions/TenantTransition"
+        }
+      }
+    },
+    "TenantTransition": {
+      "description": "A freeze or unfreeze running on the tenant, set by the server. It ends when every participant is done or any one aborts; until then ` + "`" + `activityStatus` + "`" + ` reports it.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "FREEZE",
+            "UNFREEZE"
+          ]
+        },
+        "participants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TenantTransitionParticipant"
+          }
+        },
+        "targetStatus": {
+          "description": "The status the tenant gets when every participant is done.",
+          "type": "string",
+          "enum": [
+            "HOT",
+            "COLD",
+            "FROZEN"
+          ]
+        }
+      }
+    },
+    "TenantTransitionParticipant": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "progress": {
+          "type": "string",
+          "enum": [
+            "STARTED",
+            "DONE"
+          ]
+        },
+        "sourceNode": {
+          "description": "For an unfreeze, the node whose cloud copy this participant downloads.",
+          "type": "string"
         }
       }
     },
@@ -25502,6 +25552,56 @@ func init() {
         },
         "name": {
           "description": "The name of the tenant (required).",
+          "type": "string"
+        },
+        "transition": {
+          "$ref": "#/definitions/TenantTransition"
+        }
+      }
+    },
+    "TenantTransition": {
+      "description": "A freeze or unfreeze running on the tenant, set by the server. It ends when every participant is done or any one aborts; until then ` + "`" + `activityStatus` + "`" + ` reports it.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "FREEZE",
+            "UNFREEZE"
+          ]
+        },
+        "participants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TenantTransitionParticipant"
+          }
+        },
+        "targetStatus": {
+          "description": "The status the tenant gets when every participant is done.",
+          "type": "string",
+          "enum": [
+            "HOT",
+            "COLD",
+            "FROZEN"
+          ]
+        }
+      }
+    },
+    "TenantTransitionParticipant": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "progress": {
+          "type": "string",
+          "enum": [
+            "STARTED",
+            "DONE"
+          ]
+        },
+        "sourceNode": {
+          "description": "For an unfreeze, the node whose cloud copy this participant downloads.",
           "type": "string"
         }
       }

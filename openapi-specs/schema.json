@@ -3832,6 +3832,56 @@
             "FREEZING",
             "UNFREEZING"
           ]
+        },
+        "transition": {
+          "$ref": "#/definitions/TenantTransition"
+        }
+      }
+    },
+    "TenantTransition": {
+      "type": "object",
+      "description": "A freeze or unfreeze running on the tenant, set by the server. It ends when every participant is done or any one aborts; until then `activityStatus` reports it.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "FREEZE",
+            "UNFREEZE"
+          ]
+        },
+        "targetStatus": {
+          "description": "The status the tenant gets when every participant is done.",
+          "type": "string",
+          "enum": [
+            "HOT",
+            "COLD",
+            "FROZEN"
+          ]
+        },
+        "participants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TenantTransitionParticipant"
+          }
+        }
+      }
+    },
+    "TenantTransitionParticipant": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "sourceNode": {
+          "description": "For an unfreeze, the node whose cloud copy this participant downloads.",
+          "type": "string"
+        },
+        "progress": {
+          "type": "string",
+          "enum": [
+            "STARTED",
+            "DONE"
+          ]
         }
       }
     },

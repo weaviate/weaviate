@@ -246,14 +246,27 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err != nil {
 		return nil, err
 	}
+	// The wait above applied version here, so the local schema already holds the started transitions.
+	transitions := make(map[string]*models.TenantTransition, len(tNames))
+	if err := h.schemaReader.Read(class, true, func(_ *models.Class, ss *sharding.State) error {
+		for _, name := range tNames {
+			if p, ok := ss.Physical[name]; ok {
+				transitions[name] = p.Transition.Model()
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
 	uTenants := make([]*models.Tenant, 0, len(tenantsStatus))
 	for name, status := range tenantsStatus {
 		uTenants = append(uTenants, &models.Tenant{
 			Name:           name,
 			ActivityStatus: schema.ActivityStatus(status),
+			Transition:     transitions[name],
 		})
 	}
-	return uTenants, err
+	return uTenants, nil
 }
 
 // DeleteTenants is used to delete tenants of a class.
@@ -409,6 +422,7 @@ func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Ten
 			ts = append(ts, &models.Tenant{
 				Name:           name,
 				ActivityStatus: physical.ActivityStatus(),
+				Transition:     physical.Transition.Model(),
 			})
 		}
 		return nil

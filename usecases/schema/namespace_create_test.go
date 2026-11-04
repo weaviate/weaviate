@@ -643,6 +643,7 @@ func TestUpdateTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 				captured = req
 				return true
 			})).Return(nil)
+			sm.On("Read", mock.Anything, mock.Anything).Return(nil)
 			sm.On("TenantsShardsStatusWithVersion", mock.Anything, uint64(0), mock.Anything, mock.Anything).
 				Return(map[string]string{"T1": models.TenantActivityStatusHOT}, nil)
 

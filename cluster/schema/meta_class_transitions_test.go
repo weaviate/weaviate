@@ -646,3 +646,45 @@ func TestClassDeleteKnowsAboutCloudCopies(t *testing.T) {
 		})
 	}
 }
+
+func TestTenantsReportTheirTransition(t *testing.T) {
+	s := NewSchema("n1", prometheus.NewPedanticRegistry())
+	unfreeze := &sharding.Transition{
+		Kind:   sharding.TransitionUnfreeze,
+		Target: cold,
+		Participants: map[string]sharding.TransitionParticipant{
+			"n3": {Source: "n1", Progress: sharding.ProgressStarted},
+			"n2": {Source: "n4", Progress: sharding.ProgressDone},
+		},
+	}
+	require.NoError(t, s.addClass(
+		&models.Class{Class: "C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
+		&sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{
+			"t":   {Name: "t", Status: frozen, Transition: unfreeze},
+			"hot": {Name: "hot", Status: hot},
+		}}, 1))
+	want := &models.TenantTransition{
+		Kind:         "UNFREEZE",
+		TargetStatus: cold,
+		Participants: []*models.TenantTransitionParticipant{
+			{Node: "n2", SourceNode: "n4", Progress: "DONE"},
+			{Node: "n3", SourceNode: "n1", Progress: "STARTED"},
+		},
+	}
+
+	for name, names := range map[string][]string{"all": nil, "named": {"t", "hot"}} {
+		t.Run(name, func(t *testing.T) {
+			tenants, err := s.getTenants("C", names)
+			require.NoError(t, err)
+			require.Len(t, tenants, 2)
+			for _, tenant := range tenants {
+				if tenant.Name == "hot" {
+					assert.Nil(t, tenant.Transition)
+					continue
+				}
+				assert.Equal(t, models.TenantActivityStatusUNFREEZING, tenant.ActivityStatus)
+				assert.Equal(t, want, tenant.Transition)
+			}
+		})
+	}
+}
