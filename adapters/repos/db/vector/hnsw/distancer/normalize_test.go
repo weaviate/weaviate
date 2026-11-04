@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNormalize(t *testing.T) {
@@ -201,6 +202,30 @@ func TestNormalizeExtremeMagnitudes(t *testing.T) {
 		got := Normalize(v)
 		assert.InDelta(t, math.Sqrt2/2, got[0], 1e-6)
 		assert.InDelta(t, -math.Sqrt2/2, got[1], 1e-6)
+	})
+
+	// The float32 dot product of these components rounds up to a squared
+	// norm that is positive but subnormal (3e-45 < 2^-126). It must still
+	// take the float64 path: the fast path's reciprocal is computed from a
+	// norm that lost ~55% of its true value to underflow rounding, so
+	// scaling by it yields components around 0.5667 instead of 0.7071.
+	// This is the case a weakening of the cutoff to `norm2 > 0` would
+	// silently pass; the 1e-23 case above squares all the way to zero and
+	// so does not exercise this branch.
+	t.Run("positive subnormal squared norm keeps the float64 path", func(t *testing.T) {
+		v := []float32{3e-23, -3e-23}
+		norm2 := squaredNorm(v)
+		require.True(t, norm2 > 0 && norm2 < minNormalFloat32,
+			"precondition: float32 squared norm must be positive and subnormal, got %g", norm2)
+
+		got := Normalize(v)
+		assert.InDelta(t, math.Sqrt2/2, got[0], 1e-6)
+		assert.InDelta(t, -math.Sqrt2/2, got[1], 1e-6)
+
+		inPlace := []float32{3e-23, -3e-23}
+		NormalizeInPlace(inPlace)
+		assert.InDelta(t, math.Sqrt2/2, inPlace[0], 1e-6)
+		assert.InDelta(t, -math.Sqrt2/2, inPlace[1], 1e-6)
 	})
 
 	t.Run("large vectors do not collapse to zero", func(t *testing.T) {
