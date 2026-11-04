@@ -46,7 +46,7 @@ func TestTerminalCleanupRanksAWalkFailureLikeTheSweepDoes(t *testing.T) {
 			name:        "a shard the walk reached and left untouched",
 			fixture:     shardWithAnUnreadableRecordStore,
 			wantOutcome: CleanupSweepWithheld,
-			wantText:    "its cleanup is withheld until that record is fixed and the shard reloads",
+			wantText:    "its cleanup is withheld. Fix that record and reload the shard while this task is still listed",
 		},
 		{
 			name: "a shard the walk reached and could not settle",
