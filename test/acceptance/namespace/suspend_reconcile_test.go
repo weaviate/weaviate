@@ -75,12 +75,12 @@ func requireNoShardsEventually(t *testing.T, live presentShard, qualifiedClasses
 	t.Helper()
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		alive, err := shardsForClass(t, live.qualifiedClass)
+		alive, err := helper.ShardsForClass(t, live.qualifiedClass, adminKey)
 		if !assert.NoError(c, err) || !assert.Contains(c, alive, live.name) {
 			return
 		}
 		for _, class := range qualifiedClasses {
-			got, err := shardsForClass(t, class)
+			got, err := helper.ShardsForClass(t, class, adminKey)
 			if assert.NoError(c, err) {
 				assert.Empty(c, got, "%q still lists shards", class)
 			}

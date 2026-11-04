@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 const (
@@ -140,9 +141,14 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 		defer close(resChan)
 		actives := make([]Result[string], 0, level) // cache for active replicas
 		var replicaErrs []error
+		var refusals []Result[string]
 		for r := range prepare() {
 			if r.Err != nil { // connection error
-				c.log.WithField("op", "broadcast").Warn(r.Err)
+				if isLimitRefusal(r.Err) {
+					refusals = append(refusals, r)
+				} else {
+					c.log.WithField("op", "broadcast").Warn(r.Err)
+				}
 				// Attach the failing replica identifier so the resulting
 				// error remains actionable regardless of whether the
 				// per-replica op wrapped it with host context.
@@ -162,13 +168,25 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 			}
 			resChan <- r
 		}
+		c.logLimitRefusals(refusals, level <= 0)
 		if level > 0 { // abort: nothing has been sent to the caller
-			fs := logrus.Fields{"op": "broadcast", "active": len(actives), "total": len(replicas)}
-			c.log.WithFields(fs).Error("abort")
+			abort := &prepareAbortError{
+				err:       replicaerrors.NewNotEnoughReplicasErrorWithCounts(required, len(actives), errors.Join(replicaErrs...)),
+				limitOnly: len(refusals) > 0 && len(refusals) == len(replicaErrs),
+			}
+			if len(refusals) > len(replicas)-required {
+				abort.limit = limitFromRefusal(refusals[0].Err)
+			}
+			fs := logrus.Fields{"op": "broadcast", "active": len(actives), "total": len(replicas), "limit_refused": len(refusals)}
+			if abort.limitOnly {
+				c.log.WithFields(fs).Debug("abort")
+			} else {
+				c.log.WithFields(fs).Error("abort")
+			}
 			for _, node := range replicas {
 				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
 			}
-			resChan <- Result[string]{Err: replicaerrors.NewNotEnoughReplicasErrorWithCounts(required, len(actives), errors.Join(replicaErrs...))}
+			resChan <- Result[string]{Err: abort}
 		}
 	}
 	enterrors.GoWrapper(f, c.log)
@@ -180,17 +198,18 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 func (c *coordinator[T, R]) commitAll(ctx context.Context,
 	broadcastCh <-chan Result[string],
 	op commitOp[T],
-	callback func(successful int),
+	callback func(successful int, abortErr error),
 ) <-chan Result[T] {
 	replyCh := make(chan Result[T], cap(broadcastCh))
 	f := func() { // tells active replicas to commit
 		// tells active replicas to commit
 
 		var successful atomic.Int32
+		var abortErr error
 
 		defer func() {
 			if callback != nil {
-				callback(int(successful.Load()))
+				callback(int(successful.Load()), abortErr)
 			}
 		}()
 
@@ -198,6 +217,7 @@ func (c *coordinator[T, R]) commitAll(ctx context.Context,
 
 		for res := range broadcastCh {
 			if res.Err != nil {
+				abortErr = res.Err
 				replyCh <- Result[T]{Err: res.Err}
 				continue
 			}
@@ -295,17 +315,17 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 	// and returns the actual callback function.
 	// The returned function is then called by commitAll once it knows how many
 	// replicas have successfully committed
-	callback := func() func(successful int) {
+	callback := func() func(successful int, abortErr error) {
 		start := time.Now()
 
-		return func(successful int) {
+		return func(successful int, abortErr error) {
 			numReplicas := len(writeRoutingPlan.Replicas())
 
 			if numReplicas == successful {
 				c.metrics.IncWritesSucceedAll()
 			} else if successful > 0 {
 				c.metrics.IncWritesSucceedSome()
-			} else {
+			} else if !isLimitOnlyAbort(abortErr) {
 				c.metrics.IncWritesFailed()
 			}
 
@@ -525,4 +545,83 @@ func annotateReplicaErr(replica string, err error) error {
 		return err
 	}
 	return fmt.Errorf("replica %q: %w", replica, err)
+}
+
+// limitRefusalLogThrottle is shared by every coordinator, so a replica refusing
+// writes to a shard at its object cap warns once per window.
+var limitRefusalLogThrottle = NewLogThrottle(time.Minute)
+
+// prepareAbortError is the error broadcast sends when too few replicas
+// prepared. Its Unwrap returns err alone, so errors.As never finds limit.
+type prepareAbortError struct {
+	err error
+	// limit is the error Replicator.PutObject{,s} hand the client, set when the
+	// limit refusals alone made the consistency level unreachable.
+	limit *usagelimits.LimitExceededError
+	// limitOnly is set when every failed prepare was a limit refusal, so no
+	// replica failed.
+	limitOnly bool
+}
+
+func (e *prepareAbortError) Error() string { return e.err.Error() }
+
+func (e *prepareAbortError) Unwrap() error { return e.err }
+
+// isLimitOnlyAbort reports whether err is a prepare abort whose every failed
+// prepare was a limit refusal.
+func isLimitOnlyAbort(err error) bool {
+	var abort *prepareAbortError
+	return errors.As(err, &abort) && abort.limitOnly
+}
+
+// limitAbort returns the limit error of a prepare abort the limit refusals
+// alone caused, and nil for any other err.
+func limitAbort(err error) *usagelimits.LimitExceededError {
+	var abort *prepareAbortError
+	if errors.As(err, &abort) {
+		return abort.limit
+	}
+	return nil
+}
+
+// isLimitRefusal reports whether a replica refused the prepare at its object cap.
+func isLimitRefusal(err error) bool {
+	var replicaErr *replicaerrors.Error
+	return errors.As(err, &replicaErr) && replicaErr.Code == replicaerrors.StatusUsageLimitExceeded
+}
+
+// limitFromRefusal decodes the limit error a refusing replica sent as its
+// message, and returns nil where the message is no limit body.
+func limitFromRefusal(err error) *usagelimits.LimitExceededError {
+	var replicaErr *replicaerrors.Error
+	if !errors.As(err, &replicaErr) {
+		return nil
+	}
+	limit, ok := usagelimits.FromBodyJSON([]byte(replicaErr.Msg))
+	if !ok {
+		return nil
+	}
+	return limit
+}
+
+// logLimitRefusals logs each replica that refused the prepare at its object
+// cap. It warns where levelMet, because that replica falls behind the others,
+// and logs at Debug where the write aborts and the client's error carries it.
+func (c *coordinator[T, R]) logLimitRefusals(refusals []Result[string], levelMet bool) {
+	for _, r := range refusals {
+		log := c.log.WithFields(logrus.Fields{"op": "broadcast", "class": c.Class, "shard": c.Shard, "replica": r.Value})
+		if !levelMet {
+			log.Debugf("replica refused the write at its object cap: %v", r.Err)
+			continue
+		}
+		ok, suppressed := limitRefusalLogThrottle.Allow(c.Class + "\x00" + c.Shard + "\x00" + r.Value)
+		if !ok {
+			log.Debugf("replica refused a write the other replicas commit, at its object cap: %v", r.Err)
+			continue
+		}
+		if suppressed > 0 {
+			log = log.WithField("suppressed", suppressed)
+		}
+		log.Warnf("replica refused a write the other replicas commit, at its object cap: %v", r.Err)
+	}
 }
