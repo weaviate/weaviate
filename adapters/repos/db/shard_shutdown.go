@@ -534,6 +534,36 @@ func (s *Shard) teardownLocked(ctx context.Context, marked func()) (err error) {
 	return ec.ToError()
 }
 
+// bucketTeardownGrace bounds how long a bucket teardown outlives its caller's cancellation.
+const bucketTeardownGrace = time.Minute
+
+// withBucketTeardownCtx runs the teardown of a bucket that has left its store's
+// map, where an abandoned Bucket.Shutdown keeps its registry claim and handles,
+// so nothing can reopen the directory until a restart. As in teardownLocked only
+// the cancellation is dropped and the caller's deadline stays. A caller that is
+// never cancelled keeps the wait it had; a cancelled one gets the grace, so a
+// stuck teardown cannot outlast it for good.
+func withBucketTeardownCtx(ctx context.Context, teardown func(context.Context) error) error {
+	detached, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancel()
+	if deadline, ok := ctx.Deadline(); ok {
+		var cancelDeadline context.CancelFunc
+		detached, cancelDeadline = context.WithDeadline(detached, deadline)
+		defer cancelDeadline()
+	}
+	stop := context.AfterFunc(ctx, func() {
+		grace := time.NewTimer(bucketTeardownGrace)
+		defer grace.Stop()
+		select {
+		case <-grace.C:
+			cancel()
+		case <-detached.Done():
+		}
+	})
+	defer stop()
+	return teardown(detached)
+}
+
 // drainRefsForDrop blocks new pins and waits for the in-flight ones to finish,
 // so a drop does not tear the store down underneath a running request.
 // Note: this will keep drainRefsForDrop running for 30 seconds.
