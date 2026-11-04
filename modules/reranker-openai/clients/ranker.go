@@ -172,7 +172,8 @@ type judgeRequest struct {
 	apiKey       string
 	organization string
 	// hostFromHeader says the request header named the host. Anyone who may
-	// query can name one, so the errors then quote nothing of its replies.
+	// query can name one, so status errors quote no reply body for it. A wrong
+	// answer name or type is quoted (cut to 512 bytes) for every host.
 	hostFromHeader bool
 	model          string
 	query          string
@@ -183,10 +184,6 @@ type judgeRequest struct {
 func (c *client) judge(ctx context.Context, r judgeRequest, document ent.Document) (float64, int64, error) {
 	response, err := c.send(ctx, r, document.Value)
 	if err != nil {
-		var imageErr imageInputError
-		if errors.As(err, &imageErr) {
-			return 0, 0, fmt.Errorf("object %s: %w", document.ID, err)
-		}
 		var rejected rejectedError
 		if errors.As(err, &rejected) && rejected.status == http.StatusBadRequest {
 			return 0, 0, fmt.Errorf("object %s: %w", document.ID, err)
@@ -202,11 +199,6 @@ func (c *client) judge(ctx context.Context, r judgeRequest, document ent.Documen
 	}
 	return score, inputTokens(response.Usage), nil
 }
-
-type imageInputError struct{ err error }
-
-func (e imageInputError) Error() string { return "image: " + e.err.Error() }
-func (e imageInputError) Unwrap() error { return e.err }
 
 // send builds the input inside the in-flight slot, so the slots also bound the
 // image copies in memory.
@@ -225,7 +217,7 @@ func (c *client) send(ctx context.Context, r judgeRequest, document string) (dec
 
 	input, err := newInput(document, r.image)
 	if err != nil {
-		return decisionResponse{}, imageInputError{err}
+		return decisionResponse{}, fmt.Errorf("image: %w", err)
 	}
 	body, err := json.Marshal(decisionRequest{
 		Model:     r.model,
@@ -351,7 +343,10 @@ func (c *client) organizationFor(ctx context.Context, hostFromHeader bool) strin
 func (c *client) endpoint(ctx context.Context, classBaseURL string,
 ) (endpointURL, apiKey string, hostFromHeader bool, err error) {
 	apiKey = modulecomponents.GetValueFromContext(ctx, apiKeyHeader)
-	baseURL := classBaseURL
+	baseURL, err := config.NormalizeBaseURL(classBaseURL)
+	if err != nil {
+		return "", "", false, fmt.Errorf("baseURL %w", err)
+	}
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
 		if apiKey == "" {
 			return "", "", false, fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
