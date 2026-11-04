@@ -73,7 +73,9 @@ func NormalizeBaseURL(baseURL string) (string, error) {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
 		return "", fmt.Errorf("must be an absolute http or https URL, got %q", baseURL)
 	}
-	return strings.TrimSuffix(strings.TrimSuffix(baseURL, "/"), "/v1"), nil
+	u.Path = strings.TrimSuffix(strings.TrimSuffix(u.Path, "/"), "/v1")
+	u.RawPath = ""
+	return u.String(), nil
 }
 
 // rawSettings mirrors the helper's getters, which PropertyValuesHelper does not expose.
