@@ -165,10 +165,12 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 			wantIDs       []string
 			wantScores    []float64
 			wantInputs    []any
-			minRequests   int
-			maxRequests   int
-			wantErr       []string
-			wantNotInErr  []string
+			// failing is the document the fake fails or refuses.
+			failing      string
+			minRequests  int
+			maxRequests  int
+			wantErr      []string
+			wantNotInErr []string
 		}{
 			{
 				name:          "the page is sorted by the probabilities",
@@ -196,6 +198,7 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 			{
 				name:          "a 429 fails the query without retries",
 				probabilities: allProbabilities,
+				failing:       noRefund,
 				failures:      map[string]fakeReply{noRefund: {status: http.StatusTooManyRequests, body: `{"error":{"message":"rate limited"}}`}},
 				property:      "text",
 				query:         new(churn),
@@ -206,6 +209,7 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 			{
 				name:          "a 500 fails the query without retries",
 				probabilities: allProbabilities,
+				failing:       noRefund,
 				failures:      map[string]fakeReply{noRefund: {status: http.StatusInternalServerError, body: `{"error":{"message":"internal error"}}`}},
 				property:      "text",
 				query:         new(churn),
@@ -216,6 +220,7 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 			{
 				name:          "a 401 does not quote the reply",
 				probabilities: allProbabilities,
+				failing:       noRefund,
 				failures: map[string]fakeReply{noRefund: {
 					status: http.StatusUnauthorized,
 					body:   `{"error":{"message":"Incorrect API key provided: sk-fake-leaked-key"}}`,
@@ -230,6 +235,7 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 			{
 				name:          "a refusal fails the query and names its object",
 				probabilities: allProbabilities,
+				failing:       noRefund,
 				refusals:      map[string]bool{noRefund: true},
 				property:      "text",
 				query:         new(churn),
@@ -288,6 +294,9 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 					assert.Equal(t, "gpt-6-luna", r.body.Model)
 					assert.Equal(t, []wireQuestion{{Type: "predicate", Name: "condition", Instructions: churn}}, r.body.Questions)
 					inputs[i] = r.body.Input
+				}
+				if tt.failing != "" {
+					assert.Equalf(t, 1, sent[tt.failing], "failing document %.40q sent %d times", tt.failing, sent[tt.failing])
 				}
 				for document, n := range sent {
 					assert.Equalf(t, 1, n, "document %.40q sent %d times", document, n)

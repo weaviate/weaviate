@@ -26,8 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const fakeAPIKey = "fake"
-
 // wireRequest decodes the request body with the API's field names,
 // independent of the module's types. Input is a string or a message list.
 type wireRequest struct {
