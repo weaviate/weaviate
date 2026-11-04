@@ -95,8 +95,9 @@ func TestFormatOnlyMigrationFinishesItsPrepAndSwapThroughAShutdownRequest(t *tes
 
 				reloaded, release, err := f.idx.getOrInitShard(ctx, name())
 				require.NoError(t, err, "the migration left a bucket claim behind")
-				defer release()
 				require.NotNil(t, reloaded.Store().Bucket(helpers.BucketFromPropNameLSM(pinSweepProp)))
+				release()
+				require.NoError(t, reloaded.Shutdown(ctx))
 			})
 		}
 	}
@@ -128,8 +129,9 @@ func TestFormatOnlyMigrationYieldsToARequestAheadOfItsPrep(t *testing.T) {
 
 	reloaded, release, err := f.idx.getOrInitShard(ctx, f.hot.Name())
 	require.NoError(t, err)
-	defer release()
 	require.NotNil(t, reloaded.Store().Bucket(helpers.BucketFromPropNameLSM(pinSweepProp)))
+	release()
+	require.NoError(t, reloaded.Shutdown(ctx))
 }
 
 func TestFormatOnlyMigrationDropCancelsItsSwap(t *testing.T) {

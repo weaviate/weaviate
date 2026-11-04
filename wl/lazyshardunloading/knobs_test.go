@@ -139,6 +139,25 @@ func TestSnapshotSanitisesKnobs(t *testing.T) {
 	}
 }
 
+func TestRetryRefusedAfterSeconds(t *testing.T) {
+	tests := []struct {
+		after time.Duration
+		want  uint32
+	}{
+		{after: 0, want: 0},
+		{after: time.Millisecond, want: 1},
+		{after: time.Second, want: 1},
+		{after: 1500 * time.Millisecond, want: 2},
+		{after: time.Hour, want: 3600},
+		{after: math.MaxInt64, want: 1 << 31},
+	}
+	for _, tt := range tests {
+		t.Run(tt.after.String(), func(t *testing.T) {
+			require.Equal(t, tt.want, (&snapshot{retryRefusedAfter: tt.after}).retryRefusedAfterSeconds())
+		})
+	}
+}
+
 func TestSnapshotLogsAgainOnlyWhenTheInvalidCombinationChanges(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 	k := newTestKnobs()
