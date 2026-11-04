@@ -43,6 +43,8 @@ func TestImageDataURL(t *testing.T) {
 		{name: "gif", encoded: gifBase64, want: "data:image/gif;base64," + gifBase64},
 		{name: "webp", encoded: webpBase64, want: "data:image/webp;base64," + webpBase64},
 		{name: "a short png prefix still names the format", encoded: pngBase64[:8], want: "data:image/png;base64," + pngBase64[:8]},
+		{name: "a RIFF file that is not WebP", encoded: "UklGRhAAAABXQVZFZm10IAAA", wantErr: "not a PNG, JPEG, GIF or WebP image"},
+		{name: "WEBP at offset 8 without RIFF", encoded: "SlVOSxAAAABXRUJQVlA4IAAA", wantErr: "not a PNG, JPEG, GIF or WebP image"},
 		{name: "bmp", encoded: bmpBase64, wantErr: "not a PNG, JPEG, GIF or WebP image"},
 		{name: "base64 of text", encoded: textBase64, wantErr: "not a PNG, JPEG, GIF or WebP image"},
 		{name: "not base64", encoded: "%%%%", wantErr: "not base64"},
