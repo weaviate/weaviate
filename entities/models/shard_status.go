@@ -28,7 +28,7 @@ import (
 // swagger:model ShardStatus
 type ShardStatus struct {
 
-	// Status of the shard
+	// Status of the shard. An update accepts `READY` or `READONLY`.
 	Status string `json:"status,omitempty"`
 }
 

@@ -13,6 +13,7 @@ package test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -77,6 +78,13 @@ func TestShardStatusReportsConditions(t *testing.T) {
 		break
 	}
 	require.NotEmpty(t, shard)
+
+	t.Run("only READY and READONLY are accepted", func(t *testing.T) {
+		for _, status := range []string{"SHUTDOWN", "INDEXING", "LOADING", "HOT", ""} {
+			var invalid *clschema.SchemaObjectsShardsUpdateUnprocessableEntity
+			require.True(t, errors.As(setStatus(shard, status), &invalid), "status %q", status)
+		}
+	})
 
 	t.Run("READONLY holds on every replica", func(t *testing.T) {
 		require.NoError(t, setStatus(shard, "readonly"))
