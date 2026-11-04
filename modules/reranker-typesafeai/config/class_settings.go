@@ -56,14 +56,24 @@ func (cs *classSettings) Validate(class *models.Class) error {
 			return fmt.Errorf("%s must be a non-empty string", name)
 		}
 		if name == "baseURL" {
-			u, err := url.Parse(s)
-			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-				return fmt.Errorf("baseURL must be an absolute http or https URL, got %q", s)
+			if err := CheckBaseURL(s); err != nil {
+				return fmt.Errorf("baseURL %w", err)
 			}
 		}
 	}
 
 	return cs.propertyValuesHelper.ValidateBaseURL(cs.BaseURL())
+}
+
+// CheckBaseURL fails unless raw is an absolute http or https URL that names a
+// host. A URL with a port and no host, such as https://:443, dials the local
+// host.
+func CheckBaseURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return fmt.Errorf("must be an absolute http or https URL, got %q", raw)
+	}
+	return nil
 }
 
 // rawSettings mirrors the lookup of the property helper's getters, which the

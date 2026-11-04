@@ -374,6 +374,9 @@ func (c *client) endpoint(ctx context.Context, classBaseURL string,
 			return "", "", false, fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
 				baseURLHeader, apiKeyHeader)
 		}
+		if err := config.CheckBaseURL(headerBaseURL); err != nil {
+			return "", "", false, fmt.Errorf("%s header %w", baseURLHeader, err)
+		}
 		if err := modulecomponents.ValidateBaseURL(headerBaseURL); err != nil {
 			return "", "", false, err
 		}
