@@ -56,8 +56,7 @@ type ticket struct {
 	vector []float32
 }
 
-// tickets returns the three tickets in the order the search near {1, 0}
-// returns them, with the photos given, if any.
+// Tickets are in the order the search near {1, 0} returns them.
 func tickets(photos ...string) []ticket {
 	out := []ticket{
 		{id: changeEmailID, text: changeEmail, vector: []float32{1, 0}},
@@ -165,12 +164,11 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 			wantIDs       []string
 			wantScores    []float64
 			wantInputs    []any
-			// failing is the document the fake fails or refuses.
-			failing      string
-			minRequests  int
-			maxRequests  int
-			wantErr      []string
-			wantNotInErr []string
+			failing       string
+			minRequests   int
+			maxRequests   int
+			wantErr       []string
+			wantNotInErr  []string
 		}{
 			{
 				name:          "the page is sorted by the probabilities",
@@ -309,8 +307,6 @@ func testRerankerOpenAIAgainstAFakeProvider(fake *fakeProvider, restURI, grpcURI
 	}
 }
 
-// imageInput is the input of a request for a photo: a user message holding
-// the photo as a data URL.
 func imageInput(photo string) any {
 	return []any{map[string]any{
 		"role": "user",
@@ -321,8 +317,7 @@ func imageInput(photo string) any {
 	}}
 }
 
-// oversizedImage returns the base64 of a PNG header followed by zeros, a few
-// bytes above 20 MiB.
+// A PNG header followed by zeros, a few bytes above 20 MiB.
 func oversizedImage(t *testing.T) string {
 	t.Helper()
 	content := make([]byte, 20<<20+8)
@@ -390,8 +385,6 @@ func rerankScores(results []*pb.SearchResult) []float64 {
 	return scores
 }
 
-// grayPNG returns the base64 of a square PNG of side pixels in one gray
-// level.
 func grayPNG(t *testing.T, side int, level uint8) string {
 	t.Helper()
 	img := image.NewGray(image.Rect(0, 0, side, side))
@@ -399,8 +392,7 @@ func grayPNG(t *testing.T, side int, level uint8) string {
 	return encodePNG(t, img)
 }
 
-// crossPNG returns the base64 of a white square PNG of side pixels with a
-// black cross through its middle, each bar a fifth of the side wide.
+// A white square with a black cross, each bar a fifth of the side wide.
 func crossPNG(t *testing.T, side int) string {
 	t.Helper()
 	img := image.NewGray(image.Rect(0, 0, side, side))

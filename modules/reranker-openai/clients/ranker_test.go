@@ -44,9 +44,8 @@ const (
 	testTimeout    = 30 * time.Second
 	defaultFakeKey = "apiKey"
 	firstID        = "00000000-0000-0000-0000-000000000000"
-	// secondID is the ID of noRefund in documentsOf("", noRefund). The empty
-	// document is not sent, so an error that names secondID names the
-	// document of the request, not the request's position.
+	// The empty document is not sent, so an error naming secondID names the
+	// request's document, not its position.
 	secondID = "00000000-0000-0000-0000-000000000001"
 )
 
@@ -227,7 +226,6 @@ func TestRankRejectsAnImageBeforeSending(t *testing.T) {
 	}
 }
 
-// The property type decides, never the content.
 func TestRankSendsBase64TextAsText(t *testing.T) {
 	f := newFake(t)
 
@@ -240,8 +238,7 @@ func TestRankSendsBase64TextAsText(t *testing.T) {
 	assert.Equal(t, pngBase64, requests[0].body.Input)
 }
 
-// A class created before v1.19 and never changed still stores the deprecated
-// string type; the gRPC check reads it as text, so the module does too.
+// Classes created before v1.19 still store the deprecated string type.
 func TestRankReadsTheDeprecatedStringTypeAsText(t *testing.T) {
 	f := newFake(t)
 	f.probabilities = map[string]float64{noRefund: 0.9}
@@ -522,7 +519,7 @@ func TestRankHeaders(t *testing.T) {
 func TestRankRejectsABaseURLHeaderBeforeSending(t *testing.T) {
 	tests := []struct {
 		name string
-		// baseURL is the header value; <fake> stands for the fake's URL.
+		// <fake> stands for the fake's URL.
 		baseURL  string
 		validate bool
 		wantErr  string
@@ -562,8 +559,7 @@ func TestRankRejectsABaseURLHeaderBeforeSending(t *testing.T) {
 	}
 }
 
-// The base URL may end in /v1, as the OpenAI SDKs write it; the path before
-// it is kept.
+// The OpenAI SDKs write the base URL with a /v1 suffix.
 func TestRankNormalizesTheBaseURL(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -604,8 +600,7 @@ func TestRankNormalizesTheBaseURL(t *testing.T) {
 	}
 }
 
-// Anyone who may query can name a host in the base URL header, so the errors
-// quote nothing of its replies.
+// A host named in the base URL header is untrusted: errors quote nothing of its replies.
 func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 	const banner = `{"error":{"message":"internal banner"}}`
 	tests := []struct {
@@ -660,8 +655,8 @@ func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 			wantErr:    "parse OpenAI response: invalid character 'o' in literal null (expecting 'u')",
 		},
 		{
-			// A reply in the API's own shape carries no body text of use, so
-			// its answer name is quoted for every host.
+			// A reply in the API's own shape has no useful body text, so the
+			// answer name is quoted for every host.
 			name:       "a wrong answer name from the header base URL",
 			reply:      fakeReply{status: http.StatusOK, body: `{"answers":[{"type":"predicate","name":"internal banner","probability":0.5}]}`},
 			fromHeader: true,
@@ -760,8 +755,7 @@ func TestRankStopsOnContextCancel(t *testing.T) {
 	})
 }
 
-// newBlockingFake returns a fake whose handlers wait for release. Defer
-// release in the test: the calls' cleanups wait for the handlers.
+// Defer release: the calls' cleanups wait for the handlers.
 func newBlockingFake(t *testing.T) (*fakeOpenAI, func()) {
 	f := newFake(t)
 	f.release = make(chan struct{})
@@ -899,8 +893,7 @@ func TestRankChecksTheAnswers(t *testing.T) {
 			wantScore: 1,
 		},
 		{
-			// The API refuses a condition whatever the document, so a page
-			// would score 0 everywhere and hide that the condition was refused.
+			// A refused condition must fail the call, not score 0 everywhere.
 			name:    "a refusal",
 			body:    `{"answers":[{"type":"refusal","name":"condition"}]}`,
 			wantErr: "object " + secondID + `: OpenAI refused to judge the condition "The customer is about to churn"`,
@@ -981,8 +974,7 @@ func newTestClient(apiKey string) *client {
 	return New(apiKey, "", testTimeout, DefaultMaxConcurrentRequests, nullLogger())
 }
 
-// documentsOf gives the value at position i the ID
-// 00000000-0000-0000-0000-<i in 12 digits>.
+// IDs are 00000000-0000-0000-0000-<i in 12 digits>.
 func documentsOf(values ...string) []ent.Document {
 	out := make([]ent.Document, len(values))
 	for i, value := range values {
@@ -999,8 +991,7 @@ func numbered(format string, n int) []string {
 	return out
 }
 
-// expectedScores gives a document missing from probabilities the fake's
-// default, 0.5.
+// A document missing from probabilities gets the fake's default, 0.5.
 func expectedScores(documents []string, probabilities map[string]float64) []ent.DocumentScore {
 	out := make([]ent.DocumentScore, len(documents))
 	for i, document := range documents {
@@ -1013,7 +1004,6 @@ func expectedScores(documents []string, probabilities map[string]float64) []ent.
 	return out
 }
 
-// decisionBody is the body the API takes for one document.
 func decisionBody(t *testing.T, model, input, query string) string {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{
@@ -1027,7 +1017,6 @@ func decisionBody(t *testing.T, model, input, query string) string {
 	return string(body)
 }
 
-// inputs returns the document of every request, in the order received.
 func inputs(requests []fakeRequest) []string {
 	out := make([]string, len(requests))
 	for i, r := range requests {
@@ -1070,8 +1059,7 @@ type wireQuestion struct {
 	Instructions string `json:"instructions"`
 }
 
-// wireRequest decodes the request body with the API's field names,
-// independent of the client's types.
+// wireRequest uses the API's field names, independent of the client's types.
 type wireRequest struct {
 	Model     string         `json:"model"`
 	Input     any            `json:"input"`
@@ -1088,8 +1076,6 @@ type fakeRequest struct {
 	body          wireRequest
 }
 
-// input returns the document of the request: the string, or the data URL of
-// the image in the message list.
 func (r fakeRequest) input() string {
 	switch input := r.body.Input.(type) {
 	case string:
@@ -1120,16 +1106,14 @@ type fakeReply struct {
 	body   string
 }
 
-// fakeOpenAI stands for POST /v1/decisions. It answers the question with the
-// probability of the input, 0.5 when unknown.
+// fakeOpenAI answers with the probability of the input, 0.5 when unknown.
 type fakeOpenAI struct {
 	t             *testing.T
 	server        *httptest.Server
 	probabilities map[string]float64
-	// replies answers the n-th request, counted from 0, instead.
-	replies map[int]fakeReply
-	delay   time.Duration
-	// release, when set, holds every handler until it is closed.
+	// replies overrides the answer to the n-th request, from 0.
+	replies  map[int]fakeReply
+	delay    time.Duration
 	release  chan struct{}
 	handlers sync.WaitGroup
 

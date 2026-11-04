@@ -20,8 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A 1x1 PNG, and the first bytes of the other formats, as a blob property
-// holds them.
+// A 1x1 PNG and the first bytes of the other formats.
 const (
 	pngBase64  = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC"
 	jpegBase64 = "/9j/4AAAAAAAAAAAAAAAAA=="

@@ -21,9 +21,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
-// The Decisions API takes a document as text, or as the content parts of a
-// user message. An image must be an inline data URL; hosted URLs and file
-// ids are rejected.
+// The API takes an image only as an inline data URL; hosted URLs and file ids
+// are rejected.
 const (
 	inputRoleUser  = "user"
 	inputImageType = "input_image"
@@ -39,9 +38,7 @@ type inputPart struct {
 	ImageURL string `json:"image_url,omitempty"`
 }
 
-// imageTypes are the image formats the API accepts, by the bytes a file of
-// that format starts with. WebP has "WEBP" at offset 8 behind a RIFF header,
-// which a WAVE file shares.
+// WebP is a RIFF container with "WEBP" at offset 8; a WAVE file shares the RIFF header.
 var imageTypes = []struct {
 	mime   string
 	magics []magic
@@ -61,21 +58,17 @@ func (m magic) matches(decoded []byte) bool {
 	return len(decoded) >= m.offset+len(m.bytes) && bytes.Equal(decoded[m.offset:m.offset+len(m.bytes)], m.bytes)
 }
 
-// magicChars is how many base64 characters hold the bytes that decide the
-// format (12 bytes).
+// magicChars is the base64 of the first 12 bytes.
 const magicChars = 16
 
-// maxImageBytes bounds the image one request carries: the API rejects
-// larger ones, and the data URL and the JSON body copy the whole content.
-// maxImageChars is the same bound on the base64; it also admits the two
-// bytes that round up to its last quad.
+// The API rejects images over maxImageBytes. maxImageChars also admits the two
+// bytes that round up to the last quad.
 const (
 	maxImageBytes = 20 << 20
 	maxImageChars = (maxImageBytes + 2) / 3 * 4
 )
 
-// imageMIME reads the MIME type from the first bytes, without decoding the
-// whole image.
+// imageMIME decodes only the head of the image.
 func imageMIME(encoded string) (string, error) {
 	if len(encoded) > maxImageChars {
 		return "", fmt.Errorf("%d bytes exceed the limit of %d MiB per image", len(encoded)/4*3, maxImageBytes>>20)
@@ -98,8 +91,6 @@ func imageMIME(encoded string) (string, error) {
 	return "", errors.New("not a PNG, JPEG, GIF or WebP image")
 }
 
-// imageDataURL turns the base64 content of a blob property into the data
-// URL the API takes.
 func imageDataURL(encoded string) (string, error) {
 	mime, err := imageMIME(encoded)
 	if err != nil {
@@ -108,8 +99,7 @@ func imageDataURL(encoded string) (string, error) {
 	return "data:" + mime + ";base64," + encoded, nil
 }
 
-// checkImages fails on the first document at the given positions that is
-// not an image the API takes, before any request is sent and billed.
+// checkImages runs before any request is sent and billed.
 func checkImages(documents []ent.Document, positions []int) error {
 	for _, position := range positions {
 		if _, err := imageMIME(documents[position].Value); err != nil {
@@ -119,8 +109,6 @@ func checkImages(documents []ent.Document, positions []int) error {
 	return nil
 }
 
-// newInput is the input of a request: the document as text, or as an image
-// part when it comes from a blob property.
 func newInput(document string, image bool) (any, error) {
 	if !image {
 		return document, nil
