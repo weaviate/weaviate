@@ -40,64 +40,6 @@ func (_m *MockSchema) EXPECT() *MockSchema_Expecter {
 	return &MockSchema_Expecter{mock: &_m.Mock}
 }
 
-// AbortTenantTransitions provides a mock function with given fields: ctx, class, tenants
-func (_m *MockSchema) AbortTenantTransitions(ctx context.Context, class string, tenants []string) (uint64, error) {
-	ret := _m.Called(ctx, class, tenants)
-
-	if len(ret) == 0 {
-		panic("no return value specified for AbortTenantTransitions")
-	}
-
-	var r0 uint64
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, []string) (uint64, error)); ok {
-		return rf(ctx, class, tenants)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, []string) uint64); ok {
-		r0 = rf(ctx, class, tenants)
-	} else {
-		r0 = ret.Get(0).(uint64)
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, []string) error); ok {
-		r1 = rf(ctx, class, tenants)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockSchema_AbortTenantTransitions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AbortTenantTransitions'
-type MockSchema_AbortTenantTransitions_Call struct {
-	*mock.Call
-}
-
-// AbortTenantTransitions is a helper method to define mock.On call
-//   - ctx context.Context
-//   - class string
-//   - tenants []string
-func (_e *MockSchema_Expecter) AbortTenantTransitions(ctx interface{}, class interface{}, tenants interface{}) *MockSchema_AbortTenantTransitions_Call {
-	return &MockSchema_AbortTenantTransitions_Call{Call: _e.mock.On("AbortTenantTransitions", ctx, class, tenants)}
-}
-
-func (_c *MockSchema_AbortTenantTransitions_Call) Run(run func(ctx context.Context, class string, tenants []string)) *MockSchema_AbortTenantTransitions_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].([]string))
-	})
-	return _c
-}
-
-func (_c *MockSchema_AbortTenantTransitions_Call) Return(_a0 uint64, _a1 error) *MockSchema_AbortTenantTransitions_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockSchema_AbortTenantTransitions_Call) RunAndReturn(run func(context.Context, string, []string) (uint64, error)) *MockSchema_AbortTenantTransitions_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // AddClass provides a mock function with given fields: ctx, cls, ss
 func (_m *MockSchema) AddClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
 	ret := _m.Called(ctx, cls, ss)

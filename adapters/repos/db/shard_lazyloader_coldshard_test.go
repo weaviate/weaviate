@@ -791,14 +791,14 @@ func TestShardsStatusEndpoint_DoesNotForceLoadColdShards(t *testing.T) {
 
 	for name, shard := range cold {
 		require.Equal(t, storagestate.StatusLazyLoading.String(), statuses[name])
-		for node, status := range perNode[name] {
-			require.Equal(t, storagestate.StatusLazyLoading.String(), status, "node %s", node)
+		for node, report := range perNode[name] {
+			require.Equal(t, storagestate.StatusLazyLoading.String(), report.Status, "node %s", node)
 		}
 		require.Zero(t, sizes[name])
 
-		status, err := f.index.IncomingGetShardStatus(ctx, name)
+		report, err := f.index.IncomingGetShardStatus(ctx, name)
 		require.NoError(t, err)
-		require.Equal(t, storagestate.StatusLazyLoading.String(), status)
+		require.Equal(t, storagestate.StatusLazyLoading.String(), report.Status)
 		size, err := f.index.IncomingGetShardQueueSize(ctx, name)
 		require.NoError(t, err)
 		require.Zero(t, size)

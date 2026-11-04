@@ -797,7 +797,7 @@ func (a *Client) SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, au
 /*
 SchemaObjectsShardsUpdate updates a shard status
 
-Updates the status of a specific shard within a collection (e.g., sets it to `READY` or `READONLY`). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.
+Sets a shard to `READONLY` or back to `READY` on every node. `READY` lifts only a `READONLY` set this way: a shard stays read-only while its node is under resource pressure, reindexing it or uploading it for a freeze. The flag is kept in memory, so a node that restarts comes back `READY`. There is also a convenience function in each client to set the status of all shards of a collection.
 */
 func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsShardsUpdateOK, error) {
 	// TODO: Validate the params before sending

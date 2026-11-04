@@ -61,6 +61,26 @@ func TestHasDataNeedsNoEarlierCommand(t *testing.T) {
 	require.True(t, hasData)
 }
 
+// s5cmd reports a listing cut short as a success, so a request that gave up
+// would otherwise go ahead and cache a bucket it never saw.
+func TestVerifyBucketCutShortFails(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+	t.Setenv("AWS_REGION", "us-east-1")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	t.Setenv("OFFLOAD_S3_ENDPOINT", srv.URL)
+
+	m := &Module{Endpoint: srv.URL, Bucket: "bucket", timeout: time.Minute, workersCount: 1}
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+
+	require.ErrorIs(t, m.VerifyBucket(ctx), context.DeadlineExceeded)
+	require.False(t, m.BucketExists.Load())
+}
+
 func TestUpload_ConcurrentNoFlagRedefinedPanic(t *testing.T) {
 	dataDir := t.TempDir()
 	className := "TestClass"

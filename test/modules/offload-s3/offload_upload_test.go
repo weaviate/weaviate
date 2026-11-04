@@ -345,7 +345,7 @@ func Test_UploadS3JourneyUnhappyPath(t *testing.T) {
 
 		t.Run("verify tenant does not exists", func(t *testing.T) {
 			_, err = helper.TenantObject(t, tenantObjects[0].Class, tenantObjects[0].ID, tenantNames[0])
-			require.NotNil(t, err)
+			require.Error(t, err)
 		})
 	})
 }

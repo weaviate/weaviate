@@ -14,6 +14,7 @@ package sharding
 import (
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -26,7 +27,6 @@ const (
 const (
 	ProgressStarted = "started"
 	ProgressDone    = "done"
-	ProgressAborted = "aborted"
 )
 
 // Transition is a running freeze or unfreeze. Physical.Status stays where it
@@ -92,4 +92,24 @@ func (t *Transition) activityStatus() string {
 		return models.TenantActivityStatusFREEZING
 	}
 	return models.TenantActivityStatusUNFREEZING
+}
+
+// Model is the transition as the tenants API reports it.
+func (t *Transition) Model() *models.TenantTransition {
+	if t == nil {
+		return nil
+	}
+	participants := make([]*models.TenantTransitionParticipant, 0, len(t.Participants))
+	for _, node := range slices.Sorted(maps.Keys(t.Participants)) {
+		participants = append(participants, &models.TenantTransitionParticipant{
+			Node:       node,
+			SourceNode: t.Participants[node].Source,
+			Progress:   strings.ToUpper(t.Participants[node].Progress),
+		})
+	}
+	return &models.TenantTransition{
+		Kind:         strings.ToUpper(t.Kind),
+		TargetStatus: t.Target,
+		Participants: participants,
+	}
 }

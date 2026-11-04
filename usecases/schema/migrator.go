@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -56,7 +57,7 @@ type Migrator interface {
 	UpdateTenantsForProcess(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) error
 	DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant, v uint64) error
 
-	GetShardsStorageStatus(ctx context.Context, className, tenant string) (map[string]map[string]string, map[string]string, error)
+	GetShardsStorageStatus(ctx context.Context, className, tenant string) (map[string]map[string]storagestate.Report, map[string]string, error)
 
 	UpdateVectorIndexConfig(ctx context.Context, className string, updated schemaConfig.VectorIndexConfig) error
 	ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig) error

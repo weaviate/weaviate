@@ -31,6 +31,9 @@ type ShardStatusGetResponse struct {
 	// Name of the shard
 	Name string `json:"name,omitempty"`
 
+	// Why each replica refuses writes, if it does: `USER_READONLY` (set through `PUT /schema/{className}/shards/{shardName}`), `RESOURCE_PRESSURE` (disk or memory use on that node), `REINDEXING` or `FREEZING` (the tenant's data is being uploaded). A node that did not report is missing.
+	PerNodeConditions map[string][]string `json:"per_node_conditions,omitempty"`
+
 	// Status of the shard on each of its replicas
 	PerNodeStatus map[string]string `json:"per_node_status,omitempty"`
 

@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -258,7 +259,17 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 		return 0, err
 	}
 
-	return h.schemaManager.UpdateShardStatus(ctx, class, shard, status)
+	switch storagestate.Status(strings.ToUpper(status)) {
+	case storagestate.StatusReady, storagestate.StatusReadOnly:
+	default:
+		return 0, fmt.Errorf("%w: shard status %q: only READY and READONLY can be set", ErrValidation, status)
+	}
+	version, err := h.schemaManager.UpdateShardStatus(ctx, class, shard, status)
+	// A follower gets this mapping from the RPC error code.
+	if errors.Is(err, clusterSchema.ErrClassNotFound) || errors.Is(err, clusterSchema.ErrShardNotFound) {
+		return version, fmt.Errorf("%w: %w", ErrNotFound, err)
+	}
+	return version, err
 }
 
 func (h *Handler) ShardsStatus(ctx context.Context,

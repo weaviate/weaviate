@@ -184,10 +184,31 @@ func (i *Index) userReadOnly(shardName string) bool {
 	return i.nodeOverlay().ReadOnly(i.Config.ClassName.String(), shardName)
 }
 
-func (i *Index) reportedStatus(shardName string, shard ShardLike) string {
-	status := shard.GetStatus()
-	if (status == storagestate.StatusReady || status == storagestate.StatusIndexing) && i.userReadOnly(shardName) {
-		return storagestate.StatusReadOnly.String()
+func (i *Index) reportedStatus(shardName string, shard ShardLike) storagestate.Report {
+	conditions := []string{}
+	userReadOnly := i.userReadOnly(shardName)
+	if userReadOnly {
+		conditions = append(conditions, storagestate.ConditionUserReadOnly)
 	}
-	return status.String()
+	if i.db.resourcePressureReadOnly() {
+		conditions = append(conditions, storagestate.ConditionResourcePressure)
+	}
+	if phase := i.nodeOverlay().PhaseOf(i.Config.ClassName.String(), shardName); phase != nil {
+		if phase.Reindexing() {
+			conditions = append(conditions, storagestate.ConditionReindexing)
+		}
+		if phase.Transferring() {
+			conditions = append(conditions, storagestate.ConditionFreezing)
+		}
+	}
+
+	status := shard.GetStatus()
+	switch status {
+	case storagestate.StatusReady, storagestate.StatusIndexing, storagestate.StatusLazyLoading:
+		if userReadOnly {
+			status = storagestate.StatusReadOnly
+		}
+	default:
+	}
+	return storagestate.Report{Status: status.String(), Conditions: conditions}
 }

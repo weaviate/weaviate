@@ -273,6 +273,10 @@ func (m *Module) VerifyBucket(ctx context.Context) error {
 	if err := m.newApp().RunContext(ctx, cmd); err != nil {
 		return err
 	}
+	// s5cmd reports a listing cut short as a success
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	m.BucketExists.Store(true)
 	return nil
 }

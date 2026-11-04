@@ -116,22 +116,62 @@ func TestUserReadOnlyRefusesAtPrepare(t *testing.T) {
 	require.Equal(t, replicaerrors.StatusUserReadOnly, resp.Errors[0].Code)
 }
 
-func TestReportedStatusShowsUserReadOnly(t *testing.T) {
-	const class = "UserReadOnlyStatus"
+func TestReportedStatusShowsConditions(t *testing.T) {
+	const class = "ReportedStatusConditions"
 	ctx := context.Background()
-	shard, idx, overlay := userReadOnlyIndex(t, class)
-	name := shard.Name()
 
-	status, err := idx.IncomingGetShardStatus(ctx, name)
-	require.NoError(t, err)
-	require.Equal(t, storagestate.StatusReady.String(), status)
+	tests := []struct {
+		name           string
+		userReadOnly   bool
+		pressure       bool
+		reindexing     bool
+		freezing       bool
+		wantStatus     storagestate.Status
+		wantConditions []string
+	}{
+		{name: "none", wantStatus: storagestate.StatusReady, wantConditions: []string{}},
+		{
+			name: "user read-only", userReadOnly: true,
+			wantStatus: storagestate.StatusReadOnly, wantConditions: []string{storagestate.ConditionUserReadOnly},
+		},
+		{
+			name: "resource pressure", pressure: true,
+			wantStatus: storagestate.StatusReadOnly, wantConditions: []string{storagestate.ConditionResourcePressure},
+		},
+		{
+			name: "reindexing", reindexing: true,
+			wantStatus: storagestate.StatusReadOnly, wantConditions: []string{storagestate.ConditionReindexing},
+		},
+		{
+			name: "freezing", freezing: true,
+			wantStatus: storagestate.StatusReadOnly, wantConditions: []string{storagestate.ConditionFreezing},
+		},
+		{
+			name: "all", userReadOnly: true, pressure: true, reindexing: true, freezing: true,
+			wantStatus: storagestate.StatusReadOnly,
+			wantConditions: []string{
+				storagestate.ConditionUserReadOnly, storagestate.ConditionResourcePressure,
+				storagestate.ConditionReindexing, storagestate.ConditionFreezing,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shard, idx, overlay := userReadOnlyIndex(t, class)
+			name := shard.Name()
+			overlay.SetReadOnly(class, name, tt.userReadOnly)
+			overlay.SetResourcePressure(tt.pressure)
+			require.NoError(t, shard.setReindexing(tt.reindexing))
+			overlay.PhaseOf(class, name).SetTransferring(tt.freezing)
 
-	overlay.SetReadOnly(class, name, true)
-	status, err = idx.IncomingGetShardStatus(ctx, name)
-	require.NoError(t, err)
-	require.Equal(t, storagestate.StatusReadOnly.String(), status)
-
-	require.Equal(t, storagestate.StatusReady, shard.GetStatus(), "the shard itself no longer holds it")
+			report, err := idx.IncomingGetShardStatus(ctx, name)
+			require.NoError(t, err)
+			require.Equal(t, storagestate.Report{Status: tt.wantStatus.String(), Conditions: tt.wantConditions}, report)
+			if !tt.pressure && !tt.reindexing && !tt.freezing {
+				require.Equal(t, storagestate.StatusReady, shard.GetStatus(), "the shard itself does not hold user read-only")
+			}
+		})
+	}
 }
 
 func TestUserReadOnlySurvivesUnload(t *testing.T) {

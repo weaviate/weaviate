@@ -245,6 +245,8 @@ type resumeLockScopeProbe struct {
 
 func (p *resumeLockScopeProbe) resumeMaintenanceCycles(context.Context) error { return nil }
 
+func (p *resumeLockScopeProbe) syncStorePause() error { return nil }
+
 func (p *resumeLockScopeProbe) rebuildAsyncReplicationFromScratch(context.Context, bool, AsyncReplicationConfig) error {
 	p.rebuilt = true
 	if p.idx.replicationConfigLock.TryLock() {

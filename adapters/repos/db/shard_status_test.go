@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -300,6 +301,26 @@ func TestLazyLoadShardConditionsDoNotLoad(t *testing.T) {
 			if tc.loaded {
 				assert.Equal(t, tc.pressure, storePaused(t, loaded))
 			}
+		})
+	}
+}
+
+func TestUnloadedLazyShardReportsUserReadOnly(t *testing.T) {
+	_, idx := testShard(t, t.Context(), "LazyUserReadOnly")
+	cold := newColdShard(idx, "cold_tenant")
+
+	for _, readOnly := range []bool{false, true} {
+		t.Run(fmt.Sprintf("read-only %v", readOnly), func(t *testing.T) {
+			idx.db.nodeOverlay.SetReadOnly(idx.Config.ClassName.String(), "cold_tenant", readOnly)
+
+			report := idx.reportedStatus("cold_tenant", cold)
+
+			want := storagestate.StatusLazyLoading
+			if readOnly {
+				want = storagestate.StatusReadOnly
+			}
+			assert.Equal(t, want.String(), report.Status)
+			assert.False(t, cold.isLoaded())
 		})
 	}
 }

@@ -343,7 +343,7 @@ func NewSchemaObjectsShardsUpdateUnprocessableEntity() *SchemaObjectsShardsUpdat
 /*
 SchemaObjectsShardsUpdateUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid update attempt
+Invalid update: the status is not `READY` or `READONLY`, the collection name is invalid, or the collection's namespace refuses the change.
 */
 type SchemaObjectsShardsUpdateUnprocessableEntity struct {
 	Payload *models.ErrorResponse

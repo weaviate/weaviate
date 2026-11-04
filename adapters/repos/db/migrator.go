@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
@@ -623,7 +624,7 @@ func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant str
 	return idx.getShardsQueueSize(ctx, tenant)
 }
 
-func (m *Migrator) GetShardsStorageStatus(ctx context.Context, className, tenant string) (map[string]map[string]string, map[string]string, error) {
+func (m *Migrator) GetShardsStorageStatus(ctx context.Context, className, tenant string) (map[string]map[string]storagestate.Report, map[string]string, error) {
 	idx, err := m.db.indexForRead(ctx, schema.ClassName(className))
 	if err != nil {
 		return nil, nil, err

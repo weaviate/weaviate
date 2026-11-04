@@ -6586,7 +6586,7 @@ func init() {
     },
     "/schema/{className}/shards/{shardName}": {
       "put": {
-        "description": "Updates the status of a specific shard within a collection (e.g., sets it to ` + "`" + `READY` + "`" + ` or ` + "`" + `READONLY` + "`" + `). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.",
+        "description": "Sets a shard to ` + "`" + `READONLY` + "`" + ` or back to ` + "`" + `READY` + "`" + ` on every node. ` + "`" + `READY` + "`" + ` lifts only a ` + "`" + `READONLY` + "`" + ` set this way: a shard stays read-only while its node is under resource pressure, reindexing it or uploading it for a freeze. The flag is kept in memory, so a node that restarts comes back ` + "`" + `READY` + "`" + `. There is also a convenience function in each client to set the status of all shards of a collection.",
         "tags": [
           "schema"
         ],
@@ -6640,7 +6640,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid update attempt",
+            "description": "Invalid update: the status is not ` + "`" + `READY` + "`" + ` or ` + "`" + `READONLY` + "`" + `, the collection name is invalid, or the collection's namespace refuses the change.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12051,7 +12051,7 @@ func init() {
       "description": "The status of a single shard",
       "properties": {
         "status": {
-          "description": "Status of the shard",
+          "description": "Status of the shard. An update accepts ` + "`" + `READY` + "`" + ` or ` + "`" + `READONLY` + "`" + `.",
           "type": "string"
         }
       }
@@ -12062,6 +12062,16 @@ func init() {
         "name": {
           "description": "Name of the shard",
           "type": "string"
+        },
+        "per_node_conditions": {
+          "description": "Why each replica refuses writes, if it does: ` + "`" + `USER_READONLY` + "`" + ` (set through ` + "`" + `PUT /schema/{className}/shards/{shardName}` + "`" + `), ` + "`" + `RESOURCE_PRESSURE` + "`" + ` (disk or memory use on that node), ` + "`" + `REINDEXING` + "`" + ` or ` + "`" + `FREEZING` + "`" + ` (the tenant's data is being uploaded). A node that did not report is missing.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
         "per_node_status": {
           "description": "Status of the shard on each of its replicas",
@@ -12218,6 +12228,56 @@ func init() {
         },
         "name": {
           "description": "The name of the tenant (required).",
+          "type": "string"
+        },
+        "transition": {
+          "$ref": "#/definitions/TenantTransition"
+        }
+      }
+    },
+    "TenantTransition": {
+      "description": "A freeze or unfreeze running on the tenant, set by the server. It ends when every participant is done or any one aborts; until then ` + "`" + `activityStatus` + "`" + ` reports it.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "FREEZE",
+            "UNFREEZE"
+          ]
+        },
+        "participants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TenantTransitionParticipant"
+          }
+        },
+        "targetStatus": {
+          "description": "The status the tenant gets when every participant is done.",
+          "type": "string",
+          "enum": [
+            "HOT",
+            "COLD",
+            "FROZEN"
+          ]
+        }
+      }
+    },
+    "TenantTransitionParticipant": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "progress": {
+          "type": "string",
+          "enum": [
+            "STARTED",
+            "DONE"
+          ]
+        },
+        "sourceNode": {
+          "description": "For an unfreeze, the node whose cloud copy this participant downloads.",
           "type": "string"
         }
       }
@@ -19532,7 +19592,7 @@ func init() {
     },
     "/schema/{className}/shards/{shardName}": {
       "put": {
-        "description": "Updates the status of a specific shard within a collection (e.g., sets it to ` + "`" + `READY` + "`" + ` or ` + "`" + `READONLY` + "`" + `). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.",
+        "description": "Sets a shard to ` + "`" + `READONLY` + "`" + ` or back to ` + "`" + `READY` + "`" + ` on every node. ` + "`" + `READY` + "`" + ` lifts only a ` + "`" + `READONLY` + "`" + ` set this way: a shard stays read-only while its node is under resource pressure, reindexing it or uploading it for a freeze. The flag is kept in memory, so a node that restarts comes back ` + "`" + `READY` + "`" + `. There is also a convenience function in each client to set the status of all shards of a collection.",
         "tags": [
           "schema"
         ],
@@ -19586,7 +19646,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid update attempt",
+            "description": "Invalid update: the status is not ` + "`" + `READY` + "`" + ` or ` + "`" + `READONLY` + "`" + `, the collection name is invalid, or the collection's namespace refuses the change.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -25335,7 +25395,7 @@ func init() {
       "description": "The status of a single shard",
       "properties": {
         "status": {
-          "description": "Status of the shard",
+          "description": "Status of the shard. An update accepts ` + "`" + `READY` + "`" + ` or ` + "`" + `READONLY` + "`" + `.",
           "type": "string"
         }
       }
@@ -25346,6 +25406,16 @@ func init() {
         "name": {
           "description": "Name of the shard",
           "type": "string"
+        },
+        "per_node_conditions": {
+          "description": "Why each replica refuses writes, if it does: ` + "`" + `USER_READONLY` + "`" + ` (set through ` + "`" + `PUT /schema/{className}/shards/{shardName}` + "`" + `), ` + "`" + `RESOURCE_PRESSURE` + "`" + ` (disk or memory use on that node), ` + "`" + `REINDEXING` + "`" + ` or ` + "`" + `FREEZING` + "`" + ` (the tenant's data is being uploaded). A node that did not report is missing.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
         "per_node_status": {
           "description": "Status of the shard on each of its replicas",
@@ -25502,6 +25572,56 @@ func init() {
         },
         "name": {
           "description": "The name of the tenant (required).",
+          "type": "string"
+        },
+        "transition": {
+          "$ref": "#/definitions/TenantTransition"
+        }
+      }
+    },
+    "TenantTransition": {
+      "description": "A freeze or unfreeze running on the tenant, set by the server. It ends when every participant is done or any one aborts; until then ` + "`" + `activityStatus` + "`" + ` reports it.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "FREEZE",
+            "UNFREEZE"
+          ]
+        },
+        "participants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TenantTransitionParticipant"
+          }
+        },
+        "targetStatus": {
+          "description": "The status the tenant gets when every participant is done.",
+          "type": "string",
+          "enum": [
+            "HOT",
+            "COLD",
+            "FROZEN"
+          ]
+        }
+      }
+    },
+    "TenantTransitionParticipant": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "progress": {
+          "type": "string",
+          "enum": [
+            "STARTED",
+            "DONE"
+          ]
+        },
+        "sourceNode": {
+          "description": "For an unfreeze, the node whose cloud copy this participant downloads.",
           "type": "string"
         }
       }
