@@ -712,6 +712,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		MaxTenantsPerCollection:                appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
 		MaxCollections:                         appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount,
 		UsageLimitsErrorMessage:                appState.ServerConfig.Config.UsageLimits.ErrorMessage,
+		ReplicaMovementEnabled:                 appState.ServerConfig.Config.Replication.ReplicaMovementEnabled,
+		ReplicaRebalanceEnabled:                appState.ServerConfig.Config.Replication.ReplicaRebalanceEnabled,
 		ReplicaMovementCleanupEnabled:          appState.ServerConfig.Config.Replication.ReplicaMovementCleanupEnabled,
 		ReplicaMovementCleanupMaxAge:           appState.ServerConfig.Config.Replication.ReplicaMovementCleanupMaxAge,
 		ReplicaMovementCleanupInterval:         appState.ServerConfig.Config.Replication.ReplicaMovementCleanupInterval,

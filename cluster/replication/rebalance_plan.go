@@ -15,6 +15,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+
+	"github.com/weaviate/weaviate/cluster/replication/types"
 )
 
 // PlanState is the lifecycle state of a rebalance plan.
@@ -90,6 +92,11 @@ type Plan struct {
 	RunID   string `json:"runId"`
 	RunTerm uint64 `json:"runTerm"`
 
+	// MeasuredAtUnixMs, Nodes and Reason come from the applied planning run.
+	MeasuredAtUnixMs int64                            `json:"measuredAtUnixMs"`
+	Nodes            []types.RebalanceNodeMeasurement `json:"nodes"`
+	Reason           string                           `json:"reason"`
+
 	Baseline            []PlanNodeBalance `json:"baseline"`
 	Goal                []PlanNodeBalance `json:"goal"`
 	MoveCount           int               `json:"moveCount"`
@@ -98,13 +105,14 @@ type Plan struct {
 }
 
 // clone returns a Plan that shares no memory with p. GetPlan and snapshotPlan
-// return clones so no caller holds an alias into FSM-owned memory: the same
-// no-aliasing rule snapshotOps follows for ops.
+// return clones, so no caller holds a pointer into memory the FSM owns.
+// snapshotOps follows the same rule for ops.
 func (p Plan) clone() Plan {
 	p.SourceNodes = slices.Clone(p.SourceNodes)
 	p.TargetNodes = slices.Clone(p.TargetNodes)
 	p.Collections = slices.Clone(p.Collections)
 	p.Namespaces = slices.Clone(p.Namespaces)
+	p.Nodes = slices.Clone(p.Nodes)
 	p.Baseline = slices.Clone(p.Baseline)
 	p.Goal = slices.Clone(p.Goal)
 	return p
@@ -129,15 +137,18 @@ type CreatePlanRequest struct {
 
 // CompletePlanningRequest is the payload of the complete-planning command.
 type CompletePlanningRequest struct {
-	PlanID              string            `json:"planId"`
-	RunID               string            `json:"runId"`
-	RunTerm             uint64            `json:"runTerm"`
-	Outcome             PlanState         `json:"outcome"`
-	Baseline            []PlanNodeBalance `json:"baseline"`
-	Goal                []PlanNodeBalance `json:"goal"`
-	MoveCount           int               `json:"moveCount"`
-	PlanHash            string            `json:"planHash"`
-	ApproveBeforeUnixMs int64             `json:"approveBeforeUnixMs"`
+	PlanID              string                           `json:"planId"`
+	RunID               string                           `json:"runId"`
+	RunTerm             uint64                           `json:"runTerm"`
+	Outcome             PlanState                        `json:"outcome"`
+	MeasuredAtUnixMs    int64                            `json:"measuredAtUnixMs"`
+	Nodes               []types.RebalanceNodeMeasurement `json:"nodes"`
+	Reason              string                           `json:"reason"`
+	Baseline            []PlanNodeBalance                `json:"baseline"`
+	Goal                []PlanNodeBalance                `json:"goal"`
+	MoveCount           int                              `json:"moveCount"`
+	PlanHash            string                           `json:"planHash"`
+	ApproveBeforeUnixMs int64                            `json:"approveBeforeUnixMs"`
 }
 
 // StopPlanRequest is the payload of the stop-plan command.
@@ -199,6 +210,9 @@ func (s *ShardReplicationFSM) CompletePlanning(logTerm uint64, req *CompletePlan
 	next.State = req.Outcome
 	next.RunID = req.RunID
 	next.RunTerm = req.RunTerm
+	next.MeasuredAtUnixMs = req.MeasuredAtUnixMs
+	next.Nodes = slices.Clone(req.Nodes)
+	next.Reason = req.Reason
 	next.Baseline = slices.Clone(req.Baseline)
 	next.Goal = slices.Clone(req.Goal)
 	next.MoveCount = req.MoveCount
