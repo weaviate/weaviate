@@ -4032,6 +4032,12 @@ func (i *Index) pinResidentShard(shardName string, ensureInit bool) (shard Shard
 	return shard, release, nil
 }
 
+// shardIsGoing reports a pin refused because the shard or its index is being torn down.
+func shardIsGoing(err error) bool {
+	return stderrors.Is(err, errAlreadyShutdown) || stderrors.Is(err, errShutdownInProgress) ||
+		stderrors.Is(err, errDropInProgress)
+}
+
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 	replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
