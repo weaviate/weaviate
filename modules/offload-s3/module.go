@@ -274,6 +274,10 @@ func (m *Module) VerifyBucket(ctx context.Context) error {
 	if err := m.newApp().RunContext(ctx, cmd); err != nil {
 		return err
 	}
+	// s5cmd reports a listing cut short as a success
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	m.BucketExists.Store(true)
 	return nil
 }
@@ -331,6 +335,10 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 	}()
 
 	err = m.newApp().RunContext(ctx, m.uploadArgs(localPath, className, shardName, nodeName))
+	if ctxErr := ctx.Err(); err == nil && ctxErr != nil {
+		// s5cmd reports a transfer cut short as a success
+		err = ctxErr
+	}
 	return err
 }
 
@@ -394,6 +402,11 @@ func (m *Module) DownloadToPath(ctx context.Context, className, shardName, nodeN
 	}()
 
 	err = m.newApp().RunContext(ctx, cmd)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		// s5cmd reports a listing or transfer cut short as a success
+		err = ctxErr
+		return err
+	}
 	// Empty S3 prefix (cold tenant frozen with no data): treat as success; do not create empty dir.
 	if err != nil {
 		errStr := strings.ToLower(err.Error())
@@ -439,6 +452,11 @@ func (m *Module) Delete(ctx context.Context, className, shardName, nodeName stri
 	}()
 
 	err = m.newApp().RunContext(ctx, cmd)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		// s5cmd reports a listing cut short as a success
+		err = ctxErr
+		return err
+	}
 	if err != nil && !strings.Contains(err.Error(), "no object found") {
 		return err
 	}

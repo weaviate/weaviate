@@ -65,6 +65,25 @@ func TestHasDataNeedsNoEarlierCommand(t *testing.T) {
 	require.True(t, hasData)
 }
 
+// s5cmd reports a listing cut short as success, which would cache a bucket it never saw.
+func TestVerifyBucketCutShortFails(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+	t.Setenv("AWS_REGION", "us-east-1")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	t.Setenv("OFFLOAD_S3_ENDPOINT", srv.URL)
+
+	m := &Module{Endpoint: srv.URL, Bucket: "bucket", timeout: time.Minute, workersCount: 1}
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+
+	require.ErrorIs(t, m.VerifyBucket(ctx), context.DeadlineExceeded)
+	require.False(t, m.BucketExists.Load())
+}
+
 func TestUpload_ConcurrentNoFlagRedefinedPanic(t *testing.T) {
 	dataDir := t.TempDir()
 	className := "TestClass"
@@ -282,6 +301,52 @@ func TestReleaseCutShortFails(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 	defer cancel()
 	require.Error(t, m.Release(ctx, "Class", "backup-1"))
+}
+
+// s5cmd reports a cut-short transfer as success, passing a partial copy or an empty download.
+func TestTransfersCutShortFail(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+	t.Setenv("AWS_REGION", "us-east-1")
+	stop := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// a cancelled upload can leave its request open
+		select {
+		case <-r.Context().Done():
+		case <-stop:
+		}
+	}))
+	defer srv.Close()
+	defer close(stop)
+	t.Setenv("OFFLOAD_S3_ENDPOINT", srv.URL)
+
+	dataPath := t.TempDir()
+	shardDir := filepath.Join(dataPath, "class", "tenant")
+	require.NoError(t, os.MkdirAll(shardDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "segment"), []byte("payload"), 0o644))
+	logger, _ := test.NewNullLogger()
+	m := &Module{
+		Endpoint: srv.URL, Bucket: "bucket", DataPath: dataPath, Concurrency: 1,
+		timeout: time.Minute, workersCount: 1, logger: logger,
+		metrics: monitoring.NewTenantOffloadMetrics(monitoring.Config{MetricsNamespace: "test"}, prometheus.NewRegistry()),
+	}
+	staging := filepath.Join(dataPath, "staging")
+
+	tests := []struct {
+		name string
+		run  func(ctx context.Context) error
+	}{
+		{name: "upload", run: func(ctx context.Context) error { return m.Upload(ctx, "Class", "tenant", "7/node1") }},
+		{name: "download", run: func(ctx context.Context) error { return m.DownloadToPath(ctx, "Class", "tenant", "7/node1", staging) }},
+		{name: "delete", run: func(ctx context.Context) error { return m.Delete(ctx, "Class", "tenant", "7") }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+			defer cancel()
+			require.Error(t, tt.run(ctx))
+		})
+	}
 }
 
 // Transition cleanup deletes every attempt ListCopies names, so it must name exactly those folders.
