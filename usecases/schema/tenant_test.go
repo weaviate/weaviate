@@ -639,3 +639,52 @@ func TestAutoTenantActivation_TransitionalStateRejected(t *testing.T) {
 		sm.AssertExpectations(t)
 	})
 }
+
+func tenantsState(sm *fakeSchemaManager, class string, info clusterSchema.ClassInfo, state *sharding.State) {
+	sm.On("ClassInfo", class).Return(info)
+	sm.On("Read", class, mock.Anything).Run(func(args mock.Arguments) {
+		_ = args.Get(1).(func(*models.Class, *sharding.State) error)(nil, state)
+	}).Return(nil)
+}
+
+func TestGetTenantsWithoutConsistency(t *testing.T) {
+	const class = "Tenants"
+	freeze := &sharding.Transition{
+		Kind:   sharding.TransitionFreeze,
+		Target: models.TenantActivityStatusFROZEN,
+		Participants: map[string]sharding.TransitionParticipant{
+			"n2": {Progress: sharding.ProgressDone},
+			"n1": {Progress: sharding.ProgressStarted},
+		},
+	}
+	state := &sharding.State{Physical: map[string]sharding.Physical{
+		"hot":      {Name: "hot", Status: models.TenantActivityStatusHOT},
+		"freezing": {Name: "freezing", Status: models.TenantActivityStatusHOT, Transition: freeze},
+	}}
+	hot := &models.Tenant{Name: "hot", ActivityStatus: models.TenantActivityStatusHOT}
+	freezing := &models.Tenant{
+		Name:           "freezing",
+		ActivityStatus: models.TenantActivityStatusFREEZING,
+	}
+
+	tests := []struct {
+		name  string
+		names []string
+		want  []*models.Tenant
+	}{
+		{name: "all", want: []*models.Tenant{hot, freezing}},
+		{name: "named", names: []string{"freezing"}, want: []*models.Tenant{freezing}},
+		{name: "unknown", names: []string{"missing"}, want: []*models.Tenant{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, sm := newTestHandler(t, &fakeDB{})
+			info := clusterSchema.ClassInfo{Exists: true, MultiTenancy: models.MultiTenancyConfig{Enabled: true}, Tenants: 2}
+			tenantsState(sm, class, info, state)
+
+			got, err := handler.GetConsistentTenants(context.Background(), nil, class, false, tt.names)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.want, got)
+		})
+	}
+}
