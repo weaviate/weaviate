@@ -152,7 +152,6 @@ func (r *migrationReconciler) freezeNotice() {
 
 func (r *migrationReconciler) WedgedCount() int { return len(r.wedgedKeys) }
 
-// Load is split from Reconcile so recovery can stamp the loaded records first.
 func (r *migrationReconciler) Load() error {
 	if err := r.store.Load(); err != nil {
 		// The load's own fault is recorded as unreadable, so the freeze this

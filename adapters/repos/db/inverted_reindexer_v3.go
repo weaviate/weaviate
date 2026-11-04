@@ -11,8 +11,7 @@
 
 package db
 
-// ShardReindexerV3 returns the tasks whose double-write mirrors a loading
-// shard must re-arm once its buckets are open, and is told which failed to.
+// ShardReindexerV3 returns the tasks a loading shard must re-arm, and is told which failed to.
 // An error from AbandonUnarmed holds the shard read-only.
 type ShardReindexerV3 interface {
 	RecoverMigrations(shard *Shard) []*ShardReindexTaskGeneric

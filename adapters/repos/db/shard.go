@@ -450,7 +450,7 @@ type Shard struct {
 	migrationRecords *MigrationRecordStore
 
 	migrationMirrors migrationMirrorRegistry
-	// Held by the retry, not its caller, so a retry stuck on the disk blocks the next one.
+	// Held by the retry goroutine, not its caller, so a lift arriving during a stuck retry is refused.
 	liftRetry sync.Mutex
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid

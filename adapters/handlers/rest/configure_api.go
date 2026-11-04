@@ -840,8 +840,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 		serverShutdownCtx,
 	)
-	// Must be set before shards load, or writes between shard init and the
-	// deferred swap reach only the old bucket.
+	// Set before any shard loads, so each load re-arms its mirrors before its first write.
 	repo.SetReindexer(db.NewMigrationRecoveryReindexer(
 		appState.ServerConfig.Config.RuntimeReindexEnabled,
 		appState.Logger,

@@ -227,46 +227,44 @@ func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) 
 	}
 }
 
-// An unreadable record makes the store refuse the stamp, and a later load would
-// rebuild the task from a fresh store, so the shard is held READONLY.
-func TestShardLoadWhenAMirrorFailsToArmAndAnotherRecordIsUnreadable(t *testing.T) {
-	fx := newDoubleFaultFixture(t, "tenant-arm-fails-unreadable")
-	plantUnreadableRecord(t, fx.recordsDir)
-
-	shard := fx.load(t)
-	require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
-	require.Equal(t, statusReasonMirrorUnarmed, shard.GetStatusReason())
-	require.EqualError(t, shard.PutObject(fx.ctx, createTestObjectWithText(fx.className, "late")),
-		storagestate.ErrStatusReadOnlyWithReason(statusReasonMirrorUnarmed).Error())
-	fx.requirePhasesRefused(t, shard, errShardHeldReadOnly.Error(), true)
-}
-
-// A mirror that fails to arm while its stamp cannot be written holds the shard
-// READONLY, which serves reads, refuses writes, and holds back the stale swap.
+// A mirror that fails to arm while its stamp cannot be written holds the shard READONLY, which serves
+// reads, refuses writes, and holds back the stale swap. An unreadable record refuses the stamp too.
 func TestShardLoadWhenAMirrorFailsToArmAndItsStampCannotBeWritten(t *testing.T) {
-	fx := newDoubleFaultFixture(t, "tenant-double-fault")
-	fx.breakDisk(t)
+	for _, tt := range []struct {
+		name  string
+		fault func(t *testing.T, fx *doubleFaultFixture)
+	}{
+		{name: "records dir read-only", fault: func(t *testing.T, fx *doubleFaultFixture) { fx.breakDisk(t) }},
+		{name: "another record unreadable", fault: func(t *testing.T, fx *doubleFaultFixture) {
+			plantUnreadableRecord(t, fx.recordsDir)
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fx := newDoubleFaultFixture(t, "tenant-double-fault")
+			tt.fault(t, fx)
 
-	shard := fx.load(t)
-	require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
-	require.Equal(t, statusReasonMirrorUnarmed, shard.GetStatusReason())
-	found, err := shard.ObjectByID(fx.ctx, fx.written.ID(), nil, additional.Properties{})
-	require.NoError(t, err)
-	require.NotNil(t, found, "reads are served")
-	require.EqualError(t, shard.PutObject(fx.ctx, createTestObjectWithText(fx.className, "late")),
-		storagestate.ErrStatusReadOnlyWithReason(statusReasonMirrorUnarmed).Error())
+			shard := fx.load(t)
+			require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+			require.Equal(t, statusReasonMirrorUnarmed, shard.GetStatusReason())
+			found, err := shard.ObjectByID(fx.ctx, fx.written.ID(), nil, additional.Properties{})
+			require.NoError(t, err)
+			require.NotNil(t, found, "reads are served")
+			require.EqualError(t, shard.PutObject(fx.ctx, createTestObjectWithText(fx.className, "late")),
+				storagestate.ErrStatusReadOnlyWithReason(statusReasonMirrorUnarmed).Error())
 
-	fx.requirePhasesRefused(t, shard, errShardHeldReadOnly.Error(), true)
+			fx.requirePhasesRefused(t, shard, errShardHeldReadOnly.Error(), true)
 
-	// Only the lift's retry may clear the hold: the status gate refuses a write that skips it,
-	require.Error(t, shard.UpdateStatusIf(func(ShardStatus) bool { return true },
-		storagestate.StatusReady.String(), statusReasonManualUpdate))
-	require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
-	// and a step arms nothing even once the disk has healed.
-	fx.healRecords(t)
-	require.NoError(t, os.Remove(fx.corrupt))
-	require.ErrorIs(t, fx.task.RunReindexOnlyOnShard(fx.ctx, shard), errShardHeldReadOnly)
-	require.Zero(t, shard.migrationMirrors.ArmedMigrationMirrors())
+			// Only the lift's retry clears the hold. The status gate refuses a write that skips the retry.
+			require.Error(t, shard.UpdateStatusIf(func(ShardStatus) bool { return true },
+				storagestate.StatusReady.String(), statusReasonManualUpdate))
+			require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+			// A step arms nothing either, even once the disk has healed.
+			fx.healRecords(t)
+			require.NoError(t, os.Remove(fx.corrupt))
+			require.ErrorIs(t, fx.task.RunReindexOnlyOnShard(fx.ctx, shard), errShardHeldReadOnly)
+			require.Zero(t, shard.migrationMirrors.ArmedMigrationMirrors())
+		})
+	}
 }
 
 // Every path that can lift READONLY first retries the recovery a double fault left undone.
@@ -284,10 +282,10 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 		{name: "manual status update", lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
 			return shard, fx.idx.IncomingUpdateShardStatus(fx.ctx, fx.name, storagestate.StatusReady.String(), 0)
 		}},
-		{name: "manual indexing status", lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
+		{name: "manual indexing status", armsOnly: true, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
 			return shard, fx.idx.IncomingUpdateShardStatus(fx.ctx, fx.name, storagestate.StatusIndexing.String(), 0)
 		}},
-		{name: "manual shutdown status", want: storagestate.StatusShutdown, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
+		{name: "manual shutdown status", armsOnly: true, want: storagestate.StatusShutdown, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
 			return shard, fx.idx.IncomingUpdateShardStatus(fx.ctx, fx.name, storagestate.StatusShutdown.String(), 0)
 		}},
 		{name: "disk pressure recovery", neverLifts: true, armsOnly: true, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
@@ -382,6 +380,34 @@ func TestAFailedLiftLeavesTheBucketsItOpenedReadOnly(t *testing.T) {
 	require.Equal(t, storagestate.StatusReadOnly, opened.GetStatus())
 }
 
+// A lift that arms only some held migrations keeps holding just the others.
+func TestAPartlyFailedLiftHoldsOnlyTheUnarmedMigrations(t *testing.T) {
+	fx := newDoubleFaultFixture(t, "tenant-lift-partly")
+	lsm := shardPathLSM(fx.idx.path(), fx.name)
+	other := testMigrationSubject(fx.desc.Version, StrategyCodeFilterableRetokenize, "title")
+	other.TaskID, other.Collection, other.Key.UnitID = fx.desc.ID, fx.className, fx.subject.Key.UnitID
+	built, err := buildRecoveryTasks(other, fx.name, fx.logger, nil)
+	require.NoError(t, err)
+	other.Props["title"] = MigrationPropertyDirs{
+		Staged: built[0].ingestBucketName("title"), Canonical: other.Props["title"].Canonical,
+		Sidecar: built[0].reindexBucketName("title"),
+	}
+	staged := filepath.Join(lsm, other.Props["title"].Staged)
+	require.NoError(t, os.MkdirAll(staged, 0o777))
+	require.NoError(t, os.WriteFile(filepath.Join(staged, "segment-1.db"), []byte("not a segment"), 0o600))
+	require.NoError(t, NewMigrationRecordStore(lsm, fx.logger).Put(NewMigrationRecordMerged(other)))
+	fx.breakDisk(t)
+	shard := fx.load(t)
+	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
+	require.Len(t, shard.migrationMirrors.heldUnarmed(), 2)
+
+	require.NoError(t, os.Remove(fx.corrupt))
+	require.Error(t, shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate))
+	held := shard.migrationMirrors.heldUnarmed()
+	require.Len(t, held, 1)
+	require.Equal(t, other.Key, held[0].migrationRecordKey())
+}
+
 // A lift waits on the disk outside the status lock, so a stuck disk call stalls
 // neither status reads nor a second lift, and the wait ends with the shard.
 func TestLiftingAHeldShardDoesNotWaitOnAStuckDisk(t *testing.T) {
@@ -391,12 +417,15 @@ func TestLiftingAHeldShardDoesNotWaitOnAStuckDisk(t *testing.T) {
 	// Opening a pipe with no writer blocks in the kernel, like a hung network volume.
 	require.NoError(t, os.Remove(fx.corrupt))
 	require.NoError(t, syscall.Mkfifo(fx.corrupt, 0o600))
-	answer := sync.OnceFunc(func() {
-		w, err := os.OpenFile(fx.corrupt, os.O_WRONLY, 0)
-		require.NoError(t, err)
-		require.NoError(t, w.Close())
-	})
-	t.Cleanup(answer)
+	// Opening without blocking fails until the arm reads the pipe, so a regression fails instead of hanging.
+	answer := func() bool {
+		w, err := os.OpenFile(fx.corrupt, os.O_WRONLY|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			return false
+		}
+		return w.Close() == nil
+	}
+	t.Cleanup(func() { answer() })
 
 	lifts := make(chan error, 2)
 	for range 2 {
@@ -416,13 +445,13 @@ func TestLiftingAHeldShardDoesNotWaitOnAStuckDisk(t *testing.T) {
 	enterrors.GoWrapper(func() { shutdown <- shard.Shutdown(context.Background()) }, fx.logger)
 	require.ErrorIs(t, receiveWithin(t, shutdown), errShardStillInUse, "the arm holds the shard")
 
-	answer()
+	require.Eventually(t, answer, 10*time.Second, 10*time.Millisecond, "the arm parks on the segment")
 	require.Eventually(t, shard.shut.Load, 10*time.Second, 10*time.Millisecond,
 		"the shutdown completes once the arm ends")
 }
 
-// A lift that stops waiting must not end the arm: a stamp written because a
-// caller gave up would fail a healthy migration for good.
+// A lift that stops waiting must not end the arm. A stamp written because a caller gave up
+// would fail a healthy migration for good.
 func TestALiftThatStopsWaitingStillArmsTheMirror(t *testing.T) {
 	fx := newDoubleFaultFixture(t, "tenant-lift-gives-up")
 	reg := prometheus.NewRegistry()
@@ -433,7 +462,7 @@ func TestALiftThatStopsWaitingStillArmsTheMirror(t *testing.T) {
 	fx.healRecords(t)
 	require.NoError(t, os.Remove(fx.corrupt))
 
-	// A busy limiter parks the arm; the caller stops waiting only once it is parked.
+	// A busy limiter parks the arm, and the caller stops waiting only once it is parked.
 	require.NoError(t, fx.idx.bucketLoadLimiter.Acquire(fx.ctx))
 	lift := make(chan error, 1)
 	enterrors.GoWrapper(func() {
@@ -631,7 +660,7 @@ func TestShardsLoadingAtOnceShareOneRecoveryReindexer(t *testing.T) {
 }
 
 // A shard that loads after its migration ended still arms it, but must not
-// cache its tasks again: nothing would ever clear them.
+// cache its tasks again, because nothing would ever clear them.
 func TestALoadAfterAMigrationEndedCachesNothing(t *testing.T) {
 	p, recovery := newBareRecovery()
 	require.Len(t, recovery.RecoverMigrations(bareShardWithMergedRecord(t, "tenant-a")), 1)
@@ -776,7 +805,7 @@ func (fx *doubleFaultFixture) healRecords(t *testing.T) {
 	require.NoError(t, os.Chmod(fx.recordsDir, 0o700))
 }
 
-// waits: the scheduler retries the step on a later tick instead of failing the task.
+// waits says whether the scheduler retries the step on a later tick instead of failing the task.
 func (fx *doubleFaultFixture) requirePhasesRefused(t *testing.T, shard *Shard, want string, waits bool) {
 	tasks := []*ShardReindexTaskGeneric{fx.task}
 	prepOK, prep := fx.provider.runShardPrepPhase(fx.ctx, fx.subject.Key.UnitID, shard, tasks, false, fx.logger)
@@ -784,6 +813,13 @@ func (fx *doubleFaultFixture) requirePhasesRefused(t *testing.T, shard *Shard, w
 	require.Len(t, prep.Errs, 1)
 	require.Contains(t, prep.Errs[0], want)
 	require.Equal(t, waits, prep.Transient)
+	if waits {
+		rehydrateOK, rehydrate := fx.provider.runShardPrepPhase(fx.ctx, fx.subject.Key.UnitID, shard, tasks, true, fx.logger)
+		require.False(t, rehydrateOK)
+		require.Len(t, rehydrate.Errs, 1)
+		require.Contains(t, rehydrate.Errs[0], errShardHeldReadOnly.Error())
+		require.True(t, rehydrate.Transient)
+	}
 	payload := fx.subject.reindexPayload()
 	swap := fx.provider.runShardSwapPhase(fx.ctx, &payload, fx.subject.Key.UnitID, fx.name, shard, tasks, fx.logger)
 	require.NotEmpty(t, swap.Errs)

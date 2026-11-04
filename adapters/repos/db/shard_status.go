@@ -163,7 +163,7 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 	if err != nil {
 		return errors.Wrap(err, in)
 	}
-	// Same test as the write guards: every status but READONLY takes writes.
+	// isReadOnly lets every status but READONLY take writes, so the gate refuses each of them while tasks are held.
 	if targetStatus != storagestate.StatusReadOnly && len(s.migrationMirrors.heldUnarmed()) > 0 {
 		return s.heldReadOnlyErr(errors.New("no recovery retry has re-armed its mirror or stamped it Unmirrored"))
 	}
@@ -200,13 +200,12 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 // A status change can run inside a RAFT apply.
 const liftRetryTimeout = 30 * time.Second
 
-// retryHeldMigrations runs before the status lock so reads never wait on the
-// disk. Only the caller's wait is bounded: a stamp is permanent, so the arm runs
-// to its end under its own shard reference, which shutdown waits for.
+// retryHeldMigrations runs before the status lock so reads never wait on the disk. Only the wait is
+// bounded, because a stamp is permanent, and the arm holds a shard reference that shutdown waits for.
 func (s *Shard) retryHeldMigrations(in string) error {
 	target, err := storagestate.ValidateStatus(strings.ToUpper(in))
 	held := s.migrationMirrors.heldUnarmed()
-	// The shutdown's own status write runs under the lock preventShutdown takes.
+	// performShutdown writes SHUTDOWN while holding shutdownLock, which preventShutdown would wait on forever.
 	if err != nil || target == storagestate.StatusReadOnly || len(held) == 0 || s.shut.Load() {
 		return nil
 	}
@@ -222,16 +221,7 @@ func (s *Shard) retryHeldMigrations(in string) error {
 	enterrors.GoWrapper(func() {
 		defer release()
 		defer s.liftRetry.Unlock()
-		_, err := s.armRecoveredMigrations(context.WithoutCancel(s.shutCtx), held)
-		// The arm may open buckets after its caller left, while the shard is still READONLY.
-		ec := errorcompounder.New()
-		ec.Add(err)
-		ec.Add(s.store.UpdateBucketsStatus(storagestate.StatusReadOnly))
-		// Marked last, so no lift races the reset. The steps keep waiting until a status write ends the hold.
-		if err == nil {
-			s.migrationMirrors.markHeldArmed()
-		}
-		done <- ec.ToError()
+		done <- s.rearmHeld(held)
 	}, s.index.logger)
 	wait := time.NewTimer(liftRetryTimeout)
 	defer wait.Stop()
@@ -246,6 +236,20 @@ func (s *Shard) retryHeldMigrations(in string) error {
 	case <-s.shutCtx.Done():
 		return s.heldReadOnlyErr(fmt.Errorf("the shard is shutting down: %w", context.Cause(s.shutCtx)))
 	}
+}
+
+func (s *Shard) rearmHeld(held []*ShardReindexTaskGeneric) error {
+	unarmed, err := s.armRecoveredMigrations(context.WithoutCancel(s.shutCtx), held)
+	ec := errorcompounder.New()
+	ec.Add(err)
+	// Buckets the arm opened go back to READONLY before the hold changes, so no lift races the reset.
+	ec.Add(s.store.UpdateBucketsStatus(storagestate.StatusReadOnly))
+	if err != nil {
+		s.migrationMirrors.holdUnarmed(unarmed)
+	} else {
+		s.migrationMirrors.markHeldArmed()
+	}
+	return ec.ToError()
 }
 
 func (s *Shard) heldReadOnlyErr(cause error) error {

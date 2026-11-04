@@ -13,6 +13,7 @@ package db
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,18 +25,15 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
-// MigrationRecoveryReindexer builds, as each shard loads, the tasks whose mirrors
-// the shard re-arms, and stamps Unmirrored the records it cannot build a task
-// from. A shard that never loads costs nothing.
+// MigrationRecoveryReindexer builds, as each shard loads, the tasks whose mirrors the shard re-arms,
+// and stamps Unmirrored the records it cannot build a task from.
 type MigrationRecoveryReindexer struct {
 	enabled       bool
 	logger        logrus.FieldLogger
 	schemaManager *schema.Manager
-	// OnGroupCompleted swaps on the instances whose mirrors are armed, so it must not rebuild them.
-	provider *ReindexProvider
+	provider      *ReindexProvider
 
-	// A fault shared by every tenant, such as a failing disk, would otherwise log once per
-	// shard load. Each kind has its own sampler so that one kind cannot hide another.
+	// One sampler per fault kind, so a fault on every tenant logs a few lines and hides no other kind.
 	unreadableFaults, unbuildableFaults, unarmedFaults, armFaults, stampFaults *logrusext.Sampler
 }
 
@@ -54,15 +52,13 @@ func NewMigrationRecoveryReindexer(runtimeReindexEnabled bool, logger logrus.Fie
 	}
 }
 
-// RecoverMigrations must run before the load reconciler, which needs to see
-// the unmirrored stamp before it promotes anything.
+// RecoverMigrations runs before the load reconciler, which must see the stamp before it promotes.
 func (r *MigrationRecoveryReindexer) RecoverMigrations(shard *Shard) []*ShardReindexTaskGeneric {
-	return r.remember(r.recoverFromStore(shard.migrationRecords, shard.Name()))
+	return r.reuseCachedTasks(r.recoverFromStore(shard.migrationRecords, shard.Name()))
 }
 
-// AbandonUnarmed stamps a migration whose mirror failed to arm, so a later swap of
-// its now-stale data is blocked. When it cannot, it returns why and keeps the tasks
-// cached, so the shard can still arm them later.
+// AbandonUnarmed stamps Unmirrored each migration whose mirror failed to arm, so its stale
+// staged data is never swapped in. On error the tasks stay cached for a later arm.
 func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*ShardReindexTaskGeneric, cause error) error {
 	var records []MigrationRecord
 	for _, t := range unarmed {
@@ -80,7 +76,7 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 	if _, err := stampUnmirroredRecords(shard.migrationRecords, records, nil); err != nil {
 		return fmt.Errorf("stamp Unmirrored the migrations whose mirror failed to arm (%w): %w", cause, err)
 	}
-	r.forget(unarmed)
+	r.evictUnits(unarmed)
 	r.armFaults.WithSampling(func(logrus.FieldLogger) {
 		r.logger.WithField("shard", shard.Name()).Errorf("reindex recovery: %d migration(s) could not re-arm "+
 			"their double-write mirror, so they will not be swapped in: %v. %s", len(unarmed), cause,
@@ -89,9 +85,8 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 	return nil
 }
 
-// forget drops every task of each unarmed task's unit, because a cached sibling
-// alone would swap one half of the migration and report the unit done.
-func (r *MigrationRecoveryReindexer) forget(unarmed []*ShardReindexTaskGeneric) {
+// evictUnits drops whole units, because a cached sibling alone would swap half a migration.
+func (r *MigrationRecoveryReindexer) evictUnits(unarmed []*ShardReindexTaskGeneric) {
 	for _, t := range unarmed {
 		r.provider.evictReindexTasks(distributedtask.TaskDescriptor{ID: t.taskID, Version: t.taskVersion}, t.unitID)
 	}
@@ -100,6 +95,7 @@ func (r *MigrationRecoveryReindexer) forget(unarmed []*ShardReindexTaskGeneric) 
 func (r *MigrationRecoveryReindexer) recoverFromStore(store *MigrationRecordStore,
 	shardName string,
 ) []*ShardReindexTaskGeneric {
+	// The flag keeps recovery off, so a load with the feature disabled behaves as it always has.
 	if !r.enabled {
 		return nil
 	}
@@ -164,16 +160,17 @@ func (r *MigrationRecoveryReindexer) reportStampFault(shardName string, err erro
 	})
 }
 
-// remember replaces each built task with the instance the provider already
-// holds, so a reloaded shard re-arms the callbacks its swap will use, and
-// seeds the provider with the rest.
-func (r *MigrationRecoveryReindexer) remember(built []*ShardReindexTaskGeneric) []*ShardReindexTaskGeneric {
+// reuseCachedTasks reuses the provider's cached instances, so a reload re-arms the callbacks the swap uses.
+func (r *MigrationRecoveryReindexer) reuseCachedTasks(built []*ShardReindexTaskGeneric) []*ShardReindexTaskGeneric {
 	out := make([]*ShardReindexTaskGeneric, 0, len(built))
 	fresh := map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric{}
 	for _, t := range built {
 		desc := distributedtask.TaskDescriptor{ID: t.taskID, Version: t.taskVersion}
-		if known := r.provider.cachedReindexTask(desc, t.unitID, t.migrationRecordKey()); known != nil {
-			out = append(out, known)
+		cached := r.provider.cachedReindexTasks(desc, t.unitID)
+		if i := slices.IndexFunc(cached, func(c *ShardReindexTaskGeneric) bool {
+			return c.migrationRecordKey() == t.migrationRecordKey()
+		}); i >= 0 {
+			out = append(out, cached[i])
 			continue
 		}
 		if fresh[desc] == nil {

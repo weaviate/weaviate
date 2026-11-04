@@ -18,7 +18,7 @@ type migrationMirrorRegistry struct {
 	disarms map[migrationMirrorKey]func()
 	// Neither armed nor stamped Unmirrored, so the shard stays READONLY while any remain.
 	held []*ShardReindexTaskGeneric
-	// A retry settled every held migration, but the steps wait until a status write makes the shard writable.
+	// The steps still wait after a retry settled the held set, until a status write makes the shard writable.
 	heldArmed bool
 }
 
