@@ -181,10 +181,13 @@ func (f *bootstrapFixture) open(t *testing.T) {
 	f.index = index
 }
 
+// restart reopens the index and waits for the cache prefill, which reads the
+// vectors through the object store hook in the background
 func (f *bootstrapFixture) restart(t *testing.T) {
 	require.NoError(t, f.index.Flush())
 	require.NoError(t, f.index.Shutdown(f.ctx))
 	f.open(t)
+	f.index.prefillWg.Wait()
 }
 
 // setVectorHook installs a hook that runs once, the first time the object
