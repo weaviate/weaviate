@@ -73,8 +73,9 @@ func NormalizeBaseURL(baseURL string) (string, error) {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
 		return "", fmt.Errorf("must be an absolute http or https URL, got %q", baseURL)
 	}
-	u.Path = strings.TrimSuffix(strings.TrimSuffix(u.Path, "/"), "/v1")
-	u.RawPath = ""
+	p := strings.TrimSuffix(strings.TrimSuffix(u.EscapedPath(), "/"), "/v1")
+	u.RawPath = p
+	u.Path, _ = url.PathUnescape(p)
 	return u.String(), nil
 }
 
@@ -87,7 +88,7 @@ func (cs *classSettings) rawSettings() map[string]any {
 }
 
 // A value that does not normalise is returned unchanged; Validate rejects it
-// at class create.
+// at class create and the client at query time.
 func (cs *classSettings) BaseURL() string {
 	raw := cs.getStringProperty("baseURL", DefaultBaseURL)
 	if normalised, err := NormalizeBaseURL(raw); err == nil {

@@ -105,6 +105,18 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantBaseURL: "https://gateway.example/v1/openai",
 		},
 		{
+			name:        "base URL with an encoded slash before /v1",
+			cfg:         fakeClassConfig{classConfig: map[string]any{"baseURL": "https://gateway.example/a%2Fb/v1"}},
+			wantModel:   "gpt-6-luna",
+			wantBaseURL: "https://gateway.example/a%2Fb",
+		},
+		{
+			name:        "base URL with an encoded slash as the last /v1",
+			cfg:         fakeClassConfig{classConfig: map[string]any{"baseURL": "https://gateway.example/a%2Fv1"}},
+			wantModel:   "gpt-6-luna",
+			wantBaseURL: "https://gateway.example/a%2Fv1",
+		},
+		{
 			name:        "base URL whose host is v1",
 			cfg:         fakeClassConfig{classConfig: map[string]any{"baseURL": "https://v1"}},
 			wantModel:   "gpt-6-luna",
