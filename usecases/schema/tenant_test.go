@@ -14,8 +14,11 @@ package schema
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -719,6 +722,79 @@ func TestGetTenantsWithoutConsistency(t *testing.T) {
 			got, err := handler.GetConsistentTenants(context.Background(), nil, class, false, tt.names)
 			require.NoError(t, err)
 			assert.ElementsMatch(t, tt.want, got)
+		})
+	}
+}
+
+func TestUpdateShardStatusOfAnUnknownShard(t *testing.T) {
+	for _, fsmErr := range []error{clusterSchema.ErrClassNotFound, clusterSchema.ErrShardNotFound} {
+		t.Run(fsmErr.Error(), func(t *testing.T) {
+			handler, sm := newTestHandler(t, &fakeDB{})
+			sm.On("UpdateShardStatus", "Movies", "shard1", "READONLY").Return(fmt.Errorf("%w: shard1", fsmErr)).Once()
+
+			_, err := handler.UpdateShardStatus(context.Background(), nil, "Movies", "shard1", "READONLY")
+
+			require.ErrorIs(t, err, ErrNotFound)
+		})
+	}
+}
+
+func TestUpdateShardStatusIsLogged(t *testing.T) {
+	tests := []struct {
+		status string
+		level  logrus.Level
+	}{
+		{status: "readonly", level: logrus.WarnLevel},
+		{status: "READY", level: logrus.InfoLevel},
+	}
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			handler, sm := newTestHandler(t, &fakeDB{})
+			logger, hook := test.NewNullLogger()
+			handler.logger = logger
+			sm.On("UpdateShardStatus", "Movies", "shard1", tt.status).Return(nil).Once()
+
+			_, err := handler.UpdateShardStatus(context.Background(), &models.Principal{Username: "alice"}, "Movies", "shard1", tt.status)
+
+			require.NoError(t, err)
+			entry := hook.LastEntry()
+			require.NotNil(t, entry)
+			assert.Equal(t, tt.level, entry.Level)
+			assert.Equal(t, "shard status changed", entry.Message)
+			assert.Equal(t, logrus.Fields{
+				"action": "update_shard_status", "class": "Movies", "shard": "shard1",
+				"status": strings.ToUpper(tt.status), "user": "alice",
+			}, entry.Data)
+		})
+	}
+}
+
+func TestUpdateShardStatusAcceptsOnlyReadyAndReadOnly(t *testing.T) {
+	tests := []struct {
+		status string
+		valid  bool
+	}{
+		{status: "READY", valid: true},
+		{status: "READONLY", valid: true},
+		{status: "readonly", valid: true},
+		{status: "SHUTDOWN"},
+		{status: "HOT"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			handler, sm := newTestHandler(t, &fakeDB{})
+			if tt.valid {
+				sm.On("UpdateShardStatus", "Movies", "shard1", tt.status).Return(nil).Once()
+			}
+
+			_, err := handler.UpdateShardStatus(context.Background(), nil, "Movies", "shard1", tt.status)
+			if tt.valid {
+				require.NoError(t, err)
+				sm.AssertExpectations(t)
+				return
+			}
+			require.ErrorIs(t, err, ErrValidation)
+			sm.AssertNotCalled(t, "UpdateShardStatus", mock.Anything, mock.Anything, mock.Anything)
 		})
 	}
 }
