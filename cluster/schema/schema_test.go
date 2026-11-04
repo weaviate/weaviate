@@ -627,8 +627,7 @@ func Test_UpdateClass_MovementRejection(t *testing.T) {
 			{"named vector added", &models.Class{Class: className}, named(map[string]any{"v1": hnswent.UserConfig{}})},
 			{"named vector removed", named(map[string]any{"v1": hnswent.UserConfig{}}), &models.Class{Class: className}},
 			{"named vector structural change", named(map[string]any{"v1": hnswent.UserConfig{}}), named(map[string]any{"v1": hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true}}})},
-			// hfresh is an unclassified (experimental) index type: any real change fails closed.
-			{"hfresh field change", legacy(hfreshent.UserConfig{MaxPostingSizeKB: 48}), legacy(hfreshent.UserConfig{MaxPostingSizeKB: 64})},
+			{"hfresh structural param", legacy(hfreshent.UserConfig{MaxPostingSizeKB: 48}), legacy(hfreshent.UserConfig{MaxPostingSizeKB: 64})},
 			{"hfresh distance change", legacy(hfreshent.UserConfig{Distance: "cosine"}), legacy(hfreshent.UserConfig{Distance: "l2-squared"})},
 		}
 		for _, tc := range cases {
@@ -649,8 +648,9 @@ func Test_UpdateClass_MovementRejection(t *testing.T) {
 			// Test_vectorConfigClassificationComplete. dynamic-threshold and a deferred-safe field
 			// are kept explicitly because both are deliberate, contestable classifications.
 			{"no vector change", legacy(hnswent.UserConfig{Distance: "cosine"}), legacy(hnswent.UserConfig{Distance: "cosine"})},
-			// A no-op update on an unclassified (hfresh) config must pass — nothing changed on disk.
 			{"hfresh no-op", legacy(hfreshent.UserConfig{MaxPostingSizeKB: 48, Distance: "cosine"}), legacy(hfreshent.UserConfig{MaxPostingSizeKB: 48, Distance: "cosine"})},
+			{"hfresh searchProbe", legacy(hfreshent.UserConfig{SearchProbe: 64}), legacy(hfreshent.UserConfig{SearchProbe: 256})},
+			{"hfresh rescoreLimit", legacy(hfreshent.UserConfig{RQ: hnswent.RQConfig{Enabled: true, Bits: 1, RescoreLimit: 350}}), legacy(hfreshent.UserConfig{RQ: hnswent.RQConfig{Enabled: true, Bits: 1, RescoreLimit: 500}})},
 			{"hnsw query-time knob", legacy(hnswent.UserConfig{EF: 10}), legacy(hnswent.UserConfig{EF: 20})},
 			{"hnsw deferred-safe field", legacy(hnswent.UserConfig{MaxConnections: 16}), legacy(hnswent.UserConfig{MaxConnections: 32})},
 			{"dynamic threshold", legacy(dynamicent.UserConfig{Threshold: 1000}), legacy(dynamicent.UserConfig{Threshold: 2000})},
@@ -693,6 +693,7 @@ var (
 		"flat.VectorCacheMaxObjects", "flat.SkipDefaultQuantization", "flat.TrackDefaultQuantization",
 		"flat.PQ.RescoreLimit", "flat.PQ.Cache", "flat.BQ.RescoreLimit", "flat.BQ.Cache",
 		"flat.SQ.RescoreLimit", "flat.SQ.Cache", "flat.RQ.RescoreLimit", "flat.RQ.Cache", "dynamic.Threshold",
+		"hfresh.SearchProbe", "hfresh.RQ.RescoreLimit",
 	}
 	structuralLeaves = []string{
 		"hnsw.Distance", "hnsw.PQ.Enabled", "hnsw.PQ.BitCompression", "hnsw.PQ.Segments", "hnsw.PQ.Centroids",
@@ -701,6 +702,10 @@ var (
 		"hnsw.RQ.Centering", "hnsw.RQ.TrainingLimit",
 		"flat.Distance", "flat.PQ.Enabled", "flat.BQ.Enabled", "flat.SQ.Enabled", "flat.RQ.Enabled", "flat.RQ.Bits",
 		"dynamic.Distance",
+		"hfresh.MaxPostingSizeKB", "hfresh.Replicas", "hfresh.Distance", "hfresh.RQ.Enabled", "hfresh.RQ.Bits",
+		"hfresh.RQ.Centering", "hfresh.RQ.TrainingLimit", "hfresh.Multivector.Enabled", "hfresh.Multivector.Aggregation",
+		"hfresh.Multivector.MuveraConfig.Enabled", "hfresh.Multivector.MuveraConfig.KSim",
+		"hfresh.Multivector.MuveraConfig.DProjections", "hfresh.Multivector.MuveraConfig.Repetitions",
 	}
 )
 
@@ -753,6 +758,7 @@ func Test_vectorConfigClassificationComplete(t *testing.T) {
 		{"hnsw", reflect.TypeOf(hnswent.UserConfig{})},
 		{"flat", reflect.TypeOf(flatent.UserConfig{})},
 		{"dynamic", reflect.TypeOf(dynamicent.UserConfig{})},
+		{"hfresh", reflect.TypeOf(hfreshent.UserConfig{})},
 	} {
 		filled := reflect.New(root.typ).Elem()
 		fillNonZero(filled)

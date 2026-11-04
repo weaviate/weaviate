@@ -137,9 +137,6 @@ func (s *Shard) removeHFreshArtifacts(ctx context.Context, targetVector, physica
 		}
 	}
 	for _, dir := range artifacts.ShardDirs {
-		if dir == physicalID+".queue.d" {
-			continue
-		}
 		err := removeDirIfExists(s.path(), dir)
 		if err != nil {
 			return fmt.Errorf("drop directory %q: %w", dir, err)
