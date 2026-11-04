@@ -552,6 +552,23 @@ func TestUploaderAllFailures(t *testing.T) {
 	}
 }
 
+// failWritesAfter returns an onWrite that fails every write of class with
+// backendFullMsg once reached is closed. A test closes reached in onDescriptor
+// for the class it holds, so the failure cannot stop the producer short of it.
+func failWritesAfter(t *testing.T, class string, reached <-chan struct{}) func(context.Context, string, string) error {
+	return func(_ context.Context, c, _ string) error {
+		if c != class {
+			return nil
+		}
+		select {
+		case <-reached:
+		case <-time.After(probeTimeout):
+			t.Error("the descriptor producer never reached the class the test holds")
+		}
+		return errors.New(backendFullMsg)
+	}
+}
+
 // TestUploaderAllWaitsForDescriptorProducer pins that all does not release an
 // index while the descriptor producer can still snapshot it. The producer runs
 // on the operation's context, which cancelling the pool never reaches.
@@ -562,15 +579,8 @@ func TestUploaderAllWaitsForDescriptorProducer(t *testing.T) {
 	sourcePath := t.TempDir()
 	p := newUploadProbe(sourcePath, genClassDescriptions(t, sourcePath, names...)...)
 
-	failed := make(chan struct{})
-	var once sync.Once
-	p.onWrite = func(_ context.Context, class, _ string) error {
-		if class != failing {
-			return nil
-		}
-		once.Do(func() { close(failed) })
-		return errors.New(backendFullMsg)
-	}
+	reachedLast := make(chan struct{})
+	p.onWrite = failWritesAfter(t, failing, reachedLast)
 	releasedLast := make(chan struct{})
 	var relOnce sync.Once
 	p.onRelease = func(class string) {
@@ -579,27 +589,33 @@ func TestUploaderAllWaitsForDescriptorProducer(t *testing.T) {
 		}
 	}
 	// onDescriptor holds the last class's snapshot open until all stops the
-	// producer. Whichever of the two arms below wins is the assertion. A release
-	// reaching the held class first is the ordering this test exists to catch.
+	// producer. A release reaching the held class first is the ordering this test
+	// exists to catch.
 	p.onDescriptor = func(ctx context.Context, class string) {
 		if class != last {
 			return
 		}
+		close(reachedLast)
 		select {
-		case <-failed:
+		case <-ctx.Done():
+		case <-releasedLast:
 		case <-time.After(probeTimeout):
-			t.Error("the failing class never failed the pool")
+			t.Error("all never stopped the descriptor producer")
 			return
 		}
+		// releaseIndexes releases on goroutines of its own, so a release issued
+		// just before the stop can land after it. A correct all cannot release
+		// while the producer is held here, so the hold only costs time.
 		select {
 		case <-releasedLast:
 			t.Error("the last class's index was released while the producer could still snapshot it")
-		case <-ctx.Done():
+		case <-time.After(100 * time.Millisecond):
 		}
 	}
 
 	desc, err := runUpload(t, context.Background(), p, 4)
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), backendFullMsg)
 	assert.Equal(t, backup.Failed, desc.Status)
 
 	select {
@@ -612,6 +628,11 @@ func TestUploaderAllWaitsForDescriptorProducer(t *testing.T) {
 	case <-p.producerDone:
 	case <-time.After(probeTimeout):
 		t.Fatal("the descriptor producer never finished")
+	}
+	select {
+	case <-reachedLast:
+	default:
+		t.Error("the backup failed before the producer reached the held class, so the release order went untested")
 	}
 	assert.Empty(t, p.classesSnapshottedAfterRelease(),
 		"a class snapshotted after its index was released stays marked in progress")
@@ -626,18 +647,15 @@ func TestUploaderAllStopsDescriptorProducerOnFailure(t *testing.T) {
 	sourcePath := t.TempDir()
 	p := newUploadProbe(sourcePath, genClassDescriptions(t, sourcePath, names...)...)
 
-	p.onWrite = func(_ context.Context, class, _ string) error {
-		if class != failing {
-			return nil
-		}
-		return errors.New(backendFullMsg)
-	}
+	reachedGated := make(chan struct{})
+	p.onWrite = failWritesAfter(t, failing, reachedGated)
 	// Holding the gated class until all stops the producer puts one class in flight
 	// at exactly the moment the drain starts, which is the wait the drain bounds.
 	p.onDescriptor = func(ctx context.Context, class string) {
 		if class != gated {
 			return
 		}
+		close(reachedGated)
 		select {
 		case <-ctx.Done():
 		case <-time.After(probeTimeout):
@@ -647,6 +665,7 @@ func TestUploaderAllStopsDescriptorProducerOnFailure(t *testing.T) {
 
 	desc, err := runUpload(t, context.Background(), p, 4)
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), backendFullMsg)
 	assert.Equal(t, backup.Failed, desc.Status)
 
 	select {
