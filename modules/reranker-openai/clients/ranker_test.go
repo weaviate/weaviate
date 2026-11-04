@@ -139,19 +139,13 @@ func TestRankRejectsAPropertyOfAnotherType(t *testing.T) {
 			name:     "a text[] property",
 			property: "tags",
 			cfg:      classConfig(f.url(), nil),
-			wantErr:  `property "tags" is not a text property; reranker-openai reranks text properties`,
-		},
-		{
-			name:     "a blob property",
-			property: "photo",
-			cfg:      classConfig(f.url(), nil),
-			wantErr:  `property "photo" is not a text property; reranker-openai reranks text properties`,
+			wantErr:  `property "tags" is not a text or blob property; reranker-openai reranks text and blob properties`,
 		},
 		{
 			name:     "a property the class does not have",
 			property: "missing",
 			cfg:      classConfig(f.url(), nil),
-			wantErr:  `property "missing" is not a text property; reranker-openai reranks text properties`,
+			wantErr:  `property "missing" is not a text or blob property; reranker-openai reranks text and blob properties`,
 		},
 		{
 			name:     "no class config",
@@ -169,6 +163,81 @@ func TestRankRejectsAPropertyOfAnotherType(t *testing.T) {
 		})
 	}
 	assert.Empty(t, f.received())
+}
+
+func TestRankSendsABlobPropertyAsAnImage(t *testing.T) {
+	f := newFake(t)
+	f.probabilities = map[string]float64{"data:image/png;base64," + pngBase64: 0.8, "data:image/jpeg;base64," + jpegBase64: 0.2}
+	documents := []string{pngBase64, jpegBase64}
+
+	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), "The product has visible damage", "photo",
+		documentsOf(documents...), classConfig(f.url(), nil))
+
+	require.NoError(t, err)
+	assert.Equal(t, []ent.DocumentScore{{Document: pngBase64, Score: 0.8}, {Document: jpegBase64, Score: 0.2}}, res.DocumentScores)
+	requests := f.received()
+	require.Len(t, requests, 2)
+	for _, r := range requests {
+		assert.JSONEq(t, fmt.Sprintf(`{
+			"model": "gpt-6-luna",
+			"input": [{"role": "user", "content": [{"type": "input_image", "image_url": %q}]}],
+			"questions": [{"type": "predicate", "name": "condition", "instructions": "The product has visible damage"}]
+		}`, r.input()), r.rawBody)
+	}
+	assert.ElementsMatch(t, []string{"data:image/png;base64," + pngBase64, "data:image/jpeg;base64," + jpegBase64}, inputs(requests))
+}
+
+func TestRankRejectsAnImageBeforeSending(t *testing.T) {
+	tests := []struct {
+		name      string
+		documents []string
+		wantErr   string
+	}{
+		{
+			name:      "base64 of text",
+			documents: []string{pngBase64, textBase64, jpegBase64},
+			wantErr:   "object 00000000-0000-0000-0000-000000000001: image: not a PNG, JPEG, GIF or WebP image",
+		},
+		{
+			name:      "a BMP",
+			documents: []string{pngBase64, bmpBase64},
+			wantErr:   "object 00000000-0000-0000-0000-000000000001: image: not a PNG, JPEG, GIF or WebP image",
+		},
+		{
+			name:      "not base64",
+			documents: []string{pngBase64, "%%%%"},
+			wantErr:   "object 00000000-0000-0000-0000-000000000001: image: not base64",
+		},
+		{
+			name:      "above 20 MiB",
+			documents: []string{pngBase64, strings.Repeat("A", maxImageChars+4)},
+			wantErr:   "object 00000000-0000-0000-0000-000000000001: image: 20971524 bytes exceed the limit of 20 MiB per image",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+
+			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "photo",
+				documentsOf(tt.documents...), classConfig(f.url(), nil))
+
+			require.EqualError(t, err, tt.wantErr)
+			assert.Empty(t, f.received())
+		})
+	}
+}
+
+// The property type decides, never the content.
+func TestRankSendsBase64TextAsText(t *testing.T) {
+	f := newFake(t)
+
+	_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+		documentsOf(pngBase64), classConfig(f.url(), nil))
+
+	require.NoError(t, err)
+	requests := f.received()
+	require.Len(t, requests, 1)
+	assert.Equal(t, pngBase64, requests[0].body.Input)
 }
 
 // A class created before v1.19 and never changed still stores the deprecated
@@ -1019,9 +1088,31 @@ type fakeRequest struct {
 	body          wireRequest
 }
 
+// input returns the document of the request: the string, or the data URL of
+// the image in the message list.
 func (r fakeRequest) input() string {
-	input, _ := r.body.Input.(string)
-	return input
+	switch input := r.body.Input.(type) {
+	case string:
+		return input
+	case []any:
+		var wire []struct {
+			Role    string `json:"role"`
+			Content []struct {
+				Type     string `json:"type"`
+				ImageURL string `json:"image_url"`
+			} `json:"content"`
+		}
+		if err := json.Unmarshal([]byte(r.rawInput()), &wire); err != nil || len(wire) != 1 || len(wire[0].Content) != 1 {
+			return ""
+		}
+		return wire[0].Content[0].ImageURL
+	}
+	return ""
+}
+
+func (r fakeRequest) rawInput() string {
+	raw, _ := json.Marshal(r.body.Input)
+	return string(raw)
 }
 
 type fakeReply struct {
