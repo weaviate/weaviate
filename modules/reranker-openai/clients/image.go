@@ -61,8 +61,8 @@ func (m magic) matches(decoded []byte) bool {
 // magicChars is the base64 of the first 12 bytes.
 const magicChars = 16
 
-// The API rejects images over maxImageBytes. maxImageChars also admits the two
-// bytes that round up to the last quad.
+// The API rejects images over maxImageBytes. maxImageChars also admits the byte
+// above it that a full last quad can carry.
 const (
 	maxImageBytes = 20 << 20
 	maxImageChars = (maxImageBytes + 2) / 3 * 4

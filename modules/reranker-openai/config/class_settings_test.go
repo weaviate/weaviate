@@ -105,6 +105,23 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantBaseURL: "https://gateway.example/v1/openai",
 		},
 		{
+			name:        "base URL whose host is v1",
+			cfg:         fakeClassConfig{classConfig: map[string]any{"baseURL": "https://v1"}},
+			wantModel:   "gpt-6-luna",
+			wantBaseURL: "https://v1",
+		},
+		{
+			name:        "base URL with /v1 and a query",
+			cfg:         fakeClassConfig{classConfig: map[string]any{"baseURL": "https://gateway.example/proxy/v1?x=1"}},
+			wantModel:   "gpt-6-luna",
+			wantBaseURL: "https://gateway.example/proxy?x=1",
+		},
+		{
+			name:    "base URL of another type",
+			cfg:     fakeClassConfig{classConfig: map[string]any{"baseURL": 42}},
+			wantErr: errors.New("baseURL must be a string, got int"),
+		},
+		{
 			name:    "nil config",
 			cfg:     nil,
 			wantErr: errors.New("empty config"),
