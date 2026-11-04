@@ -1080,9 +1080,11 @@ Then, per shard load:
      again on a later tick. Another migration's repair, rebuild or
      iteration unit, prepare or swap waits the same way, unless the shard
      also holds an unreadable record: then it fails its migration, as on
-     any shard. The shard's status (`GET /v1/schema/<class>/shards`) shows
-     READONLY with this reason, and the node logs once that its migrations
-     wait.
+     any shard. The shard list (`GET /v1/schema/<class>/shards`) shows
+     only READONLY, with no reason, the same as under disk pressure. The
+     owning node logs one line when the hold starts, never per tick, naming
+     the shard, the cause and the way out. A refused write and a refused
+     lift carry the cause too.
      - Only a manual status update lifts the hold. A vector-index config
        change is refused while the shard is READONLY, and disk-pressure
        recovery lifts only its own reason.
@@ -1106,8 +1108,9 @@ Then, per shard load:
        caller stopped waiting. If it arms, the next lift goes writable, and
        the migration's steps wait until then.
      - On a multi-node cluster the status PUT can answer 200 while the
-       owning node refused the lift. Confirm with
-       `GET /v1/schema/<class>/shards` and the owning node's log.
+       owning node refused the lift. Confirm that the shard is still
+       READONLY with `GET /v1/schema/<class>/shards`, and read the cause in
+       the owning node's log.
      - A restart retries too. An unreadable record stays unreadable until
        it is repaired and the node restarted.
 
