@@ -53,6 +53,16 @@ type hookedCommitLogger struct {
 	onAddNode          func(id uint64)
 	setEntrypointCalls atomic.Int32
 	failReplaceLinks   atomic.Bool
+	// dropWrites loses entrypoint changes and tombstones, like a crash before
+	// the log reached disk
+	dropWrites atomic.Bool
+}
+
+func (l *hookedCommitLogger) AddTombstone(id uint64) error {
+	if l.dropWrites.Load() {
+		return nil
+	}
+	return l.CommitLogger.AddTombstone(id)
 }
 
 func (l *hookedCommitLogger) ReplaceLinksAtLevel(id uint64, level int, links []uint64) error {
@@ -69,6 +79,9 @@ func (l *hookedCommitLogger) AddNode(id uint64, level uint16) error {
 
 func (l *hookedCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error {
 	l.setEntrypointCalls.Add(1)
+	if l.dropWrites.Load() {
+		return nil
+	}
 	return l.CommitLogger.SetEntryPointWithMaxLayer(id, level)
 }
 
@@ -141,7 +154,9 @@ func newBootstrapFixtureWith(t *testing.T, compressed bool, maxConnections, node
 	for i := range nodes {
 		require.NoError(t, f.index.Add(ctx, uint64(i), f.vectors[i]))
 	}
-	require.Equal(t, compressed, f.index.Compressed())
+	if nodes > 0 {
+		require.Equal(t, compressed, f.index.Compressed())
+	}
 	return f
 }
 
