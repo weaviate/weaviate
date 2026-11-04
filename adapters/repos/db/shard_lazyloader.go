@@ -86,6 +86,9 @@ type LazyLoadShard struct {
 	unloadPhase atomic.Int32
 	// loadWaiters counts isLoaded calls about to wait on mutex; TryUnload refuses while any does.
 	loadWaiters atomic.Int32
+	// AccessClockNow until which a refusal keeps the wrapper off the loop's and make-room's victim selection.
+	backgroundRetryAt atomic.Uint32
+	makeRoomRetryAt   atomic.Uint32
 	// unloadMarkedHook, set only by tests, runs inside TryUnload once shardCreateLocks is released.
 	unloadMarkedHook func()
 }

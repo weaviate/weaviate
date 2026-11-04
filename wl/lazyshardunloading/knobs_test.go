@@ -30,6 +30,7 @@ func TestSnapshotDefaultsForNilKnobs(t *testing.T) {
 		rate:              DefaultUnloadRate,
 		candidates:        DefaultMakeRoomCandidates,
 		workers:           DefaultUnloadWorkers,
+		retryRefusedAfter: DefaultRetryRefusedAfter,
 	}, sn.read())
 }
 
@@ -113,6 +114,11 @@ func TestSnapshotSanitisesKnobs(t *testing.T) {
 				require.Equal(t, DefaultInterval, s.interval)
 				require.Equal(t, DefaultIdleCheckInterval, s.idleCheckInterval)
 			},
+		},
+		{
+			name:      "a negative retry_refused_after is off",
+			configure: func(k *testKnobs) { set(nil, k.retryRefusedAfter, -time.Second) },
+			check:     func(t *testing.T, s *snapshot) { require.Zero(t, s.retryRefusedAfter) },
 		},
 		{
 			name:      "an out-of-range share is off",

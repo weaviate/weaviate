@@ -30,6 +30,7 @@ const (
 	DefaultInterval           = 5 * time.Second
 	DefaultMakeRoomCandidates = 16
 	DefaultUnloadWorkers      = 4
+	DefaultRetryRefusedAfter  = 30 * time.Second
 	// MaxMakeRoomCandidates bounds the per-load sample, and so the pooled buffers.
 	MaxMakeRoomCandidates = 1024
 	MaxUnloadWorkers      = 64
@@ -50,6 +51,7 @@ type Knobs struct {
 	UnloadWorkers       *runtime.DynamicValue[int]
 	NamespaceMaxShare   *runtime.DynamicValue[float64]
 	Paused              *runtime.DynamicValue[bool]
+	RetryRefusedAfter   *runtime.DynamicValue[time.Duration]
 }
 
 // KnobsFrom shares c's runtime values, so a runtime-config reload reaches the policy.
@@ -67,6 +69,7 @@ func KnobsFrom(c config.LazyShardUnloading) Knobs {
 		UnloadWorkers:       c.UnloadWorkers,
 		NamespaceMaxShare:   c.NamespaceMaxShare,
 		Paused:              c.Paused,
+		RetryRefusedAfter:   c.RetryRefusedAfter,
 	}
 }
 
@@ -83,6 +86,7 @@ func (k Knobs) withDefaults() Knobs {
 	orDefault(&k.UnloadWorkers, DefaultUnloadWorkers)
 	orDefault(&k.NamespaceMaxShare, 0)
 	orDefault(&k.Paused, false)
+	orDefault(&k.RetryRefusedAfter, DefaultRetryRefusedAfter)
 	return k
 }
 
@@ -105,6 +109,16 @@ type snapshot struct {
 	workers           int
 	nsShare           float64
 	paused            bool
+	retryRefusedAfter time.Duration
+}
+
+// retryRefusedAfterSeconds is the cooldown in access-clock ticks, rounded up and bounded like idle_ttl.
+func (s *snapshot) retryRefusedAfterSeconds() uint32 {
+	seconds := s.retryRefusedAfter / time.Second
+	if s.retryRefusedAfter%time.Second != 0 {
+		seconds++
+	}
+	return uint32(min(seconds, 1<<31))
 }
 
 // snapshotter turns the knobs into snapshots, logging each invalid combination once.
@@ -134,6 +148,7 @@ func (sn *snapshotter) read() *snapshot {
 		workers:           min(max(k.UnloadWorkers.Get(), 1), MaxUnloadWorkers),
 		nsShare:           k.NamespaceMaxShare.Get(),
 		paused:            k.Paused.Get(),
+		retryRefusedAfter: max(k.RetryRefusedAfter.Get(), 0),
 	}
 	if s.interval <= 0 {
 		s.interval = DefaultInterval

@@ -71,6 +71,18 @@ func (l *LazyLoadShard) ClearUnloadPending() { l.unloadPending.Store(false) }
 // UnloadPending reports whether a handoff claimed the wrapper.
 func (l *LazyLoadShard) UnloadPending() bool { return l.unloadPending.Load() }
 
+// BackgroundRetryAt is the [AccessClockNow] reading until which the loop skips the wrapper.
+func (l *LazyLoadShard) BackgroundRetryAt() uint32 { return l.backgroundRetryAt.Load() }
+
+// SetBackgroundRetryAt keeps the loop off the wrapper until at.
+func (l *LazyLoadShard) SetBackgroundRetryAt(at uint32) { l.backgroundRetryAt.Store(at) }
+
+// MakeRoomRetryAt is the [AccessClockNow] reading until which make-room skips the wrapper.
+func (l *LazyLoadShard) MakeRoomRetryAt() uint32 { return l.makeRoomRetryAt.Load() }
+
+// SetMakeRoomRetryAt keeps make-room off the wrapper until at.
+func (l *LazyLoadShard) SetMakeRoomRetryAt(at uint32) { l.makeRoomRetryAt.Store(at) }
+
 // UnloadCandidate is a lock-free pre-check for victim sampling; TryUnload decides.
 func (l *LazyLoadShard) UnloadCandidate() bool {
 	s := l.currentShard()
@@ -91,6 +103,9 @@ func (l *LazyLoadShard) recordAccess() {
 // markLoaded registers a load that just published shard; callers hold l.mutex.
 func (l *LazyLoadShard) markLoaded(u ShardUnloader, shard *Shard) {
 	l.unloadedAt.Store(0)
+	// A refusal said something about the last instance, not this one.
+	l.backgroundRetryAt.Store(0)
+	l.makeRoomRetryAt.Store(0)
 	l.recordAccess()
 	u.Registry().add(l, shard)
 }
