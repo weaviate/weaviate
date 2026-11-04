@@ -37,12 +37,13 @@ const (
 	DefaultMaxConcurrentRequests = 16
 	MaxConcurrentRequestsLimit   = 256
 
-	// The API does not publish its request size limit: 141,000 characters of
-	// documents were accepted and 149,000 rejected, so 100,000 leaves room for
-	// the questions. MaxBatchCharacters is counted in bytes: a non-ASCII
-	// character takes several, so such text makes smaller requests, never
-	// larger ones. Beyond 50 documents a request saves almost no tokens and
-	// answers more slowly than two sent in parallel.
+	// The API does not publish its request size limit: 141,000 characters
+	// were accepted and 149,000 rejected. MaxBatchCharacters bounds the bytes
+	// of the documents of a request plus their questions, each of which
+	// repeats the query. A non-ASCII character takes several bytes, so such
+	// text makes smaller requests, never larger ones. Beyond 50 documents a
+	// request saves almost no tokens and answers more slowly than two sent in
+	// parallel.
 	MaxBatchDocuments  = 50
 	MaxBatchCharacters = 100_000
 
@@ -97,6 +98,11 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	if err != nil {
 		return nil, err
 	}
+	questionBytes := len("In "+documentKey(MaxBatchDocuments-1)+": ") + len(query)
+	if questionBytes >= MaxBatchCharacters {
+		return nil, fmt.Errorf("rerank.query is %d bytes; reranker-typesafeai repeats it for every document within %d bytes per request",
+			len(query), MaxBatchCharacters)
+	}
 
 	owner := make(map[string]int, len(documents))
 	var pending []int
@@ -121,7 +127,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 		maxDocuments, maxCharacters = MaxBatchImages, MaxBatchImageChars
 	}
 	request := judgeRequest{url: endpointURL, apiKey: apiKey, model: settings.Model(), query: query, image: image}
-	requestBatches := batches(pending, documents, maxDocuments, maxCharacters)
+	requestBatches := batches(pending, documents, maxDocuments, maxCharacters, questionBytes)
 	scores := make([]float64, len(documents))
 	usages := make([]typesafeaiUsage, len(requestBatches))
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
@@ -188,14 +194,15 @@ func propertyInput(cfg moduletools.ClassConfig, property string) (image bool, er
 }
 
 // batches splits the positions of the documents into requests of at most
-// maxDocuments documents and maxCharacters bytes, in order. A document longer
-// than maxCharacters goes alone.
-func batches(indexes []int, documents []ent.Document, maxDocuments, maxCharacters int) [][]int {
+// maxDocuments documents and maxCharacters bytes, in order. A document costs
+// its bytes plus questionBytes. A document that costs more than maxCharacters
+// goes alone.
+func batches(indexes []int, documents []ent.Document, maxDocuments, maxCharacters, questionBytes int) [][]int {
 	var out [][]int
 	var batch []int
 	characters := 0
 	for _, index := range indexes {
-		length := len(documents[index].Value)
+		length := len(documents[index].Value) + questionBytes
 		if len(batch) > 0 && (len(batch) == maxDocuments || characters+length > maxCharacters) {
 			out = append(out, batch)
 			batch, characters = nil, 0
