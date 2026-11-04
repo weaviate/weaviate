@@ -90,10 +90,10 @@ func TestLogSummaryKeepsFilterWithinLimits(t *testing.T) {
 		"nil root":   {},
 		"int":        {Root: ptr(leaf(OperatorEqual, "p", 3, schema.DataTypeInt))},
 		"string at char limit, multi-byte": {Root: ptr(leaf(OperatorLike, "p",
-			strings.Repeat("ż", logMaxStringChars), schema.DataTypeText))},
+			strings.Repeat("ż", LogMaxStringChars), schema.DataTypeText))},
 		"array at value limit": {Root: ptr(leaf(ContainsAny, "p", ints(logMaxArrayValues), schema.DataTypeInt))},
 		"string array at both limits": {Root: ptr(leaf(ContainsAll, "p",
-			strings.Split(strings.TrimSuffix(strings.Repeat(strings.Repeat("a", logMaxStringChars)+",", logMaxArrayValues), ","), ","),
+			strings.Split(strings.TrimSuffix(strings.Repeat(strings.Repeat("a", LogMaxStringChars)+",", logMaxArrayValues), ","), ","),
 			schema.DataTypeText))},
 		"nil array": {Root: ptr(leaf(ContainsAny, "p", []string(nil), schema.DataTypeText))},
 		"geo range": {Root: ptr(leaf(OperatorWithinGeoRange, "p",
@@ -149,8 +149,8 @@ func addOperatorNames(node any) {
 }
 
 func TestLogSummaryTrimsOverLimits(t *testing.T) {
-	long := strings.Repeat("ż", logMaxStringChars+1)
-	cut := strings.Repeat("ż", logMaxStringChars)
+	long := strings.Repeat("ż", LogMaxStringChars+1)
+	cut := strings.Repeat("ż", LogMaxStringChars)
 	tests := map[string]struct {
 		filter *LocalFilter
 		check  func(t *testing.T, root map[string]any)
@@ -178,14 +178,14 @@ func TestLogSummaryTrimsOverLimits(t *testing.T) {
 				v := root["value"].(map[string]any)
 				assert.Equal(t, cut, v["value"])
 				assert.True(t, utf8.ValidString(v["value"].(string)))
-				assert.EqualValues(t, logMaxStringChars+1, v["charCount"])
+				assert.EqualValues(t, LogMaxStringChars+1, v["charCount"])
 			},
 		},
 		"array element one over char limit": {
 			filter: &LocalFilter{Root: ptr(leaf(ContainsAny, "p", []string{"a", long}, schema.DataTypeText))},
 			check: func(t *testing.T, root map[string]any) {
 				v := root["value"].(map[string]any)
-				assert.Equal(t, []any{"a", map[string]any{"value": cut, "charCount": float64(logMaxStringChars + 1)}}, v["value"])
+				assert.Equal(t, []any{"a", map[string]any{"value": cut, "charCount": float64(LogMaxStringChars + 1)}}, v["value"])
 				assert.NotContains(t, v, "valueCount")
 			},
 		},
@@ -258,7 +258,7 @@ func TestLogSummaryTextFormatter(t *testing.T) {
 func TestLogSummaryDoesNotMutateFilter(t *testing.T) {
 	f := &LocalFilter{Root: &Clause{Operator: OperatorAnd, Operands: append(manyLeaves(logMaxOperands+1),
 		leaf(ContainsAny, "p", ints(100), schema.DataTypeInt),
-		leaf(OperatorEqual, "p", strings.Repeat("x", 2*logMaxStringChars), schema.DataTypeText),
+		leaf(OperatorEqual, "p", strings.Repeat("x", 2*LogMaxStringChars), schema.DataTypeText),
 		notChain(logMaxNodes),
 	)}}
 	before, err := json.Marshal(f)
