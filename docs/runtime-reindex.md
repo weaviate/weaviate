@@ -1085,9 +1085,10 @@ Then, per shard load:
      also holds an unreadable record: then it fails its migration, as on
      any shard. The shard list (`GET /v1/schema/<class>/shards`) shows
      only READONLY, with no reason, the same as under disk pressure. The
-     owning node logs one line when the hold starts, never per tick, naming
-     the shard, the cause and the way out. A refused write and a refused
-     lift carry the cause too.
+     owning node logs one Error line per hold, when it starts, naming the
+     shard, the cause and the way out. The scheduler's generic Info line
+     about a retryable step still repeats each tick while a step waits. A
+     refused write and a refused lift carry the cause too.
      - Only a manual status update lifts the hold. A vector-index config
        change is refused while the shard is READONLY, and disk-pressure
        recovery lifts only its own reason.

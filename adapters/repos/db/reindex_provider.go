@@ -91,7 +91,8 @@ type ReindexProvider struct {
 	// the double-write callbacks registered via OnAfterLsmInit. Creating new
 	// task instances in OnGroupCompleted would lose those callbacks.
 	reindexTasks map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric
-	endedTasks   map[distributedtask.TaskDescriptor]struct{}
+	// A load after a task ended must not cache it again. Guarded by [mu].
+	endedTasks map[distributedtask.TaskDescriptor]struct{}
 
 	// activeWorkers tracks units that currently have a per-unit goroutine
 	// inside processOneUnit's iteration body. The re-entry guard reads
