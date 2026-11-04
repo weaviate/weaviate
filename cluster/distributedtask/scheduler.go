@@ -843,7 +843,10 @@ func (s *Scheduler) reconcileRunningTasks(
 			defer s.mu.Unlock()
 			s.recordRunningTaskHandleLocked(namespace, activeTask.TaskDescriptor, handle)
 		}()
-		s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
+		// Sampled: a task whose unit waits on an operator is relaunched on every tick and wake.
+		s.sampledLogger.WithSampling(func(logrus.FieldLogger) {
+			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
+		})
 	}
 	for _, kill := range toTerminate {
 		kill.handle.Terminate()

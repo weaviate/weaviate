@@ -665,16 +665,19 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 				CompletionRecorder: outcome, AckRecorder: outcome,
 				TaskLister: outcome,
 				Providers:  map[string]distributedtask.Provider{ReindexNamespace: fx.provider},
-				Logger:     fx.logger, LocalNode: node, TickInterval: 20 * time.Millisecond,
+				Logger:     fx.logger, LocalNode: node, TickInterval: 200 * time.Millisecond,
 			})
 			require.NoError(t, sched.Start(fx.ctx))
 			t.Cleanup(sched.Close)
 
-			require.Never(t, func() bool { return len(outcome.done) > 0 }, time.Second, 20*time.Millisecond,
+			// Each wake relaunches a waiting step, as unit events elsewhere in the cluster do.
+			require.Never(t, func() bool { sched.Wake(); return len(outcome.done) > 0 }, time.Second, 20*time.Millisecond,
 				"the step must wait while the shard is held")
-			// The step retries every tick, so it may log nothing per tick at Info.
-			retries := 0
+			retries, infoOrAbove := 0, 0
 			for _, e := range logs.AllEntries() {
+				if e.Level <= logrus.InfoLevel {
+					infoOrAbove++
+				}
 				if e.Data["groupID"] == fx.name {
 					retries++
 					require.Greaterf(t, e.Level, logrus.InfoLevel, "per-tick line: %s", e.Message)
@@ -682,6 +685,8 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 				}
 			}
 			require.Equal(t, tc.status != distributedtask.TaskStatusStarted, retries > 0)
+			// At most two windows of the scheduler's sampled lines, plus the waiting unit's own Warn budget.
+			require.LessOrEqual(t, infoOrAbove, 2*5+maxReportedErrors)
 			fx.healRecords(t)
 			require.NoError(t, os.Remove(fx.corrupt))
 			require.NoError(t, shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate))

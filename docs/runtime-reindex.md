@@ -1086,8 +1086,11 @@ Then, per shard load:
      any shard. The shard list (`GET /v1/schema/<class>/shards`) shows
      only READONLY, with no reason, the same as under disk pressure. The
      owning node logs one Error line per hold, when it starts, naming the
-     shard, the cause and the way out. A waiting step adds no Info line
-     per tick; the scheduler's retry line is at Debug and names the hold.
+     shard, the cause and the way out. A waiting step's retry line is at
+     Debug and names the hold. A task whose unit waits is relaunched on
+     every tick and wake, and its "started distributed task execution"
+     line is sampled: at most 5 a node per 5 ticks, a budget shared with
+     the scheduler's one-off errors, which many waiting tasks can crowd out.
      A unit that waits, including one of a migration submitted after the
      hold began, logs a Warn naming its task, unit and shard. These lines
      share one budget with the line about a teardown holding a unit: at
