@@ -540,9 +540,14 @@ type TaskStatusEntry struct {
 	GroupDecided bool
 }
 
-// StatusEntryFor answers for one group: a copy of every decided group would
+// StatusEntryFor answers for one shard: a copy of every decided group would
 // cost the tenant count on each of the tenant count's shards.
-func (t *Task) StatusEntryFor(group string) TaskStatusEntry {
+func (t *Task) StatusEntryFor(shard string) TaskStatusEntry {
+	group := shard
+	// An ungrouped run holds every shard in its one group, "".
+	if t.hasGroup("") {
+		group = ""
+	}
 	return TaskStatusEntry{TaskDescriptor: t.TaskDescriptor, Status: t.Status, GroupDecided: t.GroupSwapDecided(group)}
 }
 
