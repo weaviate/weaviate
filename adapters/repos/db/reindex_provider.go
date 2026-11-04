@@ -517,7 +517,7 @@ func (p *ReindexProvider) processOneUnit(
 	// Load up front, so a shard that cannot load fails the unit before it is
 	// claimed, and pin for the run: runCtx ends when the shard is asked to unload
 	// or drop. Released before a completion or failure record, which can wait.
-	concreteShard, runCtx, releasePin, err := pinShardByName(ctx, idx, shardName, false)
+	concreteShard, runCtx, holdPin, releasePin, err := pinShardByName(ctx, idx, shardName, false)
 	defer releasePin()
 	if err != nil {
 		p.failUnit(ctx, task, unitID, recorder, err.Error())
@@ -668,7 +668,7 @@ func (p *ReindexProvider) processOneUnit(
 		if semantic {
 			runErr = reindexTask.RunReindexOnlyOnShard(runCtx, concreteShard)
 		} else {
-			runErr = reindexTask.RunOnShard(runCtx, concreteShard)
+			runErr = runFormatOnlyTask(runCtx, holdPin, reindexTask, concreteShard)
 		}
 		if runErr != nil {
 			// Failed, as when an unload closed the buckets under an unpinned run.
@@ -697,6 +697,30 @@ func (p *ReindexProvider) processOneUnit(
 		logger.Errorf("reindex provider: failed to record completion: %v", err)
 		return
 	}
+}
+
+// runFormatOnlyTask is RunOnShard with the prep and swap holding the pin through
+// a shutdown request: both take buckets out of the store, and a cancelled
+// Bucket.Shutdown keeps its registry claim and handles, so the shard could not
+// reload until a restart. Iteration still yields, and a drop still cancels.
+func runFormatOnlyTask(runCtx context.Context, hold pinHold, task *ShardReindexTaskGeneric, shard *Shard) error {
+	// An earlier task's hold may have ended in a yield.
+	if err := runCtx.Err(); err != nil {
+		return err
+	}
+	runPrepareAndSwap, err := task.runReindexOnlyOnShard(runCtx, shard)
+	if err != nil || !runPrepareAndSwap {
+		return err
+	}
+	restore := hold()
+	defer restore()
+	if err := runCtx.Err(); err != nil {
+		return err
+	}
+	if err := task.RunPrepareOnShard(runCtx, shard); err != nil {
+		return err
+	}
+	return task.RunSwapOnShard(runCtx, shard)
 }
 
 const migrationUnitContentionWindow = time.Minute
@@ -1051,7 +1075,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 
 	shardName := payload.UnitToShard[unitID]
 	// A phase renames dirs and moves sentinels, so it never stops half-way on a shutdown request.
-	concreteShard, runCtx, release, err := pinShardByName(ctx, idx, shardName, true)
+	concreteShard, runCtx, _, release, err := pinShardByName(ctx, idx, shardName, true)
 	if err != nil {
 		logger.WithField("unit", unitID).WithField("shard", shardName).
 			Errorf("reindex provider: resolveUnitForPhase: shard lookup failed: %v", err)
@@ -2618,28 +2642,29 @@ func (db *DB) ShardReplicaOwnership(ctx context.Context, className string) (map[
 //
 // With dropOnly the run keeps its pin through a shutdown request, which then
 // waits on it for at most Shutdown's bounded retries before the release
-// completes the shutdown; only a drop cancels it.
-func pinShardByName(ctx context.Context, idx *Index, shardName string, dropOnly bool) (*Shard, context.Context, func(), error) {
+// completes the shutdown; only a drop cancels it. hold narrows a yielding pin to
+// that for part of a run; it is nil on error.
+func pinShardByName(ctx context.Context, idx *Index, shardName string, dropOnly bool) (*Shard, context.Context, pinHold, func(), error) {
 	if idx.closeCause() != nil {
-		return nil, ctx, func() {}, fmt.Errorf("shard %q not found", shardName)
+		return nil, ctx, nil, func() {}, fmt.Errorf("shard %q not found", shardName)
 	}
 	shard, concrete, release, err := idx.loadAndPinShard(ctx, shardName)
 	if err != nil {
 		// Callers hit mustLoad-backed methods, which panic on a recovering shard.
 		if enterrors.IsShardRecovering(err) {
-			return nil, ctx, func() {}, fmt.Errorf("shard %q is recovering from a peer", shardName)
+			return nil, ctx, nil, func() {}, fmt.Errorf("shard %q is recovering from a peer", shardName)
 		}
-		return nil, ctx, func() {}, fmt.Errorf("pin shard %q: %w", shardName, err)
+		return nil, ctx, nil, func() {}, fmt.Errorf("pin shard %q: %w", shardName, err)
 	}
 	if shard == nil {
-		return nil, ctx, func() {}, fmt.Errorf("shard %q not found", shardName)
+		return nil, ctx, nil, func() {}, fmt.Errorf("shard %q not found", shardName)
 	}
+	yield := concrete.yieldOnTeardown
 	if dropOnly {
-		runCtx, release := concrete.yieldOnDrop(ctx, release)
-		return concrete, runCtx, release, nil
+		yield = concrete.yieldOnDrop
 	}
-	runCtx, release := concrete.yieldOnTeardown(ctx, release)
-	return concrete, runCtx, release, nil
+	pin, release := yield(ctx, release)
+	return concrete, pin.ctx, func() func() { return concrete.holdThroughShutdown(pin) }, release, nil
 }
 
 // shardYielded reports a run stopped because its shard was asked to unload or
