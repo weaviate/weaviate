@@ -1042,14 +1042,17 @@ Then, per shard load:
    version, and a change-tokenization half is chosen by the record's
    strategy code. The narrow window — "iterated but not yet promoted" —
    is exactly the recovery gap the design exists to close. A record it
-   cannot build a task from is stamped `Unmirrored`. New tasks seed the
+   cannot build a task from is stamped `Unmirrored`, unless another record
+   on the shard is unreadable, which freezes the store and the load
+   reconciler instead. New tasks seed the
    provider's per-descriptor task cache, so `OnGroupCompleted` reuses
    the armed instances instead of calling `OnAfterLsmInit` a second
    time (which would attempt to load already-loaded ingest buckets). A
    reload of the same shard gets back the instances the provider holds,
    which is their only owner. A load after the task ended still arms its
-   migration from the record but caches nothing, so ended tasks do not
-   accumulate in memory.
+   migration from the record but caches nothing, so an ended task's
+   instances are not kept; the provider keeps one descriptor per ended
+   task until restart.
 4. The load reconciler runs over the same records. It runs after the
    stamp, because it must not promote stale staged data over the live
    bucket.
