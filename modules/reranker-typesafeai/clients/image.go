@@ -111,7 +111,7 @@ func checkImage(encoded string) error {
 }
 
 func imageSizeError(size int) error {
-	return fmt.Errorf("%d bytes exceed the limit of %d MB per image", size, maxImageBytes>>20)
+	return fmt.Errorf("%d bytes exceed the limit of %d MiB per image", size, maxImageBytes>>20)
 }
 
 // pngSize reads the IHDR chunk. An animated PNG carries an acTL chunk before
