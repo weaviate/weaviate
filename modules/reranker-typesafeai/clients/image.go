@@ -179,16 +179,16 @@ func checkImages(documents []ent.Document, positions []int) error {
 
 // assetsOf returns the documents of a request as assets and the references
 // the state holds, image_i for the i-th document.
-func assetsOf(documents []string) (map[string]imageAsset, []string, error) {
+func assetsOf(documents []ent.Document) (map[string]imageAsset, []string, error) {
 	assets := make(map[string]imageAsset, len(documents))
 	references := make([]string, len(documents))
 	for i, document := range documents {
-		format, err := imageFormat(document)
+		format, err := imageFormat(document.Value)
 		if err != nil {
-			return nil, nil, fmt.Errorf("image: %w", err)
+			return nil, nil, fmt.Errorf("object %s: image: %w", document.ID, err)
 		}
 		reference := "image_" + strconv.Itoa(i)
-		assets[reference] = imageAsset{Type: assetTypeImage, DataBase64: document, Format: format}
+		assets[reference] = imageAsset{Type: assetTypeImage, DataBase64: document.Value, Format: format}
 		references[i] = reference
 	}
 	return assets, references, nil
