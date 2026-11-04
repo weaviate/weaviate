@@ -97,6 +97,7 @@ func TestRankPacksDocuments(t *testing.T) {
 func TestRankBatchesByCountAndCharacters(t *testing.T) {
 	tests := []struct {
 		name      string
+		query     string
 		documents []string
 		wantSizes []int
 	}{
@@ -112,18 +113,79 @@ func TestRankBatchesByCountAndCharacters(t *testing.T) {
 			},
 			wantSizes: []int{1, 2},
 		},
+		{
+			// A document costs 1 byte, its question prefix 16 and the query
+			// 20,000: 20,017 bytes, so 4 fit in a request.
+			name:      "12 one-byte documents with a 20,000-byte query",
+			query:     strings.Repeat("q", 20_000),
+			documents: strings.Split("abcdefghijkl", ""),
+			wantSizes: []int{4, 4, 4},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFake(t)
 			f.probabilities = distinctProbabilities(tt.documents)
+			query := tt.query
+			if query == "" {
+				query = churn
+			}
 
-			res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+			res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), query, "text",
 				documentsOf(tt.documents...), classConfig(f.url(), nil))
 
 			require.NoError(t, err)
 			assert.Equal(t, expectedScores(tt.documents, f.probabilities), res.DocumentScores)
 			assert.Equal(t, tt.wantSizes, sizes(f.received()))
+		})
+	}
+}
+
+func TestRankRejectsAQueryTooLongToRepeatInARequest(t *testing.T) {
+	longest := MaxBatchCharacters - len("In document_49: ")
+	tests := []struct {
+		name      string
+		query     string
+		property  string
+		documents []string
+		wantErr   string
+	}{
+		{
+			name:      "a query whose question fills a request",
+			query:     strings.Repeat("q", longest),
+			property:  "text",
+			documents: []string{noRefund},
+			wantErr:   "rerank.query is 99984 bytes; reranker-typesafeai repeats it for every document within 100000 bytes per request",
+		},
+		{
+			name:      "the same query before an image outside the limits",
+			query:     strings.Repeat("q", longest),
+			property:  "photo",
+			documents: []string{encodedImage(t, "png", 100, 100)},
+			wantErr:   "rerank.query is 99984 bytes; reranker-typesafeai repeats it for every document within 100000 bytes per request",
+		},
+		{
+			name:      "one byte shorter",
+			query:     strings.Repeat("q", longest-1),
+			property:  "text",
+			documents: []string{noRefund},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+
+			res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), tt.query, tt.property,
+				documentsOf(tt.documents...), classConfig(f.url(), nil))
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				assert.Empty(t, f.received())
+				return
+			}
+			require.NoError(t, err)
+			assert.Len(t, res.DocumentScores, 1)
+			assert.Len(t, f.received(), 1)
 		})
 	}
 }
@@ -406,7 +468,8 @@ func TestRankCapsRequestsInFlight(t *testing.T) {
 	f := newFake(t)
 	f.delay = 20 * time.Millisecond
 	c := New(defaultFakeKey, testTimeout, 2, nullLogger())
-	// 33 documents of 3,000 characters fit in a request, so 200 are 7 requests.
+	// 32 documents of 3,000 characters and their questions fit in a request,
+	// so 200 are 7 requests.
 	queries := [][]string{
 		numbered("first %03d "+strings.Repeat("x", 2_990), 200),
 		numbered("second %03d "+strings.Repeat("x", 2_989), 200),
