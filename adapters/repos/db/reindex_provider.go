@@ -1121,8 +1121,8 @@ func unreadableRecordFault(store *MigrationRecordStore) string {
 		names = append(names, fmt.Sprintf("(and %d more)", more))
 	}
 	return fmt.Sprintf("%d migration record(s) on this shard are not understood (%s), so whether "+
-		"this unit is still in flight is unknown, and no reindex unit passes this check on this "+
-		"shard until they are fixed and the shard reloads; first reason: %s",
+		"this unit is still in flight is unknown and it is refused. Fix them and reload the shard "+
+		"before migrating it again; first reason: %s",
 		len(unreadable), strings.Join(names, ", "), unreadable[0].Reason)
 }
 
