@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -247,6 +248,56 @@ func TestInsert_RetryAfterFailedLinkWrite(t *testing.T) {
 	}
 }
 
+// newStressIndex opens an index with random levels over vectors; ids in gone
+// are reported as deleted from the object store
+func newStressIndex(t *testing.T, compressed bool, vectors [][]float32, gone *sync.Map, maxConns int) *hnsw {
+	ctx := context.Background()
+	store := testinghelpers.NewDummyStore(t)
+	t.Cleanup(func() { store.Shutdown(ctx) })
+	uc := ent.UserConfig{}
+	uc.SetDefaults()
+	uc.MaxConnections = maxConns
+	uc.EFConstruction = 64
+	uc.VectorCacheMaxObjects = 100000
+	if compressed {
+		uc.RQ = ent.RQConfig{Enabled: true, Bits: 8}
+	} else {
+		uc.RQ.Enabled = false
+		uc.SkipDefaultQuantization = true
+	}
+	index, err := New(Config{
+		RootPath:              t.TempDir(),
+		ID:                    "stress",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			if _, ok := gone.Load(id); ok {
+				return nil, storobj.NewErrNotFoundf(id, "deleted from object store")
+			}
+			return vectors[id], nil
+		},
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		AllocChecker:                 memwatch.NewDummyMonitor(),
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+	}, uc, cyclemanager.NewCallbackGroupNoop(), store)
+	require.NoError(t, err)
+	t.Cleanup(func() { index.Shutdown(ctx) })
+	index.PostStartup(ctx)
+	return index
+}
+
+// requireAllReachable checks a search for each live id's vector returns it
+func requireAllReachable(t *testing.T, index *hnsw, vectors [][]float32, live []uint64) {
+	t.Helper()
+	ctx := context.Background()
+	for _, id := range live {
+		found, _, err := index.SearchByVector(ctx, vectors[id], len(live), nil)
+		require.NoError(t, err)
+		require.Contains(t, found, id, "node %d is unreachable", id)
+	}
+}
+
 // Concurrent inserts, deletes and cleanup cycles: every live node stays
 // reachable and every layer stays within capacity without duplicates.
 func TestLayerMerge_ConcurrentInsertsDeletesCleanup(t *testing.T) {
@@ -262,35 +313,7 @@ func TestLayerMerge_ConcurrentInsertsDeletesCleanup(t *testing.T) {
 		t.Run(fmt.Sprintf("compressed=%v", compressed), func(t *testing.T) {
 			ctx := context.Background()
 			vectors, _ := testinghelpers.RandomVecsFixedSeed(total, 1, dimensions)
-			store := testinghelpers.NewDummyStore(t)
-			t.Cleanup(func() { store.Shutdown(ctx) })
-			uc := ent.UserConfig{}
-			uc.SetDefaults()
-			uc.MaxConnections = maxConns
-			uc.EFConstruction = 64
-			uc.VectorCacheMaxObjects = 100000
-			if compressed {
-				uc.RQ = ent.RQConfig{Enabled: true, Bits: 8}
-			} else {
-				uc.RQ.Enabled = false
-				uc.SkipDefaultQuantization = true
-			}
-			index, err := New(Config{
-				RootPath:              t.TempDir(),
-				ID:                    "layer-merge-stress",
-				MakeCommitLoggerThunk: MakeNoopCommitLogger,
-				DistanceProvider:      distancer.NewL2SquaredProvider(),
-				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-					return vectors[id], nil
-				},
-				GetViewThunk:                 GetViewThunk,
-				TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
-				AllocChecker:                 memwatch.NewDummyMonitor(),
-				MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
-			}, uc, cyclemanager.NewCallbackGroupNoop(), store)
-			require.NoError(t, err)
-			t.Cleanup(func() { index.Shutdown(ctx) })
-			index.PostStartup(ctx)
+			index := newStressIndex(t, compressed, vectors, &sync.Map{}, maxConns)
 
 			for i := range uint64(upfront) {
 				require.NoError(t, index.Add(ctx, i, vectors[i]))
@@ -337,12 +360,155 @@ func TestLayerMerge_ConcurrentInsertsDeletesCleanup(t *testing.T) {
 			require.NoError(t, index.CleanUpTombstonedNodes(neverStop))
 
 			requireLayersWellFormed(t, index)
-			live := idRange(deletes, total)
-			for _, id := range live {
-				found, _, err := index.SearchByVector(ctx, vectors[id], len(live), nil)
-				require.NoError(t, err)
-				require.Contains(t, found, id, "node %d is unreachable", id)
+			requireAllReachable(t, index, vectors, idRange(deletes, total))
+		})
+	}
+}
+
+// The live global entrypoint is deleted over and over while inserts import
+// and cleanup cycles run, in the production order: the object leaves the
+// store first, then the index delete. Every surviving node stays reachable
+// and the entrypoint ends on a live node.
+func TestEntrypoint_DeleteEntrypointDuringConcurrentImport(t *testing.T) {
+	const (
+		total      = 400
+		upfront    = 100
+		inserters  = 10
+		maxConns   = 8
+		dimensions = 16
+		deletes    = 40
+	)
+	for _, compressed := range []bool{false, true} {
+		for _, objectGone := range []bool{false, true} {
+			t.Run(fmt.Sprintf("compressed=%v/objectGone=%v", compressed, objectGone), func(t *testing.T) {
+				ctx := context.Background()
+				vectors, _ := testinghelpers.RandomVecsFixedSeed(total, 1, dimensions)
+				var gone sync.Map
+				index := newStressIndex(t, compressed, vectors, &gone, maxConns)
+				for i := range uint64(upfront) {
+					require.NoError(t, index.Add(ctx, i, vectors[i]))
+				}
+				require.Equal(t, compressed, index.Compressed())
+
+				var wg sync.WaitGroup
+				errs := make(chan error, inserters+1)
+				perInserter := (total - upfront) / inserters
+				for w := range inserters {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						from := uint64(upfront + w*perInserter)
+						for id := from; id < from+uint64(perInserter); id++ {
+							if err := index.Add(ctx, id, vectors[id]); err != nil {
+								errs <- fmt.Errorf("insert %d: %w", id, err)
+								return
+							}
+						}
+					}()
+				}
+				var deletedMu sync.Mutex
+				deleted := map[uint64]struct{}{}
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for i := range deletes {
+						ep := index.getEntrypoint()
+						deletedMu.Lock()
+						_, again := deleted[ep]
+						deleted[ep] = struct{}{}
+						deletedMu.Unlock()
+						if again {
+							// the entrypoint has not moved yet, give the inserts a turn
+							time.Sleep(time.Millisecond)
+							continue
+						}
+						if objectGone {
+							gone.Store(ep, struct{}{})
+							if compressed {
+								index.compressor.Delete(ctx, ep)
+							} else {
+								index.cache.Delete(ctx, ep)
+							}
+						}
+						if err := index.Delete(ep); err != nil {
+							errs <- fmt.Errorf("delete entrypoint %d: %w", ep, err)
+							return
+						}
+						if i%5 == 4 {
+							if err := index.CleanUpTombstonedNodes(neverStop); err != nil {
+								errs <- fmt.Errorf("cleanup: %w", err)
+								return
+							}
+						}
+					}
+				}()
+				wg.Wait()
+				close(errs)
+				for err := range errs {
+					require.NoError(t, err)
+				}
+				require.NoError(t, index.CleanUpTombstonedNodes(neverStop))
+
+				ep := index.getEntrypoint()
+				_, epDeleted := deleted[ep]
+				require.False(t, epDeleted, "entrypoint %d was deleted", ep)
+				require.NotNil(t, index.nodeByID(ep))
+				require.False(t, index.hasTombstone(ep))
+				require.Greater(t, len(deleted), 1, "the entrypoint must have moved")
+				t.Logf("deleted %d distinct entrypoints during the import", len(deleted))
+				var live []uint64
+				for id := range uint64(total) {
+					if _, ok := deleted[id]; !ok {
+						live = append(live, id)
+					}
+				}
+				requireLayersWellFormed(t, index)
+				requireAllReachable(t, index, vectors, live)
+			})
+		}
+	}
+}
+
+// Cleanup of a deleted entrypoint lands in the middle of an insert's level
+// search: the deleted node disappears and the new entrypoint is rewired while
+// the insert runs.
+func TestEntrypoint_CleanupOfDeletedEntrypointDuringInsert(t *testing.T) {
+	for _, objectGone := range []bool{false, true} {
+		t.Run(fmt.Sprintf("objectGone=%v", objectGone), func(t *testing.T) {
+			f := newBootstrapFixtureWith(t, false, 4, 12)
+			oldEP := f.index.getEntrypoint()
+			if objectGone {
+				f.deleteFromObjectStore(oldEP)
 			}
+			require.NoError(t, f.index.Delete(oldEP))
+			newEP := f.index.getEntrypoint()
+			require.NotEqual(t, oldEP, newEP)
+
+			// the search from the new entrypoint asks for a neighbor's vector
+			var probe uint64
+			for _, id := range f.layer(newEP, 0) {
+				if id != oldEP {
+					probe = id
+					break
+				}
+			}
+			require.NotEqual(t, newEP, probe)
+			f.evict(probe)
+			var cleaned atomic.Bool
+			f.setVectorHook(probe, func() {
+				require.NotNil(t, f.index.nodeByID(12), "the hook must run after the node joined")
+				require.NoError(t, f.index.CleanUpTombstonedNodes(neverStop))
+				cleaned.Store(true)
+			})
+
+			f.addWithin(t, 12, 10*time.Second)
+			require.True(t, cleaned.Load(), "cleanup must have run during the insert")
+			require.Nil(t, f.index.nodeByID(oldEP))
+			require.False(t, f.index.hasTombstone(oldEP))
+			live := append(idRange(0, 12), 12)
+			live = without(live, []uint64{oldEP})
+			f.requireLayersWellFormed(t)
+			f.requireReachable(t, live...)
 		})
 	}
 }
