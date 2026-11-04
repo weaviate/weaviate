@@ -51,6 +51,7 @@ func (s *testMigrationStrategy) OnMigrationComplete(_ context.Context, _ ShardLi
 // testShardReindexer wraps a single task into a ShardReindexerV3 for use
 // during shard initialization. It calls task methods synchronously.
 type testShardReindexer struct {
+	shardReindexerV3Noop
 	task *ShardReindexTaskGeneric
 }
 
@@ -60,11 +61,6 @@ func (r *testShardReindexer) RecoverMigrations(*Shard) []*ShardReindexTaskGeneri
 
 func (r *testShardReindexer) AbandonUnarmed(*Shard, []*ShardReindexTaskGeneric, error) error {
 	return nil
-}
-
-func (r *testShardReindexer) ClaimUnits(tasks []*ShardReindexTaskGeneric,
-) ([]*ShardReindexTaskGeneric, []*ShardReindexTaskGeneric, func()) {
-	return tasks, nil, func() {}
 }
 
 func createTestObjectWithText(className, text string) *storobj.Object {

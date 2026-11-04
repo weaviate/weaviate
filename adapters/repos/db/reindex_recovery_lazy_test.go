@@ -446,54 +446,7 @@ func TestLiftingAHeldShardDoesNotWaitOnAStuckDisk(t *testing.T) {
 		"the shutdown completes once the arm ends")
 }
 
-// A lift that stops waiting must not end the arm. A stamp written because a caller gave up
-// would fail a healthy migration for good.
-func TestALiftThatStopsWaitingStillArmsTheMirror(t *testing.T) {
-	fx := newDoubleFaultFixture(t, "tenant-lift-gives-up")
-	reg := prometheus.NewRegistry()
-	fx.idx.bucketLoadLimiter = loadlimiter.NewLoadLimiter(reg, "buckets", 1)
-	fx.breakDisk(t)
-	shard := fx.load(t)
-	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
-	fx.healRecords(t)
-	require.NoError(t, os.Remove(fx.corrupt))
-
-	// A busy limiter parks the arm, and the caller stops waiting only once it is parked.
-	require.NoError(t, fx.idx.bucketLoadLimiter.Acquire(fx.ctx))
-	lift := make(chan error, 1)
-	enterrors.GoWrapper(func() {
-		lift <- shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate)
-	}, fx.logger)
-	requireArmParked(t, reg)
-	shard.shutCtxCancel(errors.New("dropped"))
-	require.Error(t, receiveWithin(t, lift))
-	fx.idx.bucketLoadLimiter.Release()
-
-	require.Eventually(t, func() bool { return len(shard.migrationMirrors.heldUnarmed()) == 0 },
-		10*time.Second, 10*time.Millisecond, "the arm releases the hold")
-	rec, ok := shard.migrationRecords.Get(fx.subject.Key)
-	require.True(t, ok)
-	require.False(t, rec.Subject().Unmirrored, "a caller giving up must not stamp the migration")
-	require.NotZero(t, shard.migrationMirrors.ArmedMigrationMirrors())
-	for name, b := range shard.store.GetBucketsByName() {
-		require.Equalf(t, storagestate.StatusReadOnly, b.GetStatus(), "bucket %s opened after the caller left", name)
-	}
-}
-
-func requireArmParked(t *testing.T, reg *prometheus.Registry) {
-	require.Eventually(t, func() bool {
-		families, err := reg.Gather()
-		require.NoError(t, err)
-		for _, f := range families {
-			if f.GetName() == "buckets_waiting_for_permit_to_load" {
-				return f.GetMetric()[0].GetGauge().GetValue() == 1
-			}
-		}
-		return false
-	}, 10*time.Second, 10*time.Millisecond, "the arm parks on the limiter")
-}
-
-// newParkedLift loads a held shard, heals both faults and starts a lift whose arm parks on a busy limiter.
+// newParkedLift heals a held shard and starts a lift whose arm parks on a busy limiter.
 func newParkedLift(t *testing.T, name string) (*doubleFaultFixture, *Shard, <-chan error) {
 	fx := newDoubleFaultFixture(t, name)
 	reg := prometheus.NewRegistry()
@@ -509,21 +462,44 @@ func newParkedLift(t *testing.T, name string) (*doubleFaultFixture, *Shard, <-ch
 	enterrors.GoWrapper(func() {
 		lift <- shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate)
 	}, fx.logger)
-	requireArmParked(t, reg)
+	require.Eventually(t, func() bool {
+		families, err := reg.Gather()
+		require.NoError(t, err)
+		for _, f := range families {
+			if f.GetName() == "buckets_waiting_for_permit_to_load" {
+				return f.GetMetric()[0].GetGauge().GetValue() == 1
+			}
+		}
+		return false
+	}, 10*time.Second, 10*time.Millisecond, "the arm parks on the limiter")
 	return fx, shard, lift
 }
 
-// A migration cancelled while a lift's arm runs is cleaned up only after the arm, so no mirror
-// keeps copying writes into a staged directory that no record answers for.
+// A lift that stops waiting must not end the arm. A stamp written because a caller gave up
+// would fail a healthy migration for good.
+func TestALiftThatStopsWaitingStillArmsTheMirror(t *testing.T) {
+	fx, shard, lift := newParkedLift(t, "tenant-lift-gives-up")
+	shard.shutCtxCancel(errors.New("dropped"))
+	require.Error(t, receiveWithin(t, lift))
+	fx.idx.bucketLoadLimiter.Release()
+
+	require.Eventually(t, func() bool { return len(shard.migrationMirrors.heldUnarmed()) == 0 },
+		10*time.Second, 10*time.Millisecond, "the arm releases the hold")
+	rec, ok := shard.migrationRecords.Get(fx.subject.Key)
+	require.True(t, ok)
+	require.False(t, rec.Subject().Unmirrored, "a caller giving up must not stamp the migration")
+	require.NotZero(t, shard.migrationMirrors.ArmedMigrationMirrors())
+	for name, b := range shard.store.GetBucketsByName() {
+		require.Equalf(t, storagestate.StatusReadOnly, b.GetStatus(), "bucket %s opened after the caller left", name)
+	}
+}
+
+// Cleanup of a migration cancelled during a lift waits for the arm, so no mirror outlives its record.
 func TestCleanupOfACancelledMigrationWaitsForTheLiftsArm(t *testing.T) {
 	fx, shard, lift := newParkedLift(t, "tenant-lift-cleanup")
-	staged := filepath.Join(shardPathLSM(fx.idx.path(), fx.name), fx.subject.Props["title"].Staged)
-
 	cleaned := make(chan error, 1)
 	enterrors.GoWrapper(func() {
-		ctx, cancel := context.WithTimeout(fx.ctx, 20*time.Second)
-		defer cancel()
-		unseal, err := fx.provider.SealLocalTaskDrain(ctx, fx.desc)
+		unseal, err := fx.provider.SealLocalTaskDrain(fx.ctx, fx.desc)
 		if err != nil {
 			cleaned <- err
 			return
@@ -532,28 +508,18 @@ func TestCleanupOfACancelledMigrationWaitsForTheLiftsArm(t *testing.T) {
 		task := &distributedtask.Task{TaskDescriptor: fx.desc, Status: distributedtask.TaskStatusCancelled}
 		cleaned <- fx.idx.discardTaskRecordsOn(fx.ctx, fx.name, task)
 	}, fx.logger)
-	// Unclaimed, the cleanup finishes while the arm is parked; claimed, it waits for the arm.
-	var cleanupErr error
-	finished := false
-	select {
-	case cleanupErr = <-cleaned:
-		finished = true
-	case <-time.After(time.Second):
-	}
+	require.Never(t, func() bool { return len(cleaned) > 0 }, time.Second, 10*time.Millisecond,
+		"cleanup waits for the arm's unit claim")
 	fx.idx.bucketLoadLimiter.Release()
 
 	require.NoError(t, receiveWithin(t, lift))
-	if !finished {
-		cleanupErr = receiveWithin(t, cleaned)
-	}
-	require.NoError(t, cleanupErr)
+	require.NoError(t, receiveWithin(t, cleaned))
 	_, ok := shard.migrationRecords.Get(fx.subject.Key)
-	require.False(t, ok, "the record is removed")
-	require.Zero(t, shard.migrationMirrors.ArmedMigrationMirrors(), "no mirror outlives its record")
-	require.NoDirExists(t, staged)
+	require.False(t, ok)
+	require.Zero(t, shard.migrationMirrors.ArmedMigrationMirrors())
+	require.NoDirExists(t, filepath.Join(shardPathLSM(fx.idx.path(), fx.name), fx.subject.Props["title"].Staged))
 }
 
-// A lift whose migration a teardown already sealed arms nothing for it and stays refused.
 func TestALiftSkipsAMigrationATeardownHolds(t *testing.T) {
 	fx := newDoubleFaultFixture(t, "tenant-lift-sealed")
 	fx.breakDisk(t)
@@ -565,20 +531,20 @@ func TestALiftSkipsAMigrationATeardownHolds(t *testing.T) {
 	unseal, sealed := fx.provider.SealLocalUnit(fx.desc, fx.subject.Key.UnitID)
 	require.True(t, sealed)
 	defer unseal()
-	err := shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate)
-	require.ErrorContains(t, err, "a teardown holds the unit")
+	require.ErrorContains(t, shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate),
+		"a teardown holds the unit")
 	require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
 	require.Zero(t, shard.migrationMirrors.ArmedMigrationMirrors())
 	require.Len(t, shard.migrationMirrors.heldUnarmed(), 1)
 }
 
-// A second lift that read the held set before the first lift's arm settled it must not arm again.
-// If that second arm failed, it would stamp a migration the first arm had armed.
+// A second lift that read the held set before the first lift's late arm settled it must not arm
+// again: a failing second arm would stamp a migration the first one armed.
 func TestASecondLiftDoesNotRearmWhatTheFirstSettled(t *testing.T) {
 	fx, shard, liftA := newParkedLift(t, "tenant-lift-second")
 	staged := filepath.Join(shardPathLSM(fx.idx.path(), fx.name), fx.subject.Props["title"].Staged)
 
-	// Holding shutdownLock parks lift B after its first read of the held set, before liftRetry.
+	// Holding shutdownLock parks lift B between its first read of the held set and liftRetry.
 	shard.shutdownLock.Lock()
 	unlock := sync.OnceFunc(shard.shutdownLock.Unlock)
 	t.Cleanup(unlock)
@@ -586,21 +552,19 @@ func TestASecondLiftDoesNotRearmWhatTheFirstSettled(t *testing.T) {
 	enterrors.GoWrapper(func() {
 		liftB <- shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate)
 	}, fx.logger)
-	time.Sleep(200 * time.Millisecond) // no observable point between B's read and its wait on the lock
+	time.Sleep(200 * time.Millisecond) // nothing to observe between B's read and its wait on the lock
 
 	fx.idx.bucketLoadLimiter.Release()
 	require.NoError(t, receiveWithin(t, liftA))
-	// A stat on a self-referencing symlink fails, so any second arm fails and would stamp.
+	// stat fails on a self-referencing symlink, so a second arm would fail and stamp.
 	require.NoError(t, os.Rename(staged, staged+".moved"))
 	require.NoError(t, os.Symlink(filepath.Base(staged), staged))
 	unlock()
 	require.NoError(t, receiveWithin(t, liftB))
-	require.NoError(t, os.Remove(staged))
-	require.NoError(t, os.Rename(staged+".moved", staged))
 
 	rec, ok := shard.migrationRecords.Get(fx.subject.Key)
 	require.True(t, ok)
-	require.False(t, rec.Subject().Unmirrored, "the migration the first lift armed is not stamped")
+	require.False(t, rec.Subject().Unmirrored)
 	require.Len(t, fx.provider.cachedReindexTasks(fx.desc, fx.subject.Key.UnitID), 1)
 }
 

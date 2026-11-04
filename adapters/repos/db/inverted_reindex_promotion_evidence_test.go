@@ -217,15 +217,10 @@ func aColdShardWithMergedStagedData(t *testing.T, ctx context.Context, class *mo
 	return idx, cold, preStrategy
 }
 
-type noRecoveryTaskReindexer struct{}
+type noRecoveryTaskReindexer struct{ shardReindexerV3Noop }
 
 func (r *noRecoveryTaskReindexer) RecoverMigrations(*Shard) []*ShardReindexTaskGeneric { return nil }
 
 func (r *noRecoveryTaskReindexer) AbandonUnarmed(*Shard, []*ShardReindexTaskGeneric, error) error {
 	return nil
-}
-
-func (r *noRecoveryTaskReindexer) ClaimUnits(tasks []*ShardReindexTaskGeneric,
-) ([]*ShardReindexTaskGeneric, []*ShardReindexTaskGeneric, func()) {
-	return tasks, nil, func() {}
 }
