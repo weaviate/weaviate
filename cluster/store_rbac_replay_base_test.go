@@ -87,7 +87,10 @@ func TestRBACReplayBase(t *testing.T) {
 
 		roles, err := m.cfg.RBAC.GetRoles("operator")
 		require.NoError(t, err)
-		assert.Equal(t, []authorization.Policy{books}, roles["operator"], "policy.csv roles survive the boot")
+		usersGrant := backupsGrant(t, authorization.AllBackupUsers)
+		rolesGrant := backupsGrant(t, authorization.AllBackupRoles)
+		assert.ElementsMatch(t, []authorization.Policy{books, usersGrant, rolesGrant}, roles["operator"],
+			"policy.csv roles survive the boot and gain the backup wildcards")
 	})
 
 	t.Run("single-node recovery replays onto a cleared store", func(t *testing.T) {
