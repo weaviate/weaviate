@@ -49,20 +49,21 @@ func TestIsNotFoundIsDeleted(t *testing.T) {
 }
 
 func BenchmarkIsNotFound(b *testing.B) {
-	err := NotFound
-
-	b.Run("errors.Is", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			if !errors.Is(err, NotFound) {
-				b.Fatal("miss")
+	// a merge cursor asks every segment's state, which is mostly nil or Deleted
+	for _, err := range []error{nil, NotFound, Deleted} {
+		b.Run(fmt.Sprintf("errors.Is/%v", err), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				if errors.Is(err, NotFound) != (err == NotFound) { //nolint:errorlint // reference
+					b.Fatal("miss")
+				}
 			}
-		}
-	})
-	b.Run("IsNotFound", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			if !IsNotFound(err) {
-				b.Fatal("miss")
+		})
+		b.Run(fmt.Sprintf("IsNotFound/%v", err), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				if IsNotFound(err) != (err == NotFound) { //nolint:errorlint // reference
+					b.Fatal("miss")
+				}
 			}
-		}
-	})
+		})
+	}
 }
