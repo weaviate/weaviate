@@ -183,9 +183,14 @@ func (i *Index) userReadOnly(shardName string) bool {
 }
 
 func (i *Index) reportedStatus(shardName string, shard ShardLike) string {
+	// An unloaded lazy shard or an indexing one refuses writes like any other.
 	status := shard.GetStatus()
-	if (status == storagestate.StatusReady || status == storagestate.StatusIndexing) && i.userReadOnly(shardName) {
-		return storagestate.StatusReadOnly.String()
+	switch status {
+	case storagestate.StatusReady, storagestate.StatusIndexing, storagestate.StatusLazyLoading:
+		if i.userReadOnly(shardName) || i.db.resourcePressureReadOnly() {
+			status = storagestate.StatusReadOnly
+		}
+	default:
 	}
 	return status.String()
 }

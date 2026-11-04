@@ -263,6 +263,48 @@ func TestRepairIgnoresUserReadOnly(t *testing.T) {
 	require.True(t, found, "replicas must not diverge over read-only")
 }
 
+// A cold shard's read-only must show too, without loading the shard.
+func TestUserReadOnlyShowsOnEveryStatusEndpoint(t *testing.T) {
+	const class = "ReadOnlyEndpoints"
+	ctx := context.Background()
+	shard, idx, overlay := userReadOnlyIndex(t, class)
+	overlay.SetReadOnly(class, shard.Name(), true)
+	cold := newColdShard(idx, "cold_tenant")
+	idx.shards.Store("cold_tenant", cold)
+	t.Cleanup(func() { idx.shards.LoadAndDelete("cold_tenant") })
+	overlay.SetReadOnly(class, "cold_tenant", true)
+	readOnly := storagestate.StatusReadOnly.String()
+
+	t.Run("local status of a cold shard", func(t *testing.T) {
+		status, err := idx.localShardStatus(ctx, "cold_tenant")
+		require.NoError(t, err)
+		assert.Equal(t, readOnly, status)
+	})
+	t.Run("status a peer asks for", func(t *testing.T) {
+		status, err := idx.IncomingGetShardStatus(ctx, "cold_tenant")
+		require.NoError(t, err)
+		assert.Equal(t, readOnly, status)
+	})
+	t.Run("nodes API", func(t *testing.T) {
+		var status []*models.NodeShardStatus
+		_, _, err := idx.getShardsNodeStatus(ctx, &status, "")
+		require.NoError(t, err)
+		got := map[string]string{}
+		for _, s := range status {
+			got[s.Name] = s.VectorIndexingStatus
+		}
+		assert.Equal(t, readOnly, got["cold_tenant"], "cold")
+		assert.Equal(t, readOnly, got[shard.Name()], "loaded")
+	})
+	t.Run("an indexing shard", func(t *testing.T) {
+		busy := NewMockShardLike(t)
+		busy.EXPECT().GetStatus().Return(storagestate.StatusIndexing)
+		overlay.SetReadOnly(class, "busy", true)
+		assert.Equal(t, readOnly, idx.reportedStatus("busy", busy))
+	})
+	assert.False(t, cold.isLoaded())
+}
+
 // A reindex writes temp buckets while holding the store; a freeze upload would miss those writes.
 func TestFreezeHoldsAReindexsTempBuckets(t *testing.T) {
 	const class = "FreezeReindex"
