@@ -179,6 +179,7 @@ func (i *Index) cleanStalePartialReindexState(
 	}
 	shardErrs := errorcompounder.New()
 	skippedShards := 0
+	leftMap := map[string]struct{}{}
 	// One cache serves every sweep of a request, so only the delta belongs to
 	// this one; its running total would re-report the first sweep's refusals.
 	refusedBefore := dirs.refusedListings()
@@ -193,8 +194,7 @@ func (i *Index) cleanStalePartialReindexState(
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("%w: stopped before shard %q: %w", ErrCleanupSweepTruncated, name, ctxErr)
 		}
-		shard, ok := shardLike.(*Shard)
-		if !ok {
+		if _, ok := shardLike.(*Shard); !ok {
 			lazy, isLazy := asLazyLoadShard(shardLike)
 			if !isLazy {
 				// Unreachable in production (only two implementations exist).
@@ -208,18 +208,26 @@ func (i *Index) cleanStalePartialReindexState(
 				skippedShards++
 				return nil
 			}
-			unwrapped, _, unwrapErr := lazy.loadIfCold(ctx)
-			if unwrapErr != nil {
-				reported := fmt.Errorf(
-					"shard %q: unwrap for partial-reindex cleanup: %w", name, unwrapErr)
-				if truncated := truncatedByCancellation(reported); truncated != nil {
-					return truncated
-				}
-				shardErrs.Add(reported)
-				return nil
-			}
-			shard = unwrapped
 		}
+		// Pinned for the sweep: an unload must neither orphan the load nor close buckets mid-sweep.
+		shard, release, pinErr := i.pinShardForSweep(ctx, name)
+		if pinErr != nil {
+			reported := fmt.Errorf("shard %q: unwrap for partial-reindex cleanup: %w", name, pinErr)
+			switch {
+			case shardIsGoing(pinErr):
+				leftMap[name] = struct{}{}
+			case errors.Is(pinErr, ErrCleanupSweepTruncated):
+				return reported
+			default:
+				shardErrs.Add(reported)
+			}
+			return nil
+		}
+		if shard == nil {
+			leftMap[name] = struct{}{}
+			return nil
+		}
+		defer release()
 		if err := shard.CleanStalePartialReindexState(ctx, propName, indexType, dirs); err != nil {
 			reported := fmt.Errorf("shard %q: %w", name, err)
 			if truncated := truncatedByCancellation(reported); truncated != nil {
@@ -229,6 +237,10 @@ func (i *Index) cleanStalePartialReindexState(
 		}
 		return nil
 	})
+	if len(leftMap) > 0 {
+		walkErr = errors.Join(walkErr, fmt.Errorf("%w: left the map mid-walk: %s",
+			errShardsSkipped, strings.Join(ReportedShardNames(leftMap), ", ")))
+	}
 	var failedShards error
 	if reported := shardErrs.ToErrorLimited(maxReportedErrors); reported != nil {
 		failedShards = fmt.Errorf("%w: %w", ErrCleanupShardFailed, reported)
@@ -257,6 +269,26 @@ func (i *Index) cleanStalePartialReindexState(
 	}
 	i.logger.WithFields(fields).Log(level, msg)
 	return sweepErr
+}
+
+// pinShardForSweep pins the shard for its sweep, a nil shard meaning it left the
+// map. Only a load is subject to the namespace check, as in discardTaskRecordsOn.
+func (i *Index) pinShardForSweep(ctx context.Context, name string) (*Shard, func(), error) {
+	pinned, release, err := i.getLoadedShard(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	if pinned == nil {
+		if pinned, release, err = i.loadMappedShardForCleanup(ctx, name); err != nil || pinned == nil {
+			return nil, nil, err
+		}
+	}
+	shard, err := unwrapShard(ctx, pinned)
+	if err != nil {
+		release()
+		return nil, nil, fmt.Errorf("%w: %w", ErrCleanupShardFailed, err)
+	}
+	return shard, release, nil
 }
 
 // Fails open on an unreadable record set or listing; some unreadable records read as
