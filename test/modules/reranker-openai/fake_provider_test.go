@@ -1,14 +1,14 @@
-//	_       _
-//
+//                           _       _
 // __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//	\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
-//	 \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
-//	  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
-//	 Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//  CONTACT: hello@weaviate.io
 //
-//	 CONTACT: hello@weaviate.io
+
 package test
 
 import (
@@ -49,7 +49,7 @@ type fakeRequest struct {
 	body          wireRequest
 }
 
-// fakeReply answers every request with a status and a body instead of the
+// fakeReply answers a request with a status and a body instead of the
 // probabilities.
 type fakeReply struct {
 	status int
@@ -66,7 +66,7 @@ type fakeProvider struct {
 	mu            sync.Mutex
 	probabilities map[string]float64
 	refusals      map[string]bool
-	failure       *fakeReply
+	failures      map[string]fakeReply
 	requests      []fakeRequest
 }
 
@@ -89,13 +89,13 @@ func (f *fakeProvider) baseURL() string {
 // reset forgets the requests received and sets how the next ones are
 // answered: probabilities holds the probability of each document, a text or
 // the base64 of an image, refusals the documents the model refuses to judge,
-// and failure, when set, answers every request instead.
-func (f *fakeProvider) reset(probabilities map[string]float64, refusals map[string]bool, failure *fakeReply) {
+// and failures the documents answered with a status and a body instead.
+func (f *fakeProvider) reset(probabilities map[string]float64, refusals map[string]bool, failures map[string]fakeReply) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.probabilities = probabilities
 	f.refusals = refusals
-	f.failure = failure
+	f.failures = failures
 	f.requests = nil
 }
 
@@ -110,7 +110,7 @@ func (f *fakeProvider) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	decodeErr := json.NewDecoder(r.Body).Decode(&body)
 
 	f.mu.Lock()
-	failure := f.failure
+	failures := f.failures
 	probabilities, refusals := f.probabilities, f.refusals
 	f.requests = append(f.requests, fakeRequest{
 		path:          r.URL.Path,
@@ -120,16 +120,16 @@ func (f *fakeProvider) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 	f.mu.Unlock()
 
-	if failure != nil {
-		w.WriteHeader(failure.status)
-		io.WriteString(w, failure.body)
-		return
-	}
 	if decodeErr != nil {
 		http.Error(w, fmt.Sprintf("fake: decode request: %v", decodeErr), http.StatusBadRequest)
 		return
 	}
 	document := documentOf(body.Input)
+	if failure, ok := failures[document]; ok {
+		w.WriteHeader(failure.status)
+		io.WriteString(w, failure.body)
+		return
+	}
 	answer := map[string]any{"name": "condition"}
 	if refusals[document] {
 		answer["type"] = "refusal"
