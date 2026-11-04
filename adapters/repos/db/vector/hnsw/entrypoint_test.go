@@ -44,7 +44,8 @@ type bootstrapFixture struct {
 	onAddNode func(id uint64)
 	hookMu    sync.Mutex
 	// onVector runs when the object store is asked for id's vector, outside
-	// every index lock; evict the id from the cache first to make that happen
+	// every index lock; evict the id from the cache first to make that happen.
+	// The vector is read after the hook, so a hook may still remove it.
 	onVector func(id uint64)
 }
 
@@ -56,6 +57,16 @@ type hookedCommitLogger struct {
 	// dropWrites loses entrypoint changes and tombstones, like a crash before
 	// the log reached disk
 	dropWrites atomic.Bool
+	// dropReset loses the reset of an emptied graph, like a crash right after
+	// the last tombstone reached disk
+	dropReset atomic.Bool
+}
+
+func (l *hookedCommitLogger) Reset() error {
+	if l.dropReset.Load() {
+		return nil
+	}
+	return l.CommitLogger.Reset()
 }
 
 func (l *hookedCommitLogger) AddTombstone(id uint64) error {
@@ -131,14 +142,15 @@ func newBootstrapFixtureWith(t *testing.T, compressed bool, maxConnections, node
 		},
 		DistanceProvider: distancer.NewL2SquaredProvider(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			if _, gone := f.gone.Load(id); gone {
-				return nil, storobj.NewErrNotFoundf(id, "deleted from object store")
-			}
 			f.hookMu.Lock()
 			hook := f.onVector
 			f.hookMu.Unlock()
 			if hook != nil {
 				hook(id)
+			}
+			// after the hook, so a hook can make this very read fail
+			if _, gone := f.gone.Load(id); gone {
+				return nil, storobj.NewErrNotFoundf(id, "deleted from object store")
 			}
 			return f.vectors[id], nil
 		},

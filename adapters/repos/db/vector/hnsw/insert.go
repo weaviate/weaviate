@@ -468,7 +468,21 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 	// initially use the level of the entrypoint which is the highest level of
 	// the h-graph in the first iteration
 	currentMaximumLayer := h.currentMaximumLayer
+	tooSmall := id >= uint64(len(h.nodes))
 	h.RUnlock()
+
+	if tooSmall {
+		// the batch grew the node slice before taking deleteVsInsertLock and a
+		// reset in between shrank it; nothing shrinks it while the lock is held
+		h.Lock()
+		if id >= uint64(len(h.nodes)) {
+			if err := h.growIndexToAccomodateNode(id, h.logger); err != nil {
+				h.Unlock()
+				return errors.Wrapf(err, "grow HNSW index to accommodate node %d", id)
+			}
+		}
+		h.Unlock()
+	}
 
 	targetLevel := int(node.level)
 	node.connections.GrowLayersTo(uint8(targetLevel))

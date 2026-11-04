@@ -141,6 +141,13 @@ func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
 }
 
 func (h *hnsw) resetIfEmpty() (empty bool, err error) {
+	if !h.isEmpty() {
+		return false, nil
+	}
+
+	h.deleteVsInsertLock.Lock()
+	defer h.deleteVsInsertLock.Unlock()
+
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
 	h.Lock()

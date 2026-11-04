@@ -289,6 +289,11 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 	copy(neighbors, extraIDs)
 	for results.Len() > 0 {
 		id := results.Pop().ID
+		if id == n.nodeID {
+			// a node that joined meanwhile and linked to this one led the
+			// search back here
+			continue
+		}
 		neighbors = append(neighbors, id)
 	}
 
@@ -387,6 +392,10 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	// Reuse connectionsBuf to avoid allocations
 	n.connectionsBuf = neighbor.connections.CopyLayer(n.connectionsBuf[:0], uint8(level))
 	currentConnections := n.connectionsBuf
+	if containsID(currentConnections, n.nodeID) {
+		// the neighbor joined meanwhile and already linked to this node
+		return nil
+	}
 
 	maximumConnections := n.maximumConnections(level)
 	if len(currentConnections) < maximumConnections {
