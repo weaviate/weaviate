@@ -431,23 +431,39 @@ func (i *Index) initLoadedLazyShard(ctx context.Context, shardName string, class
 	return lazy, nil
 }
 
-// pinWhileUnloading pins a shard a long background walk works on unpinned, so
-// the unloader cannot close it mid-walk; with unloading off it does nothing,
-// leaving the walk as it was. release is never nil.
-func (i *Index) pinWhileUnloading(name string) (release func(), err error) {
+// pinWhileUnloading pins a shard for a long background walk, so the unloader
+// cannot close it mid-walk, and returns the instance to work on: the one the map
+// holds now, since a COLD/HOT transition may have replaced walked, whose reload
+// would open the directory a second time. With unloading off it returns walked
+// and pins nothing, leaving the walk as it was. release is never nil.
+func (i *Index) pinWhileUnloading(name string, walked ShardLike) (shard ShardLike, release func(), err error) {
 	if !i.Config.lazyShardUnloading() {
-		return func() {}, nil
+		return walked, func() {}, nil
+	}
+	if i.beforeUnloadingPin != nil {
+		i.beforeUnloadingPin(name)
 	}
 	if err := i.enterRead(); err != nil {
-		return func() {}, err
+		return nil, func() {}, err
 	}
 	defer i.exitRead()
-	shard, release, err := i.pinResidentShard(name, false)
+	shard, release, err = i.pinResidentShard(name, false)
 	if err != nil {
-		return func() {}, err
+		return nil, func() {}, err
 	}
 	if shard == nil {
-		return func() {}, fmt.Errorf("shard %q: %w", name, enterrors.ErrShardNotRegistered)
+		return nil, func() {}, fmt.Errorf("shard %q: %w", name, enterrors.ErrShardNotRegistered)
 	}
-	return release, nil
+	return shard, release, nil
+}
+
+// walkSkipsPinRefusal reports that a pinWhileUnloading error means the shard left
+// the walk (gone COLD, shutting down, dropped, recovering), which a walk never
+// touches. A closing index or a torn shard stays an error, so a migration is not
+// recorded as finished over a shard that is still there.
+func (i *Index) walkSkipsPinRefusal(name string, err error) bool {
+	if !errors.Is(err, enterrors.ErrShardNotRegistered) && !shardIsGoing(err) && !enterrors.IsShardRecovering(err) {
+		return false
+	}
+	return i.closeRequestedCause() == nil && shardTeardownError(i.shards.Load(name)) == nil
 }

@@ -173,14 +173,18 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 		if !(inverted.HasFilterableIndex(prop) && inverted.HasSearchableIndex(prop)) {
 			continue
 		}
-		if err := index.ForEachShard(func(name string, shard ShardLike) error {
+		if err := index.ForEachShard(func(name string, walked ShardLike) error {
 			// Recovering shards have no usable Store; peer data arrives post-migration.
-			if shard.GetStatus() == storagestate.StatusRecovering {
+			if walked.GetStatus() == storagestate.StatusRecovering {
 				return nil
 			}
-			unpin, err := index.pinWhileUnloading(name)
+			shard, unpin, err := index.pinWhileUnloading(name, walked)
 			defer unpin()
 			if err != nil {
+				if index.walkSkipsPinRefusal(name, err) {
+					m.logIndex(index).WithField("shard", name).Debugf("skipping shard that left the walk: %v", err)
+					return nil
+				}
 				return errors.Wrap(err, "pin shard to discover props to fix")
 			}
 			if toFix, err := m.isPropToFix(ctx, prop, shard); toFix {
@@ -211,13 +215,17 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU)
 	for shardName, props := range shard2PropsToFix {
-		shard := index.shards.Load(shardName)
+		walked := index.shards.Load(shardName)
 		props := props
 
 		eg.Go(func() error {
-			unpin, err := index.pinWhileUnloading(shardName)
+			shard, unpin, err := index.pinWhileUnloading(shardName, walked)
 			defer unpin()
 			if err != nil {
+				if index.walkSkipsPinRefusal(shardName, err) {
+					m.logIndex(index).WithField("shard", shardName).Debugf("skipping shard that left the walk: %v", err)
+					return nil
+				}
 				return errors.Wrap(err, "pin shard for migration")
 			}
 			if err := m.migrateShard(ctx, shard, props); err != nil {
@@ -225,7 +233,7 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 				return errors.Wrap(err, "failed migrating shard")
 			}
 			return nil
-		}, "shard:", shard, "props:", props)
+		}, "shard:", walked, "props:", props)
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, err
