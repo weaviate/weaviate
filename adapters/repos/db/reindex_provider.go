@@ -19,6 +19,7 @@ import (
 	"math"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1112,11 +1113,22 @@ func unreadableRecordFault(store *MigrationRecordStore) string {
 	if len(unreadable) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("%d migration record(s) on this shard are not understood, so whether this "+
-		"unit is still in flight is unknown, and no reindex unit passes this check on this shard "+
-		"until they are fixed and the shard reloads; first: %q: %s",
-		len(unreadable), unreadable[0].FileName, unreadable[0].Reason)
+	names := make([]string, 0, maxNamedUnreadableRecords+1)
+	for _, u := range unreadable[:min(len(unreadable), maxNamedUnreadableRecords)] {
+		names = append(names, strconv.Quote(u.FileName))
+	}
+	if more := len(unreadable) - maxNamedUnreadableRecords; more > 0 {
+		names = append(names, fmt.Sprintf("(and %d more)", more))
+	}
+	return fmt.Sprintf("%d migration record(s) on this shard are not understood (%s), so whether "+
+		"this unit is still in flight is unknown, and no reindex unit passes this check on this "+
+		"shard until they are fixed and the shard reloads; first reason: %s",
+		len(unreadable), strings.Join(names, ", "), unreadable[0].Reason)
 }
+
+// Naming every bad file lets an operator fix them in one round; the cap keeps
+// the failed unit's error, which the FSM stores and logs, bounded.
+const maxNamedUnreadableRecords = 5
 
 // runShardPrepPhase runs the disk-I/O PREP phase for one unit on one shard.
 func (p *ReindexProvider) runShardPrepPhase(

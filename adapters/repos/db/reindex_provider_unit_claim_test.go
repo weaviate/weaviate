@@ -386,3 +386,42 @@ func TestAUnitDoesNotRunWhileAMigrationRecordIsUnreadable(t *testing.T) {
 		})
 	}
 }
+
+// An operator fixes every file the error names in one round, so the error has
+// to name more than the first, yet stay bounded however many files are bad.
+func TestTheUnreadableRecordGuardNamesTheBadFilesUpToACap(t *testing.T) {
+	tests := []struct {
+		name      string
+		bad       int
+		wantNamed int
+		wantMore  string
+	}{
+		{name: "one bad file", bad: 1, wantNamed: 1},
+		{name: "every bad file fits the cap", bad: maxNamedUnreadableRecords, wantNamed: maxNamedUnreadableRecords},
+		{name: "more bad files than the cap", bad: maxNamedUnreadableRecords + 3, wantNamed: maxNamedUnreadableRecords, wantMore: "(and 3 more)"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := logrustest.NewNullLogger()
+			store := NewMigrationRecordStore(t.TempDir(), logger)
+			require.NoError(t, os.MkdirAll(store.Dir(), 0o777))
+			var files []string
+			for i := range tc.bad {
+				name := fmt.Sprintf("%02d_enable_searchable.json", i)
+				require.NoError(t, os.WriteFile(filepath.Join(store.Dir(), name), []byte("{"), 0o600))
+				files = append(files, name)
+			}
+			require.NoError(t, store.Load())
+
+			fault := unreadableRecordFault(store)
+			for i, name := range files {
+				require.Equal(t, i < tc.wantNamed, strings.Contains(fault, `"`+name+`"`), fault)
+			}
+			if tc.wantMore != "" {
+				require.Contains(t, fault, tc.wantMore)
+			} else {
+				require.NotContains(t, fault, "more)")
+			}
+		})
+	}
+}
