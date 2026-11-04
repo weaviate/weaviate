@@ -18,6 +18,8 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
 // Image input is an experimental feature of the API, switched on per request
@@ -166,10 +168,10 @@ func jpegSize(data []byte) (width, height int, err error) {
 	return 0, 0, errors.New("JPEG without a frame header")
 }
 
-func checkImages(documents []string, positions []int) error {
+func checkImages(documents []ent.Document, positions []int) error {
 	for _, position := range positions {
-		if err := checkImage(documents[position]); err != nil {
-			return fmt.Errorf("document %d: image: %w", position, err)
+		if err := checkImage(documents[position].Value); err != nil {
+			return fmt.Errorf("object %s: image: %w", documents[position].ID, err)
 		}
 	}
 	return nil
