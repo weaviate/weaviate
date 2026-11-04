@@ -1,0 +1,169 @@
+//	_       _
+//
+// __      _____  __ ___   ___  __ _| |_ ___
+//
+//	\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//	 \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//	  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//	 Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//	 CONTACT: hello@weaviate.io
+package test
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+const fakeAPIKey = "fake"
+
+// wireRequest decodes the request body with the API's field names,
+// independent of the module's types. Input is a string or a message list.
+type wireRequest struct {
+	Model     string         `json:"model"`
+	Input     any            `json:"input"`
+	Questions []wireQuestion `json:"questions"`
+}
+
+type wireQuestion struct {
+	Type         string `json:"type"`
+	Name         string `json:"name"`
+	Instructions string `json:"instructions"`
+}
+
+type fakeRequest struct {
+	path          string
+	authorization string
+	organization  string
+	body          wireRequest
+}
+
+// fakeReply answers every request with a status and a body instead of the
+// probabilities.
+type fakeReply struct {
+	status int
+	body   string
+}
+
+// fakeProvider stands for POST /v1/decisions of the OpenAI API. It listens
+// on every interface of the host, which the Weaviate container reaches as
+// host.docker.internal.
+type fakeProvider struct {
+	server *httptest.Server
+	port   int
+
+	mu            sync.Mutex
+	probabilities map[string]float64
+	refusals      map[string]bool
+	failure       *fakeReply
+	requests      []fakeRequest
+}
+
+func newFakeProvider(t *testing.T) *fakeProvider {
+	t.Helper()
+	f := &fakeProvider{}
+	listener, err := net.Listen("tcp", "0.0.0.0:0")
+	require.NoError(t, err)
+	f.port = listener.Addr().(*net.TCPAddr).Port
+	f.server = &httptest.Server{Listener: listener, Config: &http.Server{Handler: f}}
+	f.server.Start()
+	t.Cleanup(f.server.Close)
+	return f
+}
+
+func (f *fakeProvider) baseURL() string {
+	return fmt.Sprintf("http://host.docker.internal:%d", f.port)
+}
+
+// reset forgets the requests received and sets how the next ones are
+// answered: probabilities holds the probability of each document, a text or
+// the base64 of an image, refusals the documents the model refuses to judge,
+// and failure, when set, answers every request instead.
+func (f *fakeProvider) reset(probabilities map[string]float64, refusals map[string]bool, failure *fakeReply) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.probabilities = probabilities
+	f.refusals = refusals
+	f.failure = failure
+	f.requests = nil
+}
+
+func (f *fakeProvider) received() []fakeRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.requests)
+}
+
+func (f *fakeProvider) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var body wireRequest
+	decodeErr := json.NewDecoder(r.Body).Decode(&body)
+
+	f.mu.Lock()
+	failure := f.failure
+	probabilities, refusals := f.probabilities, f.refusals
+	f.requests = append(f.requests, fakeRequest{
+		path:          r.URL.Path,
+		authorization: r.Header.Get("Authorization"),
+		organization:  r.Header.Get("OpenAI-Organization"),
+		body:          body,
+	})
+	f.mu.Unlock()
+
+	if failure != nil {
+		w.WriteHeader(failure.status)
+		io.WriteString(w, failure.body)
+		return
+	}
+	if decodeErr != nil {
+		http.Error(w, fmt.Sprintf("fake: decode request: %v", decodeErr), http.StatusBadRequest)
+		return
+	}
+	document := documentOf(body.Input)
+	answer := map[string]any{"name": "condition"}
+	if refusals[document] {
+		answer["type"] = "refusal"
+	} else {
+		probability, ok := probabilities[document]
+		if !ok {
+			http.Error(w, "fake: no probability for the document", http.StatusBadRequest)
+			return
+		}
+		answer["type"] = "predicate"
+		answer["probability"] = probability
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"answers": []any{answer},
+		"usage":   map[string]int{"input_tokens": 100},
+	})
+}
+
+// documentOf returns the text of an input, or the base64 of the image of its
+// data URL.
+func documentOf(input any) string {
+	if text, ok := input.(string); ok {
+		return text
+	}
+	messages, _ := input.([]any)
+	for _, message := range messages {
+		content, _ := message.(map[string]any)["content"].([]any)
+		for _, part := range content {
+			url, _ := part.(map[string]any)["image_url"].(string)
+			if _, encoded, ok := strings.Cut(url, ";base64,"); ok {
+				return encoded
+			}
+		}
+	}
+	return ""
+}
