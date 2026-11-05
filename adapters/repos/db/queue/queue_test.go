@@ -2971,3 +2971,37 @@ func TestRetention_ReleaseDoesNotBlockAFinishingBatch(t *testing.T) {
 	assert.NoFileExists(t, chunks[1]+".processed")
 	assert.FileExists(t, chunks[2])
 }
+
+// As for a release: a batch finishing while a backup ends does not wait for
+// the deletes.
+func TestDisableMaintenanceMode_DoesNotBlockAFinishingBatch(t *testing.T) {
+	s := makeScheduler(t)
+	q := sealedQueue(t, s, t.TempDir())
+	chunks, _ := chunksOf(t, q)
+	q.EnableMaintenanceMode()
+	processNext(t, q)
+
+	batch, err := q.DequeueBatch()
+	require.NoError(t, err)
+	held, release := holdRemovals(t)
+	ended := make(chan error, 1)
+	go func() { ended <- q.DisableMaintenanceMode() }()
+	<-held
+
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		batch.Done()
+	}()
+	select {
+	case <-finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the batch waited for the backup's deletes")
+	}
+
+	release()
+	require.NoError(t, <-ended)
+	assert.NoFileExists(t, chunks[0])
+	assert.NoFileExists(t, chunks[1], "deleted at once: the backup is over")
+	assert.NoFileExists(t, chunks[1]+".processed")
+}
