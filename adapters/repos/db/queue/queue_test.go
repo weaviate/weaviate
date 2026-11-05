@@ -2788,3 +2788,59 @@ func TestRewind_QuarantinesAKeptChunkWithAnUnreadableHeader(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []uint64{4, 5, 6}, taskIDs(t, batch))
 }
+
+// On a queue not initialized yet, Rewind saves the kept chunks from Init,
+// which would delete them. A crash in between repeats it safely.
+func TestRewind_BeforeInitResumesAfterARestart(t *testing.T) {
+	newQueue := func(t *testing.T, s *Scheduler, dir string) *DiskQueue {
+		t.Helper()
+		q, err := NewDiskQueue(DiskQueueOptions{
+			ID:          fmt.Sprintf("test_queue_%d", queueIDCounter.Add(1)),
+			Scheduler:   s,
+			Logger:      newTestLogger(),
+			Dir:         dir,
+			TaskDecoder: discardExecutor(),
+			ChunkSize:   50,
+		})
+		require.NoError(t, err)
+		return q
+	}
+	setup := func(t *testing.T, s *Scheduler) string {
+		t.Helper()
+		dir := t.TempDir()
+		q := sealedQueue(t, s, dir)
+		require.NoError(t, q.Retain())
+		processNext(t, q)
+		require.NoError(t, q.Close(t.Context()))
+		return dir
+	}
+
+	t.Run("rewound, every chunk is served", func(t *testing.T) {
+		s := makeScheduler(t)
+		dir := setup(t, s)
+
+		q := newQueue(t, s, dir)
+		require.NoError(t, q.Rewind())
+		require.NoError(t, q.Rewind(), "a crash before Init repeats it")
+		require.NoError(t, q.Init())
+		assert.EqualValues(t, 9, q.Size())
+		batch, err := q.DequeueBatch()
+		require.NoError(t, err)
+		assert.Equal(t, []uint64{1, 2, 3}, taskIDs(t, batch))
+	})
+
+	t.Run("not rewound, the kept chunk is deleted", func(t *testing.T) {
+		s := makeScheduler(t)
+		dir := setup(t, s)
+
+		q := newQueue(t, s, dir)
+		require.NoError(t, q.Init())
+		assert.EqualValues(t, 6, q.Size())
+	})
+
+	t.Run("a queue without a directory has nothing to rewind", func(t *testing.T) {
+		s := makeScheduler(t)
+		q := newQueue(t, s, filepath.Join(t.TempDir(), "absent"))
+		require.NoError(t, q.Rewind())
+	})
+}
