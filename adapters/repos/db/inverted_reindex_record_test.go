@@ -1734,9 +1734,9 @@ func TestRemovingARecordTakesItsWedgeWithIt(t *testing.T) {
 	require.False(t, store.HasUndecided(), "fixture: a wedged record stops driving the pass")
 
 	require.NoError(t, store.Remove(subject.Key))
-	require.NoError(t, store.Put(NewMigrationRecordMerged(subject)))
-
 	require.False(t, store.Wedged(subject.Key))
+
+	require.NoError(t, store.Put(NewMigrationRecordMerged(subject)))
 	require.True(t, store.HasUndecided(),
 		"the re-created record has never been decided, so the pass has to come back for it")
 }

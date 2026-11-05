@@ -91,8 +91,11 @@ func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 			if tc.committed {
 				state = MigrationStateMerged
 			}
-			mkMigrationRecordFor(t, shardPathLSM(idx.path(), tenant), StrategyCodeSearchableRetokenize,
-				"T_bootstrap", 1, "u1", ReindexTypeChangeTokenization, state, prop)
+			mkMigrationRecord(t, shardPathLSM(idx.path(), tenant), migrationRecordFixture{
+				unitID: "u1", taskID: "T_bootstrap", migrationType: ReindexTypeChangeTokenization,
+				code: StrategyCodeSearchableRetokenize, version: 1, state: state,
+				staged: map[string]string{prop: stagedDirFor(prop, 1)},
+			})
 
 			if tc.closeRequested {
 				signalCloseRequested(errIndexDropped)

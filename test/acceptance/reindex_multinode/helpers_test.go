@@ -572,15 +572,6 @@ func cycleNodeFast(ctx context.Context, t *testing.T, compose *docker.DockerComp
 		"cycleNodeFast: restart node at index %d", nodeIdx)
 }
 
-// cycleNodeFastKill is cycleNodeFast with SIGKILL (`docker restart -t 0`).
-// For crash-path tests that need to bypass the on-shutdown bucket flush.
-func cycleNodeFastKill(ctx context.Context, t *testing.T, compose *docker.DockerCompose, nodeIdx int) {
-	t.Helper()
-	zero := 0 * time.Second
-	require.NoErrorf(t, compose.RestartAt(ctx, nodeIdx, &zero),
-		"cycleNodeFastKill: restart (SIGKILL) node at index %d", nodeIdx)
-}
-
 // rollingRestartCluster stops + restarts each node ONE AT A TIME,
 // waiting for the node to be ready (and for RAFT to accept writes
 // again) before moving on. Mimics a Kubernetes StatefulSet rolling

@@ -720,3 +720,9 @@ func shutdownIndexOnCleanup(t *testing.T, index *Index) {
 		}
 	})
 }
+
+func newTestLazyLoadShard(ctx context.Context, idx *Index, class *models.Class, name string) *LazyLoadShard {
+	return NewLazyLoadShard(ctx, nil, name, idx, class, idx.centralJobQueue,
+		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		false, idx.bitmapBufPool)
+}

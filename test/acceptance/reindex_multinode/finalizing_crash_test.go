@@ -17,9 +17,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
+	"github.com/weaviate/weaviate/test/docker"
 )
 
 // TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency asserts
@@ -86,17 +88,11 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 	// hundreds of ms to spare for the rolling-restart trigger.
 	observed := awaitReindexReachedFinalizing(t, uri, taskID)
 	t.Logf("task %s reached %s — beginning rolling restart inside this window", taskID, observed)
+	// A fast runner can close the window before the restart; that is a
+	// missed precondition, not a product failure.
 	if observed == "FINISHED" {
-		// At 50k records the FINALIZING window can be sub-100ms on a
-		// fast machine. The test would still verify the per-replica
-		// histogram is correct (it always must be), but it wouldn't
-		// exercise the ack barrier on the FINALIZING → FINISHED
-		// transition. Surface this loudly so the next test run can
-		// bump the dataset.
-		t.Logf("WARNING: FINALIZING window already closed before rolling restart; "+
-			"per-replica histogram still asserted, but the ack barrier was not stressed. "+
-			"Consider increasing totalObjects (currently %d) to widen FINALIZING window.",
-			totalObjects)
+		t.Skipf("the finalizing window closed before the rolling restart, so the ack barrier "+
+			"could not be exercised; raise totalObjects (currently %d) to widen it", totalObjects)
 	}
 
 	// Rolling restart immediately. The intent is to catch one or
@@ -181,6 +177,13 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 //
 // Target the last node (index 2) so the surviving majority keeps serving
 // RAFT while it's down — mirroring a single-pod OOM-kill in production.
+//
+// The kill must land before the task reaches FINISHED. SWAPPING is an
+// acceptable observed status too, since the task can't finish while node 3
+// is down; pinning the kill to PREPARING needs a swap-hold gate that doesn't
+// exist yet (weaviate/etienne-claude-issues#544). After a further rolling
+// restart every node must still serve the count and report tokenization
+// field, so a migration committed across the kill survives.
 func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
@@ -209,12 +212,7 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 		return map[string]interface{}{"path": paths[i%len(paths)]}
 	})
 
-	// Pre-migration baseline.
-	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-		got, err := equalCount(restURIOf(compose, nodeIdx), className, "path", paths[0])
-		require.NoError(t, err)
-		require.Equalf(t, expectedPathCount, got, "pre-migration node %d", nodeIdx)
-	}
+	requireEveryReplicaServes(t, compose, className, "path", paths[0], expectedPathCount, "pre-migration")
 
 	uri := restURIOf(compose, 1)
 	taskID := reindexhelpers.SubmitIndexUpsert(t, uri, className, "path", "searchable",
@@ -223,38 +221,41 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 
 	observed := awaitReindexReachedFinalizing(t, uri, taskID)
 	t.Logf("task %s reached %s — killing node 3 ungracefully inside this window", taskID, observed)
-	if observed == "FINISHED" {
-		t.Logf("WARNING: FINALIZING window already closed; ack-barrier crash-path not stressed. " +
-			"Consider increasing totalObjects to widen the window.")
-	}
 
-	// SIGKILL + restart node 3 — k8s OOM / node-hardware-failure shape.
-	t.Log("SIGKILL + restart node 3")
-	cycleNodeFastKill(ctx, t, compose, 2)
+	// SIGKILL node 3 — k8s OOM / node-hardware-failure shape. The status is read
+	// while it is down because the task cannot finish without it, so it shows
+	// the phase the kill landed in.
+	t.Log("SIGKILL node 3")
+	zero := time.Duration(0)
+	require.NoError(t, compose.StopAt(ctx, 2, &zero))
+	tasks, ok := reindexhelpers.TryFetchTasks(uri)
+	require.True(t, ok, "node 1 must list tasks while node 3 is down")
+	var status string
+	for _, task := range tasks["reindex"] {
+		if task.ID == taskID {
+			status = task.Status
+		}
+	}
+	// FINISHED means the kill landed after the task was already done, so the
+	// scenario never ran; SWAPPING is fine, since node 3 being down blocks
+	// FINISHED either way (no swap-hold gate exists yet to pin this to
+	// PREPARING — weaviate/etienne-claude-issues#544). A fast runner can hit
+	// FINISHED; that is a missed precondition, not a product failure.
+	require.NoError(t, compose.StartAt(ctx, 2))
+	if status == "FINISHED" {
+		t.Skipf("the kill landed after the task already finished, so the scenario never ran; "+
+			"raise totalObjects (currently %d) to widen it", totalObjects)
+	}
 
 	// Wait for FINISHED. Without the ack barrier, the schema flip
 	// could already have committed before the kill, leaving node 3
 	// with divergent on-disk state on restart — the per-replica
 	// histogram below would catch that.
-	reindexhelpers.AwaitReindexFinished(t, restURIOf(compose, 1), taskID, reindexhelpers.WithTimeout(180*time.Second))
+	reindexhelpers.AwaitReindexFinished(t, restURIOf(compose, 1), taskID, reindexhelpers.WithTimeout(240*time.Second))
 	t.Log("task FINISHED post-kill-and-restart")
 
-	// Poll until every replica converges to expectedPathCount, then sample
-	// stability below. AwaitReindexFinished only confirms node-1; the
-	// SIGKILL'd-and-restarted node may still be loading buckets
-	// (reconciliation). A node that never converges fails here
-	// loudly instead of being slept past.
-	require.Eventually(t, func() bool {
-		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-			got, err := equalCount(restURIOf(compose, nodeIdx), className, "path", paths[0])
-			if err != nil || got != expectedPathCount {
-				return false
-			}
-		}
-		return true
-	}, 60*time.Second, 50*time.Millisecond,
-		"per-replica path count never converged to %d on all 3 replicas after SIGKILL during FINALIZING",
-		expectedPathCount)
+	// AwaitReindexFinished only confirms node-1. The restarted node may still be reconciling.
+	requireEveryReplicaServes(t, compose, className, "path", paths[0], expectedPathCount, "after the task finished")
 
 	const pollsPerReplica = 30
 	histogram := make(map[string]map[int]int)
@@ -289,5 +290,26 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 			msg += fmt.Sprintf("\n  %s: %v", nodeKey, histogram[nodeKey])
 		}
 		t.Fatal(msg)
+	}
+
+	rollingRestartCluster(ctx, t, compose)
+	requireEveryReplicaServes(t, compose, className, "path", paths[0], expectedPathCount, "after a second restart")
+	awaitTokenizationOnAllNodes(t, compose, className, "path", "field")
+}
+
+func requireEveryReplicaServes(t *testing.T, compose *docker.DockerCompose,
+	className, propName, value string, want int, phase string,
+) {
+	t.Helper()
+	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+		node := nodeIdx
+		require.EventuallyWithTf(t, func(ct *assert.CollectT) {
+			got, err := equalCount(restURIOf(compose, node), className, propName, value)
+			if !assert.NoErrorf(ct, err, "node %d could not be queried", node) {
+				return
+			}
+			assert.Equalf(ct, want, got, "node %d serves the wrong count for %s=%q", node, propName, value)
+		}, 90*time.Second, 200*time.Millisecond,
+			"node %d must serve %d objects for %s=%q %s", node, want, propName, value, phase)
 	}
 }

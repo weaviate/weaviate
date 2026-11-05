@@ -28,41 +28,65 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func mkMigrationRecord(t *testing.T, lsmPath string, code MigrationStrategyCode, version uint64,
-	state MigrationState, staged map[string]string,
-) {
+// Canonical is always the strategy's own source bucket. The record writer
+// refuses any other name.
+type migrationRecordFixture struct {
+	unitID        string
+	taskID        string
+	migrationType ReindexMigrationType
+	code          MigrationStrategyCode
+	version       uint64
+	state         MigrationState
+	staged        map[string]string // property -> staged directory
+}
+
+func mkMigrationRecord(t *testing.T, lsmPath string, f migrationRecordFixture) MigrationSubject {
 	t.Helper()
+	if f.unitID == "" {
+		f.unitID = "shard-1__node-0"
+	}
+	if f.taskID == "" {
+		f.taskID = fixtureTaskID(f.code, f.version)
+	}
+	if f.migrationType == "" {
+		f.migrationType = fixtureMigrationTypes[f.code]
+	}
 	subject := MigrationSubject{
 		Key: MigrationRecordKey{
-			TaskVersion:  version,
-			StrategyCode: code,
-			UnitID:       "shard-1__node-0",
+			TaskVersion:  f.version,
+			StrategyCode: f.code,
+			UnitID:       f.unitID,
 		},
-		TaskID:        fixtureTaskID(code, version),
-		MigrationType: fixtureMigrationTypes[code],
+		TaskID:        f.taskID,
+		MigrationType: f.migrationType,
 		Collection:    "Books",
 		Props:         map[string]MigrationPropertyDirs{},
 	}
-	for prop, dir := range staged {
+	for prop, dir := range f.staged {
 		subject.Props[prop] = MigrationPropertyDirs{
-			Staged: dir,
-			// The canonical directory is the strategy's own source bucket;
-			// the record writer refuses any other name.
-			Canonical: sourceBucketNameFor(code, prop),
+			Staged:    dir,
+			Canonical: sourceBucketNameFor(f.code, prop),
 			Sidecar:   fixtureSidecarFor(dir),
 		}
 	}
 
-	rec := newMigrationRecordAt(t, subject, state)
+	rec := newMigrationRecordAt(t, subject, f.state)
 
 	logger, _ := test.NewNullLogger()
 	require.NoError(t, os.MkdirAll(lsmPath, 0o777))
 	store := NewMigrationRecordStore(lsmPath, logger)
 	if len(subject.Properties()) == 0 {
 		plantMigrationRecordFile(t, store, rec)
-		return
+		return subject
 	}
 	require.NoError(t, store.Put(rec))
+	return subject
+}
+
+// Deriving the staged dir from the version keeps a fixture from planting a
+// record that names another generation's dir.
+func stagedDirFor(prop string, version uint64) string {
+	return fmt.Sprintf("property_%s__ingest_%d", prop, version)
 }
 
 // plantMigrationRecordFile writes a record the way the store's Put does, minus
@@ -174,19 +198,25 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 			defer shard.Shutdown(ctx)
 			lsm := shard.pathLSM()
 
-			mkMigrationRecord(t, lsm, tc.classCode, 2, MigrationStateSwapped,
-				map[string]string{tc.propName: tc.liveSidecar})
+			mkMigrationRecord(t, lsm, migrationRecordFixture{
+				code: tc.classCode, version: 2, state: MigrationStateSwapped,
+				staged: map[string]string{tc.propName: tc.liveSidecar},
+			})
 			mkSidecarDir(t, lsm, tc.liveSidecar)
 			mkSidecarDir(t, lsm, fixtureSidecarFor(tc.liveSidecar))
 
-			mkMigrationRecord(t, lsm, tc.propCode, 1, MigrationStateSwapped,
-				map[string]string{tc.propName: tc.propLiveSidecar})
+			mkMigrationRecord(t, lsm, migrationRecordFixture{
+				code: tc.propCode, version: 1, state: MigrationStateSwapped,
+				staged: map[string]string{tc.propName: tc.propLiveSidecar},
+			})
 			mkSidecarDir(t, lsm, tc.propLiveSidecar)
 			mkSidecarDir(t, lsm, fixtureSidecarFor(tc.propLiveSidecar))
 
 			// Cancelled (partial) class-level attempt: stale, must be wiped.
-			mkMigrationRecord(t, lsm, tc.classCode, 3, MigrationStateIterating,
-				map[string]string{tc.propName: tc.staleSidecar})
+			mkMigrationRecord(t, lsm, migrationRecordFixture{
+				code: tc.classCode, version: 3, state: MigrationStateIterating,
+				staged: map[string]string{tc.propName: tc.staleSidecar},
+			})
 			mkSidecarDir(t, lsm, tc.staleSidecar)
 			mkSidecarDir(t, lsm, fixtureSidecarFor(tc.staleSidecar))
 
@@ -270,10 +300,14 @@ func TestCleanStalePartialReindexState_GenCollisionAcrossStrategies(t *testing.T
 			defer shard.Shutdown(ctx)
 			lsm := shard.pathLSM()
 
-			mkMigrationRecord(t, lsm, tc.completedCode, tc.gen, MigrationStateSwapped,
-				map[string]string{"category": tc.liveSidecar})
-			mkMigrationRecord(t, lsm, tc.staleCode, tc.gen, MigrationStateIterating,
-				map[string]string{"category": tc.staleSidecar})
+			mkMigrationRecord(t, lsm, migrationRecordFixture{
+				code: tc.completedCode, version: tc.gen, state: MigrationStateSwapped,
+				staged: map[string]string{"category": tc.liveSidecar},
+			})
+			mkMigrationRecord(t, lsm, migrationRecordFixture{
+				code: tc.staleCode, version: tc.gen, state: MigrationStateIterating,
+				staged: map[string]string{"category": tc.staleSidecar},
+			})
 			for _, name := range []string{tc.liveSidecar, tc.staleSidecar} {
 				if !tc.loadBuckets {
 					mkSidecarDir(t, lsm, name)

@@ -245,13 +245,13 @@ func TestPromoteDecidesFromTheRecordNotFromTheDirectory(t *testing.T) {
 			}
 
 			staged := map[string]string{}
-			canonical := map[string]string{}
 			for _, prop := range tc.props {
 				staged[prop] = promoteStagedDir(prop)
-				canonical[prop] = helpers.BucketSearchableFromPropNameLSM(prop)
 			}
-			mkMigrationRecordAt(t, lsmPath, shard.migrationUnit(), StrategyCodeRebuildSearchable, 1,
-				staged, canonical, MigrationStateSwapped)
+			mkMigrationRecord(t, lsmPath, migrationRecordFixture{
+				unitID: shard.migrationUnit(), code: StrategyCodeRebuildSearchable, version: 1,
+				state: MigrationStateSwapped, staged: staged,
+			})
 			require.Equal(t, MigrationStateSwapped, soleMigrationRecordState(t, lsmPath), "fixture")
 
 			if tc.deleteAfterLoad == deleteBeforeAnyLoad {

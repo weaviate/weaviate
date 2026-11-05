@@ -223,19 +223,23 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 				recordProp = "other"
 			}
 			if tc.state != "" {
-				mkMigrationRecordFor(t, tenantLSM, code, "T_bootstrap", 1, "u1__n1",
-					migrationType, tc.state, recordProp)
+				mkMigrationRecord(t, tenantLSM, migrationRecordFixture{
+					unitID: "u1__n1", taskID: "T_bootstrap", migrationType: migrationType,
+					code: code, version: 1, state: tc.state,
+					staged: map[string]string{recordProp: stagedDirFor(recordProp, 1)},
+				})
 			}
 			if tc.laterState != "" {
-				mkMigrationRecordFor(t, tenantLSM, code, "T_next", 2, "u1__n1",
-					migrationType, tc.laterState, recordProp)
+				mkMigrationRecord(t, tenantLSM, migrationRecordFixture{
+					unitID: "u1__n1", taskID: "T_next", migrationType: migrationType,
+					code: code, version: 2, state: tc.laterState,
+					staged: map[string]string{recordProp: stagedDirFor(recordProp, 2)},
+				})
 			}
 			if tc.unreadableRecord {
 				plantUnreadableRecord(t, recordStoreDirOf(t, tenantLSM))
 			}
-			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-				false, idx.bitmapBufPool)
+			cold := newTestLazyLoadShard(ctx, idx, class, tenant)
 			if !tc.absentFromShardMap {
 				idx.shards.Store(tenant, cold)
 			}
@@ -345,9 +349,7 @@ func TestLocalCallbacksDoneReadsEachShardsRecordsOnce(t *testing.T) {
 				require.NoError(t, os.Chmod(records, 0o000))
 			}
 
-			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-				false, idx.bitmapBufPool)
+			cold := newTestLazyLoadShard(ctx, idx, class, tenant)
 			idx.shards.Store(tenant, cold)
 			defer func() {
 				if cold.isLoaded() {

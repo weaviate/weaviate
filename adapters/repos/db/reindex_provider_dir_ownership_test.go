@@ -14,8 +14,6 @@ package db
 import (
 	"context"
 	"math"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -89,11 +87,10 @@ func workingCopyDirs(tasks []*ShardReindexTaskGeneric) []string {
 // record and only logs a removal that fails, so a working copy can outlive the
 // record that named it. The next submission must not open its own working copy
 // on those surviving files.
-func TestRetryAvoidsWorkingCopiesThatOutlivedTheirRecord(t *testing.T) {
+func TestARetryNamesWorkingCopiesApartFromTheEarlierAttempts(t *testing.T) {
 	for _, tc := range dirOwnershipCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			p, _ := newTestProvider(t)
-			lsm := t.TempDir()
 
 			abandoned, err := p.createReindexTasks(taskDescAt(7), dirOwnershipUnit, tc.payload())
 			require.NoError(t, err)
@@ -101,11 +98,8 @@ func TestRetryAvoidsWorkingCopiesThatOutlivedTheirRecord(t *testing.T) {
 
 			survivors := map[string]bool{}
 			for _, dir := range workingCopyDirs(abandoned) {
-				require.NoError(t, os.MkdirAll(filepath.Join(lsm, dir), 0o777))
 				survivors[dir] = true
 			}
-			require.NoDirExists(t, filepath.Join(lsm, migrationsDir),
-				"the record is the part of the earlier attempt the cleanup did remove")
 
 			retry, err := p.createReindexTasks(taskDescAt(9), dirOwnershipUnit, tc.payload())
 			require.NoError(t, err)

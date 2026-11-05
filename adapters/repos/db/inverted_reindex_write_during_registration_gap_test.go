@@ -29,21 +29,19 @@ import (
 )
 
 func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
-	sweepTheMirrorDirectory := func(t *testing.T, ctx context.Context, shard *Shard,
+	sweepTheMirrorDirectory := func(t *testing.T, ctx context.Context, shard *Shard, idx *Index,
 		task *ShardReindexTaskGeneric, class *models.Class, propName string,
-	) {
+	) *Shard {
 		t.Helper()
-		ingest := task.ingestBucketName(propName)
-		require.NoError(t, shard.store.ShutdownBucket(ctx, ingest))
-		require.NoError(t, os.RemoveAll(filepath.Join(shard.pathLSM(), ingest)))
-
-		shard.reconcileMigrationRecords(ctx, class)
-		require.NoError(t, startOnShard(ctx, task, shard))
+		require.NoError(t, shard.Shutdown(ctx))
+		require.NoError(t, os.RemoveAll(filepath.Join(shard.pathLSM(), task.ingestBucketName(propName))))
+		simulateProcessRestartBucketCleanup(t, shard.pathLSM())
+		return openShardFromDisk(t, ctx, idx, class, shard.Name())
 	}
 
 	tests := []struct {
 		name    string
-		disrupt func(*testing.T, context.Context, *Shard, *ShardReindexTaskGeneric, *models.Class, string)
+		disrupt func(*testing.T, context.Context, *Shard, *Index, *ShardReindexTaskGeneric, *models.Class, string) *Shard
 	}{
 		{name: "the rebuild runs with everything the mirror staged still on disk"},
 		{name: "the mirror's directory is swept before the rebuild runs", disrupt: sweepTheMirrorDirectory},
@@ -57,7 +55,7 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 }
 
 func testRegistrationGapWritesSurvive(t *testing.T,
-	disrupt func(*testing.T, context.Context, *Shard, *ShardReindexTaskGeneric, *models.Class, string),
+	disrupt func(*testing.T, context.Context, *Shard, *Index, *ShardReindexTaskGeneric, *models.Class, string) *Shard,
 ) {
 	const (
 		numObjects        = 25
@@ -75,7 +73,7 @@ func testRegistrationGapWritesSurvive(t *testing.T,
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
 	shard := shd.(*Shard)
-	defer shard.Shutdown(context.Background())
+	defer func() { shard.Shutdown(context.Background()) }()
 
 	objs := makeFilterableToRangeableTestObjects(t, numObjects, className)
 	for _, obj := range objs {
@@ -121,7 +119,8 @@ func testRegistrationGapWritesSurvive(t *testing.T,
 	}
 
 	if disrupt != nil {
-		disrupt(t, ctx, shard, task, class, propName)
+		shard = disrupt(t, ctx, shard, idx, task, class, propName)
+		require.NoError(t, startOnShard(ctx, task, shard))
 	}
 
 	require.NoError(t, task.RunOnShard(ctx, shard))

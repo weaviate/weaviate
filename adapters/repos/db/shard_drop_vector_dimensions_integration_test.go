@@ -328,9 +328,7 @@ func TestDropVectorIndex_DimensionsClearFailsWhenShardIsNotLoaded(t *testing.T) 
 		errDimensionsShardNotLoaded, "a shard this node does not hold")
 
 	const cold = "cold-tenant"
-	lazy := NewLazyLoadShard(ctx, nil, cold, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-		false, idx.bitmapBufPool)
+	lazy := newTestLazyLoadShard(ctx, idx, class, cold)
 	idx.shards.Store(cold, lazy)
 	t.Cleanup(func() { idx.shards.LoadAndDelete(cold) })
 

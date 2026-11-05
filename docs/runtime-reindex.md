@@ -1737,8 +1737,8 @@ with the modern testcontainer style.
   stale-state sweep family.
 - `cancel_test` / `cancel_then_retry_test` — cancel + the
   defense-in-depth cleanup.
-- `torn_resume_test` / `restart_during_swap_test` — crash recovery in
-  every phase boundary.
+- `restart_during_swap_test` — a crash after the task finishes but before
+  the swap fires. A write made in that window must survive the swap.
 - `property_state_migration_matrix_test` — exhaustive matrix
   (~510 cells × 6 data types × 15 body shapes).
 - `scope_assertion_test` — blast-radius bounds: a migration on one

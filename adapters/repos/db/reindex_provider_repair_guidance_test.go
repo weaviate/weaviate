@@ -14,8 +14,6 @@ package db
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -296,45 +294,17 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 	}
 }
 
-func mkMigrationRecordFor(t *testing.T, lsmPath string, code MigrationStrategyCode, taskID string, taskVersion uint64,
-	unitID string, mt ReindexMigrationType, state MigrationState, props ...string,
-) MigrationSubject {
-	t.Helper()
-	subject := MigrationSubject{
-		Key: MigrationRecordKey{
-			TaskVersion:  taskVersion,
-			StrategyCode: code,
-			UnitID:       unitID,
-		},
-		TaskID:        taskID,
-		MigrationType: mt,
-		Collection:    "Books",
-		Props:         map[string]MigrationPropertyDirs{},
-	}
-	for _, prop := range props {
-		staged := fmt.Sprintf("property_%s__%s_%d_ingest", prop, code, taskVersion)
-		subject.Props[prop] = MigrationPropertyDirs{
-			Staged:    staged,
-			Canonical: "property_" + prop + "_searchable",
-			Sidecar:   fixtureSidecarFor(staged),
-		}
-	}
-
-	rec := newMigrationRecordAt(t, subject, state)
-	logger, _ := logrustest.NewNullLogger()
-	require.NoError(t, os.MkdirAll(lsmPath, 0o777))
-	require.NoError(t, NewMigrationRecordStore(lsmPath, logger).Put(rec))
-	return subject
-}
-
 func TestHasLocalPostMergeStateReadsEachShardsRecordsOnce(t *testing.T) {
 	ctx := context.Background()
 	shard, idx := testShard(t, ctx, "C")
 	concrete, err := unwrapShard(ctx, shard)
 	require.NoError(t, err)
 
-	mkMigrationRecordFor(t, concrete.pathLSM(), StrategyCodeSearchableRetokenize,
-		"T_cancel", 1, "u1__n1", ReindexTypeChangeTokenization, MigrationStateIterating, "title")
+	mkMigrationRecord(t, concrete.pathLSM(), migrationRecordFixture{
+		unitID: "u1__n1", taskID: "T_cancel", migrationType: ReindexTypeChangeTokenization,
+		code: StrategyCodeSearchableRetokenize, version: 1, state: MigrationStateIterating,
+		staged: map[string]string{"title": stagedDirFor("title", 1)},
+	})
 
 	logger, hook := logrustest.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
@@ -375,8 +345,11 @@ func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvid
 	concrete, err := unwrapShard(ctx, shard)
 	require.NoError(t, err)
 
-	mkMigrationRecordFor(t, concrete.pathLSM(), StrategyCodeSearchableRetokenize,
-		"T_cancel", 1, "u1__n1", ReindexTypeChangeTokenization, MigrationStateMerged, "title")
+	mkMigrationRecord(t, concrete.pathLSM(), migrationRecordFixture{
+		unitID: "u1__n1", taskID: "T_cancel", migrationType: ReindexTypeChangeTokenization,
+		code: StrategyCodeSearchableRetokenize, version: 1, state: MigrationStateMerged,
+		staged: map[string]string{"title": stagedDirFor("title", 1)},
+	})
 
 	payload := &ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
@@ -456,8 +429,11 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 	shard, idx := testShard(t, testCtx(), className)
 	concrete, err := unwrapShard(testCtx(), shard)
 	require.NoError(t, err)
-	mkMigrationRecordFor(t, concrete.pathLSM(), StrategyCodeSearchableRetokenize,
-		"T_cancel_drain", 1, "u1__n1", ReindexTypeChangeTokenization, MigrationStateMerged, "title")
+	mkMigrationRecord(t, concrete.pathLSM(), migrationRecordFixture{
+		unitID: "u1__n1", taskID: "T_cancel_drain", migrationType: ReindexTypeChangeTokenization,
+		code: StrategyCodeSearchableRetokenize, version: 1, state: MigrationStateMerged,
+		staged: map[string]string{"title": stagedDirFor("title", 1)},
+	})
 
 	payload, err := json.Marshal(ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
@@ -595,12 +571,13 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 				if tc.classLevel {
 					code = StrategyCodeSearchableMapToBlockmax
 				}
-				mkMigrationRecordFor(t, shardPathLSM(idx.path(), tenant), code,
-					"T_probe", 1, "u1__n1", recordType, tc.state, prop)
+				mkMigrationRecord(t, shardPathLSM(idx.path(), tenant), migrationRecordFixture{
+					unitID: "u1__n1", taskID: "T_probe", migrationType: recordType,
+					code: code, version: 1, state: tc.state,
+					staged: map[string]string{prop: stagedDirFor(prop, 1)},
+				})
 			}
-			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-				false, idx.bitmapBufPool)
+			cold := newTestLazyLoadShard(ctx, idx, class, tenant)
 			if !tc.absentFromShardMap {
 				idx.shards.Store(tenant, cold)
 			}

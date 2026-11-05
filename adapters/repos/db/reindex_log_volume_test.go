@@ -136,15 +136,18 @@ func TestRecoveryWalkReportsEachFaultKindOnce(t *testing.T) {
 	}
 }
 
-// A no-op property update must not log this summary; a real sweep must. (weaviate/etienne-claude-issues#535)
+// Every property update runs this sweep, so only one that removed a dir is
+// worth a log line.
 func TestUpdatePropertySummaryLogsOnlyWhenDirsSwept(t *testing.T) {
 	tests := []struct {
 		name         string
 		seedStaleDir bool
-		wantLogLines int
+		cancelled    bool
+		wantSwept    []int64
 	}{
-		{name: "no-op update: nothing to sweep", seedStaleDir: false, wantLogLines: 0},
-		{name: "a stale sidecar dir to sweep", seedStaleDir: true, wantLogLines: 1},
+		{name: "no-op update: nothing to sweep"},
+		{name: "a stale sidecar dir to sweep", seedStaleDir: true, wantSwept: []int64{1}},
+		{name: "a cancelled apply sweeps nothing", seedStaleDir: true, cancelled: true},
 	}
 
 	for _, tt := range tests {
@@ -165,21 +168,31 @@ func TestUpdatePropertySummaryLogsOnlyWhenDirsSwept(t *testing.T) {
 			prop.IndexSearchable = &off
 			prop.IndexRangeFilters = &off
 
+			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, "filterable")
+			require.True(t, ok)
+			dir := filepath.Join(shard.pathLSM(), mainBucket+"__reindex"+genSuffix(1))
 			if tt.seedStaleDir {
-				mainBucket, ok := mainBucketForPropertyIndex(prop.Name, "filterable")
-				require.True(t, ok)
-				dir := mainBucket + "__reindex" + genSuffix(1)
-				require.NoError(t, os.MkdirAll(filepath.Join(shard.pathLSM(), dir), 0o777))
+				require.NoError(t, os.MkdirAll(dir, 0o777))
+			}
+
+			applyCtx := ctx
+			if tt.cancelled {
+				var cancel context.CancelFunc
+				applyCtx, cancel = context.WithCancel(ctx)
+				cancel()
 			}
 
 			hook.Reset()
-			require.NoError(t, idx.updateProperty(ctx, prop))
+			err := idx.updateProperty(applyCtx, prop)
+			require.Equal(t, tt.cancelled, err != nil, "update error: %v", err)
 
-			about := entriesAbout(hook, "partial-reindex cleanup: migration dirs swept for disabled index types")
-			require.Len(t, about, tt.wantLogLines, "summary lines for the apply: %v", linesOf(about))
-			if tt.wantLogLines > 0 {
-				require.Equal(t, int64(1), about[0].Data["dirs_swept"],
-					"the summary reports the dir the sweep actually removed")
+			var swept []int64
+			for _, entry := range entriesAbout(hook, "partial-reindex cleanup: migration dirs swept for disabled index types") {
+				swept = append(swept, entry.Data["dirs_swept"].(int64))
+			}
+			require.Equal(t, tt.wantSwept, swept)
+			if tt.seedStaleDir && tt.wantSwept == nil {
+				require.DirExists(t, dir)
 			}
 		})
 	}
