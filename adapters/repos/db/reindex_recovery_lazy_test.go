@@ -550,8 +550,14 @@ func TestASecondLiftDoesNotRearmWhatTheFirstSettled(t *testing.T) {
 		liftB <- shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate)
 	}, fx.logger)
 	require.Eventually(t, func() bool {
+		// The dump of every goroutine outgrows a fixed buffer when the whole package runs.
 		buf := make([]byte, 1<<20)
-		return strings.Contains(string(buf[:runtime.Stack(buf, true)]), "(*Shard).preventShutdown")
+		for n := runtime.Stack(buf, true); ; n = runtime.Stack(buf, true) {
+			if n < len(buf) {
+				return strings.Contains(string(buf[:n]), "(*Shard).preventShutdown")
+			}
+			buf = make([]byte, 2*len(buf))
+		}
 	}, 10*time.Second, 10*time.Millisecond, "lift B parks on shutdownLock after reading the held set")
 
 	fx.idx.bucketLoadLimiter.Release()
