@@ -1312,7 +1312,13 @@ func (s *Searcher) extractContains(ctx context.Context,
 		if err != nil {
 			return inverted.SortedKeys{}, err
 		}
-		return keys.WithHashes(bloomhash.Sum), nil
+		// Inside the build, so every shard reading this value shares one table.
+		// ContainsAll takes none, because its fold can stop after a few keys and
+		// the first HashAt hashes them all.
+		if operator != filters.ContainsAll && value.ContainsHashesShared() {
+			return keys.WithHashes(bloomhash.Sum), nil
+		}
+		return keys, nil
 	})
 	if err != nil {
 		return nil, err
