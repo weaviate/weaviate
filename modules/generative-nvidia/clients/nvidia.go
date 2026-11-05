@@ -65,7 +65,7 @@ func (v *nvidia) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	nvidiaUrl, err := v.getNvidiaUrl(ctx, params.BaseURL)
+	nvidiaUrl, err := v.getNvidiaUrl(ctx, params.BaseURL, config.NewClassSettings(cfg).BaseURL())
 	if err != nil {
 		return nil, err
 	}
@@ -181,8 +181,8 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 	return nil
 }
 
-func (v *nvidia) getNvidiaUrl(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Nvidia-Baseurl", baseURL)
+func (v *nvidia) getNvidiaUrl(ctx context.Context, baseURL, classBaseURL string) (string, error) {
+	passedBaseURL, _, err := modulecomponents.RequestBaseURL(ctx, "X-Nvidia-Baseurl", baseURL, classBaseURL, "X-Nvidia-Api-Key")
 	if err != nil {
 		return "", err
 	}

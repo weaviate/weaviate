@@ -184,6 +184,7 @@ func TestClient(t *testing.T) {
 		baseURL := "http://default-url.com"
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Voyageai-Baseurl", []string{"http://base-url-passed-in-header.com"})
+		ctxWithValue = context.WithValue(ctxWithValue, "X-Voyageai-Api-Key", []string{"callerKey"})
 
 		buildURL, err := c.getVoyageAIUrl(ctxWithValue, baseURL, "test-model")
 		assert.NoError(t, err)

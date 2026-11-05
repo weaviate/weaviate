@@ -207,6 +207,7 @@ func TestClient(t *testing.T) {
 		baseURL := "http://default-url.com"
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Cohere-Baseurl", []string{"http://base-url-passed-in-header.com"})
+		ctxWithValue = context.WithValue(ctxWithValue, "X-Cohere-Api-Key", []string{"callerKey"})
 
 		buildURL, err := c.getCohereUrl(ctxWithValue, baseURL)
 		assert.NoError(t, err)

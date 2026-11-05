@@ -116,6 +116,7 @@ func TestClient(t *testing.T) {
 		c := New("apiKey", 0, nullLogger())
 		ctx := context.WithValue(context.Background(),
 			"X-Twelvelabs-Baseurl", []string{server.URL})
+		ctx = context.WithValue(ctx, "X-Twelvelabs-Api-Key", []string{"callerKey"})
 
 		_, err := c.Vectorize(ctx, []string{"text"}, nil,
 			fakeClassConfig{classConfig: map[string]any{"baseURL": "http://unreachable.example.com"}},

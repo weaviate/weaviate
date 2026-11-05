@@ -65,7 +65,7 @@ func (v *friendliai) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	friendliUrl, err := v.getFriendliUrl(ctx, params.BaseURL)
+	friendliUrl, err := v.getFriendliUrl(ctx, params.BaseURL, config.NewClassSettings(cfg).BaseURL())
 	if err != nil {
 		return nil, err
 	}
@@ -182,8 +182,8 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 	return nil
 }
 
-func (v *friendliai) getFriendliUrl(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Friendli-Baseurl", baseURL)
+func (v *friendliai) getFriendliUrl(ctx context.Context, baseURL, classBaseURL string) (string, error) {
+	passedBaseURL, _, err := modulecomponents.RequestBaseURL(ctx, "X-Friendli-Baseurl", baseURL, classBaseURL, "X-Friendli-Token")
 	if err != nil {
 		return "", err
 	}

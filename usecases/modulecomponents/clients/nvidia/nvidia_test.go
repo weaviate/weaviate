@@ -179,6 +179,7 @@ func TestClient(t *testing.T) {
 		baseURL := "http://default-url.com"
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Nvidia-Baseurl", []string{"http://base-url-passed-in-header.com"})
+		ctxWithValue = context.WithValue(ctxWithValue, "X-Nvidia-Api-Key", []string{"callerKey"})
 
 		buildURL, err := c.getNvidiaUrl(ctxWithValue, baseURL)
 		assert.NoError(t, err)

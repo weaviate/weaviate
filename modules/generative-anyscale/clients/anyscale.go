@@ -87,7 +87,7 @@ func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, pr
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	anyscaleUrl, err := v.getAnyscaleUrl(ctx, params.BaseURL)
+	anyscaleUrl, err := v.getAnyscaleUrl(ctx, params.BaseURL, config.NewClassSettings(cfg).BaseURL())
 	if err != nil {
 		return nil, err
 	}
@@ -149,8 +149,8 @@ func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, pr
 	}, nil
 }
 
-func (v *anyscale) getAnyscaleUrl(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Anyscale-Baseurl", baseURL)
+func (v *anyscale) getAnyscaleUrl(ctx context.Context, baseURL, classBaseURL string) (string, error) {
+	passedBaseURL, _, err := modulecomponents.RequestBaseURL(ctx, "X-Anyscale-Baseurl", baseURL, classBaseURL, "X-Anyscale-Api-Key")
 	if err != nil {
 		return "", err
 	}
