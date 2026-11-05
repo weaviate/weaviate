@@ -228,10 +228,7 @@ func (p *ReindexProvider) SetCompletionRecorder(recorder distributedtask.TaskCom
 // OnAfterLsmInit a second time (which would attempt to load already
 // loaded ingest buckets).
 //
-// Safe to call concurrently with StartTask: StartTask only writes
-// entries for tasks it is starting, while seeding fills entries that
-// would otherwise be missing because the scheduler isn't (re)starting
-// the task post-restart.
+// Safe to call concurrently with StartTask: both write under p.mu, and seeding fills only empty entries.
 func (p *ReindexProvider) SeedReindexTaskCache(
 	cache map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric,
 ) {
@@ -1196,7 +1193,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 		if !ok {
 			continue
 		}
-		if err := reindexTask.refuseUnmirrored(shard, rec.Subject()); err != nil {
+		if err := reindexTask.refuseUnmirrored(rec.Subject()); err != nil {
 			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s swap: %v", unitID, reindexTask.Name(), err))
 		}
 	}

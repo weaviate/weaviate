@@ -16,7 +16,7 @@ import "sync"
 type migrationMirrorRegistry struct {
 	mu      sync.Mutex
 	disarms map[migrationMirrorKey]func()
-	// held lists the tasks a load or lift could neither arm nor stamp Unmirrored, kept after a retry settles them so steps wait until a status write.
+	// held lists the tasks a load or lift failed to arm when not all of them could be stamped Unmirrored, kept after a retry settles them so steps wait until a status write.
 	held []*ShardReindexTaskGeneric
 	// The steps still wait after a retry settled the held set, until a status write makes the shard writable.
 	heldSettled bool

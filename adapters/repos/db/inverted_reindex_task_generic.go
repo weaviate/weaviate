@@ -228,7 +228,7 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	concreteShard, logger := entry.shard, entry.logger
 
 	// A failed prepare fails the task before any replica swaps, which a refusal at swap alone cannot do.
-	if err := t.refuseUnmirrored(concreteShard, entry.rec.Subject()); err != nil {
+	if err := t.refuseUnmirrored(entry.rec.Subject()); err != nil {
 		return err
 	}
 
@@ -1126,7 +1126,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	if err := t.refuseUnmirrored(shard, subject); err != nil {
+	if err := t.refuseUnmirrored(subject); err != nil {
 		return err
 	}
 	// Read here, not at the call sites: rewriting a decided record drops promotion marks.
@@ -1413,7 +1413,7 @@ func (t *ShardReindexTaskGeneric) recordCheckpoint(shard ShardLike, subject Migr
 	}))
 }
 
-func (t *ShardReindexTaskGeneric) refuseUnmirrored(shard ShardLike, subject MigrationSubject) error {
+func (t *ShardReindexTaskGeneric) refuseUnmirrored(subject MigrationSubject) error {
 	if !subject.Unmirrored {
 		return nil
 	}

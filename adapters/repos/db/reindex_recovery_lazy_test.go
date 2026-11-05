@@ -265,7 +265,7 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 		lift lift
 		// A path that only lifts its own read-only reason never lifts this one.
 		neverLifts bool
-		// The other disks add nothing the manual rows do not already cover.
+		// Only the manual status update row runs the disks that do not arm.
 		armsOnly bool
 		want     storagestate.Status
 	}{
@@ -410,7 +410,7 @@ func TestLiftingAHeldShardDoesNotWaitOnAStuckDisk(t *testing.T) {
 	// Opening a pipe with no writer blocks in the kernel, like a hung network volume.
 	require.NoError(t, os.Remove(fx.corrupt))
 	require.NoError(t, syscall.Mkfifo(fx.corrupt, 0o600))
-	// Opening without blocking fails until the arm reads the pipe, so a regression fails instead of hanging.
+	// Opening without blocking fails until the arm opens the pipe, so a regression fails instead of hanging.
 	answer := func() bool {
 		w, err := os.OpenFile(fx.corrupt, os.O_WRONLY|syscall.O_NONBLOCK, 0)
 		if err != nil {

@@ -201,7 +201,7 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 const liftRetryTimeout = 30 * time.Second
 
 // retryHeldMigrations runs before the status lock so reads never wait on the disk. Only the wait is bounded,
-// because a cancelled arm would stamp a healthy migration for good. Shutdown waits for the arm's shard reference.
+// because a cancelled arm would stamp a healthy migration for good. The shard's teardown waits for the arm's shard reference.
 func (s *Shard) retryHeldMigrations(in string) error {
 	target, err := storagestate.ValidateStatus(strings.ToUpper(in))
 	held := s.migrationMirrors.heldUnarmed()

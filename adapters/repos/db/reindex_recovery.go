@@ -114,7 +114,7 @@ func (r *MigrationRecoveryReindexer) evictUnits(unarmed []*ShardReindexTaskGener
 func (r *MigrationRecoveryReindexer) recoverFromStore(store *MigrationRecordStore,
 	shardName string,
 ) []*ShardReindexTaskGeneric {
-	// The flag keeps recovery off, so a load with the feature disabled behaves as it always has.
+	// With RUNTIME_REINDEX_ENABLED off, recovery returns no task and stamps no record, so the load re-arms no mirror.
 	if !r.enabled {
 		return nil
 	}
