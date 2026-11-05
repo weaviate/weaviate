@@ -171,7 +171,7 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 // Pins: a run whose decided swap a replica still owes is kept even once a
 // newer finished flip covers it, and released once every replica paid.
 func TestRetainerKeepsARunWhileAReplicaOwesItsSwap(t *testing.T) {
-	mgr := distributedtask.NewManager(distributedtask.ManagerParameters{CompletedTaskTTL: time.Hour, Logger: logrus.New()})
+	mgr := distributedtask.NewManager(distributedtask.ManagerParameters{Logger: logrus.New()})
 	apply := func(f func(*cmd.ApplyRequest) error, sub any) {
 		raw, err := json.Marshal(sub)
 		require.NoError(t, err)

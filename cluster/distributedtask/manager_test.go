@@ -376,86 +376,26 @@ func TestManager_CleanUpTask_Failures(t *testing.T) {
 		err = h.manager.CleanUpTask(cleanUpCmd)
 		require.ErrorContains(t, err, "still running")
 	})
-
-	t.Run("completed task TTL did not pass yet", func(t *testing.T) {
-		var (
-			h = newTestHarness(t).init(t)
-
-			namespace        = "test"
-			taskID           = "1"
-			version   uint64 = 10
-
-			addCmd = toCmd(t, &cmd.AddDistributedTaskRequest{
-				Namespace:             namespace,
-				Id:                    taskID,
-				SubmittedAtUnixMillis: h.clock.Now().Add(-3 * h.completedTaskTTL).UnixMilli(),
-				UnitIds:               []string{"su-1"},
-			})
-
-			cancelCmd = toCmd(t, &cmd.CancelDistributedTaskRequest{
-				Namespace:             namespace,
-				Id:                    taskID,
-				Version:               version,
-				CancelledAtUnixMillis: h.clock.Now().Add(-h.completedTaskTTL).Add(time.Minute).UnixMilli(),
-			})
-
-			cleanUpCmd = toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-				Namespace: namespace,
-				Id:        taskID,
-				Version:   version,
-			})
-		)
-
-		err := h.manager.AddTask(addCmd, version)
-		require.NoError(t, err)
-
-		err = h.manager.CancelTask(cancelCmd)
-		require.NoError(t, err)
-
-		err = h.manager.CleanUpTask(cleanUpCmd)
-		require.ErrorContains(t, err, "too fresh")
-	})
 }
 
-// TestManager_CleanUpTask_TTLZeroBoundary pins the too-fresh boundary at
-// TTL=0: the manager rejects cleanup while Since<=TTL, so Since==0 is
-// rejected and only a later tick (Since>0) succeeds — the asymmetry with the
-// scheduler's TTL<=Since eligibility (already true at Since==0) ensures
-// cleanup never races a reader that just observed the FINISHED task.
-func TestManager_CleanUpTask_TTLZeroBoundary(t *testing.T) {
+// Pins that the apply removes a terminal task whatever its age: the TTL is
+// judged by the proposing sweep, so every node removes it at the same entry.
+func TestManager_CleanUpTask_RemovesATerminalTaskWhateverItsAge(t *testing.T) {
 	const (
 		ns  = "test"
 		id  = "1"
 		ver = uint64(10)
 	)
-	h := newTestHarness(t)
-	h.completedTaskTTL = 0
-	h.init(t)
-
-	// ms-align the fake clock so FinishedAt (ms precision) equals Now exactly,
-	// making Since==0 deterministic rather than a sub-ms remainder.
-	if rem := h.clock.Now().UnixNano() % int64(time.Millisecond); rem != 0 {
-		h.clock.Advance(time.Duration(int64(time.Millisecond) - rem))
-	}
-	finishedMs := h.clock.Now().UnixMilli()
-
+	h := newTestHarness(t).init(t)
 	addTaskWithUnits(t, h, ns, id, ver, []string{"su-1"})
 	require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
-		Namespace: ns, Id: id, Version: ver, CancelledAtUnixMillis: finishedMs,
+		Namespace: ns, Id: id, Version: ver, CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
 	})))
 
-	cleanUp := func() error {
-		return h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-			Namespace: ns, Id: id, Version: ver,
-		}))
-	}
-
-	require.ErrorContains(t, cleanUp(), "too fresh",
-		"at Since==0 the manager rejects cleanup (Since <= TTL) even at TTL=0")
-
-	h.clock.Advance(time.Millisecond)
-	require.NoError(t, cleanUp(),
-		"once Since is strictly positive the TTL=0 task is cleanable")
+	require.NoError(t, h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
+		Namespace: ns, Id: id, Version: ver,
+	})))
+	require.NotContains(t, h.manager.tasks[ns], id)
 }
 
 func TestManager_ListDistributedTasksPayload(t *testing.T) {
@@ -2473,9 +2413,7 @@ func TestManager_UnrecognizedStatusSurvivesRestartAndStaysCleanable(t *testing.T
 	require.NoError(t, err)
 
 	restarted := NewManager(ManagerParameters{
-		Clock:            h.clock,
-		CompletedTaskTTL: h.completedTaskTTL,
-		Logger:           h.logger,
+		Logger: h.logger,
 	})
 	require.NoError(t, restarted.Restore(snap))
 	require.Equal(t, unknownFutureStatus, restarted.tasks[ns][id].Status,

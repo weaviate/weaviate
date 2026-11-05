@@ -22,7 +22,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jonboulle/clockwork"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
@@ -67,10 +66,6 @@ type Manager struct {
 	// not collection-scoped and survives DeleteTasksForCollection.
 	collectionExtractors   map[string]CollectionExtractor
 	targetVectorExtractors map[string]TargetVectorExtractor
-
-	completedTaskTTL time.Duration
-
-	clock clockwork.Clock
 
 	logger logrus.FieldLogger
 
@@ -234,26 +229,15 @@ func (m *Manager) notifySchedulerWithLock() {
 }
 
 type ManagerParameters struct {
-	Clock clockwork.Clock
-
-	CompletedTaskTTL time.Duration
-
 	Logger logrus.FieldLogger
 }
 
 func NewManager(params ManagerParameters) *Manager {
-	if params.Clock == nil {
-		params.Clock = clockwork.NewRealClock()
-	}
-
 	return &Manager{
 		tasks:                  make(map[string]map[string]*Task),
 		collectionExtractors:   make(map[string]CollectionExtractor),
 		targetVectorExtractors: make(map[string]TargetVectorExtractor),
 
-		completedTaskTTL: params.CompletedTaskTTL,
-
-		clock:  params.Clock,
 		logger: params.Logger,
 	}
 }
@@ -1042,9 +1026,8 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 }
 
 // CleanUpTask removes a task from the Manager's state. It refuses a task that is both
-// [TaskStatus.IsActive] and [TaskStatus.IsRecognized], and a task whose completedTaskTTL
-// has not yet elapsed, preventing premature removal of status information that other
-// nodes may still need to observe.
+// [TaskStatus.IsActive] and [TaskStatus.IsRecognized]. The TTL is judged once, by the
+// proposing sweep: reading this node's clock here would let nodes keep different task lists.
 func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	var r api.CleanUpDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -1059,16 +1042,10 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	// Without this guard an in-flight task — never FinishedAt-stamped — would
-	// read as long expired by the check below. An unrecognized status is let
-	// through deliberately: the TTL sweep is the sole proposer and reads the
+	// An unrecognized status is let through deliberately: the TTL sweep is the sole proposer and reads the
 	// leader's view, so a clean-up for it means the cluster already calls it done.
 	if task.Status.IsActive() && task.Status.IsRecognized() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
-	}
-
-	if m.clock.Since(task.FinishedAt) <= m.completedTaskTTL {
-		return fmt.Errorf("task %s/%s/%d is too fresh to clean up", r.Namespace, r.Id, task.Version)
 	}
 
 	delete(m.tasks[task.Namespace], task.ID)

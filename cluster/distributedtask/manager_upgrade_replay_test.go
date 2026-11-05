@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonboulle/clockwork"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -94,7 +93,7 @@ func TestReplayOfReleasedBinaryLogs(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			logger, _ := logrustest.NewNullLogger()
-			m := NewManager(ManagerParameters{Clock: clockwork.NewFakeClockAt(at), CompletedTaskTTL: time.Hour, Logger: logger})
+			m := NewManager(ManagerParameters{Logger: logger})
 			var specs []*cmd.UnitSpec
 			for u, g := range tc.groups {
 				specs = append(specs, &cmd.UnitSpec{Id: u, GroupId: g})
@@ -149,7 +148,7 @@ var releasedSnapshot []byte
 // nothing: no released binary held a debt, so none can be read into one.
 func TestRestoreOfAReleasedBinarysSnapshot(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
-	m := NewManager(ManagerParameters{Clock: clockwork.NewFakeClock(), CompletedTaskTTL: time.Hour, Logger: logger})
+	m := NewManager(ManagerParameters{Logger: logger})
 	require.NoError(t, m.Restore(releasedSnapshot))
 
 	statuses := map[string]TaskStatus{}
@@ -169,7 +168,7 @@ func TestSwapDebtSurvivesSnapshot(t *testing.T) {
 	const ns, id = "ns", "T"
 	logger, _ := logrustest.NewNullLogger()
 	at := time.UnixMilli(1_700_000_000_000)
-	m := NewManager(ManagerParameters{Clock: clockwork.NewFakeClockAt(at), CompletedTaskTTL: time.Hour, Logger: logger})
+	m := NewManager(ManagerParameters{Logger: logger})
 	specs := []*cmd.UnitSpec{{Id: "u1", GroupId: "t1"}, {Id: "u2", GroupId: "t1"}, {Id: "u3", GroupId: "t2"}, {Id: "u4", GroupId: "t2"}}
 	node := map[string]string{"u1": "n1", "u2": "n2", "u3": "n1", "u4": "n2"}
 	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
@@ -193,7 +192,7 @@ func TestSwapDebtSurvivesSnapshot(t *testing.T) {
 
 	snap, err := m.Snapshot()
 	require.NoError(t, err)
-	restored := NewManager(ManagerParameters{Clock: clockwork.NewFakeClockAt(at), CompletedTaskTTL: time.Hour, Logger: logger})
+	restored := NewManager(ManagerParameters{Logger: logger})
 	require.NoError(t, restored.Restore(snap))
 	after := restored.tasks[ns][id]
 	require.Equal(t, before.SwapsOwed, after.SwapsOwed)

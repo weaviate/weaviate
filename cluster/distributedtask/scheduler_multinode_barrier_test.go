@@ -180,7 +180,7 @@ type barrierNode struct {
 func newBarrierHarness(t *testing.T, nodeIDs []string) *barrierHarness {
 	logger, _ := logrustest.NewNullLogger()
 	clock := clockwork.NewFakeClock()
-	mgr := NewManager(ManagerParameters{Clock: clock, CompletedTaskTTL: 24 * time.Hour, Logger: logger})
+	mgr := NewManager(ManagerParameters{Logger: logger})
 
 	h := &barrierHarness{
 		t:             t,
@@ -188,10 +188,10 @@ func newBarrierHarness(t *testing.T, nodeIDs []string) *barrierHarness {
 		logger:        logger,
 		namespace:     "tasks-namespace",
 		manager:       mgr,
-		completionRec: &fanoutRecorder{t: t, manager: mgr},
+		completionRec: &fanoutRecorder{t: t, manager: mgr, clock: clock},
 		cleaner:       &directCleaner{t: t, manager: mgr},
-		finalizer:     newDirectFinalizer(t, mgr),
-		ackRecorder:   &fanoutAckRecorder{t: t, manager: mgr},
+		finalizer:     newDirectFinalizer(t, mgr, clock),
+		ackRecorder:   &fanoutAckRecorder{t: t, manager: mgr, clock: clock},
 		notifier:      &fanoutNotifier{},
 	}
 
@@ -939,9 +939,7 @@ func TestBarrier_G8_SnapshotRestoreMidPreparing(t *testing.T) {
 	require.NotEmpty(t, snapshotBytes)
 
 	freshManager := NewManager(ManagerParameters{
-		Clock:            h.clock,
-		CompletedTaskTTL: 24 * time.Hour,
-		Logger:           h.logger,
+		Logger: h.logger,
 	})
 	require.NoError(t, freshManager.Restore(snapshotBytes))
 
