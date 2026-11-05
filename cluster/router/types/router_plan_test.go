@@ -141,3 +141,93 @@ func TestReadRoutingPlan_ShardPlans(t *testing.T) {
 		})
 	}
 }
+
+func TestReadRoutingPlan_SpreadReplicas(t *testing.T) {
+	replicas := func(shard string, nodes ...string) []types.Replica {
+		out := make([]types.Replica, 0, len(nodes))
+		for _, node := range nodes {
+			out = append(out, types.Replica{ShardName: shard, NodeName: node, HostAddr: node + ":8080"})
+		}
+		return out
+	}
+
+	tests := []struct {
+		name     string
+		local    string
+		replicas [][]types.Replica
+		// want is the node each shard must land on; nil when only maxLoad is fixed
+		want    map[string]string
+		maxLoad int
+	}{
+		{
+			name:    "no replicas",
+			local:   "n1",
+			want:    map[string]string{},
+			maxLoad: 0,
+		},
+		{
+			name:     "single replicas stay where they are, even on one node",
+			local:    "n1",
+			replicas: [][]types.Replica{replicas("A", "n2"), replicas("B", "n2")},
+			want:     map[string]string{"A": "n2", "B": "n2"},
+			maxLoad:  2,
+		},
+		{
+			name:     "the local node wins a tie",
+			local:    "n1",
+			replicas: [][]types.Replica{replicas("A", "n2", "n3", "n1")},
+			want:     map[string]string{"A": "n1"},
+			maxLoad:  1,
+		},
+		{
+			name:     "the local node takes one shard and the rest go elsewhere",
+			local:    "n1",
+			replicas: [][]types.Replica{replicas("A", "n1", "n2", "n3"), replicas("B", "n1", "n2", "n3"), replicas("C", "n1", "n2", "n3")},
+			maxLoad:  1,
+		},
+		{
+			name:     "a shard with fewer replicas picks first",
+			local:    "n9",
+			replicas: [][]types.Replica{replicas("A", "n1", "n2"), replicas("B", "n2")},
+			want:     map[string]string{"A": "n1", "B": "n2"},
+			maxLoad:  1,
+		},
+		{
+			name:  "four shards at rf 3 on five nodes land on four nodes",
+			local: "n1",
+			replicas: [][]types.Replica{
+				replicas("A", "n1", "n2", "n3"), replicas("B", "n1", "n3", "n4"),
+				replicas("C", "n1", "n4", "n5"), replicas("D", "n2", "n3", "n5"),
+			},
+			maxLoad: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var all []types.Replica
+			for _, r := range tt.replicas {
+				all = append(all, r...)
+			}
+			plan := types.ReadRoutingPlan{LocalHostname: tt.local, ReplicaSet: types.ReadReplicaSet{Replicas: all}}
+
+			// ties break at random, so every run must hold
+			for range 100 {
+				got := map[string]string{}
+				load := map[string]int{}
+				for _, r := range plan.SpreadReplicas() {
+					require.NotContains(t, got, r.ShardName, "one replica per shard")
+					require.Contains(t, all, r)
+					got[r.ShardName] = r.NodeName
+					load[r.NodeName]++
+				}
+				require.Len(t, got, len(tt.replicas))
+				for node, n := range load {
+					require.LessOrEqual(t, n, tt.maxLoad, "node %s", node)
+				}
+				if tt.want != nil {
+					require.Equal(t, tt.want, got)
+				}
+			}
+		})
+	}
+}
