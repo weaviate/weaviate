@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"runtime/debug"
 	"strings"
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
@@ -67,6 +68,13 @@ func NewServer(appState *state.State) *Server {
 	exportsHandler := NewExports(appState.ExportParticipant, auth)
 	dbUsers := NewDbUsers(appState.APIKeyRemote, auth)
 	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger, appState.ServerConfig.Config, appState.ObjectTTLLocalStatus)
+	rebalanceMeasurement := NewRebalanceMeasurement(
+		appState.DB.DiskUse,
+		// A negative limit queries the current soft memory limit without changing it.
+		func() int64 { return debug.SetMemoryLimit(-1) },
+		appState.ServerConfig.Config.ResourceUsage.DiskUse.WarningPercentage,
+		appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
+		auth)
 
 	mux := http.NewServeMux()
 	mux.Handle("/classifications/transactions/",
@@ -76,6 +84,7 @@ func NewServer(appState *state.State) *Server {
 	mux.Handle("/cluster/users/db/", dbUsers.Users())
 	mux.Handle("/cluster/object_ttl/", objectTTL.Expired())
 	mux.Handle("/nodes/", monitoring.AddTracingToHTTPMiddleware(nodes.Nodes(), appState.Logger))
+	mux.Handle("/replication/rebalance/measurement", rebalanceMeasurement.Measurement())
 	mux.Handle("/indices/", monitoring.AddTracingToHTTPMiddleware(indices.Indices(), appState.Logger))
 	mux.Handle("/replicas/indices/", monitoring.AddTracingToHTTPMiddleware(replicatedIndices.Indices(), appState.Logger))
 
