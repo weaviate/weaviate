@@ -461,16 +461,8 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 			continue
 		}
 
-		// a paused queue is not even marked, so it stays idle throughout
-		if q.Paused() {
-			continue
-		}
-
-		// mark it as scheduled
-		q.MarkAsScheduled()
-
-		if q.Paused() {
-			q.MarkAsUnscheduled()
+		// mark it as scheduled, unless paused: a paused queue stays idle
+		if !q.MarkAsScheduledUnlessPaused() {
 			continue
 		}
 
@@ -765,8 +757,17 @@ func (qs *queueState) Scheduled() bool {
 	return qs.scheduled.Count() > 0
 }
 
-func (qs *queueState) MarkAsScheduled() {
+// MarkAsScheduledUnlessPaused marks the queue under the lock PauseQueue
+// takes, so a pause sees the mark or the scheduler sees the pause.
+func (qs *queueState) MarkAsScheduledUnlessPaused() bool {
+	qs.m.RLock()
+	defer qs.m.RUnlock()
+
+	if qs.paused {
+		return false
+	}
 	qs.scheduled.Incr()
+	return true
 }
 
 func (qs *queueState) MarkAsUnscheduled() {
