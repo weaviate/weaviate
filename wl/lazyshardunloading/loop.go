@@ -59,7 +59,8 @@ func (p *policy[S]) tick(now time.Time) *snapshot {
 	p.storeRatio(p.memRatio())
 	p.publishGauges(s)
 	if s.paused {
-		p.draining, p.idleBacklog = false, false
+		p.draining.Store(false)
+		p.idleBacklog = false
 		return s
 	}
 	clear(p.nsActiveCache)
@@ -108,15 +109,15 @@ func (p *policy[S]) drainWatermarks(s *snapshot, now time.Time, budget int) int 
 	if s.high > 0 {
 		switch ratio := p.cachedRatio(); {
 		case ratio > s.high:
-			p.draining = true
+			p.draining.Store(true)
 		case ratio < s.low:
-			p.draining = false
+			p.draining.Store(false)
 		}
-		if p.draining {
+		if p.draining.Load() {
 			need = int64(budget)
 		}
 	} else {
-		p.draining = false
+		p.draining.Store(false)
 	}
 	need = min(need, int64(budget))
 	if need <= 0 {

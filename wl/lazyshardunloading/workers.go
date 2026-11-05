@@ -106,7 +106,8 @@ func (p *policy[S]) stillWanted(s *snapshot, it item[S]) bool {
 	if s.maxLoaded > 0 && p.reg.Loaded()-p.pending.Load()+int64(s.workers) >= s.maxLoaded {
 		return true
 	}
-	return s.high > 0 && p.cachedRatio() >= s.low
+	// Between the watermarks only a drain that already started goes on: the heap alone triggers nothing there.
+	return s.high > 0 && (p.draining.Load() || p.cachedRatio() > s.high)
 }
 
 // currentRequest is the queued request under the current knobs; PickedAt stays, it is when the shard was selected.

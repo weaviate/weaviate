@@ -50,6 +50,13 @@ func TestQueuedUnloadsFollowTheCurrentSettings(t *testing.T) {
 		set(nil, k.high, 0.8)
 		set(nil, k.low, 0.5)
 	}
+	withWatermarks := func(configure func(*testKnobs)) func(*testKnobs) {
+		return func(k *testKnobs) {
+			configure(k)
+			set(nil, k.high, 0.8)
+			set(nil, k.low, 0.5)
+		}
+	}
 	stays := func(t *testing.T, queued *fakeShard) {
 		require.True(t, queued.loaded())
 		require.Empty(t, queued.requests(), "a handoff no setting wants anymore never reaches TryUnload")
@@ -196,6 +203,41 @@ func TestQueuedUnloadsFollowTheCurrentSettings(t *testing.T) {
 			queue:     unpause,
 			change:    func(h *harness) { h.setRatio(0.6) },
 			want:      unloadedWith(anyRequest),
+		},
+		{
+			name:      "limit drain with the heap between the watermarks, max_loaded_shards cleared",
+			configure: withWatermarks(limitDrain),
+			ratio:     0.6,
+			queue:     unpause,
+			change:    func(h *harness) { set(h.t, h.knobs.maxLoaded, 0) },
+			want:      stays,
+		},
+		{
+			name:      "limit drain with the heap between the watermarks, max_loaded_shards raised",
+			configure: withWatermarks(limitDrain),
+			ratio:     0.6,
+			queue:     unpause,
+			change:    func(h *harness) { set(h.t, h.knobs.maxLoaded, 100) },
+			want:      stays,
+		},
+		{
+			name:      "memory drain running, max_loaded_shards cleared keeps draining",
+			configure: withWatermarks(limitDrain),
+			ratio:     0.9,
+			queue:     unpause,
+			change: func(h *harness) {
+				h.setRatio(0.6)
+				set(h.t, h.knobs.maxLoaded, 0)
+			},
+			want: unloadedWith(anyRequest),
+		},
+		{
+			name:      "make-room with the heap between the watermarks, max_loaded_shards raised",
+			configure: withWatermarks(makeRoomAtLimit),
+			ratio:     0.6,
+			queue:     makeRoomTwice,
+			change:    func(h *harness) { set(h.t, h.knobs.maxLoaded, 100) },
+			want:      stays,
 		},
 		{
 			name:      "make-room, max_loaded_shards raised",

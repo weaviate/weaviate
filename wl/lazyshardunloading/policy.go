@@ -116,7 +116,8 @@ type policy[S shard] struct {
 	workersClosed  bool
 	workersRunning atomic.Int64
 
-	draining      bool
+	// draining is written only by the loop; workers read it to re-check a queued handoff.
+	draining      atomic.Bool
 	lastIdleSweep time.Time
 	idleBacklog   bool
 	loopBuf       []S
