@@ -35,6 +35,12 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 ) (*BatchDeleteResponse, error) {
 	class := "*"
 	if match != nil {
+		// An empty class is refused before resolveNS, which would qualify it to
+		// "<namespace>:" for a namespaced caller. Authorization reads "" as every
+		// collection.
+		if match.Class == "" {
+			return nil, NewErrInvalidUserInput("empty match.class clause")
+		}
 		resolved, _, err := b.resolveNS(principal, match.Class)
 		if err != nil {
 			return nil, userInputOrForbidden(err)
@@ -136,10 +142,6 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 	// 500. The message wording is preserved for callers/tests.
 	if match == nil {
 		return nil, 0, NewErrInvalidUserInput("empty match clause")
-	}
-
-	if len(match.Class) == 0 {
-		return nil, 0, NewErrInvalidUserInput("empty match.class clause")
 	}
 
 	if match.Where == nil {
