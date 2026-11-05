@@ -52,6 +52,12 @@ func (o *DeleteRebalancePlanReader) ReadResponse(response runtime.ClientResponse
 			return nil, err
 		}
 		return nil, result
+	case 500:
+		result := NewDeleteRebalancePlanInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -238,6 +244,74 @@ func (o *DeleteRebalancePlanConflict) GetPayload() *models.ErrorResponse {
 }
 
 func (o *DeleteRebalancePlanConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewDeleteRebalancePlanInternalServerError creates a DeleteRebalancePlanInternalServerError with default headers values
+func NewDeleteRebalancePlanInternalServerError() *DeleteRebalancePlanInternalServerError {
+	return &DeleteRebalancePlanInternalServerError{}
+}
+
+/*
+DeleteRebalancePlanInternalServerError describes a response with status code 500, with default header values.
+
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+*/
+type DeleteRebalancePlanInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this delete rebalance plan internal server error response has a 2xx status code
+func (o *DeleteRebalancePlanInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this delete rebalance plan internal server error response has a 3xx status code
+func (o *DeleteRebalancePlanInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this delete rebalance plan internal server error response has a 4xx status code
+func (o *DeleteRebalancePlanInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this delete rebalance plan internal server error response has a 5xx status code
+func (o *DeleteRebalancePlanInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this delete rebalance plan internal server error response a status code equal to that given
+func (o *DeleteRebalancePlanInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the delete rebalance plan internal server error response
+func (o *DeleteRebalancePlanInternalServerError) Code() int {
+	return 500
+}
+
+func (o *DeleteRebalancePlanInternalServerError) Error() string {
+	return fmt.Sprintf("[DELETE /replication/rebalance][%d] deleteRebalancePlanInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *DeleteRebalancePlanInternalServerError) String() string {
+	return fmt.Sprintf("[DELETE /replication/rebalance][%d] deleteRebalancePlanInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *DeleteRebalancePlanInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *DeleteRebalancePlanInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

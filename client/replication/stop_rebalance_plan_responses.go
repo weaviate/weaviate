@@ -58,6 +58,12 @@ func (o *StopRebalancePlanReader) ReadResponse(response runtime.ClientResponse, 
 			return nil, err
 		}
 		return nil, result
+	case 500:
+		result := NewStopRebalancePlanInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -312,6 +318,74 @@ func (o *StopRebalancePlanConflict) GetPayload() *models.ErrorResponse {
 }
 
 func (o *StopRebalancePlanConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewStopRebalancePlanInternalServerError creates a StopRebalancePlanInternalServerError with default headers values
+func NewStopRebalancePlanInternalServerError() *StopRebalancePlanInternalServerError {
+	return &StopRebalancePlanInternalServerError{}
+}
+
+/*
+StopRebalancePlanInternalServerError describes a response with status code 500, with default header values.
+
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+*/
+type StopRebalancePlanInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this stop rebalance plan internal server error response has a 2xx status code
+func (o *StopRebalancePlanInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this stop rebalance plan internal server error response has a 3xx status code
+func (o *StopRebalancePlanInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this stop rebalance plan internal server error response has a 4xx status code
+func (o *StopRebalancePlanInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this stop rebalance plan internal server error response has a 5xx status code
+func (o *StopRebalancePlanInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this stop rebalance plan internal server error response a status code equal to that given
+func (o *StopRebalancePlanInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the stop rebalance plan internal server error response
+func (o *StopRebalancePlanInternalServerError) Code() int {
+	return 500
+}
+
+func (o *StopRebalancePlanInternalServerError) Error() string {
+	return fmt.Sprintf("[POST /replication/rebalance/stop][%d] stopRebalancePlanInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *StopRebalancePlanInternalServerError) String() string {
+	return fmt.Sprintf("[POST /replication/rebalance/stop][%d] stopRebalancePlanInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *StopRebalancePlanInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *StopRebalancePlanInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

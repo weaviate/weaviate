@@ -34,6 +34,12 @@ type ApproveRebalancePlanReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *ApproveRebalancePlanReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
+	case 403:
+		result := NewApproveRebalancePlanForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 501:
 		result := NewApproveRebalancePlanNotImplemented()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -43,6 +49,74 @@ func (o *ApproveRebalancePlanReader) ReadResponse(response runtime.ClientRespons
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
+}
+
+// NewApproveRebalancePlanForbidden creates a ApproveRebalancePlanForbidden with default headers values
+func NewApproveRebalancePlanForbidden() *ApproveRebalancePlanForbidden {
+	return &ApproveRebalancePlanForbidden{}
+}
+
+/*
+ApproveRebalancePlanForbidden describes a response with status code 403, with default header values.
+
+Forbidden
+*/
+type ApproveRebalancePlanForbidden struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this approve rebalance plan forbidden response has a 2xx status code
+func (o *ApproveRebalancePlanForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this approve rebalance plan forbidden response has a 3xx status code
+func (o *ApproveRebalancePlanForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this approve rebalance plan forbidden response has a 4xx status code
+func (o *ApproveRebalancePlanForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this approve rebalance plan forbidden response has a 5xx status code
+func (o *ApproveRebalancePlanForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this approve rebalance plan forbidden response a status code equal to that given
+func (o *ApproveRebalancePlanForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the approve rebalance plan forbidden response
+func (o *ApproveRebalancePlanForbidden) Code() int {
+	return 403
+}
+
+func (o *ApproveRebalancePlanForbidden) Error() string {
+	return fmt.Sprintf("[POST /replication/rebalance/approve][%d] approveRebalancePlanForbidden  %+v", 403, o.Payload)
+}
+
+func (o *ApproveRebalancePlanForbidden) String() string {
+	return fmt.Sprintf("[POST /replication/rebalance/approve][%d] approveRebalancePlanForbidden  %+v", 403, o.Payload)
+}
+
+func (o *ApproveRebalancePlanForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ApproveRebalancePlanForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
 }
 
 // NewApproveRebalancePlanNotImplemented creates a ApproveRebalancePlanNotImplemented with default headers values

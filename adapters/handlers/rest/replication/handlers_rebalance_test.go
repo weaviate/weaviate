@@ -1,0 +1,455 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package replication
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"testing"
+	"time"
+
+	"github.com/go-openapi/runtime/middleware"
+	"github.com/google/uuid"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
+	rebalance "github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
+)
+
+type authorizeCall struct {
+	verb      string
+	resources []string
+}
+
+// fakeRebalanceAuthorizer implements only Authorize. Any other method call
+// panics on the embedded nil Authorizer.
+type fakeRebalanceAuthorizer struct {
+	authorization.Authorizer
+	err   error
+	calls []authorizeCall
+}
+
+func (a *fakeRebalanceAuthorizer) Authorize(_ context.Context, _ *models.Principal, verb string, resources ...string) error {
+	a.calls = append(a.calls, authorizeCall{verb: verb, resources: resources})
+	return a.err
+}
+
+type fakeRebalanceManager struct {
+	plan      *rebalance.Plan
+	createErr error
+	stopErr   error
+	deleteErr error
+
+	calls   int
+	created *rebalance.CreatePlanRequest
+	stopped []string
+	deleted []string
+}
+
+func (m *fakeRebalanceManager) CreateRebalancePlan(_ context.Context, req *rebalance.CreatePlanRequest) error {
+	m.calls++
+	m.created = req
+	return m.createErr
+}
+
+func (m *fakeRebalanceManager) StopRebalancePlan(_ context.Context, req *rebalance.StopPlanRequest) error {
+	m.calls++
+	m.stopped = append(m.stopped, req.PlanID)
+	return m.stopErr
+}
+
+func (m *fakeRebalanceManager) DeleteRebalancePlan(_ context.Context, req *rebalance.DeletePlanRequest) error {
+	m.calls++
+	m.deleted = append(m.deleted, req.PlanID)
+	return m.deleteErr
+}
+
+func (m *fakeRebalanceManager) GetRebalancePlan() (rebalance.Plan, bool) {
+	m.calls++
+	if m.plan == nil {
+		return rebalance.Plan{}, false
+	}
+	return *m.plan, true
+}
+
+type fakeRebalanceNodes struct {
+	live       []string
+	nonStorage []string
+}
+
+func (n fakeRebalanceNodes) StorageCandidates() []string { return n.live }
+func (n fakeRebalanceNodes) NonStorageNodes() []string   { return n.nonStorage }
+
+func createRebalanceHandlerWithFakes(t *testing.T, movementEnabled, rebalanceEnabled bool, manager *fakeRebalanceManager, nodes fakeRebalanceNodes,
+) (*replicationHandler, *fakeRebalanceAuthorizer, *logrustest.Hook) {
+	t.Helper()
+	logger, hook := logrustest.NewNullLogger()
+	authorizer := &fakeRebalanceAuthorizer{}
+	handler := &replicationHandler{
+		authorizer:       authorizer,
+		rebalanceManager: manager,
+		nodes:            nodes,
+		logger:           logger,
+		enabled:          runtime.NewDynamicValue(movementEnabled),
+		rebalanceEnabled: runtime.NewDynamicValue(rebalanceEnabled),
+	}
+	return handler, authorizer, hook
+}
+
+// wrapped wraps sentinel the same way cluster.Raft does.
+func wrapped(sentinel error) error {
+	return fmt.Errorf("execute rebalance command: %w", sentinel)
+}
+
+func requireRebalanceLog(t *testing.T, hook *logrustest.Hook, planID string) {
+	t.Helper()
+	entry := hook.LastEntry()
+	require.NotNil(t, entry)
+	assert.Equal(t, "replication_rebalance", entry.Data["action"])
+	assert.Equal(t, planID, entry.Data["planId"])
+}
+
+func TestRebalanceHandlers(t *testing.T) {
+	principal := &models.Principal{}
+	request := &http.Request{}
+	allReplications := []string{authorization.Replications("*", "*")}
+
+	type operation func(h *replicationHandler) middleware.Responder
+	create := func(body *models.ReplicationRebalanceRequest) operation {
+		return func(h *replicationHandler) middleware.Responder {
+			return h.createRebalancePlan(replication.CreateRebalancePlanParams{HTTPRequest: request, Body: body}, principal)
+		}
+	}
+	get := func(h *replicationHandler) middleware.Responder {
+		return h.getRebalancePlan(replication.GetRebalancePlanParams{HTTPRequest: request}, principal)
+	}
+	stop := func(h *replicationHandler) middleware.Responder {
+		return h.stopRebalancePlan(replication.StopRebalancePlanParams{HTTPRequest: request}, principal)
+	}
+	approve := func(h *replicationHandler) middleware.Responder {
+		return h.approveRebalancePlan(replication.ApproveRebalancePlanParams{HTTPRequest: request}, principal)
+	}
+	del := func(h *replicationHandler) middleware.Responder {
+		return h.deleteRebalancePlan(replication.DeleteRebalancePlanParams{HTTPRequest: request}, principal)
+	}
+	validBody := func() *models.ReplicationRebalanceRequest {
+		return &models.ReplicationRebalanceRequest{
+			SourceNodes: []string{"node-1"},
+			TargetNodes: []string{"node-2"},
+			Collections: []string{"Books"},
+		}
+	}
+	liveNodes := fakeRebalanceNodes{live: []string{"node-1", "node-2", "node-3"}}
+
+	t.Run("a denied caller gets 403 before any flag check or plan read", func(t *testing.T) {
+		tests := []struct {
+			name string
+			call operation
+			verb string
+			want middleware.Responder
+		}{
+			{"create", create(validBody()), authorization.CREATE, &replication.CreateRebalancePlanForbidden{}},
+			{"get", get, authorization.READ, &replication.GetRebalancePlanForbidden{}},
+			{"stop", stop, authorization.UPDATE, &replication.StopRebalancePlanForbidden{}},
+			{"approve", approve, authorization.CREATE, &replication.ApproveRebalancePlanForbidden{}},
+			{"delete", del, authorization.DELETE, &replication.DeleteRebalancePlanForbidden{}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				manager := &fakeRebalanceManager{plan: &rebalance.Plan{ID: "plan-1", State: rebalance.PlanStatePlanning}}
+				handler, authorizer, _ := createRebalanceHandlerWithFakes(t, false, false, manager, liveNodes)
+				authorizer.err = errors.New("forbidden")
+
+				response := tt.call(handler)
+
+				assert.IsType(t, tt.want, response)
+				assert.Equal(t, []authorizeCall{{verb: tt.verb, resources: allReplications}}, authorizer.calls)
+				assert.Zero(t, manager.calls)
+			})
+		}
+	})
+
+	t.Run("create", func(t *testing.T) {
+		tests := []struct {
+			name              string
+			movementDisabled  bool
+			rebalanceDisabled bool
+			body              *models.ReplicationRebalanceRequest
+			nodes             *fakeRebalanceNodes
+			createErr         error
+			want              middleware.Responder
+			wantErrors        []string
+		}{
+			{name: "rebalance flag off", rebalanceDisabled: true, body: validBody(), want: &replication.CreateRebalancePlanNotImplemented{}},
+			{name: "movement flag off", movementDisabled: true, body: validBody(), want: &replication.CreateRebalancePlanNotImplemented{}},
+			{name: "missing body", want: &replication.CreateRebalancePlanBadRequest{}},
+			{
+				name: "empty source nodes",
+				body: &models.ReplicationRebalanceRequest{TargetNodes: []string{"node-2"}},
+				want: &replication.CreateRebalancePlanBadRequest{},
+			},
+			{
+				name: "empty target nodes",
+				body: &models.ReplicationRebalanceRequest{SourceNodes: []string{"node-1"}},
+				want: &replication.CreateRebalancePlanBadRequest{},
+			},
+			{
+				name: "duplicate node",
+				body: &models.ReplicationRebalanceRequest{SourceNodes: []string{"node-1", "node-1"}, TargetNodes: []string{"node-2"}},
+				want: &replication.CreateRebalancePlanBadRequest{},
+			},
+			{
+				name: "overlapping node groups",
+				body: &models.ReplicationRebalanceRequest{SourceNodes: []string{"node-1"}, TargetNodes: []string{"node-2", "node-1"}},
+				want: &replication.CreateRebalancePlanBadRequest{},
+			},
+			{
+				name:       "nodes that are not live get one row each",
+				body:       &models.ReplicationRebalanceRequest{SourceNodes: []string{"node-1", "gone-1"}, TargetNodes: []string{"gone-2"}},
+				want:       &replication.CreateRebalancePlanUnprocessableEntity{},
+				wantErrors: []string{`node "gone-1" is not a live storage node`, `node "gone-2" is not a live storage node`},
+			},
+			{
+				name:       "non-storage node",
+				body:       validBody(),
+				nodes:      &fakeRebalanceNodes{live: []string{"node-1"}, nonStorage: []string{"node-2"}},
+				want:       &replication.CreateRebalancePlanUnprocessableEntity{},
+				wantErrors: []string{`node "node-2" is not a storage node`},
+			},
+			{
+				name:      "unfinished plan exists",
+				body:      validBody(),
+				createErr: wrapped(rebalance.ErrPlanExists),
+				want:      &replication.CreateRebalancePlanConflict{},
+			},
+			{
+				name:      "unexpected proposal error",
+				body:      validBody(),
+				createErr: errors.New("raft unavailable"),
+				want:      &replication.CreateRebalancePlanInternalServerError{},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				nodes := liveNodes
+				if tt.nodes != nil {
+					nodes = *tt.nodes
+				}
+				manager := &fakeRebalanceManager{createErr: tt.createErr}
+				handler, _, _ := createRebalanceHandlerWithFakes(t, !tt.movementDisabled, !tt.rebalanceDisabled, manager, nodes)
+
+				response := create(tt.body)(handler)
+
+				require.IsType(t, tt.want, response)
+				// Only the rows that set createErr pass validation and reach the manager.
+				assert.Equal(t, tt.createErr != nil, manager.created != nil, "proposal made")
+				if tt.wantErrors != nil {
+					var got []string
+					for _, item := range response.(*replication.CreateRebalancePlanUnprocessableEntity).Payload.Error {
+						got = append(got, item.Message)
+					}
+					assert.Equal(t, tt.wantErrors, got)
+				}
+			})
+		}
+	})
+
+	t.Run("create proposes a new plan and logs its id", func(t *testing.T) {
+		manager := &fakeRebalanceManager{}
+		handler, _, hook := createRebalanceHandlerWithFakes(t, true, true, manager, liveNodes)
+
+		before := time.Now().UnixMilli()
+		response := create(validBody())(handler)
+		after := time.Now().UnixMilli()
+
+		require.IsType(t, &replication.CreateRebalancePlanAccepted{}, response)
+		require.NotNil(t, manager.created)
+		_, err := uuid.Parse(manager.created.PlanID)
+		require.NoError(t, err)
+		assert.Equal(t, manager.created.PlanID, response.(*replication.CreateRebalancePlanAccepted).Payload.ID)
+		assert.Equal(t, []string{"node-1"}, manager.created.SourceNodes)
+		assert.Equal(t, []string{"node-2"}, manager.created.TargetNodes)
+		assert.Equal(t, []string{"Books"}, manager.created.Collections)
+		assert.GreaterOrEqual(t, manager.created.CreatedAtUnixMs, before)
+		assert.LessOrEqual(t, manager.created.CreatedAtUnixMs, after)
+		requireRebalanceLog(t, hook, manager.created.PlanID)
+	})
+
+	t.Run("approve answers 501 to a permitted caller", func(t *testing.T) {
+		for _, enabled := range []bool{true, false} {
+			t.Run(fmt.Sprintf("flags enabled %v", enabled), func(t *testing.T) {
+				manager := &fakeRebalanceManager{}
+				handler, authorizer, _ := createRebalanceHandlerWithFakes(t, enabled, enabled, manager, liveNodes)
+
+				assert.IsType(t, &replication.ApproveRebalancePlanNotImplemented{}, approve(handler))
+				assert.Equal(t, []authorizeCall{{verb: authorization.CREATE, resources: allReplications}}, authorizer.calls)
+				assert.Zero(t, manager.calls)
+			})
+		}
+	})
+
+	t.Run("get, stop and delete ignore the flags", func(t *testing.T) {
+		planning := &rebalance.Plan{ID: "plan-1", State: rebalance.PlanStatePlanning}
+		proposed := &rebalance.Plan{ID: "plan-1", State: rebalance.PlanStateProposed}
+		failed := &rebalance.Plan{
+			ID:               "plan-1",
+			State:            rebalance.PlanStatePlanningFailed,
+			SourceNodes:      []string{"node-1"},
+			TargetNodes:      []string{"node-2"},
+			MeasuredAtUnixMs: 1700000000000,
+			Reason:           "disk totals differ",
+			Nodes: []types.RebalanceNodeMeasurement{{
+				Node:                  "node-1",
+				DiskTotalBytes:        1000,
+				DiskAvailableBytes:    400,
+				DiskWarningPercentage: 80,
+				MemoryLimitBytes:      2048,
+				ReplicationWorkers:    10,
+			}, {Node: "node-2", Error: "measurement unavailable"}},
+			Baseline: []rebalance.PlanNodeBalance{{Node: "node-1", DiskUtilisation: 0.75, ReplicaCount: 3}},
+		}
+
+		tests := []struct {
+			name        string
+			call        operation
+			plan        *rebalance.Plan
+			stopErr     error
+			deleteErr   error
+			want        middleware.Responder
+			wantStopped []string
+			wantDeleted []string
+			check       func(t *testing.T, response middleware.Responder, hook *logrustest.Hook)
+		}{
+			{name: "get without a plan", call: get, want: &replication.GetRebalancePlanNotFound{}},
+			{
+				name: "get returns the plan with its measurements",
+				call: get,
+				plan: failed,
+				want: &replication.GetRebalancePlanOK{},
+				check: func(t *testing.T, response middleware.Responder, _ *logrustest.Hook) {
+					assert.Equal(t, &models.ReplicationRebalancePlan{
+						ID:               "plan-1",
+						State:            models.ReplicationRebalancePlanStatePLANNINGFAILED,
+						SourceNodes:      []string{"node-1"},
+						TargetNodes:      []string{"node-2"},
+						MeasuredAtUnixMs: 1700000000000,
+						Reason:           "disk totals differ",
+						Nodes: []*models.ReplicationRebalancePlanNodesItems0{{
+							Node:                  "node-1",
+							DiskTotalBytes:        1000,
+							DiskAvailableBytes:    400,
+							DiskWarningPercentage: 80,
+							MemoryLimitBytes:      2048,
+							ReplicationWorkers:    10,
+						}, {Node: "node-2", Error: "measurement unavailable"}},
+						Baseline: []*models.ReplicationRebalancePlanBaselineItems0{{Node: "node-1", DiskUtilisation: 0.75, ReplicaCount: 3}},
+					}, response.(*replication.GetRebalancePlanOK).Payload)
+				},
+			},
+			{name: "stop without a plan", call: stop, want: &replication.StopRebalancePlanNotFound{}},
+			{
+				name:        "stop a planning plan",
+				call:        stop,
+				plan:        planning,
+				want:        &replication.StopRebalancePlanAccepted{},
+				wantStopped: []string{"plan-1"},
+				check: func(t *testing.T, _ middleware.Responder, hook *logrustest.Hook) {
+					requireRebalanceLog(t, hook, "plan-1")
+				},
+			},
+			{
+				name:        "stop a plan that is not planning",
+				call:        stop,
+				plan:        proposed,
+				stopErr:     wrapped(rebalance.ErrPlanTransition),
+				want:        &replication.StopRebalancePlanConflict{},
+				wantStopped: []string{"plan-1"},
+			},
+			{
+				name:        "stop a plan deleted before the proposal applied",
+				call:        stop,
+				plan:        planning,
+				stopErr:     wrapped(rebalance.ErrPlanNotFound),
+				want:        &replication.StopRebalancePlanNotFound{},
+				wantStopped: []string{"plan-1"},
+			},
+			{
+				name:        "stop with an unexpected proposal error",
+				call:        stop,
+				plan:        planning,
+				stopErr:     errors.New("raft unavailable"),
+				want:        &replication.StopRebalancePlanInternalServerError{},
+				wantStopped: []string{"plan-1"},
+			},
+			{name: "delete without a plan", call: del, want: &replication.DeleteRebalancePlanNoContent{}},
+			{
+				name:        "delete a planning plan",
+				call:        del,
+				plan:        planning,
+				deleteErr:   wrapped(rebalance.ErrPlanTransition),
+				want:        &replication.DeleteRebalancePlanConflict{},
+				wantDeleted: []string{"plan-1"},
+			},
+			{
+				name:        "delete a proposed plan",
+				call:        del,
+				plan:        proposed,
+				want:        &replication.DeleteRebalancePlanNoContent{},
+				wantDeleted: []string{"plan-1"},
+				check: func(t *testing.T, _ middleware.Responder, hook *logrustest.Hook) {
+					requireRebalanceLog(t, hook, "plan-1")
+				},
+			},
+			{
+				name:        "delete a plan deleted before the proposal applied",
+				call:        del,
+				plan:        proposed,
+				deleteErr:   wrapped(rebalance.ErrPlanNotFound),
+				want:        &replication.DeleteRebalancePlanNoContent{},
+				wantDeleted: []string{"plan-1"},
+			},
+			{
+				name:        "delete with an unexpected proposal error",
+				call:        del,
+				plan:        proposed,
+				deleteErr:   errors.New("raft unavailable"),
+				want:        &replication.DeleteRebalancePlanInternalServerError{},
+				wantDeleted: []string{"plan-1"},
+			},
+		}
+		for _, enabled := range []bool{true, false} {
+			for _, tt := range tests {
+				t.Run(fmt.Sprintf("%s with flags enabled %v", tt.name, enabled), func(t *testing.T) {
+					manager := &fakeRebalanceManager{plan: tt.plan, stopErr: tt.stopErr, deleteErr: tt.deleteErr}
+					handler, _, hook := createRebalanceHandlerWithFakes(t, enabled, enabled, manager, liveNodes)
+
+					response := tt.call(handler)
+
+					require.IsType(t, tt.want, response)
+					assert.Equal(t, tt.wantStopped, manager.stopped)
+					assert.Equal(t, tt.wantDeleted, manager.deleted)
+					if tt.check != nil {
+						tt.check(t, response, hook)
+					}
+				})
+			}
+		}
+	})
+}

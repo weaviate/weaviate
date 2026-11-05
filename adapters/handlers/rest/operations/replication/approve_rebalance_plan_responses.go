@@ -24,6 +24,51 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+// ApproveRebalancePlanForbiddenCode is the HTTP code returned for type ApproveRebalancePlanForbidden
+const ApproveRebalancePlanForbiddenCode int = 403
+
+/*
+ApproveRebalancePlanForbidden Forbidden
+
+swagger:response approveRebalancePlanForbidden
+*/
+type ApproveRebalancePlanForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewApproveRebalancePlanForbidden creates ApproveRebalancePlanForbidden with default headers values
+func NewApproveRebalancePlanForbidden() *ApproveRebalancePlanForbidden {
+
+	return &ApproveRebalancePlanForbidden{}
+}
+
+// WithPayload adds the payload to the approve rebalance plan forbidden response
+func (o *ApproveRebalancePlanForbidden) WithPayload(payload *models.ErrorResponse) *ApproveRebalancePlanForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the approve rebalance plan forbidden response
+func (o *ApproveRebalancePlanForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ApproveRebalancePlanForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ApproveRebalancePlanNotImplementedCode is the HTTP code returned for type ApproveRebalancePlanNotImplemented
 const ApproveRebalancePlanNotImplementedCode int = 501
 

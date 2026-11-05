@@ -5124,6 +5124,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -5140,6 +5146,12 @@ func init() {
         "summary": "Approve the rebalance plan",
         "operationId": "approveRebalancePlan",
         "responses": {
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "501": {
             "description": "Approving a rebalance plan is not implemented.",
             "schema": {
@@ -5178,6 +5190,12 @@ func init() {
           },
           "409": {
             "description": "The plan is not in a stoppable state: only a ` + "`" + `PLANNING` + "`" + ` plan can be stopped.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18423,6 +18441,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -18439,6 +18463,12 @@ func init() {
         "summary": "Approve the rebalance plan",
         "operationId": "approveRebalancePlan",
         "responses": {
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "501": {
             "description": "Approving a rebalance plan is not implemented.",
             "schema": {
@@ -18477,6 +18507,12 @@ func init() {
           },
           "409": {
             "description": "The plan is not in a stoppable state: only a ` + "`" + `PLANNING` + "`" + ` plan can be stopped.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

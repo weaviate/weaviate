@@ -138,3 +138,48 @@ func (o *DeleteRebalancePlanConflict) WriteResponse(rw http.ResponseWriter, prod
 		}
 	}
 }
+
+// DeleteRebalancePlanInternalServerErrorCode is the HTTP code returned for type DeleteRebalancePlanInternalServerError
+const DeleteRebalancePlanInternalServerErrorCode int = 500
+
+/*
+DeleteRebalancePlanInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+
+swagger:response deleteRebalancePlanInternalServerError
+*/
+type DeleteRebalancePlanInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewDeleteRebalancePlanInternalServerError creates DeleteRebalancePlanInternalServerError with default headers values
+func NewDeleteRebalancePlanInternalServerError() *DeleteRebalancePlanInternalServerError {
+
+	return &DeleteRebalancePlanInternalServerError{}
+}
+
+// WithPayload adds the payload to the delete rebalance plan internal server error response
+func (o *DeleteRebalancePlanInternalServerError) WithPayload(payload *models.ErrorResponse) *DeleteRebalancePlanInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the delete rebalance plan internal server error response
+func (o *DeleteRebalancePlanInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *DeleteRebalancePlanInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

@@ -48,6 +48,7 @@ type Manager struct {
 	submitNodeReached            func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error
 	inflightDrainer              func(ctx context.Context, class, shard string) error
 	inflightDrainFailuresCounter prometheus.Counter
+	planCreated                  func()
 
 	// ctx is cancelled by Close to stop in-flight broadcast/drain retry loops on
 	// shutdown (the drain otherwise retries until the op is drained or terminal).
@@ -93,6 +94,12 @@ func (m *Manager) SetNodeReachedStateSubmitter(
 
 func (m *Manager) SetInflightDrainer(fn func(ctx context.Context, class, shard string) error) {
 	m.inflightDrainer = fn
+}
+
+// CreateRebalancePlan calls fn only after it stores a new plan, never after a refused create.
+// fn runs inside the FSM apply, so it must not block.
+func (m *Manager) SetPlanCreated(fn func()) {
+	m.planCreated = fn
 }
 
 // broadcastNodeReachedState submits a node-reached-state command async so
@@ -288,7 +295,13 @@ func (m *Manager) CreateRebalancePlan(c *cmd.ApplyRequest) error {
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-	return m.replicationFSM.CreatePlan(req)
+	if err := m.replicationFSM.CreatePlan(req); err != nil {
+		return err
+	}
+	if m.planCreated != nil {
+		m.planCreated()
+	}
+	return nil
 }
 
 // CompleteRebalancePlanning applies a planning run's outcome. logTerm is the

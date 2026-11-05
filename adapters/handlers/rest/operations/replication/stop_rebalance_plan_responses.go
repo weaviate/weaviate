@@ -183,3 +183,48 @@ func (o *StopRebalancePlanConflict) WriteResponse(rw http.ResponseWriter, produc
 		}
 	}
 }
+
+// StopRebalancePlanInternalServerErrorCode is the HTTP code returned for type StopRebalancePlanInternalServerError
+const StopRebalancePlanInternalServerErrorCode int = 500
+
+/*
+StopRebalancePlanInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+
+swagger:response stopRebalancePlanInternalServerError
+*/
+type StopRebalancePlanInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewStopRebalancePlanInternalServerError creates StopRebalancePlanInternalServerError with default headers values
+func NewStopRebalancePlanInternalServerError() *StopRebalancePlanInternalServerError {
+
+	return &StopRebalancePlanInternalServerError{}
+}
+
+// WithPayload adds the payload to the stop rebalance plan internal server error response
+func (o *StopRebalancePlanInternalServerError) WithPayload(payload *models.ErrorResponse) *StopRebalancePlanInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the stop rebalance plan internal server error response
+func (o *StopRebalancePlanInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *StopRebalancePlanInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
