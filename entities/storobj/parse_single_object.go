@@ -44,6 +44,14 @@ func ParseAndExtractTextProp(data []byte, propName string) ([]string, bool, erro
 	return vals, true, nil
 }
 
+// CountPropValues returns how many values ParseAndExtractTextProp would return
+// for the property, without copying them.
+func CountPropValues(data []byte, propName string) (int, error) {
+	n := 0
+	err := parseAndExtractValueProp(data, propName, func([]byte) { n++ })
+	return n, err
+}
+
 func ParseAndExtractNumberArrayProp(data []byte, propName string) ([]float64, bool, error) {
 	vals := []float64{}
 	err := parseAndExtractValueProp(data, propName, func(value []byte) {

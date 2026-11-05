@@ -416,12 +416,11 @@ func parseAggregations(in *pb.AggregateRequest_Aggregation) []aggregation.Aggreg
 			aggregators = append(aggregators, aggregation.TypeAggregator)
 		}
 		if a.Text.TopOccurences {
+			var limit *int
 			if a.Text.TopOccurencesLimit != nil {
-				limit := int(*a.Text.TopOccurencesLimit)
-				aggregators = append(aggregators, aggregation.NewTopOccurrencesAggregator(&limit))
-			} else {
-				aggregators = append(aggregators, aggregation.TotalTrueAggregator)
+				limit = new(int(*a.Text.TopOccurencesLimit))
 			}
+			aggregators = append(aggregators, aggregation.NewTopOccurrencesAggregator(limit))
 		}
 		return aggregators
 	case *pb.AggregateRequest_Aggregation_Boolean_:

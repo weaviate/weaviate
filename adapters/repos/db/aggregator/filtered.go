@@ -390,8 +390,7 @@ type propAggs map[string]propAgg
 func (pa *propAgg) initAggregator() {
 	switch pa.aggType {
 	case aggregation.PropertyTypeText:
-		limit := extractLimitFromTopOccs(pa.specifiedAggregators)
-		pa.textAgg = newTextAggregator(limit)
+		pa.textAgg = newTextAggregator(pa.specifiedAggregators)
 	case aggregation.PropertyTypeBoolean:
 		pa.boolAgg = newBoolAggregator()
 	case aggregation.PropertyTypeNumerical:
