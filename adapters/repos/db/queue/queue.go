@@ -784,7 +784,9 @@ func (q *DiskQueue) Retain() error {
 // chunk out of the replay. On a queue not initialized yet it only
 // makes the kept chunks ordinary ones for Init, which would delete them
 // otherwise; that is how a restart resumes one. Doing it twice replays at most
-// what a backup kept in between. The retention stays until ReleaseRetention.
+// what a backup kept in between. The retention stays until ReleaseRetention,
+// which must not overlap it: a release deleting would take what it re-queues,
+// so the retention's one owner calls them in sequence.
 func (q *DiskQueue) Rewind() error {
 	// not q.m around the disk work: Push and the scheduler's Size need it
 	q.rmLock.Lock()
