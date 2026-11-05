@@ -163,7 +163,7 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 	if err != nil {
 		return errors.Wrap(err, in)
 	}
-	// isReadOnly lets every status but READONLY take writes, so the gate refuses each of them while tasks are held.
+	// isReadOnly lets every status but READONLY take writes, so the gate refuses each of them until a retry arms or stamps every held task.
 	if targetStatus != storagestate.StatusReadOnly && len(s.migrationMirrors.heldUnarmed()) > 0 {
 		return s.heldReadOnlyErr(errors.New("no recovery retry has re-armed its mirror or stamped it Unmirrored"))
 	}
@@ -258,7 +258,7 @@ func (s *Shard) rearmHeld() error {
 	if err != nil || len(skipped) > 0 {
 		s.migrationMirrors.holdUnarmed(append(unarmed, skipped...))
 	} else {
-		s.migrationMirrors.markHeldArmed()
+		s.migrationMirrors.markHeldSettled()
 	}
 	return ec.ToError()
 }

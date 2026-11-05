@@ -16,10 +16,10 @@ import "sync"
 type migrationMirrorRegistry struct {
 	mu      sync.Mutex
 	disarms map[migrationMirrorKey]func()
-	// Neither armed nor stamped Unmirrored, so the shard stays READONLY while any remain.
+	// held lists the tasks a load or lift could neither arm nor stamp Unmirrored, kept after a retry settles them so steps wait until a status write.
 	held []*ShardReindexTaskGeneric
 	// The steps still wait after a retry settled the held set, until a status write makes the shard writable.
-	heldArmed bool
+	heldSettled bool
 }
 
 type migrationMirrorKey struct {
@@ -85,28 +85,28 @@ func (r *migrationMirrorRegistry) takeAll(key MigrationRecordKey) []func() {
 func (r *migrationMirrorRegistry) holdUnarmed(tasks []*ShardReindexTaskGeneric) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.held, r.heldArmed = tasks, false
+	r.held, r.heldSettled = tasks, false
 }
 
 func (r *migrationMirrorRegistry) heldUnarmed() []*ShardReindexTaskGeneric {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.heldArmed {
+	if r.heldSettled {
 		return nil
 	}
 	return r.held
 }
 
-func (r *migrationMirrorRegistry) markHeldArmed() {
+func (r *migrationMirrorRegistry) markHeldSettled() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.heldArmed = len(r.held) > 0
+	r.heldSettled = len(r.held) > 0
 }
 
 func (r *migrationMirrorRegistry) releaseHeld() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.held, r.heldArmed = nil, false
+	r.held, r.heldSettled = nil, false
 }
 
 func (r *migrationMirrorRegistry) holding() bool {
