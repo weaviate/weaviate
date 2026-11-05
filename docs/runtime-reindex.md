@@ -1073,8 +1073,8 @@ PostCompletionAck barrier only.
   SKIPPED. Groups already decided stay decided and still swap, so the
   collection is left partly migrated (`partial` on the indexes
   endpoint); submitting the same migration again skips those tenants,
-  unless every tenant was decided: then it runs over every tenant to land
-  the schema flip.
+  unless every replica already swapped every tenant: then it runs over
+  every tenant to land the schema flip.
 - Per-node swap failure can no longer let the cluster-wide schema flip
   propagate while one replica's bucket pointer never moved.
 - On node restart, the recovery path re-fires the appropriate phase
@@ -1240,8 +1240,8 @@ leaves the decided tenants migrated and the rest not: the indexes
 endpoint reads `partial` with `migratedTenants` / `totalTenants`, and
 the operator migrates forward by submitting the same migration again,
 which skips the tenants every replica already swapped (a tenant a replica
-still owes its swap is rerun), unless every tenant was decided, in which
-case it reruns every tenant to land the flip. Both count every run of that
+still owes its swap is rerun), unless every replica already swapped every
+tenant, in which case it reruns every tenant to land the flip. Both count every run of that
 migration since the last finished flip, so a resubmit that stops partway
 too still reads `partial` over all tenants. A single-tenant collection
 whose swap was decided before it stopped reads `partial` too, with its

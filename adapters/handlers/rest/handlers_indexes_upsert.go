@@ -814,7 +814,7 @@ func skipTenantsAlreadyMigrated(ownership map[string][]string, collection, prope
 			}
 		}
 	}
-	// Every tenant decided but the flip never landed: only a full run reaches it.
+	// Every tenant swapped but the flip never landed: only a full run reaches it.
 	if len(remaining) == 0 {
 		return ownership
 	}
