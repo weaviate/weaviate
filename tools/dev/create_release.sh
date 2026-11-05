@@ -73,6 +73,8 @@ fi
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
+RELEASE_BRANCH="prepare-release-v$VERSION"
+
 echo "==> Starting release process for v$VERSION"
 
 if [ -n "$(git status --porcelain)" ]; then
@@ -100,25 +102,56 @@ if [ -n "$BASE_BRANCH" ]; then
     exit 1
   fi
 
-  echo "==> Creating release branch 'prepare-release-v$VERSION'"
-  git checkout -b "prepare-release-v$VERSION"
+  if git show-ref --verify --quiet "refs/heads/$RELEASE_BRANCH"; then
+    echo "Error: branch '$RELEASE_BRANCH' already exists. Delete it with 'git branch -D $RELEASE_BRANCH' and retry."
+    exit 1
+  fi
+
+  echo "==> Creating release branch '$RELEASE_BRANCH'"
+  git checkout -b "$RELEASE_BRANCH"
+fi
+
+# Restores the state from before the run so that the release can be retried:
+# drops the release branch with its uncommitted changes and the tag created
+# by tools/prepare_release.sh.
+abort_release() {
+  echo ""
+  echo "Error: $1 ended with an error. Fix the problem first and then retry the release process."
+  if [ -z "$BASE_BRANCH" ]; then
+    exit 1
+  fi
+  echo "==> Discarding changes and removing release branch '$RELEASE_BRANCH'"
+  git reset --hard --quiet
+  git clean -fd --quiet
+  git checkout "$BASE_BRANCH"
+  git branch -D "$RELEASE_BRANCH"
+  if [ "$TAG_EXISTED" = false ] && git show-ref --verify --quiet "refs/tags/v$VERSION"; then
+    echo "==> Removing tag 'v$VERSION'"
+    git tag -d "v$VERSION"
+  fi
+  exit 1
+}
+
+TAG_EXISTED=false
+if git show-ref --verify --quiet "refs/tags/v$VERSION"; then
+  TAG_EXISTED=true
 fi
 
 SCHEMA_FILE="openapi-specs/schema.json"
 
 echo "==> Running 'make deps' to vendor Go dependencies"
-make deps
+make deps || abort_release "'make deps'"
 
 CURRENT_VERSION="$(jq -r '.info.version' "$SCHEMA_FILE")"
 echo "==> Updating info.version in $SCHEMA_FILE from $CURRENT_VERSION to $VERSION"
 TMP_FILE="$(mktemp)"
 trap 'rm -f "$TMP_FILE"' EXIT
-jq --arg v "$VERSION" '.info.version = $v' "$SCHEMA_FILE" > "$TMP_FILE"
+jq --arg v "$VERSION" '.info.version = $v' "$SCHEMA_FILE" > "$TMP_FILE" || abort_release "updating $SCHEMA_FILE"
 mv "$TMP_FILE" "$SCHEMA_FILE"
 trap - EXIT
 
 echo "==> Running tools/prepare_release.sh"
-tools/prepare_release.sh
+tools/prepare_release.sh || abort_release "tools/prepare_release.sh"
 
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 echo ""
