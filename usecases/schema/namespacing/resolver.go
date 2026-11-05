@@ -77,6 +77,7 @@ func ConfinedNamespace(principal *models.Principal) string {
 // Rejects with `<name> is not a valid class name`:
 //   - any prefix from a namespaced principal (resolver adds it for them)
 //   - a prefix naming a different namespace from sourceClass
+//   - a prefix with no class after it
 //
 // NS-disabled: pass-through. Centralises the policy shared by
 // every reference write and by QualifyPropertyDataTypes. Callers handle an
