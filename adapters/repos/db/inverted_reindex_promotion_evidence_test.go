@@ -221,6 +221,6 @@ type noRecoveryTaskReindexer struct{ shardReindexerV3Noop }
 
 func (r *noRecoveryTaskReindexer) RecoverMigrations(*Shard) []*ShardReindexTaskGeneric { return nil }
 
-func (r *noRecoveryTaskReindexer) AbandonUnarmed(*Shard, []*ShardReindexTaskGeneric, error) error {
-	return nil
+func (r *noRecoveryTaskReindexer) AbandonUnarmed(*Shard, []*ShardReindexTaskGeneric, error) ([]*ShardReindexTaskGeneric, error) {
+	return nil, nil
 }

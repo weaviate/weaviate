@@ -59,8 +59,8 @@ func (r *testShardReindexer) RecoverMigrations(*Shard) []*ShardReindexTaskGeneri
 	return []*ShardReindexTaskGeneric{r.task}
 }
 
-func (r *testShardReindexer) AbandonUnarmed(*Shard, []*ShardReindexTaskGeneric, error) error {
-	return nil
+func (r *testShardReindexer) AbandonUnarmed(*Shard, []*ShardReindexTaskGeneric, error) ([]*ShardReindexTaskGeneric, error) {
+	return nil, nil
 }
 
 func createTestObjectWithText(className, text string) *storobj.Object {

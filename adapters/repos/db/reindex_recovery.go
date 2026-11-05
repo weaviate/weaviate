@@ -58,8 +58,9 @@ func (r *MigrationRecoveryReindexer) RecoverMigrations(shard *Shard) []*ShardRei
 }
 
 // AbandonUnarmed stamps Unmirrored each migration whose mirror failed to arm, so its stale
-// staged data is never swapped in. On error the tasks stay cached for a later arm.
-func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*ShardReindexTaskGeneric, cause error) error {
+// staged data is never swapped in. On error it returns the tasks still unstamped, which stay cached for a later arm.
+func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*ShardReindexTaskGeneric, cause error,
+) ([]*ShardReindexTaskGeneric, error) {
 	var records []MigrationRecord
 	for _, t := range unarmed {
 		rec, ok := shard.migrationRecords.Get(t.migrationRecordKey())
@@ -68,13 +69,15 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 		}
 		// Past the swap, a stamp would block the promotion that serves the new index.
 		if rec.FlipDecided() {
-			return fmt.Errorf("migration %s is already swapped in, so only its mirror can finish it: %w",
+			return unarmed, fmt.Errorf("migration %s is already swapped in, so only its mirror can finish it: %w",
 				t.migrationRecordKey(), cause)
 		}
 		records = append(records, rec)
 	}
 	if _, err := stampUnmirroredRecords(shard.migrationRecords, records, nil); err != nil {
-		return fmt.Errorf("stamp Unmirrored the migrations whose mirror failed to arm (%w): %w", cause, err)
+		stamped, unstamped := shard.migrationRecords.splitUnmirrored(unarmed)
+		r.evictUnits(stamped)
+		return unstamped, fmt.Errorf("stamp Unmirrored the migrations whose mirror failed to arm (%w): %w", cause, err)
 	}
 	r.evictUnits(unarmed)
 	r.armFaults.WithSampling(func(logrus.FieldLogger) {
@@ -82,7 +85,7 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 			"their double-write mirror, so they will not be swapped in: %v. %s", len(unarmed), cause,
 			migrationUnmirroredRemedy)
 	})
-	return nil
+	return nil, nil
 }
 
 func (r *MigrationRecoveryReindexer) ClaimUnits(tasks []*ShardReindexTaskGeneric,

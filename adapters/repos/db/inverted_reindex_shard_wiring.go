@@ -37,7 +37,7 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 	return recovered
 }
 
-// armRecoveredMigrations returns every task that failed to arm when not all of them could be stamped Unmirrored, and why.
+// armRecoveredMigrations returns the tasks that failed to arm and could not be stamped Unmirrored, and why.
 func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardReindexTaskGeneric,
 ) ([]*ShardReindexTaskGeneric, error) {
 	var unarmed []*ShardReindexTaskGeneric
@@ -51,10 +51,7 @@ func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardRe
 	if len(unarmed) == 0 {
 		return nil, nil
 	}
-	if err := s.reindexer.AbandonUnarmed(s, unarmed, causes.ToErrorLimited(maxReportedErrors)); err != nil {
-		return unarmed, err
-	}
-	return nil, nil
+	return s.reindexer.AbandonUnarmed(s, unarmed, causes.ToErrorLimited(maxReportedErrors))
 }
 
 // holdReadOnlyForUnarmed sets the shard READONLY, because a write would miss the unguarded staged copy.
