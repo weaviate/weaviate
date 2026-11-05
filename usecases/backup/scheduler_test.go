@@ -804,6 +804,7 @@ func TestSchedulerRestoration(t *testing.T) {
 		metaWithBase.BaseBackupID = baseID
 		baseMeta := backup.DistributedBackupDescriptor{
 			ID:              baseID,
+			ServerVersion:   meta.ServerVersion,
 			Status:          backup.Success,
 			CompressionType: backup.CompressionGZIP,
 		}
@@ -1031,6 +1032,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 			{name: "uncompressed 1.0", version: "1.0", serverVersion: meta.ServerVersion, wantErr: errLegacyUncompressed},
 			{name: "uncompressed 1", version: "1", serverVersion: meta.ServerVersion, wantErr: errLegacyUncompressed},
 			{name: "flat file structure", version: meta.Version, serverVersion: "1.22", wantErr: errLegacyFlatFS},
+			{name: "unreadable server version", version: meta.Version, serverVersion: "1", wantErr: errUnreadableServerVersion},
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
@@ -1065,7 +1067,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 			ID:            id,
 			StartedAt:     timePt,
 			Version:       version,
-			ServerVersion: "2",
+			ServerVersion: "2.0",
 			Status:        backup.Success,
 			Nodes: map[string]*backup.NodeDescriptor{
 				nodeName: {Classes: []string{cls}},
@@ -1083,7 +1085,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 
 	t.Run("CorruptedBackupFile", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: backup.Success})
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: backup.Success, ServerVersion: "1.23"})
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		_, err := fs.scheduler().Restore(ctx, nil, req, false)

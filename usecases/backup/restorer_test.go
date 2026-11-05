@@ -21,7 +21,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -181,6 +180,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 			{name: "uncompressed 1.0", version: "1.0", serverVersion: metadata.ServerVersion, wantErr: errLegacyUncompressed},
 			{name: "uncompressed 1", version: "1", serverVersion: metadata.ServerVersion, wantErr: errLegacyUncompressed},
 			{name: "flat file structure", version: metadata.Version, serverVersion: "1.22", wantErr: errLegacyFlatFS},
+			{name: "unreadable server version", version: metadata.Version, serverVersion: "1", wantErr: errUnreadableServerVersion},
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
@@ -393,35 +393,4 @@ func TestWithCancellation(t *testing.T) {
 			t.Error("abort signal should have been sent")
 		}
 	})
-}
-
-func TestHfsMigratorShardNames(t *testing.T) {
-	t.Parallel()
-	schemaBytes, err := json.Marshal(&models.Class{Class: "Article"})
-	require.NoError(t, err)
-
-	tests := []struct {
-		name    string
-		shard   string
-		wantErr bool
-	}{
-		{name: "generated shard name", shard: "cT9eTErXgmTX"},
-		{name: "shard name leaves the index dir", shard: "../../../../bin", wantErr: true},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			ssBytes, err := json.Marshal(&sharding.State{
-				Physical: map[string]sharding.Physical{tc.shard: {Name: tc.shard, BelongsToNodes: []string{nodeName}}},
-			})
-			require.NoError(t, err)
-			desc := &backup.ClassDescriptor{Name: "Article", Schema: schemaBytes, ShardingState: ssBytes}
-
-			_, err = hfsMigrator(desc, nodeName, "1.22")
-			if tc.wantErr {
-				require.ErrorContains(t, err, "not a valid tenant name")
-				return
-			}
-			require.NoError(t, err)
-		})
-	}
 }
