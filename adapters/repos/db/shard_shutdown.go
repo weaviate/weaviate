@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -235,6 +236,14 @@ var _ = map[ShardUnloadOutcome]struct{}{
 func shutdownOrRestoreShard(ctx context.Context, idx *Index, name string, shard ShardLike) (ShardUnloadOutcome, error) {
 	shards, logger := &idx.shards, idx.logger
 
+	// A recovered panic must not lose the entry, the last reference to a torn shard's handles.
+	defer func() {
+		if r := recover(); r != nil {
+			restoreShardIfStillAlive(shards, name, shard)
+			panic(r)
+		}
+	}()
+
 	err := shard.Shutdown(ctx)
 	if err == nil || errors.Is(err, errAlreadyShutdown) {
 		idx.metrics.baseMetrics.DeleteUnloadedShard(shardRegistration(shard))
@@ -380,6 +389,11 @@ func (s *Shard) tryShutdownIdle(ctx context.Context, marked func()) (outcome Unl
 		return o, nil
 	}
 	defer func() {
+		// teardownLocked recorded it; the worker would otherwise report a torn shard as still loaded.
+		if r := recover(); r != nil {
+			enterrors.PrintStack(s.index.logger)
+			outcome, err = UnloadOutcomeTorn, s.teardownErr
+		}
 		if err != nil && s.teardownErr == nil {
 			s.teardownErr = err
 		}
@@ -394,6 +408,16 @@ func (s *Shard) tryShutdownIdle(ctx context.Context, marked func()) (outcome Unl
 // shutdownLock for writing and have checked it is not shut and not in use.
 func (s *Shard) teardownLocked(ctx context.Context, marked func()) (err error) {
 	s.shut.Store(true)
+	// A panic past the mark leaves handles open on a shard that reads as shut, so it must stay torn, not cleanly shut.
+	defer func() {
+		if r := recover(); r != nil {
+			s.teardownErr = fmt.Errorf("teardown panicked: %v", r)
+			if s.deferredShutdownDone != nil {
+				s.deferredShutdownDone()
+			}
+			panic(r)
+		}
+	}()
 	defer s.releaseCountedStatus()
 	s.shutdownRequested.Store(false)
 	if marked != nil {
@@ -413,11 +437,12 @@ func (s *Shard) teardownLocked(ctx context.Context, marked func()) (err error) {
 		ctx = context.WithoutCancel(ctx)
 	}
 
-	// Track shard unloading: loaded -> unloading
+	// Track shard unloading: loaded -> unloading -> unloaded
 	// Only update metrics if the shard was properly registered (prevents double-counting
 	// during partial initialization cleanup)
 	if s.metricsRegistered.Load() {
 		s.metrics.baseMetrics.StartUnloadingShard(s.registration)
+		defer s.metrics.baseMetrics.FinishUnloadingShard(s.registration)
 	}
 
 	start := time.Now()
@@ -524,11 +549,6 @@ func (s *Shard) teardownLocked(ctx context.Context, marked func()) (err error) {
 	if s.metadataDB != nil {
 		err = s.metadataDB.Close()
 		ec.AddWrapf(err, "stop shard metadata db")
-	}
-
-	// Track shard unloaded: unloading -> unloaded
-	if s.metricsRegistered.Load() {
-		s.metrics.baseMetrics.FinishUnloadingShard(s.registration)
 	}
 
 	return ec.ToError()
