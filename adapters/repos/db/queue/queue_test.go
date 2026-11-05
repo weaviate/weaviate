@@ -2429,7 +2429,7 @@ func TestRetention_AndBackupKeepChunksIndependently(t *testing.T) {
 
 // A retention starts at the oldest chunk not processed yet, or
 // the next chunk the queue creates.
-func TestRetention_Mark(t *testing.T) {
+func TestRetention_Start(t *testing.T) {
 	t.Run("the oldest chunk not processed yet", func(t *testing.T) {
 		s := makeScheduler(t)
 		q := makeQueueSize(t, s, discardExecutor(), 50)
@@ -2689,4 +2689,62 @@ func TestRetention_ReleaseFailsOnAChunkItCannotRemove(t *testing.T) {
 	require.NoError(t, os.RemoveAll(stuck))
 	require.NoError(t, q.ReleaseRetention())
 	assert.NoFileExists(t, stuck+".processed", "the retry finishes the cleanup")
+}
+
+// taskIDs lists the record IDs of a batch's tasks.
+func taskIDs(t *testing.T, batch *Batch) []uint64 {
+	t.Helper()
+	require.NotNil(t, batch)
+	ids := make([]uint64, 0, len(batch.Tasks))
+	for _, task := range batch.Tasks {
+		ids = append(ids, task.Key())
+	}
+	return ids
+}
+
+// sealedQueue is a queue holding the records 1 to 9 in three sealed chunks.
+func sealedQueue(t *testing.T, s *Scheduler, dir string) *DiskQueue {
+	t.Helper()
+	q := makeQueueWith(t, s, discardExecutor(), 50, dir)
+	pushMany(t, q, 1, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+	q.m.Lock()
+	require.NoError(t, q.w.Promote())
+	q.m.Unlock()
+	return q
+}
+
+// Rewind serves everything kept since Retain again, in order and ahead of
+// what is still queued.
+func TestRewind_ServesKeptChunksAgain(t *testing.T) {
+	s := makeScheduler(t)
+	q := sealedQueue(t, s, t.TempDir())
+	chunks, _ := chunksOf(t, q)
+	require.Len(t, chunks, 3)
+	usage := q.diskUsage
+
+	require.NoError(t, q.Retain())
+	processNext(t, q)
+	processNext(t, q)
+	require.EqualValues(t, 3, q.Size())
+
+	require.NoError(t, q.Rewind())
+	_, tombstoned := chunksOf(t, q)
+	assert.Empty(t, tombstoned)
+	assert.EqualValues(t, 9, q.Size())
+	assert.Equal(t, usage, q.diskUsage)
+
+	require.NoError(t, q.ReleaseRetention())
+	kept, _ := chunksOf(t, q)
+	assert.Equal(t, chunks, kept, "the release leaves what is queued again")
+
+	for _, want := range [][]uint64{{1, 2, 3}, {4, 5, 6}, {7, 8, 9}} {
+		batch, err := q.DequeueBatch()
+		require.NoError(t, err)
+		assert.Equal(t, want, taskIDs(t, batch))
+		batch.Done()
+	}
+	kept, _ = chunksOf(t, q)
+	assert.Empty(t, kept, "served chunks are deleted as usual once released")
+	assert.Zero(t, q.Size())
+	assert.Zero(t, q.diskUsage)
 }
