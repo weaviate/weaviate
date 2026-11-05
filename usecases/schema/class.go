@@ -192,15 +192,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	// before the AddClass commits.
 	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
 	if limit != config.DefaultMaximumAllowedCollectionsCount {
-		// On namespace-enabled clusters the cap is enforced per namespace.
-		// QualifyForCreate above already required principal.Namespace for this
-		// flow, so it is the correct selector here.
-		countNamespace := ""
-		if h.config.Namespaces.Enabled {
-			countNamespace = principal.Namespace
-		}
-
-		if h.schemaReader.CollectionsCount(countNamespace) >= limit {
+		if h.schemaReader.CollectionsCount(namespacing.NamespaceFromQualified(cls.Class)) >= limit {
 			// Migrated from a free-text 422 to a typed 429 / RESOURCE_EXHAUSTED
 			// in the usage-limits work; see docs/usage_limits.md for the wire
 			// contract.
