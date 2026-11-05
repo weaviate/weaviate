@@ -25,7 +25,7 @@ import (
 // CenteredBinaryRotationalQuantizer is the 1-bit rotational quantizer with
 // dataset-mean centering: codes are the sign bits of R(x - mean). Centering
 // is what makes 1-bit prefix and shared-store schemes viable on anisotropic
-// embedding models (see docs/uncentered-binary-quantization.md); it has
+// embedding models; it has
 // never shipped, so the centered code defines its own header layout from
 // day one rather than extending the uncentered one:
 //
