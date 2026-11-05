@@ -2005,9 +2005,9 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 
 // repairCommandsForFailedMigration returns the operator command(s) to recover
 // propName after payload's migration stopped without succeeding (FAILED or
-// CANCELLED). enable-*/change-algorithm never flip their flag then, so
-// /rebuild would 400 — those re-run via PUT instead; retokenize migrations
-// rebuild the pre-existing bucket.
+// CANCELLED): re-run the PUT that started it. A /rebuild uses the reverted
+// schema, so it 400s on enable-*/change-algorithm and, on a retokenize,
+// writes old-tokenization terms into shards that already swapped.
 func repairCommandsForFailedMigration(payload *ReindexTaskPayload, propName string) []string {
 	c := payload.Collection
 	rebuild := func(indexType string) string {
@@ -2016,23 +2016,22 @@ func repairCommandsForFailedMigration(payload *ReindexTaskPayload, propName stri
 	put := func(indexType, body string) string {
 		return fmt.Sprintf("PUT /v1/schema/%s/properties/%s/index/%s -d '%s'", c, propName, indexType, body)
 	}
+	tok := payload.TargetTokenization
+	if tok == "" {
+		tok = "<tokenization>"
+	}
+	tokBody := fmt.Sprintf(`{"tokenization":%q}`, tok)
 	switch payload.MigrationType {
-	case ReindexTypeEnableSearchable:
-		tok := payload.TargetTokenization
-		if tok == "" {
-			tok = "<tokenization>"
-		}
-		return []string{put("searchable", fmt.Sprintf(`{"tokenization":%q}`, tok))}
+	case ReindexTypeEnableSearchable, ReindexTypeChangeTokenization:
+		return []string{put("searchable", tokBody)}
+	case ReindexTypeChangeTokenizationFilterable:
+		return []string{put("filterable", tokBody)}
 	case ReindexTypeEnableFilterable:
 		return []string{put("filterable", "{}")}
 	case ReindexTypeEnableRangeable:
 		return []string{put("rangeFilters", "{}")}
 	case ReindexTypeChangeAlgorithm:
 		return []string{put("searchable", `{"algorithm":"blockmax"}`)}
-	case ReindexTypeChangeTokenization:
-		return []string{rebuild("filterable"), rebuild("searchable")}
-	case ReindexTypeChangeTokenizationFilterable:
-		return []string{rebuild("filterable")}
 	default:
 		// Unknown/future semantic type: conservatively rebuild every inverted
 		// index and let the operator inspect.
