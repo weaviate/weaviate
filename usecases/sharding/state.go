@@ -48,10 +48,11 @@ type State struct {
 // state read from a backup must pass this before any of it is applied.
 func (s *State) ValidateShardNames() error {
 	for key, physical := range s.Physical {
-		for _, name := range [2]string{key, physical.Name} {
-			if err := schema.ValidateTenantName(name); err != nil {
-				return fmt.Errorf("shard %q: %w", key, err)
-			}
+		if err := schema.ValidateTenantName(key); err != nil {
+			return fmt.Errorf("shard %q: %w", key, err)
+		}
+		if err := schema.ValidateTenantName(physical.Name); err != nil {
+			return fmt.Errorf("shard %q: %w", key, err)
 		}
 	}
 	return nil
