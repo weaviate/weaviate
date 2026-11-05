@@ -61,7 +61,7 @@ func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardRe
 func (s *Shard) holdReadOnlyForUnarmed(unarmed []*ShardReindexTaskGeneric, cause error) {
 	s.migrationMirrors.holdUnarmed(unarmed)
 	s.index.logger.WithField("shard", s.ID()).Errorf("shard is %s and its reindex migrations wait: "+
-		"%v. Clear that cause, then set the shard to %s or restart the node; if a staged bucket cannot "+
+		"%v. Clear that cause, then set the shard to %s or restart the node (a repaired unreadable record needs the restart); if a staged bucket cannot "+
 		"open because a segment file is damaged, repair or restore that file first. A migration not yet "+
 		"swapped in also leaves the hold once its Unmirrored stamp can be written, unless a migration already swapped in is "+
 		"held on the same shard; then both wait until the shard is repaired and set READY. "+
