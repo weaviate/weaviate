@@ -9,6 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build amd64 || arm64
+
 package asm
 
 import (
@@ -126,6 +128,41 @@ func TestFloatKernelsSpecialValues(t *testing.T) {
 				require.Equal(t, float32(0), k.fn(z, z), "%s n=%d zero distance", k.name, n)
 			} else {
 				require.GreaterOrEqual(t, k.fn(z, z), float32(0), "%s n=%d self dot", k.name, n)
+			}
+		}
+	}
+}
+
+// TestFloatKernelsMaskedOverlapInfinity puts an infinity into every element
+// a masked step can reload but must discard (the last 16 positions cover the
+// 4-, 8- and 16-lane overlaps of every kernel), in each operand separately.
+// The element is counted once by an earlier block, so the result must be +Inf;
+// a kernel that masked only one operand would compute 0*Inf there and return
+// NaN. Lengths cover short paths and main-loop tails of every width.
+func TestFloatKernelsMaskedOverlapInfinity(t *testing.T) {
+	inf := float32(math.Inf(1))
+	lengths := []int{
+		4, 5, 6, 7, 9, 10, 11, 13, 15, 17, 19, 21, 23, 25, 29, 31, 33, 35, 39, 47, 49, 63, 65, 67,
+		95, 97, 100, 127, 129, 130, 135, 143, 159, 257, 300, 385, 513, 777, 1025, 1537,
+	}
+	for _, k := range floatKernels(t) {
+		for _, n := range lengths {
+			for p := max(0, n-16); p < n; p++ {
+				for _, side := range []string{"x", "y"} {
+					x := make([]float32, n)
+					y := make([]float32, n)
+					for i := range x {
+						x[i] = 1 + float32(i%7)*0.5
+						y[i] = 2 + float32(i%5)*0.25
+					}
+					if side == "x" {
+						x[p] = inf
+					} else {
+						y[p] = inf
+					}
+					got := k.fn(x, y)
+					require.True(t, math.IsInf(float64(got), 1), "%s n=%d inf in %s[%d]: got %v", k.name, n, side, p, got)
+				}
 			}
 		}
 	}

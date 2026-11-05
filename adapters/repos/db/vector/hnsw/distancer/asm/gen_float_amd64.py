@@ -59,8 +59,9 @@ class Gen:
             self.o(f"\tVMOVUPS (R10)(DX*4), {m}")
             self.o(f"\tVMOVUPS {xs}, {t}")
             self.o(f"\tVMOVUPS {ys}, {t2}")
-            self.o(f"\tVANDPS {m}, {t}, {t}")
-            self.o(f"\tVANDPS {m}, {t2}, {t2}")
+            andop = "VPANDD" if R == "Z" else "VANDPS"
+            self.o(f"\t{andop} {m}, {t}, {t}")
+            self.o(f"\t{andop} {m}, {t2}, {t2}")
             if self.op == "dot":
                 self.o(f"\tVFMADD231PS {t2}, {t}, {R}{acc}")
             else:
@@ -84,8 +85,11 @@ class Gen:
         self.o(f"\tSUBQ ${nblk*W}, DX")
 
     def zero(self, R, accs):
+        # ZMM VXORPS/VANDPS are AVX512DQ; VPXORD/VPANDD are AVX512F, so the
+        # kernel runs wherever HasAVX512 is true.
+        op = "VPXORD" if R == "Z" else "VXORPS"
         for a in accs:
-            self.o(f"\tVXORPS {R}{a}, {R}{a}, {R}{a}")
+            self.o(f"\t{op} {R}{a}, {R}{a}, {R}{a}")
 
     def fold(self, R, accs):
         """Tree-add accs into accs[0]."""
