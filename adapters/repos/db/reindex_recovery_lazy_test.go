@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -88,7 +89,7 @@ func TestAShardLoadArmsAndCachesItsMigration(t *testing.T) {
 	require.False(t, rec.Subject().Unmirrored, "an armed mirror leaves nothing unmirrored")
 }
 
-// Recovery's unmirrored stamp must land before the reconciler promotes a decided flip.
+// Recovery stamps an unbuildable decided flip before the load reconciler runs, so the staged copy is not promoted.
 func TestShardLoadStampsAnUnarmableFlipBeforeTheReconcilerPromotesIt(t *testing.T) {
 	const name = "tenant-unbuildable"
 	ctx := testCtx()
@@ -279,7 +280,7 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 			require.True(t, fx.idx.db.markShardReady(fx.name, shard))
 			return shard, nil
 		}},
-		// The only row that asserts a held shard's Shutdown returns; without it a deadlock shows only as a package timeout.
+		// The only row that asserts a held shard's Shutdown returns no error; the other rows discard it in cleanup.
 		{name: "restart", armsOnly: true, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
 			require.NoError(t, shard.Shutdown(context.Background()))
 			return fx.load(t), nil
@@ -548,7 +549,10 @@ func TestASecondLiftDoesNotRearmWhatTheFirstSettled(t *testing.T) {
 	enterrors.GoWrapper(func() {
 		liftB <- shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate)
 	}, fx.logger)
-	time.Sleep(200 * time.Millisecond) // nothing to observe between B's read and its wait on the lock
+	require.Eventually(t, func() bool {
+		buf := make([]byte, 1<<20)
+		return strings.Contains(string(buf[:runtime.Stack(buf, true)]), "(*Shard).preventShutdown")
+	}, 10*time.Second, 10*time.Millisecond, "lift B parks on shutdownLock after reading the held set")
 
 	fx.idx.bucketLoadLimiter.Release()
 	require.NoError(t, receiveWithin(t, liftA))
