@@ -843,9 +843,9 @@ func (q *DiskQueue) Rewind() error {
 	}
 
 	if live {
-		q.r.rewind(refs)
+		added := q.r.rewind(refs)
 		q.m.Lock()
-		for _, ref := range refs {
+		for _, ref := range added {
 			q.recordCount += ref.count
 			q.diskUsage += int64(ref.size)
 		}
@@ -1915,19 +1915,29 @@ func (r *chunkReader) markProcessed(path string, corrupt error) {
 }
 
 // rewind puts kept chunks back in name order, and makes the chunks still
-// listed as processed readable again.
-func (r *chunkReader) rewind(refs []chunkRef) {
+// listed as processed readable again. A chunk can be listed and tombstoned at
+// once when a tombstone failed halfway; it returns the chunks it added.
+func (r *chunkReader) rewind(refs []chunkRef) []chunkRef {
 	r.m.Lock()
 	defer r.m.Unlock()
 
+	listed := make(map[string]struct{}, len(r.chunkList))
 	for i := range r.chunkList {
 		r.chunkList[i].processed = false
 		r.chunkList[i].corrupt = nil
+		listed[r.chunkList[i].path] = struct{}{}
 	}
-	r.chunkList = append(r.chunkList, refs...)
+	added := make([]chunkRef, 0, len(refs))
+	for _, ref := range refs {
+		if _, ok := listed[ref.path]; !ok {
+			added = append(added, ref)
+		}
+	}
+	r.chunkList = append(r.chunkList, added...)
 	slices.SortFunc(r.chunkList, func(a, b chunkRef) int {
 		return strings.Compare(a.path, b.path)
 	})
+	return added
 }
 
 // firstUnprocessed is the path of the oldest chunk whose records are not
