@@ -46,6 +46,19 @@ func (s *Shard) haltForTransfer(ctx context.Context, offloading bool, gate reind
 		defer cancel()
 	}
 
+	// Defers run last-in, first-out. This one is registered before the unlock
+	// defer, so it runs after haltForTransferMux is released. The re-apply must
+	// not run under haltForTransferMux. Only the error rollback below sets
+	// rolledBackToResumed.
+	var rolledBackToResumed bool
+	defer func() {
+		if rolledBackToResumed {
+			// The caller's ctx can already be cancelled. The skipped enable must
+			// still be applied, so use a fresh context.
+			s.reapplyAsyncReplicationAfterResume(context.Background())
+		}
+	}()
+
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
 
@@ -82,6 +95,9 @@ func (s *Shard) haltForTransfer(ctx context.Context, offloading bool, gate reind
 			if err2 := s.mayForceResumeMaintenanceCycles(ctx); err2 != nil {
 				err = fmt.Errorf("%w: resume maintenance: %w", err, err2)
 			}
+			// Same gate as resumeMaintenanceCycles: re-apply an enable skipped
+			// while halted only once the shard is fully resumed.
+			rolledBackToResumed = s.haltForTransferCount.Load() == 0 && !s.resumeIncomplete.Load()
 		}
 	}()
 

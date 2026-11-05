@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"io"
 	"math/rand"
 	"os"
@@ -190,6 +191,102 @@ func TestResumeMaintenanceCyclesRetry(t *testing.T) {
 		require.False(t, ctrl.IsActive(), "a count-0 resume with no failed resume behind it must not run resume work")
 		require.NoError(t, ctrl.Activate())
 	})
+}
+
+// prepFailingIndex runs onPrepare and then fails PrepareForBackup. onPrepare
+// runs while the shard is halted and haltForTransferMux is held.
+type prepFailingIndex struct {
+	VectorIndex
+	onPrepare func()
+}
+
+func (i *prepFailingIndex) PrepareForBackup(context.Context) error {
+	i.onPrepare()
+	return errors.New("forced prepare failure")
+}
+
+func TestHaltForTransferRollback(t *testing.T) {
+	ctx := context.Background()
+
+	// newRollbackShard returns a shard whose vector index preparation adds a
+	// target-node override (an async-replication enable) and then fails.
+	newRollbackShard := func(t *testing.T, alsoInPrepare func(s *Shard)) (s *Shard, overrideErr *error, skipped *bool) {
+		index, shard := newSharedHaltTestShard(t)
+		// A single replica at factor 1: the override alone enables async replication.
+		index.schemaReader.(*local.MockSchemaReader).EXPECT().ShardReplicas(mock.Anything, mock.Anything).
+			Return([]string{"node1"}, nil).Maybe()
+		index.asyncReplicationScheduler = newSchedulerForUnitTest(t)
+		index.replicationConfigLock.Lock()
+		index.Config.AsyncReplicationConfig = minAsyncReplicationConfig()
+		index.replicationConfigLock.Unlock()
+
+		overrideErr, skipped = new(error), new(bool)
+		var names []string
+		var inner VectorIndex
+		require.NoError(t, shard.ForEachVectorIndex(func(name string, vi VectorIndex) error {
+			names, inner = append(names, name), vi
+			return nil
+		}))
+		require.Len(t, names, 1)
+		shard.setVectorIndex(names[0], &prepFailingIndex{VectorIndex: inner, onPrepare: func() {
+			*overrideErr = shard.addTargetNodeOverride(ctx, additional.AsyncReplicationTargetNodeOverride{
+				CollectionID:   index.Config.ClassName.String(),
+				ShardID:        shard.name,
+				SourceNode:     "nodeA",
+				TargetNode:     "nodeB",
+				UpperTimeBound: time.Now().Add(time.Hour).UnixMilli(),
+			})
+			*skipped = !asyncReplicationInstalled(shard)
+			if alsoInPrepare != nil {
+				alsoInPrepare(shard)
+			}
+		}})
+		return shard, overrideErr, skipped
+	}
+
+	t.Run("a rollback that fully resumes re-applies the skipped enable", func(t *testing.T) {
+		s, overrideErr, skipped := newRollbackShard(t, nil)
+
+		require.Error(t, s.HaltForTransfer(ctx, false))
+		require.NoError(t, *overrideErr)
+		require.True(t, *skipped, "the enable must be skipped while halted mid-preparation")
+		require.Zero(t, s.haltForTransferCount.Load())
+		require.False(t, s.resumeIncomplete.Load())
+		require.True(t, asyncReplicationInstalled(s), "the rollback must re-apply the skipped enable")
+	})
+
+	t.Run("a rollback whose resume fails defers the re-apply to the completing retry", func(t *testing.T) {
+		// The pause step has already deactivated the callbacks. Unregistering
+		// them now makes the rollback's Activate fail with ErrorCallbackNotFound.
+		s, overrideErr, skipped := newRollbackShard(t, func(s *Shard) {
+			require.NoError(t, s.cycleCallbacks.vectorCombinedCallbacksCtrl.Unregister(ctx))
+		})
+
+		require.Error(t, s.HaltForTransfer(ctx, false))
+		require.NoError(t, *overrideErr)
+		require.True(t, *skipped, "the enable must be skipped while halted mid-preparation")
+		require.Zero(t, s.haltForTransferCount.Load())
+		require.True(t, s.resumeIncomplete.Load())
+		require.False(t, asyncReplicationInstalled(s), "a rollback whose resume failed must not re-apply")
+
+		// Register the callbacks again as inactive, the state the halt left them in.
+		cc := s.cycleCallbacks
+		cc.vectorCombinedCallbacksCtrl = cyclemanager.NewCombinedCallbackCtrl(2, s.index.logger,
+			s.index.cycleCallbacks.vectorCommitLoggerCallbacks.Register(
+				"retry/commit_logger", cc.vectorCommitLoggerCallbacks.CycleCallback, cyclemanager.AsInactive()),
+			s.index.cycleCallbacks.vectorTombstoneCleanupCallbacks.Register(
+				"retry/tombstone_cleanup", cc.vectorTombstoneCleanupCallbacks.CycleCallback, cyclemanager.AsInactive()))
+
+		require.NoError(t, s.resumeMaintenanceCycles(ctx))
+		require.False(t, s.resumeIncomplete.Load())
+		require.True(t, asyncReplicationInstalled(s), "the completing retry must re-apply the skipped enable")
+	})
+}
+
+func asyncReplicationInstalled(s *Shard) bool {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+	return s.hashtree != nil
 }
 
 // snapshotHasObject reconstructs the snapshot's objects bucket from the wire
