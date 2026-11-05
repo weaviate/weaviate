@@ -1028,7 +1028,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 
 	if task.Status == TaskStatusSwapping {
 		return wrapPermanent(ErrNothingLeftToCancel,
-			fmt.Sprintf("task %s/%s/%d is SWAPPING: every group's swap is already decided", r.Namespace, r.Id, task.Version))
+			fmt.Sprintf("task %s/%s/%d is SWAPPING and finishes on its own", r.Namespace, r.Id, task.Version))
 	}
 	// Follower apply errors are discarded, so two binaries disagreeing on
 	// what may be cancelled would diverge here silently.

@@ -142,8 +142,7 @@ Cancel the in-flight task on `(class, property, indexType)`. No request
 body. Idempotent: `202` + `Status: CANCELLED` (with `taskId`) when an in-flight
 task is cancelled, `202` + `Status: NO_OP` (no `taskId`) when nothing
 matches (already finished, never submitted, or already cancelled). `409`
-when the task is `SWAPPING` (every tenant's swap is decided, so it finishes
-on its own), when its status is one this build does not recognize, or when
+when the task has reached `SWAPPING` (it finishes on its own), when its status is one this build does not recognize, or when
 it left the cancellable state between the read and the cancel. While the
 reindex is `STARTED` or `PREPARING` a cancel is never refused, because the
 reindex itself may be the incident.
@@ -1107,7 +1106,8 @@ collapsing it back to one — the bug it closes is not visually
 obvious from the code alone.
 
 PREP acks are idempotent (first ack per `(task, group, node)` wins); a swap
-ack pays its replica's debt in any status, and a failed one records nothing; rehydrate over
+ack pays its replica's debt in any status, and a failed one fails the task while
+`SWAPPING` and is ignored after; rehydrate over
 restart (the scheduler re-fires on the next tick); silent on already-
 terminal tasks (a late-arriving ack from a slow follower must not
 produce a noisy apply failure).
@@ -1544,8 +1544,8 @@ source, the other is a copy that outlives it.
    swapped anywhere, so it refuses rather than guess. The mutation-refusal
    guards agree: for this case they drop the "cancel it" advice and point
    the operator at the nodes that do recognize the status
-   (`MutationRemedy`). A `SWAPPING` task answers 409 too: every tenant's
-   swap is decided, so it finishes on its own. Every other in-flight status
+   (`MutationRemedy`). A `SWAPPING` task answers 409 too: it finishes
+   on its own. Every other in-flight status
    cancels (`TaskStatus.IsCancellable`): tenants whose swap is decided (§6.3)
    still swap, every other tenant stops. The
    REST pre-flight and `Manager.CancelTask` apply the same predicate, so a

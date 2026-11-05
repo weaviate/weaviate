@@ -1052,7 +1052,7 @@ func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
 	}{
 		{status: distributedtask.TaskStatusStarted, wantCancelAdvice: true},
 		{status: distributedtask.TaskStatusPreparing, wantCancelAdvice: true},
-		{status: distributedtask.TaskStatusSwapping, wantReason: "wait for the migration to finish"},
+		{status: distributedtask.TaskStatusSwapping, wantReason: "finishes on its own, so wait for it"},
 		{
 			status:     unknownFutureStatus,
 			wantReason: "cannot classify that status",

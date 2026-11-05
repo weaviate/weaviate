@@ -414,10 +414,10 @@ func (h *indexesHandlers) cancelTooLateResponder(target *distributedtask.Task, c
 		"index_type":  indexType,
 		"taskID":      target.ID,
 		"principal":   principalUsername(principal),
-	}).Info("cancel: every tenant's swap is decided; refusing")
+	}).Info("cancel: the task is SWAPPING and finishes on its own; refusing")
 	return jsonResponder(http.StatusConflict, errorResponse(principal,
-		fmt.Sprintf("reindex task %q on %s.%s has reached %s and can no longer be cancelled: every tenant's "+
-			"swap is decided, and the migration finishes on its own. Nothing was cancelled",
+		fmt.Sprintf("reindex task %q on %s.%s has reached %s and can no longer be cancelled: "+
+			"it finishes on its own. Nothing was cancelled",
 			target.ID, collection, propertyName, distributedtask.TaskStatusSwapping)))
 }
 
