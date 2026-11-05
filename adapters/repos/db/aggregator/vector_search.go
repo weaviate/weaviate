@@ -19,7 +19,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -115,6 +117,9 @@ func (a *Aggregator) buildAllowList(ctx context.Context) (helpers.AllowList, err
 func (a *Aggregator) performVectorSearch(ctx context.Context,
 	searchVector models.Vector, limit int, ids helpers.AllowList,
 ) ([]uint64, []float32, error) {
+	if err := a.rejectUnsupportedSearchEF(ctx); err != nil {
+		return nil, nil, err
+	}
 	switch vec := searchVector.(type) {
 	case []float32:
 		err := a.checkVectorKind(false)
@@ -144,6 +149,9 @@ func (a *Aggregator) performVectorSearch(ctx context.Context,
 func (a *Aggregator) performVectorDistanceSearch(ctx context.Context,
 	searchVector models.Vector, targetDist float32, maxLimit int64, ids helpers.AllowList,
 ) ([]uint64, []float32, error) {
+	if err := a.rejectUnsupportedSearchEF(ctx); err != nil {
+		return nil, nil, err
+	}
 	switch vec := searchVector.(type) {
 	case []float32:
 		err := a.checkVectorKind(false)
@@ -160,6 +168,13 @@ func (a *Aggregator) performVectorDistanceSearch(ctx context.Context,
 	default:
 		return nil, nil, fmt.Errorf("perform vector distance search: unrecognized search vector type: %T", searchVector)
 	}
+}
+
+func (a *Aggregator) rejectUnsupportedSearchEF(ctx context.Context) error {
+	if _, ok := searchparams.HNSWSearchEF(ctx); !ok || common.HonorsSearchEF(a.vectorIndex.Type()) {
+		return nil
+	}
+	return enterrors.NewErrUnprocessable(common.UnsupportedSearchEF(a.params.TargetVector, a.vectorIndex.Type()))
 }
 
 // checkVectorKind refuses a search vector whose shape does not match what the

@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
@@ -57,6 +58,21 @@ func (h *hnsw) searchTimeEF(k int) int {
 		ef = k
 	}
 
+	return ef
+}
+
+// effectiveSearchEF is the candidate-list size for this query.
+// A search-time ef (see searchparams.WithHNSWSearch) overrides the index
+// configuration, including dynamic ef. It is raised to at least k so the
+// result list is not truncated, matching searchTimeEF.
+func (h *hnsw) effectiveSearchEF(ctx context.Context, k int) int {
+	ef, ok := searchparams.HNSWSearchEF(ctx)
+	if !ok {
+		ef = h.searchTimeEF(k)
+	} else if ef < k {
+		ef = k
+	}
+	helpers.AnnotateSlowQueryLog(ctx, "hnsw_ef", ef)
 	return ef
 }
 
@@ -88,10 +104,10 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
-		return h.flatSearch(ctx, vector, k, h.searchTimeEF(k), allowList)
+		return h.flatSearch(ctx, vector, k, h.effectiveSearchEF(ctx, k), allowList)
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
-	return h.knnSearchByVector(ctx, vector, k, h.searchTimeEF(k), allowList)
+	return h.knnSearchByVector(ctx, vector, k, h.effectiveSearchEF(ctx, k), allowList)
 }
 
 func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
@@ -1234,7 +1250,7 @@ func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]floa
 	kPrime := k
 	candidateSet := make(map[uint64]struct{})
 	for _, vec := range queryVectors {
-		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, h.searchTimeEF(kPrime), allowList)
+		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, h.effectiveSearchEF(ctx, kPrime), allowList)
 		if err != nil {
 			return nil, nil, err
 		}

@@ -68,6 +68,8 @@ type GetParams struct {
 	Tenant                  string
 	IsRefOrigin             bool   // is created by ref filter
 	Alias                   string // used only to transfer alias passed in search request, not used for actual search
+	// HNSW is a search-time override for HNSW indexes. Nil keeps the collection config.
+	HNSW *searchparams.HNSW
 }
 
 type Embedding interface {

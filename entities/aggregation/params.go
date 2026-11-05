@@ -39,6 +39,8 @@ type Params struct {
 	NearObject       *searchparams.NearObject   `json:"nearObject"`
 	Hybrid           *searchparams.HybridSearch `json:"hybrid"`
 	Selection        *searchparams.Selection    `json:"selection"`
+	// HNSW is a search-time override for the vector search that selects objects.
+	HNSW *searchparams.HNSW `json:"hnsw,omitempty"`
 }
 
 func (p *Params) UnmarshalJSON(data []byte) error {

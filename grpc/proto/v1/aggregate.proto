@@ -100,6 +100,9 @@ message AggregateRequest {
     NearThermalSearch near_thermal = 49;
     NearIMUSearch near_imu = 50;
   }
+
+  // HNSW-only parameters for the vector search used to select objects.
+  optional HNSWSearch hnsw = 70;
 }
 
 message AggregateReply {

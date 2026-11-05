@@ -1307,6 +1307,21 @@ func TestNearVectorParams(t *testing.T) {
 		assert.Nil(t, searcher.lastParams.HybridSearch)
 	})
 
+	t.Run("hnsw.ef overrides the configured ef", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, movieClass(), `{"vector":[0.1,-0.2,0.3],"hnsw":{"ef":256}}`)
+		require.Nil(t, apiErr)
+		require.NotNil(t, searcher.lastParams.HNSW)
+		require.NotNil(t, searcher.lastParams.HNSW.EF)
+		assert.Equal(t, 256, *searcher.lastParams.HNSW.EF)
+	})
+
+	t.Run("hnsw.ef below 1 is rejected", func(t *testing.T) {
+		_, apiErr := buildNearVector(t, movieClass(), `{"vector":[0.1,-0.2,0.3],"hnsw":{"ef":0}}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+		assert.Contains(t, apiErr.Err.Error(), "at least 1")
+	})
+
 	t.Run("whole numbers are read as a vector", func(t *testing.T) {
 		searcher, apiErr := buildNearVector(t, movieClass(), `{"vector":[1,0,-2]}`)
 		require.Nil(t, apiErr)
