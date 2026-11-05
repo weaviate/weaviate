@@ -31,7 +31,8 @@ import (
 // asked, so shards taken one at a time never get past the first.
 func TestIndexAggregate_RunsShardsConcurrently(t *testing.T) {
 	const className = "AggregateShards"
-	shards := []string{"shard-a", "shard-b", "shard-c", "shard-d"}
+	// three, as the aggregation runs at least three shards at a time on any CPU count
+	shards := []string{"shard-a", "shard-b", "shard-c"}
 
 	idx, _ := refCountTestIndex(t, className)
 
