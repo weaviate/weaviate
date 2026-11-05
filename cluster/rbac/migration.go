@@ -245,6 +245,10 @@ func migrateRevokeRoles(req *cmd.RevokeRolesForUserRequest) ([]*cmd.RevokeRolesF
 }
 
 func migrateRevokeRolesV0(req *cmd.RevokeRolesForUserRequest) ([]*cmd.RevokeRolesForUserRequest, error) {
+	// The db/oidc split applies to user subjects only; a group subject keeps its prefix.
+	if strings.HasPrefix(req.User, conv.OIDC_GROUP_NAME_PREFIX) {
+		return []*cmd.RevokeRolesForUserRequest{{Version: req.Version + 1, Roles: req.Roles, User: req.User}}, nil
+	}
 	user, _, err := conv.GetUserAndPrefix(req.User)
 	if err != nil {
 		return nil, err
@@ -271,6 +275,10 @@ func migrateAssignRoles(req *cmd.AddRolesForUsersRequest, authNconfig config.Aut
 }
 
 func migrateAssignRolesV0(req *cmd.AddRolesForUsersRequest, authNconfig config.Authentication) ([]*cmd.AddRolesForUsersRequest, error) {
+	// The db/oidc split applies to user subjects only; a group subject keeps its prefix.
+	if strings.HasPrefix(req.User, conv.OIDC_GROUP_NAME_PREFIX) {
+		return []*cmd.AddRolesForUsersRequest{{Version: req.Version + 1, Roles: req.Roles, User: req.User}}, nil
+	}
 	user, _, err := conv.GetUserAndPrefix(req.User)
 	if err != nil {
 		return nil, err

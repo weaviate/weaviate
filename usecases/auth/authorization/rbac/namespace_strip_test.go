@@ -139,6 +139,38 @@ func TestReferencedNamespaces(t *testing.T) {
 	})
 }
 
+func TestSnapshotRoleNames(t *testing.T) {
+	t.Run("policy and assignment rows name roles, sorted and unprefixed", func(t *testing.T) {
+		blob, err := json.Marshal(&snapshot{
+			Policy: [][]string{
+				{"role:ns1:writer", "data/collections/Movies", "R", "data"},
+				{"role:admin", "*", "CRUD", "*"},
+			},
+			GroupingPolicy: [][]string{
+				{"db:wv_internal_empty", "role:ns1:writer"},
+				{"db:alice", "role:viewer"},
+				{"oidc:bob", "role:auditor"},
+			},
+		})
+		require.NoError(t, err)
+
+		got, err := SnapshotRoleNames(blob)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"admin", "auditor", "ns1:writer", "viewer"}, got)
+	})
+
+	t.Run("an empty blob names nothing", func(t *testing.T) {
+		got, err := SnapshotRoleNames(nil)
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("a malformed blob errors", func(t *testing.T) {
+		_, err := SnapshotRoleNames([]byte("not json"))
+		require.Error(t, err)
+	})
+}
+
 func TestRequireReferencedNamespacesExist(t *testing.T) {
 	blobWith := func(t *testing.T, namespaces ...string) []byte {
 		t.Helper()

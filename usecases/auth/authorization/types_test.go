@@ -125,6 +125,59 @@ func TestBackups(t *testing.T) {
 	}
 }
 
+func TestBackupPrincipals(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(...string) []string
+		ids   []string
+		want  []string
+	}{
+		{"no users is every user", BackupUsers, nil, []string{"backups/users/*"}},
+		{"a lone wildcard is every user", BackupUsers, []string{"*"}, []string{"backups/users/*"}},
+		{"users keep their case and qualifier", BackupUsers, []string{"alice", "ns1:Bob"}, []string{"backups/users/alice", "backups/users/ns1:Bob"}},
+		{"no roles is every role", BackupRoles, nil, []string{"backups/roles/*"}},
+		{"roles keep their case and qualifier", BackupRoles, []string{"editor", "ns1:Reader"}, []string{"backups/roles/editor", "backups/roles/ns1:Reader"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := append([]string(nil), tt.ids...)
+			assert.Equal(t, tt.want, tt.build(input...))
+			assert.Equal(t, tt.ids, input, "the input is not rewritten")
+		})
+	}
+
+	t.Run("admin and root manage both wildcards, metadata reader reads them, viewer and read-only hold neither", func(t *testing.T) {
+		// Compare targets by value, not pointer: a permission built from a new
+		// struct must match the same as one reusing the package-level pointer.
+		actionsOn := func(perms []*models.Permission, target *models.PermissionBackups) []string {
+			var actions []string
+			for _, p := range perms {
+				if p.Action != nil && assert.ObjectsAreEqual(target, p.Backups) {
+					actions = append(actions, *p.Action)
+				}
+			}
+			return actions
+		}
+		for _, namespacesEnabled := range []bool{false, true} {
+			builtIn := BuiltInPermissionsFor(namespacesEnabled)
+			var adminActions []string
+			if !namespacesEnabled {
+				adminActions = []string{ManageBackups}
+			}
+			for role, want := range map[string][]string{
+				Admin:          adminActions,
+				Root:           {ManageBackups},
+				Viewer:         nil,
+				ReadOnly:       nil,
+				MetadataReader: {ReadBackups},
+			} {
+				assert.Equal(t, want, actionsOn(builtIn[role], AllBackupUsers), "%s users, namespaces=%v", role, namespacesEnabled)
+				assert.Equal(t, want, actionsOn(builtIn[role], AllBackupRoles), "%s roles, namespaces=%v", role, namespacesEnabled)
+			}
+		}
+	})
+}
+
 func TestCollections(t *testing.T) {
 	tests := []struct {
 		name     string

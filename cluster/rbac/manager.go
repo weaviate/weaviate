@@ -23,6 +23,7 @@ import (
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/config"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -164,7 +165,6 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-
 	// Scan all roles, not just the exact names, to enforce short-name
 	// uniqueness across namespaces. The handler's pre-check read is not atomic
 	// with this write; applies run serially, so this is the authoritative guard.
@@ -197,6 +197,15 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 	reqMigrated, err := migrateUpsertRolesPermissions(req)
 	if err != nil {
 		return err
+	}
+	if !req.BackupPrincipalsAware {
+		for role, policies := range reqMigrated.Roles {
+			var grants []authorization.Policy
+			for _, p := range policies {
+				grants = append(grants, conv.BackupPrincipalGrants(p)...)
+			}
+			reqMigrated.Roles[role] = append(policies, grants...)
+		}
 	}
 
 	return m.authZ.UpdateRolesPermissions(reqMigrated.Roles) // update is upsert, naming is to satisfy interface
@@ -246,6 +255,16 @@ func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
+	// The orphan set must be read before either RemovePermissions call below
+	// deletes the rows it judges.
+	var orphaned []*authorization.Policy
+	if !req.BackupPrincipalsAware {
+		var err error
+		if orphaned, err = m.authZ.OrphanedBackupPrincipalGrants(req.Role, req.Permissions); err != nil {
+			return err
+		}
+	}
+
 	if req.Version < cmd.RBACLatestCommandPolicyVersion {
 		if err := m.authZ.RemovePermissions(req.Role, req.Permissions); err != nil {
 			return err
@@ -257,7 +276,7 @@ func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
 		return err
 	}
 
-	return m.authZ.RemovePermissions(reqMigrated.Role, reqMigrated.Permissions)
+	return m.authZ.RemovePermissions(reqMigrated.Role, append(reqMigrated.Permissions, orphaned...))
 }
 
 func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {
