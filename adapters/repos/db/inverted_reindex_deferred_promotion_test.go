@@ -131,10 +131,7 @@ func TestRestartBeforeTheSchemaFlipServesTheMigratedData(t *testing.T) {
 
 				name, lsm := shard.Name(), shard.pathLSM()
 				require.NoError(t, shard.Shutdown(ctx))
-				recovered, err := DiscoverInFlightReindexTasks(idx.Config.RootPath, true, idx.logger, nil)
-				require.NoError(t, err)
-				require.Len(t, recovered, 1)
-				idx.shardReindexer = NewShardReindexerV3FromRecovered(recovered, idx.logger)
+				idx.shardReindexer = NewReindexRecoveryHook(true, idx.logger, nil)
 				loadClass := class
 				if sc.flipDuringLoad {
 					snapshot := *class

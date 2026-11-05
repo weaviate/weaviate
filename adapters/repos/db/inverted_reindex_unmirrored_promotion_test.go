@@ -172,8 +172,7 @@ func TestRecoveryWalkStampsAMigrationItCouldNotArm(t *testing.T) {
 			require.NoError(t, store.Load())
 			require.NoError(t, store.Put(tt.rec(subject)))
 
-			_, err := DiscoverInFlightReindexTasks(root, true, logger, nil)
-			require.NoError(t, err)
+			NewReindexRecoveryHook(true, logger, nil).recoverableTasks(store, "shard-1")
 
 			reread := NewMigrationRecordStore(lsm, logger)
 			require.NoError(t, reread.Load())
