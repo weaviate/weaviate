@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -45,27 +46,25 @@ func makeCountingCommitLogger(counter *countingCommitLogger) func(opts ...Commit
 	}
 }
 
-// TestEntrypointRepair_GlobalEntrypointUnderMaintenance tests the primary scenario:
-// when the global entrypoint is marked under maintenance, an insert should trigger
-// repair and succeed (not hang or timeout).
-func TestEntrypointRepair_GlobalEntrypointUnderMaintenance(t *testing.T) {
+func newEntrypointRepairIndex(t *testing.T, commitLogger MakeCommitLogger, gone *atomic.Int64) (*hnsw, [][]float32) {
 	ctx := context.Background()
 	vectors := vectorsForEntrypointRepairTest()
-
 	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(ctx)
+	t.Cleanup(func() { store.Shutdown(ctx) })
 
-	// Build index with several nodes
 	index, err := New(Config{
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    "entrypoint-repair-test",
-		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		MakeCommitLoggerThunk: commitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			if int64(id) == gone.Load() {
+				return nil, storobj.NewErrNotFoundf(id, "deleted from object store")
+			}
 			if int(id) < len(vectors) {
 				return vectors[id], nil
 			}
-			return vectors[0], nil // fallback for new inserts
+			return []float32{0.5, 0.5, 0.5}, nil
 		},
 		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
@@ -76,137 +75,107 @@ func TestEntrypointRepair_GlobalEntrypointUnderMaintenance(t *testing.T) {
 		VectorCacheMaxObjects: 100000,
 	}, cyclemanager.NewCallbackGroupNoop(), store)
 	require.NoError(t, err)
-	defer index.Drop(ctx, false)
+	t.Cleanup(func() { index.Drop(ctx, false) })
+	// all on level 0, so the descent cannot hop past the broken entrypoint
+	index.randFunc = func() float64 { return 0.5 }
 
-	// Insert initial nodes to establish the index
 	for i := 0; i < len(vectors); i++ {
-		err := index.Add(ctx, uint64(i), vectors[i])
-		require.NoError(t, err)
+		require.NoError(t, index.Add(ctx, uint64(i), vectors[i]))
 	}
-
-	// Get the current entrypoint
-	originalEntrypoint := index.entryPointID
-	require.True(t, originalEntrypoint < uint64(len(vectors)), "entrypoint should be one of the initial nodes")
-
-	// Mark the global entrypoint as under maintenance
-	entrypointNode := index.nodeByID(originalEntrypoint)
-	require.NotNil(t, entrypointNode, "entrypoint node should exist")
-	entrypointNode.markAsMaintenance()
-
-	// Perform an insert with a short timeout - should NOT hang
-	insertDone := make(chan error, 1)
-	newVector := []float32{0.5, 0.5, 0.5}
-	newID := uint64(len(vectors))
-
-	go func() {
-		insertDone <- index.Add(ctx, newID, newVector)
-	}()
-
-	select {
-	case err := <-insertDone:
-		// Insert terminated - check result
-		// On unfixed code, this may be an error or the test may hang
-		// On fixed code, this should succeed
-		if err != nil {
-			t.Fatalf("insert failed with error: %v (expected success after repair)", err)
-		}
-
-		// Verify the entrypoint was repaired to a valid node (not under maintenance)
-		newEntrypoint := index.entryPointID
-		if newEntrypoint == originalEntrypoint {
-			// Either repair happened and selected a different node, or repair didn't happen
-			// In either case, the original entrypoint is still under maintenance
-			newEntrypointNode := index.nodeByID(newEntrypoint)
-			if newEntrypointNode != nil && newEntrypointNode.isUnderMaintenance() {
-				t.Errorf("entrypoint is still under maintenance after insert - repair did not happen")
-			}
-		}
-
-		// Verify the new node was inserted
-		insertedNode := index.nodeByID(newID)
-		assert.NotNil(t, insertedNode, "inserted node should exist in the index")
-
-	case <-time.After(5 * time.Second):
-		t.Fatal("insert did not terminate — spinning in pickEntrypoint")
-	}
-
-	// Cleanup: unmark maintenance so Drop can proceed cleanly
-	entrypointNode.unmarkAsMaintenance()
+	return index, vectors
 }
 
-// TestEntrypointRepair_RepairSelectsAlsoUnusableNode tests Case B:
-// repair selects a node that is also unusable → insert ends in clean error, no hang.
-func TestEntrypointRepair_RepairSelectsAlsoUnusableNode(t *testing.T) {
+// TestEntrypointRepair_GlobalEntrypointUnderMaintenance: an entrypoint under
+// maintenance is used as it is, nothing is repaired or persisted.
+func TestEntrypointRepair_GlobalEntrypointUnderMaintenance(t *testing.T) {
 	ctx := context.Background()
-	vectors := vectorsForEntrypointRepairTest()
+	gone := &atomic.Int64{}
+	gone.Store(-1)
+	commitLogger := &countingCommitLogger{}
+	index, vectors := newEntrypointRepairIndex(t, makeCountingCommitLogger(commitLogger), gone)
 
-	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(ctx)
+	originalEntrypoint := index.entryPointID
+	entrypointNode := index.nodeByID(originalEntrypoint)
+	require.NotNil(t, entrypointNode)
+	entrypointNode.markAsMaintenance()
+	defer entrypointNode.unmarkAsMaintenance()
+	persisted := commitLogger.setEntrypointCalls.Load()
 
-	index, err := New(Config{
-		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:                    "entrypoint-repair-also-unusable-test",
-		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineDistanceProvider(),
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			if int(id) < len(vectors) {
-				return vectors[id], nil
-			}
-			return vectors[0], nil
-		},
-		GetViewThunk:                 GetViewThunk,
-		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
-		AllocChecker:                 memwatch.NewDummyMonitor(),
-	}, ent.UserConfig{
-		MaxConnections:        30,
-		EFConstruction:        128,
-		VectorCacheMaxObjects: 100000,
-	}, cyclemanager.NewCallbackGroupNoop(), store)
+	newVector := []float32{0.5, 0.5, 0.5}
+	newID := uint64(len(vectors))
+	require.NoError(t, index.Add(ctx, newID, newVector))
+
+	assert.Equal(t, originalEntrypoint, index.getEntrypoint(), "an entrypoint under maintenance is not replaced")
+	assert.Equal(t, persisted, commitLogger.setEntrypointCalls.Load(), "nothing to persist")
+	ids, _, err := index.SearchByVector(ctx, newVector, len(vectors)+1, nil)
 	require.NoError(t, err)
-	defer index.Drop(ctx, false)
+	assert.Contains(t, ids, newID)
+}
 
-	// Insert initial nodes
-	for i := 0; i < len(vectors); i++ {
-		err := index.Add(ctx, uint64(i), vectors[i])
-		require.NoError(t, err)
-	}
+// TestEntrypointRepair_DeadEntrypoint: an entrypoint whose object is gone is
+// repaired to a live node once.
+func TestEntrypointRepair_DeadEntrypoint(t *testing.T) {
+	ctx := context.Background()
+	gone := &atomic.Int64{}
+	gone.Store(-1)
+	commitLogger := &countingCommitLogger{}
+	index, vectors := newEntrypointRepairIndex(t, makeCountingCommitLogger(commitLogger), gone)
 
-	// Mark ALL nodes as under maintenance - repair cannot find any usable node
+	originalEntrypoint := index.entryPointID
+	gone.Store(int64(originalEntrypoint))
+	index.cache.Delete(ctx, originalEntrypoint)
+	persisted := commitLogger.setEntrypointCalls.Load()
+
+	newVector := []float32{0.5, 0.5, 0.5}
+	newID := uint64(len(vectors))
+	require.NoError(t, index.Add(ctx, newID, newVector))
+
+	repaired := index.getEntrypoint()
+	assert.NotEqual(t, originalEntrypoint, repaired)
+	assert.True(t, index.hasTombstone(originalEntrypoint), "the dead entrypoint is tombstoned")
+	assert.False(t, index.hasTombstone(repaired))
+	assert.Equal(t, persisted+1, commitLogger.setEntrypointCalls.Load(), "one repair persisted")
+	ids, _, err := index.SearchByVector(ctx, newVector, len(vectors)+1, nil)
+	require.NoError(t, err)
+	assert.Contains(t, ids, newID)
+	assert.NotContains(t, ids, originalEntrypoint)
+}
+
+// TestEntrypointRepair_AllNodesUnderMaintenance: an insert proceeds while
+// every node is under maintenance.
+func TestEntrypointRepair_AllNodesUnderMaintenance(t *testing.T) {
+	ctx := context.Background()
+	gone := &atomic.Int64{}
+	gone.Store(-1)
+	index, vectors := newEntrypointRepairIndex(t, MakeNoopCommitLogger, gone)
+
 	for i := 0; i < len(vectors); i++ {
 		node := index.nodeByID(uint64(i))
-		if node != nil {
-			node.markAsMaintenance()
-		}
+		require.NotNil(t, node)
+		node.markAsMaintenance()
 	}
+	defer func() {
+		for i := 0; i < len(vectors); i++ {
+			index.nodeByID(uint64(i)).unmarkAsMaintenance()
+		}
+	}()
 
-	// Perform an insert - should fail with clean error, not hang
 	insertDone := make(chan error, 1)
 	newVector := []float32{0.5, 0.5, 0.5}
 	newID := uint64(len(vectors))
-
 	go func() {
 		insertDone <- index.Add(ctx, newID, newVector)
 	}()
 
 	select {
 	case err := <-insertDone:
-		// Should get a clean error, not success (no usable entrypoint)
-		assert.Error(t, err, "expected error when all nodes are under maintenance")
-		// The error should indicate no usable entrypoint, not a timeout
-		assert.NotContains(t, err.Error(), "context deadline exceeded",
-			"should fail with entrypoint error, not timeout")
-
+		require.NoError(t, err)
 	case <-time.After(5 * time.Second):
-		t.Fatal("insert did not terminate — spinning in pickEntrypoint")
+		t.Fatal("insert did not terminate while every node was under maintenance")
 	}
-
-	// Cleanup
-	for i := 0; i < len(vectors); i++ {
-		node := index.nodeByID(uint64(i))
-		if node != nil {
-			node.unmarkAsMaintenance()
-		}
-	}
+	ids, _, err := index.SearchByVector(ctx, newVector, len(vectors)+1, nil)
+	require.NoError(t, err)
+	assert.Contains(t, ids, newID)
 }
 
 // TestEntrypointRepair_ConcurrentRepairAlreadyChanged tests Case C:
@@ -310,61 +279,23 @@ func TestEntrypointRepair_ConcurrentRepairAlreadyChanged(t *testing.T) {
 }
 
 // TestEntrypointRepair_ConcurrentInserts tests the concurrency scenario:
-// several inserts hit the bad entrypoint at once, only one repair should perform
+// several inserts hit a dead entrypoint at once, only one repair should perform
 // the actual update (CAS semantics), and the entrypoint should end on a single
 // consistent valid value.
 func TestEntrypointRepair_ConcurrentInserts(t *testing.T) {
 	ctx := context.Background()
-	vectors := vectorsForEntrypointRepairTest()
-
-	store := testinghelpers.NewDummyStore(t)
-	defer store.Shutdown(ctx)
-
+	gone := &atomic.Int64{}
+	gone.Store(-1)
 	// Use a counting commit logger to verify exactly one repair persists
 	commitLogger := &countingCommitLogger{}
-
-	index, err := New(Config{
-		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:                    "entrypoint-repair-concurrent-inserts-test",
-		MakeCommitLoggerThunk: makeCountingCommitLogger(commitLogger),
-		DistanceProvider:      distancer.NewCosineDistanceProvider(),
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			if int(id) < len(vectors)+10 { // allow for new inserts
-				if int(id) < len(vectors) {
-					return vectors[id], nil
-				}
-				return []float32{0.5, 0.5, 0.5}, nil
-			}
-			return vectors[0], nil
-		},
-		GetViewThunk:                 GetViewThunk,
-		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
-		AllocChecker:                 memwatch.NewDummyMonitor(),
-	}, ent.UserConfig{
-		MaxConnections:        30,
-		EFConstruction:        128,
-		VectorCacheMaxObjects: 100000,
-	}, cyclemanager.NewCallbackGroupNoop(), store)
-	require.NoError(t, err)
-	defer index.Drop(ctx, false)
-
-	index.randFunc = func() float64 { return 0.5 }
-
-	// Insert initial nodes
-	for i := 0; i < len(vectors); i++ {
-		err := index.Add(ctx, uint64(i), vectors[i])
-		require.NoError(t, err)
-	}
+	index, vectors := newEntrypointRepairIndex(t, makeCountingCommitLogger(commitLogger), gone)
 
 	// Record baseline SetEntryPointWithMaxLayer calls (from initial inserts that promoted entrypoint)
 	baselineCalls := commitLogger.setEntrypointCalls.Load()
 
 	originalEntrypoint := index.entryPointID
-
-	// Mark the entrypoint under maintenance
-	entrypointNode := index.nodeByID(originalEntrypoint)
-	require.NotNil(t, entrypointNode)
-	entrypointNode.markAsMaintenance()
+	gone.Store(int64(originalEntrypoint))
+	index.cache.Delete(ctx, originalEntrypoint)
 
 	// Launch multiple concurrent inserts with a start barrier to ensure overlap
 	const numConcurrentInserts = 10
@@ -415,12 +346,12 @@ func TestEntrypointRepair_ConcurrentInserts(t *testing.T) {
 		assert.Equal(t, int32(numConcurrentInserts), successCount.Load(),
 			"all concurrent inserts should succeed after repair")
 
-		// The entrypoint should be consistent and valid (not under maintenance)
+		// The entrypoint should be consistent and valid
 		finalEntrypoint := index.entryPointID
 		finalNode := index.nodeByID(finalEntrypoint)
 		require.NotNil(t, finalNode, "final entrypoint node should exist")
-		assert.False(t, finalNode.isUnderMaintenance(),
-			"final entrypoint should not be under maintenance")
+		assert.False(t, index.hasTombstone(finalEntrypoint),
+			"final entrypoint should not be tombstoned")
 
 		// one CAS repair persist, plus one per node that may have promoted
 		// itself (repair can lower currentMaximumLayer, so any level > 0 counts)
@@ -434,7 +365,7 @@ func TestEntrypointRepair_ConcurrentInserts(t *testing.T) {
 		}
 		repairCalls := commitLogger.setEntrypointCalls.Load() - baselineCalls
 		assert.GreaterOrEqual(t, repairCalls, int32(1),
-			"the broken entrypoint should have been repaired and persisted")
+			"the dead entrypoint should have been repaired and persisted")
 		assert.LessOrEqual(t, repairCalls, 1+promotionCandidates,
 			"SetEntryPointWithMaxLayer calls should be explained by one CAS repair plus level promotions")
 
@@ -445,9 +376,6 @@ func TestEntrypointRepair_ConcurrentInserts(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("concurrent inserts did not terminate — spinning in pickEntrypoint")
 	}
-
-	// Cleanup
-	entrypointNode.unmarkAsMaintenance()
 }
 
 // vectorsForEntrypointRepairTest returns a small set of test vectors
