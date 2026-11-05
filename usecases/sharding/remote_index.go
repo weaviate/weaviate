@@ -317,7 +317,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 		}
 		return result{objs, scores, queryProfiles}, err
 	}
-	rr, node, err := ri.queryReplicas(ctx, shard, f)
+	rr, node, err := ri.queryReplicas(ctx, shard, "", f)
 	if err != nil {
 		return nil, nil, nil, node, err
 	}
@@ -325,9 +325,11 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	return r.objects, r.scores, r.queryProfiles, node, err
 }
 
+// Aggregate asks the replica on preferredNode first, when set, and the shard's
+// other replicas after it.
 func (ri *RemoteIndex) Aggregate(
 	ctx context.Context,
-	shard string,
+	shard, preferredNode string,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
 	f := func(_, host string) (interface{}, error) {
@@ -337,7 +339,7 @@ func (ri *RemoteIndex) Aggregate(
 		}
 		return r, nil
 	}
-	rr, _, err := ri.queryReplicas(ctx, shard, f)
+	rr, _, err := ri.queryReplicas(ctx, shard, preferredNode, f)
 	if err != nil {
 		return nil, err
 	}
@@ -497,9 +499,11 @@ func (ri *RemoteIndex) queryAllReplicas(
 	return queryAll(replicas)
 }
 
+// queryReplicas asks the shard's replicas one by one until one answers: preferred
+// first, when set, then the others starting from a random one.
 func (ri *RemoteIndex) queryReplicas(
 	ctx context.Context,
-	shard string,
+	shard, preferred string,
 	do func(nodeName, host string) (interface{}, error),
 ) (resp interface{}, node string, err error) {
 	replicas, err := ri.stateGetter.ShardReplicas(ri.class, shard)
@@ -509,28 +513,34 @@ func (ri *RemoteIndex) queryReplicas(
 			fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, err)
 	}
 
-	queryOne := func(replica string) (interface{}, error) {
-		host, ok := ri.nodeResolver.NodeHostname(replica)
+	for _, node = range ri.replicaOrder(replicas, preferred) {
+		if errC := ctx.Err(); errC != nil {
+			return nil, node, errC
+		}
+		host, ok := ri.nodeResolver.NodeHostname(node)
 		if !ok || host == "" {
-			return nil, fmt.Errorf("resolve node name %q to host", replica)
+			err = fmt.Errorf("resolve node name %q to host", node)
+			continue
 		}
-		return do(replica, host)
-	}
-
-	queryUntil := func(replicas []string) (resp interface{}, node string, err error) {
-		for _, node = range replicas {
-			if errC := ctx.Err(); errC != nil {
-				return nil, node, errC
-			}
-			if resp, err = queryOne(node); err == nil {
-				return resp, node, nil
-			}
+		if resp, err = do(node, host); err == nil {
+			return resp, node, nil
 		}
-		return resp, node, err
-	}
-	first := rand.Intn(len(replicas))
-	if resp, node, err = queryUntil(replicas[first:]); err != nil && first != 0 {
-		return queryUntil(replicas[:first])
 	}
 	return resp, node, err
+}
+
+// replicaOrder lists replicas from a random one onwards, wrapping around, with
+// preferred, when set, in front.
+func (ri *RemoteIndex) replicaOrder(replicas []string, preferred string) []string {
+	order := make([]string, 0, len(replicas)+1)
+	if preferred != "" {
+		order = append(order, preferred)
+	}
+	first := rand.Intn(len(replicas))
+	for k := range replicas {
+		if r := replicas[(first+k)%len(replicas)]; r != preferred {
+			order = append(order, r)
+		}
+	}
+	return order
 }

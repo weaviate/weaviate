@@ -61,7 +61,7 @@ func TestQueryReplica(t *testing.T) {
 
 	for _, test := range tests {
 		rindex := RemoteIndex{"C", &test.schema, nil, &test.resolver}
-		got, lastNode, err := rindex.queryReplicas(test.ctx, "S", doIf(test.targetNode))
+		got, lastNode, err := rindex.queryReplicas(test.ctx, "S", "", doIf(test.targetNode))
 		if !test.success {
 			if got != nil {
 				t.Errorf("%s: want: nil, got: %v", test.name, got)
@@ -73,6 +73,51 @@ func TestQueryReplica(t *testing.T) {
 		if lastNode != test.targetNode {
 			t.Errorf("%s: last responding node want:%s got:%s", test.name, test.targetNode, lastNode)
 		}
+	}
+}
+
+func TestQueryReplicaPreferred(t *testing.T) {
+	tests := []struct {
+		name      string
+		replicas  fakeSchema
+		preferred string
+		answering string
+		wantFirst string
+	}{
+		{name: "preferred replica asked first", replicas: newFakeSchema(0, 9), preferred: "N5", answering: "N5", wantFirst: "N5"},
+		{name: "preferred node outside the shard's replicas asked first", replicas: newFakeSchema(0, 3), preferred: "N7", answering: "N7", wantFirst: "N7"},
+		{name: "failing preferred replica falls back to the others", replicas: newFakeSchema(0, 9), preferred: "N5", answering: "N2", wantFirst: "N5"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolver := newFakeResolver(0, 10)
+			rindex := RemoteIndex{"C", &tt.replicas, nil, &resolver}
+			var asked []string
+			got, node, err := rindex.queryReplicas(context.Background(), "S", tt.preferred,
+				func(node, host string) (interface{}, error) {
+					asked = append(asked, node)
+					if node != tt.answering {
+						return nil, errAny
+					}
+					return node, nil
+				})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.answering || node != tt.answering {
+				t.Fatalf("answer want %s, got %v from %s", tt.answering, got, node)
+			}
+			if asked[0] != tt.wantFirst {
+				t.Fatalf("first asked want %s, got %v", tt.wantFirst, asked)
+			}
+			seen := map[string]bool{}
+			for _, n := range asked {
+				if seen[n] {
+					t.Fatalf("%s asked twice: %v", n, asked)
+				}
+				seen[n] = true
+			}
+		})
 	}
 }
 

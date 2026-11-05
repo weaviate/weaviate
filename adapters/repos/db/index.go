@@ -3729,43 +3729,61 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 		return i.aggregateCount(ctx, readPlan)
 	}
 
-	// Every shard scans all of its data, so the shards run side by side: the
-	// query then takes as long as its slowest shard, not all of them in turn.
-	shards := readPlan.Shards()
-	results := make([]*aggregation.Result, len(shards))
+	// Every shard scans all of its data, so the shards run side by side, each on
+	// a different node where the replicas allow: the query then takes as long as
+	// its slowest shard, not all of them in turn on one node.
+	replicas := readPlan.SpreadReplicas()
+	results := make([]*aggregation.Result, len(replicas))
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
 	// at least 3, so that a single-tenant rf=3 query is not serialized on 1 CPU
 	eg.SetLimit(_NUMCPU*2 + 1)
-	for j, shardName := range shards {
+	for j, replica := range replicas {
 		eg.Go(func() error {
-			var res *aggregation.Result
-			err := i.withShardOrRemote(ctx, params.Tenant, shardName, localShardOperationRead, 0,
-				func(shard ShardLike) error {
-					var err error
-					res, err = shard.Aggregate(ctx, params, modules)
-					return err
-				},
-				func() error {
-					var err error
-					res, err = i.remote.Aggregate(ctx, shardName, params)
-					if err != nil || res == nil {
-						return err
-					}
-					// restore wire state here so a malformed payload error still names the shard
-					return aggregator.NewShardCombiner().RestoreSerializedAggregators(res)
-				})
+			res, err := i.aggregateShard(ctx, readPlan.LocalHostname, replica, params, modules)
 			if err != nil {
-				return errors.Wrapf(err, "shard %s", shardName)
+				return errors.Wrapf(err, "shard %s", replica.ShardName)
 			}
 			results[j] = res
 			return nil
-		}, shardName)
+		}, replica.ShardName)
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, err
 	}
 
 	return aggregator.NewShardCombiner().Do(results)
+}
+
+// aggregateShard aggregates the shard on the given replica: here when it is the
+// local one, otherwise on its node first and on the shard's other replicas after.
+func (i *Index) aggregateShard(ctx context.Context, localNode string, replica routerTypes.Replica,
+	params aggregation.Params, modules *modules.Provider,
+) (*aggregation.Result, error) {
+	remote := func(preferredNode string) (*aggregation.Result, error) {
+		res, err := i.remote.Aggregate(ctx, replica.ShardName, preferredNode, params)
+		if err != nil || res == nil {
+			return res, err
+		}
+		// restore wire state here so a malformed payload error still names the shard
+		return res, aggregator.NewShardCombiner().RestoreSerializedAggregators(res)
+	}
+	if replica.NodeName != localNode {
+		return remote(replica.NodeName)
+	}
+
+	var res *aggregation.Result
+	err := i.withShardOrRemote(ctx, params.Tenant, replica.ShardName, localShardOperationRead, 0,
+		func(shard ShardLike) error {
+			var err error
+			res, err = shard.Aggregate(ctx, params, modules)
+			return err
+		},
+		func() error {
+			var err error
+			res, err = remote("")
+			return err
+		})
+	return res, err
 }
 
 // aggregateCount counts every shard in readPlan against that plan's replicas,
