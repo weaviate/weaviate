@@ -1090,11 +1090,11 @@ Then, per shard load:
      owning node logs one Error line per hold, when it starts, naming the
      shard, the cause and the way out. A waiting step's retry line is at
      Debug and names the hold; with Debug on it repeats once per held
-     shard on every tick and wake. A task whose unit waits is relaunched on
+     shard and waiting migration on every tick and wake. A task whose unit waits is relaunched on
      every tick and wake, and its "started distributed task execution"
      line is sampled: at most 5 a node per 5 ticks, a budget shared with
      the scheduler's one-off errors, which many waiting tasks can crowd out.
-     A unit that waits, including one of a migration submitted after the
+     A unit, prepare or swap that waits, including one of a migration submitted after the
      hold began, logs a Warn naming its task, unit and shard. These lines
      share one budget with the line about a teardown holding a unit: at
      most 10 a minute per node.
@@ -1116,9 +1116,13 @@ Then, per shard load:
        |---|---|
        | The disk fails reads or writes | Once it works, set the shard READY |
        | A staged bucket cannot open because a segment file is damaged | Repair or restore that file, then set the shard READY or restart the node. If the migration is not yet swapped in, you can instead make the records dir writable (or repair the unreadable record and restart) and set READY: the migration then fails and must be resubmitted |
-       | A migration already swapped in, whose segment cannot be repaired while a second fault (an unwritable records dir or another unreadable record) blocks its promotion | No supported exit. While its task still runs, it blocks tenant and class changes on the collection, and so does any other migration whose prepare or swap waits on this shard; on several nodes, another node's failed step can move a SWAPPING task to FAILED, which lifts its block but not the hold. Once the task has FINISHED (a swapped-in record outlives its task until the shard's next load), nothing blocks those changes and only this shard stays READONLY. Clearing the second fault and restarting makes the shard fail to load. |
-     - Reads are served while the retry waits on the disk, a second lift
-       meanwhile is refused, and a lift waits at most 30 s. A retry still
+       | A migration already swapped in whose segment cannot be repaired, while its promotion is blocked: by a second fault (an unwritable records dir or another unreadable record), or because this node loaded before applying the schema change the migration makes | No supported exit. While its task still runs, it blocks deleting the collection and deleting or deactivating its tenants, and so does any other migration whose unit, prepare or swap waits on this shard; on several nodes, another node's failed step can move a SWAPPING task to FAILED, which lifts its block but not the hold. Once the task has FINISHED (a swapped-in record outlives its task until the shard's next load), only such another migration blocks those changes, and this shard stays READONLY. Clearing what blocks the promotion and restarting makes the shard fail to load. |
+     - Reads are served while the retry runs, a second lift
+       meanwhile is refused, and a lift waits at most 30 s. The owning node
+       runs a lift inside its schema apply, so while a lift waits that node
+       applies no other schema or task change; on a disk that still hangs,
+       lift one shard and confirm it went writable before lifting the rest.
+       A retry still
        running then keeps going, and the shard's shutdown waits for it: a
        migration is stamped only because its arm failed, never because a
        caller stopped waiting. If it arms or stamps, the next lift goes
