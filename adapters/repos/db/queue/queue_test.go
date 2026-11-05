@@ -2768,3 +2768,23 @@ func TestRewind_ServesAChunkWhoseTombstoneFailed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []uint64{1, 2, 3}, taskIDs(t, batch))
 }
+
+// A kept chunk whose header no longer reads is quarantined, and the rest is
+// served.
+func TestRewind_QuarantinesAKeptChunkWithAnUnreadableHeader(t *testing.T) {
+	s := makeScheduler(t)
+	q := sealedQueue(t, s, t.TempDir())
+	chunks, _ := chunksOf(t, q)
+	require.NoError(t, q.Retain())
+	processNext(t, q)
+	processNext(t, q)
+	patchFile(t, chunks[0], 0, []byte("XXXX"))
+
+	require.NoError(t, q.Rewind())
+	assert.FileExists(t, chunks[0]+".corrupt")
+	assert.NoFileExists(t, chunks[0]+".processed")
+	assert.EqualValues(t, 6, q.Size())
+	batch, err := q.DequeueBatch()
+	require.NoError(t, err)
+	assert.Equal(t, []uint64{4, 5, 6}, taskIDs(t, batch))
+}
