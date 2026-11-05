@@ -15,6 +15,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"slices"
 	"sync"
 	"testing"
@@ -28,6 +30,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -1009,4 +1013,165 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 			require.NotContains(t, helpers.ExtractSlowQueryDetails(ctx), "build_allow_list_doc_bitmap")
 		})
 	}
+}
+
+// recordingPool grants every resize, a grow up to growCap if set, and records
+// what it was asked and whether docIDs had finished resolving by then.
+type recordingPool struct {
+	calls   [][2]int
+	stages  []string
+	ctx     context.Context
+	growCap int
+}
+
+func (p *recordingPool) Resize(held, n int) int {
+	p.calls = append(p.calls, [2]int{held, n})
+	if p.growCap > 0 && n > held {
+		n = min(n, p.growCap)
+	}
+	details := helpers.ExtractSlowQueryDetails(p.ctx)
+	stage := "during resolve"
+	if _, ok := details["build_allow_list_resolve_took"]; ok {
+		stage = "after resolve"
+	}
+	p.stages = append(p.stages, stage)
+	return n
+}
+
+// A batched Contains fold runs on a shrunk budget, restored before a ContainsNone
+// result is inverted.
+func TestDocIDs_ShrinksBudgetForContainsFold(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	writeContainsRows(t, f, "prop-int", map[string][]uint64{"a": {1}})
+
+	const grant = 10
+	// 64 keys split into shares of containsMinKeysPerWorker
+	values := make([]int, 64)
+	for i := range values {
+		values[i] = i
+	}
+	foldBudget := containsFoldMergeFactor * min(64/containsMinKeysPerWorker, concurrency.GOMAXPROCS)
+	var wantCalls [][2]int
+	var wantStages []string
+	var wantAnnotation map[string]int
+	// nothing to give back under DISABLE_SROAR_MERGE_BUDGET, or with no unit to spare
+	if !concurrency.BudgetCapDisabled() && foldBudget < grant {
+		wantCalls = [][2]int{{grant, foldBudget}, {foldBudget, grant}}
+		wantStages = []string{"during resolve", "during resolve"}
+		wantAnnotation = map[string]int{"held": grant, "shrunk": foldBudget, "restored": grant}
+	}
+
+	for _, op := range []filters.Operator{filters.ContainsAny, filters.ContainsNone} {
+		t.Run(op.Name(), func(t *testing.T) {
+			root := filters.Clause{
+				Operator: op,
+				On:       containsPath("prop-int"),
+				Value:    containsValue(schema.DataTypeInt, values),
+			}
+			pool := &recordingPool{}
+			ctx := concurrency.CtxWithResizableBudget(helpers.InitSlowQueryDetails(context.Background()),
+				concurrency.NewBudget(pool, grant))
+			pool.ctx = ctx
+
+			allow, err := f.searcher.DocIDs(ctx, &filters.LocalFilter{Root: &root},
+				additional.Properties{}, containsBatchTestClass)
+			require.NoError(t, err)
+			allow.Close()
+
+			require.Equal(t, wantCalls, pool.calls)
+			require.Equal(t, wantStages, pool.stages)
+			require.Equal(t, grant, concurrency.BudgetFromCtx(ctx, -1))
+			annotation, _ := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_budget"].(map[string]int)
+			require.Equal(t, wantAnnotation, annotation)
+		})
+	}
+}
+
+// TestShrinkBudgetForContainsFold pins the cases that give nothing back, and a
+// restore that gets back less than was given.
+func TestShrinkBudgetForContainsFold(t *testing.T) {
+	oneWorker := containsFoldPlan{workers: 1}
+	pooled := func(grant int) func(concurrency.Pool) context.Context {
+		return func(p concurrency.Pool) context.Context {
+			return concurrency.CtxWithResizableBudget(context.Background(), concurrency.NewBudget(p, grant))
+		}
+	}
+
+	need := containsFoldMergeFactor
+	var partialCalls [][2]int
+	partialSize := 10
+	var partialAnnotation map[string]int
+	if !concurrency.BudgetCapDisabled() {
+		partialCalls = [][2]int{{10, need}, {need, 10}}
+		partialSize = 5
+		partialAnnotation = map[string]int{"held": 10, "shrunk": need, "restored": 5}
+	}
+
+	tests := []struct {
+		name           string
+		ctx            func(concurrency.Pool) context.Context
+		growCap        int
+		wantCalls      [][2]int
+		wantSize       int
+		wantAnnotation map[string]int
+	}{
+		{
+			name:     "grant at the fold's need",
+			ctx:      pooled(need),
+			wantSize: need,
+		},
+		{
+			name:     "grant below the fold's need",
+			ctx:      pooled(1),
+			wantSize: 1,
+		},
+		{
+			name:     "fixed budget",
+			ctx:      func(concurrency.Pool) context.Context { return concurrency.CtxWithBudget(context.Background(), 10) },
+			wantSize: 10,
+		},
+		{
+			name:           "restore gets back only what is free",
+			ctx:            pooled(10),
+			growCap:        5,
+			wantCalls:      partialCalls,
+			wantSize:       partialSize,
+			wantAnnotation: partialAnnotation,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pool := &recordingPool{growCap: tt.growCap}
+			ctx := helpers.InitSlowQueryDetails(tt.ctx(pool))
+			pool.ctx = ctx
+
+			shrinkBudgetForContainsFold(ctx, oneWorker)()
+
+			require.Equal(t, tt.wantCalls, pool.calls)
+			require.Equal(t, tt.wantSize, concurrency.BudgetFromCtx(ctx, -1))
+			annotation, _ := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_budget"].(map[string]int)
+			require.Equal(t, tt.wantAnnotation, annotation)
+		})
+	}
+}
+
+// The kill switch is read at init, so the check runs in a child process with it set.
+func TestShrinkBudgetForContainsFold_KillSwitch(t *testing.T) {
+	if !concurrency.BudgetCapDisabled() {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestShrinkBudgetForContainsFold_KillSwitch$",
+			"-test.count=1", "-test.v", "-test.timeout=60s")
+		cmd.Env = append(os.Environ(), "DISABLE_SROAR_MERGE_BUDGET=true")
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "%s", out)
+		require.Contains(t, string(out), "--- PASS: TestShrinkBudgetForContainsFold_KillSwitch")
+		return
+	}
+
+	pool := &recordingPool{ctx: context.Background()}
+	ctx := concurrency.CtxWithResizableBudget(context.Background(), concurrency.NewBudget(pool, 10))
+
+	shrinkBudgetForContainsFold(ctx, containsFoldPlan{workers: 1})()
+
+	require.Empty(t, pool.calls)
+	require.Equal(t, 10, concurrency.BudgetFromCtx(ctx, -1))
 }
