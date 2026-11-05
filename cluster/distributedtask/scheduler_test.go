@@ -107,7 +107,7 @@ func TestSchedulerLogsEveryTasksFirstStart(t *testing.T) {
 		return starts == tasks
 	}, 5*time.Second, 10*time.Millisecond)
 
-	// A task that is no longer started leaves the set, even with a provider that reports no local tasks.
+	// A task that is no longer started leaves the set while it is still listed, before any provider cleanup runs.
 	for i := range tasks {
 		completeUnit(t, h, h.tasksNamespace, fmt.Sprintf("task-%d", i), 1, h.localNodeID, "u-1")
 	}
