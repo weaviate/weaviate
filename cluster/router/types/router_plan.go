@@ -12,7 +12,6 @@
 package types
 
 import (
-	"cmp"
 	"fmt"
 	"math/rand/v2"
 	"slices"
@@ -191,35 +190,85 @@ func (p ReadRoutingPlan) ShardPlans(cl ConsistencyLevel) []ReadRoutingPlan {
 	return plans
 }
 
-// SpreadReplicas picks one replica of each shard in p, spreading the shards over
-// as many nodes as their replicas allow: each shard goes to the replica node
-// with the fewest shards picked so far. Shards with fewer replicas pick first,
-// as they have fewer nodes to choose from. On a tie the local node wins, as it
-// needs no network hop; other ties break at random, so concurrent reads do not
-// all land on the same node. p must hold every read replica of each shard.
+// SpreadReplicas picks one replica of each shard in p so that the busiest node
+// gets as few shards as the replicas allow. The local node is tried first, as it
+// needs no network hop, and the others in random order, so concurrent reads do
+// not all land on the same nodes. p must hold every read replica of each shard.
 func (p ReadRoutingPlan) SpreadReplicas() []Replica {
 	plans := p.ShardPlans(ConsistencyLevelOne)
-	slices.SortStableFunc(plans, func(a, b ReadRoutingPlan) int {
-		return cmp.Compare(len(a.ReplicaSet.Replicas), len(b.ReplicaSet.Replicas))
-	})
+	s := replicaSpread{
+		candidates: make([][]Replica, len(plans)),
+		picked:     make([]Replica, len(plans)),
+		onNode:     map[string][]int{},
+	}
+	for i, plan := range plans {
+		s.candidates[i] = p.localFirstThenShuffled(plan.ReplicaSet.Replicas)
+	}
+	// every shard fits once a node may hold all of them
+	for s.capacity = 1; !s.placeAll(); s.capacity++ {
+		clear(s.onNode)
+		clear(s.picked)
+	}
+	return s.picked
+}
 
-	picked := make([]Replica, 0, len(plans))
-	load := make(map[string]int)
-	for _, plan := range plans {
-		replicas := plan.ReplicaSet.Replicas
-		offset := rand.IntN(len(replicas))
-		best := replicas[offset]
-		for k := 1; k < len(replicas); k++ {
-			r := replicas[(offset+k)%len(replicas)]
-			if load[r.NodeName] < load[best.NodeName] ||
-				(load[r.NodeName] == load[best.NodeName] && r.NodeName == p.LocalHostname) {
-				best = r
+func (p ReadRoutingPlan) localFirstThenShuffled(replicas []Replica) []Replica {
+	out := slices.Clone(replicas)
+	rand.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
+	if i := slices.IndexFunc(out, func(r Replica) bool { return r.NodeName == p.LocalHostname }); i > 0 {
+		out[0], out[i] = out[i], out[0]
+	}
+	return out
+}
+
+// replicaSpread assigns shards to replica nodes holding at most capacity shards
+// each, moving earlier shards to other replicas when that makes room (bipartite
+// matching with augmenting paths).
+type replicaSpread struct {
+	candidates [][]Replica
+	capacity   int
+	picked     []Replica
+	onNode     map[string][]int
+}
+
+func (s *replicaSpread) placeAll() bool {
+	for shard := range s.candidates {
+		if !s.place(shard, map[string]bool{}) {
+			return false
+		}
+	}
+	return true
+}
+
+// place puts shard on one of its replicas, moving shards already there to their
+// other replicas if needed. visited stops it from trying a node twice.
+func (s *replicaSpread) place(shard int, visited map[string]bool) bool {
+	for _, r := range s.candidates[shard] {
+		if visited[r.NodeName] {
+			continue
+		}
+		visited[r.NodeName] = true
+		if len(s.onNode[r.NodeName]) < s.capacity {
+			s.assign(shard, r)
+			return true
+		}
+		for _, other := range slices.Clone(s.onNode[r.NodeName]) {
+			if s.place(other, visited) {
+				s.assign(shard, r)
+				return true
 			}
 		}
-		load[best.NodeName]++
-		picked = append(picked, best)
 	}
-	return picked
+	return false
+}
+
+// assign moves shard to r, off the node it was on, if any.
+func (s *replicaSpread) assign(shard int, r Replica) {
+	if old := s.picked[shard].NodeName; old != "" {
+		s.onNode[old] = slices.DeleteFunc(s.onNode[old], func(o int) bool { return o == shard })
+	}
+	s.picked[shard] = r
+	s.onNode[r.NodeName] = append(s.onNode[r.NodeName], shard)
 }
 
 // HostNames returns the hostnames of the primary write Replicas
