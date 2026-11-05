@@ -135,3 +135,89 @@ func TestAggregateCountOfArraysWithLengthIndex(t *testing.T) {
 		})
 	}
 }
+
+// TestAggregateCountOfTextWithLengthIndex pins that a count-only aggregation
+// over a text property counts "" as a value, as the object scan does, though
+// the length index records "" and a missing value both under 0.
+func TestAggregateCountOfTextWithLengthIndex(t *testing.T) {
+	ctx := context.Background()
+	const name = "text"
+	class := &models.Class{
+		Class:               aggLengthIndexClass,
+		InvertedIndexConfig: invertedConfig(),
+		Properties:          []*models.Property{{Name: name, DataType: schema.DataTypeText.PropString()}},
+	}
+	shardLike, _ := testShardWithSettings(t, ctx, class,
+		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false, false)
+	s := concreteShard(t, shardLike)
+
+	type value struct {
+		set  bool
+		text string
+	}
+	text := func(v string) value { return value{set: true, text: v} }
+	missing := value{}
+
+	live := map[strfmt.UUID]value{}
+	put := func(id strfmt.UUID, v value) {
+		props := map[string]interface{}{}
+		if v.set {
+			props[name] = v.text
+		}
+		require.NoError(t, s.PutObject(ctx, &storobj.Object{
+			MarshallerVersion: 1,
+			Object:            models.Object{ID: id, Class: aggLengthIndexClass, Properties: props},
+			Vector:            []float32{1, 2, 3},
+		}))
+		live[id] = v
+	}
+
+	ids := make([]strfmt.UUID, 120)
+	for i := range ids {
+		ids[i] = strfmt.UUID(uuid.NewString())
+		switch i % 40 {
+		case 0:
+			put(ids[i], text(""))
+		case 20:
+			put(ids[i], missing)
+		default:
+			put(ids[i], text(fmt.Sprintf("välue %d", i)))
+		}
+	}
+	put(ids[1], text(""))                                         // a value becomes ""
+	put(ids[40], text("back"))                                    // "" becomes a value
+	put(ids[2], missing)                                          // a value is removed
+	put(ids[60], text(""))                                        // a missing value becomes ""
+	require.NoError(t, s.DeleteObject(ctx, ids[80], time.Time{})) // deletes a ""
+	delete(live, ids[80])
+
+	want, emptyText, lengthZero := 0, 0, 0
+	for _, v := range live {
+		if v.set {
+			want++
+		}
+		if v.set && v.text == "" {
+			emptyText++
+		}
+		if v.text == "" {
+			lengthZero++
+		}
+	}
+	require.Equal(t, 3, emptyText)
+	require.LessOrEqual(t, lengthZero*10, len(live), "few enough objects under length 0 for the index to be used")
+
+	count := func(onlyRequested bool) int {
+		res, err := s.Aggregate(ctx, aggregation.Params{
+			ClassName: aggLengthIndexClass,
+			Properties: []aggregation.ParamProperty{{
+				Name:        name,
+				Aggregators: []aggregation.Aggregator{aggregation.CountAggregator},
+			}},
+			OnlyRequestedAggregations: onlyRequested,
+		}, nil)
+		require.NoError(t, err)
+		return res.Groups[0].Properties[name].TextAggregation.Count
+	}
+	require.Equal(t, want, count(false), "object scan")
+	require.Equal(t, want, count(true), "length index")
+}

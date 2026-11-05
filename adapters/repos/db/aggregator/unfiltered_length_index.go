@@ -15,31 +15,39 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/sroar"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/docid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	entinverted "github.com/weaviate/weaviate/entities/inverted"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// countFromLengthIndex counts the values of an array property from the
-// property length index, which records every object under the length of its
-// array, and an object without the array under 0, so the sum of length times
-// objects is the number of values.
+// textLookupShare bounds the objects a text count looks up one by one to this
+// share of all objects: past it, reading every object in order is cheaper.
+const textLookupShare = 10
+
+// countFromLengthIndex counts the values of a property from the property
+// length index, which records every object under the length of its value, and
+// an object without the value under 0. For an array the sum of length times
+// objects is the number of values; for text see [unfilteredAggregator.countText].
 //
 // It reports false, and the property is read from the objects instead, unless
 // the request asks for nothing but the count and the index holds every object
 // exactly once: objects written before the property was added, or before it
-// had an inverted index, have no entry. A text[] count also needs a caller
-// that reads only what it requests, as the index gives no top occurrences; see
-// [aggregation.Params.OnlyRequestedAggregations].
+// had an inverted index, have no entry. A text or text[] count also needs a
+// caller that reads only what it requests, as the index gives no top
+// occurrences; see [aggregation.Params.OnlyRequestedAggregations].
 func (ua unfilteredAggregator) countFromLengthIndex(ctx context.Context,
 	prop aggregation.ParamProperty, dt schema.DataType,
 ) (int, bool, error) {
-	if !ua.countsArrayLength(dt) || !ua.onlyCountRequested(prop.Aggregators) {
+	if !ua.countsFromLengthIndex(dt) || !ua.onlyCountRequested(prop.Aggregators) {
 		return 0, false, nil
 	}
-	if dt == schema.DataTypeTextArray && !ua.params.OnlyRequestedAggregations {
+	if (dt == schema.DataTypeText || dt == schema.DataTypeTextArray) && !ua.params.OnlyRequestedAggregations {
 		return 0, false, nil
 	}
 	class := ua.getSchema.ReadOnlyClass(ua.params.ClassName.String())
@@ -52,7 +60,7 @@ func (ua unfilteredAggregator) countFromLengthIndex(ctx context.Context,
 		return 0, false, nil
 	}
 
-	values, indexed, err := ua.sumLengths(ctx, lengths)
+	counts, err := ua.readLengths(ctx, lengths)
 	if err != nil {
 		return 0, false, fmt.Errorf("read length index: %w", err)
 	}
@@ -60,44 +68,93 @@ func (ua unfilteredAggregator) countFromLengthIndex(ctx context.Context,
 	if err != nil {
 		return 0, false, fmt.Errorf("count objects: %w", err)
 	}
-	if indexed != total {
+	if counts.objects != total {
 		ua.logger.WithField("property", prop.Name).
-			Debugf("length index holds %d of %d objects, reading the objects instead", indexed, total)
+			Debugf("length index holds %d of %d objects, reading the objects instead", counts.objects, total)
 		return 0, false, nil
 	}
-	return values, true, nil
+	if dt == schema.DataTypeText {
+		return ua.countText(ctx, prop, counts, total)
+	}
+	return counts.values, true, nil
 }
 
-// sumLengths returns the sum of length times objects over the length index,
-// and the number of objects in it.
-func (ua unfilteredAggregator) sumLengths(ctx context.Context, b *lsmkv.Bucket) (values, objects int, err error) {
+type lengthCounts struct {
+	values   int // sum of length times objects
+	objects  int
+	nonEmpty int           // objects with a length above 0
+	empty    *sroar.Bitmap // objects with length 0; nil when there are none
+}
+
+func (ua unfilteredAggregator) readLengths(ctx context.Context, b *lsmkv.Bucket) (lengthCounts, error) {
 	c := b.CursorRoaringSetCtx(ctx)
 	defer c.Close()
 
+	var out lengthCounts
 	for k, bm := c.First(); k != nil; k, bm = c.Next() {
 		if err := ctx.Err(); err != nil {
-			return 0, 0, err
+			return lengthCounts{}, err
 		}
-		if bm == nil {
+		if bm == nil || bm.IsEmpty() {
 			continue
 		}
 		length, err := entinverted.ParseLexicographicallySortableInt64(k)
 		if err != nil {
-			return 0, 0, fmt.Errorf("parse length key: %w", err)
+			return lengthCounts{}, fmt.Errorf("parse length key: %w", err)
 		}
 		n := bm.GetCardinality()
-		objects += n
-		values += int(length) * n
+		out.objects += n
+		out.values += int(length) * n
+		if length == 0 {
+			out.empty = bm.Clone()
+		} else {
+			out.nonEmpty += n
+		}
 	}
-	return values, objects, nil
+	return out, nil
 }
 
-// countsArrayLength reports whether the count of dt is the length of its
-// array. boolean[] is left out: its result always carries the true and false
-// totals, which the length index cannot give.
-func (ua unfilteredAggregator) countsArrayLength(dt schema.DataType) bool {
+// countText counts the objects that hold a text property. The length index
+// records "" under 0, as it does an object without the property, while the
+// object scan counts "" as a value, so the objects under 0 are looked up to
+// find the "" among them. It reports false when they are too many to look up
+// one by one.
+func (ua unfilteredAggregator) countText(ctx context.Context,
+	prop aggregation.ParamProperty, counts lengthCounts, total int,
+) (int, bool, error) {
+	if counts.empty == nil {
+		return counts.nonEmpty, true, nil
+	}
+	empty := counts.empty.GetCardinality()
+	if empty*textLookupShare > total {
+		ua.logger.WithField("property", prop.Name).
+			Debugf("%d of %d objects have no text to count, reading the objects instead", empty, total)
+		return 0, false, nil
+	}
+
+	name := prop.Name.String()
+	emptyText := 0
+	hasEmptyText := func(_ context.Context, props *models.PropertySchema, _ uint64) error {
+		if values, ok := (*props).(map[string]any); ok {
+			if _, ok := values[name]; ok {
+				emptyText++
+			}
+		}
+		return nil
+	}
+	if err := docid.ScanObjectsLSM(ctx, ua.store, counts.empty.ToArray(), hasEmptyText, []string{name}, ua.logger); err != nil {
+		return 0, false, fmt.Errorf("look up objects without text: %w", err)
+	}
+	return counts.nonEmpty + emptyText, true, nil
+}
+
+// countsFromLengthIndex reports whether the length index can count dt.
+// boolean[] is left out: its result always carries the true and false totals,
+// which the length index cannot give.
+func (ua unfilteredAggregator) countsFromLengthIndex(dt schema.DataType) bool {
 	switch dt {
-	case schema.DataTypeTextArray, schema.DataTypeIntArray, schema.DataTypeNumberArray, schema.DataTypeDateArray:
+	case schema.DataTypeText, schema.DataTypeTextArray, schema.DataTypeIntArray,
+		schema.DataTypeNumberArray, schema.DataTypeDateArray:
 		return true
 	default:
 		return false
