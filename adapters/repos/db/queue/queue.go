@@ -719,7 +719,12 @@ func (q *DiskQueue) DisableMaintenanceMode() error {
 
 	q.maintenanceMode.Store(false)
 	if q.retained {
-		return q.cleanupProcessedChunksBefore(q.retainedFrom)
+		tombstones, err := q.processedChunks(q.retainedFrom)
+		if err != nil {
+			return err
+		}
+		q.logRemoveProcessedChunks(tombstones)
+		return nil
 	}
 	return q.cleanupProcessedChunks()
 }
@@ -867,50 +872,67 @@ func (q *DiskQueue) keptChunkRef(path string) (ref chunkRef, ok bool, err error)
 
 // ReleaseRetention stops keeping chunks and deletes the processed ones,
 // unless a backup still keeps them. Releasing a queue not retained is a
-// no-op.
+// no-op. rmLock is not held during the deletes: a worker finishing a batch of
+// this queue needs it, and workers are shared with every other queue.
 func (q *DiskQueue) ReleaseRetention() error {
+	for {
+		tombstones, done, err := q.releaseIfNothingKept()
+		if done || err != nil {
+			return err
+		}
+		err = removeProcessedChunks(tombstones)
+		if err != nil {
+			return errors.Wrap(err, "failed to remove processed chunks")
+		}
+	}
+}
+
+// releaseIfNothingKept ends the retention if no processed chunk is left to
+// delete, or a backup takes them over. Otherwise it returns their tombstones
+// and stays retained, so a failed release can be retried.
+func (q *DiskQueue) releaseIfNothingKept() (tombstones []string, done bool, err error) {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
 
 	if !q.retained {
-		return nil
+		return nil, true, nil
 	}
-	// retained until the cleanup succeeds, so a failed release can be retried
 	if !q.maintenanceMode.Load() {
-		removeErr, err := q.removeProcessedChunks(math.MaxInt64)
+		tombstones, err = q.processedChunks(math.MaxInt64)
 		if err != nil {
-			return err
+			return nil, false, err
 		}
-		if removeErr != nil {
-			return errors.Wrap(removeErr, "failed to remove processed chunks")
-		}
+	}
+	if len(tombstones) > 0 {
+		return tombstones, false, nil
 	}
 	q.retained = false
-	return nil
+	return nil, true, nil
 }
 
 // cleanupProcessedChunks scans the queue directory for tombstone files
 // (.bin.processed) and deletes both the tombstone and its corresponding chunk file.
 // This is called on startup (crash recovery) and when disabling maintenance mode.
 func (q *DiskQueue) cleanupProcessedChunks() error {
-	return q.cleanupProcessedChunksBefore(math.MaxInt64)
-}
-
-// cleanupProcessedChunksBefore is cleanupProcessedChunks for the chunks
-// numbered below seq. A file it cannot remove is logged and left for the
-// next cleanup.
-func (q *DiskQueue) cleanupProcessedChunksBefore(seq int64) error {
-	removeErr, err := q.removeProcessedChunks(seq)
-	if removeErr != nil {
-		q.Logger.Warnf("failed to remove processed chunks, will retry at the next cleanup: %v", removeErr)
+	tombstones, err := q.processedChunks(math.MaxInt64)
+	if err != nil {
+		return err
 	}
-	return err
+	q.logRemoveProcessedChunks(tombstones)
+	return nil
 }
 
-// removeProcessedChunks removes the tombstoned chunks numbered below seq and
-// their tombstones. removeErr reports the files it could not remove; err a
-// directory it could not read.
-func (q *DiskQueue) removeProcessedChunks(seq int64) (removeErr, err error) {
+// logRemoveProcessedChunks removes tombstoned chunks. A file it cannot remove
+// is logged and left for the next cleanup.
+func (q *DiskQueue) logRemoveProcessedChunks(tombstones []string) {
+	err := removeProcessedChunks(tombstones)
+	if err != nil {
+		q.Logger.Warnf("failed to remove processed chunks, will retry at the next cleanup: %v", err)
+	}
+}
+
+// processedChunks lists the tombstones of the chunks numbered below seq.
+func (q *DiskQueue) processedChunks(seq int64) ([]string, error) {
 	entries, err := os.ReadDir(q.dir)
 	if err != nil {
 		if stderrors.Is(err, fs.ErrNotExist) {
@@ -919,30 +941,37 @@ func (q *DiskQueue) removeProcessedChunks(seq int64) (removeErr, err error) {
 		return nil, errors.Wrap(err, "failed to read directory during tombstone cleanup")
 	}
 
-	var errs []error
+	var tombstones []string
 	for _, entry := range entries {
 		if !processedChunkFilePattern.MatchString(entry.Name()) {
 			continue
 		}
 		tombstonePath := filepath.Join(q.dir, entry.Name())
-		chunk := strings.TrimSuffix(tombstonePath, ".processed")
-		n, ok := chunkSeq(chunk)
+		n, ok := chunkSeq(strings.TrimSuffix(tombstonePath, ".processed"))
 		if ok && n >= seq {
 			continue
 		}
-		// the tombstone goes last: a chunk without one is processed again
-		err := os.Remove(chunk)
+		tombstones = append(tombstones, tombstonePath)
+	}
+	return tombstones, nil
+}
+
+// removeProcessedChunks removes each tombstoned chunk, then its tombstone: a
+// chunk without one is processed again.
+func removeProcessedChunks(tombstones []string) error {
+	var errs []error
+	for _, tombstonePath := range tombstones {
+		err := removeFile(strings.TrimSuffix(tombstonePath, ".processed"))
 		if err != nil && !stderrors.Is(err, fs.ErrNotExist) {
 			errs = append(errs, err)
 			continue
 		}
-		err = os.Remove(tombstonePath)
+		err = removeFile(tombstonePath)
 		if err != nil && !stderrors.Is(err, fs.ErrNotExist) {
 			errs = append(errs, err)
 		}
 	}
-
-	return stderrors.Join(errs...), nil
+	return stderrors.Join(errs...)
 }
 
 func (q *DiskQueue) removeChunk(path string) error {
