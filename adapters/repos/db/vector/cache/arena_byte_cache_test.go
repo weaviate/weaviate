@@ -12,11 +12,13 @@
 package cache
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/rand/v2"
 	"sync"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -210,24 +212,46 @@ func TestArenaByteCacheAlignment(t *testing.T) {
 	}
 }
 
-// TestArenaByteCacheRecordSizeEnforced pins the one deliberate divergence
-// from shardedLockCache: a fixed-stride arena cannot store records of the
-// wrong length, so it panics loudly instead of accepting them. The sharded
-// cache would silently store any slice; every production caller stores
-// codes of one fixed width, so this can only fire on a programming error.
+// TestArenaByteCacheRecordSizeEnforced pins that the fixed-stride arena
+// refuses records of the wrong length instead of storing or panicking: the
+// preload paths skip them (one bad record must not abort prefill) and the
+// miss path returns an error (it must not crash every search reaching the
+// id). The sharded cache would silently store any slice.
 func TestArenaByteCacheRecordSizeEnforced(t *testing.T) {
-	c := newTestArena(t, testRecordSize)
-	assert.Panics(t, func() { c.Preload(1, make([]byte, testRecordSize-1)) })
-	assert.Panics(t, func() { c.Preload(1, make([]byte, testRecordSize+1)) })
-	assert.Panics(t, func() { c.Preload(1, nil) })
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	short := func(_ context.Context, id uint64) ([]byte, error) {
+		return make([]byte, testRecordSize-1), nil
+	}
+	ac, err := NewArenaByteCache(short, testRecordSize, 1e12, 1, logger, 0, nil)
+	require.NoError(t, err)
+	t.Cleanup(ac.Drop)
+	c := ac.(*arenaByteCache)
 
-	// PreloadIfAbsent shares the size check for non-empty records, but an
-	// empty record is refused (false) rather than fatal, mirroring the
-	// oracle's early return.
-	ia := c.(IfAbsentPreloader[byte])
-	assert.Panics(t, func() { ia.PreloadIfAbsent(1, make([]byte, testRecordSize-1)) })
-	assert.Panics(t, func() { ia.PreloadIfAbsent(1, make([]byte, testRecordSize+1)) })
-	assert.NotPanics(t, func() { assert.False(t, ia.PreloadIfAbsent(1, nil)) })
+	assert.NotPanics(t, func() {
+		c.Preload(1, make([]byte, testRecordSize-1))
+		c.Preload(1, make([]byte, testRecordSize+1))
+		c.Preload(1, nil)
+		c.SetSizeAndGrowNoLock(10)
+		c.PreloadNoLock(2, make([]byte, testRecordSize+1))
+	})
+	assert.Equal(t, int64(0), c.CountVectors())
+
+	// PreloadIfAbsent refuses with false, for an empty record too
+	assert.False(t, c.PreloadIfAbsent(1, make([]byte, testRecordSize-1)))
+	assert.False(t, c.PreloadIfAbsent(1, make([]byte, testRecordSize+1)))
+	assert.False(t, c.PreloadIfAbsent(1, nil))
+
+	// a wrong-length fetch on the miss path is an error, and not cached
+	vec, err := c.Get(ctx, 3)
+	require.Error(t, err)
+	assert.Nil(t, vec)
+	vecs, errs := c.MultiGet(ctx, []uint64{3, 4})
+	require.Len(t, errs, 2)
+	assert.Error(t, errs[0])
+	assert.Error(t, errs[1])
+	assert.Nil(t, vecs[0])
+	assert.Equal(t, int64(0), c.CountVectors())
 }
 
 // TestArenaByteCacheNoLockPaths covers the two NoLock entry points against
@@ -464,9 +488,11 @@ func TestArenaByteCacheConcurrency(t *testing.T) {
 				id := uint64(rng.IntN(totalIDs + 2000))
 				switch i % 4 {
 				case 0:
+					// read the bytes, not just the length, so -race sees
+					// any write into a published record
 					vec, err := arena.Get(ctx, id)
-					if err == nil && vec != nil && len(vec) != testRecordSize {
-						t.Errorf("torn read: %d bytes", len(vec))
+					if err == nil && vec != nil && !bytes.Equal(vec, arenaTestCodeFor(id, testRecordSize)) {
+						t.Errorf("id %d: torn or foreign record", id)
 						return
 					}
 				case 1:
@@ -491,4 +517,162 @@ func TestArenaByteCacheConcurrency(t *testing.T) {
 		require.NoError(t, err, "id %d", id)
 		assert.Equal(t, arenaTestCodeFor(id, testRecordSize), vec, "id %d", id)
 	}
+}
+
+// TestArenaByteCacheOverlappingFillsRaceFree is the -race regression for
+// fills that overlap readers of an already published view: concurrent
+// misses on the same ids, a prefill-style Preload of the same codes, and
+// Delete followed by a re-fill. Readers read every byte of the views they
+// get, so any write into a published record is reported by the race
+// detector, and they compare the bytes so a torn record fails the test.
+func TestArenaByteCacheOverlappingFillsRaceFree(t *testing.T) {
+	ctx := context.Background()
+	arena := newTestArena(t, testRecordSize)
+	const ids = 64 // a handful of records, so goroutines collide constantly
+
+	var wg sync.WaitGroup
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			rng := rand.New(rand.NewPCG(uint64(g), 7))
+			for i := 0; i < 4000; i++ {
+				id := uint64(rng.IntN(ids))
+				switch {
+				case g == 0 && i%3 == 0:
+					arena.Preload(id, arenaTestCodeFor(id, testRecordSize))
+				case g == 1 && i%5 == 0:
+					arena.Delete(ctx, id)
+				default:
+					var vec []byte
+					var err error
+					if i%2 == 0 {
+						vec, err = arena.Get(ctx, id)
+					} else {
+						vec = arena.PrefetchGet(id)
+					}
+					if err != nil || vec == nil {
+						continue
+					}
+					if !bytes.Equal(vec, arenaTestCodeFor(id, testRecordSize)) {
+						t.Errorf("id %d: torn or foreign record", id)
+						return
+					}
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+}
+
+// TestArenaByteCacheAllConcurrentWithDropAndWipe pins that All can run
+// while the table is grown, wiped and dropped (no out-of-range panic on a
+// released table), and that All under a caller-held LockAll doesn't
+// deadlock against a concurrent Grow — the LockAll → All pattern the
+// sharded cache's tests use.
+func TestArenaByteCacheAllConcurrentWithDropAndWipe(t *testing.T) {
+	arena := newTestArena(t, testRecordSize).(*arenaByteCache)
+	for id := uint64(0); id < 3000; id++ {
+		arena.Preload(id, arenaTestCodeFor(id, testRecordSize))
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		arena.LockAll()
+		growDone := make(chan struct{})
+		go func() {
+			arena.Grow(100_000) // waits for the stripes held above
+			close(growDone)
+		}()
+		_ = arena.All()
+		arena.UnlockAll()
+		<-growDone
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("All under LockAll deadlocked against a concurrent Grow")
+	}
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	for r := 0; r < 4; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				for id, vec := range arena.All() {
+					if vec != nil && len(vec) != testRecordSize {
+						t.Errorf("id %d: %d bytes", id, len(vec))
+					}
+				}
+			}
+		}()
+	}
+	for i := 0; i < 20; i++ {
+		arena.Grow(uint64(200_000 + i*10_000))
+		arena.deleteAllVectors()
+		arena.Preload(uint64(i), arenaTestCodeFor(uint64(i), testRecordSize))
+	}
+	arena.Drop()
+	time.Sleep(10 * time.Millisecond) // let the readers traverse the dropped table
+	close(stop)
+	wg.Wait()
+	assert.Empty(t, arena.All())
+}
+
+// rejectAboveChecker is an AllocChecker that refuses any single
+// allocation larger than limit bytes.
+type rejectAboveChecker struct {
+	limit  int64
+	called []int64
+	mu     sync.Mutex
+}
+
+func (c *rejectAboveChecker) CheckAlloc(size int64) error {
+	c.mu.Lock()
+	c.called = append(c.called, size)
+	c.mu.Unlock()
+	if size > c.limit {
+		return fmt.Errorf("refused %d bytes", size)
+	}
+	return nil
+}
+
+func (c *rejectAboveChecker) CheckMappingAndReserve(int64, int) error { return nil }
+func (c *rejectAboveChecker) Refresh(bool)                            {}
+
+// TestArenaByteCacheMissChargesChunkFootprint pins that a miss into a chunk
+// that isn't allocated yet is charged the whole chunk, not the per-record
+// estimate, so the memory guard stops chunk allocation under pressure; a
+// miss into an allocated chunk keeps the small estimate.
+func TestArenaByteCacheMissChargesChunkFootprint(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	checker := &rejectAboveChecker{limit: 64 * 1024} // far below one chunk
+	ac, err := NewArenaByteCache(arenaTestVecForID(5000, testRecordSize), testRecordSize,
+		1e12, 1, logger, 0, checker)
+	require.NoError(t, err)
+	t.Cleanup(ac.Drop)
+	arena := ac.(*arenaByteCache)
+
+	vec, err := arena.Get(ctx, 1)
+	require.Error(t, err, "a miss into a missing chunk must be charged the full chunk")
+	assert.Nil(t, vec)
+	assert.Nil(t, arena.chunkAt(0), "the refused miss must not allocate the chunk")
+	assert.Equal(t, arena.chunkFootprint(), checker.called[len(checker.called)-1])
+
+	// once the chunk exists (preloads aren't alloc-checked, as in the
+	// sharded cache), misses into it pass with the per-record estimate
+	arena.Preload(0, arenaTestCodeFor(0, testRecordSize))
+	vec, err = arena.Get(ctx, 1)
+	require.NoError(t, err)
+	assert.Equal(t, arenaTestCodeFor(1, testRecordSize), vec)
+	assert.Equal(t, int64(1024), checker.called[len(checker.called)-1])
 }

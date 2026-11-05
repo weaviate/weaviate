@@ -12,6 +12,7 @@
 package cache
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -60,9 +61,8 @@ const (
 // bitmap word can belong to different lock stripes, so plain reads/writes
 // would race.
 type arenaChunk struct {
-	data      []byte
-	live      []uint64 // atomic access only; arenaChunkSize/64 words
-	liveCount atomic.Int64
+	data []byte
+	live []uint64 // atomic access only; arenaChunkSize/64 words
 }
 
 func (c *arenaChunk) isLive(slot uint64) bool {
@@ -73,21 +73,13 @@ func (c *arenaChunk) isLive(slot uint64) bool {
 // setLive marks slot live and returns whether it was dead before.
 func (c *arenaChunk) setLive(slot uint64) bool {
 	old := atomic.OrUint64(&c.live[slot>>6], 1<<(slot&63))
-	wasDead := old&(1<<(slot&63)) == 0
-	if wasDead {
-		c.liveCount.Add(1)
-	}
-	return wasDead
+	return old&(1<<(slot&63)) == 0
 }
 
 // clearLive marks slot dead and returns whether it was live before.
 func (c *arenaChunk) clearLive(slot uint64) bool {
 	old := atomic.AndUint64(&c.live[slot>>6], ^uint64(1<<(slot&63)))
-	wasLive := old&(1<<(slot&63)) != 0
-	if wasLive {
-		c.liveCount.Add(-1)
-	}
-	return wasLive
+	return old&(1<<(slot&63)) != 0
 }
 
 // arenaByteCache is a Cache[byte] that stores fixed-size compressed vector
@@ -107,26 +99,40 @@ func (c *arenaChunk) clearLive(slot uint64) bool {
 // methods. Two deliberate divergences, both consequences of the
 // fixed-stride layout:
 //
-//   - Records must have exactly the construction-time size; storing any
-//     other length panics (the map-backed cache would silently accept it).
+//   - Records must have exactly the construction-time size. A record of any
+//     other length is refused, never stored: the miss path returns an
+//     error, the preload paths log and skip it (the map-backed cache would
+//     silently accept it).
 //   - A slice returned by Get/PrefetchGet/All aliases arena memory: it
-//     remains stable across Delete (bytes are not scrubbed) but is
-//     overwritten in place if the same id is preloaded again. The
-//     map-backed cache kept old views immutable forever because it swapped
-//     pointers. No production caller re-preloads a live id without
-//     tombstoning it first, and cache-miss loads return the freshly fetched
-//     slice rather than the arena view, so hot paths never observe the
+//     remains stable across Delete (bytes are not scrubbed). Writes never
+//     touch record bytes that already hold the incoming code (see
+//     storeRecord), so concurrent misses, prefill and re-preloads of an
+//     id's unchanged code cannot race with readers of an earlier view. Only
+//     preloading DIFFERENT bytes for an id overwrites in place; the
+//     map-backed cache kept old views immutable because it swapped
+//     pointers. No production caller changes the code of an id (vector
+//     updates allocate a new doc id), so hot paths never observe the
 //     difference.
 //
-// Chunk reclamation is intentionally out of scope: the per-chunk live
-// counter exists so a later change can reclaim or compact chunks without a
-// format change, but doing so interacts with id reuse and is not attempted
-// here.
+// Chunk reclamation is intentionally out of scope: memory follows the
+// highest id range touched since startup (or the last Drop/wipe), not the
+// number of live records.
 type arenaByteCache struct {
 	shardedLocks *common.LazyShardedRWLocks
 	// maintenanceLock serializes growth against itself, exactly like the
 	// map-backed cache.
 	maintenanceLock sync.RWMutex
+
+	// chunkInstallLock serializes chunk allocation, so writers racing for
+	// the same empty chunk allocate it once, and the allocation runs outside
+	// every stripe lock. Lock order: chunkInstallLock before any stripe.
+	chunkInstallLock sync.Mutex
+
+	// table is a coherent (chunks, logicalLen) snapshot republished on every
+	// table swap. All traverses it without taking any lock, so it can neither
+	// deadlock against a caller holding LockAll nor index a table that Drop
+	// or a grow swapped out underneath it.
+	table atomic.Pointer[arenaTable]
 
 	// chunks is swapped only while every lock stripe is held exclusively
 	// (see grow), so holding any stripe pins the current slice. Individual
@@ -160,6 +166,14 @@ type arenaByteCache struct {
 	dropped atomic.Bool
 }
 
+// arenaTable is an immutable view of the chunk table and the length it
+// covers. Slots in chunks are still loaded atomically: installChunk and
+// deleteAllVectors write them in place.
+type arenaTable struct {
+	chunks []*arenaChunk
+	length uint64
+}
+
 var _ IfAbsentPreloader[byte] = (*arenaByteCache)(nil)
 
 // NewArenaByteCache constructs an arena-backed Cache[byte] for codes of
@@ -186,15 +200,26 @@ func NewArenaByteCache(vecForID common.VectorForID[byte], recordSize int, maxSiz
 		allocChecker:     allocChecker,
 		prefetchBytes:    compressedPrefetchMaxBytes,
 	}
+	vc.table.Store(&arenaTable{})
 	vc.watchForDeletion()
 	return vc, nil
+}
+
+// publishTable republishes the lock-free snapshot read by All. Caller must
+// exclude concurrent table swaps (all stripes held, or NoLock ownership).
+func (s *arenaByteCache) publishTable() {
+	s.table.Store(&arenaTable{chunks: s.chunks, length: s.logicalLen})
+}
+
+func loadChunk(chunks []*arenaChunk, ci uint64) *arenaChunk {
+	return (*arenaChunk)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&chunks[ci]))))
 }
 
 // chunkAt atomically loads the chunk pointer at slot ci of the current
 // table. Atomic because a concurrent installChunk under a different lock
 // stripe may be publishing the same slot.
 func (s *arenaByteCache) chunkAt(ci uint64) *arenaChunk {
-	return (*arenaChunk)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&s.chunks[ci]))))
+	return loadChunk(s.chunks, ci)
 }
 
 // installChunk publishes ch at slot ci unless another writer got there
@@ -228,10 +253,15 @@ func (s *arenaByteCache) newArenaChunk() *arenaChunk {
 }
 
 // liveView returns the record view for id, or nil if the chunk is not
-// allocated or the record is dead. Caller must hold the id's stripe lock or
-// otherwise accept a racy read (All does, mirroring the map-backed cache).
+// allocated or the record is dead. Caller must hold the id's stripe lock.
 func (s *arenaByteCache) liveView(id uint64) []byte {
-	ch := s.chunkAt(id >> arenaChunkShift)
+	return s.liveViewIn(s.chunks, id)
+}
+
+// liveViewIn is liveView over an explicit table, so All can read a
+// published snapshot without holding a stripe lock.
+func (s *arenaByteCache) liveViewIn(chunks []*arenaChunk, id uint64) []byte {
+	ch := loadChunk(chunks, id>>arenaChunkShift)
 	if ch == nil {
 		return nil
 	}
@@ -243,26 +273,81 @@ func (s *arenaByteCache) liveView(id uint64) []byte {
 	return ch.data[off : off+s.recordSize : off+s.recordSize]
 }
 
-// checkRecordSize panics on records the fixed-stride arena cannot
-// represent. It must run BEFORE any lock is taken: a panic escaping through
-// a held stripe lock would deadlock the stripe for every later operation
-// once recovered (e.g. by a test's assert.Panics or an HTTP handler).
-// Failing loudly beats storing a truncated code and returning corrupt
-// distances later.
-func (s *arenaByteCache) checkRecordSize(id uint64, vec []byte) {
+// checkRecordSize rejects records the fixed-stride arena cannot represent.
+// Refusing beats storing a truncated code and returning corrupt distances
+// later; it is an error rather than a panic so that one bad record (e.g. a
+// code persisted by a different layout) cannot abort prefill or crash every
+// search that reaches its id.
+func (s *arenaByteCache) checkRecordSize(id uint64, vec []byte) error {
 	if len(vec) != s.recordSize {
-		panic(fmt.Sprintf("arena cache: record for id %d has %d bytes, cache is fixed at %d",
-			id, len(vec), s.recordSize))
+		return fmt.Errorf("arena cache: record for id %d has %d bytes, cache is fixed at %d",
+			id, len(vec), s.recordSize)
+	}
+	return nil
+}
+
+// skipBadRecord logs a record refused by checkRecordSize on a preload path,
+// which has no error return; the id is then served through the miss path.
+func (s *arenaByteCache) skipBadRecord(err error) {
+	if s.logger != nil {
+		s.logger.WithField("action", "vector_cache_preload").
+			Warnf("skipping record: %v", err)
 	}
 }
 
-// storeRecord copies vec into id's record and marks it live, moving the
+// chunkMissing reports whether id is covered but its chunk is not yet
+// allocated.
+func (s *arenaByteCache) chunkMissing(id uint64) bool {
+	s.shardedLocks.RLock(id)
+	defer s.shardedLocks.RUnlock(id)
+	return id < s.logicalLen && s.chunkAt(id>>arenaChunkShift) == nil
+}
+
+// ensureChunk allocates id's chunk if it is covered but missing, outside
+// every stripe lock and at most once per chunk (chunkInstallLock), so
+// readers on the id's stripe never wait on a multi-megabyte allocation and
+// racing writers don't each allocate a chunk only to discard all but one.
+// storeRecord keeps a fallback install for the rare case that the chunk
+// disappears again (wipe) before the caller takes its stripe lock.
+func (s *arenaByteCache) ensureChunk(id uint64) {
+	if !s.chunkMissing(id) {
+		return
+	}
+	s.chunkInstallLock.Lock()
+	defer s.chunkInstallLock.Unlock()
+	if !s.chunkMissing(id) {
+		return
+	}
+	ch := s.newArenaChunk()
+	s.shardedLocks.RLock(id)
+	// re-checked under the stripe: a grow or Drop may have swapped the
+	// table since chunkMissing, and holding the stripe pins it
+	if id < s.logicalLen {
+		s.installChunk(id>>arenaChunkShift, ch)
+	}
+	s.shardedLocks.RUnlock(id)
+}
+
+// chunkFootprint is the allocation charged when a miss has to create a
+// chunk: the record area, its alignment slack and the liveness bitmap.
+func (s *arenaByteCache) chunkFootprint() int64 {
+	return int64(arenaChunkSize*s.stride + arenaBaseAlign + arenaChunkSize/8)
+}
+
+// storeRecord writes vec into id's record and marks it live, moving the
 // count only when the slot flips from dead to live — the arena's analogue
 // of the sharded cache's storeLocked occupancy delta (count feeds
 // replaceIfFull, which wipes the whole cache when it believes the cache is
 // full). Caller must hold the id's stripe lock (or be the
 // caller-synchronized NoLock path), have ensured coverage (id <
 // logicalLen), and have validated the record size via checkRecordSize.
+//
+// Bytes are copied only when they differ from what the record already
+// holds. Views of a record are read outside the stripe lock, so writing
+// even identical bytes over one would race with those readers; comparing
+// is a read, which never races with them. Since an id's code doesn't
+// change, every repeated store (overlapping misses, prefill after a miss,
+// re-preload, re-fill after Delete) is write-free.
 func (s *arenaByteCache) storeRecord(id uint64, vec []byte) {
 	ci := id >> arenaChunkShift
 	ch := s.chunkAt(ci)
@@ -271,7 +356,9 @@ func (s *arenaByteCache) storeRecord(id uint64, vec []byte) {
 	}
 	slot := id & arenaChunkMask
 	off := int(slot) * s.stride
-	copy(ch.data[off:off+s.recordSize], vec)
+	if dst := ch.data[off : off+s.recordSize]; !bytes.Equal(dst, vec) {
+		copy(dst, vec)
+	}
 	if ch.setLive(slot) {
 		atomic.AddInt64(&s.count, 1)
 	}
@@ -295,14 +382,20 @@ func (s *arenaByteCache) Get(ctx context.Context, id uint64) ([]byte, error) {
 
 // handleCacheMiss mirrors the map-backed implementation: the count moves
 // inside storeRecord, and only when the fetch actually fills an empty slot.
-// It returns the freshly fetched slice, not the arena view, so miss results
-// are never aliased to arena memory.
+// It only fills an empty slot: a record another miss or preload published
+// in the meantime is left alone. It returns the freshly fetched slice, not
+// the arena view, so miss results are never aliased to arena memory.
 func (s *arenaByteCache) handleCacheMiss(ctx context.Context, id uint64) ([]byte, error) {
 	// a dropped cache keeps nothing, so memory pressure is no reason to refuse
 	if s.allocChecker != nil && !s.dropped.Load() {
-		// The estimate mirrors the map-backed cache: accuracy doesn't matter
-		// here, only that permanent allocations stop under memory pressure.
+		// For a record in an allocated chunk the estimate mirrors the
+		// map-backed cache: accuracy doesn't matter, only that permanent
+		// allocations stop under memory pressure. A miss into a missing
+		// chunk allocates the whole chunk, so it is charged in full.
 		estimatedSize := int64(1024)
+		if s.chunkMissing(id) {
+			estimatedSize = s.chunkFootprint()
+		}
 		if err := s.allocChecker.CheckAlloc(estimatedSize); err != nil {
 			s.logger.WithFields(logrus.Fields{
 				"action": "vector_cache_miss",
@@ -319,10 +412,13 @@ func (s *arenaByteCache) handleCacheMiss(ctx context.Context, id uint64) ([]byte
 	}
 
 	if len(vec) != 0 {
-		s.checkRecordSize(id, vec)
+		if err := s.checkRecordSize(id, vec); err != nil {
+			return nil, err
+		}
+		s.ensureChunk(id)
 		s.shardedLocks.Lock(id)
 		// Drop can release the chunk table before or while vectorForID runs
-		if id < s.logicalLen {
+		if id < s.logicalLen && s.liveView(id) == nil {
 			s.storeRecord(id, vec)
 		}
 		s.shardedLocks.Unlock(id)
@@ -414,7 +510,10 @@ func (s *arenaByteCache) Delete(ctx context.Context, id uint64) {
 }
 
 func (s *arenaByteCache) Preload(id uint64, vec []byte) {
-	s.checkRecordSize(id, vec)
+	if err := s.checkRecordSize(id, vec); err != nil {
+		s.skipBadRecord(err)
+		return
+	}
 	s.preload(id, vec, false)
 }
 
@@ -424,15 +523,19 @@ func (s *arenaByteCache) PreloadIfAbsent(id uint64, vec []byte) bool {
 	if len(vec) == 0 {
 		// nothing to store, and refusing here avoids growing the cache to
 		// cover id — mirrored from the map-backed cache, and checked before
-		// the record-size panic so an empty vec is refused, not fatal
+		// the record-size check so an empty vec is refused without a warning
 		return false
 	}
-	s.checkRecordSize(id, vec)
+	if err := s.checkRecordSize(id, vec); err != nil {
+		s.skipBadRecord(err)
+		return false
+	}
 	return s.preload(id, vec, true)
 }
 
 func (s *arenaByteCache) preload(id uint64, vec []byte, ifAbsent bool) bool {
 	for {
+		s.ensureChunk(id)
 		s.shardedLocks.Lock(id)
 		// reading logicalLen under a stripe lock is safe: it only changes
 		// while all stripes are held (see grow).
@@ -465,7 +568,10 @@ func (s *arenaByteCache) preload(id uint64, vec []byte, ifAbsent bool) bool {
 // the cache to cover id; an uncovered id is skipped, mirroring the map-backed
 // cache (SetSizeAndGrowNoLock leaves a dropped cache uncovered).
 func (s *arenaByteCache) PreloadNoLock(id uint64, vec []byte) {
-	s.checkRecordSize(id, vec)
+	if err := s.checkRecordSize(id, vec); err != nil {
+		s.skipBadRecord(err)
+		return
+	}
 	if id >= s.logicalLen {
 		return
 	}
@@ -483,6 +589,7 @@ func (s *arenaByteCache) SetSizeAndGrowNoLock(size uint64) {
 	newLen := growTargetFor(size)
 	s.growChunkTable(newLen)
 	s.logicalLen = newLen
+	s.publishTable()
 }
 
 // growChunkTable extends the chunk pointer table to cover newLen records.
@@ -525,6 +632,7 @@ func (s *arenaByteCache) Grow(node uint64) {
 
 	s.growChunkTable(newLen)
 	s.logicalLen = newLen
+	s.publishTable()
 }
 
 func (s *arenaByteCache) Len() int32 {
@@ -563,17 +671,17 @@ func (s *arenaByteCache) PrefetchGet(id uint64) []byte {
 	return vec
 }
 
-// All materializes one view per covered id, nil for missing records. The
-// map-backed cache returns its backing slice without locks; this is equally
-// racy by design and callers treat it as a best-effort snapshot.
+// All materializes one view per covered id, nil for missing records. Like
+// the map-backed cache it takes no lock — callers may already hold LockAll,
+// and a grow waiting for those stripes while holding maintenanceLock would
+// otherwise deadlock — so it reads the published table snapshot: a
+// concurrent grow, wipe or Drop yields a stale or partially cleared result,
+// never an out-of-range index. Best-effort, as with the map-backed cache.
 func (s *arenaByteCache) All() [][]byte {
-	s.maintenanceLock.RLock()
-	length := s.logicalLen
-	s.maintenanceLock.RUnlock()
-
-	out := make([][]byte, length)
-	for id := uint64(0); id < length; id++ {
-		out[id] = s.liveView(id)
+	t := s.table.Load()
+	out := make([][]byte, t.length)
+	for id := uint64(0); id < t.length; id++ {
+		out[id] = s.liveViewIn(t.chunks, id)
 	}
 	return out
 }
@@ -599,6 +707,7 @@ func (s *arenaByteCache) Drop() {
 	s.shardedLocks.LockAll()
 	s.chunks = nil
 	s.logicalLen = 0
+	s.publishTable()
 	atomic.StoreInt64(&s.count, 0)
 	s.shardedLocks.UnlockAll()
 	s.maintenanceLock.Unlock()
@@ -618,9 +727,9 @@ func (s *arenaByteCache) deleteAllVectors() {
 	s.logger.WithField("action", "hnsw_delete_vector_cache").
 		Debug("deleting full vector cache")
 	for i := range s.chunks {
-		// plain writes are safe here: slot writers hold a stripe lock and
-		// all stripes are held
-		s.chunks[i] = nil
+		// atomic although every stripe is held: All reads the slots of the
+		// published table without any lock
+		atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&s.chunks[i])), nil)
 	}
 	atomic.StoreInt64(&s.count, 0)
 }
