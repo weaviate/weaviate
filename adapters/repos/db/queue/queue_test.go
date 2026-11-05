@@ -3045,3 +3045,35 @@ func TestRewind_RefusesAQueueInMaintenanceMode(t *testing.T) {
 	require.NoError(t, q.Rewind())
 	assert.EqualValues(t, 9, q.Size())
 }
+
+// A pause that did not wait leaves a batch running, which would tombstone its
+// chunk out of the replay.
+func TestRewind_RefusesAQueueWithABatchRunning(t *testing.T) {
+	started := make(chan struct{}, 16)
+	unblock := make(chan struct{})
+	var once sync.Once
+	finish := func() { once.Do(func() { close(unblock) }) }
+	decoder := &mockTaskDecoder{execFn: func(context.Context, *mockTask) error {
+		started <- struct{}{}
+		<-unblock
+		return nil
+	}}
+
+	s := startedScheduler(t)
+	// runs before the scheduler's close, which waits for the batch
+	t.Cleanup(finish)
+	q := makeQueueSize(t, s, decoder, 50)
+	require.NoError(t, q.Pause(t.Context()))
+	require.NoError(t, q.Retain())
+	pushMany(t, q, 1, 1, 2, 3, 4)
+	q.Resume()
+	<-started
+
+	require.NoError(t, q.Pause(t.Context(), true))
+	require.True(t, s.IsQueuePaused(q.id))
+	require.ErrorContains(t, q.Rewind(), "still running")
+
+	finish()
+	require.NoError(t, q.Wait(t.Context()))
+	require.NoError(t, q.Rewind())
+}
