@@ -714,19 +714,26 @@ func (q *DiskQueue) EnableMaintenanceMode() {
 // tombstone files and their corresponding chunk files left from the freeze
 // period, unless a retention still keeps them.
 func (q *DiskQueue) DisableMaintenanceMode() error {
+	tombstones, err := q.endMaintenanceMode()
+	if err != nil {
+		return err
+	}
+	// without rmLock, as in ReleaseRetention
+	q.logRemoveProcessedChunks(tombstones)
+	return nil
+}
+
+// endMaintenanceMode turns maintenance mode off and lists the tombstones of
+// the chunks nothing keeps anymore.
+func (q *DiskQueue) endMaintenanceMode() ([]string, error) {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
 
 	q.maintenanceMode.Store(false)
 	if q.retained {
-		tombstones, err := q.processedChunks(q.retainedFrom)
-		if err != nil {
-			return err
-		}
-		q.logRemoveProcessedChunks(tombstones)
-		return nil
+		return q.processedChunks(q.retainedFrom)
 	}
-	return q.cleanupProcessedChunks()
+	return q.processedChunks(math.MaxInt64)
 }
 
 // keepsProcessed reports whether a processed chunk is kept rather than
