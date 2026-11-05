@@ -33,21 +33,20 @@ func extractLimitFromTopOccs(aggs []aggregation.Aggregator) int {
 	return 5
 }
 
-// wantsTopOccurrences reports whether aggs ask for the most frequent values.
-// Older gRPC handlers ask for them as totalTrue when the request sets no limit,
-// and a node running one can send such a request here during a rolling
-// upgrade; totalTrue means nothing else on a text property.
 func wantsTopOccurrences(aggs []aggregation.Aggregator) bool {
 	for _, agg := range aggs {
-		if agg.Type == aggregation.TopOccurrencesType || agg.Type == aggregation.TotalTrueAggregator.Type {
+		if agg.Type == aggregation.TopOccurrencesType {
 			return true
 		}
 	}
 	return false
 }
 
-func newTextAggregator(aggs []aggregation.Aggregator) *textAggregator {
-	if !wantsTopOccurrences(aggs) {
+// newTextAggregator tracks how often each value occurs unless onlyRequested
+// is set and aggs do not ask for the top occurrences; see
+// [aggregation.Params.OnlyRequestedAggregations].
+func newTextAggregator(aggs []aggregation.Aggregator, onlyRequested bool) *textAggregator {
+	if onlyRequested && !wantsTopOccurrences(aggs) {
 		return &textAggregator{}
 	}
 	return &textAggregator{itemCounter: map[string]int{}, max: extractLimitFromTopOccs(aggs)}
