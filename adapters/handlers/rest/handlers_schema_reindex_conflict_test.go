@@ -250,7 +250,7 @@ func TestDeleteClassPropertyIndex_NamesACancelOnlyWhereTheCancelVerbAcceptsOne(t
 	}{
 		{status: distributedtask.TaskStatusStarted, wantCancelAccepted: true},
 		{status: distributedtask.TaskStatusPreparing, wantCancelAccepted: true},
-		{status: distributedtask.TaskStatusSwapping, cancelCode: http.StatusAccepted},
+		{status: distributedtask.TaskStatusSwapping, cancelCode: http.StatusConflict},
 		{status: unknownFutureStatus, cancelCode: http.StatusConflict},
 	} {
 		t.Run(string(tc.status), func(t *testing.T) {

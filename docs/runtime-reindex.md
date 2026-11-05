@@ -56,8 +56,9 @@ typical journeys it unlocks:
 - Cancel a migration at any point while it runs. Every tenant whose swap
   is not decided yet stops and is cleaned up; a tenant past that point
   keeps its swap, which can leave the collection partly migrated (§6.3, §12).
-  Once every tenant is decided (`SWAPPING`) nothing is left to cancel: the
-  cancel answers `NO_OP` and the migration finishes, schema flip included.
+  Once every tenant is decided (`SWAPPING`) the migration can no longer be
+  cancelled: the cancel answers `409` and the migration finishes, schema
+  flip included.
 
 The whole feature is built on top of three substrates:
 
@@ -140,10 +141,12 @@ rejected — migrate to Blockmax first via `PUT {"algorithm":"blockmax"}`.
 Cancel the in-flight task on `(class, property, indexType)`. No request
 body. Idempotent: `202` + `Status: CANCELLED` (with `taskId`) when an in-flight
 task is cancelled, `202` + `Status: NO_OP` (no `taskId`) when nothing
-matches (already finished, never submitted, or already cancelled) or the
-task is `SWAPPING` (every tenant already passed its point of no return, so
-it finishes), `409` only for a status this build does not recognize. A cancel is never refused
-while the reindex runs, because the reindex itself may be the incident.
+matches (already finished, never submitted, or already cancelled). `409`
+when the task is `SWAPPING` (every tenant's swap is decided, so it finishes
+on its own), when its status is one this build does not recognize, or when
+it left the cancellable state between the read and the cancel. While the
+reindex is `STARTED` or `PREPARING` a cancel is never refused, because the
+reindex itself may be the incident.
 Tenants whose swap is already decided (§6.3) keep it; every other tenant
 stops. See §12. Never `404` for "nothing to cancel".
 
@@ -1558,8 +1561,9 @@ source, the other is a copy that outlives it.
    swapped anywhere, so it refuses rather than guess. The mutation-refusal
    guards agree: for this case they drop the "cancel it" advice and point
    the operator at the nodes that do recognize the status
-   (`MutationRemedy`). Every other in-flight status cancels
-   (`TaskStatus.IsCancellable`): tenants whose swap is decided (§6.3)
+   (`MutationRemedy`). A `SWAPPING` task answers 409 too: every tenant's
+   swap is decided, so it finishes on its own. Every other in-flight status
+   cancels (`TaskStatus.IsCancellable`): tenants whose swap is decided (§6.3)
    still swap, every other tenant stops. The
    REST pre-flight and `Manager.CancelTask` apply the same predicate, so a
    cancel that loses the race to a status transition is refused at the FSM

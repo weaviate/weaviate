@@ -776,8 +776,8 @@ func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
 			http.StatusConflict, "cannot classify that status",
 		},
 		{"PREPARING", distributedtask.TaskStatusPreparing, payload.Properties, 0, ""},
-		// Every tenant already passed its point of no return.
-		{"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties, http.StatusAccepted, ""},
+		// Every tenant's swap is decided, so the migration finishes on its own.
+		{"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties, http.StatusConflict, "can no longer be cancelled"},
 		// The three terminal rows never reach the refusal logic: they
 		// are filtered out as cancel targets, so what they pin is that a
 		// finished task is a NO_OP rather than a 409.
@@ -923,9 +923,9 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 			err: fmt.Errorf("executing command: %w",
 				fmt.Errorf("[dtm-perm/nothing-left-to-cancel] task reindex/T1/1 is SWAPPING: %w",
 					distributedtask.ErrNothingLeftToCancel)),
-			wantCode:  http.StatusAccepted,
-			wantAudit: "reindex_task_cancel_noop",
-			wantBody:  reindexCancelStatusNoOp,
+			wantCode:  http.StatusConflict,
+			wantAudit: "reindex_task_cancel_refused",
+			wantBody:  "can no longer be cancelled",
 		},
 		{
 			name:     "anything else",

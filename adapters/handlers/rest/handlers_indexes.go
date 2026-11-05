@@ -366,8 +366,10 @@ func reindexTaskDescriptorsForProperty(tasks []*distributedtask.Task, collection
 // FSM guard applies, so the two answers cannot drift.
 func (h *indexesHandlers) cancelPreflight(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	switch {
-	case target == nil, target.Status == distributedtask.TaskStatusSwapping:
+	case target == nil:
 		return h.cancelNoOpResponder(collection, propertyName, indexType, principal)
+	case target.Status == distributedtask.TaskStatusSwapping:
+		return h.cancelTooLateResponder(target, collection, propertyName, indexType, principal)
 	case !target.Status.IsCancellable():
 		return h.cancelRefusedResponder(target, collection, propertyName, indexType, principal)
 	}
@@ -382,15 +384,16 @@ func (h *indexesHandlers) cancelApplyFailureResponder(err error, target *distrib
 	switch {
 	case errors.Is(err, distributedtask.ErrTaskNotRunning):
 		return h.cancelRacedResponder(target, collection, propertyName, indexType, principal)
-	case errors.Is(err, distributedtask.ErrTaskDoesNotExist), errors.Is(err, distributedtask.ErrNothingLeftToCancel):
+	case errors.Is(err, distributedtask.ErrNothingLeftToCancel):
+		return h.cancelTooLateResponder(target, collection, propertyName, indexType, principal)
+	case errors.Is(err, distributedtask.ErrTaskDoesNotExist):
 		return h.cancelNoOpResponder(collection, propertyName, indexType, principal)
 	}
 	return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 		fmt.Sprintf("cancelling task: %v", err)))
 }
 
-// cancelNoOpResponder answers a cancel that has nothing to cancel: no task, or
-// one whose every tenant already passed its point of no return.
+// cancelNoOpResponder answers a cancel that has nothing to cancel.
 func (h *indexesHandlers) cancelNoOpResponder(collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event": "reindex_task_cancel_noop",
@@ -402,6 +405,22 @@ func (h *indexesHandlers) cancelNoOpResponder(collection, propertyName, indexTyp
 	return jsonResponder(http.StatusAccepted, &models.IndexUpdateResponse{
 		Status: reindexCancelStatusNoOp,
 	})
+}
+
+// cancelTooLateResponder answers a cancel of a SWAPPING task, which finishes on its own.
+func (h *indexesHandlers) cancelTooLateResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event": "reindex_task_cancel_refused",
+		"collection":  collection,
+		"property":    propertyName,
+		"index_type":  indexType,
+		"taskID":      target.ID,
+		"principal":   principalUsername(principal),
+	}).Info("cancel: every tenant's swap is decided; refusing")
+	return jsonResponder(http.StatusConflict, errorResponse(principal,
+		fmt.Sprintf("reindex task %q on %s.%s has reached %s and can no longer be cancelled: every tenant's "+
+			"swap is decided, and the migration finishes on its own. Nothing was cancelled",
+			target.ID, collection, propertyName, distributedtask.TaskStatusSwapping)))
 }
 
 // cancelRefusedResponder answers a cancel DTM will not accept: a status
