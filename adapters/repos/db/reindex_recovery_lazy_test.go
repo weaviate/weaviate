@@ -343,7 +343,7 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 					require.NoError(t, err)
 					require.Equal(t, want, shard.GetStatus())
 					require.True(t, rec.Subject().Unmirrored)
-					fx.requirePhasesRefused(t, shard, "no double-write mirror armed", false)
+					fx.requirePhasesRefused(t, shard, "no double-write mirror armed")
 				default:
 					require.ErrorContains(t, err, "cannot be stamped Unmirrored")
 					require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
@@ -902,19 +902,18 @@ func (fx *doubleFaultFixture) healRecords(t *testing.T) {
 	require.NoError(t, os.Chmod(fx.recordsDir, 0o700))
 }
 
-// waits says whether the scheduler retries the step on a later tick instead of failing the task.
-func (fx *doubleFaultFixture) requirePhasesRefused(t *testing.T, shard *Shard, want string, waits bool) {
+func (fx *doubleFaultFixture) requirePhasesRefused(t *testing.T, shard *Shard, want string) {
 	tasks := []*ShardReindexTaskGeneric{fx.task}
 	prepOK, prep := fx.provider.runShardPrepPhase(fx.ctx, fx.subject.Key.UnitID, shard, tasks, false, fx.logger)
 	require.False(t, prepOK)
 	require.Len(t, prep.Errs, 1)
 	require.Contains(t, prep.Errs[0], want)
-	require.Equal(t, waits, prep.Transient)
+	require.False(t, prep.Transient)
 	payload := fx.subject.reindexPayload()
 	swap := fx.provider.runShardSwapPhase(fx.ctx, &payload, fx.subject.Key.UnitID, fx.name, shard, tasks, fx.logger)
 	require.NotEmpty(t, swap.Errs)
 	require.Contains(t, swap.Errs[0], want)
-	require.Equal(t, waits, swap.Transient)
+	require.False(t, swap.Transient)
 	rec, ok := shard.migrationRecords.Get(fx.subject.Key)
 	require.True(t, ok)
 	require.False(t, rec.FlipDecided(), "nothing flipped")

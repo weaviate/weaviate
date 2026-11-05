@@ -1145,10 +1145,6 @@ func unreadableRecordFault(unitID string, store *MigrationRecordStore) string {
 		"is still in flight is unknown: %s", unitID, unreadable[0].FileName, unreadable[0].Reason)
 }
 
-func phaseErrWaits(err error) bool {
-	return errors.Is(err, context.Canceled)
-}
-
 // runShardPrepPhase runs the disk-I/O PREP phase for one unit on one shard.
 func (p *ReindexProvider) runShardPrepPhase(
 	ctx context.Context,
@@ -1162,12 +1158,10 @@ func (p *ReindexProvider) runShardPrepPhase(
 	for _, reindexTask := range unitTasks {
 		if rehydrate {
 			if err := reindexTask.RunReindexOnlyOnShard(ctx, shard); err != nil {
-				if !phaseErrWaits(err) {
-					logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
-						Errorf("reindex provider: shard prep — rehydrate failed; prep will not run for this task: %v", err)
-				}
+				logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
+					Errorf("reindex provider: shard prep — rehydrate failed; prep will not run for this task: %v", err)
 				out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s rehydrate: %v", unitID, reindexTask.Name(), err))
-				if phaseErrWaits(err) {
+				if errors.Is(err, context.Canceled) {
 					out.Transient = true
 				}
 				ok = false
@@ -1175,12 +1169,10 @@ func (p *ReindexProvider) runShardPrepPhase(
 			}
 		}
 		if err := reindexTask.RunPrepareOnShard(ctx, shard); err != nil {
-			if !phaseErrWaits(err) {
-				logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
-					Errorf("reindex provider: shard prep — prep failed; swap will not run for this task: %v", err)
-			}
+			logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
+				Errorf("reindex provider: shard prep — prep failed; swap will not run for this task: %v", err)
 			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s prepare: %v", unitID, reindexTask.Name(), err))
-			if phaseErrWaits(err) {
+			if errors.Is(err, context.Canceled) {
 				out.Transient = true
 			}
 			ok = false
@@ -1206,14 +1198,11 @@ func (p *ReindexProvider) runShardSwapPhase(
 		}
 		if err := reindexTask.refuseUnmirrored(shard, rec.Subject()); err != nil {
 			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s swap: %v", unitID, reindexTask.Name(), err))
-			out.Transient = out.Transient || phaseErrWaits(err)
 		}
 	}
 	if len(out.Errs) > 0 {
-		if !out.Transient {
-			logger.WithField("unit", unitID).WithField("shard", shardName).
-				Errorf("reindex provider: shard swap refused for every task of the unit: %s", strings.Join(out.Errs, "; "))
-		}
+		logger.WithField("unit", unitID).WithField("shard", shardName).
+			Errorf("reindex provider: shard swap refused for every task of the unit: %s", strings.Join(out.Errs, "; "))
 		return out
 	}
 
