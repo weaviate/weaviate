@@ -820,6 +820,16 @@ func (q *DiskQueue) Rewind() error {
 		}
 		tombstonePath := filepath.Join(q.dir, entry.Name())
 		path := strings.TrimSuffix(tombstonePath, ".processed")
+		// a hard link from quarantineKeptChunk would make the rename of the
+		// chunk's next quarantine a no-op, leaving it to break a later Init
+		_, err = os.Stat(path)
+		if err == nil {
+			err = removeFile(path + ".corrupt")
+			if err != nil && !stderrors.Is(err, fs.ErrNotExist) {
+				errs = append(errs, errors.Wrap(err, "failed to remove quarantined copy"))
+				continue
+			}
+		}
 		var ref chunkRef
 		var ok bool
 		if live {
