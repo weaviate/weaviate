@@ -739,7 +739,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 		return nil, errShardNoLocalData // registered lazily, never loaded
 	}
 
-	// Read metadata files (same data as readBackupMetadata in shard_backup.go).
+	// Read metadata files (same data as readBackupMetadata in shard_backup).
 	// A non-empty folder was initialized once, and Shard.Shutdown writes
 	// indexcount, proplengths, and version during the flush/close sequence.
 	counterPath := filepath.Join(shardDir, "indexcount")
