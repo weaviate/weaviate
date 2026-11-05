@@ -101,8 +101,7 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 	return migrated, paid, covered
 }
 
-// ReindexMigratedPhrase says what of property serves the migrated index: some
-// tenants, or a single-tenant collection as a whole, never named in tenants.
+// ReindexMigratedPhrase names a single-tenant collection as a whole, never in tenants.
 func ReindexMigratedPhrase(migrated, covered map[string]struct{}, property string) string {
 	if _, ungrouped := migrated[""]; ungrouped {
 		return fmt.Sprintf("property %q of the collection serves", property)

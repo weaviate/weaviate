@@ -265,7 +265,6 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 			if idx.TaskID != "" {
 				idx.TaskID = namespacing.StripOwnNamespace(principal, idx.TaskID)
 			}
-			// Flag off: emit only an entry a reindex task drives.
 			if e.flagOn || taskDriven {
 				indexes = append(indexes, idx)
 			}
@@ -393,7 +392,6 @@ func (h *indexesHandlers) cancelApplyFailureResponder(err error, target *distrib
 		fmt.Sprintf("cancelling task: %v", err)))
 }
 
-// cancelNoOpResponder answers a cancel that has nothing to cancel.
 func (h *indexesHandlers) cancelNoOpResponder(collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event": "reindex_task_cancel_noop",
