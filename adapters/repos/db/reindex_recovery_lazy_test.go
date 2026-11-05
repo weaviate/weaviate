@@ -218,9 +218,11 @@ func TestShardLoadWhenAMirrorFailsToArmAndItsStampCannotBeWritten(t *testing.T) 
 	for _, tt := range []struct {
 		name  string
 		fault func(t *testing.T, fx *doubleFaultFixture)
+		// unitFails says a unit fails its migration instead of waiting on the hold.
+		unitFails bool
 	}{
 		{name: "records dir read-only", fault: func(t *testing.T, fx *doubleFaultFixture) { fx.breakDisk(t) }},
-		{name: "another record unreadable", fault: func(t *testing.T, fx *doubleFaultFixture) {
+		{name: "another record unreadable", unitFails: true, fault: func(t *testing.T, fx *doubleFaultFixture) {
 			plantUnreadableRecord(t, fx.recordsDir)
 		}},
 	} {
@@ -238,6 +240,12 @@ func TestShardLoadWhenAMirrorFailsToArmAndItsStampCannotBeWritten(t *testing.T) 
 				storagestate.ErrStatusReadOnlyWithReason(statusReasonMirrorUnarmed).Error())
 
 			fx.requireStepsWait(t)
+			unitID := fx.subject.Key.UnitID
+			repair := ReindexTaskPayload{MigrationType: ReindexTypeRepairFilterable, Collection: fx.className,
+				Properties: []string{"title"}, UnitToShard: map[string]string{unitID: fx.name}}
+			outcome := &heldStepOutcome{done: make(chan string, 1)}
+			fx.provider.processOneUnit(fx.ctx, &distributedtask.Task{TaskDescriptor: fx.desc}, &repair, fx.idx, unitID, outcome)
+			require.Equal(t, tt.unitFails, len(outcome.done) == 1)
 
 			// Only the lift's retry clears the hold. The status gate refuses a write that skips the retry.
 			require.Error(t, shard.UpdateStatusIf(func(ShardStatus) bool { return true },
