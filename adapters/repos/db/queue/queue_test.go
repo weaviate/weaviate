@@ -3005,3 +3005,20 @@ func TestDisableMaintenanceMode_DoesNotBlockAFinishingBatch(t *testing.T) {
 	assert.NoFileExists(t, chunks[1], "deleted at once: the backup is over")
 	assert.NoFileExists(t, chunks[1]+".processed")
 }
+
+// A backup may be copying what Rewind would move or re-queue.
+func TestRewind_RefusesAQueueInMaintenanceMode(t *testing.T) {
+	s := startedScheduler(t)
+	q := sealedQueue(t, s, t.TempDir())
+	require.NoError(t, q.Retain())
+	q.EnableMaintenanceMode()
+	processNext(t, q)
+
+	require.ErrorContains(t, q.Rewind(), "maintenance mode")
+	_, tombstoned := chunksOf(t, q)
+	assert.Len(t, tombstoned, 1, "the refusal changes nothing")
+
+	require.NoError(t, q.DisableMaintenanceMode())
+	require.NoError(t, q.Rewind())
+	assert.EqualValues(t, 9, q.Size())
+}
