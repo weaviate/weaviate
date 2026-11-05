@@ -290,6 +290,22 @@ func (s *Scheduler) ResumeQueue(id string) {
 	s.Logger.WithField("id", id).Debug("queue resumed")
 }
 
+// IsQueueIdle returns true if the queue is paused and none of its work is
+// scheduled or running.
+func (s *Scheduler) IsQueueIdle(id string) bool {
+	if s.ctx == nil {
+		// scheduler not started
+		return false
+	}
+
+	q := s.getQueue(id)
+	if q == nil {
+		return false
+	}
+
+	return q.Paused() && !q.Scheduled() && q.activeTasks.Count() == 0
+}
+
 func (s *Scheduler) updatePausedMetric() {
 	if s.Metrics == nil {
 		return
@@ -442,6 +458,11 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 
 		// skip if its last batch failed recently
 		if q.Retrying() {
+			continue
+		}
+
+		// a paused queue is not even marked, so it stays idle throughout
+		if q.Paused() {
 			continue
 		}
 
