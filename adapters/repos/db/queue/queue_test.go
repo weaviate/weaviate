@@ -2869,3 +2869,17 @@ func TestRewind_RefusesAQueueNotRetained(t *testing.T) {
 	_, tombstoned := chunksOf(t, q)
 	assert.Len(t, tombstoned, 1)
 }
+
+// A batch finishing after a rewind would tombstone its chunk out of the
+// replay, so a running queue must be paused.
+func TestRewind_RefusesAQueueNotPaused(t *testing.T) {
+	s := startedScheduler(t)
+	q := sealedQueue(t, s, t.TempDir())
+	require.NoError(t, q.Retain())
+	processNext(t, q)
+	q.Resume()
+
+	require.ErrorContains(t, q.Rewind(), "not paused")
+	_, tombstoned := chunksOf(t, q)
+	assert.NotEmpty(t, tombstoned, "the refusal changes nothing")
+}
