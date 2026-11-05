@@ -16,7 +16,6 @@ package db
 type ShardReindexerV3 interface {
 	RecoverMigrations(shard *Shard) []*ShardReindexTaskGeneric
 	AbandonUnarmed(shard *Shard, unarmed []*ShardReindexTaskGeneric, cause error) error
-	// ClaimUnits returns the tasks whose unit it claimed, the ones a teardown holds, and a release.
 	ClaimUnits(tasks []*ShardReindexTaskGeneric) (claimed, skipped []*ShardReindexTaskGeneric, release func())
 }
 

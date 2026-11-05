@@ -111,8 +111,7 @@ const maxCompletedCallbackAttempts = 5
 type Scheduler struct {
 	mu           sync.Mutex
 	runningTasks map[string]map[TaskDescriptor]TaskHandle
-	// startLogged holds the started tasks whose first start line was logged, so only their relaunches are sampled.
-	// It is pruned to the started tasks on every tick, because some providers never report a task for cleanup.
+	// startLogged holds the started tasks whose first start was logged; pruned each tick, since some providers never report tasks for cleanup.
 	startLogged map[string]map[TaskDescriptor]struct{}
 
 	providers          map[string]Provider // namespace -> Provider
