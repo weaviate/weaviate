@@ -130,6 +130,14 @@ func (ua unfilteredAggregator) property(ctx context.Context,
 		return nil, nil, err
 	}
 
+	count, ok, err := ua.countFromLengthIndex(ctx, prop, dt)
+	if err != nil {
+		return nil, nil, err
+	}
+	if ok {
+		return ua.countOnlyProperty(aggType, prop.Aggregators, count), nil, nil
+	}
+
 	var analyzed *aggregation.Property
 	switch aggType {
 	case aggregation.PropertyTypeNumerical:
