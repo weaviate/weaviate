@@ -75,6 +75,7 @@ import (
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entconfig "github.com/weaviate/weaviate/entities/config"
@@ -217,6 +218,18 @@ type vectorRepo interface {
 func distributedTaskShardReplicasExtractors() map[string]distributedtask.ShardReplicasExtractor {
 	return map[string]distributedtask.ShardReplicasExtractor{
 		db.ReindexNamespace: db.ExtractReindexTaskReplicas,
+	}
+}
+
+// rebalanceMeasure builds the RebalanceMeasure func. For a node missing from
+// cluster membership it returns an error, never a zero measurement with a nil error.
+func rebalanceMeasure(nodeHostname func(string) (string, bool), client *clients.RemoteNode) func(context.Context, string) (replicationTypes.RebalanceNodeMeasurement, error) {
+	return func(ctx context.Context, node string) (replicationTypes.RebalanceNodeMeasurement, error) {
+		host, ok := nodeHostname(node)
+		if !ok {
+			return replicationTypes.RebalanceNodeMeasurement{}, fmt.Errorf("resolve host of node %q: node not in cluster membership", node)
+		}
+		return client.GetRebalanceMeasurement(ctx, host)
 	}
 }
 
@@ -714,6 +727,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		UsageLimitsErrorMessage:                appState.ServerConfig.Config.UsageLimits.ErrorMessage,
 		ReplicaMovementEnabled:                 appState.ServerConfig.Config.Replication.ReplicaMovementEnabled,
 		ReplicaRebalanceEnabled:                appState.ServerConfig.Config.Replication.ReplicaRebalanceEnabled,
+		RebalanceMeasure:                       rebalanceMeasure(appState.Cluster.NodeHostname, remoteNodesClient),
 		ReplicaMovementCleanupEnabled:          appState.ServerConfig.Config.Replication.ReplicaMovementCleanupEnabled,
 		ReplicaMovementCleanupMaxAge:           appState.ServerConfig.Config.Replication.ReplicaMovementCleanupMaxAge,
 		ReplicaMovementCleanupInterval:         appState.ServerConfig.Config.Replication.ReplicaMovementCleanupInterval,
