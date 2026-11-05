@@ -1068,9 +1068,11 @@ Then, per shard load:
    - **The mirror fails to arm and the stamp lands.** The shard loads
      writable. `AbandonUnarmed` stamps the record `Unmirrored` and drops
      the unit's tasks from the provider's cache. `RunPrepareOnShard`
-     refuses an `Unmirrored` record, so this node's PREPARING ack fails and
-     the task goes `FAILED` before any replica or sibling half swaps; it
-     has to be resubmitted. A task can already be past its prepare, as when
+     refuses an `Unmirrored` record. If this node has not yet acked its
+     prepare, its ack fails and the task goes `FAILED` before any replica or
+     sibling half swaps; once it has acked, other replicas can swap before
+     this node's swap phase refuses the unit and fails the task. Either way
+     it has to be resubmitted. A task can already be past its prepare, as when
      the node restarts mid-swap, so the swap phase checks every task of the
      unit first and swaps none of them if any record is `Unmirrored`.
    - **The mirror fails to arm and no stamp can be written.** This covers a

@@ -227,7 +227,7 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	}
 	concreteShard, logger := entry.shard, entry.logger
 
-	// A failed prepare fails the task before any replica swaps, which a refusal at swap alone cannot do.
+	// Before this node's prepare ack, a failed prepare fails the task before any replica swaps.
 	if err := t.refuseUnmirrored(entry.rec.Subject()); err != nil {
 		return err
 	}
