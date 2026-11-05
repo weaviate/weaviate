@@ -679,6 +679,7 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 				if e.Data["groupID"] == fx.name {
 					retries++
 					require.Greaterf(t, e.Level, logrus.InfoLevel, "per-tick line: %s", e.Message)
+					require.Contains(t, e.Message, "is held READONLY")
 				}
 			}
 			require.Equal(t, tc.status != distributedtask.TaskStatusStarted, retries > 0)
