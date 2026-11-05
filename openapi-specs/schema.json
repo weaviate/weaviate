@@ -1809,6 +1809,177 @@
       },
       "type": "object"
     },
+    "ReplicationRebalanceRequest": {
+      "description": "Specifies the nodes a rebalance plan moves shard replicas between. Replicas move from the source nodes to the target nodes.",
+      "properties": {
+        "sourceNodes": {
+          "description": "The names of the nodes that replicas move away from. The list must be non-empty, must not repeat a node, and must not share a node with `targetNodes`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "targetNodes": {
+          "description": "The names of the nodes that replicas move to. The list must be non-empty, must not repeat a node, and must not share a node with `sourceNodes`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "collections": {
+          "description": "The names of the collections the plan covers. The value is stored with the plan and does not yet affect planning.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    },
+    "ReplicationRebalanceCreateResponse": {
+      "description": "Contains the unique identifier of a newly created rebalance plan. GET /replication/rebalance reports the plan's progress.",
+      "properties": {
+        "id": {
+          "description": "The unique identifier (ID) of the rebalance plan.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ReplicationRebalancePlan": {
+      "description": "The cluster's rebalance plan: the request it was created from, its current state, and the node measurements and baseline balance taken by its planning run.",
+      "properties": {
+        "id": {
+          "description": "The unique identifier (ID) of the rebalance plan.",
+          "type": "string"
+        },
+        "state": {
+          "description": "The current state of the rebalance plan. A plan starts in `PLANNING`. A planning run ends it `NOT_NEEDED`, `PROPOSED`, `NO_ACCEPTABLE_PLAN` or `PLANNING_FAILED`, and a stop ends it `STOPPED`.",
+          "type": "string",
+          "enum": [
+            "PLANNING",
+            "PROPOSED",
+            "NOT_NEEDED",
+            "NO_ACCEPTABLE_PLAN",
+            "PLANNING_FAILED",
+            "RUNNING",
+            "STOPPING",
+            "STOPPED",
+            "COMPLETED",
+            "FAILED"
+          ]
+        },
+        "createdAtUnixMs": {
+          "description": "The UNIX timestamp in ms when the plan was created.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "measuredAtUnixMs": {
+          "description": "The UNIX timestamp in ms when the applied planning run started measuring the nodes. Zero until a planning run completes.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "reason": {
+          "description": "A human-readable explanation of the planning outcome, e.g. why planning failed.",
+          "type": "string"
+        },
+        "sourceNodes": {
+          "description": "The names of the nodes that replicas move away from, as given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "targetNodes": {
+          "description": "The names of the nodes that replicas move to, as given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "collections": {
+          "description": "The names of the collections given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nodes": {
+          "description": "The resource measurement of each listed node, taken by the applied planning run.",
+          "type": "array",
+          "items": {
+            "description": "One node's resource measurement.",
+            "type": "object",
+            "properties": {
+              "node": {
+                "description": "The name of the node.",
+                "type": "string",
+                "x-omitempty": false
+              },
+              "diskTotalBytes": {
+                "description": "The total size in bytes of the disk holding the node's data.",
+                "format": "int64",
+                "type": "integer",
+                "x-omitempty": false
+              },
+              "diskAvailableBytes": {
+                "description": "The free bytes on the disk holding the node's data. The count includes blocks reserved for root.",
+                "format": "int64",
+                "type": "integer",
+                "x-omitempty": false
+              },
+              "diskWarningPercentage": {
+                "description": "The node's disk usage warning threshold, as a percentage of the disk's total size.",
+                "format": "int64",
+                "type": "integer",
+                "x-omitempty": false
+              },
+              "memoryLimitBytes": {
+                "description": "The node's Go runtime memory limit in bytes.",
+                "format": "int64",
+                "type": "integer",
+                "x-omitempty": false
+              },
+              "replicationWorkers": {
+                "description": "The number of replication engine workers configured on the node.",
+                "type": "integer",
+                "x-omitempty": false
+              },
+              "error": {
+                "description": "Why the node could not be measured. Empty when the measurement succeeded.",
+                "type": "string"
+              }
+            }
+          }
+        },
+        "baseline": {
+          "description": "The measured load of each listed node before any move.",
+          "type": "array",
+          "items": {
+            "description": "One node's measured load.",
+            "type": "object",
+            "properties": {
+              "node": {
+                "description": "The name of the node.",
+                "type": "string",
+                "x-omitempty": false
+              },
+              "diskUtilisation": {
+                "description": "The node's used disk bytes divided by its disk usage warning threshold in bytes.",
+                "type": "number",
+                "x-omitempty": false
+              },
+              "replicaCount": {
+                "description": "The number of shard replicas the node hosts, not counting replicas of FROZEN tenants.",
+                "type": "integer",
+                "x-omitempty": false
+              }
+            }
+          }
+        }
+      },
+      "type": "object"
+    },
     "PeerUpdate": {
       "description": "A single peer in the network.",
       "properties": {
@@ -5405,6 +5576,188 @@
           },
           "501": {
             "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/replication/rebalance": {
+      "post": {
+        "summary": "Create a rebalance plan",
+        "description": "Creates the cluster's rebalance plan in the `PLANNING` state and starts an asynchronous planning run. The run measures the listed source and target nodes and decides whether their shard replicas need rebalancing. GET /replication/rebalance reports the plan and its outcome. A new plan replaces a finished one; an unfinished plan blocks it.",
+        "operationId": "createRebalancePlan",
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.create"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalanceRequest"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Rebalance plan created and planning started. ID of the plan is returned.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalanceCreateResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request: a node list is empty or repeats a node, or a node appears in both `sourceNodes` and `targetNodes`.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "An unfinished rebalance plan exists. GET /replication/rebalance reports it.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "A listed node is not a live storage node. The ErrorResponse holds one entry per failing node.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement or replica rebalancing is disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Get the rebalance plan",
+        "description": "Returns the cluster's rebalance plan, including the node measurements and baseline balance taken by its planning run.",
+        "operationId": "getRebalancePlan",
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.get"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "responses": {
+          "200": {
+            "description": "The rebalance plan.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalancePlan"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No rebalance plan exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete the rebalance plan",
+        "description": "Removes the cluster's rebalance plan. Only a `PROPOSED` plan or a plan in an end state can be deleted; stop a `PLANNING` plan first. Succeeds when no plan exists.",
+        "operationId": "deleteRebalancePlan",
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.delete"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted, or no plan existed."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The plan is not in a deletable state, e.g. it is `PLANNING`.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/replication/rebalance/stop": {
+      "post": {
+        "summary": "Stop the rebalance plan",
+        "description": "Stops the cluster's rebalance plan while it is `PLANNING`. The plan ends `STOPPED` and the result of its planning run is discarded.",
+        "operationId": "stopRebalancePlan",
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.stop"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "responses": {
+          "202": {
+            "description": "Rebalance plan stopped."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No rebalance plan exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The plan is not in a stoppable state: only a `PLANNING` plan can be stopped.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/replication/rebalance/approve": {
+      "post": {
+        "summary": "Approve the rebalance plan",
+        "description": "Approves a `PROPOSED` rebalance plan for execution. Approval is not implemented yet and always answers 501.",
+        "operationId": "approveRebalancePlan",
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.approve"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "responses": {
+          "501": {
+            "description": "Approving a rebalance plan is not implemented.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
