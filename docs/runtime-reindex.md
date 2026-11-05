@@ -1681,15 +1681,24 @@ derives its preserve set from the `tidied.mig` / `merged.mig` markers, which
 this build never writes, so **disabling the index to fix the empty results is
 what destroys the data**. Upgrade again instead and let reconciliation promote.
 
-**Rolling back after a cancel in PREPARING.** This build accepts a cancel while
-a run is PREPARING; older releases refuse it. A node of an older release that
-replays such a cancel from its RAFT log keeps the run PREPARING: it refuses
-schema changes on the collection that the rest of the cluster commits, or, if
-the leader replayed it too, finishes the cancelled run and flips the schema.
-Before rolling back below this version, make every node snapshot past its last
-reindex run: restart each node on this version with
+**Rolling back below this version after a reindex run.** This build records a
+multi-tenant run's preparation per tenant, and accepts a cancel while a run is
+PREPARING. Older releases read neither as this build does. A node of an older
+release that replays a reindex run from its RAFT log can end it differently
+from the rest of the cluster:
+
+- It can keep the run PREPARING, whether it finished, failed or was cancelled.
+  The node then refuses every schema change on the collection, deleting it
+  included, and refuses to cancel the run.
+- It can move the run to SWAPPING and run the swap and schema flip again, on a
+  run that already finished or on a failed or cancelled one.
+
+Which outcome a run gets depends on the order its acknowledgements landed, which
+an operator cannot see. Before rolling back below this version, make every node
+snapshot past its last reindex run: restart each node on this version with
 `RAFT_SNAPSHOT_THRESHOLD=1 RAFT_SNAPSHOT_INTERVAL=5`, wait for it to write a new
-snapshot, then roll back.
+snapshot, then roll back with both variables removed. Left set, they make the
+node snapshot every few seconds.
 
 ## 15. Files of interest
 
