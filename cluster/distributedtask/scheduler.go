@@ -933,7 +933,7 @@ func (s *Scheduler) runPreparationPhase(
 			// context.Canceled is the provider's retryable signal; dropping the mark lets a retry happen.
 			if errors.Is(groupErr, context.Canceled) {
 				delete(state.preparationCallbackFired, w.groupID)
-				// Debug: a step waiting on an operator re-fires every tick, and its wait was logged once when it began.
+				// This line is at Debug because a step that waits on an operator re-fires every tick, and the provider logs that wait itself.
 				s.loggerWithTask(namespace, desc).
 					WithField("groupID", w.groupID).
 					Debugf("PREP phase did not complete and is retryable; a later tick or the next boot re-fires it and emits the prep-complete ack: %v", groupErr)

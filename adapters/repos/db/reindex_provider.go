@@ -1278,7 +1278,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 	var agg phaseResult
 	var aggMu sync.Mutex
 	refused := map[string]struct{}{}
-	// Logged once a unit passes the hold check, so a group that only waits on a hold adds no line per tick.
+	// started logs start once a unit passes the hold check, so a group that only waits on a hold logs no start line per tick.
 	var started sync.Once
 
 	runOne := func(unitID string) {

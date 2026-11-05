@@ -49,7 +49,7 @@ func linesOf(entries []*logrus.Entry) []string {
 	return out
 }
 
-// One line per fault kind per shard, not per record.
+// Recovery logs one line per fault kind per shard, not one per record.
 func TestRecoveryReportsEachFaultKindOnce(t *testing.T) {
 	const records = 12
 	fixtureLogger, _ := logrustest.NewNullLogger()

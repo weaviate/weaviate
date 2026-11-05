@@ -37,7 +37,7 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 	return recovered
 }
 
-// armRecoveredMigrations returns the tasks it could neither arm nor stamp Unmirrored, and why.
+// armRecoveredMigrations returns every task that failed to arm when not all of them could be stamped Unmirrored, and why.
 func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardReindexTaskGeneric,
 ) ([]*ShardReindexTaskGeneric, error) {
 	var unarmed []*ShardReindexTaskGeneric

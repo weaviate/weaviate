@@ -200,8 +200,8 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 // A status change can run inside a RAFT apply.
 const liftRetryTimeout = 30 * time.Second
 
-// retryHeldMigrations runs before the status lock so reads never wait on the disk. Only the wait is
-// bounded, because a stamp is permanent, and the arm holds a shard reference that shutdown waits for.
+// retryHeldMigrations runs before the status lock so reads never wait on the disk. Only the wait is bounded,
+// because a cancelled arm would stamp a healthy migration for good. Shutdown waits for the arm's shard reference.
 func (s *Shard) retryHeldMigrations(in string) error {
 	target, err := storagestate.ValidateStatus(strings.ToUpper(in))
 	held := s.migrationMirrors.heldUnarmed()
@@ -238,8 +238,8 @@ func (s *Shard) retryHeldMigrations(in string) error {
 	}
 }
 
-// rearmHeld reads the held set under liftRetry, because an earlier lift's late arm may have settled it.
-// It arms under the unit claims cleanup's seal waits on, so a teardown cannot remove what the arm re-creates.
+// rearmHeld reads the held set under liftRetry, because an arm an earlier lift stopped waiting for may have armed or stamped it.
+// It arms only units ClaimUnits claimed, which a cleanup's seal waits for, so a teardown cannot remove what the arm re-creates.
 func (s *Shard) rearmHeld() error {
 	held := s.migrationMirrors.heldUnarmed()
 	if len(held) == 0 {

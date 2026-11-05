@@ -597,11 +597,12 @@ func TestAHeldStepWaitsUntilTheLiftWritesTheStatus(t *testing.T) {
 }
 
 func receiveWithin[T any](t *testing.T, ch <-chan T) T {
+	t.Helper()
 	select {
 	case v := <-ch:
 		return v
 	case <-time.After(10 * time.Second):
-		t.Fatal("blocked on the stuck disk")
+		t.Fatal("no value within 10s")
 		var zero T
 		return zero
 	}
@@ -695,7 +696,7 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 	}
 }
 
-// heldStepOutcome reports the first verdict on the step: a prepare ack or a unit result.
+// heldStepOutcome sends to done each verdict the scheduler records for the step: a prepare ack, a swap ack or a unit result.
 type heldStepOutcome struct {
 	task *distributedtask.Task
 	done chan string
