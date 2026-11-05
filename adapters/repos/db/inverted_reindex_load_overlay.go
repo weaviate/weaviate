@@ -36,8 +36,7 @@ func migrationEnablesIndexType(mt ReindexMigrationType) (string, bool) {
 
 // migrationOverridesSchema reports whether rec, not the schema, answers for
 // what it migrated: from its flip decision until its owning task finishes or
-// is gone, either of which means the flip landed. A task list not readable
-// yet keeps the record answering, which a migration in flight needs.
+// leaves the task list. An unreadable task list keeps the record answering.
 func migrationOverridesSchema(rec MigrationRecord, tasks []distributedtask.TaskStatusEntry, readable bool) bool {
 	if !rec.FlipDecided() {
 		return false
@@ -49,10 +48,9 @@ func migrationOverridesSchema(rec MigrationRecord, tasks []distributedtask.TaskS
 	return found && task.Status != distributedtask.TaskStatusFinished
 }
 
-// restoreMigratedOverlays re-installs the overlay a swap left in memory
-// for a migration promoted here whose flip may not have landed (a sibling
-// tenant failed, or the flip is in flight); without it, reload would read
-// and write those buckets under the schema's stale settings.
+// restoreMigratedOverlays re-installs the overlay of every property this
+// shard promoted while its record still overrides the schema, so a reload
+// does not read and write those buckets under the schema's stale settings.
 func (s *Shard) restoreMigratedOverlays(class *models.Class) {
 	if s.migrationRecords == nil || class == nil {
 		return

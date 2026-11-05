@@ -222,10 +222,8 @@ func (p *ReindexProvider) SetCompletionRecorder(recorder distributedtask.TaskCom
 // instances reconstructed during startup recovery (see
 // [DiscoverInFlightReindexTasks] and [RegisterRecoveredReindexes]). The
 // purpose is to make OnGroupCompleted and OnSwapRequested reuse the
-// recovered instances, whose double-write callbacks shard init already
-// re-registered, rather than rebuild them from disk and run OnAfterLsmInit
-// a second time. The scheduler's startup cleanup keeps them for every task
-// still in the task list.
+// recovered instances rather than run OnAfterLsmInit on them a second time;
+// startup cleanup keeps them while their task is listed.
 //
 // Safe to call concurrently with StartTask: StartTask only writes
 // entries for tasks it is starting, while seeding fills entries that
@@ -1992,11 +1990,9 @@ func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 	return true
 }
 
-// reindexRunsWith returns every reindex run the cluster holds, with task in
-// it as this node sees it. Only this run when the list cannot be read: a run
-// that migrated no tenant is then pointed at a rebuild even if an earlier run
-// migrated some, and the server refuses that rebuild with a 409 that names
-// the resubmit.
+// reindexRunsWith returns every reindex run the cluster holds, with task as
+// this node sees it, or task alone when the list cannot be read. The guidance
+// may then name a rebuild, which the server refuses with a 409 naming the resubmit.
 func (p *ReindexProvider) reindexRunsWith(task *distributedtask.Task, payload *ReindexTaskPayload) []ReindexRun {
 	runs := []ReindexRun{{Task: task, Payload: *payload}}
 	if p.taskLister == nil {

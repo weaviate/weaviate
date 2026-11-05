@@ -53,13 +53,12 @@ type ReindexRun struct {
 	Payload ReindexTaskPayload
 }
 
-// ReindexMigratedTenants answers which tenants of property already serve
-// target, from every failed or cancelled run of target since the newest
-// finished schema flip on its index types: that flip covered every tenant.
-// covered is every tenant those runs held. A tenant whose newest swap was to
-// another target no longer serves this one. A single-tenant run's one group,
-// "", counts as one tenant. paid is the part of migrated no replica still owes
-// a swap for: only a resubmit may skip a tenant, so only it reads paid.
+// ReindexMigratedTenants returns the tenants of property whose newest decided
+// swap, over the failed or cancelled runs since the last finished flip on
+// target's index types, went to target (a single-tenant run's one group, "",
+// counts as one tenant), and covered, every tenant the runs of target among
+// them held. paid is the part of migrated no replica still owes a swap for:
+// only a resubmit may skip a tenant, so only it reads paid.
 func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexTaskPayload) (migrated, paid, covered map[string]struct{}) {
 	targetTypes, _ := ReindexIndexTypes(target.MigrationType)
 	var onProperty []ReindexRun

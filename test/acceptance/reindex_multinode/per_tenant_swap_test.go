@@ -93,10 +93,9 @@ func reindexTaskStatus(restURI, taskID string) string {
 	return ""
 }
 
-// Pins that a tenant swaps once its own replicas are ready: the small
-// tenant serves the new tokenization while the large one still reindexes,
-// survives a node restart, and the schema flips once the large tenant
-// finishes.
+// Pins that a tenant swaps once its own replicas are ready: the small tenant
+// serves the new tokenization while the large one reindexes and after a node
+// restart, and the schema flips once the large tenant finishes.
 func TestMultiNode_PerTenantSwap_SmallTenantServesBeforeLargeFinishes(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)

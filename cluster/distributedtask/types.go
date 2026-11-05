@@ -510,10 +510,8 @@ func (t TaskStatus) IsRecognized() bool {
 	return false
 }
 
-// IsCancellable is true while some group's swap may still be undecided. A
-// cancel never waits on a reindex that may itself be the incident: it stops
-// every group whose swap is not decided yet, and leaves decided groups to
-// swap. In SWAPPING every group is decided, so nothing is left to cancel.
+// IsCancellable is true for STARTED and PREPARING, where some group's swap may
+// still be undecided. In SWAPPING every group is decided, so nothing is left to cancel.
 //
 // A literal comparison, not a classification: the FSM apply that reads it
 // must reach the same verdict on every binary that replays the entry,
@@ -614,7 +612,6 @@ type Task struct {
 
 	// SwapsOwed maps each decided group to the replicas yet to report its swap, whatever the status.
 	SwapsOwed map[string][]string `json:"swapsOwed,omitempty"`
-
 
 	// NodePreparationAcks holds released binaries' groupless PREP acks, under their JSON name.
 	NodePreparationAcks map[string]PostCompletionAck `json:"preparationCompletionAcks,omitempty"`
