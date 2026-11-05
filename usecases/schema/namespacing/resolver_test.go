@@ -117,6 +117,7 @@ func TestQualifyUserIDForLookup(t *testing.T) {
 		principal         *models.Principal
 		raw               string
 		want              string
+		wantErr           bool
 	}{
 		{
 			name:              "ns-disabled passes through bare",
@@ -154,12 +155,11 @@ func TestQualifyUserIDForLookup(t *testing.T) {
 			want:              "ns1:alice",
 		},
 		{
-			// Lookups never reject — double-qualify just misses downstream.
-			name:              "ns-enabled namespaced principal double-qualifies an already-qualified name",
+			name:              "ns-enabled namespaced principal refuses a qualified name",
 			namespacesEnabled: true,
 			principal:         &models.Principal{Namespace: "ns1"},
 			raw:               "ns1:alice",
-			want:              "ns1:ns1:alice",
+			wantErr:           true,
 		},
 		{
 			name:              "ns-enabled nil principal passes through",
@@ -171,7 +171,13 @@ func TestQualifyUserIDForLookup(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, namespacing.QualifyUserIDForLookup(tc.principal, tc.namespacesEnabled, tc.raw))
+			got, err := namespacing.QualifyUserIDForLookup(tc.principal, tc.namespacesEnabled, tc.raw)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }
