@@ -1156,6 +1156,7 @@ func FromEnv(config *Config) error {
 	}
 
 	config.Replication.ReplicaMovementEnabled = configRuntime.NewDynamicValue(config.ReplicaMovementEnabled)
+	config.Replication.ReplicaRebalanceEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_REBALANCE_ENABLED")))
 	config.Replication.ReplicaMovementCleanupEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_MOVEMENT_CLEANUP_ENABLED")))
 	config.Replication.ReplicaMovementCleanupIncludeCancelled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_MOVEMENT_CLEANUP_INCLUDE_CANCELLED")))
 

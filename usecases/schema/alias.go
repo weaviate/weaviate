@@ -155,6 +155,9 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Aliases(targetClassName, aliasName)...); err != nil {
 		return nil, err
 	}
+	if err := namespacing.ValidateAliasTarget(aliasName, targetClassName); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
+	}
 	aliases, err := h.schemaManager.AliasesFromLeader(ctx, aliasName, nil)
 	if err != nil {
 		return nil, err

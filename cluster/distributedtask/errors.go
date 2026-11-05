@@ -22,7 +22,7 @@ import (
 
 // Sentinel errors describing stable, non-retryable FSM rejections from
 // [Manager.RecordUnitCompletion], [Manager.UpdateUnitProgress] and similar
-// apply paths.
+// apply paths, and from Store.admitTaskOrMovement before a task is appended.
 //
 // Classifiers (e.g. reindex_provider.isPermanentRecorderRejection) should
 // use errors.Is against ErrPermanentRejection to decide whether to retry.
@@ -99,14 +99,28 @@ var (
 
 	// ErrForceTerminateRefused is a typed rejection from [Manager.ForceTerminateTask].
 	ErrForceTerminateRefused = errors.New("force-terminate refused")
+
+	ErrTaskBlockedByReplicaMovement = errors.New("task blocked by an in-flight replica movement")
+
+	ErrTaskReplicasChanged = errors.New("task built against replicas that have since changed")
 )
+
+func NewBlockedByReplicaMovementError(collection string) error {
+	return wrapPermanent(ErrTaskBlockedByReplicaMovement,
+		fmt.Sprintf("collection %q has a replica movement in flight", collection))
+}
+
+func NewReplicasChangedError(collection string) error {
+	return wrapPermanent(ErrTaskReplicasChanged,
+		fmt.Sprintf("the shards or replicas of collection %q changed while the task was submitted; resubmit it against the current state", collection))
+}
 
 // ErrTaskCompletionPermanent marks an [UnitAwareProvider.OnTaskCompleted]
 // failure as deterministically unrecoverable (e.g. target property deleted
 // mid-flight, payload unparsable): the [Scheduler] fails the task
 // immediately instead of retrying. A plain error is transient and retried
 // up to the per-task bound. Distinct from [ErrPermanentRejection] (FSM
-// apply rejections crossing the RAFT/gRPC boundary).
+// rejections crossing the RAFT/gRPC boundary).
 var ErrTaskCompletionPermanent = errors.New("permanent task-completion failure")
 
 // PermanentRejectionRPCCode is the gRPC status code used to discriminate
@@ -135,6 +149,8 @@ var permanentMarkers = []permanentMarker{
 	{ErrTaskConflict, "task-conflict"},
 	{ErrTaskAlreadyRunning, "task-already-running"},
 	{ErrForceTerminateRefused, "force-terminate-refused"},
+	{ErrTaskBlockedByReplicaMovement, "task-blocked-by-movement"},
+	{ErrTaskReplicasChanged, "task-replicas-changed"},
 }
 
 // markerByID looks up a sentinel by its on-wire id.

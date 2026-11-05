@@ -20,11 +20,13 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
@@ -116,7 +118,9 @@ func (c *arenaChunk) clearLive(slot uint64) bool {
 //
 // Chunk reclamation is intentionally out of scope: memory follows the
 // highest id range touched since startup (or the last Drop/wipe), not the
-// number of live records.
+// number of live records. Occupancy and the node-level
+// weaviate_vector_cache_arena_{slab_bytes,live_vectors} gauges make that
+// gap observable.
 type arenaByteCache struct {
 	shardedLocks *common.LazyShardedRWLocks
 	// maintenanceLock serializes growth against itself, exactly like the
@@ -164,6 +168,66 @@ type arenaByteCache struct {
 	// shardedLockCache.dropped: reads still pass through to vectorForID, but
 	// nothing reallocates the chunk table.
 	dropped atomic.Bool
+
+	// slabBytes is the memory held by installed chunks (record area,
+	// alignment slack, liveness bitmap). Together with count it is this
+	// cache's share of the node-level occupancy gauges, which may be nil
+	// when metrics are unavailable.
+	slabBytes        atomic.Int64
+	slabBytesGauge   prometheus.Gauge
+	liveVectorsGauge prometheus.Gauge
+}
+
+// ArenaOccupancy reports how much memory an arena cache holds against how
+// many records are live in it. Without chunk reclamation the two drift
+// apart under delete/update churn; SlabBytes/LiveVectors far above the
+// stride is the signal.
+type ArenaOccupancy struct {
+	SlabBytes   int64
+	LiveVectors int64
+}
+
+// Occupancy returns the cache's current slab bytes and live record count.
+func (s *arenaByteCache) Occupancy() ArenaOccupancy {
+	return ArenaOccupancy{
+		SlabBytes:   s.slabBytes.Load(),
+		LiveVectors: atomic.LoadInt64(&s.count),
+	}
+}
+
+func (s *arenaByteCache) addSlabBytes(delta int64) {
+	s.slabBytes.Add(delta)
+	if s.slabBytesGauge != nil {
+		s.slabBytesGauge.Add(float64(delta))
+	}
+}
+
+func (s *arenaByteCache) addLive(delta int64) {
+	atomic.AddInt64(&s.count, delta)
+	if s.liveVectorsGauge != nil {
+		s.liveVectorsGauge.Add(float64(delta))
+	}
+}
+
+// resetLive zeroes the live count (wipe, Drop) and takes it off the gauge.
+func (s *arenaByteCache) resetLive() {
+	if old := atomic.SwapInt64(&s.count, 0); old != 0 && s.liveVectorsGauge != nil {
+		s.liveVectorsGauge.Sub(float64(old))
+	}
+}
+
+// releaseChunks takes the footprint of every installed chunk in chunks off
+// the slab accounting. Caller holds every stripe, so no install races it.
+func (s *arenaByteCache) releaseChunks(chunks []*arenaChunk) {
+	var n int64
+	for i := range chunks {
+		if loadChunk(chunks, uint64(i)) != nil {
+			n++
+		}
+	}
+	if n != 0 {
+		s.addSlabBytes(-n * s.chunkFootprint())
+	}
 }
 
 // arenaTable is an immutable view of the chunk table and the length it
@@ -200,6 +264,10 @@ func NewArenaByteCache(vecForID common.VectorForID[byte], recordSize int, maxSiz
 		allocChecker:     allocChecker,
 		prefetchBytes:    compressedPrefetchMaxBytes,
 	}
+	if m := monitoring.GetMetrics(); m != nil {
+		vc.slabBytesGauge = m.VectorCacheArenaSlabBytes
+		vc.liveVectorsGauge = m.VectorCacheArenaLiveVectors
+	}
 	vc.table.Store(&arenaTable{})
 	vc.watchForDeletion()
 	return vc, nil
@@ -227,6 +295,7 @@ func (s *arenaByteCache) chunkAt(ci uint64) *arenaChunk {
 func (s *arenaByteCache) installChunk(ci uint64, ch *arenaChunk) *arenaChunk {
 	if atomic.CompareAndSwapPointer((*unsafe.Pointer)(unsafe.Pointer(&s.chunks[ci])),
 		nil, unsafe.Pointer(ch)) {
+		s.addSlabBytes(s.chunkFootprint())
 		return ch
 	}
 	return s.chunkAt(ci)
@@ -360,7 +429,7 @@ func (s *arenaByteCache) storeRecord(id uint64, vec []byte) {
 		copy(dst, vec)
 	}
 	if ch.setLive(slot) {
-		atomic.AddInt64(&s.count, 1)
+		s.addLive(1)
 	}
 }
 
@@ -505,7 +574,7 @@ func (s *arenaByteCache) Delete(ctx context.Context, id uint64) {
 	// delete stay stable, matching the map-backed cache where the deleted
 	// slice lived on in the reader's hands.
 	if ch.clearLive(id & arenaChunkMask) {
-		atomic.AddInt64(&s.count, -1)
+		s.addLive(-1)
 	}
 }
 
@@ -705,10 +774,11 @@ func (s *arenaByteCache) Drop() {
 	}
 	s.maintenanceLock.Lock()
 	s.shardedLocks.LockAll()
+	s.releaseChunks(s.chunks)
 	s.chunks = nil
 	s.logicalLen = 0
 	s.publishTable()
-	atomic.StoreInt64(&s.count, 0)
+	s.resetLive()
 	s.shardedLocks.UnlockAll()
 	s.maintenanceLock.Unlock()
 
@@ -726,12 +796,13 @@ func (s *arenaByteCache) deleteAllVectors() {
 
 	s.logger.WithField("action", "hnsw_delete_vector_cache").
 		Debug("deleting full vector cache")
+	s.releaseChunks(s.chunks)
 	for i := range s.chunks {
 		// atomic although every stripe is held: All reads the slots of the
 		// published table without any lock
 		atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&s.chunks[i])), nil)
 	}
-	atomic.StoreInt64(&s.count, 0)
+	s.resetLive()
 }
 
 func (s *arenaByteCache) watchForDeletion() {

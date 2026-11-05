@@ -33,35 +33,6 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// shardsForClass returns the shards a class has materialized across the
-// cluster. Node status walks each index's shard map rather than the schema, so
-// a tenant whose shard was refused is absent here while still listed as a
-// tenant — which is what makes a refused materialization observable at all.
-func shardsForClass(t *testing.T, qualifiedClass string) ([]string, error) {
-	t.Helper()
-
-	verbose := "verbose"
-	params := nodes.NewNodesGetClassParams().WithClassName(qualifiedClass).WithOutput(&verbose)
-	resp, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(adminKey))
-	if err != nil {
-		return nil, err
-	}
-
-	seen := map[string]struct{}{}
-	names := []string{}
-	for _, node := range resp.Payload.Nodes {
-		for _, shard := range node.Shards {
-			if _, dup := seen[shard.Name]; dup {
-				continue
-			}
-			seen[shard.Name] = struct{}{}
-			names = append(names, shard.Name)
-		}
-	}
-	sort.Strings(names)
-	return names, nil
-}
-
 // shardOwnerAndOther returns the node that holds shardName and one that does
 // not, so the same request can be aimed at a node that serves it locally and
 // at one that would forward it. Run it before a suspend: a suspended namespace
@@ -115,11 +86,11 @@ func requireShardsEventually(t *testing.T, qualifiedClass string, want ...string
 
 	// want is sorted on a copy, because it aliases the caller's slice when spread
 	// with "...". The copy is non-nil, so a call with no names matches
-	// shardsForClass's empty listing.
+	// helper.ShardsForClass's empty listing.
 	want = append([]string{}, want...)
 	sort.Strings(want)
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		got, err := shardsForClass(t, qualifiedClass)
+		got, err := helper.ShardsForClass(t, qualifiedClass, adminKey)
 		if !assert.NoError(c, err) {
 			return
 		}
@@ -150,14 +121,14 @@ func requireShardAbsent(t *testing.T, qualifiedClass, shardName string, live pre
 
 	var listed, failed, unproven atomic.Int64
 	require.Never(t, func() bool {
-		got, err := shardsForClass(t, qualifiedClass)
+		got, err := helper.ShardsForClass(t, qualifiedClass, adminKey)
 		if err != nil {
 			failed.Add(1)
 			return false
 		}
 		alive := got
 		if live.qualifiedClass != qualifiedClass {
-			alive, err = shardsForClass(t, live.qualifiedClass)
+			alive, err = helper.ShardsForClass(t, live.qualifiedClass, adminKey)
 			if err != nil {
 				failed.Add(1)
 				return false
@@ -256,7 +227,7 @@ func TestNamespaces_SuspendRefusesTenantShardMaterialization(t *testing.T) {
 			{Name: "afterresume", ActivityStatus: models.TenantActivityStatusHOT},
 		}, adminKey))
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			got, err := shardsForClass(t, qualified)
+			got, err := helper.ShardsForClass(t, qualified, adminKey)
 			if !assert.NoError(c, err) {
 				return
 			}
@@ -281,7 +252,7 @@ func requireShardCountEventually(t *testing.T, qualifiedClass string, want int) 
 
 	var got []string
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		names, err := shardsForClass(t, qualifiedClass)
+		names, err := helper.ShardsForClass(t, qualifiedClass, adminKey)
 		if !assert.NoError(c, err) {
 			return
 		}
@@ -364,7 +335,7 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 		requireShardsEventually(t, dropSTQualified)
 		requireShardsEventually(t, dropMTQualified)
 
-		got, err := shardsForClass(t, keepQualified)
+		got, err := helper.ShardsForClass(t, keepQualified, adminKey)
 		require.NoError(t, err)
 		assert.Equal(t, keepShards, got)
 	})

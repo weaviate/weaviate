@@ -21,11 +21,13 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const testRecordSize = 112 // 16 B metadata + 96 B code: centered 768d rq1
@@ -675,4 +677,55 @@ func TestArenaByteCacheMissChargesChunkFootprint(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, arenaTestCodeFor(1, testRecordSize), vec)
 	assert.Equal(t, int64(1024), checker.called[len(checker.called)-1])
+}
+
+// TestArenaByteCacheOccupancy pins the occupancy accounting that makes the
+// missing chunk reclamation observable: slab bytes follow installed chunks,
+// live vectors follow live records, deletes lower only the live count (the
+// documented caveat), and a wipe or Drop gives everything back. The
+// node-level gauges move by exactly the same deltas.
+func TestArenaByteCacheOccupancy(t *testing.T) {
+	ctx := context.Background()
+	m := monitoring.GetMetrics()
+	require.NotNil(t, m)
+	slabBase := testutil.ToFloat64(m.VectorCacheArenaSlabBytes)
+	liveBase := testutil.ToFloat64(m.VectorCacheArenaLiveVectors)
+
+	arena := newTestArena(t, testRecordSize).(*arenaByteCache)
+	chunk := arena.chunkFootprint()
+	assertOcc := func(slab, live int64, msg string) {
+		t.Helper()
+		assert.Equal(t, ArenaOccupancy{SlabBytes: slab, LiveVectors: live}, arena.Occupancy(), msg)
+		assert.Equal(t, slabBase+float64(slab), testutil.ToFloat64(m.VectorCacheArenaSlabBytes), msg)
+		assert.Equal(t, liveBase+float64(live), testutil.ToFloat64(m.VectorCacheArenaLiveVectors), msg)
+	}
+	assertOcc(0, 0, "fresh cache holds nothing")
+
+	// ten records in chunk 0, one in chunk 1, one more via the miss path
+	for id := uint64(0); id < 10; id++ {
+		arena.Preload(id, arenaTestCodeFor(id, testRecordSize))
+	}
+	arena.Preload(arenaChunkSize+1, arenaTestCodeFor(arenaChunkSize+1, testRecordSize))
+	_, err := arena.Get(ctx, 11)
+	require.NoError(t, err)
+	assertOcc(2*chunk, 12, "two chunks, twelve live records")
+
+	// re-preloading a live record moves nothing
+	arena.Preload(3, arenaTestCodeFor(3, testRecordSize))
+	assertOcc(2*chunk, 12, "overwrite of a live record")
+
+	// deletes free records but not chunks: the update-churn caveat
+	for _, id := range []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, arenaChunkSize + 1} {
+		arena.Delete(ctx, id)
+	}
+	assertOcc(2*chunk, 0, "chunks outlive their records")
+
+	arena.Preload(5, arenaTestCodeFor(5, testRecordSize))
+	arena.deleteAllVectors()
+	assertOcc(0, 0, "a wipe releases every chunk")
+
+	arena.Preload(5, arenaTestCodeFor(5, testRecordSize))
+	assertOcc(chunk, 1, "refilled after the wipe")
+	arena.Drop()
+	assertOcc(0, 0, "Drop releases everything")
 }
