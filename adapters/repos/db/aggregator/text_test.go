@@ -93,7 +93,7 @@ func TestTextAggregator_TopOccurrencesCalculation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			agg := newTextAggregator([]aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(nil)})
+			agg := newTextAggregator([]aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(nil)}, true)
 			for _, text := range tc.texts {
 				agg.AddText(text)
 			}
@@ -107,28 +107,28 @@ func TestTextAggregator_TopOccurrencesCalculation(t *testing.T) {
 
 func TestTextAggregator_TracksOccurrencesOnlyWhenRequested(t *testing.T) {
 	limit := 1
+	all := []aggregation.TextOccurrence{{Value: "a", Occurs: 2}, {Value: "b", Occurs: 1}}
 	testCases := []struct {
-		name      string
-		aggs      []aggregation.Aggregator
-		wantItems []aggregation.TextOccurrence
+		name          string
+		aggs          []aggregation.Aggregator
+		onlyRequested bool
+		wantItems     []aggregation.TextOccurrence
 	}{
-		{name: "count only", aggs: []aggregation.Aggregator{aggregation.CountAggregator}},
-		{name: "no aggregators"},
+		{name: "count only", aggs: []aggregation.Aggregator{aggregation.CountAggregator}, onlyRequested: true},
+		{name: "no aggregators", onlyRequested: true},
 		{
-			name:      "top occurrences",
-			aggs:      []aggregation.Aggregator{aggregation.CountAggregator, aggregation.NewTopOccurrencesAggregator(&limit)},
-			wantItems: []aggregation.TextOccurrence{{Value: "a", Occurs: 2}},
+			name:          "top occurrences",
+			aggs:          []aggregation.Aggregator{aggregation.CountAggregator, aggregation.NewTopOccurrencesAggregator(&limit)},
+			onlyRequested: true,
+			wantItems:     []aggregation.TextOccurrence{{Value: "a", Occurs: 2}},
 		},
-		{
-			name:      "top occurrences asked for as totalTrue by an older node",
-			aggs:      []aggregation.Aggregator{aggregation.TotalTrueAggregator},
-			wantItems: []aggregation.TextOccurrence{{Value: "a", Occurs: 2}, {Value: "b", Occurs: 1}},
-		},
+		{name: "count only, caller reads unrequested results", aggs: []aggregation.Aggregator{aggregation.CountAggregator}, wantItems: all},
+		{name: "no aggregators, caller reads unrequested results", wantItems: all},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			agg := newTextAggregator(tc.aggs)
+			agg := newTextAggregator(tc.aggs, tc.onlyRequested)
 			for _, text := range []string{"a", "b", "a"} {
 				require.NoError(t, agg.AddText(text))
 			}
@@ -171,8 +171,8 @@ func TestTextAggregator_RowsCountTheSameWithAndWithoutOccurrences(t *testing.T) 
 
 	for _, tc := range testCases {
 		t.Run(string(tc.prop), func(t *testing.T) {
-			countOnly := newTextAggregator([]aggregation.Aggregator{aggregation.CountAggregator})
-			withOccurrences := newTextAggregator([]aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(nil)})
+			countOnly := newTextAggregator([]aggregation.Aggregator{aggregation.CountAggregator}, true)
+			withOccurrences := newTextAggregator([]aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(nil)}, true)
 			for _, row := range encoded {
 				require.NoError(t, (&Aggregator{}).parseAndAddTextRow(countOnly, row, tc.prop))
 				require.NoError(t, (&Aggregator{}).parseAndAddTextRow(withOccurrences, row, tc.prop))
@@ -194,7 +194,7 @@ func TestTextAggregator_CountsConcurrentRows(t *testing.T) {
 	require.NoError(t, err)
 
 	const workers, rowsPerWorker = 8, 1000
-	agg := newTextAggregator([]aggregation.Aggregator{aggregation.CountAggregator})
+	agg := newTextAggregator([]aggregation.Aggregator{aggregation.CountAggregator}, true)
 	logger, _ := logrustest.NewNullLogger()
 	eg := enterrors.NewErrorGroupWrapper(logger)
 	for range workers {
