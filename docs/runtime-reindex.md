@@ -1081,9 +1081,11 @@ Then, per shard load:
      writes, so the staged copy stays current. The held migration's own
      prepare and swap wait instead of failing, and the scheduler runs them
      again on a later tick. Another migration's repair, rebuild or
-     iteration unit, prepare or swap waits the same way, unless the shard
-     also holds an unreadable record: then it fails its migration, as on
-     any shard. The shard list (`GET /v1/schema/<class>/shards`) shows
+     iteration unit, prepare or swap waits the same way. If the shard
+     also holds an unreadable record, a unit fails its migration, as on
+     any shard; a prepare or swap fails only when its migration has no
+     task cached on the shard, and otherwise waits too. The shard list
+     (`GET /v1/schema/<class>/shards`) shows
      only READONLY, with no reason, the same as under disk pressure. The
      owning node logs one Error line per hold, when it starts, naming the
      shard, the cause and the way out. A waiting step's retry line is at
@@ -1095,8 +1097,8 @@ Then, per shard load:
      hold began, logs a Warn naming its task, unit and shard. These lines
      share one budget with the line about a teardown holding a unit: at
      most 10 a minute per node.
-     A refused write and a refused lift carry the cause too.
-     - Only a manual status update lifts the hold. A vector-index config
+     A refused write names the hold's status reason; a refused lift names the cause.
+     - Of the status writers, only a manual status update lifts the hold, and a restart retries too (below). A vector-index config
        change is refused while the shard is READONLY, and disk-pressure
        recovery lifts only its own reason.
      - The lift first retries the arm: if the mirror now arms, the shard
@@ -1105,22 +1107,26 @@ Then, per shard load:
        the lift is refused with the cause, and any bucket the retry opened
        is set back to READONLY.
      - The way out depends on what stopped the arm, which the hold log and
-       the refusal name. An unreadable record or a migration already
-       swapped in only rules out the stamp; it does not change the way out.
+       the refusal name. For a migration not yet swapped in, clearing what
+       blocks the stamp also ends the hold: the stamp lands, the shard goes
+       writable, and the migration must be resubmitted.
 
        | What stopped the arm | Way out |
        |---|---|
        | The disk fails reads or writes | Once it works, set the shard READY |
-       | A staged bucket cannot open because a segment file is damaged | Repair or restore that file, then set the shard READY or restart the node |
-       | A migration already swapped in, whose segment cannot be repaired while a second fault (an unwritable records dir or another unreadable record) blocks its promotion | No supported exit. Its task blocks tenant and class changes on the collection; on several nodes, another node's failed step moves the task to FAILED, which lifts that block but not the hold. Clearing the second fault and restarting makes the shard fail to load. |
+       | A staged bucket cannot open because a segment file is damaged | Repair or restore that file, then set the shard READY or restart the node. If the migration is not yet swapped in, you can instead make the records dir writable (or repair the unreadable record and restart) and set READY: the migration then fails and must be resubmitted |
+       | A migration already swapped in, whose segment cannot be repaired while a second fault (an unwritable records dir or another unreadable record) blocks its promotion | No supported exit. While its task still runs, it blocks tenant and class changes on the collection, and so does any other migration whose prepare or swap waits on this shard; on several nodes, another node's failed step can move a SWAPPING task to FAILED, which lifts its block but not the hold. Once the task has FINISHED (a swapped-in record outlives its task until the shard's next load), nothing blocks those changes and only this shard stays READONLY. Clearing the second fault and restarting makes the shard fail to load. |
      - Reads are served while the retry waits on the disk, a second lift
        meanwhile is refused, and a lift waits at most 30 s. A retry still
        running then keeps going, and the shard's shutdown waits for it: a
        migration is stamped only because its arm failed, never because a
-       caller stopped waiting. If it arms, the next lift goes writable, and
-       the migration's steps wait until then. A cancel or failure that
-       ends the migration while the retry runs waits for it, then disarms
-       the mirror and removes the staged data. A lift that meets such a
+       caller stopped waiting. If it arms or stamps, the next lift goes
+       writable, and the migration's steps wait until then. A cancel or
+       failure that ends the migration while the retry runs waits up to
+       10 s for it; past that, cleanup on this node is skipped with a
+       Warn, and the next reconciliation pass (within a minute of the
+       retry ending) disarms the mirror and removes the staged data. A
+       lift that meets such a
        cleanup leaves that migration held and is refused; set the status
        again once the cleanup ends.
      - On a multi-node cluster the status PUT can answer 200 while the
