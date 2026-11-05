@@ -1609,7 +1609,7 @@ func TestDelete_Flakyness_gh_1369(t *testing.T) {
 	})
 
 	t.Run("now delete the entrypoint", func(t *testing.T) {
-		// this verifies that our findNewLocalEntrypoint also works when the global
+		// this verifies that the entrypoint repair also works when the global
 		// entrypoint is affected
 		require.Nil(t, index.Delete(index.entryPointID))
 	})
