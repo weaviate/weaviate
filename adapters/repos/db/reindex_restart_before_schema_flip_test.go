@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
@@ -100,6 +101,7 @@ func TestRestartBetweenSwapAndSchemaFlipKeepsQueriesCorrect(t *testing.T) {
 					Status:                  status,
 					Payload:                 raw,
 					NeedsPreparationBarrier: true,
+					SwapDecidedGroups:       map[string]time.Time{"g1": time.Now()},
 				}
 			}
 
