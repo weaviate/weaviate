@@ -1081,8 +1081,9 @@ Then, per shard load:
      would block the promotion that serves its new index). The shard loads
      `READONLY` with its own status reason: it serves reads and takes no
      writes, so the staged copy stays current.
-     - The held migration's own prepare and swap wait instead of
-       failing, and the scheduler runs them again on a later tick.
+     - The held migration's own steps wait instead of failing: its
+       iteration unit if it is still iterating, otherwise its prepare and
+       swap. The scheduler runs them again on a later tick.
        Another migration's repair, rebuild or iteration unit, prepare or
        swap waits the same way. If the shard also holds an unreadable
        record, a unit fails its migration, as on any shard; a prepare or
