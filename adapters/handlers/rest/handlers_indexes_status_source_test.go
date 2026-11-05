@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/runtime"
 	"github.com/sirupsen/logrus"
@@ -292,27 +293,7 @@ func TestGetIndexes_AForeignCollectionsTaskReachesNoEntry(t *testing.T) {
 				},
 			)
 
-			h := &indexesHandlers{
-				appState: &state.State{
-					Authorizer:    &authorization.DummyAuthorizer{},
-					SchemaManager: &schemaUC.Manager{SchemaReader: reader},
-					ServerConfig:  &config.WeaviateConfig{},
-					Logger:        logrus.New(),
-				},
-				taskSource: staticTasks{db.ReindexNamespace: {task}},
-			}
-
-			resp := h.getIndexes(schema.SchemaObjectsIndexesGetParams{
-				HTTPRequest: httptest.NewRequest(http.MethodGet, "/", nil),
-				ClassName:   "C",
-			}, &models.Principal{Username: "u"})
-
-			rec := httptest.NewRecorder()
-			resp.WriteResponse(rec, runtime.JSONProducer())
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			var body models.IndexStatusResponse
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			body := getIndexesOfC(t, reader, task)
 			require.Len(t, body.Properties, 1)
 
 			var searchable *models.IndexStatus
@@ -329,4 +310,68 @@ func TestGetIndexes_AForeignCollectionsTaskReachesNoEntry(t *testing.T) {
 				"only a completed migration on this collection may resolve the algorithm")
 		})
 	}
+}
+
+// Pins: with the schema flag off, an entry a reindex task drives is shown
+// whatever status it reads, and only a task-free entry is hidden.
+func TestGetIndexes_FlagOffShowsEveryTaskDrivenEntry(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		status     distributedtask.TaskStatus
+		decided    bool
+		wantStatus string // "" means the entry is hidden
+	}{
+		{name: "running", status: distributedtask.TaskStatusStarted, wantStatus: models.IndexStatusStatusIndexing},
+		{name: "cancelled, nothing migrated", status: distributedtask.TaskStatusCancelled, wantStatus: models.IndexStatusStatusCancelled},
+		{name: "cancelled, one tenant migrated", status: distributedtask.TaskStatusCancelled, decided: true, wantStatus: models.IndexStatusStatusPartial},
+		{name: "finished", status: distributedtask.TaskStatusFinished},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			off := false
+			reader := schemaUC.NewMockSchemaReader(t)
+			reader.EXPECT().ResolveAlias("C").Return("")
+			reader.EXPECT().ClassInfo("C").Return(clusterSchema.ClassInfo{Exists: true})
+			reader.EXPECT().ReadOnlyClass("C").Return(&models.Class{Class: "C", Properties: []*models.Property{
+				{Name: "p", DataType: []string{"text"}, IndexFilterable: &off, IndexSearchable: &off},
+			}})
+			task := buildTask(t, "C:enable-filterable:p:0001", tt.status,
+				db.ReindexTaskPayload{MigrationType: db.ReindexTypeEnableFilterable, Collection: "C", Properties: []string{"p"}},
+				map[string]*distributedtask.Unit{"u1": {ID: "u1", GroupID: "t1"}, "u2": {ID: "u2", GroupID: "t2"}})
+			if tt.decided {
+				task.SwapDecidedGroups = map[string]time.Time{"t1": time.Now()}
+			}
+			body := getIndexesOfC(t, reader, task)
+			var got []string
+			for _, idx := range body.Properties[0].Indexes {
+				got = append(got, idx.Type+"="+idx.Status)
+			}
+			var want []string
+			if tt.wantStatus != "" {
+				want = []string{"filterable=" + tt.wantStatus}
+			}
+			require.Equal(t, want, got)
+		})
+	}
+}
+
+func getIndexesOfC(t *testing.T, reader *schemaUC.MockSchemaReader, task *distributedtask.Task) models.IndexStatusResponse {
+	t.Helper()
+	h := &indexesHandlers{
+		appState: &state.State{
+			Authorizer:    &authorization.DummyAuthorizer{},
+			SchemaManager: &schemaUC.Manager{SchemaReader: reader},
+			ServerConfig:  &config.WeaviateConfig{},
+			Logger:        logrus.New(),
+		},
+		taskSource: staticTasks{db.ReindexNamespace: {task}},
+	}
+	resp := h.getIndexes(schema.SchemaObjectsIndexesGetParams{
+		HTTPRequest: httptest.NewRequest(http.MethodGet, "/", nil), ClassName: "C",
+	}, &models.Principal{Username: "u"})
+	rec := httptest.NewRecorder()
+	resp.WriteResponse(rec, runtime.JSONProducer())
+	require.Equal(t, http.StatusOK, rec.Code)
+	var body models.IndexStatusResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	return body
 }

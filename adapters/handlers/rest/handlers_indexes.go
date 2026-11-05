@@ -260,15 +260,13 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 					idx.Algorithm = models.IndexStatusAlgorithmBlockmax
 				}
 			}
-			mergeReindexStatus(idx, collection, prop.Name, e.indexType, parsedTasks, h.appState.Logger)
+			taskDriven := mergeReindexStatus(idx, collection, prop.Name, e.indexType, parsedTasks, h.appState.Logger)
 			// Strip the caller's namespace so status and submit responses agree.
 			if idx.TaskID != "" {
 				idx.TaskID = namespacing.StripOwnNamespace(principal, idx.TaskID)
 			}
-			// Flag on → always emit. Flag off → emit only when a reindex
-			// task carries actionable signal (in-flight or terminal
-			// failure/cancellation).
-			if e.flagOn || isSyntheticStatus(idx.Status) {
+			// Flag off: emit only an entry a reindex task drives.
+			if e.flagOn || taskDriven {
 				indexes = append(indexes, idx)
 			}
 		}
@@ -780,7 +778,7 @@ func parseReindexTasks(tasks []*distributedtask.Task) []db.ReindexRun {
 
 // mergeReindexStatus checks if there's an active or recently-terminated
 // reindex task that targets the given property+indexType and updates the
-// IndexStatus accordingly.
+// IndexStatus accordingly. It reports whether a task drove the entry.
 //
 // Status values produced (in addition to the caller-supplied default
 // "ready"):
@@ -819,7 +817,7 @@ func parseReindexTasks(tasks []*distributedtask.Task) []db.ReindexRun {
 // added without updating this switch would otherwise silently report "ready"
 // for an in-flight task. Passing a nil logger is allowed (test callers may
 // rely on this); the entry is still skipped, just without a log line.
-func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, parsedTasks []db.ReindexRun, logger logrus.FieldLogger) {
+func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, parsedTasks []db.ReindexRun, logger logrus.FieldLogger) bool {
 	// Two tasks for the same (collection, prop, indexType) may coexist —
 	// e.g. a freshly retried STARTED enable-filterable plus the original
 	// FAILED attempt that the operator just retried (terminal tasks
@@ -875,7 +873,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	}
 
 	if best == nil {
-		return
+		return false
 	}
 
 	// Decide the status first; only THEN apply per-migration-type side
@@ -946,7 +944,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// in-flight signal. A "ready" entry is already fully described by the
 	// schema-derived fields above.
 	if !surfaceSyntheticFields {
-		return
+		return false
 	}
 
 	// Surface the driving task's ID on every task-driven entry; absent on a
@@ -975,6 +973,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		db.ReindexTypeRepairRangeable:
 		// No tokenization or algorithm side effects for these types.
 	}
+	return true
 }
 
 // taskStatusPriority ranks FINISHED with FAILED and CANCELLED rather than
@@ -1025,22 +1024,6 @@ func shortRandomSuffix() string {
 		return "0000"
 	}
 	return hex.EncodeToString(b)
-}
-
-// isSyntheticStatus reports whether the IndexStatus.Status value was
-// emitted by mergeReindexStatus (i.e. driven by a reindex task) and so
-// should be surfaced even when the property's schema flag for that index
-// type is off. The default "ready" remains invisible when the flag is
-// off, since it carries no actionable signal.
-func isSyntheticStatus(s string) bool {
-	switch s {
-	case models.IndexStatusStatusIndexing,
-		models.IndexStatusStatusPending,
-		models.IndexStatusStatusFailed,
-		models.IndexStatusStatusCancelled:
-		return true
-	}
-	return false
 }
 
 func errorResponse(principal *models.Principal, msg string) *models.ErrorResponse {
