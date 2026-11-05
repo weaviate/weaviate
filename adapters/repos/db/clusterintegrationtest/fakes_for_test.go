@@ -545,7 +545,7 @@ func (f *fakeBackupBackend) successLocalMeta() backup.BackupDescriptor {
 						PropLengthTrackerPath: ".",
 					},
 				},
-				ShardingState: []byte("sharding state!"),
+				ShardingState: []byte(`{"physical":{"123":{"name":"123","belongsToNodes":["node-0"]}}}`),
 				Schema:        []byte("schema!"),
 			},
 		},

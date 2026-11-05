@@ -215,6 +215,13 @@ func (d *DistributedBackupDescriptor) Validate() error {
 	if len(d.Nodes) == 0 {
 		return fmt.Errorf("empty list of node descriptors")
 	}
+	// Each node's BackupDescriptor.Validate refuses the same names, but only
+	// after the restore request was accepted.
+	for _, c := range d.Classes() {
+		if _, err := schema.ValidateQualifiedClassName(c); err != nil {
+			return fmt.Errorf("class=%q: %w", c, err)
+		}
+	}
 	return nil
 }
 

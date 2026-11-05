@@ -404,6 +404,14 @@ func TestDistributedBackupValidate(t *testing.T) {
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Nodes: map[string]*NodeDescriptor{"N": {}},
 		}, success: true},
+		{desc: DistributedBackupDescriptor{
+			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
+			Nodes: map[string]*NodeDescriptor{"N": {Classes: []string{"ns1:Movies"}}},
+		}, success: true},
+		{desc: DistributedBackupDescriptor{
+			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
+			Nodes: map[string]*NodeDescriptor{"N": {Classes: []string{"Movies", "../../../../bin"}}},
+		}},
 	}
 	for i, tc := range tests {
 		err := tc.desc.Validate()
