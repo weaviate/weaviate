@@ -1135,15 +1135,15 @@ func (m *Manager) LocalDistributedTasks() map[string][]*Task {
 
 // LocalTaskStatuses copies no units: a decider can read once per record, under
 // the lock RAFT applies wait on, where [Manager.LocalDistributedTasks] clones them all.
-// Each entry answers for group alone.
-func (m *Manager) LocalTaskStatuses(namespace, group string) []TaskStatusEntry {
+// Each entry answers for that shard alone.
+func (m *Manager) LocalTaskStatuses(namespace, shard string) []TaskStatusEntry {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	tasks := m.tasks[namespace]
 	out := make([]TaskStatusEntry, 0, len(tasks))
 	for _, task := range tasks {
-		out = append(out, task.StatusEntryFor(group))
+		out = append(out, task.StatusEntryFor(shard))
 	}
 	return out
 }

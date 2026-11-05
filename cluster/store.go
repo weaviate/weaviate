@@ -531,8 +531,8 @@ func (st *Store) LocalDistributedTasks() map[string][]*distributedtask.Task {
 	return st.distributedTasksManager.LocalDistributedTasks()
 }
 
-func (st *Store) LocalTaskStatuses(namespace, group string) []distributedtask.TaskStatusEntry {
-	return st.distributedTasksManager.LocalTaskStatuses(namespace, group)
+func (st *Store) LocalTaskStatuses(namespace, shard string) []distributedtask.TaskStatusEntry {
+	return st.distributedTasksManager.LocalTaskStatuses(namespace, shard)
 }
 
 // lastIndex returns the last index in stable storage,

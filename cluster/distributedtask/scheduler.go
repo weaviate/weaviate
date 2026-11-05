@@ -45,7 +45,7 @@ import (
 //
 //   - completedCallbackFired: per-task one-shot for [UnitAwareProvider.OnTaskCompleted].
 //   - swapPending / prepPending: the groups PHASE B / PHASE A may still have
-//     to act on here; nil until the first tick fills them with every group.
+//     to act on here; nil until the first tick fills them (a terminal barrier task's swapPending with its owed groups only).
 //     A tick visits only these, and drops a group once nothing is left for it.
 //   - postCompletionAckEmitted: per-task one-shot for emitting the per-node
 //     PostCompletionAck via [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck].
@@ -338,8 +338,8 @@ func (s *Scheduler) bootstrapProviders(tasksByNamespace map[string]map[TaskDescr
 			Set(float64(len(startedTasks)))
 	}
 
-	// Pre-mark callbacks for already-terminal tasks as fired so the tick
-	// loop's completedCallbackFired guard and empty pending sets skip them. This MUST
+	// Pre-mark already-terminal tasks so the tick skips their callbacks, except
+	// the swaps a barrier task still owes. This MUST
 	// happen for every provider's tasks, not just the providers we have
 	// registered locally — a task in a namespace we don't host can still
 	// appear in tasksByNamespace via RAFT replication.
@@ -347,10 +347,10 @@ func (s *Scheduler) bootstrapProviders(tasksByNamespace map[string]map[TaskDescr
 	s.bootstrapped = true
 }
 
-// preMarkTerminalCallbacksLocked sets completedCallbackFired and empties the
-// pending group sets for every task that is already terminal in the
-// provided snapshot. The intent is to suppress post-restart callback
-// replay: the in-memory `*CallbackFired` maps are empty on every fresh
+// preMarkTerminalCallbacksLocked sets completedCallbackFired and empties
+// prepPending for every task already terminal in the provided snapshot, and
+// swapPending for a non-barrier one: the first tick refills a barrier task's
+// swapPending from SwapsOwed. The per-task state is empty on every fresh
 // scheduler, and without this pre-mark the tick loop would re-fire
 // OnGroupCompleted + OnTaskCompleted for every task still in the FSM
 // (including tasks whose callbacks already fired before the restart).
@@ -1385,8 +1385,8 @@ func (s *Scheduler) loggerWithTask(namespace string, taskDesc TaskDescriptor) *l
 
 // allLocalGroupsReturnedLocked reports whether every group with a unit on
 // this node has returned from its callback at least once, so the ack reflects
-// the full local picture. A group being retried has returned, or the ack
-// would hold SWAPPING forever. Caller must hold s.mu.
+// the full local picture. A group whose callback was cancelled has not
+// returned: it is retried, and the ack waits for it. Caller must hold s.mu.
 func (s *Scheduler) allLocalGroupsReturnedLocked(task *Task, desc TaskDescriptor) bool {
 	state := s.perTaskStateLocked(desc)
 	for _, groupID := range task.Groups() {

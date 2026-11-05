@@ -103,7 +103,7 @@ type TaskFinalizer interface {
 // makes [UnitAwareProvider.OnTaskCompleted] skip the cluster-wide
 // schema flip on that path. A barrier task acks per group and finalizes once [Task.SwapsOwed] is empty.
 //
-// The recorded state is stored on the [Task] (see [Task.PostCompletionAcks])
+// The recorded state is stored on the [Task] (see [Task.PostCompletionAcks], or [Task.SwapsOwed] for a barrier task)
 // and survives RAFT snapshot/restore so a node restart during the
 // SWAPPING window does not lose the cluster's collected acks.
 //
@@ -535,7 +535,7 @@ type TaskDescriptor struct {
 type TaskStatusEntry struct {
 	TaskDescriptor
 	Status TaskStatus
-	// GroupDecided keeps a failed or cancelled run's record for the swap its replica still owes.
+	// GroupDecided reports that the group's swap was decided, owed or paid; a failed or cancelled run keeps a decided group's record.
 	GroupDecided bool
 }
 
@@ -619,19 +619,10 @@ type Task struct {
 	// NodePreparationAcks holds released binaries' groupless PREP acks, under their JSON name.
 	NodePreparationAcks map[string]PostCompletionAck `json:"preparationCompletionAcks,omitempty"`
 
-	// PostCompletionAcks records per-node confirmations that the node's
-	// SWAP phase (the second half of the split OnGroupCompleted —
-	// per-shard SwapBucketPointer tight loop + post-atomic cleanup +
-	// per-strategy OnMigrationComplete) completed successfully. Keys are
-	// node IDs. Populated only after the task transitions to SWAPPING
-	// and only by the [Scheduler] tick firing
-	// [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck]
-	// once the local SWAP has returned. The Manager FSM gates the
-	// SWAPPING → FINISHED transition (via
-	// [TaskFinalizer.MarkDistributedTaskFinalized]) on having an ack
-	// from every node with local units; if any ack is
-	// [PostCompletionAck.Success]==false the FSM transitions the task
-	// to FAILED instead.
+	// PostCompletionAcks records a non-barrier task's per-node confirmations that
+	// its OnGroupCompleted calls returned, keyed by node ID. The scheduler
+	// finalizes SWAPPING only once every node with local units acked, and a
+	// Success==false ack fails the task. A barrier task's acks pay [Task.SwapsOwed] instead.
 	//
 	// Nil for tasks whose provider does not implement [UnitAwareProvider]
 	// (no OnGroupCompleted to ack).

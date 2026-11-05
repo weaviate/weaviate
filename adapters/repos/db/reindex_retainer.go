@@ -112,7 +112,7 @@ func ReindexMigratedPhrase(migrated, covered map[string]struct{}, property strin
 }
 
 // ReindexPartialRun returns the newest run on property that left some tenants
-// of indexTypes on its target, with those tenants; nil once a flip covered it.
+// of indexTypes on its target, with those tenants; nil once a flip covered it or no tenant still serves target.
 func ReindexPartialRun(runs []ReindexRun, collection, property string, indexTypes []string) (partial *ReindexRun, migrated, covered map[string]struct{}) {
 	for i := range runs {
 		run := &runs[i]
@@ -127,7 +127,7 @@ func ReindexPartialRun(runs []ReindexRun, collection, property string, indexType
 		return nil, nil, nil
 	}
 	if migrated, _, covered = ReindexMigratedTenants(runs, property, &partial.Payload); len(migrated) == 0 {
-		return nil, nil, nil // a newer finished flip covered it
+		return nil, nil, nil // a newer finished flip covered it, or no tenant still serves target
 	}
 	return partial, migrated, covered
 }

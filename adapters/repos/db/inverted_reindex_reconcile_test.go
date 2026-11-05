@@ -178,7 +178,7 @@ func (f *reconcileFixture) reconcile() *migrationReconciler {
 func (f *reconcileFixture) deps() migrationReconcileDeps {
 	return migrationReconcileDeps{
 		// The shard testMigrationSubject's unit names.
-		Group: "shard-1",
+		Shard: "shard-1",
 		LocalTasks: func() ([]distributedtask.TaskStatusEntry, bool) {
 			return migrationTaskStatuses(f.tasks, "shard-1"), f.tasksReadable
 		},

@@ -36,8 +36,8 @@ type migrationStagedBucketCloser interface {
 }
 
 type migrationReconcileDeps struct {
-	// Group is the shard's name, which every reindex unit of the shard is grouped under.
-	Group string
+	// Shard is this shard's name; [distributedtask.Task.StatusEntryFor] maps it to the run's group, "" for an ungrouped run.
+	Shard string
 
 	LocalTasks func() ([]distributedtask.TaskStatusEntry, bool)
 
@@ -347,7 +347,7 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 	if len(r.store.Unreadable()) > 0 {
 		return
 	}
-	statuses := migrationTaskStatuses(tasks, r.deps.Group)
+	statuses := migrationTaskStatuses(tasks, r.deps.Shard)
 	for _, rec := range r.store.Records() {
 		if ctx.Err() != nil {
 			return
@@ -939,11 +939,11 @@ func findMigrationTask(subject MigrationSubject, tasks []distributedtask.TaskSta
 	return distributedtask.TaskStatusEntry{}, false
 }
 
-func migrationTaskStatuses(tasks []*distributedtask.Task, group string) []distributedtask.TaskStatusEntry {
+func migrationTaskStatuses(tasks []*distributedtask.Task, shard string) []distributedtask.TaskStatusEntry {
 	out := make([]distributedtask.TaskStatusEntry, 0, len(tasks))
 	for _, task := range tasks {
 		if task != nil {
-			out = append(out, task.StatusEntryFor(group))
+			out = append(out, task.StatusEntryFor(shard))
 		}
 	}
 	return out
@@ -962,7 +962,7 @@ func (r *migrationReconciler) DiscardTask(ctx context.Context, task *distributed
 	if len(r.store.Unreadable()) > 0 {
 		return errors.New("a migration record on this shard cannot be read, so no record is discarded")
 	}
-	entry := task.StatusEntryFor(r.deps.Group)
+	entry := task.StatusEntryFor(r.deps.Shard)
 	verdict, why := r.verdictForTask(entry)
 	if verdict != migrationVerdictDiscard {
 		return nil
