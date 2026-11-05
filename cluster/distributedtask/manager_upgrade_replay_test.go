@@ -69,7 +69,6 @@ func TestReplayOfReleasedBinaryLogs(t *testing.T) {
 		steps         []step
 		want          TaskStatus
 		wantOwed      map[string][]string
-		wantOwing     int
 	}{
 		{
 			name: "finished multi-tenant run", groups: mt, complete: true,
@@ -100,7 +99,7 @@ func TestReplayOfReleasedBinaryLogs(t *testing.T) {
 			name: "failed mid-swap: the replica that never acked owes its swaps", groups: mt, complete: true,
 			steps:    []step{prep("n1", true), prep("n2", true), swapAck("n2", false), swapAck("n1", true)},
 			want:     TaskStatusFailed,
-			wantOwed: map[string][]string{"t1": {"n2"}, "t2": {"n2"}}, wantOwing: 2,
+			wantOwed: map[string][]string{"t1": {"n2"}, "t2": {"n2"}},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -134,7 +133,6 @@ func TestReplayOfReleasedBinaryLogs(t *testing.T) {
 
 			task := m.tasks[ns][id]
 			require.Equal(t, tc.want, task.Status)
-			require.Equal(t, tc.wantOwing, task.SwapsOutstanding)
 			if tc.wantOwed == nil {
 				require.Empty(t, task.SwapsOwed)
 			} else {
@@ -167,7 +165,6 @@ func TestRestoreOfAReleasedBinarysSnapshot(t *testing.T) {
 	statuses := map[string]TaskStatus{}
 	for _, task := range m.tasks["reindex"] {
 		statuses[task.ID] = task.Status
-		require.Zero(t, task.SwapsOutstanding, task.ID)
 		require.Empty(t, task.SwapsOwed, task.ID)
 		require.NotEmpty(t, task.NodePreparationAcks, "%s: the old per-node PREP acks decode into their old name", task.ID)
 	}
@@ -203,7 +200,6 @@ func TestSwapDebtSurvivesSnapshot(t *testing.T) {
 	})))
 	before := m.tasks[ns][id]
 	require.Equal(t, map[string][]string{"t1": {"n2"}}, before.SwapsOwed)
-	require.Equal(t, 1, before.SwapsOutstanding)
 
 	snap, err := m.Snapshot()
 	require.NoError(t, err)
@@ -211,11 +207,9 @@ func TestSwapDebtSurvivesSnapshot(t *testing.T) {
 	require.NoError(t, restored.Restore(snap))
 	after := restored.tasks[ns][id]
 	require.Equal(t, before.SwapsOwed, after.SwapsOwed)
-	require.Equal(t, before.SwapsOutstanding, after.SwapsOutstanding)
 
 	require.NoError(t, restored.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
 		Namespace: ns, Id: id, Version: 1, GroupId: "t1", NodeId: "n2", Success: true, AckedAtUnixMillis: at.UnixMilli(),
 	})))
-	require.Zero(t, restored.tasks[ns][id].SwapsOutstanding)
 	require.Empty(t, restored.tasks[ns][id].SwapsOwed)
 }

@@ -101,7 +101,7 @@ type TaskFinalizer interface {
 // having an ack from every node that has local units in the task, and
 // transitions the task to FAILED if any ack reports failure — which
 // makes [UnitAwareProvider.OnTaskCompleted] skip the cluster-wide
-// schema flip on that path. A barrier task acks per group and finalizes once [Task.SwapsOutstanding] is zero.
+// schema flip on that path. A barrier task acks per group and finalizes once [Task.SwapsOwed] is empty.
 //
 // The recorded state is stored on the [Task] (see [Task.PostCompletionAcks])
 // and survives RAFT snapshot/restore so a node restart during the
@@ -615,8 +615,6 @@ type Task struct {
 	// SwapsOwed maps each decided group to the replicas yet to report its swap, whatever the status.
 	SwapsOwed map[string][]string `json:"swapsOwed,omitempty"`
 
-	// SwapsOutstanding counts SwapsOwed's entries, so readers need no walk.
-	SwapsOutstanding int `json:"swapsOutstanding,omitempty"`
 
 	// NodePreparationAcks holds released binaries' groupless PREP acks, under their JSON name.
 	NodePreparationAcks map[string]PostCompletionAck `json:"preparationCompletionAcks,omitempty"`
@@ -706,7 +704,6 @@ func (t *Task) forgetGroups(groups []string) {
 			delete(t.units, id)
 		}
 		t.groupCount--
-		t.SwapsOutstanding -= len(t.SwapsOwed[group])
 		delete(t.SwapsOwed, group)
 		delete(t.SwapDecidedGroups, group)
 		delete(t.PreparedGroups, group)
@@ -775,7 +772,6 @@ func (t *Task) decideSwap(group string, at time.Time) {
 		t.SwapsOwed = map[string][]string{}
 	}
 	t.SwapsOwed[group] = nodes
-	t.SwapsOutstanding += len(nodes)
 }
 
 func (t *Task) paySwap(group, node string) {
@@ -784,7 +780,6 @@ func (t *Task) paySwap(group, node string) {
 	if i < 0 {
 		return
 	}
-	t.SwapsOutstanding--
 	if len(owed) == 1 {
 		delete(t.SwapsOwed, group)
 		return

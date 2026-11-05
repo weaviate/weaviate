@@ -1171,7 +1171,7 @@ func (s *Scheduler) runCompletedCallbackPhase(
 		return
 	}
 	if s.ackRecorder != nil && task.Status == TaskStatusSwapping {
-		if task.NeedsPreparationBarrier && task.SwapsOutstanding > 0 {
+		if task.NeedsPreparationBarrier && len(task.SwapsOwed) > 0 {
 			return
 		}
 		if !task.NeedsPreparationBarrier && len(task.MissingPostCompletionAckNodes()) > 0 {

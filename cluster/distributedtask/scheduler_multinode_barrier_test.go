@@ -485,13 +485,13 @@ func TestBarrier_G2_PartialPhaseBFailure(t *testing.T) {
 	task = h.getTask(t, taskID)
 	require.Equal(t, TaskStatusFailed, task.Status,
 		"task must remain FAILED — MarkTaskFinalized must not promote past FAILED")
-	require.Equal(t, 1, task.SwapsOutstanding, "only node-2 still owes its swap")
+	require.Equal(t, map[string][]string{"": {"node-2"}}, task.SwapsOwed, "only node-2 still owes its swap")
 
 	// Once node-2's swap succeeds, the debt is paid on a FAILED task.
 	h.nodes[1].provider.SetSwapRequestedError(nil)
 	h.tick(1)
 	task = h.getTask(t, taskID)
-	require.Equal(t, 0, task.SwapsOutstanding)
+	require.Empty(t, task.SwapsOwed)
 	require.Equal(t, 1, h.nodes[0].provider.swapCount(taskID))
 	require.Equal(t, 1, h.nodes[2].provider.swapCount(taskID))
 	require.Equal(t, 3, h.nodes[1].provider.swapCount(taskID), "node-2 swapped until it succeeded")

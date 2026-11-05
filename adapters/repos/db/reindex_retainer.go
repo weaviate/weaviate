@@ -140,7 +140,7 @@ func ReindexPartialRun(runs []ReindexRun, collection, property string, indexType
 func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task,
 ) bool {
-	if task.SwapsOutstanding > 0 {
+	if len(task.SwapsOwed) > 0 {
 		return true
 	}
 	targets := reindexTargets{}
