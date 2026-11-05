@@ -79,12 +79,6 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 	h.advanceClock(h.schedulerTickInterval + time.Minute)
 
 	require.Empty(t, h.listManagerTasks(t))
-	h.advanceClock(h.schedulerTickInterval)
-	require.Eventually(t, func() bool {
-		h.scheduler.mu.Lock()
-		defer h.scheduler.mu.Unlock()
-		return len(h.scheduler.perTaskState) == 0
-	}, 5*time.Second, 10*time.Millisecond, "a task's scheduler state, its start flag included, goes with the task")
 }
 
 // Every task's first start line shows however many start at once; only relaunches are sampled.
@@ -111,6 +105,17 @@ func TestSchedulerLogsEveryTasksFirstStart(t *testing.T) {
 			}
 		}
 		return starts == tasks
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// A task that is no longer started leaves the set, even with a provider that reports no local tasks.
+	for i := range tasks {
+		completeUnit(t, h, h.tasksNamespace, fmt.Sprintf("task-%d", i), 1, h.localNodeID, "u-1")
+	}
+	h.advanceClock(h.schedulerTickInterval)
+	require.Eventually(t, func() bool {
+		h.scheduler.mu.Lock()
+		defer h.scheduler.mu.Unlock()
+		return len(h.scheduler.startLogged[h.tasksNamespace]) == 0
 	}, 5*time.Second, 10*time.Millisecond)
 }
 

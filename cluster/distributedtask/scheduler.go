@@ -68,8 +68,6 @@ type taskSchedulerState struct {
 	// the SWAPPING path; at [maxCompletedCallbackAttempts] the scheduler stops
 	// retrying and fails the task (weaviate/0-weaviate-issues#297).
 	completedCallbackAttempts int
-	// startLogged makes only relaunches go through the start line's sampler, so every task's first start shows.
-	startLogged bool
 }
 
 // maxCompletedCallbackAttempts bounds transient OnTaskCompleted retries on
@@ -113,6 +111,9 @@ const maxCompletedCallbackAttempts = 5
 type Scheduler struct {
 	mu           sync.Mutex
 	runningTasks map[string]map[TaskDescriptor]TaskHandle
+	// startLogged holds the started tasks whose first start line was logged, so only their relaunches are sampled.
+	// It is pruned to the started tasks on every tick, because some providers never report a task for cleanup.
+	startLogged map[string]map[TaskDescriptor]struct{}
 
 	providers          map[string]Provider // namespace -> Provider
 	completionRecorder TaskCompletionRecorder
@@ -223,6 +224,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 
 	return &Scheduler{
 		runningTasks: map[string]map[TaskDescriptor]TaskHandle{},
+		startLogged:  map[string]map[TaskDescriptor]struct{}{},
 
 		providers:          params.Providers,
 		completionRecorder: params.CompletionRecorder,
@@ -814,6 +816,11 @@ func (s *Scheduler) reconcileRunningTasks(
 			}
 		}
 		startedTasks = s.filterStartedTasks(tasks)
+		for desc := range s.startLogged[namespace] {
+			if _, ok := startedTasks[desc]; !ok {
+				delete(s.startLogged[namespace], desc)
+			}
+		}
 		for _, activeTask := range startedTasks {
 			if _, alreadyLaunched := s.runningTasks[namespace][activeTask.TaskDescriptor]; alreadyLaunched {
 				continue
@@ -844,9 +851,11 @@ func (s *Scheduler) reconcileRunningTasks(
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			s.recordRunningTaskHandleLocked(namespace, activeTask.TaskDescriptor, handle)
-			state := s.perTaskStateLockedOrInit(activeTask.TaskDescriptor)
-			logged := state.startLogged
-			state.startLogged = true
+			if s.startLogged[namespace] == nil {
+				s.startLogged[namespace] = map[TaskDescriptor]struct{}{}
+			}
+			_, logged := s.startLogged[namespace][activeTask.TaskDescriptor]
+			s.startLogged[namespace][activeTask.TaskDescriptor] = struct{}{}
 			return logged
 		}()
 		if !relaunch {
