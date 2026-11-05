@@ -773,10 +773,9 @@ func (q *DiskQueue) Retain() error {
 // otherwise; that is how a restart resumes one. Doing it twice replays at most
 // what a backup kept in between. The retention stays until ReleaseRetention.
 func (q *DiskQueue) Rewind() error {
+	// not q.m around the disk work: Push and the scheduler's Size need it
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
-	q.m.Lock()
-	defer q.m.Unlock()
 
 	live := q.r != nil
 	if live && !q.retained {
@@ -811,7 +810,7 @@ func (q *DiskQueue) Rewind() error {
 				continue
 			}
 		}
-		err = os.Remove(tombstonePath)
+		err = removeFile(tombstonePath)
 		if err != nil && !stderrors.Is(err, fs.ErrNotExist) {
 			errs = append(errs, errors.Wrap(err, "failed to remove tombstone"))
 			continue
@@ -828,12 +827,14 @@ func (q *DiskQueue) Rewind() error {
 
 	if live {
 		q.r.rewind(refs)
+		q.m.Lock()
 		for _, ref := range refs {
 			q.recordCount += ref.count
 			q.diskUsage += int64(ref.size)
 		}
 		q.metrics.DiskUsage(q.diskUsage)
 		q.metrics.Size(q.recordCount)
+		q.m.Unlock()
 	}
 	return stderrors.Join(errs...)
 }
@@ -1036,6 +1037,9 @@ func (q *DiskQueue) quarantineChunk(path string, cause error) error {
 		Errorf("chunk is truncated or corrupt, quarantined it; its unreadable records are lost: %v", cause)
 	return nil
 }
+
+// removeFile is a variable so tests can hold a removal to see what it blocks.
+var removeFile = os.Remove
 
 // hardLink is a variable so tests can simulate a filesystem without hard
 // links.
