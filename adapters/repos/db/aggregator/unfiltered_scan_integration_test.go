@@ -272,12 +272,10 @@ func TestUnfilteredObjectScans_AggregateEveryLiveObjectOnce(t *testing.T) {
 
 				t.Run("text", func(t *testing.T) {
 					limit := len(f.live) // every distinct value is listed, so none is cut off
-					got := f.aggregate(ctx, aggregation.ParamProperty{
-						Name:        scanTextProp,
-						Aggregators: []aggregation.Aggregator{{Type: aggregation.TopOccurrencesType, Limit: &limit}},
-					})
+					aggs := []aggregation.Aggregator{{Type: aggregation.TopOccurrencesType, Limit: &limit}}
+					got := f.aggregate(ctx, aggregation.ParamProperty{Name: scanTextProp, Aggregators: aggs})
 
-					want := newTextAggregator(limit)
+					want := newTextAggregator(aggs)
 					for _, o := range f.live {
 						require.NoError(t, want.AddText(o.text))
 					}
@@ -285,6 +283,14 @@ func TestUnfilteredObjectScans_AggregateEveryLiveObjectOnce(t *testing.T) {
 					require.Equal(t, wantRes.Count, got.TextAggregation.Count)
 					// Res breaks ties by first byte only, so the order of equal counts is not stable
 					require.ElementsMatch(t, wantRes.Items, got.TextAggregation.Items)
+				})
+
+				t.Run("text count only", func(t *testing.T) {
+					got := f.aggregate(ctx, aggregation.ParamProperty{
+						Name:        scanTextProp,
+						Aggregators: []aggregation.Aggregator{aggregation.CountAggregator},
+					})
+					require.Equal(t, aggregation.Text{Count: len(f.live)}, got.TextAggregation)
 				})
 
 				t.Run("number array", func(t *testing.T) {
