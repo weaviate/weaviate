@@ -95,6 +95,14 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	i.replicaSnapshotOpLocks.Lock(opID)
 	defer i.replicaSnapshotOpLocks.Unlock(opID)
 
+	// A recovering shard cannot be a copy source. Shard-data probes must read this as "not usable now", not "definitively empty".
+	// This check runs before the hardlink probe, so a recovering shard answers ErrShardRecovering even when the hardlink probe fails.
+	if s := i.shards.Load(shardName); s != nil {
+		if rec, ok := s.(*RecoveringShard); ok && rec.IsRecovering() {
+			return nil, fmt.Errorf("incoming create replica snapshot for shard %s: %w", shardName, enterrors.ErrShardRecovering)
+		}
+	}
+
 	// Checked before GetShard, so a refusal never loads a cold lazy shard.
 	// A probe error is not wrapped as ErrShardBusyStructuralOp, so it counts
 	// against the movement's MaxErrors budget.
@@ -105,13 +113,6 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	if !supported {
 		return nil, fmt.Errorf("replica movement requires a filesystem that supports hard links; "+
 			"the data directory for class %s does not", i.Config.ClassName)
-	}
-
-	// A shard we're recovering can't be a copy source; probes must read "not usable now", not "definitively empty".
-	if s := i.shards.Load(shardName); s != nil {
-		if rec, ok := s.(*RecoveringShard); ok && rec.IsRecovering() {
-			return nil, fmt.Errorf("incoming create replica snapshot for shard %s: %w", shardName, enterrors.ErrShardRecovering)
-		}
 	}
 
 	shard, release, err := i.GetShard(ctx, shardName)
