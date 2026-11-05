@@ -314,11 +314,12 @@ surfaces** — keep the distinction in mind reading top-to-bottom:
     `enable-searchable`, `enable-rangeable`,
     `change-algorithm`):
     `STARTED → PREPARING → SWAPPING → FINISHED`.
-    `PREPARING` and `SWAPPING` are both reached only after every
-    unit across the cluster is at terminal status. The FSM gates
-    `PREPARING → SWAPPING` on every node's `PreparationCompleteAck`
-    landing successfully, and gates `SWAPPING → FINISHED` on
-    every node's `PostCompletionAck` landing successfully.
+    `PREPARING` is reached once every unit is terminal. A group (one
+    per tenant) prepares as soon as its own units are COMPLETED, even
+    while the task is STARTED, and its swap is decided once every node
+    owning one of its units acked PREP success. `PREPARING → SWAPPING`
+    happens once every group is decided, and `SWAPPING → FINISHED`
+    once no replica owes a swap (§6.3).
   - **Format-only migrations** (`repair-filterable`,
     `repair-rangeable`, `rebuild-searchable`):
     `STARTED → SWAPPING → FINISHED`.
@@ -326,8 +327,8 @@ surfaces** — keep the distinction in mind reading top-to-bottom:
     state alignment to bound — each shard's `RunOnShard`
     completes the full lifecycle locally and there is no
     cluster-wide schema flip.
-  - Either path may terminate at `FAILED` (any per-node ack
-    `Success=false`) or `CANCELLED` (operator-initiated).
+  - Either path may terminate at `FAILED` (a failed PREP ack, or a
+    failed swap ack while `SWAPPING`) or `CANCELLED` (operator-initiated).
     `FINISHED` is the correct signal for "fully done".
 
 These are different Go types in the source —
@@ -385,9 +386,9 @@ preceding a transition on the per-task field. Annotations
         │    1. PREP (background): FlushAndSwitch + Prepend             │
         │      (disk-I/O proportional to bucket size — minutes at       │
         │       billion-scale; this is what the barrier closes)         │
-        │   RecordPreparationCompleteAck(success bool) — RAFT (per node)       │
+        │   RecordPreparationCompleteAck(group, success) — per group+node│
         └──────────────────────────────────┬─────────────────────────────┘
-                  Every node's PreparationCompleteAck landed (success on all)
+                  Every group decided (each group's owners acked success)
                                            │   FSM gates the transition
                                   ┌────────▼────────┐
                                   │ SWAPPING        │ ← TaskStatus
@@ -403,14 +404,14 @@ preceding a transition on the per-task field. Annotations
         │    3. ATOMIC SWAP: SwapBucketPointer per prop (microseconds)  │
         │    + post-atomic inline tidy (Shutdown + rename old → backup) │
         │    + OnMigrationComplete (per-strategy hook)                  │
-        │   RecordPostCompletionAck(success bool) — RAFT (per node)     │
+        │   RecordPostCompletionAck(group, success) — pays the debt     │
         │                                                                │
         │  (Format-only path: neither callback does swap work —        │
         │   RunOnShard already finished PREP+SWAP on the node during    │
         │   StartTask. No PreparationCompleteAck barrier; SWAPPING      │
         │   fires directly from AllUnitsTerminal.)                      │
         └──────────────────────────────────┬─────────────────────────────┘
-              Every node's PostCompletionAck landed (success on all)
+              No replica owes a swap (format-only: every node acked)
                                            │
         ┌──────────────────────────────────▼─────────────────────────────┐
         │  Provider.OnTaskCompleted (per-node, semantic only)           │
@@ -460,18 +461,17 @@ What goes through RAFT (cluster-wide commits):
   `STARTED → SWAPPING` (format-only) — happens once the cluster-wide
   `AllUnitsTerminal` predicate becomes true on the Manager's FSM
   state. Routing depends on `Task.NeedsPreparationBarrier`.
-- `RecordPreparationCompleteAck` — one per node, with `Success=bool`.
-  Semantic-migration path only — fires after each node's local PREP
-  body (`OnGroupCompleted`) returns.
+- `RecordPreparationCompleteAck` — one per group and node, with
+  `Success=bool`. Semantic-migration path only — fires after the node's
+  PREP for that group (`OnGroupCompleted`) returns, in STARTED or PREPARING.
 - The transition `PREPARING → SWAPPING` — committed inside
-  `RecordPreparationCompleteAck`'s apply once every expected ack has landed
-  with `Success=true`.
-- `RecordPostCompletionAck` — one per node, with `Success=bool`.
-  Fires after each node's local SWAP body (`OnSwapRequested` for
-  barrier tasks, `OnGroupCompleted` for non-barrier tasks) returns.
+  `RecordPreparationCompleteAck`'s apply once every group is decided.
+- `RecordPostCompletionAck` — one per group and node for barrier tasks
+  (after `OnSwapRequested`; a success pays that replica's swap debt),
+  one per node for non-barrier tasks (after `OnGroupCompleted`).
 - The transition `SWAPPING → FINISHED` — committed by
-  `MarkTaskFinalized` once every expected PostCompletionAck has
-  landed successfully.
+  `MarkTaskFinalized` once no swap is owed (barrier) or every node
+  acked success (non-barrier).
 - `UpdateProperty` from `OnTaskCompleted` — the cluster-wide schema
   flip (semantic migrations only).
 
@@ -520,48 +520,22 @@ mechanisms:
    No task status clears it: only the schema-update sweep that removes a
    disabled index's bucket retires an entry's fields, and otherwise the
    entry lives until the shard unloads. See §10.
-2. **Two-phase ack barrier (the cross-node handshake).** For semantic
-   migrations each node submits `RecordPreparationCompleteAck(Success=bool)`
-   after its local PREP returns, then `RecordPostCompletionAck(Success=bool)`
-   after its local SWAP returns. The FSM gates `PREPARING → SWAPPING`
-   on every node's PreparationCompleteAck (success on all), then gates
-   `SWAPPING → FINISHED` on every node's PostCompletionAck (success
-   on all). Any `Success=false` on either ack flips the task to
-   `FAILED`, which makes `OnTaskCompleted` skip the cluster-wide
-   schema flip. So the schema never moves to NEW unless every node
-   has successfully prepared AND swapped. Format-only migrations skip
-   the PreparationCompleteAck barrier (no cross-replica tokenization
-   alignment to bound) and gate `SWAPPING → FINISHED` on
-   PostCompletionAck only. See §6.3.
+2. **Two-phase ack barrier (the cross-node handshake).** A semantic
+   migration decides each group's swap once every node owning it acked
+   PREP, and finishes once every replica reported its swaps (§6.3). A
+   failed PREP ack, or a failed swap ack while `SWAPPING`, fails the
+   task, which makes `OnTaskCompleted` skip the cluster-wide schema
+   flip. Format-only migrations skip the PREP barrier and gate
+   `SWAPPING → FINISHED` on every node's PostCompletionAck.
 
-### Why PREP runs inside PREPARING (not earlier)
+### Why PREP is per group
 
-Two reasons it can't move earlier into the STARTED phase:
-
-- **PREP requires the reindex bucket to exist on disk with complete
-  segments.** `PrependSegmentsFromBucket(reindex → ingest)` needs the
-  reindex bucket fully populated. The reindex bucket is filled by
-  `RunReindexOnlyOnShard` — which is the work that drives
-  `UnitStatus → COMPLETED`. So PREP can't start before the unit hits
-  COMPLETED on this node.
-- **Running PREP at per-unit completion time (still during STARTED on
-  the cluster level) would mean each node starts heavy disk I/O the
-  moment its OWN units finish, while other nodes are still
-  reindexing.** That doubles the cluster's I/O profile during the
-  long phase. Concentrating PREP inside the per-node
-  `OnGroupCompleted` (PHASE A) keeps the resource curve well-defined:
-  STARTED = "everyone reindexing", PREPARING = "everyone running PREP
-  locally then acking", SWAPPING = "everyone running atomic SWAP
-  locally then acking".
-
-The role `PREPARING` plays is twofold: (a) signaling that every unit
-is terminal, so every node has the right on-disk state to start its
-local PREP; and (b) gating the cross-replica SWAP barrier — only
-after every node has acked `PreparationCompleteAck` does any node proceed to
-PHASE B (`OnSwapRequested`). This is what bounds the cross-replica
-stagger window to RAFT propagation latency instead of per-node PREP
-duration variance. The synchronize-or-fail-cleanly invariant lives
-in the ack barriers that follow.
+A group prepares as soon as its own units are COMPLETED: PREP
+(`PrependSegmentsFromBucket(reindex → ingest)`) needs the group's full
+reindex bucket on disk, and nothing else. Its swap is decided once every
+node owning one of its units acked PREP success, so the group's replicas
+swap within a tick of each other, and tenants are not coupled: one slow
+tenant does not hold the others. §6.3 has the protocol.
 
 ## 4. Architecture by layer
 
@@ -1091,15 +1065,18 @@ PostCompletionAck barrier only.
 
 **Failure handling (both paths):**
 
-- Any `Success=false` on EITHER ack → task flips to `FAILED`
+- A failed PREP ack, or a failed swap ack while `SWAPPING` → task flips to `FAILED`
   immediately → `OnTaskCompleted` early-returns, schema flip is
   SKIPPED. Groups already decided stay decided and still swap, so the
   collection is left partly migrated (`partial` on the indexes
-  endpoint); submitting the same migration again skips those tenants.
+  endpoint); submitting the same migration again skips those tenants,
+  unless every tenant was decided: then it runs over every tenant to land
+  the schema flip.
 - Per-node swap failure can no longer let the cluster-wide schema flip
   propagate while one replica's bucket pointer never moved.
 - On node restart, the recovery path re-fires the appropriate phase
-  callback (PHASE A for PREPARING, PHASE B for SWAPPING) via the
+  callback (PHASE A for a group not yet decided, PHASE B for every group
+  this node owes, in any status) via the
   rehydrate branch; if the per-shard work succeeds the second time,
   the ack lands and the task completes normally.
 
@@ -1126,7 +1103,8 @@ the FSM table see "two RAFT-coordinated phases" and may propose
 collapsing it back to one — the bug it closes is not visually
 obvious from the code alone.
 
-Acks idempotent (first ack per `(task, group, node)` wins); rehydrate over
+PREP acks are idempotent (first ack per `(task, group, node)` wins); a swap
+ack pays its replica's debt in any status, and a failed one records nothing; rehydrate over
 restart (the scheduler re-fires on the next tick); silent on already-
 terminal tasks (a late-arriving ack from a slow follower must not
 produce a noisy apply failure).
@@ -1259,7 +1237,8 @@ leaves the decided tenants migrated and the rest not: the indexes
 endpoint reads `partial` with `migratedTenants` / `totalTenants`, and
 the operator migrates forward by submitting the same migration again,
 which skips the tenants every replica already swapped (a tenant a replica
-still owes its swap is rerun). Both count every run of that
+still owes its swap is rerun), unless every tenant was decided, in which
+case it reruns every tenant to land the flip. Both count every run of that
 migration since the last finished flip, so a resubmit that stops partway
 too still reads `partial` over all tenants. A single-tenant collection
 whose swap was decided before it stopped reads `partial` too, with its
@@ -1442,8 +1421,9 @@ breaks two things:
 With per-tenant swaps (§6.3) the window lasts until the slowest tenant
 finishes, and forever after a failure. So the overlay is a cache of the
 shard's migration records, not the source of truth: every shard load
-re-installs it from each promoted record whose effect the schema does
-not show yet, opens the bucket of an index a migration turned on, and the
+re-installs it from each promoted record whose flip is decided while its
+owning task is listed and not FINISHED (or the task list is not readable
+yet), limited to what the live schema does not show, opens the bucket of an index a migration turned on, and the
 schema's index-off sweeps leave that bucket alone.
 
 The overlay closes both. `Shard.SetPropertyOverlay(prop, overlay)`
