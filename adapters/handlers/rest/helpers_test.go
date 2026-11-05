@@ -38,4 +38,5 @@ func TestTooManyRequestsResponderWrites429(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Len(t, body.Error, 1)
 	require.Contains(t, body.Error[0].Message, "429")
+	require.Equal(t, int64(http.StatusTooManyRequests), body.Error[0].Code)
 }

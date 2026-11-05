@@ -13,6 +13,7 @@ package errors
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -67,6 +68,9 @@ func NewForbiddenWithCause(cause error) Forbidden {
 }
 
 func (f Forbidden) Unwrap() error { return f.cause }
+
+// StatusCode is the stable numeric status for an authorization failure.
+func (f Forbidden) StatusCode() int { return http.StatusForbidden }
 
 func (f Forbidden) Error() string {
 	if f.cause != nil {

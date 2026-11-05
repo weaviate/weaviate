@@ -41,8 +41,12 @@ func ServeError(rw http.ResponseWriter, r *http.Request, err error) {
 			rec.status = http.StatusRequestEntityTooLarge
 			message = fmt.Sprintf("request body exceeds the %d byte limit", MaxBodyBytes)
 		}
+		item := &models.ErrorResponseErrorItems0{Message: message}
+		if rec.status != 0 {
+			item.Code = int64(rec.status)
+		}
 		reshaped, marshalErr := json.Marshal(&models.ErrorResponse{
-			Error: []*models.ErrorResponseErrorItems0{{Message: message}},
+			Error: []*models.ErrorResponseErrorItems0{item},
 		})
 		if marshalErr == nil {
 			body = reshaped
