@@ -68,6 +68,8 @@ type taskSchedulerState struct {
 	// the SWAPPING path; at [maxCompletedCallbackAttempts] the scheduler stops
 	// retrying and fails the task (weaviate/0-weaviate-issues#297).
 	completedCallbackAttempts int
+	// startLogged makes only relaunches go through the start line's sampler, so every task's first start shows.
+	startLogged bool
 }
 
 // maxCompletedCallbackAttempts bounds transient OnTaskCompleted retries on
@@ -838,11 +840,19 @@ func (s *Scheduler) reconcileRunningTasks(
 			})
 			continue
 		}
-		func() {
+		relaunch := func() bool {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			s.recordRunningTaskHandleLocked(namespace, activeTask.TaskDescriptor, handle)
+			state := s.perTaskStateLockedOrInit(activeTask.TaskDescriptor)
+			logged := state.startLogged
+			state.startLogged = true
+			return logged
 		}()
+		if !relaunch {
+			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
+			continue
+		}
 		// Sampled: a task whose unit waits on an operator is relaunched on every tick and wake.
 		s.sampledLogger.WithSampling(func(logrus.FieldLogger) {
 			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")

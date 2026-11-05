@@ -1093,8 +1093,9 @@ Then, per shard load:
        retry line is at Debug and names the hold; with Debug on it
        repeats once per held shard and waiting migration on every tick
        and wake. A task whose unit waits is relaunched on every tick and
-       wake, and its "started distributed task execution" line is
-       sampled: at most 5 a node per 5 ticks, a budget shared with the
+       wake. A task's first "started distributed task execution" line is
+       always logged; the line for each relaunch is sampled: at most 5 a
+       node per 5 ticks, a budget shared with the
        scheduler's one-off errors, which many waiting tasks can crowd
        out. A unit, prepare or swap that waits, including one of a
        migration submitted after the hold began, logs a Warn naming its

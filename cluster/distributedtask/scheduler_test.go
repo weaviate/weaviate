@@ -79,6 +79,39 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 	h.advanceClock(h.schedulerTickInterval + time.Minute)
 
 	require.Empty(t, h.listManagerTasks(t))
+	h.advanceClock(h.schedulerTickInterval)
+	require.Eventually(t, func() bool {
+		h.scheduler.mu.Lock()
+		defer h.scheduler.mu.Unlock()
+		return len(h.scheduler.perTaskState) == 0
+	}, 5*time.Second, 10*time.Millisecond, "a task's scheduler state, its start flag included, goes with the task")
+}
+
+// Every task's first start line shows however many start at once; only relaunches are sampled.
+func TestSchedulerLogsEveryTasksFirstStart(t *testing.T) {
+	defer leaktest.Check(t)()
+	h := newTestHarness(t).init(t)
+	h.startScheduler(t)
+	defer h.Close()
+
+	const tasks = 7
+	for i := range tasks {
+		addTaskWithUnits(t, h, h.tasksNamespace, fmt.Sprintf("task-%d", i), 1, []string{"u-1"})
+	}
+	h.advanceClock(h.schedulerTickInterval)
+	for range tasks {
+		recvWithTimeout(t, h.provider.startedCh)
+	}
+
+	require.Eventually(t, func() bool {
+		starts := 0
+		for _, e := range h.loggerHook.AllEntries() {
+			if e.Message == "started distributed task execution" {
+				starts++
+			}
+		}
+		return starts == tasks
+	}, 5*time.Second, 10*time.Millisecond)
 }
 
 func TestHappyPathTaskLifecycleWithMultipleNode(t *testing.T) {
