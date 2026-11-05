@@ -99,8 +99,10 @@ const (
 		"Set it to `true` or leave empty"
 	noSearchablePropertiesFormat = "collection %q has no searchable properties for a keyword search. " +
 		"Enable indexSearchable on a text property, or leave it empty so it defaults to on"
+	// Every text property is disabled, so naming properties cannot succeed:
+	// BM25F rejects each of them. The only fix is to enable indexSearchable.
 	noSearchableWithDisabledFormat = "collection %q has no searchable properties for a keyword search: " +
-		"indexSearchable is disabled on %s. Enable indexSearchable, or set the search properties explicitly"
+		"indexSearchable is disabled on %s. Enable indexSearchable on a text property"
 	skippedSearchableFormat = "indexSearchable is disabled on %s. " +
 		"A BM25 or hybrid keyword search that does not name properties would skip %s and can return no keyword matches. " +
 		"Enable indexSearchable, or set the search properties to the properties that should be searched"

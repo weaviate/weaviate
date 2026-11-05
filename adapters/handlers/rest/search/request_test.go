@@ -1067,6 +1067,8 @@ func TestBm25NoSearchableProperties(t *testing.T) {
 			assert.Contains(t, apiErr.Error(), "no searchable properties")
 			assert.Contains(t, apiErr.Error(), "indexSearchable")
 			assert.Contains(t, apiErr.Error(), "code")
+			assert.Contains(t, apiErr.Error(), "Enable indexSearchable on a text property")
+			assert.NotContains(t, apiErr.Error(), "search properties")
 		})
 	}
 
@@ -1846,6 +1848,8 @@ func TestHybridNoSearchableProperties(t *testing.T) {
 			require.NotNil(t, apiErr)
 			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
 			assert.Contains(t, apiErr.Error(), "no searchable properties")
+			assert.Contains(t, apiErr.Error(), "Enable indexSearchable on a text property")
+			assert.NotContains(t, apiErr.Error(), "search properties")
 		})
 	}
 

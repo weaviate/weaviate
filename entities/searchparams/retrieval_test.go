@@ -80,11 +80,13 @@ func TestExpandKeywordProperties(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		class        *models.Class
-		want         []string
-		wantErr      string
-		wantSentinel bool
+		name            string
+		class           *models.Class
+		want            []string
+		wantErr         string
+		wantSentinel    bool
+		wantNoExplicit  bool
+		wantExplicitFix bool
 	}{
 		{
 			name:    "nil class",
@@ -105,8 +107,9 @@ func TestExpandKeywordProperties(t *testing.T) {
 				text("text", boolPtr(false)),
 				text("title", nil),
 			}},
-			wantErr:      `indexSearchable is disabled on "text"`,
-			wantSentinel: true,
+			wantErr:         `indexSearchable is disabled on "text"`,
+			wantSentinel:    true,
+			wantExplicitFix: true,
 		},
 		{
 			name: "disabled text array is named even when another text property is searchable",
@@ -133,8 +136,10 @@ func TestExpandKeywordProperties(t *testing.T) {
 				{Name: "year", DataType: schema.DataTypeInt.PropString()},
 				text("code", boolPtr(false)),
 			}},
-			wantErr:      `collection "Ledger" has no searchable properties`,
-			wantSentinel: true,
+			wantErr: `collection "Ledger" has no searchable properties`,
+			// Naming properties cannot help: every text property is disabled.
+			wantSentinel:   true,
+			wantNoExplicit: true,
 		},
 		{
 			name: "no text properties",
@@ -164,6 +169,13 @@ func TestExpandKeywordProperties(t *testing.T) {
 					assert.Contains(t, err.Error(), "indexSearchable")
 					var missing inverted.MissingIndexError
 					require.ErrorAs(t, err, &missing)
+				}
+				if tt.wantNoExplicit {
+					assert.Contains(t, err.Error(), "Enable indexSearchable on a text property")
+					assert.NotContains(t, err.Error(), "search properties")
+				}
+				if tt.wantExplicitFix {
+					assert.Contains(t, err.Error(), "set the search properties")
 				}
 				assert.Nil(t, got)
 				return
