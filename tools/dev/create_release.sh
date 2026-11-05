@@ -115,8 +115,10 @@ fi
 # drops the release branch with its uncommitted changes and the tag created
 # by tools/prepare_release.sh.
 abort_release() {
+  trap - ERR
+  trap '' INT TERM
   echo ""
-  echo "Error: $1 ended with an error. Fix the problem first and then retry the release process."
+  echo "Error: $1. Fix the problem first and then retry the release process."
   if [ -z "$BASE_BRANCH" ]; then
     exit 1
   fi
@@ -139,19 +141,26 @@ fi
 
 SCHEMA_FILE="openapi-specs/schema.json"
 
-echo "==> Running 'make deps' to vendor Go dependencies"
-make deps || abort_release "'make deps'"
+STEP="'make deps'"
+trap 'abort_release "$STEP ended with an error"' ERR
+trap 'abort_release "$STEP was interrupted"' INT TERM
 
+echo "==> Running 'make deps' to vendor Go dependencies"
+make deps
+
+STEP="updating $SCHEMA_FILE"
 CURRENT_VERSION="$(jq -r '.info.version' "$SCHEMA_FILE")"
 echo "==> Updating info.version in $SCHEMA_FILE from $CURRENT_VERSION to $VERSION"
 TMP_FILE="$(mktemp)"
 trap 'rm -f "$TMP_FILE"' EXIT
-jq --arg v "$VERSION" '.info.version = $v' "$SCHEMA_FILE" > "$TMP_FILE" || abort_release "updating $SCHEMA_FILE"
+jq --arg v "$VERSION" '.info.version = $v' "$SCHEMA_FILE" > "$TMP_FILE"
 mv "$TMP_FILE" "$SCHEMA_FILE"
 trap - EXIT
 
 echo "==> Running tools/prepare_release.sh"
-tools/prepare_release.sh || abort_release "tools/prepare_release.sh"
+STEP="tools/prepare_release.sh"
+tools/prepare_release.sh
+trap - ERR INT TERM
 
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 echo ""
