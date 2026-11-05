@@ -793,23 +793,23 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	})
 }
 
-// skipTenantsAlreadyMigrated drops tenants that already serve the plan's
+// skipTenantsAlreadyMigrated drops tenants every replica has swapped to the plan's
 // target, so a resubmit after a partial failure doesn't redo them. The answer
 // comes from the tasks' RAFT records, never shard state.
 func skipTenantsAlreadyMigrated(ownership map[string][]string, collection, propertyName string,
 	plan upsertPlan, reindexTasks []*distributedtask.Task,
 ) map[string][]string {
-	migrated, _ := db.ReindexMigratedTenants(parseReindexTasks(reindexTasks), propertyName, &db.ReindexTaskPayload{
+	_, paid, _ := db.ReindexMigratedTenants(parseReindexTasks(reindexTasks), propertyName, &db.ReindexTaskPayload{
 		Collection: collection, MigrationType: plan.migrationType,
 		TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy,
 	})
-	if len(migrated) == 0 {
+	if len(paid) == 0 {
 		return ownership
 	}
 	remaining := make(map[string][]string, len(ownership))
 	for node, shards := range ownership {
 		for _, shard := range shards {
-			if _, ok := migrated[shard]; !ok {
+			if _, ok := paid[shard]; !ok {
 				remaining[node] = append(remaining[node], shard)
 			}
 		}

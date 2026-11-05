@@ -2035,7 +2035,7 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 		return
 	}
 	for _, propName := range payload.Properties {
-		if migrated, covered := ReindexMigratedTenants(runs, propName, payload); len(migrated) > 0 {
+		if migrated, _, covered := ReindexMigratedTenants(runs, propName, payload); len(migrated) > 0 {
 			logger.WithFields(map[string]any{
 				"property":         propName,
 				"migration_type":   payload.MigrationType,

@@ -83,6 +83,16 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 			status: "partial", migrated: 1, total: 3,
 		},
 		{
+			name: "a tenant a replica still owes is rerun, and still reads partial",
+			tasks: []*distributedtask.Task{func() *distributedtask.Task {
+				task := run(1, failed, changeTok, field, "abc", "a")
+				task.SwapsOwed = map[string][]string{"a": {"n2"}}
+				return task
+			}()},
+			want:   ownership,
+			status: "partial", migrated: 1, total: 3,
+		},
+		{
 			name:   "a run that decided nothing skips nothing",
 			tasks:  []*distributedtask.Task{run(1, failed, changeTok, field, "abc")},
 			want:   ownership,
