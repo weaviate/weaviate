@@ -1089,7 +1089,8 @@ Then, per shard load:
      only READONLY, with no reason, the same as under disk pressure. The
      owning node logs one Error line per hold, when it starts, naming the
      shard, the cause and the way out. A waiting step's retry line is at
-     Debug and names the hold. A task whose unit waits is relaunched on
+     Debug and names the hold; with Debug on it repeats once per held
+     shard on every tick and wake. A task whose unit waits is relaunched on
      every tick and wake, and its "started distributed task execution"
      line is sampled: at most 5 a node per 5 ticks, a budget shared with
      the scheduler's one-off errors, which many waiting tasks can crowd out.

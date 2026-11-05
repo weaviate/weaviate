@@ -471,7 +471,7 @@ func TestALiftThatStopsWaitingStillArmsTheMirror(t *testing.T) {
 	fx.idx.bucketLoadLimiter.Release()
 
 	require.Eventually(t, func() bool { return len(shard.migrationMirrors.heldUnarmed()) == 0 },
-		10*time.Second, 10*time.Millisecond, "the arm releases the hold")
+		10*time.Second, 10*time.Millisecond, "the arm settles the held set")
 	rec, ok := shard.migrationRecords.Get(fx.subject.Key)
 	require.True(t, ok)
 	require.False(t, rec.Subject().Unmirrored, "a caller giving up must not stamp the migration")
