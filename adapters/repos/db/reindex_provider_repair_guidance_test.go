@@ -314,11 +314,12 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 				SwapDecidedGroups:  tc.decided,
 			}))
 
-			var guided bool
+			var guided, resubmitSeen bool
 			var guidance string
 			for _, e := range hook.AllEntries() {
 				_, repair := e.Data["repair_command"]
 				_, resubmit := e.Data["resubmit_command"]
+				resubmitSeen = resubmitSeen || (resubmit && !repair)
 				if repair || resubmit {
 					guided = true
 					guidance = e.Message
@@ -326,6 +327,9 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 			}
 			require.Equal(t, tc.wantGuidance, guided,
 				"repair guidance on a CANCELLED task must follow the swap evidence")
+			if tc.decided != nil {
+				require.True(t, resubmitSeen, "a decided run is finished by resubmitting, never a rebuild")
+			}
 			if tc.wantGuidance {
 				// The guidance is written so the operator can match it to
 				// the task, which only works if it names the status the
