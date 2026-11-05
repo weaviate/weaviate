@@ -2825,6 +2825,62 @@ func TestRewind_QuarantinesAKeptChunkWithAnUnreadableHeader(t *testing.T) {
 	assert.Equal(t, []uint64{4, 5, 6}, taskIDs(t, batch))
 }
 
+// A kept chunk quarantined under a retention has a hard link as its quarantined
+// copy. Renaming a file onto its own hard link does nothing, so without
+// removing the link the chunk would stay, and as the newest chunk its unreadable
+// header would fail the next Init.
+func TestRewind_QuarantinesAChunkAlreadyLinked(t *testing.T) {
+	setup := func(t *testing.T, s *Scheduler, dir string) (*DiskQueue, string) {
+		t.Helper()
+		q := sealedQueue(t, s, dir)
+		chunks, _ := chunksOf(t, q)
+		require.NoError(t, q.Retain())
+		processNext(t, q)
+		processNext(t, q)
+		newest := chunks[2]
+		patchFile(t, newest, 0, []byte("XXXX"))
+		batch, err := q.DequeueBatch()
+		require.NoError(t, err)
+		require.Nil(t, batch)
+		require.FileExists(t, newest)
+		require.FileExists(t, newest+".processed")
+		require.FileExists(t, newest+".corrupt")
+		return q, newest
+	}
+
+	t.Run("on a running queue", func(t *testing.T) {
+		s := startedScheduler(t)
+		q, newest := setup(t, s, t.TempDir())
+
+		require.NoError(t, q.Rewind())
+		assert.NoFileExists(t, newest)
+		assert.FileExists(t, newest+".corrupt")
+		assert.EqualValues(t, 6, q.Size())
+	})
+
+	t.Run("before Init", func(t *testing.T) {
+		s := startedScheduler(t)
+		dir := t.TempDir()
+		q, newest := setup(t, s, dir)
+		require.NoError(t, q.Close(t.Context()))
+
+		q, err := NewDiskQueue(DiskQueueOptions{
+			ID:          fmt.Sprintf("test_queue_%d", queueIDCounter.Add(1)),
+			Scheduler:   s,
+			Logger:      newTestLogger(),
+			Dir:         dir,
+			TaskDecoder: discardExecutor(),
+			ChunkSize:   50,
+		})
+		require.NoError(t, err)
+		require.NoError(t, q.Rewind())
+		require.NoError(t, q.Init())
+		assert.NoFileExists(t, newest)
+		assert.FileExists(t, newest+".corrupt")
+		assert.EqualValues(t, 6, q.Size())
+	})
+}
+
 // On a queue not initialized yet, Rewind saves the kept chunks from Init,
 // which would delete them. A crash in between repeats it safely.
 func TestRewind_BeforeInitResumesAfterARestart(t *testing.T) {
