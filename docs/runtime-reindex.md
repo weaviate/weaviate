@@ -1078,27 +1078,30 @@ Then, per shard load:
      refuses every write), and a migration already swapped in (a stamp
      would block the promotion that serves its new index). The shard loads
      `READONLY` with its own status reason: it serves reads and takes no
-     writes, so the staged copy stays current. The held migration's own
-     prepare and swap wait instead of failing, and the scheduler runs them
-     again on a later tick. Another migration's repair, rebuild or
-     iteration unit, prepare or swap waits the same way. If the shard
-     also holds an unreadable record, a unit fails its migration, as on
-     any shard; a prepare or swap fails only when its migration has no
-     task cached on the shard, and otherwise waits too. The shard list
-     (`GET /v1/schema/<class>/shards`) shows
-     only READONLY, with no reason, the same as under disk pressure. The
-     owning node logs one Error line per hold, when it starts, naming the
-     shard, the cause and the way out. A waiting step's retry line is at
-     Debug and names the hold; with Debug on it repeats once per held
-     shard and waiting migration on every tick and wake. A task whose unit waits is relaunched on
-     every tick and wake, and its "started distributed task execution"
-     line is sampled: at most 5 a node per 5 ticks, a budget shared with
-     the scheduler's one-off errors, which many waiting tasks can crowd out.
-     A unit, prepare or swap that waits, including one of a migration submitted after the
-     hold began, logs a Warn naming its task, unit and shard. These lines
-     share one budget with the line about a teardown holding a unit: at
-     most 10 a minute per node.
-     A refused write names the hold's status reason; a refused lift names the cause.
+     writes, so the staged copy stays current.
+     - The held migration's own prepare and swap wait instead of
+       failing, and the scheduler runs them again on a later tick.
+       Another migration's repair, rebuild or iteration unit, prepare or
+       swap waits the same way. If the shard also holds an unreadable
+       record, a unit fails its migration, as on any shard; a prepare or
+       swap fails only when its migration has no task cached on the
+       shard, and otherwise waits too.
+     - The shard list (`GET /v1/schema/<class>/shards`) shows only
+       READONLY, with no reason, the same as under disk pressure.
+     - The owning node logs one Error line per hold, when it starts,
+       naming the shard, the cause and the way out. A waiting step's
+       retry line is at Debug and names the hold; with Debug on it
+       repeats once per held shard and waiting migration on every tick
+       and wake. A task whose unit waits is relaunched on every tick and
+       wake, and its "started distributed task execution" line is
+       sampled: at most 5 a node per 5 ticks, a budget shared with the
+       scheduler's one-off errors, which many waiting tasks can crowd
+       out. A unit, prepare or swap that waits, including one of a
+       migration submitted after the hold began, logs a Warn naming its
+       task, unit and shard. These lines share one budget with the line
+       about a teardown holding a unit: at most 10 a minute per node.
+     - A refused write names the hold's status reason; a refused lift
+       names the cause.
      - Of the status writers, only a manual status update lifts the hold, and a restart retries too (below). A vector-index config
        change is refused while the shard is READONLY, and disk-pressure
        recovery lifts only its own reason.
