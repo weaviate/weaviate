@@ -18,7 +18,6 @@ import (
 	"unsafe"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
-	"golang.org/x/sys/cpu"
 )
 
 var dotByteImpl func(a, b []byte) uint32 = func(a, b []byte) uint32 {
@@ -54,9 +53,6 @@ func testDotProductFixedValue(t *testing.T, size uint) {
 		vec1 = Normalize(vec1)
 		vec2 = Normalize(vec2)
 		res := -asm.Dot_Neon(vec1, vec2)
-		if cpu.ARM64.HasSVE {
-			res = -asm.Dot_SVE(vec1, vec2)
-		}
 		if math.IsNaN(float64(res)) {
 			panic("NaN")
 		}
@@ -97,9 +93,6 @@ func testDotProductRandomValue(t *testing.T, size uint) {
 
 	for i := 0; i < count; i++ {
 		res := -asm.Dot_Neon(vec1s[i], vec2s[i])
-		if cpu.ARM64.HasSVE {
-			res = -asm.Dot_SVE(vec1s[i], vec2s[i])
-		}
 		if math.IsNaN(float64(res)) {
 			panic("NaN")
 		}

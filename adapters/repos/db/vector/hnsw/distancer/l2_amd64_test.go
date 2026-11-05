@@ -18,8 +18,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 	"golang.org/x/sys/cpu"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
 func L2PureGo(a, b []float32) float32 {
@@ -195,7 +196,7 @@ func Benchmark_L2(b *testing.B) {
 
 			b.Run("asm AVX", func(b *testing.B) {
 				for i := 0; i < b.N; i++ {
-					asm.L2(x, y)
+					asm.L2AVX256(x, y)
 				}
 			})
 

@@ -19,134 +19,27 @@ import (
 //   go install github.com/gorse-io/goat@v0.1.0
 //   go generate
 
-//go:generate goat ../c/l2_neon_arm64.c -O3 -e="--target=arm64" -e="-march=armv8-a+simd+fp"
-//go:generate goat ../c/l2_sve_arm64.c -O3 -e="-mcpu=neoverse-v1" -e="--target=arm64" -e="-march=armv8-a+sve"
 //go:generate goat ../c/l2_neon_byte_arm64.c -O3 -e="--target=arm64" -e="-march=armv8-a+simd+fp"
 
-// L2 calculates the L2 distance between two vectors
-// using SIMD instructions when possible.
-// Vector lengths < 16 are handled by the Go implementation
-// because the overhead of using reflection is too high.
-
+// L2_Neon is the float32 squared Euclidean distance on arm64: inlined Go up
+// to SmallFloatMax elements, the hand-written NEON kernel above that. y must
+// be at least as long as x.
 func L2_Neon(x []float32, y []float32) float32 {
-	switch len(x) {
-	case 2:
-		return l22[float32, float32](x, y)
-	case 4:
-		return l24[float32, float32](x, y)
-	case 6:
-		// manually inlined l26(x, y)
-		diff := x[5] - y[5]
-		sum := diff * diff
-
-		diff = x[4] - y[4]
-		sum += diff * diff
-
-		return l24[float32, float32](x, y) + sum
-	case 8:
-		// manually inlined l28(x, y)
-		diff := x[7] - y[7]
-		sum := diff * diff
-
-		diff = x[6] - y[6]
-		sum += diff * diff
-
-		diff = x[5] - y[5]
-		sum += diff * diff
-
-		diff = x[4] - y[4]
-		sum += diff * diff
-
-		return l24[float32, float32](x, y) + sum
-	case 10:
-		return l210[float32, float32](x, y)
-	case 12:
-		return l212[float32, float32](x, y)
-	}
-
-	// deal with odd lengths and lengths 13, 14, 15
-	if len(x) < 16 {
-		var sum float32
-
-		for i := range x {
-			diff := x[i] - y[i]
-			sum += diff * diff
+	if len(x) <= 2 { // geo coordinates (n=2): keep the hottest small cases inline
+		if len(x) == 2 {
+			d0, d1 := x[0]-y[0], x[1]-y[1]
+			return d0*d0 + d1*d1
 		}
-
-		return sum
-	}
-
-	var res float32
-
-	l := len(x)
-
-	l2_neon(
-		unsafe.Pointer(unsafe.SliceData(x)),
-		unsafe.Pointer(unsafe.SliceData(y)),
-		unsafe.Pointer(&res),
-		unsafe.Pointer(&l))
-
-	return res
-}
-
-func L2_SVE(x []float32, y []float32) float32 {
-	switch len(x) {
-	case 2:
-		return l22[float32, float32](x, y)
-	case 4:
-		return l24[float32, float32](x, y)
-	case 6:
-		// manually inlined l26(x, y)
-		diff := x[5] - y[5]
-		sum := diff * diff
-
-		diff = x[4] - y[4]
-		sum += diff * diff
-
-		return l24[float32, float32](x, y) + sum
-	case 8:
-		// manually inlined l28(x, y)
-		diff := x[7] - y[7]
-		sum := diff * diff
-
-		diff = x[6] - y[6]
-		sum += diff * diff
-
-		diff = x[5] - y[5]
-		sum += diff * diff
-
-		diff = x[4] - y[4]
-		sum += diff * diff
-
-		return l24[float32, float32](x, y) + sum
-	case 10:
-		return l210[float32, float32](x, y)
-	case 12:
-		return l212[float32, float32](x, y)
-	}
-
-	// deal with odd lengths and lengths 13, 14, 15
-	if len(x) < 16 {
-		var sum float32
-
-		for i := range x {
-			diff := x[i] - y[i]
-			sum += diff * diff
+		if len(x) == 1 {
+			d := x[0] - y[0]
+			return d * d
 		}
-
-		return sum
+		return 0
 	}
-
-	var res float32
-
-	l := len(x)
-	l2_sve(
-		unsafe.Pointer(unsafe.SliceData(x)),
-		unsafe.Pointer(unsafe.SliceData(y)),
-		unsafe.Pointer(&res),
-		unsafe.Pointer(&l))
-
-	return res
+	if len(x) <= SmallFloatMax {
+		return l2Small(x, y)
+	}
+	return l2NEON(x, y)
 }
 
 func L2ByteARM64(x []uint8, y []uint8) uint32 {
@@ -187,7 +80,7 @@ func L2ByteARM64(x []uint8, y []uint8) uint32 {
 	}
 
 	// deal with odd lengths and lengths 13, 14, 15
-	if len(x) < 16 {
+	if len(x) < 16 { // the AVX-512 kernel needs one full 16-lane vector
 		var sum uint32
 
 		for i := range x {

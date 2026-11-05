@@ -17,8 +17,9 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 	"golang.org/x/sys/cpu"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
 var dotByteImpl func(a, b []byte) uint32 = func(a, b []byte) uint32 {

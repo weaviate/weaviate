@@ -24,6 +24,12 @@
 //   ADDV   Sd, Vn.4S:             0x4EB1B800 | Vn<<5 | Vd
 //   FMOV   Wd, Sn:                0x1E260000 | Sn<<5 | Wd
 
+// Accumulators are zeroed with VMOVI rather than VEOR Vn,Vn,Vn. The self-EOR
+// is not a dependency-breaking zeroing idiom on Arm cores and chained the
+// float dot kernel's accumulation onto the previous call's FADD reduction (2x
+// at n=32 on M1); for this kernel's short integer reduction the change
+// measured neutral and is kept for consistency.
+
 // func dotByteNibbleUDOTAsm(q, packed *byte, half int) uint32
 TEXT ·dotByteNibbleUDOTAsm(SB), NOSPLIT, $0-28
     MOVD q+0(FP), R0
@@ -31,10 +37,10 @@ TEXT ·dotByteNibbleUDOTAsm(SB), NOSPLIT, $0-28
     MOVD half+16(FP), R2
     ADD R2, R0, R3            // R3 = high-nibble query plane
     WORD $0x4F00E5FC           // MOVI V28.16B, $0x0F
-    VEOR V0.B16, V0.B16, V0.B16
-    VEOR V1.B16, V1.B16, V1.B16
-    VEOR V2.B16, V2.B16, V2.B16
-    VEOR V3.B16, V3.B16, V3.B16
+    VMOVI $0, V0.B16
+    VMOVI $0, V1.B16
+    VMOVI $0, V2.B16
+    VMOVI $0, V3.B16
     MOVD $0, R7
     LSR $5, R2, R4
     CBZ R4, bnu_tail16
@@ -98,10 +104,10 @@ TEXT ·dotByteNibbleUADALPAsm(SB), NOSPLIT, $0-28
     MOVD half+16(FP), R2
     ADD R2, R0, R3            // R3 = high-nibble query plane
     WORD $0x4F00E5FC           // MOVI V28.16B, $0x0F
-    VEOR V0.B16, V0.B16, V0.B16
-    VEOR V1.B16, V1.B16, V1.B16
-    VEOR V2.B16, V2.B16, V2.B16
-    VEOR V3.B16, V3.B16, V3.B16
+    VMOVI $0, V0.B16
+    VMOVI $0, V1.B16
+    VMOVI $0, V2.B16
+    VMOVI $0, V3.B16
     MOVD $0, R7
     LSR $5, R2, R4
     CBZ R4, bnu_tail16
@@ -182,10 +188,10 @@ TEXT ·dotNibbleNibbleUDOTAsm(SB), NOSPLIT, $0-28
     MOVD b+8(FP), R1
     MOVD n+16(FP), R2
     WORD $0x4F00E5FC           // MOVI V28.16B, $0x0F
-    VEOR V0.B16, V0.B16, V0.B16
-    VEOR V1.B16, V1.B16, V1.B16
-    VEOR V2.B16, V2.B16, V2.B16
-    VEOR V3.B16, V3.B16, V3.B16
+    VMOVI $0, V0.B16
+    VMOVI $0, V1.B16
+    VMOVI $0, V2.B16
+    VMOVI $0, V3.B16
     MOVD $0, R7
     LSR $5, R2, R4
     CBZ R4, nnu_tail16
@@ -253,10 +259,10 @@ TEXT ·dotNibbleNibbleUADALPAsm(SB), NOSPLIT, $0-28
     MOVD b+8(FP), R1
     MOVD n+16(FP), R2
     WORD $0x4F00E5FC           // MOVI V28.16B, $0x0F
-    VEOR V0.B16, V0.B16, V0.B16
-    VEOR V1.B16, V1.B16, V1.B16
-    VEOR V2.B16, V2.B16, V2.B16
-    VEOR V3.B16, V3.B16, V3.B16
+    VMOVI $0, V0.B16
+    VMOVI $0, V1.B16
+    VMOVI $0, V2.B16
+    VMOVI $0, V3.B16
     MOVD $0, R7
     LSR $5, R2, R4
     CBZ R4, nnu_tail16
