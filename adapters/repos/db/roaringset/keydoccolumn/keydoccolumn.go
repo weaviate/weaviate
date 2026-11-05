@@ -58,12 +58,10 @@ type keyColumn interface {
 	// queryWindow returns the range [lo, hi) of the keys in sorted this column could
 	// match. prefixKeyColumn narrows it so its comparisons can skip the prefix check.
 	queryWindow(sorted entinverted.SortedKeys) (lo, hi int)
-	// searchInto searches the column once per query key in [lo, hi), applying
-	// each match to res through run.
-	searchInto(run *columnRun, sortedKeys entinverted.SortedKeys, lo, hi int, res *Resolution, adds, overflowed bool)
-	// mergeInto merge-scans the whole column against query keys [lo, hi),
-	// applying each match to res through run.
-	mergeInto(run *columnRun, sortedKeys entinverted.SortedKeys, lo, hi int, res *Resolution, adds, overflowed bool)
+	// scan walks the column and query keys [lo, hi) together, applying each match
+	// to res through run. A column key below the query key is stepped over, or
+	// jumped over with gallop set.
+	scan(run *columnRun, sortedKeys entinverted.SortedKeys, lo, hi int, res *Resolution, adds, overflowed, gallop bool)
 
 	// Flattening.
 
@@ -100,9 +98,8 @@ func (c *blobKeyColumn) keyAt(i int) []byte { return c.blob[c.offsets[i]:c.offse
 func (c *blobKeyColumn) appendKey(i int, dst []byte) []byte { return append(dst, c.keyAt(i)...) }
 
 // seek returns the first index i >= from with key(i) >= q, or len() if none,
-// and whether key(i) == q. Every key before from must be < q.
-func (c *blobKeyColumn) seek(from int, q []byte) (int, bool) {
-	t := loadHead(q, 0, len(q), headMask(len(q)))
+// and whether key(i) == q. Every key before from must be < q, and t is q's head.
+func (c *blobKeyColumn) seek(from int, q []byte, t uint64) (int, bool) {
 	n := c.len()
 	lo, hi, step := from, from, 1
 	for hi < n {
@@ -128,22 +125,10 @@ func (c *blobKeyColumn) seek(from int, q []byte) (int, bool) {
 	return base, match
 }
 
-func (c *blobKeyColumn) searchInto(run *columnRun, sortedKeys entinverted.SortedKeys,
-	lo, hi int, res *Resolution, adds, overflowed bool,
+func (c *blobKeyColumn) scan(run *columnRun, sortedKeys entinverted.SortedKeys,
+	lo, hi int, res *Resolution, adds, overflowed, gallop bool,
 ) {
-	n := c.len()
-	for qi, i := lo, 0; qi < hi && i < n; qi++ {
-		var match bool
-		if i, match = c.seek(i, sortedKeys.At(qi)); match {
-			run.applyRow(i, qi, res, adds, overflowed)
-		}
-	}
-}
-
-func (c *blobKeyColumn) mergeInto(run *columnRun, sortedKeys entinverted.SortedKeys,
-	lo, hi int, res *Resolution, adds, overflowed bool,
-) {
-	run.mergeBlob(c, sortedKeys, lo, hi, res, adds, overflowed)
+	run.scanBlob(c, sortedKeys, lo, hi, res, adds, overflowed, gallop)
 }
 
 func (c *blobKeyColumn) queryWindow(sorted entinverted.SortedKeys) (int, int) {
@@ -167,16 +152,10 @@ func (c *fixedKeyColumn) keyAt(i int) []byte { return c.data[i*c.w : (i+1)*c.w] 
 
 func (c *fixedKeyColumn) appendKey(i int, dst []byte) []byte { return append(dst, c.keyAt(i)...) }
 
-func (c *fixedKeyColumn) searchInto(run *columnRun, sortedKeys entinverted.SortedKeys,
-	lo, hi int, res *Resolution, adds, overflowed bool,
+func (c *fixedKeyColumn) scan(run *columnRun, sortedKeys entinverted.SortedKeys,
+	lo, hi int, res *Resolution, adds, overflowed, gallop bool,
 ) {
-	run.searchPacked(c.data, c.w, 0, sortedKeys, lo, hi, res, adds, overflowed)
-}
-
-func (c *fixedKeyColumn) mergeInto(run *columnRun, sortedKeys entinverted.SortedKeys,
-	lo, hi int, res *Resolution, adds, overflowed bool,
-) {
-	run.mergePacked(c.data, c.w, 0, sortedKeys, lo, hi, res, adds, overflowed)
+	run.scanPacked(c.data, c.w, 0, sortedKeys, lo, hi, res, adds, overflowed, gallop)
 }
 
 func (c *fixedKeyColumn) queryWindow(sorted entinverted.SortedKeys) (int, int) {
@@ -199,16 +178,10 @@ func (c *prefixKeyColumn) len() int { return len(c.data) / c.w }
 
 func (c *prefixKeyColumn) suffixAt(i int) []byte { return c.data[i*c.w : (i+1)*c.w] }
 
-func (c *prefixKeyColumn) searchInto(run *columnRun, sortedKeys entinverted.SortedKeys,
-	lo, hi int, res *Resolution, adds, overflowed bool,
+func (c *prefixKeyColumn) scan(run *columnRun, sortedKeys entinverted.SortedKeys,
+	lo, hi int, res *Resolution, adds, overflowed, gallop bool,
 ) {
-	run.searchPacked(c.data, c.w, len(c.prefix), sortedKeys, lo, hi, res, adds, overflowed)
-}
-
-func (c *prefixKeyColumn) mergeInto(run *columnRun, sortedKeys entinverted.SortedKeys,
-	lo, hi int, res *Resolution, adds, overflowed bool,
-) {
-	run.mergePacked(c.data, c.w, len(c.prefix), sortedKeys, lo, hi, res, adds, overflowed)
+	run.scanPacked(c.data, c.w, len(c.prefix), sortedKeys, lo, hi, res, adds, overflowed, gallop)
 }
 
 // queryWindow narrows the query keys, by two binary searches, to the run carrying
@@ -246,10 +219,9 @@ func (c *prefixKeyColumn) info() keyColumnInfo {
 }
 
 // seekPacked returns the first index i >= from of the n w-wide keys packed in
-// data with key(i) >= q, or n if none, and whether key(i) == q. mask is w's
-// headMask; a scan computes it once rather than once per probe.
-func seekPacked(data []byte, w, n int, mask uint64, from int, q []byte) (int, bool) {
-	t := loadHead(q, 0, len(q), headMask(len(q)))
+// data with key(i) >= q, or n if none, and whether key(i) == q. t is q's head and
+// mask is w's headMask; a scan computes both once rather than once per probe.
+func seekPacked(data []byte, w, n int, mask uint64, from int, q []byte, t uint64) (int, bool) {
 	lo, hi, step := from, from, 1
 	for hi < n {
 		off := hi * w
@@ -843,7 +815,7 @@ func (s State) Resolve(ctx context.Context, sortedKeys entinverted.SortedKeys, d
 }
 
 // scanInto applies this run's matches for sortedKeys to res, per key, adding
-// when adds is set and retiring otherwise, by merge-scan or a search per key.
+// when adds is set and retiring otherwise, stepping or galloping by shouldGallop.
 func (run *columnRun) scanInto(sortedKeys entinverted.SortedKeys, res *Resolution, adds bool) {
 	n := run.keys.len()
 	if n == 0 {
@@ -857,45 +829,42 @@ func (run *columnRun) scanInto(sortedKeys entinverted.SortedKeys, res *Resolutio
 		return // no query key can match this column
 	}
 
-	if mergeScanCheaper(hi-lo, n) {
-		// One interface call per scan; the loops make none per corpus key.
-		run.keys.mergeInto(run, sortedKeys, lo, hi, res, adds, overflowed)
-		return
-	}
-	run.keys.searchInto(run, sortedKeys, lo, hi, res, adds, overflowed)
+	// One interface call per scan; the loops make none per corpus key.
+	run.keys.scan(run, sortedKeys, lo, hi, res, adds, overflowed, shouldGallop(hi-lo, n))
 }
 
-// searchPacked searches the w-wide keys packed in data once per query key in
-// [lo, hi), each compared without its first skip bytes. Query keys ascend, so
-// each search resumes at the previous one's answer.
-func (run *columnRun) searchPacked(data []byte, w, skip int, sortedKeys entinverted.SortedKeys,
-	lo, hi int, res *Resolution, adds, overflowed bool,
-) {
-	n, mask := len(data)/w, headMask(w)
-	for qi, i := lo, 0; qi < hi && i < n; qi++ {
-		var match bool
-		if i, match = seekPacked(data, w, n, mask, i, sortedKeys.At(qi)[skip:]); match {
-			run.applyRow(i, qi, res, adds, overflowed)
-		}
-	}
-}
-
-// mergePacked merge-scans the w-wide keys packed in data against query keys
-// [lo, hi), each compared without its first skip bytes.
-func (run *columnRun) mergePacked(data []byte, w, skip int, sortedKeys entinverted.SortedKeys,
-	lo, hi int, res *Resolution, adds, overflowed bool,
+// scanPacked is keyColumn.scan over the w-wide keys packed in data, each query key
+// compared without its first skip bytes. A match moves both cursors, as a key has
+// one row.
+func (run *columnRun) scanPacked(data []byte, w, skip int, sortedKeys entinverted.SortedKeys,
+	lo, hi int, res *Resolution, adds, overflowed, gallop bool,
 ) {
 	n, mask := len(data)/w, headMask(w)
 	qi, q := lo, sortedKeys.At(lo)[skip:]
 	t := loadHead(q, 0, len(q), headMask(len(q)))
-	for si := 0; si < n; {
-		off := si * w
-		cmp := keyCompare(loadHead(data, off, w, mask), t, data, off, off+w, q)
-		if cmp < 0 {
-			si++
-			continue
+	si, _ := seekPacked(data, w, n, mask, 0, q, t)
+	for si < n {
+		var match bool
+		if gallop {
+			si, match = seekPacked(data, w, n, mask, si, q, t)
+		} else {
+			// No calls in this loop, so its state stays in registers.
+			h := loadHead(data, si*w, w, mask)
+			for h < t {
+				if si++; si == n {
+					return
+				}
+				h = loadHead(data, si*w, w, mask)
+			}
+			off := si * w
+			cmp := keyCompare(h, t, data, off, off+w, q)
+			if cmp < 0 {
+				si++
+				continue
+			}
+			match = cmp == 0
 		}
-		if cmp == 0 { // one row per key, so both cursors advance
+		if match {
 			run.applyRow(si, qi, res, adds, overflowed)
 			si++
 		}
@@ -907,21 +876,37 @@ func (run *columnRun) mergePacked(data []byte, w, skip int, sortedKeys entinvert
 	}
 }
 
-// mergeBlob merge-scans c's keys against query keys [lo, hi).
-func (run *columnRun) mergeBlob(c *blobKeyColumn, sortedKeys entinverted.SortedKeys,
-	lo, hi int, res *Resolution, adds, overflowed bool,
+// scanBlob is keyColumn.scan over c's keys.
+func (run *columnRun) scanBlob(c *blobKeyColumn, sortedKeys entinverted.SortedKeys,
+	lo, hi int, res *Resolution, adds, overflowed, gallop bool,
 ) {
 	n := c.len()
 	qi, q := lo, sortedKeys.At(lo)
 	t := loadHead(q, 0, len(q), headMask(len(q)))
-	for si := 0; si < n; {
-		off, end := int(c.offsets[si]), int(c.offsets[si+1])
-		cmp := keyCompare(loadHead(c.blob, off, end-off, headMask(end-off)), t, c.blob, off, end, q)
-		if cmp < 0 {
-			si++
-			continue
+	si, _ := c.seek(0, q, t)
+	for si < n {
+		var match bool
+		if gallop {
+			si, match = c.seek(si, q, t)
+		} else {
+			// No calls in this loop, so its state stays in registers.
+			off, end := int(c.offsets[si]), int(c.offsets[si+1])
+			h := loadHead(c.blob, off, end-off, headMask(end-off))
+			for h < t {
+				if si++; si == n {
+					return
+				}
+				off, end = int(c.offsets[si]), int(c.offsets[si+1])
+				h = loadHead(c.blob, off, end-off, headMask(end-off))
+			}
+			cmp := keyCompare(h, t, c.blob, off, end, q)
+			if cmp < 0 {
+				si++
+				continue
+			}
+			match = cmp == 0
 		}
-		if cmp == 0 { // one row per key, so both cursors advance
+		if match {
 			run.applyRow(si, qi, res, adds, overflowed)
 			si++
 		}
@@ -1420,14 +1405,14 @@ func replayKey(key []byte, held []uint64, adds, dels []columnRunCursor) []uint64
 	return slices.Compact(held)
 }
 
-// mergeScanMaxKeySpacing is the most corpus keys per query key at which the merge
-// scan wins. Per query key the merge scan steps over that many corpus keys, while a
-// galloping search probes about 2·log2 of them. BenchmarkScanStrategies sweeps it.
-const mergeScanMaxKeySpacing = 10
+// maxKeySpacingForStepping is the most corpus keys per query key at which stepping
+// wins. Per query key stepping walks over that many corpus keys, while galloping
+// probes about 2·log2 of them. BenchmarkScanStrategies sweeps it.
+const maxKeySpacingForStepping = 15
 
-// mergeScanCheaper reports whether merge-scanning the corpus beats one galloping
-// search per query key, about numKeys·log2(corpus/numKeys). At a fixed density both
-// costs grow linearly with corpus, so density alone decides.
-func mergeScanCheaper(numKeys, corpus int) bool {
-	return corpus > 0 && numKeys*mergeScanMaxKeySpacing >= corpus
+// shouldGallop reports whether galloping to each query key beats stepping over the
+// corpus, about numKeys·log2(corpus/numKeys). At a fixed density both costs grow
+// linearly with corpus, so density alone decides.
+func shouldGallop(numKeys, corpus int) bool {
+	return numKeys*maxKeySpacingForStepping < corpus
 }
