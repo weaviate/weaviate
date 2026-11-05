@@ -1110,7 +1110,10 @@ Then, per shard load:
        names the cause.
      - Of the status writers, only a manual status update lifts the hold, and a restart retries too (below). A vector-index config
        change is refused while the shard is READONLY, and disk-pressure
-       recovery lifts only its own reason.
+       recovery lifts only its own reason. Like any manual READY, the lift
+       overrides disk and memory pressure: the node does not set the shard
+       back READONLY while usage stays high, so bring disk and memory below
+       the read-only thresholds first.
      - The lift first retries the arm: if the mirror now arms, the shard
        goes writable and the migration continues; if only the stamp lands,
        it goes writable and the migration must be resubmitted; otherwise
