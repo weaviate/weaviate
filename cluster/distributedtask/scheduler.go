@@ -861,7 +861,7 @@ func (s *Scheduler) reconcileRunningTasks(
 			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
 			continue
 		}
-		// Sampled: a task whose unit waits on an operator is relaunched on every tick and wake.
+		// The relaunch line is sampled because a task whose unit waits on an operator is relaunched on every tick and wake; it shares sampledLogger by choice (docs/runtime-reindex.md §6.2).
 		s.sampledLogger.WithSampling(func(logrus.FieldLogger) {
 			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
 		})
