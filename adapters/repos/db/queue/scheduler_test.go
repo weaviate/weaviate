@@ -899,3 +899,21 @@ func TestStreamExecutorTaskDoesNotBlockClose(t *testing.T) {
 
 	require.NoError(t, s.Close(t.Context()))
 }
+
+// A queue is marked scheduled only when not paused, in one step with the
+// check, so a pause sees the mark or the scheduler sees the pause.
+func TestMarkAsScheduledUnlessPaused(t *testing.T) {
+	s := makeScheduler(t)
+	s.Start()
+	defer s.Close(t.Context())
+	q := makeQueue(t, s, discardExecutor())
+	state := s.getQueue(q.id)
+
+	require.NoError(t, q.Pause(t.Context()))
+	require.False(t, state.MarkAsScheduledUnlessPaused())
+	require.True(t, s.IsQueueIdle(q.id))
+
+	q.Resume()
+	require.True(t, state.MarkAsScheduledUnlessPaused())
+	state.MarkAsUnscheduled()
+}
