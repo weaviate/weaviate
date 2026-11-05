@@ -2338,6 +2338,11 @@ func chunksOf(t *testing.T, q *DiskQueue) (chunks []string, tombstoned map[strin
 	return chunks, tombstoned
 }
 
+// retainedStart is the path of the first chunk q's retention keeps.
+func retainedStart(q *DiskQueue) string {
+	return chunkPath(q.dir, q.retainedFrom)
+}
+
 // processNext dequeues the next batch and marks it done.
 func processNext(t *testing.T, q *DiskQueue) {
 	t.Helper()
@@ -2347,7 +2352,7 @@ func processNext(t *testing.T, q *DiskQueue) {
 	batch.Done()
 }
 
-// A retention keeps every processed chunk from its mark on, while the
+// A retention keeps every processed chunk from where it started, while the
 // consumer moves past it, and its release deletes them.
 func TestRetention_KeepsProcessedChunksUntilReleased(t *testing.T) {
 	s := makeScheduler(t)
@@ -2357,9 +2362,9 @@ func TestRetention_KeepsProcessedChunksUntilReleased(t *testing.T) {
 	chunks, _ := chunksOf(t, q)
 	require.Len(t, chunks, 3)
 
-	mark, err := q.Retain()
+	err := q.Retain()
 	require.NoError(t, err)
-	assert.Equal(t, chunks[0], mark)
+	assert.Equal(t, chunks[0], retainedStart(q))
 
 	processNext(t, q)
 	processNext(t, q)
@@ -2392,7 +2397,7 @@ func TestRetention_AndBackupKeepChunksIndependently(t *testing.T) {
 		pushMany(t, q, 1, 1, 2, 3, 4)
 		chunks, _ := chunksOf(t, q)
 		require.Len(t, chunks, 2)
-		_, err := q.Retain()
+		err := q.Retain()
 		require.NoError(t, err)
 		q.EnableMaintenanceMode()
 		processNext(t, q)
@@ -2422,7 +2427,7 @@ func TestRetention_AndBackupKeepChunksIndependently(t *testing.T) {
 	})
 }
 
-// The mark is the oldest chunk not processed when the retention starts, or
+// A retention starts at the oldest chunk not processed yet, or
 // the next chunk the queue creates.
 func TestRetention_Mark(t *testing.T) {
 	t.Run("the oldest chunk not processed yet", func(t *testing.T) {
@@ -2433,9 +2438,9 @@ func TestRetention_Mark(t *testing.T) {
 		require.Len(t, chunks, 3)
 		processNext(t, q)
 
-		mark, err := q.Retain()
+		err := q.Retain()
 		require.NoError(t, err)
-		assert.Equal(t, chunks[1], mark)
+		assert.Equal(t, chunks[1], retainedStart(q))
 	})
 
 	t.Run("the chunk being written", func(t *testing.T) {
@@ -2445,12 +2450,12 @@ func TestRetention_Mark(t *testing.T) {
 		chunks, _ := chunksOf(t, q)
 		require.Len(t, chunks, 1)
 
-		mark, err := q.Retain()
+		err := q.Retain()
 		require.NoError(t, err)
-		assert.Equal(t, chunks[0], mark)
+		assert.Equal(t, chunks[0], retainedStart(q))
 	})
 
-	t.Run("an empty queue marks the next chunk name", func(t *testing.T) {
+	t.Run("an empty queue starts at the next chunk name", func(t *testing.T) {
 		s := makeScheduler(t)
 		q := makeQueueSize(t, s, discardExecutor(), 50)
 		pushMany(t, q, 1, 1, 2, 3, 4)
@@ -2460,12 +2465,12 @@ func TestRetention_Mark(t *testing.T) {
 		chunks, _ := chunksOf(t, q)
 		require.Empty(t, chunks)
 
-		mark, err := q.Retain()
+		err := q.Retain()
 		require.NoError(t, err)
 		pushMany(t, q, 1, 5, 6, 7, 8)
 		chunks, _ = chunksOf(t, q)
 		require.Len(t, chunks, 2)
-		assert.LessOrEqual(t, filepath.Base(mark), filepath.Base(chunks[0]),
+		assert.LessOrEqual(t, filepath.Base(retainedStart(q)), filepath.Base(chunks[0]),
 			"every chunk created after Retain replays")
 	})
 
@@ -2481,26 +2486,26 @@ func TestRetention_Mark(t *testing.T) {
 		require.Len(t, kept, 2)
 		require.Len(t, tombstoned, 2, "precondition: the queue is empty but a backup keeps its chunks")
 
-		mark, err := q.Retain()
+		err := q.Retain()
 		require.NoError(t, err)
 		pushMany(t, q, 1, 5)
 		chunks, _ := chunksOf(t, q)
 		require.Len(t, chunks, 3)
 		for _, c := range kept {
-			assert.Less(t, filepath.Base(c), filepath.Base(mark), "a chunk processed before Retain")
+			assert.Less(t, filepath.Base(c), filepath.Base(retainedStart(q)), "a chunk processed before Retain")
 		}
-		assert.LessOrEqual(t, filepath.Base(mark), filepath.Base(chunks[2]), "a chunk created after Retain")
+		assert.LessOrEqual(t, filepath.Base(retainedStart(q)), filepath.Base(chunks[2]), "a chunk created after Retain")
 	})
 
 	t.Run("one retention at a time", func(t *testing.T) {
 		s := makeScheduler(t)
 		q := makeQueueSize(t, s, discardExecutor(), 50)
-		_, err := q.Retain()
+		err := q.Retain()
 		require.NoError(t, err)
-		_, err = q.Retain()
+		err = q.Retain()
 		require.ErrorContains(t, err, "already retained")
 		require.NoError(t, q.ReleaseRetention())
-		_, err = q.Retain()
+		err = q.Retain()
 		require.NoError(t, err)
 	})
 }
@@ -2517,7 +2522,7 @@ func TestRetention_KeepsAChunkWhoseTombstoneFails(t *testing.T) {
 	q.m.Unlock()
 	chunks, _ := chunksOf(t, q)
 	require.Len(t, chunks, 1)
-	_, err := q.Retain()
+	err := q.Retain()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = q.ReleaseRetention() })
 
@@ -2537,7 +2542,7 @@ func TestRetention_KeepsAChunkWhoseTombstoneFails(t *testing.T) {
 }
 
 // Chunk names only grow when the clock steps back: replay follows name order,
-// and a retention's mark is a name.
+// and a retention's start is a number in that order.
 func TestChunkNamesGrowWhenTheClockStepsBack(t *testing.T) {
 	stubChunkTime := func(t *testing.T, ts int64) {
 		t.Helper()
@@ -2552,11 +2557,11 @@ func TestChunkNamesGrowWhenTheClockStepsBack(t *testing.T) {
 		return seq
 	}
 
-	t.Run("after an empty queue's mark", func(t *testing.T) {
+	t.Run("after an empty queue's retention start", func(t *testing.T) {
 		stubChunkTime(t, 2_000_000)
 		s := makeScheduler(t)
 		q := makeQueueSize(t, s, discardExecutor(), 50)
-		mark, err := q.Retain()
+		err := q.Retain()
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = q.ReleaseRetention() })
 
@@ -2564,7 +2569,7 @@ func TestChunkNamesGrowWhenTheClockStepsBack(t *testing.T) {
 		pushMany(t, q, 1, 1)
 		chunks, _ := chunksOf(t, q)
 		require.Len(t, chunks, 1)
-		assert.Greater(t, seqOf(t, chunks[0]), seqOf(t, mark))
+		assert.Greater(t, seqOf(t, chunks[0]), seqOf(t, retainedStart(q)))
 	})
 
 	t.Run("within a queue", func(t *testing.T) {
@@ -2608,7 +2613,7 @@ func TestRetention_ReleaseCanBeRetried(t *testing.T) {
 	q := makeQueueSize(t, s, discardExecutor(), 50)
 	pushMany(t, q, 1, 1, 2, 3, 4)
 	chunks, _ := chunksOf(t, q)
-	_, err := q.Retain()
+	err := q.Retain()
 	require.NoError(t, err)
 	processNext(t, q)
 
@@ -2625,7 +2630,7 @@ func TestRetention_ReleaseCanBeRetried(t *testing.T) {
 }
 
 // The end of a backup during a retention deletes the chunks the backup kept
-// from before the mark, and keeps the ones the retention needs.
+// from before the retention, and keeps the ones the retention needs.
 func TestRetention_BackupEndDeletesChunksBeforeTheMark(t *testing.T) {
 	s := makeScheduler(t)
 	q := makeQueueSize(t, s, discardExecutor(), 50)
@@ -2635,9 +2640,9 @@ func TestRetention_BackupEndDeletesChunksBeforeTheMark(t *testing.T) {
 	require.Len(t, chunks, 3)
 	processNext(t, q) // kept by the backup only
 
-	mark, err := q.Retain()
+	err := q.Retain()
 	require.NoError(t, err)
-	require.Equal(t, chunks[1], mark)
+	require.Equal(t, chunks[1], retainedStart(q))
 	processNext(t, q) // kept by both
 
 	require.NoError(t, q.DisableMaintenanceMode())
@@ -2670,7 +2675,7 @@ func TestCleanupKeepsTheTombstoneOfAChunkItCannotRemove(t *testing.T) {
 func TestRetention_ReleaseFailsOnAChunkItCannotRemove(t *testing.T) {
 	s := makeScheduler(t)
 	q := makeQueueSize(t, s, discardExecutor(), 50)
-	_, err := q.Retain()
+	err := q.Retain()
 	require.NoError(t, err)
 
 	stuck := chunkPath(q.dir, 1)

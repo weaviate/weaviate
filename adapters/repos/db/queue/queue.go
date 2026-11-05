@@ -728,45 +728,40 @@ func (q *DiskQueue) keepsProcessed() bool {
 	return q.maintenanceMode.Load() || q.retained
 }
 
-// Retain keeps every chunk from the returned mark on, processed or not,
-// until ReleaseRetention: a replacement index replays them while the current
-// consumer carries on. Processed chunks are kept as a backup keeps them,
-// behind a .processed tombstone, so a restart deletes them: a replacement is
-// never resumed after one.
-//
-// The mark is the path of the first chunk to replay, and every chunk named
-// at or after it replays: the oldest chunk not processed yet, or on a queue
-// with none a name reserved below every chunk created next. The file may not
-// exist yet. Chunks a backup kept from before the mark go when the backup
-// ends. A queue is retained once at a time.
-func (q *DiskQueue) Retain() (mark string, err error) {
+// Retain keeps everything queued from now on or not processed yet, processed
+// or not, until ReleaseRetention: a replacement index replays it, see Rewind,
+// while the current consumer carries on. Processed chunks are kept as a backup
+// keeps them, behind a .processed tombstone, so a restart deletes them unless
+// Rewind runs before Init. Chunks a backup kept from before Retain go when the
+// backup ends. A queue is retained once at a time.
+func (q *DiskQueue) Retain() error {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
 
 	if q.r == nil || q.w == nil {
-		return "", errors.New("queue not initialized")
+		return errors.New("queue not initialized")
 	}
 	if q.retained {
-		return "", errors.New("queue already retained")
+		return errors.New("queue already retained")
 	}
 
 	// under the writer's lock, so no chunk is created in between
 	q.m.Lock()
 	defer q.m.Unlock()
-	mark = q.r.firstUnprocessed()
-	if mark == "" && q.w.f != nil {
-		mark = q.w.f.Name()
+	first := q.r.firstUnprocessed()
+	if first == "" && q.w.f != nil {
+		first = q.w.f.Name()
 	}
-	if mark == "" {
-		mark = chunkPath(q.dir, q.w.nextSeq())
+	if first == "" {
+		first = chunkPath(q.dir, q.w.nextSeq())
 	}
-	from, ok := chunkSeq(mark)
+	from, ok := chunkSeq(first)
 	if !ok {
-		return "", fmt.Errorf("unexpected chunk name %q", mark)
+		return fmt.Errorf("unexpected chunk name %q", first)
 	}
 	q.retained = true
 	q.retainedFrom = from
-	return mark, nil
+	return nil
 }
 
 // ReleaseRetention stops keeping chunks and deletes the processed ones,
@@ -1438,7 +1433,7 @@ func (w *chunkWriter) Create() error {
 	//
 	// Names only grow, which is load-bearing: the filename doubles as the
 	// replay ordering key (chunks are reloaded in name order, and a
-	// retention's mark is a name).
+	// retention's start is a number in that order).
 	ts := w.nextSeq()
 	for i := 0; ; i++ {
 		path := chunkPath(w.dir, ts)
