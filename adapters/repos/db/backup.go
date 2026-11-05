@@ -321,7 +321,11 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 
 // descriptor record everything needed to restore a class
 func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.BaseClassDescriptor, designated map[string]string, gate reindexGate) (err error) {
-	if !file.ProbeHardlinkSupport(i.Config.RootPath) {
+	supported, err := file.ProbeHardlinkSupport(i.Config.RootPath)
+	if err != nil {
+		return fmt.Errorf("probe hardlink support: %w", err)
+	}
+	if !supported {
 		return fmt.Errorf("backup requires a filesystem that supports hard links; the data directory for class %s does not", i.Config.ClassName)
 	}
 

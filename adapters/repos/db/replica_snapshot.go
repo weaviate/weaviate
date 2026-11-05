@@ -96,7 +96,13 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	defer i.replicaSnapshotOpLocks.Unlock(opID)
 
 	// Checked before GetShard, so a refusal never loads a cold lazy shard.
-	if !file.ProbeHardlinkSupport(i.Config.RootPath) {
+	// A probe error is not wrapped as ErrShardBusyStructuralOp, so it counts
+	// against the movement's MaxErrors budget.
+	supported, err := file.ProbeHardlinkSupport(i.Config.RootPath)
+	if err != nil {
+		return nil, fmt.Errorf("probe hardlink support: %w", err)
+	}
+	if !supported {
 		return nil, fmt.Errorf("replica movement requires a filesystem that supports hard links; "+
 			"the data directory for class %s does not", i.Config.ClassName)
 	}
