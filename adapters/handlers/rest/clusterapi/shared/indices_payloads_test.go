@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/searchparams"
 
@@ -920,4 +921,26 @@ func TestBatchDeleteResultsReadsAnOlderPeersFailure(t *testing.T) {
 	assert.NoError(t, out[0].Err)
 	require.Error(t, out[1].Err, "an older peer's failure must not read as a success")
 	assert.ErrorIs(t, out[1].Err, objects.ErrRemoteDeleteUnreadable)
+}
+
+// TestAggregationParamsPayload_OnlyRequestedAggregations pins that the flag
+// reaches the shards' nodes, and that params from a node that does not send it
+// read as unset, so the shards compute every result as before.
+func TestAggregationParamsPayload_OnlyRequestedAggregations(t *testing.T) {
+	p := IndicesPayloads.AggregationParams
+	for _, onlyRequested := range []bool{true, false} {
+		t.Run(fmt.Sprint(onlyRequested), func(t *testing.T) {
+			body, err := p.Marshal(aggregation.Params{ClassName: "C", OnlyRequestedAggregations: onlyRequested})
+			require.NoError(t, err)
+			got, err := p.Unmarshal(body)
+			require.NoError(t, err)
+			assert.Equal(t, onlyRequested, got.OnlyRequestedAggregations)
+		})
+	}
+
+	t.Run("from a node without the field", func(t *testing.T) {
+		got, err := p.Unmarshal([]byte(`{"className":"C","properties":[{"name":"p","aggregators":[{"type":"count"}]}]}`))
+		require.NoError(t, err)
+		assert.False(t, got.OnlyRequestedAggregations)
+	})
 }

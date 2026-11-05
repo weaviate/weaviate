@@ -153,8 +153,15 @@ func (f *scanFixture) delete(i int) {
 	delete(f.live, i)
 }
 
-// aggregate runs prop through the unfiltered aggregator the way a query does.
+// aggregate runs prop through the unfiltered aggregator the way a gRPC query does.
 func (f *scanFixture) aggregate(ctx context.Context, prop aggregation.ParamProperty) aggregation.Property {
+	f.tb.Helper()
+	return f.aggregateWith(ctx, prop, false)
+}
+
+// aggregateWith is aggregate with [aggregation.Params.OnlyRequestedAggregations]
+// set to onlyRequested.
+func (f *scanFixture) aggregateWith(ctx context.Context, prop aggregation.ParamProperty, onlyRequested bool) aggregation.Property {
 	f.tb.Helper()
 
 	class := &models.Class{
@@ -176,8 +183,9 @@ func (f *scanFixture) aggregate(ctx context.Context, prop aggregation.ParamPrope
 		logger:    logger,
 		getSchema: getter,
 		params: aggregation.Params{
-			ClassName:  fixtureClassName,
-			Properties: []aggregation.ParamProperty{prop},
+			ClassName:                 fixtureClassName,
+			Properties:                []aggregation.ParamProperty{prop},
+			OnlyRequestedAggregations: onlyRequested,
 		},
 	}}
 	got, err := ua.properties(ctx)
@@ -275,7 +283,7 @@ func TestUnfilteredObjectScans_AggregateEveryLiveObjectOnce(t *testing.T) {
 					aggs := []aggregation.Aggregator{{Type: aggregation.TopOccurrencesType, Limit: &limit}}
 					got := f.aggregate(ctx, aggregation.ParamProperty{Name: scanTextProp, Aggregators: aggs})
 
-					want := newTextAggregator(aggs)
+					want := newTextAggregator(aggs, false)
 					for _, o := range f.live {
 						require.NoError(t, want.AddText(o.text))
 					}
@@ -286,11 +294,16 @@ func TestUnfilteredObjectScans_AggregateEveryLiveObjectOnce(t *testing.T) {
 				})
 
 				t.Run("text count only", func(t *testing.T) {
-					got := f.aggregate(ctx, aggregation.ParamProperty{
+					countOnly := aggregation.ParamProperty{
 						Name:        scanTextProp,
 						Aggregators: []aggregation.Aggregator{aggregation.CountAggregator},
-					})
+					}
+					got := f.aggregateWith(ctx, countOnly, true)
 					require.Equal(t, aggregation.Text{Count: len(f.live)}, got.TextAggregation)
+
+					got = f.aggregateWith(ctx, countOnly, false)
+					require.Equal(t, len(f.live), got.TextAggregation.Count)
+					require.NotEmpty(t, got.TextAggregation.Items, "a caller that reads unrequested results gets the top occurrences")
 				})
 
 				t.Run("number array", func(t *testing.T) {
