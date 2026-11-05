@@ -12,7 +12,10 @@
 package types
 
 import (
+	"cmp"
 	"fmt"
+	"math/rand/v2"
+	"slices"
 
 	"github.com/sirupsen/logrus"
 )
@@ -186,6 +189,37 @@ func (p ReadRoutingPlan) ShardPlans(cl ConsistencyLevel) []ReadRoutingPlan {
 	}
 
 	return plans
+}
+
+// SpreadReplicas picks one replica of each shard in p, spreading the shards over
+// as many nodes as their replicas allow: each shard goes to the replica node
+// with the fewest shards picked so far. Shards with fewer replicas pick first,
+// as they have fewer nodes to choose from. On a tie the local node wins, as it
+// needs no network hop; other ties break at random, so concurrent reads do not
+// all land on the same node. p must hold every read replica of each shard.
+func (p ReadRoutingPlan) SpreadReplicas() []Replica {
+	plans := p.ShardPlans(ConsistencyLevelOne)
+	slices.SortStableFunc(plans, func(a, b ReadRoutingPlan) int {
+		return cmp.Compare(len(a.ReplicaSet.Replicas), len(b.ReplicaSet.Replicas))
+	})
+
+	picked := make([]Replica, 0, len(plans))
+	load := make(map[string]int)
+	for _, plan := range plans {
+		replicas := plan.ReplicaSet.Replicas
+		offset := rand.IntN(len(replicas))
+		best := replicas[offset]
+		for k := 1; k < len(replicas); k++ {
+			r := replicas[(offset+k)%len(replicas)]
+			if load[r.NodeName] < load[best.NodeName] ||
+				(load[r.NodeName] == load[best.NodeName] && r.NodeName == p.LocalHostname) {
+				best = r
+			}
+		}
+		load[best.NodeName]++
+		picked = append(picked, best)
+	}
+	return picked
 }
 
 // HostNames returns the hostnames of the primary write Replicas
