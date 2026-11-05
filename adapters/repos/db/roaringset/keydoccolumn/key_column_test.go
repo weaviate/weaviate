@@ -266,8 +266,21 @@ func (tc keyColumnCase) run(t *testing.T) (*columnRun, [][]byte) {
 	return run, keys
 }
 
-// TestSearchGEMatchesByteOrder pins searchGE, from every valid start, agreeing with bytes.Compare on keys whose first eight bytes tie.
-func TestSearchGEMatchesByteOrder(t *testing.T) {
+// seekColumn runs the backing's search for one key from from.
+func seekColumn(col keyColumn, from int, q []byte) (int, bool) {
+	switch c := col.(type) {
+	case *blobKeyColumn:
+		return c.seek(from, q)
+	case *fixedKeyColumn:
+		return seekPacked(c.data, c.w, c.len(), headMask(c.w), from, q)
+	case *prefixKeyColumn:
+		return seekPacked(c.data, c.w, c.len(), headMask(c.w), from, q[len(c.prefix):])
+	}
+	panic(fmt.Sprintf("unknown backing %T", col))
+}
+
+// TestSeekMatchesByteOrder pins a backing's seek, from every valid start, agreeing with bytes.Compare on keys whose first eight bytes tie.
+func TestSeekMatchesByteOrder(t *testing.T) {
 	for _, tt := range keyColumnCases() {
 		t.Run(tt.name, func(t *testing.T) {
 			run, keys := tt.run(t)
@@ -284,7 +297,7 @@ func TestSearchGEMatchesByteOrder(t *testing.T) {
 				want := sort.Search(col.len(), func(i int) bool { return bytes.Compare(col.appendKey(i, nil), q) >= 0 })
 				wantMatch := want < len(keys) && bytes.Equal(keys[want], q)
 				for from := 0; from <= want; from++ {
-					if got, match := col.searchGE(from, q); got != want || match != wantMatch {
+					if got, match := seekColumn(col, from, q); got != want || match != wantMatch {
 						require.Equal(t, []any{want, wantMatch}, []any{got, match}, "query %q from %d", q, from)
 					}
 				}
@@ -316,7 +329,7 @@ func TestScanMatchesStoredProbes(t *testing.T) {
 
 			strategies := map[string]func(res *Resolution){
 				"merge":  func(res *Resolution) { run.keys.mergeInto(run, q, lo, hi, res, true, false) },
-				"search": func(res *Resolution) { run.searchInto(q, lo, hi, res, true, false) },
+				"search": func(res *Resolution) { run.keys.searchInto(run, q, lo, hi, res, true, false) },
 			}
 			for name, scan := range strategies {
 				res := newResolution(q.Len(), 1_000)
@@ -500,7 +513,7 @@ func benchScanStrategies(b *testing.B, name string, run *columnRun, keys [][]byt
 		scan func(res *Resolution)
 	}{
 		{"merge", func(res *Resolution) { run.keys.mergeInto(run, q, lo, hi, res, true, false) }},
-		{"search", func(res *Resolution) { run.searchInto(q, lo, hi, res, true, false) }},
+		{"search", func(res *Resolution) { run.keys.searchInto(run, q, lo, hi, res, true, false) }},
 	}
 	for _, s := range strategies {
 		b.Run(name+"/"+s.name, func(b *testing.B) {
