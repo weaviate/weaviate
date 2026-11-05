@@ -30,6 +30,7 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -1525,3 +1526,75 @@ func TestNew(t *testing.T) {
 }
 
 var _ backup.DedupePlanner = (*Planner)(nil)
+
+func TestPlanDefaultBudget(t *testing.T) {
+	const fast, slow = 40 * time.Millisecond, 5 * time.Second
+	cases := []struct {
+		name          string
+		requestBudget time.Duration
+		configured    time.Duration
+		fallback      time.Duration
+		wantReads     int
+	}{
+		{name: "omitted request budget takes the configured default", configured: fast, fallback: slow, wantReads: 1},
+		{name: "request budget beats the configured default", requestBudget: fast, configured: slow, fallback: slow},
+		{name: "non-positive configured default falls back", configured: 0, fallback: fast, wantReads: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeCheckpointer()
+			f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}}
+			f.diverge["C1/s1"] = true
+			c := newTestPlanner(f)
+			c.convergenceBudget = tc.fallback
+			reads := 0
+			c.defaultBudget = func() time.Duration {
+				reads++
+				return tc.configured
+			}
+
+			start := time.Now()
+			plan := c.PlanDesignatedShards(context.Background(), []string{"C1"}, tc.requestBudget, parts("n1", "n2"), nil, nil)
+			assert.Equal(t, 0, plan.Designated())
+			assert.Less(t, time.Since(start), 2*time.Second)
+			assert.Equal(t, tc.wantReads, reads)
+		})
+	}
+
+	t.Run("configured default is re-read on every run", func(t *testing.T) {
+		f := newFakeCheckpointer()
+		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}}
+		c := newTestPlanner(f)
+		reads := 0
+		c.defaultBudget = func() time.Duration {
+			reads++
+			return fast
+		}
+		for range 2 {
+			c.PlanDesignatedShards(context.Background(), []string{"C1"}, 0, parts("n1", "n2"), nil, nil)
+		}
+		assert.Equal(t, 2, reads)
+	})
+}
+
+func TestPlanLogsResolvedBudget(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	f := newFakeCheckpointer()
+	c := newTestPlanner(f)
+	c.log = logger
+	c.defaultBudget = func() time.Duration { return 7 * time.Second }
+
+	c.PlanDesignatedShards(context.Background(), []string{"C1"}, 0, parts("n1"), nil, nil)
+
+	entry := hook.LastEntry()
+	require.NotNil(t, entry)
+	assert.Equal(t, "7s", entry.Data["budget"])
+}
+
+func TestDefaultBudgetFitsServerWriteTimeout(t *testing.T) {
+	const serverDefaultWriteTimeout = 60 * time.Second
+	assert.Equal(t, config.DefaultBackupDedupeConvergenceTimeout, _DefaultDedupeConvergenceBudget)
+	assert.Equal(t, config.MaxBackupDedupeConvergenceTimeout, _MaxDedupeConvergenceBudget)
+	hardStop := _DedupeCutoffLead + _DefaultDedupeConvergenceBudget + _DedupePlanningSlack + dedupeFanoutAllowance(1)
+	assert.Less(t, hardStop, serverDefaultWriteTimeout)
+}

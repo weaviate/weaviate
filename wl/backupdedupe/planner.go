@@ -49,7 +49,7 @@ const (
 	// Must exceed checkpoint-create fan-out latency: shards reject a past cutoff.
 	_DedupeCutoffLead               = 10 * time.Second
 	_DedupePollInterval             = 3 * time.Second
-	_DefaultDedupeConvergenceBudget = 60 * time.Second
+	_DefaultDedupeConvergenceBudget = 15 * time.Second
 	_DedupeCleanupTimeout           = 10 * time.Second
 	// Classes whose checkpoint RPCs run at once; each call already fans out per shard and replica.
 	_DedupeClassConcurrency = 16
@@ -84,6 +84,8 @@ type Config struct {
 	ConvergenceBudget time.Duration
 	PlanningSlack     time.Duration
 	CleanupTimeout    time.Duration
+	// DefaultBudget is read on every run that has no request budget; a nil func or non-positive value means ConvergenceBudget.
+	DefaultBudget func() time.Duration
 }
 
 // Planner is the backup.DedupePlanner of a licensed node.
@@ -96,6 +98,7 @@ type Planner struct {
 	planningSlack     time.Duration
 	cleanupTimeout    time.Duration
 	pickTie           func(n int) int
+	defaultBudget     func() time.Duration
 }
 
 // New returns a Planner, or an error instead of a Planner that would panic on its first call.
@@ -115,6 +118,7 @@ func New(cfg Config) (*Planner, error) {
 		planningSlack:     orDefault(cfg.PlanningSlack, _DedupePlanningSlack),
 		cleanupTimeout:    orDefault(cfg.CleanupTimeout, _DedupeCleanupTimeout),
 		pickTie:           rand.IntN,
+		defaultBudget:     cfg.DefaultBudget,
 	}, nil
 }
 
@@ -158,9 +162,10 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	sum := &planSummary{classes: len(classes), missingByNode: map[string]int{}}
 	defer func(begin time.Time) { p.logSummary(sum, plan, time.Since(begin), cancelled()) }(time.Now())
 	if budget <= 0 {
-		budget = p.convergenceBudget
+		budget = p.configuredBudget()
 	}
 	budget = min(budget, _MaxDedupeConvergenceBudget)
+	sum.budget = budget
 	// Hard deadline: the request ctx has none, and a wedged peer RPC would otherwise stall planning while the op slot blocks every subsequent backup.
 	ctx, cancel := context.WithTimeout(ctx, p.cutoffLead+budget+p.planningSlack+dedupeFanoutAllowance(len(classes)))
 	defer cancel()
@@ -315,6 +320,13 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	return plan
 }
 
+func (p *Planner) configuredBudget() time.Duration {
+	if p.defaultBudget == nil {
+		return p.convergenceBudget
+	}
+	return orDefault(p.defaultBudget(), p.convergenceBudget)
+}
+
 // stopEligibility aborts planning inside the class-eligibility loop.
 // Unresolved classes have no known shard count, so only resolved candidates count as planning_deadline shards; the summary names the unresolved classes.
 func (p *Planner) stopEligibility(ctx context.Context, sum *planSummary, plan *backup.DedupePlan, candidates map[string][]string, unresolved int, cancelled func() bool) {
@@ -358,6 +370,7 @@ func (t *failureTally) add(class string, shards int, err error) {
 
 // planSummary collects one planning run's outcomes so it logs once, never once per class or tenant.
 type planSummary struct {
+	budget                   time.Duration
 	classes, asyncDisabled   int
 	replicas, create, status failureTally
 	missing, unconverged     int
@@ -378,6 +391,7 @@ func (p *Planner) logSummary(sum *planSummary, plan *backup.DedupePlan, took tim
 		WithField("candidate_shards", plan.CandidateShards).
 		WithField("designated", plan.Designated()).
 		WithField("fallback", plan.Fallback()).
+		WithField("budget", sum.budget.String()).
 		WithField("took", took.String())
 	if sum.asyncDisabled > 0 {
 		log = log.WithField("async_disabled_classes", sum.asyncDisabled)
