@@ -23,6 +23,15 @@ import (
 // can be served under either cache layout for A/B benchmarking, without any
 // per-collection config surface. Consulted at cache construction time
 // (index load / compressor creation), not per operation.
+//
+// Caveat for "arena": deleted records free their slot but not their chunk
+// (no chunk reclamation yet), and vector updates move to fresh doc ids, so
+// under update/delete churn arena memory follows the id range touched since
+// startup rather than the live vectors — e.g. 2M RQ8 1536d objects updated
+// 5x between restarts hold ~16 GB vs ~3.9 GB sharded. It suits read-heavy,
+// append-mostly workloads. Watch weaviate_vector_cache_arena_slab_bytes
+// against weaviate_vector_cache_arena_live_vectors; a restart, or the
+// cache being dropped, releases the memory.
 const VectorCacheImplEnv = "VECTOR_CACHE_IMPL"
 
 // ArenaCacheSelected reports whether VECTOR_CACHE_IMPL selects the arena
