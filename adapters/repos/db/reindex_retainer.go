@@ -14,6 +14,7 @@ package db
 import (
 	"cmp"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -56,7 +57,8 @@ type ReindexRun struct {
 // target, from every failed or cancelled run of target since the newest
 // finished schema flip on its index types: that flip covered every tenant.
 // covered is every tenant those runs held. A tenant whose newest swap was to
-// another target no longer serves this one.
+// another target no longer serves this one. A single-tenant run's one group,
+// "", counts as one tenant.
 func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexTaskPayload) (migrated, covered map[string]struct{}) {
 	targetTypes, _ := ReindexIndexTypes(target.MigrationType)
 	var onProperty []ReindexRun
@@ -82,18 +84,27 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 		same := run.Payload.MigrationType == target.MigrationType &&
 			run.Payload.TargetTokenization == target.TargetTokenization && run.Payload.BucketStrategy == target.BucketStrategy
 		for group := range run.Task.SwapDecidedGroups {
-			if _, seen := swappedSince[group]; same && !seen && group != "" {
+			if _, seen := swappedSince[group]; same && !seen {
 				migrated[group] = struct{}{}
 			}
 			swappedSince[group] = struct{}{}
 		}
 		for _, group := range run.Task.Groups() {
-			if same && group != "" {
+			if same {
 				covered[group] = struct{}{}
 			}
 		}
 	}
 	return migrated, covered
+}
+
+// ReindexMigratedPhrase says what of property serves the migrated index: some
+// tenants, or a single-tenant collection as a whole, never named in tenants.
+func ReindexMigratedPhrase(migrated, covered map[string]struct{}, property string) string {
+	if _, ungrouped := migrated[""]; ungrouped {
+		return fmt.Sprintf("property %q of the collection serves", property)
+	}
+	return fmt.Sprintf("%d of %d tenants of property %q serve", len(migrated), len(covered), property)
 }
 
 // ReindexPartialRun returns the newest run on property that left some tenants

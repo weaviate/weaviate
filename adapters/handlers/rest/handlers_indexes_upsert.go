@@ -666,8 +666,8 @@ func partialRunMessage(collection, propName string, indexTypes []string, reindex
 		plan.targetTok == run.Payload.TargetTokenization && plan.bucketStrategy == run.Payload.BucketStrategy) {
 		return ""
 	}
-	return fmt.Sprintf("%d of %d tenants of property %q serve the migrated index; finish the migration with %s",
-		len(migrated), len(covered), propName, db.ReindexResubmitCommand(&run.Payload, propName))
+	return fmt.Sprintf("%s the migrated index; finish the migration with %s",
+		db.ReindexMigratedPhrase(migrated, covered, propName), db.ReindexResubmitCommand(&run.Payload, propName))
 }
 
 // validateTenantScope enforces the tenants contract: honored only on

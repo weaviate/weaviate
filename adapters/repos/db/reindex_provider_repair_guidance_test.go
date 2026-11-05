@@ -319,7 +319,9 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 			var guided bool
 			var guidance string
 			for _, e := range hook.AllEntries() {
-				if _, ok := e.Data["repair_command"]; ok {
+				_, repair := e.Data["repair_command"]
+				_, resubmit := e.Data["resubmit_command"]
+				if repair || resubmit {
 					guided = true
 					guidance = e.Message
 				}

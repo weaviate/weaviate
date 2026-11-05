@@ -160,6 +160,11 @@ func TestRebuildRefusedOnPartlyMigratedIndex(t *testing.T) {
 		TargetTokenization: models.PropertyTokenizationField,
 	}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
 	partial.SwapDecidedGroups = map[string]time.Time{"a": {}}
+	singleTenant := buildTask(t, "T", distributedtask.TaskStatusFailed, db.ReindexTaskPayload{
+		Collection: "C", Properties: []string{"title"}, MigrationType: db.ReindexTypeChangeTokenizationFilterable,
+		TargetTokenization: models.PropertyTokenizationField,
+	}, map[string]*distributedtask.Unit{"s1": {ID: "s1"}, "s2": {ID: "s2"}})
+	singleTenant.SwapDecidedGroups = map[string]time.Time{"": {}}
 	prop := &models.Property{Name: "title", DataType: []string{"text"}, IndexFilterable: boolPtr(true), IndexSearchable: boolPtr(true)}
 	class := &models.Class{Class: "C", Properties: []*models.Property{prop}, InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: true}}
 
@@ -167,20 +172,21 @@ func TestRebuildRefusedOnPartlyMigratedIndex(t *testing.T) {
 		name      string
 		indexType string
 		tasks     []*distributedtask.Task
-		refused   bool
+		refusal   string // empty: not refused
 	}{
-		{name: "the migrated index is refused", indexType: "filterable", tasks: []*distributedtask.Task{partial}, refused: true},
+		{name: "the migrated index is refused", indexType: "filterable", tasks: []*distributedtask.Task{partial}, refusal: "1 of 2 tenants"},
+		{name: "a single-tenant collection is refused too, never named in tenants", indexType: "filterable", tasks: []*distributedtask.Task{singleTenant}, refusal: `property "title" of the collection serves`},
 		{name: "another index of the property is not", indexType: "searchable", tasks: []*distributedtask.Task{partial}},
 		{name: "no partial run, no refusal", indexType: "filterable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := (&indexesHandlers{}).resolveRebuildPlan(class, prop, tc.indexType, tc.tasks)
-			if !tc.refused {
+			if tc.refusal == "" {
 				require.NoError(t, err)
 				return
 			}
 			require.ErrorIs(t, err, errRebuildPartlyMigrated)
-			require.Contains(t, err.Error(), "1 of 2 tenants")
+			require.Contains(t, err.Error(), tc.refusal)
 			require.Contains(t, err.Error(), `PUT /v1/schema/C/properties/title/index/filterable -d '{"tokenization":"field"}'`)
 		})
 	}
