@@ -129,23 +129,8 @@ type DB struct {
 	schemaReader   local.SchemaReader
 	replicationFSM types.ReplicationFSMReader
 
-	// reindexAuditMu guards the audit deps installed by
-	// [DB.SetReindexAuditDeps] and the backup-gate activity lookup
-	// installed by [DB.SetShardReindexActivityLookup] so they are
-	// safely visible from any post-restore goroutine.
-	//
-	// reindexAuditDeferredRequests counts the number of times
-	// [DB.AuditOrphanReindexTrackersIfReady] was called BEFORE deps
-	// were installed (typically from the per-class-dir restore hook
-	// firing during RAFT replay while the SetReindexAuditDeps
-	// goroutine is still waiting on metaStoreReady). On the first
-	// SetReindexAuditDeps call, if the counter is non-zero, the
-	// install path runs a single replay sweep so the deferred
-	// per-class audits are not silently lost. Closes B2.
-	reindexAuditMu                     sync.RWMutex
-	reindexAuditLookupBuilder          KnownReindexTaskLookupBuilder
-	reindexAuditLogger                 logrus.FieldLogger
-	reindexAuditDeferredRequests       int
+	// reindexLookupsMu guards the two lookups below: written at scheduler start, read from backup.
+	reindexLookupsMu                   sync.RWMutex
 	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
 	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
 
@@ -571,6 +556,32 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 	return index
 }
 
+// registeredIndex returns the index registered for className, or nil, without
+// GetIndex's retries.
+func (db *DB) registeredIndex(className schema.ClassName) *Index {
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
+	return db.indices[indexID(className)]
+}
+
+// indexForRead returns className's index, or nil and no error if this node has
+// none. On a miss for a class the local schema holds, it first waits until this
+// node has applied that class version. Never call it from SchemaManager.apply,
+// which would wait for its own version.
+func (db *DB) indexForRead(ctx context.Context, className schema.ClassName) (*Index, error) {
+	if index := db.registeredIndex(className); index != nil {
+		return index, nil
+	}
+	version := db.schemaReader.ReadOnlyVersionedClass(className.String()).Version
+	if version == 0 {
+		return nil, nil
+	}
+	if err := db.schemaReader.WaitForUpdate(ctx, version); err != nil {
+		return nil, fmt.Errorf("wait for class %s to be applied locally: %w", className, err)
+	}
+	return db.registeredIndex(className), nil
+}
+
 // WaitForLocalInflightWrites blocks until this node's in-flight coordinated
 // writes to the given shard have drained, or ctx is done.
 //
@@ -724,11 +735,15 @@ func (db *DB) IndexExists(className schema.ClassName) bool {
 // for both sharding and replica usage. With a refactor of the interfaces this can be done and we can remove the
 // deduplication
 
-// GetIndexForIncomingSharding returns the index if it exists or nil if it doesn't
-// by default it will retry 3 times between 0-150 ms to get the index
-// to handle the eventual consistency.
-func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) remote.IndexIncomingRepo {
-	index := db.GetIndex(className)
+// GetIndexForIncomingSharding returns the index indexForRead finds, or nil. A
+// failed wait is logged here and also returns nil, so callers report it as a
+// missing index.
+func (db *DB) GetIndexForIncomingSharding(ctx context.Context, className schema.ClassName) remote.IndexIncomingRepo {
+	index, err := db.indexForRead(ctx, className)
+	if err != nil {
+		db.logger.WithField("class", className).Warnf("look up index for incoming request: %v", err)
+		return nil
+	}
 	if index == nil {
 		return nil
 	}

@@ -12,8 +12,8 @@
 // This file covers POST /v1/search/{collection}/hybrid end to end: the raw
 // wire contract and the live error-status mapping. The vector part embeds the
 // query server-side, so the suite runs with the model2vec vectorizer —
-// except the alpha-0 cases, which pin that a pure keyword hybrid search
-// needs no vectorizer at all.
+// except the alpha-0 and supplied-vector cases, which pin that a hybrid
+// search without query vectorization needs no vectorizer at all.
 package rest_search
 
 import (
@@ -33,6 +33,9 @@ import (
 const (
 	hybridSong1ID = strfmt.UUID("cc44bbee-ca5f-4db7-a412-5fc6a2300001")
 	hybridSong2ID = strfmt.UUID("cc44bbee-ca5f-4db7-a412-5fc6a2300002")
+
+	hybridChapbook1ID = strfmt.UUID("cc44bbee-ca5f-4db7-a412-5fc6a2300005")
+	hybridChapbook2ID = strfmt.UUID("cc44bbee-ca5f-4db7-a412-5fc6a2300006")
 )
 
 func postHybrid(t *testing.T, collection string, body map[string]any) (int, map[string]any) {
@@ -60,6 +63,14 @@ func TestRESTSearchHybrid(t *testing.T) {
 			{Name: "title", DataType: schema.DataTypeText.PropString()},
 		},
 	}
+	// vectorizer "none" with stored vectors: searchable only with a supplied vector
+	chapbookClass := &models.Class{
+		Class:      "Chapbook",
+		Vectorizer: "none",
+		Properties: []*models.Property{
+			{Name: "title", DataType: schema.DataTypeText.PropString()},
+		},
+	}
 	zettelClass := &models.Class{
 		Class:      "Zettel",
 		Vectorizer: "text2vec-model2vec",
@@ -71,7 +82,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 
 	// vectorized but with no searchable property: the keyword part has
 	// nothing to expand to, while the vector part works
-	classes := []*models.Class{songClass, zineClass, zettelClass, unsearchableLedgerClass("text2vec-model2vec")}
+	classes := []*models.Class{songClass, zineClass, chapbookClass, zettelClass, unsearchableLedgerClass("text2vec-model2vec")}
 	for _, class := range classes {
 		helper.CreateClass(t, class)
 	}
@@ -107,6 +118,19 @@ func TestRESTSearchHybrid(t *testing.T) {
 			Properties: map[string]any{
 				"title": "travel stories",
 			},
+		},
+		// equal keyword scores for "poem", so the vector part decides the order
+		{
+			ID:         hybridChapbook1ID,
+			Class:      "Chapbook",
+			Vector:     models.C11yVector{1, 0},
+			Properties: map[string]any{"title": "poem one"},
+		},
+		{
+			ID:         hybridChapbook2ID,
+			Class:      "Chapbook",
+			Vector:     models.C11yVector{0, 1},
+			Properties: map[string]any{"title": "poem two"},
 		},
 		{
 			ID:     strfmt.UUID("cc44bbee-ca5f-4db7-a412-5fc6a2300004"),
@@ -277,6 +301,55 @@ func TestRESTSearchHybrid(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		require.Len(t, results(t, out), 1)
+	})
+
+	t.Run("supplied vector searches a collection without a vectorizer", func(t *testing.T) {
+		for _, alpha := range []float64{1, 0.6} {
+			status, out := postHybrid(t, "Chapbook", map[string]any{
+				"query":  "poem",
+				"alpha":  alpha,
+				"vector": []float32{0, 1},
+			})
+			require.Equal(t, http.StatusOK, status, "alpha %v: %v", alpha, out)
+			require.Len(t, results(t, out), 2, "alpha %v", alpha)
+			assert.Equal(t, hybridChapbook2ID.String(), idOf(t, hit(t, out, 0)), "alpha %v", alpha)
+		}
+	})
+
+	t.Run("supplied vector wins over the vectorizer", func(t *testing.T) {
+		// the query matches song1 by keyword and by meaning; the supplied
+		// vector is song2's stored one, so song2 must rank first
+		song2, err := helper.GetObject(t, "Song", hybridSong2ID, "vector")
+		require.NoError(t, err)
+		require.NotEmpty(t, song2.Vector)
+
+		status, out := postHybrid(t, "Song", map[string]any{
+			"query":  "spaceship galaxy",
+			"alpha":  1,
+			"vector": []float32(song2.Vector),
+		})
+		require.Equal(t, http.StatusOK, status, "%v", out)
+		assert.Equal(t, hybridSong2ID.String(), idOf(t, hit(t, out, 0)))
+	})
+
+	t.Run("supplied vector of the wrong dimensionality is a 422", func(t *testing.T) {
+		status, out := postHybrid(t, "Chapbook", map[string]any{
+			"query":  "poem",
+			"alpha":  1,
+			"vector": []float32{1, 0, 0},
+		})
+		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
+		assert.Contains(t, errMessage(t, out), "vector lengths don't match")
+	})
+
+	t.Run("supplied vector at alpha 0 is a 400", func(t *testing.T) {
+		status, out := postHybrid(t, "Chapbook", map[string]any{
+			"query":  "poem",
+			"alpha":  0,
+			"vector": []float32{0, 1},
+		})
+		require.Equal(t, http.StatusBadRequest, status, "%v", out)
+		assert.Contains(t, errMessage(t, out), "vector requires alpha > 0")
 	})
 
 	t.Run("empty query is a 400", func(t *testing.T) {

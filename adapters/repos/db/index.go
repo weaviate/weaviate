@@ -16,6 +16,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -398,7 +399,7 @@ type Index struct {
 	// db is the owning *DB, set by the caller right after NewIndex
 	// returns. Used by [Index.refuseIfReindexInFlight] to consult the
 	// DTM-backed backup gate. Nil is treated conservatively by the gate
-	// (refuses), matching the pre-wire stance.
+	// (refuses).
 	db *DB
 }
 
@@ -1159,12 +1160,23 @@ func (i *Index) closeRequestedCause() error {
 // captured before the walk, reported as [errShardsSkipped]. A shard added
 // mid-walk is out of scope either way: Range makes no consistent-snapshot
 // guarantee.
-func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) error {
+//
+// A non-empty scope limits the walk to those names, so a shard outside it
+// that is removed mid-walk is not reported as skipped.
+func (i *Index) forEachShardStrict(scope map[string]struct{}, f func(name string, shard ShardLike) error) error {
 	if cause := i.closeRequestedCause(); cause != nil {
 		return cause
 	}
+	inScope := func(name string) bool {
+		_, ok := scope[name]
+		return len(scope) == 0 || ok
+	}
 	unvisited := i.shardNameSet()
+	maps.DeleteFunc(unvisited, func(name string, _ struct{}) bool { return !inScope(name) })
 	err := i.shards.Range(func(name string, shard ShardLike) error {
+		if !inScope(name) {
+			return nil
+		}
 		delete(unvisited, name)
 		return f(name, shard)
 	})
@@ -1355,27 +1367,24 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 		}
 	}()
 
-	var payloadReads atomic.Int64
+	// Shards sweep concurrently under eg, so the count is atomic.
+	var counts migrationSweepCounts
 	i.ForEachShard(func(key string, shard ShardLike) error {
 		release, ok := i.pinLoadedShard(key, shard)
 		if !ok {
 			return nil
 		}
 		releases = append(releases, release)
-		shard.updatePropertyBuckets(ctx, eg, property, &payloadReads)
+		shard.updatePropertyBuckets(ctx, eg, property, &counts)
 		return nil
 	})
 
 	err := eg.Wait()
-	// Gated on work done, not property shape: every property has some index
-	// type disabled, so gating on shape alone would log a sweep on every
-	// update. This under-reports on purpose: a tracker removed by name match
-	// alone costs no payload read, so an absent line doesn't mean nothing swept.
-	if reads := payloadReads.Load(); reads > 0 {
+	if recordSetReads := counts.recordSetReads.Load(); recordSetReads > 0 {
 		i.logger.WithFields(map[string]any{
-			"property":      property.Name,
-			"index_types":   disabledIndexTypes(property),
-			"payload_reads": reads,
+			"property":         property.Name,
+			"index_types":      disabledIndexTypes(property),
+			"record_set_reads": recordSetReads,
 		}).Info("partial-reindex cleanup: migration dirs swept for disabled index types")
 	}
 	if err != nil {
@@ -2840,7 +2849,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
-	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
+	readPlan, err := i.buildReadRoutingPlan(tenant)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -3238,7 +3247,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
-	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
+	readPlan, err := i.buildReadRoutingPlan(tenant)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -4083,9 +4092,7 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 func (i *Index) aggregate(ctx context.Context, replProps *additional.ReplicationProperties,
 	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
-	// ValidateConsistencyLevel requires every shard to resolve to the same number,
-	// and ONE is the only level that does so whatever the shards' replica counts.
-	readPlan, err := i.buildReadRoutingPlan(routerTypes.ConsistencyLevelOne, params.Tenant)
+	readPlan, err := i.buildReadRoutingPlan(params.Tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -4748,7 +4755,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
 	cl := i.consistencyLevel(repl)
-	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
+	readPlan, err := i.buildReadRoutingPlan(tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -5092,10 +5099,14 @@ func (i *Index) tenantDirExists(tenantName string) (bool, error) {
 	return len(entries) > 0, nil
 }
 
-func (i *Index) buildReadRoutingPlan(cl routerTypes.ConsistencyLevel, tenantName string) (routerTypes.ReadRoutingPlan, error) {
+// buildReadRoutingPlan resolves the index's read plan at ONE, whatever level the
+// request asks for. Callers read only the plan's shards and replicas, never its
+// required answers, so a QUORUM or ALL search with most replicas unreachable still
+// runs. The plan still fails when a shard has no reachable replica.
+func (i *Index) buildReadRoutingPlan(tenantName string) (routerTypes.ReadRoutingPlan, error) {
 	planOptions := routerTypes.RoutingPlanBuildOptions{
 		Tenant:                tenantName,
-		ConsistencyLevel:      cl,
+		ConsistencyLevel:      routerTypes.ConsistencyLevelOne,
 		AllowTenantActivation: true,
 	}
 	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)

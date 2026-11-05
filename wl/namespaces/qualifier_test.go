@@ -113,6 +113,7 @@ func TestPrefixing(t *testing.T) {
 			{name: "short target inherits source NS", sourceClass: "customer1:Zoo", target: "Animal", wantQualified: "customer1:Animal", wantShort: "Animal"},
 			{name: "own-NS qualified target normalizes", sourceClass: "customer1:Zoo", target: "customer1:Animal", wantQualified: "customer1:Animal", wantShort: "Animal"},
 			{name: "cross-NS qualified target is rejected", sourceClass: "customer1:Zoo", target: "customer2:Animal", wantErr: true},
+			{name: "own-NS prefix with no class is rejected", sourceClass: "customer1:Zoo", target: "customer1:", wantErr: true},
 			{name: "unqualified source leaves target untouched", sourceClass: "Zoo", target: "Animal", wantQualified: "Animal", wantShort: "Animal"},
 		}
 		for _, tc := range cases {

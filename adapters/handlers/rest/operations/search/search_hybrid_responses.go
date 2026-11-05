@@ -73,7 +73,7 @@ func (o *SearchHybridOK) WriteResponse(rw http.ResponseWriter, producer runtime.
 const SearchHybridBadRequestCode int = 400
 
 /*
-SearchHybridBadRequest An invalid parameter value (e.g. empty query, alpha outside [0, 1], negative paging, unknown property) or an unparseable request body.
+SearchHybridBadRequest An invalid parameter value (e.g. empty query, alpha outside [0, 1], a vector that is empty, holds a non-number or a number outside the 32-bit float range, a vector with alpha 0, negative paging, unknown property) or an unparseable request body.
 
 swagger:response searchHybridBadRequest
 */
@@ -298,7 +298,7 @@ func (o *SearchHybridRequestEntityTooLarge) WriteResponse(rw http.ResponseWriter
 const SearchHybridUnprocessableEntityCode int = 422
 
 /*
-SearchHybridUnprocessableEntity Either a request-schema violation (a missing or null required `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while `alpha` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
+SearchHybridUnprocessableEntity Either a request-schema violation (a missing or null required `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while `alpha` is above 0 and no `vector` is supplied, the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
 
 swagger:response searchHybridUnprocessableEntity
 */

@@ -56,7 +56,10 @@ func (db *DB) Aggregate(ctx context.Context,
 		}).Debugf("aggregate query completed in %s", took)
 	}()
 
-	idx := db.GetIndex(params.ClassName)
+	idx, err := db.indexForRead(ctx, params.ClassName)
+	if err != nil {
+		return nil, err
+	}
 	if idx == nil {
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
@@ -88,7 +91,10 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 		ctx = helpers.InitQueryProfileCollector(ctx)
 	}
 
-	idx := db.GetIndex(schema.ClassName(params.ClassName))
+	idx, err := db.indexForRead(ctx, schema.ClassName(params.ClassName))
+	if err != nil {
+		return nil, nil, err
+	}
 	if idx == nil {
 		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
@@ -183,7 +189,10 @@ func (db *DB) VectorSearch(ctx context.Context,
 		return nil, fmt.Errorf("invalid pagination params: %w", err)
 	}
 
-	idx := db.GetIndex(schema.ClassName(params.ClassName))
+	idx, err := db.indexForRead(ctx, schema.ClassName(params.ClassName))
+	if err != nil {
+		return nil, err
+	}
 	if idx == nil {
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
@@ -310,7 +319,10 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 			return nil, &objects.Error{Msg: "sorting", Code: objects.StatusBadRequest, Err: err}
 		}
 	}
-	idx := db.GetIndex(schema.ClassName(q.Class))
+	idx, err := db.indexForRead(ctx, schema.ClassName(q.Class))
+	if err != nil {
+		return nil, &objects.Error{Msg: "search index " + q.Class, Code: objects.StatusInternalServerError, Err: err}
+	}
 	if idx == nil {
 		return nil, &objects.Error{Msg: "class not found " + q.Class, Code: objects.StatusNotFound}
 	}

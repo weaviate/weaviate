@@ -541,10 +541,10 @@ func Test_AddClassWithLimits(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
-				// An unlimited cap must not ask the leader for a count it would
-				// discard, so the expectation is only set where the cap is on.
+				// An unlimited cap skips the count, so the expectation is only
+				// set where the cap is on.
 				if tt.maxAllowed != config.DefaultMaximumAllowedCollectionsCount {
-					fakeSchemaManager.On("CollectionsCountFromLeader", "").Return(tt.existingCount, nil)
+					fakeSchemaManager.On("CollectionsCount", "").Return(tt.existingCount)
 				}
 
 				// Set the max collections limit in config
@@ -572,7 +572,7 @@ func Test_AddClassWithLimits(t *testing.T) {
 					require.Nil(t, err)
 				}
 				if tt.maxAllowed == config.DefaultMaximumAllowedCollectionsCount {
-					fakeSchemaManager.AssertNotCalled(t, "CollectionsCountFromLeader", "")
+					fakeSchemaManager.AssertNotCalled(t, "CollectionsCount", "")
 				}
 				fakeSchemaManager.AssertExpectations(t)
 			})
@@ -2849,6 +2849,58 @@ func TestRestoreClass_StripNamespaces_StripsAlias(t *testing.T) {
 	assert.Equal(t, "MoviesAlias", createdAlias, "alias name must be stripped on graduation restore")
 	require.NotNil(t, aliasClass)
 	assert.Equal(t, "Movies", aliasClass.Class, "restored alias must target the stripped class")
+}
+
+func TestRestoreClass_CrossNamespaceAlias(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name            string
+		stripNamespaces bool
+		wantAlias       string // "" means the restore is refused before the class commits
+	}{
+		{name: "refused before the class commits", stripNamespaces: false},
+		{name: "stripping puts both in one namespace", stripNamespaces: true, wantAlias: "Films"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+			classRaw := &models.Class{Class: "ns2:Secret", Vectorizer: "none"}
+			schemaBytes, err := json.Marshal(classRaw)
+			require.NoError(t, err)
+			shardingConfig, err := shardingConfig.ParseConfig(nil, 1)
+			require.NoError(t, err)
+			nodes := mocks.NewMockNodeSelector("node1", "node2")
+			shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes.LocalName(), nodes.StorageCandidates(), 1, false)
+			require.NoError(t, err)
+			shardingBytes, err := shardingState.JSON()
+			require.NoError(t, err)
+			aliasBytes, err := json.Marshal([]*models.Alias{{Alias: "ns1:Films", Class: "ns2:Secret"}})
+			require.NoError(t, err)
+
+			fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return((*models.Class)(nil)).Maybe()
+			fakeSchemaManager.On("RestoreClass", mock.Anything, mock.Anything).Return(nil)
+			fakeSchemaManager.On("CreateAlias", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+			descriptor := backup.ClassDescriptor{
+				Name:            classRaw.Class,
+				Schema:          schemaBytes,
+				ShardingState:   shardingBytes,
+				AliasesIncluded: true,
+				Aliases:         aliasBytes,
+			}
+			err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{}, true, tt.stripNamespaces)
+			if tt.wantAlias == "" {
+				require.ErrorContains(t, err, "are in different namespaces")
+				fakeSchemaManager.AssertNotCalled(t, "RestoreClass", mock.Anything, mock.Anything)
+				fakeSchemaManager.AssertNotCalled(t, "CreateAlias", mock.Anything, mock.Anything, mock.Anything)
+				return
+			}
+			require.NoError(t, err)
+			fakeSchemaManager.AssertCalled(t, "CreateAlias", mock.Anything, tt.wantAlias, mock.Anything)
+		})
+	}
 }
 
 func TestRestoreClass_WithNodeMapping(t *testing.T) {
