@@ -14,6 +14,7 @@ package backupdedupe
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"slices"
 	"strings"
 	"sync"
@@ -237,7 +238,7 @@ func (f *fakeCheckpointer) GetAsyncCheckpointNodeStatuses(ctx context.Context, c
 	return out, nil
 }
 
-func newTestPlanner(f *fakeCheckpointer) *Planner {
+func newRandomTiePlanner(f *fakeCheckpointer) *Planner {
 	logger, _ := test.NewNullLogger()
 	p, err := New(Config{
 		Checkpointer:      f,
@@ -253,6 +254,16 @@ func newTestPlanner(f *fakeCheckpointer) *Planner {
 	}
 	return p
 }
+
+func newTestPlanner(f *fakeCheckpointer) *Planner {
+	p := newRandomTiePlanner(f)
+	p.pickTie = firstTie
+	return p
+}
+
+func firstTie(int) int { return 0 }
+
+func lastTie(n int) int { return n - 1 }
 
 func newWideFakeCheckpointer(n int, delay time.Duration) (*fakeCheckpointer, []string) {
 	f := newFakeCheckpointer()
@@ -345,23 +356,23 @@ func TestAssignDesignations(t *testing.T) {
 
 	all := parts("n1", "n2", "n3", "n9")
 	loads := map[string]int{}
-	got, sticky := assignDesignations(shardReplicas, loads, all, nil)
+	got, sticky := assignDesignations(shardReplicas, loads, all, nil, firstTie)
 	assert.Zero(t, sticky)
 	assert.Equal(t, map[string]string{"s1": "n1", "s2": "n2", "s3": "n1", "s4": "n3"}, got)
 	assert.Equal(t, map[string]int{"n1": 2, "n2": 1, "n3": 1}, loads)
 
-	again, _ := assignDesignations(shardReplicas, map[string]int{}, all, nil)
+	again, _ := assignDesignations(shardReplicas, map[string]int{}, all, nil, firstTie)
 	assert.Equal(t, got, again)
 
-	crossClass, _ := assignDesignations(map[string][]string{"t1": {"n1", "n9"}}, loads, all, nil)
+	crossClass, _ := assignDesignations(map[string][]string{"t1": {"n1", "n9"}}, loads, all, nil, firstTie)
 	assert.Equal(t, map[string]string{"t1": "n9"}, crossClass)
 
-	onlyParticipants, _ := assignDesignations(map[string][]string{"u1": {"n1", "n2", "x"}, "u2": {"n1", "x"}}, map[string]int{"n1": 9}, parts("n1", "n2"), nil)
+	onlyParticipants, _ := assignDesignations(map[string][]string{"u1": {"n1", "n2", "x"}, "u2": {"n1", "x"}}, map[string]int{"n1": 9}, parts("n1", "n2"), nil, firstTie)
 	assert.Equal(t, map[string]string{"u1": "n2"}, onlyParticipants)
 
 	t.Run("preferred designee outranks load and seeds it", func(t *testing.T) {
 		loads := map[string]int{"n1": 9}
-		got, sticky := assignDesignations(shardReplicas, loads, all, map[string]string{"s1": "n1", "s2": "n1"})
+		got, sticky := assignDesignations(shardReplicas, loads, all, map[string]string{"s1": "n1", "s2": "n1"}, firstTie)
 		assert.Equal(t, 2, sticky)
 		assert.Equal(t, map[string]string{"s1": "n1", "s2": "n1", "s3": "n2", "s4": "n3"}, got)
 		assert.Equal(t, map[string]int{"n1": 11, "n2": 1, "n3": 1}, loads)
@@ -371,17 +382,210 @@ func TestAssignDesignations(t *testing.T) {
 		got, sticky := assignDesignations(
 			map[string][]string{"s1": {"n1", "n2", "n3"}, "s2": {"n1", "n2"}, "lone": {"n1", "x"}},
 			map[string]int{}, parts("n1", "n2"),
-			map[string]string{"s1": "n3", "s2": "ghost", "lone": "n1"})
+			map[string]string{"s1": "n3", "s2": "ghost", "lone": "n1"}, firstTie)
 		assert.Zero(t, sticky)
 		assert.Equal(t, map[string]string{"s1": "n1", "s2": "n2"}, got)
 	})
 
 	t.Run("tenant-named shards stick", func(t *testing.T) {
 		reps := map[string][]string{"tenant-a": {"n1", "n2"}, "tenant-b": {"n1", "n2"}}
-		got, sticky := assignDesignations(reps, map[string]int{}, parts("n1", "n2"), map[string]string{"tenant-b": "n2"})
+		got, sticky := assignDesignations(reps, map[string]int{}, parts("n1", "n2"), map[string]string{"tenant-b": "n2"}, firstTie)
 		assert.Equal(t, 1, sticky)
 		assert.Equal(t, map[string]string{"tenant-a": "n1", "tenant-b": "n2"}, got)
 	})
+}
+
+func TestAssignDesignationsTieBreak(t *testing.T) {
+	rf3 := []string{"n3", "n1", "n2"}
+	fourShards := map[string][]string{"s1": rf3, "s2": rf3, "s3": rf3, "s4": rf3}
+
+	tests := []struct {
+		name          string
+		shardReplicas map[string][]string
+		loads         map[string]int
+		participants  map[string]struct{}
+		preferred     map[string]string
+		pick          func(int) int
+		want          map[string]string
+		wantSticky    int
+		wantPicks     []int
+		wantLoads     map[string]int
+	}{
+		{
+			name:          "first tie follows name order and skips the forced shard",
+			shardReplicas: fourShards,
+			loads:         map[string]int{},
+			participants:  parts("n1", "n2", "n3"),
+			pick:          firstTie,
+			want:          map[string]string{"s1": "n1", "s2": "n2", "s3": "n3", "s4": "n1"},
+			wantPicks:     []int{3, 2, 3},
+			wantLoads:     map[string]int{"n1": 2, "n2": 1, "n3": 1},
+		},
+		{
+			name:          "last tie follows pick rather than name order",
+			shardReplicas: fourShards,
+			loads:         map[string]int{},
+			participants:  parts("n1", "n2", "n3"),
+			pick:          lastTie,
+			want:          map[string]string{"s1": "n3", "s2": "n2", "s3": "n1", "s4": "n3"},
+			wantPicks:     []int{3, 2, 3},
+			wantLoads:     map[string]int{"n1": 1, "n2": 1, "n3": 2},
+		},
+		{
+			name:          "middle tie indexes the tied nodes only",
+			shardReplicas: map[string][]string{"s1": rf3, "s2": {"n1", "n2", "n3", "n4"}},
+			loads:         map[string]int{"n2": 1, "n4": 1},
+			participants:  parts("n1", "n2", "n3", "n4"),
+			pick:          func(int) int { return 1 },
+			want:          map[string]string{"s1": "n3", "s2": "n1"},
+			wantPicks:     []int{2},
+			wantLoads:     map[string]int{"n1": 1, "n2": 1, "n3": 1, "n4": 1},
+		},
+		{
+			name:          "unique minimum never consults pick",
+			shardReplicas: map[string][]string{"s1": rf3},
+			loads:         map[string]int{"n1": 2, "n2": 2, "n3": 1},
+			participants:  parts("n1", "n2", "n3"),
+			pick:          firstTie,
+			want:          map[string]string{"s1": "n3"},
+			wantLoads:     map[string]int{"n1": 2, "n2": 2, "n3": 2},
+		},
+		{
+			name:          "preferred shards never consult pick",
+			shardReplicas: map[string][]string{"s1": rf3, "s2": rf3},
+			loads:         map[string]int{},
+			participants:  parts("n1", "n2", "n3"),
+			preferred:     map[string]string{"s1": "n3", "s2": "n3"},
+			pick:          firstTie,
+			want:          map[string]string{"s1": "n3", "s2": "n3"},
+			wantSticky:    2,
+			wantLoads:     map[string]int{"n3": 2},
+		},
+		{
+			name:          "preferred load is counted before earlier shards pick",
+			shardReplicas: map[string][]string{"s1": rf3, "s2": rf3, "s3": rf3},
+			loads:         map[string]int{},
+			participants:  parts("n1", "n2", "n3"),
+			preferred:     map[string]string{"s3": "n1"},
+			pick:          firstTie,
+			want:          map[string]string{"s1": "n2", "s2": "n3", "s3": "n1"},
+			wantSticky:    1,
+			wantPicks:     []int{2},
+			wantLoads:     map[string]int{"n1": 1, "n2": 1, "n3": 1},
+		},
+		{
+			name:          "ineligible preference falls back to pick",
+			shardReplicas: map[string][]string{"s1": rf3},
+			loads:         map[string]int{},
+			participants:  parts("n1", "n2", "n3"),
+			preferred:     map[string]string{"s1": "ghost"},
+			pick:          lastTie,
+			want:          map[string]string{"s1": "n3"},
+			wantPicks:     []int{3},
+			wantLoads:     map[string]int{"n3": 1},
+		},
+		{
+			name:          "non-participants are not counted as tied",
+			shardReplicas: map[string][]string{"s1": {"n1", "n2", "x"}, "lone": {"n1", "x"}},
+			loads:         map[string]int{},
+			participants:  parts("n1", "n2"),
+			pick:          lastTie,
+			want:          map[string]string{"s1": "n2"},
+			wantPicks:     []int{2},
+			wantLoads:     map[string]int{"n2": 1},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var picks []int
+			got, sticky := assignDesignations(tc.shardReplicas, tc.loads, tc.participants, tc.preferred, func(n int) int {
+				picks = append(picks, n)
+				return tc.pick(n)
+			})
+			assert.Equal(t, tc.want, got)
+			assert.Equal(t, tc.wantSticky, sticky)
+			assert.Equal(t, tc.wantPicks, picks)
+			assert.Equal(t, tc.wantLoads, tc.loads)
+		})
+	}
+}
+
+func TestAssignDesignationsRandomTies(t *testing.T) {
+	const runs = 500
+	nodes := []string{"n1", "n2", "n3"}
+
+	t.Run("balance stays within one", func(t *testing.T) {
+		for shardCount := 1; shardCount <= 10; shardCount++ {
+			reps := make(map[string][]string, shardCount)
+			for i := range shardCount {
+				reps[fmt.Sprintf("s%d", i)] = nodes
+			}
+			for range runs {
+				loads := map[string]int{}
+				got, _ := assignDesignations(reps, loads, parts(nodes...), nil, rand.IntN)
+				require.Len(t, got, shardCount)
+				lowest, highest := loads["n1"], loads["n1"]
+				for _, node := range nodes[1:] {
+					lowest, highest = min(lowest, loads[node]), max(highest, loads[node])
+				}
+				require.LessOrEqual(t, highest-lowest, 1, "shards=%d loads=%v", shardCount, loads)
+			}
+		}
+	})
+
+	t.Run("non-participants are never chosen", func(t *testing.T) {
+		reps := map[string][]string{"s1": {"n1", "n2", "x"}, "s2": {"x", "n2", "n1"}, "s3": {"y", "n1", "n2", "x"}, "lone": {"n1", "x"}}
+		for range runs {
+			got, _ := assignDesignations(reps, map[string]int{}, parts("n1", "n2"), nil, rand.IntN)
+			require.Len(t, got, 3)
+			require.NotContains(t, got, "lone")
+			for _, node := range got {
+				require.Contains(t, []string{"n1", "n2"}, node)
+			}
+		}
+	})
+
+	t.Run("preferred designee never rotates", func(t *testing.T) {
+		reps := map[string][]string{"s1": nodes, "s2": nodes, "s3": nodes}
+		for range runs {
+			loads := map[string]int{}
+			got, sticky := assignDesignations(reps, loads, parts(nodes...), map[string]string{"s2": "n3"}, rand.IntN)
+			require.Equal(t, 1, sticky)
+			require.Equal(t, "n3", got["s2"])
+			require.Equal(t, map[string]int{"n1": 1, "n2": 1, "n3": 1}, loads)
+		}
+	})
+
+	t.Run("all tied nodes are reachable", func(t *testing.T) {
+		seen := map[string]struct{}{}
+		for range runs {
+			got, _ := assignDesignations(map[string][]string{"s1": nodes}, map[string]int{}, parts(nodes...), nil, rand.IntN)
+			seen[got["s1"]] = struct{}{}
+		}
+		assert.Equal(t, parts(nodes...), seen)
+	})
+}
+
+func TestAssignDesignationsSharedLoads(t *testing.T) {
+	nodes := []string{"n1", "n2", "n3"}
+	reps := map[string][]string{"s1": nodes}
+	loads := map[string]int{}
+
+	var picks []int
+	pick := func(n int) int {
+		picks = append(picks, n)
+		return 0
+	}
+
+	first, _ := assignDesignations(reps, loads, parts(nodes...), nil, pick)
+	second, _ := assignDesignations(reps, loads, parts(nodes...), nil, pick)
+	third, _ := assignDesignations(reps, loads, parts(nodes...), nil, pick)
+
+	assert.Equal(t, "n1", first["s1"])
+	assert.Equal(t, "n2", second["s1"])
+	assert.Equal(t, "n3", third["s1"])
+	assert.Equal(t, []int{3, 2}, picks)
+	assert.Equal(t, map[string]int{"n1": 1, "n2": 1, "n3": 1}, loads)
 }
 
 func parts(nodes ...string) map[string]struct{} {
@@ -390,6 +594,58 @@ func parts(nodes ...string) map[string]struct{} {
 		out[n] = struct{}{}
 	}
 	return out
+}
+
+func TestPlanDesignatedShardsRotatesTies(t *testing.T) {
+	f := newFakeCheckpointer()
+	f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2", "n3"}}
+	f.converge["C1/s1"] = true
+	c := newRandomTiePlanner(f)
+
+	seen := map[string]struct{}{}
+	for i := 0; i < 200 && len(seen) < 3; i++ {
+		plan := c.PlanDesignatedShards(context.Background(), []string{"C1"}, 0, parts("n1", "n2", "n3"), nil, nil)
+		seen[plan.Designations["C1"]["s1"]] = struct{}{}
+	}
+	assert.Equal(t, parts("n1", "n2", "n3"), seen)
+}
+
+func TestPlanDesignatedShardsRandomTiesKeepPlannerInvariants(t *testing.T) {
+	const runs = 20
+	nodes := parts("n1", "n2", "n3")
+	rf3 := []string{"n1", "n2", "n3"}
+
+	t.Run("base designee sticks", func(t *testing.T) {
+		f := newFakeCheckpointer()
+		f.shardReplicas["C1"] = map[string][]string{"s1": rf3}
+		f.converge["C1/s1"] = true
+		c := newRandomTiePlanner(f)
+
+		for range runs {
+			plan := c.PlanDesignatedShards(context.Background(), []string{"C1"}, 0, nodes,
+				map[string]map[string]string{"C1": {"s1": "n3"}}, nil)
+			require.Equal(t, map[string]map[string]string{"C1": {"s1": "n3"}}, plan.Designations)
+		}
+	})
+
+	t.Run("classes share loads", func(t *testing.T) {
+		f := newFakeCheckpointer()
+		classes := []string{"C1", "C2", "C3"}
+		for _, class := range classes {
+			f.shardReplicas[class] = map[string][]string{"s1": rf3}
+			f.converge[class+"/s1"] = true
+		}
+		c := newRandomTiePlanner(f)
+
+		for range runs {
+			plan := c.PlanDesignatedShards(context.Background(), classes, 0, nodes, nil, nil)
+			chosen := map[string]struct{}{}
+			for _, class := range classes {
+				chosen[plan.Designations[class]["s1"]] = struct{}{}
+			}
+			require.Equal(t, nodes, chosen)
+		}
+	})
 }
 
 func TestPlanDesignatedShards(t *testing.T) {
