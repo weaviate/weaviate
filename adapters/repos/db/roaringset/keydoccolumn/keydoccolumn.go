@@ -48,9 +48,9 @@ const flattenDeferralsBeforeWarning = 10
 // the layers into a fresh base, bounding how many a read walks.
 const flattenLayersThreshold = 8
 
-// keyColumn is sorted key storage, picked by buildKeyColumn. Each backing
-// implements searchGE itself so the binary search inlines its comparisons. A
-// prefixKeyColumn's searchGE holds only for query keys inside its queryWindow.
+// keyColumn is sorted key storage, picked by buildKeyColumn. Each backing runs its
+// own scans so per-key work stays out of an interface call. A prefixKeyColumn's
+// scans hold only for query keys inside its queryWindow.
 type keyColumn interface {
 	// Resolution — everything below is on the query path.
 
@@ -58,9 +58,9 @@ type keyColumn interface {
 	// queryWindow returns the range [lo, hi) of the keys in sorted this column could
 	// match. prefixKeyColumn narrows it so its comparisons can skip the prefix check.
 	queryWindow(sorted entinverted.SortedKeys) (lo, hi int)
-	// searchGE returns the first index i >= from with key(i) >= q, or len() if
-	// none, and whether key(i) == q. Every key before from must be < q.
-	searchGE(from int, q []byte) (int, bool)
+	// searchInto searches the column once per query key in [lo, hi), applying
+	// each match to res through run.
+	searchInto(run *columnRun, sortedKeys entinverted.SortedKeys, lo, hi int, res *Resolution, adds, overflowed bool)
 	// mergeInto merge-scans the whole column against query keys [lo, hi),
 	// applying each match to res through run.
 	mergeInto(run *columnRun, sortedKeys entinverted.SortedKeys, lo, hi int, res *Resolution, adds, overflowed bool)
@@ -99,13 +99,15 @@ func (c *blobKeyColumn) keyAt(i int) []byte { return c.blob[c.offsets[i]:c.offse
 
 func (c *blobKeyColumn) appendKey(i int, dst []byte) []byte { return append(dst, c.keyAt(i)...) }
 
-func (c *blobKeyColumn) searchGE(from int, q []byte) (int, bool) {
-	t := loadHead(q, 0, len(q))
+// seek returns the first index i >= from with key(i) >= q, or len() if none,
+// and whether key(i) == q. Every key before from must be < q.
+func (c *blobKeyColumn) seek(from int, q []byte) (int, bool) {
+	t := loadHead(q, 0, len(q), headMask(len(q)))
 	n := c.len()
 	lo, hi, step := from, from, 1
 	for hi < n {
 		off, end := int(c.offsets[hi]), int(c.offsets[hi+1])
-		if keyCompare(loadHead(c.blob, off, end-off), t, c.blob[off:end], q) >= 0 {
+		if keyCompare(loadHead(c.blob, off, end-off, headMask(end-off)), t, c.blob, off, end, q) >= 0 {
 			break
 		}
 		lo, hi, step = hi+1, hi+step, step<<1
@@ -116,7 +118,7 @@ func (c *blobKeyColumn) searchGE(from int, q []byte) (int, bool) {
 	for m > 0 {
 		half := m / 2
 		off, end := int(c.offsets[base+half]), int(c.offsets[base+half+1])
-		if cmp := keyCompare(loadHead(c.blob, off, end-off), t, c.blob[off:end], q); cmp < 0 {
+		if cmp := keyCompare(loadHead(c.blob, off, end-off, headMask(end-off)), t, c.blob, off, end, q); cmp < 0 {
 			base += m - half
 		} else {
 			match = cmp == 0
@@ -124,6 +126,18 @@ func (c *blobKeyColumn) searchGE(from int, q []byte) (int, bool) {
 		m = half
 	}
 	return base, match
+}
+
+func (c *blobKeyColumn) searchInto(run *columnRun, sortedKeys entinverted.SortedKeys,
+	lo, hi int, res *Resolution, adds, overflowed bool,
+) {
+	n := c.len()
+	for qi, i := lo, 0; qi < hi && i < n; qi++ {
+		var match bool
+		if i, match = c.seek(i, sortedKeys.At(qi)); match {
+			run.applyRow(i, qi, res, adds, overflowed)
+		}
+	}
 }
 
 func (c *blobKeyColumn) mergeInto(run *columnRun, sortedKeys entinverted.SortedKeys,
@@ -153,8 +167,10 @@ func (c *fixedKeyColumn) keyAt(i int) []byte { return c.data[i*c.w : (i+1)*c.w] 
 
 func (c *fixedKeyColumn) appendKey(i int, dst []byte) []byte { return append(dst, c.keyAt(i)...) }
 
-func (c *fixedKeyColumn) searchGE(from int, q []byte) (int, bool) {
-	return searchPackedGE(c.data, c.w, from, q)
+func (c *fixedKeyColumn) searchInto(run *columnRun, sortedKeys entinverted.SortedKeys,
+	lo, hi int, res *Resolution, adds, overflowed bool,
+) {
+	run.searchPacked(c.data, c.w, 0, sortedKeys, lo, hi, res, adds, overflowed)
 }
 
 func (c *fixedKeyColumn) mergeInto(run *columnRun, sortedKeys entinverted.SortedKeys,
@@ -183,8 +199,10 @@ func (c *prefixKeyColumn) len() int { return len(c.data) / c.w }
 
 func (c *prefixKeyColumn) suffixAt(i int) []byte { return c.data[i*c.w : (i+1)*c.w] }
 
-func (c *prefixKeyColumn) searchGE(from int, q []byte) (int, bool) {
-	return searchPackedGE(c.data, c.w, from, q[len(c.prefix):])
+func (c *prefixKeyColumn) searchInto(run *columnRun, sortedKeys entinverted.SortedKeys,
+	lo, hi int, res *Resolution, adds, overflowed bool,
+) {
+	run.searchPacked(c.data, c.w, len(c.prefix), sortedKeys, lo, hi, res, adds, overflowed)
 }
 
 func (c *prefixKeyColumn) mergeInto(run *columnRun, sortedKeys entinverted.SortedKeys,
@@ -227,15 +245,15 @@ func (c *prefixKeyColumn) info() keyColumnInfo {
 	}
 }
 
-// searchPackedGE returns the first index i >= from of the w-wide keys packed in
-// data with key(i) >= q, or the key count if none, and whether key(i) == q.
-func searchPackedGE(data []byte, w, from int, q []byte) (int, bool) {
-	t := loadHead(q, 0, len(q))
-	n := len(data) / w
+// seekPacked returns the first index i >= from of the n w-wide keys packed in
+// data with key(i) >= q, or n if none, and whether key(i) == q. mask is w's
+// headMask; a scan computes it once rather than once per probe.
+func seekPacked(data []byte, w, n int, mask uint64, from int, q []byte) (int, bool) {
+	t := loadHead(q, 0, len(q), headMask(len(q)))
 	lo, hi, step := from, from, 1
 	for hi < n {
 		off := hi * w
-		if keyCompare(loadHead(data, off, w), t, data[off:off+w], q) >= 0 {
+		if keyCompare(loadHead(data, off, w, mask), t, data, off, off+w, q) >= 0 {
 			break
 		}
 		lo, hi, step = hi+1, hi+step, step<<1
@@ -246,7 +264,7 @@ func searchPackedGE(data []byte, w, from int, q []byte) (int, bool) {
 	for m > 0 {
 		half := m / 2
 		off := (base + half) * w
-		if cmp := keyCompare(loadHead(data, off, w), t, data[off:off+w], q); cmp < 0 {
+		if cmp := keyCompare(loadHead(data, off, w, mask), t, data, off, off+w, q); cmp < 0 {
 			base += m - half
 		} else {
 			match = cmp == 0
@@ -256,16 +274,16 @@ func searchPackedGE(data []byte, w, from int, q []byte) (int, bool) {
 	return base, match
 }
 
-// keyCompare returns the sign of key versus q from h and t, their first eight
-// bytes as loadHead loads them.
-func keyCompare(h, t uint64, key, q []byte) int {
+// keyCompare returns the sign of the key at b[off:end] versus q from h and t, their
+// first eight bytes as loadHead loads them. The key is sliced only when they tie.
+func keyCompare(h, t uint64, b []byte, off, end int, q []byte) int {
 	if h != t {
 		if h < t {
 			return -1
 		}
 		return 1
 	}
-	return compareTied(key, q)
+	return compareTied(b[off:end], q)
 }
 
 // compareTied returns the sign of key versus q, whose heads tie. Tied heads mean
@@ -280,12 +298,16 @@ func compareTied(key, q []byte) int {
 	return bytes.Compare(key, q)
 }
 
+// headMask keeps the bytes of a w-wide key in its eight-byte head.
+func headMask(w int) uint64 { return ^uint64(0) << (64 - 8*min(w, 8)) }
+
 // loadHead returns the key at b[off:off+w] as a big-endian integer of its first
-// eight bytes, zero-padded. Heads that differ order as their keys do. Equal heads
-// need compareTied's length check, since padding ties "ab" with "ab\x00".
-func loadHead(b []byte, off, w int) uint64 {
+// eight bytes, zero-padded, with mask being w's headMask. Heads that differ order
+// as their keys do. Equal heads need compareTied's length check, since padding
+// ties "ab" with "ab\x00".
+func loadHead(b []byte, off, w int, mask uint64) uint64 {
 	if off+8 <= len(b) {
-		return binary.BigEndian.Uint64(b[off:]) & (^uint64(0) << (64 - 8*min(w, 8)))
+		return binary.BigEndian.Uint64(b[off:]) & mask
 	}
 	var buf [8]byte
 	copy(buf[:], b[off:off+w])
@@ -840,19 +862,19 @@ func (run *columnRun) scanInto(sortedKeys entinverted.SortedKeys, res *Resolutio
 		run.keys.mergeInto(run, sortedKeys, lo, hi, res, adds, overflowed)
 		return
 	}
-	run.searchInto(sortedKeys, lo, hi, res, adds, overflowed)
+	run.keys.searchInto(run, sortedKeys, lo, hi, res, adds, overflowed)
 }
 
-// searchInto searches the column once per query key in [lo, hi). Query keys
-// ascend, so each search resumes at the previous one's answer.
-func (run *columnRun) searchInto(sortedKeys entinverted.SortedKeys,
+// searchPacked searches the w-wide keys packed in data once per query key in
+// [lo, hi), each compared without its first skip bytes. Query keys ascend, so
+// each search resumes at the previous one's answer.
+func (run *columnRun) searchPacked(data []byte, w, skip int, sortedKeys entinverted.SortedKeys,
 	lo, hi int, res *Resolution, adds, overflowed bool,
 ) {
-	n := run.keys.len()
+	n, mask := len(data)/w, headMask(w)
 	for qi, i := lo, 0; qi < hi && i < n; qi++ {
-		q := sortedKeys.At(qi)
 		var match bool
-		if i, match = run.keys.searchGE(i, q); match {
+		if i, match = seekPacked(data, w, n, mask, i, sortedKeys.At(qi)[skip:]); match {
 			run.applyRow(i, qi, res, adds, overflowed)
 		}
 	}
@@ -863,12 +885,12 @@ func (run *columnRun) searchInto(sortedKeys entinverted.SortedKeys,
 func (run *columnRun) mergePacked(data []byte, w, skip int, sortedKeys entinverted.SortedKeys,
 	lo, hi int, res *Resolution, adds, overflowed bool,
 ) {
-	n := len(data) / w
+	n, mask := len(data)/w, headMask(w)
 	qi, q := lo, sortedKeys.At(lo)[skip:]
-	t := loadHead(q, 0, len(q))
+	t := loadHead(q, 0, len(q), headMask(len(q)))
 	for si := 0; si < n; {
 		off := si * w
-		cmp := keyCompare(loadHead(data, off, w), t, data[off:off+w], q)
+		cmp := keyCompare(loadHead(data, off, w, mask), t, data, off, off+w, q)
 		if cmp < 0 {
 			si++
 			continue
@@ -881,7 +903,7 @@ func (run *columnRun) mergePacked(data []byte, w, skip int, sortedKeys entinvert
 			return
 		}
 		q = sortedKeys.At(qi)[skip:]
-		t = loadHead(q, 0, len(q))
+		t = loadHead(q, 0, len(q), headMask(len(q)))
 	}
 }
 
@@ -891,10 +913,10 @@ func (run *columnRun) mergeBlob(c *blobKeyColumn, sortedKeys entinverted.SortedK
 ) {
 	n := c.len()
 	qi, q := lo, sortedKeys.At(lo)
-	t := loadHead(q, 0, len(q))
+	t := loadHead(q, 0, len(q), headMask(len(q)))
 	for si := 0; si < n; {
 		off, end := int(c.offsets[si]), int(c.offsets[si+1])
-		cmp := keyCompare(loadHead(c.blob, off, end-off), t, c.blob[off:end], q)
+		cmp := keyCompare(loadHead(c.blob, off, end-off, headMask(end-off)), t, c.blob, off, end, q)
 		if cmp < 0 {
 			si++
 			continue
@@ -907,7 +929,7 @@ func (run *columnRun) mergeBlob(c *blobKeyColumn, sortedKeys entinverted.SortedK
 			return
 		}
 		q = sortedKeys.At(qi)
-		t = loadHead(q, 0, len(q))
+		t = loadHead(q, 0, len(q), headMask(len(q)))
 	}
 }
 
