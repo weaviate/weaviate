@@ -373,9 +373,14 @@ func (e apiError) Error() string {
 // endpoint returns the URL and the key of the requests, and whether the
 // request header named the host. A base URL from the request header is used
 // only with a key from the request header, so the server's key never goes to
-// a host the request names.
+// a host the request names. The class base URL is checked here as well: core
+// skips module validation for a class with vectorizer "none" and no named
+// vectors.
 func (c *client) endpoint(ctx context.Context, classBaseURL string,
 ) (endpointURL, apiKey string, hostFromHeader bool, err error) {
+	if err := config.CheckBaseURL(classBaseURL); err != nil {
+		return "", "", false, fmt.Errorf("baseURL %w", err)
+	}
 	apiKey = modulecomponents.GetValueFromContext(ctx, apiKeyHeader)
 	baseURL := classBaseURL
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
