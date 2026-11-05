@@ -31,7 +31,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/cluster/schema/local"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
@@ -1453,4 +1455,132 @@ func backupTestDBWithLoadedShards(t *testing.T, classNames []string, state *shar
 		}
 	}
 	return db
+}
+
+// snapshotHookIndex runs onSnapshot before SnapshotMutableFiles. CreateBackupSnapshot
+// calls it after a successful halt and before its deferred resume.
+type snapshotHookIndex struct {
+	VectorIndex
+	onSnapshot func()
+}
+
+func (i *snapshotHookIndex) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+	i.onSnapshot()
+	return i.VectorIndex.SnapshotMutableFiles(ctx, basePath, stagingDir)
+}
+
+// newResumeFailingBackupShard returns a shard whose backup snapshot fails to
+// resume. While halted, the snapshot adds a target-node override, an
+// async-replication enable that the halt skips. It then unregisters the vector
+// maintenance callbacks, so the resume fails with ErrorCallbackNotFound.
+func newResumeFailingBackupShard(t *testing.T) (*Index, *Shard) {
+	t.Helper()
+	ctx := context.Background()
+	index, shard := newSharedHaltTestShard(t)
+	// A single replica at factor 1: the override alone enables async replication.
+	index.schemaReader.(*local.MockSchemaReader).EXPECT().ShardReplicas(mock.Anything, mock.Anything).
+		Return([]string{"node1"}, nil).Maybe()
+	index.asyncReplicationScheduler = newSchedulerForUnitTest(t)
+	index.replicationConfigLock.Lock()
+	index.Config.AsyncReplicationConfig = minAsyncReplicationConfig()
+	index.replicationConfigLock.Unlock()
+
+	var names []string
+	var inner VectorIndex
+	require.NoError(t, shard.ForEachVectorIndex(func(name string, vi VectorIndex) error {
+		names, inner = append(names, name), vi
+		return nil
+	}))
+	require.Len(t, names, 1)
+	shard.setVectorIndex(names[0], &snapshotHookIndex{VectorIndex: inner, onSnapshot: func() {
+		require.NoError(t, shard.addTargetNodeOverride(ctx, additional.AsyncReplicationTargetNodeOverride{
+			CollectionID:   index.Config.ClassName.String(),
+			ShardID:        shard.name,
+			SourceNode:     "nodeA",
+			TargetNode:     "nodeB",
+			UpperTimeBound: time.Now().Add(time.Hour).UnixMilli(),
+		}))
+		require.False(t, asyncReplicationInstalled(shard), "the enable must be skipped while halted")
+		require.NoError(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.Unregister(ctx))
+	}})
+	return index, shard
+}
+
+// failBackupSnapshotResume runs a backup snapshot whose halt succeeds and whose
+// resume fails, leaving the shard at halt count 0 with resumeIncomplete set.
+func failBackupSnapshotResume(t *testing.T, index *Index, shard *Shard) error {
+	t.Helper()
+	stagingRoot := backupStagingDir(index.Config.RootPath, "backup-1", index.Config.ClassName)
+	_, err := shard.CreateBackupSnapshot(context.Background(), &backup.ShardDescriptor{}, stagingRoot,
+		newReindexGate(index.db, reindexGateMaxAge))
+	require.Zero(t, shard.haltForTransferCount.Load())
+	require.True(t, shard.resumeIncomplete.Load())
+	return err
+}
+
+// reregisterVectorCallbacks registers the vector maintenance callbacks again as
+// inactive, the state the halt left them in, so only a resume can activate them.
+func reregisterVectorCallbacks(s *Shard) {
+	cc := s.cycleCallbacks
+	cc.vectorCombinedCallbacksCtrl = cyclemanager.NewCombinedCallbackCtrl(2, s.index.logger,
+		s.index.cycleCallbacks.vectorCommitLoggerCallbacks.Register(
+			"retry/commit_logger", cc.vectorCommitLoggerCallbacks.CycleCallback, cyclemanager.AsInactive()),
+		s.index.cycleCallbacks.vectorTombstoneCleanupCallbacks.Register(
+			"retry/tombstone_cleanup", cc.vectorTombstoneCleanupCallbacks.CycleCallback, cyclemanager.AsInactive()))
+}
+
+func TestCreateBackupSnapshot(t *testing.T) {
+	t.Run("a failed resume fails the snapshot", func(t *testing.T) {
+		index, shard := newResumeFailingBackupShard(t)
+
+		err := failBackupSnapshotResume(t, index, shard)
+		require.ErrorContains(t, err, "resume maintenance after backup snapshot")
+		require.ErrorIs(t, err, cyclemanager.ErrorCallbackNotFound)
+	})
+}
+
+func TestReleaseBackupResumeRetry(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("an incomplete resume is retried and re-applies the skipped enable", func(t *testing.T) {
+		index, shard := newResumeFailingBackupShard(t)
+		require.Error(t, failBackupSnapshotResume(t, index, shard))
+		require.False(t, asyncReplicationInstalled(shard), "a failed resume must not re-apply")
+		reregisterVectorCallbacks(shard)
+
+		require.NoError(t, index.ReleaseBackup(ctx, "backup-1"))
+
+		require.Zero(t, shard.haltForTransferCount.Load())
+		require.False(t, shard.resumeIncomplete.Load())
+		require.True(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.IsActive(), "the retry must restart vector maintenance")
+		require.True(t, asyncReplicationInstalled(shard), "the retry must re-apply the skipped enable")
+	})
+
+	t.Run("an incomplete resume under another operation's halt is left to that operation", func(t *testing.T) {
+		index, shard := newResumeFailingBackupShard(t)
+		require.Error(t, failBackupSnapshotResume(t, index, shard))
+		reregisterVectorCallbacks(shard)
+		require.NoError(t, shard.HaltForTransfer(ctx, false))
+
+		require.NoError(t, index.ReleaseBackup(ctx, "backup-1"))
+
+		require.EqualValues(t, 1, shard.haltForTransferCount.Load(), "the release must not end another operation's halt")
+		require.True(t, shard.resumeIncomplete.Load())
+		require.False(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.IsActive(),
+			"vector maintenance must stay paused for the operation that halted the shard")
+
+		// The holder's own resume completes the unfinished one.
+		require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+		require.False(t, shard.resumeIncomplete.Load())
+	})
+
+	t.Run("a cold lazy shard stays cold", func(t *testing.T) {
+		index, loaded := newSharedHaltTestShard(t)
+		cold := NewLazyLoadShard(ctx, nil, "cold", index, loaded.class, index.centralJobQueue,
+			nil, index.shardLoadLimiter, index.shardReindexer, false, index.bitmapBufPool)
+		index.shards.Store("cold", cold)
+
+		require.NoError(t, index.ReleaseBackup(ctx, "backup-1"))
+		require.False(t, cold.isLoaded(), "the release must not load the shard")
+	})
 }

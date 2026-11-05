@@ -197,13 +197,18 @@ func (s *Shard) structuralVectorOpInFlight() (busy bool, reason string) {
 // a staging directory, then immediately resumes compaction. This minimizes the
 // compaction pause to just the time needed for enumeration and hardlink creation
 // (typically 2-5s), rather than blocking for the entire upload duration.
-func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate reindexGate) ([]string, error) {
+func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate reindexGate) (files []string, err error) {
 	if err := s.haltForTransfer(ctx, false, gate); err != nil {
 		return nil, fmt.Errorf("halt for snapshot: %w", err)
 	}
-	defer s.resumeMaintenanceCycles(ctx)
+	// The caller's ctx can already be cancelled, and the resume must still run.
+	defer func() {
+		if rerr := s.resumeMaintenanceCycles(context.Background()); rerr != nil && err == nil {
+			err = fmt.Errorf("resume maintenance after backup snapshot: %w", rerr)
+		}
+	}()
 
-	files, err := s.ListBackupFiles(ctx, sd)
+	files, err = s.ListBackupFiles(ctx, sd)
 	if err != nil {
 		return nil, fmt.Errorf("list backup files: %w", err)
 	}
@@ -335,6 +340,30 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 
 	// Enables skipped while halted have no other re-derive path for plain halts.
 	// A failed resume defers the re-apply to the retry that completes it.
+	if fullyResumed {
+		s.reapplyAsyncReplicationAfterResume(ctx)
+	}
+	return err
+}
+
+// retryIncompleteResume retries a failed resume that left the halt count at 0.
+// It never decrements the count. At count > 0 another operation holds the halt,
+// so it does nothing. The check and the retry both run under haltForTransferMux,
+// so no new halt can start between them.
+func (s *Shard) retryIncompleteResume(ctx context.Context) (err error) {
+	var fullyResumed bool
+	func() {
+		s.haltForTransferMux.Lock()
+		defer s.haltForTransferMux.Unlock()
+		if s.haltForTransferCount.Load() > 0 || !s.resumeIncomplete.Load() {
+			return
+		}
+		err = s.mayForceResumeMaintenanceCycles(ctx)
+		fullyResumed = s.haltForTransferCount.Load() == 0 && !s.resumeIncomplete.Load()
+	}()
+
+	// The failed resume skipped this re-apply. As in resumeMaintenanceCycles, it
+	// runs only once the shard is fully resumed.
 	if fullyResumed {
 		s.reapplyAsyncReplicationAfterResume(ctx)
 	}

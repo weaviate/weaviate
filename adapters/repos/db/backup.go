@@ -582,8 +582,13 @@ func backupStagingDir(rootPath, backupID string, className schema.ClassName) str
 }
 
 // ReleaseBackup removes the backup's staging directory and marks the backup as
-// inactive. It does not change shard halt counts. Each snapshot resumes its own
+// inactive. It never changes shard halt counts. Each snapshot resumes its own
 // halt, so any halt still held belongs to another operation.
+//
+// A failed resume leaves its shard at halt count 0 with resumeIncomplete set.
+// Nothing else on the backup path retries it, so ReleaseBackup retries it on
+// each loaded shard. It never loads a shard. A failed retry is logged and
+// leaves resumeIncomplete set.
 func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	i.logger.WithField("backup_id", id).WithField("class", i.Config.ClassName).Info("release backup")
 
@@ -592,6 +597,28 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	if err := os.RemoveAll(stagingDir); err != nil {
 		i.logger.WithField("staging_dir", stagingDir).WithError(err).Warn("failed to remove backup staging dir")
 	}
+
+	_ = i.withEachLoadedShard(func(name string, shard ShardLike) error {
+		var s *Shard
+		switch sh := shard.(type) {
+		case *Shard:
+			s = sh
+		default:
+			if lazy, ok := asLazyLoadShard(shard); ok {
+				s = lazy.loadedShard()
+			}
+		}
+		if s == nil {
+			return nil
+		}
+		// On failure, descriptorWithHardlinks calls ReleaseBackup with its
+		// errgroup ctx. The failing shard has already cancelled that ctx.
+		if err := s.retryIncompleteResume(context.Background()); err != nil {
+			i.logger.WithField("backup_id", id).WithField("shard", name).
+				Errorf("retry resume of maintenance cycles on backup release: %v", err)
+		}
+		return nil
+	})
 
 	i.resetBackupState()
 	return nil
