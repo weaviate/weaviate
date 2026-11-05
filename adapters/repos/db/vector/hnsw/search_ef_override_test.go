@@ -13,18 +13,21 @@ package hnsw
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestEffectiveSearchEF(t *testing.T) {
@@ -96,4 +99,82 @@ func newSearchEFIndex(t *testing.T, cfg ent.UserConfig) *hnsw {
 
 func hnswEF(ef int) *searchparams.HNSW {
 	return &searchparams.HNSW{EF: &ef}
+}
+
+func TestSearchEFIsBoundedByGraphSize(t *testing.T) {
+	t.Parallel()
+
+	index := newSearchEFIndex(t, ent.UserConfig{
+		VectorCacheMaxObjects: 100,
+		MaxConnections:        8,
+		EFConstruction:        16,
+		EF:                    16,
+	})
+	ctx := context.Background()
+	vecs := [][]float32{{1, 0}, {0.2, 0.9}, {0, 1}}
+	for i, vec := range vecs {
+		require.NoError(t, index.Add(ctx, uint64(i), vec))
+	}
+
+	huge := math.MaxInt32
+	searchCtx := helpers.InitSlowQueryDetails(searchparams.WithHNSWSearch(ctx, &searchparams.HNSW{EF: &huge}))
+	ids, _, err := index.SearchByVector(searchCtx, []float32{1, 0}, 1, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, ids)
+
+	got, ok := helpers.ExtractSlowQueryDetails(searchCtx)["hnsw_ef"].(int)
+	require.True(t, ok)
+	nodes := index.searchableNodeCount()
+	require.Equal(t, len(vecs), nodes)
+	assert.Equal(t, nodes, got)
+	assert.Less(t, got, math.MaxInt32)
+}
+
+func TestMultiVectorSearchRefillsUntilKDocuments(t *testing.T) {
+	t.Parallel()
+
+	// Four near-duplicate vectors on document 0, then one far vector on
+	// document 1. A candidate list of width k=2 is filled by document 0
+	// alone; the search has to widen ef to surface document 1.
+	docs := [][][]float32{
+		{{0, 0}, {0.05, 0}, {0, 0.05}, {0.05, 0.05}},
+		{{10, 10}},
+	}
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    t.Name(),
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return nil, errors.Errorf("single vector lookup is not used")
+		},
+		MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
+			return docs[id], nil
+		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		GetViewThunk:      func() common.BucketView { return &dynamicEFNoopBucketView{} },
+	}, ent.UserConfig{
+		VectorCacheMaxObjects: 1000,
+		MaxConnections:        16,
+		EFConstruction:        64,
+		EF:                    64,
+		Multivector:           ent.MultivectorConfig{Enabled: true},
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, index.Drop(context.Background(), false))
+	})
+
+	ctx := context.Background()
+	for id, vecs := range docs {
+		require.NoError(t, index.AddMulti(ctx, uint64(id), vecs))
+	}
+
+	searchCtx := searchparams.WithHNSWSearch(ctx, hnswEF(1))
+	ids, _, err := index.SearchByMultiVector(searchCtx, [][]float32{{0, 0}}, 2, nil)
+	require.NoError(t, err)
+	require.Len(t, ids, 2)
+	assert.Equal(t, uint64(0), ids[0])
+	assert.Equal(t, uint64(1), ids[1])
 }

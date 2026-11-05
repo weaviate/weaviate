@@ -762,7 +762,12 @@ func (i *indices) postSearchObjects() http.Handler {
 			"action": "Search",
 		}).Debug("searching ...")
 
-		ctx := searchparams.WithHNSWSearch(r.Context(), &searchparams.HNSW{EF: hnswEf})
+		override := &searchparams.HNSW{EF: hnswEf}
+		if err := override.Validate(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		ctx := searchparams.WithHNSWSearch(r.Context(), override)
 		results, dists, queryProfiles, err := i.shards.Search(ctx, index, shard,
 			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {

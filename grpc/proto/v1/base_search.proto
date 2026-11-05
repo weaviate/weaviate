@@ -97,8 +97,9 @@ message Hybrid {
 message HNSWSearch {
   // ef is the size of the HNSW candidate list for this query.
   // It overrides vectorIndexConfig.ef, including dynamic ef.
-  // Must be >= 1. When it is smaller than the number of neighbors requested,
-  // the search raises it to that number so the result list is not truncated.
+  // Must be between 1 and 1048576. When it is smaller than the number of
+  // neighbors requested, the search raises it to that number so the result
+  // list is not truncated. The index also caps ef to the number of indexed nodes.
   optional int32 ef = 1;
 }
 

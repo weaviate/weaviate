@@ -22,9 +22,14 @@ import (
 // swagger:model SearchHNSW
 type SearchHNSW struct {
 	// Size of the HNSW candidate list for this query. Overrides the collection's
-	// vectorIndexConfig.ef, including dynamic ef. Must be at least 1.
+	// vectorIndexConfig.ef, including dynamic ef. Must be between 1 and 1048576
+	// (searchparams.MaxEF).
 	EF *int64 `json:"ef,omitempty"`
 }
+
+// searchHNSWMaxEF matches searchparams.MaxEF. models cannot import searchparams
+// (that package already imports models).
+const searchHNSWMaxEF int64 = 1 << 20
 
 // Validate validates this search HNSW override.
 func (m *SearchHNSW) Validate(formats strfmt.Registry) error {
@@ -32,8 +37,8 @@ func (m *SearchHNSW) Validate(formats strfmt.Registry) error {
 	if m == nil || m.EF == nil {
 		return nil
 	}
-	if *m.EF < 1 {
-		return errors.New(422, "hnsw.ef must be at least 1")
+	if *m.EF < 1 || *m.EF > searchHNSWMaxEF {
+		return errors.New(422, "hnsw.ef must be between 1 and 1048576")
 	}
 	return nil
 }

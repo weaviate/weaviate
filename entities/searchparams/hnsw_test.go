@@ -31,10 +31,18 @@ func TestHNSWValidate(t *testing.T) {
 	bad := 0
 	err := (&HNSW{EF: &bad}).Validate()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "at least 1")
+	assert.Contains(t, err.Error(), "between 1 and")
 
 	negative := -1
 	require.Error(t, (&HNSW{EF: &negative}).Validate())
+
+	tooBig := MaxEF + 1
+	err = (&HNSW{EF: &tooBig}).Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "between 1 and")
+
+	maxOK := MaxEF
+	assert.NoError(t, (&HNSW{EF: &maxOK}).Validate())
 }
 
 func TestHNSWSearchContext(t *testing.T) {

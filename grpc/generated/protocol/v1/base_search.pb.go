@@ -679,8 +679,9 @@ type HNSWSearch struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// ef is the size of the HNSW candidate list for this query.
 	// It overrides vectorIndexConfig.ef, including dynamic ef.
-	// Must be >= 1. When it is smaller than the number of neighbors requested,
-	// the search raises it to that number so the result list is not truncated.
+	// Must be between 1 and 1048576. When it is smaller than the number of
+	// neighbors requested, the search raises it to that number so the result
+	// list is not truncated. The index also caps ef to the number of indexed nodes.
 	Ef            *int32 `protobuf:"varint,1,opt,name=ef,proto3,oneof" json:"ef,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

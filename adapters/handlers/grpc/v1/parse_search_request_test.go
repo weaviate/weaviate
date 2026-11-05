@@ -3055,7 +3055,16 @@ func TestParseHNSWSearchEF(t *testing.T) {
 		Hnsw:       &pb.HNSWSearch{Ef: &bad},
 	}, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "at least 1")
+	require.Contains(t, err.Error(), "between 1 and")
+
+	tooBig := int32(searchparams.MaxEF + 1)
+	_, err = parser.Search(&pb.SearchRequest{
+		Collection: classname,
+		NearVector: &pb.NearVector{Vector: []float32{1, 2, 3}},
+		Hnsw:       &pb.HNSWSearch{Ef: &tooBig},
+	}, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "between 1 and")
 }
 
 func getClass(name string) (*models.Class, error) {

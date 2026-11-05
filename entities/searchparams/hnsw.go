@@ -16,6 +16,12 @@ import (
 	"fmt"
 )
 
+// MaxEF is the largest ef a single search may request.
+// It is far above useful HNSW ef values. The index also refuses to allocate a
+// candidate queue larger than the searchable graph, so an accepted override
+// cannot reserve more slots than the index already holds.
+const MaxEF = 1 << 20
+
 // HNSW holds HNSW-only parameters supplied with a single search.
 // A nil pointer, or a nil EF, keeps the collection's vector index config
 // (including dynamic ef).
@@ -24,14 +30,14 @@ type HNSW struct {
 	EF *int `json:"ef,omitempty"`
 }
 
-// Validate rejects an explicit ef below 1. A nil receiver is valid and means
-// "use the index configuration".
+// Validate rejects an explicit ef outside [1, MaxEF]. A nil receiver is valid
+// and means "use the index configuration".
 func (h *HNSW) Validate() error {
 	if h == nil || h.EF == nil {
 		return nil
 	}
-	if *h.EF < 1 {
-		return fmt.Errorf("hnsw.ef must be at least 1, got %d", *h.EF)
+	if *h.EF < 1 || *h.EF > MaxEF {
+		return fmt.Errorf("hnsw.ef must be between 1 and %d, got %d", MaxEF, *h.EF)
 	}
 	return nil
 }

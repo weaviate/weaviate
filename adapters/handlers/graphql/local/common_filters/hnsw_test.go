@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
 func TestExtractHNSW(t *testing.T) {
@@ -37,8 +38,12 @@ func TestExtractHNSW(t *testing.T) {
 
 	_, err = ExtractHNSW(map[string]interface{}{"hnsw": map[string]interface{}{"ef": 0}})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "at least 1")
+	assert.Contains(t, err.Error(), "between 1 and")
 
 	_, err = ExtractHNSW(map[string]interface{}{"hnsw": map[string]interface{}{"ef": -5}})
 	require.Error(t, err)
+
+	_, err = ExtractHNSW(map[string]interface{}{"hnsw": map[string]interface{}{"ef": searchparams.MaxEF + 1}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "between 1 and")
 }

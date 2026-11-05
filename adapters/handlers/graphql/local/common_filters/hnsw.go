@@ -20,7 +20,10 @@ import (
 
 const hnswArgumentDescription = "HNSW-only search parameters. Applies to the vector search in this query (nearVector, nearObject, hybrid, nearText and the other near* searches). Other index types reject ef."
 
-const hnswEFDescription = "Size of the HNSW candidate list for this query. Overrides the collection's vectorIndexConfig.ef, including dynamic ef. Must be at least 1. When it is smaller than the number of neighbors requested, the search raises it to that number so results are not truncated."
+var hnswEFDescription = fmt.Sprintf(
+	"Size of the HNSW candidate list for this query. Overrides the collection's vectorIndexConfig.ef, including dynamic ef. Must be between 1 and %d. When it is smaller than the number of neighbors requested, the search raises it to that number so results are not truncated. The index also caps ef to the number of indexed nodes.",
+	searchparams.MaxEF,
+)
 
 // HNSWArgument is the GraphQL `hnsw { ef }` input shared by Get, Aggregate and Explore.
 func HNSWArgument(prefix string) *graphql.ArgumentConfig {

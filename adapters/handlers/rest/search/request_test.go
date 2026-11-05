@@ -1319,7 +1319,14 @@ func TestNearVectorParams(t *testing.T) {
 		_, apiErr := buildNearVector(t, movieClass(), `{"vector":[0.1,-0.2,0.3],"hnsw":{"ef":0}}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
-		assert.Contains(t, apiErr.Err.Error(), "at least 1")
+		assert.Contains(t, apiErr.Err.Error(), "between 1 and")
+	})
+
+	t.Run("hnsw.ef above the maximum is rejected", func(t *testing.T) {
+		_, apiErr := buildNearVector(t, movieClass(), `{"vector":[0.1,-0.2,0.3],"hnsw":{"ef":1048577}}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+		assert.Contains(t, apiErr.Err.Error(), "between 1 and")
 	})
 
 	t.Run("whole numbers are read as a vector", func(t *testing.T) {

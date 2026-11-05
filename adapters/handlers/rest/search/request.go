@@ -90,11 +90,15 @@ func parseSearchHNSW(in *models.SearchHNSW) (*searchparams.HNSW, *APIError) {
 	if in == nil || in.EF == nil {
 		return nil, nil
 	}
-	if *in.EF < 1 {
-		return nil, newAPIError(http.StatusBadRequest, "hnsw.ef must be at least 1, got %d", *in.EF)
+	if *in.EF > int64(math.MaxInt) {
+		return nil, newAPIError(http.StatusBadRequest, "hnsw.ef must be between 1 and %d, got %d", searchparams.MaxEF, *in.EF)
 	}
 	ef := int(*in.EF)
-	return &searchparams.HNSW{EF: &ef}, nil
+	params := &searchparams.HNSW{EF: &ef}
+	if err := params.Validate(); err != nil {
+		return nil, newAPIError(http.StatusBadRequest, "%s", err.Error())
+	}
+	return params, nil
 }
 
 // fillSelectionAndFilter fills the fields every search type shares: the
