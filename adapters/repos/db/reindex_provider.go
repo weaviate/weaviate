@@ -109,6 +109,8 @@ type ReindexProvider struct {
 
 	teardownHeldOnce sync.Once
 	teardownHeld     *logrusext.Sampler
+	swapFailedOnce   sync.Once
+	swapFailed       *logrusext.Sampler
 
 	// sealedUnits/sealedTasks count teardowns, guarded by [mu]. A seal, not a [liveUnits] read, which is stale on return.
 	sealedUnits unitClaims
@@ -408,6 +410,14 @@ func (p *ReindexProvider) teardownHeldSampler() *logrusext.Sampler {
 		p.teardownHeld = logrusext.NewSampler(p.logger, maxReportedErrors, migrationUnitContentionWindow)
 	})
 	return p.teardownHeld
+}
+
+// A stopped run's failing swap is retried every tick, so its lines are sampled.
+func (p *ReindexProvider) swapFailedSampler() *logrusext.Sampler {
+	p.swapFailedOnce.Do(func() {
+		p.swapFailed = logrusext.NewSampler(p.logger, maxReportedErrors, migrationUnitContentionWindow)
+	})
+	return p.swapFailed
 }
 
 func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescriptor, unitID string) {
@@ -1078,7 +1088,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 		}
 	}
 	if cached := p.cachedReindexTasks(task.TaskDescriptor, unitID); len(cached) > 0 {
-		return phaseUnitResolution{Shard: resolvedShard, UnitTasks: cached}
+		return p.resolveCachedUnit(resolvedShard, concreteShard, unitID, cached, logger)
 	}
 	store := concreteShard.migrationRecordStore()
 	if store == nil {
@@ -1101,12 +1111,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 			Transient: errors.Is(err, context.Canceled),
 		}
 	}
-	var fresh []*ShardReindexTaskGeneric
-	for _, t := range built {
-		if _, ok := store.Get(t.migrationRecordKey()); ok {
-			fresh = append(fresh, t)
-		}
-	}
+	fresh := tasksWithRecord(built, store)
 	if len(fresh) == 0 {
 		logger.WithField("unit", unitID).
 			Info("reindex provider: resolveUnitForPhase: no in-flight state on disk for this unit (post-restart of already-finalized migration); skipping")
@@ -1120,6 +1125,34 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	logger.WithField("unit", unitID).
 		Info("reindex provider: resolveUnitForPhase: rebuilding tasks from disk (node likely restarted); cached for subsequent phase callbacks")
 	return phaseUnitResolution{Shard: resolvedShard, UnitTasks: fresh, Rehydrate: true}
+}
+
+// A newer run's swap retires this run's records, so a cached task whose
+// record is gone has nothing left in flight.
+func (p *ReindexProvider) resolveCachedUnit(resolvedShard ShardLike, concreteShard *Shard,
+	unitID string, cached []*ShardReindexTaskGeneric, logger logrus.FieldLogger,
+) phaseUnitResolution {
+	store := concreteShard.migrationRecordStore()
+	if store == nil || len(tasksWithRecord(cached, store)) > 0 {
+		return phaseUnitResolution{Shard: resolvedShard, UnitTasks: cached}
+	}
+	if fault := unreadableRecordFault(unitID, store); fault != "" {
+		logger.WithField("unit", unitID).Errorf("reindex provider: resolveUnitForPhase: %s", fault)
+		return phaseUnitResolution{Errs: []string{fault}}
+	}
+	logger.WithField("unit", unitID).
+		Info("reindex provider: resolveUnitForPhase: this unit's migration records are gone; skipping")
+	return phaseUnitResolution{Skip: true}
+}
+
+func tasksWithRecord(tasks []*ShardReindexTaskGeneric, store *MigrationRecordStore) []*ShardReindexTaskGeneric {
+	var out []*ShardReindexTaskGeneric
+	for _, t := range tasks {
+		if _, ok := store.Get(t.migrationRecordKey()); ok {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // unreadableRecordFault returns why a unit must not run, or "" when every
@@ -1194,8 +1227,10 @@ func (p *ReindexProvider) runShardSwapPhase(
 
 	for _, reindexTask := range unitTasks {
 		if err := reindexTask.RunSwapOnShard(ctx, shard); err != nil {
-			logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
-				Errorf("reindex provider: shard swap — swap failed; migration is half-applied on this shard: %v", err)
+			p.swapFailedSampler().WithSampling(func(l logrus.FieldLogger) {
+				l.WithField("unit", unitID).WithField("task", reindexTask.Name()).
+					Errorf("reindex provider: shard swap — swap failed on this shard: %v", err)
+			})
 			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s swap: %v", unitID, reindexTask.Name(), err))
 			if errors.Is(err, context.Canceled) {
 				out.Transient = true
@@ -1208,8 +1243,10 @@ func (p *ReindexProvider) runShardSwapPhase(
 		logger.WithField("unit", unitID).WithField("shard", shardName).
 			Info("reindex provider: swap complete")
 	} else {
-		logger.WithField("unit", unitID).WithField("shard", shardName).WithField("node", p.localNode).
-			Error("reindex provider: swap INCOMPLETE for this shard — at least one task's RunSwapOnShard returned an error")
+		p.swapFailedSampler().WithSampling(func(l logrus.FieldLogger) {
+			l.WithField("unit", unitID).WithField("shard", shardName).WithField("node", p.localNode).
+				Error("reindex provider: swap INCOMPLETE for this shard — at least one task's RunSwapOnShard returned an error")
+		})
 	}
 	return out
 }

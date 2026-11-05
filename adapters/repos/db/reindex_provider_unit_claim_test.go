@@ -137,6 +137,10 @@ func TestAPhaseHoldsItsUnitWhileItRuns(t *testing.T) {
 	tasks, err := p.createReindexTasks(desc, "u1", payload)
 	require.NoError(t, err)
 	require.NotEmpty(t, tasks)
+	// Recovery seeds only tasks whose record is on disk.
+	for _, task := range tasks {
+		require.NoError(t, task.RunReindexOnlyOnShard(ctx, hot))
+	}
 	p.SeedReindexTaskCache(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric{
 		desc: {"u1": tasks},
 	})
