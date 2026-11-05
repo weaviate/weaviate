@@ -238,20 +238,19 @@ func parseQueryProperty(entry string) (string, *APIError) {
 	return schema.LowercaseFirstLetter(name), nil
 }
 
-// checkKeywordSearchable: empty queryProperties over a collection with no
-// searchable property is a 422 here — the engine's all-properties expansion
-// errors untyped (a 500). Explicit ones are validateQueryProperties'.
+// checkKeywordSearchable: empty queryProperties are the engine's
+// all-properties expansion. That expansion errors when a text property has
+// indexSearchable disabled, and when the collection has nothing searchable.
+// Doing it here keeps the status a 422. Explicit properties are
+// validateQueryProperties'.
 func checkKeywordSearchable(class *models.Class, queryProperties []string) *APIError {
 	if len(queryProperties) > 0 {
 		return nil
 	}
-	for _, prop := range class.Properties {
-		if searchparams.PropertyHasSearchableIndex(class, prop.Name) {
-			return nil
-		}
+	if _, err := searchparams.ExpandKeywordProperties(class); err != nil {
+		return newAPIError(http.StatusUnprocessableEntity, "%s", err.Error())
 	}
-	return newAPIError(http.StatusUnprocessableEntity,
-		"collection %s has no searchable properties for a keyword search", class.Class)
+	return nil
 }
 
 // fillCommonFields parses returnMetadata (scoped to the resolved target
