@@ -122,17 +122,15 @@ func ReindexRuns(tasks []*distributedtask.Task) []ReindexRun {
 }
 
 // ReindexPartialRunConflict is the one rule for what a standing partial run refuses, naming its resubmit.
-func ReindexPartialRunConflict(tasks []*distributedtask.Task, collection, property string, indexTypes []string,
+// A run claims its whole property: searchable and filterable share one tokenization.
+func ReindexPartialRunConflict(tasks []*distributedtask.Task, collection, property string,
 	accepts func(*ReindexRun) bool,
 ) string {
 	if !slices.ContainsFunc(tasks, ReindexLeftPartial) {
 		return ""
 	}
-	runs, scopes := ReindexRuns(tasks), [][]string{indexTypes}
-	if indexTypes == nil {
-		scopes = [][]string{{"searchable"}, {"filterable"}, {"rangeable"}}
-	}
-	for _, scope := range scopes {
+	runs := ReindexRuns(tasks)
+	for _, scope := range [][]string{{"searchable"}, {"filterable"}, {"rangeable"}} {
 		run, migrated, covered := ReindexPartialRun(runs, collection, property, scope)
 		if run == nil || (accepts != nil && accepts(run)) {
 			continue

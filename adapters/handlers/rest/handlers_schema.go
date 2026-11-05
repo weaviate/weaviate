@@ -377,7 +377,7 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 			db.MutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
 				"cancel it via the reindex REST API before retrying"))
 	}
-	return db.ReindexPartialRunConflict(tasksByNamespace[db.ReindexNamespace], className, propertyName, nil, nil)
+	return db.ReindexPartialRunConflict(tasksByNamespace[db.ReindexNamespace], className, propertyName, nil)
 }
 
 func (s *schemaHandlers) deleteClassVectorIndex(params schema.SchemaObjectsVectorsDeleteParams,

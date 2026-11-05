@@ -334,7 +334,7 @@ func resolveUpsertPlan(class *models.Class, collection string, prop *models.Prop
 	if err != nil {
 		return plan, err
 	}
-	if conflict := refuseOtherThanPartialRun(collection, prop.Name, indexType, tok, plan, reindexTasks); conflict != "" {
+	if conflict := refuseOtherThanPartialRun(collection, prop.Name, tok, plan, reindexTasks); conflict != "" {
 		return upsertPlan{conflict: conflict}, nil
 	}
 
@@ -596,7 +596,7 @@ var errRebuildPartlyMigrated = errors.New("cannot rebuild an index some tenants 
 // resolveRebuildPlan validates the rebuild preconditions for the internal
 // index-type token and returns the repair/rebuild migration to submit.
 func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.Property, indexType string, reindexTasks []*distributedtask.Task) (upsertPlan, error) {
-	if err := refusePartlyMigratedRebuild(class.Class, prop.Name, indexType, reindexTasks); err != nil {
+	if err := refusePartlyMigratedRebuild(class.Class, prop.Name, reindexTasks); err != nil {
 		return upsertPlan{}, err
 	}
 	switch indexType {
@@ -635,25 +635,19 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 // refusePartlyMigratedRebuild refuses a rebuild of an index some tenants
 // already migrated: a rebuild analyzes with the schema's settings, which those
 // tenants no longer use. Finishing the migration rebuilds the rest anyway.
-func refusePartlyMigratedRebuild(collection, propName, indexType string, reindexTasks []*distributedtask.Task) error {
-	if msg := db.ReindexPartialRunConflict(reindexTasks, collection, propName, []string{indexType}, nil); msg != "" {
+func refusePartlyMigratedRebuild(collection, propName string, reindexTasks []*distributedtask.Task) error {
+	if msg := db.ReindexPartialRunConflict(reindexTasks, collection, propName, nil); msg != "" {
 		return fmt.Errorf("%w: %s", errRebuildPartlyMigrated, msg)
 	}
 	return nil
 }
 
-// refuseOtherThanPartialRun accepts only a partial run's resubmit on the index types it migrated.
-func refuseOtherThanPartialRun(collection, propName, indexType, tok string, plan upsertPlan, reindexTasks []*distributedtask.Task) string {
-	indexTypes := []string{indexType}
-	switch {
-	case plan.joinTaskID != "":
-		return ""
-	case plan.migrationType != "":
-		indexTypes, _ = db.ReindexIndexTypes(plan.migrationType)
-	case !plan.noop || tok == "":
+// refuseOtherThanPartialRun accepts only a partial run's resubmit on its property.
+func refuseOtherThanPartialRun(collection, propName, tok string, plan upsertPlan, reindexTasks []*distributedtask.Task) string {
+	if plan.joinTaskID != "" || (plan.migrationType == "" && (!plan.noop || tok == "")) {
 		return ""
 	}
-	return db.ReindexPartialRunConflict(reindexTasks, collection, propName, indexTypes, func(run *db.ReindexRun) bool {
+	return db.ReindexPartialRunConflict(reindexTasks, collection, propName, func(run *db.ReindexRun) bool {
 		return plan.migrationType == run.Payload.MigrationType &&
 			plan.targetTok == run.Payload.TargetTokenization && plan.bucketStrategy == run.Payload.BucketStrategy
 	})

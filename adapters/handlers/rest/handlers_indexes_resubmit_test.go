@@ -186,7 +186,7 @@ func TestRebuildRefusedOnPartlyMigratedIndex(t *testing.T) {
 	}{
 		{name: "the migrated index is refused", indexType: "filterable", tasks: []*distributedtask.Task{partial}, refusal: "1 of 2 tenants"},
 		{name: "a single-tenant collection is refused too, never named in tenants", indexType: "filterable", tasks: []*distributedtask.Task{singleTenant}, refusal: `property "title" of the collection is migrated`},
-		{name: "another index of the property is not", indexType: "searchable", tasks: []*distributedtask.Task{partial}},
+		{name: "another index of the property is refused too", indexType: "searchable", tasks: []*distributedtask.Task{partial}, refusal: "1 of 2 tenants"},
 		{name: "no partial run, no refusal", indexType: "filterable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -203,6 +203,45 @@ func TestRebuildRefusedOnPartlyMigratedIndex(t *testing.T) {
 }
 
 // Pins that while a partial run stands, a PUT is refused with the resubmit
+// Pins that a partial run on one index type refuses a PUT on the other:
+// searchable and filterable share the property's tokenization.
+func TestUpsertOnTheOtherIndexTypeRefusedWhileAPartialRunStands(t *testing.T) {
+	word, field := models.PropertyTokenizationWord, models.PropertyTokenizationField
+	for _, tc := range []struct {
+		name                 string
+		filterableOn         bool
+		partialBody, putBody *models.IndexUpsertRequest
+	}{
+		{
+			name:        "a partial enable-filterable, then searchable with another tokenization",
+			partialBody: &models.IndexUpsertRequest{}, putBody: &models.IndexUpsertRequest{Tokenization: field},
+		},
+		{
+			name: "a partial filterable retokenize, then enabling searchable", filterableOn: true,
+			partialBody: &models.IndexUpsertRequest{Tokenization: field}, putBody: &models.IndexUpsertRequest{Tokenization: word},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prop := &models.Property{
+				Name: "title", DataType: []string{"text"}, Tokenization: word,
+				IndexFilterable: boolPtr(tc.filterableOn), IndexSearchable: boolPtr(false),
+			}
+			class := &models.Class{Class: "C", Properties: []*models.Property{prop}, InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: true}}
+			first, err := resolveUpsertPlan(class, "C", prop, "filterable", tc.partialBody, nil)
+			require.NoError(t, err)
+			partial := buildTask(t, "F", distributedtask.TaskStatusCancelled, db.ReindexTaskPayload{
+				Collection: "C", Properties: []string{"title"}, MigrationType: first.migrationType,
+				TargetTokenization: first.targetTok, BucketStrategy: first.bucketStrategy,
+			}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
+			partial.SwapDecidedGroups = map[string]time.Time{"a": {}}
+
+			plan, err := resolveUpsertPlan(class, "C", prop, "searchable", tc.putBody, []*distributedtask.Task{partial})
+			require.NoError(t, err)
+			require.Contains(t, plan.conflict, "finish the migration with PUT /v1/schema/C/properties/title/index/filterable")
+		})
+	}
+}
+
 // unless it is that resubmit, so no second target can hide the partial run.
 func TestUpsertRefusedOnPartlyMigratedIndex(t *testing.T) {
 	prop := &models.Property{
