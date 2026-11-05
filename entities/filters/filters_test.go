@@ -104,3 +104,28 @@ func TestValueContainsKeys(t *testing.T) {
 		require.Equal(t, int32(1), calls.Load())
 	})
 }
+
+func TestLocalFilter_ShareContainsHashes(t *testing.T) {
+	top, nested, deep := &Value{}, &Value{}, &Value{}
+	filter := &LocalFilter{Root: &Clause{
+		Operator: OperatorAnd,
+		Operands: []Clause{
+			{Operator: ContainsAny, Value: top},
+			{Operator: OperatorOr, Operands: []Clause{
+				{Operator: ContainsNone, Value: nested},
+				{Operator: OperatorAnd, Operands: []Clause{{Operator: ContainsAny, Value: deep}}},
+			}},
+		},
+	}}
+
+	require.False(t, top.ContainsHashesShared())
+	filter.ShareContainsHashes()
+	for _, v := range []*Value{top, nested, deep} {
+		require.True(t, v.ContainsHashesShared())
+	}
+
+	require.NotPanics(t, func() {
+		(*LocalFilter)(nil).ShareContainsHashes()
+		(&LocalFilter{}).ShareContainsHashes()
+	})
+}

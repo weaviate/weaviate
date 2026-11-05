@@ -13,6 +13,7 @@ package filters
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/weaviate/weaviate/entities/inverted"
 )
@@ -22,6 +23,8 @@ type containsKeysCache struct {
 	once sync.Once
 	keys inverted.SortedKeys
 	err  error
+	// shared is atomic because concurrent hybrid sub-searches mark one filter.
+	shared atomic.Bool
 }
 
 // ContainsKeys returns the keys build makes, calling it once per Value and
@@ -31,4 +34,30 @@ func (v *Value) ContainsKeys(build func() (inverted.SortedKeys, error)) (inverte
 	c := &v.containsKeys
 	c.once.Do(func() { c.keys, c.err = build() })
 	return c.keys, c.err
+}
+
+// ShareContainsHashes marks every clause's Value as read by several local shards,
+// so a ContainsAny or ContainsNone build attaches one WithHashes table for them
+// all. A mark set after the build has no effect, and f may be nil.
+func (f *LocalFilter) ShareContainsHashes() {
+	if f != nil {
+		shareContainsHashes(f.Root)
+	}
+}
+
+func shareContainsHashes(clause *Clause) {
+	if clause == nil {
+		return
+	}
+	if clause.Value != nil {
+		clause.Value.containsKeys.shared.Store(true)
+	}
+	for i := range clause.Operands {
+		shareContainsHashes(&clause.Operands[i])
+	}
+}
+
+// ContainsHashesShared reports whether ShareContainsHashes marked v.
+func (v *Value) ContainsHashesShared() bool {
+	return v.containsKeys.shared.Load()
 }

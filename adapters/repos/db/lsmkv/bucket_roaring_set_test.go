@@ -19,6 +19,7 @@ import (
 	"os"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,11 +28,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/concurrency/testinghelpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -323,6 +326,111 @@ func TestBatchReaderMatchesRoaringSetGet(t *testing.T) {
 		string(keyB):       arrWantB,
 		string(keyMissing): nil,
 	})
+}
+
+// newBloomRoaringSetBucket opens a roaring-set bucket that flushes only when told.
+func newBloomRoaringSetBucket(t *testing.T) *Bucket {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+	b, err := NewBucketCreator().NewBucket(context.Background(), t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyRoaringSet), WithUseBloomFilter(true),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
+	b.SetMemtableThreshold(1e9)
+	return b
+}
+
+// TestBatchReaderProbesBloomFiltersWithAttachedHashes pins that Next probes with the attached hash.
+func TestBatchReaderProbesBloomFiltersWithAttachedHashes(t *testing.T) {
+	b := newBloomRoaringSetBucket(t)
+
+	// on disk only, so the bloom filter alone decides whether the row is read
+	require.NoError(t, b.RoaringSetAddList([]byte("present"), []uint64{1, 2}))
+	require.NoError(t, b.FlushAndSwitch())
+
+	sumOf := func(prefix string) func([]byte) inverted.BloomHash {
+		return func(key []byte) inverted.BloomHash {
+			return bloomhash.Sum(append([]byte(prefix), key...))
+		}
+	}
+	keys := sortedKeysOf(t, []string{"absent", "present"})
+
+	tests := []struct {
+		name   string
+		keys   inverted.SortedKeys
+		window int
+		want   map[string][]uint64
+	}{
+		{
+			name:   "correct hashes",
+			keys:   keys.WithHashes(sumOf("")),
+			window: BatchReaderWindowKeys,
+			want:   map[string][]uint64{"present": {1, 2}},
+		},
+		{
+			// window slot 0 of the second window is batch position 1
+			name:   "correct hashes past the first window",
+			keys:   keys.WithHashes(sumOf("")),
+			window: 1,
+			want:   map[string][]uint64{"present": {1, 2}},
+		},
+		{
+			// the filter holds "present" but not "not-present"
+			name:   "wrong hashes",
+			keys:   keys.WithHashes(sumOf("not-")),
+			window: BatchReaderWindowKeys,
+			want:   map[string][]uint64{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			view := b.GetConsistentView()
+			defer view.ReleaseView()
+			reader, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(),
+				tt.keys, tt.window, BatchReaderWindowBytes)
+			require.NoError(t, err)
+			requireRowsAre(t, reader, tt.keys, tt.want)
+		})
+	}
+}
+
+// TestBatchReaderHashesKeysOnlyForSegments pins that attached hashes are computed
+// only when the view has a segment.
+func TestBatchReaderHashesKeysOnlyForSegments(t *testing.T) {
+	tests := []struct {
+		name         string
+		flush        bool
+		wantSumCalls int64
+	}{
+		{name: "no segments", wantSumCalls: 0},
+		{name: "segments", flush: true, wantSumCalls: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := newBloomRoaringSetBucket(t)
+			require.NoError(t, b.RoaringSetAddList([]byte("present"), []uint64{1, 2}))
+			if tt.flush {
+				require.NoError(t, b.FlushAndSwitch())
+			}
+
+			var sumCalls atomic.Int64
+			keys := sortedKeysOf(t, []string{"absent", "present"}).WithHashes(
+				func(key []byte) inverted.BloomHash {
+					sumCalls.Add(1)
+					return bloomhash.Sum(key)
+				})
+
+			view := b.GetConsistentView()
+			defer view.ReleaseView()
+			reader, err := NewRoaringSetBatchReader(view.WithoutEmptyActiveMemtable(), keys)
+			require.NoError(t, err)
+
+			requireRowsAre(t, reader, keys, map[string][]uint64{"present": {1, 2}})
+			assert.Equal(t, tt.wantSumCalls, sumCalls.Load())
+		})
+	}
 }
 
 // TestBatchReaderAllocatesNothingForAbsentKeys pins that a key no segment or

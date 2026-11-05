@@ -46,20 +46,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // own size.
 package bloomhash
 
-import "github.com/bits-and-blooms/bloom/v3"
+import (
+	"github.com/bits-and-blooms/bloom/v3"
 
-// Hash is a key's murmur3 hash, from which bloom.BloomFilter derives its bit
-// locations.
-type Hash [4]uint64
+	"github.com/weaviate/weaviate/entities/inverted"
+)
 
-func Sum(key []byte) Hash {
+// Sum returns key's murmur3 hash, as bloom.BloomFilter computes it.
+func Sum(key []byte) inverted.BloomHash {
 	var d digest128
 	h1, h2, h3, h4 := d.sum256(key)
-	return Hash{h1, h2, h3, h4}
+	return inverted.BloomHash{h1, h2, h3, h4}
 }
 
 // Test answers f.Test(key) for the key h was summed from.
-func Test(f *bloom.BloomFilter, h Hash) bool {
+func Test(f *bloom.BloomFilter, h inverted.BloomHash) bool {
 	m := uint64(f.Cap())
 	set := f.BitSet()
 	for i := uint64(0); i < uint64(f.K()); i++ {
