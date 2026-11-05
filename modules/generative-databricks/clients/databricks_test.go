@@ -74,16 +74,17 @@ func TestGetAnswer(t *testing.T) {
 		endpoint := "http://default"
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Databricks-Endpoint", []string{"http://base-url-passed-in-header.com"})
+		ctxWithValue = context.WithValue(ctxWithValue, "X-Databricks-Token", []string{"callerToken"})
 
-		buildURL, err := c.buildDatabricksEndpoint(ctxWithValue, endpoint)
+		buildURL, err := c.buildDatabricksEndpoint(ctxWithValue, "", endpoint)
 		require.NoError(t, err)
 		assert.Equal(t, "http://base-url-passed-in-header.com", buildURL)
 
-		buildURL, err = c.buildDatabricksEndpoint(context.TODO(), endpoint)
+		buildURL, err = c.buildDatabricksEndpoint(context.TODO(), "", endpoint)
 		require.NoError(t, err)
 		assert.Equal(t, "http://default", buildURL)
 
-		buildURL, err = c.buildDatabricksEndpoint(context.TODO(), "")
+		buildURL, err = c.buildDatabricksEndpoint(context.TODO(), "", "")
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "endpoint cannot be empty")
 		assert.Equal(t, "", buildURL)

@@ -99,12 +99,13 @@ func TestGetAnswer(t *testing.T) {
 		baseURL := "http://default-url.com"
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Mistral-Baseurl", []string{"http://base-url-passed-in-header.com"})
+		ctxWithValue = context.WithValue(ctxWithValue, "X-Mistral-Api-Key", []string{"callerKey"})
 
-		buildURL, err := c.getMistralUrl(ctxWithValue, baseURL)
+		buildURL, err := c.getMistralUrl(ctxWithValue, baseURL, baseURL)
 		require.NoError(t, err)
 		assert.Equal(t, "http://base-url-passed-in-header.com/v1/chat/completions", buildURL)
 
-		buildURL, err = c.getMistralUrl(context.TODO(), baseURL)
+		buildURL, err = c.getMistralUrl(context.TODO(), baseURL, baseURL)
 		require.NoError(t, err)
 		assert.Equal(t, "http://default-url.com/v1/chat/completions", buildURL)
 	})

@@ -101,12 +101,13 @@ func TestGetAnswer(t *testing.T) {
 		baseURL := "http://default-url.com"
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Cohere-Baseurl", []string{"http://base-url-passed-in-header.com"})
+		ctxWithValue = context.WithValue(ctxWithValue, "X-Cohere-Api-Key", []string{"callerKey"})
 
-		buildURL, err := c.getCohereUrl(ctxWithValue, baseURL)
+		buildURL, err := c.getCohereUrl(ctxWithValue, baseURL, baseURL)
 		require.NoError(t, err)
 		assert.Equal(t, "http://base-url-passed-in-header.com/v2/chat", buildURL)
 
-		buildURL, err = c.getCohereUrl(context.TODO(), baseURL)
+		buildURL, err = c.getCohereUrl(context.TODO(), baseURL, baseURL)
 		require.NoError(t, err)
 		assert.Equal(t, "http://default-url.com/v2/chat", buildURL)
 	})

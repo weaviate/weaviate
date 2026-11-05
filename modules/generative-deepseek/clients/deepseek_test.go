@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	deepseekparams "github.com/weaviate/weaviate/modules/generative-deepseek/parameters"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/credentialtest"
 )
 
 func nullLogger() logrus.FieldLogger {
@@ -35,14 +36,15 @@ func TestUrlResolution(t *testing.T) {
 	c := New("key", 0, nullLogger())
 
 	t.Run("default", func(t *testing.T) {
-		u, err := c.url(context.Background(), "https://api.deepseek.com")
+		u, err := c.url(context.Background(), "https://api.deepseek.com", "https://api.deepseek.com")
 		assert.NoError(t, err)
 		assert.Equal(t, "https://api.deepseek.com/chat/completions", u)
 	})
 
 	t.Run("header override", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), "X-Deepseek-Baseurl", []string{"https://override.com"})
-		u, err := c.url(ctx, "https://api.deepseek.com")
+		ctx = context.WithValue(ctx, "X-Deepseek-Api-Key", []string{"callerKey"})
+		u, err := c.url(ctx, "https://api.deepseek.com", "https://api.deepseek.com")
 		assert.NoError(t, err)
 		assert.Equal(t, "https://override.com/chat/completions", u)
 	})
@@ -50,6 +52,7 @@ func TestUrlResolution(t *testing.T) {
 
 func TestGeneration(t *testing.T) {
 	props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"p": "test"}}}
+	callerKeyCtx := credentialtest.Context(map[string]string{"X-Deepseek-Api-Key": "callerKey"})
 
 	t.Run("success", func(t *testing.T) {
 		handler := &mockHandler{
@@ -64,7 +67,7 @@ func TestGeneration(t *testing.T) {
 		defer srv.Close()
 
 		c := New("key", time.Minute, nullLogger())
-		res, err := c.GenerateAllResults(context.Background(), props, "hi", deepseekparams.Params{BaseURL: srv.URL}, false, nil)
+		res, err := c.GenerateAllResults(callerKeyCtx, props, "hi", deepseekparams.Params{BaseURL: srv.URL}, false, nil)
 
 		assert.NoError(t, err)
 		assert.Equal(t, "Hello", *res.Result)
@@ -78,7 +81,7 @@ func TestGeneration(t *testing.T) {
 		defer srv.Close()
 
 		c := New("key", time.Minute, nullLogger())
-		_, err := c.GenerateAllResults(context.Background(), props, "hi", deepseekparams.Params{BaseURL: srv.URL}, false, nil)
+		_, err := c.GenerateAllResults(callerKeyCtx, props, "hi", deepseekparams.Params{BaseURL: srv.URL}, false, nil)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "fail")

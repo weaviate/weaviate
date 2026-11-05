@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Cases use IP literals and blocked hostnames/suffixes (which short-circuit
@@ -92,6 +93,138 @@ func TestValidateBaseURLHeader(t *testing.T) {
 	t.Run("validation disabled is a no-op even for internal headers", func(t *testing.T) {
 		assert.NoError(t, validate(ctxWith("http://169.254.169.254/")))
 	})
+}
+
+func TestRequestBaseURL(t *testing.T) {
+	const (
+		baseURLHeader = "X-Openai-Baseurl"
+		keyHeader     = "X-Openai-Api-Key"
+		otherKey      = "X-Azure-Api-Key"
+		configured    = "https://api.openai.com"
+		attacker      = "https://attacker.example.com"
+	)
+	tests := []struct {
+		name            string
+		headers         map[string]string
+		requested       string
+		configured      string
+		keyHeaders      []string
+		validate        bool
+		wantURL         string
+		wantFromRequest bool
+		wantErr         string
+	}{
+		{name: "nothing requested", wantURL: configured},
+		{name: "requested equals configured", requested: configured, wantURL: configured},
+		{name: "requested adds a trailing slash", requested: configured + "/", wantURL: configured + "/"},
+		{name: "requested host differs only in case", requested: "https://API.openai.com", wantURL: "https://API.openai.com"},
+		{name: "requested path on the configured host", requested: configured + "/proxy", wantURL: configured + "/proxy"},
+		{name: "requested equals a configured value without a host", requested: "baseurl", configured: "baseurl", wantURL: "baseurl"},
+		{
+			name:      "requested host without a request key",
+			requested: attacker,
+			wantErr:   "baseURL needs X-Openai-Api-Key: the server's key is not sent to a host named by the request",
+		},
+		{
+			name:            "requested host with a request key",
+			requested:       attacker,
+			headers:         map[string]string{keyHeader: "caller"},
+			wantURL:         attacker,
+			wantFromRequest: true,
+		},
+		{
+			name:      "requested scheme differs",
+			requested: "http://api.openai.com",
+			wantErr:   "baseURL needs X-Openai-Api-Key",
+		},
+		{
+			name:      "requested port differs",
+			requested: "https://api.openai.com:8443",
+			wantErr:   "baseURL needs X-Openai-Api-Key",
+		},
+		{
+			name:      "requested host hidden behind userinfo",
+			requested: "https://api.openai.com@attacker.example.com",
+			wantErr:   "baseURL needs X-Openai-Api-Key",
+		},
+		{
+			name:      "requested URL does not parse",
+			requested: "https://api.openai.com%zz",
+			wantErr:   "baseURL needs X-Openai-Api-Key",
+		},
+		{
+			name:    "header host without a request key",
+			headers: map[string]string{baseURLHeader: attacker},
+			wantErr: "X-Openai-Baseurl needs X-Openai-Api-Key: the server's key is not sent to a host named by the request",
+		},
+		{
+			name:            "header host with a request key",
+			headers:         map[string]string{baseURLHeader: attacker, keyHeader: "caller"},
+			wantURL:         attacker,
+			wantFromRequest: true,
+		},
+		{
+			name:      "header wins over requested",
+			headers:   map[string]string{baseURLHeader: configured},
+			requested: attacker,
+			wantURL:   configured,
+		},
+		{
+			name:            "any of several key headers",
+			requested:       attacker,
+			headers:         map[string]string{otherKey: "caller"},
+			keyHeaders:      []string{keyHeader, otherKey},
+			wantURL:         attacker,
+			wantFromRequest: true,
+		},
+		{
+			name:       "several key headers named in the error",
+			requested:  attacker,
+			keyHeaders: []string{keyHeader, otherKey},
+			wantErr:    "baseURL needs X-Openai-Api-Key or X-Azure-Api-Key",
+		},
+		{
+			name:      "requested host validated when validation is on",
+			requested: "https://127.0.0.1",
+			headers:   map[string]string{keyHeader: "caller"},
+			validate:  true,
+			wantErr:   "baseURL cannot target internal addresses",
+		},
+		{
+			name:     "header host validated when validation is on",
+			headers:  map[string]string{baseURLHeader: "https://10.0.0.5", keyHeader: "caller"},
+			validate: true,
+			wantErr:  "baseURL cannot target internal addresses",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.validate {
+				t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+			}
+			ctx := context.Background()
+			for k, v := range tt.headers {
+				ctx = context.WithValue(ctx, k, []string{v})
+			}
+			keyHeaders := tt.keyHeaders
+			if keyHeaders == nil {
+				keyHeaders = []string{keyHeader}
+			}
+			configuredURL := tt.configured
+			if configuredURL == "" {
+				configuredURL = configured
+			}
+			got, fromRequest, err := RequestBaseURL(ctx, baseURLHeader, tt.requested, configuredURL, keyHeaders...)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantURL, got)
+			assert.Equal(t, tt.wantFromRequest, fromRequest)
+		})
+	}
 }
 
 func TestSSRFDialGuard(t *testing.T) {
