@@ -147,6 +147,52 @@ func TestSegmentNodeReaderMetersReads(t *testing.T) {
 	require.Equal(t, []int64{4096}, observed)
 }
 
+// Every pread scan of a replace bucket meters what it reads under
+// segmentCursorReplace, whichever cursor the caller picked.
+func TestReplaceCursorsMeterPreadReads(t *testing.T) {
+	const (
+		metricName = "ReadFromSegmentsegmentCursorReplace"
+		docs       = 50
+		valueSize  = 1000
+	)
+
+	tests := []struct {
+		name   string
+		cursor func(b *Bucket) *CursorReplace
+	}{
+		{name: "Cursor", cursor: (*Bucket).Cursor},
+		{name: "CursorReplaceReusable", cursor: (*Bucket).CursorReplaceReusable},
+		{name: "CursorReplaceDigestReusable", cursor: func(b *Bucket) *CursorReplace {
+			return b.CursorReplaceDigestReusable(8)
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := newSecondaryTestBucket(t)
+			for docID := range uint64(docs) {
+				putDoc(t, b, docID, make([]byte, valueSize))
+			}
+			require.NoError(t, b.FlushAndSwitch())
+
+			var observed int64
+			readObserver.Store(metricName, BytesReadObserver(func(n, _ int64) {
+				observed += n
+			}))
+			t.Cleanup(func() { readObserver.Delete(metricName) })
+
+			c := tt.cursor(b)
+			keys := 0
+			for k, _ := c.First(); k != nil; k, _ = c.Next() {
+				keys++
+			}
+			c.Close()
+
+			require.Equal(t, docs, keys)
+			require.Positive(t, observed)
+		})
+	}
+}
+
 // keeps the compiler from dropping the join the allocation count is about
 var readMetricNameSink string
 
