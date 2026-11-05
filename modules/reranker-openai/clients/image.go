@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
@@ -61,17 +62,14 @@ func (m magic) matches(decoded []byte) bool {
 // magicChars is the base64 of the first 12 bytes.
 const magicChars = 16
 
-// The API rejects images over maxImageBytes. maxImageChars also admits the byte
-// above it that a full last quad can carry.
-const (
-	maxImageBytes = 20 << 20
-	maxImageChars = (maxImageBytes + 2) / 3 * 4
-)
+// The API rejects images over maxImageBytes.
+const maxImageBytes = 20 << 20
 
 // imageMIME decodes only the head of the image.
 func imageMIME(encoded string) (string, error) {
-	if len(encoded) > maxImageChars {
-		return "", fmt.Errorf("%d bytes exceed the limit of %d MiB per image", len(encoded)/4*3, maxImageBytes>>20)
+	// Each base64 character other than the padding carries 6 bits.
+	if size := len(strings.TrimRight(encoded, "=")) * 6 / 8; size > maxImageBytes {
+		return "", fmt.Errorf("%d bytes exceed the limit of %d MiB per image", size, maxImageBytes>>20)
 	}
 	head := encoded[:min(len(encoded), magicChars)]
 	decoded, err := base64.StdEncoding.DecodeString(head)

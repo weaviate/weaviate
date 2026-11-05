@@ -209,9 +209,9 @@ func TestRankRejectsAnImageBeforeSending(t *testing.T) {
 			wantErr:   "object 00000000-0000-0000-0000-000000000001: image: not base64",
 		},
 		{
-			name:      "above 20 MiB",
-			documents: []string{pngBase64, strings.Repeat("A", maxImageChars+4)},
-			wantErr:   "object 00000000-0000-0000-0000-000000000001: image: 20971524 bytes exceed the limit of 20 MiB per image",
+			name:      "20 MiB + 1 byte",
+			documents: []string{pngBase64, pngOfSize(maxImageBytes + 1)},
+			wantErr:   "object 00000000-0000-0000-0000-000000000001: image: 20971521 bytes exceed the limit of 20 MiB per image",
 		},
 	}
 	for _, tt := range tests {

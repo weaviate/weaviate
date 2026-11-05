@@ -31,6 +31,7 @@ const (
 )
 
 func TestImageDataURL(t *testing.T) {
+	limitPNG := pngOfSize(maxImageBytes)
 	tests := []struct {
 		name    string
 		encoded string
@@ -49,9 +50,19 @@ func TestImageDataURL(t *testing.T) {
 		{name: "not base64", encoded: "%%%%", wantErr: "not base64"},
 		{name: "empty", encoded: "", wantErr: "not a PNG, JPEG, GIF or WebP image"},
 		{
-			name:    "above 20 MiB, rejected by its length",
-			encoded: strings.Repeat("A", maxImageChars+4),
-			wantErr: "20971524 bytes exceed the limit of 20 MiB per image",
+			name:    "exactly 20 MiB, one padding character",
+			encoded: limitPNG,
+			want:    "data:image/png;base64," + limitPNG,
+		},
+		{
+			name:    "20 MiB + 1 byte, no padding, the same length as 20 MiB",
+			encoded: pngOfSize(maxImageBytes + 1),
+			wantErr: "20971521 bytes exceed the limit of 20 MiB per image",
+		},
+		{
+			name:    "20 MiB + 2 bytes, two padding characters",
+			encoded: pngOfSize(maxImageBytes + 2),
+			wantErr: "20971522 bytes exceed the limit of 20 MiB per image",
 		},
 	}
 	for _, tt := range tests {
@@ -76,6 +87,17 @@ func TestCheckImages(t *testing.T) {
 		"object 00000000-0000-0000-0000-000000000001: image: not a PNG, JPEG, GIF or WebP image")
 }
 
-func TestMaxImageCharsIsTheBase64OfMaxImageBytes(t *testing.T) {
-	assert.Equal(t, base64.StdEncoding.EncodedLen(maxImageBytes), maxImageChars)
+func pngOfSize(size int) string {
+	raw := make([]byte, size)
+	copy(raw, "\x89PNG")
+	return base64.StdEncoding.EncodeToString(raw)
+}
+
+func TestImageSizeLimitCases(t *testing.T) {
+	limit, overByOne, overByTwo := pngOfSize(maxImageBytes), pngOfSize(maxImageBytes+1), pngOfSize(maxImageBytes+2)
+
+	assert.Len(t, overByOne, len(limit))
+	assert.True(t, strings.HasSuffix(limit, "=") && !strings.HasSuffix(limit, "=="))
+	assert.False(t, strings.HasSuffix(overByOne, "="))
+	assert.True(t, strings.HasSuffix(overByTwo, "=="))
 }
