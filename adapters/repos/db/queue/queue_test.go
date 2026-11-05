@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -2882,4 +2883,55 @@ func TestRewind_RefusesAQueueNotPaused(t *testing.T) {
 	require.ErrorContains(t, q.Rewind(), "not paused")
 	_, tombstoned := chunksOf(t, q)
 	assert.NotEmpty(t, tombstoned, "the refusal changes nothing")
+}
+
+// holdRemovals blocks every removeFile until the returned release is called.
+// held receives once per removal reached.
+func holdRemovals(t *testing.T) (held <-chan struct{}, release func()) {
+	t.Helper()
+	reached := make(chan struct{}, 1024)
+	done := make(chan struct{})
+	var once sync.Once
+	release = func() { once.Do(func() { close(done) }) }
+	prev := removeFile
+	removeFile = func(path string) error {
+		reached <- struct{}{}
+		<-done
+		return os.Remove(path)
+	}
+	t.Cleanup(func() {
+		release()
+		removeFile = prev
+	})
+	return reached, release
+}
+
+// Size is what the scheduler's single loop calls for every queue, and Push
+// is every write: neither waits for Rewind's disk work.
+func TestRewind_DoesNotBlockSizeOrPush(t *testing.T) {
+	s := startedScheduler(t)
+	q := sealedQueue(t, s, t.TempDir())
+	require.NoError(t, q.Retain())
+	processNext(t, q)
+
+	held, release := holdRemovals(t)
+	rewound := make(chan error, 1)
+	go func() { rewound <- q.Rewind() }()
+	<-held
+
+	unblocked := make(chan struct{})
+	go func() {
+		defer close(unblocked)
+		_ = q.Size()
+		_ = q.Push(makeRecord(1, 10))
+	}()
+	select {
+	case <-unblocked:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Size or Push waited for Rewind's disk work")
+	}
+
+	release()
+	require.NoError(t, <-rewound)
+	assert.EqualValues(t, 10, q.Size())
 }
