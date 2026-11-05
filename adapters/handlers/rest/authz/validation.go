@@ -34,9 +34,8 @@ const maxTargetLength = 256
 // validateRegexTarget rejects a permission target that would not survive being
 // stored as a casbin resource pattern: it is over-long, contains a '/' (which
 // shifts the segment boundaries used on read-back), or does not compile as a
-// regex (which panics the matcher at enforce time). It reproduces exactly what
-// the matcher compiles — the '*' wildcard expanded and KeyMatch5's "{...}"
-// rewrite applied — so constructs the rewrite would break (e.g. "\p{L}",
+// regex. It compiles the target with the '*' wildcard expanded and KeyMatch5's
+// "{...}" rewrite applied, so constructs the rewrite would break (e.g. "\p{L}",
 // "\x{263a}") are caught here, not at enforce.
 func validateRegexTarget(field, value string) error {
 	if len(value) > maxTargetLength {
@@ -90,8 +89,8 @@ func validatePermissions(namespacesEnabled bool, check permissionCheck, permissi
 		}
 		// aliasName checks the pattern as conv stores it, uppercased, against the
 		// class-name rule. That refuses "ålias.*", which matches no alias, and
-		// "[[:alpha:]]", stored as "[[:Alpha:]]", which panics casbin on every alias
-		// check. checkLookup skips the rule so remove can drop such stored rows.
+		// "[[:alpha:]]", stored as "[[:Alpha:]]", which does not compile. checkLookup
+		// skips the rule so remove can drop such stored rows.
 		aliasName := func(name string) {
 			if check == checkLookup {
 				return
@@ -170,10 +169,16 @@ func validatePermissions(namespacesEnabled bool, check permissionCheck, permissi
 // validateStorablePolicies rejects a permission whose resource would corrupt the
 // policy file. It skips the length check because a resource joins several
 // targets, and validatePermissions already caps each one at maxTargetLength.
+// It also compiles each resource as KeyMatch5 does, since conv stores a target
+// such as "X|\Q" as "(X|\Q)", and there "\Q" quotes the closing ')'.
 func validateStorablePolicies(policies []authorization.Policy) error {
 	for _, p := range policies {
 		if err := conv.ValidateStorableCharacters(p.Resource); err != nil {
 			return fmt.Errorf("permission %q %w", p.Resource, err)
+		}
+		pattern := "^" + keyMatch5BraceRe.ReplaceAllString(strings.ReplaceAll(p.Resource, "/*", "/.*"), "[^/]+") + "$"
+		if _, err := regexp.Compile(pattern); err != nil {
+			return fmt.Errorf("permission %q is not a valid pattern: %w", p.Resource, err)
 		}
 	}
 	return nil
