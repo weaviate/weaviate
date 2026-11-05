@@ -241,8 +241,10 @@ func TestShardLoadWhenAMirrorFailsToArmAndItsStampCannotBeWritten(t *testing.T) 
 
 			fx.requireStepsWait(t)
 			unitID := fx.subject.Key.UnitID
-			repair := ReindexTaskPayload{MigrationType: ReindexTypeRepairFilterable, Collection: fx.className,
-				Properties: []string{"title"}, UnitToShard: map[string]string{unitID: fx.name}}
+			repair := ReindexTaskPayload{
+				MigrationType: ReindexTypeRepairFilterable, Collection: fx.className,
+				Properties: []string{"title"}, UnitToShard: map[string]string{unitID: fx.name},
+			}
 			outcome := &heldStepOutcome{done: make(chan string, 1)}
 			fx.provider.processOneUnit(fx.ctx, &distributedtask.Task{TaskDescriptor: fx.desc}, &repair, fx.idx, unitID, outcome)
 			require.Equal(t, tt.unitFails, len(outcome.done) == 1)
