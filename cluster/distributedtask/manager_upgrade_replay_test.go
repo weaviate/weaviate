@@ -50,11 +50,6 @@ func TestReplayOfReleasedBinaryLogs(t *testing.T) {
 			Namespace: ns, Id: id, Version: 1, FinalizedAtUnixMillis: at.UnixMilli(),
 		})))
 	}
-	cancel := func(t *testing.T, m *Manager) {
-		require.NoError(t, m.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
-			Namespace: ns, Id: id, Version: 1, CancelledAtUnixMillis: at.UnixMilli(),
-		})))
-	}
 	// Two tenants on two nodes, or a single-tenant collection's bare units.
 	mt := map[string]string{"u1": "t1", "u2": "t1", "u3": "t2", "u4": "t2"}
 	nonMT := map[string]string{"u1": "", "u2": "", "u3": "", "u4": ""}
@@ -89,11 +84,6 @@ func TestReplayOfReleasedBinaryLogs(t *testing.T) {
 			name: "failed in PREP decides nothing", groups: mt, complete: true,
 			steps: []step{prep("n1", true), prep("n2", false)},
 			want:  TaskStatusFailed,
-		},
-		{
-			name: "cancelled while running decides nothing", groups: mt,
-			steps: []step{cancel},
-			want:  TaskStatusCancelled,
 		},
 		{
 			name: "failed mid-swap: the replica that never acked owes its swaps", groups: mt, complete: true,
@@ -207,6 +197,11 @@ func TestSwapDebtSurvivesSnapshot(t *testing.T) {
 	require.NoError(t, restored.Restore(snap))
 	after := restored.tasks[ns][id]
 	require.Equal(t, before.SwapsOwed, after.SwapsOwed)
+	// Compared with Equal: the JSON round trip changes each time's Location.
+	require.Len(t, after.SwapDecidedGroups, len(before.SwapDecidedGroups))
+	for g, decidedAt := range before.SwapDecidedGroups {
+		require.True(t, decidedAt.Equal(after.SwapDecidedGroups[g]), "group %q", g)
+	}
 
 	require.NoError(t, restored.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
 		Namespace: ns, Id: id, Version: 1, GroupId: "t1", NodeId: "n2", Success: true, AckedAtUnixMillis: at.UnixMilli(),

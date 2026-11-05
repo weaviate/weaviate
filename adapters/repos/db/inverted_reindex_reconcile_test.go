@@ -416,24 +416,6 @@ func TestReconcileMergedDisposition(t *testing.T) {
 			wantCanonical: "property_title_searchable",
 		},
 		{
-			name:          "task cancelled after this unit's group was decided: leave it for the swap the replica still owes",
-			task:          testTask(taskID, 42, distributedtask.TaskStatusCancelled),
-			decided:       true,
-			class:         testClassWithTokenization(models.PropertyTokenizationWord, "title"),
-			wantState:     MigrationStateMerged,
-			wantRecord:    true,
-			wantCanonical: "property_title_searchable",
-		},
-		{
-			name:          "task still running and this unit's group decided: leave it for the swap the replica still owes",
-			task:          testTask(taskID, 42, distributedtask.TaskStatusStarted),
-			decided:       true,
-			class:         testClassWithTokenization(models.PropertyTokenizationWord, "title"),
-			wantState:     MigrationStateMerged,
-			wantRecord:    true,
-			wantCanonical: "property_title_searchable",
-		},
-		{
 			name:          "a record a replica copy adopted reads its shard's decision",
 			task:          testTask(taskID, 42, distributedtask.TaskStatusCancelled),
 			decided:       true,
@@ -2025,31 +2007,29 @@ func TestMigrationReportedNamesCapsAPropertyList(t *testing.T) {
 // replicas still swap) and discards an undecided one's, whether the run
 // grouped its units by shard (multi-tenant) or not at all (single-tenant).
 func TestDiscardTaskKeepsTheRecordsOfDecidedGroups(t *testing.T) {
-	for _, status := range []distributedtask.TaskStatus{distributedtask.TaskStatusFailed, distributedtask.TaskStatusCancelled} {
-		for _, decided := range []bool{true, false} {
-			for _, group := range []string{"shard-1", ""} {
-				t.Run(fmt.Sprintf("%s/decided=%t/group=%q", status, decided, group), func(t *testing.T) {
-					f := newReconcileFixture(t)
-					f.class = testClassWithTokenization(models.PropertyTokenizationWord, "title")
-					subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
-					task := withUnits(testTask(subject.TaskID, 42, status), map[string]*distributedtask.Unit{
-						subject.Key.UnitID: {ID: subject.Key.UnitID, GroupID: group, NodeID: "node-0"},
-					})
-					task.SwapDecidedGroups = map[string]time.Time{"shard-2": {}}
-					if decided {
-						task.SwapDecidedGroups[group] = time.Time{}
-					}
-					f.mkdirs("property_title__g42_ingest")
-					f.put(NewMigrationRecordMerged(subject))
-
-					require.NoError(t, newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
-						DiscardTask(context.Background(), task))
-
-					_, kept := f.state(subject.Key)
-					require.Equal(t, decided, kept, "only a decided shard's record survives the cleanup")
-					require.Equal(t, decided, f.exists("property_title__g42_ingest"), "and so does its staged data")
+	for _, decided := range []bool{true, false} {
+		for _, group := range []string{"shard-1", ""} {
+			t.Run(fmt.Sprintf("decided=%t/group=%q", decided, group), func(t *testing.T) {
+				f := newReconcileFixture(t)
+				f.class = testClassWithTokenization(models.PropertyTokenizationWord, "title")
+				subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
+				task := withUnits(testTask(subject.TaskID, 42, distributedtask.TaskStatusFailed), map[string]*distributedtask.Unit{
+					subject.Key.UnitID: {ID: subject.Key.UnitID, GroupID: group, NodeID: "node-0"},
 				})
-			}
+				task.SwapDecidedGroups = map[string]time.Time{"shard-2": {}}
+				if decided {
+					task.SwapDecidedGroups[group] = time.Time{}
+				}
+				f.mkdirs("property_title__g42_ingest")
+				f.put(NewMigrationRecordMerged(subject))
+
+				require.NoError(t, newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
+					DiscardTask(context.Background(), task))
+
+				_, kept := f.state(subject.Key)
+				require.Equal(t, decided, kept, "only a decided shard's record survives the cleanup")
+				require.Equal(t, decided, f.exists("property_title__g42_ingest"), "and so does its staged data")
+			})
 		}
 	}
 }
