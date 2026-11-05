@@ -3733,13 +3733,17 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 	// a different node where the replicas allow: the query then takes as long as
 	// its slowest shard, not all of them in turn on one node.
 	replicas := readPlan.SpreadReplicas()
+	replicasOf := make(map[string][]routerTypes.Replica, len(replicas))
+	for _, r := range readPlan.Replicas() {
+		replicasOf[r.ShardName] = append(replicasOf[r.ShardName], r)
+	}
 	results := make([]*aggregation.Result, len(replicas))
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
 	// at least 3, so that a single-tenant rf=3 query is not serialized on 1 CPU
 	eg.SetLimit(_NUMCPU*2 + 1)
 	for j, replica := range replicas {
 		eg.Go(func() error {
-			res, err := i.aggregateShard(ctx, readPlan.LocalHostname, replica, params, modules)
+			res, err := i.aggregateShard(ctx, readPlan.LocalHostname, replica, replicasOf[replica.ShardName], params, modules)
 			if err != nil {
 				return errors.Wrapf(err, "shard %s", replica.ShardName)
 			}
@@ -3754,36 +3758,62 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 	return aggregator.NewShardCombiner().Do(results)
 }
 
-// aggregateShard aggregates the shard on the given replica: here when it is the
-// local one, otherwise on its node first and on the shard's other replicas after.
-func (i *Index) aggregateShard(ctx context.Context, localNode string, replica routerTypes.Replica,
+// aggregateShard aggregates the shard on the picked replica and, if that fails,
+// on the shard's other read replicas in plan order, the local one first.
+func (i *Index) aggregateShard(ctx context.Context, localNode string, picked routerTypes.Replica,
+	replicas []routerTypes.Replica, params aggregation.Params, modules *modules.Provider,
+) (*aggregation.Result, error) {
+	others := slices.DeleteFunc(slices.Clone(replicas), func(r routerTypes.Replica) bool {
+		return r.NodeName == picked.NodeName
+	})
+	var err error
+	for _, replica := range append([]routerTypes.Replica{picked}, others...) {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		var res *aggregation.Result
+		if res, err = i.aggregateOnReplica(ctx, localNode, replica, params, modules); err == nil {
+			return res, nil
+		}
+		err = fmt.Errorf("node %s: %w", replica.NodeName, err)
+	}
+	return nil, err
+}
+
+func (i *Index) aggregateOnReplica(ctx context.Context, localNode string, replica routerTypes.Replica,
 	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
-	remote := func(preferredNode string) (*aggregation.Result, error) {
-		res, err := i.remote.Aggregate(ctx, replica.ShardName, preferredNode, params)
-		if err != nil || res == nil {
-			return res, err
+	if replica.NodeName == localNode {
+		shard, release, err := i.getShardForDirectLocalOperation(ctx, params.Tenant, replica.ShardName, localShardOperationRead, 0)
+		defer release()
+		if err != nil {
+			return nil, err
 		}
-		// restore wire state here so a malformed payload error still names the shard
-		return res, aggregator.NewShardCombiner().RestoreSerializedAggregators(res)
-	}
-	if replica.NodeName != localNode {
-		return remote(replica.NodeName)
+		if shard == nil {
+			return nil, fmt.Errorf("shard %s is not loaded here", replica.ShardName)
+		}
+		return shard.Aggregate(ctx, params, modules)
 	}
 
-	var res *aggregation.Result
-	err := i.withShardOrRemote(ctx, params.Tenant, replica.ShardName, localShardOperationRead, 0,
-		func(shard ShardLike) error {
-			var err error
-			res, err = shard.Aggregate(ctx, params, modules)
-			return err
-		},
-		func() error {
-			var err error
-			res, err = remote("")
-			return err
-		})
-	return res, err
+	if err := i.admitRemoteRead(); err != nil {
+		return nil, err
+	}
+	res, err := i.remote.Aggregate(ctx, replica.NodeName, replica.ShardName, params)
+	if err != nil || res == nil {
+		return res, err
+	}
+	// restore wire state here so a malformed payload error still names the shard
+	return res, aggregator.NewShardCombiner().RestoreSerializedAggregators(res)
+}
+
+// admitRemoteRead refuses a read sent to a peer whenever a local shard read would
+// be refused: on a closed index or in a namespace that does not allow reads.
+func (i *Index) admitRemoteRead() error {
+	if err := i.enterRead(); err != nil {
+		return err
+	}
+	defer i.exitRead()
+	return i.requireNamespaceAllowsShardLoad(callerUserRequest)
 }
 
 // aggregateCount counts every shard in readPlan against that plan's replicas,

@@ -12,6 +12,8 @@
 package types_test
 
 import (
+	"fmt"
+	"math/rand/v2"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -186,10 +188,16 @@ func TestReadRoutingPlan_SpreadReplicas(t *testing.T) {
 			maxLoad:  1,
 		},
 		{
-			name:     "a shard with fewer replicas picks first",
+			name:     "a shard with a single replica keeps its node",
 			local:    "n9",
 			replicas: [][]types.Replica{replicas("A", "n1", "n2"), replicas("B", "n2")},
 			want:     map[string]string{"A": "n1", "B": "n2"},
+			maxLoad:  1,
+		},
+		{
+			name:     "an earlier pick moves off the local node to make room",
+			local:    "n1",
+			replicas: [][]types.Replica{replicas("A", "n1", "n2"), replicas("B", "n1", "n3"), replicas("C", "n1", "n3")},
 			maxLoad:  1,
 		},
 		{
@@ -230,4 +238,53 @@ func TestReadRoutingPlan_SpreadReplicas(t *testing.T) {
 			}
 		})
 	}
+}
+
+// SpreadReplicas must reach the smallest busiest-node load any assignment can,
+// checked against every assignment of small random layouts.
+func TestReadRoutingPlan_SpreadReplicasIsOptimal(t *testing.T) {
+	r := rand.New(rand.NewPCG(1, 2))
+	for run := range 500 {
+		nodes := 1 + r.IntN(5)
+		var shards [][]string
+		var all []types.Replica
+		for s := range 1 + r.IntN(6) {
+			perm := r.Perm(nodes)[:1+r.IntN(min(3, nodes))]
+			var names []string
+			for _, n := range perm {
+				node := fmt.Sprintf("n%d", n)
+				names = append(names, node)
+				all = append(all, types.Replica{ShardName: fmt.Sprintf("s%d", s), NodeName: node})
+			}
+			shards = append(shards, names)
+		}
+		plan := types.ReadRoutingPlan{LocalHostname: "n0", ReplicaSet: types.ReadReplicaSet{Replicas: all}}
+
+		load := map[string]int{}
+		for _, rep := range plan.SpreadReplicas() {
+			load[rep.NodeName]++
+		}
+		require.Equal(t, bestMaxLoad(shards, map[string]int{}), maxOf(load), "run %d: %v", run, shards)
+	}
+}
+
+func bestMaxLoad(shards [][]string, load map[string]int) int {
+	if len(shards) == 0 {
+		return maxOf(load)
+	}
+	best := len(shards) + maxOf(load)
+	for _, node := range shards[0] {
+		load[node]++
+		best = min(best, bestMaxLoad(shards[1:], load))
+		load[node]--
+	}
+	return best
+}
+
+func maxOf(load map[string]int) int {
+	m := 0
+	for _, n := range load {
+		m = max(m, n)
+	}
+	return m
 }
