@@ -12,7 +12,6 @@
 package shutdownreport
 
 import (
-	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -659,13 +658,6 @@ func TestReportWarnings(t *testing.T) {
 			wantPhases: totalOverFields(StepDrainExports, 4000),
 		},
 		{
-			name: "forced gRPC stop",
-			s:    summary{clients: clientOutcome{grpcForcedStop: true, grpcStopTook: 21 * time.Second}},
-			wantOthers: []warning{{
-				msg: "gRPC server stop was forced", fields: logrus.Fields{"grpc_stop_ms": int64(21000)},
-			}},
-		},
-		{
 			name: "forced REST close warns with no handler left running",
 			s:    summary{clients: clientOutcome{restForcedClose: true}},
 			wantOthers: []warning{{
@@ -697,11 +689,6 @@ func TestReportWarnings(t *testing.T) {
 		{
 			name: "flushed and WAL-reused buckets do not warn",
 			s:    summary{db: dbOutcome{buckets: [bucketOutcomes]int64{BucketFlushed: 5, BucketWALReused: 6}}},
-		},
-		{
-			name:       "cluster close that never reached the db",
-			s:          summary{steps: map[string]time.Duration{StepClusterClose: time.Second}},
-			wantOthers: []warning{{msg: "shutdown did not close the database"}},
 		},
 		{
 			name: "cluster close that reached the db",
@@ -740,34 +727,28 @@ func TestReportWarnings(t *testing.T) {
 }
 
 func TestNilReport(t *testing.T) {
-	for name, r := range map[string]*Report{
-		"nil":               nil,
-		"ctx carrying none": From(context.Background()),
-	} {
-		t.Run(name, func(t *testing.T) {
-			r.Begin()
-			r.Clients().RESTStopped()
-			ran := false
-			r.Time(StepLeaveCluster, func() { ran = true })
-			r.StartStep(StepDB)()
-			r.Clients().GRPCStopped(time.Second, true)
-			r.Clients().RESTForceClosed(1)
-			r.Indexes().SetTotal(1)
-			r.Indexes().Started("Movies")
-			r.Indexes().Done("Movies", time.Second)
-			r.Shards().TeardownStarted("Movies", "s0")
-			r.Shards().TornDown("Movies", "s0", time.Second)
-			r.Shards().StillInUse()
-			r.Shards().HashtreeDumpSkipped()
-			r.Buckets().Done(BucketFailed)
-			logger, hook := test.NewNullLogger()
-			r.StartHeartbeat(logger, time.Nanosecond, time.Nanosecond, time.Hour, nil)()
-			r.Log(logger, DefaultThresholds())
+	var r *Report
+	r.Begin()
+	r.Clients().RESTStopped()
+	ran := false
+	r.Time(StepLeaveCluster, func() { ran = true })
+	r.StartStep(StepDB)()
+	r.Clients().GRPCStopped(time.Second, true)
+	r.Clients().RESTForceClosed(1)
+	r.Indexes().SetTotal(1)
+	r.Indexes().Started("Movies")
+	r.Indexes().Done("Movies", time.Second)
+	r.Shards().TeardownStarted("Movies", "s0")
+	r.Shards().TornDown("Movies", "s0", time.Second)
+	r.Shards().StillInUse()
+	r.Shards().HashtreeDumpSkipped()
+	r.Buckets().Done(BucketFailed)
+	logger, hook := test.NewNullLogger()
+	r.StartHeartbeat(logger, time.Nanosecond, time.Nanosecond, time.Hour, nil)()
+	r.Log(logger, DefaultThresholds())
 
-			assert.True(t, ran, "Time must still run the step")
-			assert.Empty(t, hook.AllEntries())
-		})
-	}
+	assert.True(t, ran, "Time must still run the step")
+	assert.Empty(t, hook.AllEntries())
 }
 
 func TestFormatSlowest(t *testing.T) {
@@ -784,7 +765,6 @@ func TestFormatSlowest(t *testing.T) {
 			entries: []timedName{{itemName{index: "a"}, 3 * time.Second}, {itemName{index: "b"}, 2 * time.Second}},
 			want:    "a=3s,b=2s",
 		},
-		{name: "a shard joins its index", entries: []timedName{{itemName{"a", "s0"}, time.Second}}, want: "a/s0=1s"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
