@@ -1126,8 +1126,9 @@ Then, per shard load:
        apply when a migration already swapped in is held on the same shard:
        the hold covers the whole shard, so the migration not yet swapped in
        is not stamped and does not fail, and both wait until the shard is
-       repaired and set READY. Until then its task keeps blocking tenant
-       and class changes on the collection.
+       repaired and set READY. Until then its task keeps blocking deleting
+       the collection, deleting or deactivating its tenants, and updating
+       the properties it covers.
 
        | What stopped the arm | Way out |
        |---|---|
