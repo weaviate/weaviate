@@ -2856,7 +2856,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
-	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
+	readPlan, err := i.buildReadRoutingPlan(tenant)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -3254,7 +3254,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
-	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
+	readPlan, err := i.buildReadRoutingPlan(tenant)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -4077,9 +4077,7 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 func (i *Index) aggregate(ctx context.Context, replProps *additional.ReplicationProperties,
 	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
-	// ValidateConsistencyLevel requires every shard to resolve to the same number,
-	// and ONE is the only level that does so whatever the shards' replica counts.
-	readPlan, err := i.buildReadRoutingPlan(routerTypes.ConsistencyLevelOne, params.Tenant)
+	readPlan, err := i.buildReadRoutingPlan(params.Tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -4742,7 +4740,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
 	cl := i.consistencyLevel(repl)
-	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
+	readPlan, err := i.buildReadRoutingPlan(tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -5086,10 +5084,14 @@ func (i *Index) tenantDirExists(tenantName string) (bool, error) {
 	return len(entries) > 0, nil
 }
 
-func (i *Index) buildReadRoutingPlan(cl routerTypes.ConsistencyLevel, tenantName string) (routerTypes.ReadRoutingPlan, error) {
+// buildReadRoutingPlan resolves the index's read plan at ONE, whatever level the
+// request asks for. Callers read only the plan's shards and replicas, never its
+// required answers, so a QUORUM or ALL search with most replicas unreachable still
+// runs. The plan still fails when a shard has no reachable replica.
+func (i *Index) buildReadRoutingPlan(tenantName string) (routerTypes.ReadRoutingPlan, error) {
 	planOptions := routerTypes.RoutingPlanBuildOptions{
 		Tenant:                tenantName,
-		ConsistencyLevel:      cl,
+		ConsistencyLevel:      routerTypes.ConsistencyLevelOne,
 		AllowTenantActivation: true,
 	}
 	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)
