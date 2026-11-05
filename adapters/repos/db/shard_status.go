@@ -232,7 +232,7 @@ func (s *Shard) retryHeldMigrations(in string) error {
 		}
 		return nil
 	case <-wait.C:
-		return s.heldReadOnlyErr(fmt.Errorf("the disk did not answer within %s", liftRetryTimeout))
+		return s.heldReadOnlyErr(fmt.Errorf("the recovery retry did not finish within %s; it keeps running, so set the status again later", liftRetryTimeout))
 	case <-s.shutCtx.Done():
 		return s.heldReadOnlyErr(fmt.Errorf("the shard is shutting down: %w", context.Cause(s.shutCtx)))
 	}
