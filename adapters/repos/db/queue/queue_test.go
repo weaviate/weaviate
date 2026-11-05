@@ -2748,3 +2748,23 @@ func TestRewind_ServesKeptChunksAgain(t *testing.T) {
 	assert.Zero(t, q.Size())
 	assert.Zero(t, q.diskUsage)
 }
+
+// A chunk whose tombstone failed is listed as processed; Rewind makes it
+// readable again instead of leaving it to be skipped.
+func TestRewind_ServesAChunkWhoseTombstoneFailed(t *testing.T) {
+	s := makeScheduler(t)
+	q := sealedQueue(t, s, t.TempDir())
+	chunks, _ := chunksOf(t, q)
+	require.NoError(t, q.Retain())
+
+	blocker := chunks[0] + ".processed"
+	require.NoError(t, os.Mkdir(blocker, 0o755))
+	processNext(t, q)
+	require.NoError(t, os.Remove(blocker))
+
+	require.NoError(t, q.Rewind())
+	require.NoError(t, q.ReleaseRetention())
+	batch, err := q.DequeueBatch()
+	require.NoError(t, err)
+	assert.Equal(t, []uint64{1, 2, 3}, taskIDs(t, batch))
+}
