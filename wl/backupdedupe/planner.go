@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"reflect"
 	"slices"
 	"sort"
@@ -94,6 +95,7 @@ type Planner struct {
 	convergenceBudget time.Duration
 	planningSlack     time.Duration
 	cleanupTimeout    time.Duration
+	pickTie           func(n int) int
 }
 
 // New returns a Planner, or an error instead of a Planner that would panic on its first call.
@@ -112,6 +114,7 @@ func New(cfg Config) (*Planner, error) {
 		convergenceBudget: orDefault(cfg.ConvergenceBudget, _DefaultDedupeConvergenceBudget),
 		planningSlack:     orDefault(cfg.PlanningSlack, _DedupePlanningSlack),
 		cleanupTimeout:    orDefault(cfg.CleanupTimeout, _DedupeCleanupTimeout),
+		pickTie:           rand.IntN,
 	}, nil
 }
 
@@ -299,7 +302,7 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	}
 	sort.Strings(classNames)
 	for _, class := range classNames {
-		designations, sticky := assignDesignations(converged[class], loads, participants, preferred[class])
+		designations, sticky := assignDesignations(converged[class], loads, participants, preferred[class], p.pickTie)
 		plan.Designations[class] = designations
 		p.log.WithField("action", backup.OpCreate).WithField("class", class).
 			WithField("designated", len(designations)).
@@ -752,9 +755,9 @@ func missingReplicasAtCutoff(entries []replica.AsyncCheckpointNodeStatus, replic
 	return missing
 }
 
-// assignDesignations picks one archiving node per shard: an eligible preferred (base) designee outranks balance since only it can skip unchanged files, the rest go least-loaded (lexicographic ties, loads shared across classes).
+// assignDesignations picks one archiving node per shard: an eligible preferred (base) designee outranks balance since only it can skip unchanged files, the rest go least-loaded (random ties, loads shared across classes).
 // Shards with fewer than two participant replicas get no designation: naming a non-participant would orphan the shard, and a lone participant gains nothing.
-func assignDesignations(shardReplicas map[string][]string, loads map[string]int, participants map[string]struct{}, preferred map[string]string) (map[string]string, int) {
+func assignDesignations(shardReplicas map[string][]string, loads map[string]int, participants map[string]struct{}, preferred map[string]string, pick func(n int) int) (map[string]string, int) {
 	shards := make([]string, 0, len(shardReplicas))
 	for shard := range shardReplicas {
 		shards = append(shards, shard)
@@ -796,16 +799,40 @@ func assignDesignations(shardReplicas map[string][]string, loads map[string]int,
 		if _, done := out[shard]; done {
 			continue
 		}
-		best := nodes[0]
-		for _, node := range nodes[1:] {
-			if loads[node] < loads[best] {
-				best = node
-			}
-		}
+		best := leastLoaded(nodes, loads, pick)
 		loads[best]++
 		out[shard] = best
 	}
 	return out, sticky
+}
+
+// leastLoaded returns the node with the lowest load, consulting pick only when several share it.
+func leastLoaded(nodes []string, loads map[string]int, pick func(n int) int) string {
+	minLoad, tied := loads[nodes[0]], 1
+	for _, node := range nodes[1:] {
+		switch load := loads[node]; {
+		case load < minLoad:
+			minLoad, tied = load, 1
+		case load == minLoad:
+			tied++
+		}
+	}
+	skip := 0
+	if tied > 1 {
+		skip = pick(tied)
+	}
+	var best string
+	for _, node := range nodes {
+		if loads[node] != minLoad {
+			continue
+		}
+		best = node
+		if skip == 0 {
+			break
+		}
+		skip--
+	}
+	return best
 }
 
 func uniqueNonEmpty(nodes []string) map[string]struct{} {
