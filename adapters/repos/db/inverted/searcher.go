@@ -96,11 +96,8 @@ func (s *Searcher) WithTokenizationResolver(r TokenizationResolver) *Searcher {
 }
 
 // WithBatchedContainsEnabled attaches the runtime-overridable gate for the
-// batched flat ContainsAny/ContainsAll/ContainsNone resolution.
-//
-// Nil (the default) reads as on, so a gate holding true changes exactly one
-// thing: the searcher then honours a later SetValue on that gate. One holding
-// false sends every Contains filter down the desugared per-value path.
+// batched flat ContainsAny/ContainsAll/ContainsNone resolution. Nil reads as on;
+// false sends every Contains filter down the desugared path, key/doc column included.
 func (s *Searcher) WithBatchedContainsEnabled(v *runtime.DynamicValue[bool]) *Searcher {
 	s.batchedContainsEnabled = v
 	return s
@@ -344,16 +341,19 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
 }
 
-// shrinkBudgetForContainsFold gives back the part of ctx's budget plan's fold
-// leaves idle, and returns the func that asks for it again, which gets back only
-// free units. Under DISABLE_SROAR_MERGE_BUDGET the merges ignore the budget, so
-// nothing is given back.
+// shrinkBudgetForContainsFold shrinks ctx's budget to what plan's fold uses. Under
+// DISABLE_SROAR_MERGE_BUDGET the merges ignore the budget, so nothing is given back.
 func shrinkBudgetForContainsFold(ctx context.Context, plan containsFoldPlan) (restore func()) {
-	noop := func() {}
 	if concurrency.BudgetCapDisabled() {
-		return noop
+		return func() {}
 	}
-	need := containsFoldMergeFactor * plan.workers
+	return shrinkBudgetTo(ctx, containsFoldMergeFactor*plan.workers)
+}
+
+// shrinkBudgetTo gives back the part of ctx's budget above need, and returns the
+// func that asks for it again, which gets back only free units.
+func shrinkBudgetTo(ctx context.Context, need int) (restore func()) {
+	noop := func() {}
 	held := concurrency.BudgetFromCtx(ctx, need)
 	if need >= held {
 		return noop
@@ -583,7 +583,7 @@ func (s *Searcher) buildPropValuePair(
 		return s.extractUUIDFilter(property, filter.Value.Value, filter.Value.Type, filter.Operator, class)
 	}
 
-	if s.onTokenizableProp(property) {
+	if isTokenizableProp(property) {
 		return s.extractTokenizableProp(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
 	}
 
@@ -1051,16 +1051,21 @@ const (
 	containsDeclineMultiSegmentPath     = "multi-segment-path"
 	containsDeclineInternalProperty     = "internal-property"
 	containsDeclinePropertyNotFound     = "property-not-found"
-	containsDeclineNestedObjectProperty = "nested-object-property"
-	containsDeclineReferenceProperty    = "reference-property"
-	containsDeclineGeoProperty          = "geo-property"
-	containsDeclineNoFilterableIndex    = "no-filterable-index"
 	containsDeclineNoRoaringSetBucket   = "no-roaringset-bucket"
 	containsDeclineLengthNotIndexed     = "length-not-indexed"
 	containsDeclineValueTypeMismatch    = "value-type-mismatch"
-	containsDeclineTokenizationNotField = "tokenization-not-field"
 	containsDeclineFallbackToSearchable = "fallback-to-searchable"
 	containsDeclineFewerThanTwoValues   = "fewer-than-two-values"
+)
+
+// ContainsDecline* are the reasons [WhyNotBatchable] returns, exported so the
+// startup report can phrase each one for an operator.
+const (
+	ContainsDeclineNestedObjectProperty = "nested-object-property"
+	ContainsDeclineReferenceProperty    = "reference-property"
+	ContainsDeclineGeoProperty          = "geo-property"
+	ContainsDeclineNoFilterableIndex    = "no-filterable-index"
+	ContainsDeclineTokenizationNotField = "tokenization-not-field"
 )
 
 // classIndexesPropertyLength reports whether the class indexes property
@@ -1103,6 +1108,38 @@ func (s *Searcher) classifyContainsBatchLength(property *models.Property, value 
 	lengthProp := *property
 	lengthProp.Name = helpers.PropLength(property.Name)
 	return approveContainsBatch(&lengthProp, containsBatchPropertyLength, value)
+}
+
+// WhyNotBatchable returns the reason a Contains filter on prop can never batch,
+// or "". A query passes the tokenization it resolved through any retokenization.
+func WhyNotBatchable(prop *models.Property, tokenization string) string {
+	if _, ok := schema.AsNested(prop.DataType); ok {
+		return ContainsDeclineNestedObjectProperty
+	}
+	if schema.IsRefDataType(prop.DataType) {
+		return ContainsDeclineReferenceProperty
+	}
+	if len(prop.DataType) > 0 && schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates {
+		return ContainsDeclineGeoProperty
+	}
+	if !HasFilterableIndex(prop) {
+		return ContainsDeclineNoFilterableIndex
+	}
+	// tokenizeField always yields exactly one token, so only FIELD maps one value
+	// to one key; any other tokenization can yield zero or several.
+	if isTokenizableProp(prop) && tokenization != models.PropertyTokenizationField {
+		return ContainsDeclineTokenizationNotField
+	}
+	return ""
+}
+
+func isTokenizableProp(prop *models.Property) bool {
+	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
+	case schema.DataTypeText, schema.DataTypeTextArray:
+		return true
+	default:
+		return false
+	}
 }
 
 // classifyContainsBatch runs every shape check for the batched flat
@@ -1156,17 +1193,9 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, value *filters.Valu
 	if isLength {
 		return s.classifyContainsBatchLength(property, value, class)
 	}
-	if _, ok := schema.AsNested(property.DataType); ok {
-		return nil, containsNotBatchable, containsDeclineNestedObjectProperty
-	}
-	if s.onRefProp(property) {
-		return nil, containsNotBatchable, containsDeclineReferenceProperty
-	}
-	if s.onGeoProp(property) {
-		return nil, containsNotBatchable, containsDeclineGeoProperty
-	}
-	if !HasFilterableIndex(property) {
-		return nil, containsNotBatchable, containsDeclineNoFilterableIndex
+	if reason := WhyNotBatchable(property,
+		ResolveTokenization(s.tokResolver, property.Name, property.Tokenization)); reason != "" {
+		return nil, containsNotBatchable, reason
 	}
 	// readFromBucket refuses a name carrying the length suffix when lengths are
 	// unindexed, and panics when InvertedIndexConfig is nil. Declining holds
@@ -1188,16 +1217,9 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, value *filters.Valu
 			return nil, containsNotBatchable, containsDeclineValueTypeMismatch
 		}
 		batchType = containsBatchUUID
-	case s.onTokenizableProp(property):
+	case isTokenizableProp(property):
 		if propType != schema.DataTypeText {
 			return nil, containsNotBatchable, containsDeclineValueTypeMismatch
-		}
-		// tokenizeField always produces exactly one token (a TrimFunc of the
-		// input, never zero, never more than one), so FIELD is provably a
-		// 1-value-to-1-key tokenization; any other tokenization can turn one
-		// value into zero or several tokens and must desugar.
-		if ResolveTokenization(s.tokResolver, property.Name, property.Tokenization) != models.PropertyTokenizationField {
-			return nil, containsNotBatchable, containsDeclineTokenizationNotField
 		}
 		if s.isFallbackToSearchable() {
 			return nil, containsNotBatchable, containsDeclineFallbackToSearchable
@@ -1626,15 +1648,6 @@ func (s *Searcher) onUUIDProp(prop *models.Property) bool {
 
 func (s *Searcher) onInternalProp(propName string) bool {
 	return filters.IsInternalProperty(schema.PropertyName(propName))
-}
-
-func (s *Searcher) onTokenizableProp(prop *models.Property) bool {
-	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
-	case schema.DataTypeText, schema.DataTypeTextArray:
-		return true
-	default:
-		return false
-	}
 }
 
 func (s *Searcher) extractStringArray(value interface{}) ([]string, error) {

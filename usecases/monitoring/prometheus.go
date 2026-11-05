@@ -58,6 +58,7 @@ type PrometheusMetrics struct {
 	LSMSegmentObjects                   *prometheus.GaugeVec
 	LSMSegmentSize                      *prometheus.GaugeVec
 	LSMMemtableSize                     *prometheus.GaugeVec
+	LSMKeyDocColumnSize                 prometheus.Gauge
 	LSMMemtableDurations                *prometheus.SummaryVec
 	LSMBitmapBuffersUsage               *prometheus.CounterVec
 	ObjectCount                         *prometheus.GaugeVec
@@ -614,6 +615,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "lsm_memtable_size",
 			Help: "Size of memtable by path",
 		}, []string{"strategy", "class_name", "shard_name", "path"}),
+		LSMKeyDocColumnSize: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "lsm_key_doc_column_size",
+			Help: "Resident bytes held by key/doc columns across this node",
+		}),
 		LSMMemtableDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "lsm_memtable_durations_ms",
 			Help: "Time in ms for a bucket operation to complete",

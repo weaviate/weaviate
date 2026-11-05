@@ -432,33 +432,33 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			path: containsPath("prop-nested"), propType: schema.DataTypeText,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
 			wantErr:    true, // nested filtering preview gate is off in tests
-			wantReason: containsDeclineNestedObjectProperty,
+			wantReason: ContainsDeclineNestedObjectProperty,
 		},
 		{
 			name: "ref prop",
 			path: containsPath("prop-ref"), propType: schema.DataTypeText,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
 			wantErr:    true, // desugared leaf rejects text values on a reference
-			wantReason: containsDeclineReferenceProperty,
+			wantReason: ContainsDeclineReferenceProperty,
 		},
 		{
 			name: "geo prop",
 			path: containsPath("prop-geo"), propType: schema.DataTypeText,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
 			wantErr:    true, // desugared leaf rejects text values on a geo prop
-			wantReason: containsDeclineGeoProperty,
+			wantReason: ContainsDeclineGeoProperty,
 		},
 		{
 			name: "non-FIELD tokenization WORD",
 			path: containsPath("prop-text-word"), propType: schema.DataTypeText,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
-			wantReason: containsDeclineTokenizationNotField,
+			wantReason: ContainsDeclineTokenizationNotField,
 		},
 		{
 			name: "non-FIELD tokenization WHITESPACE",
 			path: containsPath("prop-text-whitespace"), propType: schema.DataTypeText,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
-			wantReason: containsDeclineTokenizationNotField,
+			wantReason: ContainsDeclineTokenizationNotField,
 		},
 		{
 			name: "fallback to searchable",
@@ -475,7 +475,7 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			path: containsPath("prop-not-filterable"), propType: schema.DataTypeInt,
 			value: []int{1, 2}, operator: filters.ContainsAny,
 			wantErr:    true, // int props have no searchable fallback; the leaf demands the filterable index
-			wantReason: containsDeclineNoFilterableIndex,
+			wantReason: ContainsDeclineNoFilterableIndex,
 		},
 		{
 			name: "bucket strategy not roaringset",
@@ -566,6 +566,21 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestExtractContainsBatch_IneligibleWithTheGateOff pins a shape that declines on its own still reporting not-enabled while QUERY_BATCHED_CONTAINS_ENABLED is off.
+func TestExtractContainsBatch_IneligibleWithTheGateOff(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	s := f.searcher
+	s.batchedContainsEnabled = runtime.NewDynamicValue(false)
+
+	// the switch is read before any shape check, so a ref prop, which fails on its own, still reports not-enabled;
+	// the eligible shape is TestExtractContainsBatch_DefaultOnGate's
+	ctx := helpers.InitSlowQueryDetails(context.Background())
+	_, err := s.extractContains(ctx, containsPath("prop-ref"),
+		containsValue(schema.DataTypeText, []string{"a", "b"}), filters.ContainsAny, f.class)
+	require.Equal(t, containsDeclineNotEnabled, extractContainsDesugaredReason(t, ctx))
+	require.Error(t, err)
 }
 
 // extractContainsDesugaredReason returns the reason of the single
@@ -784,12 +799,23 @@ func TestNewBatchedContainsPair_RejectsNoKeys(t *testing.T) {
 // holding false routes it through the per-value desugared path. Either value
 // set at runtime takes effect without a searcher rebuild.
 func TestExtractContainsBatch_DefaultOnGate(t *testing.T) {
+	// every operator, so a gate bypass for one of them fails here
+	for _, operator := range []filters.Operator{
+		filters.ContainsAny, filters.ContainsNone, filters.ContainsAll,
+	} {
+		t.Run(operator.Name(), func(t *testing.T) {
+			testExtractContainsBatchDefaultOnGate(t, operator)
+		})
+	}
+}
+
+func testExtractContainsBatchDefaultOnGate(t *testing.T, operator filters.Operator) {
 	f := newContainsBatchGateFixture(t)
 	s := f.searcher
 
 	extract := func(ctx context.Context) (*propValuePair, error) {
 		return s.extractContains(ctx, containsPath("prop-int"),
-			containsValue(schema.DataTypeInt, []int{1, 2, 3}), filters.ContainsAny, f.class)
+			containsValue(schema.DataTypeInt, []int{1, 2, 3}), operator, f.class)
 	}
 
 	t.Run("nil gate batches", func(t *testing.T) {
