@@ -12,12 +12,16 @@
 package db_users
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/weaviate/weaviate/usecases/config"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -56,9 +60,11 @@ func TestRotateInternalServerError(t *testing.T) {
 		name               string
 		GetUserReturnErr   error
 		GetUserReturnValue map[string]apikey.UserView
+		GetRolesErr        error
 		RotateKeyError     error
 	}{
 		{name: "get user error", GetUserReturnErr: errors.New("some error"), GetUserReturnValue: nil},
+		{name: "get roles error", GetUserReturnValue: map[string]apikey.UserView{"user": {Id: "user", InternalIdentifier: "abc"}}, GetRolesErr: errors.New("some error")},
 		{name: "rotate key error", GetUserReturnErr: nil, GetUserReturnValue: map[string]apikey.UserView{"user": {Id: "user", InternalIdentifier: "abc"}}, RotateKeyError: errors.New("some error")},
 	}
 
@@ -69,12 +75,16 @@ func TestRotateInternalServerError(t *testing.T) {
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(tt.GetUserReturnValue, tt.GetUserReturnErr)
 			if tt.GetUserReturnErr == nil {
+				dynUser.On("GetRolesForUserOrGroup", "user", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, tt.GetRolesErr)
+			}
+			if tt.GetUserReturnErr == nil && tt.GetRolesErr == nil {
 				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
 				dynUser.On("RotateKey", mock.Anything, "user", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(tt.RotateKeyError)
 			}
 
 			h := dynUserHandler{
 				dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true,
+				rbacConfig: rbacconf.Config{Enabled: true},
 			}
 
 			res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "user", HTTPRequest: req}, principal)
@@ -250,4 +260,103 @@ func TestRotateKey_ResolveThenAuthorize(t *testing.T) {
 	res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: "bob", HTTPRequest: req}, principal)
 	_, ok := res.(*users.RotateUserAPIKeyOK)
 	require.True(t, ok, "expected 200, got %T", res)
+}
+
+func TestRotateKeyTargetPermissions(t *testing.T) {
+	coll := func(verb, collection string) authorization.Policy {
+		return authorization.Policy{Resource: authorization.Collections(collection)[0], Verb: verb, Domain: authorization.SchemaDomain}
+	}
+	admin := &models.Principal{Username: "admin", UserType: models.UserTypeInputDb}
+	nsAdmin := &models.Principal{Username: "customer1:admin", UserType: models.UserTypeInputDb, Namespace: "customer1"}
+
+	tests := []struct {
+		name              string
+		principal         *models.Principal
+		namespacesEnabled bool
+		userID            string
+		internalKey       string
+		targetRoles       map[string][]authorization.Policy
+		callerHolds       []authorization.Policy
+		wantOK            bool
+	}{
+		{
+			name:        "caller holds only the first of one role's permissions",
+			principal:   admin,
+			userID:      "user",
+			internalKey: "user",
+			targetRoles: map[string][]authorization.Policy{
+				"editor": {coll(authorization.READ, "Movies"), coll(authorization.DELETE, "Movies")},
+			},
+			callerHolds: []authorization.Policy{coll(authorization.READ, "Movies")},
+		},
+		{
+			name:        "self-rotation with only update on itself",
+			principal:   &models.Principal{Username: "user", UserType: models.UserTypeInputDb},
+			userID:      "user",
+			internalKey: "user",
+			targetRoles: map[string][]authorization.Policy{"deleter": {coll(authorization.DELETE, "Movies")}},
+			wantOK:      true,
+		},
+		{
+			name:              "namespaced caller: global role projected into the target's namespace",
+			principal:         nsAdmin,
+			namespacesEnabled: true,
+			userID:            "bob",
+			internalKey:       "customer1:bob",
+			targetRoles:       map[string][]authorization.Policy{"viewer": {coll(authorization.READ, "Movies")}},
+			callerHolds:       []authorization.Policy{coll(authorization.READ, "customer1:Movies")},
+			wantOK:            true,
+		},
+		{
+			name:              "namespaced caller: role bound to another namespace",
+			principal:         nsAdmin,
+			namespacesEnabled: true,
+			userID:            "bob",
+			internalKey:       "customer1:bob",
+			targetRoles:       map[string][]authorization.Policy{"other": {coll(authorization.READ, "customer2:Movies")}},
+			callerHolds:       []authorization.Policy{coll(authorization.READ, "customer1:Movies"), coll(authorization.READ, "customer2:Movies")},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.UPDATE, authorization.Users(tt.internalKey)[0]).Return(nil)
+			authorizer.On("AuthorizeSilent", mock.Anything, tt.principal, mock.Anything, mock.Anything).
+				Return(func(_ context.Context, _ *models.Principal, verb string, resources ...string) error {
+					for _, held := range tt.callerHolds {
+						if held.Verb == verb && held.Resource == resources[0] {
+							return nil
+						}
+					}
+					return fmt.Errorf("forbidden: %s on %s", verb, resources[0])
+				}).Maybe()
+
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			dynUser.On("GetUsers", tt.internalKey).Return(map[string]apikey.UserView{tt.internalKey: {InternalIdentifier: "old-id"}}, nil)
+			dynUser.On("GetRolesForUserOrGroup", tt.internalKey, authentication.AuthTypeDb, false).Return(tt.targetRoles, nil).Maybe()
+			if tt.wantOK {
+				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
+				dynUser.On("RotateKey", mock.Anything, tt.internalKey, mock.Anything, mock.Anything, "old-id", mock.Anything).Return(nil)
+			}
+
+			h := dynUserHandler{
+				dbUsers:           dynUser,
+				authorizer:        authorizer,
+				dbUserEnabled:     true,
+				rbacConfig:        rbacconf.Config{Enabled: true},
+				namespacesEnabled: tt.namespacesEnabled,
+			}
+
+			res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: tt.userID, HTTPRequest: req}, tt.principal)
+			if tt.wantOK {
+				require.IsType(t, &users.RotateUserAPIKeyOK{}, res)
+				return
+			}
+			forbidden, ok := res.(*users.RotateUserAPIKeyForbidden)
+			require.True(t, ok, "expected 403, got %T", res)
+			require.NotContains(t, forbidden.Payload.Error[0].Message, "collections/", "403 must not name the target's permissions")
+			dynUser.AssertNotCalled(t, "RotateKey", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
 }
