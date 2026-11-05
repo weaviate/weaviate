@@ -360,3 +360,53 @@ func TestRotateKeyTargetPermissions(t *testing.T) {
 		})
 	}
 }
+
+func TestRotateKeyRootTarget(t *testing.T) {
+	const target = "imported-root"
+	rootConf := rbacconf.Config{Enabled: true, RootUsers: []string{target}, RootGroups: []string{"ops"}}
+
+	tests := []struct {
+		name      string
+		principal *models.Principal
+		wantOK    bool
+	}{
+		{
+			name:      "admin holding every permission of the target",
+			principal: &models.Principal{Username: "admin", UserType: models.UserTypeInputDb},
+		},
+		{
+			name:      "root caller by group",
+			principal: &models.Principal{Username: "oidc-user", UserType: models.UserTypeInputOidc, Groups: []string{"ops"}},
+			wantOK:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.UPDATE, authorization.Users(target)[0]).Return(nil)
+			authorizer.On("AuthorizeSilent", mock.Anything, tt.principal, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			dynUser.On("GetUsers", target).Return(map[string]apikey.UserView{target: {InternalIdentifier: "old-id"}}, nil)
+			rootRole := map[string][]authorization.Policy{authorization.Root: {{Resource: "*", Verb: authorization.UPDATE, Domain: "*"}}}
+			dynUser.On("GetRolesForUserOrGroup", target, authentication.AuthTypeDb, false).Return(rootRole, nil).Maybe()
+			if tt.wantOK {
+				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
+				dynUser.On("RotateKey", mock.Anything, target, mock.Anything, mock.Anything, "old-id", mock.Anything).Return(nil)
+			}
+
+			h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, rbacConfig: rootConf}
+
+			res := h.rotateKey(users.RotateUserAPIKeyParams{UserID: target, HTTPRequest: req}, tt.principal)
+			if tt.wantOK {
+				require.IsType(t, &users.RotateUserAPIKeyOK{}, res)
+				return
+			}
+			forbidden, ok := res.(*users.RotateUserAPIKeyForbidden)
+			require.True(t, ok, "expected 403, got %T", res)
+			require.Contains(t, forbidden.Payload.Error[0].Message, "root user")
+			dynUser.AssertNotCalled(t, "RotateKey", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
+}
