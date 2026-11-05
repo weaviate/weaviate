@@ -10,13 +10,14 @@
 //
 
 // Package rolevisibility decides whether a caller may see another subject's
-// assigned role, given the role's stored name and policies. The rules are shared
-// by every handler that lists a subject's roles so a role is hidden or revealed
-// identically regardless of which endpoint returns it.
+// role, and whether the caller holds every permission a set of roles grants.
+// Handlers share these checks so every endpoint judges a role the same way.
 package rolevisibility
 
 import (
 	"context"
+	"errors"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -84,6 +85,55 @@ func RolePoliciesVisibleToPrincipal(ctx context.Context, authorizer authorizatio
 		}
 	}
 	return true
+}
+
+// AuthorizeRolePermissions returns an error unless the caller holds every
+// permission the roles grant. A confined caller is checked against each
+// permission as projected into targetNamespace, where the roles apply.
+func AuthorizeRolePermissions(ctx context.Context, authorizer authorization.Authorizer, namespacesEnabled bool, principal *models.Principal, targetNamespace string, roles map[string][]authorization.Policy) error {
+	namespaced := CallerConfined(namespacesEnabled, principal)
+	var errs error
+	for _, policies := range roles {
+		for _, policy := range policies {
+			// Permission-less roles carry this placeholder; it grants nothing.
+			if policy.Resource == conv.InternalPlaceHolder {
+				continue
+			}
+			resource := policy.Resource
+			if namespaced {
+				projected, err := namespacing.ProjectResourceForNamespace(policy.Resource, targetNamespace)
+				if err != nil {
+					// A global role can name a user in another namespace, which a confined
+					// caller cannot hold. Deny without echoing the resource back to the caller.
+					errs = errors.Join(errs, errors.New("role grants a permission you do not hold"))
+					continue
+				}
+				resource = projected
+			}
+			for _, verb := range grantedVerbs(policy.Verb) {
+				if err := authorizer.AuthorizeSilent(ctx, principal, verb, resource); err != nil {
+					errs = errors.Join(errs, err)
+				}
+			}
+		}
+	}
+	return errs
+}
+
+// grantedVerbs splits a stored verb union such as "(C)|(R)|(U)|(D)_MATCH" into
+// single verbs, each keeping the scope suffix. casbin's unanchored match would
+// pass the whole union for a caller holding any one of its verbs.
+func grantedVerbs(verb string) []string {
+	union, scope, scoped := strings.Cut(verb, "_")
+	verbs := strings.Split(union, "|")
+	for i, v := range verbs {
+		v = strings.Trim(v, "()")
+		if scoped {
+			v = authorization.VerbWithScope(v, scope)
+		}
+		verbs[i] = v
+	}
+	return verbs
 }
 
 // RoleVisibleToCaller reports whether the caller may see another subject's role
