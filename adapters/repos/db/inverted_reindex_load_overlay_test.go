@@ -186,7 +186,6 @@ func TestReloadKeepsAnIndexATenantEnabledAheadOfTheSchema(t *testing.T) {
 			require.NoError(t, err)
 			idx.shards.Store(name, loaded)
 			re := loaded.(*Shard)
-			defer re.Shutdown(ctx)
 
 			require.Equal(t, tc.stands, re.store.Bucket(bucketName) != nil, "after a reload")
 			require.NoError(t, re.PutObject(ctx, createTestObjectWithText(className, "zulu one")))
@@ -197,7 +196,22 @@ func TestReloadKeepsAnIndexATenantEnabledAheadOfTheSchema(t *testing.T) {
 				_, indexed := fingerprintInvertedBucket(t, re.store.Bucket(bucketName))["zulu"]
 				require.True(t, indexed, "a write after the reload reaches the migrated index")
 			}
-			sweep(re)
+
+			// The same update reaching the shard unloaded, its data now at the canonical name.
+			require.NoError(t, re.Shutdown(ctx))
+			lazy := NewLazyLoadShard(ctx, nil, name, idx, class, idx.centralJobQueue, idx.indexCheckpoints,
+				idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer, false, idx.bitmapBufPool)
+			idx.shards.Store(name, lazy)
+			eg := enterrors.NewErrorGroupWrapper(idx.logger)
+			lazy.updatePropertyBuckets(ctx, eg, class.Properties[0], &migrationSweepCounts{})
+			require.NoError(t, eg.Wait())
+			require.NoError(t, lazy.Load(ctx))
+			defer lazy.Shutdown(ctx)
+			if tc.stands {
+				_, kept := fingerprintInvertedBucket(t, lazy.shard.store.Bucket(bucketName))["zulu"]
+				require.True(t, kept, "an update while unloaded keeps the migrated index's data")
+			}
+			sweep(lazy.shard)
 		})
 	}
 }
