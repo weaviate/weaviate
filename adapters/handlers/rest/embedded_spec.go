@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.39.14"
+    "version": "1.39.15"
   },
   "basePath": "/v1",
   "paths": {
@@ -1866,13 +1866,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No backup with this ID exists at this backend, bucket and path. Only callers with read_backups on all collections get 404; others get 403.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2007,13 +2007,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No restore of this backup was started at this backend, bucket and path.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12774,7 +12774,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.39.14"
+    "version": "1.39.15"
   },
   "basePath": "/v1",
   "paths": {
@@ -14568,13 +14568,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No backup with this ID exists at this backend, bucket and path. Only callers with read_backups on all collections get 404; others get 403.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14709,13 +14709,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No restore of this backup was started at this backend, bucket and path.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
