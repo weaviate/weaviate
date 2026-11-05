@@ -27,6 +27,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
+// importedRootUser is a second root user whose static key
+// testRotateKeyNeedsTargetPermissions imports as a db user.
+const importedRootUser, importedRootKey = "imported-root-user", "imported-root-key"
+
 // TestDynamicUsers boots a single Weaviate container shared across the dynamic
 // user suites. The RBAC config is a superset: the admin key is a root user so
 // the non-RBAC suites' admin operations still work. Each suite uses a disjoint
@@ -44,8 +48,9 @@ func TestDynamicUsers(t *testing.T) {
 		WithUserApiKey("custom-user4", "custom-key4").
 		WithUserApiKey("custom-user5", "custom-key5").
 		WithUserApiKey("static-user", "static-key").
+		WithUserApiKey(importedRootUser, importedRootKey).
 		WithDbUsers().
-		WithRBAC().WithRbacRoots(adminUser).
+		WithRBAC().WithRbacRoots(adminUser, importedRootUser).
 		Start(ctx)
 	require.Nil(t, err)
 	helper.SetupClient(compose.GetWeaviate().URI())
@@ -58,6 +63,7 @@ func TestDynamicUsers(t *testing.T) {
 	t.Run("create_user", testCreateUser)
 	t.Run("with_static_user", testWithStaticUser)
 	t.Run("suspend_and_activate", testSuspendAndActivate)
+	t.Run("rotate_key_needs_target_permissions", testRotateKeyNeedsTargetPermissions)
 }
 
 func testCreateUser(t *testing.T) {
