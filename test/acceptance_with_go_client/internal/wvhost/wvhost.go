@@ -15,7 +15,13 @@
 // override host and port independently.
 package wvhost
 
-import "os"
+import (
+	"os"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate-go-client/v6"
+)
 
 func REST() string {
 	return host() + ":" + port("WV_TEST_REST_PORT", "8080")
@@ -34,6 +40,25 @@ func host() string {
 		return h
 	}
 	return "localhost"
+}
+
+func NewClient(t *testing.T) *weaviate.Client {
+	c, err := weaviate.NewLocal(
+		t.Context(),
+		weaviate.WithHost(host()),
+		weaviate.WithHTTPPort(port("WV_TEST_REST_PORT", "8080")),
+		weaviate.WithGRPCPort(port("WV_TEST_GRPC_PORT", "50051")),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, c)
+
+	t.Cleanup(func() {
+		err := c.Close()
+		if err != nil {
+			t.Logf("WARN: close weaviate client: %v", err)
+		}
+	})
+	return c
 }
 
 func port(env, def string) string {
