@@ -185,7 +185,7 @@ func TestRebuildRefusedOnPartlyMigratedIndex(t *testing.T) {
 		refusal   string // empty: not refused
 	}{
 		{name: "the migrated index is refused", indexType: "filterable", tasks: []*distributedtask.Task{partial}, refusal: "1 of 2 tenants"},
-		{name: "a single-tenant collection is refused too, never named in tenants", indexType: "filterable", tasks: []*distributedtask.Task{singleTenant}, refusal: `property "title" of the collection serves`},
+		{name: "a single-tenant collection is refused too, never named in tenants", indexType: "filterable", tasks: []*distributedtask.Task{singleTenant}, refusal: `property "title" of the collection is migrated`},
 		{name: "another index of the property is not", indexType: "searchable", tasks: []*distributedtask.Task{partial}},
 		{name: "no partial run, no refusal", indexType: "filterable"},
 	} {

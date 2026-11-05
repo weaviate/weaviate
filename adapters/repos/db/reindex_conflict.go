@@ -338,6 +338,9 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 			MutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
 				"cancel it via the reindex REST API before retrying"))
 	}
+	if msg := ReindexPartialRunConflict(existingTasks, className, propertyName, nil, nil); msg != "" {
+		return fmt.Errorf("%s", msg)
+	}
 	return nil
 }
 

@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/runtime"
 	"github.com/sirupsen/logrus"
@@ -27,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -304,4 +306,31 @@ func TestCheckReindexConflictForPropertyMutation_DifferentPropertyAllows(t *test
 		}, nil))
 
 	require.Empty(t, h.checkReindexConflictForPropertyMutation(context.Background(), "C", "title"))
+}
+
+// Pins that an index DELETE is refused while a partial run stands on the
+// property, by the REST pre-flight and the apply guard alike, naming the
+// resubmit; another property is not held.
+func TestIndexDeleteRefusedWhileAPartialRunStands(t *testing.T) {
+	partial := buildTask(t, "T1", distributedtask.TaskStatusCancelled, db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeChangeTokenization, Collection: "C", Properties: []string{"title"},
+		TargetTokenization: models.PropertyTokenizationField,
+	}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
+	partial.SwapDecidedGroups = map[string]time.Time{"a": {}}
+
+	for _, property := range []string{"title", "other"} {
+		t.Run(property, func(t *testing.T) {
+			preflight := gateWithTasks(partial).checkReindexConflictForPropertyMutation(context.Background(), "C", property)
+			applied := (&db.ReindexProvider{}).CheckPropertyUpdate("C", property, []*distributedtask.Task{partial})
+			if property == "other" {
+				require.Empty(t, preflight)
+				require.NoError(t, applied)
+				return
+			}
+			require.Contains(t, preflight, "1 of 2 tenants")
+			require.Contains(t, preflight, `PUT /v1/schema/C/properties/title/index/searchable -d '{"tokenization":"field"}'`)
+			require.Error(t, applied)
+			require.Equal(t, preflight, applied.Error(), "both checks give the one rule's answer")
+		})
+	}
 }

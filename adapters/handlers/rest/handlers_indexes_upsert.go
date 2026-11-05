@@ -636,7 +636,7 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 // already migrated: a rebuild analyzes with the schema's settings, which those
 // tenants no longer use. Finishing the migration rebuilds the rest anyway.
 func refusePartlyMigratedRebuild(collection, propName, indexType string, reindexTasks []*distributedtask.Task) error {
-	if msg := partialRunMessage(collection, propName, []string{indexType}, reindexTasks, nil); msg != "" {
+	if msg := db.ReindexPartialRunConflict(reindexTasks, collection, propName, []string{indexType}, nil); msg != "" {
 		return fmt.Errorf("%w: %s", errRebuildPartlyMigrated, msg)
 	}
 	return nil
@@ -653,21 +653,10 @@ func refuseOtherThanPartialRun(collection, propName, indexType, tok string, plan
 	case !plan.noop || tok == "":
 		return ""
 	}
-	return partialRunMessage(collection, propName, indexTypes, reindexTasks, &plan)
-}
-
-// partialRunMessage decodes payloads only when some run is partial.
-func partialRunMessage(collection, propName string, indexTypes []string, reindexTasks []*distributedtask.Task, plan *upsertPlan) string {
-	if !slices.ContainsFunc(reindexTasks, db.ReindexLeftPartial) {
-		return ""
-	}
-	run, migrated, covered := db.ReindexPartialRun(parseReindexTasks(reindexTasks), collection, propName, indexTypes)
-	if run == nil || (plan != nil && plan.migrationType == run.Payload.MigrationType &&
-		plan.targetTok == run.Payload.TargetTokenization && plan.bucketStrategy == run.Payload.BucketStrategy) {
-		return ""
-	}
-	return fmt.Sprintf("%s the migrated index; finish the migration with %s",
-		db.ReindexMigratedPhrase(migrated, covered, propName), db.ReindexResubmitCommand(&run.Payload, propName))
+	return db.ReindexPartialRunConflict(reindexTasks, collection, propName, indexTypes, func(run *db.ReindexRun) bool {
+		return plan.migrationType == run.Payload.MigrationType &&
+			plan.targetTok == run.Payload.TargetTokenization && plan.bucketStrategy == run.Payload.BucketStrategy
+	})
 }
 
 // validateTenantScope enforces the tenants contract: honored only on

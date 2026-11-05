@@ -41,7 +41,7 @@ func ReindexIndexTypes(mt ReindexMigrationType) (indexTypes []string, known bool
 }
 
 // ReindexLeftPartial reports whether a task stopped after some groups' swaps
-// were decided: those tenants serve the migrated index, the rest do not.
+// were decided: those tenants are migrated, the rest are not.
 func ReindexLeftPartial(task *distributedtask.Task) bool {
 	return (task.Status == distributedtask.TaskStatusFailed || task.Status == distributedtask.TaskStatusCancelled) &&
 		len(task.SwapDecidedGroups) > 0
@@ -104,19 +104,46 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 // ReindexMigratedPhrase names a single-tenant collection as a whole, never in tenants.
 func ReindexMigratedPhrase(migrated, covered map[string]struct{}, property string) string {
 	if _, ungrouped := migrated[""]; ungrouped {
-		return fmt.Sprintf("property %q of the collection serves", property)
+		return fmt.Sprintf("property %q of the collection is migrated", property)
 	}
-	return fmt.Sprintf("%d of %d tenants of property %q serve", len(migrated), len(covered), property)
+	return fmt.Sprintf("%d of %d tenants of property %q are migrated", len(migrated), len(covered), property)
+}
+
+// ReindexRuns decodes tasks into runs, skipping an undecodable payload.
+func ReindexRuns(tasks []*distributedtask.Task) []ReindexRun {
+	runs := make([]ReindexRun, 0, len(tasks))
+	for _, task := range tasks {
+		var payload ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err == nil {
+			runs = append(runs, ReindexRun{Task: task, Payload: payload})
+		}
+	}
+	return runs
+}
+
+// ReindexPartialRunConflict is the one rule for what a standing partial run refuses, naming its resubmit.
+func ReindexPartialRunConflict(tasks []*distributedtask.Task, collection, property string, indexTypes []string,
+	accepts func(*ReindexRun) bool,
+) string {
+	if !slices.ContainsFunc(tasks, ReindexLeftPartial) {
+		return ""
+	}
+	run, migrated, covered := ReindexPartialRun(ReindexRuns(tasks), collection, property, indexTypes)
+	if run == nil || (accepts != nil && accepts(run)) {
+		return ""
+	}
+	return fmt.Sprintf("%s; finish the migration with %s",
+		ReindexMigratedPhrase(migrated, covered, property), ReindexResubmitCommand(&run.Payload, property))
 }
 
 // ReindexPartialRun returns the newest run on property that left some tenants
-// of indexTypes on its target, with those tenants; nil once a flip covered it or no tenant still serves target.
+// of indexTypes (nil: any) on its target, with those tenants; nil once a flip covered it or no tenant still serves target.
 func ReindexPartialRun(runs []ReindexRun, collection, property string, indexTypes []string) (partial *ReindexRun, migrated, covered map[string]struct{}) {
 	for i := range runs {
 		run := &runs[i]
 		types, _ := ReindexIndexTypes(run.Payload.MigrationType)
 		if strings.EqualFold(run.Payload.Collection, collection) && slices.Contains(run.Payload.Properties, property) &&
-			ReindexLeftPartial(run.Task) && slices.ContainsFunc(types, func(t string) bool { return slices.Contains(indexTypes, t) }) &&
+			ReindexLeftPartial(run.Task) && (indexTypes == nil || slices.ContainsFunc(types, func(t string) bool { return slices.Contains(indexTypes, t) })) &&
 			(partial == nil || run.Task.Version > partial.Task.Version) {
 			partial = run
 		}

@@ -782,15 +782,7 @@ func firstActiveReindexTask(
 // completed migration must outrank an older FAILED attempt on the same
 // property, or the entry reports "failed" after the retry succeeded.
 func parseReindexTasks(tasks []*distributedtask.Task) []db.ReindexRun {
-	parsed := make([]db.ReindexRun, 0, len(tasks))
-	for _, task := range tasks {
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			continue
-		}
-		parsed = append(parsed, db.ReindexRun{Task: task, Payload: payload})
-	}
-	return parsed
+	return db.ReindexRuns(tasks)
 }
 
 // mergeReindexStatus checks if there's an active or recently-terminated
@@ -808,7 +800,7 @@ func parseReindexTasks(tasks []*distributedtask.Task) []db.ReindexRun {
 //   - "failed":     latest matching task ended in FAILED.
 //   - "cancelled":  latest matching task ended in CANCELLED.
 //   - "partial":    latest matching task ended in FAILED or CANCELLED after
-//     some tenants' swaps were decided; those tenants serve the new index.
+//     some tenants' swaps were decided; those tenants are migrated.
 //
 // Property matching is uniform across all migration types: every branch
 // requires payload.Properties to be non-empty and to contain propName.

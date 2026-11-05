@@ -2075,7 +2075,7 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 				"migrated_tenants": len(migrated),
 				"total_tenants":    len(covered),
 				"resubmit_command": ReindexResubmitCommand(payload, propName),
-			}).Warnf("reindex provider: %s on %s.%s %s; %s the migrated index; "+
+			}).Warnf("reindex provider: %s on %s.%s %s; %s; "+
 				"resubmit the same request to finish the migration", payload.MigrationType, payload.Collection,
 				propName, outcome, ReindexMigratedPhrase(migrated, covered, propName))
 			continue

@@ -20,7 +20,7 @@ import (
 )
 
 // migrationEnablesIndexType names the index a migration turns on. Until its
-// flip lands, the schema keeps that index off while migrated shards serve it.
+// flip lands, the schema keeps that index off while migrated shards build and write it.
 func migrationEnablesIndexType(mt ReindexMigrationType) (string, bool) {
 	switch mt {
 	case ReindexTypeEnableSearchable:

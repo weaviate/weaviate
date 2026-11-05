@@ -41,7 +41,7 @@ type IndexStatus struct {
 	// progress
 	Progress float32 `json:"progress,omitempty"`
 
-	// `partial`: the latest reindex task failed or was cancelled after some tenants had migrated; those tenants serve the new index, the rest the old one. See `migratedTenants` and `totalTenants`.
+	// `partial`: the latest reindex task failed or was cancelled after some tenants had migrated; those tenants have the new index. After a tokenization change they answer queries with it; after enabling an index they answer with it only once the migration finishes. A replica that still owes a tenant's swap answers with the old index until its retry lands. See `migratedTenants` and `totalTenants`.
 	// Enum: [ready indexing pending failed cancelled partial]
 	Status string `json:"status,omitempty"`
 

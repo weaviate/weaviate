@@ -206,7 +206,8 @@ Drop a configured inverted index. `{indexType}` is one of `filterable`,
 `searchable`, `rangeFilters` (`rangeable` accepted as an alias). Flips the
 corresponding schema flag to false, drops the bucket dir, and removes the
 sidecar buckets, so a subsequent re-enable starts from a clean slate. Subject to the same MutationGuard as
-`UpdateProperty` — rejected while a reindex on this property is in flight.
+`UpdateProperty` — rejected while a reindex on this property is in flight,
+or while a partial run stands on it (the answer names the resubmit; §8).
 
 ### `GET /v1/schema/{className}/indexes`
 
@@ -1229,8 +1230,9 @@ tenant class. The handler validates:
 
 Per-tenant unit groups (Journey 4 from the DTM doc): one
 `UnitSpec.GroupID` per tenant, so `OnGroupCompleted` fires per-tenant
-as each tenant's replicas all finish. Tenant A starts serving new
-data immediately even while tenant B is still reindexing.
+as each tenant's replicas all finish. Tenant A has its new data
+immediately even while tenant B is still reindexing (what it serves
+before the flip depends on the migration type; see below).
 
 That holds for semantic migrations too: a tenant swaps once its own
 replicas have prepared (§6.3), and its shards carry the migrated
@@ -1246,9 +1248,17 @@ migration since the last finished flip, so a resubmit that stops partway
 too still reads `partial` over all tenants. A single-tenant collection
 whose swap was decided before it stopped reads `partial` too, with its
 one group counted as one tenant, and its resubmit reruns every shard.
-Migrating back, or on to
-another target, is not supported yet: while a partial run stands, a `PUT`
-of anything but its resubmit answers `409` and names the resubmit.
+Migrating back, or on to another target, is not supported yet.
+
+While a partial run stands, one rule (`ReindexPartialRunConflict`) refuses,
+naming the resubmit: a `PUT` of anything but that resubmit and a rebuild
+(`409`), and an index `DELETE` on the property (`422`). Resubmit it until it
+reads `ready` before changing the binary, up or down (see "Rolling back
+below this version"). What its migrated tenants serve depends on the
+migration type: after a tokenization change they answer queries with the new
+index; after enabling an index they answer with it only once the migration
+finishes; a replica that still owes a tenant's swap answers with the old
+index until its retry lands.
 
 Status after cancelling a tenant-scoped task is reported at the
 collection level: `GET /v1/schema/{className}/indexes` renders
@@ -1644,8 +1654,9 @@ list as before, so a downgrade does not corrupt data. The residual is only
 that a partial-class property seeded solely by the stamp (its FINISHED task
 already GC'd) resolves as WAND on the older binary until a re-migration.
 
-**Migration records, both directions.** Drain and promote every reindex before
-you change the binary, up or down. Neither direction is enforced.
+**Migration records, both directions.** Drain and promote every reindex, and
+submit every migration that reads `partial` again until it reads `ready`,
+before you change the binary, up or down. Neither direction is enforced.
 
 This build emits no load-time signal for an unpromoted marker-era migration.
 
@@ -1686,6 +1697,14 @@ snapshot past its last reindex run: restart each node on this version with
 `RAFT_SNAPSHOT_THRESHOLD=1 RAFT_SNAPSHOT_INTERVAL=5`, wait for it to write a new
 snapshot, then roll back with both variables removed. Left set, they make the
 node snapshot every few seconds.
+
+Do this first, before the snapshot step: no entry of
+`GET /v1/schema/{className}/indexes` may read `partial`, in any collection,
+on any node. Submit each such migration again until it reads `ready`. An
+older release cannot tell which tenants a stopped run migrated. At each
+migrated tenant's next load it deletes an index the run turned on and reads
+a re-tokenized index with the old tokenization, and a replica that still
+owed a tenant's swap never swaps.
 
 ## 15. Files of interest
 
