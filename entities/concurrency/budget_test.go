@@ -13,6 +13,7 @@ package concurrency
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -201,4 +202,35 @@ func TestNumWorkers(t *testing.T) {
 			assert.Equal(t, tt.want, NumWorkers(tt.ctx, tt.nItems, tt.fallback))
 		})
 	}
+}
+
+// fakePool grants every resize in full.
+type fakePool struct{}
+
+func (fakePool) Resize(_, n int) int { return n }
+
+// A query's workers read the size lock-free while the query resizes it.
+func TestBudgetSizeDuringResize(t *testing.T) {
+	b := NewBudget(fakePool{}, 8)
+	sizes := map[int]bool{8: true, 2: true}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			b.resize(2)
+			b.resize(8)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			if s := b.size(); !sizes[s] {
+				t.Errorf("read size %d, want one of 2 or 8", s)
+				return
+			}
+		}
+	}()
+	wg.Wait()
 }

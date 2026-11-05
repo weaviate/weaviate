@@ -238,11 +238,20 @@ func (iq *VectorIndexQueue) BeforeSchedule() (skip bool) {
 	return iq.checkCompressionSettings()
 }
 
-// Flush the vector index after a batch is processed.
-func (iq *VectorIndexQueue) OnBatchProcessed() {
-	if err := iq.vectorIndex.Flush(); err != nil {
-		iq.Logger.WithError(err).Error("failed to flush vector index")
+// Flush the vector index after a batch is processed. A non-nil error keeps
+// the processed chunk on disk so the queue replays it on a later cycle.
+func (iq *VectorIndexQueue) OnBatchProcessed() error {
+	// the index keeps part of its data in the shard's buckets (e.g. multivector
+	// mappings, compressed vectors, HFresh postings), and its commit log must
+	// not reach the file before them
+	if store := iq.shard.Store(); store != nil {
+		err := store.WriteWALs()
+		if err != nil {
+			return err
+		}
 	}
+
+	return iq.vectorIndex.Flush()
 }
 
 type upgradableIndexer interface {

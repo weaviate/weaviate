@@ -1059,6 +1059,7 @@ func TestReplicaMovementCleanupRuntimeOverride(t *testing.T) {
 	t.Run("keys round-trip through parse and update, then revert on removal", func(t *testing.T) {
 		source := &WeaviateRuntimeConfig{
 			ReplicaMovementEnabled:                 runtime.NewDynamicValue(false),
+			ReplicaRebalanceEnabled:                runtime.NewDynamicValue(false),
 			ReplicaMovementCleanupEnabled:          runtime.NewDynamicValue(false),
 			ReplicaMovementCleanupMaxAge:           runtime.NewDynamicValue(168 * time.Hour),
 			ReplicaMovementCleanupInterval:         runtime.NewDynamicValue(time.Hour),
@@ -1066,6 +1067,7 @@ func TestReplicaMovementCleanupRuntimeOverride(t *testing.T) {
 		}
 
 		parsed, err := ParseRuntimeConfig([]byte(`replica_movement_enabled: true
+replica_rebalance_enabled: true
 replica_movement_cleanup_enabled: true
 replica_movement_cleanup_max_age: 24h
 replica_movement_cleanup_interval: 5m
@@ -1074,6 +1076,7 @@ replica_movement_cleanup_include_cancelled: true
 		require.NoError(t, err)
 		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
 		assert.Equal(t, true, source.ReplicaMovementEnabled.Get())
+		assert.Equal(t, true, source.ReplicaRebalanceEnabled.Get())
 		assert.Equal(t, true, source.ReplicaMovementCleanupEnabled.Get())
 		assert.Equal(t, 24*time.Hour, source.ReplicaMovementCleanupMaxAge.Get())
 		assert.Equal(t, 5*time.Minute, source.ReplicaMovementCleanupInterval.Get())
@@ -1083,6 +1086,7 @@ replica_movement_cleanup_include_cancelled: true
 		require.NoError(t, err)
 		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
 		assert.Equal(t, false, source.ReplicaMovementEnabled.Get())
+		assert.Equal(t, false, source.ReplicaRebalanceEnabled.Get())
 		assert.Equal(t, false, source.ReplicaMovementCleanupEnabled.Get(), "the emergency brake must revert to the env default")
 		assert.Equal(t, 168*time.Hour, source.ReplicaMovementCleanupMaxAge.Get())
 		assert.Equal(t, time.Hour, source.ReplicaMovementCleanupInterval.Get())
@@ -1096,6 +1100,7 @@ replica_movement_cleanup_include_cancelled: true
 func TestBuildRegisteredRuntimeConfig(t *testing.T) {
 	cfg := &Config{}
 	cfg.Replication.ReplicaMovementEnabled = runtime.NewDynamicValue(true)
+	cfg.Replication.ReplicaRebalanceEnabled = runtime.NewDynamicValue(true)
 	cfg.Replication.ReplicaMovementCleanupEnabled = runtime.NewDynamicValue(true)
 	cfg.Replication.ReplicaMovementCleanupMaxAge = runtime.NewDynamicValue(time.Hour)
 	cfg.Replication.ReplicaMovementCleanupInterval = runtime.NewDynamicValue(time.Minute)
@@ -1105,6 +1110,7 @@ func TestBuildRegisteredRuntimeConfig(t *testing.T) {
 	registered := BuildRegisteredRuntimeConfig(cfg)
 
 	require.Same(t, cfg.Replication.ReplicaMovementEnabled, registered.ReplicaMovementEnabled)
+	require.Same(t, cfg.Replication.ReplicaRebalanceEnabled, registered.ReplicaRebalanceEnabled)
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupEnabled, registered.ReplicaMovementCleanupEnabled)
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupMaxAge, registered.ReplicaMovementCleanupMaxAge)
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupInterval, registered.ReplicaMovementCleanupInterval)

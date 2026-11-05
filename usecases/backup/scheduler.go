@@ -731,28 +731,69 @@ func backupsForbidden(pr *models.Principal, verb, resource string) error {
 	return authzerrors.NewForbidden(pr, action, resource)
 }
 
-// authorizeBackupByID authorizes the caller against the classes recorded in
-// the meta read from filename, and against the users and roles resources
-// principals derives from it. A missing meta is a no-op (the 404 may leak the
-// id); any other backend error fails closed.
-func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.Principal, verb string,
-	store coordStore, filename, overrideBucket, overridePath string,
-	principals func(*backup.DistributedBackupDescriptor) []string,
-) error {
-	meta, err := store.Meta(ctx, filename, overrideBucket, overridePath)
-	if err != nil {
-		// A read concurrent with a write yields a partial file that fails to
-		// unmarshal; treat it as not-found so a mid-write status poll retries.
-		var syntaxErr *json.SyntaxError
-		if errors.As(err, &backup.ErrNotFound{}) || errors.As(err, &syntaxErr) {
-			return nil
+// denyBackupByID adds to authErr, a denial of op on backup id, a reason that
+// holds whether or not the backup exists, so its text does not reveal which. It
+// logs readErrs the denial hides: a backend failure, but not a missing or partial
+// descriptor.
+func (s *Scheduler) denyBackupByID(authErr error, op Op, verb, id string, readErrs ...error) error {
+	if !errors.As(authErr, &authzerrors.Forbidden{}) {
+		return authErr
+	}
+	for _, err := range readErrs {
+		if descriptorReadFailed(err) {
+			s.logger.WithField("action", op).WithField("backup_id", id).
+				Warnf("denied a caller without the wildcard backup permission, since the descriptor could not be read: %v", err)
 		}
+	}
+	may := "manage"
+	if verb == authorization.READ {
+		may = "read"
+	}
+	if op == OpRestore {
+		return fmt.Errorf("%w: no restore of backup %q was found at this location, or it includes collections you may not %s",
+			authErr, id, may)
+	}
+	return fmt.Errorf("%w: backup %q was not found at this location or includes collections you may not %s", authErr, id, may)
+}
+
+// descriptorReadFailed reports whether err is a backend failure to read a
+// descriptor, rather than a missing one or a partial one mid-write.
+func descriptorReadFailed(err error) bool {
+	var syntaxErr *json.SyntaxError
+	return err != nil && !errors.As(err, &backup.ErrNotFound{}) && !errors.As(err, &syntaxErr)
+}
+
+// authorizeBackupByID authorizes the caller against the classes recorded in the
+// first readable of filenames, and against the users and roles resources
+// principals derives from that descriptor. Without a readable descriptor both
+// checks fall back to their wildcards. Only a caller who passes gets a read
+// error of filenames[0] other than not-found.
+func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.Principal, verb string, op Op,
+	store coordStore, overrideBucket, overridePath string,
+	principals func(*backup.DistributedBackupDescriptor) []string, filenames ...string,
+) error {
+	var meta *backup.DistributedBackupDescriptor
+	var classes []string
+	readErrs := make([]error, 0, len(filenames))
+	for _, filename := range filenames {
+		m, err := metaWithRetry(ctx, store, filename, overrideBucket, overridePath)
+		if err == nil {
+			meta = m
+			classes = m.Classes()
+			break
+		}
+		readErrs = append(readErrs, err)
+	}
+	if err := s.authorizeBackupClasses(ctx, principal, verb, classes); err != nil {
+		return s.denyBackupByID(err, op, verb, store.backupId, readErrs...)
+	}
+	if err := s.authorizeBackupPrincipals(ctx, principal, verb, principals(meta)); err != nil {
 		return err
 	}
-	if err := s.authorizeBackupClasses(ctx, principal, verb, meta.Classes()); err != nil {
-		return err
+	if len(readErrs) > 0 && descriptorReadFailed(readErrs[0]) {
+		return readErrs[0]
 	}
-	return s.authorizeBackupPrincipals(ctx, principal, verb, principals(meta))
+	return nil
 }
 
 func (s *Scheduler) authorizeBackupPrincipals(ctx context.Context, pr *models.Principal, verb string, resources []string) error {
@@ -816,7 +857,8 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, store, GlobalBackupFile, overrideBucket, overridePath, s.backupPrincipalResources); err != nil {
+	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, OpCreate, store, overrideBucket, overridePath,
+		s.backupPrincipalResources, GlobalBackupFile); err != nil {
 		return nil, err
 	}
 
@@ -841,7 +883,10 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, store, GlobalRestoreFile, overrideBucket, overridePath, restorePrincipalResources); err != nil {
+	// Before a restore starts, its status is authorized like CancelRestore's, against
+	// the backup descriptor, so a caller who may read the backup gets 404, not 403.
+	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, OpRestore, store, overrideBucket, overridePath,
+		restorePrincipalResources, GlobalRestoreFile, GlobalBackupFile); err != nil {
 		return nil, err
 	}
 	req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}
@@ -874,15 +919,15 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	// hint about the id. The check covers the backup's recorded content when its
 	// descriptor is readable; without one it requires the wildcards.
 	var meta *backup.DistributedBackupDescriptor
+	var metaErr error
 	var classes []string
 	if idErr == nil {
-		if m, err := metaWithRetry(ctx, store, GlobalBackupFile, overrideBucket, overridePath); err == nil {
-			meta = m
-			classes = m.Classes()
+		if meta, metaErr = metaWithRetry(ctx, store, GlobalBackupFile, overrideBucket, overridePath); metaErr == nil {
+			classes = meta.Classes()
 		}
 	}
 	if err := s.authorizeBackupClasses(ctx, principal, authorization.DELETE, classes); err != nil {
-		return err
+		return s.denyBackupByID(err, OpCreate, authorization.DELETE, backupID, metaErr)
 	}
 	if err := s.authorizeBackupPrincipals(ctx, principal, authorization.DELETE, s.backupPrincipalResources(meta)); err != nil {
 		return err
@@ -959,19 +1004,20 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	// hint about the id. Prefer the restore descriptor, else the backup descriptor;
 	// if neither is readable, require wildcard DELETE.
 	var meta, authMeta *backup.DistributedBackupDescriptor
-	var metaErr error
+	var metaErr, backupMetaErr error
 	var classes []string
 	if idErr == nil {
+		var backupMeta *backup.DistributedBackupDescriptor
 		if meta, metaErr = metaWithRetry(ctx, store, GlobalRestoreFile, overrideBucket, overridePath); metaErr == nil {
 			authMeta = meta
 			classes = meta.Classes()
-		} else if backupMeta, err := metaWithRetry(ctx, store, GlobalBackupFile, overrideBucket, overridePath); err == nil {
+		} else if backupMeta, backupMetaErr = metaWithRetry(ctx, store, GlobalBackupFile, overrideBucket, overridePath); backupMetaErr == nil {
 			authMeta = backupMeta
 			classes = backupMeta.Classes()
 		}
 	}
 	if err := s.authorizeBackupClasses(ctx, principal, authorization.DELETE, classes); err != nil {
-		return err
+		return s.denyBackupByID(err, OpRestore, authorization.DELETE, backupID, metaErr, backupMetaErr)
 	}
 	if err := s.authorizeBackupPrincipals(ctx, principal, authorization.DELETE, restorePrincipalResources(authMeta)); err != nil {
 		return err
