@@ -1518,6 +1518,15 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 		if parsed != nil && parsed.IsMultiVector() {
 			return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
 		}
+		if parsed != nil {
+			var initialParsed schemaConfig.VectorIndexConfig
+			if initial != nil {
+				initialParsed, _ = h.parseLegacyVectorIndexConfig(initial)
+			}
+			if err := validateRQDistance(parsed, initialParsed); err != nil {
+				return err
+			}
+		}
 		// Grandfather: same compression set ⇒ skip the policy check.
 		if parsed != nil && !legacyCompressionUnchanged(parsed, initial, h) {
 			if err := h.validateAllowedCompression(class.VectorIndexType, parsed); err != nil {
@@ -1568,6 +1577,15 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 		if err := validateCreateUpdateOnlyBounds(parsed); err != nil {
 			return fmt.Errorf("target vector %q: %w", name, err)
 		}
+		var initialParsed schemaConfig.VectorIndexConfig
+		if initial != nil {
+			if initCfg, ok := initial.VectorConfig[name]; ok {
+				initialParsed, _ = h.parseNamedVectorIndexConfig(name, initCfg)
+			}
+		}
+		if err := validateRQDistance(parsed, initialParsed); err != nil {
+			return fmt.Errorf("target vector %q: %w", name, err)
+		}
 		// Grandfather: same VectorIndexType + same compressions on this
 		// named-vector entry ⇒ skip the policy check.
 		if namedCompressionUnchanged(parsed, name, initial, h) {
@@ -1588,6 +1606,33 @@ func validateCreateUpdateOnlyBounds(parsed schemaConfig.VectorIndexConfig) error
 		return enthfresh.ValidateMuveraUpperBounds(uc)
 	}
 	return nil
+}
+
+// validateRQDistance applies hnsw.ValidateRQDistance to an hnsw index or to
+// the hnsw arm of a dynamic index, which takes the dynamic index's distance.
+// It runs on create and update only, never on startup parsing. A class whose
+// stored config already has 1-bit RQ enabled is grandfathered: bits and
+// distance are immutable once set, so rejecting it would only block unrelated
+// updates.
+func validateRQDistance(parsed, initialParsed schemaConfig.VectorIndexConfig) error {
+	rq, distance, ok := rqConfigAndDistance(parsed)
+	if !ok {
+		return nil
+	}
+	if initRQ, _, ok := rqConfigAndDistance(initialParsed); ok && initRQ.Enabled && initRQ.Bits == 1 {
+		return nil
+	}
+	return hnsw.ValidateRQDistance(rq, distance)
+}
+
+func rqConfigAndDistance(parsed schemaConfig.VectorIndexConfig) (hnsw.RQConfig, string, bool) {
+	switch uc := parsed.(type) {
+	case hnsw.UserConfig:
+		return uc.RQ, uc.Distance, true
+	case dynamic.UserConfig:
+		return uc.HnswUC.RQ, uc.Distance, true
+	}
+	return hnsw.RQConfig{}, "", false
 }
 
 // parseLegacyVectorIndexConfig returns the typed VectorIndexConfig for
