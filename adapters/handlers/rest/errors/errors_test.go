@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -120,6 +121,16 @@ func TestErrPayloadFromSingleErrStatusCode(t *testing.T) {
 		{
 			name:     "plain error omits the code",
 			err:      errors.New("boom"),
+			wantCode: 0,
+		},
+		{
+			// objectHandlers.addObject answers 500 for a forwarded write.
+			// The inner 401 belongs to the cluster hop, not the public body.
+			name: "wrapped internal HTTP 401 does not contribute a code",
+			err: fmt.Errorf("replicate object: %w", &clients.HTTPError{
+				Code: http.StatusUnauthorized,
+				Body: []byte("unauthorized"),
+			}),
 			wantCode: 0,
 		},
 	}

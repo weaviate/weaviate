@@ -57,6 +57,20 @@ func TestStatusCode(t *testing.T) {
 			err:    NewErrGraphQLUser(plain, "Get", "SomeAction"),
 			wantOK: false,
 		},
+		{
+			// Same method set as adapters/clients.HTTPError. That status is an
+			// internal cluster response and must not become a public code,
+			// even when a handler wraps it on the way to a 500.
+			name:   "internal StatusCode is not a public code",
+			err:    fmt.Errorf("forwarded object write: %w", statusCodeOnly{code: http.StatusUnauthorized}),
+			wantOK: false,
+		},
+		{
+			name:     "public code wins over a wrapped internal status",
+			err:      fmt.Errorf("auth: %w", publicOverInternal{inner: statusCodeOnly{code: http.StatusUnauthorized}}),
+			wantCode: http.StatusForbidden,
+			wantOK:   true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -67,3 +81,23 @@ func TestStatusCode(t *testing.T) {
 		})
 	}
 }
+
+// statusCodeOnly mirrors adapters/clients.HTTPError: StatusCode is an
+// internal response, not the public error contract.
+type statusCodeOnly struct{ code int }
+
+func (e statusCodeOnly) Error() string {
+	return fmt.Sprintf("status code: %d, error: unauthorized", e.code)
+}
+
+func (e statusCodeOnly) StatusCode() int { return e.code }
+
+// publicOverInternal is a public authorization failure that unwraps to an
+// internal status. The public code must win.
+type publicOverInternal struct{ inner error }
+
+func (e publicOverInternal) Error() string { return e.inner.Error() }
+
+func (e publicOverInternal) Unwrap() error { return e.inner }
+
+func (e publicOverInternal) PublicErrorCode() int { return http.StatusForbidden }
