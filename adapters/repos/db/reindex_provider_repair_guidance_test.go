@@ -58,10 +58,9 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_ChangeTokenizationBoth
 	require.Equal(t, ReindexTypeChangeTokenization, entry.Data["migration_type"])
 	require.Contains(t, entry.Message, "FAILED")
 	require.Contains(t, entry.Message, "bucket")
-	// The repair_command costs a cluster-wide rebuild. Where the tear sits on
-	// a tenant nobody has read since, loading it is what clears it.
+	// The repair_command re-runs the migration on every replica.
 	require.Contains(t, entry.Message,
-		"before the repair_command's cluster-wide rebuild")
+		"before the repair_command's cluster-wide re-run")
 }
 
 func TestLogOperatorRepairGuidanceOnTornSemanticMigration_MultipleProperties(t *testing.T) {
@@ -119,10 +118,8 @@ func TestGroupHandlersLogUnitCountNotUnitIDs(t *testing.T) {
 }
 
 // TestRepairCommandsForFailedMigration_RerunsTheOriginalPut pins that every
-// semantic migration's guidance is the PUT that started it. A /rebuild uses
-// the reverted schema: it 400s on enable-*/change-algorithm, and on a
-// retokenize it writes old-tokenization terms into shards that already query
-// with the new one.
+// semantic migration's repair_command is the PUT that started it. A cancelled
+// task gets none, since that PUT would redo the cancelled change.
 func TestRepairCommandsForFailedMigration_RerunsTheOriginalPut(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -180,10 +177,21 @@ func TestRepairCommandsForFailedMigration_RerunsTheOriginalPut(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			logger, hook := logrustest.NewNullLogger()
-			logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T"), tc.payload, distributedtask.TaskStatusFailed)
-			require.Len(t, hook.Entries, 1)
-			require.Equal(t, tc.wantCommand, hook.Entries[0].Data["repair_command"])
+			for _, status := range []distributedtask.TaskStatus{
+				distributedtask.TaskStatusFailed, distributedtask.TaskStatusCancelled,
+			} {
+				logger, hook := logrustest.NewNullLogger()
+				logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T"), tc.payload, status)
+				require.Len(t, hook.Entries, 1)
+				entry := hook.Entries[0]
+				if status == distributedtask.TaskStatusFailed {
+					require.Equal(t, tc.wantCommand, entry.Data["repair_command"])
+					continue
+				}
+				require.NotContains(t, entry.Data, "repair_command")
+				require.NotContains(t, entry.Message, "repair_command")
+				require.Contains(t, entry.Message, repairWarningText)
+			}
 		})
 	}
 }
@@ -268,7 +276,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 			var guided bool
 			var guidance string
 			for _, e := range hook.AllEntries() {
-				if _, ok := e.Data["repair_command"]; ok {
+				if strings.Contains(e.Message, repairWarningText) {
 					guided = true
 					guidance = e.Message
 				}
@@ -620,11 +628,13 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 	}
 }
 
-// loggedRepairGuidance reports whether any entry carries the operator's
-// copy-pasteable repair command.
+// repairWarningText is in the repair warning whatever the task's outcome; only
+// a FAILED task's also carries a repair_command.
+const repairWarningText = "may have left the canonical inverted bucket"
+
 func loggedRepairGuidance(hook *logrustest.Hook) bool {
 	for _, e := range hook.AllEntries() {
-		if _, ok := e.Data["repair_command"]; ok {
+		if strings.Contains(e.Message, repairWarningText) {
 			return true
 		}
 	}

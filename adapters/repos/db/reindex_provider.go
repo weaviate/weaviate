@@ -1985,29 +1985,30 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 		return
 	}
 	for _, propName := range payload.Properties {
-		repairCommands := repairCommandsForFailedMigration(payload, propName)
-		logger.WithFields(map[string]any{
+		fields := map[string]any{
 			"property":       propName,
 			"migration_type": payload.MigrationType,
-			"repair_command": strings.Join(repairCommands, " && "),
-		}).Errorf(
-			"reindex provider: %s on %s.%s %s; per-shard sub-tasks that "+
-				"committed before it stopped may have left the canonical "+
-				"inverted bucket inconsistent with the schema (which reverted "+
-				"to the pre-migration state) — issue the repair_command above "+
-				"to recover the affected index(es); an affected tenant still "+
-				"unloaded finalizes its own deferred swap the next time it is "+
-				"read, so try one read there before the repair_command's "+
-				"cluster-wide rebuild",
-			payload.MigrationType, payload.Collection, propName, outcome)
+		}
+		msg := "reindex provider: %s on %s.%s %s; per-shard sub-tasks that " +
+			"committed before it stopped may have left the canonical " +
+			"inverted bucket inconsistent with the schema (which reverted " +
+			"to the pre-migration state)"
+		// The re-run PUT would redo a change the operator chose to cancel.
+		if outcome != distributedtask.TaskStatusCancelled {
+			fields["repair_command"] = strings.Join(repairCommandsForFailedMigration(payload, propName), " && ")
+			msg += " — issue the repair_command above " +
+				"to recover the affected index(es); an affected tenant still " +
+				"unloaded finalizes its own deferred swap the next time it is " +
+				"read, so try one read there before the repair_command's " +
+				"cluster-wide re-run"
+		}
+		logger.WithFields(fields).Errorf(msg, payload.MigrationType, payload.Collection, propName, outcome)
 	}
 }
 
-// repairCommandsForFailedMigration returns the operator command(s) to recover
-// propName after payload's migration stopped without succeeding (FAILED or
-// CANCELLED): re-run the PUT that started it. A /rebuild uses the reverted
-// schema, so it 400s on enable-*/change-algorithm and, on a retokenize,
-// writes old-tokenization terms into shards that already swapped.
+// repairCommandsForFailedMigration returns the PUT that re-runs payload's
+// migration on propName. A /rebuild keeps the schema's old config, so it 400s
+// on enable-*/change-algorithm and miswrites a retokenize's swapped shards.
 func repairCommandsForFailedMigration(payload *ReindexTaskPayload, propName string) []string {
 	c := payload.Collection
 	rebuild := func(indexType string) string {
