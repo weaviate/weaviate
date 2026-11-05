@@ -42,11 +42,11 @@ func prefixCorpus(t *testing.T, n int) *columnRun {
 
 // TestPrefixColumnShortQueryKeys pins query keys shorter than the elided prefix resolving in range on both scanInto branches.
 func TestPrefixColumnShortQueryKeys(t *testing.T) {
-	const corpusSize = 64 // merge-scan takes over at 7+ query keys
+	const corpusSize = 64 // stepping takes over at 5+ query keys
 	run := prefixCorpus(t, corpusSize)
 	require.Equal(t, []byte("key_0"), run.keys.(*prefixKeyColumn).prefix)
 
-	// dense brackets the first 16 corpus keys with below and above, enough for the merge-scan branch
+	// dense brackets the first 16 corpus keys with below and above, enough for the scan to step
 	dense := func(below, above []string) (entinverted.SortedKeys, []uint64) {
 		kb := entinverted.NewVarKeyBuilder(len(below)+16+len(above), 0)
 		for _, b := range below {
@@ -69,10 +69,10 @@ func TestPrefixColumnShortQueryKeys(t *testing.T) {
 	denseBoth, denseBothWant := dense([]string{"", "ke", "key_"}, []string{"kez", "kf"})
 
 	tests := []struct {
-		name  string
-		keys  entinverted.SortedKeys
-		want  []uint64
-		merge bool
+		name string
+		keys entinverted.SortedKeys
+		want []uint64
+		step bool
 	}{
 		{
 			name: "short key alone",
@@ -99,22 +99,22 @@ func TestPrefixColumnShortQueryKeys(t *testing.T) {
 			want: []uint64{7},
 		},
 		{
-			name:  "short key below the prefix, dense query",
-			keys:  denseBelow,
-			want:  denseBelowWant,
-			merge: true,
+			name: "short key below the prefix, dense query",
+			keys: denseBelow,
+			want: denseBelowWant,
+			step: true,
 		},
 		{
-			name:  "short keys on both sides of the prefix, dense query",
-			keys:  denseBoth,
-			want:  denseBothWant,
-			merge: true,
+			name: "short keys on both sides of the prefix, dense query",
+			keys: denseBoth,
+			want: denseBothWant,
+			step: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.merge, mergeScanCheaper(tt.keys.Len(), corpusSize),
+			require.Equal(t, tt.step, !shouldGallop(tt.keys.Len(), corpusSize),
 				"test case must exercise the branch it claims")
 
 			res := newResolution(tt.keys.Len(), 1_000_000)
@@ -179,7 +179,7 @@ func TestFixedColumnWideKeys(t *testing.T) {
 		}
 		q, err := kb.Build()
 		require.NoError(t, err)
-		require.Equal(t, len(picks) > 2, mergeScanCheaper(q.Len(), len(keys)),
+		require.Equal(t, len(picks) <= 2, shouldGallop(q.Len(), len(keys)),
 			"each query must exercise the branch it claims")
 		res := newResolution(q.Len(), 1_000)
 		run.scanInto(q, res, true)
@@ -270,11 +270,12 @@ func (tc keyColumnCase) run(t *testing.T) (*columnRun, [][]byte) {
 func seekColumn(col keyColumn, from int, q []byte) (int, bool) {
 	switch c := col.(type) {
 	case *blobKeyColumn:
-		return c.seek(from, q)
+		return c.seek(from, q, loadHead(q, 0, len(q), headMask(len(q))))
 	case *fixedKeyColumn:
-		return seekPacked(c.data, c.w, c.len(), headMask(c.w), from, q)
+		return seekPacked(c.data, c.w, c.len(), headMask(c.w), from, q, loadHead(q, 0, len(q), headMask(len(q))))
 	case *prefixKeyColumn:
-		return seekPacked(c.data, c.w, c.len(), headMask(c.w), from, q[len(c.prefix):])
+		q = q[len(c.prefix):]
+		return seekPacked(c.data, c.w, c.len(), headMask(c.w), from, q, loadHead(q, 0, len(q), headMask(len(q))))
 	}
 	panic(fmt.Sprintf("unknown backing %T", col))
 }
@@ -328,13 +329,40 @@ func TestScanMatchesStoredProbes(t *testing.T) {
 			}
 
 			strategies := map[string]func(res *Resolution){
-				"merge":  func(res *Resolution) { run.keys.mergeInto(run, q, lo, hi, res, true, false) },
-				"search": func(res *Resolution) { run.keys.searchInto(run, q, lo, hi, res, true, false) },
+				"step":   func(res *Resolution) { run.keys.scan(run, q, lo, hi, res, true, false, false) },
+				"gallop": func(res *Resolution) { run.keys.scan(run, q, lo, hi, res, true, false, true) },
 			}
 			for name, scan := range strategies {
 				res := newResolution(q.Len(), 1_000)
 				scan(res)
 				require.Equal(t, want, res.docs32, name)
+			}
+		})
+	}
+}
+
+// TestScansStepOverKeys pins both strategies, on every backing, finding each query key past runs of skipped corpus keys.
+func TestScansStepOverKeys(t *testing.T) {
+	for _, tt := range keyColumnCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			run, keys := tt.run(t)
+			for _, stride := range []int{2, 3, 5} {
+				var picked []string
+				want := []uint64{}
+				for i := stride - 1; i < len(keys); i += stride {
+					picked = append(picked, string(keys[i]))
+					want = append(want, run.docs.at(i))
+				}
+				if len(picked) == 0 {
+					continue
+				}
+				q := testKeys(t, picked...)
+				lo, hi := run.keys.queryWindow(q)
+				for _, gallop := range []bool{false, true} {
+					res := newResolution(q.Len(), 1_000)
+					run.keys.scan(run, q, lo, hi, res, true, false, gallop)
+					require.ElementsMatch(t, want, heldDocs(res), "stride %d, gallop %v", stride, gallop)
+				}
 			}
 		})
 	}
@@ -349,8 +377,8 @@ func bytesToStrings(bs [][]byte) []string {
 	return out
 }
 
-// TestPerKeyScanResumesFromPreviousHit pins scanInto's per-key branch matching every hit when each search resumes at the previous answer.
-func TestPerKeyScanResumesFromPreviousHit(t *testing.T) {
+// TestGallopResumesFromPreviousHit pins a galloping scan matching every hit when each search resumes at the previous answer.
+func TestGallopResumesFromPreviousHit(t *testing.T) {
 	const corpusSize = 512
 	run := prefixCorpus(t, corpusSize)
 
@@ -373,7 +401,7 @@ func TestPerKeyScanResumesFromPreviousHit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			keys := testKeys(t, tt.keys...)
-			require.False(t, mergeScanCheaper(keys.Len(), corpusSize), "test case must take the per-key branch")
+			require.True(t, shouldGallop(keys.Len(), corpusSize), "test case must gallop")
 
 			res := newResolution(keys.Len(), 1_000)
 			run.scanInto(keys, res, true)
@@ -382,23 +410,23 @@ func TestPerKeyScanResumesFromPreviousHit(t *testing.T) {
 	}
 }
 
-// TestMergeScanCheaper pins the density at which scanInto switches to the merge scan.
-func TestMergeScanCheaper(t *testing.T) {
+// TestShouldGallop pins the density at which scanInto switches to galloping.
+func TestShouldGallop(t *testing.T) {
 	tests := []struct {
 		name            string
 		numKeys, corpus int
 		want            bool
 	}{
 		{name: "empty corpus", numKeys: 5, corpus: 0, want: false},
-		{name: "just below one key in ten", numKeys: 99, corpus: 1_000, want: false},
-		{name: "one key in ten", numKeys: 100, corpus: 1_000, want: true},
-		{name: "every key", numKeys: 1_000, corpus: 1_000, want: true},
-		{name: "one key, small corpus", numKeys: 1, corpus: 10, want: true},
-		{name: "one key, corpus past ten", numKeys: 1, corpus: 11, want: false},
+		{name: "just below one key in fifteen", numKeys: 99, corpus: 1_500, want: true},
+		{name: "one key in fifteen", numKeys: 100, corpus: 1_500, want: false},
+		{name: "every key", numKeys: 1_000, corpus: 1_000, want: false},
+		{name: "one key, small corpus", numKeys: 1, corpus: 15, want: false},
+		{name: "one key, corpus past fifteen", numKeys: 1, corpus: 16, want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, mergeScanCheaper(tt.numKeys, tt.corpus))
+			require.Equal(t, tt.want, shouldGallop(tt.numKeys, tt.corpus))
 		})
 	}
 }
@@ -434,9 +462,9 @@ func testKeys(tb testing.TB, keys ...string) entinverted.SortedKeys {
 	return built
 }
 
-// BenchmarkScanStrategies times scanInto's merge scan and per-key search, each
+// BenchmarkScanStrategies times stepping and galloping scans, each
 // forced, across query density, corpus size and key layout; it sweeps
-// mergeScanMaxKeySpacing.
+// maxKeySpacingForStepping.
 //
 // Run:
 //
@@ -512,8 +540,8 @@ func benchScanStrategies(b *testing.B, name string, run *columnRun, keys [][]byt
 		name string
 		scan func(res *Resolution)
 	}{
-		{"merge", func(res *Resolution) { run.keys.mergeInto(run, q, lo, hi, res, true, false) }},
-		{"search", func(res *Resolution) { run.keys.searchInto(run, q, lo, hi, res, true, false) }},
+		{"step", func(res *Resolution) { run.keys.scan(run, q, lo, hi, res, true, false, false) }},
+		{"gallop", func(res *Resolution) { run.keys.scan(run, q, lo, hi, res, true, false, true) }},
 	}
 	for _, s := range strategies {
 		b.Run(name+"/"+s.name, func(b *testing.B) {
