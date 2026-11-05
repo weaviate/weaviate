@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/integrity"
 )
 
@@ -162,6 +163,11 @@ func (c *Copier) CopyReplicaFilesToLocalShard(ctx context.Context, opID strfmt.U
 			return fmt.Errorf("invalid WEAVIATE_TEST_COPY_REPLICA_SLEEP: %w", err)
 		}
 		time.Sleep(sleepTime)
+	}
+	// The source has resumed maintenance by now, so acceptance tests hold here to
+	// watch compaction run on the source while the copy is open.
+	if err := file.WaitForTestHold(ctx, "WEAVIATE_TEST_COPY_REPLICA_HOLD_FILE"); err != nil {
+		return err
 	}
 
 	err = c.prepareLocalFolder(collectionName, localShard, snapResp.FileNames)

@@ -34,6 +34,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -644,6 +645,11 @@ func (u *uploader) uploadShard(ctx context.Context, cu *classUpload, shard *back
 ) error {
 	// a failing job cancels ctx, but jobs already queued behind it still start
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// Every shard of the class is snapshotted and resumed by now, so acceptance
+	// tests hold here to watch compaction run while the backup is open.
+	if err := file.WaitForTestHold(ctx, "WEAVIATE_TEST_BACKUP_UPLOAD_HOLD_FILE"); err != nil {
 		return err
 	}
 
