@@ -85,6 +85,7 @@ type WeaviateRuntimeConfig struct {
 	SuspendReconcileInterval *runtime.DynamicValue[time.Duration] `json:"suspend_reconcile_interval" yaml:"suspend_reconcile_interval"`
 
 	ReplicaMovementEnabled                 *runtime.DynamicValue[bool]          `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
+	ReplicaRebalanceEnabled                *runtime.DynamicValue[bool]          `json:"replica_rebalance_enabled" yaml:"replica_rebalance_enabled"`
 	ReplicaMovementCleanupEnabled          *runtime.DynamicValue[bool]          `json:"replica_movement_cleanup_enabled" yaml:"replica_movement_cleanup_enabled"`
 	ReplicaMovementCleanupMaxAge           *runtime.DynamicValue[time.Duration] `json:"replica_movement_cleanup_max_age" yaml:"replica_movement_cleanup_max_age"`
 	ReplicaMovementCleanupInterval         *runtime.DynamicValue[time.Duration] `json:"replica_movement_cleanup_interval" yaml:"replica_movement_cleanup_interval"`
@@ -443,6 +444,7 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.AsyncReplicationRootPrefilterBatchSize = cfg.Replication.AsyncReplicationRootPrefilterBatchSize
 	registered.ReplicationGRPCEnabled = cfg.Replication.ReplicationGRPCEnabled
 	registered.ReplicaMovementEnabled = cfg.Replication.ReplicaMovementEnabled
+	registered.ReplicaRebalanceEnabled = cfg.Replication.ReplicaRebalanceEnabled
 	registered.ReplicaMovementCleanupEnabled = cfg.Replication.ReplicaMovementCleanupEnabled
 	registered.ReplicaMovementCleanupMaxAge = cfg.Replication.ReplicaMovementCleanupMaxAge
 	registered.ReplicaMovementCleanupInterval = cfg.Replication.ReplicaMovementCleanupInterval

@@ -135,16 +135,6 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 					DryRun: ptBool(false),
 					Output: ptString(verbosity.OutputVerbose),
 					Match: &models.BatchDeleteMatch{
-						Class: "",
-					},
-				},
-				expectedError: "validate: empty match.class clause",
-			},
-			{
-				input: &models.BatchDelete{
-					DryRun: ptBool(false),
-					Output: ptString(verbosity.OutputVerbose),
-					Match: &models.BatchDeleteMatch{
 						Class: "Foo",
 					},
 				},
@@ -214,6 +204,33 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 				require.Error(t, err)
 				var invalid ErrInvalidUserInput
 				require.True(t, errors.As(err, &invalid), "expected ErrInvalidUserInput, got %T: %v", err, err)
+			})
+		}
+	})
+
+	t.Run("empty match.class is refused before authorization", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			principal *models.Principal
+			nsEnabled bool
+		}{
+			{name: "namespaces off"},
+			{name: "namespaced caller", principal: &models.Principal{Username: "u", Namespace: "customer1"}, nsEnabled: true},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, b, _, _, authz := newNSManagers(t, nil, tt.nsEnabled)
+				// Deny the every-collection resource, as RBAC does for a caller scoped to named collections.
+				authz.Deny(authorization.ShardsData("", "")...)
+				match := &models.BatchDeleteMatch{
+					Class: "",
+					Where: &models.WhereFilter{Path: []string{"name"}, Operator: "Equal", ValueText: ptString("v")},
+				}
+
+				_, err := b.DeleteObjects(ctx, tt.principal, match, nil, nil, nil, nil, "")
+				var invalid ErrInvalidUserInput
+				require.ErrorAs(t, err, &invalid)
+				require.EqualError(t, err, "empty match.class clause")
 			})
 		}
 	})

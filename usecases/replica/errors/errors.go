@@ -63,7 +63,12 @@ type notEnoughReplicasError struct {
 // errors.Is(err, ErrReplicas).  Use this form when only the underlying
 // error is known (e.g. a routing-plan failure); for richer diagnostics
 // from the coordinator use NewNotEnoughReplicasErrorWithCounts.
+// A cause that already satisfies errors.Is(cause, ErrReplicas) is returned
+// unchanged, so the message states ErrReplicas once.
 func NewNotEnoughReplicasError(cause error) error {
+	if errors.Is(cause, ErrReplicas) {
+		return cause
+	}
 	return &notEnoughReplicasError{cause: cause}
 }
 
@@ -172,6 +177,7 @@ const (
 	StatusPreconditionFailed
 	StatusReadOnly
 	StatusObjectNotFound
+	StatusUsageLimitExceeded
 )
 
 // StatusText returns a text for the status code. It returns the empty string
@@ -198,6 +204,8 @@ func StatusText(code StatusCode) string {
 		return "read only"
 	case StatusObjectNotFound:
 		return "object not found"
+	case StatusUsageLimitExceeded:
+		return "usage limit exceeded"
 	default:
 		return ""
 	}
