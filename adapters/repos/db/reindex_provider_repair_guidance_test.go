@@ -232,10 +232,10 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_EmptyPropertiesEmitsGe
 	require.Contains(t, hook.Entries[0].Message, "empty Properties")
 }
 
-// Pins: repair guidance on a CANCELLED task follows the evidence that a
+// Pins: the repair warning on a CANCELLED task follows the evidence that a
 // node got past its units — either ack map, since PREP acks land in a
 // different one from post-swap acks.
-func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.T) {
+func TestOnTaskCompleted_CancelledLogsRepairWarningOnlyWhenASwapRan(t *testing.T) {
 	payload, err := json.Marshal(ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
 		Collection:    "C",
@@ -246,14 +246,14 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 	acked := map[string]distributedtask.PostCompletionAck{"n1": {Success: true}}
 
 	for _, tc := range []struct {
-		name         string
-		postAcks     map[string]distributedtask.PostCompletionAck
-		prepAcks     map[string]distributedtask.PostCompletionAck
-		wantGuidance bool
+		name        string
+		postAcks    map[string]distributedtask.PostCompletionAck
+		prepAcks    map[string]distributedtask.PostCompletionAck
+		wantWarning bool
 	}{
-		{name: "no node acked anything", wantGuidance: false},
-		{name: "one node acked a swap", postAcks: acked, wantGuidance: true},
-		{name: "one node acked PREP only", prepAcks: acked, wantGuidance: true},
+		{name: "no node acked anything", wantWarning: false},
+		{name: "one node acked a swap", postAcks: acked, wantWarning: true},
+		{name: "one node acked PREP only", prepAcks: acked, wantWarning: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
@@ -273,22 +273,22 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 				PreparationCompletionAcks: tc.prepAcks,
 			}))
 
-			var guided bool
-			var guidance string
+			var warned bool
+			var warning string
 			for _, e := range hook.AllEntries() {
 				if strings.Contains(e.Message, repairWarningText) {
-					guided = true
-					guidance = e.Message
+					warned = true
+					warning = e.Message
 				}
 			}
-			require.Equal(t, tc.wantGuidance, guided,
-				"repair guidance on a CANCELLED task must follow the swap evidence")
-			if tc.wantGuidance {
-				// The guidance is written so the operator can match it to
+			require.Equal(t, tc.wantWarning, warned,
+				"the repair warning on a CANCELLED task must follow the swap evidence")
+			if tc.wantWarning {
+				// The warning is written so the operator can match it to
 				// the task, which only works if it names the status the
 				// task actually ended in.
-				require.Contains(t, guidance, string(distributedtask.TaskStatusCancelled))
-				require.NotContains(t, guidance, string(distributedtask.TaskStatusFailed))
+				require.Contains(t, warning, string(distributedtask.TaskStatusCancelled))
+				require.NotContains(t, warning, string(distributedtask.TaskStatusFailed))
 			}
 		})
 	}
@@ -408,7 +408,7 @@ func TestHasLocalPostMergeState_GivesUpOnAFinishedContext(t *testing.T) {
 // Pins the wiring the ack maps cannot cover: a cancel that lands while
 // the task is still STARTED leaves both maps empty, so the only thing
 // that can raise the alarm is this node's own disk.
-func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.T) {
+func TestOnTaskCompleted_CancelledLogsRepairWarningFromDiskEvidence(t *testing.T) {
 	ctx := context.Background()
 	shard, idx := testShard(t, ctx, "C")
 	concrete, err := unwrapShard(ctx, shard)
@@ -441,15 +441,14 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 	}))
 
 	require.Empty(t, concrete.migrationRecords.Records(), "fixture: the cleanup has to remove the evidence")
-	require.True(t, loggedRepairGuidance(hook),
+	require.True(t, loggedRepairWarning(hook),
 		"a committed migration on this node is the only evidence of the tear; the "+
-			"guidance has to fire off it")
+			"warning has to fire off it")
 }
 
 // Pins where the post-merge probe sits relative to the drain: a drain that
-// does not finish skips the cleanup, but the tear it leaves behind is still
-// the operator's to repair, so the guidance has to fire anyway.
-func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *testing.T) {
+// does not finish skips the cleanup, but the warning has to fire anyway.
+func TestOnTaskCompleted_CancelledLogsRepairWarningWhenTheDrainTimesOut(t *testing.T) {
 	className := "DrainTimeout_" + uuid.NewString()[:8]
 	shard, idx := testShard(t, testCtx(), className)
 	concrete, err := unwrapShard(testCtx(), shard)
@@ -496,8 +495,8 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 	}
 	require.True(t, drainTimedOut,
 		"the fixture has to reach the drain-timeout arm for the rest to mean anything")
-	require.True(t, loggedRepairGuidance(hook),
-		"the cleanup is skipped on this arm, but the tear is still one only an operator can repair")
+	require.True(t, loggedRepairWarning(hook),
+		"the cleanup is skipped on this arm, but the warning still has to fire")
 }
 
 func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
@@ -632,7 +631,7 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 // a FAILED task's also carries a repair_command.
 const repairWarningText = "may have left the canonical inverted bucket"
 
-func loggedRepairGuidance(hook *logrustest.Hook) bool {
+func loggedRepairWarning(hook *logrustest.Hook) bool {
 	for _, e := range hook.AllEntries() {
 		if strings.Contains(e.Message, repairWarningText) {
 			return true
