@@ -115,7 +115,10 @@ func (c *RemoteNode) GetRebalanceMeasurement(ctx context.Context, hostName strin
 	}
 
 	defer res.Body.Close()
-	body, _ := io.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return replicationTypes.RebalanceNodeMeasurement{}, err
+	}
 	if res.StatusCode != http.StatusOK {
 		return replicationTypes.RebalanceNodeMeasurement{}, enterrors.NewErrUnexpectedStatusCode(res.StatusCode, body)
 	}
