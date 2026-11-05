@@ -5585,13 +5585,13 @@ func init() {
             }
           },
           "409": {
-            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. None of the plan's replica removals or empty additions was applied.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
+            "description": "The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. None of the plan's replica removals or empty additions was applied.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18537,13 +18537,13 @@ func init() {
             }
           },
           "409": {
-            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. None of the plan's replica removals or empty additions was applied.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
+            "description": "The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. None of the plan's replica removals or empty additions was applied.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
