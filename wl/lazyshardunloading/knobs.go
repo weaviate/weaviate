@@ -112,10 +112,15 @@ type snapshot struct {
 	retryRefusedAfter time.Duration
 }
 
-// retryRefusedAfterSeconds is the cooldown in access-clock ticks, rounded up and bounded like idle_ttl.
+// retryRefusedAfterSeconds is the cooldown in access-clock ticks.
 func (s *snapshot) retryRefusedAfterSeconds() uint32 {
-	seconds := s.retryRefusedAfter / time.Second
-	if s.retryRefusedAfter%time.Second != 0 {
+	return accessClockTicks(s.retryRefusedAfter)
+}
+
+// accessClockTicks rounds d up to whole ticks: rounded down, an idle selection runs ahead of TryUnload's own check.
+func accessClockTicks(d time.Duration) uint32 {
+	seconds := d / time.Second
+	if d%time.Second != 0 {
 		seconds++
 	}
 	return uint32(min(seconds, 1<<31))
