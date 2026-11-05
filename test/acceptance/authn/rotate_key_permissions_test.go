@@ -64,6 +64,16 @@ func testRotateKeyNeedsTargetPermissions(t *testing.T) {
 		require.Equal(t, importedRootKey, key)
 
 		requireForbiddenAndOldKeyWorks(t, importedRootUser, importedRootKey)
+
+		// The admin role holds every permission root does, so only the root
+		// guard refuses this caller.
+		helper.AssignRoleToUser(t, adminKey, authorization.Admin, callerUser)
+		defer helper.RevokeRoleFromUser(t, adminKey, authorization.Admin, callerUser)
+		requireForbiddenAndOldKeyWorks(t, importedRootUser, importedRootKey)
+
+		newKey := helper.RotateKey(t, importedRootUser, adminKey)
+		info := helper.GetInfoForOwnUser(t, newKey)
+		require.Equal(t, importedRootUser, *info.Username)
 	})
 
 	t.Run("user holding the admin role", func(t *testing.T) {

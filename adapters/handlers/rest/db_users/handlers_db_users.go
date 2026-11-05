@@ -494,6 +494,13 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 		return users.NewRotateUserAPIKeyNotFound()
 	}
 
+	// Root-only endpoints check the caller's name, not its permissions, and the
+	// admin role holds every permission root does, so the check below would let
+	// an admin take over an imported root user.
+	if h.isRootUser(internalKey) && !h.isRequestFromRootUser(principal) {
+		return users.NewRotateUserAPIKeyForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("only root users can rotate the key of a root user")))
+	}
+
 	// The caller receives the new key and can log in as the target with it, so
 	// it must already hold every permission the target's roles grant.
 	if h.rbacConfig.Enabled && !apikey.IsOwnUser(principal, internalKey) {
