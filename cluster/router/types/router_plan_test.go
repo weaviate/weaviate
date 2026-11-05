@@ -19,6 +19,48 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 )
 
+func TestReadRoutingPlan_LocalShardCount(t *testing.T) {
+	replica := func(shard, node string) types.Replica {
+		return types.Replica{ShardName: shard, NodeName: node}
+	}
+
+	tests := []struct {
+		name     string
+		replicas []types.Replica
+		want     int
+	}{
+		{name: "no replicas", want: 0},
+		{name: "one local shard", replicas: []types.Replica{replica("A", "local")}, want: 1},
+		{name: "remote shards only", replicas: []types.Replica{replica("A", "n2"), replica("B", "n3")}, want: 0},
+		{
+			name:     "local and remote shards",
+			replicas: []types.Replica{replica("A", "local"), replica("B", "local"), replica("C", "n2")},
+			want:     2,
+		},
+		{
+			name:     "replicas of a local shard count once",
+			replicas: []types.Replica{replica("A", "local"), replica("A", "local"), replica("A", "n2"), replica("B", "n2")},
+			want:     1,
+		},
+		{
+			// ExecuteForEachShard sends this shard to n2 and never reaches its local replica.
+			name:     "a shard whose first replica is remote is not read locally",
+			replicas: []types.Replica{replica("A", "n2"), replica("A", "local")},
+			want:     0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan := types.ReadRoutingPlan{
+				LocalHostname: "local",
+				ReplicaSet:    types.ReadReplicaSet{Replicas: tt.replicas},
+			}
+			require.Equal(t, tt.want, plan.LocalShardCount())
+		})
+	}
+}
+
 func TestReadRoutingPlan_ShardPlans(t *testing.T) {
 	replica := func(shard, node string) types.Replica {
 		return types.Replica{ShardName: shard, NodeName: node, HostAddr: node + ":8080"}
