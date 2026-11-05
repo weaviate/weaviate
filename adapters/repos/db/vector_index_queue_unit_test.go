@@ -13,10 +13,14 @@ package db
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
 func TestVectorIndexQueueDeleteUsesDeleteMultiForSyncMultivectorIndex(t *testing.T) {
@@ -83,4 +87,52 @@ func (r *recordingMultiVectorIndex) DeleteMulti(ids ...uint64) error {
 
 func (r *recordingMultiVectorIndex) Multivector() bool {
 	return true
+}
+
+// The index keeps part of its data in the shard's buckets (e.g. multivector
+// mappings), so the hook writes their logs out before flushing the index, and
+// before the queue removes the chunk.
+func TestVectorIndexQueueOnBatchProcessedWritesLSMLogs(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	require.NoError(t, store.CreateOrLoadBucket(t.Context(), "mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace)))
+	bucket := store.Bucket("mappings")
+	// small enough to stay in the log's buffer
+	require.NoError(t, bucket.Put([]byte("node"), []byte("doc")))
+	before := walSize(t, bucket.GetDir())
+
+	var atFlush int64
+	index := &flushRecordingIndex{Index: noop.NewIndex(), onFlush: func() {
+		atFlush = walSize(t, bucket.GetDir())
+	}}
+	queue := &VectorIndexQueue{shard: &Shard{store: store}, vectorIndex: index}
+
+	require.NoError(t, queue.OnBatchProcessed())
+	require.Greater(t, atFlush, before, "the bucket log was not written out before the index flush")
+}
+
+type flushRecordingIndex struct {
+	*noop.Index
+
+	onFlush func()
+}
+
+func (f *flushRecordingIndex) Flush() error {
+	f.onFlush()
+	return nil
+}
+
+// walSize returns the size on disk of the write-ahead logs in a bucket dir.
+func walSize(t *testing.T, dir string) int64 {
+	t.Helper()
+
+	paths, err := filepath.Glob(filepath.Join(dir, "*.wal"))
+	require.NoError(t, err)
+
+	var size int64
+	for _, p := range paths {
+		fi, err := os.Stat(p)
+		require.NoError(t, err)
+		size += fi.Size()
+	}
+	return size
 }

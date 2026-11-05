@@ -128,6 +128,54 @@ func (_c *MockReplicationFSMReader_FilterOneShardReplicasWrite_Call) RunAndRetur
 	return _c
 }
 
+// HasActiveMoveTargetingShard provides a mock function with given fields: collection, shard, targetNode
+func (_m *MockReplicationFSMReader) HasActiveMoveTargetingShard(collection string, shard string, targetNode string) bool {
+	ret := _m.Called(collection, shard, targetNode)
+
+	if len(ret) == 0 {
+		panic("no return value specified for HasActiveMoveTargetingShard")
+	}
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func(string, string, string) bool); ok {
+		r0 = rf(collection, shard, targetNode)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// MockReplicationFSMReader_HasActiveMoveTargetingShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HasActiveMoveTargetingShard'
+type MockReplicationFSMReader_HasActiveMoveTargetingShard_Call struct {
+	*mock.Call
+}
+
+// HasActiveMoveTargetingShard is a helper method to define mock.On call
+//   - collection string
+//   - shard string
+//   - targetNode string
+func (_e *MockReplicationFSMReader_Expecter) HasActiveMoveTargetingShard(collection interface{}, shard interface{}, targetNode interface{}) *MockReplicationFSMReader_HasActiveMoveTargetingShard_Call {
+	return &MockReplicationFSMReader_HasActiveMoveTargetingShard_Call{Call: _e.mock.On("HasActiveMoveTargetingShard", collection, shard, targetNode)}
+}
+
+func (_c *MockReplicationFSMReader_HasActiveMoveTargetingShard_Call) Run(run func(collection string, shard string, targetNode string)) *MockReplicationFSMReader_HasActiveMoveTargetingShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicationFSMReader_HasActiveMoveTargetingShard_Call) Return(_a0 bool) *MockReplicationFSMReader_HasActiveMoveTargetingShard_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockReplicationFSMReader_HasActiveMoveTargetingShard_Call) RunAndReturn(run func(string, string, string) bool) *MockReplicationFSMReader_HasActiveMoveTargetingShard_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // HasActiveReplicationForShard provides a mock function with given fields: collection, shard
 func (_m *MockReplicationFSMReader) HasActiveReplicationForShard(collection string, shard string) bool {
 	ret := _m.Called(collection, shard)
@@ -276,7 +324,8 @@ func (_c *MockReplicationFSMReader_HasActiveTargetReplicationForShard_Call) RunA
 func NewMockReplicationFSMReader(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockReplicationFSMReader {
+},
+) *MockReplicationFSMReader {
 	mock := &MockReplicationFSMReader{}
 	mock.Mock.Test(t)
 

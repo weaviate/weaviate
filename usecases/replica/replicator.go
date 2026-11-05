@@ -121,6 +121,9 @@ func (r *Replicator) PutObject(ctx context.Context,
 		return fmt.Errorf("%s %q: %w", replicaerrors.MsgCLevel, l, replicaerrors.NewNotEnoughReplicasError(err))
 	}
 	if err := firstError(rs); err != nil {
+		if limit := limitAbort(err); limit != nil {
+			return limit
+		}
 		r.log.WithField("op", "put").WithField("class", r.class).
 			WithField("shard", shard).WithField("uuid", obj.ID()).Error(err)
 		return err
@@ -229,7 +232,13 @@ func (r *Replicator) PutObjects(ctx context.Context,
 		}
 		return errs
 	}
-	if err := firstError(rs); err != nil {
+	limited := false
+	for i, err := range rs {
+		if limit := limitAbort(err); limit != nil {
+			rs[i], limited = limit, true
+		}
+	}
+	if err := firstError(rs); err != nil && !limited {
 		r.log.WithField("op", "put.many").WithField("class", r.class).
 			WithField("shard", shard).Error(rs)
 	}
