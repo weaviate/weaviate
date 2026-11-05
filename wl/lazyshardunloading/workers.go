@@ -81,17 +81,45 @@ func (p *policy[S]) process(it item[S]) {
 		}
 	}()
 	s := p.snap.Load()
-	if p.ctx.Err() != nil || s.paused || (it.reason == reasonIdle && s.idleTTL == 0) {
+	if p.ctx.Err() != nil || s.paused || !p.stillWanted(s, it) {
 		it.shard.ClearUnloadPending()
 		return
 	}
 	start := time.Now()
-	outcome := it.shard.TryUnload(p.ctx, it.req)
+	outcome := it.shard.TryUnload(p.ctx, p.currentRequest(s, it))
 	if outcome == db.UnloadOutcomeOK {
 		p.metrics.unloadDuration.Observe(time.Since(start).Seconds())
 	}
 	p.metrics.observeUnload(it.reason, string(outcome))
 	p.coolDown(s, it.shard, refusalLevelOf(outcome))
+}
+
+// stillWanted re-checks a handoff, which may have queued behind busy workers, against the current knobs.
+func (p *policy[S]) stillWanted(s *snapshot, it item[S]) bool {
+	if !p.namespaceActive(it.shard.Namespace()) {
+		return false
+	}
+	if it.reason == reasonIdle {
+		return s.idleTTL > 0
+	}
+	// A worker past its TryUnload is still in pending, this one included, so only the rest count as gone.
+	if s.maxLoaded > 0 && p.reg.Loaded()-p.pending.Load()+int64(s.workers) >= s.maxLoaded {
+		return true
+	}
+	return s.high > 0 && p.cachedRatio() >= s.low
+}
+
+// currentRequest is the queued request under the current knobs; PickedAt stays, it is when the shard was selected.
+func (p *policy[S]) currentRequest(s *snapshot, it item[S]) db.UnloadRequest {
+	req := it.req
+	req.Reindex = p.reindexSnapshot()
+	if req.Mode == db.UnloadModeBackground {
+		req.MinResidency = s.minResidency
+		if it.reason == reasonIdle {
+			req.IdleTTL = s.idleTTL
+		}
+	}
+	return req
 }
 
 // refusalLevel says which victim selection a refusal keeps off the shard.
