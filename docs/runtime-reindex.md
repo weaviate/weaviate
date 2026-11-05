@@ -1251,7 +1251,7 @@ one group counted as one tenant, and its resubmit reruns every shard.
 Migrating back, or on to another target, is not supported yet.
 
 While a partial run stands, one rule (`ReindexPartialRunConflict`) refuses,
-naming the resubmit: a `PUT` of anything but that resubmit and a rebuild
+naming the resubmit: on an index type it migrated, a `PUT` of anything but that resubmit and a rebuild
 (`409`), and an index `DELETE` on the property (`422`). Resubmit it until it
 reads `ready` before changing the binary, up or down (see "Rolling back
 below this version"). What its migrated tenants serve depends on the

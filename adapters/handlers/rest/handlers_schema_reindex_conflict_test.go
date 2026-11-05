@@ -310,25 +310,54 @@ func TestCheckReindexConflictForPropertyMutation_DifferentPropertyAllows(t *test
 
 // Pins that an index DELETE is refused while a partial run stands on the
 // property, by the REST pre-flight and the apply guard alike, naming the
-// resubmit; another property is not held.
+// resubmit; another property is not held, nor is a run a newer flip covered.
 func TestIndexDeleteRefusedWhileAPartialRunStands(t *testing.T) {
-	partial := buildTask(t, "T1", distributedtask.TaskStatusCancelled, db.ReindexTaskPayload{
-		MigrationType: db.ReindexTypeChangeTokenization, Collection: "C", Properties: []string{"title"},
-		TargetTokenization: models.PropertyTokenizationField,
-	}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
-	partial.SwapDecidedGroups = map[string]time.Time{"a": {}}
-
-	for _, property := range []string{"title", "other"} {
-		t.Run(property, func(t *testing.T) {
-			preflight := gateWithTasks(partial).checkReindexConflictForPropertyMutation(context.Background(), "C", property)
-			applied := (&db.ReindexProvider{}).CheckPropertyUpdate("C", property, []*distributedtask.Task{partial})
-			if property == "other" {
+	run := func(id string, version uint64, status distributedtask.TaskStatus, mt db.ReindexMigrationType, decided bool) *distributedtask.Task {
+		task := buildTask(t, id, status, db.ReindexTaskPayload{
+			MigrationType: mt, Collection: "C", Properties: []string{"title"}, TargetTokenization: models.PropertyTokenizationField,
+		}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
+		task.Version = version
+		if decided {
+			task.SwapDecidedGroups = map[string]time.Time{"a": {}}
+		}
+		return task
+	}
+	cancelled, finished := distributedtask.TaskStatusCancelled, distributedtask.TaskStatusFinished
+	for _, tc := range []struct {
+		name     string
+		property string
+		tasks    []*distributedtask.Task
+		resubmit string // empty: not refused
+	}{
+		{
+			name: "a partial run on the property", property: "title",
+			tasks:    []*distributedtask.Task{run("T1", 1, cancelled, db.ReindexTypeChangeTokenization, true)},
+			resubmit: `PUT /v1/schema/C/properties/title/index/searchable -d '{"tokenization":"field"}'`,
+		},
+		{
+			name: "another property", property: "other",
+			tasks: []*distributedtask.Task{run("T1", 1, cancelled, db.ReindexTypeChangeTokenization, true)},
+		},
+		{
+			name: "an older partial run on another index type than a newer, covered one", property: "title",
+			tasks: []*distributedtask.Task{
+				run("P1", 10, cancelled, db.ReindexTypeChangeTokenizationFilterable, true),
+				run("P2", 20, cancelled, db.ReindexTypeChangeAlgorithm, true),
+				run("F", 30, finished, db.ReindexTypeChangeAlgorithm, false),
+			},
+			resubmit: `PUT /v1/schema/C/properties/title/index/filterable -d '{"tokenization":"field"}'`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			preflight := gateWithTasks(tc.tasks...).checkReindexConflictForPropertyMutation(context.Background(), "C", tc.property)
+			applied := (&db.ReindexProvider{}).CheckPropertyUpdate("C", tc.property, tc.tasks)
+			if tc.resubmit == "" {
 				require.Empty(t, preflight)
 				require.NoError(t, applied)
 				return
 			}
 			require.Contains(t, preflight, "1 of 2 tenants")
-			require.Contains(t, preflight, `PUT /v1/schema/C/properties/title/index/searchable -d '{"tokenization":"field"}'`)
+			require.Contains(t, preflight, tc.resubmit)
 			require.Error(t, applied)
 			require.Equal(t, preflight, applied.Error(), "both checks give the one rule's answer")
 		})

@@ -128,22 +128,29 @@ func ReindexPartialRunConflict(tasks []*distributedtask.Task, collection, proper
 	if !slices.ContainsFunc(tasks, ReindexLeftPartial) {
 		return ""
 	}
-	run, migrated, covered := ReindexPartialRun(ReindexRuns(tasks), collection, property, indexTypes)
-	if run == nil || (accepts != nil && accepts(run)) {
-		return ""
+	runs, scopes := ReindexRuns(tasks), [][]string{indexTypes}
+	if indexTypes == nil {
+		scopes = [][]string{{"searchable"}, {"filterable"}, {"rangeable"}}
 	}
-	return fmt.Sprintf("%s; finish the migration with %s",
-		ReindexMigratedPhrase(migrated, covered, property), ReindexResubmitCommand(&run.Payload, property))
+	for _, scope := range scopes {
+		run, migrated, covered := ReindexPartialRun(runs, collection, property, scope)
+		if run == nil || (accepts != nil && accepts(run)) {
+			continue
+		}
+		return fmt.Sprintf("%s; finish the migration with %s",
+			ReindexMigratedPhrase(migrated, covered, property), ReindexResubmitCommand(&run.Payload, property))
+	}
+	return ""
 }
 
 // ReindexPartialRun returns the newest run on property that left some tenants
-// of indexTypes (nil: any) on its target, with those tenants; nil once a flip covered it or no tenant still serves target.
+// of indexTypes on its target, with those tenants; nil once a flip covered it or no tenant still serves target.
 func ReindexPartialRun(runs []ReindexRun, collection, property string, indexTypes []string) (partial *ReindexRun, migrated, covered map[string]struct{}) {
 	for i := range runs {
 		run := &runs[i]
 		types, _ := ReindexIndexTypes(run.Payload.MigrationType)
 		if strings.EqualFold(run.Payload.Collection, collection) && slices.Contains(run.Payload.Properties, property) &&
-			ReindexLeftPartial(run.Task) && (indexTypes == nil || slices.ContainsFunc(types, func(t string) bool { return slices.Contains(indexTypes, t) })) &&
+			ReindexLeftPartial(run.Task) && slices.ContainsFunc(types, func(t string) bool { return slices.Contains(indexTypes, t) }) &&
 			(partial == nil || run.Task.Version > partial.Task.Version) {
 			partial = run
 		}
