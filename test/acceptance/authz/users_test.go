@@ -167,6 +167,7 @@ func TestAuthzRolesForUsers(t *testing.T) {
 				var forbidden *authz.AssignRoleToUserForbidden
 				require.True(t, errors.As(err, &forbidden), "expected 403, got %T: %v", err, err)
 				require.Contains(t, forbidden.Payload.Error[0].Message, "less or equal permissions")
+				requireDeniedOnce(t, forbidden.Payload.Error[0].Message, authorization.ManageBackups)
 			})
 
 			t.Run("a holder of manage_backups can assign it", func(t *testing.T) {
