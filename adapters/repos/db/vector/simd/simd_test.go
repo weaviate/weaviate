@@ -118,12 +118,14 @@ func TestReductionKernelsMatchGo(t *testing.T) {
 				ia, ib := randIntFloats(rng, n), randIntFloats(rng, n)
 				require.Equal(t, sumGo(ia), ks.sum(ia), "sum exact")
 				require.Equal(t, dotGo(ia, ib), ks.dot(ia, ib), "dot exact")
+				require.Equal(t, l2Go(ia, ib), ks.l2(ia, ib), "l2 exact")
 
 				// Reassociation-level agreement on real-valued inputs.
 				a, b := randFloats(rng, n), randFloats(rng, n)
 				tol := 1e-5 * float64(n)
 				assert.InDelta(t, float64(sumGo(a)), float64(ks.sum(a)), tol*10, "sum")
 				assert.InDelta(t, float64(dotGo(a, b)), float64(ks.dot(a, b)), tol*100, "dot")
+				assert.InDelta(t, float64(l2Go(a, b)), float64(ks.l2(a, b)), tol*100, "l2")
 
 				// Order-independent reductions are exact.
 				require.Equal(t, minGo(a), ks.minF(a), "min")
@@ -294,6 +296,8 @@ func TestExportedLengthContract(t *testing.T) {
 	require.Equal(t, float32(0), Sum(nil))
 	require.Equal(t, float32(140), DotProduct(a, b))
 	require.Equal(t, float32(0), DotProduct(a, nil))
+	require.Equal(t, float32(81+324+729), L2Squared(a, b))
+	require.Equal(t, float32(0), L2Squared(nil, b))
 	require.Equal(t, float32(55), SumOfSquares(a))
 	require.Equal(t, float32(0), SumOfSquares(nil))
 	require.Equal(t, float32(1), Min(a))
@@ -319,6 +323,30 @@ func TestExportedLengthContract(t *testing.T) {
 	require.Equal(t, int32(0), DotProductInt8(nil, []int8{1}))
 }
 
+// Lengths up to SmallMax take the straight-line paths; they must agree with
+// the Go loop bit for bit on integer-valued inputs and within reassociation
+// error otherwise, and the exported wrappers must clamp them to min(len).
+func TestSmallLengthPaths(t *testing.T) {
+	rng := rand.New(rand.NewPCG(13, 14))
+	for n := 1; n <= SmallMax+1; n++ {
+		for trial := 0; trial < 50; trial++ {
+			ia, ib := randIntFloats(rng, n), randIntFloats(rng, n)
+			require.Equal(t, dotGo(ia, ib), DotProduct(ia, ib), "dot n=%d", n)
+			require.Equal(t, l2Go(ia, ib), L2Squared(ia, ib), "l2 n=%d", n)
+			a, b := randFloats(rng, n), randFloats(rng, n)
+			assert.InDelta(t, float64(dotGo(a, b)), float64(DotProduct(a, b)), 1e-3, "dot n=%d", n)
+			assert.InDelta(t, float64(l2Go(a, b)), float64(L2Squared(a, b)), 1e-3, "l2 n=%d", n)
+			// Mismatched lengths clamp to the shorter operand.
+			la := append(append([]float32(nil), ia...), 1000, 1000)
+			lb := append(append([]float32(nil), ib...), 1000, 1000)
+			require.Equal(t, dotGo(ia, ib), DotProduct(la, ib), "dot clamp a n=%d", n)
+			require.Equal(t, dotGo(ia, ib), DotProduct(ia, lb), "dot clamp b n=%d", n)
+			require.Equal(t, l2Go(ia, ib), L2Squared(la, ib), "l2 clamp a n=%d", n)
+			require.Equal(t, l2Go(ia, ib), L2Squared(ia, lb), "l2 clamp b n=%d", n)
+		}
+	}
+}
+
 // The exported functions dispatch through the kernel variables, so a sanity
 // pass over the public API on production-sized inputs covers the wiring.
 func TestExportedMatchGoReference(t *testing.T) {
@@ -329,8 +357,11 @@ func TestExportedMatchGoReference(t *testing.T) {
 		addGo(want, a, b)
 		Add(got, a, b)
 		require.Equal(t, want, got)
-		assert.InDelta(t, float64(dotGo(a, b)), float64(DotProduct(a, b)), 1e-2)
-		assert.InDelta(t, float64(sumGo(a)), float64(Sum(a)), 1e-2)
+		// Reductions reassociate across tiers, so compare relatively: one
+		// float32 ULP of a sum near 3e5 is already 0.03.
+		assert.InEpsilon(t, float64(dotGo(a, b)), float64(DotProduct(a, b)), 1e-5)
+		assert.InEpsilon(t, float64(l2Go(a, b)), float64(L2Squared(a, b)), 1e-5)
+		assert.InEpsilon(t, float64(sumGo(a)), float64(Sum(a)), 1e-4)
 		require.Equal(t, maxAbsGo(a), MaxAbs(a))
 		x, y := randInt8s(rng, n), randInt8s(rng, n)
 		require.Equal(t, dotInt8Go(x, y), DotProductInt8(x, y))

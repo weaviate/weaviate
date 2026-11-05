@@ -19,7 +19,7 @@ type kernelSet struct {
 	add, sub                 func(dst, a, b []float32)
 	scale, addScalar         func(dst, a []float32, s float32)
 	sum, minF, maxF, maxAbs  func(a []float32) float32
-	dot                      func(a, b []float32) float32
+	dot, l2                  func(a, b []float32) float32
 	int32ToFloat32Scale      func(dst []float32, src []int32, scale float32)
 	float32ToInt32ScaleClamp func(dst []int32, src []float32, scale, offset, minV, maxV float32)
 	dotInt8                  func(a, b []int8) int32
@@ -27,7 +27,7 @@ type kernelSet struct {
 
 var goKernels = kernelSet{
 	name: "go", add: addGo, sub: subGo, scale: scaleGo, addScalar: addScalarGo,
-	sum: sumGo, minF: minGo, maxF: maxGo, maxAbs: maxAbsGo, dot: dotGo,
+	sum: sumGo, minF: minGo, maxF: maxGo, maxAbs: maxAbsGo, dot: dotGo, l2: l2Go,
 	int32ToFloat32Scale: int32ToFloat32ScaleGo, float32ToInt32ScaleClamp: float32ToInt32ScaleClampGo,
 	dotInt8: dotInt8Go,
 }

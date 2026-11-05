@@ -12,14 +12,38 @@
 package distancer
 
 import (
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 	"golang.org/x/sys/cpu"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/simd"
 )
 
 func init() {
-	if cpu.X86.HasAMXBF16 && cpu.X86.HasAVX512 {
-		l2SquaredImpl = asm.L2AVX512
-	} else if cpu.X86.HasAVX2 {
-		l2SquaredImpl = asm.L2AVX256
+	// The hand-written AVX2 and AVX-512 kernels still measure 2-14% faster than
+	// archsimd from n=64 up on both Sapphire Rapids and Genoa (the Go compiler
+	// does not fold the FMA memory operand), so they stay for long vectors.
+	// archsimd's straight-line small-vector paths win by 1.2-1.4x up to n=8
+	// (geo coordinates are n=2), so those lengths go to the simd package.
+	// AMX-BF16 stands in for "Sapphire Rapids or newer", where 512-bit code
+	// carries no frequency penalty.
+	switch {
+	case cpu.X86.HasAMXBF16 && cpu.X86.HasAVX512:
+		l2SquaredImpl = l2AVX512
+	case cpu.X86.HasAVX2:
+		l2SquaredImpl = l2AVX256
 	}
+}
+
+func l2AVX512(a, b []float32) float32 {
+	if len(a) <= simd.SmallMax {
+		return simd.L2Squared(a, b)
+	}
+	return asm.L2AVX512(a, b)
+}
+
+func l2AVX256(a, b []float32) float32 {
+	if len(a) <= simd.SmallMax {
+		return simd.L2Squared(a, b)
+	}
+	return asm.L2AVX256(a, b)
 }

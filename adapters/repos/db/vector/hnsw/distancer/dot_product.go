@@ -13,21 +13,18 @@ package distancer
 
 import (
 	"github.com/pkg/errors"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/simd"
 )
 
-// can be set depending on architecture, e.g. pure go, AVX-enabled assembly, etc.
-// Warning: This is not the dot product distance, but the pure product.
-//
-// This default will always work, regardless of architecture. An init function
-// will overwrite it on amd64 if AVX is present.
-var dotProductImplementation func(a, b []float32) float32 = func(a, b []float32) float32 {
-	var sum float32
-	for i := range a {
-		sum += a[i] * b[i]
-	}
-
-	return sum
-}
+// dotProductImplementation is the float32 dot product kernel (the pure
+// product, not the distance). The simd package dispatches to archsimd
+// NEON/AVX2/AVX-512 kernels when built with GOEXPERIMENT=simd and to portable
+// Go otherwise. The amd64 init overrides it where the hand-written AVX2 and
+// AVX-512 assembly still measures faster, for lengths above the small-vector
+// paths; on arm64 the archsimd NEON kernels beat both the retired NEON and SVE
+// assembly (SVE Dot by 2x or more on Neoverse V2), so the default stands.
+var dotProductImplementation func(a, b []float32) float32 = simd.DotProduct
 
 func DotProductFloatGo(a, b []float32) float32 {
 	return -dotProductGo[float32, float32](a, b)

@@ -11,18 +11,15 @@
 
 package distancer
 
-import "github.com/pkg/errors"
+import (
+	"github.com/pkg/errors"
 
-var l2SquaredImpl func(a, b []float32) float32 = func(a, b []float32) float32 {
-	var sum float32
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/simd"
+)
 
-	for i := range a {
-		diff := a[i] - b[i]
-		sum += diff * diff
-	}
-
-	return sum
-}
+// l2SquaredImpl is the float32 squared-L2 kernel; see dotProductImplementation
+// for the dispatch rationale.
+var l2SquaredImpl func(a, b []float32) float32 = simd.L2Squared
 
 type L2Squared struct {
 	a []float32

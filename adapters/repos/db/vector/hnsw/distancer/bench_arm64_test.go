@@ -16,7 +16,7 @@ import (
 	"testing"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
-	"golang.org/x/sys/cpu"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/simd"
 )
 
 func benchmarkDotGo(b *testing.B, dims int) {
@@ -48,11 +48,7 @@ func benchmarkDotNeon(b *testing.B, dims int) {
 	b.ResetTimer()
 
 	for n := 0; n < b.N; n++ {
-		if cpu.ARM64.HasSVE {
-			asm.Dot_SVE(vec1, vec2)
-		} else {
-			asm.Dot_Neon(vec1, vec2)
-		}
+		simd.DotProduct(vec1, vec2)
 	}
 }
 

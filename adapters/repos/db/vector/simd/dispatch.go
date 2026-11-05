@@ -22,6 +22,7 @@ var (
 	addScalarImpl                = addScalarGo
 	sumImpl                      = sumGo
 	dotImpl                      = dotGo
+	l2Impl                       = l2Go
 	minImpl                      = minGo
 	maxImpl                      = maxGo
 	maxAbsImpl                   = maxAbsGo

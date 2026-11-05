@@ -9,8 +9,13 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build !amd64 && !arm64
+//go:build !amd64
 
 package simd
 
-func asmDotKernels() []asmDotKernel { return nil }
+// No hand-written float32 Dot/L2 assembly remains outside amd64: the arm64
+// NEON and SVE kernels measured slower than archsimd (see docs/simd.md).
+
+func asmDotKernels() []asmKernel { return nil }
+
+func asmL2Kernels() []asmKernel { return nil }

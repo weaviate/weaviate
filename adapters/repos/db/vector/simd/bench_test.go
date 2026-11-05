@@ -33,6 +33,11 @@ func BenchmarkKernels(b *testing.B) {
 					benchSink = ks.dot(x, y)
 				}
 			})
+			b.Run(pfx+"L2", func(b *testing.B) {
+				for b.Loop() {
+					benchSink = ks.l2(x, y)
+				}
+			})
 			b.Run(pfx+"Sum", func(b *testing.B) {
 				for b.Loop() {
 					benchSink = ks.sum(x)

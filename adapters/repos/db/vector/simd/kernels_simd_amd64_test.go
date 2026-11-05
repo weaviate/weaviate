@@ -20,14 +20,14 @@ import (
 
 var avx2Kernels = kernelSet{
 	name: "avx2", add: addAVX2, sub: subAVX2, scale: scaleAVX2, addScalar: addScalarAVX2,
-	sum: sumAVX2, minF: minAVX2, maxF: maxAVX2, maxAbs: maxAbsAVX2, dot: dotAVX2,
+	sum: sumAVX2, minF: minAVX2, maxF: maxAVX2, maxAbs: maxAbsAVX2, dot: dotAVX2, l2: l2AVX2,
 	int32ToFloat32Scale: int32ToFloat32ScaleAVX2, float32ToInt32ScaleClamp: float32ToInt32ScaleClampAVX2,
 	dotInt8: dotInt8AVX2,
 }
 
 var avx512Kernels = kernelSet{
 	name: "avx512", add: addAVX512, sub: subAVX512, scale: scaleAVX512, addScalar: addScalarAVX512,
-	sum: sumAVX512, minF: minAVX512, maxF: maxAVX512, maxAbs: maxAbsAVX512, dot: dotAVX512,
+	sum: sumAVX512, minF: minAVX512, maxF: maxAVX512, maxAbs: maxAbsAVX512, dot: dotAVX512, l2: l2AVX512,
 	int32ToFloat32Scale: int32ToFloat32ScaleAVX512, float32ToInt32ScaleClamp: float32ToInt32ScaleClampAVX512,
 	dotInt8: dotInt8AVX512,
 }

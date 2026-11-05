@@ -16,8 +16,9 @@ import (
 	"math/bits"
 	"testing"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 	"golang.org/x/sys/cpu"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
 func HammingBitwiseGo(x, y []uint64) float32 {

@@ -37,6 +37,7 @@ func init() {
 	addScalarImpl = addScalarNEON
 	sumImpl = sumNEON
 	dotImpl = dotNEON
+	l2Impl = l2NEON
 	minImpl = minNEON
 	maxImpl = maxNEON
 	maxAbsImpl = maxAbsNEON
@@ -305,6 +306,58 @@ func dotNEON(a, b []float32) float32 {
 	s := hsum4(acc0)
 	for ; i < n; i++ {
 		s += a[i] * b[i]
+	}
+	return s
+}
+
+func l2NEON(a, b []float32) float32 {
+	n := len(a)
+	var acc0, acc1, acc2, acc3, acc4, acc5, acc6, acc7 archsimd.Float32x4
+	ba, bb := unsafe.Pointer(&a[0]), unsafe.Pointer(&b[0])
+	i := 0
+	if i+32 <= n {
+		pa, pb := unsafe.Add(ba, uintptr(i)*4), unsafe.Add(bb, uintptr(i)*4)
+		for {
+			d0 := ldF32x4(pa, 0).Sub(ldF32x4(pb, 0))
+			acc0 = d0.MulAdd(d0, acc0)
+			d1 := ldF32x4(pa, 16).Sub(ldF32x4(pb, 16))
+			acc1 = d1.MulAdd(d1, acc1)
+			d2 := ldF32x4(pa, 32).Sub(ldF32x4(pb, 32))
+			acc2 = d2.MulAdd(d2, acc2)
+			d3 := ldF32x4(pa, 48).Sub(ldF32x4(pb, 48))
+			acc3 = d3.MulAdd(d3, acc3)
+			d4 := ldF32x4(pa, 64).Sub(ldF32x4(pb, 64))
+			acc4 = d4.MulAdd(d4, acc4)
+			d5 := ldF32x4(pa, 80).Sub(ldF32x4(pb, 80))
+			acc5 = d5.MulAdd(d5, acc5)
+			d6 := ldF32x4(pa, 96).Sub(ldF32x4(pb, 96))
+			acc6 = d6.MulAdd(d6, acc6)
+			d7 := ldF32x4(pa, 112).Sub(ldF32x4(pb, 112))
+			acc7 = d7.MulAdd(d7, acc7)
+			i += 32
+			if i+32 > n {
+				break
+			}
+			pa, pb = unsafe.Add(pa, 128), unsafe.Add(pb, 128)
+		}
+	}
+	acc0 = acc0.Add(acc1).Add(acc2.Add(acc3)).Add(acc4.Add(acc5).Add(acc6.Add(acc7)))
+	if i+4 <= n {
+		pa, pb := unsafe.Add(ba, uintptr(i)*4), unsafe.Add(bb, uintptr(i)*4)
+		for {
+			d0 := ldF32x4(pa, 0).Sub(ldF32x4(pb, 0))
+			acc0 = d0.MulAdd(d0, acc0)
+			i += 4
+			if i+4 > n {
+				break
+			}
+			pa, pb = unsafe.Add(pa, 16), unsafe.Add(pb, 16)
+		}
+	}
+	s := hsum4(acc0)
+	for ; i < n; i++ {
+		d := a[i] - b[i]
+		s += d * d
 	}
 	return s
 }

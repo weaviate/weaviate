@@ -64,7 +64,30 @@ func DotProduct(a, b []float32) float32 {
 	if n == 0 {
 		return 0
 	}
+	if n <= SmallMax {
+		if n == 2 { // geo coordinates: keep the hottest small case inline
+			return a[0]*b[0] + a[1]*b[1]
+		}
+		return dotSmall(a[:n], b[:n])
+	}
 	return dotImpl(a[:n], b[:n])
+}
+
+// L2Squared returns sum((a[i] - b[i])^2) over min(len(a), len(b)) elements, 0
+// when either slice is empty.
+func L2Squared(a, b []float32) float32 {
+	n := min(len(a), len(b))
+	if n == 0 {
+		return 0
+	}
+	if n <= SmallMax {
+		if n == 2 { // geo coordinates: keep the hottest small case inline
+			d0, d1 := a[0]-b[0], a[1]-b[1]
+			return d0*d0 + d1*d1
+		}
+		return l2Small(a[:n], b[:n])
+	}
+	return l2Impl(a[:n], b[:n])
 }
 
 // SumOfSquares returns sum(a[i]^2), 0 for an empty slice. It shares the dot

@@ -53,6 +53,7 @@ func init() {
 	addScalarImpl = addScalarAVX2
 	sumImpl = sumAVX2
 	dotImpl = dotAVX2
+	l2Impl = l2AVX2
 	minImpl = minAVX2
 	maxImpl = maxAVX2
 	maxAbsImpl = maxAbsAVX2
@@ -66,6 +67,7 @@ func init() {
 		addScalarImpl = addScalarAVX512
 		sumImpl = sumAVX512
 		dotImpl = dotAVX512
+		l2Impl = l2AVX512
 		minImpl = minAVX512
 		maxImpl = maxAVX512
 		maxAbsImpl = maxAbsAVX512
@@ -369,6 +371,42 @@ func dotAVX2(a, b []float32) float32 {
 	s := hsum8(acc0)
 	for ; i < n; i++ {
 		s += a[i] * b[i]
+	}
+	return s
+}
+
+func l2AVX2(a, b []float32) float32 {
+	n := len(a)
+	var acc0, acc1, acc2, acc3 archsimd.Float32x8
+	ba, bb := unsafe.Pointer(&a[0]), unsafe.Pointer(&b[0])
+	i := 0
+	if i+32 <= n {
+		pa, pb := unsafe.Add(ba, uintptr(i)*4), unsafe.Add(bb, uintptr(i)*4)
+		for {
+			d0 := ldF32x8(pa, 0).Sub(ldF32x8(pb, 0))
+			acc0 = d0.MulAdd(d0, acc0)
+			d1 := ldF32x8(pa, 32).Sub(ldF32x8(pb, 32))
+			acc1 = d1.MulAdd(d1, acc1)
+			d2 := ldF32x8(pa, 64).Sub(ldF32x8(pb, 64))
+			acc2 = d2.MulAdd(d2, acc2)
+			d3 := ldF32x8(pa, 96).Sub(ldF32x8(pb, 96))
+			acc3 = d3.MulAdd(d3, acc3)
+			i += 32
+			if i+32 > n {
+				break
+			}
+			pa, pb = unsafe.Add(pa, 128), unsafe.Add(pb, 128)
+		}
+	}
+	acc0 = acc0.Add(acc1).Add(acc2.Add(acc3))
+	for ; i+8 <= n; i += 8 {
+		d := ldF32x8(ba, uintptr(i)*4).Sub(ldF32x8(bb, uintptr(i)*4))
+		acc0 = d.MulAdd(d, acc0)
+	}
+	s := hsum8(acc0)
+	for ; i < n; i++ {
+		d := a[i] - b[i]
+		s += d * d
 	}
 	return s
 }
@@ -841,6 +879,57 @@ func dotAVX512(a, b []float32) float32 {
 	s := hsum16(acc0)
 	if i < n {
 		s += dotAVX2(a[i:], b[i:])
+	}
+	return s
+}
+
+func l2AVX512(a, b []float32) float32 {
+	n := len(a)
+	var acc0, acc1, acc2, acc3, acc4, acc5, acc6, acc7 archsimd.Float32x16
+	ba, bb := unsafe.Pointer(&a[0]), unsafe.Pointer(&b[0])
+	i := 0
+	if i+128 <= n {
+		pa, pb := unsafe.Add(ba, uintptr(i)*4), unsafe.Add(bb, uintptr(i)*4)
+		for {
+			d0 := ldF32x16(pa, 0).Sub(ldF32x16(pb, 0))
+			acc0 = d0.MulAdd(d0, acc0)
+			d1 := ldF32x16(pa, 64).Sub(ldF32x16(pb, 64))
+			acc1 = d1.MulAdd(d1, acc1)
+			d2 := ldF32x16(pa, 128).Sub(ldF32x16(pb, 128))
+			acc2 = d2.MulAdd(d2, acc2)
+			d3 := ldF32x16(pa, 192).Sub(ldF32x16(pb, 192))
+			acc3 = d3.MulAdd(d3, acc3)
+			d4 := ldF32x16(pa, 256).Sub(ldF32x16(pb, 256))
+			acc4 = d4.MulAdd(d4, acc4)
+			d5 := ldF32x16(pa, 320).Sub(ldF32x16(pb, 320))
+			acc5 = d5.MulAdd(d5, acc5)
+			d6 := ldF32x16(pa, 384).Sub(ldF32x16(pb, 384))
+			acc6 = d6.MulAdd(d6, acc6)
+			d7 := ldF32x16(pa, 448).Sub(ldF32x16(pb, 448))
+			acc7 = d7.MulAdd(d7, acc7)
+			i += 128
+			if i+128 > n {
+				break
+			}
+			pa, pb = unsafe.Add(pa, 512), unsafe.Add(pb, 512)
+		}
+	}
+	acc0 = acc0.Add(acc1).Add(acc2.Add(acc3)).Add(acc4.Add(acc5).Add(acc6.Add(acc7)))
+	if i+16 <= n {
+		pa, pb := unsafe.Add(ba, uintptr(i)*4), unsafe.Add(bb, uintptr(i)*4)
+		for {
+			d0 := ldF32x16(pa, 0).Sub(ldF32x16(pb, 0))
+			acc0 = d0.MulAdd(d0, acc0)
+			i += 16
+			if i+16 > n {
+				break
+			}
+			pa, pb = unsafe.Add(pa, 64), unsafe.Add(pb, 64)
+		}
+	}
+	s := hsum16(acc0)
+	if i < n {
+		s += l2AVX2(a[i:], b[i:])
 	}
 	return s
 }

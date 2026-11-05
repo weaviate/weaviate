@@ -12,8 +12,9 @@
 package distancer
 
 import (
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 	"golang.org/x/sys/cpu"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
 func init() {

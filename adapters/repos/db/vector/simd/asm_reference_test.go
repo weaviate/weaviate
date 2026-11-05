@@ -17,19 +17,28 @@ import (
 	"testing"
 )
 
-// BenchmarkDotVsAsm puts the archsimd dot product beside the hand-written
-// kernels in hnsw/distancer/asm, which are the bar any migration of those
-// kernels into this package has to clear. asmDotKernels is per-architecture.
+// BenchmarkDotVsAsm and BenchmarkL2VsAsm put the archsimd dot product and
+// squared L2 beside the remaining hand-written kernels in hnsw/distancer/asm,
+// which are the bar for any further migration into this package.
+// asmDotKernels and asmL2Kernels are per-architecture.
 func BenchmarkDotVsAsm(b *testing.B) {
+	benchVsAsm(b, DotProduct, asmDotKernels())
+}
+
+func BenchmarkL2VsAsm(b *testing.B) {
+	benchVsAsm(b, L2Squared, asmL2Kernels())
+}
+
+func benchVsAsm(b *testing.B, ours func(x, y []float32) float32, refs []asmKernel) {
 	rng := rand.New(rand.NewPCG(21, 22))
-	for _, n := range []int{8, 64, 128, 384, 768, 1536, 3072} {
+	for _, n := range []int{2, 8, 64, 128, 384, 768, 1536, 3072} {
 		x, y := randFloats(rng, n), randFloats(rng, n)
 		b.Run(fmt.Sprintf("simd/n=%d", n), func(b *testing.B) {
 			for b.Loop() {
-				benchSink = DotProduct(x, y)
+				benchSink = ours(x, y)
 			}
 		})
-		for _, k := range asmDotKernels() {
+		for _, k := range refs {
 			b.Run(fmt.Sprintf("%s/n=%d", k.name, n), func(b *testing.B) {
 				for b.Loop() {
 					benchSink = k.fn(x, y)
@@ -39,7 +48,7 @@ func BenchmarkDotVsAsm(b *testing.B) {
 	}
 }
 
-type asmDotKernel struct {
+type asmKernel struct {
 	name string
 	fn   func(x, y []float32) float32
 }

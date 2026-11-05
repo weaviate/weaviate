@@ -16,10 +16,18 @@ import (
 	"golang.org/x/sys/cpu"
 )
 
-func asmDotKernels() []asmDotKernel {
-	ks := []asmDotKernel{{"asm-avx2", asm.DotAVX256}}
+func asmDotKernels() []asmKernel {
+	ks := []asmKernel{{"asm-avx2", asm.DotAVX256}}
 	if cpu.X86.HasAVX512 {
-		ks = append(ks, asmDotKernel{"asm-avx512", asm.DotAVX512})
+		ks = append(ks, asmKernel{"asm-avx512", asm.DotAVX512})
+	}
+	return ks
+}
+
+func asmL2Kernels() []asmKernel {
+	ks := []asmKernel{{"asm-avx2", asm.L2AVX256}}
+	if cpu.X86.HasAVX512 {
+		ks = append(ks, asmKernel{"asm-avx512", asm.L2AVX512})
 	}
 	return ks
 }

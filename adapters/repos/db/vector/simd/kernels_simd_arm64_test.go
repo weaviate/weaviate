@@ -17,7 +17,7 @@ import "testing"
 
 var neonKernels = kernelSet{
 	name: "neon", add: addNEON, sub: subNEON, scale: scaleNEON, addScalar: addScalarNEON,
-	sum: sumNEON, minF: minNEON, maxF: maxNEON, maxAbs: maxAbsNEON, dot: dotNEON,
+	sum: sumNEON, minF: minNEON, maxF: maxNEON, maxAbs: maxAbsNEON, dot: dotNEON, l2: l2NEON,
 	int32ToFloat32Scale: int32ToFloat32ScaleNEON, float32ToInt32ScaleClamp: float32ToInt32ScaleClampNEON,
 	dotInt8: dotInt8NEON,
 }

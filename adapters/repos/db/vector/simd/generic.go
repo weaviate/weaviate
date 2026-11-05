@@ -79,6 +79,25 @@ func dotGo(a, b []float32) float32 {
 	return s
 }
 
+func l2Go(a, b []float32) float32 {
+	b = b[:len(a)]
+	var s0, s1, s2, s3 float32
+	i := 0
+	for ; i+4 <= len(a); i += 4 {
+		d0, d1, d2, d3 := a[i]-b[i], a[i+1]-b[i+1], a[i+2]-b[i+2], a[i+3]-b[i+3]
+		s0 += d0 * d0
+		s1 += d1 * d1
+		s2 += d2 * d2
+		s3 += d3 * d3
+	}
+	s := (s0 + s1) + (s2 + s3)
+	for ; i < len(a); i++ {
+		d := a[i] - b[i]
+		s += d * d
+	}
+	return s
+}
+
 func minGo(a []float32) float32 {
 	m := a[0]
 	for _, v := range a[1:] {
