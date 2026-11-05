@@ -2782,6 +2782,29 @@ func TestRewind_ServesAChunkWhoseTombstoneFailed(t *testing.T) {
 	assert.Equal(t, []uint64{1, 2, 3}, taskIDs(t, batch))
 }
 
+// A chunk both listed and tombstoned is queued once. An empty directory as the
+// tombstone stands in for a tombstone that failed halfway.
+func TestRewind_QueuesAChunkStillListedOnce(t *testing.T) {
+	s := startedScheduler(t)
+	q := sealedQueue(t, s, t.TempDir())
+	chunks, _ := chunksOf(t, q)
+	require.NoError(t, q.Retain())
+
+	require.NoError(t, os.Mkdir(chunks[0]+".processed", 0o755))
+	processNext(t, q)
+
+	require.NoError(t, q.Rewind())
+	require.NoError(t, q.ReleaseRetention())
+	assert.EqualValues(t, 9, q.Size())
+	for _, want := range [][]uint64{{1, 2, 3}, {4, 5, 6}, {7, 8, 9}} {
+		batch, err := q.DequeueBatch()
+		require.NoError(t, err)
+		assert.Equal(t, want, taskIDs(t, batch))
+		batch.Done()
+	}
+	assert.Zero(t, q.Size())
+}
+
 // A kept chunk whose header no longer reads is quarantined, and the rest is
 // served.
 func TestRewind_QuarantinesAKeptChunkWithAnUnreadableHeader(t *testing.T) {
