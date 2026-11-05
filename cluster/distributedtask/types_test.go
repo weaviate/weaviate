@@ -66,7 +66,9 @@ func TestTask_Clone_DeepCopiesAckMaps(t *testing.T) {
 		PreparedGroups: map[string]map[string]PostCompletionAck{
 			"g1": {"node-1": {Success: true, AckedAt: now}},
 		},
-		SwapDecidedGroups: map[string]time.Time{"g0": now},
+		SwapDecidedGroups:   map[string]time.Time{"g0": now},
+		SwapsOwed:           map[string][]string{"g0": {"node-1"}},
+		NodePreparationAcks: map[string]PostCompletionAck{"node-1": {Success: true, AckedAt: now}},
 	}, map[string]*Unit{
 		"u-1": {ID: "u-1", NodeID: "node-1", Status: UnitStatusCompleted},
 	})
@@ -80,6 +82,8 @@ func TestTask_Clone_DeepCopiesAckMaps(t *testing.T) {
 	clone.PreparedGroups["g1"]["node-1"] = PostCompletionAck{Success: false, Error: "prep"}
 	clone.PreparedGroups["g2"] = map[string]PostCompletionAck{"node-2": {Success: true}}
 	clone.SwapDecidedGroups["g1"] = now
+	clone.SwapsOwed["g1"] = []string{"node-2"}
+	clone.NodePreparationAcks["node-2"] = PostCompletionAck{Success: true}
 
 	// Original must be untouched on EVERY map.
 	assert.Equal(t, UnitStatusCompleted, orig.Unit("u-1").Status, "Units value-level deep copy")
@@ -88,6 +92,8 @@ func TestTask_Clone_DeepCopiesAckMaps(t *testing.T) {
 	assert.True(t, orig.PreparedGroups["g1"]["node-1"].Success, "PreparedGroups must not alias clone")
 	assert.NotContains(t, orig.PreparedGroups, "g2", "PreparedGroups must not alias clone")
 	assert.NotContains(t, orig.SwapDecidedGroups, "g1", "SwapDecidedGroups must not alias clone")
+	assert.NotContains(t, orig.SwapsOwed, "g1", "SwapsOwed must not alias clone")
+	assert.NotContains(t, orig.NodePreparationAcks, "node-2", "NodePreparationAcks must not alias clone")
 }
 
 // Pins that every copy of a task answers per-group questions, and that a

@@ -1194,4 +1194,8 @@ func TestBarrier_RestartKeepsADecidedSwapOfATerminalTask(t *testing.T) {
 	h.tick(1)
 	require.Equal(t, 2, h.nodes[1].provider.swapCount("T-owed"),
 		"the restarted replica still owes the decided swap and runs it")
+
+	h.restart(0)
+	h.tick(0)
+	require.Equal(t, 1, h.nodes[0].provider.swapCount("T-owed"), "a replica that paid does not swap again after a restart")
 }

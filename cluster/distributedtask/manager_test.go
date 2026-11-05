@@ -2645,6 +2645,7 @@ func TestManager_ForgetGroupsForCollection(t *testing.T) {
 			task := h.manager.tasks["ns"]["T"]
 			task.Status = tc.status
 			task.SwapDecidedGroups = map[string]time.Time{"a": {}, "b": {}}
+			task.SwapsOwed = map[string][]string{"a": {"n1"}, "b": {"n1"}}
 			before := task.Clone()
 
 			h.manager.ForgetGroupsForCollection("Foo", []string{"a", "gone"})
@@ -2659,6 +2660,7 @@ func TestManager_ForgetGroupsForCollection(t *testing.T) {
 			require.Equal(t, 1, task.UnitCount())
 			require.False(t, task.GroupSwapDecided("a"))
 			require.True(t, task.GroupSwapDecided("b"))
+			require.Equal(t, map[string][]string{"b": {"n1"}}, task.SwapsOwed, "a forgotten tenant owes no swap")
 			require.True(t, task.AllGroupsSwapDecided())
 			require.ElementsMatch(t, []string{"a", "b"}, before.Groups(), "a copy taken earlier keeps its own index")
 		})
