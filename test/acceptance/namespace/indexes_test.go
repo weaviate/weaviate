@@ -120,7 +120,7 @@ func TestNamespaces_IndexesUpdate(t *testing.T) {
 			schema.NewSchemaObjectsIndexUpsertParams().
 				WithClassName(className).
 				WithPropertyName("title").
-				WithIndexName("filterable").
+				WithIndexName("searchable").
 				WithBody(body),
 			helper.CreateAuth(key),
 		)
@@ -159,7 +159,7 @@ func TestNamespaces_IndexesUpdate(t *testing.T) {
 					schema.NewSchemaObjectsIndexCancelParams().
 						WithClassName(qualified).
 						WithPropertyName("title").
-						WithIndexName("filterable"),
+						WithIndexName("searchable"),
 					helper.CreateAuth(adminKey),
 				)
 				assert.NoError(c, helper.DeleteClassAuthWithReturn(t, qualified, adminKey))

@@ -43,7 +43,8 @@ function release() {
   git_revision=$(echo "$GITHUB_SHA" | cut -c1-7)
   git_branch="$GITHUB_HEAD_REF"
   build_user="ci"
-  build_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  # Commit timestamp, not wall clock, so the binary is reproducible (docs/reproducible-builds.md).
+  build_date=$(TZ=UTC git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd "$GITHUB_SHA")
 
   # Determine architecture and platform
   arch=""

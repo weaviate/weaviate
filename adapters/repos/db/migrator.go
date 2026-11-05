@@ -610,7 +610,10 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propert
 }
 
 func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
-	idx := m.db.GetIndex(schema.ClassName(className))
+	idx, err := m.db.indexForRead(ctx, schema.ClassName(className))
+	if err != nil {
+		return nil, err
+	}
 	if idx == nil {
 		// index not yet local (RAFT schema not applied on this node) or class does not exist
 		return nil, fmt.Errorf("cannot get shards queue size for a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
@@ -620,7 +623,10 @@ func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant str
 }
 
 func (m *Migrator) GetShardsStorageStatus(ctx context.Context, className, tenant string) (map[string]map[string]string, map[string]string, error) {
-	idx := m.db.GetIndex(schema.ClassName(className))
+	idx, err := m.db.indexForRead(ctx, schema.ClassName(className))
+	if err != nil {
+		return nil, nil, err
+	}
 	if idx == nil {
 		// index not yet local (RAFT schema not applied on this node) or class does not exist
 		return nil, nil, fmt.Errorf("cannot get shards status for a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
@@ -935,21 +941,22 @@ func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]sche
 	// file names derive from the name, so "compressed" next to the legacy
 	// vector shares its quantized bucket. Checked here, before the schema
 	// commits; the shard checks again against its own records.
-	owners := make(map[string]string, len(old))
+	owners := make(map[string]vectorIndexOwner, len(old))
 	for name, cfg := range old {
 		if vectorIndexHasStorage(cfg) {
-			owners[name] = vectorIndexID(name)
+			owners[name] = ownerAt(vectorIndexID(name))
 		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(updated)) {
 		if _, existed := old[name]; existed || !vectorIndexHasStorage(updated[name]) {
 			continue
 		}
-		collisions := vectorIndexCollisionsWith(owners, name, vectorIndexID(name))
+		owner := ownerAt(vectorIndexID(name))
+		collisions := vectorIndexCollisionsWith(owners, name, owner)
 		if len(collisions) > 0 {
 			return vectorIndexCollisionError(name, collisions)
 		}
-		owners[name] = vectorIndexID(name)
+		owners[name] = owner
 	}
 	return nil
 }

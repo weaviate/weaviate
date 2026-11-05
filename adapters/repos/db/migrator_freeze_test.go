@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -133,4 +135,49 @@ func TestFreezeAbortReportsPreFreezeStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+type downloadingOffloadCloud struct {
+	failingOffloadCloud
+	download func(shardName, nodeName string) error
+}
+
+func (c *downloadingOffloadCloud) Download(_ context.Context, _, shardName, nodeName string) error {
+	return c.download(shardName, nodeName)
+}
+
+// Unfreezing onto a different node must adopt the freezing node's records,
+// or the load serves an empty index.
+func TestUnfreezeOntoAnotherNodeAdoptsTheFreezingNodesRecords(t *testing.T) {
+	const class, tenant, frozenOn, node = "UnfreezeAdopt", "t1", "node9", "node1"
+	logger, _ := test.NewNullLogger()
+	idx := &Index{
+		logger:           logger,
+		backupLock:       esync.NewKeyRWLocker(),
+		shardCreateLocks: esync.NewKeyRWLocker(),
+		Config:           IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName(class)},
+	}
+	lsmPath := shardPathLSM(idx.path(), tenant)
+	subject := testMigrationSubject(42, StrategyCodeEnableFilterable, "title")
+	subject.Key.UnitID = MigrationUnitID(tenant, frozenOn)
+
+	m := NewMigrator(nil, logger, node)
+	m.SetNode(node)
+	m.SetCluster(&recordingProcessor{})
+	m.cloud = &downloadingOffloadCloud{download: func(shardName, nodeName string) error {
+		require.Equal(t, frozenOn, nodeName, "fixture: the download reads the freezing node's copy")
+		if err := os.MkdirAll(lsmPath, 0o777); err != nil {
+			return err
+		}
+		return NewMigrationRecordStore(lsmPath, logger).Put(newMigrationRecordAt(t, subject, MigrationStateSwapped))
+	}}
+
+	ec := errorcompounder.NewSafe()
+	m.unfreeze(context.Background(), idx, class, []string{tenant + "#" + frozenOn}, ec)
+	require.NoError(t, ec.ToError())
+
+	local := NewMigrationRecordStoreForUnit(lsmPath, MigrationUnitID(tenant, node), logger)
+	require.NoError(t, local.Load())
+	require.Len(t, local.Records(), 1, "the freezing node's record is this node's to finalize")
+	require.Equal(t, MigrationStateSwapped, local.Records()[0].State())
 }

@@ -25,13 +25,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
+	"github.com/weaviate/weaviate/test/acceptance/helpers/reindexrecords"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
 // TestMultiNode_CancelClearsAcrossReplicas asserts that cancel-cleanup
-// drains in-flight reindex trackers on every replica, that a subsequent
+// drains in-flight reindex state on every replica, that a subsequent
 // backup succeeds, and that DELETE class removes the class dir on every
 // node. Requires ≥3 nodes and cancel within ~1s of STARTED to exercise
 // the limiter.Acquire-vs-ctx-cancel path.
@@ -123,16 +125,15 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 			break
 		}
 
-		// Tracker dirs of a migration that ran to completion on an earlier
-		// attempt stay on disk until the next restart, and cancel-cleanup
-		// preserves them on purpose. Read them here, outside the race
-		// window, so the drain assertion can tell them apart from the dirs
+		// What a migration that ran to completion on an earlier attempt left
+		// on disk, cancel-cleanup preserves on purpose. Read it here, outside
+		// the race window, so the drain assertion can tell it apart from what
 		// the cancelled run has to remove. Empty on the first attempt, so
 		// a run that wins straight away asserts exactly what it did before.
 		baseline := scanBodyMigrationsAllReplicas(ctx, t, compose, classDirLower, allShards, propName)
 
 		// Tokenization-changing migration creates both searchable and
-		// filterable trackers per (shard, replica).
+		// filterable working copies per (shard, replica).
 		target := nextTokenization[current]
 		submittedAt := time.Now()
 		taskID := reindexhelpers.SubmitIndexUpsert(t, uri, className, propName, "searchable",
@@ -141,8 +142,8 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 
 		// One /v1/tasks read answers both halves of the gate — the task is
 		// STARTED and a unit is actually working — and the cancel is the
-		// next statement. A tracker dir on disk answers neither half: it
-		// outlives the migration that created it, so the migration may
+		// next statement. A working copy on disk answers neither half: it
+		// can outlive the migration that created it, so the migration may
 		// well be over by the time the scan comes back.
 		midFlight, observed := awaitTaskMidFlight(t, uri, taskID, midFlightTimeout)
 		if midFlight {
@@ -151,7 +152,7 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 			if cancelled {
 				won, winningAttempt, wonTaskID, wonBaseline = true, attempt, taskID, baseline
 				attemptLog = append(attemptLog, fmt.Sprintf(
-					"attempt %d: %s, mid-flight→cancel %s, %d pre-existing tracker dir(s)",
+					"attempt %d: %s, mid-flight→cancel %s, %d pre-existing path(s)",
 					attempt, arm, time.Since(midFlightAt), len(baseline)))
 				break
 			}
@@ -168,7 +169,7 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 			"attempt %d lost the cancel race (%s) and then ended %s. Only a completed migration is a race loss",
 			attempt, observed, terminal)
 		attemptLog = append(attemptLog, fmt.Sprintf(
-			"attempt %d: lost — %s, submit→FINISHED %s, %d pre-existing tracker dir(s)",
+			"attempt %d: lost — %s, submit→FINISHED %s, %d pre-existing path(s)",
 			attempt, observed, time.Since(submittedAt), len(baseline)))
 
 		// The migration completed, so the property now carries the target
@@ -199,8 +200,8 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 	terminalStatus := awaitTaskTerminal(t, uri, wonTaskID, cancelTimeout)
 	t.Logf("cancelled task %s reached %s", wonTaskID, terminalStatus)
 
-	// Every replica on every node must drain the .migrations/*_body_*
-	// dirs the cancelled run created, within cancelTimeout. Dirs that
+	// Every replica on every node must drain the working copies and records
+	// the cancelled run created, within cancelTimeout. Paths that
 	// were already there belong to an earlier attempt's completed
 	// migration, which production keeps by design.
 	preExisting := make(map[string]struct{}, len(wonBaseline))
@@ -215,7 +216,7 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 			}
 		}
 		assert.Emptyf(c, survivors,
-			"cancel-cleanup left .migrations/*_%s_* dirs on %d replica slots:\n  %s",
+			"cancel-cleanup left %s migration state on %d replica slots:\n  %s",
 			propName, len(survivors), strings.Join(survivors, "\n  "))
 	}, cancelTimeout, 50*time.Millisecond)
 
@@ -396,9 +397,9 @@ func collectShardNamesForClass(t *testing.T, restURI, className string) []string
 	return out
 }
 
-// scanBodyMigrationsAllReplicas returns a "<nodeIdx>:<shard>/<dir>"
-// identifier per .migrations/*_<propName>_* dir still on disk. Empty
-// slice means every replica is clean.
+// scanBodyMigrationsAllReplicas returns a "<nodeIdx>:<shard>/<path>"
+// identifier per migration working copy of propName and per migration record
+// still on disk. Empty slice means every replica is clean.
 func scanBodyMigrationsAllReplicas(
 	ctx context.Context, t *testing.T, compose *docker.DockerCompose,
 	classDirLower string, shards []string, propName string,
@@ -413,36 +414,46 @@ func scanBodyMigrationsAllReplicas(
 }
 
 // scanBodyMigrationsOnNode is the single-node half of
-// scanBodyMigrationsAllReplicas. One entry per directory, so callers can
+// scanBodyMigrationsAllReplicas. One entry per path, so callers can
 // subtract the set a previous migration left behind.
 func scanBodyMigrationsOnNode(
 	ctx context.Context, t *testing.T, compose *docker.DockerCompose,
 	classDirLower string, shards []string, propName string, nodeIdx int,
 ) []string {
 	t.Helper()
+	// Both halves of a change-tokenization; the generation is the task version,
+	// which the test does not know, so every generation matches.
+	patterns := []string{".migrations/records/*"}
+	for _, code := range []db.MigrationStrategyCode{
+		db.StrategyCodeSearchableRetokenize, db.StrategyCodeFilterableRetokenize,
+	} {
+		handles := reindexrecords.HandlesFor(t, code, propName, 1)
+		for _, dir := range []string{handles.Staged, handles.Sidecar} {
+			patterns = append(patterns, strings.TrimSuffix(dir, "_1")+"_*")
+		}
+	}
+
 	var survivors []string
 	container := compose.GetWeaviateNode(nodeIdx).Container()
 	for _, shard := range shards {
-		migsPath := fmt.Sprintf("/data/%s/%s/lsm/.migrations", classDirLower, shard)
+		lsmPath := fmt.Sprintf("/data/%s/%s/lsm", classDirLower, shard)
 		cmd := []string{
 			"sh", "-c",
-			fmt.Sprintf(`ls -1 %s 2>/dev/null | grep -E '_%s($|_)' | head -50`,
-				migsPath, propName),
+			fmt.Sprintf(`cd %s 2>/dev/null || exit 0; for f in %s; do [ -e "$f" ] && echo "$f"; done; exit 0`,
+				lsmPath, strings.Join(patterns, " ")),
 		}
 		// Demultiplexed, because the raw exec stream interleaves Docker's
 		// per-frame headers with the output and their bytes would end up
 		// inside the first directory name of every reply.
 		code, reader, err := container.Exec(ctx, cmd, tcexec.Multiplexed())
 		require.NoError(t, err, "exec on node %d for shard %s", nodeIdx, shard)
+		require.Zero(t, code, "scan on node %d for shard %s", nodeIdx, shard)
 		out := new(strings.Builder)
 		if reader != nil {
 			_, _ = io.Copy(out, reader)
 		}
-		if code != 0 {
-			continue
-		}
-		for _, dir := range strings.Fields(out.String()) {
-			survivors = append(survivors, fmt.Sprintf("node%d:%s/%s", nodeIdx, shard, dir))
+		for _, path := range strings.Fields(out.String()) {
+			survivors = append(survivors, fmt.Sprintf("node%d:%s/%s", nodeIdx, shard, path))
 		}
 	}
 	return survivors
