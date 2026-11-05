@@ -37,6 +37,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 const (
@@ -762,6 +764,100 @@ func (q *DiskQueue) Retain() error {
 	q.retained = true
 	q.retainedFrom = from
 	return nil
+}
+
+// Rewind serves every kept chunk again, in order, ahead of what is still
+// queued. The consumer must be paused. On a queue not initialized yet it only
+// makes the kept chunks ordinary ones for Init, which would delete them
+// otherwise; that is how a restart resumes one. Doing it twice replays at most
+// what a backup kept in between. The retention stays until ReleaseRetention.
+func (q *DiskQueue) Rewind() error {
+	q.rmLock.Lock()
+	defer q.rmLock.Unlock()
+	q.m.Lock()
+	defer q.m.Unlock()
+
+	live := q.r != nil
+	if live && !q.retained {
+		return errors.New("queue not retained")
+	}
+
+	entries, err := os.ReadDir(q.dir)
+	if err != nil {
+		if stderrors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return errors.Wrap(err, "failed to read directory during rewind")
+	}
+
+	var refs []chunkRef
+	var errs []error
+	for _, entry := range entries {
+		if !processedChunkFilePattern.MatchString(entry.Name()) {
+			continue
+		}
+		tombstonePath := filepath.Join(q.dir, entry.Name())
+		path := strings.TrimSuffix(tombstonePath, ".processed")
+		var ref chunkRef
+		var ok bool
+		if live {
+			ref, ok, err = q.keptChunkRef(path)
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+		}
+		err = os.Remove(tombstonePath)
+		if err != nil && !stderrors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, errors.Wrap(err, "failed to remove tombstone"))
+			continue
+		}
+		if ok {
+			refs = append(refs, ref)
+		}
+	}
+	// a tombstone back after a crash would delete a chunk not replayed yet
+	err = diskio.Fsync(q.dir)
+	if err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to sync directory"))
+	}
+
+	if live {
+		q.r.rewind(refs)
+		for _, ref := range refs {
+			q.recordCount += ref.count
+			q.diskUsage += int64(ref.size)
+		}
+		q.metrics.DiskUsage(q.diskUsage)
+		q.metrics.Size(q.recordCount)
+	}
+	return stderrors.Join(errs...)
+}
+
+// keptChunkRef reads what a kept chunk counts for. ok is false when it holds
+// nothing to serve: its file is gone, or its header no longer reads, in which
+// case it is quarantined.
+func (q *DiskQueue) keptChunkRef(path string) (ref chunkRef, ok bool, err error) {
+	info, err := os.Stat(path)
+	if stderrors.Is(err, fs.ErrNotExist) {
+		return chunkRef{}, false, nil
+	}
+	if err != nil {
+		return chunkRef{}, false, errors.Wrap(err, "failed to stat kept chunk")
+	}
+	count, err := q.readChunkRecordCount(path)
+	if isCorruptHeader(err) {
+		q.Logger.WithField("file", path).Errorf("quarantining kept chunk with unreadable header, its tasks are lost: %v", err)
+		err = os.Rename(path, path+".corrupt")
+		if err != nil {
+			return chunkRef{}, false, errors.Wrap(err, "failed to quarantine kept chunk")
+		}
+		return chunkRef{}, false, nil
+	}
+	if err != nil {
+		return chunkRef{}, false, errors.Wrap(err, "failed to read kept chunk")
+	}
+	return chunkRef{path: path, count: count, size: uint64(info.Size())}, true, nil
 }
 
 // ReleaseRetention stops keeping chunks and deletes the processed ones,
@@ -1767,6 +1863,22 @@ func (r *chunkReader) markProcessed(path string, corrupt error) {
 		r.chunkList[i].processed = true
 		r.chunkList[i].corrupt = corrupt
 	}
+}
+
+// rewind puts kept chunks back in name order, and makes the chunks still
+// listed as processed readable again.
+func (r *chunkReader) rewind(refs []chunkRef) {
+	r.m.Lock()
+	defer r.m.Unlock()
+
+	for i := range r.chunkList {
+		r.chunkList[i].processed = false
+		r.chunkList[i].corrupt = nil
+	}
+	r.chunkList = append(r.chunkList, refs...)
+	slices.SortFunc(r.chunkList, func(a, b chunkRef) int {
+		return strings.Compare(a.path, b.path)
+	})
 }
 
 // firstUnprocessed is the path of the oldest chunk whose records are not
