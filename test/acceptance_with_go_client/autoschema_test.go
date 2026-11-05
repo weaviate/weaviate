@@ -16,55 +16,56 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
-	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
+	"github.com/weaviate/weaviate-go-client/v6/data"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 )
 
 func TestAutoschemaCasingClass(t *testing.T) {
-	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
-	require.Nil(t, err)
+	ctx := t.Context()
+	c := wvhost.NewClient(t)
 
-	upperClassName := "RandomBlueTree"
-	lowerClassName := "randomBlueTree"
+	upperCollectionName := "RandomBlueTree"
+	lowerCollectionName := "randomBlueTree"
 
 	cases := []struct {
-		className1 string
-		className2 string
+		collectionName1 string
+		collectionName2 string
 	}{
-		{className1: upperClassName, className2: upperClassName},
-		{className1: lowerClassName, className2: lowerClassName},
-		{className1: upperClassName, className2: lowerClassName},
-		{className1: lowerClassName, className2: upperClassName},
+		{collectionName1: upperCollectionName, collectionName2: upperCollectionName},
+		{collectionName1: lowerCollectionName, collectionName2: lowerCollectionName},
+		{collectionName1: upperCollectionName, collectionName2: lowerCollectionName},
+		{collectionName1: lowerCollectionName, collectionName2: upperCollectionName},
 	}
 	for _, tt := range cases {
-		t.Run(tt.className1+" "+tt.className2, func(t *testing.T) {
-			c.Schema().ClassDeleter().WithClassName(tt.className1).Do(ctx)
-			c.Schema().ClassDeleter().WithClassName(tt.className2).Do(ctx)
-			creator := c.Data().Creator()
-			_, err := creator.WithClassName(tt.className1).Do(ctx)
-			require.Nil(t, err)
+		t.Run(tt.collectionName1+" "+tt.collectionName2, func(t *testing.T) {
+			var err error
 
-			_, err = creator.WithClassName(tt.className2).Do(ctx)
-			require.Nil(t, err)
+			require.NoError(t, c.Collections.Delete(ctx, tt.collectionName1))
+			require.NoError(t, c.Collections.Delete(ctx, tt.collectionName2))
+
+			_, err = c.Collections.Use(tt.collectionName1).Data.Insert(ctx, nil)
+			require.NoError(t, err, "insert into %s", tt.collectionName1)
+
+			_, err = c.Collections.Use(tt.collectionName2).Data.Insert(ctx, nil)
+			require.NoError(t, err, "insert into %s", tt.collectionName2)
 
 			// Regardless of whether a class exists or not, the delete operation will always return a success
-			require.Nil(t, c.Schema().ClassDeleter().WithClassName(upperClassName).Do(ctx))
-			require.Nil(t, c.Schema().ClassDeleter().WithClassName(lowerClassName).Do(ctx))
+			require.NoError(t, c.Collections.Delete(ctx, upperCollectionName))
+			require.NoError(t, c.Collections.Delete(ctx, lowerCollectionName))
 		})
 	}
 }
 
 func TestAutoschemaCasingProps(t *testing.T) {
-	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
-	require.Nil(t, err)
+	ctx := t.Context()
+	c := wvhost.NewClient(t)
 
-	className := "RandomGreenBike"
+	collectionName := "RandomGreenBike"
 
 	upperPropName := "SomeProp"
 	lowerPropName := "someProp"
@@ -79,39 +80,44 @@ func TestAutoschemaCasingProps(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.prop1+" "+tt.prop2, func(t *testing.T) {
-			c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-			creator := c.Data().Creator()
-			_, err := creator.WithClassName(className).Do(ctx)
-			require.Nil(t, err)
+			require.NoError(t, c.Collections.Delete(ctx, collectionName))
 
-			creator1 := c.Data().Creator()
-			_, err = creator1.WithClassName(className).WithProperties(map[string]string{tt.prop1: "something"}).Do(ctx)
-			require.Nil(t, err)
+			h := c.Collections.Use(collectionName)
+			require.NotNil(t, h, "collection handle")
 
-			creator2 := c.Data().Creator()
-			_, err = creator2.WithClassName(className).WithProperties(map[string]string{tt.prop2: "other value"}).Do(ctx)
-			require.Nil(t, err)
+			{
+				_, err := h.Data.Insert(ctx, nil)
+				require.NoError(t, err, "insert first object")
+			}
 
-			// three objects should have been added
-			result, err := c.GraphQL().Aggregate().WithClassName(className).WithFields(graphql.Field{
-				Name: "meta", Fields: []graphql.Field{
-					{Name: "count"},
-				},
-			}).Do(ctx)
-			require.Nil(t, err)
-			require.Equal(t, result.Data["Aggregate"].(map[string]interface{})[className].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"], 3.)
+			{
+				_, err := h.Data.Insert(ctx, &data.Object{
+					Properties: map[string]any{tt.prop1: "something"},
+				})
+				require.NoError(t, err, "insert second object")
+			}
 
-			require.Nil(t, c.Schema().ClassDeleter().WithClassName(className).Do(ctx))
+			{
+				_, err := h.Data.Insert(ctx, &data.Object{
+					Properties: map[string]any{tt.prop2: "other value"},
+				})
+				require.NoError(t, err, "insert third object")
+			}
+
+			count, err := h.Count(ctx)
+			require.NoError(t, err)
+			require.EqualValues(t, count, 3)
+
+			require.NoError(t, c.Collections.Delete(ctx, collectionName))
 		})
 	}
 }
 
 func TestAutoschemaCasingUpdateProps(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
-	require.Nil(t, err)
+	c := wvhost.NewClient(t)
 
-	objId := "67b79643-cf8b-4b22-b206-6e63dbb4e57a"
+	objID := uuid.MustParse("67b79643-cf8b-4b22-b206-6e63dbb4e57a")
 	upperPropName := "SomeProp"
 	lowerPropName := "someProp"
 	cases := []struct {
@@ -125,50 +131,53 @@ func TestAutoschemaCasingUpdateProps(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.prop1+" "+tt.prop2, func(t *testing.T) {
-			className := "RandomOliveTree"
-			c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-			creator := c.Data().Creator()
-			_, err := creator.WithClassName(className).Do(ctx)
-			require.Nil(t, err)
+			collectionName := "RandomOliveTree"
+			require.NoError(t, c.Collections.Delete(ctx, collectionName))
+			h := c.Collections.Use(collectionName)
 
-			creator1 := c.Data().Creator()
-			_, err = creator1.WithClassName(className).WithID(objId).WithProperties(map[string]string{tt.prop1: "something"}).Do(ctx)
-			require.Nil(t, err)
+			{
+				_, err := h.Data.Insert(ctx, nil)
+				require.NoError(t, err, "insert first object")
+			}
 
-			updater := c.Data().Updater()
-			err = updater.WithClassName(className).WithID(objId).WithProperties(map[string]string{tt.prop2: "other"}).Do(ctx)
-			require.Nil(t, err)
+			{
+				_, err := h.Data.Insert(ctx, &data.Object{
+					UUID:       &objID,
+					Properties: map[string]any{tt.prop1: "something"},
+				})
+				require.NoErrorf(t, err, "insert %s", objID)
+			}
 
-			// two objects should have been added (with one update
-			result, err := c.GraphQL().Aggregate().WithClassName(className).WithFields(graphql.Field{
-				Name: "meta", Fields: []graphql.Field{
-					{Name: "count"},
-				},
-			}).Do(ctx)
-			require.Nil(t, err)
-			require.Equal(t, result.Data["Aggregate"].(map[string]interface{})[className].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"], 2.)
+			{
+				err := h.Data.Update(ctx, data.Object{
+					UUID:       &objID,
+					Properties: map[string]any{tt.prop2: "other"},
+				})
+				require.NoErrorf(t, err, "update %s", objID)
+			}
 
-			require.Nil(t, c.Schema().ClassDeleter().WithClassName(className).Do(ctx))
+			count, err := h.Count(ctx)
+			require.NoError(t, err)
+			require.EqualValues(t, 2, count, "number of objects in collection")
 		})
 	}
 }
 
 func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
-	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
-	require.Nil(t, err)
+	c := wvhost.NewClient(t)
+	h := c.Collections.Use("BeautifulWeather")
 
 	tests := []struct {
 		name               string
-		properties         map[string]interface{}
+		properties         map[string]any
 		containsErrMessage string
 	}{
 		{
 			name: "unrecognized array property type",
-			properties: map[string]interface{}{
-				"panicProperty": []interface{}{
-					[]interface{}{
-						[]interface{}{
+			properties: map[string]any{
+				"panicProperty": []any{
+					[]any{
+						[]any{
 							"panic",
 						},
 					},
@@ -178,10 +187,10 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 		},
 		{
 			name: "unrecognized nil array property type",
-			properties: map[string]interface{}{
-				"panicProperty": []interface{}{
-					[]interface{}{
-						[]interface{}{
+			properties: map[string]any{
+				"panicProperty": []any{
+					[]any{
+						[]any{
 							nil,
 						},
 					},
@@ -191,61 +200,63 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 		},
 		{
 			name: "array property with nil",
-			properties: map[string]interface{}{
-				"nilPropertyArray": []interface{}{nil},
+			properties: map[string]any{
+				"nilPropertyArray": []any{nil},
 			},
 			containsErrMessage: "property 'nilPropertyArray' on class 'BeautifulWeather': element [0]: unrecognized data type of value '<nil>'",
 		},
 		{
 			name: "empty string array property",
-			properties: map[string]interface{}{
+			properties: map[string]any{
 				"emptyPropertyArray": []string{},
 			},
 		},
 		{
 			name: "empty interface array property",
-			properties: map[string]interface{}{
-				"emptyPropertyArray": []interface{}{},
+			properties: map[string]any{
+				"emptyPropertyArray": []any{},
 			},
 		},
 		{
 			name: "empty int array property",
-			properties: map[string]interface{}{
+			properties: map[string]any{
 				"emptyPropertyArray": []int{},
 			},
 		},
 		{
 			name: "array property with empty string",
-			properties: map[string]interface{}{
+			properties: map[string]any{
 				"emptyPropertyArray": []string{""},
 			},
 		},
 		{
 			name: "nil property",
-			properties: map[string]interface{}{
+			properties: map[string]any{
 				"nilProperty": nil,
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, err := c.Data().
-				Creator().
-				WithClassName("BeautifulWeather").
-				WithProperties(tt.properties).
-				Do(ctx)
+			t.Cleanup(func() {
+				require.NoError(t, c.Collections.Delete(context.Background(), h.CollectionName()))
+			})
+
+			id := uuid.New()
+			_, err := h.Data.Insert(context.Background(), &data.Object{
+				UUID:       &id,
+				Properties: tt.properties,
+			})
 
 			if tt.containsErrMessage != "" {
-				assert.Nil(t, resp)
-				assert.NotNil(t, err)
-				assert.ErrorContains(t, err, tt.containsErrMessage)
+				var partial data.InsertError
+				if assert.ErrorAs(t, err, &partial) &&
+					assert.Len(t, partial.Errors, 1, "insert errors") {
+					require.Contains(t, partial.Errors[0], tt.containsErrMessage)
+				}
 			} else {
-				assert.NotNil(t, resp)
-				assert.Nil(t, err)
+				require.NoError(t, err)
 			}
-
-			err = c.Schema().ClassDeleter().WithClassName("BeautifulWeather").Do(ctx)
-			require.Nil(t, err)
 		})
 	}
 }
