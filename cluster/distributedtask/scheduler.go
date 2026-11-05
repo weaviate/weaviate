@@ -634,18 +634,18 @@ func (s *Scheduler) tick() {
 		suProvider, providerIsUnitAware := provider.(UnitAwareProvider)
 		if providerIsUnitAware {
 			for desc, task := range tasks {
+				// PHASE B first: a decided swap must not wait behind other groups' PREP.
+				if task.NeedsPreparationBarrier {
+					s.runDecidedSwapPhase(namespace, desc, task, suProvider)
+				} else if task.Status != TaskStatusCancelled {
+					s.runSwapPhase(namespace, desc, task, suProvider)
+				}
+
 				// PHASE A: a barrier group prepares as soon as its own units are
 				// done, while other groups still run; no group waits for another.
 				if task.NeedsPreparationBarrier &&
 					(task.Status == TaskStatusStarted || task.Status == TaskStatusPreparing) {
 					s.runPreparationPhase(namespace, desc, task, suProvider)
-				}
-
-				// PHASE B: barrier tasks pay the swaps this node owes, in any status.
-				if task.NeedsPreparationBarrier {
-					s.runDecidedSwapPhase(namespace, desc, task, suProvider)
-				} else if task.Status != TaskStatusCancelled {
-					s.runSwapPhase(namespace, desc, task, suProvider)
 				}
 
 				// Phase 2: fire OnTaskCompleted on SWAPPING/FAILED/FINISHED/

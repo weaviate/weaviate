@@ -438,8 +438,8 @@ const (
 	TaskStatusPreparing TaskStatus = "PREPARING"
 
 	// TaskStatusSwapping means every node is firing its per-shard atomic
-	// swap. The cross-replica stagger window in this phase is bounded by
-	// RAFT propagation latency (sub-second), not PREP duration. The task
+	// swap. A tenant's replicas can swap up to one tick plus one node's
+	// in-flight PREP work apart, serving different results meanwhile. The task
 	// transitions to FINISHED only after every node's PostCompletionAck
 	// lands successfully.
 	TaskStatusSwapping TaskStatus = "SWAPPING"

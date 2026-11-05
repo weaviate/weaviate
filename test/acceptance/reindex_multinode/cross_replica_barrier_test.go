@@ -36,9 +36,10 @@ package reindex_multinode
 //
 // Post-barrier (this branch): OnGroupCompleted runs PREP only; every
 // node's PreparationCompleteAck must land via RAFT before the FSM transitions
-// PREPARING -> SWAPPING and OnSwapRequested fires. The cross-node SWAP
-// window is now bounded by RAFT propagation latency (tens of ms),
-// regardless of PREP duration.
+// PREPARING -> SWAPPING and OnSwapRequested fires. With one shard per
+// node and no other tenant's PREP queued, the cross-node SWAP window is
+// bounded by RAFT propagation latency; in general it is up to one tick
+// plus one node's in-flight PREP work.
 //
 // What this test asserts (end-to-end, in CI):
 //

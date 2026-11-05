@@ -78,6 +78,8 @@ type barrierRecordingProvider struct {
 	swapGroups   []string
 	// taskDecided is the decided groups each OnTaskCompleted was handed.
 	taskDecided [][]string
+	// calls orders PREP and swap fires: "prep:<group>" or "swap:<group>".
+	calls []string
 }
 
 func newBarrierRecordingProvider(t *testing.T) *barrierRecordingProvider {
@@ -94,6 +96,7 @@ func (p *barrierRecordingProvider) OnGroupCompleted(task *Task, groupID string, 
 	defer p.mu.Unlock()
 	p.groupCalls = append(p.groupCalls, task.ID)
 	p.groupCallsBy[task.ID]++
+	p.calls = append(p.calls, "prep:"+groupID)
 	if p.groupCompErr != nil && (p.failGroup == "" || p.failGroup == groupID) {
 		return p.groupCompErr
 	}
@@ -105,6 +108,7 @@ func (p *barrierRecordingProvider) OnSwapRequested(task *Task, groupID string, _
 	defer p.mu.Unlock()
 	p.swapCalls = append(p.swapCalls, task.ID)
 	p.swapGroups = append(p.swapGroups, groupID)
+	p.calls = append(p.calls, "swap:"+groupID)
 	p.swapCallsBy[task.ID]++
 	p.swapStatuses = append(p.swapStatuses, task.Status)
 	if p.swapRequestErr != nil {

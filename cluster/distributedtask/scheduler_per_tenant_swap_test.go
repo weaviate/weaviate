@@ -147,3 +147,29 @@ func TestPerTenantSwap(t *testing.T) {
 		}
 	})
 }
+
+// Pins that a tick runs the swaps a node owes before other groups' PREP, so a
+// decided swap does not wait behind that PREP batch.
+func TestPerTenantSwap_ADecidedSwapRunsBeforeOtherGroupsPrep(t *testing.T) {
+	defer leaktest.Check(t)()
+	h := newBarrierHarness(t, []string{"node-1", "node-2"})
+	defer h.close()
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace: h.namespace, Id: "T", SubmittedAtUnixMillis: h.clock.Now().UnixMilli(), NeedsPreparationBarrier: true,
+		UnitSpecs: []*cmd.UnitSpec{{Id: "a-1", GroupId: "a"}, {Id: "a-2", GroupId: "a"}, {Id: "b-1", GroupId: "b"}, {Id: "b-2", GroupId: "b"}},
+	}), 1))
+	complete := func(units map[string]string) {
+		for unit, node := range units {
+			require.NoError(t, h.completionRec.RecordDistributedTaskUnitCompletion(context.Background(), h.namespace, "T", 1, node, unit))
+		}
+	}
+	complete(map[string]string{"a-1": "node-1", "a-2": "node-2"})
+	h.tick(0) // node-1 prepares a
+	h.tick(1) // node-2 prepares a, which decides it
+	require.True(t, h.getTask(t, "T").GroupSwapDecided("a"))
+
+	complete(map[string]string{"b-1": "node-1", "b-2": "node-2"})
+	h.tick(0)
+	require.Equal(t, []string{"prep:a", "swap:a", "prep:b"}, h.nodes[0].provider.calls,
+		"node-1 swaps the decided group before preparing the next one")
+}

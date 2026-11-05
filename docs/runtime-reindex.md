@@ -395,10 +395,10 @@ preceding a transition on the per-task field. Annotations
                                            │   FSM gates the transition
                                   ┌────────▼────────┐
                                   │ SWAPPING        │ ← TaskStatus
-                                  └────────┬────────┘   (the barrier
-                                           │            bounded cross-node
-                                           │            swap window is
-                                           │            now ≈ tens of ms)
+                                  └────────┬────────┘   (replicas swap up
+                                           │            to one tick plus
+                                           │            one node's in-flight
+                                           │            PREP work apart)
                                            │  scheduler fires per-node
         ┌──────────────────────────────────▼─────────────────────────────┐
         │  Provider.OnSwapRequested (per-node, semantic only, barrier)  │
@@ -536,9 +536,11 @@ mechanisms:
 A group prepares as soon as its own units are COMPLETED: PREP
 (`PrependSegmentsFromBucket(reindex → ingest)`) needs the group's full
 reindex bucket on disk, and nothing else. Its swap is decided once every
-node owning one of its units acked PREP success, so the group's replicas
-swap within a tick of each other, and tenants are not coupled: one slow
-tenant does not hold the others. §6.3 has the protocol.
+node owning one of its units acked PREP success. Its replicas then swap
+up to one tick plus the rest of one node's in-flight PREP work apart (PREP
+of other tenants on the same node can delay a decided swap), and serve
+different results in that window, with no data loss. Tenants are not
+coupled: one slow tenant does not hold the others. §6.3 has the protocol.
 
 ## 4. Architecture by layer
 
@@ -618,11 +620,9 @@ Key types & contracts:
   SWAPPING in essentially zero time.
   These states close the schema-flip-lag race where a task would
   otherwise be FINISHED at the FSM layer before every node's
-  post-completion callback had committed its bucket-pointer flip, and
-  the two-phase split additionally bounds the cross-replica stagger
-  window to RAFT propagation latency (tens of ms) instead of per-node
-  PREP duration variance (which scales with bucket size and reaches
-  minutes at billion-scale).
+  post-completion callback had committed its bucket-pointer flip. A
+  tenant's replicas can still swap up to one tick plus one node's
+  in-flight PREP work apart, which can reach minutes at scale.
 - **Two-phase ack barrier** — `RecordPreparationCompleteAck` (semantic only)
   + `RecordPostCompletionAck` (all paths). Every node's scheduler
   records its phase outcome (success or error) on the task before the
@@ -1075,14 +1075,14 @@ PostCompletionAck barrier only.
   rehydrate branch; if the per-shard work succeeds the second time,
   the ack lands and the task completes normally.
 
-**Cross-replica window:** The time during which the replicas of one
-tenant are in mixed-tokenization state (some swapped, some not) is
-bounded by RAFT propagation latency between PHASE B firing on the
-fastest-node and PHASE B firing on the slowest-node — tens of
-milliseconds regardless of PREP duration. Different tenants are not
-coupled: each swaps when its own replicas are ready. Decoupling SWAP from PREP
-across nodes is the reason this window stays bounded even when PREP
-runs minutes per shard at billion-scale.
+**Cross-replica window:** The replicas of one tenant can be in
+mixed-tokenization state (some swapped, some not) for up to one tick
+plus the rest of one node's in-flight PREP work: a decided swap runs at
+the start of each tick, but a decision that lands while the node is
+running other tenants' PREP waits for that batch. In that window the
+replicas serve different BM25 and filter results; no data is lost.
+Different tenants are not coupled: each swaps when its own replicas are
+ready.
 
 **Why two phases instead of one** — the empirical anchor: at 1M-object
 scale on a 3-node × RF=1 × 5-shard cluster, QA observed a ~1-second
@@ -1152,10 +1152,9 @@ Under the two-phase barrier (semantic migrations), PREP and OVERLAY
 SET + ATOMIC SWAP fire from two different scheduler callbacks
 (`OnGroupCompleted` for PREP, `OnSwapRequested` for OVERLAY+SWAP) with
 the cluster-wide `RecordPreparationCompleteAck` barrier in between. The
-phase ordering on a single node is preserved; the barrier additionally
-bounds the cross-node skew between fastest-node SWAP and slowest-node
-SWAP to RAFT propagation latency instead of per-node PREP duration
-variance.
+phase ordering on a single node is preserved; the cross-node skew between
+fastest-node and slowest-node SWAP is bounded by one tick plus one
+node's in-flight PREP work, not by the whole PREP duration of a shard.
 
 ## 7. Concurrency model
 
