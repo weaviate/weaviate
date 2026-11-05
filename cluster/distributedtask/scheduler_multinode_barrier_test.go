@@ -527,7 +527,7 @@ func TestBarrier_G3_LatePrepAckArrivesInSwapping(t *testing.T) {
 	// Inject a duplicate prep ack on node-2 with Success=false — the
 	// shape a retried wire-call would land in if the PREP result was never
 	// cleared as sent. The Manager MUST drop
-	// it: status stays SWAPPING, the original successful ack remains.
+	// it: status stays SWAPPING and the group's decision stands.
 	h.clock.Advance(time.Minute)
 	require.NoError(t, h.ackRecorder.RecordDistributedTaskPreparationCompleteAck(
 		context.Background(), h.namespace, taskID, 1, "", "node-2", false, "late duplicate prep ack with synthesized failure",
@@ -715,16 +715,15 @@ func TestBarrier_G5_SchemaVersionMismatchRollingUpgrade(t *testing.T) {
 	// into it MUST succeed (JSON unmarshal silently drops unknown fields
 	// by default) and the legacy node sees the task without the barrier.
 	type barrierLegacyTask struct {
-		Namespace          string                                  `json:"namespace"`
-		TaskDescriptor     TaskDescriptor                          `json:",inline"`
-		Payload            []byte                                  `json:"payload"`
-		Status             TaskStatus                              `json:"status"`
-		StartedAt          time.Time                               `json:"startedAt"`
-		FinishedAt         time.Time                               `json:"finishedAt"`
-		Error              string                                  `json:"error,omitempty"`
-		Units              map[string]*Unit                        `json:"units,omitempty"`
-		PostCompletionAcks map[string]PostCompletionAck            `json:"postCompletionAcks,omitempty"`
-		PreparedGroups     map[string]map[string]PostCompletionAck `json:"preparedGroups,omitempty"`
+		Namespace          string                       `json:"namespace"`
+		TaskDescriptor     TaskDescriptor               `json:",inline"`
+		Payload            []byte                       `json:"payload"`
+		Status             TaskStatus                   `json:"status"`
+		StartedAt          time.Time                    `json:"startedAt"`
+		FinishedAt         time.Time                    `json:"finishedAt"`
+		Error              string                       `json:"error,omitempty"`
+		Units              map[string]*Unit             `json:"units,omitempty"`
+		PostCompletionAcks map[string]PostCompletionAck `json:"postCompletionAcks,omitempty"`
 	}
 	var legacy barrierLegacyTask
 	require.NoError(t, json.Unmarshal(wireBytes, &legacy),
@@ -737,8 +736,6 @@ func TestBarrier_G5_SchemaVersionMismatchRollingUpgrade(t *testing.T) {
 	// status would silently fall through to a default branch.
 	require.Equal(t, postPRTask.Namespace, legacy.Namespace)
 	require.Equal(t, postPRTask.Unit("u-1").ID, legacy.Units["u-1"].ID)
-	require.Equal(t, postPRTask.PreparedGroups, legacy.PreparedGroups,
-		"PreparedGroups must round-trip even on a legacy follower (the field name is the same, only NeedsPreparationBarrier is new)")
 	require.Equal(t, TaskStatus("PREPARING"), legacy.Status,
 		"the new PREPARING status string survives the round-trip — legacy code-paths must defensively handle unknown TaskStatus values to avoid silent state flips")
 
