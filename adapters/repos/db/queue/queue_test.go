@@ -2844,3 +2844,16 @@ func TestRewind_BeforeInitResumesAfterARestart(t *testing.T) {
 		require.NoError(t, q.Rewind())
 	})
 }
+
+// A running queue only rewinds what a retention kept: the tombstones of a
+// backup are not its to take.
+func TestRewind_RefusesAQueueNotRetained(t *testing.T) {
+	s := makeScheduler(t)
+	q := sealedQueue(t, s, t.TempDir())
+	q.EnableMaintenanceMode()
+	processNext(t, q)
+
+	require.ErrorContains(t, q.Rewind(), "not retained")
+	_, tombstoned := chunksOf(t, q)
+	assert.Len(t, tombstoned, 1)
+}
