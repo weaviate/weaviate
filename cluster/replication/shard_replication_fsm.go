@@ -309,20 +309,40 @@ func (s *ShardReplicationFSM) hasActiveOpTargetingShard(collection, shard, targe
 	// The source-keyed bucket holds exactly the ops targeting (collection, shard):
 	// both op constructors build TargetShard from the source collection/shard.
 	for _, op := range s.opsByCollectionAndShard[collection][shard] {
-		if op.TargetShard.NodeId != targetNode || (transferType != "" && op.TransferType != transferType) {
-			continue
-		}
-		status, ok := s.statusById[op.ID]
-		if !ok {
-			continue
-		}
-		switch status.GetCurrentState() {
-		case api.READY, api.CANCELLED:
-		default:
+		if op.TargetShard.NodeId == targetNode && (transferType == "" || op.TransferType == transferType) && s.opActiveLocked(op.ID) {
 			return true
 		}
 	}
 	return false
+}
+
+// HasActiveSourceReplicationForShard reads no change-capture registration, so
+// a force-deleted op no longer holds its source shard.
+func (s *ShardReplicationFSM) HasActiveSourceReplicationForShard(collection, shard, sourceNode string) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	for _, op := range s.opsByCollectionAndShard[collection][shard] {
+		if op.SourceShard.NodeId == sourceNode && s.opActiveLocked(op.ID) {
+			return true
+		}
+	}
+	return false
+}
+
+// opActiveLocked reports whether the FSM tracks the op in a state other than
+// READY or CANCELLED. The caller holds opsLock.
+func (s *ShardReplicationFSM) opActiveLocked(id uint64) bool {
+	status, ok := s.statusById[id]
+	if !ok {
+		return false
+	}
+	switch status.GetCurrentState() {
+	case api.READY, api.CANCELLED:
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *ShardReplicationFSM) getOpsWithStatus(ops []ShardReplicationOp) []ShardReplicationOpAndStatus {
