@@ -348,6 +348,38 @@ func TestExplorerGroupSearchResults(t *testing.T) {
 		assert.Len(t, grouped, 2)
 	})
 
+	t.Run("array value joins existing group after groups limit", func(t *testing.T) {
+		// The groups limit is reached after obj1 and obj2. obj3 must not
+		// create group "C", but it still carries tag "A", so it belongs to
+		// the already existing group "A".
+		results := search.Results{
+			createSearchResult("obj1", map[string]interface{}{"tags": []string{"A"}}, 0.1),
+			createSearchResult("obj2", map[string]interface{}{"tags": []string{"B"}}, 0.2),
+			createSearchResult("obj3", map[string]interface{}{"tags": []string{"C", "A"}}, 0.3),
+		}
+
+		groupBy := &searchparams.GroupBy{
+			Property:        "tags",
+			Groups:          2,
+			ObjectsPerGroup: 5,
+		}
+
+		grouped, err := explorer.groupSearchResults(ctx, results, groupBy)
+		require.NoError(t, err)
+
+		assert.Len(t, grouped, 2)
+
+		groups := map[string]int{}
+		for _, result := range grouped {
+			group := result.AdditionalProperties["group"].(*additional.Group)
+			groups[group.GroupedBy.Value] = group.Count
+		}
+
+		assert.Equal(t, 2, groups["A"], "group A should contain obj1 and obj3")
+		assert.Equal(t, 1, groups["B"], "group B should contain obj2")
+		assert.NotContains(t, groups, "C", "group C must not be created past the groups limit")
+	})
+
 	t.Run("skip non-string properties", func(t *testing.T) {
 		results := search.Results{
 			createSearchResult("obj1", map[string]interface{}{"category": "A"}, 0.1),
