@@ -2935,3 +2935,39 @@ func TestRewind_DoesNotBlockSizeOrPush(t *testing.T) {
 	require.NoError(t, <-rewound)
 	assert.EqualValues(t, 10, q.Size())
 }
+
+// A worker finishing a batch of this queue needs rmLock, and workers are
+// shared: a release deleting kept chunks must not hold it. What the batch
+// tombstones meanwhile goes with the release.
+func TestRetention_ReleaseDoesNotBlockAFinishingBatch(t *testing.T) {
+	s := makeScheduler(t)
+	q := sealedQueue(t, s, t.TempDir())
+	chunks, _ := chunksOf(t, q)
+	require.NoError(t, q.Retain())
+	processNext(t, q)
+
+	batch, err := q.DequeueBatch()
+	require.NoError(t, err)
+	held, release := holdRemovals(t)
+	released := make(chan error, 1)
+	go func() { released <- q.ReleaseRetention() }()
+	<-held
+
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		batch.Done()
+	}()
+	select {
+	case <-finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the batch waited for the release's deletes")
+	}
+
+	release()
+	require.NoError(t, <-released)
+	assert.NoFileExists(t, chunks[0])
+	assert.NoFileExists(t, chunks[1], "tombstoned during the release")
+	assert.NoFileExists(t, chunks[1]+".processed")
+	assert.FileExists(t, chunks[2])
+}
