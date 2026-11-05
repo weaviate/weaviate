@@ -8337,9 +8337,9 @@ func init() {
           "type": "string"
         },
         "dedupeConvergenceTimeoutSeconds": {
-          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. When omitted, BACKUP_DEDUPE_CONVERGENCE_TIMEOUT applies (15 seconds unless configured). The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
           "type": "integer",
-          "default": 60,
+          "default": 15,
           "maximum": 600,
           "minimum": 1,
           "x-nullable": false
@@ -21176,9 +21176,9 @@ func init() {
           "type": "string"
         },
         "dedupeConvergenceTimeoutSeconds": {
-          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. When omitted, BACKUP_DEDUPE_CONVERGENCE_TIMEOUT applies (15 seconds unless configured). The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
           "type": "integer",
-          "default": 60,
+          "default": 15,
           "maximum": 600,
           "minimum": 1,
           "x-nullable": false
