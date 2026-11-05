@@ -484,6 +484,37 @@ func TestRankRejectsABaseURLHeaderThatIsNotAnAbsoluteURL(t *testing.T) {
 	}
 }
 
+// Core skips module validation for a class with vectorizer "none" and no named
+// vectors, so an invalid class baseURL can reach the client.
+func TestRankRejectsAClassBaseURLThatIsNotAnAbsoluteURL(t *testing.T) {
+	f := newFake(t)
+	tests := []struct {
+		name    string
+		baseURL string
+		wantErr string
+	}{
+		{
+			name:    "no scheme",
+			baseURL: "api.typesafe.ai",
+			wantErr: `baseURL must be an absolute http or https URL, got "api.typesafe.ai"`,
+		},
+		{
+			name:    "the fake's port without a host",
+			baseURL: "http://:" + f.port(),
+			wantErr: `baseURL must be an absolute http or https URL, got "http://:` + f.port() + `"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+				documentsOf(noRefund), classConfig(tt.baseURL, nil))
+
+			require.EqualError(t, err, tt.wantErr)
+			assert.Empty(t, f.received())
+		})
+	}
+}
+
 // Anyone who may query can name a host in the base URL header, so the errors
 // quote nothing of its replies.
 func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
@@ -1110,6 +1141,11 @@ func newFake(t *testing.T) *fakeTypeSafeAI {
 
 func (f *fakeTypeSafeAI) url() string {
 	return f.server.URL
+}
+
+func (f *fakeTypeSafeAI) port() string {
+	_, port, _ := strings.Cut(strings.TrimPrefix(f.server.URL, "http://"), ":")
+	return port
 }
 
 func (f *fakeTypeSafeAI) received() []fakeRequest {
