@@ -14,14 +14,20 @@ package rolevisibility
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func collPolicy(verb, collection string) authorization.Policy {
@@ -275,6 +281,77 @@ func TestRoleVisibleToCaller(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := RoleVisibleToCaller(context.Background(), tt.authorizer(t), tt.namespacesEnabled, tt.principal, tt.storedRoleName, tt.policies)
 			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestGrantedVerbs(t *testing.T) {
+	tests := []struct {
+		verb string
+		want []string
+	}{
+		{verb: authorization.READ, want: []string{"R"}},
+		{verb: authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), want: []string{"U_ALL"}},
+		{verb: conv.CRUD, want: []string{"C", "R", "U", "D"}},
+		{verb: conv.CRUD + "_" + authorization.ROLE_SCOPE_MATCH, want: []string{"C_MATCH", "R_MATCH", "U_MATCH", "D_MATCH"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.verb, func(t *testing.T) {
+			require.Equal(t, tt.want, grantedVerbs(tt.verb))
+		})
+	}
+}
+
+// TestAuthorizeRolePermissionsCasbin runs the check against the real enforcer,
+// whose unanchored verb match a mocked authorizer cannot show.
+func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
+		config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"root"}}}, false, nil, logger)
+	require.NoError(t, err)
+
+	all := "*"
+	custom, err := conv.RolesToPolicies(
+		&models.Role{Name: authorization.String("backup-manager"), Permissions: []*models.Permission{{
+			Action: authorization.String(authorization.ManageBackups), Backups: &models.PermissionBackups{Collection: &all},
+		}}},
+		&models.Role{Name: authorization.String("user-updater"), Permissions: []*models.Permission{{
+			Action: authorization.String(authorization.UpdateUsers), Users: &models.PermissionUsers{Users: &all},
+		}}},
+	)
+	require.NoError(t, err)
+	require.NoError(t, m.CreateRolesPermissions(custom))
+
+	tests := []struct {
+		name        string
+		caller      string
+		callerRoles []string
+		targetRoles []string
+		wantErr     bool
+	}{
+		{name: "one verb of a manage permission is not enough", caller: "caller", callerRoles: []string{authorization.Viewer, "user-updater"}, targetRoles: []string{"backup-manager"}, wantErr: true},
+		{name: "a manage permission covers itself", caller: "caller", callerRoles: []string{"backup-manager"}, targetRoles: []string{"backup-manager"}},
+		{name: "root covers the built-in admin role", caller: "root", targetRoles: []string{authorization.Admin}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.callerRoles) > 0 {
+				require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId(tt.caller, authentication.AuthTypeDb), tt.callerRoles))
+				t.Cleanup(func() {
+					require.NoError(t, m.RevokeRolesForUser(conv.UserNameWithTypeFromId(tt.caller, authentication.AuthTypeDb), tt.callerRoles...))
+				})
+			}
+			targetRoles, err := m.GetRoles(tt.targetRoles...)
+			require.NoError(t, err)
+			require.Len(t, targetRoles, len(tt.targetRoles))
+
+			principal := &models.Principal{Username: tt.caller, UserType: models.UserTypeInputDb}
+			err = AuthorizeRolePermissions(context.Background(), m, false, principal, "", targetRoles)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }
