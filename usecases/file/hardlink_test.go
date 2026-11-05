@@ -122,10 +122,10 @@ func TestHardlinkFiles(t *testing.T) {
 	t.Run("links every pair in one call", func(t *testing.T) {
 		dir := t.TempDir()
 		var pairs []HardlinkPair
-		for _, n := range []string{"one", "two", "three"} {
+		for n, sub := range map[string]string{"one": "a", "two": "a", "three": "b/c", "four": "b"} {
 			src := filepath.Join(dir, n)
 			require.NoError(t, os.WriteFile(src, []byte(n), 0o644))
-			pairs = append(pairs, HardlinkPair{Src: src, Dst: filepath.Join(dir, "staging", n)})
+			pairs = append(pairs, HardlinkPair{Src: src, Dst: filepath.Join(dir, "staging", sub, n)})
 		}
 		require.NoError(t, HardlinkFiles(pairs))
 		for _, p := range pairs {

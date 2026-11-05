@@ -759,6 +759,8 @@ func (s *Shard) filePutter(ctx context.Context,
 func (idx *Index) OverwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
 ) ([]types.RepairResponse, error) {
+	ctx = withReplicaRepair(ctx)
+
 	// Never load from a repair write: a cold replica is activated by real
 	// traffic, not by async replication or read repair.
 	s, release, err := idx.getLoadedShard(shard)
@@ -951,13 +953,27 @@ type ChangeLogReplayEntry struct {
 type changeLogReplayCtxKey struct{}
 
 // withChangeLogReplay marks a write as change-log replay so putObjectLSM/DeleteObject
-// drop it when the local object is newer (atomic under the docIdLock).
+// drop it when the local object is newer (atomic under the docIdLock), and
+// PutObjectBatch skips the object cap.
 func withChangeLogReplay(ctx context.Context) context.Context {
 	return context.WithValue(ctx, changeLogReplayCtxKey{}, true)
 }
 
 func fromChangeLogReplay(ctx context.Context) bool {
 	v, _ := ctx.Value(changeLogReplayCtxKey{}).(bool)
+	return v
+}
+
+type replicaRepairCtxKey struct{}
+
+// withReplicaRepair marks a write as replica repair so PutObjectBatch skips the
+// object cap.
+func withReplicaRepair(ctx context.Context) context.Context {
+	return context.WithValue(ctx, replicaRepairCtxKey{}, true)
+}
+
+func fromReplicaRepair(ctx context.Context) bool {
+	v, _ := ctx.Value(replicaRepairCtxKey{}).(bool)
 	return v
 }
 
