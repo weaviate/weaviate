@@ -39,7 +39,8 @@ import (
 )
 
 // TestSuccessListAll pins that listed roles come from the node's local RBAC
-// state, and that no user has roles when RBAC is disabled.
+// state, and that with RBAC disabled the local state is not read and no user
+// has roles.
 func TestSuccessListAll(t *testing.T) {
 	dbUser := "user1"
 	staticUser := "static"
@@ -83,24 +84,25 @@ func TestSuccessListAll(t *testing.T) {
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			localUsers := NewMockDbUserAndRolesGetter(t)
 			localUsers.On("GetUsers").Return(map[string]apikey.UserView{dbUser: {Id: dbUser}}, nil)
-
-			h := dynUserHandler{
-				dbUsers:              dynUser,
-				localUsers:           localUsers,
-				authorizer:           authorizer,
-				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{staticUser}, AllowedKeys: []string{"static"}},
-				rbacConfig:           rbacconf.Config{Enabled: !tt.rbacDisabled, RootUsers: []string{"root"}},
-				dbUserEnabled:        true,
-			}
+			// With RBAC disabled localRoles has no expectations, so a role read fails the test.
+			localRoles := authorization.NewMockController(t)
 			if !tt.rbacDisabled {
-				localRoles := authorization.NewMockController(t)
 				localRoles.On("GetRolesForUserOrGroup", dbUser, authentication.AuthTypeDb, false).Return(
 					map[string][]authorization.Policy{"db-role": {}}, nil)
 				if tt.includeStatic {
 					localRoles.On("GetRolesForUserOrGroup", staticUser, authentication.AuthTypeDb, false).Return(
 						map[string][]authorization.Policy{"static-role": {}}, nil)
 				}
-				h.localRoles = localRoles
+			}
+
+			h := dynUserHandler{
+				dbUsers:              dynUser,
+				localUsers:           localUsers,
+				localRoles:           localRoles,
+				authorizer:           authorizer,
+				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{staticUser}, AllowedKeys: []string{"static"}},
+				rbacConfig:           rbacconf.Config{Enabled: !tt.rbacDisabled, RootUsers: []string{"root"}},
+				dbUserEnabled:        true,
 			}
 
 			res := h.listUsers(users.ListAllUsersParams{HTTPRequest: req}, tt.principal)
@@ -488,13 +490,11 @@ func TestListUsers_Namespaces(t *testing.T) {
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			localUsers := NewMockDbUserAndRolesGetter(t)
 			localUsers.On("GetUsers").Return(map[string]apikey.UserView{storedUser.Id: storedUser}, nil)
-			localRoles := authorization.NewMockController(t)
-			localRoles.On("GetRolesForUserOrGroup", storedUser.Id, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
 
 			h := dynUserHandler{
 				dbUsers:           dynUser,
 				localUsers:        localUsers,
-				localRoles:        localRoles,
+				localRoles:        authorization.NewMockController(t),
 				authorizer:        authorizer,
 				dbUserEnabled:     true,
 				namespacesEnabled: true,

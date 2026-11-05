@@ -22,7 +22,6 @@ import (
 
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
-	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -114,7 +113,7 @@ func requireNoMovementErrors(t *testing.T, opID strfmt.UUID) {
 
 	var read, failed atomic.Int64
 	require.Never(t, func() bool {
-		_, messages, err := movementState(t, opID)
+		_, messages, err := helper.ReplicationOpState(t, opID, adminKey)
 		if err != nil {
 			failed.Add(1)
 			return false
@@ -125,53 +124,6 @@ func requireNoMovementErrors(t *testing.T, opID strfmt.UUID) {
 
 	require.Zero(t, failed.Load(), "reading the movement's state failed")
 	require.Positive(t, read.Load(), "no movement state was read")
-}
-
-// startCopyMovement registers a COPY of one shard onto targetNode and returns the
-// op id. Registered by the global operator against the qualified class name: a
-// suspended namespace rejects its own key, and the handler resolves no short
-// names of its own.
-func startCopyMovement(t *testing.T, qualifiedClass, shardName, sourceNode, targetNode string) strfmt.UUID {
-	t.Helper()
-
-	copyType := api.COPY.String()
-	resp, err := helper.Client(t).Replication.Replicate(
-		replication.NewReplicateParams().WithBody(&models.ReplicationReplicateReplicaRequest{
-			Collection: &qualifiedClass,
-			Shard:      &shardName,
-			SourceNode: &sourceNode,
-			TargetNode: &targetNode,
-			Type:       &copyType,
-		}),
-		helper.CreateAuth(adminKey),
-	)
-	require.NoError(t, err, "failed to register COPY of %q %s->%s", shardName, sourceNode, targetNode)
-	require.NotNil(t, resp.Payload)
-	require.NotNil(t, resp.Payload.ID)
-	return *resp.Payload.ID
-}
-
-// movementState returns an op's current state and the messages it has recorded.
-// The messages are where a refused movement says why it stopped, which is what
-// tells a refusal apart from a movement that is only slow.
-func movementState(t *testing.T, opID strfmt.UUID) (string, []string, error) {
-	t.Helper()
-
-	details, err := helper.Client(t).Replication.ReplicationDetails(
-		replication.NewReplicationDetailsParams().WithID(opID), helper.CreateAuth(adminKey),
-	)
-	if err != nil {
-		return "", nil, err
-	}
-	if details.Payload == nil || details.Payload.Status == nil {
-		return "", nil, nil
-	}
-
-	messages := make([]string, 0, len(details.Payload.Status.Errors))
-	for _, e := range details.Payload.Status.Errors {
-		messages = append(messages, e.Message)
-	}
-	return details.Payload.Status.State, messages, nil
 }
 
 // A scale plan whose addition names no source node adds an empty replica, which
@@ -320,14 +272,14 @@ func TestNamespaces_SuspendRefusesReplicaMovement(t *testing.T) {
 	// against the resume the test does itself.
 	t.Cleanup(func() { helper.ResumeNamespace(t, ns, adminKey) })
 
-	opID := startCopyMovement(t, qualified, shardName, sourceNode, targetNode)
+	opID := helper.StartCopyMovement(t, qualified, shardName, sourceNode, targetNode, adminKey)
 
 	t.Run("the movement stops on the source's namespace check", func(t *testing.T) {
 		// Asserting where it stops, not just that it stalls: a movement that
 		// never ran at all would also never reach READY, and would still read
 		// REGISTERED here.
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			state, messages, err := movementState(t, opID)
+			state, messages, err := helper.ReplicationOpState(t, opID, adminKey)
 			if !assert.NoError(c, err) {
 				return
 			}
@@ -344,7 +296,7 @@ func TestNamespaces_SuspendRefusesReplicaMovement(t *testing.T) {
 
 		// The op still reads HYDRATING, because the target opens its shard only in
 		// FINALIZING and its own sweep would close it before the check above.
-		state, _, err := movementState(t, opID)
+		state, _, err := helper.ReplicationOpState(t, opID, adminKey)
 		require.NoError(t, err)
 		require.Equal(t, "HYDRATING", state, "the movement got past the source's refusal")
 	})
@@ -353,7 +305,7 @@ func TestNamespaces_SuspendRefusesReplicaMovement(t *testing.T) {
 		helper.ResumeNamespace(t, ns, adminKey)
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			state, messages, err := movementState(t, opID)
+			state, messages, err := helper.ReplicationOpState(t, opID, adminKey)
 			if !assert.NoError(c, err) {
 				return
 			}
