@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -195,6 +196,21 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 				assert.Equal(t, time.Duration(0), resp.Timeout)
 			})
 		}
+	})
+
+	t.Run("RejectClassNameOutsideStagingDir", func(t *testing.T) {
+		crafted := metadata
+		crafted.Classes = []backup.ClassDescriptor{metadata.Classes[0]}
+		crafted.Classes[0].Name = "../../../../bin"
+		backend := newFakeBackend()
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(marshalMeta(crafted), nil)
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		bm := createManager(nil, nil, backend, nil)
+		resp := bm.OnCanCommit(ctx, &Request{
+			Method: OpRestore, ID: backupID, Backend: backendName, Duration: time.Millisecond * 20,
+		})
+		assert.Contains(t, resp.Err, "is not a valid class name")
+		assert.Equal(t, time.Duration(0), resp.Timeout)
 	})
 
 	t.Run("AnotherBackupIsInProgress", func(t *testing.T) {
@@ -377,4 +393,35 @@ func TestWithCancellation(t *testing.T) {
 			t.Error("abort signal should have been sent")
 		}
 	})
+}
+
+func TestHfsMigratorShardNames(t *testing.T) {
+	t.Parallel()
+	schemaBytes, err := json.Marshal(&models.Class{Class: "Article"})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		shard   string
+		wantErr bool
+	}{
+		{name: "generated shard name", shard: "cT9eTErXgmTX"},
+		{name: "shard name leaves the index dir", shard: "../../../../bin", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ssBytes, err := json.Marshal(&sharding.State{
+				Physical: map[string]sharding.Physical{tc.shard: {Name: tc.shard, BelongsToNodes: []string{nodeName}}},
+			})
+			require.NoError(t, err)
+			desc := &backup.ClassDescriptor{Name: "Article", Schema: schemaBytes, ShardingState: ssBytes}
+
+			_, err = hfsMigrator(desc, nodeName, "1.22")
+			if tc.wantErr {
+				require.ErrorContains(t, err, "not a valid tenant name")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }

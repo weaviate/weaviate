@@ -324,6 +324,9 @@ func hfsMigrator(desc *backup.ClassDescriptor, nodeName string, serverVersion st
 		if err != nil {
 			return nil, fmt.Errorf("marshal sharding state: %w", err)
 		}
+		if err := ss.ValidateShardNames(); err != nil {
+			return nil, fmt.Errorf("sharding state: %w", err)
+		}
 	}
 	ss.SetLocalName(nodeName)
 
