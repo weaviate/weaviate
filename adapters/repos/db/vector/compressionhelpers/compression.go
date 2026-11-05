@@ -957,7 +957,7 @@ func NewRQCompressor(
 		}
 		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = newRQByteCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID,
-			RQ4MetadataSize+quantizer.OutputDimension()/2, vectorCacheMaxObjects, logger, allocChecker)
+			quantizer.rq4RecordSize(), vectorCacheMaxObjects, logger, allocChecker)
 	case 8:
 		quantizer := NewRotationalQuantizer(dim, DefaultFastRotationSeed, bits, distance)
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
@@ -1033,9 +1033,8 @@ func NewCenteredRQ4Compressor(
 	if err := rqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
 	}
-	rqVectorsCompressor.cache = cache.NewShardedByteLockCache(
-		rqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
-		0, allocChecker)
+	rqVectorsCompressor.cache = newRQByteCache(rqVectorsCompressor.getCompressedVectorForID,
+		quantizer.rq4RecordSize(), vectorCacheMaxObjects, logger, allocChecker)
 	return rqVectorsCompressor, nil
 }
 
@@ -1103,7 +1102,7 @@ func RestoreRQCompressor(
 		}
 		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = newRQByteCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID,
-			RQ4MetadataSize+outputDim/2, vectorCacheMaxObjects, logger, allocChecker)
+			quantizer.rq4RecordSize(), vectorCacheMaxObjects, logger, allocChecker)
 	case 8:
 		quantizer, err := RestoreRotationalQuantizer(dimensions, bits, outputDim, rounds, swaps, signs, distance)
 		if err != nil {

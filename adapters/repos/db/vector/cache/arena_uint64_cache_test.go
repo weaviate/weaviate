@@ -200,3 +200,46 @@ func TestVectorCacheImplToggle(t *testing.T) {
 	t.Setenv(VectorCacheImplEnv, "bogus")
 	assert.False(t, ArenaCacheSelected(logger))
 }
+
+// TestArenaUint64CacheOverlappingFillsRaceFree is the uint64-adapter twin
+// of the byte cache's regression: overlapping misses and prefill-style
+// preloads of the same words while readers read every word of the views
+// they hold. The adapter delegates every write to the byte arena, so this
+// pins that the write-free repeated store holds through the
+// reinterpretation as well.
+func TestArenaUint64CacheOverlappingFillsRaceFree(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	c, err := NewArenaUint64Cache(arenaTestU64ForID(5000, testRecordWords), testRecordWords, 1e12, 1, logger, 0, nil)
+	require.NoError(t, err)
+	t.Cleanup(c.Drop)
+
+	done := make(chan struct{})
+	for g := 0; g < 8; g++ {
+		go func(g int) {
+			defer func() { done <- struct{}{} }()
+			rng := rand.New(rand.NewPCG(uint64(g), 3))
+			for i := 0; i < 4000; i++ {
+				id := uint64(rng.IntN(64))
+				if g == 0 && i%3 == 0 {
+					c.Preload(id, arenaTestWordsFor(id, testRecordWords))
+					continue
+				}
+				vec, err := c.Get(ctx, id)
+				if err != nil || vec == nil {
+					continue
+				}
+				want := arenaTestWordsFor(id, testRecordWords)
+				for w := range want {
+					if vec[w] != want[w] {
+						t.Errorf("id %d: torn or foreign record", id)
+						return
+					}
+				}
+			}
+		}(g)
+	}
+	for g := 0; g < 8; g++ {
+		<-done
+	}
+}
