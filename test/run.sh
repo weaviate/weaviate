@@ -1,6 +1,10 @@
 #!/bin/bash
 set -eou pipefail
 
+# Compile the simd/archsimd kernels (adapters/repos/db/vector/simd) like the
+# release builds do, so the tests exercise the production code path.
+export GOEXPERIMENT="${GOEXPERIMENT:-simd}"
+
 function main() {
   # This script runs all non-benchmark tests if no CMD switch is given and the respective tests otherwise.
   run_all_tests=true

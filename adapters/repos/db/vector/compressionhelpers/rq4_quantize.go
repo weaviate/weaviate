@@ -32,7 +32,7 @@ package compressionhelpers
 var rq4QuantCorrImpl func(ci []int32, xs []float32, invStep, offset float32) (sumXC float32, sumC, sumC2 int32) = rq4QuantCorrGo
 
 // rq4MinMaxSumImpl computes min, max and sum of xs in one sweep, replacing
-// the separate f32.Min, f32.Max and f32.Sum passes of the interval search.
+// the separate simd.Min, simd.Max and simd.Sum passes of the interval search.
 // min/max are exact (order-independent); the sum's accumulation order is
 // architecture-specific like sumXC above. Overridden with SIMD kernels in
 // distance_arm64.go / distance_amd64.go. xs must not be empty.

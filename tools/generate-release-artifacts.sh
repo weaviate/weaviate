@@ -59,7 +59,7 @@ function build_binary() {
   arch_dir="${BUILD_ARTIFACTS_DIR}/${arch}"
 
   echo_green "Building linux/${arch} binary..."
-  GOOS=linux GOARCH=$arch go build -o $BUILD_ARTIFACTS_DIR/$arch/weaviate -ldflags "-w -extldflags \"-static\" ${BUILD_TAGS}"
+  GOEXPERIMENT="${GOEXPERIMENT:-simd}" GOOS=linux GOARCH=$arch go build -o $BUILD_ARTIFACTS_DIR/$arch/weaviate -ldflags "-w -extldflags \"-static\" ${BUILD_TAGS}"
   step_complete
 
   cd $arch_dir

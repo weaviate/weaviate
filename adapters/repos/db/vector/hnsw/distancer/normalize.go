@@ -14,7 +14,7 @@ package distancer
 import (
 	"math"
 
-	"github.com/tphakala/simd/f32"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/simd"
 )
 
 func squaredNorm(v []float32) float32 {
@@ -34,7 +34,7 @@ func Normalize(v []float32) []float32 {
 	if norm2 == 0 {
 		return out
 	}
-	f32.Scale(out, v, float32(1/math.Sqrt(float64(norm2))))
+	simd.Scale(out, v, float32(1/math.Sqrt(float64(norm2))))
 	return out
 }
 
@@ -46,7 +46,7 @@ func NormalizeInPlace(v []float32) {
 	if norm2 == 0 {
 		return
 	}
-	f32.Scale(v, v, float32(1/math.Sqrt(float64(norm2))))
+	simd.Scale(v, v, float32(1/math.Sqrt(float64(norm2))))
 }
 
 // NormalizeInto normalizes v into the caller-provided buffer dst, growing it
@@ -63,6 +63,6 @@ func NormalizeInto(dst, v []float32) []float32 {
 		clear(dst)
 		return dst
 	}
-	f32.Scale(dst, v, float32(1/math.Sqrt(float64(norm2))))
+	simd.Scale(dst, v, float32(1/math.Sqrt(float64(norm2))))
 	return dst
 }

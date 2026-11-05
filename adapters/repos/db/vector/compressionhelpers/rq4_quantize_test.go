@@ -19,7 +19,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tphakala/simd/f32"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/simd"
 )
 
 // rq4QuantCorrCases covers the vector body, the 16-element blocking, the
@@ -59,7 +60,7 @@ func TestRQ4QuantCorrParity(t *testing.T) {
 	}
 }
 
-// The fused kernel replaces f32.Float32ToInt32ScaleClamp; the codes it writes
+// The fused kernel replaces simd.Float32ToInt32ScaleClamp; the codes it writes
 // must stay bit-identical to the library kernel so encodings do not change.
 func TestRQ4QuantCorrMatchesLibraryClamp(t *testing.T) {
 	rng := rand.New(rand.NewPCG(7, 0))
@@ -71,7 +72,7 @@ func TestRQ4QuantCorrMatchesLibraryClamp(t *testing.T) {
 		ciFused := make([]int32, n)
 		ciLib := make([]int32, n)
 		rq4QuantCorrImpl(ciFused, xs, invStep, offset)
-		f32.Float32ToInt32ScaleClamp(ciLib, xs, invStep, offset, 0, rq4MaxCode)
+		simd.Float32ToInt32ScaleClamp(ciLib, xs, invStep, offset, 0, rq4MaxCode)
 		require.Equal(t, ciLib, ciFused, "n=%d", n)
 	}
 }
@@ -177,9 +178,9 @@ func BenchmarkRQ4MinMaxSum(b *testing.B) {
 	})
 	b.Run("legacy-3pass-n1536", func(b *testing.B) {
 		for b.Loop() {
-			_ = f32.Min(xs)
-			_ = f32.Max(xs)
-			_ = f32.Sum(xs)
+			_ = simd.Min(xs)
+			_ = simd.Max(xs)
+			_ = simd.Sum(xs)
 		}
 	})
 }
@@ -202,11 +203,11 @@ func BenchmarkRQ4QuantCorr(b *testing.B) {
 		cf := make([]float32, n)
 		b.Run(fmt.Sprintf("legacy-5pass-n%d", n), func(b *testing.B) {
 			for b.Loop() {
-				f32.Float32ToInt32ScaleClamp(ci, xs, 3.7, 0.4, 0, rq4MaxCode)
-				f32.Int32ToFloat32Scale(cf, ci, 1)
-				_ = f32.Sum(cf)
-				_ = f32.SumOfSquares(cf)
-				_ = f32.DotProduct(xs, cf)
+				simd.Float32ToInt32ScaleClamp(ci, xs, 3.7, 0.4, 0, rq4MaxCode)
+				simd.Int32ToFloat32Scale(cf, ci, 1)
+				_ = simd.Sum(cf)
+				_ = simd.SumOfSquares(cf)
+				_ = simd.DotProduct(xs, cf)
 			}
 		})
 	}

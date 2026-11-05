@@ -12,7 +12,7 @@
 package compressionhelpers
 
 import (
-	"github.com/tphakala/simd/f32"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/simd"
 )
 
 // DistanceScalar exposes the pure Go packed byte-nibble distance path so
@@ -81,7 +81,7 @@ func (rq *FourBitRotationalQuantizer) EncodePureRaBitQ4(x []float32) []byte {
 	scratch := rq.scratch.Get().(*rq4Scratch)
 	defer rq.scratch.Put(scratch)
 
-	maxAbs := f32.MaxAbs(rx)
+	maxAbs := simd.MaxAbs(rx)
 	if maxAbs <= 0 {
 		return ZeroRQ4Code(outDim)
 	}
@@ -92,7 +92,7 @@ func (rq *FourBitRotationalQuantizer) EncodePureRaBitQ4(x []float32) []byte {
 	if len(sample) > rq4ClipSearchSample {
 		sample = sample[:rq4ClipSearchSample]
 	}
-	sumSample := f32.Sum(sample)
+	sumSample := simd.Sum(sample)
 
 	bestStep := fullStep
 	var bestScore float32 = -1
@@ -107,7 +107,7 @@ func (rq *FourBitRotationalQuantizer) EncodePureRaBitQ4(x []float32) []byte {
 		}
 	}
 
-	sumX := f32.Sum(rx)
+	sumX := simd.Sum(rx)
 	s1, s2, codeSum := rq4Correlation(rx, sumX, -7.5*bestStep, bestStep, scratch)
 	t := float32(1)
 	if s2 > 0 && s1/s2 > 0 {

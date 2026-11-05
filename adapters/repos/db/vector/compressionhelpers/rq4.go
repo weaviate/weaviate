@@ -19,7 +19,8 @@ import (
 	"unsafe"
 
 	"github.com/pkg/errors"
-	"github.com/tphakala/simd/f32"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/simd"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
@@ -549,7 +550,7 @@ func newRQ4Scratch(d, meanDim int) *rq4Scratch {
 func centerInto(dst, x, mean []float32) ([]float32, float32) {
 	dst = dst[:len(mean)]
 	if len(x) == len(mean) {
-		f32.Sub(dst, x, mean)
+		simd.Sub(dst, x, mean)
 	} else {
 		// Short or over-long input: materialize the zero-padded copy first,
 		// then subtract in place. Sub is not documented to support aliasing,
@@ -626,7 +627,7 @@ func rq4Interval(rx []float32, scratch *rq4Scratch) (float32, float32, float32, 
 	sample, sumSample := rx, sumX
 	if len(sample) > rq4ClipSearchSample {
 		sample = sample[:rq4ClipSearchSample]
-		sumSample = f32.Sum(sample)
+		sumSample = simd.Sum(sample)
 	}
 	s1, s2, _ := rq4Correlation(sample, sumSample, bestLower, bestStep, scratch)
 	var bestScore float32
@@ -802,7 +803,7 @@ type rq4QueryCode struct {
 	codeSum   float32 // step * (sum of the integer codes)
 	norm2     float32
 	codes     []byte
-	codesInt8 []int8 // codes[i] - 128, for i8.DotProduct.
+	codesInt8 []int8 // codes[i] - 128, for simd.DotProductInt8.
 }
 
 func (rq *FourBitRotationalQuantizer) encodeQuery(q []float32) rq4QueryCode {

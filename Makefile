@@ -23,7 +23,9 @@ GOOS               ?= $(shell go env GOOS)
 GOHOSTOS           ?= $(shell go env GOHOSTOS)
 GOARCH             ?= $(shell go env GOARCH)
 GOARM              ?= $(shell go env GOARM)
-GOEXPERIMENT       ?= $(shell go env GOEXPERIMENT)
+# GOEXPERIMENT=simd compiles the simd/archsimd kernels in adapters/repos/db/vector/simd;
+# without it the same package falls back to portable Go (see docs/simd.md).
+GOEXPERIMENT       ?= simd
 CGO_ENABLED        := 0
 GO_ENV             := GOEXPERIMENT=$(GOEXPERIMENT) GOOS=$(GOOS) GOARCH=$(GOARCH) GOARM=$(GOARM) CGO_ENABLED=$(CGO_ENABLED)
 GOTEST             ?= go test
@@ -71,10 +73,10 @@ weaviate: cmd/weaviate-server/weaviate ## Build weaviate binary (Default)
 weaviate-debug: cmd/weaviate-server/weaviate-debug ## Build weaviate-debug binary
 
 cmd/weaviate-server/weaviate:
-	CGO_ENABLED=0 go build $(GO_FLAGS) -o $@ ./$(@D)
+	$(GO_ENV) go build $(GO_FLAGS) -o $@ ./$(@D)
 
 cmd/weaviate-server/weaviate-debug:
-	CGO_ENABLED=0 go build $(DEBUG_GO_FLAGS) -o $@ ./$(@D)
+	$(GO_ENV) go build $(DEBUG_GO_FLAGS) -o $@ ./$(@D)
 
 # Weaviate OCI (Docker) images
 weaviate-image: ## Build weaviate OCI (Docker) image

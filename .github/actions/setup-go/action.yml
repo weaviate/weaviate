@@ -31,3 +31,8 @@ runs:
         timeout_minutes: 10
         retry_wait_seconds: 15
         command: go mod download
+    - name: Enable the simd Go experiment
+      # Compiles the simd/archsimd kernels in adapters/repos/db/vector/simd for
+      # every later go build/test/lint step of the job (see docs/simd.md).
+      shell: bash
+      run: echo "GOEXPERIMENT=simd" >> "$GITHUB_ENV"

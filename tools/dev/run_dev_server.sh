@@ -6,6 +6,8 @@ CONFIG=${1:-local-development}
 cd "$( dirname "${BASH_SOURCE[0]}" )"/../.. || exit 1
 
 export GO111MODULE=on
+# simd/archsimd kernels (adapters/repos/db/vector/simd), as in release builds.
+export GOEXPERIMENT=${GOEXPERIMENT:-simd}
 export LOG_LEVEL=${LOG_LEVEL:-"debug"}
 export LOG_FORMAT=${LOG_FORMAT:-"text"}
 export PROMETHEUS_MONITORING_ENABLED=${PROMETHEUS_MONITORING_ENABLED:-"true"}

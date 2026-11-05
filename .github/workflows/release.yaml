@@ -6,6 +6,7 @@ on:
 
 env:
   CGO_ENABLED: 0
+  GOEXPERIMENT: simd # simd/archsimd kernels, see docs/simd.md
 
 permissions:
   contents: write

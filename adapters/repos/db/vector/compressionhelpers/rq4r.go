@@ -16,8 +16,8 @@ import (
 	"math/bits"
 
 	"github.com/pkg/errors"
-	"github.com/tphakala/simd/f32"
-	"github.com/tphakala/simd/i8"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/simd"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
@@ -165,16 +165,16 @@ func (rq *FourBitResidualQuantizer) Encode(x []float32) []byte {
 	base.setLower(t * lower)
 	base.setStep(t * step)
 	base.setCodeSum(t * step * codeSum)
-	base.setNorm2(f32.SumOfSquares(x))
+	base.setNorm2(simd.SumOfSquares(x))
 
 	// Residual stage: r = rx - x̂ with x̂_i = t*(lower + step*ci_i). The
 	// integer codes of the winning interval are in scratch.ci (the fused
 	// correlation kernel no longer materializes a float view, so build it
 	// here with the scale folded in).
 	res := scratch.cf
-	f32.Int32ToFloat32Scale(res, scratch.ci, t*step)
-	f32.AddScalar(res, res, t*lower)
-	f32.Sub(res, rx, res)
+	simd.Int32ToFloat32Scale(res, scratch.ci, t*step)
+	simd.AddScalar(res, res, t*lower)
+	simd.Sub(res, rx, res)
 
 	// Rotate the residual into an independent basis before the 1-bit
 	// quantization to spread the clamped-outlier energy uniformly.
@@ -218,7 +218,7 @@ func (rq *FourBitResidualQuantizer) Restore(b []byte) []float32 {
 		}
 	}
 	r1 := rq.rotation2.UnRotateInPlace(r2)
-	f32.Add(x, x, r1)
+	simd.Add(x, x, r1)
 	return x
 }
 
@@ -313,7 +313,7 @@ func (d *FourBitResidualRQDistancer) Distance(x []byte) (float32, error) {
 		scratch[j] = packed[j] & 0x0F
 		scratch[half+j] = packed[j] >> 4
 	}
-	dot := i8.DotProduct(b.cq.codesInt8, b.scratchInt8)
+	dot := simd.DotProductInt8(b.cq.codesInt8, b.scratchInt8)
 	dotEstimate := cx.Lower()*b.a + cx.CodeSum()*b.b +
 		cx.Step()*b.cq.step*float32(dot)
 
@@ -326,7 +326,7 @@ func (d *FourBitResidualRQDistancer) Distance(x []byte) (float32, error) {
 		for i, v := range signBits {
 			binary.LittleEndian.PutUint64(sign[8*i:], bitExpandLUT[v])
 		}
-		maskedDot := i8.DotProduct(d.cq2.codesInt8, d.signScratchInt8)
+		maskedDot := simd.DotProductInt8(d.cq2.codesInt8, d.signScratchInt8)
 		p := float32(rc.SignPopcount())
 		qsDot := d.cq2.lower*p + d.cq2.step*(float32(maskedDot)+128*p)
 		dotEstimate += sigma * (2*qsDot - d.a2)

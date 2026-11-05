@@ -32,6 +32,9 @@ ARG BUILD_DATE="unknown"
 ARG EXTRA_BUILD_ARGS=""
 ARG CGO_ENABLED=1
 ENV CGO_ENABLED=$CGO_ENABLED
+# simd/archsimd kernels (adapters/repos/db/vector/simd); unset to build the Go fallbacks.
+ARG GOEXPERIMENT=simd
+ENV GOEXPERIMENT=$GOEXPERIMENT
 COPY . .
 RUN GOOS=linux GOARCH=${TARGETARCH} \
     go build $EXTRA_BUILD_ARGS -trimpath \
