@@ -338,10 +338,10 @@ type UnitAwareProvider interface {
 	// RecordPreparationCompleteAck (barrier tasks) or RecordPostCompletionAck.
 	OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) error
 
-	// OnSwapRequested fires once the group's swap is decided, even on a task
-	// that later failed or was cancelled: a decided group is past its point of
-	// no return. Barrier tasks only. Non-nil errors feed RecordPostCompletionAck
-	// (failure → FAILED, schema flip skipped).
+	// OnSwapRequested fires for each decided group this node still owes, even
+	// on a task that later failed or was cancelled ([Task.SwapDecidedGroups]).
+	// Barrier tasks only. A non-nil error re-queues the group for the next tick
+	// and fails the task only while it is SWAPPING.
 	OnSwapRequested(task *Task, groupID string, localGroupUnitIDs []string) error
 
 	// OnTaskCompleted is invoked by the [Scheduler] once per task that has
@@ -607,7 +607,8 @@ type Task struct {
 
 	// SwapDecidedGroups maps each group whose swap is decided to when. It is
 	// the one fact every replica of the group obeys, and it outlives a later
-	// FAILED or CANCELLED status: a decided group is past its point of no return.
+	// FAILED or CANCELLED status: a decided group must swap on every replica,
+	// or the replicas serve different indexes for good.
 	SwapDecidedGroups map[string]time.Time `json:"swapDecidedGroups,omitempty"`
 
 	// SwapsOwed maps each decided group to the replicas yet to report its swap, whatever the status.

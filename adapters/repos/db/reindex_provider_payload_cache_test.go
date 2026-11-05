@@ -62,24 +62,3 @@ func TestLoadPayloadIsKeptUntilTheTaskLeavesTheList(t *testing.T) {
 	require.NoError(t, err)
 	require.NotSame(t, first, fresh, "a cleaned-up task decodes again")
 }
-
-// Every retry of a decided swap after the first, on a task OnTaskCompleted
-// already cleaned up.
-func BenchmarkSwapRetryPayloadLoad(b *testing.B) {
-	for _, tenants := range []int{10_000, 1_000_000} {
-		b.Run(fmt.Sprintf("tenants=%d", tenants), func(b *testing.B) {
-			p := NewReindexProvider(nil, nil, nil, logrus.New(), "node-0", nil, nil)
-			task := payloadTask(b, tenants)
-			if _, err := p.loadPayload(task); err != nil {
-				b.Fatal(err)
-			}
-			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				if _, err := p.loadPayload(task); err != nil {
-					b.Fatal(err)
-				}
-			}
-		})
-	}
-}

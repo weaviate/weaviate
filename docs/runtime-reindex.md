@@ -173,7 +173,8 @@ Response shapes (PUT / rebuild / cancel):
   `STARTED` asserts that the task is running, not that this call created it:
   a PUT converging on an already-running migration joins it and receives that
   task's ID. Cancel answers `CANCELLED` + `taskId` when it cancelled a
-  cancellable task, or `NO_OP` (no `taskId`) when nothing matched; it is
+  cancellable task, or `NO_OP` (no `taskId`) when nothing matched, and `409`
+  for a `SWAPPING` task, which can no longer be cancelled; it is
   idempotent and never returns 404 for "no task to cancel".
 - `400 Bad Request` — validation failure with an actionable hint (e.g.
   "property X has no searchable index; PUT
@@ -228,7 +229,9 @@ Per-property, per-index-type snapshot:
 }
 ```
 
-Status values: `ready`, `pending`, `indexing`, `failed`, `cancelled`.
+Status values: `ready`, `pending`, `indexing`, `failed`, `cancelled`,
+`partial` (a stopped run left some tenants migrated; `migratedTenants` and
+`totalTenants` count them).
 The status is synthesized in `mergeReindexStatus` from the DTM task
 list crossed with the schema flags. Both values are read from the
 node serving the request, and the task list is read first, so the
@@ -1558,9 +1561,9 @@ source, the other is a copy that outlives it.
    type the migration touches, not just the one named in the URL:
    `change-tokenization` spawns a searchable and a filterable strategy
    under one task, so cleaning only one leaves the sibling orphaned.
-   Sidecars a committed migration record still names are preserved, so
-   a property that got that far needs an operator rebuild rather than a
-   resubmit.
+   Sidecars a committed migration record still names are preserved: a
+   property that got that far is finished by resubmitting the same
+   migration (a rebuild answers `409` and names the resubmit).
 6. 202 with `Status: CANCELLED` + the cancelled task ID.
 
 If the drain times out, return 202 anyway. The next submit waits up to

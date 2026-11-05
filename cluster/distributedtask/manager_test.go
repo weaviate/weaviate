@@ -2423,7 +2423,7 @@ func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
 		{TaskStatusStarted, true, ""},
 		{unknownFutureStatus, false, "no longer running"},
 		{TaskStatusPreparing, true, ""},
-		{TaskStatusSwapping, false, "point of no return"},
+		{TaskStatusSwapping, false, "already decided"},
 		{TaskStatusFinished, false, "no longer running"},
 		{TaskStatusFailed, false, "no longer running"},
 		{TaskStatusCancelled, false, "no longer running"},

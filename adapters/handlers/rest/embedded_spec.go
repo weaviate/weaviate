@@ -6283,7 +6283,7 @@ func init() {
         ],
         "responses": {
           "202": {
-            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a STARTED task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
+            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a STARTED or PREPARING task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
@@ -19107,7 +19107,7 @@ func init() {
         ],
         "responses": {
           "202": {
-            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a STARTED task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
+            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a STARTED or PREPARING task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }

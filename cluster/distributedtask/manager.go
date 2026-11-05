@@ -409,8 +409,8 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	return removed
 }
 
-// ForgetGroupsForCollection removes deleted tenants from every finished
-// barrier task of collection, the tasks that record per-tenant swap
+// ForgetGroupsForCollection removes deleted tenants from every terminal
+// (FINISHED, FAILED, CANCELLED) barrier task of collection, the tasks that record per-tenant swap
 // decisions, so a tenant recreated under the same name inherits none.
 // Active tasks are left alone: the tenant delete is refused while one runs.
 func (m *Manager) ForgetGroupsForCollection(collection string, groups []string) {
@@ -420,7 +420,7 @@ func (m *Manager) ForgetGroupsForCollection(collection string, groups []string) 
 	for namespace := range m.collectionExtractors {
 		for _, task := range m.tasks[namespace] {
 			if task.Status.IsActive() || !task.NeedsPreparationBarrier ||
-				!strings.EqualFold(task.collection, collection) || !slices.ContainsFunc(groups, task.hasGroup) {
+				!strings.EqualFold(task.collection, collection) {
 				continue
 			}
 			task.forgetGroups(groups)
@@ -1010,7 +1010,8 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 // CancelTask transitions an in-flight task to CANCELLED and refuses a terminal status or
 // one this build cannot name (see [TaskStatus.IsCancellable]). In-flight units are not
 // waited for — the [Scheduler] will terminate their local handles on the next tick. Groups
-// whose swap is already decided keep it: the scheduler still swaps them.
+// whose swap is already decided keep it: the scheduler still swaps them. A SWAPPING task
+// answers [ErrNothingLeftToCancel].
 func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	var r api.CancelDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -1027,7 +1028,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 
 	if task.Status == TaskStatusSwapping {
 		return wrapPermanent(ErrNothingLeftToCancel,
-			fmt.Sprintf("task %s/%s/%d is SWAPPING: every group already passed its point of no return", r.Namespace, r.Id, task.Version))
+			fmt.Sprintf("task %s/%s/%d is SWAPPING: every group's swap is already decided", r.Namespace, r.Id, task.Version))
 	}
 	// Follower apply errors are discarded, so two binaries disagreeing on
 	// what may be cancelled would diverge here silently.

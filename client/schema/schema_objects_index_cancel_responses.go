@@ -95,7 +95,7 @@ func NewSchemaObjectsIndexCancelAccepted() *SchemaObjectsIndexCancelAccepted {
 /*
 SchemaObjectsIndexCancelAccepted describes a response with status code 202, with default header values.
 
-Cancellation processed. Body carries `{"status":"CANCELLED","taskId":...}` when a STARTED task was cancelled, or `{"status":"NO_OP"}` when there was nothing to cancel.
+Cancellation processed. Body carries `{"status":"CANCELLED","taskId":...}` when a STARTED or PREPARING task was cancelled, or `{"status":"NO_OP"}` when there was nothing to cancel.
 */
 type SchemaObjectsIndexCancelAccepted struct {
 	Payload *models.IndexUpdateResponse

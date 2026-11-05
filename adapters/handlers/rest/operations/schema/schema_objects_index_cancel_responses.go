@@ -28,7 +28,7 @@ import (
 const SchemaObjectsIndexCancelAcceptedCode int = 202
 
 /*
-SchemaObjectsIndexCancelAccepted Cancellation processed. Body carries `{"status":"CANCELLED","taskId":...}` when a STARTED task was cancelled, or `{"status":"NO_OP"}` when there was nothing to cancel.
+SchemaObjectsIndexCancelAccepted Cancellation processed. Body carries `{"status":"CANCELLED","taskId":...}` when a STARTED or PREPARING task was cancelled, or `{"status":"NO_OP"}` when there was nothing to cancel.
 
 swagger:response schemaObjectsIndexCancelAccepted
 */
