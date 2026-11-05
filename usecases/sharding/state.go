@@ -52,7 +52,7 @@ func (s *State) ValidateShardNames() error {
 			return fmt.Errorf("shard %q: %w", key, err)
 		}
 		if err := schema.ValidateTenantName(physical.Name); err != nil {
-			return fmt.Errorf("shard %q: physical name: %w", key, err)
+			return fmt.Errorf("shard %q: %w", physical.Name, err)
 		}
 	}
 	return nil
