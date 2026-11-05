@@ -268,11 +268,11 @@ func (h *Handler) logAPIError(op, collection string, apiErr *APIError) {
 		entry.Errorf("%s failed: %v", op, apiErr.Cause())
 		return
 	}
-	// Missing credential headers are the caller's mistake, but support
-	// looks for them in the logs, so keep them visible at the default
-	// log level instead of Debug like the other 4xx.
+
 	var precondition enterrors.ErrModulePrecondition
-	if apiErr.Status == http.StatusUnprocessableEntity && errors.As(apiErr.Cause(), &precondition) {
+	missingHeader := apiErr.Status == http.StatusUnprocessableEntity && errors.As(apiErr.Cause(), &precondition)
+	overloaded := apiErr.Status == http.StatusTooManyRequests && errors.Is(apiErr.Cause(), queryadmission.ErrOverloaded)
+	if missingHeader || overloaded {
 		entry.Warnf("%s rejected: %v", op, apiErr.Cause())
 		return
 	}
@@ -388,7 +388,7 @@ func statusFromError(err error) *APIError {
 		return &APIError{Status: http.StatusTooManyRequests, Err: err}
 	}
 	if errors.Is(err, queryadmission.ErrOverloaded) {
-		// server too busy: answer 429 like GraphQL, the detail stays in the log
+		// server too busy: answer 429 like GraphQL, logAPIError keeps the shard detail in log
 		return &APIError{Status: http.StatusTooManyRequests, Err: enterrors.NewErrRateLimit(), cause: err}
 	}
 

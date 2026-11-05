@@ -31,7 +31,7 @@ func NewSearcher[T dto.Embedding](vectorizer bindVectorizer[T]) *Searcher[T] {
 	) (T, error) {
 		vector, err := vectorizer.VectorizeDepth(ctx, params.(*NearDepthParams).Depth, cfg)
 		if err != nil {
-			return nil, fmt.Errorf("vectorize thermal: %w", err)
+			return nil, fmt.Errorf("vectorize depth: %w", err)
 		}
 		return vector, nil
 	}}

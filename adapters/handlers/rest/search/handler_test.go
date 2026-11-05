@@ -895,7 +895,8 @@ func TestStatusFromErrorMessages(t *testing.T) {
 }
 
 // TestHandlerLogsFailures: server-side failures log at error with the full
-// cause, a missing header logs at warn, other client errors only at debug.
+// cause, a missing header or an overload logs at warn, other client errors
+// only at debug.
 func TestHandlerLogsFailures(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -923,6 +924,15 @@ func TestHandlerLogsFailures(t *testing.T) {
 			wantLevel:   logrus.WarnLevel,
 			wantLogged:  "vectorize keywords: " + missingClusterURLMsg,
 			wantHidden:  "vectorize keywords",
+		},
+		{
+			name:        "overload logs at warn with the shard detail, hidden from the client",
+			searcherErr: fmt.Errorf("shard Movie_abc: %w", queryadmission.ErrOverloaded),
+			body:        `{"query":["space"]}`,
+			wantStatus:  http.StatusTooManyRequests,
+			wantLevel:   logrus.WarnLevel,
+			wantLogged:  "shard Movie_abc",
+			wantHidden:  "shard Movie_abc",
 		},
 		{
 			name: "no vectorizer configured stays at debug",
