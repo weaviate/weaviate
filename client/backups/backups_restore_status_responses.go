@@ -201,7 +201,7 @@ func NewBackupsRestoreStatusForbidden() *BackupsRestoreStatusForbidden {
 /*
 BackupsRestoreStatusForbidden describes a response with status code 403, with default header values.
 
-Forbidden
+The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.
 */
 type BackupsRestoreStatusForbidden struct {
 	Payload *models.ErrorResponse
@@ -269,7 +269,7 @@ func NewBackupsRestoreStatusNotFound() *BackupsRestoreStatusNotFound {
 /*
 BackupsRestoreStatusNotFound describes a response with status code 404, with default header values.
 
-Backup not found on the specified backend with the given ID.
+No restore of this backup was started at this backend, bucket and path.
 */
 type BackupsRestoreStatusNotFound struct {
 	Payload *models.ErrorResponse

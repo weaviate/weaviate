@@ -364,6 +364,22 @@ func (s *Scheduler) WaitAll(ctx context.Context) error {
 	return s.activeTasks.Wait(ctx)
 }
 
+// retryLater delays the next turn of a queue whose batch failed after its
+// tasks ran, as for a canceled batch.
+func (s *Scheduler) retryLater(id string) {
+	if s.ctx == nil {
+		// scheduler not started
+		return
+	}
+
+	q := s.getQueue(id)
+	if q == nil {
+		return
+	}
+
+	q.RetryAfter(s.RetryInterval)
+}
+
 func (s *Scheduler) getQueue(id string) *queueState {
 	s.queues.Lock()
 	defer s.queues.Unlock()

@@ -106,7 +106,8 @@ type DiskQueue struct {
 	scheduler        *Scheduler
 	id               string
 	dir              string
-	onBatchProcessed func()
+	onBatchProcessed func() error
+	onChunkRemoved   func()
 	metrics          *Metrics
 	chunkSize        uint64
 
@@ -143,8 +144,11 @@ type DiskQueueOptions struct {
 	Logger           logrus.FieldLogger
 	StaleTimeout     time.Duration
 	ChunkSize        uint64
-	OnBatchProcessed func()
-	Metrics          *Metrics
+	OnBatchProcessed func() error
+	// OnChunkRemoved runs once a chunk left the queue and its records are
+	// no longer counted in Size.
+	OnChunkRemoved func()
+	Metrics        *Metrics
 }
 
 func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
@@ -186,6 +190,7 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 		taskDecoder:      opt.TaskDecoder,
 		metrics:          opt.Metrics,
 		onBatchProcessed: opt.OnBatchProcessed,
+		onChunkRemoved:   opt.OnChunkRemoved,
 		chunkSize:        opt.ChunkSize,
 	}
 
@@ -369,6 +374,19 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	}
 
 	doneFn := func() {
+		// the chunk is the only copy of its records until the index flushed
+		// them: if the flush fails, keep it so the next read replays it
+		if q.onBatchProcessed != nil {
+			err := q.onBatchProcessed()
+			if err != nil {
+				q.Logger.WithField("file", c.path).Errorf("failed to flush the index, keeping the processed chunk for replay: %v", err)
+				// the replayed tasks may succeed again, so only the delay
+				// keeps a persistent failure from replaying in a loop
+				q.scheduler.retryLater(q.id)
+				return
+			}
+		}
+
 		// a corrupt chunk is only quarantined once its salvaged records are
 		// processed, so a canceled batch can salvage them again
 		err := q.finishChunk(c.path, corruptChunkErr)
@@ -377,9 +395,6 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 			// retries
 			q.r.markProcessed(c.path, corruptChunkErr)
 			q.Logger.WithField("file", c.path).Errorf("failed to remove processed chunk, will retry: %v", err)
-		}
-		if q.onBatchProcessed != nil {
-			q.onBatchProcessed()
 		}
 	}
 
@@ -1047,11 +1062,15 @@ func (q *DiskQueue) forgetChunk(path string) {
 	}
 
 	q.m.Lock()
-	defer q.m.Unlock()
 	q.recordCount -= ref.count
 	q.diskUsage -= int64(ref.size)
 	q.metrics.DiskUsage(q.diskUsage)
 	q.metrics.Size(q.recordCount)
+	q.m.Unlock()
+
+	if q.onChunkRemoved != nil {
+		q.onChunkRemoved()
+	}
 }
 
 // quarantineChunk renames a torn or corrupt chunk file to <name>.corrupt so
