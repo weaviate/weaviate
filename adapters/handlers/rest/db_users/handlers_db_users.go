@@ -494,6 +494,27 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 		return users.NewRotateUserAPIKeyNotFound()
 	}
 
+	// Root-only endpoints check the caller's name, not its permissions, and the
+	// admin role holds every permission root does, so the check below would let
+	// an admin take over an imported root user.
+	if h.isRootUser(internalKey) && !h.isRequestFromRootUser(principal) {
+		return users.NewRotateUserAPIKeyForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("only root users can rotate the key of a root user")))
+	}
+
+	// The caller receives the new key and can log in as the target with it, so
+	// it must already hold every permission the target's roles grant.
+	if h.rbacConfig.Enabled && !apikey.IsOwnUser(principal, internalKey) {
+		roles, err := h.dbUsers.GetRolesForUserOrGroup(internalKey, authentication.AuthTypeDb, false)
+		if err != nil {
+			return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("get roles: %w", err)))
+		}
+		targetNamespace := namespacing.NamespaceFromQualified(internalKey)
+		if err := rolevisibility.AuthorizeRolePermissions(ctx, h.authorizer, h.namespacesEnabled, principal, targetNamespace, roles); err != nil {
+			// The joined error names the target's permissions, which the caller must not learn.
+			return users.NewRotateUserAPIKeyForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("can only rotate the key of users with less or equal permissions as the current user")))
+		}
+	}
+
 	oldUserIdentifier := existingUser[internalKey].InternalIdentifier
 
 	apiKey, hash, newUserIdentifier, err := h.getApiKey()
