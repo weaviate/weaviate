@@ -175,9 +175,9 @@ func TestAUnitWaitingOnAHoldLogsASampledWarn(t *testing.T) {
 		UnitToShard: map[string]string{unitID: fx.name},
 	}
 	task := &distributedtask.Task{TaskDescriptor: fx.desc}
-	for range maxReportedErrors {
+	fx.requireStepsWait(t)
+	for range maxReportedErrors - 1 {
 		fx.provider.processOneUnit(fx.ctx, task, &repair, fx.idx, unitID, nil)
-		fx.requireStepsWait(t)
 	}
 
 	var waits int
@@ -189,5 +189,5 @@ func TestAUnitWaitingOnAHoldLogsASampledWarn(t *testing.T) {
 			waits++
 		}
 	}
-	require.Equal(t, maxReportedErrors, waits, "three waits per round, capped at the sampler's budget")
+	require.Equal(t, maxReportedErrors, waits, "two step waits and nine unit waits, capped at the sampler's budget")
 }

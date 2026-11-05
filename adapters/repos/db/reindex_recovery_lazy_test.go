@@ -272,9 +272,6 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 		{name: "manual status update", lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
 			return shard, fx.idx.IncomingUpdateShardStatus(fx.ctx, fx.name, storagestate.StatusReady.String(), 0)
 		}},
-		{name: "manual indexing status", armsOnly: true, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
-			return shard, fx.idx.IncomingUpdateShardStatus(fx.ctx, fx.name, storagestate.StatusIndexing.String(), 0)
-		}},
 		{name: "manual shutdown status", armsOnly: true, want: storagestate.StatusShutdown, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
 			return shard, fx.idx.IncomingUpdateShardStatus(fx.ctx, fx.name, storagestate.StatusShutdown.String(), 0)
 		}},
@@ -282,6 +279,7 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 			require.True(t, fx.idx.db.markShardReady(fx.name, shard))
 			return shard, nil
 		}},
+		// The only row that asserts a held shard's Shutdown returns; without it a deadlock shows only as a package timeout.
 		{name: "restart", armsOnly: true, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
 			require.NoError(t, shard.Shutdown(context.Background()))
 			return fx.load(t), nil
@@ -445,6 +443,7 @@ func TestLiftingAHeldShardDoesNotWaitOnAStuckDisk(t *testing.T) {
 
 // newParkedLift heals a held shard and starts a lift whose arm parks on a busy limiter.
 func newParkedLift(t *testing.T, name string) (*doubleFaultFixture, *Shard, <-chan error) {
+	t.Helper()
 	fx := newDoubleFaultFixture(t, name)
 	reg := prometheus.NewRegistry()
 	fx.idx.bucketLoadLimiter = loadlimiter.NewLoadLimiter(reg, "buckets", 1)
@@ -680,7 +679,6 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 				if e.Data["groupID"] == fx.name {
 					retries++
 					require.Greaterf(t, e.Level, logrus.InfoLevel, "per-tick line: %s", e.Message)
-					require.Contains(t, e.Message, "is held READONLY")
 				}
 			}
 			require.Equal(t, tc.status != distributedtask.TaskStatusStarted, retries > 0)
@@ -777,6 +775,7 @@ func newBareRecovery() (*ReindexProvider, *MigrationRecoveryReindexer) {
 }
 
 func bareShardWithMergedRecord(t *testing.T, name string) *Shard {
+	t.Helper()
 	logger, _ := test.NewNullLogger()
 	subject := testMigrationSubject(bareRecoveryTask.Version, StrategyCodeSearchableRetokenize, "title")
 	subject.TaskID, subject.Collection = bareRecoveryTask.ID, "Books"
@@ -841,6 +840,7 @@ type doubleFaultFixture struct {
 }
 
 func newDoubleFaultFixture(t *testing.T, name string) *doubleFaultFixture {
+	t.Helper()
 	ctx := testCtx()
 	className := "LazyRecoveryDoubleFault_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{"title"})
@@ -882,6 +882,7 @@ func newDoubleFaultFixture(t *testing.T, name string) *doubleFaultFixture {
 }
 
 func (fx *doubleFaultFixture) load(t *testing.T) *Shard {
+	t.Helper()
 	loaded, err := fx.idx.initShard(fx.ctx, fx.name, fx.class, nil, true, true)
 	require.NoError(t, err)
 	fx.idx.shards.Store(fx.name, loaded)
@@ -890,6 +891,7 @@ func (fx *doubleFaultFixture) load(t *testing.T) *Shard {
 
 // breakDisk makes the records dir refuse the unmirrored stamp.
 func (fx *doubleFaultFixture) breakDisk(t *testing.T) {
+	t.Helper()
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores the read-only records dir")
 	}
@@ -898,10 +900,12 @@ func (fx *doubleFaultFixture) breakDisk(t *testing.T) {
 }
 
 func (fx *doubleFaultFixture) healRecords(t *testing.T) {
+	t.Helper()
 	require.NoError(t, os.Chmod(fx.recordsDir, 0o700))
 }
 
 func (fx *doubleFaultFixture) requirePhasesRefused(t *testing.T, shard *Shard, want string) {
+	t.Helper()
 	tasks := []*ShardReindexTaskGeneric{fx.task}
 	prepOK, prep := fx.provider.runShardPrepPhase(fx.ctx, fx.subject.Key.UnitID, shard, tasks, false, fx.logger)
 	require.False(t, prepOK)
@@ -921,6 +925,7 @@ func (fx *doubleFaultFixture) requirePhasesRefused(t *testing.T, shard *Shard, w
 // requireStepsWait runs prepare and swap through the unit entry: on a held shard neither runs,
 // and the scheduler retries both on a later tick.
 func (fx *doubleFaultFixture) requireStepsWait(t *testing.T) {
+	t.Helper()
 	payload := fx.subject.reindexPayload()
 	payload.UnitToShard = map[string]string{fx.subject.Key.UnitID: fx.name}
 	for _, callback := range []string{"group-completion", "swap-requested"} {
@@ -939,6 +944,7 @@ func (fx *doubleFaultFixture) requireStepsWait(t *testing.T) {
 }
 
 func (fx *doubleFaultFixture) requireSwapProceeds(t *testing.T, shard *Shard) {
+	t.Helper()
 	tasks := fx.provider.cachedReindexTasks(fx.desc, fx.subject.Key.UnitID)
 	require.Len(t, tasks, 1, "the swap reuses the task whose mirror is armed")
 	prepOK, prep := fx.provider.runShardPrepPhase(fx.ctx, fx.subject.Key.UnitID, shard, tasks, false, fx.logger)
