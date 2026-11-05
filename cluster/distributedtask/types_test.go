@@ -147,7 +147,7 @@ func TestTask_GroupIndexSurvivesEveryCopy(t *testing.T) {
 		assert.Equal(t, tc.shares, sameIndex(orig, task), name)
 		assert.ElementsMatch(t, []string{"g1", "g2"}, task.Groups(), name)
 		assert.Equal(t, []string{"a"}, task.LocalGroupUnitIDs("g1", "n1"), name)
-		assert.Equal(t, map[string]struct{}{"n1": {}, "n2": {}}, task.groupNodes("g1"), name)
+		assert.Equal(t, []string{"n1", "n2"}, task.groupNodes("g1"), name)
 		assert.True(t, task.AllGroupUnitsTerminal("g1"), name)
 		assert.False(t, task.AllGroupUnitsTerminal("g2"), name)
 		assert.False(t, task.AllGroupsSwapDecided(), name)

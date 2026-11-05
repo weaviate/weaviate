@@ -749,16 +749,10 @@ func (t *Task) decideSwap(group string, at time.Time) {
 	}
 	t.SwapDecidedGroups[group] = at
 	delete(t.PreparedGroups, group)
-	nodes := make([]string, 0, len(t.groups[group]))
-	for _, id := range t.groups[group] {
-		if u := t.units[id]; u != nil && u.NodeID != "" && !slices.Contains(nodes, u.NodeID) {
-			nodes = append(nodes, u.NodeID)
-		}
-	}
+	nodes := t.groupNodes(group)
 	if len(nodes) == 0 {
 		return
 	}
-	slices.Sort(nodes)
 	if t.SwapsOwed == nil {
 		t.SwapsOwed = map[string][]string{}
 	}
@@ -792,6 +786,13 @@ func (t *Task) GroupSwapDecided(groupID string) bool {
 // are always groups of the task, so counting them is enough.
 func (t *Task) AllGroupsSwapDecided() bool {
 	return len(t.SwapDecidedGroups) == t.groupCount
+}
+
+func (t *Task) appendError(msg string) {
+	if t.Error != "" {
+		msg = t.Error + "; " + msg
+	}
+	t.Error = msg
 }
 
 // markTerminal stamps status and FinishedAt together so a terminal
@@ -847,13 +848,14 @@ func (t *Task) AllGroupUnitsTerminal(groupID string) bool {
 
 // groupNodes returns the nodes owning a unit of the group: the replicas whose
 // PREP acks decide the group's swap.
-func (t *Task) groupNodes(groupID string) map[string]struct{} {
-	nodes := map[string]struct{}{}
+func (t *Task) groupNodes(groupID string) []string {
+	nodes := make([]string, 0, len(t.groups[groupID]))
 	for _, id := range t.groups[groupID] {
-		if u := t.units[id]; u != nil && u.NodeID != "" {
-			nodes[u.NodeID] = struct{}{}
+		if u := t.units[id]; u != nil && u.NodeID != "" && !slices.Contains(nodes, u.NodeID) {
+			nodes = append(nodes, u.NodeID)
 		}
 	}
+	slices.Sort(nodes)
 	return nodes
 }
 

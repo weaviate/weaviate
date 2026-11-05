@@ -703,11 +703,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	// Any failure flips the task to FAILED immediately.
 	if !r.Success && task.Status == TaskStatusSwapping {
 		ackErr := fmt.Sprintf("post-completion swap failed on node %s: %s", r.NodeId, r.Error)
-		if task.Error != "" {
-			task.Error = task.Error + "; " + ackErr
-		} else {
-			task.Error = ackErr
-		}
+		task.appendError(ackErr)
 		task.markTerminal(TaskStatusFailed, ackedAt)
 	}
 
@@ -735,11 +731,7 @@ func recordSwapAck(task *Task, r *api.RecordDistributedTaskPostCompletionAckRequ
 	if r.GroupId != "" {
 		ackErr = fmt.Sprintf("post-completion swap failed on node %s for group %q: %s", r.NodeId, r.GroupId, r.Error)
 	}
-	if task.Error != "" {
-		task.Error = task.Error + "; " + ackErr
-	} else {
-		task.Error = ackErr
-	}
+	task.appendError(ackErr)
 	task.markTerminal(TaskStatusFailed, time.UnixMilli(r.AckedAtUnixMillis))
 }
 
@@ -759,11 +751,7 @@ func recordNodePreparationAck(task *Task, r *api.RecordDistributedTaskPreparatio
 	}
 	if !r.Success {
 		ackErr := fmt.Sprintf("prep failed on node %s: %s", r.NodeId, r.Error)
-		if task.Error != "" {
-			task.Error = task.Error + "; " + ackErr
-		} else {
-			task.Error = ackErr
-		}
+		task.appendError(ackErr)
 		task.markTerminal(TaskStatusFailed, ackedAt)
 		return
 	}
@@ -837,7 +825,7 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 	if task.GroupSwapDecided(r.GroupId) || !task.AllGroupUnitsTerminal(r.GroupId) {
 		return nil
 	}
-	if _, owns := expected[r.NodeId]; !owns {
+	if !slices.Contains(expected, r.NodeId) {
 		return nil
 	}
 	acks := task.PreparedGroups[r.GroupId]
@@ -848,11 +836,7 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 	ackedAt := time.UnixMilli(r.AckedAtUnixMillis)
 	if !r.Success {
 		ackErr := fmt.Sprintf("prep failed on node %s for group %q: %s", r.NodeId, r.GroupId, r.Error)
-		if task.Error != "" {
-			task.Error = task.Error + "; " + ackErr
-		} else {
-			task.Error = ackErr
-		}
+		task.appendError(ackErr)
 		task.markTerminal(TaskStatusFailed, ackedAt)
 		m.notifySchedulerWithLock()
 		return nil
@@ -957,11 +941,7 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 	}
 
 	if r.Error != "" {
-		if task.Error != "" {
-			task.Error = task.Error + "; " + r.Error
-		} else {
-			task.Error = r.Error
-		}
+		task.appendError(r.Error)
 	}
 	task.markTerminal(TaskStatusFailed, time.UnixMilli(r.FailedAtUnixMillis))
 	m.notifySchedulerWithLock()
