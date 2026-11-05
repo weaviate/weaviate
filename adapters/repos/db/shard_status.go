@@ -211,7 +211,7 @@ func (s *Shard) retryHeldMigrations(in string) error {
 	}
 	release, err := s.preventShutdown()
 	if err != nil {
-		return nil
+		return s.heldReadOnlyErr(fmt.Errorf("the shard is shutting down: %w", err))
 	}
 	if !s.liftRetry.TryLock() {
 		release()
