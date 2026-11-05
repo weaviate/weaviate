@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Cases use IP literals and blocked hostnames/suffixes (which short-circuit
@@ -92,6 +93,50 @@ func TestValidateBaseURLHeader(t *testing.T) {
 	t.Run("validation disabled is a no-op even for internal headers", func(t *testing.T) {
 		assert.NoError(t, validate(ctxWith("http://169.254.169.254/")))
 	})
+}
+
+// The fallback may be a per-query generative baseURL or a class config stored
+// before MODULES_VALIDATE_BASE_URL was enabled, so it must be validated too.
+func TestResolveBaseURL(t *testing.T) {
+	const key = "X-Openai-Baseurl"
+	tests := []struct {
+		name     string
+		enabled  bool
+		header   string
+		fallback string
+		want     string
+		wantErr  bool
+	}{
+		{name: "valid fallback", enabled: true, fallback: "https://8.8.8.8", want: "https://8.8.8.8"},
+		{name: "http fallback rejected", enabled: true, fallback: "http://8.8.8.8", wantErr: true},
+		{name: "internal fallback rejected", enabled: true, fallback: "https://169.254.169.254", wantErr: true},
+		{name: "empty fallback allowed", enabled: true},
+		{name: "valid header wins over fallback", enabled: true, header: "https://8.8.8.8", fallback: "https://8.8.4.4", want: "https://8.8.8.8"},
+		{name: "valid header wins over invalid fallback", enabled: true, header: "https://8.8.8.8", fallback: "http://8.8.4.4", want: "https://8.8.8.8"},
+		{name: "invalid header rejected", enabled: true, header: "https://127.0.0.1", fallback: "https://8.8.8.8", wantErr: true},
+		{name: "disabled keeps http fallback", fallback: "http://localhost:11434", want: "http://localhost:11434"},
+		{name: "disabled keeps internal header", header: "http://169.254.169.254", want: "http://169.254.169.254"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.enabled {
+				t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+			}
+			ctx := context.Background()
+			if tt.header != "" {
+				ctx = context.WithValue(ctx, key, []string{tt.header})
+			}
+
+			got, err := ResolveBaseURL(ctx, key, tt.fallback)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestSSRFDialGuard(t *testing.T) {

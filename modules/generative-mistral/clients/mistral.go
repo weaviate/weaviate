@@ -184,7 +184,7 @@ func (v *mistral) getDebugInformation(debug bool, prompt string) *modulecapabili
 }
 
 func (v *mistral) getMistralUrl(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Mistral-Baseurl", baseURL)
+	passedBaseURL, err := modulecomponents.ResolveBaseURL(ctx, "X-Mistral-Baseurl", baseURL)
 	if err != nil {
 		return "", err
 	}
