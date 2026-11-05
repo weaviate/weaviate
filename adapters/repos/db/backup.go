@@ -612,7 +612,7 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 			return nil
 		}
 		// On failure, descriptorWithHardlinks calls ReleaseBackup with its
-		// errgroup ctx. The failing shard has already cancelled that ctx.
+		// error group ctx. The failing shard has already cancelled that ctx.
 		if err := s.retryIncompleteResume(context.Background()); err != nil {
 			i.logger.WithField("backup_id", id).WithField("shard", name).
 				Errorf("retry resume of maintenance cycles on backup release: %v", err)
@@ -739,7 +739,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 		return nil, errShardNoLocalData // registered lazily, never loaded
 	}
 
-	// Read metadata files (same data as readBackupMetadata in shard_backup).
+	// Read metadata files (same data as readBackupMetadata in shard_backup.go).
 	// A non-empty folder was initialized once, and Shard.Shutdown writes
 	// indexcount, proplengths, and version during the flush/close sequence.
 	counterPath := filepath.Join(shardDir, "indexcount")
