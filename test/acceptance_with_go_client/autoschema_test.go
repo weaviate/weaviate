@@ -19,10 +19,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v6/data"
-	"github.com/weaviate/weaviate-go-client/v6/modules/selfprovided"
-	"github.com/weaviate/weaviate-go-client/v6/query"
-	"github.com/weaviate/weaviate-go-client/v6/query/filter"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 )
 
@@ -263,52 +262,64 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 }
 
 func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
-	ctx := t.Context()
-	c := wvhost.NewClient(t)
+	ctx := context.Background()
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
+	require.Nil(t, err)
 
-	id := uuid.New()
-	h := c.Collections.Use("Passage")
-	t.Cleanup(func() {
-		require.NoError(t, c.Collections.Delete(context.Background(), h.CollectionName()))
+	className := "Passage"
+	t.Run("should not panic with properties defined as empty array, but just return error", func(t *testing.T) {
+		obj := &models.Object{
+			Class:      className,
+			Properties: []interface{}{},
+		}
+
+		resp, err := c.Batch().ObjectsBatcher().WithObjects(obj).Do(ctx)
+		require.Nil(t, err)
+		require.Len(t, resp, 1)
+		require.NotNil(t, resp[0].Result)
+		require.NotNil(t, resp[0].Result.Errors)
+		require.Len(t, resp[0].Result.Errors.Error, 1)
+		assert.Equal(t, "could not recognize object's properties: []", resp[0].Result.Errors.Error[0].Message)
+
+		objs, err := c.Data().ObjectsGetter().WithClassName(className).Do(ctx)
+		require.Nil(t, err)
+		require.Len(t, objs, 0)
+
+		err = c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+		require.Nil(t, err)
 	})
 
-	obj := &data.Object{
-		UUID: &id,
-		Properties: map[string]any{
-			"stringProperty": "value",
-		},
-	}
-	_, err := h.Data.Insert(ctx, obj)
-	require.NoError(t, err)
+	t.Run("should create object in batch without problems", func(t *testing.T) {
+		obj := &models.Object{
+			Class: className,
+			Properties: map[string]interface{}{
+				"stringProperty": "value",
+			},
+		}
+		resp, err := c.Batch().ObjectsBatcher().WithObjects(obj).Do(ctx)
+		require.Nil(t, err)
+		require.Len(t, resp, 1)
+		require.NotNil(t, resp[0].Result)
+		require.Nil(t, resp[0].Result.Errors)
+		require.NotNil(t, resp[0].Object)
+		// auto-schema creates a "default" named vector with the none vectorizer,
+		// so nothing is vectorized
+		assert.Empty(t, resp[0].Object.Vector)
+		assert.Empty(t, resp[0].Object.Vectors)
 
-	r, err := h.Query.OverAll(ctx, query.OverAll{
-		Filter: filter.Cond{
-			Target:   filter.UUID,
-			Operator: filter.Equal,
-			Value:    id,
-		},
-		ReturnVectors: []string{modelsext.DefaultNamedVectorName},
+		class, err := c.Schema().ClassGetter().WithClassName(className).Do(ctx)
+		require.Nil(t, err)
+		assert.Empty(t, class.Vectorizer)
+		require.Len(t, class.VectorConfig, 1)
+		defaultVector, ok := class.VectorConfig[modelsext.DefaultNamedVectorName]
+		require.True(t, ok)
+		assert.Equal(t, map[string]interface{}{"none": map[string]interface{}{}}, defaultVector.Vectorizer)
+
+		objs, err := c.Data().ObjectsGetter().WithClassName(className).Do(ctx)
+		require.Nil(t, err)
+		require.Len(t, objs, 1)
+
+		err = c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+		require.Nil(t, err)
 	})
-	require.NoError(t, err)
-	require.NotNil(t, r, "query result")
-	require.Len(t, r.Objects, 1, "retrieved objects")
-
-	// auto-schema creates a "default" named vector with the none vectorizer,
-	// so nothing is vectorized even though DEFAULT_VECTORIZER_MODULE is set
-	assert.Empty(t, r.Objects[0].Vectors)
-
-	config, err := c.Collections.GetConfig(ctx, h.CollectionName())
-	require.NoError(t, err)
-	require.NotNil(t, config, "collection config")
-
-	if assert.Contains(t, config.Vectors, modelsext.DefaultNamedVectorName) {
-		require.Equal(t,
-			selfprovided.Vectorizer, config.Vectors[modelsext.DefaultNamedVectorName].Vectorizer,
-			"default vectorizer",
-		)
-	}
-
-	count, err := h.Count(ctx)
-	require.NoError(t, err)
-	require.EqualValues(t, count, 1)
 }
