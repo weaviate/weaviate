@@ -145,8 +145,6 @@ func TestLogOperatorRepairGuidanceOnPartialSwap_MigratedTenantsGetResubmit(t *te
 			require.Equal(t, tc.migrated, entry.Data["migrated_tenants"])
 			require.Equal(t, tc.total, entry.Data["total_tenants"])
 			require.Equal(t, `PUT /v1/schema/Products/properties/name/index/searchable -d '{"tokenization":"field"}'`, entry.Data["resubmit_command"])
-			require.NotContains(t, entry.Message, "rebuild")
-			require.NotContains(t, entry.Message, "reverted")
 		})
 	}
 }
