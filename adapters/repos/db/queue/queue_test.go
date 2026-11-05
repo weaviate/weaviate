@@ -2702,10 +2702,22 @@ func taskIDs(t *testing.T, batch *Batch) []uint64 {
 	return ids
 }
 
-// sealedQueue is a queue holding the records 1 to 9 in three sealed chunks.
+// startedScheduler is a running scheduler, which Rewind needs to tell the
+// queue is paused.
+func startedScheduler(t *testing.T) *Scheduler {
+	t.Helper()
+	s := makeScheduler(t)
+	s.Start()
+	t.Cleanup(func() { _ = s.Close(context.Background()) })
+	return s
+}
+
+// sealedQueue is a paused queue holding the records 1 to 9 in three sealed
+// chunks.
 func sealedQueue(t *testing.T, s *Scheduler, dir string) *DiskQueue {
 	t.Helper()
 	q := makeQueueWith(t, s, discardExecutor(), 50, dir)
+	require.NoError(t, q.Pause(t.Context()))
 	pushMany(t, q, 1, 1, 2, 3, 4, 5, 6, 7, 8, 9)
 	q.m.Lock()
 	require.NoError(t, q.w.Promote())
@@ -2716,7 +2728,7 @@ func sealedQueue(t *testing.T, s *Scheduler, dir string) *DiskQueue {
 // Rewind serves everything kept since Retain again, in order and ahead of
 // what is still queued.
 func TestRewind_ServesKeptChunksAgain(t *testing.T) {
-	s := makeScheduler(t)
+	s := startedScheduler(t)
 	q := sealedQueue(t, s, t.TempDir())
 	chunks, _ := chunksOf(t, q)
 	require.Len(t, chunks, 3)
@@ -2752,7 +2764,7 @@ func TestRewind_ServesKeptChunksAgain(t *testing.T) {
 // A chunk whose tombstone failed is listed as processed; Rewind makes it
 // readable again instead of leaving it to be skipped.
 func TestRewind_ServesAChunkWhoseTombstoneFailed(t *testing.T) {
-	s := makeScheduler(t)
+	s := startedScheduler(t)
 	q := sealedQueue(t, s, t.TempDir())
 	chunks, _ := chunksOf(t, q)
 	require.NoError(t, q.Retain())
@@ -2772,7 +2784,7 @@ func TestRewind_ServesAChunkWhoseTombstoneFailed(t *testing.T) {
 // A kept chunk whose header no longer reads is quarantined, and the rest is
 // served.
 func TestRewind_QuarantinesAKeptChunkWithAnUnreadableHeader(t *testing.T) {
-	s := makeScheduler(t)
+	s := startedScheduler(t)
 	q := sealedQueue(t, s, t.TempDir())
 	chunks, _ := chunksOf(t, q)
 	require.NoError(t, q.Retain())
@@ -2816,7 +2828,7 @@ func TestRewind_BeforeInitResumesAfterARestart(t *testing.T) {
 	}
 
 	t.Run("rewound, every chunk is served", func(t *testing.T) {
-		s := makeScheduler(t)
+		s := startedScheduler(t)
 		dir := setup(t, s)
 
 		q := newQueue(t, s, dir)
@@ -2830,7 +2842,7 @@ func TestRewind_BeforeInitResumesAfterARestart(t *testing.T) {
 	})
 
 	t.Run("not rewound, the kept chunk is deleted", func(t *testing.T) {
-		s := makeScheduler(t)
+		s := startedScheduler(t)
 		dir := setup(t, s)
 
 		q := newQueue(t, s, dir)
@@ -2839,7 +2851,7 @@ func TestRewind_BeforeInitResumesAfterARestart(t *testing.T) {
 	})
 
 	t.Run("a queue without a directory has nothing to rewind", func(t *testing.T) {
-		s := makeScheduler(t)
+		s := startedScheduler(t)
 		q := newQueue(t, s, filepath.Join(t.TempDir(), "absent"))
 		require.NoError(t, q.Rewind())
 	})
@@ -2848,7 +2860,7 @@ func TestRewind_BeforeInitResumesAfterARestart(t *testing.T) {
 // A running queue only rewinds what a retention kept: the tombstones of a
 // backup are not its to take.
 func TestRewind_RefusesAQueueNotRetained(t *testing.T) {
-	s := makeScheduler(t)
+	s := startedScheduler(t)
 	q := sealedQueue(t, s, t.TempDir())
 	q.EnableMaintenanceMode()
 	processNext(t, q)
