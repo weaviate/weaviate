@@ -355,6 +355,39 @@ func TestIdleTTLUnloadsBelowEveryLimitAndStopsAtZero(t *testing.T) {
 	})
 }
 
+func TestFractionalIdleTTLWaitsUntilTheShardIsIdle(t *testing.T) {
+	tests := []struct {
+		name         string
+		idleTTL      time.Duration
+		minResidency time.Duration
+		wait         time.Duration
+	}{
+		{name: "below two seconds", idleTTL: 1500 * time.Millisecond, wait: 3 * time.Second},
+		{name: "just past a whole second", idleTTL: 2100 * time.Millisecond, wait: 4 * time.Second},
+		{name: "just past min_residency", idleTTL: 30500 * time.Millisecond, minResidency: 30 * time.Second, wait: 32 * time.Second},
+		{name: "a whole second", idleTTL: 2 * time.Second, wait: 3 * time.Second},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				h := newHarness(t, func(k *testKnobs) {
+					set(t, k.idleTTL, tt.idleTTL)
+					set(t, k.minResidency, tt.minResidency)
+					set(t, k.retryRefusedAfter, time.Hour)
+				})
+				shard := h.reg.load("idle", "")
+
+				time.Sleep(tt.wait)
+				synctest.Wait()
+
+				require.False(t, shard.loaded(), "a not_idle refusal cools the shard down for retry_refused_after")
+				require.Len(t, shard.requests(), 1, "selection and TryUnload agree on when the shard is idle")
+			})
+		})
+	}
+}
+
 func TestIdleSweepRunsEveryIdleCheckIntervalAndResumesWhenCutShort(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, func(k *testKnobs) {

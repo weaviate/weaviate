@@ -166,7 +166,7 @@ func (p *policy[S]) rank(s *snapshot, now time.Time, k int, idle bool) []ranked[
 		p.nsCounts = p.reg.NamespaceCounts(p.nsCounts)
 	}
 	clock := p.clock()
-	idleSeconds := uint32(min(s.idleTTL/time.Second, 1<<31))
+	idleSeconds := accessClockTicks(s.idleTTL)
 	p.ranked = p.ranked[:0]
 	for _, c := range p.loopBuf {
 		if s.retryRefusedAfter > 0 && clock < c.BackgroundRetryAt() {
