@@ -779,8 +779,9 @@ func (q *DiskQueue) Retain() error {
 }
 
 // Rewind serves every kept chunk again, in order, ahead of what is still
-// queued. A running queue must be paused and retained: a batch finishing after
-// the rewind would tombstone its chunk out of the replay. On a queue not initialized yet it only
+// queued. A running queue must be paused, retained and not held by a backup: a
+// batch finishing after the rewind would tombstone its chunk out of the
+// replay. On a queue not initialized yet it only
 // makes the kept chunks ordinary ones for Init, which would delete them
 // otherwise; that is how a restart resumes one. Doing it twice replays at most
 // what a backup kept in between. The retention stays until ReleaseRetention.
@@ -795,6 +796,10 @@ func (q *DiskQueue) Rewind() error {
 	}
 	if live && !q.scheduler.IsQueuePaused(q.id) {
 		return errors.New("queue not paused")
+	}
+	// a backup may be copying the chunks this would move or re-queue
+	if live && q.maintenanceMode.Load() {
+		return errors.New("queue in maintenance mode")
 	}
 
 	entries, err := os.ReadDir(q.dir)
