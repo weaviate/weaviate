@@ -261,7 +261,7 @@ func TestSearchablePropertyIsBlockmax_TruthTable(t *testing.T) {
 		{name: "stamp false, class flag on → stamp-first wins (unreachable in prod; stamp is only ever written true)", classFlag: true, stamp: ptr(false), tasks: nil, want: false},
 		{name: "nil stamp, class flag on → blockmax (nil-backfill / all-migrated + snapshot from old node)", classFlag: true, stamp: nil, tasks: nil, want: true},
 		{name: "nil stamp, class flag off, finished blockmax task → blockmax (legacy fallback, task still in TTL window)", classFlag: false, stamp: nil, tasks: finishedBlockmaxTask(), want: true},
-		{name: "nil stamp, class flag off, empty task list → WAND (legacy hole; reachable only for pre-stamp migrations, closed by read-repair)", classFlag: false, stamp: nil, tasks: nil, want: false},
+		{name: "nil stamp, class flag off, empty task list → WAND", classFlag: false, stamp: nil, tasks: nil, want: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

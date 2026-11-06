@@ -819,10 +819,9 @@ func setPropertyDefaults(props ...*models.Property) {
 
 // clearInternalPropertyFields nils RAFT-internal per-property fields on
 // client-provided properties so they can only be set inside the engine.
-// SearchableBlockmax comes from on-disk state or the read-repair (which only
-// touches nil stamps); a client-seeded value would be a wrong stamp nothing
-// corrects. Create paths only — UpdateProperty's DeepEqual guard already
-// blocks mutation on update.
+// SearchableBlockmax is written only by a migration's cutover; a client-seeded
+// value would be a wrong stamp nothing corrects. Create paths only —
+// UpdateProperty's DeepEqual guard already blocks mutation on update.
 func clearInternalPropertyFields(props ...*models.Property) {
 	for _, prop := range props {
 		if prop != nil {

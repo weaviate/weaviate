@@ -1104,12 +1104,6 @@ func initReindexAndDistributedTasks(
 
 	repo.SetReindexUnitSeal(reindexProvider.ReindexUnitSealBuilder())
 
-	// Read-repair for the v1.38→v1.39 stamp-migration residual; see
-	// [db.ReindexProvider.RunSearchableBlockmaxRepair].
-	enterrors.GoWrapper(func() {
-		reindexProvider.RunSearchableBlockmaxRepair(serverShutdownCtx)
-	}, appState.Logger)
-
 	// Drop-vector-index distributed-task provider. Added to the providers map so the
 	// conflict/schema-mutation detector loops below auto-register it.
 	// Wake the reconcile loop when a round ends with work remaining (batch

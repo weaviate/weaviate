@@ -1634,25 +1634,6 @@ every node runs the durable-stamp version. During a mixed-version
 Set `0` (immediate GC of completed tasks) only once every node runs the
 durable-stamp version.
 
-One narrower residual remains even at the default TTL. Between node
-startup and the first `RunSearchableBlockmaxRepair` pass, a pre-stamp
-residual class (blockmax on disk, nil stamp, class flag false) is not yet
-seeded, so it still resolves through the legacy class-flag/task-list path.
-A client that issues a change-tokenization on such a class inside that
-window can mis-resolve its searchable bucket. This is client-triggered and
-transient: it self-heals the moment the repair seeds the stamp, and it is
-narrower than the automatic post-restart corruption the stamp closed. The
-TTL does not govern it; the window is bounded by the repair's first pass,
-not by task GC.
-
-The repair seeds the stamp from two sources — a loaded shard's on-disk
-blockmax bucket, or a still-present FINISHED blockmax task — so a cold
-(unloaded) shard is still covered as long as its completed task is in the
-list. `TTL=0` breaks that: it can GC the FINISHED task before any repair
-pass observes it, and with no on-disk evidence either (cold shard) the
-stamp is never seeded until that shard next loads. Keeping the default TTL
-avoids this residual.
-
 **Downgrade:** the stamp is an additive `searchableBlockmax` property field;
 an older binary ignores it and derives blockmax from the class flag / task
 list as before, so a downgrade does not corrupt data. The residual is only
