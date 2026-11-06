@@ -50,7 +50,7 @@ func TestTheClusterPassSamplesItsPerShardRefusals(t *testing.T) {
 
 	db := &DB{logger: logger, indices: map[string]*Index{"Books": idx}}
 	db.migrationCluster.db = db
-	db.migrationCluster.local = func() ([]distributedtask.TaskStatusEntry, bool) { return nil, true }
+	db.migrationCluster.local = func(string) ([]distributedtask.TaskStatusEntry, bool) { return nil, true }
 	db.migrationCluster.cluster = func(context.Context) ([]*distributedtask.Task, error) {
 		return nil, nil
 	}
@@ -170,7 +170,7 @@ func TestTheClusterPassWalksARealLoadedShard(t *testing.T) {
 func TestUninstalledTaskSourcesDecideNothing(t *testing.T) {
 	var r migrationClusterReconciler
 
-	tasks, readable := r.LocalTasks()
+	tasks, readable := r.LocalTasks("shard")
 	require.Nil(t, tasks)
 	require.False(t, readable,
 		"an uninstalled local view must not read as readable-and-empty")

@@ -12,10 +12,14 @@
 package rest
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/runtime"
 	"github.com/sirupsen/logrus"
@@ -187,7 +191,7 @@ func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 				return
 			}
 			require.Len(t, parsed, 1)
-			require.Equal(t, tt.wantStatus, parsed[0].task.Status)
+			require.Equal(t, tt.wantStatus, parsed[0].Task.Status)
 			require.Equal(t, tt.wantFlagOn, *class.Properties[0].IndexSearchable)
 		})
 	}
@@ -234,9 +238,8 @@ func (s staticTasks) LocalDistributedTasks() map[string][]*distributedtask.Task 
 
 // The task read is cluster-wide: it hands the handler every reindex task this
 // node has applied, whatever collection each one names. Which of them the
-// response may speak for is decided further down, and both places that decide
-// it are here — the entry a running task drives, and the algorithm a completed
-// one resolves.
+// response may speak for is decided further down, in the entry a running task
+// drives.
 func TestGetIndexes_AForeignCollectionsTaskReachesNoEntry(t *testing.T) {
 	const taskID = "X:change-algorithm:p:0001"
 
@@ -246,27 +249,16 @@ func TestGetIndexes_AForeignCollectionsTaskReachesNoEntry(t *testing.T) {
 		taskStatus     distributedtask.TaskStatus
 		wantStatus     string
 		wantTaskID     string
-		wantAlgorithm  string
 	}{
 		{
 			name: "a running migration on this collection drives the entry", taskCollection: "C",
 			taskStatus: distributedtask.TaskStatusStarted,
-			wantStatus: "indexing", wantTaskID: taskID, wantAlgorithm: models.IndexStatusAlgorithmWand,
+			wantStatus: "indexing", wantTaskID: taskID,
 		},
 		{
 			name: "a running migration on another collection does not", taskCollection: "D",
 			taskStatus: distributedtask.TaskStatusStarted,
-			wantStatus: "ready", wantTaskID: "", wantAlgorithm: models.IndexStatusAlgorithmWand,
-		},
-		{
-			name: "a completed migration on this collection resolves the algorithm", taskCollection: "C",
-			taskStatus: distributedtask.TaskStatusFinished,
-			wantStatus: "ready", wantTaskID: "", wantAlgorithm: models.IndexStatusAlgorithmBlockmax,
-		},
-		{
-			name: "a completed migration on another collection does not", taskCollection: "D",
-			taskStatus: distributedtask.TaskStatusFinished,
-			wantStatus: "ready", wantTaskID: "", wantAlgorithm: models.IndexStatusAlgorithmWand,
+			wantStatus: "ready", wantTaskID: "",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -292,27 +284,7 @@ func TestGetIndexes_AForeignCollectionsTaskReachesNoEntry(t *testing.T) {
 				},
 			)
 
-			h := &indexesHandlers{
-				appState: &state.State{
-					Authorizer:    &authorization.DummyAuthorizer{},
-					SchemaManager: &schemaUC.Manager{SchemaReader: reader},
-					ServerConfig:  &config.WeaviateConfig{},
-					Logger:        logrus.New(),
-				},
-				taskSource: staticTasks{db.ReindexNamespace: {task}},
-			}
-
-			resp := h.getIndexes(schema.SchemaObjectsIndexesGetParams{
-				HTTPRequest: httptest.NewRequest(http.MethodGet, "/", nil),
-				ClassName:   "C",
-			}, &models.Principal{Username: "u"})
-
-			rec := httptest.NewRecorder()
-			resp.WriteResponse(rec, runtime.JSONProducer())
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			var body models.IndexStatusResponse
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			body := getIndexesOfC(t, reader, task)
 			require.Len(t, body.Properties, 1)
 
 			var searchable *models.IndexStatus
@@ -325,8 +297,131 @@ func TestGetIndexes_AForeignCollectionsTaskReachesNoEntry(t *testing.T) {
 			require.Equal(t, tt.wantStatus, searchable.Status)
 			require.Equal(t, tt.wantTaskID, searchable.TaskID,
 				"only a task naming this collection may put its id on the entry")
-			require.Equal(t, tt.wantAlgorithm, searchable.Algorithm,
-				"only a completed migration on this collection may resolve the algorithm")
+		})
+	}
+}
+
+// Pins: with the schema flag off, an entry a reindex task drives is shown
+// whatever status it reads, and only a task-free entry is hidden.
+func TestGetIndexes_FlagOffShowsEveryTaskDrivenEntry(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		status     distributedtask.TaskStatus
+		decided    bool
+		wantStatus string // "" means the entry is hidden
+	}{
+		{name: "running", status: distributedtask.TaskStatusStarted, wantStatus: models.IndexStatusStatusIndexing},
+		{name: "cancelled, nothing migrated", status: distributedtask.TaskStatusCancelled, wantStatus: models.IndexStatusStatusCancelled},
+		{name: "cancelled, one tenant migrated", status: distributedtask.TaskStatusCancelled, decided: true, wantStatus: models.IndexStatusStatusPartial},
+		{name: "finished", status: distributedtask.TaskStatusFinished},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			off := false
+			reader := schemaUC.NewMockSchemaReader(t)
+			reader.EXPECT().ResolveAlias("C").Return("")
+			reader.EXPECT().ClassInfo("C").Return(clusterSchema.ClassInfo{Exists: true})
+			reader.EXPECT().ReadOnlyClass("C").Return(&models.Class{Class: "C", Properties: []*models.Property{
+				{Name: "p", DataType: []string{"text"}, IndexFilterable: &off, IndexSearchable: &off},
+			}})
+			task := buildTask(t, "C:enable-filterable:p:0001", tt.status,
+				db.ReindexTaskPayload{MigrationType: db.ReindexTypeEnableFilterable, Collection: "C", Properties: []string{"p"}},
+				map[string]*distributedtask.Unit{"u1": {ID: "u1", GroupID: "t1"}, "u2": {ID: "u2", GroupID: "t2"}})
+			if tt.decided {
+				task.SwapDecidedGroups = map[string]time.Time{"t1": time.Now()}
+			}
+			body := getIndexesOfC(t, reader, task)
+			var got []string
+			for _, idx := range body.Properties[0].Indexes {
+				got = append(got, idx.Type+"="+idx.Status)
+			}
+			var want []string
+			if tt.wantStatus != "" {
+				want = []string{"filterable=" + tt.wantStatus}
+			}
+			require.Equal(t, want, got)
+		})
+	}
+}
+
+func getIndexesOfC(t *testing.T, reader *schemaUC.MockSchemaReader, task *distributedtask.Task) models.IndexStatusResponse {
+	t.Helper()
+	return getIndexesOfCAs(t, reader, task, &authorization.DummyAuthorizer{})
+}
+
+func getIndexesOfCAs(t *testing.T, reader *schemaUC.MockSchemaReader, task *distributedtask.Task,
+	authorizer authorization.Authorizer,
+) models.IndexStatusResponse {
+	t.Helper()
+	h := &indexesHandlers{
+		appState: &state.State{
+			Authorizer:    authorizer,
+			SchemaManager: &schemaUC.Manager{SchemaReader: reader},
+			ServerConfig:  &config.WeaviateConfig{},
+			Logger:        logrus.New(),
+		},
+		taskSource: staticTasks{db.ReindexNamespace: {task}},
+	}
+	resp := h.getIndexes(schema.SchemaObjectsIndexesGetParams{
+		HTTPRequest: httptest.NewRequest(http.MethodGet, "/", nil), ClassName: "C",
+	}, &models.Principal{Username: "u"})
+	rec := httptest.NewRecorder()
+	resp.WriteResponse(rec, runtime.JSONProducer())
+	require.Equal(t, http.StatusOK, rec.Code)
+	var body models.IndexStatusResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	return body
+}
+
+// collectionsOnly may read collection metadata but no tenant.
+type collectionsOnly struct{ authorization.DummyAuthorizer }
+
+func (*collectionsOnly) AuthorizeSilent(_ context.Context, _ *models.Principal, _ string, resources ...string) error {
+	for _, r := range resources {
+		if strings.Contains(r, "/shards/") {
+			return errors.New("forbidden")
+		}
+	}
+	return nil
+}
+
+// Pins that a partial run's tenant counts reach only a caller who may read the
+// collection's tenants, while its partial status reaches every collection reader.
+func TestGetIndexes_TenantCountsNeedTenantRead(t *testing.T) {
+	for _, tt := range []struct {
+		name                    string
+		authorizer              authorization.Authorizer
+		wantMigrated, wantTotal int64
+	}{
+		{name: "a tenant reader sees the counts", authorizer: &authorization.DummyAuthorizer{}, wantMigrated: 1, wantTotal: 2},
+		{name: "a collection reader sees only the status", authorizer: &collectionsOnly{}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			on := true
+			reader := schemaUC.NewMockSchemaReader(t)
+			reader.EXPECT().ResolveAlias("C").Return("")
+			reader.EXPECT().ClassInfo("C").Return(clusterSchema.ClassInfo{Exists: true})
+			reader.EXPECT().ReadOnlyClass("C").Return(&models.Class{Class: "C", Properties: []*models.Property{
+				{Name: "p", DataType: []string{"text"}, IndexFilterable: &on, IndexSearchable: &on},
+			}})
+			task := buildTask(t, "C:change-tokenization:p:0001", distributedtask.TaskStatusCancelled,
+				db.ReindexTaskPayload{
+					MigrationType: db.ReindexTypeChangeTokenization, Collection: "C", Properties: []string{"p"},
+					TargetTokenization: models.PropertyTokenizationField,
+				},
+				map[string]*distributedtask.Unit{"u1": {ID: "u1", GroupID: "t1"}, "u2": {ID: "u2", GroupID: "t2"}})
+			task.SwapDecidedGroups = map[string]time.Time{"t1": time.Now()}
+
+			body := getIndexesOfCAs(t, reader, task, tt.authorizer)
+			var searchable *models.IndexStatus
+			for _, idx := range body.Properties[0].Indexes {
+				if idx.Type == "searchable" {
+					searchable = idx
+				}
+			}
+			require.NotNil(t, searchable)
+			require.Equal(t, models.IndexStatusStatusPartial, searchable.Status)
+			require.Equal(t, tt.wantMigrated, searchable.MigratedTenants)
+			require.Equal(t, tt.wantTotal, searchable.TotalTenants)
 		})
 	}
 }

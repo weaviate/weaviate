@@ -148,7 +148,7 @@ func (f legacyMigrationFinalizer) promote(code MigrationStrategyCode, prop, stag
 	// An index the schema still disables means the cluster never committed
 	// the migration, and the load-time sweep would delete what is renamed.
 	if swept, why := migrationCanonicalSweptBySchema(f.class,
-		MigrationSubject{Key: MigrationRecordKey{StrategyCode: code}}, prop); swept {
+		MigrationSubject{Key: MigrationRecordKey{StrategyCode: code}}, prop, false); swept {
 		return errors.New(why)
 	}
 	stagedThere, err := f.buckets.Exists(staged)

@@ -34,17 +34,16 @@ var unknownFutureStatus = TaskStatus("UNKNOWN_FUTURE_STATE")
 // one unit on n-3 that is "unassigned" (empty NodeID) to exercise the
 // edge in NodesWithLocalUnits / LocalGroupUnitIDs.
 func fixtureTask() *Task {
-	return &Task{
+	return withUnits(&Task{
 		Status: TaskStatusStarted,
-		Units: map[string]*Unit{
-			"u-1-g1-n1-done":    {ID: "u-1-g1-n1-done", NodeID: "n-1", GroupID: "g1", Status: UnitStatusCompleted},
-			"u-2-g1-n2-failed":  {ID: "u-2-g1-n2-failed", NodeID: "n-2", GroupID: "g1", Status: UnitStatusFailed},
-			"u-3-g2-n1-pending": {ID: "u-3-g2-n1-pending", NodeID: "n-1", GroupID: "g2", Status: UnitStatusPending},
-			"u-4-g2-n2-prog":    {ID: "u-4-g2-n2-prog", NodeID: "n-2", GroupID: "g2", Status: UnitStatusInProgress},
-			"u-5-noGroup-n3":    {ID: "u-5-noGroup-n3", NodeID: "n-3", GroupID: "", Status: UnitStatusCompleted},
-			"u-6-g1-unassigned": {ID: "u-6-g1-unassigned", NodeID: "", GroupID: "g1", Status: UnitStatusPending},
-		},
-	}
+	}, map[string]*Unit{
+		"u-1-g1-n1-done":    {ID: "u-1-g1-n1-done", NodeID: "n-1", GroupID: "g1", Status: UnitStatusCompleted},
+		"u-2-g1-n2-failed":  {ID: "u-2-g1-n2-failed", NodeID: "n-2", GroupID: "g1", Status: UnitStatusFailed},
+		"u-3-g2-n1-pending": {ID: "u-3-g2-n1-pending", NodeID: "n-1", GroupID: "g2", Status: UnitStatusPending},
+		"u-4-g2-n2-prog":    {ID: "u-4-g2-n2-prog", NodeID: "n-2", GroupID: "g2", Status: UnitStatusInProgress},
+		"u-5-noGroup-n3":    {ID: "u-5-noGroup-n3", NodeID: "n-3", GroupID: "", Status: UnitStatusCompleted},
+		"u-6-g1-unassigned": {ID: "u-6-g1-unassigned", NodeID: "", GroupID: "g1", Status: UnitStatusPending},
+	})
 }
 
 // TestTaskStatus_IsActive: drives the schema MutationGuard. Misclass
@@ -174,15 +173,15 @@ func TestTask_NodesWithLocalUnits(t *testing.T) {
 		"unassigned (empty NodeID) unit must NOT contribute to the expected set")
 
 	// Edge: a task with ONLY unassigned units returns an empty slice.
-	emptyNodeTask := &Task{Units: map[string]*Unit{
+	emptyNodeTask := withUnits(&Task{}, map[string]*Unit{
 		"u-1": {NodeID: "", Status: UnitStatusPending},
-	}}
+	})
 	assert.Empty(t, emptyNodeTask.NodesWithLocalUnits())
 
 	// Edge: a task with no units returns an empty slice (not nil per
 	// constructor preallocation, but `len==0` is the load-bearing
 	// invariant for callers checking `len(nodes) == 0`).
-	zeroUnitTask := &Task{Units: map[string]*Unit{}}
+	zeroUnitTask := withUnits(&Task{}, map[string]*Unit{})
 	assert.Empty(t, zeroUnitTask.NodesWithLocalUnits())
 }
 
@@ -244,10 +243,11 @@ func TestTask_AllUnitsTerminal(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			task := &Task{Units: map[string]*Unit{}}
+			units := map[string]*Unit{}
 			for i, s := range tc.statuses {
-				task.Units[unitKey(i)] = &Unit{Status: s}
+				units[unitKey(i)] = &Unit{Status: s}
 			}
+			task := withUnits(&Task{}, units)
 			assert.Equal(t, tc.want, task.AllUnitsTerminal())
 		})
 	}
@@ -267,10 +267,11 @@ func TestTask_AnyUnitFailed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			task := &Task{Units: map[string]*Unit{}}
+			units := map[string]*Unit{}
 			for i, s := range tc.statuses {
-				task.Units[unitKey(i)] = &Unit{Status: s}
+				units[unitKey(i)] = &Unit{Status: s}
 			}
+			task := withUnits(&Task{}, units)
 			assert.Equal(t, tc.want, task.AnyUnitFailed())
 		})
 	}
@@ -292,8 +293,8 @@ func TestTask_AllGroupUnitsTerminal(t *testing.T) {
 	assert.False(t, task.AllGroupUnitsTerminal("g2"))
 
 	// Mark g2 units terminal — should flip to true.
-	task.Units["u-3-g2-n1-pending"].Status = UnitStatusCompleted
-	task.Units["u-4-g2-n2-prog"].Status = UnitStatusFailed
+	task.Unit("u-3-g2-n1-pending").Status = UnitStatusCompleted
+	task.Unit("u-4-g2-n2-prog").Status = UnitStatusFailed
 	assert.True(t, task.AllGroupUnitsTerminal("g2"))
 
 	// Ungrouped (empty groupID) — only u-5 (COMPLETED) qualifies.
@@ -315,7 +316,7 @@ func TestTask_Groups(t *testing.T) {
 		"empty groupID is an explicit value, not absence; must be in Groups output")
 
 	// Edge: empty task.
-	emptyTask := &Task{Units: map[string]*Unit{}}
+	emptyTask := withUnits(&Task{}, map[string]*Unit{})
 	assert.Empty(t, emptyTask.Groups())
 }
 
@@ -335,16 +336,16 @@ func TestTask_NodeHasNonTerminalUnits(t *testing.T) {
 	assert.True(t, task.NodeHasNonTerminalUnits("n-3"))
 
 	// Mark u-6 terminal — n-3 should now have only terminal work.
-	task.Units["u-6-g1-unassigned"].Status = UnitStatusCompleted
+	task.Unit("u-6-g1-unassigned").Status = UnitStatusCompleted
 	assert.False(t, task.NodeHasNonTerminalUnits("n-3"))
 
 	// Unknown node with unassigned units present: still true because
 	// unassigned counts toward any node.
-	task.Units["u-6-g1-unassigned"].Status = UnitStatusPending
+	task.Unit("u-6-g1-unassigned").Status = UnitStatusPending
 	assert.True(t, task.NodeHasNonTerminalUnits("never-existed"))
 
 	// All terminal AND no unassigned: false.
-	for _, u := range task.Units {
+	for _, u := range task.Units() {
 		u.Status = UnitStatusCompleted
 	}
 	assert.False(t, task.NodeHasNonTerminalUnits("never-existed"))

@@ -25,7 +25,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
-	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
@@ -188,9 +187,6 @@ type Config struct {
 
 	// ReplicationEngineMaxWorkers is the maximum number of workers for the replication engine
 	ReplicationEngineMaxWorkers int
-
-	// DistributedTasks is the configuration for the distributed task manager.
-	DistributedTasks config.DistributedTasksConfig
 
 	// DistributedTaskCollectionExtractors are registered on the
 	// distributed-task Manager at FSM construction time, BEFORE RAFT
@@ -430,9 +426,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 	// Two-way wiring: mutation-guard (prevents schema↔reindex races) and
 	// cascade-delete (weaviate/0-weaviate-issues#231).
 	distributedTasksManager := distributedtask.NewManager(distributedtask.ManagerParameters{
-		Clock:            clockwork.NewRealClock(),
-		CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
-		Logger:           cfg.Logger,
+		Logger: cfg.Logger,
 	})
 
 	schemaManager.SetMutationGuard(distributedTasksManager)
@@ -531,8 +525,8 @@ func (st *Store) LocalDistributedTasks() map[string][]*distributedtask.Task {
 	return st.distributedTasksManager.LocalDistributedTasks()
 }
 
-func (st *Store) LocalTaskStatuses(namespace string) []distributedtask.TaskStatusEntry {
-	return st.distributedTasksManager.LocalTaskStatuses(namespace)
+func (st *Store) LocalTaskStatuses(namespace, shard string) []distributedtask.TaskStatusEntry {
+	return st.distributedTasksManager.LocalTaskStatuses(namespace, shard)
 }
 
 // lastIndex returns the last index in stable storage,

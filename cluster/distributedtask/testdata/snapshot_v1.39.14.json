@@ -1,0 +1,193 @@
+{
+  "tasks": {
+    "reindex": [
+      {
+        "ID": "cancelled",
+        "finishedAt": "2023-11-14T23:13:20+01:00",
+        "namespace": "reindex",
+        "needsPreparationBarrier": true,
+        "payload": "eyJjb2xsZWN0aW9uIjoiQyIsIm1pZ3JhdGlvblR5cGUiOiJjaGFuZ2UtdG9rZW5pemF0aW9uIiwicHJvcGVydGllcyI6WyJmb28iXSwidGFyZ2V0VG9rZW5pemF0aW9uIjoiZmllbGQifQ==",
+        "preparationCompletionAcks": {
+          "n1": {
+            "ackedAt": "2023-11-14T23:13:20+01:00",
+            "success": true
+          }
+        },
+        "startedAt": "2023-11-14T23:13:20+01:00",
+        "status": "CANCELLED",
+        "units": {
+          "u1": {
+            "finishedAt": "0001-01-01T00:00:00Z",
+            "groupId": "t1",
+            "id": "u1",
+            "nodeId": "n1",
+            "progress": 0.5,
+            "status": "IN_PROGRESS",
+            "updatedAt": "2023-11-14T23:13:20+01:00"
+          },
+          "u2": {
+            "finishedAt": "0001-01-01T00:00:00Z",
+            "groupId": "t1",
+            "id": "u2",
+            "nodeId": "n2",
+            "progress": 0.5,
+            "status": "IN_PROGRESS",
+            "updatedAt": "2023-11-14T23:13:20+01:00"
+          },
+          "u3": {
+            "finishedAt": "0001-01-01T00:00:00Z",
+            "groupId": "t2",
+            "id": "u3",
+            "nodeId": "n1",
+            "progress": 0.5,
+            "status": "IN_PROGRESS",
+            "updatedAt": "2023-11-14T23:13:20+01:00"
+          },
+          "u4": {
+            "finishedAt": "0001-01-01T00:00:00Z",
+            "groupId": "t2",
+            "id": "u4",
+            "nodeId": "n2",
+            "progress": 0.5,
+            "status": "IN_PROGRESS",
+            "updatedAt": "2023-11-14T23:13:20+01:00"
+          }
+        },
+        "version": 3
+      },
+      {
+        "ID": "failed-mid-swap",
+        "error": "post-completion swap failed on node n2: ",
+        "finishedAt": "2023-11-14T23:13:20+01:00",
+        "namespace": "reindex",
+        "needsPreparationBarrier": true,
+        "payload": "eyJjb2xsZWN0aW9uIjoiQyIsIm1pZ3JhdGlvblR5cGUiOiJjaGFuZ2UtdG9rZW5pemF0aW9uIiwicHJvcGVydGllcyI6WyJmb28iXSwidGFyZ2V0VG9rZW5pemF0aW9uIjoiZmllbGQifQ==",
+        "postCompletionAcks": {
+          "n2": {
+            "ackedAt": "2023-11-14T23:13:20+01:00",
+            "success": false
+          }
+        },
+        "preparationCompletionAcks": {
+          "n1": {
+            "ackedAt": "2023-11-14T23:13:20+01:00",
+            "success": true
+          },
+          "n2": {
+            "ackedAt": "2023-11-14T23:13:20+01:00",
+            "success": true
+          }
+        },
+        "startedAt": "2023-11-14T23:13:20+01:00",
+        "status": "FAILED",
+        "units": {
+          "u1": {
+            "finishedAt": "2023-11-14T23:13:20+01:00",
+            "groupId": "t1",
+            "id": "u1",
+            "nodeId": "n1",
+            "progress": 1,
+            "status": "COMPLETED",
+            "updatedAt": "2023-11-14T23:13:20+01:00"
+          },
+          "u2": {
+            "finishedAt": "2023-11-14T23:13:20+01:00",
+            "groupId": "t1",
+            "id": "u2",
+            "nodeId": "n2",
+            "progress": 1,
+            "status": "COMPLETED",
+            "updatedAt": "2023-11-14T23:13:20+01:00"
+          },
+          "u3": {
+            "finishedAt": "2023-11-14T23:13:20+01:00",
+            "groupId": "t2",
+            "id": "u3",
+            "nodeId": "n1",
+            "progress": 1,
+            "status": "COMPLETED",
+            "updatedAt": "2023-11-14T23:13:20+01:00"
+          },
+          "u4": {
+            "finishedAt": "2023-11-14T23:13:20+01:00",
+            "groupId": "t2",
+            "id": "u4",
+            "nodeId": "n2",
+            "progress": 1,
+            "status": "COMPLETED",
+            "updatedAt": "2023-11-14T23:13:20+01:00"
+          }
+        },
+        "version": 2
+      },
+      {
+        "ID": "finished",
+        "finishedAt": "2023-11-14T23:13:20+01:00",
+        "namespace": "reindex",
+        "needsPreparationBarrier": true,
+        "payload": "eyJjb2xsZWN0aW9uIjoiQyIsIm1pZ3JhdGlvblR5cGUiOiJjaGFuZ2UtdG9rZW5pemF0aW9uIiwicHJvcGVydGllcyI6WyJmb28iXSwidGFyZ2V0VG9rZW5pemF0aW9uIjoiZmllbGQifQ==",
+        "postCompletionAcks": {
+          "n1": {
+            "ackedAt": "2023-11-14T23:13:20+01:00",
+            "success": true
+          },
+          "n2": {
+            "ackedAt": "2023-11-14T23:13:20+01:00",
+            "success": true
+          }
+        },
+        "preparationCompletionAcks": {
+          "n1": {
+            "ackedAt": "2023-11-14T23:13:20+01:00",
+            "success": true
+          },
+          "n2": {
+            "ackedAt": "2023-11-14T23:13:20+01:00",
+            "success": true
+          }
+        },
+        "startedAt": "2023-11-14T23:13:20+01:00",
+        "status": "FINISHED",
+        "units": {
+          "u1": {
+            "finishedAt": "2023-11-14T23:13:20+01:00",
+            "groupId": "t1",
+            "id": "u1",
+            "nodeId": "n1",
+            "progress": 1,
+            "status": "COMPLETED",
+            "updatedAt": "2023-11-14T23:13:20+01:00"
+          },
+          "u2": {
+            "finishedAt": "2023-11-14T23:13:20+01:00",
+            "groupId": "t1",
+            "id": "u2",
+            "nodeId": "n2",
+            "progress": 1,
+            "status": "COMPLETED",
+            "updatedAt": "2023-11-14T23:13:20+01:00"
+          },
+          "u3": {
+            "finishedAt": "2023-11-14T23:13:20+01:00",
+            "groupId": "t2",
+            "id": "u3",
+            "nodeId": "n1",
+            "progress": 1,
+            "status": "COMPLETED",
+            "updatedAt": "2023-11-14T23:13:20+01:00"
+          },
+          "u4": {
+            "finishedAt": "2023-11-14T23:13:20+01:00",
+            "groupId": "t2",
+            "id": "u4",
+            "nodeId": "n2",
+            "progress": 1,
+            "status": "COMPLETED",
+            "updatedAt": "2023-11-14T23:13:20+01:00"
+          }
+        },
+        "version": 1
+      }
+    ]
+  }
+}

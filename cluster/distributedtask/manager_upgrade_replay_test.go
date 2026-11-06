@@ -1,0 +1,244 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package distributedtask
+
+import (
+	_ "embed"
+	"testing"
+	"time"
+
+	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/require"
+
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+)
+
+// Pins that a log every released binary (v1.38.x, v1.39.0-14) wrote replays to
+// that binary's own verdict: its acks name no group, and its last PREP ack moves
+// the run to SWAPPING. No swap is owed, as in a restore of that binary's snapshot.
+func TestReplayOfReleasedBinaryLogs(t *testing.T) {
+	const ns, id = "ns", "T"
+	type step func(t *testing.T, m *Manager)
+	at := time.UnixMilli(1_700_000_000_000)
+	prep := func(node string, ok bool) step {
+		return func(t *testing.T, m *Manager) {
+			require.NoError(t, m.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+				Namespace: ns, Id: id, Version: 1, NodeId: node, Success: ok, Error: errIf(ok), AckedAtUnixMillis: at.UnixMilli(),
+			})))
+		}
+	}
+	swapAck := func(node string, ok bool) step {
+		return func(t *testing.T, m *Manager) {
+			require.NoError(t, m.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+				Namespace: ns, Id: id, Version: 1, NodeId: node, Success: ok, Error: errIf(ok), AckedAtUnixMillis: at.UnixMilli(),
+			})))
+		}
+	}
+	finalize := func(t *testing.T, m *Manager) {
+		require.NoError(t, m.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
+			Namespace: ns, Id: id, Version: 1, FinalizedAtUnixMillis: at.UnixMilli(),
+		})))
+	}
+	// Two tenants on two nodes, or a single-tenant collection's bare units.
+	mt := map[string]string{"u1": "t1", "u2": "t1", "u3": "t2", "u4": "t2"}
+	nonMT := map[string]string{"u1": "", "u2": "", "u3": "", "u4": ""}
+	node := map[string]string{"u1": "n1", "u2": "n2", "u3": "n1", "u4": "n2"}
+
+	for _, tc := range []struct {
+		name     string
+		groups   map[string]string
+		complete bool // every unit finishes, so the task reaches PREPARING
+		// prepInStarted lands n1's PREP ack before the units finish, as v1.39 allowed.
+		prepInStarted bool
+		steps         []step
+		want          TaskStatus
+		wantOwed      map[string][]string
+	}{
+		{
+			name: "finished multi-tenant run", groups: mt, complete: true,
+			steps: []step{prep("n1", true), prep("n2", true), swapAck("n1", true), swapAck("n2", true), finalize},
+			want:  TaskStatusFinished,
+		},
+		{
+			name: "finished single-tenant run", groups: nonMT, complete: true,
+			steps: []step{prep("n1", true), prep("n2", true), swapAck("n1", true), swapAck("n2", true), finalize},
+			want:  TaskStatusFinished,
+		},
+		{
+			name: "a PREP ack applied in STARTED counts once the run prepares", groups: mt, complete: true, prepInStarted: true,
+			steps: []step{prep("n2", true), swapAck("n1", true), swapAck("n2", true), finalize},
+			want:  TaskStatusFinished,
+		},
+		{
+			name: "single-tenant: a PREP ack applied in STARTED counts once the run prepares", groups: nonMT, complete: true, prepInStarted: true,
+			steps: []step{prep("n2", true), swapAck("n1", true), swapAck("n2", true), finalize},
+			want:  TaskStatusFinished,
+		},
+		{
+			name: "failed in PREP decides nothing", groups: mt, complete: true,
+			steps: []step{prep("n1", true), prep("n2", false)},
+			want:  TaskStatusFailed,
+		},
+		{
+			name: "failed mid-swap", groups: mt, complete: true,
+			steps: []step{prep("n1", true), prep("n2", true), swapAck("n2", false), swapAck("n1", true)},
+			want:  TaskStatusFailed,
+		},
+		{
+			name: "single-tenant: failed mid-swap", groups: nonMT, complete: true,
+			steps: []step{prep("n1", true), prep("n2", true), swapAck("n2", false), swapAck("n1", true)},
+			want:  TaskStatusFailed,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := logrustest.NewNullLogger()
+			m := NewManager(ManagerParameters{Logger: logger})
+			var specs []*cmd.UnitSpec
+			for u, g := range tc.groups {
+				specs = append(specs, &cmd.UnitSpec{Id: u, GroupId: g})
+			}
+			require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+				Namespace: ns, Id: id, UnitSpecs: specs, NeedsPreparationBarrier: true, SubmittedAtUnixMillis: at.UnixMilli(),
+			}), 1))
+			for u, n := range node {
+				require.NoError(t, m.UpdateUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskUnitProgressRequest{
+					Namespace: ns, Id: id, Version: 1, NodeId: n, UnitId: u, Progress: 0.5, UpdatedAtUnixMillis: at.UnixMilli(),
+				})))
+			}
+			if tc.prepInStarted {
+				prep("n1", true)(t, m)
+			}
+			if tc.complete {
+				for u, n := range node {
+					require.NoError(t, m.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+						Namespace: ns, Id: id, Version: 1, NodeId: n, UnitId: u, FinishedAtUnixMillis: at.UnixMilli(),
+					})))
+				}
+			}
+			for _, s := range tc.steps {
+				s(t, m)
+			}
+
+			task := m.tasks[ns][id]
+			require.Equal(t, tc.want, task.Status)
+			if tc.wantOwed == nil {
+				require.Empty(t, task.SwapsOwed)
+			} else {
+				require.Equal(t, tc.wantOwed, task.SwapsOwed)
+			}
+		})
+	}
+}
+
+func errIf(ok bool) string {
+	if ok {
+		return ""
+	}
+	return "synthetic failure"
+}
+
+// Snapshots written by v1.39.14's Manager.Snapshot, generated by driving
+// that release's FSM: a finished, a failed-mid-swap and a cancelled run.
+//
+//go:embed testdata/snapshot_v1.39.14.json
+var releasedSnapshot []byte
+
+// Pins that a snapshot an earlier release wrote restores cleanly and owes
+// nothing: no released binary held a debt, so none can be read into one.
+func TestRestoreOfAReleasedBinarysSnapshot(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	m := NewManager(ManagerParameters{Logger: logger})
+	require.NoError(t, m.Restore(releasedSnapshot))
+
+	statuses := map[string]TaskStatus{}
+	for _, task := range m.tasks["reindex"] {
+		statuses[task.ID] = task.Status
+		require.Empty(t, task.SwapsOwed, task.ID)
+		require.NotEmpty(t, task.NodePreparationAcks, "%s: the old per-node PREP acks decode into their old name", task.ID)
+	}
+	require.Equal(t, map[string]TaskStatus{
+		"finished": TaskStatusFinished, "failed-mid-swap": TaskStatusFailed, "cancelled": TaskStatusCancelled,
+	}, statuses)
+}
+
+// A single-tenant run v1.39.15 snapshotted between its two nodes' PREP acks.
+//
+//go:embed testdata/snapshot_v1.39.15_mid_preparing.json
+var releasedMidPreparingSnapshot []byte
+
+// Pins that a released single-tenant run restored mid-PREPARING finishes on the
+// released tail: its groupless acks take the released rule, though the run's one group is "".
+func TestReplayOfAReleasedSingleTenantRunRestoredMidPreparing(t *testing.T) {
+	const ns, id = "reindex", "C:change-tokenization:foo:ab12"
+	logger, _ := logrustest.NewNullLogger()
+	m := NewManager(ManagerParameters{Logger: logger})
+	require.NoError(t, m.Restore(releasedMidPreparingSnapshot))
+	at := time.UnixMilli(1_700_000_000_000).UnixMilli()
+	require.NoError(t, m.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+		Namespace: ns, Id: id, Version: 1, NodeId: "n2", Success: true, AckedAtUnixMillis: at,
+	})))
+	for _, n := range []string{"n1", "n2"} {
+		require.NoError(t, m.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+			Namespace: ns, Id: id, Version: 1, NodeId: n, Success: true, AckedAtUnixMillis: at,
+		})))
+	}
+	require.NoError(t, m.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
+		Namespace: ns, Id: id, Version: 1, FinalizedAtUnixMillis: at,
+	})))
+	require.Equal(t, TaskStatusFinished, m.tasks[ns][id].Status)
+}
+
+// Pins that the debt round-trips a snapshot: a restored node owes and has
+// paid exactly what it did before.
+func TestSwapDebtSurvivesSnapshot(t *testing.T) {
+	const ns, id = "ns", "T"
+	logger, _ := logrustest.NewNullLogger()
+	at := time.UnixMilli(1_700_000_000_000)
+	m := NewManager(ManagerParameters{Logger: logger})
+	specs := []*cmd.UnitSpec{{Id: "u1", GroupId: "t1"}, {Id: "u2", GroupId: "t1"}, {Id: "u3", GroupId: "t2"}, {Id: "u4", GroupId: "t2"}}
+	node := map[string]string{"u1": "n1", "u2": "n2", "u3": "n1", "u4": "n2"}
+	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace: ns, Id: id, UnitSpecs: specs, NeedsPreparationBarrier: true, SubmittedAtUnixMillis: at.UnixMilli(),
+	}), 1))
+	for u, n := range node {
+		require.NoError(t, m.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+			Namespace: ns, Id: id, Version: 1, NodeId: n, UnitId: u, FinishedAtUnixMillis: at.UnixMilli(),
+		})))
+	}
+	for _, n := range []string{"n1", "n2"} {
+		require.NoError(t, m.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+			Namespace: ns, Id: id, Version: 1, GroupId: new("t1"), NodeId: n, Success: true, AckedAtUnixMillis: at.UnixMilli(),
+		})))
+	}
+	require.NoError(t, m.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace: ns, Id: id, Version: 1, GroupId: "t1", NodeId: "n1", Success: true, AckedAtUnixMillis: at.UnixMilli(),
+	})))
+	before := m.tasks[ns][id]
+	require.Equal(t, map[string][]string{"t1": {"n2"}}, before.SwapsOwed)
+
+	snap, err := m.Snapshot()
+	require.NoError(t, err)
+	restored := NewManager(ManagerParameters{Logger: logger})
+	require.NoError(t, restored.Restore(snap))
+	after := restored.tasks[ns][id]
+	require.Equal(t, before.SwapsOwed, after.SwapsOwed)
+	// Compared with Equal: the JSON round trip changes each time's Location.
+	require.Len(t, after.SwapDecidedGroups, len(before.SwapDecidedGroups))
+	for g, decidedAt := range before.SwapDecidedGroups {
+		require.True(t, decidedAt.Equal(after.SwapDecidedGroups[g]), "group %q", g)
+	}
+
+	require.NoError(t, restored.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace: ns, Id: id, Version: 1, GroupId: "t1", NodeId: "n2", Success: true, AckedAtUnixMillis: at.UnixMilli(),
+	})))
+	require.Empty(t, restored.tasks[ns][id].SwapsOwed)
+}

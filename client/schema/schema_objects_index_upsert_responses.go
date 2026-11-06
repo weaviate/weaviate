@@ -509,7 +509,7 @@ func NewSchemaObjectsIndexUpsertConflict() *SchemaObjectsIndexUpsertConflict {
 /*
 SchemaObjectsIndexUpsertConflict describes a response with status code 409, with default header values.
 
-Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.
+Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted; or an earlier run of a migration stopped after some tenants migrated an index of this property, which only a resubmit of that migration finishes. The message says which.
 */
 type SchemaObjectsIndexUpsertConflict struct {
 	Payload *models.ErrorResponse

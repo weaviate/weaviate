@@ -348,7 +348,7 @@ func (p *ShardNoopProvider) processUnits(task *Task, handle *shardNoopTaskHandle
 	}
 
 	p.logger.WithField("nodeID", p.nodeID).WithField("taskID", task.ID).
-		WithField("unitCount", len(task.Units)).WithField("localShardSet", localShardSet).
+		WithField("unitCount", task.UnitCount()).WithField("localShardSet", localShardSet).
 		WithField("maxConcurrency", payload.MaxConcurrency).
 		Info("shard-noop provider: starting unit processing")
 
@@ -358,7 +358,7 @@ func (p *ShardNoopProvider) processUnits(task *Task, handle *shardNoopTaskHandle
 	}
 
 	ctx := context.Background()
-	for uID, u := range task.Units {
+	for uID, u := range task.Units() {
 		select {
 		case <-handle.stopCh:
 			return
@@ -393,7 +393,7 @@ func (p *ShardNoopProvider) processUnitsConcurrent(task *Task, handle *shardNoop
 	}, p.logger)
 
 	var wg sync.WaitGroup
-	for uID, u := range task.Units {
+	for uID, u := range task.Units() {
 		if u.Status == UnitStatusCompleted || u.Status == UnitStatusFailed {
 			continue
 		}

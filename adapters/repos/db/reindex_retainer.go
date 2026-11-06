@@ -12,7 +12,9 @@
 package db
 
 import (
+	"cmp"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -38,32 +40,181 @@ func ReindexIndexTypes(mt ReindexMigrationType) (indexTypes []string, known bool
 	return nil, false
 }
 
-// ShouldRetainCompletedTask keeps a FAILED record until newer runs on its
-// property cover all its index types, so the status endpoint still reads
-// "failed". A newer run that hides the failure is kept until the failed record
-// is gone, so the failure cannot resurface. "failed" lasts until a newer run of
-// that index type (even a cancelled one), a collection delete, or, for a
-// non-enable run, dropping the index.
-// Assumes one property per payload, as every submit path builds today.
+// ReindexLeftPartial reports whether a task stopped after some groups' swaps
+// were decided: those tenants are migrated, the rest are not.
+func ReindexLeftPartial(task *distributedtask.Task) bool {
+	return (task.Status == distributedtask.TaskStatusFailed || task.Status == distributedtask.TaskStatusCancelled) &&
+		len(task.SwapDecidedGroups) > 0
+}
+
+// ReindexRunLanded reports whether class holds a run's own cutover write on every
+// property. While the run stands only it may make that write, so the run is finished.
+func ReindexRunLanded(class *models.Class, mt ReindexMigrationType, targetTok string, props []string) bool {
+	visible, _ := migrationEffectReader(mt)
+	if class == nil || visible == nil || len(props) == 0 {
+		return false
+	}
+	for _, name := range props {
+		i := slices.IndexFunc(class.Properties, func(p *models.Property) bool { return p.Name == name })
+		if i < 0 || !visible(MigrationSubject{MigrationType: mt, TargetTokenization: targetTok}, class.Properties[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// ReindexRun pairs a reindex task with its decoded payload.
+type ReindexRun struct {
+	Task    *distributedtask.Task
+	Payload ReindexTaskPayload
+}
+
+// ReindexMigratedTenants reads property's failed or cancelled runs since the last
+// finished flip on target's index types. migrated is each tenant whose newest
+// decided swap went to target. covered is every tenant target's runs held. paid is
+// the part of migrated no replica still owes a swap for, which only a resubmit skips.
+func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexTaskPayload) (migrated, paid, covered map[string]struct{}) {
+	targetTypes, _ := ReindexIndexTypes(target.MigrationType)
+	var onProperty []ReindexRun
+	for _, run := range runs {
+		if strings.EqualFold(run.Payload.Collection, target.Collection) && slices.Contains(run.Payload.Properties, property) {
+			onProperty = append(onProperty, run)
+		}
+	}
+	slices.SortFunc(onProperty, func(a, b ReindexRun) int { return cmp.Compare(b.Task.Version, a.Task.Version) })
+
+	migrated, paid, covered = map[string]struct{}{}, map[string]struct{}{}, map[string]struct{}{}
+	swappedSince := map[string]struct{}{}
+	for _, run := range onProperty {
+		types, _ := ReindexIndexTypes(run.Payload.MigrationType)
+		if run.Task.Status == distributedtask.TaskStatusFinished && IsSemanticMigration(run.Payload.MigrationType) &&
+			!slices.ContainsFunc(targetTypes, func(t string) bool { return !slices.Contains(types, t) }) {
+			break
+		}
+		overlaps := slices.ContainsFunc(types, func(t string) bool { return slices.Contains(targetTypes, t) })
+		if !overlaps || (run.Task.Status != distributedtask.TaskStatusFailed && run.Task.Status != distributedtask.TaskStatusCancelled) {
+			continue
+		}
+		same := run.Payload.MigrationType == target.MigrationType &&
+			run.Payload.TargetTokenization == target.TargetTokenization && run.Payload.BucketStrategy == target.BucketStrategy
+		for group := range run.Task.SwapDecidedGroups {
+			if _, seen := swappedSince[group]; same && !seen {
+				migrated[group] = struct{}{}
+				if len(run.Task.SwapsOwed[group]) == 0 {
+					paid[group] = struct{}{}
+				}
+			}
+			swappedSince[group] = struct{}{}
+		}
+		for _, group := range run.Task.Groups() {
+			if same {
+				covered[group] = struct{}{}
+			}
+		}
+	}
+	return migrated, paid, covered
+}
+
+// ReindexMigratedPhrase names a single-tenant collection as a whole, never in tenants.
+// Without tenantCounts it hides how many tenants, from a caller who may not read them.
+func ReindexMigratedPhrase(migrated, covered map[string]struct{}, property string, tenantCounts bool) string {
+	if _, ungrouped := migrated[""]; ungrouped {
+		return fmt.Sprintf("property %q of the collection is migrated", property)
+	}
+	if !tenantCounts {
+		return fmt.Sprintf("some tenants of property %q are migrated", property)
+	}
+	return fmt.Sprintf("%d of %d tenants of property %q are migrated", len(migrated), len(covered), property)
+}
+
+// ReindexRuns decodes tasks into runs, skipping an undecodable payload.
+func ReindexRuns(tasks []*distributedtask.Task) []ReindexRun {
+	runs := make([]ReindexRun, 0, len(tasks))
+	for _, task := range tasks {
+		var payload ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err == nil {
+			runs = append(runs, ReindexRun{Task: task, Payload: payload})
+		}
+	}
+	return runs
+}
+
+// ReindexPartialRunConflict is the one rule for what a standing partial run refuses, naming its resubmit.
+// A run claims its whole property: searchable and filterable share one tokenization.
+func ReindexPartialRunConflict(tasks []*distributedtask.Task, class *models.Class, collection, property string,
+	accepts func(*ReindexRun) bool, tenantCounts bool,
+) string {
+	if !slices.ContainsFunc(tasks, ReindexLeftPartial) {
+		return ""
+	}
+	runs := ReindexRuns(tasks)
+	for _, scope := range [][]string{{"searchable"}, {"filterable"}, {"rangeable"}} {
+		run, migrated, covered := ReindexPartialRun(runs, class, collection, property, scope)
+		if run == nil || (accepts != nil && accepts(run)) {
+			continue
+		}
+		return fmt.Sprintf("%s; finish the migration with %s",
+			ReindexMigratedPhrase(migrated, covered, property, tenantCounts), ReindexResubmitCommand(&run.Payload, property))
+	}
+	return ""
+}
+
+// ReindexPartialRun returns the newest run on property that left tenants of
+// indexTypes on its target, with those tenants. It returns nil once a flip
+// covered the run or no tenant still serves its target.
+func ReindexPartialRun(runs []ReindexRun, class *models.Class, collection, property string, indexTypes []string) (partial *ReindexRun, migrated, covered map[string]struct{}) {
+	for i := range runs {
+		run := &runs[i]
+		types, _ := ReindexIndexTypes(run.Payload.MigrationType)
+		if strings.EqualFold(run.Payload.Collection, collection) && slices.Contains(run.Payload.Properties, property) &&
+			ReindexLeftPartial(run.Task) && slices.ContainsFunc(types, func(t string) bool { return slices.Contains(indexTypes, t) }) &&
+			!ReindexRunLanded(class, run.Payload.MigrationType, run.Payload.TargetTokenization, run.Payload.Properties) &&
+			(partial == nil || run.Task.Version > partial.Task.Version) {
+			partial = run
+		}
+	}
+	if partial == nil {
+		return nil, nil, nil
+	}
+	if migrated, _, covered = ReindexMigratedTenants(runs, property, &partial.Payload); len(migrated) == 0 {
+		return nil, nil, nil // a newer finished flip covered it, or no tenant still serves target
+	}
+	return partial, migrated, covered
+}
+
+// ShouldRetainCompletedTask keeps a task while a replica owes one of its decided
+// swaps, and a FAILED or partial task until a newer run (for a partial one, a
+// finished flip) covers its index types or they are dropped, so the status keeps
+// reading it. A newer run is kept while it hides such an older task. It assumes
+// one property per payload.
 func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task,
 ) bool {
+	if len(task.SwapsOwed) > 0 {
+		return true
+	}
 	targets := reindexTargets{}
 	target := targets.of(task)
 	if target == nil {
 		return false // the status endpoint cannot read it either
 	}
-	newestOn := p.indexTypesNotRunSince(task, target, namespaceTasks, targets)
+	if (task.Status == distributedtask.TaskStatusFailed || task.Status == distributedtask.TaskStatusCancelled) &&
+		p.schemaManager != nil && ReindexRunLanded(p.schemaManager.ReadOnlyClass(target.Collection),
+		target.MigrationType, target.TargetTokenization, target.Properties) {
+		return false
+	}
+	partial := ReindexLeftPartial(task)
+	newestOn := p.indexTypesNotRunSince(task, target, namespaceTasks, targets, partial)
 	if len(newestOn) == 0 {
 		return false
 	}
-	if task.Status == distributedtask.TaskStatusFailed {
+	if task.Status == distributedtask.TaskStatusFailed || partial {
 		return slices.ContainsFunc(newestOn, func(indexType string) bool {
 			return !p.indexDroppedSince(target, indexType)
 		})
 	}
 	for _, older := range namespaceTasks {
-		if older.Version >= task.Version || older.Status != distributedtask.TaskStatusFailed {
+		if older.Version >= task.Version || (older.Status != distributedtask.TaskStatusFailed && !ReindexLeftPartial(older)) {
 			continue
 		}
 		olderTarget := targets.of(older)
@@ -84,9 +235,10 @@ func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 // Skipping the per-unit maps keeps decoding cheap, since every node decodes
 // this on every scheduler tick.
 type reindexTarget struct {
-	MigrationType ReindexMigrationType `json:"migrationType"`
-	Collection    string               `json:"collection"`
-	Properties    []string             `json:"properties"`
+	MigrationType      ReindexMigrationType `json:"migrationType"`
+	Collection         string               `json:"collection"`
+	Properties         []string             `json:"properties"`
+	TargetTokenization string               `json:"targetTokenization"`
 }
 
 // reindexTargets decodes each task at most once per retention decision; nil
@@ -106,9 +258,9 @@ func (ts reindexTargets) of(task *distributedtask.Task) *reindexTarget {
 }
 
 // indexTypesNotRunSince returns task's index types that no newer run on the
-// same properties has covered.
+// same properties has covered; with flipsOnly, only finished schema flips count.
 func (p *ReindexProvider) indexTypesNotRunSince(task *distributedtask.Task, target *reindexTarget,
-	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task, targets reindexTargets,
+	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task, targets reindexTargets, flipsOnly bool,
 ) []string {
 	remaining, _ := ReindexIndexTypes(target.MigrationType)
 	for _, other := range namespaceTasks {
@@ -116,7 +268,8 @@ func (p *ReindexProvider) indexTypesNotRunSince(task *distributedtask.Task, targ
 			continue
 		}
 		otherTarget := targets.of(other)
-		if otherTarget == nil {
+		if otherTarget == nil || (flipsOnly &&
+			(other.Status != distributedtask.TaskStatusFinished || !IsSemanticMigration(otherTarget.MigrationType))) {
 			continue
 		}
 		covered := p.indexTypesRunOnSameProperties(otherTarget, target)

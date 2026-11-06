@@ -51,10 +51,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("shard %q: remove computed usage file for unloaded shard: %w", shardName, err)
 	}
 
-	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(index.path(), shardName, class); err != nil {
-		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)
-	}
-
 	if err := newVectorDropIndexHelper().ensureFilesAreRemovedForDroppedVectorIndexes(index.path(), shardName, class); err != nil {
 		return nil, fmt.Errorf("shard %q: remove dropped vector index files: %w", shardName, err)
 	}
@@ -162,6 +158,14 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// opened at a name it is about to move would serve the wrong data.
 	s.finalizeLegacyMigrations(class)
 	s.reconcileMigrationRecords(ctx, class)
+	s.restoreMigratedOverlays(class)
+
+	// After the records load, so the bucket of an index a migration turned on
+	// survives while the schema still has that index off.
+	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(
+		index.path(), shardName, class, s.migratedIndexStands); err != nil {
+		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)
+	}
 
 	markInFlightRangeableMigrationsNotReady(s)
 

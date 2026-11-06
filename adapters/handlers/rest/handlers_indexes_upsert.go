@@ -95,7 +95,7 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 		return resp
 	}
 
-	plan, err := resolveUpsertPlan(class, collection, prop, indexType, body, reindexTasks)
+	plan, err := resolveUpsertPlan(class, collection, prop, indexType, body, reindexTasks, h.mayReadTenants(ctx, principal, collection))
 	if err != nil {
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
 	}
@@ -170,7 +170,10 @@ func (h *indexesHandlers) rebuildIndex(params schema.SchemaObjectsIndexRebuildPa
 		return resp
 	}
 
-	plan, err := h.resolveRebuildPlan(class, prop, indexType, reindexTasks)
+	plan, err := h.resolveRebuildPlan(class, prop, indexType, reindexTasks, h.mayReadTenants(ctx, principal, collection))
+	if errors.Is(err, errRebuildPropertyPartlyMigrated) {
+		return jsonResponder(http.StatusConflict, errorResponse(principal, err.Error()))
+	}
 	if err != nil {
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
 	}
@@ -179,14 +182,14 @@ func (h *indexesHandlers) rebuildIndex(params schema.SchemaObjectsIndexRebuildPa
 }
 
 // listReindexTasks fetches the RAFT reindex task list under the submit lock.
-// Fails closed (503) rather than let callers derive blockmax truth,
-// idempotency, or the conflict/cap gate from a partial view.
+// Fails closed (503) rather than let callers derive idempotency or the
+// conflict/cap gate from a partial view.
 func (h *indexesHandlers) listReindexTasks(ctx context.Context, principal *models.Principal) ([]*distributedtask.Task, middleware.Responder) {
-	if h.appState.ClusterService == nil {
+	if h.taskLister == nil {
 		return nil, jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
 			"cluster service unavailable; cannot submit reindex task"))
 	}
-	return reindexTasksOrFailClosed(ctx, principal, h.appState.ClusterService, h.appState.Logger)
+	return reindexTasksOrFailClosed(ctx, principal, h.taskLister, h.appState.Logger)
 }
 
 // reindexTasksOrFailClosed lists reindex-namespace tasks from lister, failing
@@ -310,8 +313,10 @@ const reindexStartedStatus = "STARTED"
 
 // resolveUpsertPlan diffs the request against current state, returning a
 // migration to submit, a NO_OP, a 409 conflict, or a 400 validation error.
-// reindexTasks supplies blockmax truth and the active-task idempotency check.
-func resolveUpsertPlan(class *models.Class, collection string, prop *models.Property, indexType string, body *models.IndexUpsertRequest, reindexTasks []*distributedtask.Task) (upsertPlan, error) {
+// reindexTasks supplies the active-task idempotency check and the partial-run refusal.
+func resolveUpsertPlan(class *models.Class, collection string, prop *models.Property, indexType string,
+	body *models.IndexUpsertRequest, reindexTasks []*distributedtask.Task, tenantCounts bool,
+) (upsertPlan, error) {
 	tok := strings.TrimSpace(body.Tokenization)
 	algorithm := strings.TrimSpace(body.Algorithm)
 
@@ -330,6 +335,9 @@ func resolveUpsertPlan(class *models.Class, collection string, prop *models.Prop
 	}
 	if err != nil {
 		return plan, err
+	}
+	if conflict := refuseOtherThanPartialRun(class, collection, prop.Name, tok, plan, reindexTasks, tenantCounts); conflict != "" {
+		return upsertPlan{conflict: conflict}, nil
 	}
 
 	// A noop plan answers before the submit path's conflict check runs, so an
@@ -420,7 +428,7 @@ func resolveSearchableUpsert(class *models.Class, collection string, prop *model
 			// A property already on blockmax needs nothing from that task, so
 			// joining would tie an idempotent request to an unrelated
 			// lifecycle (e.g. a rebuild that later FAILs).
-			if algorithm != "" && exists && db.SearchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
+			if algorithm != "" && exists && db.SearchablePropertyIsBlockmax(class, prop.Name) {
 				return upsertPlan{noop: true}, nil
 			}
 			return upsertPlan{noop: true, joinTaskID: task.ID}, nil
@@ -437,7 +445,9 @@ func resolveSearchableUpsert(class *models.Class, collection string, prop *model
 		// Per-property truth: the class-wide flag only flips once every
 		// property has migrated, so an already-migrated property must
 		// NO_OP even while siblings are still pending.
-		if db.SearchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
+		// A class flag set by a class update is not a standing run's own write: its resubmit still runs.
+		run, _, _ := db.ReindexPartialRun(db.ReindexRuns(reindexTasks), class, collection, prop.Name, []string{"searchable"})
+		if db.SearchablePropertyIsBlockmax(class, prop.Name) && (run == nil || run.Payload.MigrationType != db.ReindexTypeChangeAlgorithm) {
 			return upsertPlan{noop: true}, nil
 		}
 		return upsertPlan{migrationType: db.ReindexTypeChangeAlgorithm}, nil
@@ -454,7 +464,7 @@ func resolveSearchableUpsert(class *models.Class, collection string, prop *model
 			return upsertPlan{noop: true}, nil
 		}
 		// Coupled tokenization migration (rewrites searchable + filterable).
-		bucketStrategy, err := validateTokenizationChange(class, prop.Name, tok, reindexTasks)
+		bucketStrategy, err := validateTokenizationChange(class, prop.Name, tok)
 		if err != nil {
 			return upsertPlan{}, err
 		}
@@ -585,9 +595,16 @@ func resolveRangeableUpsert(class *models.Class, collection string, prop *models
 	return upsertPlan{migrationType: db.ReindexTypeEnableRangeable}, nil
 }
 
+var errRebuildPropertyPartlyMigrated = errors.New("cannot rebuild an index of a property some tenants already migrated")
+
 // resolveRebuildPlan validates the rebuild preconditions for the internal
 // index-type token and returns the repair/rebuild migration to submit.
-func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.Property, indexType string, reindexTasks []*distributedtask.Task) (upsertPlan, error) {
+func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.Property, indexType string,
+	reindexTasks []*distributedtask.Task, tenantCounts bool,
+) (upsertPlan, error) {
+	if err := refusePartlyMigratedRebuild(class, prop.Name, reindexTasks, tenantCounts); err != nil {
+		return upsertPlan{}, err
+	}
 	switch indexType {
 	case "searchable":
 		if !searchableIndexOn(prop) {
@@ -597,7 +614,7 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 		// to blockmax first. Per-property truth: a property whose bucket is
 		// already blockmax must be rebuildable even while the class-wide flag
 		// is still deferred behind sibling properties.
-		if !db.SearchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
+		if !db.SearchablePropertyIsBlockmax(class, prop.Name) {
 			return upsertPlan{}, errors.New("cannot rebuild a WAND searchable index — WAND is deprecated; PUT {\"algorithm\":\"blockmax\"} to migrate first")
 		}
 		return upsertPlan{migrationType: db.ReindexTypeRebuildSearchable}, nil
@@ -619,6 +636,29 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 	}
 	// Unreachable: normalizeIndexTypeParam already validated the token.
 	return upsertPlan{}, fmt.Errorf("unsupported index type %q", indexType)
+}
+
+// refusePartlyMigratedRebuild refuses a rebuild of any index of propName while a
+// partial run stands on that property ([db.ReindexPartialRunConflict] says why),
+// naming the resubmit that finishes the run.
+func refusePartlyMigratedRebuild(class *models.Class, propName string, reindexTasks []*distributedtask.Task, tenantCounts bool) error {
+	if msg := db.ReindexPartialRunConflict(reindexTasks, class, class.Class, propName, nil, tenantCounts); msg != "" {
+		return fmt.Errorf("%w: %s", errRebuildPropertyPartlyMigrated, msg)
+	}
+	return nil
+}
+
+// refuseOtherThanPartialRun accepts only a partial run's resubmit on its property.
+func refuseOtherThanPartialRun(class *models.Class, collection, propName, tok string, plan upsertPlan, reindexTasks []*distributedtask.Task,
+	tenantCounts bool,
+) string {
+	if plan.joinTaskID != "" || (plan.migrationType == "" && (!plan.noop || tok == "")) {
+		return ""
+	}
+	// The strategy is not compared: the named resubmit cannot carry one.
+	return db.ReindexPartialRunConflict(reindexTasks, class, collection, propName, func(run *db.ReindexRun) bool {
+		return plan.migrationType == run.Payload.MigrationType && plan.targetTok == run.Payload.TargetTokenization
+	}, tenantCounts)
 }
 
 // validateTenantScope enforces the tenants contract: honored only on
@@ -685,6 +725,9 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	if len(shardOwnership) == 0 {
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, "collection has no shards"))
 	}
+	if isMT && semantic {
+		shardOwnership = skipTenantsAlreadyMigrated(shardOwnership, collection, propertyName, plan, reindexTasks)
+	}
 
 	unitIDs, unitToShard, unitToNode := buildUnitMaps(shardOwnership)
 
@@ -707,8 +750,8 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		return resp
 	}
 
-	// Semantic migrations opt into the two-phase RAFT PREP barrier; MT
-	// semantic migrations also group by tenant for per-tenant barriers.
+	// Semantic migrations decide each group's swap in RAFT; MT semantic
+	// migrations group by tenant, so each tenant swaps once its replicas are ready.
 	if isMT && semantic {
 		unitSpecs := buildUnitSpecs(shardOwnership)
 		if err := h.appState.ClusterService.AddDistributedTaskWithGroupsBarrier(
@@ -739,6 +782,34 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		TaskID: namespacing.StripOwnNamespace(principal, taskID),
 		Status: reindexStartedStatus,
 	})
+}
+
+// skipTenantsAlreadyMigrated drops tenants every replica has swapped to the plan's
+// target, so a resubmit after a partial failure doesn't redo them. The answer
+// comes from the tasks' RAFT records, never shard state.
+func skipTenantsAlreadyMigrated(ownership map[string][]string, collection, propertyName string,
+	plan upsertPlan, reindexTasks []*distributedtask.Task,
+) map[string][]string {
+	_, paid, _ := db.ReindexMigratedTenants(db.ReindexRuns(reindexTasks), propertyName, &db.ReindexTaskPayload{
+		Collection: collection, MigrationType: plan.migrationType,
+		TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy,
+	})
+	if len(paid) == 0 {
+		return ownership
+	}
+	remaining := make(map[string][]string, len(ownership))
+	for node, shards := range ownership {
+		for _, shard := range shards {
+			if _, ok := paid[shard]; !ok {
+				remaining[node] = append(remaining[node], shard)
+			}
+		}
+	}
+	// Every tenant swapped but the flip never landed: only a full run reaches it.
+	if len(remaining) == 0 {
+		return ownership
+	}
+	return remaining
 }
 
 // buildReindexPayload assembles the RAFT task payload. OriginalTokenization is
