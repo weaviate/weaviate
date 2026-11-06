@@ -892,6 +892,58 @@ func TestRankReadsHeadersFromGRPCMetadata(t *testing.T) {
 	assert.Equal(t, []string{"grpcOrg"}, requests[0].organization)
 }
 
+func TestRankKeepsTheNumberLiteralOutOfTheDecodeError(t *testing.T) {
+	reply := func(probability string) string {
+		return `{"answers":[{"type":"predicate","name":"condition","probability":` + probability + `}]}`
+	}
+	nines := strings.Repeat("9", 4096)
+	tests := []struct {
+		name       string
+		fromHeader bool
+		body       string
+		notWant    string
+		wantPrefix string
+		maxLen     int
+	}{
+		{name: "4096 digits from the header host", fromHeader: true, body: reply(nines), notWant: "99", maxLen: 300},
+		{name: "1e999 from the header host", fromHeader: true, body: reply("1e999"), notWant: "1e999", maxLen: 300},
+		{
+			name: "4096 digits from the class host", body: reply(nines), notWant: "99",
+			wantPrefix: "parse OpenAI response: json: cannot unmarshal number into Go struct field",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			classServer, headerServer := newFake(t), newFake(t)
+			used := classServer
+			ctx := context.Background()
+			if tt.fromHeader {
+				used = headerServer
+				ctx = context.WithValue(ctx, "X-Openai-Api-Key", []string{"headerKey"})
+				ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{headerServer.url()})
+			}
+			used.replies = map[int]fakeReply{0: {status: http.StatusOK, body: tt.body}}
+
+			_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text", documentsOf(noRefund),
+				classConfig(classServer.url(), nil))
+
+			require.Error(t, err)
+			message := err.Error()
+			require.Contains(t, message, "probability")
+			if tt.wantPrefix != "" {
+				require.True(t, strings.HasPrefix(message, tt.wantPrefix), message)
+				// the body excerpt is appended after the decode error
+				message = strings.TrimPrefix(message, tt.wantPrefix)
+				message, _, _ = strings.Cut(message, ": {")
+			}
+			assert.NotContains(t, message, tt.notWant)
+			if tt.maxLen > 0 {
+				assert.Less(t, len(message), tt.maxLen)
+			}
+		})
+	}
+}
+
 func TestRankCapsRequestsInFlight(t *testing.T) {
 	f := newFake(t)
 	f.delay = 20 * time.Millisecond

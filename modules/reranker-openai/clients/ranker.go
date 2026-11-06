@@ -289,6 +289,11 @@ func readResponse(res *http.Response, hostFromHeader bool) (decisionResponse, er
 	}
 	var response decisionResponse
 	if err := json.Unmarshal(body, &response); err != nil {
+		// Value holds the whole number literal of the reply when it is out of range.
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &typeErr) {
+			typeErr.Value, _, _ = strings.Cut(typeErr.Value, " ")
+		}
 		err = fmt.Errorf("parse OpenAI response: %s", truncate(err.Error()))
 		if hostFromHeader || len(body) == 0 {
 			return decisionResponse{}, err
