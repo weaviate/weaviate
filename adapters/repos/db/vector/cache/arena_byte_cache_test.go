@@ -22,6 +22,7 @@ import (
 	"unsafe"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -254,6 +255,59 @@ func TestArenaByteCacheRecordSizeEnforced(t *testing.T) {
 	assert.Error(t, errs[1])
 	assert.Nil(t, vecs[0])
 	assert.Equal(t, int64(0), c.CountVectors())
+}
+
+// TestArenaByteCacheBadRecordLogRateLimited: a systematic size mismatch
+// refuses every record of a prefill. Only the first refusal is logged in
+// full; the rest come out as one summary line with the count, on the
+// deletion ticker or on Drop, instead of one line per record.
+func TestArenaByteCacheBadRecordLogRateLimited(t *testing.T) {
+	warnings := func(hook *test.Hook) []string {
+		var out []string
+		for _, e := range hook.AllEntries() {
+			if e.Level == logrus.WarnLevel {
+				out = append(out, e.Message)
+			}
+		}
+		return out
+	}
+	bad := make([]byte, testRecordSize+1)
+
+	t.Run("summary on drop", func(t *testing.T) {
+		logger, hook := test.NewNullLogger()
+		ac, err := NewArenaByteCache(nil, testRecordSize, 1e12, 1, logger, 0, nil)
+		require.NoError(t, err)
+		c := ac.(*arenaByteCache)
+		c.SetSizeAndGrowNoLock(2000)
+		for id := uint64(0); id < 1000; id++ {
+			c.Preload(id, bad)
+			c.PreloadIfAbsent(id, bad)
+			c.PreloadNoLock(id, bad)
+		}
+		require.Len(t, warnings(hook), 1, "only the first refusal is logged per record")
+		assert.Contains(t, warnings(hook)[0], "further size mismatches")
+
+		c.Drop()
+		got := warnings(hook)
+		require.Len(t, got, 2)
+		assert.Contains(t, got[1], "skipped 2999 more records")
+	})
+
+	t.Run("summary on tick", func(t *testing.T) {
+		logger, hook := test.NewNullLogger()
+		ac, err := NewArenaByteCache(nil, testRecordSize, 1e12, 1, logger, 10*time.Millisecond, nil)
+		require.NoError(t, err)
+		t.Cleanup(ac.Drop)
+		for id := uint64(0); id < 500; id++ {
+			ac.Preload(id, bad)
+		}
+		require.Eventually(t, func() bool { return len(warnings(hook)) == 2 }, 5*time.Second, 5*time.Millisecond)
+		assert.Contains(t, warnings(hook)[1], "skipped 499 more records")
+
+		// nothing new refused: later ticks stay quiet
+		time.Sleep(50 * time.Millisecond)
+		assert.Len(t, warnings(hook), 2)
+	})
 }
 
 // TestArenaByteCacheNoLockPaths covers the two NoLock entry points against
