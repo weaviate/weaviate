@@ -225,7 +225,7 @@ func (s *Raft) RecordDistributedTaskPreparationCompleteAck(
 			Namespace:         namespace,
 			Id:                taskID,
 			Version:           taskVersion,
-			GroupId:           groupID,
+			GroupId:           &groupID,
 			NodeId:            nodeID,
 			Success:           success,
 			Error:             errMsg,

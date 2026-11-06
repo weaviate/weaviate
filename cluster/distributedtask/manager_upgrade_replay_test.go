@@ -23,9 +23,8 @@ import (
 )
 
 // Pins that a log every released binary (v1.38.x, v1.39.0-14) wrote replays to
-// that binary's own verdict: its acks name no group, and its PREP acks decide
-// every group at once. A run that ended leaves no swap owed, except one that
-// failed mid-swap, whose unacked replicas owe it until they ack.
+// that binary's own verdict: its acks name no group, and its last PREP ack moves
+// the run to SWAPPING. No swap is owed, as in a restore of that binary's snapshot.
 func TestReplayOfReleasedBinaryLogs(t *testing.T) {
 	const ns, id = "ns", "T"
 	type step func(t *testing.T, m *Manager)
@@ -80,15 +79,24 @@ func TestReplayOfReleasedBinaryLogs(t *testing.T) {
 			want:  TaskStatusFinished,
 		},
 		{
+			name: "single-tenant: a PREP ack applied in STARTED counts once the run prepares", groups: nonMT, complete: true, prepInStarted: true,
+			steps: []step{prep("n2", true), swapAck("n1", true), swapAck("n2", true), finalize},
+			want:  TaskStatusFinished,
+		},
+		{
 			name: "failed in PREP decides nothing", groups: mt, complete: true,
 			steps: []step{prep("n1", true), prep("n2", false)},
 			want:  TaskStatusFailed,
 		},
 		{
-			name: "failed mid-swap: the replica that never acked owes its swaps", groups: mt, complete: true,
-			steps:    []step{prep("n1", true), prep("n2", true), swapAck("n2", false), swapAck("n1", true)},
-			want:     TaskStatusFailed,
-			wantOwed: map[string][]string{"t1": {"n2"}, "t2": {"n2"}},
+			name: "failed mid-swap", groups: mt, complete: true,
+			steps: []step{prep("n1", true), prep("n2", true), swapAck("n2", false), swapAck("n1", true)},
+			want:  TaskStatusFailed,
+		},
+		{
+			name: "single-tenant: failed mid-swap", groups: nonMT, complete: true,
+			steps: []step{prep("n1", true), prep("n2", true), swapAck("n2", false), swapAck("n1", true)},
+			want:  TaskStatusFailed,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -162,6 +170,33 @@ func TestRestoreOfAReleasedBinarysSnapshot(t *testing.T) {
 	}, statuses)
 }
 
+// A single-tenant run v1.39.15 snapshotted between its two nodes' PREP acks.
+//
+//go:embed testdata/snapshot_v1.39.15_mid_preparing.json
+var releasedMidPreparingSnapshot []byte
+
+// Pins that a released single-tenant run restored mid-PREPARING finishes on the
+// released tail: its groupless acks take the released rule, though the run's one group is "".
+func TestReplayOfAReleasedSingleTenantRunRestoredMidPreparing(t *testing.T) {
+	const ns, id = "reindex", "C:change-tokenization:foo:ab12"
+	logger, _ := logrustest.NewNullLogger()
+	m := NewManager(ManagerParameters{Logger: logger})
+	require.NoError(t, m.Restore(releasedMidPreparingSnapshot))
+	at := time.UnixMilli(1_700_000_000_000).UnixMilli()
+	require.NoError(t, m.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+		Namespace: ns, Id: id, Version: 1, NodeId: "n2", Success: true, AckedAtUnixMillis: at,
+	})))
+	for _, n := range []string{"n1", "n2"} {
+		require.NoError(t, m.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+			Namespace: ns, Id: id, Version: 1, NodeId: n, Success: true, AckedAtUnixMillis: at,
+		})))
+	}
+	require.NoError(t, m.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
+		Namespace: ns, Id: id, Version: 1, FinalizedAtUnixMillis: at,
+	})))
+	require.Equal(t, TaskStatusFinished, m.tasks[ns][id].Status)
+}
+
 // Pins that the debt round-trips a snapshot: a restored node owes and has
 // paid exactly what it did before.
 func TestSwapDebtSurvivesSnapshot(t *testing.T) {
@@ -181,7 +216,7 @@ func TestSwapDebtSurvivesSnapshot(t *testing.T) {
 	}
 	for _, n := range []string{"n1", "n2"} {
 		require.NoError(t, m.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
-			Namespace: ns, Id: id, Version: 1, GroupId: "t1", NodeId: n, Success: true, AckedAtUnixMillis: at.UnixMilli(),
+			Namespace: ns, Id: id, Version: 1, GroupId: new("t1"), NodeId: n, Success: true, AckedAtUnixMillis: at.UnixMilli(),
 		})))
 	}
 	require.NoError(t, m.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{

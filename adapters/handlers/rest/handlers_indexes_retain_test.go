@@ -192,7 +192,7 @@ func TestRetainerKeepsARunWhileAReplicaOwesItsSwap(t *testing.T) {
 		apply(mgr.RecordUnitCompletion, &cmd.RecordDistributedTaskUnitCompletionRequest{Namespace: ns, Id: "a", Version: 1, NodeId: at[1], UnitId: id, FinishedAtUnixMillis: now})
 	}
 	prep := func(group, node string, ok bool) {
-		apply(mgr.RecordPreparationCompleteAck, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{Namespace: ns, Id: "a", Version: 1, GroupId: group, NodeId: node, Success: ok, Error: "e", AckedAtUnixMillis: now})
+		apply(mgr.RecordPreparationCompleteAck, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{Namespace: ns, Id: "a", Version: 1, GroupId: &group, NodeId: node, Success: ok, Error: "e", AckedAtUnixMillis: now})
 	}
 	prep("t1", "n1", true)
 	prep("t1", "n2", true)

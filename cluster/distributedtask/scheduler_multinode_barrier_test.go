@@ -974,6 +974,7 @@ func TestBarrier_G8_SnapshotRestoreMidPreparing(t *testing.T) {
 			Namespace:         h.namespace,
 			Id:                taskID,
 			Version:           restored.Version,
+			GroupId:           new(""),
 			NodeId:            "node-3",
 			Success:           true,
 			AckedAtUnixMillis: h.clock.Now().UnixMilli(),

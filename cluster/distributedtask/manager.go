@@ -744,17 +744,6 @@ func recordNodePreparationAck(task *Task, r *api.RecordDistributedTaskPreparatio
 			return
 		}
 	}
-	if len(task.SwapDecidedGroups) == 0 {
-		task.SwapDecidedGroups = make(map[string]time.Time, task.groupCount)
-	}
-	if len(task.SwapsOwed) == 0 {
-		task.SwapsOwed = make(map[string][]string, task.groupCount)
-	}
-	for _, group := range task.Groups() {
-		if !task.GroupSwapDecided(group) {
-			task.decideSwap(group, ackedAt)
-		}
-	}
 	task.Status = TaskStatusSwapping
 }
 
@@ -790,27 +779,28 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
 
-	if r.GroupId == "" && !task.hasGroup("") {
+	if r.GroupId == nil {
 		recordNodePreparationAck(task, &r)
 		m.notifySchedulerWithLock()
 		return nil
 	}
 
-	expected := task.groupNodes(r.GroupId)
-	if task.GroupSwapDecided(r.GroupId) || !task.AllGroupUnitsTerminal(r.GroupId) {
+	group := *r.GroupId
+	expected := task.groupNodes(group)
+	if task.GroupSwapDecided(group) || !task.AllGroupUnitsTerminal(group) {
 		return nil
 	}
 	if !slices.Contains(expected, r.NodeId) {
 		return nil
 	}
-	acks := task.PreparedGroups[r.GroupId]
+	acks := task.PreparedGroups[group]
 	if _, present := acks[r.NodeId]; present {
 		return nil
 	}
 
 	ackedAt := time.UnixMilli(r.AckedAtUnixMillis)
 	if !r.Success {
-		ackErr := fmt.Sprintf("prep failed on node %s for group %q: %s", r.NodeId, r.GroupId, r.Error)
+		ackErr := fmt.Sprintf("prep failed on node %s for group %q: %s", r.NodeId, group, r.Error)
 		task.appendError(ackErr)
 		task.markTerminal(TaskStatusFailed, ackedAt)
 		m.notifySchedulerWithLock()
@@ -822,11 +812,11 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 		if task.PreparedGroups == nil {
 			task.PreparedGroups = map[string]map[string]PostCompletionAck{}
 		}
-		task.PreparedGroups[r.GroupId] = acks
+		task.PreparedGroups[group] = acks
 	}
 	acks[r.NodeId] = PostCompletionAck{Success: true, AckedAt: ackedAt}
 	if len(acks) == len(expected) {
-		task.decideSwap(r.GroupId, ackedAt)
+		task.decideSwap(group, ackedAt)
 		if task.Status == TaskStatusPreparing && task.AllGroupsSwapDecided() {
 			task.Status = TaskStatusSwapping
 		}

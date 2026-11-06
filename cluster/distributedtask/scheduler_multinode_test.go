@@ -259,7 +259,7 @@ func (r *fanoutAckRecorder) RecordDistributedTaskPreparationCompleteAck(
 		Namespace:         ns,
 		Id:                id,
 		Version:           version,
-		GroupId:           groupID,
+		GroupId:           &groupID,
 		NodeId:            nodeID,
 		Success:           success,
 		Error:             errMsg,

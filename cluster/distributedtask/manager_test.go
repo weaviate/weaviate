@@ -283,7 +283,7 @@ func TestManager_CancelTask_KeepsDecidedGroups(t *testing.T) {
 	completeUnit(t, h, ns, id, version, "n1", "b")
 	ack := func(group string) {
 		require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
-			Namespace: ns, Id: id, Version: version, GroupId: group, NodeId: "n1", Success: true,
+			Namespace: ns, Id: id, Version: version, GroupId: &group, NodeId: "n1", Success: true,
 			AckedAtUnixMillis: h.clock.Now().UnixMilli(),
 		})))
 	}
@@ -1996,6 +1996,7 @@ func ackPrep(t *testing.T, h *testHarness, ns, id string, version uint64, node s
 		Namespace:         ns,
 		Id:                id,
 		Version:           version,
+		GroupId:           new(""),
 		NodeId:            node,
 		Success:           success,
 		Error:             errIfFailed(success),
@@ -2167,7 +2168,7 @@ func TestManager_RecordPreparationCompleteAck_PerGroup(t *testing.T) {
 	ack := func(group, node string, success bool) step {
 		return func(t *testing.T, h *testHarness) {
 			require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
-				Namespace: ns, Id: id, Version: version, GroupId: group, NodeId: node,
+				Namespace: ns, Id: id, Version: version, GroupId: &group, NodeId: node,
 				Success: success, Error: errIfFailed(success), AckedAtUnixMillis: h.clock.Now().UnixMilli(),
 			})))
 		}

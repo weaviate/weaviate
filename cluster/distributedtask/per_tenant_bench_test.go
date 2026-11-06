@@ -99,7 +99,7 @@ func BenchmarkPrepAckApply(b *testing.B) {
 			}
 			tenant, replica := ack%tenants, ack/tenants
 			raw, _ := json.Marshal(&cmd.RecordDistributedTaskPreparationCompleteAckRequest{
-				Namespace: "ns", Id: "T", Version: 1, GroupId: fmt.Sprintf("tenant-%d", tenant),
+				Namespace: "ns", Id: "T", Version: 1, GroupId: new(fmt.Sprintf("tenant-%d", tenant)),
 				NodeId: fmt.Sprintf("node-%d", (tenant+replica)%benchNodes), Success: true,
 			})
 			if err := m.RecordPreparationCompleteAck(&cmd.ApplyRequest{SubCommand: raw}); err != nil {
