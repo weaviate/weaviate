@@ -16,8 +16,9 @@ package types
 type RebalanceNodeMeasurement struct {
 	Node           string `json:"node"`
 	DiskTotalBytes int64  `json:"diskTotalBytes"`
-	// DiskAvailableBytes is the free bytes getDiskUse reports: statfs Bfree,
-	// which includes blocks reserved for root.
+	// DiskAvailableBytes is the free bytes getDiskUse reports. On unix this is
+	// statfs Bfree, which includes blocks reserved for root. On windows it is
+	// the total free bytes from GetDiskFreeSpaceEx.
 	DiskAvailableBytes    int64 `json:"diskAvailableBytes"`
 	DiskWarningPercentage int64 `json:"diskWarningPercentage"`
 	MemoryLimitBytes      int64 `json:"memoryLimitBytes"`

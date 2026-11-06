@@ -52,7 +52,7 @@ type BackupConfig struct {
 	// Path or key within the bucket.
 	Path string `json:"Path,omitempty"`
 
-	// How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.
+	// How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. When omitted, BACKUP_DEDUPE_CONVERGENCE_TIMEOUT applies (15 seconds unless configured). The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.
 	// Maximum: 600
 	// Minimum: 1
 	DedupeConvergenceTimeoutSeconds int64 `json:"dedupeConvergenceTimeoutSeconds,omitempty"`

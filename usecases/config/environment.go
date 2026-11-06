@@ -831,6 +831,13 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := parser.ParseDynamicDurationWithValidation("BACKUP_DEDUPE_CONVERGENCE_TIMEOUT",
+		DefaultBackupDedupeConvergenceTimeout,
+		validateBackupDedupeConvergenceTimeout,
+		func(val *configRuntime.DynamicValue[time.Duration]) { config.Backup.DedupeConvergenceTimeout = val }); err != nil {
+		return err
+	}
+
 	if entcfg.Enabled(os.Getenv("BACKUP_SKIP_ACCESS_CHECK")) {
 		config.Backup.SkipAccessCheck = true
 	}
@@ -2634,6 +2641,13 @@ func (c *Config) parseBatchStreamConfig() error {
 func validateBackupGCSConnPool(val int, setting string) error {
 	if val < 1 || val > MaxBackupGCSGRPCConnPool {
 		return fmt.Errorf("%s must be an integer between 1 and %d. Got: %v", setting, MaxBackupGCSGRPCConnPool, val)
+	}
+	return nil
+}
+
+func validateBackupDedupeConvergenceTimeout(val time.Duration) error {
+	if val < MinBackupDedupeConvergenceTimeout || val > MaxBackupDedupeConvergenceTimeout {
+		return fmt.Errorf("duration between %s and %s expected, got %s", MinBackupDedupeConvergenceTimeout, MaxBackupDedupeConvergenceTimeout, val)
 	}
 	return nil
 }

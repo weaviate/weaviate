@@ -53,7 +53,7 @@ func (r *strictResolver) NodeHostname(name string) (string, bool) {
 }
 
 func TestExpandParticipantsForDedupe(t *testing.T) {
-	const class = "Class-A"
+	const class = "ClassA"
 
 	newCoord := func(resolved ...string) (*coordinator, *Request, []backup.ClassDescriptor) {
 		fc := newFakeCoordinator(&strictResolver{newFakeNodeResolver(resolved)})
@@ -264,7 +264,7 @@ func TestFilterClassDescriptor(t *testing.T) {
 func TestBuildFanoutPlan(t *testing.T) {
 	const (
 		backupID = "fanout-plan"
-		class    = "Class-A"
+		class    = "ClassA"
 	)
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
@@ -622,7 +622,7 @@ func TestRestoreOneFanoutZeroShardsResetsStaging(t *testing.T) {
 	restoreMock := modulecapabilities.NewMockBackupBackend(t)
 	restoreMock.EXPECT().SourceDataPath().Return(restoreDir)
 
-	classTempDir := filepath.Join(restoreDir, TempDirectory, "Class-A")
+	classTempDir := filepath.Join(restoreDir, TempDirectory, "ClassA")
 	require.NoError(t, os.MkdirAll(classTempDir, 0o755))
 	stale := filepath.Join(classTempDir, "stale-segment.db")
 	require.NoError(t, os.WriteFile(stale, []byte("previous attempt"), 0o644))
@@ -631,7 +631,7 @@ func TestRestoreOneFanoutZeroShardsResetsStaging(t *testing.T) {
 	r := &restorer{node: "nodeB", logger: logger, namespacesEnabled: true}
 	store := nodeStore{objectStore{backend: restoreMock, backupId: "zero/nodeB", node: "nodeB"}}
 	staged := &stagedDirs{attemptID: "attempt-2"}
-	cp := classPlan{name: "Class-A"}
+	cp := classPlan{name: "ClassA"}
 	require.NoError(t, r.restoreOneFanout(context.Background(), cp, store, backup.CompressionNone, &Request{Compression: Compression{CPUPercentage: 1}}, staged))
 
 	assert.NoFileExists(t, stale, "stale staging must be reset even when this participant stages nothing")
@@ -646,7 +646,7 @@ func TestCoordinatedRestoreFanout(t *testing.T) {
 	const (
 		backendName = "s3"
 		backupID    = "fanout-coord"
-		class       = "Class-A"
+		class       = "ClassA"
 	)
 	var (
 		any   = mock.Anything
