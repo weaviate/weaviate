@@ -51,11 +51,15 @@ func (a *fakeRebalanceAuthorizer) Authorize(_ context.Context, _ *models.Princip
 	return a.err
 }
 
+// fakeRebalanceManager keeps the local and leader views of the plan apart, so a
+// test can tell which read a handler used.
 type fakeRebalanceManager struct {
-	plan      *rebalance.Plan
-	createErr error
-	stopErr   error
-	deleteErr error
+	plan       *rebalance.Plan
+	leaderPlan *rebalance.Plan
+	leaderErr  error
+	createErr  error
+	stopErr    error
+	deleteErr  error
 
 	calls   int
 	created *rebalance.CreatePlanRequest
@@ -81,12 +85,20 @@ func (m *fakeRebalanceManager) DeleteRebalancePlan(_ context.Context, req *rebal
 	return m.deleteErr
 }
 
-func (m *fakeRebalanceManager) GetRebalancePlan() (rebalance.Plan, bool) {
+func (m *fakeRebalanceManager) ReadRebalancePlan() (rebalance.Plan, bool) {
 	m.calls++
 	if m.plan == nil {
 		return rebalance.Plan{}, false
 	}
 	return *m.plan, true
+}
+
+func (m *fakeRebalanceManager) QueryRebalancePlan(context.Context) (*rebalance.Plan, error) {
+	m.calls++
+	if m.leaderErr != nil {
+		return nil, m.leaderErr
+	}
+	return m.leaderPlan, nil
 }
 
 type fakeRebalanceNodes struct {
@@ -308,6 +320,7 @@ func TestRebalanceHandlers(t *testing.T) {
 	t.Run("get, stop and delete ignore the flags", func(t *testing.T) {
 		planning := &rebalance.Plan{ID: "plan-1", State: rebalance.PlanStatePlanning}
 		proposed := &rebalance.Plan{ID: "plan-1", State: rebalance.PlanStateProposed}
+		stale := &rebalance.Plan{ID: "plan-0", State: rebalance.PlanStateStopped}
 		failed := &rebalance.Plan{
 			ID:               "plan-1",
 			State:            rebalance.PlanStatePlanningFailed,
@@ -330,6 +343,8 @@ func TestRebalanceHandlers(t *testing.T) {
 			name        string
 			call        operation
 			plan        *rebalance.Plan
+			leaderPlan  *rebalance.Plan
+			leaderErr   error
 			stopErr     error
 			deleteErr   error
 			want        middleware.Responder
@@ -337,7 +352,7 @@ func TestRebalanceHandlers(t *testing.T) {
 			wantDeleted []string
 			check       func(t *testing.T, response middleware.Responder, hook *logrustest.Hook)
 		}{
-			{name: "get without a plan", call: get, want: &replication.GetRebalancePlanNotFound{}},
+			{name: "get reads the local state, not the leader's", call: get, leaderPlan: planning, want: &replication.GetRebalancePlanNotFound{}},
 			{
 				name: "get returns the plan with its measurements",
 				call: get,
@@ -363,11 +378,16 @@ func TestRebalanceHandlers(t *testing.T) {
 					}, response.(*replication.GetRebalancePlanOK).Payload)
 				},
 			},
-			{name: "stop without a plan", call: stop, want: &replication.StopRebalancePlanNotFound{}},
+			// In every stop and delete row, the local plan is missing or out of date.
+			// Only a handler that reads the leader's plan gets the expected response
+			// and plan ID.
+			{name: "stop when the leader has no plan", call: stop, plan: planning, want: &replication.StopRebalancePlanNotFound{}},
+			{name: "stop when the leader read fails", call: stop, plan: planning, leaderErr: errors.New("no leader"), want: &replication.StopRebalancePlanInternalServerError{}},
 			{
 				name:        "stop a planning plan",
 				call:        stop,
-				plan:        planning,
+				plan:        stale,
+				leaderPlan:  planning,
 				want:        &replication.StopRebalancePlanAccepted{},
 				wantStopped: []string{"plan-1"},
 				check: func(t *testing.T, _ middleware.Responder, hook *logrustest.Hook) {
@@ -377,7 +397,7 @@ func TestRebalanceHandlers(t *testing.T) {
 			{
 				name:        "stop a plan that is not planning",
 				call:        stop,
-				plan:        proposed,
+				leaderPlan:  proposed,
 				stopErr:     wrapped(rebalance.ErrPlanTransition),
 				want:        &replication.StopRebalancePlanConflict{},
 				wantStopped: []string{"plan-1"},
@@ -385,7 +405,7 @@ func TestRebalanceHandlers(t *testing.T) {
 			{
 				name:        "stop a plan deleted before the proposal applied",
 				call:        stop,
-				plan:        planning,
+				leaderPlan:  planning,
 				stopErr:     wrapped(rebalance.ErrPlanNotFound),
 				want:        &replication.StopRebalancePlanNotFound{},
 				wantStopped: []string{"plan-1"},
@@ -393,16 +413,17 @@ func TestRebalanceHandlers(t *testing.T) {
 			{
 				name:        "stop with an unexpected proposal error",
 				call:        stop,
-				plan:        planning,
+				leaderPlan:  planning,
 				stopErr:     errors.New("raft unavailable"),
 				want:        &replication.StopRebalancePlanInternalServerError{},
 				wantStopped: []string{"plan-1"},
 			},
-			{name: "delete without a plan", call: del, want: &replication.DeleteRebalancePlanNoContent{}},
+			{name: "delete when the leader has no plan", call: del, plan: proposed, want: &replication.DeleteRebalancePlanNoContent{}},
+			{name: "delete when the leader read fails", call: del, plan: proposed, leaderErr: errors.New("no leader"), want: &replication.DeleteRebalancePlanInternalServerError{}},
 			{
 				name:        "delete a planning plan",
 				call:        del,
-				plan:        planning,
+				leaderPlan:  planning,
 				deleteErr:   wrapped(rebalance.ErrPlanTransition),
 				want:        &replication.DeleteRebalancePlanConflict{},
 				wantDeleted: []string{"plan-1"},
@@ -410,7 +431,8 @@ func TestRebalanceHandlers(t *testing.T) {
 			{
 				name:        "delete a proposed plan",
 				call:        del,
-				plan:        proposed,
+				plan:        stale,
+				leaderPlan:  proposed,
 				want:        &replication.DeleteRebalancePlanNoContent{},
 				wantDeleted: []string{"plan-1"},
 				check: func(t *testing.T, _ middleware.Responder, hook *logrustest.Hook) {
@@ -420,7 +442,7 @@ func TestRebalanceHandlers(t *testing.T) {
 			{
 				name:        "delete a plan deleted before the proposal applied",
 				call:        del,
-				plan:        proposed,
+				leaderPlan:  proposed,
 				deleteErr:   wrapped(rebalance.ErrPlanNotFound),
 				want:        &replication.DeleteRebalancePlanNoContent{},
 				wantDeleted: []string{"plan-1"},
@@ -428,7 +450,7 @@ func TestRebalanceHandlers(t *testing.T) {
 			{
 				name:        "delete with an unexpected proposal error",
 				call:        del,
-				plan:        proposed,
+				leaderPlan:  proposed,
 				deleteErr:   errors.New("raft unavailable"),
 				want:        &replication.DeleteRebalancePlanInternalServerError{},
 				wantDeleted: []string{"plan-1"},
@@ -437,7 +459,13 @@ func TestRebalanceHandlers(t *testing.T) {
 		for _, enabled := range []bool{true, false} {
 			for _, tt := range tests {
 				t.Run(fmt.Sprintf("%s with flags enabled %v", tt.name, enabled), func(t *testing.T) {
-					manager := &fakeRebalanceManager{plan: tt.plan, stopErr: tt.stopErr, deleteErr: tt.deleteErr}
+					manager := &fakeRebalanceManager{
+						plan:       tt.plan,
+						leaderPlan: tt.leaderPlan,
+						leaderErr:  tt.leaderErr,
+						stopErr:    tt.stopErr,
+						deleteErr:  tt.deleteErr,
+					}
 					handler, _, hook := createRebalanceHandlerWithFakes(t, enabled, enabled, manager, liveNodes)
 
 					response := tt.call(handler)

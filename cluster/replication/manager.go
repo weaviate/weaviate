@@ -330,6 +330,19 @@ func (m *Manager) DeleteRebalancePlan(c *cmd.ApplyRequest) error {
 	return m.replicationFSM.DeletePlan(req)
 }
 
+// GetRebalancePlan returns the stored plan as JSON. The request carries no sub-command.
+func (m *Manager) GetRebalancePlan(*cmd.QueryRequest) ([]byte, error) {
+	plan, ok := m.replicationFSM.GetPlan()
+	if !ok {
+		return nil, ErrPlanNotFound
+	}
+	payload, err := json.Marshal(plan)
+	if err != nil {
+		return nil, fmt.Errorf("could not marshal rebalance plan %q: %w", plan.ID, err)
+	}
+	return payload, nil
+}
+
 func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]byte, error) {
 	subCommand := cmd.ReplicationDetailsRequest{}
 	if err := json.Unmarshal(c.SubCommand, &subCommand); err != nil {

@@ -41,7 +41,10 @@ type rebalanceManager interface {
 	CreateRebalancePlan(ctx context.Context, req *rebalance.CreatePlanRequest) error
 	StopRebalancePlan(ctx context.Context, req *rebalance.StopPlanRequest) error
 	DeleteRebalancePlan(ctx context.Context, req *rebalance.DeletePlanRequest) error
-	GetRebalancePlan() (rebalance.Plan, bool)
+	// ReadRebalancePlan reads this node's local state, which can lag the leader.
+	ReadRebalancePlan() (rebalance.Plan, bool)
+	// QueryRebalancePlan retrieves the leader's state. It returns nil and no error when the leader holds no plan.
+	QueryRebalancePlan(ctx context.Context) (*rebalance.Plan, error)
 }
 
 // rebalanceNodes reports cluster membership
@@ -163,7 +166,7 @@ func (h *replicationHandler) getRebalancePlan(params replication.GetRebalancePla
 	if err := h.authorizeRebalance(params.HTTPRequest.Context(), principal, authorization.READ); err != nil {
 		return replication.NewGetRebalancePlanForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
-	plan, ok := h.rebalanceManager.GetRebalancePlan()
+	plan, ok := h.rebalanceManager.ReadRebalancePlan()
 	if !ok {
 		return replication.NewGetRebalancePlanNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errNoRebalancePlan))
 	}
@@ -210,8 +213,11 @@ func (h *replicationHandler) stopRebalancePlan(params replication.StopRebalanceP
 	if err := h.authorizeRebalance(ctx, principal, authorization.UPDATE); err != nil {
 		return replication.NewStopRebalancePlanForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
-	plan, ok := h.rebalanceManager.GetRebalancePlan()
-	if !ok {
+	plan, err := h.rebalanceManager.QueryRebalancePlan(ctx)
+	if err != nil {
+		return replication.NewStopRebalancePlanInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	if plan == nil {
 		return replication.NewStopRebalancePlanNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errNoRebalancePlan))
 	}
 	if err := h.rebalanceManager.StopRebalancePlan(ctx, &rebalance.StopPlanRequest{PlanID: plan.ID}); err != nil {
@@ -246,8 +252,11 @@ func (h *replicationHandler) deleteRebalancePlan(params replication.DeleteRebala
 	if err := h.authorizeRebalance(ctx, principal, authorization.DELETE); err != nil {
 		return replication.NewDeleteRebalancePlanForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
-	plan, ok := h.rebalanceManager.GetRebalancePlan()
-	if !ok {
+	plan, err := h.rebalanceManager.QueryRebalancePlan(ctx)
+	if err != nil {
+		return replication.NewDeleteRebalancePlanInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	if plan == nil {
 		return replication.NewDeleteRebalancePlanNoContent()
 	}
 	if err := h.rebalanceManager.DeleteRebalancePlan(ctx, &rebalance.DeletePlanRequest{PlanID: plan.ID}); err != nil {

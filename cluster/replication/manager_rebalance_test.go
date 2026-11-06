@@ -73,3 +73,51 @@ func TestManager_CreateRebalancePlan(t *testing.T) {
 		assert.Zero(t, *calls)
 	})
 }
+
+func TestManager_GetRebalancePlan(t *testing.T) {
+	query := &api.QueryRequest{Type: api.QueryRequest_TYPE_GET_REBALANCE_PLAN}
+
+	t.Run("a stored plan round-trips through the payload", func(t *testing.T) {
+		m := replication.NewManager(schema.SchemaReader{}, nil, prometheus.NewPedanticRegistry())
+		create, err := json.Marshal(&replication.CreatePlanRequest{
+			PlanID:          "plan-1",
+			SourceNodes:     []string{"node-1"},
+			TargetNodes:     []string{"node-2"},
+			Collections:     []string{"Books"},
+			CreatedAtUnixMs: 1000,
+		})
+		require.NoError(t, err)
+		require.NoError(t, m.CreateRebalancePlan(&api.ApplyRequest{SubCommand: create}))
+		complete, err := json.Marshal(&replication.CompletePlanningRequest{
+			PlanID:              "plan-1",
+			RunID:               "run-a",
+			RunTerm:             3,
+			Outcome:             replication.PlanStateProposed,
+			MeasuredAtUnixMs:    2000,
+			Baseline:            []replication.PlanNodeBalance{{Node: "node-1", DiskUtilisation: 0.75, ReplicaCount: 3}},
+			Goal:                []replication.PlanNodeBalance{{Node: "node-2", DiskUtilisation: 0.5, ReplicaCount: 2}},
+			MoveCount:           1,
+			PlanHash:            "hash-1",
+			ApproveBeforeUnixMs: 5000,
+		})
+		require.NoError(t, err)
+		require.NoError(t, m.CompleteRebalancePlanning(3, &api.ApplyRequest{SubCommand: complete}))
+		want, ok := m.GetReplicationFSM().GetPlan()
+		require.True(t, ok)
+
+		payload, err := m.GetRebalancePlan(query)
+		require.NoError(t, err)
+
+		var got replication.Plan
+		require.NoError(t, json.Unmarshal(payload, &got))
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("no plan is ErrPlanNotFound", func(t *testing.T) {
+		m := replication.NewManager(schema.SchemaReader{}, nil, prometheus.NewPedanticRegistry())
+
+		_, err := m.GetRebalancePlan(query)
+
+		require.ErrorIs(t, err, replication.ErrPlanNotFound)
+	})
+}
