@@ -24,10 +24,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,6 +37,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 const (
@@ -102,7 +106,8 @@ type DiskQueue struct {
 	scheduler        *Scheduler
 	id               string
 	dir              string
-	onBatchProcessed func()
+	onBatchProcessed func() error
+	onChunkRemoved   func()
 	metrics          *Metrics
 	chunkSize        uint64
 
@@ -121,6 +126,11 @@ type DiskQueue struct {
 	// instead a tombstone (.bin.processed) is created alongside them.
 	// This is used during backup to keep chunk files available for copying.
 	maintenanceMode atomic.Bool
+
+	// retained keeps processed chunks the same way for a replacement index,
+	// from the chunk numbered retainedFrom on, see Retain. Guarded by rmLock.
+	retained     bool
+	retainedFrom int64
 }
 
 type DiskQueueOptions struct {
@@ -134,8 +144,11 @@ type DiskQueueOptions struct {
 	Logger           logrus.FieldLogger
 	StaleTimeout     time.Duration
 	ChunkSize        uint64
-	OnBatchProcessed func()
-	Metrics          *Metrics
+	OnBatchProcessed func() error
+	// OnChunkRemoved runs once a chunk left the queue and its records are
+	// no longer counted in Size.
+	OnChunkRemoved func()
+	Metrics        *Metrics
 }
 
 func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
@@ -177,6 +190,7 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 		taskDecoder:      opt.TaskDecoder,
 		metrics:          opt.Metrics,
 		onBatchProcessed: opt.OnBatchProcessed,
+		onChunkRemoved:   opt.OnChunkRemoved,
 		chunkSize:        opt.ChunkSize,
 	}
 
@@ -360,6 +374,19 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	}
 
 	doneFn := func() {
+		// the chunk is the only copy of its records until the index flushed
+		// them: if the flush fails, keep it so the next read replays it
+		if q.onBatchProcessed != nil {
+			err := q.onBatchProcessed()
+			if err != nil {
+				q.Logger.WithField("file", c.path).Errorf("failed to flush the index, keeping the processed chunk for replay: %v", err)
+				// the replayed tasks may succeed again, so only the delay
+				// keeps a persistent failure from replaying in a loop
+				q.scheduler.retryLater(q.id)
+				return
+			}
+		}
+
 		// a corrupt chunk is only quarantined once its salvaged records are
 		// processed, so a canceled batch can salvage them again
 		err := q.finishChunk(c.path, corruptChunkErr)
@@ -368,9 +395,6 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 			// retries
 			q.r.markProcessed(c.path, corruptChunkErr)
 			q.Logger.WithField("file", c.path).Errorf("failed to remove processed chunk, will retry: %v", err)
-		}
-		if q.onBatchProcessed != nil {
-			q.onBatchProcessed()
 		}
 	}
 
@@ -720,48 +744,308 @@ func (q *DiskQueue) EnableMaintenanceMode() {
 }
 
 // DisableMaintenanceMode re-enables normal chunk deletion and cleans up all
-// tombstone files and their corresponding chunk files left from the freeze period.
+// tombstone files and their corresponding chunk files left from the freeze
+// period, unless a retention still keeps them.
 func (q *DiskQueue) DisableMaintenanceMode() error {
+	tombstones, err := q.endMaintenanceMode()
+	if err != nil {
+		return err
+	}
+	// without rmLock, as in ReleaseRetention
+	q.logRemoveProcessedChunks(tombstones)
+	return nil
+}
+
+// endMaintenanceMode turns maintenance mode off and lists the tombstones of
+// the chunks nothing keeps anymore.
+func (q *DiskQueue) endMaintenanceMode() ([]string, error) {
+	q.rmLock.Lock()
+	defer q.rmLock.Unlock()
+
 	q.maintenanceMode.Store(false)
-	return q.cleanupProcessedChunks()
+	if q.retained {
+		return q.processedChunks(q.retainedFrom)
+	}
+	return q.processedChunks(math.MaxInt64)
+}
+
+// keepsProcessed reports whether a processed chunk is kept rather than
+// deleted. The caller holds rmLock.
+func (q *DiskQueue) keepsProcessed() bool {
+	return q.maintenanceMode.Load() || q.retained
+}
+
+// Retain keeps everything queued from now on or not processed yet, processed
+// or not, until ReleaseRetention: a replacement index replays it, see Rewind,
+// while the current consumer carries on. Processed chunks are kept as a backup
+// keeps them, behind a .processed tombstone, so a restart deletes them unless
+// Rewind runs before Init. Chunks a backup kept from before Retain go when the
+// backup ends. A queue is retained once at a time.
+func (q *DiskQueue) Retain() error {
+	q.rmLock.Lock()
+	defer q.rmLock.Unlock()
+
+	if q.r == nil || q.w == nil {
+		return errors.New("queue not initialized")
+	}
+	if q.retained {
+		return errors.New("queue already retained")
+	}
+
+	// under the writer's lock, so no chunk is created in between
+	q.m.Lock()
+	defer q.m.Unlock()
+	first := q.r.firstUnprocessed()
+	if first == "" && q.w.f != nil {
+		first = q.w.f.Name()
+	}
+	if first == "" {
+		first = chunkPath(q.dir, q.w.nextSeq())
+	}
+	from, ok := chunkSeq(first)
+	if !ok {
+		return fmt.Errorf("unexpected chunk name %q", first)
+	}
+	q.retained = true
+	q.retainedFrom = from
+	return nil
+}
+
+// Rewind serves every kept chunk again, in order, ahead of what is still
+// queued. A running queue must be retained, not held by a backup, and paused
+// with no batch left: a batch finishing after the rewind would tombstone its
+// chunk out of the replay. On a queue not initialized yet it only
+// makes the kept chunks ordinary ones for Init, which would delete them
+// otherwise; that is how a restart resumes one. Doing it twice replays at most
+// what a backup kept in between. The retention stays until ReleaseRetention,
+// which must not overlap it: a release deleting would take what it re-queues,
+// so the retention's one owner calls them in sequence.
+func (q *DiskQueue) Rewind() error {
+	// not q.m around the disk work: Push and the scheduler's Size need it
+	q.rmLock.Lock()
+	defer q.rmLock.Unlock()
+
+	live := q.r != nil
+	if live && !q.retained {
+		return errors.New("queue not retained")
+	}
+	if live && !q.scheduler.IsQueueIdle(q.id) {
+		return errors.New("queue not paused, or a batch is still running")
+	}
+	// a backup may be copying the chunks this would move or re-queue
+	if live && q.maintenanceMode.Load() {
+		return errors.New("queue in maintenance mode")
+	}
+
+	entries, err := os.ReadDir(q.dir)
+	if err != nil {
+		if stderrors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return errors.Wrap(err, "failed to read directory during rewind")
+	}
+
+	var refs []chunkRef
+	var errs []error
+	for _, entry := range entries {
+		if !processedChunkFilePattern.MatchString(entry.Name()) {
+			continue
+		}
+		tombstonePath := filepath.Join(q.dir, entry.Name())
+		path := strings.TrimSuffix(tombstonePath, ".processed")
+		// a hard link from quarantineKeptChunk would make the rename of the
+		// chunk's next quarantine a no-op, leaving it to break a later Init
+		_, err = os.Stat(path)
+		if err == nil {
+			err = removeFile(path + ".corrupt")
+			if err != nil && !stderrors.Is(err, fs.ErrNotExist) {
+				errs = append(errs, errors.Wrap(err, "failed to remove quarantined copy"))
+				continue
+			}
+		}
+		var ref chunkRef
+		var ok bool
+		if live {
+			ref, ok, err = q.keptChunkRef(path)
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+		}
+		err = removeFile(tombstonePath)
+		if err != nil && !stderrors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, errors.Wrap(err, "failed to remove tombstone"))
+			continue
+		}
+		if ok {
+			refs = append(refs, ref)
+		}
+	}
+	// a tombstone back after a crash would delete a chunk not replayed yet
+	err = diskio.Fsync(q.dir)
+	if err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to sync directory"))
+	}
+
+	if live {
+		added := q.r.rewind(refs)
+		q.m.Lock()
+		for _, ref := range added {
+			q.recordCount += ref.count
+			q.diskUsage += int64(ref.size)
+		}
+		q.metrics.DiskUsage(q.diskUsage)
+		q.metrics.Size(q.recordCount)
+		q.m.Unlock()
+	}
+	return stderrors.Join(errs...)
+}
+
+// keptChunkRef reads what a kept chunk counts for. ok is false when it holds
+// nothing to serve: its file is gone, or its header no longer reads, in which
+// case it is quarantined.
+func (q *DiskQueue) keptChunkRef(path string) (ref chunkRef, ok bool, err error) {
+	info, err := os.Stat(path)
+	if stderrors.Is(err, fs.ErrNotExist) {
+		return chunkRef{}, false, nil
+	}
+	if err != nil {
+		return chunkRef{}, false, errors.Wrap(err, "failed to stat kept chunk")
+	}
+	count, err := q.readChunkRecordCount(path)
+	if isCorruptHeader(err) {
+		q.Logger.WithField("file", path).Errorf("quarantining kept chunk with unreadable header, its tasks are lost: %v", err)
+		err = os.Rename(path, path+".corrupt")
+		if err != nil {
+			return chunkRef{}, false, errors.Wrap(err, "failed to quarantine kept chunk")
+		}
+		return chunkRef{}, false, nil
+	}
+	if err != nil {
+		return chunkRef{}, false, errors.Wrap(err, "failed to read kept chunk")
+	}
+	return chunkRef{path: path, count: count, size: uint64(info.Size())}, true, nil
+}
+
+// ReleaseRetention stops keeping chunks and deletes the processed ones,
+// unless a backup still keeps them. Releasing a queue not retained is a
+// no-op. rmLock is not held during the deletes: a worker finishing a batch of
+// this queue needs it, and workers are shared with every other queue.
+func (q *DiskQueue) ReleaseRetention() error {
+	for {
+		tombstones, done, err := q.releaseIfNothingKept()
+		if done || err != nil {
+			return err
+		}
+		err = removeProcessedChunks(tombstones)
+		if err != nil {
+			return errors.Wrap(err, "failed to remove processed chunks")
+		}
+	}
+}
+
+// releaseIfNothingKept ends the retention if no processed chunk is left to
+// delete, or a backup takes them over. Otherwise it returns their tombstones
+// and stays retained, so a failed release can be retried.
+func (q *DiskQueue) releaseIfNothingKept() (tombstones []string, done bool, err error) {
+	q.rmLock.Lock()
+	defer q.rmLock.Unlock()
+
+	if !q.retained {
+		return nil, true, nil
+	}
+	if !q.maintenanceMode.Load() {
+		tombstones, err = q.processedChunks(math.MaxInt64)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+	if len(tombstones) > 0 {
+		return tombstones, false, nil
+	}
+	q.retained = false
+	return nil, true, nil
 }
 
 // cleanupProcessedChunks scans the queue directory for tombstone files
 // (.bin.processed) and deletes both the tombstone and its corresponding chunk file.
 // This is called on startup (crash recovery) and when disabling maintenance mode.
 func (q *DiskQueue) cleanupProcessedChunks() error {
+	tombstones, err := q.processedChunks(math.MaxInt64)
+	if err != nil {
+		return err
+	}
+	q.logRemoveProcessedChunks(tombstones)
+	return nil
+}
+
+// logRemoveProcessedChunks removes tombstoned chunks. A file it cannot remove
+// is logged and left for the next cleanup.
+func (q *DiskQueue) logRemoveProcessedChunks(tombstones []string) {
+	err := removeProcessedChunks(tombstones)
+	if err != nil {
+		q.Logger.Warnf("failed to remove processed chunks, will retry at the next cleanup: %v", err)
+	}
+}
+
+// processedChunks lists the tombstones of the chunks numbered below seq.
+func (q *DiskQueue) processedChunks(seq int64) ([]string, error) {
 	entries, err := os.ReadDir(q.dir)
 	if err != nil {
 		if stderrors.Is(err, fs.ErrNotExist) {
-			return nil
+			return nil, nil
 		}
-		return errors.Wrap(err, "failed to read directory during tombstone cleanup")
+		return nil, errors.Wrap(err, "failed to read directory during tombstone cleanup")
 	}
 
+	var tombstones []string
 	for _, entry := range entries {
 		if !processedChunkFilePattern.MatchString(entry.Name()) {
 			continue
 		}
 		tombstonePath := filepath.Join(q.dir, entry.Name())
-		chunkPath := strings.TrimSuffix(tombstonePath, ".processed")
-		_ = os.Remove(chunkPath)
-		_ = os.Remove(tombstonePath)
+		n, ok := chunkSeq(strings.TrimSuffix(tombstonePath, ".processed"))
+		if ok && n >= seq {
+			continue
+		}
+		tombstones = append(tombstones, tombstonePath)
 	}
+	return tombstones, nil
+}
 
-	return nil
+// removeProcessedChunks removes each tombstoned chunk, then its tombstone: a
+// chunk without one is processed again.
+func removeProcessedChunks(tombstones []string) error {
+	var errs []error
+	for _, tombstonePath := range tombstones {
+		err := removeFile(strings.TrimSuffix(tombstonePath, ".processed"))
+		if err != nil && !stderrors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, err)
+			continue
+		}
+		err = removeFile(tombstonePath)
+		if err != nil && !stderrors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, err)
+		}
+	}
+	return stderrors.Join(errs...)
 }
 
 func (q *DiskQueue) removeChunk(path string) error {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
 
-	if q.maintenanceMode.Load() {
+	if q.keepsProcessed() {
 		tombstonePath := path + ".processed"
 		f, err := os.Create(tombstonePath)
 		if err == nil {
 			_ = f.Close()
 			q.forgetChunk(path)
 			return nil
+		}
+		// a retention's chunks are needed for a replay: retry instead
+		if q.retained {
+			return errors.Wrap(err, "failed to create tombstone")
 		}
 		q.Logger.WithField("file", path).Errorf("failed to create tombstone, falling back to deletion: %v", err)
 		// fall through to normal deletion
@@ -796,11 +1080,15 @@ func (q *DiskQueue) forgetChunk(path string) {
 	}
 
 	q.m.Lock()
-	defer q.m.Unlock()
 	q.recordCount -= ref.count
 	q.diskUsage -= int64(ref.size)
 	q.metrics.DiskUsage(q.diskUsage)
 	q.metrics.Size(q.recordCount)
+	q.m.Unlock()
+
+	if q.onChunkRemoved != nil {
+		q.onChunkRemoved()
+	}
 }
 
 // quarantineChunk renames a torn or corrupt chunk file to <name>.corrupt so
@@ -815,8 +1103,8 @@ func (q *DiskQueue) quarantineChunk(path string, cause error) error {
 	quarantinePath := path + ".corrupt"
 	kept := true
 	var err error
-	if q.maintenanceMode.Load() {
-		kept, err = q.quarantineDuringBackup(path, quarantinePath)
+	if q.keepsProcessed() {
+		kept, err = q.quarantineKeptChunk(path, quarantinePath)
 	} else {
 		err = os.Rename(path, quarantinePath)
 	}
@@ -832,7 +1120,7 @@ func (q *DiskQueue) quarantineChunk(path string, cause error) error {
 
 	if !kept {
 		q.Logger.WithField("file", path).
-			Errorf("chunk is truncated or corrupt, it will be removed after the backup without a quarantined copy; its unreadable records are lost: %v", cause)
+			Errorf("chunk is truncated or corrupt, it will be removed once no backup or retention keeps it, without a quarantined copy; its unreadable records are lost: %v", cause)
 		return nil
 	}
 	q.Logger.WithField("file", quarantinePath).
@@ -840,15 +1128,18 @@ func (q *DiskQueue) quarantineChunk(path string, cause error) error {
 	return nil
 }
 
+// removeFile is a variable so tests can hold a removal to see what it blocks.
+var removeFile = os.Remove
+
 // hardLink is a variable so tests can simulate a filesystem without hard
 // links.
 var hardLink = os.Link
 
-// quarantineDuringBackup quarantines a chunk that a backup may be copying:
+// quarantineKeptChunk quarantines a chunk that a backup or a retention keeps:
 // the quarantined copy is a hard link, and the chunk itself is removed with
-// the processed ones once the backup completes. It reports whether the
+// the processed ones once nothing keeps them. It reports whether the
 // quarantined copy was kept.
-func (q *DiskQueue) quarantineDuringBackup(path, quarantinePath string) (kept bool, err error) {
+func (q *DiskQueue) quarantineKeptChunk(path, quarantinePath string) (kept bool, err error) {
 	// a leftover from an interrupted attempt
 	_ = os.Remove(quarantinePath)
 
@@ -858,7 +1149,7 @@ func (q *DiskQueue) quarantineDuringBackup(path, quarantinePath string) (kept bo
 	}
 	if linkErr != nil {
 		q.Logger.WithField("file", path).
-			Warnf("cannot hard link the corrupt chunk, it will be removed after the backup instead of kept: %v", linkErr)
+			Warnf("cannot hard link the corrupt chunk, it will be removed once no backup or retention keeps it instead of kept: %v", linkErr)
 	}
 
 	f, err := os.Create(path + ".processed")
@@ -1266,6 +1557,9 @@ type chunkWriter struct {
 	buf         [8]byte
 
 	reader *chunkReader
+	// lastSeq is the highest chunk number handed out, so names only grow
+	// even if the clock steps back
+	lastSeq int64
 }
 
 func newChunkWriter(dir string, reader *chunkReader, logger logrus.FieldLogger, maxSize uint64) (*chunkWriter, error) {
@@ -1375,15 +1669,12 @@ func (w *chunkWriter) Create() error {
 	// existing chunk and later header writes would clobber it. Create
 	// exclusively and bump the timestamp until a free name is found.
 	//
-	// The bump preserves per-writer chunk ordering, which is load-bearing:
-	// the filename doubles as the replay ordering key (chunks are reloaded
-	// in name order). It only ever moves the name forward from the current
-	// clock, and a later Create in the same microsecond starts at the same
-	// timestamp and re-collides with every name taken so far, so it always
-	// lands after this one.
-	ts := chunkTimeNow()
+	// Names only grow, which is load-bearing: the filename doubles as the
+	// replay ordering key (chunks are reloaded in name order, and a
+	// retention's start is a number in that order).
+	ts := w.nextSeq()
 	for i := 0; ; i++ {
-		path := filepath.Join(w.dir, fmt.Sprintf(chunkFileFmt, ts))
+		path := chunkPath(w.dir, ts)
 		w.f, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o644)
 		if err == nil {
 			break
@@ -1398,6 +1689,7 @@ func (w *chunkWriter) Create() error {
 		}
 		ts++
 	}
+	w.lastSeq = ts
 
 	w.w.Reset(w.f)
 
@@ -1422,6 +1714,17 @@ func (w *chunkWriter) Create() error {
 	return nil
 }
 
+// nextSeq hands out the number of the next chunk name: the clock, or one
+// past the last number if the clock is behind it.
+func (w *chunkWriter) nextSeq() int64 {
+	seq := chunkTimeNow()
+	if seq <= w.lastSeq {
+		seq = w.lastSeq + 1
+	}
+	w.lastSeq = seq
+	return seq
+}
+
 func (w *chunkWriter) Open() error {
 	entries, err := os.ReadDir(w.dir)
 	if err != nil {
@@ -1437,6 +1740,10 @@ func (w *chunkWriter) Open() error {
 			continue
 		}
 		lastChunk = entry.Name()
+		seq, ok := chunkSeq(lastChunk)
+		if ok && seq > w.lastSeq {
+			w.lastSeq = seq
+		}
 	}
 
 	if lastChunk == "" {
@@ -1700,6 +2007,45 @@ func (r *chunkReader) markProcessed(path string, corrupt error) {
 	}
 }
 
+// rewind puts kept chunks back in name order, and makes the chunks still
+// listed as processed readable again. A chunk can be listed and tombstoned at
+// once when a tombstone failed halfway; it returns the chunks it added.
+func (r *chunkReader) rewind(refs []chunkRef) []chunkRef {
+	r.m.Lock()
+	defer r.m.Unlock()
+
+	listed := make(map[string]struct{}, len(r.chunkList))
+	for i := range r.chunkList {
+		r.chunkList[i].processed = false
+		r.chunkList[i].corrupt = nil
+		listed[r.chunkList[i].path] = struct{}{}
+	}
+	added := make([]chunkRef, 0, len(refs))
+	for _, ref := range refs {
+		if _, ok := listed[ref.path]; !ok {
+			added = append(added, ref)
+		}
+	}
+	r.chunkList = append(r.chunkList, added...)
+	slices.SortFunc(r.chunkList, func(a, b chunkRef) int {
+		return strings.Compare(a.path, b.path)
+	})
+	return added
+}
+
+// firstUnprocessed is the path of the oldest chunk whose records are not
+// processed yet, or empty.
+func (r *chunkReader) firstUnprocessed() string {
+	r.m.Lock()
+	defer r.m.Unlock()
+	for _, ref := range r.chunkList {
+		if !ref.processed {
+			return ref.path
+		}
+	}
+	return ""
+}
+
 // forget removes a chunk from the list of chunks to read, and returns it if
 // it was there.
 func (r *chunkReader) forget(path string) (chunkRef, bool) {
@@ -1839,4 +2185,16 @@ func getBufioWriter(f *os.File) *bufio.Writer {
 func putBufioWriter(w *bufio.Writer) {
 	w.Reset(nil)
 	bufioWriterPool.Put(w)
+}
+
+// chunkPath is the path of the chunk numbered seq in dir.
+func chunkPath(dir string, seq int64) string {
+	return filepath.Join(dir, fmt.Sprintf(chunkFileFmt, seq))
+}
+
+// chunkSeq is the number a chunk file is named after.
+func chunkSeq(path string) (int64, bool) {
+	name := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "chunk-"), ".bin")
+	seq, err := strconv.ParseInt(name, 10, 64)
+	return seq, err == nil
 }

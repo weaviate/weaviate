@@ -221,7 +221,7 @@ func TestVectorIndexArtifactNamesForID(t *testing.T) {
 				"vectors", "vectors_compressed", "main_muvera_vectors", "main_mv_mappings",
 				"hfresh_postings_main", "hfresh_shared_main", "vectors_compressed",
 			},
-			dirs: []string{"main.hnsw.commitlog.d", "main.hnsw.snapshot.d", "main.hfresh.d", "main.queue.d", "meta.db"},
+			dirs: []string{"main.hnsw.commitlog.d", "main.hnsw.snapshot.d", "main.hfresh.d", "meta.db"},
 		},
 		{
 			id: "vectors_title",
@@ -229,7 +229,7 @@ func TestVectorIndexArtifactNamesForID(t *testing.T) {
 				"vectors_title", "vectors_compressed_title", "vectors_title_muvera_vectors", "vectors_title_mv_mappings",
 				"hfresh_postings_vectors_title", "hfresh_shared_vectors_title", "vectors_compressed_title_centroids",
 			},
-			dirs: []string{"vectors_title.hnsw.commitlog.d", "vectors_title.hnsw.snapshot.d", "vectors_title.hfresh.d", "vectors_title.queue.d", "meta_title.db"},
+			dirs: []string{"vectors_title.hnsw.commitlog.d", "vectors_title.hnsw.snapshot.d", "vectors_title.hfresh.d", "meta_title.db"},
 		},
 	}
 	for _, tc := range tests {
@@ -240,8 +240,11 @@ func TestVectorIndexArtifactNamesForID(t *testing.T) {
 		})
 	}
 
-	// a named vector's list agrees with the name-based catalogue
-	assert.Equal(t, vectorIndexArtifactNames("title"), VectorIndexArtifactNamesForID("vectors_title"))
+	// a named vector's list agrees with the name-based catalogue, which also
+	// names the queue under the index's ID
+	byName := vectorIndexArtifactNames("title")
+	assert.Equal(t, byName.LSMBuckets, VectorIndexArtifactNamesForID("vectors_title").LSMBuckets)
+	assert.ElementsMatch(t, byName.ShardDirs, append(VectorIndexArtifactNamesForID("vectors_title").ShardDirs, "vectors_title.queue.d"))
 }
 
 // An index whose raw bucket is another index's muvera bucket keeps it.

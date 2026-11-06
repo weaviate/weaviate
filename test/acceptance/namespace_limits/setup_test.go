@@ -63,6 +63,9 @@ func TestMain(m *testing.M) {
 		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS", "1").
 		WithWeaviateEnv("PERSISTENCE_MEMTABLES_MIN_ACTIVE_DURATION_SECONDS", "1").
 		WithWeaviateEnv("PERSISTENCE_MEMTABLES_MAX_ACTIVE_DURATION_SECONDS", "2").
+		// TestObjectLimitAfterReplicaCopy registers a COPY, which the Replicate
+		// handler refuses with 501 while replica movement is off.
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		WithWeaviateClusterWithGRPC().
 		Start(ctx)
 	if err != nil {

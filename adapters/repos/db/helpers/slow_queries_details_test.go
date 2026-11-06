@@ -199,37 +199,278 @@ func TestAnnotateSlowQueryLogAppendManyReducible(t *testing.T) {
 	})
 }
 
-func TestReduceToSlowest(t *testing.T) {
-	entries := func(tooks ...time.Duration) []map[string]any {
-		out := make([]map[string]any, len(tooks))
-		for i, took := range tooks {
-			out[i] = map[string]any{"took": took}
-		}
-		return out
-	}
+const slowestTestKey = "slowest"
+
+func TestSlowestTracker(t *testing.T) {
+	const ms = time.Millisecond
 	tests := []struct {
-		name        string
-		in          []map[string]any
-		wantSlowest []map[string]any
+		name       string
+		tooks      []time.Duration
+		wantIDs    []int
+		wantBuilds int
 	}{
-		{"empty", nil, nil},
-		{"fewer than the bound keeps all, slowest first", entries(1, 3, 2), entries(3, 2, 1)},
-		{"more than the bound keeps the slowest", entries(4, 9, 1, 7, 2, 8, 3), entries(9, 8, 7, 4, 3)},
+		{"fewer than the bound", []time.Duration{1 * ms, 3 * ms, 2 * ms}, []int{1, 2, 0}, 3},
 		{
-			"an entry without took sorts last",
-			[]map[string]any{{"x": 1}, {"took": time.Duration(1)}},
-			[]map[string]any{{"took": time.Duration(1)}, {"x": 1}},
+			"ascending replaces the last kept and raises the floor",
+			[]time.Duration{1 * ms, 2 * ms, 3 * ms, 4 * ms, 5 * ms, 6 * ms, 7 * ms, 3 * ms},
+			[]int{6, 5, 4, 3, 2},
+			7,
+		},
+		{
+			"descending builds only the first five",
+			[]time.Duration{7 * ms, 6 * ms, 5 * ms, 4 * ms, 3 * ms, 2 * ms, 1 * ms},
+			[]int{0, 1, 2, 3, 4},
+			5,
+		},
+		{
+			"mixed",
+			[]time.Duration{4 * ms, 9 * ms, 1 * ms, 7 * ms, 2 * ms, 8 * ms, 3 * ms},
+			[]int{1, 5, 3, 0, 6},
+			7,
+		},
+		{
+			"all tied keep arrival order",
+			[]time.Duration{7 * ms, 7 * ms, 7 * ms, 7 * ms, 7 * ms, 7 * ms, 7 * ms},
+			[]int{0, 1, 2, 3, 4},
+			5,
+		},
+		{
+			"ties at the floor are rejected, ties above it are not",
+			[]time.Duration{5 * ms, 5 * ms, 5 * ms, 5 * ms, 5 * ms, 5 * ms, 6 * ms, 5 * ms, 6 * ms},
+			[]int{6, 8, 0, 1, 2},
+			7,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			in := slices.Clone(tc.in)
-			got := ReduceToSlowest(in)
-			require.Equal(t, len(tc.in), got.Count)
-			require.Equal(t, tc.wantSlowest, got.Slowest)
-			require.Equal(t, tc.in, in, "the reducer must not reorder its input")
+			ctx := InitSlowQueryDetails(context.Background())
+			tracker := slowQueryDetailsFromContext(ctx).trackerFor(slowestTestKey)
+			builds := 0
+			floor := int64(0)
+			for id, took := range tc.tooks {
+				tracker.observe(took, func() map[string]any {
+					builds++
+					return map[string]any{"id": id}
+				})
+				require.GreaterOrEqual(t, tracker.floor.Load(), floor, "the floor must only rise")
+				floor = tracker.floor.Load()
+			}
+
+			want := make([]map[string]any, len(tc.wantIDs))
+			for i, id := range tc.wantIDs {
+				took := tc.tooks[id]
+				want[i] = map[string]any{"id": id, "took": took, "took_string": took.String()}
+			}
+			require.Equal(t, SlowestEntries{Count: len(tc.tooks), Slowest: want},
+				ExtractSlowQueryDetails(ctx)[slowestTestKey])
+			require.Equal(t, tc.wantBuilds, builds)
 		})
 	}
+}
+
+func TestSlowestTracker_Concurrent(t *testing.T) {
+	const workers, leavesPerWorker = 16, 500
+	ctx := InitSlowQueryDetails(context.Background())
+	tracker := slowQueryDetailsFromContext(ctx).trackerFor(slowestTestKey)
+
+	extractorDone := make(chan struct{})
+	stop := make(chan struct{})
+	go func() {
+		defer close(extractorDone)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			summary, ok := ExtractSlowQueryDetails(ctx)[slowestTestKey].(SlowestEntries)
+			if ok {
+				assert.True(t, slices.IsSortedFunc(summary.Slowest, func(a, b map[string]any) int {
+					return int(entryTook(b) - entryTook(a))
+				}), "a concurrent extract must see a sorted list")
+			}
+		}
+	}()
+
+	wg := &sync.WaitGroup{}
+	for worker := range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for leaf := range leavesPerWorker {
+				took := time.Duration(worker + leaf*workers + 1)
+				tracker.observe(took, func() map[string]any { return map[string]any{} })
+			}
+		}()
+	}
+	wg.Wait()
+	close(stop)
+	<-extractorDone
+
+	summary := ExtractSlowQueryDetails(ctx)[slowestTestKey].(SlowestEntries)
+	require.Equal(t, workers*leavesPerWorker, summary.Count)
+	slowest := time.Duration(workers * leavesPerWorker)
+	require.Len(t, summary.Slowest, slowestEntriesKept)
+	for i, entry := range summary.Slowest {
+		require.Equal(t, slowest-time.Duration(i), entry["took"])
+	}
+}
+
+func TestExtractSlowQueryDetails_Slowest(t *testing.T) {
+	t.Run("no leaf observed omits the key", func(t *testing.T) {
+		ctx := InitSlowQueryDetails(context.Background())
+		require.NotContains(t, ExtractSlowQueryDetails(ctx), slowestTestKey)
+	})
+
+	t.Run("extracting leaves the tracker intact and detaches the result", func(t *testing.T) {
+		ctx := InitSlowQueryDetails(context.Background())
+		tracker := slowQueryDetailsFromContext(ctx).trackerFor(slowestTestKey)
+		for took := 1; took <= slowestEntriesKept; took++ {
+			tracker.observe(time.Duration(took), func() map[string]any { return map[string]any{} })
+		}
+
+		first := ExtractSlowQueryDetails(ctx)[slowestTestKey].(SlowestEntries)
+		require.Equal(t, first, ExtractSlowQueryDetails(ctx)[slowestTestKey], "a second extract must see the same summary")
+
+		kept := slices.Clone(first.Slowest)
+		tracker.observe(time.Hour, func() map[string]any { return map[string]any{} })
+		require.Equal(t, kept, first.Slowest, "a later leaf must not rewrite a summary already handed out")
+
+		third := ExtractSlowQueryDetails(ctx)[slowestTestKey].(SlowestEntries)
+		require.Equal(t, slowestEntriesKept+1, third.Count)
+		require.Equal(t, time.Hour, third.Slowest[0]["took"])
+	})
+}
+
+func TestAnnotateSlowQueryLogSlowest(t *testing.T) {
+	reason := "declined"
+	build := func() map[string]any { return map[string]any{"reason": reason} }
+
+	withFullTracker := func() (context.Context, *slowestTracker) {
+		ctx := InitSlowQueryDetails(context.Background())
+		tracker := slowQueryDetailsFromContext(ctx).trackerFor(slowestTestKey)
+		for range slowestEntriesKept {
+			tracker.observe(time.Hour, build)
+		}
+		return ctx, tracker
+	}
+
+	t.Run("a measured leaf is kept with its took", func(t *testing.T) {
+		ctx := InitSlowQueryDetails(context.Background())
+		start := time.Now().Add(-time.Minute)
+		AnnotateSlowQueryLogSlowest(ctx, slowestTestKey, start, build)
+
+		summary := ExtractSlowQueryDetails(ctx)[slowestTestKey].(SlowestEntries)
+		require.Equal(t, 1, summary.Count)
+		require.Equal(t, reason, summary.Slowest[0]["reason"])
+		require.GreaterOrEqual(t, summary.Slowest[0]["took"], time.Minute)
+	})
+
+	t.Run("a rejected leaf is counted and allocates nothing", func(t *testing.T) {
+		ctx, tracker := withFullTracker()
+		start := time.Now()
+		const runs = 100
+		allocs := testing.AllocsPerRun(runs, func() { AnnotateSlowQueryLogSlowest(ctx, slowestTestKey, start, build) })
+		require.Zero(t, allocs, "a leaf at or below the floor must return before building anything")
+		// AllocsPerRun adds one warm-up call.
+		require.EqualValues(t, slowestEntriesKept+runs+1, tracker.count.Load())
+	})
+
+	t.Run("a rejected leaf takes neither lock", func(t *testing.T) {
+		ctx, tracker := withFullTracker()
+		tracker.mu.Lock()
+		t.Cleanup(tracker.mu.Unlock)
+		details := slowQueryDetailsFromContext(ctx)
+		details.Lock()
+		t.Cleanup(details.Unlock)
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			AnnotateSlowQueryLogSlowest(ctx, slowestTestKey, time.Now(), build)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("a leaf at or below the floor must not wait on the tracker lock")
+		}
+	})
+
+	t.Run("a leaf overtaken by the floor after its check is dropped", func(t *testing.T) {
+		_, tracker := withFullTracker()
+		before := slices.Clone(tracker.kept)
+
+		tracker.mu.Lock()
+		tracker.keepLocked(map[string]any{"took": time.Minute})
+		tracker.mu.Unlock()
+
+		require.Equal(t, before, tracker.kept)
+	})
+
+	t.Run("an admitted leaf builds outside the lock", func(t *testing.T) {
+		ctx := InitSlowQueryDetails(context.Background())
+		tracker := slowQueryDetailsFromContext(ctx).trackerFor(slowestTestKey)
+		tracker.mu.Lock()
+		t.Cleanup(tracker.mu.Unlock)
+
+		built := make(chan struct{})
+		go AnnotateSlowQueryLogSlowest(ctx, slowestTestKey, time.Now(), func() map[string]any {
+			close(built)
+			return map[string]any{}
+		})
+		select {
+		case <-built:
+		case <-time.After(5 * time.Second):
+			t.Fatal("build must not run under the tracker lock")
+		}
+	})
+
+	t.Run("each key keeps its own entries", func(t *testing.T) {
+		ctx := InitSlowQueryDetails(context.Background())
+		for _, key := range []string{"a", "b", "a"} {
+			AnnotateSlowQueryLogSlowest(ctx, key, time.Now(), build)
+		}
+
+		details := ExtractSlowQueryDetails(ctx)
+		require.Equal(t, 2, details["a"].(SlowestEntries).Count)
+		require.Equal(t, 1, details["b"].(SlowestEntries).Count)
+	})
+
+	t.Run("concurrent first use of a key counts every leaf", func(t *testing.T) {
+		const rounds, workers = 200, 16
+		for range rounds {
+			ctx := InitSlowQueryDetails(context.Background())
+			release := make(chan struct{})
+			wg := &sync.WaitGroup{}
+			for range workers {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					<-release
+					AnnotateSlowQueryLogSlowest(ctx, slowestTestKey, time.Now().Add(-time.Hour), build)
+				}()
+			}
+			close(release)
+			wg.Wait()
+			require.Equal(t, workers, ExtractSlowQueryDetails(ctx)[slowestTestKey].(SlowestEntries).Count)
+		}
+	})
+
+	t.Run("no details cost nothing", func(t *testing.T) {
+		var noCtx context.Context
+		start := time.Now()
+		for _, ctx := range []context.Context{noCtx, context.Background()} {
+			built := false
+			allocs := testing.AllocsPerRun(100, func() {
+				AnnotateSlowQueryLogSlowest(ctx, slowestTestKey, start, func() map[string]any {
+					built = true
+					return nil
+				})
+			})
+			require.Zero(t, allocs)
+			require.False(t, built, "build must not run without details")
+		}
+	})
 }
 
 func TestHasSlowQueryDetails(t *testing.T) {

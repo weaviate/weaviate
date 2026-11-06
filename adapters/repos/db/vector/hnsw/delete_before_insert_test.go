@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -23,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -95,13 +95,29 @@ func TestHasGhost_MultiVector(t *testing.T) {
 	require.NoError(t, index.AddMulti(ctx, 0, vectors))
 	require.False(t, index.HasGhost(0))
 
-	live := []*vertex{index.nodeByID(0), index.nodeByID(1)}
-	for _, node := range live {
-		node.markAsMaintenance()
+	require.NoError(t, index.AddMulti(ctx, 1, vectors))
+	require.False(t, index.HasGhost(1))
+
+	// an insert that failed after publishing one of the doc's vectors: nobody
+	// links back to that node
+	index.RLock()
+	vecIDs := append([]uint64(nil), index.docIDVectors[1]...)
+	index.RUnlock()
+	ghost := vecIDs[0]
+	if ghost == index.getEntrypoint() {
+		ghost = vecIDs[1]
 	}
-	require.ErrorIs(t, index.AddMulti(ctx, 1, vectors), enterrors.ErrNoUsableEntrypoint)
-	for _, node := range live {
-		node.unmarkAsMaintenance()
+	cutOff := index.nodeByID(ghost)
+	cutOff.Lock()
+	neighbors := append([]uint64(nil), cutOff.connections.GetLayer(0)...)
+	cutOff.Unlock()
+	for _, neighborID := range neighbors {
+		neighbor := index.nodeByID(neighborID)
+		neighbor.Lock()
+		kept := slices.DeleteFunc(append([]uint64(nil), neighbor.connections.GetLayer(0)...),
+			func(id uint64) bool { return id == ghost })
+		neighbor.connections.ReplaceLayer(0, kept)
+		neighbor.Unlock()
 	}
 
 	require.True(t, index.HasGhost(1))
