@@ -2903,6 +2903,26 @@ func TestRestoreClass_CrossNamespaceAlias(t *testing.T) {
 	}
 }
 
+func TestRestoreClass_RejectsShardNameOutsideIndexDir(t *testing.T) {
+	t.Parallel()
+	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+	fakeSchemaManager.On("RestoreClass", mock.Anything, mock.Anything).Return(nil).Maybe()
+
+	schemaBytes, err := json.Marshal(&models.Class{Class: "Class_A", Vectorizer: "none"})
+	require.NoError(t, err)
+	shardingBytes, err := json.Marshal(&sharding.State{
+		Physical: map[string]sharding.Physical{
+			"../../../../bin": {Name: "../../../../bin", BelongsToNodes: []string{"node1"}},
+		},
+	})
+	require.NoError(t, err)
+
+	descriptor := backup.ClassDescriptor{Name: "Class_A", Schema: schemaBytes, ShardingState: shardingBytes}
+	err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{}, false, false)
+	require.ErrorContains(t, err, "not a valid tenant name")
+	fakeSchemaManager.AssertNotCalled(t, "RestoreClass", mock.Anything, mock.Anything)
+}
+
 func TestRestoreClass_WithNodeMapping(t *testing.T) {
 	classes := []*models.Class{{
 		Class:      "Class_A",

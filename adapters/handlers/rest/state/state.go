@@ -60,9 +60,11 @@ type State struct {
 	APIKey          *apikey.ApiKey
 	APIKeyRemote    *apikey.RemoteApiKey
 	Authorizer      authorization.Authorizer
-	AuthzController authorization.Controller
-	RBAC            *rbac.Manager
-	Crons           *cron.Crons
+	// RBAC is the RBAC state the RAFT FSM applies, snapshots and restores.
+	// configureAuthorizer always sets it, even with RBAC disabled.
+	// A non-nil RBAC does not mean RBAC is enabled: check Authorization.Rbac.Enabled.
+	RBAC  *rbac.Manager
+	Crons *cron.Crons
 
 	ServerConfig  *config.WeaviateConfig
 	License       *license.State

@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/license"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var (
@@ -327,6 +328,10 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		}
 	}
 
+	if err := validateShardNames(schema, meta.Classes()); err != nil {
+		return nil, backup.NewErrUnprocessable(err)
+	}
+
 	if err := s.validateNamespaceStripping(ctx, schema, userBlob, rbacBlob, meta.Classes(), req.UserRestoreOption, req.RbacRestoreOption); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
@@ -456,23 +461,62 @@ func backupsForbidden(pr *models.Principal, verb string) error {
 	return authzerrors.NewForbidden(pr, action, resource)
 }
 
-// authorizeBackupByID authorizes the caller against the classes recorded in the
-// backup meta. A missing meta is a no-op (the 404 may leak the id); any other
-// backend error fails closed.
-func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.Principal, verb string,
-	store coordStore, filename, overrideBucket, overridePath string,
-) error {
-	meta, err := store.Meta(ctx, filename, overrideBucket, overridePath)
-	if err != nil {
-		// A read concurrent with a write yields a partial file that fails to
-		// unmarshal; treat it as not-found so a mid-write status poll retries.
-		var syntaxErr *json.SyntaxError
-		if errors.As(err, &backup.ErrNotFound{}) || errors.As(err, &syntaxErr) {
-			return nil
-		}
-		return err
+// denyBackupByID adds to authErr, a denial of op on backup id, a reason that
+// holds whether or not the backup exists, so its text does not reveal which. It
+// logs readErrs the denial hides: a backend failure, but not a missing or partial
+// descriptor.
+func (s *Scheduler) denyBackupByID(authErr error, op Op, verb, id string, readErrs ...error) error {
+	if !errors.As(authErr, &authzerrors.Forbidden{}) {
+		return authErr
 	}
-	return s.authorizeBackupClasses(ctx, principal, verb, meta.Classes())
+	for _, err := range readErrs {
+		if descriptorReadFailed(err) {
+			s.logger.WithField("action", op).WithField("backup_id", id).
+				Warnf("denied a caller without the wildcard backup permission, since the descriptor could not be read: %v", err)
+		}
+	}
+	may := "manage"
+	if verb == authorization.READ {
+		may = "read"
+	}
+	if op == OpRestore {
+		return fmt.Errorf("%w: no restore of backup %q was found at this location, or it includes collections you may not %s",
+			authErr, id, may)
+	}
+	return fmt.Errorf("%w: backup %q was not found at this location or includes collections you may not %s", authErr, id, may)
+}
+
+// descriptorReadFailed reports whether err is a backend failure to read a
+// descriptor, rather than a missing one or a partial one mid-write.
+func descriptorReadFailed(err error) bool {
+	var syntaxErr *json.SyntaxError
+	return err != nil && !errors.As(err, &backup.ErrNotFound{}) && !errors.As(err, &syntaxErr)
+}
+
+// authorizeBackupByID authorizes the caller against the classes recorded in the
+// first readable of filenames. Without one the caller needs the wildcard backup
+// permission. Only a caller who passes gets a read error of filenames[0] other
+// than not-found.
+func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.Principal, verb string, op Op,
+	store coordStore, overrideBucket, overridePath string, filenames ...string,
+) error {
+	var classes []string
+	readErrs := make([]error, 0, len(filenames))
+	for _, filename := range filenames {
+		meta, err := metaWithRetry(ctx, store, filename, overrideBucket, overridePath)
+		if err == nil {
+			classes = meta.Classes()
+			break
+		}
+		readErrs = append(readErrs, err)
+	}
+	if err := s.authorizeBackupClasses(ctx, principal, verb, classes); err != nil {
+		return s.denyBackupByID(err, op, verb, store.backupId, readErrs...)
+	}
+	if len(readErrs) > 0 && descriptorReadFailed(readErrs[0]) {
+		return readErrs[0]
+	}
+	return nil
 }
 
 const metaReadAttempts = 3
@@ -516,7 +560,8 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, store, GlobalBackupFile, overrideBucket, overridePath); err != nil {
+	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, OpCreate, store, overrideBucket, overridePath,
+		GlobalBackupFile); err != nil {
 		return nil, err
 	}
 
@@ -541,7 +586,10 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, store, GlobalRestoreFile, overrideBucket, overridePath); err != nil {
+	// Before a restore starts, its status is authorized like CancelRestore's, against
+	// the backup descriptor, so a caller who may read the backup gets 404, not 403.
+	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, OpRestore, store, overrideBucket, overridePath,
+		GlobalRestoreFile, GlobalBackupFile); err != nil {
 		return nil, err
 	}
 	req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}
@@ -573,15 +621,15 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	// Authorize before validating the id so an unpermitted caller gets 403, not a
 	// hint about the id. Scope to the backup's classes when readable, else wildcard.
 	var meta *backup.DistributedBackupDescriptor
+	var metaErr error
 	var classes []string
 	if idErr == nil {
-		if m, err := metaWithRetry(ctx, store, GlobalBackupFile, overrideBucket, overridePath); err == nil {
-			meta = m
-			classes = m.Classes()
+		if meta, metaErr = metaWithRetry(ctx, store, GlobalBackupFile, overrideBucket, overridePath); metaErr == nil {
+			classes = meta.Classes()
 		}
 	}
 	if err := s.authorizeBackupClasses(ctx, principal, authorization.DELETE, classes); err != nil {
-		return err
+		return s.denyBackupByID(err, OpCreate, authorization.DELETE, backupID, metaErr)
 	}
 	if idErr != nil {
 		return backup.NewErrUnprocessable(idErr)
@@ -655,17 +703,18 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	// hint about the id. Prefer the restore descriptor, else the backup descriptor;
 	// if neither is readable, require wildcard DELETE.
 	var meta *backup.DistributedBackupDescriptor
-	var metaErr error
+	var metaErr, backupMetaErr error
 	var classes []string
 	if idErr == nil {
+		var backupMeta *backup.DistributedBackupDescriptor
 		if meta, metaErr = metaWithRetry(ctx, store, GlobalRestoreFile, overrideBucket, overridePath); metaErr == nil {
 			classes = meta.Classes()
-		} else if backupMeta, err := metaWithRetry(ctx, store, GlobalBackupFile, overrideBucket, overridePath); err == nil {
+		} else if backupMeta, backupMetaErr = metaWithRetry(ctx, store, GlobalBackupFile, overrideBucket, overridePath); backupMetaErr == nil {
 			classes = backupMeta.Classes()
 		}
 	}
 	if err := s.authorizeBackupClasses(ctx, principal, authorization.DELETE, classes); err != nil {
-		return err
+		return s.denyBackupByID(err, OpRestore, authorization.DELETE, backupID, metaErr, backupMetaErr)
 	}
 	if idErr != nil {
 		return backup.NewErrUnprocessable(idErr)
@@ -1279,6 +1328,26 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		meta.NodeMapping = req.NodeMapping
 	}
 	return meta, nil
+}
+
+// validateShardNames refuses a selected class whose sharding state names an
+// invalid shard. RestoreClass refuses it too, but only once every node has
+// downloaded the backup and the classes before it were applied.
+func validateShardNames(descriptors []backup.ClassDescriptor, selectedClasses []string) error {
+	for i := range descriptors {
+		d := &descriptors[i]
+		if d.ShardingState == nil || !slices.Contains(selectedClasses, d.Name) {
+			continue
+		}
+		var ss sharding.State
+		if err := json.Unmarshal(d.ShardingState, &ss); err != nil {
+			return fmt.Errorf("class %q: unmarshal sharding state: %w", d.Name, err)
+		}
+		if err := ss.ValidateShardNames(); err != nil {
+			return fmt.Errorf("class %q: sharding state: %w", d.Name, err)
+		}
+	}
+	return nil
 }
 
 // validateNamespaceStripping fails a restore into a namespace-disabled
