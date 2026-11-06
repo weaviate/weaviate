@@ -4100,3 +4100,237 @@ func TestManagerUpdateClassInternal_ProposesOrigin(t *testing.T) {
 	require.NoError(t, m.UpdateClassInternal(context.Background(), initial.Class, newClass(), origin))
 	fakeSchemaManager.AssertExpectations(t)
 }
+
+func Test_UpdateClass_ValidatesClassLevelModuleSettings(t *testing.T) {
+	const hnswT = vectorindex.VectorIndexTypeHNSW
+	moduleSettings := func(module string, baseURL any) map[string]any {
+		return map[string]any{module: map[string]any{"baseURL": baseURL}}
+	}
+	withModuleConfig := func(class *models.Class, moduleConfig map[string]any) *models.Class {
+		class.ModuleConfig = moduleConfig
+		return class
+	}
+	withDescription := func(class *models.Class, description string) *models.Class {
+		class.Description = description
+		return class
+	}
+	noneVectorizer := func() *models.Class {
+		return &models.Class{
+			Class: "Doc", Vectorizer: "none", VectorIndexType: hnswT,
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+	}
+	vectorizer := func() *models.Class {
+		return &models.Class{
+			Class: "Doc", Vectorizer: "text2vec-a", VectorIndexType: hnswT,
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+	}
+	vectorless := func() *models.Class {
+		return &models.Class{Class: "Doc", ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
+	}
+	namedVectors := func() *models.Class {
+		return &models.Class{
+			Class: "Doc",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {Vectorizer: map[string]any{"none": map[string]any{}}, VectorIndexType: hnswT},
+			},
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+	}
+
+	tests := []struct {
+		name    string
+		initial *models.Class
+		// skipCreate stores initial without AddClass, which would reject its module settings.
+		skipCreate    bool
+		update        *models.Class
+		expectedError string
+		wantValidated []string
+	}{
+		{
+			name:          "none vectorizer, invalid generative settings",
+			initial:       withModuleConfig(noneVectorizer(), moduleSettings("generative-a", "https://a.example.com")),
+			update:        withModuleConfig(noneVectorizer(), moduleSettings("generative-a", 42)),
+			expectedError: "module 'generative-a': baseURL must be a string, got int",
+			wantValidated: []string{"generative-a/"},
+		},
+		{
+			name:          "none vectorizer, added reranker with invalid settings",
+			initial:       withModuleConfig(noneVectorizer(), moduleSettings("generative-a", "https://a.example.com")),
+			update:        withModuleConfig(noneVectorizer(), moduleSettings("reranker-a", 42)),
+			expectedError: "module 'reranker-a': baseURL must be a string, got int",
+			wantValidated: []string{"reranker-a/"},
+		},
+		{
+			name:          "vector-less class, invalid generative settings",
+			initial:       withModuleConfig(vectorless(), moduleSettings("generative-a", "https://a.example.com")),
+			update:        withModuleConfig(vectorless(), moduleSettings("generative-a", 42)),
+			expectedError: "module 'generative-a': baseURL must be a string, got int",
+			wantValidated: []string{"generative-a/"},
+		},
+		{
+			name:          "named vectors, invalid generative settings",
+			initial:       withModuleConfig(namedVectors(), moduleSettings("generative-a", "https://a.example.com")),
+			update:        withModuleConfig(namedVectors(), moduleSettings("generative-a", 42)),
+			expectedError: "module 'generative-a': baseURL must be a string, got int",
+			wantValidated: []string{"generative-a/"},
+		},
+		{
+			name:          "named vectors, valid generative settings",
+			initial:       withModuleConfig(namedVectors(), moduleSettings("generative-a", "https://a.example.com")),
+			update:        withModuleConfig(namedVectors(), moduleSettings("generative-a", "https://b.example.com")),
+			wantValidated: []string{"generative-a/"},
+		},
+		{
+			name:          "none vectorizer, valid reranker settings changed",
+			initial:       withModuleConfig(noneVectorizer(), moduleSettings("reranker-a", "https://a.example.com")),
+			update:        withModuleConfig(noneVectorizer(), moduleSettings("reranker-a", "https://b.example.com")),
+			wantValidated: []string{"reranker-a/"},
+		},
+		{
+			name:          "none vectorizer, generative module replaced by one with invalid settings",
+			initial:       withModuleConfig(noneVectorizer(), moduleSettings("generative-a", "https://a.example.com")),
+			update:        withModuleConfig(noneVectorizer(), moduleSettings("generative-b", 42)),
+			expectedError: "module 'generative-b': baseURL must be a string, got int",
+			wantValidated: []string{"generative-b/"},
+		},
+		{
+			name:    "none vectorizer, update removes the generative settings",
+			initial: withModuleConfig(noneVectorizer(), moduleSettings("generative-a", "https://a.example.com")),
+			update:  noneVectorizer(),
+		},
+		{
+			name:       "stored invalid generative settings, update changes only the description",
+			initial:    withModuleConfig(vectorless(), moduleSettings("generative-a", 42)),
+			skipCreate: true,
+			update:     withDescription(withModuleConfig(vectorless(), moduleSettings("generative-a", 42)), "changed"),
+		},
+		{
+			name: "stored invalid reranker settings, update changes only the generative settings",
+			initial: withModuleConfig(vectorless(), map[string]any{
+				"generative-a": map[string]any{"baseURL": "https://a.example.com"},
+				"reranker-a":   map[string]any{"baseURL": 42},
+			}),
+			skipCreate: true,
+			update: withModuleConfig(vectorless(), map[string]any{
+				"generative-a": map[string]any{"baseURL": "https://b.example.com"},
+				"reranker-a":   map[string]any{"baseURL": 42},
+			}),
+			wantValidated: []string{"generative-a/"},
+		},
+		{
+			name:          "stored invalid generative settings, update replaces them with valid ones",
+			initial:       withModuleConfig(vectorless(), moduleSettings("generative-a", 42)),
+			skipCreate:    true,
+			update:        withModuleConfig(vectorless(), moduleSettings("generative-a", "https://b.example.com")),
+			wantValidated: []string{"generative-a/"},
+		},
+		{
+			name: "stored invalid generative baseURL, update changes another setting of the module",
+			initial: withModuleConfig(vectorless(), map[string]any{
+				"generative-a": map[string]any{"baseURL": 42, "model": "m1"},
+			}),
+			skipCreate: true,
+			update: withModuleConfig(vectorless(), map[string]any{
+				"generative-a": map[string]any{"baseURL": 42, "model": "m2"},
+			}),
+			expectedError: "module 'generative-a': baseURL must be a string, got int",
+			wantValidated: []string{"generative-a/"},
+		},
+		{
+			name: "vectorizer settings unchanged, only the generative settings are validated",
+			initial: withModuleConfig(vectorizer(), map[string]any{
+				"text2vec-a":   map[string]any{"baseURL": "https://a.example.com"},
+				"generative-a": map[string]any{"baseURL": "https://a.example.com"},
+			}),
+			update: withModuleConfig(vectorizer(), map[string]any{
+				"text2vec-a":   map[string]any{"baseURL": "https://a.example.com"},
+				"generative-a": map[string]any{"baseURL": "https://b.example.com"},
+			}),
+			wantValidated: []string{"generative-a/"},
+		},
+		{
+			name:    "vectorizer settings changed, not validated here and rejected as immutable",
+			initial: withModuleConfig(vectorizer(), moduleSettings("text2vec-a", "https://a.example.com")),
+			update:  withModuleConfig(vectorizer(), moduleSettings("text2vec-a", 42)),
+			expectedError: "parse class update: can only update generative and reranker module configs, " +
+				"or settings the module allows to change. Got: text2vec-a for class: Doc",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			moduleConfig := &baseURLCheckingModuleConfig{}
+			handler, fakeSchemaManager := newTestHandlerWithModules(t, &fakeDB{}, fakeModulesProvider{},
+				moduleConfig, &fakeVectorizerValidator{valid: []string{"text2vec-a"}})
+			store := NewFakeStore()
+			store.parser = handler.parser
+
+			fakeSchemaManager.On("AddClass", test.initial, mock.Anything).Return(nil)
+			fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil)
+			fakeSchemaManager.On("ReadOnlyClassesFromLeader", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
+			fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
+			fakeSchemaManager.On("CopyShardingState", mock.Anything).Return(&sharding.State{}, nil).Maybe()
+			if test.skipCreate {
+				require.NoError(t, handler.parser.ParseClass(test.initial))
+			} else {
+				_, _, err := handler.AddClass(ctx, nil, test.initial)
+				require.NoError(t, err)
+			}
+			store.AddClass(test.initial)
+
+			err := handler.UpdateClass(ctx, nil, test.initial.Class, test.update)
+			if err == nil {
+				err = store.UpdateClass(test.update)
+			}
+			require.Equal(t, test.wantValidated, moduleConfig.validated)
+			if test.expectedError == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, test.expectedError)
+		})
+	}
+}
+
+// baseURLCheckingModuleConfig rejects a class-level module setting baseURL that is not a string.
+type baseURLCheckingModuleConfig struct {
+	fakeModuleConfig
+	// validated lists the ValidateModuleConfig calls as "module/targetVector".
+	validated []string
+}
+
+func (f *baseURLCheckingModuleConfig) SetClassDefaults(class *models.Class) {}
+
+func (f *baseURLCheckingModuleConfig) ValidateClass(ctx context.Context, class *models.Class) error {
+	moduleConfig, _ := class.ModuleConfig.(map[string]any)
+	for module := range moduleConfig {
+		if err := checkBaseURL(class, module); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (f *baseURLCheckingModuleConfig) ValidateModuleConfig(ctx context.Context, class *models.Class,
+	moduleName, targetVector string,
+) error {
+	f.validated = append(f.validated, moduleName+"/"+targetVector)
+	if targetVector != "" {
+		return nil
+	}
+	return checkBaseURL(class, moduleName)
+}
+
+func checkBaseURL(class *models.Class, moduleName string) error {
+	moduleConfig, _ := class.ModuleConfig.(map[string]any)
+	settings, _ := moduleConfig[moduleName].(map[string]any)
+	if baseURL, ok := settings["baseURL"]; ok {
+		if _, ok := baseURL.(string); !ok {
+			return fmt.Errorf("module '%s': baseURL must be a string, got %T", moduleName, baseURL)
+		}
+	}
+	return nil
+}
