@@ -39,17 +39,21 @@ import (
 // after it is reactivated: the reload arms the mirror, and the late swap
 // installs a bucket that holds the write. A mirror that fails to arm holds the
 // shard READONLY instead of stamping the record, since a stamp would refuse
-// the owed swap for good, and so does a load before RAFT has caught up.
+// the owed swap for good, and so does a load before RAFT has caught up or
+// after this node acked its PREP while the swap was still undecided.
 func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		armFails bool
 		// The load runs before this node's RAFT has caught up, so no task list is readable yet.
 		raftBehind bool
+		// This node acked its PREP, and the swap is decided only after the load.
+		decidedAfterLoad bool
 	}{
 		{name: "the mirror arms"},
 		{name: "the mirror fails to arm", armFails: true},
 		{name: "the mirror fails to arm before RAFT has caught up", armFails: true, raftBehind: true},
+		{name: "the mirror fails to arm after this node acked, before the swap is decided", armFails: true, decidedAfterLoad: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			const prop, node = "title", "node1"
@@ -85,14 +89,22 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 			p.processOneUnit(ctx, task(distributedtask.TaskStatusStarted), &payload, idx, unitID, newFakeRecorder())
 			require.NoError(t, p.OnGroupCompleted(task(distributedtask.TaskStatusPreparing), group, []string{unitID}))
 			cancelled := task(distributedtask.TaskStatusCancelled)
+			atLoad := cancelled
+			if tc.decidedAfterLoad {
+				atLoad = task(distributedtask.TaskStatusPreparing)
+				atLoad.SwapDecidedGroups, atLoad.SwapsOwed = nil, nil
+				atLoad.PreparedGroups = map[string]map[string]distributedtask.PostCompletionAck{group: {node: {Success: true}}}
+			}
 			if tc.raftBehind {
 				idx.db.SetMigrationTaskSources(ctx,
 					func(string) ([]distributedtask.TaskStatusEntry, bool) { return nil, false },
 					func(context.Context) ([]*distributedtask.Task, error) { return nil, errors.New("RAFT is behind") })
 			} else {
-				installTestMigrationTaskSources(ctx, idx.db, nil, cancelled)
+				installTestMigrationTaskSources(ctx, idx.db, nil, atLoad)
 			}
-			require.NoError(t, p.OnTaskCompleted(cancelled))
+			if !tc.decidedAfterLoad {
+				require.NoError(t, p.OnTaskCompleted(cancelled))
+			}
 
 			mig := &Migrator{db: idx.db, logger: logger}
 			setStatus := func(status string) {
@@ -113,7 +125,7 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 					require.False(t, rec.Subject().Unmirrored, "a stamp would refuse the owed swap for good")
 				}
 				require.Equal(t, storagestate.StatusReadOnly, reloaded.GetStatus())
-				if tc.raftBehind {
+				if tc.raftBehind || tc.decidedAfterLoad {
 					installTestMigrationTaskSources(ctx, idx.db, nil, cancelled)
 				}
 				restore()
@@ -121,7 +133,7 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 				require.Equal(t, storagestate.StatusReady, reloaded.GetStatus())
 			}
 			require.NotEmpty(t, p.cachedReindexTasks(cancelled.TaskDescriptor, unitID),
-				"the owed swap reuses the instances the reload armed, though the task has ended")
+				"the owed swap reuses the instances the reload armed, even once the task has ended")
 			written := createTestObjectWithText(className, "afterhot")
 			require.NoError(t, reloaded.PutObject(ctx, written))
 			require.NoError(t, p.OnSwapRequested(cancelled, group, []string{unitID}))

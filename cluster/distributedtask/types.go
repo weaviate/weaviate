@@ -539,6 +539,8 @@ type TaskStatusEntry struct {
 	Status TaskStatus
 	// GroupDecided reports that the group's swap was decided, owed or paid; a failed or cancelled run keeps a decided group's record.
 	GroupDecided bool
+	// PrepAckedBy lists the nodes whose PREP success the group recorded while undecided.
+	PrepAckedBy []string
 }
 
 // StatusEntryFor answers for one shard: a copy of every decided group would
@@ -549,7 +551,16 @@ func (t *Task) StatusEntryFor(shard string) TaskStatusEntry {
 	if t.hasGroup("") {
 		group = ""
 	}
-	return TaskStatusEntry{TaskDescriptor: t.TaskDescriptor, Status: t.Status, GroupDecided: t.GroupSwapDecided(group)}
+	var acked []string
+	for node, ack := range t.PreparedGroups[group] {
+		if ack.Success {
+			acked = append(acked, node)
+		}
+	}
+	return TaskStatusEntry{
+		TaskDescriptor: t.TaskDescriptor, Status: t.Status, GroupDecided: t.GroupSwapDecided(group),
+		PrepAckedBy: acked,
+	}
 }
 
 // Task represents a distributed task tracked across the cluster via Raft consensus.

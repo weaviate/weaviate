@@ -75,19 +75,20 @@ func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardRe
 	return s.reindexer.AbandonUnarmed(s, unarmed, causes.ToErrorLimited(maxReportedErrors))
 }
 
-// A stamped half fails the swap ahead for the whole unit; past the flip, the mirror keeps the live index current.
+// A stamped half fails the swap ahead for the whole unit; once the swap is committed, the mirror keeps the live index current.
 func (s *Shard) hasStampedHalf(tasks []*ShardReindexTaskGeneric) bool {
 	return slices.ContainsFunc(tasks, func(t *ShardReindexTaskGeneric) bool {
 		rec, ok := s.migrationRecords.Get(t.migrationRecordKey())
-		return ok && rec.Subject().Unmirrored && !rec.FlipDecided()
+		return ok && rec.Subject().Unmirrored && !s.migrationSwapCommitted(rec)
 	})
 }
 
 // migrationSwapCommitted reports whether this replica may no longer give up the
 // migration's swap. The cluster's swap debt answers that, not the local record: a
 // replica that was down when the swap was decided has no local trace of it, and
-// stamping it would refuse, forever, a swap the other replicas already made. Before
-// RAFT catches up at boot the node cannot tell, so it answers true and holds.
+// stamping it would refuse, forever, a swap the other replicas already made, or will
+// make on this node's own PREP ack. Before RAFT catches up at boot the node cannot
+// tell, so it answers true and holds.
 func (s *Shard) migrationSwapCommitted(rec MigrationRecord) bool {
 	if rec.FlipDecided() {
 		return true
@@ -97,7 +98,11 @@ func (s *Shard) migrationSwapCommitted(rec MigrationRecord) bool {
 		return true
 	}
 	task, ok := findMigrationTask(rec.Subject(), tasks)
-	return ok && task.GroupDecided
+	if !ok {
+		return false
+	}
+	acked := task.Status.IsActive() && slices.Contains(task.PrepAckedBy, s.index.getSchema.NodeName())
+	return task.GroupDecided || acked
 }
 
 // holdReadOnlyForUnarmed sets the shard READONLY, because a write would miss the unguarded staged copy.
