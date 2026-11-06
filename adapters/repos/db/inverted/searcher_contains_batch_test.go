@@ -14,6 +14,7 @@ package inverted
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -436,9 +437,47 @@ func extractContainsDesugaredReason(t *testing.T, ctx context.Context) string {
 	entries, ok := entry.([]map[string]any)
 	require.True(t, ok, "contains_desugared must hold []map[string]any, got %T", entry)
 	require.Len(t, entries, 1)
+	require.Equal(t, 1, entries[0]["count"])
 	reason, ok := entries[0]["reason"].(string)
 	require.True(t, ok)
 	return reason
+}
+
+// Clauses sharing a property, operator and reason merge into one entry, and any difference keeps its own.
+func TestDesugaredContains_SlowLogMergesEntries(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	ctx := helpers.InitSlowQueryDetails(context.Background())
+	extract := func(prop string, dataType schema.DataType, value any, operator filters.Operator) {
+		_, err := f.searcher.extractContains(ctx, containsPath(prop),
+			containsValue(dataType, value), operator, f.class)
+		require.NoError(t, err)
+	}
+	extract("prop-text-word", schema.DataTypeText, []string{"a", "b", "c"}, filters.ContainsAny)
+	extract("prop-text-whitespace", schema.DataTypeText, []string{"a", "b"}, filters.ContainsAny)
+	extract("prop-text-word", schema.DataTypeText, []string{"a", "b"}, filters.ContainsAll)
+	extract("prop-int", schema.DataTypeInt, []int{1}, filters.ContainsAny)
+	for range 50 {
+		extract("prop-text-word", schema.DataTypeText, []string{"a", "b"}, filters.ContainsAny)
+	}
+
+	summary := helpers.ExtractSlowQueryDetails(ctx)["contains_desugared"]
+	got, err := json.Marshal(summary)
+	require.NoError(t, err)
+	require.Equal(t, summary, helpers.ExtractSlowQueryDetails(ctx)["contains_desugared"],
+		"a query that logs and reports a profile extracts twice")
+	require.JSONEq(t, `[
+		{"prop": "prop-text-word", "operator": "ContainsAny", "reason": "tokenization-not-field", "num_values": 103, "count": 51},
+		{"prop": "prop-text-whitespace", "operator": "ContainsAny", "reason": "tokenization-not-field", "num_values": 2, "count": 1},
+		{"prop": "prop-text-word", "operator": "ContainsAll", "reason": "tokenization-not-field", "num_values": 2, "count": 1},
+		{"prop": "prop-int", "operator": "ContainsAny", "reason": "fewer-than-two-values", "num_values": 1, "count": 1}
+	]`, string(got))
+	require.Contains(t, fmt.Sprint(summary), "prop:prop-text-whitespace",
+		"logrus's text formatter prints this value with fmt.Sprint and must keep the field names")
+
+	require.Len(t, reduceContainsDesugared([]containsDesugaredEntry{
+		{prop: "p", operator: "ContainsAny", reason: containsDeclineNotEnabled},
+		{prop: "p", operator: "ContainsAny", reason: containsDeclineFewerThanTwoValues},
+	}), 2, "every distinct reason must stay visible")
 }
 
 func docBitmapSlowLogEntries(ctx context.Context) ([]map[string]any, bool) {
@@ -830,6 +869,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.Equal(t, filters.ContainsAny.Name(), entries[0]["operator"])
 		require.Equal(t, 3, entries[0]["count"])
 		require.Equal(t, false, entries[0]["failed"])
+		require.Equal(t, lsmkv.StrategyRoaringSet, entries[0]["strategy"])
 		require.Equal(t, 2, entries[0]["batched_keys"])
 		require.Contains(t, entries[0], "took")
 		require.Contains(t, entries[0], "took_string")
@@ -1010,7 +1050,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 
 			_, err := pv.fetchContainsBatch(ctx, f.searcher)
 			require.Error(t, err)
-			require.NotContains(t, helpers.ExtractSlowQueryDetails(ctx), "build_allow_list_doc_bitmap")
+			require.NotContains(t, helpers.ExtractSlowQueryDetails(ctx), docBitmapSlowLogKey)
 		})
 	}
 }

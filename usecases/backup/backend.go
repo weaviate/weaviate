@@ -913,7 +913,6 @@ type fileWriter struct {
 	destDir        string
 	movedFiles     []string // files successfully moved to destination folder
 	GoPoolSize     int
-	migrator       func(classPath string) error
 	stagedRecorder func(string) // notified before a class staging dir is (re)created
 	attemptID      string       // stamped into the staging marker so cleanup never removes a sibling attempt's dir
 	logger         logrus.FieldLogger
@@ -954,8 +953,6 @@ func stagingMarkerMatches(dir, attemptID string) bool {
 	raw, err := os.ReadFile(path.Join(dir, stagingMarkerFile))
 	return err == nil && string(raw) == attemptID
 }
-
-func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
 // Write downloads files into the staging directory. materializedName keys the
 // staging dir; it differs from desc.Name only under namespace-graduation
@@ -1038,7 +1035,7 @@ func (fw *fileWriter) fetch(ctx context.Context, classTempDir string, desc *back
 	return eg.Wait()
 }
 
-// finalize applies the namespace-strip rename and pre-1.23 migrator, once per class after every fetch pass.
+// finalize applies the namespace-strip rename, once per class after every fetch pass.
 func (fw *fileWriter) finalize(classTempDir, descName, materializedName string) error {
 	if materializedName != descName {
 		oldIndexDir := filepath.Join(classTempDir, strings.ToLower(descName))
@@ -1047,12 +1044,6 @@ func (fw *fileWriter) finalize(classTempDir, descName, materializedName string) 
 			if err := os.Rename(oldIndexDir, newIndexDir); err != nil {
 				return fmt.Errorf("rename strip index dir %s -> %s: %w", oldIndexDir, newIndexDir, err)
 			}
-		}
-	}
-
-	if fw.migrator != nil {
-		if err := fw.migrator(classTempDir); err != nil {
-			return fmt.Errorf("migrate from pre 1.23: %w", err)
 		}
 	}
 	return nil

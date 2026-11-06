@@ -253,6 +253,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 			require.Nil(t, got)
 			f.assertLogContains(t, "msg", "A:1", "B:2", "C:3")
 			f.assertLogErrorContains(t, replicaerrors.ErrConflictObjectChanged.Error())
+			require.Regexp(t, replicaerrors.ErrConflictObjectChanged.Error()+"$", err.Error())
 		})
 
 		t.Run(fmt.Sprintf("CreateMissingObject_%v", tc.variant), func(t *testing.T) {
@@ -499,6 +500,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			require.Equal(t, false, got)
 			f.assertLogContains(t, "msg", "A:1", "B:2", "C:3")
 			f.assertLogErrorContains(t, replicaerrors.ErrConflictObjectChanged.Error())
+			require.Regexp(t, replicaerrors.ErrConflictObjectChanged.Error()+"$", err.Error())
 		})
 
 		t.Run(fmt.Sprintf("CreateMissingObject_%v", tc.variant), func(t *testing.T) {
