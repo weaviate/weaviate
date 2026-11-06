@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	uco "github.com/weaviate/weaviate/usecases/objects"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -447,6 +448,22 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		}
 	})
 
+	t.Run("add object with too few reachable replicas", func(t *testing.T) {
+		fakeManager := &fakeManager{
+			addObjectErr: fmt.Errorf("put object: %w",
+				replicaerrors.NewNotEnoughReplicasError(stderrors.New("2 of 3 nodes down"))),
+		}
+		h := &objectHandlers{manager: fakeManager, metricRequestsTotal: &fakeMetricRequestsTotal{}}
+		res := h.addObject(objects.ObjectsCreateParams{
+			HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
+			Body:        &models.Object{Class: "Foo"},
+		}, nil)
+		parsed, ok := res.(*objects.ObjectsCreateInternalServerError)
+		require.True(t, ok, "unexpected result %T", res)
+		require.Len(t, parsed.Payload.Error, 1)
+		assert.Contains(t, parsed.Payload.Error[0].Message, "cannot reach enough replicas")
+	})
+
 	t.Run("get objects", func(t *testing.T) {
 		type test struct {
 			name           string
@@ -698,6 +715,8 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			object         *models.Object
 			err            error
 			expectedResult *models.Object
+			// nil skips the responder type check
+			expectedErrResponse any
 		}
 
 		tests := []test{
@@ -748,8 +767,9 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				err:  uco.ErrNotFound{},
 			},
 			{
-				name: "any other error",
-				err:  stderrors.New("unknown error"),
+				name:                "any other error",
+				err:                 stderrors.New("unknown error"),
+				expectedErrResponse: &objects.ObjectsClassGetInternalServerError{},
 			},
 		}
 
@@ -769,6 +789,9 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				parsed, ok := res.(*objects.ObjectsClassGetOK)
 				if test.err != nil {
 					require.False(t, ok)
+					if test.expectedErrResponse != nil {
+						require.IsType(t, test.expectedErrResponse, res)
+					}
 					return
 				}
 				require.True(t, ok)
@@ -1174,6 +1197,7 @@ type fakeManager struct {
 	getObjectsClassErr        error
 
 	addObjectReturn    *models.Object
+	addObjectErr       error
 	queryResult        []*models.Object
 	queryErr           *uco.Error
 	updateObjectReturn *models.Object
@@ -1196,6 +1220,9 @@ func (f *fakeManager) HeadObject(context.Context, *models.Principal,
 func (f *fakeManager) AddObject(_ context.Context, _ *models.Principal,
 	object *models.Object, _ *additional.ReplicationProperties,
 ) (*models.Object, error) {
+	if f.addObjectErr != nil {
+		return nil, f.addObjectErr
+	}
 	return object, nil
 }
 

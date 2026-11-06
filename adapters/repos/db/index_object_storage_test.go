@@ -171,6 +171,8 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 				ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 				TrackVectorDimensions: true,
 				EnableLazyLoadShards:  true,
+				// each flush adds a segment's overhead to the sizes asserted below
+				MemtablesFlushDirtyAfter: 60,
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,

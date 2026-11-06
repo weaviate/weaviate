@@ -258,21 +258,8 @@ func testRoaringSetRefresh(t *testing.T, compose *docker.DockerCompose) {
 	// Verify task reached FINISHED state.
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
-	// Verify filterable index is healthy on all nodes via /indexes endpoint.
-	for i := 1; i <= 3; i++ {
-		nodeURI := compose.GetWeaviateNode(i).URI()
-		indexes := reindexhelpers.GetIndexes(t, nodeURI, className)
-		for _, prop := range indexes.Properties {
-			if prop.Name == "text" {
-				for _, idx := range prop.Indexes {
-					if idx.Type == "filterable" {
-						assert.Equal(t, "ready", idx.Status,
-							"node %d: filterable index should be ready", i)
-					}
-				}
-			}
-		}
-	}
+	reindexhelpers.AwaitIndexOnNodes(t, []string{restURIOf(compose, 1), restURIOf(compose, 2), restURIOf(compose, 3)},
+		className, "text", "filterable", reindexhelpers.IndexWant{Status: "ready"})
 
 	// Verify queries still correct on all nodes.
 	for _, q := range testBM25Queries {

@@ -81,6 +81,7 @@ func NewTaskQueue(index *HFresh, _ bucketRef) (*TaskQueue, error) {
 			Dir:              filepath.Join(index.config.RootPath, "analyze.queue.d"),
 			TaskDecoder:      &tq,
 			OnBatchProcessed: tq.OnBatchProcessed,
+			OnChunkRemoved:   tq.OnChunkRemoved,
 			ChunkSize:        analyzeTaskQueueChunkSize,
 		},
 	)
@@ -101,6 +102,7 @@ func NewTaskQueue(index *HFresh, _ bucketRef) (*TaskQueue, error) {
 			Dir:              filepath.Join(index.config.RootPath, "split.queue.d"),
 			TaskDecoder:      &tq,
 			OnBatchProcessed: tq.OnBatchProcessed,
+			OnChunkRemoved:   tq.OnChunkRemoved,
 			ChunkSize:        splitTaskQueueChunkSize,
 		},
 	)
@@ -121,6 +123,7 @@ func NewTaskQueue(index *HFresh, _ bucketRef) (*TaskQueue, error) {
 			Dir:              filepath.Join(index.config.RootPath, "reassign.queue.d"),
 			TaskDecoder:      &tq,
 			OnBatchProcessed: tq.OnBatchProcessed,
+			OnChunkRemoved:   tq.OnChunkRemoved,
 			ChunkSize:        reassignTaskQueueChunkSize,
 		},
 	)
@@ -143,6 +146,7 @@ func NewTaskQueue(index *HFresh, _ bucketRef) (*TaskQueue, error) {
 			Dir:              filepath.Join(index.config.RootPath, "merge.queue.d"),
 			TaskDecoder:      &tq,
 			OnBatchProcessed: tq.OnBatchProcessed,
+			OnChunkRemoved:   tq.OnChunkRemoved,
 			ChunkSize:        mergeTaskQueueChunkSize,
 		},
 	)
@@ -295,13 +299,25 @@ func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64) error {
 	return nil
 }
 
-// Flush the vector index after a batch is processed
-// and update pending metrics now that the queue sizes have been decremented.
-func (tq *TaskQueue) OnBatchProcessed() {
-	if err := tq.index.Flush(); err != nil {
-		tq.index.logger.WithError(err).Error("failed to flush vector index")
+// Flush the vector index after a batch is processed.
+// A non-nil error keeps the processed chunk on disk so the queue replays it
+// on a later cycle.
+func (tq *TaskQueue) OnBatchProcessed() error {
+	// postings live in the shard's buckets, and the centroid commit log must
+	// not reach the file before them
+	if tq.index.store != nil {
+		err := tq.index.store.WriteWALs()
+		if err != nil {
+			return err
+		}
 	}
 
+	return tq.index.Flush()
+}
+
+// OnChunkRemoved updates the pending metrics now that the queue sizes have
+// been decremented.
+func (tq *TaskQueue) OnChunkRemoved() {
 	tq.index.metrics.SetPendingAnalyzeTasks(tq.analyzeQueue.Size())
 	tq.index.metrics.SetPendingSplitTasks(tq.splitQueue.Size())
 	tq.index.metrics.SetPendingMergeTasks(tq.mergeQueue.Size())

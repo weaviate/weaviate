@@ -35,6 +35,9 @@ import (
 )
 
 const (
+	// A request with images holds two to four times their base64 while it
+	// holds a slot, up to 24 MiB of base64 per request, in each of the two
+	// pools.
 	DefaultMaxConcurrentRequests = 16
 	MaxConcurrentRequestsLimit   = 256
 
@@ -63,21 +66,27 @@ const (
 type client struct {
 	apiKey     string
 	httpClient *http.Client
-	// inFlight holds a slot per request being built or sent. It is shared by
-	// every call, so it bounds the load on the API and the request bodies in
-	// memory however many queries run.
+	// inFlight holds a slot per request to the class or default host being
+	// built or sent. It is shared by every call, so it bounds the load on the
+	// API and the request bodies in memory however many queries run.
 	inFlight chan struct{}
-	logger   logrus.FieldLogger
+	// inFlightHeaderHost is the pool of requests to a host the request header
+	// named. A caller can name a host that never answers, and that must not
+	// hold the slots of requests to the class or default host.
+	inFlightHeaderHost chan struct{}
+	logger             logrus.FieldLogger
 }
 
 // New returns a client that sends at most maxConcurrentRequests requests at
-// once.
+// once to the class or default host, and as many to hosts the request header
+// names.
 func New(apiKey string, timeout time.Duration, maxConcurrentRequests int, logger logrus.FieldLogger) *client {
 	return &client{
-		apiKey:     apiKey,
-		httpClient: modulecomponents.NewBaseHttpClient(timeout),
-		inFlight:   make(chan struct{}, max(maxConcurrentRequests, 1)),
-		logger:     logger,
+		apiKey:             apiKey,
+		httpClient:         modulecomponents.NewBaseHttpClient(timeout),
+		inFlight:           make(chan struct{}, max(maxConcurrentRequests, 1)),
+		inFlightHeaderHost: make(chan struct{}, max(maxConcurrentRequests, 1)),
+		logger:             logger,
 	}
 }
 
@@ -95,6 +104,9 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 		return nil, err
 	}
 	settings := config.NewClassSettings(cfg)
+	if err := settings.CheckSettings(); err != nil {
+		return nil, err
+	}
 	endpointURL, apiKey, hostFromHeader, err := c.endpoint(ctx, settings.BaseURL())
 	if err != nil {
 		return nil, err
@@ -135,7 +147,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	scores := make([]float64, len(documents))
 	usages := make([]typesafeaiUsage, len(requestBatches))
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
-	eg.SetLimit(cap(c.inFlight))
+	eg.SetLimit(cap(c.slots(hostFromHeader)))
 	for b, batch := range requestBatches {
 		eg.Go(func() error {
 			batchDocuments := make([]ent.Document, len(batch))
@@ -263,6 +275,14 @@ func (c *client) judge(ctx context.Context, r judgeRequest, documents []ent.Docu
 	return values, typesafeaiUsage{InputTokens: inputTokens(response.Usage), requests: 1}, nil
 }
 
+// slots returns the pool a request to the host takes its slot from.
+func (c *client) slots(hostFromHeader bool) chan struct{} {
+	if hostFromHeader {
+		return c.inFlightHeaderHost
+	}
+	return c.inFlight
+}
+
 // post builds and sends the request of one batch while it holds an in-flight
 // slot, so that the slots also bound the request bodies in memory.
 func (c *client) post(ctx context.Context, r judgeRequest, documents []ent.Document) (typesafeaiResponse, bool, error) {
@@ -271,9 +291,10 @@ func (c *client) post(ctx context.Context, r judgeRequest, documents []ent.Docum
 	if err := ctx.Err(); err != nil {
 		return typesafeaiResponse{}, false, err
 	}
+	slots := c.slots(r.hostFromHeader)
 	select {
-	case c.inFlight <- struct{}{}:
-		defer func() { <-c.inFlight }()
+	case slots <- struct{}{}:
+		defer func() { <-slots }()
 	case <-ctx.Done():
 		return typesafeaiResponse{}, false, ctx.Err()
 	}
@@ -327,7 +348,14 @@ func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []by
 		return typesafeaiResponse{}, false, fmt.Errorf("TypeSafe AI response exceeds %d bytes", maxResponseBodyBytes)
 	}
 	if err := json.Unmarshal(responseBody, &response); err != nil {
-		return typesafeaiResponse{}, false, withBody(fmt.Errorf("parse TypeSafe AI response: %w", err),
+		// Value holds the number literal of the reply when it is out of range,
+		// and Field the keys of its answers.
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &typeErr) {
+			typeErr.Value, _, _ = strings.Cut(typeErr.Value, " ")
+			typeErr.Struct, typeErr.Field = "", ""
+		}
+		return typesafeaiResponse{}, false, withBody(fmt.Errorf("parse TypeSafe AI response: %s", truncate(err.Error())),
 			responseBody, hostFromHeader)
 	}
 	// The shape of an error in a 200 is not documented, so the body is the
@@ -373,14 +401,9 @@ func (e apiError) Error() string {
 // endpoint returns the URL and the key of the requests, and whether the
 // request header named the host. A base URL from the request header is used
 // only with a key from the request header, so the server's key never goes to
-// a host the request names. The class base URL is checked here as well: core
-// skips module validation for a class with vectorizer "none" and no named
-// vectors.
+// a host the request names.
 func (c *client) endpoint(ctx context.Context, classBaseURL string,
 ) (endpointURL, apiKey string, hostFromHeader bool, err error) {
-	if err := config.CheckBaseURL(classBaseURL); err != nil {
-		return "", "", false, fmt.Errorf("baseURL %w", err)
-	}
 	apiKey = modulecomponents.GetValueFromContext(ctx, apiKeyHeader)
 	baseURL := classBaseURL
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {

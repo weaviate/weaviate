@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -23,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
-	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -686,18 +686,32 @@ func TestRewritePolicy(t *testing.T) {
 	}
 }
 
-// freshPolicyDir creates a per-test rbac storage directory. Sets a
-// sentinel build.Version so re-Init against the same directory parses
-// the version file (empty build.Version corrupts it).
+// freshPolicyDir creates a per-test rbac storage directory.
 func freshPolicyDir(t *testing.T) string {
 	t.Helper()
 	tmp, err := os.MkdirTemp("", "rbac-init-*")
 	require.NoError(t, err)
 	t.Cleanup(func() { os.RemoveAll(tmp) })
-	if build.Version == "" {
-		build.Version = "1.30.0"
-	}
 	return tmp
+}
+
+func mustNew(t *testing.T, conf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool) *Manager {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+	m, err := New(freshPolicyDir(t), conf, authNconf, namespacesEnabled, nil, logger)
+	require.NoError(t, err)
+	return m
+}
+
+// restartFrom stands in for a node restart. Init restores nothing a running
+// node wrote, so the state comes back the way RAFT brings it: restarted, built
+// on a fresh dir, restores a snapshot of m.
+func restartFrom(t *testing.T, m, restarted *Manager) *Manager {
+	t.Helper()
+	blob, err := m.Snapshot()
+	require.NoError(t, err)
+	require.NoError(t, restarted.RestoreRaftSnapshot(blob))
+	return restarted
 }
 
 // rolePolicies returns the resource/verb/domain rows currently registered for
@@ -727,7 +741,7 @@ func roleHasResourceVerb(rows [][]string, resourceContains, verb string) bool {
 func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T) {
 	dir := freshPolicyDir(t)
 	conf := rbacconf.Config{Enabled: true}
-	enforcer, err := Init(conf, dir, config.Authentication{}, true)
+	enforcer, err := Init(conf, dir, config.Authentication{}, true, discardLogger())
 	require.NoError(t, err)
 	require.NotNil(t, enforcer)
 
@@ -799,20 +813,17 @@ func TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSDisabled(t *testing
 	dir := freshPolicyDir(t)
 	conf := rbacconf.Config{Enabled: true}
 
-	enforcer, err := Init(conf, dir, config.Authentication{}, false)
+	enforcer, err := Init(conf, dir, config.Authentication{}, false, discardLogger())
 	require.NoError(t, err)
 
 	// API-assign admin to a DB user.
 	user := conv.UserNameWithTypeFromId("alice", authentication.AuthTypeDb)
 	_, err = enforcer.AddRoleForUser(user, conv.PrefixRoleName(authorization.Admin))
 	require.NoError(t, err)
-	require.NoError(t, enforcer.SavePolicy())
 
-	// Simulate a restart: re-Init against the same on-disk policy CSV.
-	enforcer2, err := Init(conf, dir, config.Authentication{}, false)
-	require.NoError(t, err)
+	restarted := restartFrom(t, &Manager{casbin: enforcer}, mustNew(t, conf, config.Authentication{}, false))
 
-	roles, err := enforcer2.GetRolesForUser(user)
+	roles, err := restarted.casbin.GetRolesForUser(user)
 	require.NoError(t, err)
 	assert.Contains(t, roles, conv.PrefixRoleName(authorization.Admin),
 		"API-assigned admin grouping must survive restart on NS-disabled")
@@ -825,7 +836,7 @@ func TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSEnabledAdmin(t *tes
 	dir := freshPolicyDir(t)
 	conf := rbacconf.Config{Enabled: true}
 
-	enforcer, err := Init(conf, dir, config.Authentication{}, true)
+	enforcer, err := Init(conf, dir, config.Authentication{}, true, discardLogger())
 	require.NoError(t, err)
 
 	beforeRows, err := enforcer.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Admin))
@@ -835,18 +846,15 @@ func TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSEnabledAdmin(t *tes
 	user := conv.UserNameWithTypeFromId("customer1:alice", authentication.AuthTypeDb)
 	_, err = enforcer.AddRoleForUser(user, conv.PrefixRoleName(authorization.Admin))
 	require.NoError(t, err)
-	require.NoError(t, enforcer.SavePolicy())
 
-	// Restart.
-	enforcer2, err := Init(conf, dir, config.Authentication{}, true)
-	require.NoError(t, err)
+	restarted := restartFrom(t, &Manager{casbin: enforcer}, mustNew(t, conf, config.Authentication{}, true))
 
-	roles, err := enforcer2.GetRolesForUser(user)
+	roles, err := restarted.casbin.GetRolesForUser(user)
 	require.NoError(t, err)
 	assert.Contains(t, roles, conv.PrefixRoleName(authorization.Admin),
 		"API-assigned admin grouping must survive restart on NS-enabled")
 
-	afterRows, err := enforcer2.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Admin))
+	afterRows, err := restarted.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Admin))
 	require.NoError(t, err)
 	assert.ElementsMatch(t, beforeRows, afterRows,
 		"admin policy rows must re-converge to the canonical narrowed shape after restart")
@@ -858,7 +866,7 @@ func TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSEnabledViewer(t *te
 	dir := freshPolicyDir(t)
 	conf := rbacconf.Config{Enabled: true}
 
-	enforcer, err := Init(conf, dir, config.Authentication{}, true)
+	enforcer, err := Init(conf, dir, config.Authentication{}, true, discardLogger())
 	require.NoError(t, err)
 
 	beforeRows, err := enforcer.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Viewer))
@@ -868,17 +876,15 @@ func TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSEnabledViewer(t *te
 	user := conv.UserNameWithTypeFromId("customer1:bob", authentication.AuthTypeDb)
 	_, err = enforcer.AddRoleForUser(user, conv.PrefixRoleName(authorization.Viewer))
 	require.NoError(t, err)
-	require.NoError(t, enforcer.SavePolicy())
 
-	enforcer2, err := Init(conf, dir, config.Authentication{}, true)
-	require.NoError(t, err)
+	restarted := restartFrom(t, &Manager{casbin: enforcer}, mustNew(t, conf, config.Authentication{}, true))
 
-	roles, err := enforcer2.GetRolesForUser(user)
+	roles, err := restarted.casbin.GetRolesForUser(user)
 	require.NoError(t, err)
 	assert.Contains(t, roles, conv.PrefixRoleName(authorization.Viewer),
 		"API-assigned viewer grouping must survive restart on NS-enabled")
 
-	afterRows, err := enforcer2.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Viewer))
+	afterRows, err := restarted.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Viewer))
 	require.NoError(t, err)
 	assert.ElementsMatch(t, beforeRows, afterRows,
 		"viewer policy rows must re-converge to the canonical narrowed shape after restart")
@@ -899,21 +905,19 @@ func TestApplyPredefinedRoles_RootReadOnlyGroupingsWipedOnRestart(t *testing.T) 
 			dir := freshPolicyDir(t)
 			conf := rbacconf.Config{Enabled: true}
 
-			enforcer, err := Init(conf, dir, config.Authentication{}, false)
+			enforcer, err := Init(conf, dir, config.Authentication{}, false, discardLogger())
 			require.NoError(t, err)
 
 			user := conv.UserNameWithTypeFromId("alice", authentication.AuthTypeDb)
 			_, err = enforcer.AddRoleForUser(user, conv.PrefixRoleName(tc.role))
 			require.NoError(t, err)
-			require.NoError(t, enforcer.SavePolicy())
 
 			// Restart with the same (empty) config — the user is not in
 			// RootUsers / ReadOnlyGroups, so the grouping should not be
 			// re-applied.
-			enforcer2, err := Init(conf, dir, config.Authentication{}, false)
-			require.NoError(t, err)
+			restarted := restartFrom(t, &Manager{casbin: enforcer}, mustNew(t, conf, config.Authentication{}, false))
 
-			roles, err := enforcer2.GetRolesForUser(user)
+			roles, err := restarted.casbin.GetRolesForUser(user)
 			require.NoError(t, err)
 			assert.NotContains(t, roles, conv.PrefixRoleName(tc.role),
 				"grouping for env-var-only role %q must be wiped on restart when not present in config", tc.role)
@@ -937,7 +941,7 @@ func TestApplyPredefinedRoles_RootReadOnlyRemovedFromConfigDropAfterRestart(t *t
 		APIKey: config.StaticAPIKey{Enabled: true, Users: []string{rootUser}},
 	}
 
-	enforcer, err := Init(confBefore, dir, authNconf, false)
+	enforcer, err := Init(confBefore, dir, authNconf, false, discardLogger())
 	require.NoError(t, err)
 
 	rootSubject := conv.UserNameWithTypeFromId(rootUser, authentication.AuthTypeDb)
@@ -953,15 +957,14 @@ func TestApplyPredefinedRoles_RootReadOnlyRemovedFromConfigDropAfterRestart(t *t
 
 	// Operator removes both env vars, restarts.
 	confAfter := rbacconf.Config{Enabled: true}
-	enforcer2, err := Init(confAfter, dir, authNconf, false)
-	require.NoError(t, err)
+	restarted := restartFrom(t, &Manager{casbin: enforcer}, mustNew(t, confAfter, authNconf, false))
 
-	roles, err = enforcer2.GetRolesForUser(rootSubject)
+	roles, err = restarted.casbin.GetRolesForUser(rootSubject)
 	require.NoError(t, err)
 	assert.NotContains(t, roles, conv.PrefixRoleName(authorization.Root),
 		"root assignment removed from config must be gone after restart")
 
-	roles, err = enforcer2.GetRolesForUser(groupSubject)
+	roles, err = restarted.casbin.GetRolesForUser(groupSubject)
 	require.NoError(t, err)
 	assert.NotContains(t, roles, conv.PrefixRoleName(authorization.ReadOnly),
 		"read-only group assignment removed from config must be gone after restart")
@@ -992,7 +995,7 @@ func TestApplyPredefinedRoles_AdminViewerEnvVarRemovalDoesNotPropagate(t *testin
 				APIKey: config.StaticAPIKey{Enabled: true, Users: []string{user}},
 			}
 
-			enforcer, err := Init(confBefore, dir, authNconf, tc.namespacesEnabled)
+			enforcer, err := Init(confBefore, dir, authNconf, tc.namespacesEnabled, discardLogger())
 			require.NoError(t, err)
 
 			subject := conv.UserNameWithTypeFromId(user, authentication.AuthTypeDb)
@@ -1003,10 +1006,9 @@ func TestApplyPredefinedRoles_AdminViewerEnvVarRemovalDoesNotPropagate(t *testin
 
 			// Operator drops the env vars and restarts.
 			confAfter := rbacconf.Config{Enabled: true}
-			enforcer2, err := Init(confAfter, dir, authNconf, tc.namespacesEnabled)
-			require.NoError(t, err)
+			restarted := restartFrom(t, &Manager{casbin: enforcer}, mustNew(t, confAfter, authNconf, tc.namespacesEnabled))
 
-			roles, err = enforcer2.GetRolesForUser(subject)
+			roles, err = restarted.casbin.GetRolesForUser(subject)
 			require.NoError(t, err)
 			assert.Contains(t, roles, conv.PrefixRoleName(authorization.Admin),
 				"admin env-var assignment must persist after restart even when removed from config (locked asymmetry)")
@@ -1033,7 +1035,7 @@ func TestApplyPredefinedRoles_RootReadOnlyGroupingsReappliedFromConfig(t *testin
 		APIKey: config.StaticAPIKey{Enabled: true, Users: []string{rootUser}},
 	}
 
-	enforcer, err := Init(conf, dir, authNconf, false)
+	enforcer, err := Init(conf, dir, authNconf, false, discardLogger())
 	require.NoError(t, err)
 
 	rootSubject := conv.UserNameWithTypeFromId(rootUser, authentication.AuthTypeDb)
@@ -1049,15 +1051,14 @@ func TestApplyPredefinedRoles_RootReadOnlyGroupingsReappliedFromConfig(t *testin
 		"env-var read-only group must have read-only role on first boot")
 
 	// Restart — the wipe runs, then the loops below re-add from config.
-	enforcer2, err := Init(conf, dir, authNconf, false)
-	require.NoError(t, err)
+	restarted := restartFrom(t, &Manager{casbin: enforcer}, mustNew(t, conf, authNconf, false))
 
-	roles, err = enforcer2.GetRolesForUser(rootSubject)
+	roles, err = restarted.casbin.GetRolesForUser(rootSubject)
 	require.NoError(t, err)
 	assert.Contains(t, roles, conv.PrefixRoleName(authorization.Root),
 		"env-var root user must still have root role after restart")
 
-	roles, err = enforcer2.GetRolesForUser(groupSubject)
+	roles, err = restarted.casbin.GetRolesForUser(groupSubject)
 	require.NoError(t, err)
 	assert.Contains(t, roles, conv.PrefixRoleName(authorization.ReadOnly),
 		"env-var read-only group must still have read-only role after restart")
@@ -1082,7 +1083,7 @@ func TestApplyPredefinedRoles_RejectsNamespacedRootUser(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := freshPolicyDir(t)
 			conf := rbacconf.Config{Enabled: true, RootUsers: tt.rootUsers}
-			_, err := Init(conf, dir, config.Authentication{}, tt.namespacesEnabled)
+			_, err := Init(conf, dir, config.Authentication{}, tt.namespacesEnabled, discardLogger())
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -1098,7 +1099,7 @@ func TestApplyPredefinedRoles_RejectsNamespacedRootUser(t *testing.T) {
 func TestEnforce_GlobalRoleAssignedToNamespacedSubject(t *testing.T) {
 	dir := freshPolicyDir(t)
 	conf := rbacconf.Config{Enabled: true}
-	enforcer, err := Init(conf, dir, config.Authentication{}, true)
+	enforcer, err := Init(conf, dir, config.Authentication{}, true, discardLogger())
 	require.NoError(t, err)
 	require.NotNil(t, enforcer)
 
@@ -1157,6 +1158,99 @@ func TestEnforce_GlobalRoleAssignedToNamespacedSubject(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := enforcer.Enforce(tt.subject, tt.resource, tt.verb, tt.ns)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestAdminViewerGrants(t *testing.T) {
+	conf := rbacconf.Config{Enabled: true, AdminUsers: []string{"alice", " "}, ViewerUsers: []string{"bob"}}
+	apiKey := config.StaticAPIKey{Enabled: true, Users: []string{"alice", "bob"}}
+	oidc := config.OIDC{Enabled: true}
+
+	tests := []struct {
+		name      string
+		conf      rbacconf.Config
+		authNconf config.Authentication
+		want      []RoleGrant
+	}{
+		{
+			name:      "APIKey only",
+			conf:      conf,
+			authNconf: config.Authentication{APIKey: apiKey},
+			want: []RoleGrant{
+				{Subject: "db:alice", Role: authorization.Admin},
+				{Subject: "db:bob", Role: authorization.Viewer},
+			},
+		},
+		{
+			name:      "OIDC only",
+			conf:      conf,
+			authNconf: config.Authentication{OIDC: oidc},
+			want: []RoleGrant{
+				{Subject: "oidc:alice", Role: authorization.Admin},
+				{Subject: "oidc:bob", Role: authorization.Viewer},
+			},
+		},
+		{
+			name:      "APIKey and OIDC",
+			conf:      conf,
+			authNconf: config.Authentication{APIKey: apiKey, OIDC: oidc},
+			want: []RoleGrant{
+				{Subject: "db:alice", Role: authorization.Admin},
+				{Subject: "oidc:alice", Role: authorization.Admin},
+				{Subject: "db:bob", Role: authorization.Viewer},
+				{Subject: "oidc:bob", Role: authorization.Viewer},
+			},
+		},
+		{
+			name:      "no admin or viewer users",
+			conf:      rbacconf.Config{Enabled: true, RootUsers: []string{"alice"}},
+			authNconf: config.Authentication{APIKey: apiKey, OIDC: oidc},
+		},
+		{
+			name:      "a user missing from APIKey.Users gets no db: grant",
+			conf:      conf,
+			authNconf: config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"bob"}}},
+			want:      []RoleGrant{{Subject: "db:bob", Role: authorization.Viewer}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, AdminViewerGrants(tt.conf, tt.authNconf))
+		})
+	}
+}
+
+// TestEnforce_UncompilablePolicyMatchesNothing stores a policy whose pattern does
+// not compile ahead of a valid grant, as a row already on disk can be. Enforce
+// must skip it rather than fail every check that reaches it.
+func TestEnforce_UncompilablePolicyMatchesNothing(t *testing.T) {
+	enforcer, err := Init(rbacconf.Config{Enabled: true}, freshPolicyDir(t), config.Authentication{}, false, discardLogger())
+	require.NoError(t, err)
+
+	role := conv.PrefixRoleName("poisoned")
+	for _, collection := range []string{`X|\Q`, "Movies"} {
+		_, err := enforcer.AddNamedPolicy("p", role, conv.CasbinData(collection, "*"), authorization.READ, authorization.DataDomain)
+		require.NoError(t, err)
+	}
+	alice := conv.UserNameWithTypeFromId("alice", authentication.AuthTypeDb)
+	_, err = enforcer.AddRoleForUser(alice, role)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		resource string
+		want     bool
+	}{
+		{"grant stored after the uncompilable policy → allow", authorization.Objects("Movies", ""), true},
+		{"no grant → deny", authorization.Objects("Books", ""), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := enforcer.Enforce(alice, tt.resource, authorization.READ, "")
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
