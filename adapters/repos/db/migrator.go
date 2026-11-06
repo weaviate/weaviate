@@ -203,7 +203,6 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			}(),
 			LazyLoadShardWarmupMinObjects:       m.db.config.LazyLoadShardWarmupMinObjects,
 			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
-			TransferInactivityTimeout:           m.db.config.TransferInactivityTimeout,
 			HaltForTransferTimeout:              m.db.config.HaltForTransferTimeout,
 			LSMEnableSegmentsChecksumValidation: m.db.config.LSMEnableSegmentsChecksumValidation,
 			SkipWriteClassNameOnDisk:            m.db.config.LSMSkipWriteClassNameEnabled,

@@ -317,17 +317,8 @@ type Index struct {
 	// Minimize holding the RW lock as it will block other operations on the same shard such as searches or writes.
 	shardCreateLocks *esync.KeyRWLocker
 
-	// backupProtectedShards tracks shard names protected during non-hardlink backup.
-	// Activation and destructive status changes are blocked until ReleaseBackup.
-	// non-hardlink backups only occur on niche filesystems so this is not a hot path
-	//
-	// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
-	backupProtectedShards sync.Map
-
-	// Release uses this to decide whether to resume the shard (halt-for-duration
-	// fallback) or skip resume (snapshot already resumed at create time).
 	replicaSnapshotsMu sync.Mutex
-	replicaSnapshots   map[string]replicaSnapshotState
+	replicaSnapshots   map[string]struct{}
 
 	// Serializes create/release per opID against target retries. Read RPCs
 	// skip it on purpose — locking them would queue downloads behind any
@@ -1726,7 +1717,6 @@ type IndexConfig struct {
 	EnableLazyLoadShards                bool
 	LazyLoadShardWarmupMinObjects       int64 // read only when EnableLazyLoadShards is true
 	ForceFullReplicasSearch             bool
-	TransferInactivityTimeout           time.Duration
 	HaltForTransferTimeout              time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	SkipWriteClassNameOnDisk            bool
@@ -2300,7 +2290,7 @@ func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string)
 		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
 	}
 
-	// Idempotent when not halted (e.g. HaltForTransfer failed and self-resumed).
+	// At halt count 0 this leaves the maintenance cycles untouched, unless a previous resume failed; then it retries that resume.
 	if err := shard.resumeMaintenanceCycles(ctx); err != nil {
 		return fmt.Errorf("resume maintenance cycles on shard %q: %w", shardName, err)
 	}
@@ -3677,11 +3667,6 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 		}
 	}
 
-	// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
-	if _, protected := i.backupProtectedShards.Load(shardName); protected {
-		return fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
-	}
-
 	// A tenant activated without its folder (COLD at a wipe, or deactivated while queued) recovers instead of materialising empty.
 	if caller == callerTenantActivation && i.recoverShardOnActivation(ctx, class, shardName) {
 		return nil
@@ -3965,10 +3950,6 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		shard = nil
 	}
 	if shard == nil {
-		// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
-		if _, protected := i.backupProtectedShards.Load(shardName); protected {
-			return nil, func() {}, fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
-		}
 		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
 		if err != nil {
 			return nil, func() {}, fmt.Errorf("init local shard %q of index %s: %w", shardName, i.ID(), err)
@@ -4248,8 +4229,10 @@ func (i *Index) drop() error {
 		if err := os.Rename(i.path(), marker); err != nil {
 			ec.Add(fmt.Errorf("rename index for delete marker: %w", err))
 		} else if i.lastBackup.Load() == nil {
-			// drop blocks on backupLock until ReleaseBackup runs, so if that already
-			// finished it looked for the marker before this rename created it.
+			// A release ran between the lastBackup read above and this rename. It
+			// found the index through droppingIndex, and idx.ReleaseBackup cleared
+			// lastBackup without looking for the marker. Nothing else removes the
+			// marker, so the drop does.
 			ec.Add(os.RemoveAll(marker))
 		}
 	} else {

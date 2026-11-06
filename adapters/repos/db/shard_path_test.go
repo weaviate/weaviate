@@ -29,9 +29,7 @@ func TestShardFileSanitize(t *testing.T) {
 	ctx := testCtx()
 	className := "TestClass"
 	shd, idx := testShard(t, ctx, className)
-	// 0 timeout disables inactivity auto-resume, so slow setup can't resume
-	// the shard before ListBackupFiles runs.
-	require.NoError(t, shd.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, shd.HaltForTransfer(ctx, false))
 	amount := 10
 
 	for range amount {
