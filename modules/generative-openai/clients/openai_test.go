@@ -77,7 +77,7 @@ func TestGetAnswer(t *testing.T) {
 				Choices: []choice{{
 					FinishReason: "test",
 					Index:        0,
-					Text:         "John",
+					Text:         ptString("John"),
 				}},
 				Error: nil,
 			},
@@ -183,13 +183,35 @@ func TestGetAnswer(t *testing.T) {
 	})
 }
 
-func TestGenerateEmptyChoices(t *testing.T) {
+func TestGenerateResponseShapes(t *testing.T) {
 	tests := []struct {
-		name string
-		body string
+		name    string
+		body    string
+		want    string
+		wantErr string
 	}{
-		{name: "empty choices", body: `{"choices":[]}`},
-		{name: "no choices", body: `{}`},
+		{name: "empty choices", body: `{"choices":[]}`, wantErr: "empty choices in response"},
+		{name: "no choices", body: `{}`, wantErr: "empty choices in response"},
+		{name: "choice without text or message", body: `{"choices":[{}]}`, wantErr: "empty message in response"},
+		{
+			name:    "choice without text or message, with finish_reason",
+			body:    `{"choices":[{"finish_reason":"content_filter"}]}`,
+			wantErr: "empty message in response (finish_reason: content_filter)",
+		},
+		{
+			name:    "message without content, with finish_reason",
+			body:    `{"choices":[{"finish_reason":"content_filter","message":{"role":"assistant"}}]}`,
+			wantErr: "empty content in response (finish_reason: content_filter)",
+		},
+		{
+			name:    "message with null content",
+			body:    `{"choices":[{"message":{"role":"assistant","content":null}}]}`,
+			wantErr: "empty content in response",
+		},
+		{name: "message with empty content", body: `{"choices":[{"message":{"role":"assistant","content":""}}]}`, want: ""},
+		{name: "message with content", body: `{"choices":[{"message":{"role":"assistant","content":"John"}}]}`, want: "John"},
+		{name: "legacy completion with empty text", body: `{"choices":[{"text":"","finish_reason":"stop"}]}`, want: ""},
+		{name: "legacy completion with text", body: `{"choices":[{"text":"John"}]}`, want: "John"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -226,8 +248,14 @@ func TestGenerateEmptyChoices(t *testing.T) {
 					var res *modulecapabilities.GenerateResponse
 					var err error
 					require.NotPanics(t, func() { res, err = gen.generate() })
-					require.ErrorContains(t, err, "empty choices in response")
-					assert.Nil(t, res)
+					if tt.wantErr != "" {
+						require.EqualError(t, err, tt.wantErr)
+						assert.Nil(t, res)
+						return
+					}
+					require.NoError(t, err)
+					require.NotNil(t, res.Result)
+					assert.Equal(t, tt.want, *res.Result)
 				})
 			}
 		})
