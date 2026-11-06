@@ -47,6 +47,7 @@ const (
 	maxErrorBodyBytes    = 16 * 1024
 	maxErrorMessageBytes = 512
 	maxResponseBodyBytes = 1 << 20
+	maxQueryBytes        = 100_000
 )
 
 var errRefused = errors.New("refusal")
@@ -78,11 +79,18 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	if query == "" {
 		return nil, errors.New("rerank.query is required by reranker-openai: the query is the condition the model judges")
 	}
+	if len(query) > maxQueryBytes {
+		return nil, fmt.Errorf("rerank.query is %d bytes; reranker-openai sends it with every document and takes at most %d bytes",
+			len(query), maxQueryBytes)
+	}
 	image, err := propertyInput(cfg, property)
 	if err != nil {
 		return nil, err
 	}
 	settings := config.NewClassSettings(cfg)
+	if err := settings.CheckSettings(); err != nil {
+		return nil, err
+	}
 	endpointURL, apiKey, hostFromHeader, err := c.endpoint(ctx, settings.BaseURL())
 	if err != nil {
 		return nil, err
@@ -343,9 +351,6 @@ func (c *client) organizationFor(ctx context.Context, hostFromHeader bool) strin
 func (c *client) endpoint(ctx context.Context, classBaseURL string,
 ) (endpointURL, apiKey string, hostFromHeader bool, err error) {
 	apiKey = modulecomponents.GetValueFromContext(ctx, apiKeyHeader)
-	if _, err := config.NormalizeBaseURL(classBaseURL); err != nil {
-		return "", "", false, fmt.Errorf("baseURL %w", err)
-	}
 	baseURL := classBaseURL
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
 		if apiKey == "" {

@@ -127,6 +127,67 @@ func TestRankRequiresAQuery(t *testing.T) {
 	assert.Empty(t, f.received())
 }
 
+func TestRankLimitsTheQuerySize(t *testing.T) {
+	tests := []struct {
+		name         string
+		queryBytes   int
+		wantErr      string
+		wantRequests int
+	}{
+		{name: "at the limit", queryBytes: maxQueryBytes, wantRequests: 1},
+		{
+			name:       "one byte over the limit",
+			queryBytes: maxQueryBytes + 1,
+			wantErr:    "rerank.query is 100001 bytes; reranker-openai sends it with every document and takes at most 100000 bytes",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+
+			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), strings.Repeat("q", tt.queryBytes), "text",
+				documentsOf(noRefund), classConfig(f.url(), nil))
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Len(t, f.received(), tt.wantRequests)
+		})
+	}
+}
+
+func TestRankChecksTheStoredSettings(t *testing.T) {
+	tests := []struct {
+		name     string
+		settings map[string]any
+		wantErr  string
+	}{
+		{name: "a baseURL that is a number", settings: map[string]any{"baseURL": 42}, wantErr: "baseURL must be a string, got int"},
+		{name: "a baseURL that is a list", settings: map[string]any{"baseURL": []any{"a"}}, wantErr: "baseURL must be a string, got []interface {}"},
+		{name: "a model that is a number", settings: map[string]any{"model": 7}, wantErr: "model must be a string, got int"},
+		{name: "a model that is a bool", settings: map[string]any{"model": true}, wantErr: "model must be a string, got bool"},
+		{name: "an empty model", settings: map[string]any{"model": ""}, wantErr: "model must be a non-empty string"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+			cfg := classConfig(f.url(), tt.settings)
+			if _, ok := tt.settings["baseURL"]; ok {
+				// the fake stays unused: the stored baseURL is not its address
+				cfg = fakeClassConfig{settings: tt.settings}
+			}
+
+			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+				documentsOf(noRefund), cfg)
+
+			require.EqualError(t, err, tt.wantErr)
+			assert.Empty(t, f.received())
+		})
+	}
+}
+
 func TestRankRejectsAPropertyOfAnotherType(t *testing.T) {
 	f := newFake(t)
 	tests := []struct {
