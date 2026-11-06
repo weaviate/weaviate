@@ -47,6 +47,12 @@ func (d diskUse) String() string {
 		float64(d.avail)/float64(GB))
 }
 
+// DiskUse reports the total and free bytes of the disk holding the data root.
+func (db *DB) DiskUse() (total, free uint64) {
+	du := db.getDiskUse(db.config.RootPath)
+	return du.total, du.free
+}
+
 // resourceScanInterval is how often scanResourceUsage checks disk and memory use.
 const resourceScanInterval = 500 * time.Millisecond
 

@@ -667,6 +667,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t0,
 					}, nil
 				}
@@ -685,6 +686,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t0,
 					},
 					"backup-2": {
@@ -692,6 +694,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-1",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t1,
 					},
 					"backup-3": {
@@ -699,6 +702,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-2",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t2,
 					},
 				}
@@ -721,6 +725,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t2,
 					}, nil
 				}
@@ -740,6 +745,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t1,
 					}, nil
 				}
@@ -759,6 +765,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t0,
 					},
 					"backup-2": {
@@ -766,6 +773,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-1",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t3,
 					},
 					"backup-3": {
@@ -773,6 +781,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-2",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t2,
 					},
 				}
@@ -794,6 +803,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-2",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t1,
 					},
 					"backup-2": {
@@ -801,6 +811,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-1",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t0,
 					},
 				}
@@ -834,6 +845,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						CompressionType: &gzipCompression,
 						BaseBackupID:    "backup-1",
 						Status:          backup.Success,
+						ServerVersion:   "1.23",
 						StartedAt:       t0,
 					}, nil
 				}
