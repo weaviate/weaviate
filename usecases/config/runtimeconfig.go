@@ -100,7 +100,8 @@ type WeaviateRuntimeConfig struct {
 	ObjectsTTLConcurrencyFactor   *runtime.DynamicValue[float64]       `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
 
 	// Backup settings
-	BackupMaxIndividualFiles *runtime.DynamicValue[int] `json:"backup_max_individual_files" yaml:"backup_max_individual_files"`
+	BackupMaxIndividualFiles       *runtime.DynamicValue[int]           `json:"backup_max_individual_files" yaml:"backup_max_individual_files"`
+	BackupDedupeConvergenceTimeout *runtime.DynamicValue[time.Duration] `json:"backup_dedupe_convergence_timeout" yaml:"backup_dedupe_convergence_timeout"`
 
 	// Export settings
 	ExportEnabled       *runtime.DynamicValue[bool]   `json:"export_enabled" yaml:"export_enabled"`
@@ -484,6 +485,7 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.MCPEnabled = cfg.MCP.Enabled
 	registered.MCPWriteAccessEnabled = cfg.MCP.WriteAccessEnabled
 	registered.BackupMaxIndividualFiles = cfg.Backup.MaxIndividualFiles
+	registered.BackupDedupeConvergenceTimeout = cfg.Backup.DedupeConvergenceTimeout
 	registered.DebugEndpointsEnabled = cfg.Profiling.DebugEndpointsEnabled
 	registered.GRPCWebEnabled = cfg.GRPC.GrpcWebEnabled
 	registered.DisableGraphQL = cfg.DisableGraphQL
