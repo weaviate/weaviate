@@ -35,6 +35,9 @@ import (
 )
 
 const (
+	// A request with images holds two to four times their base64 while it
+	// holds a slot, up to 24 MiB of base64 per request, in each of the two
+	// pools.
 	DefaultMaxConcurrentRequests = 16
 	MaxConcurrentRequestsLimit   = 256
 
