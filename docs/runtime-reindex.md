@@ -1065,10 +1065,15 @@ Then, per shard load:
      unit first and swaps none of them if any record is `Unmirrored`.
    - **The mirror fails to arm and no stamp can be written.** This covers a
      failing disk, an unreadable record on the shard (the store then
-     refuses every write), and a migration already swapped in (a stamp
-     would block the promotion that serves its new index). The shard loads
-     `READONLY` with its own status reason: it serves reads and takes no
-     writes, so the staged copy stays current.
+     refuses every write), and a migration whose swap is committed. The
+     shard loads `READONLY` with its own status reason: it serves reads
+     and takes no writes, so the staged copy stays current.
+     - A swap is committed once this record shows it, or once RAFT has
+       decided the tenant's swap. RAFT answers, not the record: a replica
+       that was down when the swap was decided has no local trace of it,
+       and a stamp would refuse, for good, a swap its other replicas
+       already made. At boot, before this node's RAFT has caught up, it
+       cannot tell, so it holds instead of stamping.
      - The held migration's own prepare and swap wait instead of
        failing, and the scheduler runs them again on a later tick.
        Another migration's repair, rebuild or iteration unit, prepare or

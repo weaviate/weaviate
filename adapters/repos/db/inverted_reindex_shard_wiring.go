@@ -83,6 +83,23 @@ func (s *Shard) hasStampedHalf(tasks []*ShardReindexTaskGeneric) bool {
 	})
 }
 
+// migrationSwapCommitted reports whether this replica may no longer give up the
+// migration's swap. The cluster's swap debt answers that, not the local record: a
+// replica that was down when the swap was decided has no local trace of it, and
+// stamping it would refuse, forever, a swap the other replicas already made. Before
+// RAFT catches up at boot the node cannot tell, so it answers true and holds.
+func (s *Shard) migrationSwapCommitted(rec MigrationRecord) bool {
+	if rec.FlipDecided() {
+		return true
+	}
+	tasks, readable := s.migrations().LocalTasks()
+	if !readable {
+		return true
+	}
+	task, ok := findMigrationTask(rec.Subject(), tasks)
+	return ok && task.GroupDecided
+}
+
 // holdReadOnlyForUnarmed sets the shard READONLY, because a write would miss the unguarded staged copy.
 func (s *Shard) holdReadOnlyForUnarmed(unarmed []*ShardReindexTaskGeneric, cause error) {
 	s.migrationMirrors.holdUnarmed(unarmed)

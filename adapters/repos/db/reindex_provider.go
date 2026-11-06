@@ -325,12 +325,15 @@ func (p *ReindexProvider) evictReindexTasks(desc distributedtask.TaskDescriptor,
 	delete(p.reindexTasks[desc], unitID)
 }
 
-func (p *ReindexProvider) clearTaskCaches(desc distributedtask.TaskDescriptor) {
+// ended stops a later load from caching the task again; a task this node still owes a swap is not ended.
+func (p *ReindexProvider) clearTaskCaches(desc distributedtask.TaskDescriptor, ended bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	delete(p.payloads, desc)
 	delete(p.reindexTasks, desc)
-	p.endedTasks[desc] = struct{}{}
+	if ended {
+		p.endedTasks[desc] = struct{}{}
+	}
 }
 
 // claimActiveWorker reserves the (desc, unitID) slot in activeWorkers.
@@ -454,7 +457,7 @@ func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescripto
 }
 
 func (p *ReindexProvider) CleanupTask(desc distributedtask.TaskDescriptor) error {
-	p.clearTaskCaches(desc)
+	p.clearTaskCaches(desc, true)
 	return nil
 }
 
@@ -1620,7 +1623,9 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	// Clear caches up-front so a failed-task early return doesn't leak.
 	payload, payloadErr := p.loadPayload(task)
-	p.clearTaskCaches(task.TaskDescriptor)
+	p.clearTaskCaches(task.TaskDescriptor, !slices.ContainsFunc(task.Groups(), func(g string) bool {
+		return task.SwapOwedBy(g, p.localNode)
+	}))
 
 	logger := p.logger.WithField("taskID", task.ID).WithField("status", task.Status)
 	logger.Info("reindex provider: task-completion")

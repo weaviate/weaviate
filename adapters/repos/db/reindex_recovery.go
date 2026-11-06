@@ -68,9 +68,9 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 		if !ok {
 			continue
 		}
-		// Past the swap, a stamp would block the promotion that serves the new index.
-		if rec.FlipDecided() {
-			return unarmed, fmt.Errorf("migration %s is already swapped in, so only its mirror can finish it: %w",
+		// A stamp would refuse a committed swap for good, so only the mirror can finish it.
+		if shard.migrationSwapCommitted(rec) {
+			return unarmed, fmt.Errorf("migration %s has a committed swap, so only its mirror can finish it: %w",
 				t.migrationRecordKey(), cause)
 		}
 		records = append(records, rec)

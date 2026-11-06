@@ -146,6 +146,7 @@ func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) 
 			logger, _ := test.NewNullLogger()
 			p := NewReindexProvider(idx.db, nil, nil, logger, idx.getSchema.NodeName(), nil, ctx)
 			idx.shardReindexer = NewMigrationRecoveryReindexer(true, logger, nil, p)
+			installCaughtUpTaskList(ctx, idx.db)
 
 			// Both halves of one unit, of which only the searchable one fails to arm.
 			desc := distributedtask.TaskDescriptor{ID: "T", Version: 3}
@@ -900,6 +901,14 @@ type doubleFaultFixture struct {
 	recordsDir string
 }
 
+// installCaughtUpTaskList makes the node's applied task list readable and decide no swap, so an
+// unarmable record may be stamped; an unreachable leader keeps the cluster pass from acting.
+func installCaughtUpTaskList(ctx context.Context, database *DB) {
+	database.SetMigrationTaskSources(ctx,
+		func(string) ([]distributedtask.TaskStatusEntry, bool) { return nil, true },
+		func(context.Context) ([]*distributedtask.Task, error) { return nil, errors.New("leader unreachable") })
+}
+
 func newDoubleFaultFixture(t *testing.T, name string) *doubleFaultFixture {
 	t.Helper()
 	ctx := testCtx()
@@ -911,6 +920,7 @@ func newDoubleFaultFixture(t *testing.T, name string) *doubleFaultFixture {
 	logger, _ := test.NewNullLogger()
 	p := NewReindexProvider(idx.db, nil, nil, logger, idx.getSchema.NodeName(), nil, ctx)
 	idx.shardReindexer = NewMigrationRecoveryReindexer(true, logger, nil, p)
+	installCaughtUpTaskList(ctx, idx.db)
 	fx := &doubleFaultFixture{
 		ctx: ctx, name: name, className: className, class: class, idx: idx, provider: p, logger: logger,
 		desc: distributedtask.TaskDescriptor{ID: "T", Version: 3},
