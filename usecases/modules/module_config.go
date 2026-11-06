@@ -13,6 +13,7 @@ package modules
 
 import (
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -20,6 +21,7 @@ import (
 type ClassBasedModuleConfig struct {
 	class        *models.Class
 	moduleName   string
+	altNames     []string
 	tenant       string
 	targetVector string
 	cfg          *config.Config
@@ -38,10 +40,39 @@ func NewClassBasedModuleConfig(class *models.Class,
 	}
 }
 
+// WithAltNames registers the legacy names a module is also known by, so
+// property-level settings stored under an older key are still found when the
+// provider asks for the canonical module name.
+func (cbmc *ClassBasedModuleConfig) WithAltNames(altNames []string) *ClassBasedModuleConfig {
+	cbmc.altNames = altNames
+	return cbmc
+}
+
 func NewCrossClassModuleConfig(cfg *config.Config) *ClassBasedModuleConfig {
 	// explicitly setting tenant to "" in order to flag that a cross class search
 	// is being done without a tenant context
 	return &ClassBasedModuleConfig{tenant: "", cfg: cfg}
+}
+
+// newClassBasedModuleConfig builds a class config for moduleName and teaches it
+// the module's registered legacy names, so property settings written under an
+// older key are still honoured. Canonical keys keep precedence.
+func (p *Provider) newClassBasedModuleConfig(class *models.Class,
+	moduleName, tenant, targetVector string,
+) *ClassBasedModuleConfig {
+	var altNames []string
+	if mod := p.GetByName(moduleName); mod != nil {
+		altNames = moduleAltNames(mod)
+	}
+	return NewClassBasedModuleConfig(class, moduleName, tenant, targetVector, &p.cfg).
+		WithAltNames(altNames)
+}
+
+func moduleAltNames(mod modulecapabilities.Module) []string {
+	if modWithAltNames, ok := mod.(modulecapabilities.ModuleHasAltNames); ok {
+		return modWithAltNames.AltNames()
+	}
+	return nil
 }
 
 func (cbmc *ClassBasedModuleConfig) Class() map[string]interface{} {
@@ -122,6 +153,17 @@ func (cbmc *ClassBasedModuleConfig) Property(propName string) map[string]interfa
 	}
 
 	moduleCfg, ok := asMap[cbmc.moduleName]
+	if !ok {
+		// Providers ask for the canonical name, but a collection created under
+		// a legacy module key still stores its property settings there. Canonical
+		// settings win whenever they exist; the registered aliases are only a
+		// fallback.
+		for _, altName := range cbmc.altNames {
+			if moduleCfg, ok = asMap[altName]; ok {
+				break
+			}
+		}
+	}
 	if !ok {
 		return defaultConf
 	}

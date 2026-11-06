@@ -48,7 +48,8 @@ func vectorFromSearchParam[T dto.Embedding](
 	}
 	if vectorSearches != nil {
 		if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
-			cfg := NewClassBasedModuleConfig(class, moduleName, tenant, targetVector, dbConfig)
+			cfg := NewClassBasedModuleConfig(class, moduleName, tenant, targetVector, dbConfig).
+				WithAltNames(moduleAltNames(mod))
 			vector, err := searchVectorFn(ctx, params, class.Class, findVectorFn, cfg)
 			if err != nil {
 				return true, nil, fmt.Errorf("vectorize params: %w", enterrors.NewErrQueryVectorization(err))
@@ -101,7 +102,8 @@ func vectorFromInput[T dto.Embedding](
 ) (bool, T, error) {
 	if vectorizer, ok := mod.(modulecapabilities.InputVectorizer[T]); ok {
 		// does not access any objects, therefore tenant is irrelevant
-		cfg := NewClassBasedModuleConfig(class, mod.Name(), "", targetVector, dbConfig)
+		cfg := NewClassBasedModuleConfig(class, mod.Name(), "", targetVector, dbConfig).
+			WithAltNames(moduleAltNames(mod))
 		vector, err := vectorizer.VectorizeInput(ctx, input, cfg)
 		return true, vector, err
 	}
