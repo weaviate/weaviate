@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
