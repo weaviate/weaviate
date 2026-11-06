@@ -19,7 +19,9 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
-// bucketDirs refuses an empty or escaping handle, which filepath.Join would resolve to the root that callers then remove.
+// bucketDirs acts only on a handle naming one directory under the root. filepath.Join
+// resolves "" to the root and ".." to its parent, which Discard would remove and Promote
+// would rename. Exists and Discard read "" as no directory, while Path and Promote refuse it.
 type bucketDirs struct {
 	root string
 }

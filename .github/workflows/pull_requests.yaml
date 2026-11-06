@@ -810,6 +810,8 @@ jobs:
             test: "--acceptance-reindex-multinode-scale"
           - name: "multinode-changetok"
             test: "--acceptance-reindex-multinode-changetok"
+          - name: "multinode-postops"
+            test: "--acceptance-reindex-multinode-postops"
           - name: "singlenode-a"
             test: "--acceptance-reindex-singlenode-a"
           - name: "singlenode-b"

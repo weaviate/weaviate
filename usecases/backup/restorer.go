@@ -13,7 +13,6 @@ package backup
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -27,11 +26,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type restorer struct {
@@ -168,7 +164,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 			r.lastOp.set(backup.Cancelled)
 			return fmt.Errorf("restore cancelled: %w", err)
 		}
-		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, cpuPercentage, store, overrideBucket, overridePath, stripNamespaces); err != nil {
+		if err := r.restoreOne(ctx, &cdesc, compressionType, cpuPercentage, store, overrideBucket, overridePath, stripNamespaces); err != nil {
 			if errors.Is(err, context.Canceled) {
 				r.lastOp.set(backup.Cancelled)
 				return fmt.Errorf("restore cancelled: %w", err)
@@ -192,7 +188,7 @@ func getType(myvar interface{}) string {
 }
 
 func (r *restorer) restoreOne(ctx context.Context,
-	desc *backup.ClassDescriptor, serverVersion string, compressionType backup.CompressionType,
+	desc *backup.ClassDescriptor, compressionType backup.CompressionType,
 	cpuPercentage int, store nodeStore,
 	overrideBucket, overridePath string,
 	stripNamespaces bool,
@@ -209,15 +205,6 @@ func (r *restorer) restoreOne(ctx context.Context,
 
 	fw := newFileWriter(r.sourcer, store, r.logger).
 		WithPoolPercentage(cpuPercentage)
-
-	// Pre-v1.23 versions store files in a flat format
-	if serverVersion < "1.23" {
-		f, err := hfsMigrator(desc, r.node, serverVersion)
-		if err != nil {
-			return fmt.Errorf("migrate to pre 1.23: %w", err)
-		}
-		fw.setMigrator(f)
-	}
 
 	// Local staging dir uses the post-strip name so the RAFT-applied
 	// RestoreClassDir (sees the stripped class.Class) finds the files.
@@ -291,54 +278,4 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 	}
 
 	return meta, cs, nil
-}
-
-// oneClassSchema allows for creating schema with one class
-// This is required when migrating to hierarchical file structure from pre-v1.23
-type oneClassSchema struct {
-	cls *models.Class
-	ss  *sharding.State
-}
-
-func (s oneClassSchema) Read(_ string, reader func(*models.Class, *sharding.State) error) error {
-	return reader(s.cls, s.ss)
-}
-
-func (s oneClassSchema) Shards(_ string) ([]string, error) {
-	return s.ss.AllPhysicalShards(), nil
-}
-
-func (s oneClassSchema) LocalShards() ([]string, error) {
-	return s.ss.AllLocalPhysicalShards(), nil
-}
-
-func (s oneClassSchema) ReadOnlySchema() models.Schema {
-	return models.Schema{
-		Classes: []*models.Class{s.cls},
-	}
-}
-
-// hfsMigrator builds and return a class migrator ready for use
-func hfsMigrator(desc *backup.ClassDescriptor, nodeName string, serverVersion string) (func(classDir string) error, error) {
-	if serverVersion >= "1.23" {
-		return func(string) error { return nil }, nil
-	}
-	var ss sharding.State
-	if desc.ShardingState != nil {
-		err := json.Unmarshal(desc.ShardingState, &ss)
-		if err != nil {
-			return nil, fmt.Errorf("marshal sharding state: %w", err)
-		}
-	}
-	ss.SetLocalName(nodeName)
-
-	// get schema and sharding state
-	class := &models.Class{}
-	if err := json.Unmarshal(desc.Schema, &class); err != nil {
-		return nil, fmt.Errorf("marshal class schema: %w", err)
-	}
-
-	return func(classDir string) error {
-		return migratefs.MigrateToHierarchicalFS(classDir, oneClassSchema{class, &ss})
-	}, nil
 }
