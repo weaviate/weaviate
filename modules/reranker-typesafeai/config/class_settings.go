@@ -37,6 +37,17 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
+	if err := cs.CheckSettings(); err != nil {
+		return err
+	}
+	return cs.propertyValuesHelper.ValidateBaseURL(cs.BaseURL())
+}
+
+// CheckSettings fails when a stored model or baseURL is not a non-empty
+// string, or the baseURL is not an absolute http or https URL. The getters
+// return the default for a value of another type, so a query must check the
+// stored value first.
+func (cs *classSettings) CheckSettings() error {
 	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
@@ -61,8 +72,7 @@ func (cs *classSettings) Validate(class *models.Class) error {
 			}
 		}
 	}
-
-	return cs.propertyValuesHelper.ValidateBaseURL(cs.BaseURL())
+	return nil
 }
 
 // CheckBaseURL fails unless raw is an absolute http or https URL that names a
