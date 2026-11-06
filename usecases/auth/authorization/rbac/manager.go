@@ -677,6 +677,92 @@ func MergeSnapshots(a, b []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// ReplaceDynamicUserAssignments returns backup with its dynamic-user role
+// assignments swapped for target's.
+//
+// A dynamic-user row is a g-row (role assignment) whose subject is "db:<id>".
+// The id is not the role placeholder and is not in staticAPIKeyUsers.
+//
+// The result keeps every backup p-row (permission) and every backup g-row that
+// is not a dynamic-user row. It then adds each target dynamic-user row whose
+// role is live. A role is live if it is built in, or if a kept row defines or
+// assigns it. Target rows for other roles are dropped: they would bring the
+// role back as an empty role.
+//
+// An empty backup is returned unchanged. The result keeps backup's Version and
+// Namespaces.
+func ReplaceDynamicUserAssignments(backup, target []byte, staticAPIKeyUsers []string) ([]byte, error) {
+	if len(backup) == 0 {
+		return backup, nil
+	}
+
+	var sb, st snapshot
+	if err := json.Unmarshal(backup, &sb); err != nil {
+		return nil, fmt.Errorf("replace dynamic user assignments: decode backup: %w", err)
+	}
+	// Manager.Snapshot returns an empty blob when RBAC holds no store.
+	if len(target) > 0 {
+		if err := json.Unmarshal(target, &st); err != nil {
+			return nil, fmt.Errorf("replace dynamic user assignments: decode target: %w", err)
+		}
+	}
+
+	static := make(map[string]struct{}, len(staticAPIKeyUsers))
+	for _, u := range staticAPIKeyUsers {
+		static[u] = struct{}{}
+	}
+	isDynamicUserRow := func(g []string) bool {
+		if len(g) == 0 {
+			return false
+		}
+		user, prefix, err := conv.GetUserAndPrefix(g[0])
+		if err != nil || prefix != string(authentication.AuthTypeDb) || user == conv.InternalPlaceHolder {
+			return false
+		}
+		_, ok := static[user]
+		return !ok
+	}
+
+	live := make(map[string]struct{}, len(authorization.BuiltInRoles))
+	for _, r := range authorization.BuiltInRoles {
+		live[conv.PrefixRoleName(r)] = struct{}{}
+	}
+	for _, p := range sb.Policy {
+		if len(p) > 0 {
+			live[p[0]] = struct{}{}
+		}
+	}
+	var groupingPolicy [][]string
+	for _, g := range sb.GroupingPolicy {
+		if isDynamicUserRow(g) {
+			continue
+		}
+		groupingPolicy = append(groupingPolicy, g)
+		if len(g) > 1 {
+			live[g[1]] = struct{}{}
+		}
+	}
+	for _, g := range st.GroupingPolicy {
+		if len(g) < 2 || !isDynamicUserRow(g) {
+			continue
+		}
+		if _, ok := live[g[1]]; ok {
+			groupingPolicy = append(groupingPolicy, g)
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(snapshot{
+		Policy:         sb.Policy,
+		GroupingPolicy: groupingPolicy,
+		Version:        sb.Version,
+		Namespaces:     sb.Namespaces,
+	}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
 // referencedNamespaces returns the namespaces the given rows refer to, in sorted order.
 //
 // Only the prefixes the strip has to resolve are candidates: role names, resource paths,
