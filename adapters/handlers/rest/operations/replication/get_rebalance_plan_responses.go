@@ -158,3 +158,48 @@ func (o *GetRebalancePlanNotFound) WriteResponse(rw http.ResponseWriter, produce
 		}
 	}
 }
+
+// GetRebalancePlanInternalServerErrorCode is the HTTP code returned for type GetRebalancePlanInternalServerError
+const GetRebalancePlanInternalServerErrorCode int = 500
+
+/*
+GetRebalancePlanInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+
+swagger:response getRebalancePlanInternalServerError
+*/
+type GetRebalancePlanInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGetRebalancePlanInternalServerError creates GetRebalancePlanInternalServerError with default headers values
+func NewGetRebalancePlanInternalServerError() *GetRebalancePlanInternalServerError {
+
+	return &GetRebalancePlanInternalServerError{}
+}
+
+// WithPayload adds the payload to the get rebalance plan internal server error response
+func (o *GetRebalancePlanInternalServerError) WithPayload(payload *models.ErrorResponse) *GetRebalancePlanInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the get rebalance plan internal server error response
+func (o *GetRebalancePlanInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GetRebalancePlanInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

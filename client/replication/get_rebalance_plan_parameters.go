@@ -25,6 +25,7 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // NewGetRebalancePlanParams creates a new GetRebalancePlanParams object,
@@ -71,6 +72,13 @@ GetRebalancePlanParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type GetRebalancePlanParams struct {
+
+	/* Consistency.
+
+	   If true, the read goes through the cluster leader for read-your-writes. If false, the node serving the request answers from its local state, which can lag the leader. Default is false.
+	*/
+	Consistency *bool
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -88,7 +96,18 @@ func (o *GetRebalancePlanParams) WithDefaults() *GetRebalancePlanParams {
 //
 // All values with no default are reset to their zero value.
 func (o *GetRebalancePlanParams) SetDefaults() {
-	// no default values defined for this parameter
+	var (
+		consistencyDefault = bool(false)
+	)
+
+	val := GetRebalancePlanParams{
+		Consistency: &consistencyDefault,
+	}
+
+	val.timeout = o.timeout
+	val.Context = o.Context
+	val.HTTPClient = o.HTTPClient
+	*o = val
 }
 
 // WithTimeout adds the timeout to the get rebalance plan params
@@ -124,6 +143,17 @@ func (o *GetRebalancePlanParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithConsistency adds the consistency to the get rebalance plan params
+func (o *GetRebalancePlanParams) WithConsistency(consistency *bool) *GetRebalancePlanParams {
+	o.SetConsistency(consistency)
+	return o
+}
+
+// SetConsistency adds the consistency to the get rebalance plan params
+func (o *GetRebalancePlanParams) SetConsistency(consistency *bool) {
+	o.Consistency = consistency
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *GetRebalancePlanParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -131,6 +161,14 @@ func (o *GetRebalancePlanParams) WriteToRequest(r runtime.ClientRequest, reg str
 		return err
 	}
 	var res []error
+
+	if o.Consistency != nil {
+
+		// header param consistency
+		if err := r.SetHeaderParam("consistency", swag.FormatBool(*o.Consistency)); err != nil {
+			return err
+		}
+	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)

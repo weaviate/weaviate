@@ -61,10 +61,14 @@ type fakeRebalanceManager struct {
 	stopErr    error
 	deleteErr  error
 
-	calls   int
-	created *rebalance.CreatePlanRequest
-	stopped []string
-	deleted []string
+	// calls counts every manager call. localReads counts ReadRebalancePlan
+	// calls. leaderReads counts QueryRebalancePlan calls.
+	calls       int
+	localReads  int
+	leaderReads int
+	created     *rebalance.CreatePlanRequest
+	stopped     []string
+	deleted     []string
 }
 
 func (m *fakeRebalanceManager) CreateRebalancePlan(_ context.Context, req *rebalance.CreatePlanRequest) error {
@@ -87,6 +91,7 @@ func (m *fakeRebalanceManager) DeleteRebalancePlan(_ context.Context, req *rebal
 
 func (m *fakeRebalanceManager) ReadRebalancePlan() (rebalance.Plan, bool) {
 	m.calls++
+	m.localReads++
 	if m.plan == nil {
 		return rebalance.Plan{}, false
 	}
@@ -95,6 +100,7 @@ func (m *fakeRebalanceManager) ReadRebalancePlan() (rebalance.Plan, bool) {
 
 func (m *fakeRebalanceManager) QueryRebalancePlan(context.Context) (*rebalance.Plan, error) {
 	m.calls++
+	m.leaderReads++
 	if m.leaderErr != nil {
 		return nil, m.leaderErr
 	}
@@ -138,6 +144,13 @@ func requireRebalanceLog(t *testing.T, hook *logrustest.Hook, planID string) {
 	assert.Equal(t, planID, entry.Data["planId"])
 }
 
+func requireGetPlanID(planID string) func(t *testing.T, response middleware.Responder, _ *logrustest.Hook) {
+	return func(t *testing.T, response middleware.Responder, _ *logrustest.Hook) {
+		t.Helper()
+		assert.Equal(t, planID, response.(*replication.GetRebalancePlanOK).Payload.ID)
+	}
+}
+
 func TestRebalanceHandlers(t *testing.T) {
 	principal := &models.Principal{}
 	request := &http.Request{}
@@ -151,6 +164,11 @@ func TestRebalanceHandlers(t *testing.T) {
 	}
 	get := func(h *replicationHandler) middleware.Responder {
 		return h.getRebalancePlan(replication.GetRebalancePlanParams{HTTPRequest: request}, principal)
+	}
+	getWithConsistency := func(consistency bool) operation {
+		return func(h *replicationHandler) middleware.Responder {
+			return h.getRebalancePlan(replication.GetRebalancePlanParams{HTTPRequest: request, Consistency: &consistency}, principal)
+		}
 	}
 	stop := func(h *replicationHandler) middleware.Responder {
 		return h.stopRebalancePlan(replication.StopRebalancePlanParams{HTTPRequest: request}, principal)
@@ -179,6 +197,7 @@ func TestRebalanceHandlers(t *testing.T) {
 		}{
 			{"create", create(validBody()), authorization.CREATE, &replication.CreateRebalancePlanForbidden{}},
 			{"get", get, authorization.READ, &replication.GetRebalancePlanForbidden{}},
+			{"get with consistency true", getWithConsistency(true), authorization.READ, &replication.GetRebalancePlanForbidden{}},
 			{"stop", stop, authorization.UPDATE, &replication.StopRebalancePlanForbidden{}},
 			{"approve", approve, authorization.CREATE, &replication.ApproveRebalancePlanForbidden{}},
 			{"delete", del, authorization.DELETE, &replication.DeleteRebalancePlanForbidden{}},
@@ -347,6 +366,7 @@ func TestRebalanceHandlers(t *testing.T) {
 			leaderErr   error
 			stopErr     error
 			deleteErr   error
+			leaderRead  bool
 			want        middleware.Responder
 			wantStopped []string
 			wantDeleted []string
@@ -378,14 +398,44 @@ func TestRebalanceHandlers(t *testing.T) {
 					}, response.(*replication.GetRebalancePlanOK).Payload)
 				},
 			},
+			// In every consistency row, the local plan and the leader's plan differ.
+			// Only a handler that reads the plan the consistency header selects gets
+			// the expected response and plan ID.
+			{
+				name:       "get with consistency false reads the local state",
+				call:       getWithConsistency(false),
+				plan:       planning,
+				leaderPlan: stale,
+				want:       &replication.GetRebalancePlanOK{},
+				check:      requireGetPlanID("plan-1"),
+			},
+			{
+				name:       "get with consistency true reads the leader's state",
+				call:       getWithConsistency(true),
+				leaderRead: true,
+				plan:       stale,
+				leaderPlan: planning,
+				want:       &replication.GetRebalancePlanOK{},
+				check:      requireGetPlanID("plan-1"),
+			},
+			{name: "get with consistency true when the leader has no plan", call: getWithConsistency(true), plan: stale, leaderRead: true, want: &replication.GetRebalancePlanNotFound{}},
+			{
+				name:       "get with consistency true when the leader read fails",
+				call:       getWithConsistency(true),
+				leaderRead: true,
+				plan:       planning,
+				leaderErr:  errors.New("no leader"),
+				want:       &replication.GetRebalancePlanInternalServerError{},
+			},
 			// In every stop and delete row, the local plan is missing or out of date.
 			// Only a handler that reads the leader's plan gets the expected response
 			// and plan ID.
-			{name: "stop when the leader has no plan", call: stop, plan: planning, want: &replication.StopRebalancePlanNotFound{}},
-			{name: "stop when the leader read fails", call: stop, plan: planning, leaderErr: errors.New("no leader"), want: &replication.StopRebalancePlanInternalServerError{}},
+			{name: "stop when the leader has no plan", call: stop, plan: planning, leaderRead: true, want: &replication.StopRebalancePlanNotFound{}},
+			{name: "stop when the leader read fails", call: stop, plan: planning, leaderErr: errors.New("no leader"), leaderRead: true, want: &replication.StopRebalancePlanInternalServerError{}},
 			{
 				name:        "stop a planning plan",
 				call:        stop,
+				leaderRead:  true,
 				plan:        stale,
 				leaderPlan:  planning,
 				want:        &replication.StopRebalancePlanAccepted{},
@@ -397,6 +447,7 @@ func TestRebalanceHandlers(t *testing.T) {
 			{
 				name:        "stop a plan that is not planning",
 				call:        stop,
+				leaderRead:  true,
 				leaderPlan:  proposed,
 				stopErr:     wrapped(rebalance.ErrPlanTransition),
 				want:        &replication.StopRebalancePlanConflict{},
@@ -405,6 +456,7 @@ func TestRebalanceHandlers(t *testing.T) {
 			{
 				name:        "stop a plan deleted before the proposal applied",
 				call:        stop,
+				leaderRead:  true,
 				leaderPlan:  planning,
 				stopErr:     wrapped(rebalance.ErrPlanNotFound),
 				want:        &replication.StopRebalancePlanNotFound{},
@@ -413,16 +465,18 @@ func TestRebalanceHandlers(t *testing.T) {
 			{
 				name:        "stop with an unexpected proposal error",
 				call:        stop,
+				leaderRead:  true,
 				leaderPlan:  planning,
 				stopErr:     errors.New("raft unavailable"),
 				want:        &replication.StopRebalancePlanInternalServerError{},
 				wantStopped: []string{"plan-1"},
 			},
-			{name: "delete when the leader has no plan", call: del, plan: proposed, want: &replication.DeleteRebalancePlanNoContent{}},
-			{name: "delete when the leader read fails", call: del, plan: proposed, leaderErr: errors.New("no leader"), want: &replication.DeleteRebalancePlanInternalServerError{}},
+			{name: "delete when the leader has no plan", call: del, plan: proposed, leaderRead: true, want: &replication.DeleteRebalancePlanNoContent{}},
+			{name: "delete when the leader read fails", call: del, plan: proposed, leaderErr: errors.New("no leader"), leaderRead: true, want: &replication.DeleteRebalancePlanInternalServerError{}},
 			{
 				name:        "delete a planning plan",
 				call:        del,
+				leaderRead:  true,
 				leaderPlan:  planning,
 				deleteErr:   wrapped(rebalance.ErrPlanTransition),
 				want:        &replication.DeleteRebalancePlanConflict{},
@@ -431,6 +485,7 @@ func TestRebalanceHandlers(t *testing.T) {
 			{
 				name:        "delete a proposed plan",
 				call:        del,
+				leaderRead:  true,
 				plan:        stale,
 				leaderPlan:  proposed,
 				want:        &replication.DeleteRebalancePlanNoContent{},
@@ -442,6 +497,7 @@ func TestRebalanceHandlers(t *testing.T) {
 			{
 				name:        "delete a plan deleted before the proposal applied",
 				call:        del,
+				leaderRead:  true,
 				leaderPlan:  proposed,
 				deleteErr:   wrapped(rebalance.ErrPlanNotFound),
 				want:        &replication.DeleteRebalancePlanNoContent{},
@@ -450,6 +506,7 @@ func TestRebalanceHandlers(t *testing.T) {
 			{
 				name:        "delete with an unexpected proposal error",
 				call:        del,
+				leaderRead:  true,
 				leaderPlan:  proposed,
 				deleteErr:   errors.New("raft unavailable"),
 				want:        &replication.DeleteRebalancePlanInternalServerError{},
@@ -471,6 +528,13 @@ func TestRebalanceHandlers(t *testing.T) {
 					response := tt.call(handler)
 
 					require.IsType(t, tt.want, response)
+					if tt.leaderRead {
+						assert.Equal(t, 1, manager.leaderReads, "leader reads")
+						assert.Zero(t, manager.localReads, "local reads")
+					} else {
+						assert.Equal(t, 1, manager.localReads, "local reads")
+						assert.Zero(t, manager.leaderReads, "leader reads")
+					}
 					assert.Equal(t, tt.wantStopped, manager.stopped)
 					assert.Equal(t, tt.wantDeleted, manager.deleted)
 					if tt.check != nil {

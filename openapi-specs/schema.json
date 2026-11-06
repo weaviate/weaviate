@@ -5658,6 +5658,16 @@
         "tags": [
           "replication"
         ],
+        "parameters": [
+          {
+            "name": "consistency",
+            "in": "header",
+            "required": false,
+            "default": false,
+            "type": "boolean",
+            "description": "If true, the read goes through the cluster leader for read-your-writes. If false, the node serving the request answers from its local state, which can lag the leader. Default is false."
+          }
+        ],
         "responses": {
           "200": {
             "description": "The rebalance plan.",
@@ -5673,6 +5683,12 @@
           },
           "404": {
             "description": "No rebalance plan exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

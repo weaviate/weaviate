@@ -21,14 +21,23 @@ import (
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // NewGetRebalancePlanParams creates a new GetRebalancePlanParams object
-//
-// There are no default values defined in the spec.
+// with the default values initialized.
 func NewGetRebalancePlanParams() GetRebalancePlanParams {
 
-	return GetRebalancePlanParams{}
+	var (
+		// initialize parameters with default values
+
+		consistencyDefault = bool(false)
+	)
+
+	return GetRebalancePlanParams{
+		Consistency: &consistencyDefault,
+	}
 }
 
 // GetRebalancePlanParams contains all the bound params for the get rebalance plan operation
@@ -39,6 +48,12 @@ type GetRebalancePlanParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
+
+	/*If true, the read goes through the cluster leader for read-your-writes. If false, the node serving the request answers from its local state, which can lag the leader. Default is false.
+	  In: header
+	  Default: false
+	*/
+	Consistency *bool
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -50,8 +65,34 @@ func (o *GetRebalancePlanParams) BindRequest(r *http.Request, route *middleware.
 
 	o.HTTPRequest = r
 
+	if err := o.bindConsistency(r.Header[http.CanonicalHeaderKey("consistency")], true, route.Formats); err != nil {
+		res = append(res, err)
+	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+// bindConsistency binds and validates parameter Consistency from header.
+func (o *GetRebalancePlanParams) bindConsistency(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+
+	if raw == "" { // empty values pass all other validations
+		// Default values have been previously initialized by NewGetRebalancePlanParams()
+		return nil
+	}
+
+	value, err := swag.ConvertBool(raw)
+	if err != nil {
+		return errors.InvalidType("consistency", "header", "bool", raw)
+	}
+	o.Consistency = &value
+
 	return nil
 }

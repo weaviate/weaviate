@@ -5014,6 +5014,15 @@ func init() {
         ],
         "summary": "Get the rebalance plan",
         "operationId": "getRebalancePlan",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, the read goes through the cluster leader for read-your-writes. If false, the node serving the request answers from its local state, which can lag the leader. Default is false.",
+            "name": "consistency",
+            "in": "header"
+          }
+        ],
         "responses": {
           "200": {
             "description": "The rebalance plan.",
@@ -5029,6 +5038,12 @@ func init() {
           },
           "404": {
             "description": "No rebalance plan exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18331,6 +18346,15 @@ func init() {
         ],
         "summary": "Get the rebalance plan",
         "operationId": "getRebalancePlan",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, the read goes through the cluster leader for read-your-writes. If false, the node serving the request answers from its local state, which can lag the leader. Default is false.",
+            "name": "consistency",
+            "in": "header"
+          }
+        ],
         "responses": {
           "200": {
             "description": "The rebalance plan.",
@@ -18346,6 +18370,12 @@ func init() {
           },
           "404": {
             "description": "No rebalance plan exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

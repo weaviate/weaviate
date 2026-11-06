@@ -163,8 +163,19 @@ func (h *replicationHandler) unavailableRebalanceNodes(body *models.ReplicationR
 }
 
 func (h *replicationHandler) getRebalancePlan(params replication.GetRebalancePlanParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizeRebalance(params.HTTPRequest.Context(), principal, authorization.READ); err != nil {
+	ctx := params.HTTPRequest.Context()
+	if err := h.authorizeRebalance(ctx, principal, authorization.READ); err != nil {
 		return replication.NewGetRebalancePlanForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	if params.Consistency != nil && *params.Consistency {
+		plan, err := h.rebalanceManager.QueryRebalancePlan(ctx)
+		if err != nil {
+			return replication.NewGetRebalancePlanInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
+		if plan == nil {
+			return replication.NewGetRebalancePlanNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errNoRebalancePlan))
+		}
+		return replication.NewGetRebalancePlanOK().WithPayload(rebalancePlanResponse(*plan))
 	}
 	plan, ok := h.rebalanceManager.ReadRebalancePlan()
 	if !ok {
