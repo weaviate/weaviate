@@ -1554,10 +1554,10 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 // the schema remains pre-migration when the cluster-wide migration didn't
 // succeed.
 //
-// Returns a non-nil error on the SWAPPING path when the flip fails: wrapped
-// in [distributedtask.ErrTaskCompletionPermanent] when unrecoverable, plain
-// when transient (weaviate/0-weaviate-issues#297). Terminal-status cleanup
-// always returns nil.
+// Returns a non-nil error on the SWAPPING path when the flip fails (for
+// change-algorithm, only when the stamp fails): wrapped in
+// [distributedtask.ErrTaskCompletionPermanent] when unrecoverable, plain when
+// transient (weaviate/0-weaviate-issues#297). Terminal-status cleanup always returns nil.
 func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	// Clear caches up-front so a failed-task early return doesn't leak.
 	payload, payloadErr := p.loadPayload(task)
@@ -2270,17 +2270,20 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		//
 		// With the stamp landed the property is migrated, so a failed flip is only
 		// logged: failing the run would lock the property behind a run that
-		// cannot finish. The flag then waits for the next cutover, as after a deferral.
+		// cannot finish. The flag then waits, as after a deferral, for a later
+		// change-algorithm cutover or a class update with USE_INVERTED_SEARCHABLE on.
 		if defer_, err := p.shouldDeferBlockmaxFlip(payload, logger); err != nil {
 			logger.WithError(err).Warn("reindex provider: change-algorithm cutover: cannot check whether the class " +
-				"can use blockmax by default; the next change-algorithm cutover on this class retries the flip")
+				"can use blockmax by default; a later change-algorithm cutover on this class, or a class update while " +
+				"USE_INVERTED_SEARCHABLE is on, sets the flag")
 			return nil
 		} else if defer_ {
 			return nil
 		}
 		if err := updateToBlockMaxInvertedIndexConfig(ctx, p.schemaManager, payload.Collection); err != nil {
 			logger.WithError(err).Warn("reindex provider: change-algorithm cutover: the property is migrated, but the " +
-				"class-level blockmax flag did not flip; the next change-algorithm cutover on this class retries it")
+				"class-level blockmax flag did not flip; a later change-algorithm cutover on this class, or a class update " +
+				"while USE_INVERTED_SEARCHABLE is on, sets it")
 			return nil
 		}
 		logger.Info("reindex provider: change-algorithm cutover committed")
