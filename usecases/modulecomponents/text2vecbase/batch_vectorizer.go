@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -58,11 +59,7 @@ func (v *BatchVectorizer[T]) object(ctx context.Context, object *models.Object, 
 	if err != nil {
 		return nil, err
 	}
-
-	if len(res.Vector) > 1 {
-		return libvectorizer.CombineVectors(res.Vector), nil
-	}
-	return res.Vector[0], nil
+	return singleVector(res)
 }
 
 func (v *BatchVectorizer[T]) ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
@@ -96,9 +93,30 @@ func (v *BatchVectorizer[T]) Texts(ctx context.Context, inputs []string,
 	if err != nil {
 		return nil, errors.Wrap(err, "remote client vectorize")
 	}
+	return singleVector(res)
+}
 
-	if len(res.Vector) > 1 {
-		return libvectorizer.CombineVectors(res.Vector), nil
+// singleVector returns the only vector in res, or the average of its vectors.
+func singleVector[T dto.Embedding](res *modulecomponents.VectorizationResult[T]) (T, error) {
+	if res == nil || len(res.Vector) == 0 {
+		return nil, errors.New("empty embeddings in vectorizer response")
 	}
-	return res.Vector[0], nil
+	for _, err := range res.Errors {
+		if err != nil {
+			return nil, err
+		}
+	}
+	for i := range res.Vector {
+		if len(res.Vector[i]) == 0 {
+			return nil, errors.Errorf("empty embedding for input %d in vectorizer response", i)
+		}
+	}
+	if len(res.Vector) == 1 {
+		return res.Vector[0], nil
+	}
+	combined := libvectorizer.CombineVectors(res.Vector)
+	if combined == nil {
+		return nil, errors.Errorf("cannot combine %d multi-vector embeddings into one", len(res.Vector))
+	}
+	return combined, nil
 }

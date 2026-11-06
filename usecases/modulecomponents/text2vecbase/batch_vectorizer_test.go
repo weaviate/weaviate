@@ -13,14 +13,18 @@ package text2vecbase
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modules"
@@ -102,6 +106,135 @@ func TestBatchTokenizerWithEmptyProperties(t *testing.T) {
 	}
 }
 
+func TestBatchVectorizerInvalidClientResult(t *testing.T) {
+	vectorTests := []struct {
+		name    string
+		res     *modulecomponents.VectorizationResult[[]float32]
+		wantErr string
+	}{
+		{name: "nil result", res: nil, wantErr: "empty embeddings in vectorizer response"},
+		{name: "nil vectors", res: &modulecomponents.VectorizationResult[[]float32]{Vector: nil}, wantErr: "empty embeddings in vectorizer response"},
+		{name: "no vectors", res: &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{}}, wantErr: "empty embeddings in vectorizer response"},
+		{name: "empty vector", res: &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{{}}}, wantErr: "empty embedding for input 0"},
+		{
+			name:    "error for one input",
+			res:     &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{nil}, Errors: []error{errors.New("input too long")}},
+			wantErr: "input too long",
+		},
+		{
+			name: "error for second input",
+			res: &modulecomponents.VectorizationResult[[]float32]{
+				Vector: [][]float32{{0.1, 0.2}, nil},
+				Errors: []error{nil, errors.New("input too long")},
+			},
+			wantErr: "input too long",
+		},
+	}
+	for _, tt := range vectorTests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertVectorizerFails(t, tt.res, tt.wantErr)
+		})
+	}
+
+	multiVectorTests := []struct {
+		name    string
+		res     *modulecomponents.VectorizationResult[[][]float32]
+		wantErr string
+	}{
+		{name: "multi-vector: nil vectors", res: &modulecomponents.VectorizationResult[[][]float32]{Vector: nil}, wantErr: "empty embeddings in vectorizer response"},
+		{
+			name:    "multi-vector: more than one multi-vector",
+			res:     &modulecomponents.VectorizationResult[[][]float32]{Vector: [][][]float32{{{0.1, 0.2}}, {{0.3, 0.4}}}},
+			wantErr: "cannot combine 2 multi-vector embeddings",
+		},
+	}
+	for _, tt := range multiVectorTests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertVectorizerFails(t, tt.res, tt.wantErr)
+		})
+	}
+}
+
+func TestBatchVectorizerValidClientResult(t *testing.T) {
+	tests := []struct {
+		name string
+		res  *modulecomponents.VectorizationResult[[]float32]
+		want []float32
+	}{
+		{
+			name: "one vector",
+			res:  &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{{0.1, 0.2}}, Errors: []error{nil}},
+			want: []float32{0.1, 0.2},
+		},
+		{
+			name: "two vectors are averaged",
+			res:  &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{{1, 2}, {3, 4}}},
+			want: []float32{2, 3},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v, object, cfg := newVectorizerWithResult(tt.res)
+
+			vec, _, err := v.Object(context.Background(), object, cfg, cfg)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, vec)
+
+			vec, err = v.Texts(context.Background(), []string{"first", "second"}, cfg)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, vec)
+		})
+	}
+}
+
+func assertVectorizerFails[T dto.Embedding](t *testing.T, res *modulecomponents.VectorizationResult[T], wantErr string) {
+	t.Helper()
+	v, object, cfg := newVectorizerWithResult(res)
+
+	t.Run("Object", func(t *testing.T) {
+		vec, _, err := v.Object(context.Background(), object, cfg, cfg)
+		require.ErrorContains(t, err, wantErr)
+		assert.Nil(t, vec)
+	})
+	t.Run("Texts", func(t *testing.T) {
+		vec, err := v.Texts(context.Background(), []string{"text"}, cfg)
+		require.ErrorContains(t, err, wantErr)
+		assert.Nil(t, vec)
+	})
+}
+
+func newVectorizerWithResult[T dto.Embedding](res *modulecomponents.VectorizationResult[T]) (*BatchVectorizer[T], *models.Object, fakeClassConfig) {
+	v := &BatchVectorizer[T]{
+		client:           &fakeResultClient[T]{res: res},
+		objectVectorizer: objectsvectorizer.New(),
+	}
+	object := &models.Object{Class: "Car", Properties: map[string]any{"text": "some text"}}
+	cfg := fakeClassConfig{classConfig: map[string]any{"vectorizeClassName": false}}
+	return v, object, cfg
+}
+
+type fakeResultClient[T dto.Embedding] struct {
+	res *modulecomponents.VectorizationResult[T]
+}
+
+func (c *fakeResultClient[T]) Vectorize(ctx context.Context, input []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult[T], *modulecomponents.RateLimits, int, error) {
+	return c.res, nil, 0, nil
+}
+
+func (c *fakeResultClient[T]) VectorizeQuery(ctx context.Context, input []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult[T], error) {
+	return c.res, nil
+}
+
+func (c *fakeResultClient[T]) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
+	return &modulecomponents.RateLimits{}
+}
+
+func (c *fakeResultClient[T]) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	return [32]byte{}
+}
+
 type fakeClassConfig struct {
 	classConfig           map[string]any
 	vectorizeClassName    bool
@@ -170,6 +303,10 @@ func (f fakeClassConfig) VectorizePropertyName(propertyName string) bool {
 
 func (f fakeClassConfig) Properties() []string {
 	return f.properties
+}
+
+func (f fakeClassConfig) LowerCaseInput() bool {
+	return false
 }
 
 func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
