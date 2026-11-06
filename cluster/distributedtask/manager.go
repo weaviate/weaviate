@@ -393,10 +393,9 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	return removed
 }
 
-// ForgetGroupsForCollection removes deleted tenants from every terminal
-// (FINISHED, FAILED, CANCELLED) barrier task of collection, the tasks that record per-tenant swap
-// decisions, so a tenant recreated under the same name inherits none.
-// Active tasks are left alone: the tenant delete is refused while one runs.
+// ForgetGroupsForCollection removes deleted tenants from collection's terminal
+// barrier tasks, so a tenant recreated under the same name inherits no swap
+// decision. It skips active tasks, since a tenant delete is refused while one runs.
 func (m *Manager) ForgetGroupsForCollection(collection string, groups []string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -759,13 +758,10 @@ func recordNodePreparationAck(task *Task, r *api.RecordDistributedTaskPreparatio
 	task.Status = TaskStatusSwapping
 }
 
-// RecordPreparationCompleteAck records one node's PREP ack for a group. The
-// group's swap is decided once every node owning one of its units acked
-// success, and stays decided whatever happens to the rest of the task. A
-// failed ack fails the task; PREPARING moves to SWAPPING once every group is
-// decided. The first ack per (group, node) wins and late acks are dropped; the
-// decision reads only RAFT-replicated state, so every node's Manager reaches
-// it on the same apply.
+// RecordPreparationCompleteAck records one node's PREP ack for a group. Once every
+// node owning one of the group's units acked success, the group's swap is decided
+// and stays decided whatever happens to the task. A failed ack fails the task, and
+// PREPARING moves to SWAPPING once every group is decided. The first ack per (group, node) wins.
 func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 	var r api.RecordDistributedTaskPreparationCompleteAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {

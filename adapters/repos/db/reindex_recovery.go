@@ -96,8 +96,9 @@ func (r *ReindexRecoveryHook) RunAfterLsmInit(ctx context.Context, shard *Shard)
 	return nil
 }
 
-// recoverableTasks builds each migration whose iteration finished and is not promoted,
-// and stamps the rest unmirrored so their stale staged data is never promoted.
+// recoverableTasks builds the tasks of each migration whose iteration finished and
+// is not promoted, and stamps a record it cannot build unmirrored, so its stale
+// staged data is never promoted.
 func (r *ReindexRecoveryHook) recoverableTasks(store *MigrationRecordStore, shardName string) []*ShardReindexTaskGeneric {
 	records := store.Records()
 	armable := map[MigrationRecordKey]struct{}{}

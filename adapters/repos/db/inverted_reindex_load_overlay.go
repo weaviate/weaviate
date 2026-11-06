@@ -85,8 +85,8 @@ func (s *Shard) restoreMigratedOverlays(class *models.Class) {
 			if migrationPropertySuperseded(all, subject, prop) {
 				continue
 			}
-			// Not the unmirrored flag: the load refuses to promote a stale copy over
-			// live data, so whatever it did promote is the only data there is.
+			// This checks the promotion, not subject.Unmirrored. The load never promotes a
+			// stale copy over live data, so what it promoted is the only data there is.
 			if isSwapped && swapped.PromotionOf(prop) != migrationPromotionFinished {
 				continue
 			}

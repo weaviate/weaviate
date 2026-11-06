@@ -53,12 +53,10 @@ type ReindexRun struct {
 	Payload ReindexTaskPayload
 }
 
-// ReindexMigratedTenants returns the tenants of property whose newest decided
-// swap, over the failed or cancelled runs since the last finished flip on
-// target's index types, went to target (a single-tenant run's one group, "",
-// counts as one tenant), and covered, every tenant the runs of target among
-// them held. paid is the part of migrated no replica still owes a swap for:
-// only a resubmit may skip a tenant, so only it reads paid.
+// ReindexMigratedTenants reads property's failed or cancelled runs since the last
+// finished flip on target's index types. migrated is each tenant whose newest
+// decided swap went to target. covered is every tenant target's runs held. paid is
+// the part of migrated no replica still owes a swap for, which only a resubmit skips.
 func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexTaskPayload) (migrated, paid, covered map[string]struct{}) {
 	targetTypes, _ := ReindexIndexTypes(target.MigrationType)
 	var onProperty []ReindexRun
@@ -141,8 +139,9 @@ func ReindexPartialRunConflict(tasks []*distributedtask.Task, collection, proper
 	return ""
 }
 
-// ReindexPartialRun returns the newest run on property that left some tenants
-// of indexTypes on its target, with those tenants; nil once a flip covered it or no tenant still serves target.
+// ReindexPartialRun returns the newest run on property that left tenants of
+// indexTypes on its target, with those tenants. It returns nil once a flip
+// covered the run or no tenant still serves its target.
 func ReindexPartialRun(runs []ReindexRun, collection, property string, indexTypes []string) (partial *ReindexRun, migrated, covered map[string]struct{}) {
 	for i := range runs {
 		run := &runs[i]

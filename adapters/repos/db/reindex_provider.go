@@ -95,7 +95,7 @@ type ReindexProvider struct {
 
 	// activeWorkers tracks units that currently have a per-unit goroutine
 	// inside processOneUnit's iteration body. The re-entry guard reads
-	// this (not the reindexTasks cache) so post-restart recovery — which
+	// this (not the reindexTasks cache) so a shard load's recovery — which
 	// seeds reindexTasks via [SeedReindexTaskCache] for OnGroupCompleted's
 	// callback preservation — does NOT short-circuit the resumed unit.
 	// weaviate/0-weaviate-issues#239 Mode 2.
@@ -220,16 +220,15 @@ func (p *ReindexProvider) SetCompletionRecorder(recorder distributedtask.TaskCom
 	p.recorder = recorder
 }
 
-// SeedReindexTaskCache pre-populates the per-descriptor task cache with
-// instances a shard load armed (see [ReindexRecoveryHook]), so
-// OnGroupCompleted and OnSwapRequested find instances already cached (this
-// load's, or ones cached before) instead of calling OnAfterLsmInit again;
-// startup cleanup keeps them while their task is listed.
+// SeedReindexTaskCache caches the tasks a shard load armed ([ReindexRecoveryHook]),
+// so OnGroupCompleted and OnSwapRequested find them instead of running
+// OnAfterLsmInit again. It never replaces a cached entry, so a unit cached
+// before keeps its earlier instances.
 //
 // Safe to call concurrently with StartTask: StartTask only writes
 // entries for tasks it is starting, while seeding fills entries that
 // would otherwise be missing because the scheduler isn't (re)starting
-// the task post-restart.
+// the task after the shard load.
 func (p *ReindexProvider) SeedReindexTaskCache(
 	cache map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric,
 ) {
@@ -593,7 +592,7 @@ func (p *ReindexProvider) processOneUnit(
 	//
 	// Guard signal is `activeWorkers` (per-unit "a goroutine is inside
 	// the iteration body right now"), NOT the `reindexTasks` cache.
-	// weaviate/0-weaviate-issues#239 Mode 2: post-restart recovery
+	// weaviate/0-weaviate-issues#239 Mode 2: a shard load's recovery
 	// seeds `reindexTasks` so OnGroupCompleted can reuse the in-flight
 	// task instances with their registered double-write callbacks —
 	// using the cache as the guard signal trapped the resumed unit
@@ -609,7 +608,7 @@ func (p *ReindexProvider) processOneUnit(
 	}
 
 	// Use cached task instances when present. Two populating paths land
-	// here: (a) post-restart [SeedReindexTaskCache] for callback-preserving
+	// here: (a) a shard load's [SeedReindexTaskCache] for callback-preserving
 	// resume; (b) the FSM-lag re-entry case, where the cached instances
 	// still carry the registered double-write callbacks.
 	var (
@@ -678,7 +677,7 @@ func (p *ReindexProvider) processOneUnit(
 
 	// Cache task instances for semantic migrations so OnGroupCompleted can
 	// call RunSwapOnShard on the same instances (with callbacks registered).
-	// On the cached-tasks path (post-restart recovery or FSM-lag re-entry)
+	// On the cached-tasks path (a shard load's recovery or FSM-lag re-entry)
 	// we already have these instances in the map; only write on the
 	// fresh-tasks path.
 	if semantic && !cached {
@@ -1113,7 +1112,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	fresh := tasksWithRecord(built, store)
 	if len(fresh) == 0 {
 		logger.WithField("unit", unitID).
-			Info("reindex provider: resolveUnitForPhase: no in-flight state on disk for this unit (post-restart of already-finalized migration); skipping")
+			Info("reindex provider: resolveUnitForPhase: no in-flight state on disk for this unit (migration already finalized); skipping")
 		return phaseUnitResolution{Skip: true}
 	}
 
@@ -1122,7 +1121,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	p.cacheReindexTasks(task.TaskDescriptor, unitID, fresh)
 
 	logger.WithField("unit", unitID).
-		Info("reindex provider: resolveUnitForPhase: rebuilding tasks from disk (node likely restarted); cached for subsequent phase callbacks")
+		Info("reindex provider: resolveUnitForPhase: rebuilding tasks from disk (node restarted or shard reloaded); cached for subsequent phase callbacks")
 	return phaseUnitResolution{Shard: resolvedShard, UnitTasks: fresh, Rehydrate: true}
 }
 
@@ -1473,10 +1472,9 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	return out
 }
 
-// OnSwapRequested runs OVERLAY+SWAP for a NeedsPreparationBarrier=true task's
-// decided group, including on a failed/cancelled task — every replica of a
-// decided group must swap, or they disagree for good. A non-nil error is
-// retried next tick and fails the task only while it is SWAPPING.
+// OnSwapRequested runs OVERLAY+SWAP for a barrier task's decided group, even once
+// the task failed or was cancelled: every replica of a decided group must swap.
+// A non-nil error is retried next tick, and fails the task only while SWAPPING.
 func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
 		WithField("localGroupUnitCount", len(localGroupUnitIDs))

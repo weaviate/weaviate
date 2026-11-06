@@ -605,10 +605,9 @@ type Task struct {
 	// bounded by the groups still preparing.
 	PreparedGroups map[string]map[string]PostCompletionAck `json:"preparedGroups,omitempty"`
 
-	// SwapDecidedGroups maps each group whose swap is decided to when. It is
-	// the one fact every replica of the group obeys, and it outlives a later
-	// FAILED or CANCELLED status: a decided group must swap on every replica,
-	// or the replicas serve different indexes for good.
+	// SwapDecidedGroups maps each group whose swap is decided to when. It outlives a
+	// later FAILED or CANCELLED status, because a decided group must swap on every
+	// replica or the replicas serve different indexes for good.
 	SwapDecidedGroups map[string]time.Time `json:"swapDecidedGroups,omitempty"`
 
 	// SwapsOwed maps each decided group to the replicas yet to report its swap, whatever the status.
