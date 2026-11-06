@@ -117,6 +117,8 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 		return nil
 	}
 
+	ctx = committedWriteContext(ctx)
+
 	for targetVector, vector := range obj.Vectors {
 		if isDroppedVectorIndex(class, targetVector) {
 			continue
