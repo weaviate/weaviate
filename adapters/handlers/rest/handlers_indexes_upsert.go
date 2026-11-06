@@ -182,8 +182,8 @@ func (h *indexesHandlers) rebuildIndex(params schema.SchemaObjectsIndexRebuildPa
 }
 
 // listReindexTasks fetches the RAFT reindex task list under the submit lock.
-// Fails closed (503) rather than let callers derive blockmax truth,
-// idempotency, or the conflict/cap gate from a partial view.
+// Fails closed (503) rather than let callers derive idempotency or the
+// conflict/cap gate from a partial view.
 func (h *indexesHandlers) listReindexTasks(ctx context.Context, principal *models.Principal) ([]*distributedtask.Task, middleware.Responder) {
 	if h.appState.ClusterService == nil {
 		return nil, jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
@@ -313,7 +313,7 @@ const reindexStartedStatus = "STARTED"
 
 // resolveUpsertPlan diffs the request against current state, returning a
 // migration to submit, a NO_OP, a 409 conflict, or a 400 validation error.
-// reindexTasks supplies blockmax truth and the active-task idempotency check.
+// reindexTasks supplies the active-task idempotency check and the partial-run refusal.
 func resolveUpsertPlan(class *models.Class, collection string, prop *models.Property, indexType string,
 	body *models.IndexUpsertRequest, reindexTasks []*distributedtask.Task, tenantCounts bool,
 ) (upsertPlan, error) {

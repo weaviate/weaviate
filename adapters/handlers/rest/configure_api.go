@@ -1138,11 +1138,6 @@ func initReindexAndDistributedTasks(
 		)
 	}, appState.Logger)
 
-	if appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL == 0 {
-		appState.Logger.WithField("env", "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS").
-			Warn("TTL=0 GCs FINISHED reindex tasks immediately; unsafe during a rolling upgrade until every node is on the stamp version")
-	}
-
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
 		TaskLister:         appState.ClusterService.Raft,
