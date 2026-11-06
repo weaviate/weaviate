@@ -14,6 +14,7 @@ package clients
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +23,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -168,6 +170,7 @@ func TestRankChecksTheStoredSettings(t *testing.T) {
 	}{
 		{name: "a baseURL that is a number", settings: map[string]any{"baseURL": 42}, wantErr: "baseURL must be a string, got int"},
 		{name: "a baseURL that is a list", settings: map[string]any{"baseURL": []any{"a"}}, wantErr: "baseURL must be a string, got []interface {}"},
+		{name: "an empty baseURL", settings: map[string]any{"baseURL": ""}, wantErr: "baseURL must be a non-empty string"},
 		{name: "a model that is a number", settings: map[string]any{"model": 7}, wantErr: "model must be a string, got int"},
 		{name: "a model that is a bool", settings: map[string]any{"model": true}, wantErr: "model must be a string, got bool"},
 		{name: "an empty model", settings: map[string]any{"model": ""}, wantErr: "model must be a non-empty string"},
@@ -175,19 +178,26 @@ func TestRankChecksTheStoredSettings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFake(t)
-			cfg := classConfig(f.url(), tt.settings)
-			if _, ok := tt.settings["baseURL"]; ok {
-				// the fake stays unused: the stored baseURL is not its address
-				cfg = fakeClassConfig{settings: tt.settings}
-			}
+			c := newTestClient(defaultFakeKey)
+			sent := &countingTransport{}
+			c.httpClient.Transport = sent
 
-			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-				documentsOf(noRefund), cfg)
+			_, err := c.RankProperty(context.Background(), churn, "text",
+				documentsOf(noRefund), classConfig(f.url(), tt.settings))
 
 			require.EqualError(t, err, tt.wantErr)
-			assert.Empty(t, f.received())
+			assert.Zero(t, sent.count.Load(), "no request left the client")
 		})
 	}
+}
+
+// countingTransport fails every request, so a stored baseURL that fell back to
+// the default host is seen without reaching it.
+type countingTransport struct{ count atomic.Int64 }
+
+func (c *countingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	c.count.Add(1)
+	return nil, errors.New("unexpected request")
 }
 
 func TestRankRejectsAPropertyOfAnotherType(t *testing.T) {
@@ -851,10 +861,14 @@ func TestRankReturnsADeadlineErrorAndFreesTheSlots(t *testing.T) {
 	defer release()
 	c := New(defaultFakeKey, "", 50*time.Millisecond, 2, nullLogger())
 
-	_, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund, chargedTwice, changeEmail),
-		classConfig(f.url(), nil))
+	result := rankInBackground(t, context.Background(), c, f, []string{noRefund, chargedTwice, changeEmail})
 
-	require.ErrorIs(t, err, context.DeadlineExceeded)
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(5 * time.Second):
+		t.Fatal("RankProperty did not fail with the client timeout within 5 seconds")
+	}
 	assert.Zero(t, len(c.inFlight))
 	assert.Zero(t, len(c.inFlightHeaderHost))
 }
@@ -1015,10 +1029,13 @@ func TestRankHeaderHostRequestsDoNotHoldTheClassHostSlots(t *testing.T) {
 	require.Eventually(t, func() bool { return len(headerHost.received()) == slots }, 5*time.Second, time.Millisecond)
 	require.Len(t, c.inFlightHeaderHost, slots)
 
-	res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(classHost.url(), nil))
-
-	require.NoError(t, err)
-	assert.Len(t, res.DocumentScores, 1)
+	classResult := rankInBackground(t, context.Background(), c, classHost, []string{noRefund})
+	select {
+	case err := <-classResult:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the query to the class host did not complete within 5 seconds while the header-host pool was full")
+	}
 	assert.Len(t, classHost.received(), 1)
 	assert.Len(t, headerHost.received(), slots, "the query to the class host did not reach the header host")
 

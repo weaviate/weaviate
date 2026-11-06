@@ -58,8 +58,8 @@ type client struct {
 	apiKey       string
 	organization string
 	httpClient   *http.Client
-	// inFlight is shared by every call, so it bounds the load on the API
-	// however many queries run.
+	// inFlight bounds the requests to the class or default host, however many
+	// queries run.
 	inFlight chan struct{}
 	// inFlightHeaderHost serves requests to a host the request header named. A
 	// caller can name a host that never answers, and that must not hold the
