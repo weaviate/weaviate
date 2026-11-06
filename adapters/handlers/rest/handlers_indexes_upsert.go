@@ -647,9 +647,10 @@ func refuseOtherThanPartialRun(collection, propName, tok string, plan upsertPlan
 	if plan.joinTaskID != "" || (plan.migrationType == "" && (!plan.noop || tok == "")) {
 		return ""
 	}
+	// The strategy is not compared: the named resubmit cannot carry one, and its
+	// re-derived value can change while the run stands.
 	return db.ReindexPartialRunConflict(reindexTasks, collection, propName, func(run *db.ReindexRun) bool {
-		return plan.migrationType == run.Payload.MigrationType &&
-			plan.targetTok == run.Payload.TargetTokenization && plan.bucketStrategy == run.Payload.BucketStrategy
+		return plan.migrationType == run.Payload.MigrationType && plan.targetTok == run.Payload.TargetTokenization
 	})
 }
 
