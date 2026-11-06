@@ -49,11 +49,14 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 		raftBehind bool
 		// This node acked its PREP, and the swap is decided only after the load.
 		decidedAfterLoad bool
+		// An earlier load stamped the record, which already refuses the swap.
+		stampedBefore bool
 	}{
 		{name: "the mirror arms"},
 		{name: "the mirror fails to arm", armFails: true},
 		{name: "the mirror fails to arm before RAFT has caught up", armFails: true, raftBehind: true},
 		{name: "the mirror fails to arm after this node acked, before the swap is decided", armFails: true, decidedAfterLoad: true},
+		{name: "a record stamped earlier is not held for its decided swap", armFails: true, stampedBefore: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			const prop, node = "title", "node1"
@@ -116,10 +119,24 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 			if tc.armFails {
 				restore = corruptIngestSegments(t, shard.pathLSM())
 			}
+			if tc.stampedBefore {
+				store := NewMigrationRecordStoreForUnit(shard.pathLSM(), unitID, logger)
+				require.NoError(t, store.Load())
+				require.NotEmpty(t, store.Records())
+				for _, rec := range store.Records() {
+					stamped, ok := migrationRecordStampedUnmirrored(rec)
+					require.True(t, ok)
+					require.NoError(t, store.Put(stamped))
+				}
+			}
 			setStatus(models.TenantActivityStatusHOT)
 			reloaded, err := unwrapShard(ctx, idx.shards.Load(group))
 			require.NoError(t, err)
 			defer reloaded.Shutdown(ctx)
+			if tc.stampedBefore {
+				require.Equal(t, storagestate.StatusReady, reloaded.GetStatus(), "holding cannot save a swap the stamp refuses")
+				return
+			}
 			if tc.armFails {
 				for _, rec := range reloaded.migrationRecords.Records() {
 					require.False(t, rec.Subject().Unmirrored, "a stamp would refuse the owed swap for good")

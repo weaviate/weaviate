@@ -75,11 +75,11 @@ func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardRe
 	return s.reindexer.AbandonUnarmed(s, unarmed, causes.ToErrorLimited(maxReportedErrors))
 }
 
-// A stamped half fails the swap ahead for the whole unit; once the swap is committed, the mirror keeps the live index current.
+// A stamped half fails the swap ahead for the whole unit; past the flip, the mirror keeps the live index current.
 func (s *Shard) hasStampedHalf(tasks []*ShardReindexTaskGeneric) bool {
 	return slices.ContainsFunc(tasks, func(t *ShardReindexTaskGeneric) bool {
 		rec, ok := s.migrationRecords.Get(t.migrationRecordKey())
-		return ok && rec.Subject().Unmirrored && !s.migrationSwapCommitted(rec)
+		return ok && rec.Subject().Unmirrored && !rec.FlipDecided()
 	})
 }
 

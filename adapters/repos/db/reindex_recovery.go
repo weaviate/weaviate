@@ -68,6 +68,10 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 		if !ok {
 			continue
 		}
+		if rec.Subject().Unmirrored && !rec.FlipDecided() {
+			records = append(records, rec) // its stamp already refuses the swap, so holding saves nothing
+			continue
+		}
 		// A stamp would refuse a committed swap for good, so only the mirror can finish it.
 		if shard.migrationSwapCommitted(rec) {
 			return unarmed, fmt.Errorf("migration %s has a committed swap, so only its mirror can finish it: %w",
