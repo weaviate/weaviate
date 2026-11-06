@@ -1015,7 +1015,8 @@ transition rewrites it atomically:
    unmirrored, so its stale staged data is never promoted.
 2. The armed instances go to the provider's per-descriptor task cache
    (held until the provider exists, during startup), so PREP and the
-   swap reuse them instead of calling `OnAfterLsmInit` a second time.
+   swap find instances already cached (this load's, or ones cached
+   before) instead of calling `OnAfterLsmInit` again.
 3. `FinalizeCompletedMigrations` runs per shard before LSM init
    reloads any buckets. For each `(prop, indexType)`, finds the
    highest tidied (or merged-but-not-tidied) generation, promotes

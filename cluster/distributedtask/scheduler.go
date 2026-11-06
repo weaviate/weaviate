@@ -627,10 +627,10 @@ func (s *Scheduler) tick() {
 		// their callbacks fire — the FINISHED transition is committed by
 		// [TaskFinalizer.MarkDistributedTaskFinalized] below only AFTER
 		// OnTaskCompleted returns successfully, so a task in the FINISHED
-		// state is by construction past this point. The callback-fired
-		// maps' pre-mark from [Scheduler.bootstrapProviders] (and the
-		// deferred-bootstrap path in this tick) also marks FINISHED tasks
-		// as already-fired so a node restart cannot replay them.
+		// state is by construction past this point. The pre-mark in
+		// [Scheduler.bootstrapProviders] (and the deferred-bootstrap path in
+		// this tick) marks terminal tasks' OnTaskCompleted as fired, so a node
+		// restart cannot replay it; only a barrier task's owed swaps still run.
 		suProvider, providerIsUnitAware := provider.(UnitAwareProvider)
 		if providerIsUnitAware {
 			for desc, task := range tasks {
@@ -867,7 +867,7 @@ func (s *Scheduler) runPreparationPhase(
 			return nil
 		}
 		for i, w := range worklist {
-			// context.Canceled is the provider's retryable signal; dropping the mark lets a retry happen.
+			// context.Canceled is the provider's retryable signal; re-queuing the group lets a later tick retry it.
 			if errors.Is(groupErrors[i], context.Canceled) {
 				state.prepPending[w.groupID] = struct{}{}
 				s.loggerWithTask(namespace, desc).

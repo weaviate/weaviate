@@ -6143,7 +6143,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted; or an earlier run of a migration stopped after some tenants migrated this index, which only a resubmit of that migration finishes. The message says which.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted; or an earlier run of a migration stopped after some tenants migrated an index of this property, which only a resubmit of that migration finishes. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6227,7 +6227,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid index, property or collection provided.",
+            "description": "Invalid index, property or collection provided, or a reindex on this property is in flight or left partial; the message names the remedy.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6408,7 +6408,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted; or an earlier run of a migration stopped after some tenants migrated this index, which only a resubmit of that migration finishes. The message says which.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted; or an earlier run of a migration stopped after some tenants migrated an index of this property, which only a resubmit of that migration finishes. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18967,7 +18967,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted; or an earlier run of a migration stopped after some tenants migrated this index, which only a resubmit of that migration finishes. The message says which.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted; or an earlier run of a migration stopped after some tenants migrated an index of this property, which only a resubmit of that migration finishes. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19051,7 +19051,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid index, property or collection provided.",
+            "description": "Invalid index, property or collection provided, or a reindex on this property is in flight or left partial; the message names the remedy.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19232,7 +19232,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted; or an earlier run of a migration stopped after some tenants migrated this index, which only a resubmit of that migration finishes. The message says which.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted; or an earlier run of a migration stopped after some tenants migrated an index of this property, which only a resubmit of that migration finishes. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

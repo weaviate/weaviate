@@ -163,10 +163,10 @@ func ReindexPartialRun(runs []ReindexRun, collection, property string, indexType
 }
 
 // ShouldRetainCompletedTask keeps a task while a replica owes one of its decided
-// swaps, and a FAILED or partly-migrated task until a newer run (for a partial
-// one, a finished flip) covers its index types, so the status keeps reading it.
-// A newer run that hides the failure is kept until the failed task is gone, so it cannot resurface.
-// Assumes one property per payload, as every submit path builds today.
+// swaps, and a FAILED or partial task until a newer run (for a partial one, a
+// finished flip) covers its index types or they are dropped, so the status keeps
+// reading it. A newer run is kept while it hides such an older task. It assumes
+// one property per payload.
 func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task,
 ) bool {

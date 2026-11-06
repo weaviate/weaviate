@@ -632,9 +632,9 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 	return upsertPlan{}, fmt.Errorf("unsupported index type %q", indexType)
 }
 
-// refusePartlyMigratedRebuild refuses a rebuild of an index some tenants
-// already migrated: a rebuild analyzes with the schema's settings, which those
-// tenants no longer use. Finishing the migration rebuilds the rest anyway.
+// refusePartlyMigratedRebuild refuses a rebuild of any index of propName while a
+// partial run stands on that property ([db.ReindexPartialRunConflict] says why),
+// naming the resubmit that finishes the run.
 func refusePartlyMigratedRebuild(collection, propName string, reindexTasks []*distributedtask.Task) error {
 	if msg := db.ReindexPartialRunConflict(reindexTasks, collection, propName, nil); msg != "" {
 		return fmt.Errorf("%w: %s", errRebuildPartlyMigrated, msg)
