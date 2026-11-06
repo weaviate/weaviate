@@ -39,7 +39,7 @@ const (
 )
 
 const (
-	NetworkGetObjectsObj = "An object containing the Objects objects on this network Weaviate instance."
+	NetworkGetObjectsObj = "An object containing the Objects on this network Weaviate instance."
 )
 
 const NetworkGetClassUUID = "The UUID of a Object, assigned by the Weaviate network" // TODO check this with @lauraham
