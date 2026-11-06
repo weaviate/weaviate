@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -31,6 +32,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -87,6 +89,45 @@ func TestAShardLoadArmsAndCachesItsMigration(t *testing.T) {
 	rec, ok := reread.Get(subject.Key)
 	require.True(t, ok)
 	require.False(t, rec.Subject().Unmirrored, "an armed mirror leaves nothing unmirrored")
+}
+
+// The resumed iteration skips writes past the record's cutoff, so only a mirror armed at load catches them.
+func TestAWriteBetweenShardLoadAndTheResumedIterationReachesTheNewIndex(t *testing.T) {
+	const propName = filterableToRangeablePropName
+	ctx := testCtx()
+	className := "LazyRecoveryIterating_" + uuid.NewString()[:8]
+	class := newFilterableToRangeableTestClass(className)
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	for _, obj := range makeFilterableToRangeableTestObjects(t, 25, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+	interrupted, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
+	require.NoError(t, startOnShard(ctx, interrupted, shard))
+	require.NoError(t, shard.Shutdown(ctx))
+
+	logger, _ := test.NewNullLogger()
+	p := NewReindexProvider(idx.db, nil, nil, logger, idx.getSchema.NodeName(), nil, ctx)
+	idx.shardReindexer = NewMigrationRecoveryReindexer(true, logger, nil, p)
+	loaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+	require.NoError(t, err)
+	idx.shards.Store(shard.Name(), loaded)
+	shard = loaded.(*Shard)
+	defer shard.Shutdown(context.Background())
+
+	written := makeFilterableToRangeableTestObjects(t, 1, className)[0]
+	written.Object.LastUpdateTimeUnix = time.Now().UnixMilli()
+	require.NoError(t, shard.PutObject(ctx, written))
+	resumed, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
+	require.NoError(t, resumed.RunOnShard(ctx, shard))
+
+	stored, err := shard.ObjectByID(ctx, written.ID(), nil, additional.Properties{})
+	require.NoError(t, err)
+	indexed := false
+	for _, ids := range filterableToRangeableFingerprint(t, shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))) {
+		indexed = indexed || slices.Contains(ids, stored.DocID)
+	}
+	require.True(t, indexed, "the write landed after the cutoff, so the iteration skipped it")
 }
 
 // Recovery stamps an unbuildable decided flip before the load reconciler runs, so the staged copy is not promoted.

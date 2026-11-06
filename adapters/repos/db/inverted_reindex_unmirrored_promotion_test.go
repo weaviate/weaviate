@@ -153,8 +153,11 @@ func TestRecoveryStampsAMigrationItCouldNotArm(t *testing.T) {
 			},
 		},
 		{
-			name: "iterating: the scheduler restarts the unit and arms the mirror itself",
-			rec:  func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterating(s, MigrationCheckpoint{}) },
+			name: "iterating, record builds no task, so no mirror",
+			rec: func(s MigrationSubject) MigrationRecord {
+				return NewMigrationRecordIterating(noTokenization(s), MigrationCheckpoint{})
+			},
+			wantUnmirrored: true,
 		},
 	}
 
