@@ -108,11 +108,12 @@ func TestClient(t *testing.T) {
 		t.Setenv(AllowedBaseURLsEnv, server.URL)
 		c := New[[]float32](0, 0, 0)
 
-		url, _ := c.getWeaviateEmbedURL(context.Background(), "")
+		url, _ := c.getWeaviateEmbedURL("")
 		assert.Equal(t, "https://api.embedding.weaviate.io/v1/embeddings/embed", url)
 
 		t.Setenv(AllowedBaseURLsEnv, "http://override-url.com")
-		url, _ = c.getWeaviateEmbedURL(context.Background(), "http://override-url.com")
+		c = New[[]float32](0, 0, 0)
+		url, _ = c.getWeaviateEmbedURL("http://override-url.com")
 		assert.Equal(t, "http://override-url.com/v1/embeddings/embed", url)
 	})
 

@@ -34,9 +34,10 @@ const (
 )
 
 type Client[T dto.Embedding] struct {
-	httpClient *http.Client
-	defaultRPM int
-	defaultTPM int
+	httpClient     *http.Client
+	defaultRPM     int
+	defaultTPM     int
+	allowedOrigins []string
 }
 
 type embeddingsRequest struct {
@@ -63,10 +64,12 @@ type metadata struct {
 }
 
 func New[T dto.Embedding](timeout time.Duration, defaultRPM, defaultTPM int) *Client[T] {
+	allowedOrigins, _ := parseAllowlist()
 	return &Client[T]{
-		httpClient: modulecomponents.NewBaseHttpClient(timeout),
-		defaultRPM: defaultRPM,
-		defaultTPM: defaultTPM,
+		httpClient:     modulecomponents.NewBaseHttpClient(timeout),
+		defaultRPM:     defaultRPM,
+		defaultTPM:     defaultTPM,
+		allowedOrigins: allowedOrigins,
 	}
 }
 
@@ -77,7 +80,7 @@ func (c *Client[T]) Vectorize(ctx context.Context, input []string, query bool, d
 		return nil, errors.Wrap(err, "marshal body")
 	}
 
-	url, err := c.getWeaviateEmbedURL(ctx, baseURL)
+	url, err := c.getWeaviateEmbedURL(baseURL)
 	if err != nil {
 		return nil, errors.Wrap(err, "embedding service URL")
 	}
@@ -128,8 +131,8 @@ func (c *Client[T]) Vectorize(ctx context.Context, input []string, query bool, d
 	return &resBody, nil
 }
 
-func (c *Client[T]) getWeaviateEmbedURL(ctx context.Context, baseURL string) (string, error) {
-	origin, err := resolveOrigin(baseURL)
+func (c *Client[T]) getWeaviateEmbedURL(baseURL string) (string, error) {
+	origin, err := resolveOrigin(baseURL, c.allowedOrigins)
 	if err != nil {
 		return "", err
 	}

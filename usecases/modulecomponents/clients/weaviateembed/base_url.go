@@ -17,6 +17,8 @@ import (
 	"os"
 	"slices"
 	"strings"
+
+	"github.com/sirupsen/logrus"
 )
 
 // AllowedBaseURLsEnv holds comma-separated origins: scheme://host[:port].
@@ -24,36 +26,62 @@ const AllowedBaseURLsEnv = "MODULES_WEAVIATE_EMBEDDINGS_ALLOWED_BASE_URLS"
 
 // ValidateBaseURL accepts only DefaultBaseURL and origins in AllowedBaseURLsEnv.
 func ValidateBaseURL(baseURL string) error {
-	_, err := resolveOrigin(baseURL)
+	allowedOrigins, _ := parseAllowlist()
+	_, err := resolveOrigin(baseURL, allowedOrigins)
 	return err
 }
 
+// WarnInvalidAllowedBaseURLs logs allowlist entries that can never match. Rejected
+// baseURLs get a generic error, so the log is the only place these show up.
+func WarnInvalidAllowedBaseURLs(logger logrus.FieldLogger) {
+	_, invalidEntries := parseAllowlist()
+	for _, entry := range invalidEntries {
+		logger.WithField("env", AllowedBaseURLsEnv).
+			Warnf("ignoring entry %q: expected scheme://host[:port] without wildcards", entry)
+	}
+}
+
 // Callers must build the request URL from the returned origin, not from baseURL.
-func resolveOrigin(baseURL string) (string, error) {
+func resolveOrigin(baseURL string, allowedOrigins []string) (string, error) {
 	if baseURL == "" {
 		return DefaultBaseURL, nil
 	}
 	origin, ok := parseOrigin(baseURL)
-	if !ok || (origin != DefaultBaseURL && !slices.Contains(allowedOrigins(), origin)) {
+	if !ok || (origin != DefaultBaseURL && !slices.Contains(allowedOrigins, origin)) {
 		return "", fmt.Errorf("baseURL %q is not allowed", baseURL)
 	}
 	return origin, nil
 }
 
-func allowedOrigins() []string {
-	var origins []string
-	for _, entry := range strings.Split(os.Getenv(AllowedBaseURLsEnv), ",") {
-		if origin, ok := parseOrigin(strings.TrimSpace(entry)); ok {
-			origins = append(origins, origin)
+func parseAllowlist() (origins, invalidEntries []string) {
+	for _, rawEntry := range strings.Split(os.Getenv(AllowedBaseURLsEnv), ",") {
+		entry := strings.TrimSpace(rawEntry)
+		if entry == "" {
+			continue
 		}
+		origin, ok := parseOrigin(entry)
+		if !ok || strings.Contains(origin, "*") {
+			invalidEntries = append(invalidEntries, entry)
+			continue
+		}
+		origins = append(origins, origin)
 	}
-	return origins
+	return origins, invalidEntries
 }
 
 func parseOrigin(rawURL string) (string, bool) {
 	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Host == "" {
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return "", false
 	}
-	return (&url.URL{Scheme: parsed.Scheme, Host: strings.ToLower(parsed.Host)}).String(), true
+	return (&url.URL{Scheme: parsed.Scheme, Host: lowercaseHost(parsed.Host)}).String(), true
+}
+
+// Host names are case-insensitive, but IPv6 zone identifiers are interface names.
+func lowercaseHost(host string) string {
+	zoneStart := strings.IndexByte(host, '%')
+	if zoneStart < 0 {
+		return strings.ToLower(host)
+	}
+	return strings.ToLower(host[:zoneStart]) + host[zoneStart:]
 }

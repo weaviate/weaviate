@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	grpcmetadata "google.golang.org/grpc/metadata"
@@ -66,6 +67,8 @@ func TestValidateBaseURL(t *testing.T) {
 		{name: "bare star is not a pattern", baseURL: "https://x.example.com", allowlist: "*", wantErr: true},
 		{name: "bare host entry is ignored", baseURL: "https://a.example.com", allowlist: "a.example.com", wantErr: true},
 		{name: "empty entries allow nothing", baseURL: "https://a.example.com", allowlist: " , ,", wantErr: true},
+		{name: "entry without a scheme is ignored", baseURL: "//embed:8080", allowlist: "//embed:8080", wantErr: true},
+		{name: "other IPv6 zone case than allowlisted", baseURL: "http://[fe80::1%25lan0]:8080", allowlist: "http://[fe80::1%25LAN0]:8080", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -96,10 +99,54 @@ func TestEmbedURLIsBuiltFromOrigin(t *testing.T) {
 		t.Run(baseURL, func(t *testing.T) {
 			c := New[[]float32](0, 0, 0)
 
-			got, err := c.getWeaviateEmbedURL(context.Background(), baseURL)
+			got, err := c.getWeaviateEmbedURL(baseURL)
 
 			require.NoError(t, err)
 			assert.Equal(t, want, got)
+		})
+	}
+}
+
+func TestClientParsesAllowlistOnceAtConstruction(t *testing.T) {
+	t.Setenv(AllowedBaseURLsEnv, "https://a.example.com")
+	c := New[[]float32](0, 0, 0)
+
+	t.Setenv(AllowedBaseURLsEnv, "https://b.example.com")
+
+	_, err := c.getWeaviateEmbedURL("https://a.example.com")
+	assert.NoError(t, err)
+	_, err = c.getWeaviateEmbedURL("https://b.example.com")
+	assert.Error(t, err)
+}
+
+func TestWarnInvalidAllowedBaseURLs(t *testing.T) {
+	tests := []struct {
+		name         string
+		allowlist    string
+		wantWarnings []string
+	}{
+		{name: "unset"},
+		{name: "valid entries", allowlist: "https://a.example.com, http://embed:8080"},
+		{name: "empty entries", allowlist: " , ,"},
+		{
+			name:      "invalid entries next to a valid one",
+			allowlist: "embed:8080, https://a.example.com, a.example.com, //embed:8080, https://*.example.com, *",
+			wantWarnings: []string{
+				`"embed:8080"`, `"a.example.com"`, `"//embed:8080"`, `"https://*.example.com"`, `"*"`,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(AllowedBaseURLsEnv, tt.allowlist)
+			logger, hook := logrustest.NewNullLogger()
+
+			WarnInvalidAllowedBaseURLs(logger)
+
+			require.Len(t, hook.AllEntries(), len(tt.wantWarnings))
+			for i, want := range tt.wantWarnings {
+				assert.Contains(t, hook.AllEntries()[i].Message, want)
+			}
 		})
 	}
 }
@@ -131,13 +178,14 @@ func TestEmbedURLForAllowlistedHost(t *testing.T) {
 	}{
 		{name: "IPv6", baseURL: "http://[fd00::1]:8080", want: "http://[fd00::1]:8080/v1/embeddings/embed"},
 		{name: "scoped IPv6", baseURL: "http://[fe80::1%25eth0]:8080", want: "http://[fe80::1%25eth0]:8080/v1/embeddings/embed"},
+		{name: "scoped IPv6 keeps zone case", baseURL: "http://[FE80::1%25LAN0]:8080", want: "http://[fe80::1%25LAN0]:8080/v1/embeddings/embed"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv(AllowedBaseURLsEnv, tt.baseURL)
 			c := New[[]float32](0, 0, 0)
 
-			got, err := c.getWeaviateEmbedURL(context.Background(), tt.baseURL)
+			got, err := c.getWeaviateEmbedURL(tt.baseURL)
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
