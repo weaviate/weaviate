@@ -194,7 +194,8 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
-	return nil
+	// maxTokens is read as a float and truncated to an int in the request.
+	return ic.propertyValuesHelper.ValidateIntegers(ic.cfg, maxTokensProperty)
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) *string {

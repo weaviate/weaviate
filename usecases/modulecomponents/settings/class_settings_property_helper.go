@@ -34,6 +34,7 @@ type PropertyValuesHelper interface {
 	GetNumber(in any) (float32, error)
 	GetPropertyAsListOfStrings(cfg moduletools.ClassConfig, name string, defaultValue []string) []string
 	ValidateBaseURL(baseURL string) error
+	ValidateIntegers(cfg moduletools.ClassConfig, names ...string) error
 }
 
 type classPropertyValuesHelper struct {
@@ -62,7 +63,9 @@ func (h *classPropertyValuesHelper) GetPropertyAsIntWithNotExists(cfg moduletool
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return notExistsValue
 	}
-	return getNumberValue(h.GetSettings(cfg), name, defaultValue, notExistsValue)
+	settings := h.GetSettings(cfg)
+	reportNonIntegral(cfg, settings, name)
+	return getNumberValue(settings, name, defaultValue, notExistsValue)
 }
 
 func (h *classPropertyValuesHelper) GetPropertyAsInt64(cfg moduletools.ClassConfig,
@@ -78,7 +81,9 @@ func (h *classPropertyValuesHelper) GetPropertyAsInt64WithNotExists(cfg moduleto
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return notExistsValue
 	}
-	return getNumberValue(h.GetSettings(cfg), name, defaultValue, notExistsValue)
+	settings := h.GetSettings(cfg)
+	reportNonIntegral(cfg, settings, name)
+	return getNumberValue(settings, name, defaultValue, notExistsValue)
 }
 
 func (h *classPropertyValuesHelper) GetPropertyAsFloat64(cfg moduletools.ClassConfig,
@@ -229,13 +234,20 @@ func getNumberValue[T int | int64 | float64](settings map[string]any,
 		if asInt64V, err := v.Int64(); err == nil {
 			return asNumber[int64, T](asInt64V)
 		}
-		// A fraction, which only a float setting can hold. The REST API
-		// decodes every number of a module config as json.Number.
+		// Int64 fails on a fraction, on an int written as a float and on a
+		// number beyond int64. The REST API decodes every number of a module
+		// config as json.Number.
 		var zero T
 		if _, isFloat := any(zero).(float64); isFloat {
 			if asFloat64V, err := v.Float64(); err == nil {
 				return asNumber[float64, T](asFloat64V)
 			}
+			return defaultValue
+		}
+		// An int written as a float (1024.0, 1e3): the stored float64 is read
+		// as that int at request time, so validation has to see the same value.
+		if asInt64V, ok := integralValue(v); ok {
+			return asNumber[int64, T](asInt64V)
 		}
 		return defaultValue
 	case float32:
