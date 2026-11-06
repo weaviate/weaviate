@@ -185,11 +185,11 @@ func (h *indexesHandlers) rebuildIndex(params schema.SchemaObjectsIndexRebuildPa
 // Fails closed (503) rather than let callers derive idempotency or the
 // conflict/cap gate from a partial view.
 func (h *indexesHandlers) listReindexTasks(ctx context.Context, principal *models.Principal) ([]*distributedtask.Task, middleware.Responder) {
-	if h.appState.ClusterService == nil {
+	if h.taskLister == nil {
 		return nil, jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
 			"cluster service unavailable; cannot submit reindex task"))
 	}
-	return reindexTasksOrFailClosed(ctx, principal, h.appState.ClusterService, h.appState.Logger)
+	return reindexTasksOrFailClosed(ctx, principal, h.taskLister, h.appState.Logger)
 }
 
 // reindexTasksOrFailClosed lists reindex-namespace tasks from lister, failing

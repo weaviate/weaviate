@@ -41,6 +41,9 @@ import (
 
 func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	h := &indexesHandlers{appState: appState, taskSource: resolveTaskSource(appState)}
+	if appState.ClusterService != nil {
+		h.taskLister = appState.ClusterService
+	}
 	api.SchemaSchemaObjectsIndexesGetHandler = schema.SchemaObjectsIndexesGetHandlerFunc(h.getIndexes)
 	api.SchemaSchemaObjectsIndexUpsertHandler = schema.SchemaObjectsIndexUpsertHandlerFunc(h.upsertIndex)
 	api.SchemaSchemaObjectsIndexRebuildHandler = schema.SchemaObjectsIndexRebuildHandlerFunc(h.rebuildIndex)
@@ -101,6 +104,8 @@ type indexesHandlers struct {
 	// once at wiring. Reaching for appState.ClusterService inside getIndexes
 	// would put the leader-routed methods back within reach.
 	taskSource localTaskLister
+	// taskLister is the submit path's leader-routed task list; nil without a cluster service.
+	taskLister distributedtask.TaskLister
 }
 
 // resolveTaskSource keeps a nil ClusterService out of the interface: boxed,
