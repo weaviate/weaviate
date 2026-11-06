@@ -116,11 +116,27 @@ func (c *arenaChunk) clearLive(slot uint64) bool {
 //     updates allocate a new doc id), so hot paths never observe the
 //     difference.
 //
+// That last point is load-bearing: the race freedom of concurrent fills
+// relies on an id's bytes never changing. Doc id reuse (the planned fix for
+// memory growth under churn, see the round-2 reuse design: per-index free
+// list and CleanForReuse, #13036) ends that guarantee. A reused id would get
+// a different code written in place while a reader may still hold a view of
+// the old one, which yields a wrong distance with no error; the sharded cache
+// is immune because it swaps in a new slice. Before doc id reuse may reuse
+// slots in this cache it has to solve that reader-held-view problem, e.g. by
+// not reusing a slot while a view from its previous life can be held, or by
+// giving a reused id a fresh slot.
+//
 // Chunk reclamation is intentionally out of scope: memory follows the
 // highest id range touched since startup (or the last Drop/wipe), not the
-// number of live records. Occupancy and the node-level
-// weaviate_vector_cache_arena_{slab_bytes,live_vectors} gauges make that
-// gap observable.
+// number of live records. Chunks are also allocated whole, 4096 records at a
+// time, so a small index costs a full chunk: below roughly 3,600 vectors
+// (RQ8 at 1536 dims: 6.5 MB per chunk vs about 182 KB for 100 vectors in the
+// sharded cache) the arena uses more memory than the sharded cache, which
+// makes it a poor fit for many small indexes such as multi-tenant
+// collections. Occupancy and the node-level
+// weaviate_vector_cache_arena_{slab_bytes,live_vectors} gauges make both
+// gaps observable.
 type arenaByteCache struct {
 	shardedLocks *common.LazyShardedRWLocks
 	// maintenanceLock serializes growth against itself, exactly like the
@@ -176,6 +192,11 @@ type arenaByteCache struct {
 	slabBytes        atomic.Int64
 	slabBytesGauge   prometheus.Gauge
 	liveVectorsGauge prometheus.Gauge
+
+	// badRecordLogged is set once the first wrong-size preload has been
+	// logged; badRecords counts the refusals since the last summary line.
+	badRecordLogged atomic.Bool
+	badRecords      atomic.Int64
 }
 
 // ArenaOccupancy reports how much memory an arena cache holds against how
@@ -241,9 +262,10 @@ type arenaTable struct {
 var _ IfAbsentPreloader[byte] = (*arenaByteCache)(nil)
 
 // NewArenaByteCache constructs an arena-backed Cache[byte] for codes of
-// exactly recordSize bytes. It is not wired as a default anywhere; callers
-// opt in per index. The parameters after recordSize match
-// NewShardedByteLockCache.
+// exactly recordSize bytes. It is not a default anywhere: the process-wide
+// VECTOR_CACHE_IMPL toggle (#13588) selects it for every compressed index of
+// the process, and unset keeps the sharded cache. The parameters after
+// recordSize match NewShardedByteLockCache.
 func NewArenaByteCache(vecForID common.VectorForID[byte], recordSize int, maxSize int,
 	pageSize uint64, logger logrus.FieldLogger, deletionInterval time.Duration,
 	allocChecker memwatch.AllocChecker,
@@ -355,12 +377,31 @@ func (s *arenaByteCache) checkRecordSize(id uint64, vec []byte) error {
 	return nil
 }
 
-// skipBadRecord logs a record refused by checkRecordSize on a preload path,
-// which has no error return; the id is then served through the miss path.
+// skipBadRecord accounts for a record refused by checkRecordSize on a
+// preload path, which has no error return. The record is not cached: a later
+// Get of the id takes the miss path, which refuses the same bytes with an
+// error, so the search reaching it fails (as RQ4 on the sharded cache does
+// through its length check). A systematic size mismatch would refuse every
+// record of a prefill, so only the first refusal is logged in full; later
+// ones are counted and summarized by flushBadRecords.
 func (s *arenaByteCache) skipBadRecord(err error) {
-	if s.logger != nil {
+	if s.badRecordLogged.CompareAndSwap(false, true) {
+		if s.logger != nil {
+			s.logger.WithField("action", "vector_cache_preload").
+				Warnf("skipping record: %v; further size mismatches in this cache are counted and summarized", err)
+		}
+		return
+	}
+	s.badRecords.Add(1)
+}
+
+// flushBadRecords logs one line for the records refused since the last one,
+// if any. It runs on the deletion ticker and on Drop, so a prefill with a
+// systematic mismatch logs its first refusal and then one count per tick.
+func (s *arenaByteCache) flushBadRecords() {
+	if n := s.badRecords.Swap(0); n > 0 && s.logger != nil {
 		s.logger.WithField("action", "vector_cache_preload").
-			Warnf("skipping record: %v", err)
+			Warnf("skipped %d more records whose size is not %d bytes", n, s.recordSize)
 	}
 }
 
@@ -772,6 +813,7 @@ func (s *arenaByteCache) Drop() {
 	if !s.dropped.CompareAndSwap(false, true) {
 		return
 	}
+	s.flushBadRecords()
 	s.maintenanceLock.Lock()
 	s.shardedLocks.LockAll()
 	s.releaseChunks(s.chunks)
@@ -815,6 +857,7 @@ func (s *arenaByteCache) watchForDeletion() {
 				case <-s.cancel:
 					return
 				case <-t.C:
+					s.flushBadRecords()
 					s.replaceIfFull()
 				}
 			}
