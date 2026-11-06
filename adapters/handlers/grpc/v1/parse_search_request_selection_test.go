@@ -24,7 +24,7 @@ import (
 
 // TestParseHybridSelection: hybrid diversity is carried on the top-level
 func TestParseHybridSelection(t *testing.T) {
-	parser := NewParser(false, getClass, nil, namespacing.Disabled)
+	parser := NewParser(false, getClass, nil, namespacing.Disabled, nil)
 	cfg := &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}}
 
 	mmr := func() *pb.Selection {
@@ -92,7 +92,7 @@ func TestParseHybridSelection(t *testing.T) {
 }
 
 func TestParseSelectionLimitValidation(t *testing.T) {
-	parser := NewParser(false, getClass, nil, namespacing.Disabled)
+	parser := NewParser(false, getClass, nil, namespacing.Disabled, nil)
 	cfg := &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}}
 
 	mmr := func(limit *uint32) *pb.Selection {
@@ -145,7 +145,7 @@ func TestParseSelectionLimitValidation(t *testing.T) {
 }
 
 func TestParseSelectionMultiVectorRejected(t *testing.T) {
-	parser := NewParser(false, getClass, nil, namespacing.Disabled)
+	parser := NewParser(false, getClass, nil, namespacing.Disabled, nil)
 	cfg := &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}}
 
 	mmr := func() *pb.Selection {

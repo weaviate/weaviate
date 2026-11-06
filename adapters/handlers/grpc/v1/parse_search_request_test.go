@@ -12,6 +12,7 @@
 package v1
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -2959,7 +2960,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 		},
 	}
 
-	parser := NewParser(false, getClass, nil, namespacing.Disabled)
+	parser := NewParser(false, getClass, nil, namespacing.Disabled, nil)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
@@ -3018,7 +3019,7 @@ func TestGRPCSearchRequestBoostPropertyTypeValidation(t *testing.T) {
 		{"numeric_decay on nested path errors", numericDecay("number.foo"), true},
 	}
 
-	parser := NewParser(false, getClass, nil, namespacing.Disabled)
+	parser := NewParser(false, getClass, nil, namespacing.Disabled, nil)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := &pb.SearchRequest{
@@ -3031,6 +3032,70 @@ func TestGRPCSearchRequestBoostPropertyTypeValidation(t *testing.T) {
 			} else {
 				require.Nil(t, err)
 			}
+		})
+	}
+}
+
+type fakeRerankValidator struct {
+	verdict  error
+	class    string
+	property string
+}
+
+func (f *fakeRerankValidator) ValidateRerankProperty(class *models.Class, property string) error {
+	f.class, f.property = class.Class, property
+	return f.verdict
+}
+
+func TestSearchRejectsRerankPropertyBeforeTheSearch(t *testing.T) {
+	tickets := &models.Class{
+		Class:      "Tickets",
+		Properties: []*models.Property{{Name: "tags", DataType: schema.DataTypeTextArray.PropString()}},
+	}
+	getTickets := func(name string) (*models.Class, error) {
+		if name != tickets.Class {
+			return nil, fmt.Errorf("class %s not found", name)
+		}
+		return tickets, nil
+	}
+	property, query := "tags", "billing"
+	rerank := &pb.Rerank{Property: property, Query: &query}
+	rejection := errors.New(`rerank: property "tags" of collection "Tickets" is of type text[]; reranker-dummy reranks text, blob properties`)
+	plain := dto.GetParams{
+		ClassName:  tickets.Class,
+		Pagination: &filters.Pagination{Limit: 10},
+		Properties: search.SelectProperties{{Name: property, IsPrimitive: true}},
+	}
+	withRerank := plain
+	withRerank.AdditionalProperties = additional.Properties{
+		ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &property, Query: &query}},
+	}
+
+	tests := []struct {
+		name    string
+		rerank  *pb.Rerank
+		verdict error
+		wantErr error
+		// property the validator saw; empty when it was not called
+		wantSeen string
+		out      dto.GetParams
+	}{
+		{name: "validator rejects", rerank: rerank, verdict: rejection, wantErr: rejection, wantSeen: property},
+		{name: "validator accepts", rerank: rerank, wantSeen: property, out: withRerank},
+		{name: "no rerank, validator not called", verdict: rejection, out: plain},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := &fakeRerankValidator{verdict: tt.verdict}
+			parser := NewParser(false, getTickets, nil, namespacing.Disabled, validator)
+			req := &pb.SearchRequest{Collection: tickets.Class, Rerank: tt.rerank}
+
+			out, err := parser.Search(req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+
+			require.Equal(t, tt.wantErr, err)
+			require.Equal(t, tt.out, out)
+			require.Equal(t, tt.wantSeen, validator.property)
 		})
 	}
 }

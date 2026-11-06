@@ -11,6 +11,15 @@
 
 package ent
 
+import "github.com/go-openapi/strfmt"
+
+// Document is one search result handed to a rerank client: the object's ID
+// and the value of the rerank property, "" when the object has none.
+type Document struct {
+	ID    strfmt.UUID
+	Value string
+}
+
 type RankResult struct {
 	Query          string
 	DocumentScores []DocumentScore

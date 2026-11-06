@@ -14,8 +14,10 @@ package rank
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 
@@ -144,4 +146,196 @@ func (c *fakeRankClient) Rank(ctx context.Context, query string, documents []str
 		Query: query,
 	}
 	return result, nil
+}
+
+type fixedScoresClient struct{ scores map[string]float64 }
+
+func (c *fixedScoresClient) Rank(_ context.Context, query string, documents []string, _ moduletools.ClassConfig) (*ent.RankResult, error) {
+	out := make([]ent.DocumentScore, len(documents))
+	for i, d := range documents {
+		out[i] = ent.DocumentScore{Document: d, Score: c.scores[d]}
+	}
+	return &ent.RankResult{Query: query, DocumentScores: out}, nil
+}
+
+func TestRankKeepsSearchOrderOnEqualScores(t *testing.T) {
+	// sort.Slice uses insertion sort, which is stable, up to 12 elements, so
+	// this fixture must be larger than that to fail without sort.SliceStable.
+	manyIDs := make([]string, 100)
+	manyScores := make(map[string]float64, len(manyIDs))
+	manyWant := make([]string, 0, len(manyIDs))
+	for i := range manyIDs {
+		manyIDs[i] = fmt.Sprintf("id-%03d", i)
+		manyScores[manyIDs[i]] = float64(i % 3)
+	}
+	for _, score := range []float64{2, 1, 0} {
+		for _, id := range manyIDs {
+			if manyScores[id] == score {
+				manyWant = append(manyWant, id)
+			}
+		}
+	}
+
+	tests := []struct {
+		name   string
+		ids    []string
+		scores map[string]float64
+		want   []string
+	}{
+		{
+			name:   "ties among five results",
+			ids:    []string{"a", "b", "c", "d", "e"},
+			scores: map[string]float64{"a": 0.5, "b": 0.9, "c": 0.5, "d": 0.5, "e": 0.9},
+			want:   []string{"b", "e", "a", "c", "d"},
+		},
+		{
+			name:   "all scores equal",
+			ids:    []string{"a", "b", "c", "d", "e"},
+			scores: map[string]float64{"a": 0.5, "b": 0.5, "c": 0.5, "d": 0.5, "e": 0.5},
+			want:   []string{"a", "b", "c", "d", "e"},
+		},
+		{
+			name:   "ties among many results",
+			ids:    manyIDs,
+			scores: manyScores,
+			want:   manyWant,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := make([]search.Result, len(tt.ids))
+			for i, id := range tt.ids {
+				in[i] = search.Result{ID: strfmt.UUID(id), Schema: map[string]interface{}{"content": id}}
+			}
+			provider := New(&fixedScoresClient{scores: tt.scores})
+			property := "content"
+			query := "query"
+			limit := len(in)
+
+			out, err := provider.AdditionalPropertyFn(context.Background(), in,
+				&Params{Property: &property, Query: &query}, &limit, nil, nil)
+			require.NoError(t, err)
+
+			got := make([]string, len(out))
+			for i := range out {
+				got[i] = string(out[i].ID)
+			}
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+type recordingPropertyClient struct {
+	property  string
+	documents []ent.Document
+}
+
+func (c *recordingPropertyClient) RankProperty(_ context.Context, query, property string, documents []ent.Document, _ moduletools.ClassConfig) (*ent.RankResult, error) {
+	c.property = property
+	c.documents = documents
+	out := make([]ent.DocumentScore, len(documents))
+	for i, d := range documents {
+		out[i] = ent.DocumentScore{Document: d.Value, Score: 1}
+	}
+	return &ent.RankResult{Query: query, DocumentScores: out}, nil
+}
+
+type recordingTextClient struct{ documents []string }
+
+func (c *recordingTextClient) Rank(_ context.Context, query string, documents []string, _ moduletools.ClassConfig) (*ent.RankResult, error) {
+	c.documents = documents
+	out := make([]ent.DocumentScore, len(documents))
+	for i, d := range documents {
+		out[i] = ent.DocumentScore{Document: d, Score: 1}
+	}
+	return &ent.RankResult{Query: query, DocumentScores: out}, nil
+}
+
+// propertyAndTextClient has both methods; the provider must call RankProperty.
+type propertyAndTextClient struct{ *recordingPropertyClient }
+
+func (c *propertyAndTextClient) Rank(context.Context, string, []string, moduletools.ClassConfig) (*ent.RankResult, error) {
+	return nil, errors.New("Rank called on a client that implements RankProperty")
+}
+
+func TestRankPropertyReceivesTheRerankProperty(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider func(*recordingPropertyClient) *ReRankerProvider
+	}{
+		{
+			name:     "NewWithProperty",
+			provider: func(c *recordingPropertyClient) *ReRankerProvider { return NewWithProperty(c) },
+		},
+		{
+			name:     "New with a client that has both methods",
+			provider: func(c *recordingPropertyClient) *ReRankerProvider { return New(&propertyAndTextClient{c}) },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &recordingPropertyClient{}
+			provider := tt.provider(client)
+			in := []search.Result{{ID: "some-uuid", Schema: map[string]interface{}{"photo": "aGVsbG8="}}}
+			property := "photo"
+			query := "q"
+			limit := len(in)
+
+			_, err := provider.AdditionalPropertyFn(context.Background(), in,
+				&Params{Property: &property, Query: &query}, &limit, nil, nil)
+			require.NoError(t, err)
+			assert.Equal(t, "photo", client.property)
+		})
+	}
+}
+
+func TestRankClientsReceiveTheDocuments(t *testing.T) {
+	first := strfmt.UUID("00000000-0000-0000-0000-000000000001")
+	second := strfmt.UUID("00000000-0000-0000-0000-000000000002")
+	tests := []struct {
+		name       string
+		in         []search.Result
+		wantDocs   []ent.Document
+		wantValues []string
+	}{
+		{
+			name: "both results have the property",
+			in: []search.Result{
+				{ID: first, Schema: map[string]interface{}{"content": "a"}},
+				{ID: second, Schema: map[string]interface{}{"content": "b"}},
+			},
+			wantDocs:   []ent.Document{{ID: first, Value: "a"}, {ID: second, Value: "b"}},
+			wantValues: []string{"a", "b"},
+		},
+		{
+			name: "a result without the property",
+			in: []search.Result{
+				{ID: first, Schema: map[string]interface{}{"content": "a"}},
+				{ID: second, Schema: map[string]interface{}{"title": "b"}},
+			},
+			wantDocs:   []ent.Document{{ID: first, Value: "a"}, {ID: second, Value: ""}},
+			wantValues: []string{"a", ""},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			property := "content"
+			query := "q"
+			limit := len(tt.in)
+			params := &Params{Property: &property, Query: &query}
+
+			propertyClient := &recordingPropertyClient{}
+			_, err := NewWithProperty(propertyClient).AdditionalPropertyFn(context.Background(),
+				append([]search.Result(nil), tt.in...), params, &limit, nil, nil)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantDocs, propertyClient.documents)
+
+			textClient := &recordingTextClient{}
+			_, err = New(textClient).AdditionalPropertyFn(context.Background(),
+				append([]search.Result(nil), tt.in...), params, &limit, nil, nil)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantValues, textClient.documents)
+		})
+	}
 }
