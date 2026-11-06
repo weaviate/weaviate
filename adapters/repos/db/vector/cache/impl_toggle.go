@@ -18,20 +18,31 @@ import (
 )
 
 // VectorCacheImplEnv selects the compressed-vector cache implementation at
-// process level: "sharded" (default) or "arena". Experiment plumbing in the
-// spirit of HNSW_ACORN_FILTER_RATIO: it exists so the same persisted index
-// can be served under either cache layout for A/B benchmarking, without any
-// per-collection config surface. Consulted at cache construction time
-// (index load / compressor creation), not per operation.
+// process level: "sharded" (default) or "arena". The arena ships as an
+// opt-in for this release; the default stays sharded. There is no
+// per-collection config surface: the choice applies to every compressed
+// index of the process and is consulted at cache construction time (index
+// load / compressor creation), not per operation.
 //
-// Caveat for "arena": deleted records free their slot but not their chunk
-// (no chunk reclamation yet), and vector updates move to fresh doc ids, so
-// under update/delete churn arena memory follows the id range touched since
-// startup rather than the live vectors — e.g. 2M RQ8 1536d objects updated
-// 5x between restarts hold ~16 GB vs ~3.9 GB sharded. It suits read-heavy,
-// append-mostly workloads. Watch weaviate_vector_cache_arena_slab_bytes
-// against weaviate_vector_cache_arena_live_vectors; a restart, or the
-// cache being dropped, releases the memory.
+// Caveats for "arena", both observable through
+// weaviate_vector_cache_arena_slab_bytes against
+// weaviate_vector_cache_arena_live_vectors:
+//
+//   - Churn: deleted records free their slot but not their chunk (no chunk
+//     reclamation yet), and vector updates move to fresh doc ids, so under
+//     update/delete churn arena memory follows the id range touched since
+//     startup rather than the live vectors, e.g. 2M RQ8 1536d objects
+//     updated 5x between restarts hold ~16 GB vs ~3.9 GB sharded. A restart
+//     refills only the codes still in the compressed bucket (deleted ones
+//     leave it at tombstone cleanup), so it releases every chunk that no
+//     longer holds one; dropping the cache releases all of them.
+//   - Small indexes: chunks hold 4096 records and are allocated whole, so an
+//     index below roughly 3,600 vectors uses more memory than with the
+//     sharded cache. With many small indexes, as in multi-tenant
+//     collections, this dominates: 10,000 tenants of 100 RQ8 1536d vectors
+//     are ~65 GB arena vs ~1.8 GB sharded.
+//
+// The arena suits read-heavy, append-mostly workloads with large indexes.
 const VectorCacheImplEnv = "VECTOR_CACHE_IMPL"
 
 // ArenaCacheSelected reports whether VECTOR_CACHE_IMPL selects the arena
