@@ -344,7 +344,7 @@ func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []by
 		return typesafeaiResponse{}, false, fmt.Errorf("TypeSafe AI response exceeds %d bytes", maxResponseBodyBytes)
 	}
 	if err := json.Unmarshal(responseBody, &response); err != nil {
-		return typesafeaiResponse{}, false, withBody(fmt.Errorf("parse TypeSafe AI response: %w", err),
+		return typesafeaiResponse{}, false, withBody(fmt.Errorf("parse TypeSafe AI response: %s", truncate(err.Error())),
 			responseBody, hostFromHeader)
 	}
 	// The shape of an error in a 200 is not documented, so the body is the
