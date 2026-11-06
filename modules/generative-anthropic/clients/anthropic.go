@@ -155,6 +155,9 @@ func (a *anthropic) generate(ctx context.Context, cfg moduletools.ClassConfig, p
 		return nil, fmt.Errorf("Anthropic API error: %s - %s", resBody.Error.Type, resBody.Error.Message)
 	}
 	if res.StatusCode != 200 {
+		if resBody.Error.Message != "" {
+			return nil, fmt.Errorf("connection to Anthropic API failed with status: %d error: %s", res.StatusCode, resBody.Error.Message)
+		}
 		return nil, fmt.Errorf("connection to Anthropic API failed with status: %d", res.StatusCode)
 	}
 	if len(resBody.Content) == 0 {

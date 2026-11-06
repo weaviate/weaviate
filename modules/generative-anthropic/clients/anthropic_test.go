@@ -148,6 +148,12 @@ func TestGenerateInvalidResponse(t *testing.T) {
 			body:    `{"type":"message","content":[{"type":"text","text":"John"}]}`,
 			wantErr: "status: 500",
 		},
+		{
+			name:    "status 400 with error message but no error type",
+			status:  http.StatusBadRequest,
+			body:    `{"error":{"type":"invalid_request_error","message":"max_tokens is too large"}}`,
+			wantErr: "status: 400 error: max_tokens is too large",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
