@@ -315,11 +315,22 @@ func (v *openai) buildOpenAIUrl(ctx context.Context, params openaiparams.Params,
 		return destination{}, err
 	}
 
-	if isAzure && !strings.EqualFold(resourceName, settings.ResourceName()) {
-		if err := modulecomponents.RequireRequestAPIKey(ctx, resourceNameSource, apiKeyHeader(isAzure)); err != nil {
-			return destination{}, err
+	if isAzure {
+		// A request that turns Azure on for a non-Azure collection would pair
+		// the collection's host with the server's Azure key.
+		source := ""
+		switch {
+		case !strings.EqualFold(resourceName, settings.ResourceName()):
+			source = resourceNameSource
+		case !settings.IsAzure():
+			source = "isAzure"
 		}
-		hostFromRequest = true
+		if source != "" {
+			if err := modulecomponents.RequireRequestAPIKey(ctx, source, apiKeyHeader(isAzure)); err != nil {
+				return destination{}, err
+			}
+			hostFromRequest = true
+		}
 	}
 
 	endpoint, err := v.buildUrl(isLegacy, isAzure, resourceName, deploymentID, baseURL, params.ApiVersion)

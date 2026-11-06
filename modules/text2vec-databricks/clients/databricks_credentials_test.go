@@ -71,11 +71,19 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 			wantToken:     serverToken,
 		},
 		{
-			name:          "endpoint header on the class host gets the server token",
+			name:          "another endpoint header on the class host without a request token",
 			classEndpoint: serverEndpoint,
 			headers:       map[string]string{"X-Databricks-Endpoint": server.URL + "/serving-endpoints/other/invocations"},
-			wantToken:     serverToken,
-			wantPath:      "/serving-endpoints/other/invocations",
+			wantErr:       "X-Databricks-Endpoint needs X-Databricks-Token: the server's key is not sent to a host named by the request",
+		},
+		{
+			name:          "another endpoint header on the class host with a request token",
+			classEndpoint: serverEndpoint,
+			headers: map[string]string{
+				"X-Databricks-Endpoint": server.URL + "/serving-endpoints/other/invocations", "X-Databricks-Token": callerToken,
+			},
+			wantToken: callerToken,
+			wantPath:  "/serving-endpoints/other/invocations",
 		},
 	}
 	for _, tt := range tests {

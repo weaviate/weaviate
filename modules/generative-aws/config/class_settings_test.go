@@ -252,3 +252,30 @@ func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
 func (f fakeClassConfig) Config() *config.Config {
 	return nil
 }
+
+func TestValidateRegion(t *testing.T) {
+	tests := []struct {
+		name    string
+		region  string
+		wantErr bool
+	}{
+		{name: "empty uses the default", region: ""},
+		{name: "region name", region: "us-east-1"},
+		{name: "upper-case region name", region: "US-EAST-1"},
+		{name: "userinfo", region: "x@attacker.example.com/", wantErr: true},
+		{name: "fragment", region: "attacker.example.com#", wantErr: true},
+		{name: "dot", region: "us-east-1.attacker", wantErr: true},
+		{name: "leading hyphen", region: "-us-east-1", wantErr: true},
+		{name: "Kelvin sign that lowercases to k", region: "us-east-1K", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateRegion(tt.region)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

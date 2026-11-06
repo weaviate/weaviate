@@ -12,6 +12,7 @@
 package openai
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -127,6 +128,41 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			assert.Equal(t, tt.wantAuth, got[0].Header.Get("Authorization"))
 			assert.Equal(t, tt.wantAzureKey, got[0].Header.Get("api-key"))
 			assert.Equal(t, tt.wantOrg, got[0].Header.Get("OpenAI-Organization"))
+		})
+	}
+}
+
+// The Azure host comes from the resource name only when the base URL is the
+// OpenAI default, so a variant of the default must not move the request to
+// api.openai.com with the server's Azure key.
+func TestAzureDefaultBaseURLVariantsKeepTheResourceHost(t *testing.T) {
+	settings := Settings{
+		BaseURL: "https://api.openai.com", ResourceName: "corp", DeploymentID: "d", ApiVersion: "v", IsAzure: true,
+	}
+	tests := []struct {
+		name    string
+		header  string
+		wantErr string
+	}{
+		{name: "trailing slash", header: "https://api.openai.com/"},
+		{name: "upper-case host", header: "https://API.openai.com"},
+		{name: "path", header: "https://api.openai.com/v1", wantErr: "X-Openai-Baseurl needs X-Azure-Api-Key"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := New("server-openai-key", "", "server-azure-key", 0, nullLogger())
+
+			endpoint, hostFromRequest, err := c.buildURL(
+				credentialtest.Context(map[string]string{"X-Openai-Baseurl": tt.header}), settings)
+
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.False(t, hostFromRequest)
+			assert.True(t, strings.HasPrefix(endpoint, "https://corp.openai.azure.com/"), endpoint)
 		})
 	}
 }

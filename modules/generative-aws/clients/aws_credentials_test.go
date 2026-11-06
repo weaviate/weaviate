@@ -28,11 +28,18 @@ func TestSignedRequestStaysOnAWS(t *testing.T) {
 	tests := []struct {
 		name    string
 		options awsparams.Params
+		// Bedrock goes through the AWS SDK, not c.httpClient, so the test
+		// server cannot see its requests.
+		viaSDK bool
 	}{
 		// buildSagemakerUrl turns these into https://runtime.sagemaker.x@<fake>/.amazonaws.com/...
 		{name: "region with userinfo", options: awsparams.Params{Service: "sagemaker", Region: "x@" + server.HostPort() + "/", Endpoint: "e"}},
 		{name: "region with a fragment", options: awsparams.Params{Service: "sagemaker", Region: "x@" + server.HostPort() + "#", Endpoint: "e"}},
-		{name: "bedrock region with userinfo", options: awsparams.Params{Service: "bedrock", Region: "x@" + server.HostPort() + "/", Model: "amazon.titan-text-lite-v1"}},
+		{
+			name:    "bedrock region with userinfo",
+			options: awsparams.Params{Service: "bedrock", Region: "x@" + server.HostPort() + "/", Model: "amazon.titan-text-lite-v1"},
+			viaSDK:  true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -45,7 +52,9 @@ func TestSignedRequestStaysOnAWS(t *testing.T) {
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "region must be an AWS region name")
-			assert.Empty(t, server.Requests()[before:], "no request may leave Weaviate")
+			if !tt.viaSDK {
+				assert.Empty(t, server.Requests()[before:], "no request may leave Weaviate")
+			}
 		})
 	}
 }

@@ -12,11 +12,13 @@
 package clients
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/modules/generative-openai/config"
 	openaiparams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/credentialtest"
 )
@@ -51,7 +53,7 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			wantErr: "baseURL needs X-Openai-Api-Key: the server's key is not sent to a host named by the request",
 		},
 		{
-			name:     "query baseURL with a request key",
+			name:     "query baseURL with a request key gets no server organization",
 			options:  &openaiparams.Params{BaseURL: server.URL},
 			headers:  map[string]string{"X-Openai-Api-Key": callerKey},
 			wantAuth: "Bearer " + callerKey,
@@ -85,12 +87,6 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			headers:     map[string]string{"X-Openai-Baseurl": server.URL},
 			wantAuth:    "Bearer " + serverKey,
 			wantOrg:     serverOrg,
-		},
-		{
-			name:     "server organization not sent to a host the request names",
-			options:  &openaiparams.Params{BaseURL: server.URL},
-			headers:  map[string]string{"X-Openai-Api-Key": callerKey},
-			wantAuth: "Bearer " + callerKey,
 		},
 		{
 			name:     "request organization sent to a host the request names",
@@ -127,6 +123,31 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			options:      &openaiparams.Params{IsAzure: true, ResourceName: injectedResourceName, DeploymentID: "d"},
 			headers:      map[string]string{"X-Azure-Api-Key": callerKey},
 			wantAzureKey: callerKey,
+		},
+		{
+			name:        "query isAzure on a non-Azure class without a request key",
+			classConfig: map[string]any{"baseURL": server.URL},
+			options:     &openaiparams.Params{IsAzure: true},
+			wantErr:     "isAzure needs X-Azure-Api-Key: the server's key is not sent to a host named by the request",
+		},
+		{
+			name:         "query isAzure on a non-Azure class with a request key",
+			classConfig:  map[string]any{"baseURL": server.URL},
+			options:      &openaiparams.Params{IsAzure: true},
+			headers:      map[string]string{"X-Azure-Api-Key": callerKey},
+			wantAzureKey: callerKey,
+		},
+		{
+			name:        "Azure deployment header on a class with only a resourceName without a request key",
+			classConfig: map[string]any{"baseURL": server.URL, "resourceName": "corp"},
+			headers:     map[string]string{"X-Azure-Deployment-Id": "d"},
+			wantErr:     "isAzure needs X-Azure-Api-Key",
+		},
+		{
+			name:         "Azure class with a baseURL gets the server key",
+			classConfig:  map[string]any{"baseURL": server.URL, "isAzure": true, "deploymentId": "d"},
+			wantAzureKey: serverAzureKey,
+			wantOrg:      serverOrg,
 		},
 		{
 			name:         "Azure class resourceName gets the server key",
@@ -171,6 +192,46 @@ func TestServerCredentialsOnlyGoToTheConfiguredHost(t *testing.T) {
 			assert.Equal(t, tt.wantAuth, requests[0].Header.Get("Authorization"))
 			assert.Equal(t, tt.wantAzureKey, requests[0].Header.Get("api-key"))
 			assert.Equal(t, tt.wantOrg, requests[0].Header.Get("OpenAI-Organization"))
+		})
+	}
+}
+
+// The Azure host comes from the resource name only when the base URL is the
+// OpenAI default, so a variant of the default must not move the request to
+// api.openai.com with the server's Azure key.
+func TestAzureDefaultBaseURLVariantsKeepTheResourceHost(t *testing.T) {
+	classConfig := credentialtest.ClassConfig{"resourceName": "corp", "deploymentId": "d"}
+	tests := []struct {
+		name    string
+		options openaiparams.Params
+		headers map[string]string
+		wantErr string
+	}{
+		{name: "baseURL header with a trailing slash", headers: map[string]string{"X-Openai-Baseurl": "https://api.openai.com/"}},
+		{name: "baseURL header with an upper-case host", headers: map[string]string{"X-Openai-Baseurl": "https://API.openai.com"}},
+		{name: "query baseURL with a trailing slash", options: openaiparams.Params{BaseURL: "https://api.openai.com/"}},
+		{
+			name:    "baseURL header with a path",
+			headers: map[string]string{"X-Openai-Baseurl": "https://api.openai.com/v1"},
+			wantErr: "X-Openai-Baseurl needs X-Azure-Api-Key",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := New("server-openai-key", "", "server-azure-key", 0, nullLogger())
+			params := c.getParameters(classConfig, tt.options, nil)
+
+			dest, err := c.buildOpenAIUrl(credentialtest.Context(tt.headers), params, config.NewClassSettings(classConfig))
+
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.True(t, dest.isAzure)
+			assert.False(t, dest.hostFromRequest)
+			assert.True(t, strings.HasPrefix(dest.url, "https://corp.openai.azure.com/"), dest.url)
 		})
 	}
 }

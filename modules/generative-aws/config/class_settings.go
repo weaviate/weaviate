@@ -316,8 +316,9 @@ func (ic *classSettings) TargetVariant() string {
 	return ic.getStringProperty(targetVariantProperty, "")
 }
 
-// A single DNS label, e.g. us-east-1.
-var regionPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+// A single DNS label, e.g. us-east-1. Upper case is accepted because DNS
+// ignores case and collections may already store it.
+var regionPattern = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$`)
 
 // ValidateRegion rejects a region that is not a plain AWS region name. The
 // SageMaker request host is runtime.sagemaker.<region>.amazonaws.com, so a
@@ -325,7 +326,7 @@ var regionPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 // access key ID, to another host. A GraphQL or gRPC request can set the region,
 // so it is checked at query time as well as in the class settings.
 func ValidateRegion(region string) error {
-	if region != "" && !regionPattern.MatchString(strings.ToLower(region)) {
+	if region != "" && !regionPattern.MatchString(region) {
 		return fmt.Errorf("%s must be an AWS region name, got %q", regionProperty, region)
 	}
 	return nil

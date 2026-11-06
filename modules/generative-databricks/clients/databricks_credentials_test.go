@@ -106,10 +106,30 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 			wantToken:   serverToken,
 		},
 		{
-			name:        "query endpoint on the class host gets the server token",
+			name:        "query endpoint with a trailing slash gets the server token",
+			classConfig: credentialtest.ClassConfig{"endpoint": serverEndpoint},
+			options:     &databricksparams.Params{Endpoint: serverEndpoint + "/"},
+			wantToken:   serverToken,
+			wantPath:    "/serving-endpoints/chat/invocations",
+		},
+		{
+			name:        "another query endpoint on the class host without a request token",
 			classConfig: credentialtest.ClassConfig{"endpoint": serverEndpoint},
 			options:     &databricksparams.Params{Endpoint: server.URL + "/serving-endpoints/other/invocations"},
-			wantToken:   serverToken,
+			wantErr:     "baseURL needs X-Databricks-Token: the server's key is not sent to a host named by the request",
+		},
+		{
+			name:        "workspace API on the class host without a request token",
+			classConfig: credentialtest.ClassConfig{"endpoint": serverEndpoint},
+			headers:     map[string]string{"X-Databricks-Endpoint": server.URL + "/api/2.0/token/create"},
+			wantErr:     "X-Databricks-Endpoint needs X-Databricks-Token",
+		},
+		{
+			name:        "another query endpoint on the class host with a request token",
+			classConfig: credentialtest.ClassConfig{"endpoint": serverEndpoint},
+			options:     &databricksparams.Params{Endpoint: server.URL + "/serving-endpoints/other/invocations"},
+			headers:     map[string]string{"X-Databricks-Token": callerToken},
+			wantToken:   callerToken,
 			wantPath:    "/serving-endpoints/other/invocations",
 		},
 	}

@@ -53,22 +53,23 @@ func ValidatedBaseURLFromHeader(ctx context.Context, headerKey, fallback string)
 
 // RequestBaseURL returns the base URL a module request goes to: the value of
 // baseURLHeader if the request sets it, else requested (a query-time baseURL),
-// else configured (the class setting or module default). A base URL on another
-// scheme or host than configured is used only if the request carries its own
-// key in one of apiKeyHeaders, so the server's key is never sent to a host the
-// request names. fromRequest reports that case: the caller must then send
-// nothing else from server configuration, such as an organization ID.
+// else configured (the class setting or module default). A base URL other than
+// configured is used only if the request carries its own key in one of
+// apiKeyHeaders, so the server's key is only ever sent to the configured URL.
+// The path counts too: a path on the configured host can reach another
+// endpoint, or another tenant of a gateway. A value that differs from
+// configured only in the case of the scheme or host, or in a trailing slash,
+// returns configured. fromRequest reports that the request's URL is used: the
+// caller must then send nothing else from server configuration, such as an
+// organization ID.
 func RequestBaseURL(ctx context.Context, baseURLHeader, requested, configured string, apiKeyHeaders ...string,
 ) (baseURL string, fromRequest bool, err error) {
 	source, baseURL := "baseURL", requested
 	if headerBaseURL := GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
 		source, baseURL = baseURLHeader, headerBaseURL
 	}
-	if baseURL == "" {
+	if baseURL == "" || baseURL == configured || sameBaseURL(baseURL, configured) {
 		return configured, false, nil
-	}
-	if baseURL == configured || sameOrigin(baseURL, configured) {
-		return baseURL, false, nil
 	}
 	if err := RequireRequestAPIKey(ctx, source, apiKeyHeaders...); err != nil {
 		return "", false, err
@@ -91,15 +92,20 @@ func RequireRequestAPIKey(ctx context.Context, source string, apiKeyHeaders ...s
 		source, strings.Join(apiKeyHeaders, " or "))
 }
 
-// sameOrigin reports whether a and b parse to the same scheme and host:port.
-// A value that does not parse is never the same origin.
-func sameOrigin(a, b string) bool {
+// sameBaseURL reports whether a and b differ only in the case of the scheme
+// and host, or in a trailing slash. A value that does not parse never matches.
+func sameBaseURL(a, b string) bool {
 	ua, errA := url.Parse(a)
 	ub, errB := url.Parse(b)
 	if errA != nil || errB != nil || ua.Host == "" {
 		return false
 	}
-	return strings.EqualFold(ua.Scheme, ub.Scheme) && strings.EqualFold(ua.Host, ub.Host)
+	return strings.EqualFold(ua.Scheme, ub.Scheme) &&
+		strings.EqualFold(ua.Host, ub.Host) &&
+		ua.User.String() == ub.User.String() &&
+		strings.TrimSuffix(ua.EscapedPath(), "/") == strings.TrimSuffix(ub.EscapedPath(), "/") &&
+		ua.RawQuery == ub.RawQuery &&
+		ua.EscapedFragment() == ub.EscapedFragment()
 }
 
 // isDisallowedIP reports whether an IP points at the local host or an internal

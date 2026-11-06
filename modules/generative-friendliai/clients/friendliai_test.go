@@ -99,6 +99,7 @@ func TestGetAnswer(t *testing.T) {
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Friendli-Baseurl", []string{"https://inference.friendli.ai/dedicated"})
+		ctxWithValue = context.WithValue(ctxWithValue, "X-Friendli-Token", []string{"caller-token"})
 		buildURL, err := c.getFriendliUrl(ctxWithValue, baseUrl, baseUrl)
 		assert.NoError(t, err)
 		assert.Equal(t, "https://inference.friendli.ai/dedicated/v1/chat/completions", buildURL)

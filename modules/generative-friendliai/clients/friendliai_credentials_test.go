@@ -70,6 +70,30 @@ func TestServerKeyOnlyGoesToTheConfiguredHost(t *testing.T) {
 			wantKey:     serverKey,
 		},
 		{
+			name:        "baseURL header with a trailing slash gets the server key",
+			classConfig: credentialtest.ClassConfig{"baseURL": server.URL},
+			headers:     map[string]string{"X-Friendli-Baseurl": server.URL + "/"},
+			wantKey:     serverKey,
+		},
+		{
+			name:        "baseURL header with another path on the class host without a request key",
+			classConfig: credentialtest.ClassConfig{"baseURL": server.URL},
+			headers:     map[string]string{"X-Friendli-Baseurl": server.URL + "/dedicated"},
+			wantErr:     "X-Friendli-Baseurl needs X-Friendli-Token",
+		},
+		{
+			name:        "baseURL header that replaces the API path on the class host without a request key",
+			classConfig: credentialtest.ClassConfig{"baseURL": server.URL},
+			headers:     map[string]string{"X-Friendli-Baseurl": server.URL + "/v1/other?"},
+			wantErr:     "X-Friendli-Baseurl needs X-Friendli-Token",
+		},
+		{
+			name:        "baseURL header with another path on the class host with a request key",
+			classConfig: credentialtest.ClassConfig{"baseURL": server.URL},
+			headers:     map[string]string{"X-Friendli-Baseurl": server.URL + "/dedicated", "X-Friendli-Token": callerKey},
+			wantKey:     callerKey,
+		},
+		{
 			name:        "class X-Friendli-Baseurl setting gets the server key",
 			classConfig: credentialtest.ClassConfig{"X-Friendli-Baseurl": server.URL},
 			wantKey:     serverKey,
