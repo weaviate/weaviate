@@ -159,16 +159,9 @@ type classReader interface {
 // every class this returns. A collection deleted between the two reads
 // leaves ReadOnlyClass answering nil against an Exists that was true.
 //
-// FINISHED tasks are kept: [indexesHandlers.getIndexes] matches them against
-// [db.ReindexBucketEffect] to build finishedBlockmaxProps, the last check in
-// [db.SearchablePropertyIsBlockmaxParsed]. Only a property carrying no durable
-// SearchableBlockmax stamp reaches that check: one migrated by a build older
-// than the stamp, or one whose blockmax evidence is a rebuild-searchable task,
-// which never stamps. Dropping FINISHED tasks reports those as wand.
-//
-// [mergeReindexStatus] needs them for a second, independent reason: a
-// completed migration must outrank an older FAILED attempt on the same
-// property, or the entry reports "failed" after the retry succeeded.
+// FINISHED tasks are kept: [mergeReindexStatus] needs them so a completed
+// migration outranks an older FAILED attempt on the same property, or the
+// entry reports "failed" after the retry succeeded.
 func readClassAndTasks(collection string, taskSource localTaskLister, classes classReader) (*models.Class, []db.ReindexRun) {
 	if !classes.ClassInfo(collection).Exists {
 		return nil, nil
@@ -206,24 +199,6 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	class, parsedTasks := readClassAndTasks(collection, h.taskSource, h.appState.SchemaManager)
 	if class == nil {
 		return schema.NewSchemaObjectsIndexesGetNotFound()
-	}
-
-	// Precompute once so per-property resolution below is O(1); stamp/class-flag
-	// fast paths still take precedence in SearchablePropertyIsBlockmaxParsed.
-	finishedBlockmaxProps := make(map[string]struct{})
-	for _, pt := range parsedTasks {
-		if pt.Task.Status != distributedtask.TaskStatusFinished {
-			continue
-		}
-		if !strings.EqualFold(pt.Payload.Collection, collection) {
-			continue
-		}
-		if _, _, producesBlockmax, _ := db.ReindexBucketEffect(pt.Payload.MigrationType); !producesBlockmax {
-			continue
-		}
-		for _, p := range pt.Payload.Properties {
-			finishedBlockmaxProps[p] = struct{}{}
-		}
 	}
 
 	// Build per-property index status.
@@ -267,7 +242,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 			// migrated). Filterable / rangeable have no equivalent today.
 			if e.indexType == "searchable" && e.flagOn {
 				idx.Algorithm = models.IndexStatusAlgorithmWand
-				if db.SearchablePropertyIsBlockmaxParsed(class, prop.Name, finishedBlockmaxProps) {
+				if db.SearchablePropertyIsBlockmax(class, prop.Name) {
 					idx.Algorithm = models.IndexStatusAlgorithmBlockmax
 				}
 			}

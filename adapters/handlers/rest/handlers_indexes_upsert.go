@@ -426,7 +426,7 @@ func resolveSearchableUpsert(class *models.Class, collection string, prop *model
 			// A property already on blockmax needs nothing from that task, so
 			// joining would tie an idempotent request to an unrelated
 			// lifecycle (e.g. a rebuild that later FAILs).
-			if algorithm != "" && exists && db.SearchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
+			if algorithm != "" && exists && db.SearchablePropertyIsBlockmax(class, prop.Name) {
 				return upsertPlan{noop: true}, nil
 			}
 			return upsertPlan{noop: true, joinTaskID: task.ID}, nil
@@ -443,7 +443,7 @@ func resolveSearchableUpsert(class *models.Class, collection string, prop *model
 		// Per-property truth: the class-wide flag only flips once every
 		// property has migrated, so an already-migrated property must
 		// NO_OP even while siblings are still pending.
-		if db.SearchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
+		if db.SearchablePropertyIsBlockmax(class, prop.Name) {
 			return upsertPlan{noop: true}, nil
 		}
 		return upsertPlan{migrationType: db.ReindexTypeChangeAlgorithm}, nil
@@ -460,7 +460,7 @@ func resolveSearchableUpsert(class *models.Class, collection string, prop *model
 			return upsertPlan{noop: true}, nil
 		}
 		// Coupled tokenization migration (rewrites searchable + filterable).
-		bucketStrategy, err := validateTokenizationChange(class, prop.Name, tok, reindexTasks)
+		bucketStrategy, err := validateTokenizationChange(class, prop.Name, tok)
 		if err != nil {
 			return upsertPlan{}, err
 		}
@@ -608,7 +608,7 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 		// to blockmax first. Per-property truth: a property whose bucket is
 		// already blockmax must be rebuildable even while the class-wide flag
 		// is still deferred behind sibling properties.
-		if !db.SearchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
+		if !db.SearchablePropertyIsBlockmax(class, prop.Name) {
 			return upsertPlan{}, errors.New("cannot rebuild a WAND searchable index — WAND is deprecated; PUT {\"algorithm\":\"blockmax\"} to migrate first")
 		}
 		return upsertPlan{migrationType: db.ReindexTypeRebuildSearchable}, nil
@@ -647,8 +647,7 @@ func refuseOtherThanPartialRun(collection, propName, tok string, plan upsertPlan
 	if plan.joinTaskID != "" || (plan.migrationType == "" && (!plan.noop || tok == "")) {
 		return ""
 	}
-	// The strategy is not compared: the named resubmit cannot carry one, and its
-	// re-derived value can change while the run stands.
+	// The strategy is not compared: the named resubmit cannot carry one.
 	return db.ReindexPartialRunConflict(reindexTasks, collection, propName, func(run *db.ReindexRun) bool {
 		return plan.migrationType == run.Payload.MigrationType && plan.targetTok == run.Payload.TargetTokenization
 	})

@@ -67,9 +67,8 @@ type ReindexProvider struct {
 	localNode     string
 	concurrency   func() int
 
-	// taskLister backs shouldDeferBlockmaxFlip's flip decision with
-	// cluster-consistent state instead of node-local shard buckets.
-	// cluster.Raft satisfies it.
+	// taskLister lists earlier runs for the repair guidance
+	// (reindexRunsWith). cluster.Raft satisfies it.
 	taskLister distributedtask.TaskLister
 
 	// serverCtx is cancelled when the server is shutting down. OnGroupCompleted
@@ -2255,7 +2254,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 	case ReindexTypeChangeAlgorithm:
 		// Stamp FIRST and unconditionally: per-property truth must be durable
 		// before a sibling's same-tick defer check runs, or that sibling would
-		// read a not-yet-FINISHED task instead of this stamp.
+		// read this property as WAND.
 		if err := p.stampSearchableBlockmax(ctx, payload.Collection, payload.Properties); err != nil {
 			return fmt.Errorf("stamp searchableBlockmax: %w", err)
 		}
@@ -2272,7 +2271,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		// With the stamp landed the property is migrated, so a failed flip is only
 		// logged: failing the run would lock the property behind a run that
 		// cannot finish. The flag then waits for the next cutover, as after a deferral.
-		if defer_, err := p.shouldDeferBlockmaxFlip(ctx, payload, logger); err != nil {
+		if defer_, err := p.shouldDeferBlockmaxFlip(payload, logger); err != nil {
 			logger.WithError(err).Warn("reindex provider: change-algorithm cutover: cannot check whether the class " +
 				"can use blockmax by default; the next change-algorithm cutover on this class retries the flip")
 			return nil
@@ -2314,22 +2313,15 @@ func (p *ReindexProvider) stampSearchableBlockmax(ctx context.Context, collectio
 // searchable property is off WAND (weaviate/0-weaviate-issues#254), using
 // RAFT-consistent state so every node agrees. The property completing now
 // counts as done despite still showing SWAPPING, avoiding self-deferral.
-func (p *ReindexProvider) shouldDeferBlockmaxFlip(
-	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
-) (bool, error) {
-	if p.schemaManager == nil || p.taskLister == nil {
-		// Tests may construct the provider without these deps; don't defer.
+func (p *ReindexProvider) shouldDeferBlockmaxFlip(payload *ReindexTaskPayload, logger logrus.FieldLogger) (bool, error) {
+	if p.schemaManager == nil {
+		// Tests may construct the provider without it; don't defer.
 		return false, nil
 	}
 	class := p.schemaManager.ReadOnlyClass(payload.Collection)
 	if class == nil {
 		return false, fmt.Errorf("collection %q not found in schema", payload.Collection)
 	}
-	tasksByNS, err := p.taskLister.ListDistributedTasks(ctx)
-	if err != nil {
-		return false, fmt.Errorf("list distributed tasks for blockmax flip: %w", err)
-	}
-	reindexTasks := tasksByNS[ReindexNamespace]
 
 	completing := make(map[string]struct{}, len(payload.Properties))
 	for _, prop := range payload.Properties {
@@ -2342,9 +2334,7 @@ func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 		if _, ok := completing[prop.Name]; ok {
 			continue // finalizing to blockmax now
 		}
-		// Durable-stamp resolver: a sibling stamped by its own completion no
-		// longer forces a spurious defer once its task ages out or is SWAPPING.
-		if !SearchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
+		if !SearchablePropertyIsBlockmax(class, prop.Name) {
 			logger.WithField("property", prop.Name).Info("reindex provider: change-algorithm cutover deferred — a sibling searchable property is still on WAND (its migration will complete the flip)")
 			return true, nil
 		}

@@ -1621,18 +1621,38 @@ tasks included) linger in the RAFT task list before garbage collection.
 because the per-property blockmax truth is durable in the schema stamp,
 so no reader depends on FINISHED reindex tasks lingering.
 
-Keep `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` at its default until
-every node runs the durable-stamp version. During a mixed-version
-(v1.38/v1.39) rolling upgrade window `0` is unsafe two ways:
+### Upgrade assumptions
 
-- A stamp-blind older node that does not hold the shard can transiently
-  mis-resolve a partial-class property once the completed task is GC'd.
-  This self-heals once every node is on the new version.
-- On rollback, `0` fails an older node's startup (fail-loud, not data
-  corruption).
+Runtime reindex is a preview feature and comes without warranty. Upgrading to
+this version assumes two things about a cluster's history:
 
-Set `0` (immediate GC of completed tasks) only once every node runs the
-durable-stamp version.
+1. **No property was moved to BlockMax on its own on v1.38.** On v1.38, a
+   `PUT .../index/searchable` with `{"algorithm":"blockmax"}`, or enabling a
+   searchable index on a collection whose BlockMax flag (`usingBlockMaxWAND`)
+   is off, built BlockMax buckets but did not record that on the property.
+   v1.39.0 and later record it (`searchableBlockmax`) when the migration
+   finishes. This version reads only that record and the collection flag. It
+   no longer infers BlockMax from completed reindex tasks or from the buckets
+   on disk.
+2. **No migration is running or stopped partway when you upgrade.** Resubmit
+   every migration that reads `partial` until it reads `ready`, and let every
+   running one finish (see "Migration records, both directions" below).
+
+We accept these assumptions because, as far as we know, no customer ran
+runtime reindex on v1.38. The customers who ran it on v1.39 used only
+tokenization changes and enable-rangeable, which never build BlockMax buckets
+on a collection with the flag off. We cannot rule out other clusters.
+
+A cluster that breaks the first assumption sees this on the affected property:
+
+- `GET /v1/schema/{className}/indexes` reports `"algorithm": "wand"`,
+  although its buckets are BlockMax.
+- `{"algorithm":"blockmax"}` starts a new migration instead of answering
+  `NO_OP`.
+- A searchable rebuild is refused as a WAND index.
+- A tokenization change rebuilds the index in WAND format instead of BlockMax.
+  In a test, BM25 hits and scores matched a BlockMax rebuild and no objects
+  were lost; only the index format differs.
 
 **Downgrade:** the stamp is an additive `searchableBlockmax` property field;
 an older binary ignores it and derives blockmax from the class flag / task

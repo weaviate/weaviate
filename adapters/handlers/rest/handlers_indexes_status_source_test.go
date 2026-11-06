@@ -235,9 +235,8 @@ func (s staticTasks) LocalDistributedTasks() map[string][]*distributedtask.Task 
 
 // The task read is cluster-wide: it hands the handler every reindex task this
 // node has applied, whatever collection each one names. Which of them the
-// response may speak for is decided further down, and both places that decide
-// it are here — the entry a running task drives, and the algorithm a completed
-// one resolves.
+// response may speak for is decided further down, in the entry a running task
+// drives.
 func TestGetIndexes_AForeignCollectionsTaskReachesNoEntry(t *testing.T) {
 	const taskID = "X:change-algorithm:p:0001"
 
@@ -247,27 +246,16 @@ func TestGetIndexes_AForeignCollectionsTaskReachesNoEntry(t *testing.T) {
 		taskStatus     distributedtask.TaskStatus
 		wantStatus     string
 		wantTaskID     string
-		wantAlgorithm  string
 	}{
 		{
 			name: "a running migration on this collection drives the entry", taskCollection: "C",
 			taskStatus: distributedtask.TaskStatusStarted,
-			wantStatus: "indexing", wantTaskID: taskID, wantAlgorithm: models.IndexStatusAlgorithmWand,
+			wantStatus: "indexing", wantTaskID: taskID,
 		},
 		{
 			name: "a running migration on another collection does not", taskCollection: "D",
 			taskStatus: distributedtask.TaskStatusStarted,
-			wantStatus: "ready", wantTaskID: "", wantAlgorithm: models.IndexStatusAlgorithmWand,
-		},
-		{
-			name: "a completed migration on this collection resolves the algorithm", taskCollection: "C",
-			taskStatus: distributedtask.TaskStatusFinished,
-			wantStatus: "ready", wantTaskID: "", wantAlgorithm: models.IndexStatusAlgorithmBlockmax,
-		},
-		{
-			name: "a completed migration on another collection does not", taskCollection: "D",
-			taskStatus: distributedtask.TaskStatusFinished,
-			wantStatus: "ready", wantTaskID: "", wantAlgorithm: models.IndexStatusAlgorithmWand,
+			wantStatus: "ready", wantTaskID: "",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -306,8 +294,6 @@ func TestGetIndexes_AForeignCollectionsTaskReachesNoEntry(t *testing.T) {
 			require.Equal(t, tt.wantStatus, searchable.Status)
 			require.Equal(t, tt.wantTaskID, searchable.TaskID,
 				"only a task naming this collection may put its id on the entry")
-			require.Equal(t, tt.wantAlgorithm, searchable.Algorithm,
-				"only a completed migration on this collection may resolve the algorithm")
 		})
 	}
 }

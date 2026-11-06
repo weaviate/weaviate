@@ -12,14 +12,12 @@
 package rest
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -222,12 +220,8 @@ func TestUpsertRefusedOnPartlyMigratedIndex(t *testing.T) {
 		Name: "summary", DataType: []string{"text"}, Tokenization: word,
 		IndexFilterable: boolPtr(true), IndexSearchable: boolPtr(false),
 	}
-	headline := &models.Property{
-		Name: "headline", DataType: []string{"text"}, Tokenization: word,
-		IndexFilterable: boolPtr(true), IndexSearchable: boolPtr(true),
-	}
-	props := map[string]*models.Property{"title": title, "body": body, "summary": summary, "headline": headline}
-	class := &models.Class{Class: "C", Properties: []*models.Property{title, body, summary, headline}, InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: true}}
+	props := map[string]*models.Property{"title": title, "body": body, "summary": summary}
+	class := &models.Class{Class: "C", Properties: []*models.Property{title, body, summary}, InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: true}}
 	partialRun := func(id string, status distributedtask.TaskStatus, prop *models.Property, indexType string, req *models.IndexUpsertRequest) *distributedtask.Task {
 		plan, err := resolveUpsertPlan(class, "C", prop, indexType, req, nil)
 		require.NoError(t, err)
@@ -243,15 +237,7 @@ func TestUpsertRefusedOnPartlyMigratedIndex(t *testing.T) {
 		partialRun("T", distributedtask.TaskStatusCancelled, title, "searchable", resubmit),
 		partialRun("F", distributedtask.TaskStatusCancelled, body, "filterable", &models.IndexUpsertRequest{}),
 		partialRun("S", distributedtask.TaskStatusCancelled, summary, "filterable", resubmit),
-		partialRun("H", distributedtask.TaskStatusCancelled, headline, "searchable", resubmit),
 	}
-	// headline's run recorded the strategy the property read before it went blockmax.
-	var err error
-	partials[3].Payload, err = json.Marshal(db.ReindexTaskPayload{
-		Collection: "C", Properties: []string{"headline"}, MigrationType: db.ReindexTypeChangeTokenization,
-		TargetTokenization: models.PropertyTokenizationField, BucketStrategy: lsmkv.StrategyMapCollection,
-	})
-	require.NoError(t, err)
 	running := partialRun("R", distributedtask.TaskStatusStarted, title, "searchable", resubmit)
 	running.SwapDecidedGroups = nil
 	running.Version = partials[0].Version + 1
@@ -269,7 +255,6 @@ func TestUpsertRefusedOnPartlyMigratedIndex(t *testing.T) {
 		{name: "back to it on the other index", property: "title", indexType: "filterable", body: &models.IndexUpsertRequest{Tokenization: word}, refusal: titleResubmit},
 		{name: "a third target", property: "title", indexType: "searchable", body: &models.IndexUpsertRequest{Tokenization: models.PropertyTokenizationWhitespace}, refusal: titleResubmit},
 		{name: "the resubmit", property: "title", indexType: "searchable", body: resubmit},
-		{name: "the resubmit after the property's strategy changed", property: "headline", indexType: "searchable", body: resubmit},
 		{name: "a repeat of the resubmit while it runs joins it", property: "title", indexType: "searchable", body: resubmit, resubmitIsRunning: true},
 		{name: "a request naming no tokenization", property: "title", indexType: "searchable", body: &models.IndexUpsertRequest{}},
 		{name: "a partial enable-filterable, then searchable with another tokenization", property: "body", indexType: "searchable", body: resubmit, refusal: "PUT /v1/schema/C/properties/body/index/filterable"},
