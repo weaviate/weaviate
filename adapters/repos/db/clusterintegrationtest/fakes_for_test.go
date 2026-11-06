@@ -526,7 +526,7 @@ func (f *fakeBackupBackend) successGlobalMeta() backup.DistributedBackupDescript
 		},
 		Status:        "SUCCESS",
 		Version:       ubak.Version,
-		ServerVersion: "x.x.x",
+		ServerVersion: "1.38.0",
 	}
 }
 
@@ -534,7 +534,7 @@ func (f *fakeBackupBackend) successLocalMeta() backup.BackupDescriptor {
 	return backup.BackupDescriptor{
 		ID:            f.backupID,
 		Status:        "SUCCESS",
-		ServerVersion: "x.x.x",
+		ServerVersion: "1.38.0",
 		Version:       ubak.Version,
 		StartedAt:     f.startedAt,
 		Classes: []backup.ClassDescriptor{
@@ -553,7 +553,7 @@ func (f *fakeBackupBackend) successLocalMeta() backup.BackupDescriptor {
 						PropLengthTrackerPath: ".",
 					},
 				},
-				ShardingState: []byte("sharding state!"),
+				ShardingState: []byte(`{"physical":{"123":{"name":"123","belongsToNodes":["node-0"]}}}`),
 				Schema:        []byte("schema!"),
 			},
 		},

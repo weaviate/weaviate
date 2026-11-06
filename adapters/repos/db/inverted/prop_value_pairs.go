@@ -409,19 +409,13 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 	var plan containsFoldPlan
 	// Deferred so a filter that fails partway is timed and reports what it did
 	// before it stopped.
-	defer func() {
-		if !helpers.HasSlowQueryDetails(ctx) {
-			return
-		}
-		took := time.Since(before)
+	defer helpers.AnnotateSlowQueryLogSlowest(ctx, docBitmapSlowLogKey, before, func() map[string]any {
 		fields := map[string]any{
-			"prop":        pv.prop,
-			"operator":    pv.operator.Name(),
-			"took":        took,
-			"took_string": took.String(),
-			"count":       dbm.count(),
-			"failed":      err != nil,
-			"strategy":    b.Strategy(),
+			"prop":     pv.prop,
+			"operator": pv.operator.Name(),
+			"count":    dbm.count(),
+			"failed":   err != nil,
+			"strategy": b.Strategy(),
 			// Distinct keys, not filter values: dedup means a boolean
 			// filter reports at most two regardless of value count.
 			"batched_keys": pv.containsKeys.Len(),
@@ -448,8 +442,8 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 			// one.
 			fields["memtables"] = st.Memtables
 		}
-		helpers.AnnotateSlowQueryLogAppendReducible(ctx, docBitmapSlowLogKey, fields, helpers.ReduceToSlowest)
-	}()
+		return fields
+	})
 
 	dbm, plan, err = s.docBitmapContainsBatch(ctx, source, pv)
 	if err != nil {
