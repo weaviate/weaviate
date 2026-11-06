@@ -77,6 +77,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	// to enlarge the search space.
 	candidateCentroidNum := max(k, int(atomic.LoadUint32(&h.searchProbe)))
 
+	built := h.Centroids.Built()
 	nAllowList := allowList
 	if allowList != nil {
 		nAllowList = h.wrapAllowList(ctx, allowList)
@@ -154,7 +155,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 		// if the posting size is lower than the configured minimum,
 		// enqueue a merge operation
-		if postingSize < int(h.minPostingSize) {
+		if built && postingSize < int(h.minPostingSize) {
 			err = h.taskQueue.EnqueueMerge(selectedCentroids[i])
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selectedCentroids[i])
@@ -555,6 +556,7 @@ func (h *HFresh) searchByFDE(
 	queryDistancer := quantizer.NewDistancer(queryFDE)
 
 	// Step 1: Centroid selection - controlled by routingBudget only
+	built := h.Centroids.Built()
 	nAllowList := allowList
 	if allowList != nil {
 		nAllowList = h.wrapAllowList(ctx, allowList)
@@ -634,7 +636,7 @@ func (h *HFresh) searchByFDE(
 			q.Insert(id, dist)
 		}
 
-		if postingSize < int(h.minPostingSize) {
+		if built && postingSize < int(h.minPostingSize) {
 			if err := h.taskQueue.EnqueueMerge(selectedCentroids[i]); err != nil {
 				return nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selectedCentroids[i])
 			}
