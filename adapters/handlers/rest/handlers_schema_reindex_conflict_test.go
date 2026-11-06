@@ -335,6 +335,11 @@ func TestIndexDeleteRefusedWhileAPartialRunStands(t *testing.T) {
 			resubmit: `PUT /v1/schema/C/properties/title/index/searchable -d '{"tokenization":"field"}'`,
 		},
 		{
+			name: "a partial enable-rangeable on the property", property: "title",
+			tasks:    []*distributedtask.Task{run("T1", 1, cancelled, db.ReindexTypeEnableRangeable, true)},
+			resubmit: `PUT /v1/schema/C/properties/title/index/rangeFilters -d '{}'`,
+		},
+		{
 			name: "another property", property: "other",
 			tasks: []*distributedtask.Task{run("T1", 1, cancelled, db.ReindexTypeChangeTokenization, true)},
 		},
