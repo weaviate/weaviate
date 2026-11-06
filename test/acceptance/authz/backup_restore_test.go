@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/authz"
@@ -151,5 +152,70 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 
 		roles := helper.GetRolesForUser(t, customUser, adminKey, false)
 		require.Len(t, roles, 0)
+	})
+
+	time.Sleep(2 * time.Second) // wait for the backup to be fully processed
+
+	t.Run("roles-only restore keeps target dynamic assignments and drops the backup's", func(t *testing.T) {
+		backupID := "backup-3"
+		dynRecreated := "dyn-recreated"
+		dynExisting := "dyn-existing"
+
+		helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
+		helper.CreateClassAuth(t, par, adminKey)
+		defer helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
+
+		helper.DeleteRole(t, adminKey, testRoleName)
+		helper.CreateRole(t, adminKey, testRole)
+		defer helper.DeleteRole(t, adminKey, testRoleName)
+		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
+		helper.CreateUser(t, dynRecreated, adminKey)
+		defer helper.DeleteUser(t, dynRecreated, adminKey)
+		helper.AssignRoleToUser(t, adminKey, testRoleName, dynRecreated)
+
+		resp, err := helper.CreateBackupWithAuthz(t, helper.DefaultBackupConfig(), par.Class, backend, backupID, helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		require.NotNil(t, resp.Payload)
+		require.Equal(t, "", resp.Payload.Error)
+
+		helper.ExpectBackupEventuallyCreated(t, backupID, backend, helper.CreateAuth(adminKey), helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
+
+		// Deleting a user revokes its roles, so the recreated user starts with none.
+		helper.DeleteUser(t, dynRecreated, adminKey)
+		helper.CreateUser(t, dynRecreated, adminKey)
+		dynExistingKey := helper.CreateUser(t, dynExisting, adminKey)
+		defer helper.DeleteUser(t, dynExisting, adminKey)
+		helper.AssignRoleToUser(t, adminKey, testRoleName, dynExisting)
+		helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
+
+		// The restore reads the target's assignments on the node that receives the
+		// request. A follower applies writes after the leader. dyn-existing can read
+		// roles only through testRole, and the receiving node checks that. So a
+		// successful read means that node holds the assignment.
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			_, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRoleName), helper.CreateAuth(dynExistingKey))
+			assert.NoError(c, err)
+		}, helper.DBUserKeyTimeout, 50*time.Millisecond, "dyn-existing's testRole assignment not applied on the restore node")
+
+		all := "all"
+		restoreConf := helper.DefaultRestoreConfig()
+		restoreConf.RolesOptions = &all
+		respR, err := helper.RestoreBackupWithAuthz(t, restoreConf, par.Class, backend, backupID, map[string]string{}, helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		require.NotNil(t, respR.Payload)
+		require.Equal(t, "", respR.Payload.Error)
+
+		helper.ExpectBackupEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
+
+		require.Empty(t, helper.GetRolesForUser(t, dynRecreated, adminKey, false),
+			"the backup's assignment must not reach a dynamic user when users are not restored")
+
+		roles := helper.GetRolesForUser(t, dynExisting, adminKey, false)
+		require.Len(t, roles, 1, "the target's own dynamic-user assignment must survive the restore")
+		require.Equal(t, testRoleName, *roles[0].Name)
+
+		roles = helper.GetRolesForUser(t, customUser, adminKey, false)
+		require.Len(t, roles, 1, "a static user's assignment travels with the roles")
+		require.Equal(t, testRoleName, *roles[0].Name)
 	})
 }
