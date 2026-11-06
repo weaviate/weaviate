@@ -31,6 +31,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"google.golang.org/grpc/metadata"
+
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -1401,4 +1403,39 @@ func TestRankCutsTheDecodeErrorOfALongNumber(t *testing.T) {
 			assert.LessOrEqual(t, len(err.Error()), 1_200)
 		})
 	}
+}
+
+func TestRankReturnsADeadlineErrorWhenTheProviderDoesNotAnswer(t *testing.T) {
+	f, release := newBlockingFake(t)
+	defer release()
+	c := New(defaultFakeKey, 50*time.Millisecond, 2, nullLogger())
+
+	// The context deadline only stops a client without a timeout; the
+	// assertion on the elapsed time then fails.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	start := time.Now()
+	_, err := c.RankProperty(ctx, churn, "text", documentsOf(noRefund), classConfig(f.url(), nil))
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Less(t, time.Since(start), 2*time.Second)
+	assert.Zero(t, len(c.inFlight), "every in-flight slot is released")
+	assert.Zero(t, len(c.inFlightHeaderHost), "every in-flight slot is released")
+}
+
+func TestRankReadsTheHeadersFromGRPCMetadata(t *testing.T) {
+	classServer, headerServer := newFake(t), newFake(t)
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		"x-typesafeai-api-key", "metadataKey",
+		"x-typesafeai-baseurl", headerServer.url(),
+	))
+
+	_, err := newTestClient("envKey").RankProperty(ctx, churn, "text", documentsOf(noRefund), classConfig(classServer.url(), nil))
+
+	require.NoError(t, err)
+	assert.Empty(t, classServer.received())
+	requests := headerServer.received()
+	require.Len(t, requests, 1)
+	assert.Equal(t, "Bearer metadataKey", requests[0].authorization)
 }
