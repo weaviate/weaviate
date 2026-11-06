@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var (
@@ -281,6 +282,10 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		if rbacBlob, err = rbac.MergeSnapshots(rbacBlob, meta.BuiltInRoleAssignments); err != nil {
 			return nil, backup.NewErrUnprocessable(fmt.Errorf("merge built-in role assignments: %w", err))
 		}
+	}
+
+	if err := validateShardNames(schema, meta.Classes()); err != nil {
+		return nil, backup.NewErrUnprocessable(err)
 	}
 
 	if err := s.validateNamespaceStripping(ctx, schema, userBlob, rbacBlob, meta.Classes(), req.UserRestoreOption, req.RbacRestoreOption); err != nil {
@@ -1243,6 +1248,26 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		meta.NodeMapping = req.NodeMapping
 	}
 	return meta, nil
+}
+
+// validateShardNames refuses a selected class whose sharding state names an
+// invalid shard. RestoreClass refuses it too, but only once every node has
+// downloaded the backup and the classes before it were applied.
+func validateShardNames(descriptors []backup.ClassDescriptor, selectedClasses []string) error {
+	for i := range descriptors {
+		d := &descriptors[i]
+		if d.ShardingState == nil || !slices.Contains(selectedClasses, d.Name) {
+			continue
+		}
+		var ss sharding.State
+		if err := json.Unmarshal(d.ShardingState, &ss); err != nil {
+			return fmt.Errorf("class %q: unmarshal sharding state: %w", d.Name, err)
+		}
+		if err := ss.ValidateShardNames(); err != nil {
+			return fmt.Errorf("class %q: sharding state: %w", d.Name, err)
+		}
+	}
+	return nil
 }
 
 // validateNamespaceStripping fails a restore into a namespace-disabled
