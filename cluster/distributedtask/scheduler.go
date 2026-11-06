@@ -634,7 +634,7 @@ func (s *Scheduler) tick() {
 		suProvider, providerIsUnitAware := provider.(UnitAwareProvider)
 		if providerIsUnitAware {
 			for desc, task := range tasks {
-				// PHASE B first: a decided swap must not wait behind other groups' PREP.
+				// PHASE B first, so a decided swap does not wait behind this task's PREP.
 				if task.NeedsPreparationBarrier {
 					s.runDecidedSwapPhase(namespace, desc, task, suProvider)
 				} else if task.Status != TaskStatusCancelled {

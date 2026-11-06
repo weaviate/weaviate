@@ -438,8 +438,8 @@ const (
 	TaskStatusPreparing TaskStatus = "PREPARING"
 
 	// TaskStatusSwapping means every node is firing its per-shard atomic
-	// swap. A tenant's replicas can swap up to one tick plus one node's
-	// in-flight PREP work apart, serving different results meanwhile. The task
+	// swap. A tenant's replicas can serve different results meanwhile, for a
+	// window that grows with in-flight preparation work. The task
 	// transitions to FINISHED only after every node's PostCompletionAck
 	// lands successfully.
 	TaskStatusSwapping TaskStatus = "SWAPPING"
