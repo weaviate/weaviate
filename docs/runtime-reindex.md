@@ -1051,29 +1051,48 @@ Then, per shard load:
    does not use the request's context, so a client that gives up on a
    lazy load cannot fail it. The outcomes:
    - **The mirror arms.** The migration continues.
-   - **The mirror fails to arm and the stamp lands.** The shard loads
-     writable. `AbandonUnarmed` stamps the record `Unmirrored` and drops
-     the unit's tasks from the provider's cache. `RunPrepareOnShard`
-     refuses an `Unmirrored` record. For a semantic migration, if this node
-     has not yet acked its prepare, its ack fails and the task goes `FAILED`
-     before any replica or sibling half swaps; once it has acked, other
-     replicas can swap before this node's swap phase refuses the unit and
-     fails the task. For a format-only migration (no prepare barrier), the
-     unit fails, and other replicas may already have swapped. Either way
-     it has to be resubmitted. A task can already be past its prepare, as when
-     the node restarts mid-swap, so the swap phase checks every task of the
-     unit first and swaps none of them if any record is `Unmirrored`.
+   - **The mirror fails to arm and the stamp lands.** This happens only
+     when the migration's swap is not committed (see below). The shard
+     loads writable. `AbandonUnarmed` stamps the record `Unmirrored` and
+     drops the unit's tasks from the provider's cache. `RunPrepareOnShard`
+     refuses an `Unmirrored` record. For a semantic migration this node has
+     not acked its prepare (an ack would have committed the swap), so its
+     ack fails and the task goes `FAILED` before any replica or sibling half
+     swaps. For a format-only migration (no prepare barrier), the unit
+     fails, and other replicas may already have swapped. Either way it has
+     to be resubmitted. A task can already be past its prepare, as when the
+     node restarts mid-swap, so the swap phase checks every task of the unit
+     first and swaps none of them if any record is `Unmirrored`.
    - **The mirror fails to arm and no stamp can be written.** This covers a
      failing disk, an unreadable record on the shard (the store then
      refuses every write), and a migration whose swap is committed. The
      shard loads `READONLY` with its own status reason: it serves reads
      and takes no writes, so the staged copy stays current.
-     - A swap is committed once this record shows it, or once RAFT has
-       decided the tenant's swap. RAFT answers, not the record: a replica
-       that was down when the swap was decided has no local trace of it,
-       and a stamp would refuse, for good, a swap its other replicas
-       already made. At boot, before this node's RAFT has caught up, it
-       cannot tell, so it holds instead of stamping.
+     - **Why a committed swap holds instead of stamping.** A stamp is
+       permanent: nothing clears `Unmirrored`, and the swap phase refuses a
+       stamped unit for good. That is safe only while no replica will make
+       the swap. Once the swap is committed, the other replicas have made it
+       or will make it. A stamp here would leave this replica on the old
+       index while its peers serve the new one, and the task would wait
+       forever for a swap this node refuses. Holding keeps the swap
+       possible. A write is refused because it would reach the live bucket
+       but not the staged copy, which has no mirror to keep it current.
+     - The swap counts as committed (`migrationSwapCommitted`) when any of
+       these holds:
+       - the local record shows the swap (it is past the flip);
+       - RAFT has decided the group's swap;
+       - this node has acked its prepare and the task is still active: the
+         swap is decided once every replica has acked, without asking this
+         node again, so its ack already promised the swap;
+       - this node cannot read its task list yet, as for shards that load
+         before the node's RAFT state is available.
+     - The answer comes from RAFT, not from the local record, because a
+       replica that was down when the swap was decided has no local trace
+       of it.
+     - A group is one tenant for a semantic migration on a multi-tenant
+       class. Every other migration has a single group for the whole class,
+       so these rules apply the same way to a class without multi-tenancy,
+       with one shard or many.
      - The held migration's own prepare and swap wait instead of
        failing, and the scheduler runs them again on a later tick.
        Another migration's repair, rebuild or iteration unit, prepare or
