@@ -665,6 +665,19 @@ func TestReplaceDynamicUserAssignments(t *testing.T) {
 			},
 		},
 		{
+			name: "drops a target row for a role only a dropped dynamic row holds",
+			backup: snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{{"db:alice", empty}},
+				Version:        SnapshotVersionLatest,
+			},
+			target: snapshot{GroupingPolicy: [][]string{{"db:bob", empty}}},
+			want: snapshot{
+				Policy:  [][]string{editorP},
+				Version: SnapshotVersionLatest,
+			},
+		},
+		{
 			name: "keeps a target row to built-in viewer the backup lacks",
 			backup: snapshot{
 				Policy:  [][]string{editorP},
@@ -696,8 +709,9 @@ func TestReplaceDynamicUserAssignments(t *testing.T) {
 			name: "keeps the backup's oidc, group, static and placeholder rows but not the target's",
 			backup: snapshot{
 				Policy: [][]string{editorP},
+				// "db:" does not parse, so it is not a dynamic-user row.
 				GroupingPolicy: [][]string{
-					placeholder, {"oidc:carl", editor}, {"group:devs", editor}, {"db:custom-user", editor},
+					placeholder, {"oidc:carl", editor}, {"group:devs", editor}, {"db:custom-user", editor}, {"db:", editor},
 				},
 				Version: SnapshotVersionLatest,
 			},
@@ -707,7 +721,7 @@ func TestReplaceDynamicUserAssignments(t *testing.T) {
 			want: snapshot{
 				Policy: [][]string{editorP},
 				GroupingPolicy: [][]string{
-					placeholder, {"oidc:carl", editor}, {"group:devs", editor}, {"db:custom-user", editor},
+					placeholder, {"oidc:carl", editor}, {"group:devs", editor}, {"db:custom-user", editor}, {"db:", editor},
 				},
 				Version: SnapshotVersionLatest,
 			},
@@ -742,6 +756,23 @@ func TestReplaceDynamicUserAssignments(t *testing.T) {
 		out, err := ReplaceDynamicUserAssignments(nil, target, nil)
 		require.NoError(t, err)
 		assert.Empty(t, out)
+	})
+
+	t.Run("a nil target still drops the backup's dynamic rows", func(t *testing.T) {
+		backup := snapshot{
+			Policy:         [][]string{editorP},
+			GroupingPolicy: [][]string{placeholder, {"oidc:carl", editor}, {"db:alice", editor}},
+			Version:        SnapshotVersionLatest,
+		}
+		out, err := ReplaceDynamicUserAssignments(encode(t, backup), nil, nil)
+		require.NoError(t, err)
+		var got snapshot
+		require.NoError(t, json.Unmarshal(out, &got))
+		assert.Equal(t, snapshot{
+			Policy:         [][]string{editorP},
+			GroupingPolicy: [][]string{placeholder, {"oidc:carl", editor}},
+			Version:        SnapshotVersionLatest,
+		}, got)
 	})
 
 	t.Run("malformed input returns an error", func(t *testing.T) {
