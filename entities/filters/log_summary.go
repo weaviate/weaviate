@@ -26,8 +26,8 @@ const (
 	logMaxArrayValues = 16
 	// logMaxOperands bounds a generated And/Or over many clauses.
 	logMaxOperands = 64
-	// logMaxStringChars bounds a single long text value.
-	logMaxStringChars = 512
+	// LogMaxStringChars bounds a single long text value.
+	LogMaxStringChars = 512
 	// logMaxNodes bounds the whole tree once the per-node limits are applied.
 	logMaxNodes = 512
 )
@@ -77,7 +77,7 @@ type valueSummary struct {
 	CharCount  int             `json:"charCount,omitempty"`
 }
 
-// cutString replaces an array element longer than logMaxStringChars.
+// cutString replaces an array element longer than LogMaxStringChars.
 type cutString struct {
 	Value     string `json:"value"`
 	CharCount int    `json:"charCount"`
@@ -186,15 +186,15 @@ func summarizeArray(rv reflect.Value, orig any) (any, int) {
 	return elems, 0
 }
 
-// cutChars returns s cut to logMaxStringChars characters and its original
+// cutChars returns s cut to LogMaxStringChars characters and its original
 // length in characters, or a zero length when s fits.
 func cutChars(s string) (string, int) {
-	if len(s) <= logMaxStringChars {
+	if len(s) <= LogMaxStringChars {
 		return s, 0
 	}
 	chars := 0
 	for i := range s {
-		if chars == logMaxStringChars {
+		if chars == LogMaxStringChars {
 			return s[:i], utf8.RuneCountInString(s)
 		}
 		chars++
