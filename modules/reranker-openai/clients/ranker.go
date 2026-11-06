@@ -59,16 +59,22 @@ type client struct {
 	// inFlight is shared by every call, so it bounds the load on the API
 	// however many queries run.
 	inFlight chan struct{}
-	logger   logrus.FieldLogger
+	// inFlightHeaderHost serves requests to a host the request header named. A
+	// caller can name a host that never answers, and that must not hold the
+	// slots of requests to the class or default host.
+	inFlightHeaderHost chan struct{}
+	logger             logrus.FieldLogger
 }
 
 func New(apiKey, organization string, timeout time.Duration, maxConcurrentRequests int, logger logrus.FieldLogger) *client {
+	slots := max(maxConcurrentRequests, 1)
 	return &client{
-		apiKey:       apiKey,
-		organization: organization,
-		httpClient:   modulecomponents.NewBaseHttpClient(timeout),
-		inFlight:     make(chan struct{}, max(maxConcurrentRequests, 1)),
-		logger:       logger,
+		apiKey:             apiKey,
+		organization:       organization,
+		httpClient:         modulecomponents.NewBaseHttpClient(timeout),
+		inFlight:           make(chan struct{}, slots),
+		inFlightHeaderHost: make(chan struct{}, slots),
+		logger:             logger,
 	}
 }
 
@@ -122,7 +128,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	scores := make([]float64, len(documents))
 	tokensPerRequest := make([]int64, len(pending))
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
-	eg.SetLimit(cap(c.inFlight))
+	eg.SetLimit(cap(c.slotsFor(hostFromHeader)))
 	for p, index := range pending {
 		eg.Go(func() error {
 			score, tokens, err := c.judge(ctx, request, documents[index])
@@ -208,6 +214,13 @@ func (c *client) judge(ctx context.Context, r judgeRequest, document ent.Documen
 	return score, inputTokens(response.Usage), nil
 }
 
+func (c *client) slotsFor(hostFromHeader bool) chan struct{} {
+	if hostFromHeader {
+		return c.inFlightHeaderHost
+	}
+	return c.inFlight
+}
+
 // send builds the input inside the in-flight slot, so the slots also bound the
 // image copies in memory.
 func (c *client) send(ctx context.Context, r judgeRequest, document string) (decisionResponse, error) {
@@ -216,9 +229,10 @@ func (c *client) send(ctx context.Context, r judgeRequest, document string) (dec
 	if err := ctx.Err(); err != nil {
 		return decisionResponse{}, err
 	}
+	slots := c.slotsFor(r.hostFromHeader)
 	select {
-	case c.inFlight <- struct{}{}:
-		defer func() { <-c.inFlight }()
+	case slots <- struct{}{}:
+		defer func() { <-slots }()
 	case <-ctx.Done():
 		return decisionResponse{}, ctx.Err()
 	}
