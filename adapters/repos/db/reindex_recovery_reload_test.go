@@ -49,6 +49,8 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 		raftBehind bool
 		// This node acked its PREP, and the swap is decided only after the load.
 		decidedAfterLoad bool
+		// The task then ends with the swap still undecided, so nothing is owed.
+		endsUndecided bool
 		// An earlier load stamped the record, which already refuses the swap.
 		stampedBefore bool
 	}{
@@ -56,6 +58,7 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 		{name: "the mirror fails to arm", armFails: true},
 		{name: "the mirror fails to arm before RAFT has caught up", armFails: true, raftBehind: true},
 		{name: "the mirror fails to arm after this node acked, before the swap is decided", armFails: true, decidedAfterLoad: true},
+		{name: "a held lift stamps once the acked task ends undecided", armFails: true, decidedAfterLoad: true, endsUndecided: true},
 		{name: "a record stamped earlier is not held for its decided swap", armFails: true, stampedBefore: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -142,6 +145,17 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 					require.False(t, rec.Subject().Unmirrored, "a stamp would refuse the owed swap for good")
 				}
 				require.Equal(t, storagestate.StatusReadOnly, reloaded.GetStatus())
+				if tc.endsUndecided {
+					// In place, so the lift runs before the periodic cluster pass discards the ended run.
+					atLoad.Status = distributedtask.TaskStatusCancelled
+					require.NoError(t, reloaded.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate))
+					require.Equal(t, storagestate.StatusReady, reloaded.GetStatus())
+					require.NotEmpty(t, reloaded.migrationRecords.Records())
+					for _, rec := range reloaded.migrationRecords.Records() {
+						require.True(t, rec.Subject().Unmirrored, "an ended task owes no swap, so the lift stamps")
+					}
+					return
+				}
 				if tc.raftBehind || tc.decidedAfterLoad {
 					installTestMigrationTaskSources(ctx, idx.db, nil, cancelled)
 				}
