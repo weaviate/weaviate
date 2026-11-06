@@ -37,8 +37,8 @@ package reindex_multinode
 // Post-barrier (this branch): OnGroupCompleted runs PREP only; every
 // node's PreparationCompleteAck must land via RAFT before the FSM transitions
 // PREPARING -> SWAPPING and OnSwapRequested fires. The cross-node SWAP
-// window then grows with the preparation work in flight on each node, not
-// with the slowest node's PREP of this shard.
+// window then grows with the preparation work and swaps in flight on each
+// node, not with the slowest node's PREP of this shard.
 //
 // What this test asserts (end-to-end, in CI):
 //

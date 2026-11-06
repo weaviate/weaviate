@@ -294,7 +294,7 @@ var ErrTaskStillActiveForTargetVectors = errors.New("a task bound to these targe
 // client retry once the task settles. NOTE: SWAPPING normally lasts
 // milliseconds, but a node that dies before delivering its post-completion
 // ack holds SWAPPING indefinitely (finalize waits for every node, CancelTask
-// accepts only STARTED, the TTL pruner skips active tasks) — until that is
+// accepts only STARTED and PREPARING, the TTL pruner skips active tasks) — until that is
 // operable, only DeleteClass clears such a wedge.
 //
 // Overlap semantics: a record is purged WHOLE when ANY of its target vectors

@@ -1121,7 +1121,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	p.cacheReindexTasks(task.TaskDescriptor, unitID, fresh)
 
 	logger.WithField("unit", unitID).
-		Info("reindex provider: resolveUnitForPhase: rebuilding tasks from disk (node restarted or shard reloaded); cached for subsequent phase callbacks")
+		Info("reindex provider: resolveUnitForPhase: rebuilding tasks from disk (no cached tasks for this unit, e.g. after a node restart); cached for subsequent phase callbacks")
 	return phaseUnitResolution{Shard: resolvedShard, UnitTasks: fresh, Rehydrate: true}
 }
 

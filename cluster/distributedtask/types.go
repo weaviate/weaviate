@@ -439,7 +439,8 @@ const (
 
 	// TaskStatusSwapping means every node is firing its per-shard atomic
 	// swap. A tenant's replicas can serve different results meanwhile, for a
-	// window that grows with in-flight preparation work. The task
+	// window that grows with in-flight preparation work, other swaps and
+	// retries. The task
 	// transitions to FINISHED only after every node's PostCompletionAck
 	// lands successfully.
 	TaskStatusSwapping TaskStatus = "SWAPPING"

@@ -631,6 +631,8 @@ func (s *Scheduler) tick() {
 		// [Scheduler.bootstrapProviders] (and the deferred-bootstrap path in
 		// this tick) marks terminal tasks' OnTaskCompleted as fired, so a node
 		// restart cannot replay it; only a barrier task's owed swaps still run.
+		// A FINISHED task with pending local recovery is not pre-marked, so its
+		// callbacks fire again.
 		suProvider, providerIsUnitAware := provider.(UnitAwareProvider)
 		if providerIsUnitAware {
 			for desc, task := range tasks {

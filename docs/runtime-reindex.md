@@ -116,6 +116,8 @@ body against current state and picks the migration:
 
 A PUT whose desired config already matches current state AND has no reindex
 task in flight submits no task and returns `200` with `{"status":"NO_OP"}`.
+While a partial run stands on the property, such a PUT that names a
+tokenization answers `409` instead (§8).
 A PUT that converges on a task still in flight also submits no task, but the
 config is not in place yet, so it returns `202` with that task's `taskId`.
 
@@ -180,10 +182,11 @@ Response shapes (PUT / rebuild / cancel):
   `/v1/schema/{className}/properties/X/index/searchable` with a
   tokenization to add one first").
 - `404 Not Found` — class or property doesn't exist.
-- `409 Conflict` — three distinct meanings. On PUT / rebuild, an in-flight
+- `409 Conflict` — four distinct meanings. On PUT / rebuild, an in-flight
   task already touches this property; the error names the offending task
   ID unless another submit won the race. On PUT / rebuild, a replica
-  movement is in flight on the collection.
+  movement is in flight on the collection. On PUT / rebuild, a partial run
+  stands on the property (§8); the error names the resubmit that finishes it.
   On cancel, either arm can refuse. The pre-flight refuses a status this
   build does not recognize and names the task ID and that status. The
   apply refuses a target that reached such a status or a terminal one
@@ -398,7 +401,7 @@ preceding a transition on the per-task field. Annotations
                                   └────────┬────────┘   (replicas may differ
                                            │            for a window that
                                            │            grows with in-flight
-                                           │            PREP work)
+                                           │            PREP and swaps)
                                            │  scheduler fires per-node
         ┌──────────────────────────────────▼─────────────────────────────┐
         │  Provider.OnSwapRequested (per-node, semantic only, barrier)  │
@@ -538,8 +541,9 @@ A group prepares as soon as its own units are COMPLETED: PREP
 reindex bucket on disk, and nothing else. Its swap is decided once every
 node owning one of its units acked PREP success. Its replicas then swap
 on their own nodes' ticks, so they can serve different results for a
-window that grows with the preparation work in flight on those nodes (see
-"Cross-replica window" in §6.3); no data is lost. Tenants are not
+window that grows with the preparation work and other swaps in flight on
+those nodes, and with retries of a failing swap (see "Cross-replica
+window" in §6.3); no data is lost. Tenants are not
 coupled: one slow tenant does not hold the others. §6.3 has the protocol.
 
 ## 4. Architecture by layer
@@ -622,7 +626,8 @@ Key types & contracts:
   otherwise be FINISHED at the FSM layer before every node's
   post-completion callback had committed its bucket-pointer flip. A
   tenant's replicas can still serve different results for a window that
-  grows with in-flight preparation work, which can reach minutes at scale.
+  grows with in-flight preparation work and swaps, and with retries of a
+  failing swap, which can reach minutes at scale.
 - **Two-phase ack barrier** — `RecordPreparationCompleteAck` (semantic only)
   + `RecordPostCompletionAck` (all paths). Every node's scheduler
   records its phase outcome (success or error) on the task before the
@@ -1081,8 +1086,10 @@ mixed-tokenization state (some swapped, some not) while each node gets to
 its swap. A node runs its decided swaps before the same task's PREP in a
 tick, but in no fixed order among themselves, and a swap can also wait
 behind another semantic run's PREP on that node, or behind a decision that
-lands mid-batch. So the window grows with the preparation work in flight
-on those nodes; no fixed bound holds. In that window the replicas serve
+lands mid-batch. A node's decided swaps run one at a time, so each also
+waits for the others, and a failing swap is retried only on a later tick.
+So the window grows with the preparation work and swaps in flight on those
+nodes, and with retries; no fixed bound holds. In that window the replicas serve
 different BM25 and filter results; no data is lost.
 Different tenants are not coupled: each swaps when its own replicas are
 ready.
@@ -1157,8 +1164,9 @@ SET + ATOMIC SWAP fire from two different scheduler callbacks
 (`OnGroupCompleted` for PREP, `OnSwapRequested` for OVERLAY+SWAP) with
 the cluster-wide `RecordPreparationCompleteAck` barrier in between. The
 phase ordering on a single node is preserved; the cross-node skew between
-fastest-node and slowest-node SWAP grows with the preparation work in
-flight on those nodes (see "Cross-replica window" in §6.3).
+fastest-node and slowest-node SWAP grows with the preparation work and
+swaps in flight on those nodes, and with retries (see "Cross-replica
+window" in §6.3).
 
 ## 7. Concurrency model
 
