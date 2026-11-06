@@ -104,10 +104,13 @@ func (s *Shard) migrationSwapCommitted(rec MigrationRecord) bool {
 func (s *Shard) holdReadOnlyForUnarmed(unarmed []*ShardReindexTaskGeneric, cause error) {
 	s.migrationMirrors.holdUnarmed(unarmed)
 	s.index.logger.WithField("shard", s.ID()).Errorf("shard is %s and its reindex migrations wait: "+
-		"%v. Clear that cause, then set the shard to %s or restart the node (a repaired unreadable record needs the restart); if a staged bucket cannot "+
-		"open because a segment file is damaged, repair that file in place first. A migration not yet "+
-		"swapped in also leaves the hold once its Unmirrored stamp can be written, unless a migration already swapped in is "+
-		"held on the same shard; then both wait until the shard is repaired and set READY. "+
+		"%v. Clear that cause, then set the shard to %s or restart the node (a repaired unreadable record needs the restart); "+
+		"if a staged bucket cannot open because a segment file is damaged, repair that file in place first. "+
+		"A migration whose swap is not committed also leaves the hold once its Unmirrored stamp can be written, "+
+		"unless a migration with a committed swap or already swapped in is held on the same shard. "+
+		"A committed swap cannot be given up on this node, because its other replicas made or will make it; "+
+		"if its staged data cannot be repaired, read the reindex recovery docs before deleting anything: "+
+		"recovering from a healthy replica or a backup comes first. "+
 		"A manual READY also overrides disk or memory pressure, so free space first",
 		storagestate.StatusReadOnly, cause, storagestate.StatusReady)
 	if err := s.SetStatusReadonly(statusReasonMirrorUnarmed); err != nil {
