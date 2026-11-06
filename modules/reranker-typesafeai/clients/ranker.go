@@ -67,17 +67,22 @@ type client struct {
 	// every call, so it bounds the load on the API and the request bodies in
 	// memory however many queries run.
 	inFlight chan struct{}
-	logger   logrus.FieldLogger
+	// inFlightHeaderHost is the pool of requests to a host the request header
+	// named. A caller can name a host that never answers, and that must not
+	// hold the slots of requests to the class or default host.
+	inFlightHeaderHost chan struct{}
+	logger             logrus.FieldLogger
 }
 
 // New returns a client that sends at most maxConcurrentRequests requests at
 // once.
 func New(apiKey string, timeout time.Duration, maxConcurrentRequests int, logger logrus.FieldLogger) *client {
 	return &client{
-		apiKey:     apiKey,
-		httpClient: modulecomponents.NewBaseHttpClient(timeout),
-		inFlight:   make(chan struct{}, max(maxConcurrentRequests, 1)),
-		logger:     logger,
+		apiKey:             apiKey,
+		httpClient:         modulecomponents.NewBaseHttpClient(timeout),
+		inFlight:           make(chan struct{}, max(maxConcurrentRequests, 1)),
+		inFlightHeaderHost: make(chan struct{}, max(maxConcurrentRequests, 1)),
+		logger:             logger,
 	}
 }
 
@@ -138,7 +143,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	scores := make([]float64, len(documents))
 	usages := make([]typesafeaiUsage, len(requestBatches))
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
-	eg.SetLimit(cap(c.inFlight))
+	eg.SetLimit(cap(c.slots(hostFromHeader)))
 	for b, batch := range requestBatches {
 		eg.Go(func() error {
 			batchDocuments := make([]ent.Document, len(batch))
@@ -266,6 +271,14 @@ func (c *client) judge(ctx context.Context, r judgeRequest, documents []ent.Docu
 	return values, typesafeaiUsage{InputTokens: inputTokens(response.Usage), requests: 1}, nil
 }
 
+// slots returns the pool a request to the host takes its slot from.
+func (c *client) slots(hostFromHeader bool) chan struct{} {
+	if hostFromHeader {
+		return c.inFlightHeaderHost
+	}
+	return c.inFlight
+}
+
 // post builds and sends the request of one batch while it holds an in-flight
 // slot, so that the slots also bound the request bodies in memory.
 func (c *client) post(ctx context.Context, r judgeRequest, documents []ent.Document) (typesafeaiResponse, bool, error) {
@@ -274,9 +287,10 @@ func (c *client) post(ctx context.Context, r judgeRequest, documents []ent.Docum
 	if err := ctx.Err(); err != nil {
 		return typesafeaiResponse{}, false, err
 	}
+	slots := c.slots(r.hostFromHeader)
 	select {
-	case c.inFlight <- struct{}{}:
-		defer func() { <-c.inFlight }()
+	case slots <- struct{}{}:
+		defer func() { <-slots }()
 	case <-ctx.Done():
 		return typesafeaiResponse{}, false, ctx.Err()
 	}
