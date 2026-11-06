@@ -152,6 +152,11 @@ func resolveAggregate(p graphql.ResolveParams, authorizer authorization.Authoriz
 	// Extract hybrid search params from the processed query
 	// Everything hybrid can go in another namespace AFTER modulesprovider is
 	// refactored
+	hnswParams, err := common_filters.ExtractHNSW(p.Args)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract hnsw params: %w", err)
+	}
+
 	var hybridParams *searchparams.HybridSearch
 	if hybrid, ok := p.Args["hybrid"]; ok {
 		p, _, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), false)
@@ -171,6 +176,7 @@ func resolveAggregate(p graphql.ResolveParams, authorizer authorization.Authoriz
 		ObjectLimit:      objectLimit,
 		NearVector:       nearVectorParams,
 		NearObject:       nearObjectParams,
+		HNSW:             hnswParams,
 		ModuleParams:     moduleParams,
 		Hybrid:           hybridParams,
 		Tenant:           tenant,

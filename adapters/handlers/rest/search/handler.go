@@ -389,6 +389,7 @@ func statusFromError(err error) *APIError {
 		srcNoVector   enterrors.ErrSourceObjectNoVector
 		dirtyRead     objects.ErrDirtyReadOfDeletedObject
 		certainty     enterrors.ErrCertaintyIncompatible
+		unprocessable enterrors.ErrUnprocessable
 		missingIndex  inverted.MissingIndexError
 		vectorization enterrors.ErrQueryVectorization
 	)
@@ -418,6 +419,9 @@ func statusFromError(err error) *APIError {
 		// every other read path treats as gone (usecases/objects head, merge)
 		return &APIError{Status: http.StatusBadRequest, Err: err}
 	case errors.As(err, &certainty):
+		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+	case errors.As(err, &unprocessable):
+		// includes hnsw.ef on an index that cannot apply it
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &missingIndex):
 		// filter on a property whose inverted index is disabled, or whose

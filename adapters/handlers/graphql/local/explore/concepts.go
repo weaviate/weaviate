@@ -46,6 +46,7 @@ func Build(schema *models.Schema, modulesProvider ModulesProvider, authorizer au
 
 			"nearVector": nearVectorArgument(),
 			"nearObject": nearObjectArgument(),
+			"hnsw":       common_filters.HNSWArgument("Explore"),
 		},
 	}
 

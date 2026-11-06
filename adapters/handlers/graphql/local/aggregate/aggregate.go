@@ -131,6 +131,7 @@ func classField(class *models.Class, description string,
 			},
 			"nearVector": nearVectorArgument(class.Class),
 			"nearObject": nearObjectArgument(class.Class),
+			"hnsw":       common_filters.HNSWArgument("AggregateObjects" + class.Class),
 			"objectLimit": &graphql.ArgumentConfig{
 				Description: descriptions.First,
 				Type:        graphql.Int,

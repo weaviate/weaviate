@@ -3035,6 +3035,38 @@ func TestGRPCSearchRequestBoostPropertyTypeValidation(t *testing.T) {
 	}
 }
 
+func TestParseHNSWSearchEF(t *testing.T) {
+	parser := NewParser(false, getClass, nil, namespacing.Disabled)
+	ef := int32(96)
+	out, err := parser.Search(&pb.SearchRequest{
+		Collection: classname,
+		NearVector: &pb.NearVector{Vector: []float32{1, 2, 3}},
+		Hnsw:       &pb.HNSWSearch{Ef: &ef},
+	}, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+	require.NoError(t, err)
+	require.NotNil(t, out.HNSW)
+	require.NotNil(t, out.HNSW.EF)
+	require.Equal(t, 96, *out.HNSW.EF)
+
+	bad := int32(0)
+	_, err = parser.Search(&pb.SearchRequest{
+		Collection: classname,
+		NearVector: &pb.NearVector{Vector: []float32{1, 2, 3}},
+		Hnsw:       &pb.HNSWSearch{Ef: &bad},
+	}, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "between 1 and")
+
+	tooBig := int32(searchparams.MaxEF + 1)
+	_, err = parser.Search(&pb.SearchRequest{
+		Collection: classname,
+		NearVector: &pb.NearVector{Vector: []float32{1, 2, 3}},
+		Hnsw:       &pb.HNSWSearch{Ef: &tooBig},
+	}, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "between 1 and")
+}
+
 func getClass(name string) (*models.Class, error) {
 	class := scheme.GetClass(name)
 	if class == nil {

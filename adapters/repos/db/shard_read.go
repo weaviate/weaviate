@@ -775,6 +775,10 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			}
 			defer release()
 
+			if _, hasEF := searchparams.HNSWSearchEF(ctx); hasEF && !common.HonorsSearchEF(vidx.Type()) {
+				return enterrors.NewErrUnprocessable(common.UnsupportedSearchEF(targetVector, vidx.Type()))
+			}
+
 			if limit < 0 {
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:

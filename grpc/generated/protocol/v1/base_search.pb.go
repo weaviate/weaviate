@@ -670,6 +670,60 @@ type Hybrid_VectorDistance struct {
 
 func (*Hybrid_VectorDistance) isHybrid_Threshold() {}
 
+// HNSWSearch is a search-time override for HNSW indexes.
+// Unset fields keep the collection's vector index config. Flat, HFresh and
+// skipped indexes reject a request that sets ef. Dynamic indexes accept it
+// and apply it once the active index is HNSW; an exhaustive flat search
+// ignores it because that search is already exact.
+type HNSWSearch struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// ef is the size of the HNSW candidate list for this query.
+	// It overrides vectorIndexConfig.ef, including dynamic ef.
+	// Must be between 1 and 1048576. When it is smaller than the number of
+	// neighbors requested, the search raises it to that number so the result
+	// list is not truncated. The index also caps ef to the number of indexed nodes.
+	Ef            *int32 `protobuf:"varint,1,opt,name=ef,proto3,oneof" json:"ef,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HNSWSearch) Reset() {
+	*x = HNSWSearch{}
+	mi := &file_v1_base_search_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HNSWSearch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HNSWSearch) ProtoMessage() {}
+
+func (x *HNSWSearch) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_base_search_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HNSWSearch.ProtoReflect.Descriptor instead.
+func (*HNSWSearch) Descriptor() ([]byte, []int) {
+	return file_v1_base_search_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *HNSWSearch) GetEf() int32 {
+	if x != nil && x.Ef != nil {
+		return *x.Ef
+	}
+	return 0
+}
+
 type NearVector struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
@@ -694,7 +748,7 @@ type NearVector struct {
 
 func (x *NearVector) Reset() {
 	*x = NearVector{}
-	mi := &file_v1_base_search_proto_msgTypes[6]
+	mi := &file_v1_base_search_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -706,7 +760,7 @@ func (x *NearVector) String() string {
 func (*NearVector) ProtoMessage() {}
 
 func (x *NearVector) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_base_search_proto_msgTypes[6]
+	mi := &file_v1_base_search_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -719,7 +773,7 @@ func (x *NearVector) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NearVector.ProtoReflect.Descriptor instead.
 func (*NearVector) Descriptor() ([]byte, []int) {
-	return file_v1_base_search_proto_rawDescGZIP(), []int{6}
+	return file_v1_base_search_proto_rawDescGZIP(), []int{7}
 }
 
 // Deprecated: Marked as deprecated in v1/base_search.proto.
@@ -811,7 +865,7 @@ type NearObject struct {
 
 func (x *NearObject) Reset() {
 	*x = NearObject{}
-	mi := &file_v1_base_search_proto_msgTypes[7]
+	mi := &file_v1_base_search_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -823,7 +877,7 @@ func (x *NearObject) String() string {
 func (*NearObject) ProtoMessage() {}
 
 func (x *NearObject) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_base_search_proto_msgTypes[7]
+	mi := &file_v1_base_search_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -836,7 +890,7 @@ func (x *NearObject) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NearObject.ProtoReflect.Descriptor instead.
 func (*NearObject) Descriptor() ([]byte, []int) {
-	return file_v1_base_search_proto_rawDescGZIP(), []int{7}
+	return file_v1_base_search_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *NearObject) GetId() string {
@@ -900,7 +954,7 @@ type NearTextSearch struct {
 
 func (x *NearTextSearch) Reset() {
 	*x = NearTextSearch{}
-	mi := &file_v1_base_search_proto_msgTypes[8]
+	mi := &file_v1_base_search_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -912,7 +966,7 @@ func (x *NearTextSearch) String() string {
 func (*NearTextSearch) ProtoMessage() {}
 
 func (x *NearTextSearch) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_base_search_proto_msgTypes[8]
+	mi := &file_v1_base_search_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -925,7 +979,7 @@ func (x *NearTextSearch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NearTextSearch.ProtoReflect.Descriptor instead.
 func (*NearTextSearch) Descriptor() ([]byte, []int) {
-	return file_v1_base_search_proto_rawDescGZIP(), []int{8}
+	return file_v1_base_search_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *NearTextSearch) GetQuery() []string {
@@ -1000,7 +1054,7 @@ type NearImageSearch struct {
 
 func (x *NearImageSearch) Reset() {
 	*x = NearImageSearch{}
-	mi := &file_v1_base_search_proto_msgTypes[9]
+	mi := &file_v1_base_search_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1012,7 +1066,7 @@ func (x *NearImageSearch) String() string {
 func (*NearImageSearch) ProtoMessage() {}
 
 func (x *NearImageSearch) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_base_search_proto_msgTypes[9]
+	mi := &file_v1_base_search_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1025,7 +1079,7 @@ func (x *NearImageSearch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NearImageSearch.ProtoReflect.Descriptor instead.
 func (*NearImageSearch) Descriptor() ([]byte, []int) {
-	return file_v1_base_search_proto_rawDescGZIP(), []int{9}
+	return file_v1_base_search_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *NearImageSearch) GetImage() string {
@@ -1086,7 +1140,7 @@ type NearAudioSearch struct {
 
 func (x *NearAudioSearch) Reset() {
 	*x = NearAudioSearch{}
-	mi := &file_v1_base_search_proto_msgTypes[10]
+	mi := &file_v1_base_search_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1098,7 +1152,7 @@ func (x *NearAudioSearch) String() string {
 func (*NearAudioSearch) ProtoMessage() {}
 
 func (x *NearAudioSearch) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_base_search_proto_msgTypes[10]
+	mi := &file_v1_base_search_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1111,7 +1165,7 @@ func (x *NearAudioSearch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NearAudioSearch.ProtoReflect.Descriptor instead.
 func (*NearAudioSearch) Descriptor() ([]byte, []int) {
-	return file_v1_base_search_proto_rawDescGZIP(), []int{10}
+	return file_v1_base_search_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *NearAudioSearch) GetAudio() string {
@@ -1172,7 +1226,7 @@ type NearVideoSearch struct {
 
 func (x *NearVideoSearch) Reset() {
 	*x = NearVideoSearch{}
-	mi := &file_v1_base_search_proto_msgTypes[11]
+	mi := &file_v1_base_search_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1184,7 +1238,7 @@ func (x *NearVideoSearch) String() string {
 func (*NearVideoSearch) ProtoMessage() {}
 
 func (x *NearVideoSearch) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_base_search_proto_msgTypes[11]
+	mi := &file_v1_base_search_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1197,7 +1251,7 @@ func (x *NearVideoSearch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NearVideoSearch.ProtoReflect.Descriptor instead.
 func (*NearVideoSearch) Descriptor() ([]byte, []int) {
-	return file_v1_base_search_proto_rawDescGZIP(), []int{11}
+	return file_v1_base_search_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *NearVideoSearch) GetVideo() string {
@@ -1258,7 +1312,7 @@ type NearDepthSearch struct {
 
 func (x *NearDepthSearch) Reset() {
 	*x = NearDepthSearch{}
-	mi := &file_v1_base_search_proto_msgTypes[12]
+	mi := &file_v1_base_search_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1270,7 +1324,7 @@ func (x *NearDepthSearch) String() string {
 func (*NearDepthSearch) ProtoMessage() {}
 
 func (x *NearDepthSearch) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_base_search_proto_msgTypes[12]
+	mi := &file_v1_base_search_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1283,7 +1337,7 @@ func (x *NearDepthSearch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NearDepthSearch.ProtoReflect.Descriptor instead.
 func (*NearDepthSearch) Descriptor() ([]byte, []int) {
-	return file_v1_base_search_proto_rawDescGZIP(), []int{12}
+	return file_v1_base_search_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *NearDepthSearch) GetDepth() string {
@@ -1344,7 +1398,7 @@ type NearThermalSearch struct {
 
 func (x *NearThermalSearch) Reset() {
 	*x = NearThermalSearch{}
-	mi := &file_v1_base_search_proto_msgTypes[13]
+	mi := &file_v1_base_search_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1356,7 +1410,7 @@ func (x *NearThermalSearch) String() string {
 func (*NearThermalSearch) ProtoMessage() {}
 
 func (x *NearThermalSearch) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_base_search_proto_msgTypes[13]
+	mi := &file_v1_base_search_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1369,7 +1423,7 @@ func (x *NearThermalSearch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NearThermalSearch.ProtoReflect.Descriptor instead.
 func (*NearThermalSearch) Descriptor() ([]byte, []int) {
-	return file_v1_base_search_proto_rawDescGZIP(), []int{13}
+	return file_v1_base_search_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *NearThermalSearch) GetThermal() string {
@@ -1430,7 +1484,7 @@ type NearIMUSearch struct {
 
 func (x *NearIMUSearch) Reset() {
 	*x = NearIMUSearch{}
-	mi := &file_v1_base_search_proto_msgTypes[14]
+	mi := &file_v1_base_search_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1442,7 +1496,7 @@ func (x *NearIMUSearch) String() string {
 func (*NearIMUSearch) ProtoMessage() {}
 
 func (x *NearIMUSearch) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_base_search_proto_msgTypes[14]
+	mi := &file_v1_base_search_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1455,7 +1509,7 @@ func (x *NearIMUSearch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NearIMUSearch.ProtoReflect.Descriptor instead.
 func (*NearIMUSearch) Descriptor() ([]byte, []int) {
-	return file_v1_base_search_proto_rawDescGZIP(), []int{14}
+	return file_v1_base_search_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *NearIMUSearch) GetImu() string {
@@ -1512,7 +1566,7 @@ type BM25 struct {
 
 func (x *BM25) Reset() {
 	*x = BM25{}
-	mi := &file_v1_base_search_proto_msgTypes[15]
+	mi := &file_v1_base_search_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1524,7 +1578,7 @@ func (x *BM25) String() string {
 func (*BM25) ProtoMessage() {}
 
 func (x *BM25) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_base_search_proto_msgTypes[15]
+	mi := &file_v1_base_search_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1537,7 +1591,7 @@ func (x *BM25) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BM25.ProtoReflect.Descriptor instead.
 func (*BM25) Descriptor() ([]byte, []int) {
-	return file_v1_base_search_proto_rawDescGZIP(), []int{15}
+	return file_v1_base_search_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *BM25) GetQuery() string {
@@ -1571,7 +1625,7 @@ type Selection_MMR struct {
 
 func (x *Selection_MMR) Reset() {
 	*x = Selection_MMR{}
-	mi := &file_v1_base_search_proto_msgTypes[16]
+	mi := &file_v1_base_search_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1583,7 +1637,7 @@ func (x *Selection_MMR) String() string {
 func (*Selection_MMR) ProtoMessage() {}
 
 func (x *Selection_MMR) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_base_search_proto_msgTypes[16]
+	mi := &file_v1_base_search_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1624,7 +1678,7 @@ type NearTextSearch_Move struct {
 
 func (x *NearTextSearch_Move) Reset() {
 	*x = NearTextSearch_Move{}
-	mi := &file_v1_base_search_proto_msgTypes[18]
+	mi := &file_v1_base_search_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1636,7 +1690,7 @@ func (x *NearTextSearch_Move) String() string {
 func (*NearTextSearch_Move) ProtoMessage() {}
 
 func (x *NearTextSearch_Move) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_base_search_proto_msgTypes[18]
+	mi := &file_v1_base_search_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1649,7 +1703,7 @@ func (x *NearTextSearch_Move) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NearTextSearch_Move.ProtoReflect.Descriptor instead.
 func (*NearTextSearch_Move) Descriptor() ([]byte, []int) {
-	return file_v1_base_search_proto_rawDescGZIP(), []int{8, 0}
+	return file_v1_base_search_proto_rawDescGZIP(), []int{9, 0}
 }
 
 func (x *NearTextSearch_Move) GetForce() float32 {
@@ -1739,7 +1793,11 @@ const file_v1_base_search_proto_rawDesc = "" +
 	"\x15_bm25_search_operatorB\x0e\n" +
 	"\f_alpha_paramB\f\n" +
 	"\n" +
-	"_selection\"\xf0\x04\n" +
+	"_selection\"(\n" +
+	"\n" +
+	"HNSWSearch\x12\x13\n" +
+	"\x02ef\x18\x01 \x01(\x05H\x00R\x02ef\x88\x01\x01B\x05\n" +
+	"\x03_ef\"\xf0\x04\n" +
 	"\n" +
 	"NearVector\x12\x1a\n" +
 	"\x06vector\x18\x01 \x03(\x02B\x02\x18\x01R\x06vector\x12!\n" +
@@ -1896,55 +1954,58 @@ func file_v1_base_search_proto_rawDescGZIP() []byte {
 	return file_v1_base_search_proto_rawDescData
 }
 
-var file_v1_base_search_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_v1_base_search_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
-var file_v1_base_search_proto_goTypes = []any{
-	(CombinationMethod)(0),              // 0: weaviate.v1.CombinationMethod
-	(SearchOperatorOptions_Operator)(0), // 1: weaviate.v1.SearchOperatorOptions.Operator
-	(Hybrid_FusionType)(0),              // 2: weaviate.v1.Hybrid.FusionType
-	(*WeightsForTarget)(nil),            // 3: weaviate.v1.WeightsForTarget
-	(*Targets)(nil),                     // 4: weaviate.v1.Targets
-	(*VectorForTarget)(nil),             // 5: weaviate.v1.VectorForTarget
-	(*Selection)(nil),                   // 6: weaviate.v1.Selection
-	(*SearchOperatorOptions)(nil),       // 7: weaviate.v1.SearchOperatorOptions
-	(*Hybrid)(nil),                      // 8: weaviate.v1.Hybrid
-	(*NearVector)(nil),                  // 9: weaviate.v1.NearVector
-	(*NearObject)(nil),                  // 10: weaviate.v1.NearObject
-	(*NearTextSearch)(nil),              // 11: weaviate.v1.NearTextSearch
-	(*NearImageSearch)(nil),             // 12: weaviate.v1.NearImageSearch
-	(*NearAudioSearch)(nil),             // 13: weaviate.v1.NearAudioSearch
-	(*NearVideoSearch)(nil),             // 14: weaviate.v1.NearVideoSearch
-	(*NearDepthSearch)(nil),             // 15: weaviate.v1.NearDepthSearch
-	(*NearThermalSearch)(nil),           // 16: weaviate.v1.NearThermalSearch
-	(*NearIMUSearch)(nil),               // 17: weaviate.v1.NearIMUSearch
-	(*BM25)(nil),                        // 18: weaviate.v1.BM25
-	(*Selection_MMR)(nil),               // 19: weaviate.v1.Selection.MMR
-	nil,                                 // 20: weaviate.v1.NearVector.VectorPerTargetEntry
-	(*NearTextSearch_Move)(nil),         // 21: weaviate.v1.NearTextSearch.Move
-	(*Vectors)(nil),                     // 22: weaviate.v1.Vectors
-}
+var (
+	file_v1_base_search_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+	file_v1_base_search_proto_msgTypes  = make([]protoimpl.MessageInfo, 20)
+	file_v1_base_search_proto_goTypes   = []any{
+		(CombinationMethod)(0),              // 0: weaviate.v1.CombinationMethod
+		(SearchOperatorOptions_Operator)(0), // 1: weaviate.v1.SearchOperatorOptions.Operator
+		(Hybrid_FusionType)(0),              // 2: weaviate.v1.Hybrid.FusionType
+		(*WeightsForTarget)(nil),            // 3: weaviate.v1.WeightsForTarget
+		(*Targets)(nil),                     // 4: weaviate.v1.Targets
+		(*VectorForTarget)(nil),             // 5: weaviate.v1.VectorForTarget
+		(*Selection)(nil),                   // 6: weaviate.v1.Selection
+		(*SearchOperatorOptions)(nil),       // 7: weaviate.v1.SearchOperatorOptions
+		(*Hybrid)(nil),                      // 8: weaviate.v1.Hybrid
+		(*HNSWSearch)(nil),                  // 9: weaviate.v1.HNSWSearch
+		(*NearVector)(nil),                  // 10: weaviate.v1.NearVector
+		(*NearObject)(nil),                  // 11: weaviate.v1.NearObject
+		(*NearTextSearch)(nil),              // 12: weaviate.v1.NearTextSearch
+		(*NearImageSearch)(nil),             // 13: weaviate.v1.NearImageSearch
+		(*NearAudioSearch)(nil),             // 14: weaviate.v1.NearAudioSearch
+		(*NearVideoSearch)(nil),             // 15: weaviate.v1.NearVideoSearch
+		(*NearDepthSearch)(nil),             // 16: weaviate.v1.NearDepthSearch
+		(*NearThermalSearch)(nil),           // 17: weaviate.v1.NearThermalSearch
+		(*NearIMUSearch)(nil),               // 18: weaviate.v1.NearIMUSearch
+		(*BM25)(nil),                        // 19: weaviate.v1.BM25
+		(*Selection_MMR)(nil),               // 20: weaviate.v1.Selection.MMR
+		nil,                                 // 21: weaviate.v1.NearVector.VectorPerTargetEntry
+		(*NearTextSearch_Move)(nil),         // 22: weaviate.v1.NearTextSearch.Move
+		(*Vectors)(nil),                     // 23: weaviate.v1.Vectors
+	}
+)
 var file_v1_base_search_proto_depIdxs = []int32{
 	0,  // 0: weaviate.v1.Targets.combination:type_name -> weaviate.v1.CombinationMethod
 	3,  // 1: weaviate.v1.Targets.weights_for_targets:type_name -> weaviate.v1.WeightsForTarget
-	22, // 2: weaviate.v1.VectorForTarget.vectors:type_name -> weaviate.v1.Vectors
-	19, // 3: weaviate.v1.Selection.mmr:type_name -> weaviate.v1.Selection.MMR
+	23, // 2: weaviate.v1.VectorForTarget.vectors:type_name -> weaviate.v1.Vectors
+	20, // 3: weaviate.v1.Selection.mmr:type_name -> weaviate.v1.Selection.MMR
 	1,  // 4: weaviate.v1.SearchOperatorOptions.operator:type_name -> weaviate.v1.SearchOperatorOptions.Operator
 	2,  // 5: weaviate.v1.Hybrid.fusion_type:type_name -> weaviate.v1.Hybrid.FusionType
-	11, // 6: weaviate.v1.Hybrid.near_text:type_name -> weaviate.v1.NearTextSearch
-	9,  // 7: weaviate.v1.Hybrid.near_vector:type_name -> weaviate.v1.NearVector
+	12, // 6: weaviate.v1.Hybrid.near_text:type_name -> weaviate.v1.NearTextSearch
+	10, // 7: weaviate.v1.Hybrid.near_vector:type_name -> weaviate.v1.NearVector
 	4,  // 8: weaviate.v1.Hybrid.targets:type_name -> weaviate.v1.Targets
 	7,  // 9: weaviate.v1.Hybrid.bm25_search_operator:type_name -> weaviate.v1.SearchOperatorOptions
 	6,  // 10: weaviate.v1.Hybrid.selection:type_name -> weaviate.v1.Selection
-	22, // 11: weaviate.v1.Hybrid.vectors:type_name -> weaviate.v1.Vectors
+	23, // 11: weaviate.v1.Hybrid.vectors:type_name -> weaviate.v1.Vectors
 	4,  // 12: weaviate.v1.NearVector.targets:type_name -> weaviate.v1.Targets
-	20, // 13: weaviate.v1.NearVector.vector_per_target:type_name -> weaviate.v1.NearVector.VectorPerTargetEntry
+	21, // 13: weaviate.v1.NearVector.vector_per_target:type_name -> weaviate.v1.NearVector.VectorPerTargetEntry
 	5,  // 14: weaviate.v1.NearVector.vector_for_targets:type_name -> weaviate.v1.VectorForTarget
-	22, // 15: weaviate.v1.NearVector.vectors:type_name -> weaviate.v1.Vectors
+	23, // 15: weaviate.v1.NearVector.vectors:type_name -> weaviate.v1.Vectors
 	6,  // 16: weaviate.v1.NearVector.selection:type_name -> weaviate.v1.Selection
 	4,  // 17: weaviate.v1.NearObject.targets:type_name -> weaviate.v1.Targets
 	6,  // 18: weaviate.v1.NearObject.selection:type_name -> weaviate.v1.Selection
-	21, // 19: weaviate.v1.NearTextSearch.move_to:type_name -> weaviate.v1.NearTextSearch.Move
-	21, // 20: weaviate.v1.NearTextSearch.move_away:type_name -> weaviate.v1.NearTextSearch.Move
+	22, // 19: weaviate.v1.NearTextSearch.move_to:type_name -> weaviate.v1.NearTextSearch.Move
+	22, // 20: weaviate.v1.NearTextSearch.move_away:type_name -> weaviate.v1.NearTextSearch.Move
 	4,  // 21: weaviate.v1.NearTextSearch.targets:type_name -> weaviate.v1.Targets
 	6,  // 22: weaviate.v1.NearTextSearch.selection:type_name -> weaviate.v1.Selection
 	4,  // 23: weaviate.v1.NearImageSearch.targets:type_name -> weaviate.v1.Targets
@@ -1991,13 +2052,14 @@ func file_v1_base_search_proto_init() {
 	file_v1_base_search_proto_msgTypes[14].OneofWrappers = []any{}
 	file_v1_base_search_proto_msgTypes[15].OneofWrappers = []any{}
 	file_v1_base_search_proto_msgTypes[16].OneofWrappers = []any{}
+	file_v1_base_search_proto_msgTypes[17].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_base_search_proto_rawDesc), len(file_v1_base_search_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   19,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
