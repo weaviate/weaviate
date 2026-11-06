@@ -71,6 +71,9 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 }
 
 func TestSinglePromptRecordsClientFailure(t *testing.T) {
+	// The "client panics" case needs the panic recovered.
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
 	tests := []struct {
 		name    string
 		client  modulecapabilities.GenerativeClient
