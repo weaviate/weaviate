@@ -14,6 +14,7 @@ package errors
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -115,6 +116,35 @@ func TestNotEnoughReplicasError_Simple(t *testing.T) {
 	}
 	if !errors.Is(err, rootCause) {
 		t.Fatalf("errors.Is(err, rootCause) = false, want true")
+	}
+}
+
+func TestNotEnoughReplicasError_CauseAlreadyMatches(t *testing.T) {
+	typed := NewNotEnoughReplicasErrorWithCounts(2, 1, errors.New(`shard "s1": 1 of 3 replicas reachable`))
+
+	tests := []struct {
+		name  string
+		cause error
+	}{
+		{name: "typed cause", cause: typed},
+		{name: "typed cause wrapped by the coordinator", cause: fmt.Errorf(`%w : class "C" shard "s1"`, typed)},
+		{name: "sentinel wrapped", cause: fmt.Errorf("pull: %w", ErrReplicas)},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := NewNotEnoughReplicasError(tc.cause)
+
+			if !errors.Is(err, tc.cause) {
+				t.Fatalf("errors.Is(err, cause) = false, want true")
+			}
+			if got := strings.Count(err.Error(), ErrReplicas.Error()); got != 1 {
+				t.Fatalf("Error() = %q contains %q %d times, want 1", err.Error(), ErrReplicas.Error(), got)
+			}
+			if !errors.Is(err, ErrReplicas) {
+				t.Fatalf("errors.Is(err, ErrReplicas) = false, want true")
+			}
+		})
 	}
 }
 

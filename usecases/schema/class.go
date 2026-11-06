@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -360,6 +361,9 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		err := json.Unmarshal(d.ShardingState, &shardingState)
 		if err != nil {
 			return fmt.Errorf("unmarshal sharding state: %w", err)
+		}
+		if err := shardingState.ValidateShardNames(); err != nil {
+			return fmt.Errorf("sharding state: %w", err)
 		}
 	}
 
@@ -1286,10 +1290,16 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 				if !entcfg.Enabled(os.Getenv("USE_GSE")) && !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
 					return fmt.Errorf("the GSE tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE' to 'true' to enable")
 				}
+				if !tokenizer.UseGse {
+					return fmt.Errorf("the GSE tokenizer is enabled but failed to load its dictionary; see the startup log")
+				}
 				return nil
 			case models.PropertyTokenizationGseCh:
 				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE_CH")) {
 					return fmt.Errorf("the Chinese tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE_CH' to 'true' to enable")
+				}
+				if !tokenizer.UseGseCh {
+					return fmt.Errorf("the Chinese tokenizer is enabled but failed to load its dictionary; see the startup log")
 				}
 				return nil
 			case models.PropertyTokenizationKagomeKr:

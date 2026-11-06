@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/client/objects"
+	clschema "github.com/weaviate/weaviate/client/schema"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
@@ -92,6 +93,14 @@ func TestWithoutCollectionName(t *testing.T) {
 		require.True(t, errors.As(err, &unauthorized))
 
 		require.Nil(t, res)
+	})
+
+	// The role still holds read_tenants on the only class, whose all-tenants
+	// resource is the wildcard of the class's own collection resource.
+	t.Run("list schema without read collections - class hidden", func(t *testing.T) {
+		res, err := helper.Client(t).Schema.SchemaDump(clschema.NewSchemaDumpParams(), helper.CreateAuth(customKey))
+		require.NoError(t, err)
+		require.Empty(t, res.Payload.Classes)
 	})
 
 	getPermissionsAll := []*models.Permission{

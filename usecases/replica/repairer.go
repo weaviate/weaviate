@@ -133,7 +133,7 @@ func (r *repairer) repairOne(ctx context.Context,
 			return nil, fmt.Errorf("get most recent object from %s: %w", winner.Sender, err)
 		}
 		if updates.UpdateTime() != lastUTime {
-			return nil, fmt.Errorf("fetch new state from %s: %w, %w", winner.Sender, replicaerrors.ErrConflictObjectChanged, err)
+			return nil, fmt.Errorf("fetch new state from %s: %w", winner.Sender, replicaerrors.ErrConflictObjectChanged)
 		}
 	}
 
@@ -284,7 +284,7 @@ func (r *repairer) repairExist(ctx context.Context,
 		return false, fmt.Errorf("get most recent object from %s: %w", winner.Sender, err)
 	}
 	if resp.UpdateTime() != lastUTime {
-		return false, fmt.Errorf("fetch new state from %s: %w, %w", winner.Sender, replicaerrors.ErrConflictObjectChanged, err)
+		return false, fmt.Errorf("fetch new state from %s: %w", winner.Sender, replicaerrors.ErrConflictObjectChanged)
 	}
 
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, ctx)

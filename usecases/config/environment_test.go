@@ -12,6 +12,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"math"
 	"os"
@@ -31,6 +32,16 @@ import (
 )
 
 const DefaultGoroutineFactor = 1.5
+
+// wellFormedLicenseKey returns a key with the correct form for tests. It is
+// not a real license.
+func wellFormedLicenseKey() string {
+	seed := make([]byte, 32)
+	for i := range seed {
+		seed[i] = byte(i)
+	}
+	return "wv8.lic_01ARZ3NDEKTSV4RRFFQ69G5FAV." + base64.RawURLEncoding.EncodeToString(seed)
+}
 
 func TestEnvironmentImportGoroutineFactor(t *testing.T) {
 	factors := []struct {
@@ -3103,6 +3114,42 @@ func TestEnvironmentReindexVectorDimensions(t *testing.T) {
 			require.NoError(t, FromEnv(&conf))
 			require.Equal(t, tt.expectedReindex, conf.ReindexVectorDimensionsAtStartup)
 			require.Equal(t, tt.expectedToRoaringSet, conf.ReindexVectorDimensionsToRoaringsetAtStartup)
+		})
+	}
+}
+
+func TestEnvironmentBackupDedupeConvergenceTimeout(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		expected time.Duration
+		wantErr  bool
+	}{
+		{name: "unset uses the default", value: "", expected: DefaultBackupDedupeConvergenceTimeout},
+		{name: "valid value is parsed", value: "30s", expected: 30 * time.Second},
+		{name: "API minimum is accepted", value: "1s", expected: time.Second},
+		{name: "API maximum is accepted", value: "600s", expected: 600 * time.Second},
+		{name: "below the API minimum is rejected", value: "500ms", wantErr: true},
+		{name: "above the API maximum is rejected", value: "601s", wantErr: true},
+		{name: "zero is rejected", value: "0s", wantErr: true},
+		{name: "negative is rejected", value: "-5s", wantErr: true},
+		{name: "unitless is rejected", value: "15", wantErr: true},
+		{name: "non-duration is rejected", value: "soon", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("BACKUP_DEDUPE_CONVERGENCE_TIMEOUT", tc.value)
+
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "BACKUP_DEDUPE_CONVERGENCE_TIMEOUT")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, conf.Backup.DedupeConvergenceTimeout.Get())
 		})
 	}
 }

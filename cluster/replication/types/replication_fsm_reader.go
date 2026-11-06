@@ -26,4 +26,6 @@ type ReplicationFSMReader interface {
 	HasActiveTargetReplicationForShard(collection, shard, targetNode string) bool
 	// HasActiveSelfRecoveryTargetingShard restricts HasActiveTargetReplicationForShard to SELF_RECOVERY ops.
 	HasActiveSelfRecoveryTargetingShard(collection, shard, targetNode string) bool
+	// HasActiveMoveTargetingShard restricts HasActiveTargetReplicationForShard to MOVE ops.
+	HasActiveMoveTargetingShard(collection, shard, targetNode string) bool
 }

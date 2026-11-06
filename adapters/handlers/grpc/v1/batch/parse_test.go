@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -557,21 +558,39 @@ func TestGRPCBatchRequest_MultiTargetNamespace(t *testing.T) {
 	})
 }
 
-// TestGRPCBatchRequest_AutoSchemaQualifiesNamespace pins the auto-schema branch
-// (class not yet in schema): the parsed object must carry the resolver's
-// qualified name, not the bare request collection.
+// TestGRPCBatchRequest_AutoSchemaQualifiesNamespace pins that an object whose
+// class is not yet in schema carries the resolver's qualified name, and that an
+// empty collection fails that object alone without reaching the resolver.
 func TestGRPCBatchRequest_AutoSchemaQualifiesNamespace(t *testing.T) {
-	getClass := func(class, shard string) (string, *models.Class, error) {
-		// resolver qualifies the short name; class is nil (auto-schema creates it).
-		return "ns1:Movies", nil, nil
-	}
-	req := []*pb.BatchObject{{Collection: "Movies", Uuid: UUID4}}
+	t.Run("short name", func(t *testing.T) {
+		getClass := func(class, shard string) (string, *models.Class, error) {
+			// The resolver qualifies the short name, and the class is nil because auto-schema creates it.
+			return "ns1:" + class, nil, nil
+		}
+		req := []*pb.BatchObject{{Collection: "Movies", Uuid: UUID4}}
 
-	out, _, batchErrors := batch.BatchObjectsFromProto(&pb.BatchObjectsRequest{Objects: req}, getClass, nil, namespacing.Disabled)
+		out, _, batchErrors := batch.BatchObjectsFromProto(&pb.BatchObjectsRequest{Objects: req}, getClass, nil, namespacing.Disabled)
 
-	require.Len(t, batchErrors, 0)
-	require.Len(t, out, 1)
-	require.Equal(t, "ns1:Movies", out[0].Class)
+		require.Len(t, batchErrors, 0)
+		require.Len(t, out, 1)
+		require.Equal(t, "ns1:Movies", out[0].Class)
+	})
+
+	t.Run("empty name beside a short name", func(t *testing.T) {
+		getClass := func(class, shard string) (string, *models.Class, error) {
+			require.NotEmpty(t, class, "resolver called with an empty collection")
+			return "ns1:" + class, nil, nil
+		}
+		req := []*pb.BatchObject{{Collection: "", Uuid: UUID4}, {Collection: "Movies", Uuid: UUID4}}
+
+		out, originalIndex, batchErrors := batch.BatchObjectsFromProto(&pb.BatchObjectsRequest{Objects: req}, getClass, nil, namespacing.Disabled)
+
+		require.Len(t, batchErrors, 1)
+		require.ErrorIs(t, batchErrors[0], objects.ErrEmptyClass)
+		require.Len(t, out, 1)
+		require.Equal(t, "ns1:Movies", out[0].Class)
+		require.Equal(t, map[int]int{0: 1}, originalIndex)
+	})
 }
 
 // The worker re-sends the same pointers on retry; a parse that rewrites the
