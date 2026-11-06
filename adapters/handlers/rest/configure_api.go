@@ -205,6 +205,13 @@ type vectorRepo interface {
 	Shutdown(ctx context.Context) error
 }
 
+func distributedTaskCollectionExtractors() map[string]distributedtask.CollectionExtractor {
+	return map[string]distributedtask.CollectionExtractor{
+		db.ReindexNamespace:         db.ExtractReindexTaskCollection,
+		db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskCollection,
+	}
+}
+
 func distributedTaskShardReplicasExtractors() map[string]distributedtask.ShardReplicasExtractor {
 	return map[string]distributedtask.ShardReplicasExtractor{
 		db.ReindexNamespace: db.ExtractReindexTaskReplicas,
@@ -692,13 +699,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		AuthNConfig:                 appState.ServerConfig.Config.Authentication,
 		ReplicationEngineMaxWorkers: appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
 		DistributedTasks:            appState.ServerConfig.Config.DistributedTasks,
-		DistributedTaskCollectionExtractors: map[string]distributedtask.CollectionExtractor{
-			db.ReindexNamespace:         db.ExtractReindexTaskCollection,
-			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskCollection,
-		},
 		DistributedTaskTargetVectorExtractors: map[string]distributedtask.TargetVectorExtractor{
 			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskTargets,
 		},
+		DistributedTaskCollectionExtractors:    distributedTaskCollectionExtractors(),
 		DistributedTaskShardReplicasExtractors: distributedTaskShardReplicasExtractors(),
 		DrainSleep:                             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
 		MaxTenantsPerCollection:                appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
