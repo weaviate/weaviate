@@ -64,6 +64,8 @@ type (
 		pullBackOffPreInitialInterval time.Duration
 		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long
 		deletionStrategy              string
+		// skipReachabilityCheck is passed to Pull's read plan. Only Finder.CountObjects sets it.
+		skipReachabilityCheck bool
 	}
 )
 
@@ -374,6 +376,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 	options := c.Router.BuildRoutingPlanOptions(c.Shard, c.Shard, cl, directCandidate)
 	// Only runs on the node serving an external request, so auto tenant activation applies.
 	options.AllowTenantActivation = true
+	options.SkipReachabilityCheck = c.skipReachabilityCheck
 	readRoutingPlan, err := c.Router.BuildReadRoutingPlan(options)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)

@@ -19,23 +19,12 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
-
-func (h *hnsw) findAndConnectNeighbors(ctx context.Context, nodeID uint64, node *vertex,
-	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
-	denyList helpers.AllowList,
-) error {
-	nfc := newNeighborFinderConnector(h, nodeID, node, entryPointID, nodeVec, distancer, targetLevel,
-		currentMaxLevel, denyList, false, nil)
-
-	return nfc.Do(ctx)
-}
 
 func (h *hnsw) reconnectNeighboursOf(ctx context.Context, nodeID uint64, node *vertex,
 	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
@@ -65,6 +54,7 @@ type neighborFinderConnector struct {
 	processedIDs          *sync.Map
 	connectionsBuf        []uint64 // reusable buffer to avoid allocations in CopyLayer
 	pendingBuf            []uint64 // reusable buffer for accumulating pending IDs
+	snapshotBuf           []uint64 // the node's links when the current level started (rewiring only)
 }
 
 func newNeighborFinderConnector(graph *hnsw, nodeID uint64, node *vertex, entryPointID uint64,
@@ -227,6 +217,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 	extraIDs := make([]uint64, 0, n.graph.maximumConnections)
 	total := 0
 	maxConnections := n.graph.maximumConnections
+	n.snapshotBuf = n.snapshotBuf[:0]
 
 	if n.tombstoneCleanupNodes {
 		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)
@@ -236,6 +227,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		n.connectionsBuf = n.node.connections.CopyLayer(n.connectionsBuf[:0], uint8(level))
 		connections := n.connectionsBuf
 		n.node.Unlock()
+		n.snapshotBuf = append(n.snapshotBuf, connections...)
 		visited.Visit(n.nodeID)
 		top := n.graph.efConstruction
 		// Reuse pendingBuf for accumulation
@@ -263,7 +255,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		// use dynamic max connections only during tombstone cleanup
 		maxConnections = n.maximumConnections(level)
 	} else {
-		if err := n.pickEntrypoint(); err != nil {
+		if err := n.pickEntrypoint(ctx, level); err != nil {
 			return errors.Wrap(err, "pick entrypoint at level beginning")
 		}
 		if n.bootstrapped {
@@ -297,19 +289,20 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 	copy(neighbors, extraIDs)
 	for results.Len() > 0 {
 		id := results.Pop().ID
+		if id == n.nodeID {
+			// the heuristic denies the node itself but is skipped when the
+			// search returned fewer results than the layer holds
+			continue
+		}
 		neighbors = append(neighbors, id)
 	}
 
 	n.graph.pools.pqResults.Put(results)
 
-	neighborsCpy := neighbors
-	// the node will potentially own the neighbors slice (cf. hnsw.vertex#setConnectionsAtLevel).
-	// if so, we need to create a copy
-	n.node.setConnectionsAtLevel(level, neighbors)
-
-	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.nodeID, level, neighborsCpy); err != nil {
-		return errors.Wrapf(err, "ReplaceLinksAtLevel node %d at level %d", n.nodeID, level)
+	if err := n.writeLayer(level, neighbors); err != nil {
+		return err
 	}
+	neighborsCpy := neighbors
 
 	if !n.tombstoneCleanupNodes {
 		for _, neighborID := range neighborsCpy {
@@ -334,6 +327,54 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 	return nil
 }
 
+// writeLayer replaces the node's links at level with neighbors, keeping the
+// links concurrent inserts appended to the node since the level started: all
+// of them for a new node, the ones outside snapshotBuf for a rewired one. The
+// appended links fill the layer up to its capacity in the order they arrived;
+// a link that does not fit is dropped, its node still links to this one. The
+// write and the commit log entry happen under the node lock, so the log
+// replays in the order the links were made.
+func (n *neighborFinderConnector) writeLayer(level int, neighbors []uint64) error {
+	n.node.Lock()
+	defer n.node.Unlock()
+
+	links := neighbors
+	if room := n.maximumConnections(level) - len(neighbors); room > 0 &&
+		n.node.connections.LenAtLayer(uint8(level)) > 0 {
+		n.connectionsBuf = n.node.connections.CopyLayer(n.connectionsBuf[:0], uint8(level))
+		copied := false
+		for _, id := range n.connectionsBuf {
+			if id == n.nodeID || n.denyList.Contains(id) ||
+				containsID(n.snapshotBuf, id) || containsID(links, id) {
+				continue
+			}
+			if !copied {
+				links = append(make([]uint64, 0, len(neighbors)+room), neighbors...)
+				copied = true
+			}
+			links = append(links, id)
+			if room--; room == 0 {
+				break
+			}
+		}
+	}
+
+	n.node.connections.ReplaceLayer(uint8(level), links)
+	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.nodeID, level, links); err != nil {
+		return errors.Wrapf(err, "ReplaceLinksAtLevel node %d at level %d", n.nodeID, level)
+	}
+	return nil
+}
+
+func containsID(ids []uint64, needle uint64) bool {
+	for _, id := range ids {
+		if id == needle {
+			return true
+		}
+	}
+	return false
+}
+
 func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	level int,
 ) error {
@@ -351,6 +392,10 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	// Reuse connectionsBuf to avoid allocations
 	n.connectionsBuf = neighbor.connections.CopyLayer(n.connectionsBuf[:0], uint8(level))
 	currentConnections := n.connectionsBuf
+	if containsID(currentConnections, n.nodeID) {
+		// the neighbor joined meanwhile and already linked to this node
+		return nil
+	}
 
 	maximumConnections := n.maximumConnections(level)
 	if len(currentConnections) < maximumConnections {
@@ -393,7 +438,9 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			candidates.Insert(existingConnection, dist)
 		}
 
-		err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)
+		// no deny list: the inserting node is a candidate here and denies
+		// itself in n.denyList
+		err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, nil)
 		if err != nil {
 			return errors.Wrap(err, "connect neighbors")
 		}
@@ -443,97 +490,80 @@ func (n *neighborFinderConnector) maximumConnections(level int) int {
 	return n.graph.maximumConnections
 }
 
-func (n *neighborFinderConnector) pickEntrypoint() error {
-	// the neighborFinderConnector always has a suggestion for an entrypoint that
-	// it got from the outside, most of the times we can use this, but in some
-	// cases we can't. To see if we can use it, three conditions need to be met:
-	//
-	// 1. it needs to exist in the graph, i.e. be not nil
-	//
-	// 2. it can't be under maintenance
-	//
-	// 3. we need to be able to obtain a vector for it
-
+// pickEntrypoint makes n.entryPointID a node the search at level can start
+// from. A candidate that is gone from the graph or from the object store is
+// tombstoned by tryEpCandidate, and the global entrypoint is repaired past
+// every node found unusable so far, so each round rules out a node until one
+// is usable or none is left, when the inserting node becomes the entrypoint
+// itself. A node under maintenance is usable: writeLayer keeps the links it
+// receives meanwhile. One without links at the level yet is skipped as long
+// as another node can be found, since a search from it finds nothing.
+func (n *neighborFinderConnector) pickEntrypoint(ctx context.Context, level int) error {
 	candidate := n.entryPointID
-
-	success, err := n.tryEpCandidate(candidate)
-	if err != nil {
-		return err
-	}
-	if success {
-		return nil
-	}
-
-	// the global candidate is unusable: repair the global entrypoint, then keep
-	// trying candidates locally, denying every node already found unusable
-	localDeny := n.denyList.WrapOnWrite()
-	localDeny.Insert(candidate)
-
-	candidate, err = n.graph.repairGlobalEntrypoint(candidate, localDeny)
-	if err != nil {
-		if errors.Is(err, errNoUsableEntrypoint) {
-			return n.bootstrapOrFail(fmt.Errorf("global entrypoint repair: %w", err))
-		}
-		return fmt.Errorf("global entrypoint repair: %w", err)
-	}
-
-	// the 60s timeout is a last-resort safety net, not an expected path
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	n.graph.logger.WithFields(logrus.Fields{
-		"action":   "pick_entrypoint",
-		"duration": 60 * time.Second,
-	}).Debug("context.WithTimeout")
-
+	var deny helpers.AllowList
+	acceptUnlinked := false
 	for {
+		ok, err := n.tryEpCandidate(candidate, level, acceptUnlinked)
+		if err != nil || ok {
+			return err
+		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if err := n.ctx.Err(); err != nil {
+			return err
+		}
 
-		success, err := n.tryEpCandidate(candidate)
+		if deny == nil {
+			deny = n.denyList.WrapOnWrite()
+		}
+		deny.Insert(candidate)
+		next, err := n.graph.repairGlobalEntrypoint(candidate, deny)
+		if err == nil {
+			candidate = next
+			continue
+		}
+		if !errors.Is(err, errNoUsableEntrypoint) {
+			return fmt.Errorf("global entrypoint repair: %w", err)
+		}
+
+		bootstrapped, err := n.graph.bootstrapEntrypoint(n.nodeID, n.node, n.nodeVec)
 		if err != nil {
 			return err
 		}
-		if success {
+		if bootstrapped {
+			n.bootstrapped = true
 			return nil
 		}
-		localDeny.Insert(candidate)
-
-		alternative, err := n.graph.findNewLocalEntrypoint(localDeny, candidate)
-		if err != nil {
-			return err
-		}
-		if localDeny.Contains(alternative) && alternative != n.graph.getEntrypoint() {
-			return n.bootstrapOrFail(fmt.Errorf("%w: local fallback exhausted", errNoUsableEntrypoint))
-		}
-		// an alternative on the deny list is retried when it is the current
-		// global entrypoint: a concurrent insert may have promoted a node we
-		// denied earlier for a transient reason (it was under maintenance
-		// while being inserted), so it can be perfectly usable by now
-		candidate = alternative
+		// another node is live but was not found: it is unlinked and under
+		// maintenance, or it joined after the scan passed it. Start over
+		// accepting whatever is live.
+		deny = nil
+		acceptUnlinked = true
+		candidate = n.graph.getEntrypoint()
 	}
 }
 
-func (n *neighborFinderConnector) bootstrapOrFail(cause error) error {
-	bootstrapped, err := n.graph.bootstrapEntrypoint(n.nodeID, n.node)
-	if err != nil {
-		return err
+func (n *neighborFinderConnector) tryEpCandidate(candidate uint64, level int, acceptUnlinked bool) (bool, error) {
+	if candidate == n.nodeID {
+		// a leftover of an earlier attempt at this id has no links
+		return false, nil
 	}
-	if !bootstrapped {
-		return cause
-	}
-	n.bootstrapped = true
-	return nil
-}
 
-func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error) {
 	node := n.graph.nodeByID(candidate)
 	if node == nil {
 		return false, nil
 	}
 
-	if node.isUnderMaintenance() {
-		return false, nil
+	if !acceptUnlinked {
+		// a node being inserted has no links at the levels it has not reached
+		// yet: a search from it finds nothing, the global entrypoint is better
+		node.Lock()
+		unlinked := node.maintenance && node.connections.LenAtLayer(uint8(level)) == 0
+		node.Unlock()
+		if unlinked {
+			return false, nil
+		}
 	}
 
 	var dist float32
