@@ -23,20 +23,33 @@ import (
 // once, which the generated handleShutdown skips after a timeout. Call it after ConfigureAPI.
 func (s *Server) ServeAndShutdown() error {
 	serverShutdown := sync.OnceFunc(s.api.ServerShutdown)
-	s.api.ServerShutdown = serverShutdown
+	// handleShutdown calls ServerShutdown only when every server drained in time.
+	var drainedInTime atomic.Bool
+	s.api.ServerShutdown = func() {
+		drainedInTime.Store(true)
+		serverShutdown()
+	}
 
-	var tracked trackedServers
+	tracked := &trackedServers{}
+	restServers = tracked
 	defer tracked.track()()
 
 	if err := s.Serve(); err != nil {
 		return err
 	}
-	if n := tracked.closeAndWait(s.GracefulTimeout, s.Logf); n > 0 {
+	n := tracked.closeAndWait(s.GracefulTimeout, s.Logf)
+	if n > 0 {
 		s.Logf("%d HTTP handlers still running %s after their servers closed", n, s.GracefulTimeout)
+	}
+	if !drainedInTime.Load() {
+		shutdownReport.Clients().RESTForceClosed(n)
 	}
 	serverShutdown()
 	return nil
 }
+
+// restServers is set by ServeAndShutdown, and the shutdown heartbeat logs its running handlers.
+var restServers *trackedServers
 
 // trackedServers records the servers Serve configures and counts their running handlers.
 type trackedServers struct {

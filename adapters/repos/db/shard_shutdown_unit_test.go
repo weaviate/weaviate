@@ -29,6 +29,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
+	"github.com/weaviate/weaviate/entities/shutdownreport/shutdownreporttest"
 	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -75,9 +77,11 @@ func TestShutdown_RequestFlagAfterFailure(t *testing.T) {
 	t.Run("still in use keeps the deferred shutdown armed", func(t *testing.T) {
 		s := &Shard{index: &Index{logger: logger}, shutdownLock: new(sync.RWMutex)}
 		s.inUseCounter.Add(1) // an in-flight guarded op
+		report := shutdownreport.New("node-1")
 
-		err := s.Shutdown(context.Background())
+		err := s.Shutdown(shutdownreport.With(context.Background(), report))
 		require.ErrorIs(t, err, errShardStillInUse)
+		require.Equal(t, int64(1), shutdownreporttest.Summary(t, report)["shards_still_in_use"])
 		require.True(t, s.shutdownRequested.Load(),
 			"pending refs complete the shutdown on release; the flag must stay armed")
 		_, err = s.preventShutdown()
@@ -91,12 +95,15 @@ func TestShutdown_RequestFlagAfterFailure(t *testing.T) {
 		// must stay armed.
 		s := &Shard{index: &Index{logger: logger}, shutdownLock: new(sync.RWMutex)}
 		s.inUseCounter.Add(1)
-		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		report := shutdownreport.New("node-1")
+		ctx, cancel := context.WithTimeout(shutdownreport.With(context.Background(), report), 50*time.Millisecond)
 		defer cancel()
 
 		err := s.Shutdown(ctx)
 		require.Error(t, err)
 		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Equal(t, int64(1), shutdownreporttest.Summary(t, report)["shards_still_in_use"],
+			"the in-use attempt error must be counted although backoff returned ctx.Err()")
 		require.True(t, s.shutdownRequested.Load(),
 			"a cancelled wait on an in-use shard is still the in-use case; disarming it strands the deferred shutdown")
 	})
@@ -106,16 +113,39 @@ func TestShutdown_RequestFlagAfterFailure(t *testing.T) {
 		s.shut.Store(true)
 		s.teardownErr = errors.New("bucket close failed")
 		s.shutdownRequested.Store(true)
+		report := shutdownreport.New("node-1")
 
 		start := time.Now()
-		err := s.Shutdown(context.Background())
+		err := s.Shutdown(shutdownreport.With(context.Background(), report))
 		require.Error(t, err)
 		require.ErrorIs(t, err, errTeardownFailed)
+		require.Equal(t, int64(0), shutdownreporttest.Summary(t, report)["shards_still_in_use"])
 		require.NotErrorIs(t, err, errShardStillInUse)
 		require.False(t, s.shutdownRequested.Load(),
 			"an abort with no pending release must disarm the deferred shutdown")
 		require.Less(t, time.Since(start), time.Second,
 			"a sticky teardown error must fail fast, not burn the retry backoff under shardCreateLocks")
+	})
+
+	t.Run("last release inside the backoff counts the teardown it runs", func(t *testing.T) {
+		shard, _ := testShard(t, context.Background(), "ReleaseInsideBackoff")
+		s, ok := shard.(*Shard)
+		require.True(t, ok)
+		s.refCountAdd()
+		released := make(chan struct{})
+		time.AfterFunc(100*time.Millisecond, func() {
+			defer close(released)
+			s.refCountSub()
+		})
+		report := shutdownreport.New("node-1")
+
+		require.NoError(t, s.Shutdown(shutdownreport.With(context.Background(), report)))
+		<-released
+		f := shutdownreporttest.Summary(t, report)
+		require.Equal(t, int64(1), f["shards_torn_down"], "refCountSub ran the teardown under this report")
+		require.Equal(t, int64(0), f["shards_still_in_use"])
+		require.Positive(t, f["buckets_flushed"].(int64)+f["buckets_wal_reused"].(int64),
+			"the teardown refCountSub runs records bucket outcomes")
 	})
 }
 

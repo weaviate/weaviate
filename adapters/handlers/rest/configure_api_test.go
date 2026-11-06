@@ -19,9 +19,11 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -31,6 +33,8 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/grpcweb"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
+	"github.com/weaviate/weaviate/entities/shutdownreport/shutdownreporttest"
 )
 
 // holdingHealth answers health checks at once, except for service "hold",
@@ -165,21 +169,52 @@ func Test_shutdownHooks(t *testing.T) {
 
 		// The held RPC is released only when shutdown starts. A body that runs
 		// before shutdown waits for gRPC would see the RPC still in flight.
+		report := shutdownreport.New("node-1")
+		var runningAtStop any
 		wait := func(stop <-chan struct{}) bool {
 			<-stop
+			runningAtStop = shutdownreporttest.Heartbeat(t, report)["running"]
 			svc.unblock()
 			return true
 		}
+		// The stop is timed from Pre's start, so it includes this delay.
+		const preDelay = 50 * time.Millisecond
 		var returnedAtBody bool
 		pre, shutdown := shutdownHooks(shutdownHooksConfig{
-			Server: server, Timeout: 5 * time.Second, Logger: logger, Wait: wait,
-			PreShutdown: func() {}, Shutdown: func() { returnedAtBody = svc.returned.Load() },
+			Server: server, Timeout: 5 * time.Second, Logger: logger, Report: report, Wait: wait,
+			PreShutdown: func() {
+				report.Begin()
+				time.Sleep(preDelay)
+			},
+			Shutdown: func() { returnedAtBody = svc.returned.Load() },
 		})
 
 		pre()
 		shutdown()
 		require.True(t, returnedAtBody, "body ran while the RPC was still in flight")
 		require.NoError(t, <-rpcErr)
+		assert.NotContains(t, runningAtStop, "client_drain", "client_drain must end when the shutdown hook starts")
+		summary := shutdownreporttest.Summary(t, report)
+		assert.Equal(t, false, summary["grpc_forced_stop"])
+		assert.GreaterOrEqual(t, summary["grpc_stop_ms"], preDelay.Milliseconds())
+		assert.Less(t, summary["grpc_stop_ms"], (5 * time.Second).Milliseconds())
+	})
+
+	t.Run("gRPC stopped before the join reports its own stop time", func(t *testing.T) {
+		// With no grpc-web call in flight, Wait returns at once, and an idle
+		// GracefulStop finishes while REST is still draining.
+		server, _, _ := startHoldingGrpc(t)
+		report := shutdownreport.New("node-1")
+		pre, shutdown := shutdownHooks(shutdownHooksConfig{
+			Server: server, Timeout: 5 * time.Second, Logger: logger, Report: report, Wait: idleDrain,
+			PreShutdown: report.Begin, Shutdown: func() {},
+		})
+		const restDrain = 300 * time.Millisecond
+		pre()
+		time.Sleep(restDrain)
+		shutdown()
+		summary := shutdownreporttest.Summary(t, report)
+		assert.Less(t, summary["grpc_stop_ms"], restDrain.Milliseconds())
 	})
 
 	t.Run("failed web drain still stops gRPC gracefully", func(t *testing.T) {
@@ -224,10 +259,12 @@ func Test_shutdownHooks(t *testing.T) {
 			close(drained)
 			return true
 		}
+		const timeout = 100 * time.Millisecond
+		report := shutdownreport.New("node-1")
 		var bodyRan bool
 		pre, shutdown := shutdownHooks(shutdownHooksConfig{
-			Server: server, Timeout: 100 * time.Millisecond, Logger: logger, Wait: wait,
-			PreShutdown: func() {}, Shutdown: func() { bodyRan = true },
+			Server: server, Timeout: timeout, Logger: logger, Report: report, Wait: wait,
+			PreShutdown: report.Begin, Shutdown: func() { bodyRan = true },
 		})
 
 		pre()
@@ -236,6 +273,10 @@ func Test_shutdownHooks(t *testing.T) {
 		require.True(t, bodyRan)
 		require.Equal(t, codes.Unavailable, status.Code(<-rpcErr))
 		require.Equal(t, "grpc graceful stop timed out, forcing stop without waiting", hook.LastEntry().Message)
+		summary := shutdownreporttest.Summary(t, report)
+		assert.Equal(t, true, summary["grpc_forced_stop"])
+		assert.GreaterOrEqual(t, summary["grpc_stop_ms"], timeout.Milliseconds())
+		assert.GreaterOrEqual(t, summary[shutdownreport.StepWaitGRPCStop+"_ms"], timeout.Milliseconds())
 	})
 
 	t.Run("body runs at cap while GracefulStop is wedged", func(t *testing.T) {
@@ -342,4 +383,90 @@ func Test_shutdownHooks(t *testing.T) {
 			return status.Code(check("")) == codes.Unavailable
 		}, 5*time.Second, 10*time.Millisecond)
 	})
+}
+
+func TestShutdownStepsRun(t *testing.T) {
+	// Each step sleeps a distinct duration, so a step timed under the wrong
+	// name, or not timed, logs the wrong <step>_ms.
+	sleeps := map[string]time.Duration{
+		shutdownreport.StepLeaveCluster:       3 * time.Millisecond,
+		shutdownreport.StepDrainSleep:         5 * time.Millisecond,
+		shutdownreport.StepStopTelemetry:      7 * time.Millisecond,
+		shutdownreport.StepShutdownOTEL:       11 * time.Millisecond,
+		shutdownreport.StepCloseTaskScheduler: 13 * time.Millisecond,
+		shutdownreport.StepCloseConnManagers:  17 * time.Millisecond,
+		shutdownreport.StepFlushSentry:        19 * time.Millisecond,
+		shutdownreport.StepDrainExports:       23 * time.Millisecond,
+		shutdownreport.StepInternalClose:      29 * time.Millisecond,
+		shutdownreport.StepClusterClose:       31 * time.Millisecond,
+		shutdownreport.StepCloseDBUsers:       37 * time.Millisecond,
+		shutdownreport.StepCloseModules:       41 * time.Millisecond,
+	}
+	const wantBeforeDBClose = 98 * time.Millisecond // leave_cluster through drain_exports
+	const startExportDrain, cancelServerCtx = "start_export_drain", "cancel_server_ctx"
+	wantOrder := []string{
+		shutdownreport.StepLeaveCluster, startExportDrain, shutdownreport.StepDrainSleep,
+		shutdownreport.StepStopTelemetry, shutdownreport.StepShutdownOTEL, cancelServerCtx,
+		shutdownreport.StepCloseTaskScheduler, shutdownreport.StepCloseConnManagers,
+		shutdownreport.StepFlushSentry, shutdownreport.StepDrainExports, shutdownreport.StepInternalClose,
+		shutdownreport.StepClusterClose, shutdownreport.StepCloseDBUsers, shutdownreport.StepCloseModules,
+	}
+
+	report := shutdownreport.New("node-1")
+	var events []string
+	var ctxReports []*shutdownreport.Report
+	var ctxBudgets []time.Duration
+	// A step deadlocked on a mutex never advances the fake clock, so only a real-time bound fails it.
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		synctest.Test(t, func(t *testing.T) {
+			step := func(name string) func() {
+				return func() {
+					events = append(events, name)
+					time.Sleep(sleeps[name])
+				}
+			}
+			stepWithCtx := func(name string) func(context.Context) {
+				return func(ctx context.Context) {
+					ctxReports = append(ctxReports, shutdownreport.From(ctx))
+					deadline, _ := ctx.Deadline()
+					ctxBudgets = append(ctxBudgets, time.Until(deadline))
+					step(name)()
+				}
+			}
+			shutdownSteps{
+				leaveCluster:            step(shutdownreport.StepLeaveCluster),
+				startExportDrain:        step(startExportDrain),
+				drainSleep:              step(shutdownreport.StepDrainSleep),
+				stopTelemetry:           step(shutdownreport.StepStopTelemetry),
+				shutdownOTEL:            step(shutdownreport.StepShutdownOTEL),
+				cancelServerShutdownCtx: step(cancelServerCtx),
+				closeTaskScheduler:      step(shutdownreport.StepCloseTaskScheduler),
+				closeConnManagers:       step(shutdownreport.StepCloseConnManagers),
+				flushSentry:             step(shutdownreport.StepFlushSentry),
+				waitExportDrain:         step(shutdownreport.StepDrainExports),
+				closeInternalServer:     stepWithCtx(shutdownreport.StepInternalClose),
+				closeClusterService:     stepWithCtx(shutdownreport.StepClusterClose),
+				closeDBUsers:            step(shutdownreport.StepCloseDBUsers),
+				closeModules:            step(shutdownreport.StepCloseModules),
+			}.run(report)
+		})
+	}()
+	select {
+	case <-finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for shutdown to return")
+	}
+
+	require.Equal(t, wantOrder, events)
+	require.Equal(t, []*shutdownreport.Report{report, report}, ctxReports,
+		"the internal and cluster close ctx must carry the report")
+	require.Equal(t, []time.Duration{60 * time.Second, 60*time.Second - sleeps[shutdownreport.StepInternalClose]}, ctxBudgets,
+		"the internal and cluster close share one 60s budget")
+	summary := shutdownreporttest.Summary(t, report)
+	for step, sleep := range sleeps {
+		assert.Equal(t, sleep.Milliseconds(), summary[step+"_ms"], step)
+	}
+	assert.Equal(t, wantBeforeDBClose.Milliseconds(), summary[shutdownreport.GroupBeforeDBClose+"_ms"])
 }

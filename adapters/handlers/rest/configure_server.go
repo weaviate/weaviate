@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/utils"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
@@ -46,6 +47,9 @@ import (
 // we will set it through configureAPI() as it needs access to resources that
 // are only available within there
 var configureServer func(*http.Server, string, string)
+
+// shutdownReport is set by configureAPI.
+var shutdownReport *shutdownreport.Report
 
 func makeUpdateSchemaCall(appState *state.State) func(aliases schema.SchemaWithAliases) {
 	return func(updatedSchema schema.SchemaWithAliases) {
