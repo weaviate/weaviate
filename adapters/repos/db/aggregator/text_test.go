@@ -14,8 +14,16 @@ package aggregator
 import (
 	"testing"
 
+	"github.com/go-openapi/strfmt"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/aggregation"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func TestTextAggregator_TopOccurrencesCalculation(t *testing.T) {
@@ -85,7 +93,7 @@ func TestTextAggregator_TopOccurrencesCalculation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			agg := newTextAggregator(5)
+			agg := newTextAggregator([]aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(nil)}, true)
 			for _, text := range tc.texts {
 				agg.AddText(text)
 			}
@@ -95,4 +103,110 @@ func TestTextAggregator_TopOccurrencesCalculation(t *testing.T) {
 			assert.Equal(t, tc.expectedTopOccurrences, res.Items)
 		})
 	}
+}
+
+func TestTextAggregator_TracksOccurrencesOnlyWhenRequested(t *testing.T) {
+	limit := 1
+	all := []aggregation.TextOccurrence{{Value: "a", Occurs: 2}, {Value: "b", Occurs: 1}}
+	testCases := []struct {
+		name          string
+		aggs          []aggregation.Aggregator
+		onlyRequested bool
+		wantItems     []aggregation.TextOccurrence
+	}{
+		{name: "count only", aggs: []aggregation.Aggregator{aggregation.CountAggregator}, onlyRequested: true},
+		{name: "no aggregators", onlyRequested: true},
+		{
+			name:          "top occurrences",
+			aggs:          []aggregation.Aggregator{aggregation.CountAggregator, aggregation.NewTopOccurrencesAggregator(&limit)},
+			onlyRequested: true,
+			wantItems:     []aggregation.TextOccurrence{{Value: "a", Occurs: 2}},
+		},
+		{name: "count only, caller reads unrequested results", aggs: []aggregation.Aggregator{aggregation.CountAggregator}, wantItems: all},
+		{name: "no aggregators, caller reads unrequested results", wantItems: all},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			agg := newTextAggregator(tc.aggs, tc.onlyRequested)
+			for _, text := range []string{"a", "b", "a"} {
+				require.NoError(t, agg.AddText(text))
+			}
+
+			res := agg.Res()
+			assert.Equal(t, 3, res.Count)
+			assert.Equal(t, tc.wantItems, res.Items)
+		})
+	}
+}
+
+func TestTextAggregator_RowsCountTheSameWithAndWithoutOccurrences(t *testing.T) {
+	rows := []map[string]interface{}{
+		{"text": "a", "texts": []interface{}{"a", "b", "c"}},
+		{"text": "", "texts": []interface{}{}},
+		{"other": "x"},
+		{"text": "a", "texts": []interface{}{"a"}},
+	}
+	encoded := make([][]byte, len(rows))
+	for i, props := range rows {
+		obj := storobj.FromObject(&models.Object{
+			Class:      "C",
+			ID:         strfmt.UUID("6b9d8a2c-3a4f-4f4e-9d47-0e5e7c1a2b3c"),
+			Properties: props,
+		}, []float32{1, 2, 3}, nil, nil)
+		b, err := obj.MarshalBinary()
+		require.NoError(t, err)
+		encoded[i] = b
+	}
+
+	testCases := []struct {
+		prop      schema.PropertyName
+		wantCount int
+		wantItems []aggregation.TextOccurrence
+	}{
+		{prop: "text", wantCount: 3, wantItems: []aggregation.TextOccurrence{{Value: "a", Occurs: 2}, {Value: "", Occurs: 1}}},
+		{prop: "texts", wantCount: 4, wantItems: []aggregation.TextOccurrence{{Value: "a", Occurs: 2}, {Value: "b", Occurs: 1}, {Value: "c", Occurs: 1}}},
+		{prop: "missing", wantCount: 0},
+	}
+
+	for _, tc := range testCases {
+		t.Run(string(tc.prop), func(t *testing.T) {
+			countOnly := newTextAggregator([]aggregation.Aggregator{aggregation.CountAggregator}, true)
+			withOccurrences := newTextAggregator([]aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(nil)}, true)
+			for _, row := range encoded {
+				require.NoError(t, (&Aggregator{}).parseAndAddTextRow(countOnly, row, tc.prop))
+				require.NoError(t, (&Aggregator{}).parseAndAddTextRow(withOccurrences, row, tc.prop))
+			}
+
+			assert.Equal(t, aggregation.Text{Count: tc.wantCount}, countOnly.Res())
+			assert.Equal(t, aggregation.Text{Count: tc.wantCount, Items: tc.wantItems}, withOccurrences.Res())
+		})
+	}
+}
+
+func TestTextAggregator_CountsConcurrentRows(t *testing.T) {
+	obj := storobj.FromObject(&models.Object{
+		Class:      "C",
+		ID:         strfmt.UUID("6b9d8a2c-3a4f-4f4e-9d47-0e5e7c1a2b3c"),
+		Properties: map[string]interface{}{"texts": []interface{}{"a", "b"}},
+	}, nil, nil, nil)
+	row, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	const workers, rowsPerWorker = 8, 1000
+	agg := newTextAggregator([]aggregation.Aggregator{aggregation.CountAggregator}, true)
+	logger, _ := logrustest.NewNullLogger()
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	for range workers {
+		eg.Go(func() error {
+			for range rowsPerWorker {
+				if err := (&Aggregator{}).parseAndAddTextRow(agg, row, "texts"); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
+	require.NoError(t, eg.Wait())
+	assert.Equal(t, 2*workers*rowsPerWorker, agg.Res().Count)
 }

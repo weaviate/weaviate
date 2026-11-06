@@ -14,6 +14,7 @@ package aggregator
 import (
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -32,15 +33,34 @@ func extractLimitFromTopOccs(aggs []aggregation.Aggregator) int {
 	return 5
 }
 
-func newTextAggregator(limit int) *textAggregator {
-	return &textAggregator{itemCounter: map[string]int{}, max: limit}
+func wantsTopOccurrences(aggs []aggregation.Aggregator) bool {
+	for _, agg := range aggs {
+		if agg.Type == aggregation.TopOccurrencesType {
+			return true
+		}
+	}
+	return false
 }
 
-type textAggregator struct {
-	sync.Mutex
-	max   int
-	count uint64
+// newTextAggregator tracks how often each value occurs unless onlyRequested
+// is set and aggs do not ask for the top occurrences; see
+// [aggregation.Params.OnlyRequestedAggregations].
+func newTextAggregator(aggs []aggregation.Aggregator, onlyRequested bool) *textAggregator {
+	if onlyRequested && !wantsTopOccurrences(aggs) {
+		return &textAggregator{}
+	}
+	return &textAggregator{itemCounter: map[string]int{}, max: extractLimitFromTopOccs(aggs)}
+}
 
+// textAggregator counts text values and is safe for concurrent use. It counts
+// how often each value occurs only when the top occurrences are requested: with
+// mostly unique values that map holds every value it is given.
+type textAggregator struct {
+	count atomic.Uint64
+
+	mu  sync.Mutex
+	max int
+	// itemCounter is nil when the top occurrences are not requested.
 	itemCounter map[string]int
 
 	// always keep sorted, so we can cut off the last elem, when it grows larger
@@ -51,6 +71,15 @@ type textAggregator struct {
 func (a *Aggregator) parseAndAddTextRow(agg *textAggregator,
 	v []byte, propName schema.PropertyName,
 ) error {
+	if agg.itemCounter == nil {
+		n, err := storobj.CountPropValues(v, propName.String())
+		if err != nil {
+			return errors.Wrap(err, "parse and count prop")
+		}
+		agg.count.Add(uint64(n))
+		return nil
+	}
+
 	items, ok, err := storobj.ParseAndExtractTextProp(v, propName.String())
 	if err != nil {
 		return errors.Wrap(err, "parse and extract prop")
@@ -69,13 +98,14 @@ func (a *Aggregator) parseAndAddTextRow(agg *textAggregator,
 }
 
 func (a *textAggregator) AddText(value string) error {
-	a.Lock()
-	defer a.Unlock()
-	a.count++
+	a.count.Add(1)
+	if a.itemCounter == nil {
+		return nil
+	}
 
-	itemCount := a.itemCounter[value]
-	itemCount++
-	a.itemCounter[value] = itemCount
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.itemCounter[value]++
 	return nil
 }
 
@@ -119,9 +149,11 @@ func (a *textAggregator) insertOrdered(elem aggregation.TextOccurrence) {
 
 func (a *textAggregator) Res() aggregation.Text {
 	out := aggregation.Text{}
-	if a.count == 0 {
+	count := a.count.Load()
+	if count == 0 {
 		return out
 	}
+	out.Count = int(count)
 
 	for value, count := range a.itemCounter {
 		a.insertOrdered(aggregation.TextOccurrence{
@@ -148,6 +180,5 @@ func (a *textAggregator) Res() aggregation.Text {
 		return valueA[0] < valueB[0]
 	})
 
-	out.Count = int(a.count)
 	return out
 }
