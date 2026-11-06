@@ -1453,3 +1453,83 @@ func TestRankReadsTheHeadersFromGRPCMetadata(t *testing.T) {
 	require.Len(t, requests, 1)
 	assert.Equal(t, "Bearer metadataKey", requests[0].authorization)
 }
+
+func TestRankKeepsReplyValuesOutOfTheDecodeError(t *testing.T) {
+	answer := func(key, value string) string {
+		return `{"answers":{"` + key + `":` + value + `}}`
+	}
+	tests := []struct {
+		name       string
+		body       string
+		fromHeader bool
+		check      func(t *testing.T, err string)
+	}{
+		{
+			name: "4,096 nines from a header host", fromHeader: true,
+			body: answer("q", `{"type":"noul","noul":`+strings.Repeat("9", 4_096)+`}`),
+			check: func(t *testing.T, err string) {
+				assert.NotContains(t, err, "99")
+				assert.Contains(t, err, "float64")
+				assert.Less(t, len(err), 300)
+			},
+		},
+		{
+			name: "1e999 from a header host", fromHeader: true,
+			body: answer("q", `{"type":"noul","noul":1e999}`),
+			check: func(t *testing.T, err string) {
+				assert.NotContains(t, err, "1e999")
+				assert.Contains(t, err, "float64")
+			},
+		},
+		{
+			name: "4,096 nines from the class host",
+			body: answer("q", `{"type":"noul","noul":`+strings.Repeat("9", 4_096)+`}`),
+			check: func(t *testing.T, err string) {
+				assert.True(t, strings.HasPrefix(err,
+					"parse TypeSafe AI response: json: cannot unmarshal number into Go value of type float64"), err)
+			},
+		},
+		{
+			name: "a key of the answers with a string for the probability", fromHeader: true,
+			body: answer("secret text in a key", `{"noul":"x"}`),
+			check: func(t *testing.T, err string) {
+				assert.NotContains(t, err, "secret text")
+				assert.Contains(t, err, "float64")
+			},
+		},
+		{
+			name: "a key of the answers with a string for the answer", fromHeader: true,
+			body: answer("secret text in a key", `"v"`),
+			check: func(t *testing.T, err string) {
+				assert.NotContains(t, err, "secret text")
+			},
+		},
+		{
+			name: "a key of 2,000 characters", fromHeader: true,
+			body: answer(strings.Repeat("K", 2_000), `{"noul":true}`),
+			check: func(t *testing.T, err string) {
+				assert.NotContains(t, err, "KK")
+				assert.Less(t, len(err), 300)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			classServer, headerServer := newFake(t), newFake(t)
+			used := classServer
+			ctx := context.Background()
+			if tt.fromHeader {
+				used = headerServer
+				ctx = context.WithValue(ctx, "X-Typesafeai-Api-Key", []string{"headerKey"})
+				ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{headerServer.url()})
+			}
+			used.replies = map[int]fakeReply{0: {status: http.StatusOK, body: tt.body}}
+
+			_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text",
+				documentsOf(noRefund), classConfig(classServer.url(), nil))
+
+			require.Error(t, err)
+			tt.check(t, err.Error())
+		})
+	}
+}
