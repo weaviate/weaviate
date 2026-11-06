@@ -348,6 +348,13 @@ func (c *client) send(ctx context.Context, endpointURL, apiKey string, body []by
 		return typesafeaiResponse{}, false, fmt.Errorf("TypeSafe AI response exceeds %d bytes", maxResponseBodyBytes)
 	}
 	if err := json.Unmarshal(responseBody, &response); err != nil {
+		// Value holds the number literal of the reply when it is out of range,
+		// and Field the keys of its answers.
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &typeErr) {
+			typeErr.Value, _, _ = strings.Cut(typeErr.Value, " ")
+			typeErr.Struct, typeErr.Field = "", ""
+		}
 		return typesafeaiResponse{}, false, withBody(fmt.Errorf("parse TypeSafe AI response: %s", truncate(err.Error())),
 			responseBody, hostFromHeader)
 	}
