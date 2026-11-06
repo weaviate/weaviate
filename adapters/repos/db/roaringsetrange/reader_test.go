@@ -369,6 +369,11 @@ func TestCombinedReader_SlowLogIsBounded(t *testing.T) {
 	require.Equal(t, reads, summary.Count)
 	require.NotEmpty(t, summary.Slowest)
 	require.Less(t, len(summary.Slowest), reads)
+	for _, entry := range summary.Slowest {
+		require.Equal(t, 2, entry["readers"])
+		require.IsType(t, time.Duration(0), entry["subresults_read_sum_took"])
+		require.IsType(t, time.Duration(0), entry["merging_sum_took"])
+	}
 }
 
 // cloningInnerReader returns a fresh clone of its additions on every Read, so

@@ -13,13 +13,14 @@ package backup
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,11 +28,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type restorer struct {
@@ -202,7 +200,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 			r.lastOp.set(backup.Cancelled)
 			return fmt.Errorf("restore cancelled: %w", err)
 		}
-		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, cpuPercentage, store, overrideBucket, overridePath, stripNamespaces, staged); err != nil {
+		if err := r.restoreOne(ctx, &cdesc, compressionType, cpuPercentage, store, overrideBucket, overridePath, stripNamespaces, staged); err != nil {
 			if errors.Is(err, context.Canceled) {
 				r.lastOp.set(backup.Cancelled)
 				return fmt.Errorf("restore cancelled: %w", err)
@@ -226,7 +224,7 @@ func getType(myvar interface{}) string {
 }
 
 func (r *restorer) restoreOne(ctx context.Context,
-	desc *backup.ClassDescriptor, serverVersion string, compressionType backup.CompressionType,
+	desc *backup.ClassDescriptor, compressionType backup.CompressionType,
 	cpuPercentage int, store nodeStore,
 	overrideBucket, overridePath string,
 	stripNamespaces bool, staged *stagedDirs,
@@ -246,15 +244,6 @@ func (r *restorer) restoreOne(ctx context.Context,
 		withStagedRecorder(staged.record).
 		withAttemptID(staged.attemptID)
 
-	// Pre-v1.23 versions store files in a flat format
-	if serverVersion < "1.23" {
-		f, err := hfsMigrator(desc, r.node, serverVersion)
-		if err != nil {
-			return fmt.Errorf("migrate to pre 1.23: %w", err)
-		}
-		fw.setMigrator(f)
-	}
-
 	// Local staging dir uses the post-strip name so the RAFT-applied
 	// RestoreClassDir (sees the stripped class.Class) finds the files.
 	// Object-storage chunk paths keep desc.Name — see fileWriter.Write.
@@ -267,6 +256,12 @@ func (r *restorer) restoreOne(ctx context.Context,
 		return fmt.Errorf("write files: %w", err)
 	}
 
+	// The records name the node the backup was taken on, so under a node mapping
+	// the shard would set them aside and serve the migrated indexes empty.
+	indexPath := filepath.Join(fw.tempDir, materializedName, strings.ToLower(materializedName))
+	if err := r.sourcer.AdoptRestoredMigrationRecords(indexPath, desc, r.node, store.node); err != nil {
+		return fmt.Errorf("adopt migration records: %w", err)
+	}
 	return nil
 }
 
@@ -332,31 +327,4 @@ func validateNodeMeta(meta *backup.BackupDescriptor, destPath, reqID string) err
 		return fmt.Errorf("corrupted backup file: %w", err)
 	}
 	return nil
-}
-
-// hfsMigrator builds and return a class migrator ready for use
-func hfsMigrator(desc *backup.ClassDescriptor, nodeName string, serverVersion string) (func(classDir string) error, error) {
-	if serverVersion >= "1.23" {
-		return func(string) error { return nil }, nil
-	}
-	var ss sharding.State
-	if desc.ShardingState != nil {
-		err := json.Unmarshal(desc.ShardingState, &ss)
-		if err != nil {
-			return nil, fmt.Errorf("marshal sharding state: %w", err)
-		}
-	}
-	ss.SetLocalName(nodeName)
-
-	// get schema and sharding state
-	class := &models.Class{}
-	if err := json.Unmarshal(desc.Schema, &class); err != nil {
-		return nil, fmt.Errorf("marshal class schema: %w", err)
-	}
-
-	return func(classDir string) error {
-		return migratefs.MigrateToHierarchicalFS(classDir, []migratefs.ClassShards{
-			{Class: class, Shards: ss.AllPhysicalShards()},
-		})
-	}, nil
 }
