@@ -39,7 +39,7 @@ func BenchmarkDot(b *testing.B) {
 	for _, dim := range dims {
 		b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
 			b.Run("pure go", func(b *testing.B) { benchmarkDot(b, dim, DotProductFloatGo) })
-			b.Run("avx", func(b *testing.B) { benchmarkDot(b, dim, asm.Dot) })
+			b.Run("avx256", func(b *testing.B) { benchmarkDot(b, dim, asm.DotAVX256) })
 			b.Run("avx512", func(b *testing.B) { benchmarkDot(b, dim, asm.DotAVX512) })
 		})
 	}

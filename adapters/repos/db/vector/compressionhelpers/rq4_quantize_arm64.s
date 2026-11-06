@@ -35,6 +35,12 @@
 // DUP    Vd.4S, Vn.S[0]:      0x4E040400 | Vn<<5 | Vd
 // FMOV   Wd, Sn:              0x1E260000 | Sn<<5 | Wd
 
+// Accumulators are zeroed with VMOVI rather than VEOR Vn,Vn,Vn. The self-EOR
+// is not a dependency-breaking zeroing idiom on Arm cores and chained the
+// float dot kernel's accumulation onto the previous call's FADD reduction (2x
+// at n=32 on M1); for this kernel's short integer reduction the change
+// measured neutral and is kept for consistency.
+
 // func rq4QuantCorrAsm(xs *float32, ci *int32, n int, invStep, offset float32) (sumXC float32, sumC int32, sumC2 int32)
 TEXT ·rq4QuantCorrAsm(SB), NOSPLIT, $0-44
     MOVD xs+0(FP), R0
@@ -44,18 +50,18 @@ TEXT ·rq4QuantCorrAsm(SB), NOSPLIT, $0-44
     FMOVS offset+28(FP), F29
     WORD $0x4E04079C           // DUP V28.4S, V28.S[0]
     WORD $0x4E0407BD           // DUP V29.4S, V29.S[0]
-    VEOR V30.B16, V30.B16, V30.B16    // 0.0 (clamp lower bound)
+    VMOVI $0, V30.B16    // 0.0 (clamp lower bound)
     MOVD $0x41700000, R3               // 15.0f (clamp upper bound)
     FMOVS R3, F31
     WORD $0x4E0407FF           // DUP V31.4S, V31.S[0]
-    VEOR V0.B16, V0.B16, V0.B16
-    VEOR V1.B16, V1.B16, V1.B16
-    VEOR V2.B16, V2.B16, V2.B16
-    VEOR V3.B16, V3.B16, V3.B16
-    VEOR V4.B16, V4.B16, V4.B16
-    VEOR V5.B16, V5.B16, V5.B16
-    VEOR V6.B16, V6.B16, V6.B16
-    VEOR V7.B16, V7.B16, V7.B16
+    VMOVI $0, V0.B16
+    VMOVI $0, V1.B16
+    VMOVI $0, V2.B16
+    VMOVI $0, V3.B16
+    VMOVI $0, V4.B16
+    VMOVI $0, V5.B16
+    VMOVI $0, V6.B16
+    VMOVI $0, V7.B16
     LSR $4, R2, R4                     // R4 = n/16 iterations
     CBZ R4, qc_reduce
 
@@ -141,10 +147,10 @@ TEXT ·rq4MinMaxSumAsm(SB), NOSPLIT, $0-28
     VMOV V18.B16, V22.B16
     VMOV V17.B16, V21.B16
     VMOV V19.B16, V23.B16
-    VEOR V24.B16, V24.B16, V24.B16
-    VEOR V25.B16, V25.B16, V25.B16
-    VEOR V26.B16, V26.B16, V26.B16
-    VEOR V27.B16, V27.B16, V27.B16
+    VMOVI $0, V24.B16
+    VMOVI $0, V25.B16
+    VMOVI $0, V26.B16
+    VMOVI $0, V27.B16
     LSR $4, R2, R4                     // R4 = n/16 iterations
 
 mms_loop:

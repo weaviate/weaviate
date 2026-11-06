@@ -12,16 +12,15 @@
 package distancer
 
 import (
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 	"golang.org/x/sys/cpu"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
 func init() {
+	// NEON only: the SVE kernels measured 2x or more slower than NEON for the
+	// dot product on Neoverse V2 and level for L2, so they were removed.
 	if cpu.ARM64.HasASIMD {
-		if cpu.ARM64.HasSVE {
-			l2SquaredImpl = asm.L2_SVE
-		} else {
-			l2SquaredImpl = asm.L2_Neon
-		}
+		l2SquaredImpl = asm.L2_Neon
 	}
 }

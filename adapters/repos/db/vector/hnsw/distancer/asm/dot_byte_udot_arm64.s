@@ -18,15 +18,21 @@
 //   ADDV Sd, Vn.4S:             0x4EB1B800 | Vn<<5 | Vd
 //   FMOV Wd, Sn:                0x1E260000 | Sn<<5 | Wd
 
+// Accumulators are zeroed with VMOVI rather than VEOR Vn,Vn,Vn. The self-EOR
+// is not a dependency-breaking zeroing idiom on Arm cores and chained the
+// float dot kernel's accumulation onto the previous call's FADD reduction (2x
+// at n=32 on M1); for this kernel's short integer reduction the change
+// measured neutral and is kept for consistency.
+
 // func dotByteUDOTAsm(a, b *byte, n int) uint32
 TEXT ·dotByteUDOTAsm(SB), NOSPLIT, $0-28
     MOVD a+0(FP), R0
     MOVD b+8(FP), R1
     MOVD n+16(FP), R2
-    VEOR V0.B16, V0.B16, V0.B16
-    VEOR V1.B16, V1.B16, V1.B16
-    VEOR V2.B16, V2.B16, V2.B16
-    VEOR V3.B16, V3.B16, V3.B16
+    VMOVI $0, V0.B16
+    VMOVI $0, V1.B16
+    VMOVI $0, V2.B16
+    VMOVI $0, V3.B16
     MOVD $0, R7
     LSR $6, R2, R4
     CBZ R4, db_tail32
@@ -83,10 +89,10 @@ TEXT ·l2ByteUDOTAsm(SB), NOSPLIT, $0-28
     MOVD a+0(FP), R0
     MOVD b+8(FP), R1
     MOVD n+16(FP), R2
-    VEOR V0.B16, V0.B16, V0.B16
-    VEOR V1.B16, V1.B16, V1.B16
-    VEOR V2.B16, V2.B16, V2.B16
-    VEOR V3.B16, V3.B16, V3.B16
+    VMOVI $0, V0.B16
+    VMOVI $0, V1.B16
+    VMOVI $0, V2.B16
+    VMOVI $0, V3.B16
     MOVD $0, R7
     LSR $6, R2, R4
     CBZ R4, l2b_tail32

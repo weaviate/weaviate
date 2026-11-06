@@ -11,37 +11,49 @@
 
 package asm
 
-//go:generate goat ../c/dot_avx256_amd64.c -O3 -mavx2 -mfma -mavx512f -mavx512dq -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
-//go:generate goat ../c/dot_avx512_amd64.c -O3 -mavx2 -mfma -mavx512f -mavx512dq -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
-
 import (
 	"unsafe"
 )
 
+// DotAVX256 is the float32 dot product for AVX2+FMA hosts: inlined Go up to
+// SmallFloatMax elements, the hand-written kernel above that. y must be at
+// least as long as x.
 func DotAVX256(x []float32, y []float32) float32 {
-	var res float32
-
-	l := len(x)
-	dot_256(
-		unsafe.Pointer(unsafe.SliceData(x)),
-		unsafe.Pointer(unsafe.SliceData(y)),
-		unsafe.Pointer(&res),
-		unsafe.Pointer(&l))
-
-	return res
+	if len(x) <= 2 { // geo coordinates (n=2): keep the hottest small cases inline
+		if len(x) == 2 {
+			return x[0]*y[0] + x[1]*y[1]
+		}
+		if len(x) == 1 {
+			return x[0] * y[0]
+		}
+		return 0
+	}
+	if len(x) <= SmallFloatMax {
+		return dotSmall(x, y)
+	}
+	return dotAVX2(x, y)
 }
 
+// DotAVX512 is DotAVX256 for AVX-512 hosts. Vectors shorter than one ZMM
+// block take the AVX2 kernel, whose overlapped tail step needs only 8
+// elements.
 func DotAVX512(x []float32, y []float32) float32 {
-	var res float32
-
-	l := len(x)
-	dot_512(
-		unsafe.Pointer(unsafe.SliceData(x)),
-		unsafe.Pointer(unsafe.SliceData(y)),
-		unsafe.Pointer(&res),
-		unsafe.Pointer(&l))
-
-	return res
+	if len(x) <= 2 { // geo coordinates (n=2): keep the hottest small cases inline
+		if len(x) == 2 {
+			return x[0]*y[0] + x[1]*y[1]
+		}
+		if len(x) == 1 {
+			return x[0] * y[0]
+		}
+		return 0
+	}
+	if len(x) <= SmallFloatMax {
+		return dotSmall(x, y)
+	}
+	if len(x) < 16 { // the AVX-512 kernel needs one full 16-lane vector
+		return dotAVX2(x, y)
+	}
+	return dotAVX512(x, y)
 }
 
 func DotByteAVX256(x []uint8, y []uint8) uint32 {
