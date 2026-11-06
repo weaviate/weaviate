@@ -116,7 +116,10 @@ func TestWhereValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			deps := newCatalogHandler(t, tt.nullState)
-			_, apiErr := doBm25(t, deps, nil, "Catalog", fmt.Sprintf(`{"query":"dune","where":%s}`, tt.where))
+			// title is searchable. Catalog also has "secret" with
+			// indexSearchable disabled, which rejects a BM25 search that
+			// does not name properties before the where clause is checked.
+			_, apiErr := doBm25(t, deps, nil, "Catalog", fmt.Sprintf(`{"query":"dune","queryProperties":["title"],"where":%s}`, tt.where))
 			if tt.wantStatus == 0 {
 				require.Nil(t, apiErr)
 				return
