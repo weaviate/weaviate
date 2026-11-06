@@ -83,12 +83,7 @@ func (s *Shard) hasStampedHalf(tasks []*ShardReindexTaskGeneric) bool {
 	})
 }
 
-// migrationSwapCommitted reports whether this replica may no longer give up the
-// migration's swap. The cluster's swap debt answers that, not the local record: a
-// replica that was down when the swap was decided has no local trace of it, and
-// stamping it would refuse, forever, a swap the other replicas already made, or will
-// make on this node's own PREP ack. Before RAFT catches up at boot the node cannot
-// tell, so it answers true and holds.
+// migrationSwapCommitted reports whether a stamp would refuse a swap the cluster made or will make; docs/runtime-reindex.md says why.
 func (s *Shard) migrationSwapCommitted(rec MigrationRecord) bool {
 	if rec.FlipDecided() {
 		return true
