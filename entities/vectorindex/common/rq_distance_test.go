@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package hnsw
+package common
 
 import (
 	"testing"
@@ -20,21 +20,17 @@ import (
 func TestValidateRQDistance(t *testing.T) {
 	for _, tt := range []struct {
 		distance string
-		bits     int16
 		enabled  bool
 		wantErr  bool
 	}{
-		{"hamming", 1, true, true},
-		{"manhattan", 1, true, true},
-		{"cosine", 1, true, false},
-		{"dot", 1, true, false},
-		{"l2-squared", 1, true, false},
-		{"hamming", 1, false, false},
-		// rq4/rq8 are out of scope for this check.
-		{"hamming", 8, true, false},
-		{"hamming", 4, true, false},
+		{DistanceHamming, true, true},
+		{DistanceManhattan, true, true},
+		{DistanceCosine, true, false},
+		{DistanceDot, true, false},
+		{DistanceL2Squared, true, false},
+		{DistanceHamming, false, false},
 	} {
-		err := ValidateRQDistance(RQConfig{Enabled: tt.enabled, Bits: tt.bits}, tt.distance)
+		err := ValidateRQDistance(tt.enabled, tt.distance)
 		if tt.wantErr {
 			require.Error(t, err, "%+v", tt)
 		} else {

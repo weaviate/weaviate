@@ -13,7 +13,6 @@ package hnsw
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -51,22 +50,6 @@ func ValidateRQConfig(cfg RQConfig) error {
 	}
 
 	return nil
-}
-
-// ValidateRQDistance rejects 1-bit RQ on a distance the 1-bit quantizer
-// cannot compress. Such a config would be accepted and then fail every
-// deferred activation. It is kept out of ValidateRQConfig because it only
-// applies to schema writes: persisted configs are re-parsed on startup and
-// restore, and an existing class must keep loading.
-func ValidateRQDistance(cfg RQConfig, distance string) error {
-	if !cfg.Enabled || cfg.Bits != 1 {
-		return nil
-	}
-	switch distance {
-	case common.DistanceCosine, common.DistanceDot, common.DistanceL2Squared:
-		return nil
-	}
-	return fmt.Errorf("RQ bits=1 does not support distance %q, use cosine, dot or l2-squared", distance)
 }
 
 func parseRQMap(in map[string]interface{}, rq *RQConfig) error {

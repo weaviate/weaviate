@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	vectorindexcommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
@@ -1608,31 +1609,50 @@ func validateCreateUpdateOnlyBounds(parsed schemaConfig.VectorIndexConfig) error
 	return nil
 }
 
-// validateRQDistance applies hnsw.ValidateRQDistance to an hnsw index or to
-// the hnsw arm of a dynamic index, which takes the dynamic index's distance.
-// It runs on create and update only, never on startup parsing. A class whose
-// stored config already has 1-bit RQ enabled is grandfathered: bits and
-// distance are immutable once set, so rejecting it would only block unrelated
-// updates.
+// validateRQDistance applies common.ValidateRQDistance to every RQ-capable
+// index the config describes: hnsw, flat, and both arms of a dynamic index,
+// which compress under the dynamic index's distance. It runs on create and
+// update only, never on startup parsing. An index whose stored config already
+// has RQ enabled is grandfathered: distance and bits are immutable once set,
+// so rejecting it would only block unrelated updates.
 func validateRQDistance(parsed, initialParsed schemaConfig.VectorIndexConfig) error {
-	rq, distance, ok := rqConfigAndDistance(parsed)
-	if !ok {
-		return nil
+	grandfathered := map[string]bool{}
+	for _, arm := range rqArms(initialParsed) {
+		grandfathered[arm.name] = arm.enabled
 	}
-	if initRQ, _, ok := rqConfigAndDistance(initialParsed); ok && initRQ.Enabled && initRQ.Bits == 1 {
-		return nil
+	for _, arm := range rqArms(parsed) {
+		if grandfathered[arm.name] {
+			continue
+		}
+		if err := vectorindexcommon.ValidateRQDistance(arm.enabled, arm.distance); err != nil {
+			if arm.name != "" {
+				return fmt.Errorf("%s: %w", arm.name, err)
+			}
+			return err
+		}
 	}
-	return hnsw.ValidateRQDistance(rq, distance)
+	return nil
 }
 
-func rqConfigAndDistance(parsed schemaConfig.VectorIndexConfig) (hnsw.RQConfig, string, bool) {
+type rqArm struct {
+	name     string // "" for a plain index, "hnsw"/"flat" for a dynamic arm
+	enabled  bool
+	distance string
+}
+
+func rqArms(parsed schemaConfig.VectorIndexConfig) []rqArm {
 	switch uc := parsed.(type) {
 	case hnsw.UserConfig:
-		return uc.RQ, uc.Distance, true
+		return []rqArm{{"", uc.RQ.Enabled, uc.Distance}}
+	case flat.UserConfig:
+		return []rqArm{{"", uc.RQ.Enabled, uc.Distance}}
 	case dynamic.UserConfig:
-		return uc.HnswUC.RQ, uc.Distance, true
+		return []rqArm{
+			{"hnsw", uc.HnswUC.RQ.Enabled, uc.Distance},
+			{"flat", uc.FlatUC.RQ.Enabled, uc.Distance},
+		}
 	}
-	return hnsw.RQConfig{}, "", false
+	return nil
 }
 
 // parseLegacyVectorIndexConfig returns the typed VectorIndexConfig for

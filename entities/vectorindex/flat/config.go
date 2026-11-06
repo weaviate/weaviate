@@ -14,6 +14,7 @@ package flat
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	vectorindexcommon "github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -267,12 +268,23 @@ func NewDefaultUserConfig() UserConfig {
 }
 
 func ParseDefaultQuantization(vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) (schemaConfig.VectorIndexConfig, error) {
+	return ParseDefaultQuantizationForDistance(vectorIndexConfig, compression, vectorIndexConfig.(UserConfig).Distance)
+}
+
+// ParseDefaultQuantizationForDistance is ParseDefaultQuantization with the
+// distance the index compresses under passed in, as the flat arm of a dynamic
+// index takes the dynamic index's. An RQ default is skipped on a distance RQ
+// cannot compress, leaving the index uncompressed.
+func ParseDefaultQuantizationForDistance(vectorIndexConfig schemaConfig.VectorIndexConfig, compression, distance string) (schemaConfig.VectorIndexConfig, error) {
 	flatConfig := vectorIndexConfig.(UserConfig)
 	rqEnabled := flatConfig.RQ.Enabled
 	bqEnabled := flatConfig.BQ.Enabled
 	skipDefaultQuantization := flatConfig.SkipDefaultQuantization
 	flatConfig.TrackDefaultQuantization = false
 	if rqEnabled || bqEnabled || skipDefaultQuantization {
+		return flatConfig, nil
+	}
+	if strings.HasPrefix(compression, "rq-") && !vectorindexcommon.RQSupportsDistance(distance) {
 		return flatConfig, nil
 	}
 	switch compression {
