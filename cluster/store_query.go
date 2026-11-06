@@ -172,6 +172,11 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get replication scale plan: %w", err)
 		}
+	case cmd.QueryRequest_TYPE_GET_REBALANCE_PLAN:
+		payload, err = st.replicationManager.GetRebalancePlan(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get rebalance plan: %w", err)
+		}
 	case cmd.QueryRequest_TYPE_GET_ALL_REPLICATION_DETAILS:
 		payload, err = st.replicationManager.GetAllReplicationDetails(req)
 		if err != nil {
