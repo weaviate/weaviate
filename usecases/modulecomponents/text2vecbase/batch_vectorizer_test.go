@@ -14,6 +14,7 @@ package text2vecbase
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	logrustest "github.com/sirupsen/logrus/hooks/test"
@@ -110,15 +111,17 @@ func TestBatchVectorizerInvalidClientResult(t *testing.T) {
 	vectorTests := []struct {
 		name    string
 		res     *modulecomponents.VectorizationResult[[]float32]
+		inputs  int
 		wantErr string
 	}{
-		{name: "nil result", res: nil, wantErr: "empty embeddings in vectorizer response"},
-		{name: "nil vectors", res: &modulecomponents.VectorizationResult[[]float32]{Vector: nil}, wantErr: "empty embeddings in vectorizer response"},
-		{name: "no vectors", res: &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{}}, wantErr: "empty embeddings in vectorizer response"},
-		{name: "empty vector", res: &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{{}}}, wantErr: "empty embedding for input 0"},
+		{name: "nil result", res: nil, inputs: 1, wantErr: "empty embeddings in vectorizer response"},
+		{name: "nil vectors", res: &modulecomponents.VectorizationResult[[]float32]{Vector: nil}, inputs: 1, wantErr: "empty embeddings in vectorizer response"},
+		{name: "no vectors", res: &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{}}, inputs: 1, wantErr: "empty embeddings in vectorizer response"},
+		{name: "empty vector", res: &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{{}}}, inputs: 1, wantErr: "empty embedding for input 0"},
 		{
 			name:    "error for one input",
 			res:     &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{nil}, Errors: []error{errors.New("input too long")}},
+			inputs:  1,
 			wantErr: "input too long",
 		},
 		{
@@ -127,80 +130,118 @@ func TestBatchVectorizerInvalidClientResult(t *testing.T) {
 				Vector: [][]float32{{0.1, 0.2}, nil},
 				Errors: []error{nil, errors.New("input too long")},
 			},
+			inputs:  2,
 			wantErr: "input too long",
+		},
+		{
+			name:    "fewer vectors than inputs",
+			res:     &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{{0.1, 0.2}, {0.3, 0.4}}},
+			inputs:  3,
+			wantErr: "vectorizer returned 2 embeddings for 3 inputs",
+		},
+		{
+			name:    "more vectors than inputs",
+			res:     &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{{1, 2}, {3, 4}}},
+			inputs:  1,
+			wantErr: "vectorizer returned 2 embeddings for 1 inputs",
 		},
 	}
 	for _, tt := range vectorTests {
 		t.Run(tt.name, func(t *testing.T) {
-			assertVectorizerFails(t, tt.res, tt.wantErr)
+			assertVectorizerFails(t, tt.res, tt.inputs, tt.wantErr)
 		})
 	}
 
 	multiVectorTests := []struct {
 		name    string
 		res     *modulecomponents.VectorizationResult[[][]float32]
+		inputs  int
 		wantErr string
 	}{
-		{name: "multi-vector: nil vectors", res: &modulecomponents.VectorizationResult[[][]float32]{Vector: nil}, wantErr: "empty embeddings in vectorizer response"},
+		{name: "multi-vector: nil vectors", res: &modulecomponents.VectorizationResult[[][]float32]{Vector: nil}, inputs: 1, wantErr: "empty embeddings in vectorizer response"},
 		{
 			name:    "multi-vector: more than one multi-vector",
 			res:     &modulecomponents.VectorizationResult[[][]float32]{Vector: [][][]float32{{{0.1, 0.2}}, {{0.3, 0.4}}}},
+			inputs:  2,
 			wantErr: "cannot combine 2 multi-vector embeddings",
 		},
-		{name: "multi-vector: empty token vector", res: &modulecomponents.VectorizationResult[[][]float32]{Vector: [][][]float32{{{}}}}, wantErr: "empty embedding for input 0"},
-		{name: "multi-vector: nil token vector", res: &modulecomponents.VectorizationResult[[][]float32]{Vector: [][][]float32{{nil}}}, wantErr: "empty embedding for input 0"},
-		{name: "multi-vector: empty token vector after a valid one", res: &modulecomponents.VectorizationResult[[][]float32]{Vector: [][][]float32{{{0.1, 0.2}, {}}}}, wantErr: "empty embedding for input 0"},
+		{name: "multi-vector: empty token vector", res: &modulecomponents.VectorizationResult[[][]float32]{Vector: [][][]float32{{{}}}}, inputs: 1, wantErr: "empty embedding for input 0"},
+		{name: "multi-vector: nil token vector", res: &modulecomponents.VectorizationResult[[][]float32]{Vector: [][][]float32{{nil}}}, inputs: 1, wantErr: "empty embedding for input 0"},
+		{name: "multi-vector: empty token vector after a valid one", res: &modulecomponents.VectorizationResult[[][]float32]{Vector: [][][]float32{{{0.1, 0.2}, {}}}}, inputs: 1, wantErr: "empty embedding for input 0"},
 	}
 	for _, tt := range multiVectorTests {
 		t.Run(tt.name, func(t *testing.T) {
-			assertVectorizerFails(t, tt.res, tt.wantErr)
+			assertVectorizerFails(t, tt.res, tt.inputs, tt.wantErr)
 		})
 	}
 }
 
 func TestBatchVectorizerValidClientResult(t *testing.T) {
 	tests := []struct {
-		name string
-		res  *modulecomponents.VectorizationResult[[]float32]
-		want []float32
+		name   string
+		res    *modulecomponents.VectorizationResult[[]float32]
+		inputs int
+		want   []float32
 	}{
 		{
-			name: "one vector",
-			res:  &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{{0.1, 0.2}}, Errors: []error{nil}},
-			want: []float32{0.1, 0.2},
+			name:   "one vector for one input",
+			res:    &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{{0.1, 0.2}}, Errors: []error{nil}},
+			inputs: 1,
+			want:   []float32{0.1, 0.2},
 		},
 		{
-			name: "two vectors are averaged",
-			res:  &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{{1, 2}, {3, 4}}},
-			want: []float32{2, 3},
+			name:   "vectors for two inputs are averaged",
+			res:    &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{{1, 2}, {3, 4}}},
+			inputs: 2,
+			want:   []float32{2, 3},
+		},
+		{
+			name:   "one vector for two inputs the client joined",
+			res:    &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{{0.1, 0.2}}},
+			inputs: 2,
+			want:   []float32{0.1, 0.2},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			v, object, cfg := newVectorizerWithResult(tt.res)
 
-			vec, _, err := v.Object(context.Background(), object, cfg, cfg)
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, vec)
+			if tt.inputs == 1 {
+				vec, _, err := v.Object(context.Background(), object, cfg, cfg)
+				require.NoError(t, err)
+				assert.Equal(t, tt.want, vec)
+			}
 
-			vec, err = v.Texts(context.Background(), []string{"first", "second"}, cfg)
+			vec, err := v.Texts(context.Background(), textInputs(tt.inputs), cfg)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, vec)
 		})
 	}
 }
 
-func assertVectorizerFails[T dto.Embedding](t *testing.T, res *modulecomponents.VectorizationResult[T], wantErr string) {
+func textInputs(n int) []string {
+	inputs := make([]string, n)
+	for i := range inputs {
+		inputs[i] = fmt.Sprintf("text %d", i)
+	}
+	return inputs
+}
+
+// assertVectorizerFails checks Texts with the given number of inputs. Object
+// always sends one input, so it is checked only when inputs is 1.
+func assertVectorizerFails[T dto.Embedding](t *testing.T, res *modulecomponents.VectorizationResult[T], inputs int, wantErr string) {
 	t.Helper()
 	v, object, cfg := newVectorizerWithResult(res)
 
-	t.Run("Object", func(t *testing.T) {
-		vec, _, err := v.Object(context.Background(), object, cfg, cfg)
-		require.ErrorContains(t, err, wantErr)
-		assert.Nil(t, vec)
-	})
+	if inputs == 1 {
+		t.Run("Object", func(t *testing.T) {
+			vec, _, err := v.Object(context.Background(), object, cfg, cfg)
+			require.ErrorContains(t, err, wantErr)
+			assert.Nil(t, vec)
+		})
+	}
 	t.Run("Texts", func(t *testing.T) {
-		vec, err := v.Texts(context.Background(), []string{"text"}, cfg)
+		vec, err := v.Texts(context.Background(), textInputs(inputs), cfg)
 		require.ErrorContains(t, err, wantErr)
 		assert.Nil(t, vec)
 	})

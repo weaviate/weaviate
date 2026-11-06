@@ -481,6 +481,77 @@ func TestMakeRequestFewerVectorsThanTexts(t *testing.T) {
 	}
 }
 
+type fakeFixedResultClient struct {
+	res *modulecomponents.VectorizationResult[[]float32]
+}
+
+func (c *fakeFixedResultClient) Vectorize(ctx context.Context, text []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
+	return c.res, nil, 0, nil
+}
+
+func (c *fakeFixedResultClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
+	return &modulecomponents.RateLimits{}
+}
+
+func (c *fakeFixedResultClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	return [32]byte{}
+}
+
+// An object whose embedding is empty must get an error. Storing it would leave
+// the object without a vector while the batch reports success.
+func TestMakeRequestInvalidVectors(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	cfg := &fakeClassConfig{classConfig: map[string]interface{}{"vectorizeClassName": false}}
+
+	cases := []struct {
+		name    string
+		res     *modulecomponents.VectorizationResult[[]float32]
+		wantErr []string // per object: expected error, or "" for a stored vector
+	}{
+		{
+			name:    "empty embedding",
+			res:     &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{{}, {1, 2}}},
+			wantErr: []string{"empty embedding", ""},
+		},
+		{
+			name:    "nil embedding",
+			res:     &modulecomponents.VectorizationResult[[]float32]{Vector: [][]float32{{1, 2}, nil}},
+			wantErr: []string{"", "empty embedding"},
+		},
+		{
+			name:    "nil result",
+			res:     nil,
+			wantErr: []string{"no result", "no result"},
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &Batch[[]float32]{
+				client:            &fakeFixedResultClient{res: tt.res},
+				rateLimitChannel:  make(chan rateLimitJob, BatchChannelSize),
+				endOfBatchChannel: make(chan endOfBatchJob, BatchChannelSize),
+				logger:            logger,
+				Label:             "test",
+			}
+			job := BatchJob[[]float32]{ctx: context.Background(), cfg: cfg, errs: map[int]error{}, vecs: make([][]float32, 2)}
+
+			require.NotPanics(t, func() {
+				b.makeRequest(job, []string{"a", "b"}, cfg, []int{0, 1}, &modulecomponents.RateLimits{}, 2)
+			})
+			for i, wantErr := range tt.wantErr {
+				if wantErr != "" {
+					require.ErrorContains(t, job.errs[i], wantErr)
+					require.Nil(t, job.vecs[i])
+				} else {
+					require.NoError(t, job.errs[i])
+					require.NotEmpty(t, job.vecs[i])
+				}
+			}
+		})
+	}
+}
+
 // fakePanicClient panics for the text "panic" and vectorizes everything else. Its
 // rate limit selects which scheduling path the panic happens on.
 type fakePanicClient struct {

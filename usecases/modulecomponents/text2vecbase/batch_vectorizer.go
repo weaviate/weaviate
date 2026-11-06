@@ -59,7 +59,7 @@ func (v *BatchVectorizer[T]) object(ctx context.Context, object *models.Object, 
 	if err != nil {
 		return nil, err
 	}
-	return singleVector(res)
+	return singleVector(res, 1)
 }
 
 func (v *BatchVectorizer[T]) ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
@@ -93,11 +93,14 @@ func (v *BatchVectorizer[T]) Texts(ctx context.Context, inputs []string,
 	if err != nil {
 		return nil, errors.Wrap(err, "remote client vectorize")
 	}
-	return singleVector(res)
+	return singleVector(res, len(inputs))
 }
 
-// singleVector returns the only vector in res, or the average of its vectors.
-func singleVector[T dto.Embedding](res *modulecomponents.VectorizationResult[T]) (T, error) {
+// singleVector returns the vector for a single input, or the average of the
+// vectors for several inputs. res must hold one vector per input, or a single
+// vector when the client joined the inputs into one request text
+// (text2multivec-jinaai does this for queries).
+func singleVector[T dto.Embedding](res *modulecomponents.VectorizationResult[T], inputCount int) (T, error) {
 	if res == nil || len(res.Vector) == 0 {
 		return nil, errors.New("empty embeddings in vectorizer response")
 	}
@@ -105,6 +108,9 @@ func singleVector[T dto.Embedding](res *modulecomponents.VectorizationResult[T])
 		if err != nil {
 			return nil, err
 		}
+	}
+	if len(res.Vector) != inputCount && len(res.Vector) != 1 {
+		return nil, errors.Errorf("vectorizer returned %d embeddings for %d inputs", len(res.Vector), inputCount)
 	}
 	for i := range res.Vector {
 		if modulecomponents.IsEmbeddingEmpty(res.Vector[i]) {
