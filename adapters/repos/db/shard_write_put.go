@@ -18,6 +18,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 
@@ -45,6 +46,15 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	return s.putOne(ctx, uid, object)
 }
 
+// committedWriteContext returns the context for what follows an object's write
+// to the LSM store. The vector index isn't part of that write, so stopping now
+// would leave a readable object that search can't find, and nothing compares the
+// two stores to notice: once an object is stored, its write has to run to the
+// end, even if the caller has gone away.
+func committedWriteContext(ctx context.Context) context.Context {
+	return context.WithoutCancel(ctx)
+}
+
 func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {
 	// Reject writes carrying a dropped vector before persisting anything.
 	if len(object.Vectors) > 0 || len(object.MultiVectors) > 0 {
@@ -63,6 +73,8 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 	if status.skipUpsert {
 		return nil
 	}
+
+	ctx = committedWriteContext(ctx)
 
 	for targetVector, vector := range object.Vectors {
 		if err := s.updateVectorIndex(ctx, vector, status, targetVector); err != nil {
@@ -265,15 +277,56 @@ func (s *Shard) requireVectorIndexes(vectors map[string][]float32, multiVectors 
 	return nil
 }
 
-func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes []byte,
-) (status objectInsertStatus, err error) {
-	before := time.Now()
-	defer s.metrics.PutObject(before)
+// claimVectorDimensions covers what an index can't validate while it is empty. Every
+// length is checked before any is claimed, so a write refused for one vector doesn't
+// decide the length of another index that is still empty.
+func (s *Shard) claimVectorDimensions(vectors map[string][]float32, multiVectors map[string][][]float32, legacy []float32) error {
+	onEachQueue := func(do func(queue *VectorIndexQueue, length int) error) error {
+		for targetVector, vector := range vectors {
+			if err := s.withClaimableQueue(targetVector, len(vector), do); err != nil {
+				return errors.Wrapf(err, "target vector %s", targetVector)
+			}
+		}
+		for targetVector, vector := range multiVectors {
+			if len(vector) == 0 {
+				continue
+			}
+			if err := s.withClaimableQueue(targetVector, len(vector[0]), do); err != nil {
+				return errors.Wrapf(err, "target multi vector %s", targetVector)
+			}
+		}
+		if s.index.GetVectorIndexConfig("") != nil {
+			return s.withClaimableQueue("", len(legacy), do)
+		}
+		return nil
+	}
 
-	// validation happens before any change is stored, and a missing index
-	// is a failure here: an object stored without its index is skipped as
-	// unchanged on the retry and never indexed
-	for targetVector, vector := range obj.Vectors {
+	if err := onEachQueue((*VectorIndexQueue).checkDimensions); err != nil {
+		return err
+	}
+	return onEachQueue((*VectorIndexQueue).claimDimensions)
+}
+
+func (s *Shard) withClaimableQueue(targetVector string, length int, do func(queue *VectorIndexQueue, length int) error) error {
+	if length == 0 {
+		return nil
+	}
+
+	_, err := s.WithVectorIndexQueue(targetVector, func(queue *VectorIndexQueue) error {
+		if queue == nil {
+			return nil
+		}
+		return do(queue, length)
+	})
+	return err
+}
+
+// validateVectors happens before any change is stored, and a missing index is a
+// failure here: an object stored without its index is skipped as unchanged on the
+// retry and never indexed. The indexes come first: after a restart a queue has no
+// length of its own, and claiming one it hasn't checked would refuse the right one.
+func (s *Shard) validateVectors(id strfmt.UUID, vectors map[string][]float32, multiVectors map[string][][]float32, legacy []float32) error {
+	for targetVector, vector := range vectors {
 		found, err := s.WithVectorIndex(targetVector, func(vectorIndex VectorIndex) error {
 			err := checkVectorKind(vectorIndex, targetVector, false)
 			if err != nil {
@@ -282,14 +335,14 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return vectorIndex.ValidateBeforeInsert(vector)
 		})
 		if !found {
-			return status, fmt.Errorf("vector index not found for %q", targetVector)
+			return fmt.Errorf("vector index not found for %q", targetVector)
 		}
 		if err != nil {
-			return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
+			return errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, id)
 		}
 	}
 
-	for targetVector, vector := range obj.MultiVectors {
+	for targetVector, vector := range multiVectors {
 		found, err := s.WithVectorIndex(targetVector, func(vectorIndex VectorIndex) error {
 			multiIndex, err := asMultiVectorIndex(vectorIndex, targetVector)
 			if err != nil {
@@ -298,28 +351,43 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return multiIndex.ValidateMultiBeforeInsert(vector)
 		})
 		if !found {
-			return status, fmt.Errorf("vector index not found for %q", targetVector)
+			return fmt.Errorf("vector index not found for %q", targetVector)
 		}
 		if err != nil {
-			return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
+			return errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, id)
 		}
 	}
 
 	// the legacy vector needs an index when the schema has one
-	if len(obj.Vector) > 0 && s.index.GetVectorIndexConfig("") != nil {
+	if len(legacy) > 0 && s.index.GetVectorIndexConfig("") != nil {
 		found, err := s.WithVectorIndex("", func(index VectorIndex) error {
 			err := checkVectorKind(index, "", false)
 			if err != nil {
 				return err
 			}
-			return index.ValidateBeforeInsert(obj.Vector)
+			return index.ValidateBeforeInsert(legacy)
 		})
 		if !found {
-			return status, fmt.Errorf(`vector index not found for ""`)
+			return fmt.Errorf(`vector index not found for ""`)
 		}
 		if err != nil {
-			return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
+			return errors.Wrapf(err, "Validate vector index for %s", id)
 		}
+	}
+
+	if err := s.claimVectorDimensions(vectors, multiVectors, legacy); err != nil {
+		return errors.Wrapf(err, "Validate vector index for %s", id)
+	}
+	return nil
+}
+
+func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes []byte,
+) (status objectInsertStatus, err error) {
+	before := time.Now()
+	defer s.metrics.PutObject(before)
+
+	if err := s.validateVectors(obj.ID(), obj.Vectors, obj.MultiVectors, obj.Vector); err != nil {
+		return status, err
 	}
 
 	bucket, release, err := s.objectsBucket()
@@ -526,7 +594,11 @@ func (s *Shard) determineInsertStatus(prevObj, nextObj *storobj.Object) (objectI
 	// Due to geo index's (using HNSW vector index) requirement new docID for delete+insert
 	// (delete initially adds tombstone, which "overwrite" following insert of the same docID)
 	// any update of geo property needs new docID for updating geo index.
-	if preserve, skip := compareObjsForInsertStatus(prevObj, nextObj); preserve || skip {
+	//
+	// Neither applies to an object whose vector isn't in the index: it takes the
+	// regular update path below, which is what indexes it.
+	if preserve, skip := compareObjsForInsertStatus(prevObj, nextObj); (preserve || skip) &&
+		!s.needsVectorRepair(prevObj, nextObj) {
 		out.docID = prevObj.DocID
 		// Content unchanged, but if the update time advanced, take the docID-preserved
 		// path instead of skipping: it refreshes the object row, hashtree leaf and
@@ -549,6 +621,60 @@ func (s *Shard) determineInsertStatus(prevObj, nextObj *storobj.Object) (objectI
 	out.docIDChanged = true
 
 	return out, nil
+}
+
+// needsVectorRepair reports whether a write of an unchanged object has to index it.
+// A write that is behind the stored object can't: it would take its update time back.
+func (s *Shard) needsVectorRepair(prevObj, nextObj *storobj.Object) bool {
+	return nextObj.LastUpdateTimeUnix() >= prevObj.LastUpdateTimeUnix() && s.vectorMissingFromIndex(prevObj)
+}
+
+// ghostReporter is implemented by indexes in which a document can be present
+// without being reachable, see hnsw.HasGhost.
+type ghostReporter interface {
+	HasGhost(docID uint64) bool
+}
+
+// vectorMissingFromIndex reports whether one of the stored object's vectors is
+// not in its vector index for a search to find, which is what a write that failed
+// after the LSM store leaves behind.
+func (s *Shard) vectorMissingFromIndex(obj *storobj.Object) bool {
+	// the vector may just be waiting in the queue
+	if s.index.AsyncIndexingEnabled {
+		return false
+	}
+
+	if len(obj.Vector) > 0 && s.docMissingFromIndex("", obj.DocID) {
+		return true
+	}
+	for targetVector, vector := range obj.Vectors {
+		if len(vector) > 0 && s.docMissingFromIndex(targetVector, obj.DocID) {
+			return true
+		}
+	}
+	for targetVector, vector := range obj.MultiVectors {
+		if len(vector) > 0 && s.docMissingFromIndex(targetVector, obj.DocID) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Shard) docMissingFromIndex(targetVector string, docID uint64) bool {
+	index, release, ok := s.AcquireVectorIndex(targetVector)
+	if !ok {
+		return false
+	}
+	defer release()
+
+	// neither can tell: noop contains nothing, hfresh's add records no version
+	if t := index.Type(); t == common.IndexTypeNoop || t == common.IndexTypeHFresh {
+		return false
+	}
+	if ghosts, ok := index.(ghostReporter); ok && ghosts.HasGhost(docID) {
+		return true
+	}
+	return !index.ContainsDoc(docID)
 }
 
 // determineMutableInsertStatus is a special version of determineInsertStatus

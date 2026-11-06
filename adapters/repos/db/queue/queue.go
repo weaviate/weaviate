@@ -426,51 +426,19 @@ func (q *DiskQueue) decodeChunk(c *chunk) (tasks []Task, corrupt error, err erro
 
 	buf := make([]byte, 4)
 	for {
-		buf = buf[:4]
-
-		// read the record length
-		_, err := io.ReadFull(c.r, buf)
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if errors.Is(err, io.ErrUnexpectedEOF) {
-			corrupt = errors.Wrap(err, "chunk ends mid-record")
-			break
-		}
+		record, damaged, err := c.nextRecord(buf)
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "failed to read record length")
+			return nil, nil, err
 		}
-		length := binary.BigEndian.Uint32(buf)
-		if length == 0 {
-			corrupt = errors.New("invalid record length")
+		if record == nil {
+			corrupt = damaged
 			break
 		}
-		// the length prefix comes from disk and may be corrupt: a record
-		// cannot be larger than the chunk payload that contains it. Validate
-		// before allocating.
-		if uint64(length) > payloadSize-4 {
-			corrupt = errors.Errorf("invalid record length %d, chunk payload is only %d bytes", length, payloadSize)
-			break
-		}
-
-		// read the record
-		if cap(buf) < int(length) {
-			buf = make([]byte, length)
-		} else {
-			buf = buf[:length]
-		}
-		_, err = io.ReadFull(c.r, buf)
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-			corrupt = errors.Wrap(err, "chunk ends mid-record")
-			break
-		}
-		if err != nil {
-			return nil, nil, errors.Wrap(err, "failed to read record")
-		}
+		buf = record
 
 		// decode the task. The framing is intact, so a record that cannot
 		// be decoded is skipped and the following ones are still read.
-		t, err := q.decodeTask(buf)
+		t, err := q.decodeTask(record)
 		if err != nil {
 			undecodable++
 			decodeErr = err
@@ -498,6 +466,56 @@ func (q *DiskQueue) decodeChunk(c *chunk) (tasks []Task, corrupt error, err erro
 	}
 
 	return tasks, corrupt, nil
+}
+
+// Pending calls fn with the tasks waiting on disk, oldest first, until it returns
+// false. The tasks stay in the queue. It has to run before the queue is scheduled. A
+// damaged record is passed over, the workers deal with it when they get there.
+func (q *DiskQueue) Pending(fn func(Task) bool) error {
+	paths := make([]string, 0, len(q.r.chunkList)+1)
+	for _, ref := range q.r.chunkList {
+		paths = append(paths, ref.path)
+	}
+	// the partial chunk holds the newest records, and its header doesn't count them
+	if q.w.recordCount > 0 {
+		paths = append(paths, q.w.f.Name())
+	}
+
+	for _, path := range paths {
+		more, err := q.pendingInChunk(path, fn)
+		if !more || err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (q *DiskQueue) pendingInChunk(path string, fn func(Task) bool) (more bool, err error) {
+	c, err := openChunk(path)
+	if err != nil {
+		return false, err
+	}
+	defer c.Close()
+
+	buf := make([]byte, 4)
+	for {
+		record, _, err := c.nextRecord(buf)
+		if err != nil {
+			return false, err
+		}
+		if record == nil {
+			return true, nil
+		}
+		buf = record
+
+		t, err := q.decodeTask(record)
+		if err != nil {
+			continue
+		}
+		if !fn(t) {
+			return false, nil
+		}
+	}
 }
 
 // decodeTask decodes a record. A decoder may panic on a malformed record:
@@ -1431,6 +1449,50 @@ func chunkFromFile(f *os.File) (_ *chunk, err error) {
 	}
 
 	return &c, nil
+}
+
+// nextRecord reads the next record of a chunk, into buf when it fits. It returns no
+// record at the end of the chunk, and with damaged set if the chunk ended early.
+func (c *chunk) nextRecord(buf []byte) (record []byte, damaged error, err error) {
+	buf = buf[:4]
+
+	// read the record length
+	_, err = io.ReadFull(c.r, buf)
+	if errors.Is(err, io.EOF) {
+		return nil, nil, nil
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return nil, errors.Wrap(err, "chunk ends mid-record"), nil
+	}
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "failed to read record length")
+	}
+	length := binary.BigEndian.Uint32(buf)
+	if length == 0 {
+		return nil, errors.New("invalid record length"), nil
+	}
+	// the length prefix comes from disk and may be corrupt: a record
+	// cannot be larger than the chunk payload that contains it. Validate
+	// before allocating.
+	payloadSize := c.size - uint64(chunkHeaderSize)
+	if uint64(length) > payloadSize-4 {
+		return nil, errors.Errorf("invalid record length %d, chunk payload is only %d bytes", length, payloadSize), nil
+	}
+
+	// read the record
+	if cap(buf) < int(length) {
+		buf = make([]byte, length)
+	} else {
+		buf = buf[:length]
+	}
+	_, err = io.ReadFull(c.r, buf)
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return nil, errors.Wrap(err, "chunk ends mid-record"), nil
+	}
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "failed to read record")
+	}
+	return buf, nil, nil
 }
 
 func (c *chunk) Close() error {
