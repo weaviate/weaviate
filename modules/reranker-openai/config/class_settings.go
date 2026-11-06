@@ -37,7 +37,9 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg, propertyValuesHelper: basesettings.NewPropertyValuesHelper(ModuleName)}
 }
 
-func (cs *classSettings) Validate(class *models.Class) error {
+// CheckSettings checks the stored model and baseURL. The client runs it at
+// query time, since a stored value of another type reads as the default.
+func (cs *classSettings) CheckSettings() error {
 	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
@@ -62,7 +64,13 @@ func (cs *classSettings) Validate(class *models.Class) error {
 			}
 		}
 	}
+	return nil
+}
 
+func (cs *classSettings) Validate(class *models.Class) error {
+	if err := cs.CheckSettings(); err != nil {
+		return err
+	}
 	return cs.propertyValuesHelper.ValidateBaseURL(cs.BaseURL())
 }
 
