@@ -206,7 +206,7 @@ func (c *client) judge(ctx context.Context, r judgeRequest, document ent.Documen
 	}
 	score, err := response.score(questionName)
 	if errors.Is(err, errRefused) {
-		err = fmt.Errorf("OpenAI refused to judge the condition %q", r.query)
+		err = fmt.Errorf("OpenAI refused to judge the condition %q", truncate(r.query))
 	}
 	if err != nil {
 		return 0, 0, fmt.Errorf("object %s: %w", document.ID, err)
@@ -267,7 +267,8 @@ func (c *client) send(ctx context.Context, r judgeRequest, document string) (dec
 	return readResponse(res, r.hostFromHeader)
 }
 
-// readResponse quotes nothing of the reply of a host the request header named.
+// readResponse quotes no status error body and no error object of a host the
+// request header named. A decode error is cut to 512 bytes for every host.
 func readResponse(res *http.Response, hostFromHeader bool) (decisionResponse, error) {
 	if res.StatusCode != http.StatusOK {
 		apiErr := readAPIError(res.Body)
@@ -286,7 +287,7 @@ func readResponse(res *http.Response, hostFromHeader bool) (decisionResponse, er
 	}
 	var response decisionResponse
 	if err := json.Unmarshal(body, &response); err != nil {
-		err = fmt.Errorf("parse OpenAI response: %w", err)
+		err = fmt.Errorf("parse OpenAI response: %s", truncate(err.Error()))
 		if hostFromHeader || len(body) == 0 {
 			return decisionResponse{}, err
 		}

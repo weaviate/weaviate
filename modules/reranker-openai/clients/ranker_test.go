@@ -797,6 +797,54 @@ func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 	}
 }
 
+func TestRankCutsLongErrorText(t *testing.T) {
+	hugeNumber := `{"answers":[{"type":"predicate","name":"condition","probability":` + strings.Repeat("9", 100_000) + `}]}`
+	tests := []struct {
+		name       string
+		fromHeader bool
+	}{
+		{name: "a decode error from the class base URL"},
+		{name: "a decode error from the header base URL", fromHeader: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			classServer, headerServer := newFake(t), newFake(t)
+			used := classServer
+			ctx := context.Background()
+			if tt.fromHeader {
+				used = headerServer
+				ctx = context.WithValue(ctx, "X-Openai-Api-Key", []string{"headerKey"})
+				ctx = context.WithValue(ctx, "X-Openai-Baseurl", []string{headerServer.url()})
+			}
+			used.replies = map[int]fakeReply{0: {status: http.StatusOK, body: hugeNumber}}
+
+			_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text", documentsOf(noRefund),
+				classConfig(classServer.url(), nil))
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "parse OpenAI response: ")
+			assert.LessOrEqual(t, len(err.Error()), 1200)
+		})
+	}
+
+	t.Run("a refused query of 50,000 bytes", func(t *testing.T) {
+		f := newFake(t)
+		f.replies = map[int]fakeReply{0: {
+			status: http.StatusOK,
+			body:   `{"answers":[{"type":"refusal","name":"condition"}]}`,
+		}}
+		query := strings.Repeat("a", 512) + strings.Repeat("b", 49_488)
+
+		_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), query, "text", documentsOf(noRefund),
+			classConfig(f.url(), nil))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), strings.Repeat("a", 512))
+		assert.NotContains(t, err.Error(), "bbbb")
+		assert.LessOrEqual(t, len(err.Error()), 700)
+	})
+}
+
 func TestRankCapsRequestsInFlight(t *testing.T) {
 	f := newFake(t)
 	f.delay = 20 * time.Millisecond
