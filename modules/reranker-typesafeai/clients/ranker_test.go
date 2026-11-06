@@ -1378,3 +1378,27 @@ func TestPostWaitingForASlotStopsOnCancel(t *testing.T) {
 		})
 	}
 }
+
+func TestRankCutsTheDecodeErrorOfALongNumber(t *testing.T) {
+	body := `{"answers":{"q":{"type":"noul","noul":` + strings.Repeat("1", 100_000) + `}}}`
+	for _, fromHeader := range []bool{false, true} {
+		t.Run(fmt.Sprintf("hostFromHeader=%t", fromHeader), func(t *testing.T) {
+			classServer, headerServer := newFake(t), newFake(t)
+			used := classServer
+			ctx := context.Background()
+			if fromHeader {
+				used = headerServer
+				ctx = context.WithValue(ctx, "X-Typesafeai-Api-Key", []string{"headerKey"})
+				ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{headerServer.url()})
+			}
+			used.replies = map[int]fakeReply{0: {status: http.StatusOK, body: body}}
+
+			_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text",
+				documentsOf(noRefund), classConfig(classServer.url(), nil))
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "parse TypeSafe AI response: ")
+			assert.LessOrEqual(t, len(err.Error()), 1_200)
+		})
+	}
+}
