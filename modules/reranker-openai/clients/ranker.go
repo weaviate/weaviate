@@ -34,6 +34,8 @@ import (
 )
 
 const (
+	// A request for an image holds about three copies of its base64 while it
+	// holds a slot (80 MiB for a 20 MiB image), in each of the two pools.
 	DefaultMaxConcurrentRequests = 32
 	MaxConcurrentRequestsLimit   = 256
 

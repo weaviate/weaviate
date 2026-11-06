@@ -31,6 +31,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -843,6 +844,38 @@ func TestRankCutsLongErrorText(t *testing.T) {
 		assert.NotContains(t, err.Error(), "bbbb")
 		assert.LessOrEqual(t, len(err.Error()), 700)
 	})
+}
+
+func TestRankReturnsADeadlineErrorAndFreesTheSlots(t *testing.T) {
+	f, release := newBlockingFake(t)
+	defer release()
+	c := New(defaultFakeKey, "", 50*time.Millisecond, 2, nullLogger())
+
+	_, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund, chargedTwice, changeEmail),
+		classConfig(f.url(), nil))
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Zero(t, len(c.inFlight))
+	assert.Zero(t, len(c.inFlightHeaderHost))
+}
+
+func TestRankReadsHeadersFromGRPCMetadata(t *testing.T) {
+	classHost, headerHost := newFake(t), newFake(t)
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		"x-openai-api-key", "grpcKey",
+		"x-openai-baseurl", headerHost.url(),
+		"x-openai-organization", "grpcOrg",
+	))
+
+	_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text", documentsOf(noRefund),
+		classConfig(classHost.url(), nil))
+
+	require.NoError(t, err)
+	assert.Empty(t, classHost.received())
+	requests := headerHost.received()
+	require.Len(t, requests, 1)
+	assert.Equal(t, "Bearer grpcKey", requests[0].authorization)
+	assert.Equal(t, []string{"grpcOrg"}, requests[0].organization)
 }
 
 func TestRankCapsRequestsInFlight(t *testing.T) {
