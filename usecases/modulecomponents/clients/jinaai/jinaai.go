@@ -206,7 +206,7 @@ func embeddingsByIndex[T dto.Embedding](data []embeddingData[T], inputCount int)
 			return nil, fmt.Errorf("invalid response from JinaAI API: duplicate index %d", d.Index)
 		}
 		embedding := d.getEmbedding()
-		if len(embedding) == 0 {
+		if modulecomponents.IsEmbeddingEmpty(embedding) {
 			return nil, fmt.Errorf("invalid response from JinaAI API: empty embedding for index %d", d.Index)
 		}
 		embeddings[d.Index] = embedding

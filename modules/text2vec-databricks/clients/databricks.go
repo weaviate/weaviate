@@ -136,9 +136,11 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 	embeddings := make([][]float32, len(resBody.Data))
 	databrickserror := make([]error, len(resBody.Data))
 	for i := range resBody.Data {
+		if len(resBody.Data[i].Embedding) == 0 {
+			return nil, nil, fmt.Errorf("invalid response from Databricks Foundation Model API: empty embedding for input %d", i)
+		}
 		texts[i] = resBody.Data[i].Object
 		embeddings[i] = resBody.Data[i].Embedding
-
 	}
 
 	return &modulecomponents.VectorizationResult[[]float32]{

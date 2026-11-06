@@ -107,7 +107,7 @@ func singleVector[T dto.Embedding](res *modulecomponents.VectorizationResult[T])
 		}
 	}
 	for i := range res.Vector {
-		if len(res.Vector[i]) == 0 {
+		if modulecomponents.IsEmbeddingEmpty(res.Vector[i]) {
 			return nil, errors.Errorf("empty embedding for input %d in vectorizer response", i)
 		}
 	}

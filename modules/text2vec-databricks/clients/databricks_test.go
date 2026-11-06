@@ -236,6 +236,26 @@ func TestClientMalformedResponse(t *testing.T) {
 				`{"object":"embedding","index":1,"embedding":[0.3,0.4]}]}`,
 			wantErr: "got 2 embeddings for 1 inputs",
 		},
+		{
+			name:    "missing embedding",
+			input:   []string{"text"},
+			body:    `{"object":"list","data":[{"object":"embedding","index":0}]}`,
+			wantErr: "empty embedding for input 0",
+		},
+		{
+			name:    "null embedding",
+			input:   []string{"text"},
+			body:    `{"object":"list","data":[{"object":"embedding","index":0,"embedding":null}]}`,
+			wantErr: "empty embedding for input 0",
+		},
+		{
+			name:  "empty embedding for the second input",
+			input: []string{"first", "second"},
+			body: `{"object":"list","data":[` +
+				`{"object":"embedding","index":0,"embedding":[0.1,0.2]},` +
+				`{"object":"embedding","index":1,"embedding":[]}]}`,
+			wantErr: "empty embedding for input 1",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

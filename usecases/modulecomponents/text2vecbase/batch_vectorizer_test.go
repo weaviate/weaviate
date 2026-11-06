@@ -147,6 +147,9 @@ func TestBatchVectorizerInvalidClientResult(t *testing.T) {
 			res:     &modulecomponents.VectorizationResult[[][]float32]{Vector: [][][]float32{{{0.1, 0.2}}, {{0.3, 0.4}}}},
 			wantErr: "cannot combine 2 multi-vector embeddings",
 		},
+		{name: "multi-vector: empty token vector", res: &modulecomponents.VectorizationResult[[][]float32]{Vector: [][][]float32{{{}}}}, wantErr: "empty embedding for input 0"},
+		{name: "multi-vector: nil token vector", res: &modulecomponents.VectorizationResult[[][]float32]{Vector: [][][]float32{{nil}}}, wantErr: "empty embedding for input 0"},
+		{name: "multi-vector: empty token vector after a valid one", res: &modulecomponents.VectorizationResult[[][]float32]{Vector: [][][]float32{{{0.1, 0.2}, {}}}}, wantErr: "empty embedding for input 0"},
 	}
 	for _, tt := range multiVectorTests {
 		t.Run(tt.name, func(t *testing.T) {

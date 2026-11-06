@@ -296,6 +296,23 @@ func TestClientMalformedResponse(t *testing.T) {
 	}
 }
 
+func TestClientMalformedMultiVectorResponse(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "empty token vector in embedding", body: `{"data":[{"index":0,"embedding":[[]]}]}`},
+		{name: "null token vector in embeddings", body: `{"data":[{"index":0,"embeddings":[null]}]}`},
+		{name: "empty token vector after a valid one", body: `{"data":[{"index":0,"embeddings":[[0.1,0.2],[]]}]}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newClientWithBody[[][]float32](t, tt.body, "")
+			testMalformedResponse(t, c, []string{"text"}, nil, "empty embedding for index 0")
+		})
+	}
+}
+
 func testMalformedResponse[T dto.Embedding](t *testing.T, c *Client[T], texts, images []string, wantErr string) {
 	t.Helper()
 	if len(images) == 0 {
