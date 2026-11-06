@@ -1268,3 +1268,28 @@ func (f fakeClassConfig) Tenant() string                 { return "" }
 func (f fakeClassConfig) TargetVector() string           { return "" }
 func (f fakeClassConfig) Property(string) map[string]any { return nil }
 func (f fakeClassConfig) Config() *config.Config         { return nil }
+
+func TestRankChecksTheStoredSettingsBeforeSending(t *testing.T) {
+	tests := []struct {
+		name     string
+		settings map[string]any
+		wantErr  string
+	}{
+		{name: "baseURL of a number", settings: map[string]any{"baseURL": 42}, wantErr: "baseURL must be a string, got int"},
+		{name: "baseURL of a list", settings: map[string]any{"baseURL": []any{"http://a"}}, wantErr: "baseURL must be a string, got []interface {}"},
+		{name: "model of a number", settings: map[string]any{"model": 7}, wantErr: "model must be a string, got int"},
+		{name: "model of a bool", settings: map[string]any{"model": true}, wantErr: "model must be a string, got bool"},
+		{name: "empty model", settings: map[string]any{"model": ""}, wantErr: "model must be a non-empty string"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+
+			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+				documentsOf(noRefund), classConfig(f.url(), tt.settings))
+
+			require.EqualError(t, err, tt.wantErr)
+			assert.Empty(t, f.received())
+		})
+	}
+}
