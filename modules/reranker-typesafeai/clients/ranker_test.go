@@ -14,6 +14,7 @@ package clients
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -1273,6 +1275,15 @@ func (f fakeClassConfig) TargetVector() string           { return "" }
 func (f fakeClassConfig) Property(string) map[string]any { return nil }
 func (f fakeClassConfig) Config() *config.Config         { return nil }
 
+// countingTransport fails every request, so a stored baseURL that fell back to
+// the default host is seen without reaching it.
+type countingTransport struct{ count atomic.Int64 }
+
+func (c *countingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	c.count.Add(1)
+	return nil, errors.New("unexpected request")
+}
+
 func TestRankChecksTheStoredSettingsBeforeSending(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1281,25 +1292,30 @@ func TestRankChecksTheStoredSettingsBeforeSending(t *testing.T) {
 	}{
 		{name: "baseURL of a number", settings: map[string]any{"baseURL": 42}, wantErr: "baseURL must be a string, got int"},
 		{name: "baseURL of a list", settings: map[string]any{"baseURL": []any{"http://a"}}, wantErr: "baseURL must be a string, got []interface {}"},
+		{name: "empty baseURL", settings: map[string]any{"baseURL": ""}, wantErr: "baseURL must be a non-empty string"},
 		{name: "model of a number", settings: map[string]any{"model": 7}, wantErr: "model must be a string, got int"},
 		{name: "model of a bool", settings: map[string]any{"model": true}, wantErr: "model must be a string, got bool"},
 		{name: "empty model", settings: map[string]any{"model": ""}, wantErr: "model must be a non-empty string"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := newFake(t)
+			transport := &countingTransport{}
+			c := newTestClient(defaultFakeKey)
+			c.httpClient.Transport = transport
 
-			_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
-				documentsOf(noRefund), classConfig(f.url(), tt.settings))
+			_, err := c.RankProperty(context.Background(), churn, "text",
+				documentsOf(noRefund), classConfig("http://class.invalid", tt.settings))
 
 			require.EqualError(t, err, tt.wantErr)
-			assert.Empty(t, f.received())
+			assert.Zero(t, transport.count.Load(), "no request is sent")
 		})
 	}
 }
 
 func TestRankHostsNamedByTheHeaderDoNotHoldTheSlotsOfOtherHosts(t *testing.T) {
 	const inFlight = 4
+	var calls sync.WaitGroup
+	defer calls.Wait()
 	hung, release := newBlockingFake(t)
 	defer release()
 	classServer := newFake(t)
@@ -1309,8 +1325,6 @@ func TestRankHostsNamedByTheHeaderDoNotHoldTheSlotsOfOtherHosts(t *testing.T) {
 	ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{hung.url()})
 	cancelled, cancel := context.WithCancel(ctx)
 	defer cancel()
-	var calls sync.WaitGroup
-	defer calls.Wait()
 	calls.Go(func() {
 		// 500 short documents are ten requests, more than the cap.
 		c.RankProperty(cancelled, churn, "text", documentsOf(numbered("ticket %d", 500)...), classConfig(classServer.url(), nil))
