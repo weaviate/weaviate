@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -41,22 +42,46 @@ const (
 	lengthTestObjects = 60
 )
 
-var lengthTestProps = map[schema.DataType]string{
-	schema.DataTypeTextArray:    "texts",
-	schema.DataTypeIntArray:     "ints",
-	schema.DataTypeNumberArray:  "numbers",
-	schema.DataTypeDateArray:    "dates",
-	schema.DataTypeBooleanArray: "bools",
+var lengthTestProps = map[string]schema.DataType{
+	"texts":      schema.DataTypeTextArray,
+	"ints":       schema.DataTypeIntArray,
+	"numbers":    schema.DataTypeNumberArray,
+	"dates":      schema.DataTypeDateArray,
+	"bools":      schema.DataTypeBooleanArray,
+	"text":       schema.DataTypeText,
+	"sparseText": schema.DataTypeText,
 }
 
-// lengthTestValue returns the array of dt that object i holds: i%4 elements,
-// so some arrays are empty, and none for every fifth object.
-func lengthTestValue(dt schema.DataType, i int) (interface{}, bool) {
+// lengthTestValue returns the value of prop that object i holds. An array has
+// i%4 elements, so some are empty, and every fifth object has none. text is ""
+// for a tenth of the objects and missing for another tenth, the most objects
+// under length 0 that a count from the index looks up; sparseText has more.
+func lengthTestValue(prop string, i int) (interface{}, bool) {
+	switch prop {
+	case "text":
+		switch i % 20 {
+		case 0:
+			return nil, false
+		case 10:
+			return "", true
+		default:
+			return fmt.Sprintf("välue %d", i), true
+		}
+	case "sparseText":
+		switch i % 5 {
+		case 0:
+			return nil, false
+		case 1:
+			return "", true
+		default:
+			return "s", true
+		}
+	}
 	if i%5 == 0 {
 		return nil, false
 	}
 	n := i % 4
-	switch dt {
+	switch lengthTestProps[prop] {
 	case schema.DataTypeTextArray:
 		out := make([]string, n)
 		for j := range out {
@@ -108,7 +133,7 @@ func newLengthTestStore(t *testing.T, ctx context.Context, skipIndexOf map[int]b
 		lsmkv.WithClassName(lengthTestClass),
 	))
 	objects := store.Bucket(helpers.ObjectsBucketLSM)
-	for _, prop := range lengthTestProps {
+	for prop := range lengthTestProps {
 		require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLengthLSM(prop),
 			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
 	}
@@ -116,12 +141,12 @@ func newLengthTestStore(t *testing.T, ctx context.Context, skipIndexOf map[int]b
 	for i := range lengthTestObjects {
 		docID := uint64(i)
 		props := map[string]interface{}{}
-		for dt, prop := range lengthTestProps {
-			value, ok := lengthTestValue(dt, i)
+		for prop := range lengthTestProps {
+			value, ok := lengthTestValue(prop, i)
 			length := 0
 			if ok {
 				props[prop] = value
-				length = arrayLen(t, value)
+				length = valueLen(t, value)
 			}
 			if skipIndexOf[i] {
 				continue
@@ -148,8 +173,10 @@ func newLengthTestStore(t *testing.T, ctx context.Context, skipIndexOf map[int]b
 	return store
 }
 
-func arrayLen(t *testing.T, v interface{}) int {
+func valueLen(t *testing.T, v interface{}) int {
 	switch a := v.(type) {
+	case string:
+		return utf8.RuneCountInString(a)
 	case []string:
 		return len(a)
 	case []bool:
@@ -167,7 +194,7 @@ func lengthTestSchema(t *testing.T, indexPropertyLength bool) schemaUC.SchemaGet
 		Class:               lengthTestClass,
 		InvertedIndexConfig: &models.InvertedIndexConfig{IndexPropertyLength: indexPropertyLength},
 	}
-	for dt, prop := range lengthTestProps {
+	for prop, dt := range lengthTestProps {
 		class.Properties = append(class.Properties, &models.Property{Name: prop, DataType: dt.PropString()})
 	}
 	getter := schemaUC.NewMockSchemaGetter(t)
@@ -185,38 +212,48 @@ func TestUnfilteredCount_FromLengthIndex(t *testing.T) {
 
 	testCases := []struct {
 		name                string
-		dt                  schema.DataType
+		prop                string
 		aggs                []aggregation.Aggregator
 		indexPropertyLength bool
 		skipIndexOf         map[int]bool
 		readsUnrequested    bool
 		wantIndex           bool
 	}{
-		{name: "text[]", dt: schema.DataTypeTextArray, aggs: countOnly, indexPropertyLength: true, wantIndex: true},
-		{name: "int[]", dt: schema.DataTypeIntArray, aggs: countOnly, indexPropertyLength: true, wantIndex: true},
-		{name: "number[]", dt: schema.DataTypeNumberArray, aggs: countOnly, indexPropertyLength: true, wantIndex: true},
-		{name: "date[]", dt: schema.DataTypeDateArray, aggs: countOnly, indexPropertyLength: true, wantIndex: true},
-		{name: "no aggregators", dt: schema.DataTypeTextArray, indexPropertyLength: true, wantIndex: true},
-		{name: "boolean[] needs its totals", dt: schema.DataTypeBooleanArray, aggs: countOnly, indexPropertyLength: true},
+		{name: "text[]", prop: "texts", aggs: countOnly, indexPropertyLength: true, wantIndex: true},
+		{name: "int[]", prop: "ints", aggs: countOnly, indexPropertyLength: true, wantIndex: true},
+		{name: "number[]", prop: "numbers", aggs: countOnly, indexPropertyLength: true, wantIndex: true},
+		{name: "date[]", prop: "dates", aggs: countOnly, indexPropertyLength: true, wantIndex: true},
+		{name: "no aggregators", prop: "texts", indexPropertyLength: true, wantIndex: true},
+		{name: "boolean[] needs its totals", prop: "bools", aggs: countOnly, indexPropertyLength: true},
 		{
-			name: "more than the count", dt: schema.DataTypeNumberArray, indexPropertyLength: true,
+			name: "more than the count", prop: "numbers", indexPropertyLength: true,
 			aggs: []aggregation.Aggregator{aggregation.CountAggregator, aggregation.SumAggregator},
 		},
 		{
-			name: "text[] top occurrences", dt: schema.DataTypeTextArray, indexPropertyLength: true,
+			name: "text[] top occurrences", prop: "texts", indexPropertyLength: true,
 			aggs: []aggregation.Aggregator{aggregation.CountAggregator, aggregation.NewTopOccurrencesAggregator(nil)},
 		},
-		{name: "length index disabled", dt: schema.DataTypeTextArray, aggs: countOnly},
+		{name: "length index disabled", prop: "texts", aggs: countOnly},
 		{
-			name: "text[] for a caller that reads unrequested results", dt: schema.DataTypeTextArray, aggs: countOnly,
+			name: "text[] for a caller that reads unrequested results", prop: "texts", aggs: countOnly,
 			indexPropertyLength: true, readsUnrequested: true,
 		},
 		{
-			name: "int[] for a caller that reads unrequested results", dt: schema.DataTypeIntArray, aggs: countOnly,
+			name: "int[] for a caller that reads unrequested results", prop: "ints", aggs: countOnly,
 			indexPropertyLength: true, readsUnrequested: true, wantIndex: true,
 		},
+		{name: "text", prop: "text", aggs: countOnly, indexPropertyLength: true, wantIndex: true},
+		{name: "text with many objects under length 0", prop: "sparseText", aggs: countOnly, indexPropertyLength: true},
 		{
-			name: "objects missing from the index", dt: schema.DataTypeTextArray, aggs: countOnly,
+			name: "text top occurrences", prop: "text", indexPropertyLength: true,
+			aggs: []aggregation.Aggregator{aggregation.CountAggregator, aggregation.NewTopOccurrencesAggregator(nil)},
+		},
+		{
+			name: "text for a caller that reads unrequested results", prop: "text", aggs: countOnly,
+			indexPropertyLength: true, readsUnrequested: true,
+		},
+		{
+			name: "objects missing from the index", prop: "texts", aggs: countOnly,
 			indexPropertyLength: true, skipIndexOf: map[int]bool{3: true, 7: true},
 		},
 	}
@@ -224,7 +261,7 @@ func TestUnfilteredCount_FromLengthIndex(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			store := newLengthTestStore(t, ctx, tc.skipIndexOf)
-			prop := aggregation.ParamProperty{Name: schema.PropertyName(lengthTestProps[tc.dt]), Aggregators: tc.aggs}
+			prop := aggregation.ParamProperty{Name: schema.PropertyName(tc.prop), Aggregators: tc.aggs}
 			aggregate := func(indexPropertyLength bool) (aggregation.Property, float64) {
 				before := openedReplaceCursors(t)
 				logger, _ := test.NewNullLogger()
@@ -254,17 +291,19 @@ func TestUnfilteredCount_FromLengthIndex(t *testing.T) {
 			require.Positive(t, scans)
 			require.Equal(t, fromObjects, got)
 			if tc.aggs != nil {
-				require.Equal(t, lengthTestCount(tc.dt), lengthTestCountOf(t, got))
+				require.Equal(t, lengthTestCount(tc.prop), lengthTestCountOf(t, got))
 			}
 		})
 	}
 }
 
-func lengthTestCount(dt schema.DataType) int {
+func lengthTestCount(prop string) int {
 	n := 0
 	for i := range lengthTestObjects {
-		if v, ok := lengthTestValue(dt, i); ok {
+		if v, ok := lengthTestValue(prop, i); ok {
 			switch a := v.(type) {
+			case string:
+				n++
 			case []string:
 				n += len(a)
 			case []bool:
