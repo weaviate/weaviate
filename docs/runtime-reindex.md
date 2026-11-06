@@ -1246,8 +1246,10 @@ one group counted as one tenant, and its resubmit reruns every shard.
 Migrating back, or on to another target, is not supported yet.
 
 While a partial run stands, one rule (`ReindexPartialRunConflict`) refuses,
-naming the resubmit: on its property, a `PUT` of anything but that resubmit and a rebuild
-(`409`), and an index `DELETE` on the property (`422`). Resubmit it until it
+naming the resubmit: on its property, a `PUT` that would start any
+migration but that resubmit, a no-op `PUT` that names a tokenization, and a
+rebuild (`409`), and an index `DELETE` on the property (`422`). A `PUT`
+that repeats a running resubmit joins it. Resubmit it until it
 reads `ready` before changing the binary, up or down (see "Rolling back
 below this version"). What its migrated tenants serve depends on the
 migration type: after a tokenization change they answer queries with the new
