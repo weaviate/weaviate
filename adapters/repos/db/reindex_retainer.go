@@ -100,9 +100,13 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 }
 
 // ReindexMigratedPhrase names a single-tenant collection as a whole, never in tenants.
-func ReindexMigratedPhrase(migrated, covered map[string]struct{}, property string) string {
+// Without tenantCounts it hides how many tenants, from a caller who may not read them.
+func ReindexMigratedPhrase(migrated, covered map[string]struct{}, property string, tenantCounts bool) string {
 	if _, ungrouped := migrated[""]; ungrouped {
 		return fmt.Sprintf("property %q of the collection is migrated", property)
+	}
+	if !tenantCounts {
+		return fmt.Sprintf("some tenants of property %q are migrated", property)
 	}
 	return fmt.Sprintf("%d of %d tenants of property %q are migrated", len(migrated), len(covered), property)
 }
@@ -122,7 +126,7 @@ func ReindexRuns(tasks []*distributedtask.Task) []ReindexRun {
 // ReindexPartialRunConflict is the one rule for what a standing partial run refuses, naming its resubmit.
 // A run claims its whole property: searchable and filterable share one tokenization.
 func ReindexPartialRunConflict(tasks []*distributedtask.Task, collection, property string,
-	accepts func(*ReindexRun) bool,
+	accepts func(*ReindexRun) bool, tenantCounts bool,
 ) string {
 	if !slices.ContainsFunc(tasks, ReindexLeftPartial) {
 		return ""
@@ -134,7 +138,7 @@ func ReindexPartialRunConflict(tasks []*distributedtask.Task, collection, proper
 			continue
 		}
 		return fmt.Sprintf("%s; finish the migration with %s",
-			ReindexMigratedPhrase(migrated, covered, property), ReindexResubmitCommand(&run.Payload, property))
+			ReindexMigratedPhrase(migrated, covered, property, tenantCounts), ReindexResubmitCommand(&run.Payload, property))
 	}
 	return ""
 }

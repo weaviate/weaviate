@@ -12,9 +12,12 @@
 package rest
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -342,9 +345,16 @@ func TestGetIndexes_FlagOffShowsEveryTaskDrivenEntry(t *testing.T) {
 
 func getIndexesOfC(t *testing.T, reader *schemaUC.MockSchemaReader, task *distributedtask.Task) models.IndexStatusResponse {
 	t.Helper()
+	return getIndexesOfCAs(t, reader, task, &authorization.DummyAuthorizer{})
+}
+
+func getIndexesOfCAs(t *testing.T, reader *schemaUC.MockSchemaReader, task *distributedtask.Task,
+	authorizer authorization.Authorizer,
+) models.IndexStatusResponse {
+	t.Helper()
 	h := &indexesHandlers{
 		appState: &state.State{
-			Authorizer:    &authorization.DummyAuthorizer{},
+			Authorizer:    authorizer,
 			SchemaManager: &schemaUC.Manager{SchemaReader: reader},
 			ServerConfig:  &config.WeaviateConfig{},
 			Logger:        logrus.New(),
@@ -360,4 +370,58 @@ func getIndexesOfC(t *testing.T, reader *schemaUC.MockSchemaReader, task *distri
 	var body models.IndexStatusResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	return body
+}
+
+// collectionsOnly may read collection metadata but no tenant.
+type collectionsOnly struct{ authorization.DummyAuthorizer }
+
+func (*collectionsOnly) AuthorizeSilent(_ context.Context, _ *models.Principal, _ string, resources ...string) error {
+	for _, r := range resources {
+		if strings.Contains(r, "/shards/") {
+			return errors.New("forbidden")
+		}
+	}
+	return nil
+}
+
+// Pins that a partial run's tenant counts reach only a caller who may read the
+// collection's tenants, while its partial status reaches every collection reader.
+func TestGetIndexes_TenantCountsNeedTenantRead(t *testing.T) {
+	for _, tt := range []struct {
+		name                    string
+		authorizer              authorization.Authorizer
+		wantMigrated, wantTotal int64
+	}{
+		{name: "a tenant reader sees the counts", authorizer: &authorization.DummyAuthorizer{}, wantMigrated: 1, wantTotal: 2},
+		{name: "a collection reader sees only the status", authorizer: &collectionsOnly{}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			on := true
+			reader := schemaUC.NewMockSchemaReader(t)
+			reader.EXPECT().ResolveAlias("C").Return("")
+			reader.EXPECT().ClassInfo("C").Return(clusterSchema.ClassInfo{Exists: true})
+			reader.EXPECT().ReadOnlyClass("C").Return(&models.Class{Class: "C", Properties: []*models.Property{
+				{Name: "p", DataType: []string{"text"}, IndexFilterable: &on, IndexSearchable: &on},
+			}})
+			task := buildTask(t, "C:change-tokenization:p:0001", distributedtask.TaskStatusCancelled,
+				db.ReindexTaskPayload{
+					MigrationType: db.ReindexTypeChangeTokenization, Collection: "C", Properties: []string{"p"},
+					TargetTokenization: models.PropertyTokenizationField,
+				},
+				map[string]*distributedtask.Unit{"u1": {ID: "u1", GroupID: "t1"}, "u2": {ID: "u2", GroupID: "t2"}})
+			task.SwapDecidedGroups = map[string]time.Time{"t1": time.Now()}
+
+			body := getIndexesOfCAs(t, reader, task, tt.authorizer)
+			var searchable *models.IndexStatus
+			for _, idx := range body.Properties[0].Indexes {
+				if idx.Type == "searchable" {
+					searchable = idx
+				}
+			}
+			require.NotNil(t, searchable)
+			require.Equal(t, models.IndexStatusStatusPartial, searchable.Status)
+			require.Equal(t, tt.wantMigrated, searchable.MigratedTenants)
+			require.Equal(t, tt.wantTotal, searchable.TotalTenants)
+		})
+	}
 }

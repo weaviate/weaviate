@@ -713,12 +713,12 @@
         "migratedTenants": {
           "type": "integer",
           "format": "int64",
-          "description": "Number of tenants whose index the reindex task already migrated. Present only on a `partial` entry."
+          "description": "Number of tenants whose index the reindex task already migrated. Present only on a `partial` entry, and only to a caller who may read the collection's tenants."
         },
         "totalTenants": {
           "type": "integer",
           "format": "int64",
-          "description": "Number of tenants the reindex task covers. Present only on a `partial` entry."
+          "description": "Number of tenants the reindex task covers. Present only on a `partial` entry, and only to a caller who may read the collection's tenants."
         },
         "taskId": {
           "type": "string",

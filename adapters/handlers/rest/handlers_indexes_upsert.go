@@ -95,7 +95,7 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 		return resp
 	}
 
-	plan, err := resolveUpsertPlan(class, collection, prop, indexType, body, reindexTasks)
+	plan, err := resolveUpsertPlan(class, collection, prop, indexType, body, reindexTasks, h.mayReadTenants(ctx, principal, collection))
 	if err != nil {
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
 	}
@@ -170,7 +170,7 @@ func (h *indexesHandlers) rebuildIndex(params schema.SchemaObjectsIndexRebuildPa
 		return resp
 	}
 
-	plan, err := h.resolveRebuildPlan(class, prop, indexType, reindexTasks)
+	plan, err := h.resolveRebuildPlan(class, prop, indexType, reindexTasks, h.mayReadTenants(ctx, principal, collection))
 	if errors.Is(err, errRebuildPropertyPartlyMigrated) {
 		return jsonResponder(http.StatusConflict, errorResponse(principal, err.Error()))
 	}
@@ -314,7 +314,9 @@ const reindexStartedStatus = "STARTED"
 // resolveUpsertPlan diffs the request against current state, returning a
 // migration to submit, a NO_OP, a 409 conflict, or a 400 validation error.
 // reindexTasks supplies blockmax truth and the active-task idempotency check.
-func resolveUpsertPlan(class *models.Class, collection string, prop *models.Property, indexType string, body *models.IndexUpsertRequest, reindexTasks []*distributedtask.Task) (upsertPlan, error) {
+func resolveUpsertPlan(class *models.Class, collection string, prop *models.Property, indexType string,
+	body *models.IndexUpsertRequest, reindexTasks []*distributedtask.Task, tenantCounts bool,
+) (upsertPlan, error) {
 	tok := strings.TrimSpace(body.Tokenization)
 	algorithm := strings.TrimSpace(body.Algorithm)
 
@@ -334,7 +336,7 @@ func resolveUpsertPlan(class *models.Class, collection string, prop *models.Prop
 	if err != nil {
 		return plan, err
 	}
-	if conflict := refuseOtherThanPartialRun(collection, prop.Name, tok, plan, reindexTasks); conflict != "" {
+	if conflict := refuseOtherThanPartialRun(collection, prop.Name, tok, plan, reindexTasks, tenantCounts); conflict != "" {
 		return upsertPlan{conflict: conflict}, nil
 	}
 
@@ -595,8 +597,10 @@ var errRebuildPropertyPartlyMigrated = errors.New("cannot rebuild an index of a 
 
 // resolveRebuildPlan validates the rebuild preconditions for the internal
 // index-type token and returns the repair/rebuild migration to submit.
-func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.Property, indexType string, reindexTasks []*distributedtask.Task) (upsertPlan, error) {
-	if err := refusePartlyMigratedRebuild(class.Class, prop.Name, reindexTasks); err != nil {
+func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.Property, indexType string,
+	reindexTasks []*distributedtask.Task, tenantCounts bool,
+) (upsertPlan, error) {
+	if err := refusePartlyMigratedRebuild(class.Class, prop.Name, reindexTasks, tenantCounts); err != nil {
 		return upsertPlan{}, err
 	}
 	switch indexType {
@@ -635,22 +639,24 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 // refusePartlyMigratedRebuild refuses a rebuild of any index of propName while a
 // partial run stands on that property ([db.ReindexPartialRunConflict] says why),
 // naming the resubmit that finishes the run.
-func refusePartlyMigratedRebuild(collection, propName string, reindexTasks []*distributedtask.Task) error {
-	if msg := db.ReindexPartialRunConflict(reindexTasks, collection, propName, nil); msg != "" {
+func refusePartlyMigratedRebuild(collection, propName string, reindexTasks []*distributedtask.Task, tenantCounts bool) error {
+	if msg := db.ReindexPartialRunConflict(reindexTasks, collection, propName, nil, tenantCounts); msg != "" {
 		return fmt.Errorf("%w: %s", errRebuildPropertyPartlyMigrated, msg)
 	}
 	return nil
 }
 
 // refuseOtherThanPartialRun accepts only a partial run's resubmit on its property.
-func refuseOtherThanPartialRun(collection, propName, tok string, plan upsertPlan, reindexTasks []*distributedtask.Task) string {
+func refuseOtherThanPartialRun(collection, propName, tok string, plan upsertPlan, reindexTasks []*distributedtask.Task,
+	tenantCounts bool,
+) string {
 	if plan.joinTaskID != "" || (plan.migrationType == "" && (!plan.noop || tok == "")) {
 		return ""
 	}
 	// The strategy is not compared: the named resubmit cannot carry one.
 	return db.ReindexPartialRunConflict(reindexTasks, collection, propName, func(run *db.ReindexRun) bool {
 		return plan.migrationType == run.Payload.MigrationType && plan.targetTok == run.Payload.TargetTokenization
-	})
+	}, tenantCounts)
 }
 
 // validateTenantScope enforces the tenants contract: honored only on

@@ -69,7 +69,7 @@ func TestCheckReindexConflictForPropertyMutation_BlocksEveryInFlightStatus(t *te
 	} {
 		t.Run(string(tc.status), func(t *testing.T) {
 			h := gateWithTasks(buildTask(t, "T1", tc.status, payload, nil))
-			conflict := h.checkReindexConflictForPropertyMutation(context.Background(), "C", "title")
+			conflict := h.checkReindexConflictForPropertyMutation(context.Background(), "C", "title", true)
 			if !tc.blocked {
 				require.Empty(t, conflict, "a task this build knows is done must not block")
 				return
@@ -91,7 +91,7 @@ func TestCheckReindexConflictForPropertyMutation_EndsOnTheFSMGuardsRemedy(t *tes
 	refusals := func(status distributedtask.TaskStatus) (string, error) {
 		task := buildTask(t, "T1", status, payload, nil)
 		return gateWithTasks(task).
-				checkReindexConflictForPropertyMutation(context.Background(), "C", "title"),
+				checkReindexConflictForPropertyMutation(context.Background(), "C", "title", true),
 			(&db.ReindexProvider{}).
 				CheckPropertyUpdate("C", "title", []*distributedtask.Task{task})
 	}
@@ -202,7 +202,7 @@ func TestCheckReindexConflictForPropertyMutation_AgreesWithTheFSMGuard(t *testin
 			}
 
 			restReason := gateWithTasks(task).
-				checkReindexConflictForPropertyMutation(context.Background(), "C", "title")
+				checkReindexConflictForPropertyMutation(context.Background(), "C", "title", true)
 			fsmErr := (&db.ReindexProvider{}).
 				CheckPropertyUpdate("C", "title", []*distributedtask.Task{task})
 
@@ -223,7 +223,7 @@ func TestCheckReindexConflictForPropertyMutation_EmptyPropertiesMatchesAnyProper
 		}, nil))
 
 	require.Contains(t,
-		h.checkReindexConflictForPropertyMutation(context.Background(), "C", "any-property"),
+		h.checkReindexConflictForPropertyMutation(context.Background(), "C", "any-property", true),
 		"T_all")
 }
 
@@ -305,12 +305,13 @@ func TestCheckReindexConflictForPropertyMutation_DifferentPropertyAllows(t *test
 			Properties:    []string{"other"},
 		}, nil))
 
-	require.Empty(t, h.checkReindexConflictForPropertyMutation(context.Background(), "C", "title"))
+	require.Empty(t, h.checkReindexConflictForPropertyMutation(context.Background(), "C", "title", true))
 }
 
 // Pins that an index DELETE is refused while a partial run stands on the
 // property, by the REST pre-flight and the apply guard alike, naming the
 // resubmit; another property is not held, nor is a run a newer flip covered.
+// Only a caller who may read the tenants is told how many migrated.
 func TestIndexDeleteRefusedWhileAPartialRunStands(t *testing.T) {
 	run := func(id string, version uint64, status distributedtask.TaskStatus, mt db.ReindexMigrationType, decided bool) *distributedtask.Task {
 		task := buildTask(t, id, status, db.ReindexTaskPayload{
@@ -354,7 +355,8 @@ func TestIndexDeleteRefusedWhileAPartialRunStands(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			preflight := gateWithTasks(tc.tasks...).checkReindexConflictForPropertyMutation(context.Background(), "C", tc.property)
+			preflight := gateWithTasks(tc.tasks...).checkReindexConflictForPropertyMutation(context.Background(), "C", tc.property, true)
+			withoutCounts := gateWithTasks(tc.tasks...).checkReindexConflictForPropertyMutation(context.Background(), "C", tc.property, false)
 			applied := (&db.ReindexProvider{}).CheckPropertyUpdate("C", tc.property, tc.tasks)
 			if tc.resubmit == "" {
 				require.Empty(t, preflight)
@@ -364,7 +366,9 @@ func TestIndexDeleteRefusedWhileAPartialRunStands(t *testing.T) {
 			require.Contains(t, preflight, "1 of 2 tenants")
 			require.Contains(t, preflight, tc.resubmit)
 			require.Error(t, applied)
-			require.Equal(t, preflight, applied.Error(), "both checks give the one rule's answer")
+			require.NotContains(t, withoutCounts, "of 2 tenants")
+			require.Contains(t, withoutCounts, tc.resubmit)
+			require.Equal(t, withoutCounts, applied.Error(), "both checks give the one rule's answer")
 		})
 	}
 }

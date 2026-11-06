@@ -177,6 +177,14 @@ func readClassAndTasks(collection string, taskSource localTaskLister, classes cl
 	return class, db.ReindexRuns(byNamespace[db.ReindexNamespace])
 }
 
+// mayReadTenants gates tenant counts as the tenant list is gated: a count of
+// tenants is tenant metadata, not collection metadata. Silent, since a status
+// poll by a role without it is not a denied request.
+func (h *indexesHandlers) mayReadTenants(ctx context.Context, principal *models.Principal, collection string) bool {
+	return h.appState.Authorizer.AuthorizeSilent(ctx, principal, authorization.READ,
+		authorization.ShardsMetadata(collection)...) == nil
+}
+
 // getIndexes implements GET /v1/schema/{className}/indexes.
 func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
 	// Resolve (alias-aware) before authz so authz and the lookup use the qualified name.
@@ -200,6 +208,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	if class == nil {
 		return schema.NewSchemaObjectsIndexesGetNotFound()
 	}
+	tenantCounts := h.mayReadTenants(params.HTTPRequest.Context(), principal, collection)
 
 	// Build per-property index status.
 	props := make([]*models.PropertyIndexStatus, 0, len(class.Properties))
@@ -247,6 +256,9 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 				}
 			}
 			taskDriven := mergeReindexStatus(idx, collection, prop.Name, e.indexType, parsedTasks, h.appState.Logger)
+			if !tenantCounts {
+				idx.MigratedTenants, idx.TotalTenants = 0, 0
+			}
 			// Strip the caller's namespace so status and submit responses agree.
 			if idx.TaskID != "" {
 				idx.TaskID = namespacing.StripOwnNamespace(principal, idx.TaskID)

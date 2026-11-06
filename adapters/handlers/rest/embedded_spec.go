@@ -9591,7 +9591,7 @@ func init() {
           ]
         },
         "migratedTenants": {
-          "description": "Number of tenants whose index the reindex task already migrated. Present only on a ` + "`" + `partial` + "`" + ` entry.",
+          "description": "Number of tenants whose index the reindex task already migrated. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants.",
           "type": "integer",
           "format": "int64"
         },
@@ -9630,7 +9630,7 @@ func init() {
           "type": "string"
         },
         "totalTenants": {
-          "description": "Number of tenants the reindex task covers. Present only on a ` + "`" + `partial` + "`" + ` entry.",
+          "description": "Number of tenants the reindex task covers. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants.",
           "type": "integer",
           "format": "int64"
         },
@@ -22562,7 +22562,7 @@ func init() {
           ]
         },
         "migratedTenants": {
-          "description": "Number of tenants whose index the reindex task already migrated. Present only on a ` + "`" + `partial` + "`" + ` entry.",
+          "description": "Number of tenants whose index the reindex task already migrated. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants.",
           "type": "integer",
           "format": "int64"
         },
@@ -22601,7 +22601,7 @@ func init() {
           "type": "string"
         },
         "totalTenants": {
-          "description": "Number of tenants the reindex task covers. Present only on a ` + "`" + `partial` + "`" + ` entry.",
+          "description": "Number of tenants the reindex task covers. Present only on a ` + "`" + `partial` + "`" + ` entry, and only to a caller who may read the collection's tenants.",
           "type": "integer",
           "format": "int64"
         },

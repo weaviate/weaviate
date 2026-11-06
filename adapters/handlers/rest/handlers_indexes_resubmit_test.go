@@ -190,7 +190,7 @@ func TestRebuildRefusedOnPartlyMigratedIndex(t *testing.T) {
 		{name: "no partial run, no refusal", indexType: "filterable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := (&indexesHandlers{}).resolveRebuildPlan(class, prop, tc.indexType, tc.tasks)
+			_, err := (&indexesHandlers{}).resolveRebuildPlan(class, prop, tc.indexType, tc.tasks, true)
 			if tc.refusal == "" {
 				require.NoError(t, err)
 				return
@@ -223,7 +223,7 @@ func TestUpsertRefusedOnPartlyMigratedIndex(t *testing.T) {
 	props := map[string]*models.Property{"title": title, "body": body, "summary": summary}
 	class := &models.Class{Class: "C", Properties: []*models.Property{title, body, summary}, InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: true}}
 	partialRun := func(id string, status distributedtask.TaskStatus, prop *models.Property, indexType string, req *models.IndexUpsertRequest) *distributedtask.Task {
-		plan, err := resolveUpsertPlan(class, "C", prop, indexType, req, nil)
+		plan, err := resolveUpsertPlan(class, "C", prop, indexType, req, nil, true)
 		require.NoError(t, err)
 		task := buildTask(t, id, status, db.ReindexTaskPayload{
 			Collection: "C", Properties: []string{prop.Name}, MigrationType: plan.migrationType,
@@ -265,7 +265,7 @@ func TestUpsertRefusedOnPartlyMigratedIndex(t *testing.T) {
 			if tc.resubmitIsRunning {
 				tasks = append([]*distributedtask.Task{running}, partials...)
 			}
-			plan, err := resolveUpsertPlan(class, "C", props[tc.property], tc.indexType, tc.body, tasks)
+			plan, err := resolveUpsertPlan(class, "C", props[tc.property], tc.indexType, tc.body, tasks, true)
 			require.NoError(t, err)
 			if tc.resubmitIsRunning {
 				require.Equal(t, "R", plan.joinTaskID)
@@ -276,6 +276,10 @@ func TestUpsertRefusedOnPartlyMigratedIndex(t *testing.T) {
 			}
 			require.Contains(t, plan.conflict, "1 of 2 tenants")
 			require.Contains(t, plan.conflict, tc.refusal)
+			hidden, err := resolveUpsertPlan(class, "C", props[tc.property], tc.indexType, tc.body, tasks, false)
+			require.NoError(t, err)
+			require.NotContains(t, hidden.conflict, "of 2 tenants", "a caller who may not read tenants is not told how many")
+			require.Contains(t, hidden.conflict, tc.refusal)
 		})
 	}
 }

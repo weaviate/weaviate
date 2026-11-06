@@ -2073,7 +2073,7 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 				"resubmit_command": ReindexResubmitCommand(payload, propName),
 			}).Warnf("reindex provider: %s on %s.%s %s; %s; "+
 				"resubmit the same request to finish the migration", payload.MigrationType, payload.Collection,
-				propName, outcome, ReindexMigratedPhrase(migrated, covered, propName))
+				propName, outcome, ReindexMigratedPhrase(migrated, covered, propName, true))
 			continue
 		}
 		repairCommands := repairCommandsForFailedMigration(payload, propName)

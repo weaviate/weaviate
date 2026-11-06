@@ -81,7 +81,7 @@ func TestCheckReindexConflictForPropertyMutation_RedactsForeignTaskID(t *testing
 		}},
 	}
 
-	msg := h.checkReindexConflictForPropertyMutation(context.Background(), "Movies", "title")
+	msg := h.checkReindexConflictForPropertyMutation(context.Background(), "Movies", "title", true)
 	require.NotEmpty(t, msg, "an undecodable in-flight task must still refuse the mutation")
 	require.NotContains(t, msg, foreignID, "the foreign task ID must not leak to the caller")
 	require.NotContains(t, msg, "SecretCollection", "no fragment of the foreign namespace may leak")
