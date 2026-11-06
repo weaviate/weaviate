@@ -161,7 +161,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// Ahead of initNonVector because reconciliation renames directories: a bucket
 	// opened at a name it is about to move would serve the wrong data.
 	s.finalizeLegacyMigrations(class)
-	s.reconcileMigrationRecords(ctx, class)
+	recovered := s.reconcileMigrationRecords(ctx, class)
 
 	markInFlightRangeableMigrationsNotReady(s)
 
@@ -196,7 +196,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(start))
 	}
 
-	_ = s.reindexer.RunAfterLsmInit(ctx, s)
+	// A caller giving up must not stamp a healthy migration for good.
+	if unarmed, err := s.armRecoveredMigrations(context.WithoutCancel(ctx), recovered); err != nil {
+		s.holdReadOnlyForUnarmed(unarmed, err)
+	}
 	return s, nil
 }
 

@@ -45,6 +45,7 @@ func newClassificationProvider(cls *models.Class) *ReindexProvider {
 		schemaManager: &schema.Manager{SchemaReader: classReaderStub{class: cls}},
 		payloads:      make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		reindexTasks:  make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
+		endedTasks:    make(map[distributedtask.TaskDescriptor]struct{}),
 	}
 }
 
@@ -58,6 +59,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 			logger:       logger,
 			payloads:     make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 			reindexTasks: make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
+			endedTasks:   make(map[distributedtask.TaskDescriptor]struct{}),
 		}
 		task := &distributedtask.Task{
 			Namespace:      "reindex",

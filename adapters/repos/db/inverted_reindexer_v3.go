@@ -11,12 +11,12 @@
 
 package db
 
-import (
-	"context"
-)
-
+// ShardReindexerV3 returns the tasks a loading shard must re-arm, and is told which failed to.
+// An error from AbandonUnarmed holds the shard read-only, along with the tasks it returns.
 type ShardReindexerV3 interface {
-	RunAfterLsmInit(ctx context.Context, shard *Shard) error
+	RecoverMigrations(shard *Shard) []*ShardReindexTaskGeneric
+	AbandonUnarmed(shard *Shard, unarmed []*ShardReindexTaskGeneric, cause error) ([]*ShardReindexTaskGeneric, error)
+	ClaimUnits(tasks []*ShardReindexTaskGeneric) (claimed, skipped []*ShardReindexTaskGeneric, release func())
 }
 
 // -----------------------------------------------------------------------------
@@ -27,6 +27,15 @@ func NewShardReindexerV3Noop() *shardReindexerV3Noop {
 
 type shardReindexerV3Noop struct{}
 
-func (r *shardReindexerV3Noop) RunAfterLsmInit(ctx context.Context, shard *Shard) error {
+func (r *shardReindexerV3Noop) RecoverMigrations(*Shard) []*ShardReindexTaskGeneric {
 	return nil
+}
+
+func (r *shardReindexerV3Noop) AbandonUnarmed(*Shard, []*ShardReindexTaskGeneric, error) ([]*ShardReindexTaskGeneric, error) {
+	return nil, nil
+}
+
+func (r *shardReindexerV3Noop) ClaimUnits(tasks []*ShardReindexTaskGeneric,
+) ([]*ShardReindexTaskGeneric, []*ShardReindexTaskGeneric, func()) {
+	return tasks, nil, func() {}
 }

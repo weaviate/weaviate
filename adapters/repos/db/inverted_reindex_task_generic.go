@@ -227,6 +227,11 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	}
 	concreteShard, logger := entry.shard, entry.logger
 
+	// With a prepare barrier, a failed prepare before this node's ack fails the task before any replica swaps.
+	if err := t.refuseUnmirrored(entry.rec.Subject()); err != nil {
+		return err
+	}
+
 	if entry.rec.StagedDataComplete() {
 		logger.Debug("RunPrepareOnShard: already merged on disk; no-op")
 		return nil
@@ -1121,6 +1126,9 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	if err := t.refuseUnmirrored(subject); err != nil {
+		return err
+	}
 	// Read here, not at the call sites: rewriting a decided record drops promotion marks.
 	if rec, ok := t.migrationRecord(shard); !ok || !rec.FlipDecided() {
 		displaced := make(map[string]string, len(props))
@@ -1340,6 +1348,16 @@ func (t *ShardReindexTaskGeneric) setMigrationIdentity(desc distributedtask.Task
 	t.bucketStrategy = payload.BucketStrategy
 }
 
+// A migration's halves share one task, version and unit, and are held, armed or settled together.
+type taskMigration struct {
+	desc   distributedtask.TaskDescriptor
+	unitID string
+}
+
+func (t *ShardReindexTaskGeneric) migration() taskMigration {
+	return taskMigration{desc: distributedtask.TaskDescriptor{ID: t.taskID, Version: t.taskVersion}, unitID: t.unitID}
+}
+
 func (t *ShardReindexTaskGeneric) migrationRecordKey() MigrationRecordKey {
 	return MigrationRecordKey{
 		TaskVersion:  t.taskVersion,
@@ -1403,6 +1421,15 @@ func (t *ShardReindexTaskGeneric) recordCheckpoint(shard ShardLike, subject Migr
 		LastProcessedKey: lastProcessedKey.Clone().Bytes(),
 		UpdatedAt:        time.Now(),
 	}))
+}
+
+func (t *ShardReindexTaskGeneric) refuseUnmirrored(subject MigrationSubject) error {
+	if !subject.Unmirrored {
+		return nil
+	}
+	return fmt.Errorf("migration %s: this shard took writes with no double-write mirror armed, so its "+
+		"staged data is stale and is not swapped in. This migration fails; once the cause is cleared, submit a "+
+		"new migration covering the same properties", t.migrationRecordKey())
 }
 
 func (t *ShardReindexTaskGeneric) migrationSubjectNow(shard ShardLike) (MigrationSubject, error) {

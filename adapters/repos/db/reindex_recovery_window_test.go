@@ -90,16 +90,16 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 				plantUnreadableRecord(t, store.Dir())
 			}
 
-			recovered, err := DiscoverInFlightReindexTasks(root, true, logger, nil)
-			require.NoError(t, err)
+			reread := NewMigrationRecordStore(lsm, logger)
+			require.NoError(t, reread.Load())
+			recovered := NewMigrationRecoveryReindexer(true, logger, nil, nil).recoverFromStore(reread, "shard-1")
 
 			if !tt.wantIn {
 				require.Empty(t, recovered, tt.because)
 				return
 			}
 			require.Len(t, recovered, 1, tt.because)
-			require.Len(t, recovered[0].Tasks, 1)
-			require.Equal(t, subject.Key, recovered[0].Tasks[0].migrationRecordKey())
+			require.Equal(t, subject.Key, recovered[0].migrationRecordKey())
 		})
 	}
 }

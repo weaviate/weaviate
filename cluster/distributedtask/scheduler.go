@@ -111,6 +111,8 @@ const maxCompletedCallbackAttempts = 5
 type Scheduler struct {
 	mu           sync.Mutex
 	runningTasks map[string]map[TaskDescriptor]TaskHandle
+	// startLogged holds the started tasks whose first start was logged; pruned each tick, since some providers never report tasks for cleanup.
+	startLogged map[string]map[TaskDescriptor]struct{}
 
 	providers          map[string]Provider // namespace -> Provider
 	completionRecorder TaskCompletionRecorder
@@ -221,6 +223,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 
 	return &Scheduler{
 		runningTasks: map[string]map[TaskDescriptor]TaskHandle{},
+		startLogged:  map[string]map[TaskDescriptor]struct{}{},
 
 		providers:          params.Providers,
 		completionRecorder: params.CompletionRecorder,
@@ -812,6 +815,11 @@ func (s *Scheduler) reconcileRunningTasks(
 			}
 		}
 		startedTasks = s.filterStartedTasks(tasks)
+		for desc := range s.startLogged[namespace] {
+			if _, ok := startedTasks[desc]; !ok {
+				delete(s.startLogged[namespace], desc)
+			}
+		}
 		for _, activeTask := range startedTasks {
 			if _, alreadyLaunched := s.runningTasks[namespace][activeTask.TaskDescriptor]; alreadyLaunched {
 				continue
@@ -838,12 +846,25 @@ func (s *Scheduler) reconcileRunningTasks(
 			})
 			continue
 		}
-		func() {
+		relaunch := func() bool {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			s.recordRunningTaskHandleLocked(namespace, activeTask.TaskDescriptor, handle)
+			if s.startLogged[namespace] == nil {
+				s.startLogged[namespace] = map[TaskDescriptor]struct{}{}
+			}
+			_, logged := s.startLogged[namespace][activeTask.TaskDescriptor]
+			s.startLogged[namespace][activeTask.TaskDescriptor] = struct{}{}
+			return logged
 		}()
-		s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
+		if !relaunch {
+			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
+			continue
+		}
+		// The relaunch line is sampled because a task whose unit waits on an operator is relaunched on every tick and wake; it shares sampledLogger by choice (docs/runtime-reindex.md §6.2).
+		s.sampledLogger.WithSampling(func(logrus.FieldLogger) {
+			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
+		})
 	}
 	for _, kill := range toTerminate {
 		kill.handle.Terminate()
@@ -930,9 +951,10 @@ func (s *Scheduler) runPreparationPhase(
 			// context.Canceled is the provider's retryable signal; dropping the mark lets a retry happen.
 			if errors.Is(groupErr, context.Canceled) {
 				delete(state.preparationCallbackFired, w.groupID)
+				// This line is at Debug because a step that waits on an operator re-fires every tick, and the provider logs that wait itself.
 				s.loggerWithTask(namespace, desc).
 					WithField("groupID", w.groupID).
-					Info("PREP phase did not complete and is retryable; a later tick or the next boot re-fires it and emits the prep-complete ack")
+					Debugf("PREP phase did not complete and is retryable; a later tick or the next boot re-fires it and emits the prep-complete ack: %v", groupErr)
 				continue
 			}
 			if state.preparationCompletionGroupErrors == nil {
@@ -1080,7 +1102,7 @@ func (s *Scheduler) runSwapPhase(
 				delete(state.groupCallbackFired, w.groupID)
 				s.loggerWithTask(namespace, desc).
 					WithField("groupID", w.groupID).
-					Info("SWAP callback did not complete and is retryable; a later tick or the next boot re-fires it and emits the post-completion ack")
+					Debugf("SWAP callback did not complete and is retryable; a later tick or the next boot re-fires it and emits the post-completion ack: %v", groupErr)
 				continue
 			}
 			// Record nil too so the ack-emission gate can tell "fired and
