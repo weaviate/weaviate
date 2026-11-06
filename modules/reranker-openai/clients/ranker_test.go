@@ -23,6 +23,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -847,7 +848,7 @@ func TestRankStopsOnContextCancel(t *testing.T) {
 		assert.Len(t, res.DocumentScores, 1)
 	})
 
-	t.Run("while waiting for a slot another query holds", func(t *testing.T) {
+	t.Run("when cancelled before it asks for a slot another query holds", func(t *testing.T) {
 		f, release := newBlockingFake(t)
 		defer release()
 		c := New(defaultFakeKey, "", testTimeout, inFlight, nullLogger())
@@ -864,6 +865,85 @@ func TestRankStopsOnContextCancel(t *testing.T) {
 		require.NoError(t, <-other)
 		assert.Len(t, f.received(), len(documents), "the cancelled query sent nothing")
 	})
+}
+
+func TestRankWaitsForASlotUntilTheContextEnds(t *testing.T) {
+	tests := []struct {
+		name           string
+		hostFromHeader bool
+	}{
+		{name: "the pool of the class and default host", hostFromHeader: false},
+		{name: "the pool of a host named by the request header", hostFromHeader: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// synctest.Wait returns only once send is parked on the slot, so
+			// the cancel has to wake it.
+			synctest.Test(t, func(t *testing.T) {
+				c := New(defaultFakeKey, "", testTimeout, 2, nullLogger())
+				pool := c.slotsFor(tt.hostFromHeader)
+				for range cap(pool) {
+					pool <- struct{}{}
+				}
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				result := make(chan error, 1)
+				var calls sync.WaitGroup
+				calls.Go(func() {
+					_, err := c.send(ctx, judgeRequest{
+						endpointURL: "http://unused.invalid/v1/decisions", apiKey: defaultFakeKey,
+						hostFromHeader: tt.hostFromHeader, query: churn,
+					}, noRefund)
+					result <- err
+				})
+				synctest.Wait()
+				select {
+				case err := <-result:
+					t.Fatalf("send returned before the cancel: %v", err)
+				default:
+				}
+
+				cancel()
+				synctest.Wait()
+				select {
+				case err := <-result:
+					require.ErrorIs(t, err, context.Canceled)
+				default:
+					t.Fatal("send still waits for a slot after the cancel")
+				}
+				calls.Wait()
+				assert.Len(t, pool, cap(pool), "the cancelled call took no slot")
+				for range cap(pool) {
+					<-pool
+				}
+			})
+		})
+	}
+}
+
+func TestRankHeaderHostRequestsDoNotHoldTheClassHostSlots(t *testing.T) {
+	const slots = 3
+	headerHost, release := newBlockingFake(t)
+	defer release()
+	classHost := newFake(t)
+	c := New(defaultFakeKey, "", testTimeout, slots, nullLogger())
+	headerCtx := context.WithValue(context.Background(), "X-Openai-Api-Key", []string{"headerKey"})
+	headerCtx = context.WithValue(headerCtx, "X-Openai-Baseurl", []string{headerHost.url()})
+
+	blocked := rankInBackground(t, headerCtx, c, headerHost, numbered("ticket %d", 2*slots))
+	require.Eventually(t, func() bool { return len(headerHost.received()) == slots }, 5*time.Second, time.Millisecond)
+	require.Len(t, c.inFlightHeaderHost, slots)
+
+	res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund), classConfig(classHost.url(), nil))
+
+	require.NoError(t, err)
+	assert.Len(t, res.DocumentScores, 1)
+	assert.Len(t, classHost.received(), 1)
+	assert.Len(t, headerHost.received(), slots, "the query to the class host did not reach the header host")
+
+	release()
+	require.NoError(t, <-blocked)
+	assert.Len(t, headerHost.received(), 2*slots)
 }
 
 // Defer release: the calls' cleanups wait for the handlers.
@@ -912,6 +992,7 @@ func TestNewRaisesACapBelowOneToOne(t *testing.T) {
 			c := New(defaultFakeKey, "", testTimeout, tt.maxConcurrentRequests, nullLogger())
 
 			require.Equal(t, tt.wantCap, cap(c.inFlight))
+			require.Equal(t, tt.wantCap, cap(c.inFlightHeaderHost))
 			res, err := c.RankProperty(context.Background(), churn, "text", documentsOf(noRefund, chargedTwice),
 				classConfig(f.url(), nil))
 			require.NoError(t, err)
