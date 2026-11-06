@@ -575,18 +575,6 @@ func (s *MigrationRecordStore) adoptIfPublished(rec MigrationRecord, data []byte
 	s.records[rec.Subject().Key] = rec
 }
 
-// splitUnmirrored reads the stamp from the store, because a write that failed can still have published it.
-func (s *MigrationRecordStore) splitUnmirrored(tasks []*ShardReindexTaskGeneric) (stamped, unstamped []*ShardReindexTaskGeneric) {
-	for _, t := range tasks {
-		if rec, ok := s.Get(t.migrationRecordKey()); ok && rec.Subject().Unmirrored {
-			stamped = append(stamped, t)
-		} else {
-			unstamped = append(unstamped, t)
-		}
-	}
-	return stamped, unstamped
-}
-
 func (s *MigrationRecordStore) Remove(key MigrationRecordKey) error {
 	return s.removeSynced(key, diskio.Fsync)
 }

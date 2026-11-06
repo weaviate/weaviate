@@ -58,7 +58,8 @@ func (r *MigrationRecoveryReindexer) RecoverMigrations(shard *Shard) []*ShardRei
 }
 
 // AbandonUnarmed stamps Unmirrored each migration whose mirror failed to arm, so its stale
-// staged data is never swapped in. On error it returns the tasks still unstamped, which stay cached for a later arm.
+// staged data is never swapped in. On error it returns the tasks of the migrations it could not stamp,
+// which stay cached for a later arm.
 func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*ShardReindexTaskGeneric, cause error,
 ) ([]*ShardReindexTaskGeneric, error) {
 	var records []MigrationRecord
@@ -74,15 +75,32 @@ func (r *MigrationRecoveryReindexer) AbandonUnarmed(shard *Shard, unarmed []*Sha
 		}
 		records = append(records, rec)
 	}
-	if _, err := stampUnmirroredRecords(shard.migrationRecords, records, nil); err != nil {
-		stamped, unstamped := shard.migrationRecords.splitUnmirrored(unarmed)
-		r.evictUnits(stamped)
-		return unstamped, fmt.Errorf("stamp Unmirrored the migrations whose mirror failed to arm (%w): %w", cause, err)
+	stamped, err := stampUnmirroredRecords(shard.migrationRecords, records, nil)
+	// A failed write can leave its stamp in memory without syncing it, so only a write that returned nil settles.
+	settled := map[taskMigration]bool{}
+	for _, t := range unarmed {
+		if err == nil || slices.Contains(stamped, t.migrationRecordKey().String()) {
+			settled[t.migration()] = true
+		}
 	}
-	r.evictUnits(unarmed)
+	var held, abandoned []*ShardReindexTaskGeneric
+	for _, t := range unarmed {
+		if settled[t.migration()] {
+			abandoned = append(abandoned, t)
+		} else {
+			held = append(held, t)
+		}
+	}
+	r.evictUnits(abandoned)
+	if len(held) > 0 {
+		return held, fmt.Errorf("stamp Unmirrored the migrations whose mirror failed to arm (%w): %w", cause, err)
+	}
+	if err != nil {
+		r.reportStampFault(shard.Name(), err)
+	}
 	r.armFaults.WithSampling(func(logrus.FieldLogger) {
 		r.logger.WithField("shard", shard.Name()).Errorf("reindex recovery: %d migration(s) could not re-arm "+
-			"their double-write mirror, so they will not be swapped in: %v. %s", len(unarmed), cause,
+			"their double-write mirror, so they will not be swapped in: %v. %s", len(abandoned), cause,
 			migrationUnmirroredRemedy)
 	})
 	return nil, nil
@@ -160,7 +178,8 @@ func (r *MigrationRecoveryReindexer) recoverFromStore(store *MigrationRecordStor
 		return tasks
 	}
 
-	stamped, stampErr := stampUnmirroredRecords(store, records, armable)
+	unstamped := slices.DeleteFunc(slices.Clone(records), func(rec MigrationRecord) bool { return rec.Subject().Unmirrored })
+	stamped, stampErr := stampUnmirroredRecords(store, unstamped, armable)
 	if len(stamped) > 0 {
 		r.unarmedFaults.WithSampling(func(logrus.FieldLogger) {
 			logger.Errorf("reindex recovery: %d migration(s) awaiting their flip could not be armed with a double-write "+
@@ -216,9 +235,6 @@ func stampUnmirroredRecords(store *MigrationRecordStore, records []MigrationReco
 	errs := errorcompounder.New()
 	for _, rec := range records {
 		subject := rec.Subject()
-		if subject.Unmirrored {
-			continue
-		}
 		if _, ok := armable[subject.Key]; ok {
 			continue
 		}

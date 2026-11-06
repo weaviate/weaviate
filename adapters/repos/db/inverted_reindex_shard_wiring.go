@@ -13,6 +13,8 @@ package db
 
 import (
 	"context"
+	"fmt"
+	"slices"
 
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
@@ -40,18 +42,45 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 // armRecoveredMigrations returns the tasks that failed to arm and could not be stamped Unmirrored, and why.
 func (s *Shard) armRecoveredMigrations(ctx context.Context, recovered []*ShardReindexTaskGeneric,
 ) ([]*ShardReindexTaskGeneric, error) {
+	var order []taskMigration
+	groups := map[taskMigration][]*ShardReindexTaskGeneric{}
+	for _, t := range recovered {
+		if groups[t.migration()] == nil {
+			order = append(order, t.migration())
+		}
+		groups[t.migration()] = append(groups[t.migration()], t)
+	}
 	var unarmed []*ShardReindexTaskGeneric
 	causes := errorcompounder.New()
-	for _, t := range recovered {
-		if err := t.OnAfterLsmInit(ctx, s); err != nil {
-			unarmed = append(unarmed, t)
-			causes.AddWrapf(err, "%s", t.Name())
+	for _, m := range order {
+		if s.hasStampedHalf(groups[m]) {
+			unarmed = append(unarmed, groups[m]...)
+			causes.Add(fmt.Errorf("%s: stamped Unmirrored by an earlier load", m.desc.ID))
+			continue
+		}
+		failed := false
+		for _, t := range groups[m] {
+			if err := t.OnAfterLsmInit(ctx, s); err != nil {
+				failed = true
+				causes.AddWrapf(err, "%s", t.Name())
+			}
+		}
+		if failed {
+			unarmed = append(unarmed, groups[m]...)
 		}
 	}
 	if len(unarmed) == 0 {
 		return nil, nil
 	}
 	return s.reindexer.AbandonUnarmed(s, unarmed, causes.ToErrorLimited(maxReportedErrors))
+}
+
+// A stamped half fails the swap ahead for the whole unit; past the flip, the mirror keeps the live index current.
+func (s *Shard) hasStampedHalf(tasks []*ShardReindexTaskGeneric) bool {
+	return slices.ContainsFunc(tasks, func(t *ShardReindexTaskGeneric) bool {
+		rec, ok := s.migrationRecords.Get(t.migrationRecordKey())
+		return ok && rec.Subject().Unmirrored && !rec.FlipDecided()
+	})
 }
 
 // holdReadOnlyForUnarmed sets the shard READONLY, because a write would miss the unguarded staged copy.

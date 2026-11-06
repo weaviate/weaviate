@@ -185,9 +185,11 @@ func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) 
 			require.NoError(t, err)
 			require.NotNil(t, found, "and serves")
 
-			rec, ok := shard.migrationRecords.Get(subjects[0].Key)
-			require.True(t, ok)
-			require.True(t, rec.Subject().Unmirrored, "the write above is missing from the staged copy")
+			for _, subject := range subjects {
+				rec, ok := shard.migrationRecords.Get(subject.Key)
+				require.True(t, ok)
+				require.True(t, rec.Subject().Unmirrored, "%s: the write above is missing from the staged copy", subject.Key.StrategyCode)
+			}
 			require.Empty(t, p.cachedReindexTasks(desc, subjects[0].Key.UnitID),
 				"a cached sibling alone would swap half the unit")
 
@@ -195,8 +197,10 @@ func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) 
 			require.NoError(t, os.Remove(corrupt))
 			prepOK, prep := p.runShardPrepPhase(ctx, subjects[0].Key.UnitID, shard, tasks, false, logger)
 			require.False(t, prepOK, "a failed prepare fails the task before any replica swaps")
-			require.Len(t, prep.Errs, 1)
-			require.Contains(t, prep.Errs[0], "no double-write mirror armed")
+			require.Len(t, prep.Errs, len(tasks), "both halves are stamped")
+			for _, e := range prep.Errs {
+				require.Contains(t, e, "no double-write mirror armed")
+			}
 			require.ErrorContains(t, tasks[0].RunSwapOnShard(ctx, shard), "no double-write mirror armed")
 			// The task can already be past its prepare, as when the node restarts mid-swap.
 			payload := subjects[0].reindexPayload()
@@ -372,19 +376,7 @@ func TestAFailedLiftLeavesTheBucketsItOpenedReadOnly(t *testing.T) {
 // A lift that arms only some held migrations keeps holding just the others.
 func TestAPartlyFailedLiftHoldsOnlyTheUnarmedMigrations(t *testing.T) {
 	fx := newDoubleFaultFixture(t, "tenant-lift-partly")
-	lsm := shardPathLSM(fx.idx.path(), fx.name)
-	other := testMigrationSubject(fx.desc.Version, StrategyCodeFilterableRetokenize, "title")
-	other.TaskID, other.Collection, other.Key.UnitID = fx.desc.ID, fx.className, fx.subject.Key.UnitID
-	built, err := buildRecoveryTasks(other, fx.name, fx.logger, nil)
-	require.NoError(t, err)
-	other.Props["title"] = MigrationPropertyDirs{
-		Staged: built[0].ingestBucketName("title"), Canonical: other.Props["title"].Canonical,
-		Sidecar: built[0].reindexBucketName("title"),
-	}
-	staged := filepath.Join(lsm, other.Props["title"].Staged)
-	require.NoError(t, os.MkdirAll(staged, 0o777))
-	require.NoError(t, os.WriteFile(filepath.Join(staged, "segment-1.db"), []byte("not a segment"), 0o600))
-	require.NoError(t, NewMigrationRecordStore(lsm, fx.logger).Put(NewMigrationRecordMerged(other)))
+	other, _ := fx.addHalf(t, StrategyCodeFilterableRetokenize, "U", fx.desc.Version+1, true)
 	fx.breakDisk(t)
 	shard := fx.load(t)
 	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
@@ -398,6 +390,60 @@ func TestAPartlyFailedLiftHoldsOnlyTheUnarmedMigrations(t *testing.T) {
 	unseal, sealed := fx.provider.SealLocalUnit(fx.desc, fx.subject.Key.UnitID)
 	require.True(t, sealed, "the lift released every unit claim it took")
 	unseal()
+}
+
+// A migration with a stamped half fails its swap, so no half of it is armed, and only a stamp
+// write that succeeds lets it leave the hold.
+func TestAMigrationWithAStampedHalfIsNeverRearmed(t *testing.T) {
+	for _, tt := range []struct {
+		name              string
+		filterableHalf    bool
+		searchableCorrupt bool
+	}{
+		{name: "both halves fail to arm", filterableHalf: true, searchableCorrupt: true},
+		{name: "only the unstamped half fails to arm", filterableHalf: true},
+		{name: "the stamp's rewrite is refused", searchableCorrupt: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fx := newDoubleFaultFixture(t, "tenant-stamped-half")
+			lsm := shardPathLSM(fx.idx.path(), fx.name)
+			halves := []MigrationSubject{fx.subject}
+			corrupt := []string{fx.corrupt}
+			if tt.filterableHalf {
+				half, segment := fx.addHalf(t, StrategyCodeFilterableRetokenize, fx.desc.ID, fx.desc.Version, true)
+				halves, corrupt = append(halves, half), append(corrupt, segment)
+			}
+			if !tt.searchableCorrupt {
+				require.NoError(t, os.Remove(fx.corrupt))
+				corrupt = corrupt[1:]
+			}
+			stamped := fx.subject
+			stamped.Unmirrored = true
+			require.NoError(t, NewMigrationRecordStore(lsm, fx.logger).Put(NewMigrationRecordMerged(stamped)))
+			fx.breakDisk(t)
+
+			shard := fx.load(t)
+			t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
+			require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+			require.Len(t, shard.migrationMirrors.heldUnarmed(), len(halves))
+
+			fx.healRecords(t)
+			for _, segment := range corrupt {
+				require.NoError(t, os.Remove(segment))
+			}
+			require.NoError(t, shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate))
+			require.Equal(t, storagestate.StatusReady, shard.GetStatus())
+			require.Empty(t, shard.migrationMirrors.heldUnarmed())
+			require.Zero(t, shard.migrationMirrors.ArmedMigrationMirrors())
+			for _, half := range halves {
+				rec, ok := shard.migrationRecords.Get(half.Key)
+				require.True(t, ok)
+				require.True(t, rec.Subject().Unmirrored, "%s", half.Key.StrategyCode)
+				require.False(t, rec.FlipDecided(), "%s", half.Key.StrategyCode)
+			}
+			fx.requirePhasesRefused(t, shard, "no double-write mirror armed")
+		})
+	}
 }
 
 // A lift waits on the disk outside the status lock, so a stuck disk call stalls
@@ -890,6 +936,30 @@ func newDoubleFaultFixture(t *testing.T, name string) *doubleFaultFixture {
 	require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordMerged(fx.subject)))
 	fx.recordsDir = filepath.Join(lsm, migrationsDir, migrationRecordsDirName)
 	return fx
+}
+
+// addHalf records a merged migration on the fixture's property and returns its staged segment,
+// which fails the arm when corrupt.
+func (fx *doubleFaultFixture) addHalf(t *testing.T, code MigrationStrategyCode, taskID string, version uint64, corrupt bool,
+) (MigrationSubject, string) {
+	t.Helper()
+	lsm := shardPathLSM(fx.idx.path(), fx.name)
+	subject := testMigrationSubject(version, code, "title")
+	subject.TaskID, subject.Collection, subject.Key.UnitID = taskID, fx.className, fx.subject.Key.UnitID
+	built, err := buildRecoveryTasks(subject, fx.name, fx.logger, nil)
+	require.NoError(t, err)
+	subject.Props["title"] = MigrationPropertyDirs{
+		Staged: built[0].ingestBucketName("title"), Canonical: subject.Props["title"].Canonical,
+		Sidecar: built[0].reindexBucketName("title"),
+	}
+	staged := filepath.Join(lsm, subject.Props["title"].Staged)
+	require.NoError(t, os.MkdirAll(staged, 0o777))
+	segment := filepath.Join(staged, "segment-1.db")
+	if corrupt {
+		require.NoError(t, os.WriteFile(segment, []byte("not a segment"), 0o600))
+	}
+	require.NoError(t, NewMigrationRecordStore(lsm, fx.logger).Put(NewMigrationRecordMerged(subject)))
+	return subject, segment
 }
 
 func (fx *doubleFaultFixture) load(t *testing.T) *Shard {

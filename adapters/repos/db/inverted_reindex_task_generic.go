@@ -1348,6 +1348,16 @@ func (t *ShardReindexTaskGeneric) setMigrationIdentity(desc distributedtask.Task
 	t.bucketStrategy = payload.BucketStrategy
 }
 
+// A migration's halves share one task, version and unit, and are held, armed or settled together.
+type taskMigration struct {
+	desc   distributedtask.TaskDescriptor
+	unitID string
+}
+
+func (t *ShardReindexTaskGeneric) migration() taskMigration {
+	return taskMigration{desc: distributedtask.TaskDescriptor{ID: t.taskID, Version: t.taskVersion}, unitID: t.unitID}
+}
+
 func (t *ShardReindexTaskGeneric) migrationRecordKey() MigrationRecordKey {
 	return MigrationRecordKey{
 		TaskVersion:  t.taskVersion,
