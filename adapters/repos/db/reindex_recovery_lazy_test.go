@@ -711,6 +711,11 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 			}, map[string]*distributedtask.Unit{unitID: {
 				ID: unitID, GroupID: fx.name, NodeID: node, Status: tc.unit,
 			}})
+			if tc.status == distributedtask.TaskStatusSwapping {
+				// The scheduler swaps only a group decided in RAFT and owed by this node.
+				task.SwapDecidedGroups = map[string]time.Time{fx.name: time.Now()}
+				task.SwapsOwed = map[string][]string{fx.name: {node}}
+			}
 			outcome := &heldStepOutcome{task: task, done: make(chan string, 4)}
 			fx.logger.(*logrus.Logger).SetLevel(logrus.DebugLevel)
 			logs := test.NewLocal(fx.logger.(*logrus.Logger))

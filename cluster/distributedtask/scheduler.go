@@ -1117,7 +1117,11 @@ func (s *Scheduler) runDecidedSwapPhase(
 			err := groupErrors[i]
 			if err != nil {
 				state.swapPending[w.groupID] = struct{}{}
-				if !errors.Is(err, context.Canceled) {
+				if errors.Is(err, context.Canceled) {
+					// Debug, as for PREP: a swap waiting on an operator re-fires every tick, and the provider logs the wait.
+					s.loggerWithTask(namespace, desc).WithField("groupID", w.groupID).
+						Debugf("swap of a decided group did not complete and is retryable; a later tick re-fires it: %v", err)
+				} else {
 					s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 						l.WithField("taskID", desc.ID).WithField("groupID", w.groupID).WithField("node", s.localNode).
 							Errorf("swap of a decided group failed on this node; retrying it next tick: %v", err)
