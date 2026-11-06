@@ -1084,8 +1084,11 @@ Then, per shard load:
        - this node has acked its prepare and the task is still active: the
          swap is decided once every replica has acked, without asking this
          node again, so its ack already promised the swap;
-       - this node cannot read its task list yet, as for shards that load
-         before the node's RAFT state is available.
+       - this node cannot read its task list yet. Eager shards load while the
+         node restores its RAFT state at boot, before the task list is wired,
+         so an arm failure at boot holds even when no swap is owed. Once the
+         node has started, setting the shard READY retries the arm, and a
+         failure then stamps the record if no swap is owed.
      - The answer comes from RAFT, not from the local record, because a
        replica that was down when the swap was decided has no local trace
        of it.
