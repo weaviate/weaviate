@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	deepseekparams "github.com/weaviate/weaviate/modules/generative-deepseek/parameters"
 )
@@ -83,6 +84,35 @@ func TestGeneration(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "fail")
 	})
+}
+
+func TestGenerationEmptyChoices(t *testing.T) {
+	props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"p": "test"}}}
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "empty choices", body: `{"choices":[]}`},
+		{name: "no choices", body: `{}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+			c := New("key", time.Minute, nullLogger())
+			settings := deepseekparams.Params{BaseURL: srv.URL}
+
+			single, err := c.GenerateSingleResult(context.Background(), props[0], "hi", settings, false, nil)
+			require.ErrorContains(t, err, "empty choices in response")
+			require.Nil(t, single)
+
+			all, err := c.GenerateAllResults(context.Background(), props, "hi", settings, false, nil)
+			require.ErrorContains(t, err, "empty choices in response")
+			require.Nil(t, all)
+		})
+	}
 }
 
 type mockHandler struct {

@@ -100,6 +100,55 @@ func TestGetAnswer(t *testing.T) {
 	})
 }
 
+func TestGenerateEmptyChoices(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "empty choices", body: `{"choices":[]}`},
+		{name: "no choices", body: `{}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			c := New("apiKey", 0, nullLogger())
+			cfg := &fakeClassConfig{baseURL: server.URL}
+			props := &modulecapabilities.GenerateProperties{Text: map[string]string{"prop": "My name is john"}}
+
+			generators := []struct {
+				name     string
+				generate func() (*modulecapabilities.GenerateResponse, error)
+			}{
+				{
+					name: "GenerateSingleResult",
+					generate: func() (*modulecapabilities.GenerateResponse, error) {
+						return c.GenerateSingleResult(context.Background(), props, "What is my name?", nil, false, cfg)
+					},
+				},
+				{
+					name: "GenerateAllResults",
+					generate: func() (*modulecapabilities.GenerateResponse, error) {
+						return c.GenerateAllResults(context.Background(), []*modulecapabilities.GenerateProperties{props}, "What is my name?", nil, false, cfg)
+					},
+				},
+			}
+			for _, gen := range generators {
+				t.Run(gen.name, func(t *testing.T) {
+					var res *modulecapabilities.GenerateResponse
+					var err error
+					require.NotPanics(t, func() { res, err = gen.generate() })
+					require.ErrorContains(t, err, "empty choices in response")
+					assert.Nil(t, res)
+				})
+			}
+		})
+	}
+}
+
 type testAnswerHandler struct {
 	t *testing.T
 	// the test handler will report as not ready before the time has passed

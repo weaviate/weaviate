@@ -168,9 +168,13 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, v.getError(res.StatusCode, requestID, resBody.Error, params.IsAzure)
 	}
 
+	if len(resBody.Choices) == 0 {
+		return nil, errors.New("empty choices in response")
+	}
+
 	responseParams := v.getResponseParams(resBody.Usage)
 	textResponse := resBody.Choices[0].Text
-	if len(resBody.Choices) > 0 && textResponse != "" {
+	if textResponse != "" {
 		trimmedResponse := strings.Trim(textResponse, "\n")
 		return &modulecapabilities.GenerateResponse{
 			Result: &trimmedResponse,
