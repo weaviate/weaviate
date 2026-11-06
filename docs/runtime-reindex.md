@@ -795,7 +795,7 @@ explicit opt-out signal that's set only by the provider's
 `ReindexProvider`'s implementation rejects any mutation overlapping the
 properties of an in-flight reindex task on the same collection. In flight
 means any non-terminal status, admitted via `TaskStatus.IsActive()` (see
-§4.2). The motivating failure mode is documented verbatim on
+§4.2). The motivating failure mode is summarized on
 `CheckPropertyUpdate`'s godoc: a `change-tokenization` migration spawns
 separate per-shard sub-tasks for searchable and filterable; a DELETE
 arrives mid-flight; the stale-sidecar sweep wipes the searchable
