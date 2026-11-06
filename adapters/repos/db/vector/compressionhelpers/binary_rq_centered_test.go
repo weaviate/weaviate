@@ -227,6 +227,76 @@ func TestCenteredRQ1EstimatorVsF32Arm(t *testing.T) {
 	assert.Less(t, math.Abs(sumAbsBF/nF-sumAbsF32/nF), 1e-3, "bf16 must not widen the estimator error")
 }
 
+// TestCenteredRQ1EstimatorVsF32ArmL2 is the bf16 gate for l2-squared. Under
+// cosine the stored norm2 never enters the query-to-code estimate, so the
+// test above cannot see its rounding; under l2 it is added to every
+// distance. The f32 arm substitutes the float64-exact ‖x-μ‖².
+func TestCenteredRQ1EstimatorVsF32ArmL2(t *testing.T) {
+	dim := 768
+	n := 250
+	vecs, mean := crqTestData(n, dim, 4)
+	rq, err := NewCenteredBinaryRotationalQuantizer(dim, 42, mean, distancer.NewL2SquaredProvider())
+	require.NoError(t, err)
+
+	var sumErrBF, sumErrF32, sumAbsBF, sumAbsF32, maxPairDiff, sumExact float64
+	var count int
+	for i := 0; i < 30; i++ {
+		q := vecs[i]
+		d := rq.NewDistancer(q)
+		for j := 30; j < n; j++ {
+			x := vecs[j]
+			code := rq.Encode(x)
+			est, err := d.Distance(code)
+			require.NoError(t, err)
+
+			var norm2Exact, exact float64
+			for k := range x {
+				c := float64(x[k]) - float64(mean[k])
+				norm2Exact += c * c
+				e := float64(q[k]) - float64(x[k])
+				exact += e * e
+			}
+			estF32 := float64(est) - float64(rq.header(code).norm2) + norm2Exact
+
+			errBF := float64(est) - exact
+			errF32 := estF32 - exact
+			sumErrBF += errBF
+			sumErrF32 += errF32
+			sumAbsBF += math.Abs(errBF)
+			sumAbsF32 += math.Abs(errF32)
+			sumExact += exact
+			if diff := math.Abs(float64(est) - estF32); diff > maxPairDiff {
+				maxPairDiff = diff
+			}
+			count++
+		}
+	}
+	nF := float64(count)
+	t.Logf("mean exact=%.5f | bias bf16=%.5f f32=%.5f | mean|err| bf16=%.5f f32=%.5f | max pair diff=%.6f",
+		sumExact/nF, sumErrBF/nF, sumErrF32/nF, sumAbsBF/nF, sumAbsF32/nF, maxPairDiff)
+
+	// estimator quality: 1-bit codes on hard anisotropic data, l2 distances
+	// span twice the cosine range
+	assert.Less(t, math.Abs(sumErrBF/nF), 0.04, "estimator bias")
+	assert.Less(t, sumAbsBF/nF, 0.16, "estimator mean abs error")
+	// bf16 vs f32 arm: bf16 RNE on norm2 (≤ 2⁻⁹ relative)
+	// bounds the per-pair movement, and the aggregate error must not move
+	assert.Less(t, maxPairDiff, 0.005, "bf16 norm2 may not move any distance more than RNE allows")
+	assert.Less(t, math.Abs(sumErrBF/nF-sumErrF32/nF), 1e-3, "bf16 must not shift the estimator bias")
+	assert.Less(t, math.Abs(sumAbsBF/nF-sumAbsF32/nF), 1e-3, "bf16 must not widen the estimator error")
+}
+
+// TestCenteredRQ1RejectsEmptyMean: an empty mean must fail construction even
+// when inputDim is 0, as in RQ4. Accepted, every vector would encode alike,
+// the persisted record would carry no mean, and the restart would restore
+// the uncentered quantizer and panic on the first query.
+func TestCenteredRQ1RejectsEmptyMean(t *testing.T) {
+	for _, mean := range [][]float32{nil, {}} {
+		_, err := NewCenteredBinaryRotationalQuantizer(0, 42, mean, distancer.NewCosineDistanceProvider())
+		require.ErrorContains(t, err, "non-empty mean")
+	}
+}
+
 // TestCenteredRQ1CompressedCompressed checks the code-to-code estimator
 // (graph maintenance path), which reads both bf16 fields — norms via the
 // angle estimate, the centered dots via the correction — against the
@@ -299,7 +369,7 @@ func TestRestoreCenteredRQ1Identity(t *testing.T) {
 				"regenerated rounding must be byte-identical to the original")
 
 			q := vecs[0]
-			origQ, restQ := rq.encodeQuery(q), restored.encodeQuery(q)
+			origQ, restQ := rq.NewDistancer(q).cq, restored.NewDistancer(q).cq
 			assert.Equal(t, origQ, restQ, "query codes must be byte-identical after restore")
 
 			for _, v := range vecs[1:] {
@@ -338,7 +408,7 @@ func TestCenteredRQ1ShortInputCentersOmittedDims(t *testing.T) {
 
 	assert.Equal(t, rq.Encode(padded), rq.Encode(short),
 		"short input must encode like its zero-padded twin")
-	assert.Equal(t, rq.encodeQuery(padded), rq.encodeQuery(short),
+	assert.Equal(t, rq.NewDistancer(padded).cq, rq.NewDistancer(short).cq,
 		"short query must encode like its zero-padded twin")
 }
 

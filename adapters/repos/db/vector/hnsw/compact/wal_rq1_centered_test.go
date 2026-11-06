@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // TestWALRoundTrip_AddRQCenteredBits1 pins two facts about the AddRQCentered
@@ -57,4 +58,31 @@ func TestWALRoundTrip_AddRQCenteredBits1(t *testing.T) {
 	// DefaultFastRotationSeed instead
 	assert.Empty(t, addRQ.Data.Rounding,
 		"AddRQCentered must not persist rounding; the restore path regenerates it deterministically")
+}
+
+// TestSnapshotRoundTrip_RQCenteredBits1 is the snapshot counterpart of the WAL
+// test above: the RQCentered snapshot record carries InputDim, Bits=1, the
+// rotation and the mean, and no rounding (restore regenerates it).
+func TestSnapshotRoundTrip_RQCenteredBits1(t *testing.T) {
+	mean := []float32{0.5, -1.25, 3.75, 0}
+	rqData := makeTestRQData(uint32(len(mean)), 1, 64, 2, mean)
+	rqData.Rounding = []float32{0.1, 0.2, 0.3, 0.4} // not part of the record
+
+	var buf bytes.Buffer
+	w := &SnapshotWriter{rqData: rqData}
+	require.NoError(t, w.writeRQData(&buf))
+	require.Equal(t, byte(SnapshotCompressionTypeRQCentered), buf.Bytes()[0])
+
+	res := &ent.DeserializationResult{}
+	require.NoError(t, (&SnapshotReader{}).readCompressionData(bytes.NewReader(buf.Bytes()), res))
+	restored := res.CompressionRQData()
+	require.NotNil(t, restored)
+	assert.Equal(t, uint32(1), restored.Bits, "bits=1 must survive the snapshot")
+	assert.Equal(t, rqData.InputDim, restored.InputDim)
+	assert.Equal(t, mean, restored.Mean, "the mean must survive the snapshot")
+	assert.Equal(t, rqData.Rotation.OutputDim, restored.Rotation.OutputDim)
+	assert.Equal(t, rqData.Rotation.Rounds, restored.Rotation.Rounds)
+	assert.Equal(t, rqData.Rotation.Swaps, restored.Rotation.Swaps)
+	assert.Equal(t, rqData.Rotation.Signs, restored.Rotation.Signs)
+	assert.Empty(t, restored.Rounding, "the snapshot must not persist rounding")
 }

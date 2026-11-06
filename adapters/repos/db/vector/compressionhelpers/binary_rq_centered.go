@@ -25,9 +25,8 @@ import (
 // CenteredBinaryRotationalQuantizer is the 1-bit rotational quantizer with
 // dataset-mean centering: codes are the sign bits of R(x - mean). Centering
 // is what makes 1-bit prefix and shared-store schemes viable on anisotropic
-// embedding models; it has
-// never shipped, so the centered code defines its own header layout from
-// day one rather than extending the uncentered one:
+// embedding models. The centered code has its own header layout rather than
+// extending the uncentered one:
 //
 //	word 0, bits  0..31: step  = ‖x-μ‖²/‖x-μ‖₁ of the rotated centered
 //	                     vector, float32 (exact, it scales every estimate)
@@ -61,7 +60,7 @@ type CenteredBinaryRotationalQuantizer struct {
 	distancer   distancer.Provider
 	rounding    []float32
 	mean        []float32
-	meanNorm2   float32 // ⟨μ,μ⟩, query-side constant of the correction
+	meanNorm2   float32 // ⟨μ,μ⟩, constant term of the centering correction (query and code-to-code)
 
 	// Pool of centering/rotation scratch buffers; Encode runs on every
 	// insert and on the bulk re-encode at activation, concurrently.
@@ -84,6 +83,9 @@ type crq1Scratch struct {
 // mean must be the dataset mean over exactly inputDim dimensions; a nil
 // mean is a contract error (use BinaryRotationalQuantizer for uncentered).
 func NewCenteredBinaryRotationalQuantizer(inputDim int, seed uint64, mean []float32, distancer distancer.Provider) (*CenteredBinaryRotationalQuantizer, error) {
+	if len(mean) == 0 {
+		return nil, errors.New("centering requires a non-empty mean vector")
+	}
 	if len(mean) != inputDim {
 		return nil, errors.Errorf("centering mean has %d dims, input has %d", len(mean), inputDim)
 	}
@@ -261,18 +263,9 @@ func (rq *CenteredBinaryRotationalQuantizer) Decode(compressed []uint64) []float
 	return out
 }
 
-// encodeQuery builds the 5-bit multi-bit code of the CENTERED query, same
-// format and randomized rounding as the uncentered quantizer. NewDistancer
-// inlines the centering to reuse its ⟨q-μ, μ⟩ byproduct; this wrapper serves
-// the paths that need only the code.
-func (rq *CenteredBinaryRotationalQuantizer) encodeQuery(q []float32) RQMultiBitCode {
-	scratch := rq.scratch.Get().(*crq1Scratch)
-	defer rq.scratch.Put(scratch)
-	cq, _ := centerInto(scratch.cx, q, rq.mean)
-	return rq.encodeRotatedQuery(rq.rotation.RotateInto(cq, scratch.rx))
-}
-
-// encodeRotatedQuery quantizes an already centered and rotated query. rx is
+// encodeRotatedQuery builds the 5-bit multi-bit code of an already centered
+// and rotated query, same format and randomized rounding as the uncentered
+// quantizer. rx is
 // scratch owned by the caller; everything retained is freshly allocated.
 func (rq *CenteredBinaryRotationalQuantizer) encodeRotatedQuery(rx []float32) RQMultiBitCode {
 	abs := maxAbs(rx)
@@ -339,13 +332,8 @@ type CenteredBinaryRQDistancer struct {
 }
 
 func (rq *CenteredBinaryRotationalQuantizer) NewDistancer(q []float32) *CenteredBinaryRQDistancer {
-	// Center once: the SIMD centerInto yields both the centered query for
-	// the code and ⟨q-μ, μ⟩; the correction needs ⟨μ,q⟩ = ⟨q-μ, μ⟩ + ⟨μ,μ⟩,
-	// so the full-length ⟨μ,q⟩ pass of the scalar version is gone. The
-	// centering is unconditional: an empty query is the zero vector, whose
-	// centered form is -μ — skipping it would leave a zero code whose L2
-	// distance to x=μ comes out 0 instead of ‖μ‖², and a zero corrQ where
-	// ⟨μ,0⟩=0 only by luck of the old formula.
+	// Centering is unconditional: an empty query is the zero vector, whose
+	// centered form is -μ.
 	scratch := rq.scratch.Get().(*crq1Scratch)
 	cqv, qmd := centerInto(scratch.cx, q, rq.mean)
 	cq := rq.encodeRotatedQuery(rq.rotation.RotateInto(cqv, scratch.rx))
