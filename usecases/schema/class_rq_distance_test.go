@@ -123,8 +123,11 @@ func TestRQDistanceOnSchemaWrites(t *testing.T) {
 		name    string
 		wantErr bool
 	}{
-		{"hamming", true}, {"manhattan", true},
-		{"cosine", false}, {"dot", false}, {"l2-squared", false},
+		{"hamming", true},
+		{"manhattan", true},
+		{"cosine", false},
+		{"dot", false},
+		{"l2-squared", false},
 	}
 	for _, target := range rqTargets {
 		for _, d := range distances {
@@ -214,9 +217,13 @@ func TestRQDefaultQuantizationSkipsUnsupportedDistance(t *testing.T) {
 		indexType   string
 		compression string
 	}{
-		{"hnsw", "rq-1"}, {"hnsw", "rq-4"}, {"hnsw", "rq-8"},
-		{"flat", "rq-1"}, {"flat", "rq-8"},
-		{"dynamic", "rq-1"}, {"dynamic", "rq-8"},
+		{"hnsw", "rq-1"},
+		{"hnsw", "rq-4"},
+		{"hnsw", "rq-8"},
+		{"flat", "rq-1"},
+		{"flat", "rq-8"},
+		{"dynamic", "rq-1"},
+		{"dynamic", "rq-8"},
 	} {
 		for _, d := range []struct {
 			name       string
