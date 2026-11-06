@@ -1773,7 +1773,11 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	dedupeMode := dedupeModeFor(appState.ServerConfig.Config)
 	logUnlicensedDedupe(appState.Logger, dedupeMode)
 	dedupePlanner, err := dedupePlannerFor(dedupeMode, func() (backup.DedupePlanner, error) {
-		p, err := backupdedupe.New(backupdedupe.Config{Checkpointer: appState.DB, Logger: appState.Logger})
+		p, err := backupdedupe.New(backupdedupe.Config{
+			Checkpointer:  appState.DB,
+			Logger:        appState.Logger,
+			DefaultBudget: appState.ServerConfig.Config.Backup.DedupeConvergenceTimeout.Get,
+		})
 		if err != nil {
 			return nil, err
 		}

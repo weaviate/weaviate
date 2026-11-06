@@ -857,6 +857,15 @@ const DefaultBackupSplitFileSize = 50 * 1024 * 1024 * 1024 // 50GB
 // DefaultBackupMaxIndividualFiles is the default number of files per shard targeted to get their own chunk
 const DefaultBackupMaxIndividualFiles = 100
 
+const (
+	// DefaultBackupDedupeConvergenceTimeout keeps planning, with its 10s cutoff lead and hard-stop slack, under the server's default 60s write timeout.
+	DefaultBackupDedupeConvergenceTimeout = 15 * time.Second
+	// MinBackupDedupeConvergenceTimeout mirrors the API minimum of dedupeConvergenceTimeoutSeconds.
+	MinBackupDedupeConvergenceTimeout = time.Second
+	// MaxBackupDedupeConvergenceTimeout mirrors the API maximum of dedupeConvergenceTimeoutSeconds.
+	MaxBackupDedupeConvergenceTimeout = 600 * time.Second
+)
+
 // Backup contains backup-related configuration
 type Backup struct {
 	MinChunkSize    int64 `json:"min_chunk_size" yaml:"min_chunk_size"`
@@ -870,6 +879,10 @@ type Backup struct {
 	// from its base against the number, so it applies across a backup chain.
 	// Env: BACKUP_MAX_INDIVIDUAL_FILES, runtime config: backup_max_individual_files.
 	MaxIndividualFiles *runtime.DynamicValue[int] `json:"max_individual_files" yaml:"max_individual_files"`
+
+	// DedupeConvergenceTimeout bounds a dedupeReplicas create's convergence wait when the request sets none.
+	// Env: BACKUP_DEDUPE_CONVERGENCE_TIMEOUT, runtime config: backup_dedupe_convergence_timeout.
+	DedupeConvergenceTimeout *runtime.DynamicValue[time.Duration] `json:"dedupe_convergence_timeout" yaml:"dedupe_convergence_timeout"`
 
 	// SkipAccessCheck disables the write+delete probe the backup client runs on
 	// initialize, deferring write/permission errors to backup time. Use it for

@@ -362,6 +362,9 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		if err != nil {
 			return fmt.Errorf("unmarshal sharding state: %w", err)
 		}
+		if err := shardingState.ValidateShardNames(); err != nil {
+			return fmt.Errorf("sharding state: %w", err)
+		}
 	}
 
 	aliases := make([]*models.Alias, 0)
