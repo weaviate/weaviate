@@ -66,7 +66,7 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 		resweep bool
 		// failedCleanup: these released records' cleanup write fails on a second sweep.
 		failedCleanup []int
-		filterableOff bool // the schema has C.foo's filterable index dropped
+		filterableOn  bool // the schema holds C.foo's filterable index
 		filterable    string
 		searchable    string
 	}{
@@ -82,8 +82,9 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 		{name: "a run covering only one of its indexes keeps both", records: []rec{failed(db.ReindexTypeChangeTokenization, "foo"), withStatus(filterable, distributedtask.TaskStatusFinished)}, wantKept: []int{0, 1}, filterable: "ready", searchable: "failed"},
 		{name: "runs covering all of its indexes release it", records: changeTokThenFixes, wantKept: []int{1, 2}, filterable: "ready", searchable: "ready"},
 		{name: "a failed cleanup of it does not bring it back", records: changeTokThenFixes, failedCleanup: []int{0}, wantKept: []int{1, 2}, filterable: "ready", searchable: "ready"},
-		{name: "a failed repair on an index dropped since is not kept", records: []rec{failed(db.ReindexTypeRepairFilterable, "foo")}, filterableOff: true, filterable: "ready", searchable: "ready"},
-		{name: "a failed enable on an index still off is kept", records: []rec{filterable}, filterableOff: true, wantKept: []int{0}, filterable: "failed", searchable: "ready"},
+		{name: "a failed repair on an index dropped since is not kept", records: []rec{failed(db.ReindexTypeRepairFilterable, "foo")}, filterable: "ready", searchable: "ready"},
+		{name: "a failed enable on an index still off is kept", records: []rec{filterable}, wantKept: []int{0}, filterable: "failed", searchable: "ready"},
+		{name: "a failed enable whose index the schema already holds is not kept", records: []rec{filterable}, filterableOn: true, filterable: "ready", searchable: "ready"},
 		{name: "a cancelled migration is not kept", records: []rec{withStatus(filterable, distributedtask.TaskStatusCancelled)}, filterable: "ready", searchable: "ready"},
 		{name: "a cancelled migration that left tenants migrated is kept and reads partial", records: []rec{{status: distributedtask.TaskStatusCancelled, mt: db.ReindexTypeEnableFilterable, prop: "foo", partial: true}}, wantKept: []int{0}, filterable: "partial", searchable: "ready"},
 		{name: "a failed migration that left tenants migrated reads partial", records: []rec{{status: distributedtask.TaskStatusFailed, mt: db.ReindexTypeEnableFilterable, prop: "foo", partial: true}}, wantKept: []int{0}, filterable: "partial", searchable: "ready"},
@@ -121,7 +122,7 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 
 			reader := schemaUC.NewMockSchemaReader(t)
 			reader.EXPECT().ReadOnlyClass("C").Return(&models.Class{Class: "C", Properties: []*models.Property{
-				{Name: "foo", IndexFilterable: boolPtr(!tt.filterableOff)},
+				{Name: "foo", Tokenization: models.PropertyTokenizationWord, IndexFilterable: boolPtr(tt.filterableOn)},
 			}}).Maybe()
 			retainer := db.NewReindexProvider(nil, &schemaUC.Manager{SchemaReader: reader}, nil, logrus.New(), "", nil, nil)
 			sweep := func(present []int) []int {
@@ -156,7 +157,7 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 			}
 			for indexType, want := range map[string]string{"filterable": tt.filterable, "searchable": tt.searchable} {
 				idx := &models.IndexStatus{Type: indexType, Status: "ready"}
-				mergeReindexStatus(idx, "C", "foo", indexType, db.ReindexRuns(kept), nil)
+				mergeReindexStatus(idx, nil, "C", "foo", indexType, db.ReindexRuns(kept), nil)
 				require.Equal(t, want, idx.Status, indexType)
 				if want == models.IndexStatusStatusPartial {
 					require.Equal(t, int64(1), idx.MigratedTenants, "tenants already serving the new index")

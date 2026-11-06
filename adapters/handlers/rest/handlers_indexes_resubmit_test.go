@@ -154,7 +154,7 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 			require.Equal(t, tc.want, skipTenantsAlreadyMigrated(ownership, "C", "title", plan, tc.tasks))
 
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "title", "filterable", db.ReindexRuns(tc.tasks), nil)
+			mergeReindexStatus(idx, nil, "C", "title", "filterable", db.ReindexRuns(tc.tasks), nil)
 			require.Equal(t, tc.status, idx.Status)
 			require.Equal(t, tc.migrated, idx.MigratedTenants, "migrated tenants")
 			require.Equal(t, tc.total, idx.TotalTenants, "total tenants")

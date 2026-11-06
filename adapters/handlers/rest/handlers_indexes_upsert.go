@@ -336,7 +336,7 @@ func resolveUpsertPlan(class *models.Class, collection string, prop *models.Prop
 	if err != nil {
 		return plan, err
 	}
-	if conflict := refuseOtherThanPartialRun(collection, prop.Name, tok, plan, reindexTasks, tenantCounts); conflict != "" {
+	if conflict := refuseOtherThanPartialRun(class, collection, prop.Name, tok, plan, reindexTasks, tenantCounts); conflict != "" {
 		return upsertPlan{conflict: conflict}, nil
 	}
 
@@ -445,7 +445,9 @@ func resolveSearchableUpsert(class *models.Class, collection string, prop *model
 		// Per-property truth: the class-wide flag only flips once every
 		// property has migrated, so an already-migrated property must
 		// NO_OP even while siblings are still pending.
-		if db.SearchablePropertyIsBlockmax(class, prop.Name) {
+		// A class flag set by a class update is not a standing run's own write: its resubmit still runs.
+		run, _, _ := db.ReindexPartialRun(db.ReindexRuns(reindexTasks), class, collection, prop.Name, []string{"searchable"})
+		if db.SearchablePropertyIsBlockmax(class, prop.Name) && (run == nil || run.Payload.MigrationType != db.ReindexTypeChangeAlgorithm) {
 			return upsertPlan{noop: true}, nil
 		}
 		return upsertPlan{migrationType: db.ReindexTypeChangeAlgorithm}, nil
@@ -600,7 +602,7 @@ var errRebuildPropertyPartlyMigrated = errors.New("cannot rebuild an index of a 
 func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.Property, indexType string,
 	reindexTasks []*distributedtask.Task, tenantCounts bool,
 ) (upsertPlan, error) {
-	if err := refusePartlyMigratedRebuild(class.Class, prop.Name, reindexTasks, tenantCounts); err != nil {
+	if err := refusePartlyMigratedRebuild(class, prop.Name, reindexTasks, tenantCounts); err != nil {
 		return upsertPlan{}, err
 	}
 	switch indexType {
@@ -639,22 +641,22 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 // refusePartlyMigratedRebuild refuses a rebuild of any index of propName while a
 // partial run stands on that property ([db.ReindexPartialRunConflict] says why),
 // naming the resubmit that finishes the run.
-func refusePartlyMigratedRebuild(collection, propName string, reindexTasks []*distributedtask.Task, tenantCounts bool) error {
-	if msg := db.ReindexPartialRunConflict(reindexTasks, collection, propName, nil, tenantCounts); msg != "" {
+func refusePartlyMigratedRebuild(class *models.Class, propName string, reindexTasks []*distributedtask.Task, tenantCounts bool) error {
+	if msg := db.ReindexPartialRunConflict(reindexTasks, class, class.Class, propName, nil, tenantCounts); msg != "" {
 		return fmt.Errorf("%w: %s", errRebuildPropertyPartlyMigrated, msg)
 	}
 	return nil
 }
 
 // refuseOtherThanPartialRun accepts only a partial run's resubmit on its property.
-func refuseOtherThanPartialRun(collection, propName, tok string, plan upsertPlan, reindexTasks []*distributedtask.Task,
+func refuseOtherThanPartialRun(class *models.Class, collection, propName, tok string, plan upsertPlan, reindexTasks []*distributedtask.Task,
 	tenantCounts bool,
 ) string {
 	if plan.joinTaskID != "" || (plan.migrationType == "" && (!plan.noop || tok == "")) {
 		return ""
 	}
 	// The strategy is not compared: the named resubmit cannot carry one.
-	return db.ReindexPartialRunConflict(reindexTasks, collection, propName, func(run *db.ReindexRun) bool {
+	return db.ReindexPartialRunConflict(reindexTasks, class, collection, propName, func(run *db.ReindexRun) bool {
 		return plan.migrationType == run.Payload.MigrationType && plan.targetTok == run.Payload.TargetTokenization
 	}, tenantCounts)
 }

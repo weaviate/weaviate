@@ -260,7 +260,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 					idx.Algorithm = models.IndexStatusAlgorithmBlockmax
 				}
 			}
-			taskDriven := mergeReindexStatus(idx, collection, prop.Name, e.indexType, parsedTasks, h.appState.Logger)
+			taskDriven := mergeReindexStatus(idx, class, collection, prop.Name, e.indexType, parsedTasks, h.appState.Logger)
 			if !tenantCounts {
 				idx.MigratedTenants, idx.TotalTenants = 0, 0
 			}
@@ -804,7 +804,7 @@ func firstActiveReindexTask(
 // added without updating this switch would otherwise silently report "ready"
 // for an in-flight task. Passing a nil logger is allowed (test callers may
 // rely on this); the entry is still skipped, just without a log line.
-func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, parsedTasks []db.ReindexRun, logger logrus.FieldLogger) bool {
+func mergeReindexStatus(idx *models.IndexStatus, class *models.Class, collection, propName, indexType string, parsedTasks []db.ReindexRun, logger logrus.FieldLogger) bool {
 	// Two tasks for the same (collection, prop, indexType) may coexist —
 	// e.g. a freshly retried STARTED enable-filterable plus the original
 	// FAILED attempt that the operator just retried (terminal tasks
@@ -889,7 +889,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			idx.Status = models.IndexStatusStatusCancelled
 		}
 		// Per-tenant counts, not a list: a collection can hold 100k tenants.
-		if _, migrated, covered := db.ReindexPartialRun(parsedTasks, collection, propName, []string{indexType}); len(migrated) > 0 {
+		if _, migrated, covered := db.ReindexPartialRun(parsedTasks, class, collection, propName, []string{indexType}); len(migrated) > 0 {
 			idx.Status = models.IndexStatusStatusPartial
 			idx.MigratedTenants, idx.TotalTenants = int64(len(migrated)), int64(len(covered))
 		}

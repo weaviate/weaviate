@@ -272,7 +272,11 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 				"cancel it via the reindex REST API before retrying"))
 	}
 	// The apply has no caller to authorize, so it never names tenant counts.
-	if msg := ReindexPartialRunConflict(existingTasks, className, propertyName, nil, false); msg != "" {
+	var class *models.Class
+	if p.schemaManager != nil {
+		class = p.schemaManager.ReadOnlyClass(className)
+	}
+	if msg := ReindexPartialRunConflict(existingTasks, class, className, propertyName, nil, false); msg != "" {
 		return fmt.Errorf("%s", msg)
 	}
 	return nil

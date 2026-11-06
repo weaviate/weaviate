@@ -47,6 +47,22 @@ func ReindexLeftPartial(task *distributedtask.Task) bool {
 		len(task.SwapDecidedGroups) > 0
 }
 
+// ReindexRunLanded reports whether class holds a run's own cutover write on every
+// property. While the run stands only it may make that write, so the run is finished.
+func ReindexRunLanded(class *models.Class, mt ReindexMigrationType, targetTok string, props []string) bool {
+	visible, _ := migrationEffectReader(mt)
+	if class == nil || visible == nil || len(props) == 0 {
+		return false
+	}
+	for _, name := range props {
+		i := slices.IndexFunc(class.Properties, func(p *models.Property) bool { return p.Name == name })
+		if i < 0 || !visible(MigrationSubject{MigrationType: mt, TargetTokenization: targetTok}, class.Properties[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 // ReindexRun pairs a reindex task with its decoded payload.
 type ReindexRun struct {
 	Task    *distributedtask.Task
@@ -125,7 +141,7 @@ func ReindexRuns(tasks []*distributedtask.Task) []ReindexRun {
 
 // ReindexPartialRunConflict is the one rule for what a standing partial run refuses, naming its resubmit.
 // A run claims its whole property: searchable and filterable share one tokenization.
-func ReindexPartialRunConflict(tasks []*distributedtask.Task, collection, property string,
+func ReindexPartialRunConflict(tasks []*distributedtask.Task, class *models.Class, collection, property string,
 	accepts func(*ReindexRun) bool, tenantCounts bool,
 ) string {
 	if !slices.ContainsFunc(tasks, ReindexLeftPartial) {
@@ -133,7 +149,7 @@ func ReindexPartialRunConflict(tasks []*distributedtask.Task, collection, proper
 	}
 	runs := ReindexRuns(tasks)
 	for _, scope := range [][]string{{"searchable"}, {"filterable"}, {"rangeable"}} {
-		run, migrated, covered := ReindexPartialRun(runs, collection, property, scope)
+		run, migrated, covered := ReindexPartialRun(runs, class, collection, property, scope)
 		if run == nil || (accepts != nil && accepts(run)) {
 			continue
 		}
@@ -146,12 +162,13 @@ func ReindexPartialRunConflict(tasks []*distributedtask.Task, collection, proper
 // ReindexPartialRun returns the newest run on property that left tenants of
 // indexTypes on its target, with those tenants. It returns nil once a flip
 // covered the run or no tenant still serves its target.
-func ReindexPartialRun(runs []ReindexRun, collection, property string, indexTypes []string) (partial *ReindexRun, migrated, covered map[string]struct{}) {
+func ReindexPartialRun(runs []ReindexRun, class *models.Class, collection, property string, indexTypes []string) (partial *ReindexRun, migrated, covered map[string]struct{}) {
 	for i := range runs {
 		run := &runs[i]
 		types, _ := ReindexIndexTypes(run.Payload.MigrationType)
 		if strings.EqualFold(run.Payload.Collection, collection) && slices.Contains(run.Payload.Properties, property) &&
 			ReindexLeftPartial(run.Task) && slices.ContainsFunc(types, func(t string) bool { return slices.Contains(indexTypes, t) }) &&
+			!ReindexRunLanded(class, run.Payload.MigrationType, run.Payload.TargetTokenization, run.Payload.Properties) &&
 			(partial == nil || run.Task.Version > partial.Task.Version) {
 			partial = run
 		}
@@ -180,6 +197,11 @@ func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	target := targets.of(task)
 	if target == nil {
 		return false // the status endpoint cannot read it either
+	}
+	if (task.Status == distributedtask.TaskStatusFailed || task.Status == distributedtask.TaskStatusCancelled) &&
+		p.schemaManager != nil && ReindexRunLanded(p.schemaManager.ReadOnlyClass(target.Collection),
+		target.MigrationType, target.TargetTokenization, target.Properties) {
+		return false
 	}
 	partial := ReindexLeftPartial(task)
 	newestOn := p.indexTypesNotRunSince(task, target, namespaceTasks, targets, partial)
@@ -213,9 +235,10 @@ func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 // Skipping the per-unit maps keeps decoding cheap, since every node decodes
 // this on every scheduler tick.
 type reindexTarget struct {
-	MigrationType ReindexMigrationType `json:"migrationType"`
-	Collection    string               `json:"collection"`
-	Properties    []string             `json:"properties"`
+	MigrationType      ReindexMigrationType `json:"migrationType"`
+	Collection         string               `json:"collection"`
+	Properties         []string             `json:"properties"`
+	TargetTokenization string               `json:"targetTokenization"`
 }
 
 // reindexTargets decodes each task at most once per retention decision; nil
