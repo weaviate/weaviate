@@ -132,12 +132,113 @@ func TestGetScore(t *testing.T) {
 	})
 }
 
+func TestRankResultIndexes(t *testing.T) {
+	documents := []string{"I work at Apple", "I work at Google"}
+	tests := []struct {
+		name     string
+		rankings []ranking
+		want     []ent.DocumentScore
+		wantErr  string
+	}{
+		{
+			name:     "rankings in a different order than the documents",
+			rankings: []ranking{{Index: 1, Logit: 0.2}, {Index: 0, Logit: 0.9}},
+			want:     []ent.DocumentScore{{Document: documents[0], Score: 0.9}, {Document: documents[1], Score: 0.2}},
+		},
+		{
+			name:     "index equal to the number of documents",
+			rankings: []ranking{{Index: 0, Logit: 0.9}, {Index: 2, Logit: 0.2}},
+			wantErr:  "result index 2 out of range for 2 documents",
+		},
+		{
+			name:     "negative index",
+			rankings: []ranking{{Index: -1, Logit: 0.9}, {Index: 1, Logit: 0.2}},
+			wantErr:  "result index -1 out of range for 2 documents",
+		},
+		{
+			name:     "duplicate index",
+			rankings: []ranking{{Index: 0, Logit: 0.9}, {Index: 0, Logit: 0.2}},
+			wantErr:  "duplicate result index 0",
+		},
+		{
+			name:     "fewer rankings than documents",
+			rankings: []ranking{{Index: 0, Logit: 0.9}},
+			wantErr:  "1 results for 2 documents",
+		},
+		{
+			name:     "more rankings than documents",
+			rankings: []ranking{{Index: 0, Logit: 0.9}, {Index: 1, Logit: 0.2}, {Index: 2, Logit: 0.1}},
+			wantErr:  "3 results for 2 documents",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(&testCrossRankerHandler{t: t, res: rankResponse{Rankings: tt.rankings}})
+			defer server.Close()
+			c := New("key", 0, nullLogger())
+			cfg := fakeClassConfig{classConfig: map[string]interface{}{"Model": "large", "baseURL": server.URL}}
+
+			res, err := c.Rank(context.Background(), "Where do I work?", documents, cfg)
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assert.Nil(t, res)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, res.DocumentScores)
+		})
+	}
+}
+
+func TestRankErrorResponses(t *testing.T) {
+	tests := []struct {
+		name     string
+		error402 *responseError402
+		error422 *responseError422
+		wantErr  string
+	}{
+		{
+			name:     "402 with detail",
+			error402: &responseError402{Detail: "payment required"},
+			wantErr:  "status: 402 error: payment required",
+		},
+		{
+			name:     "422 with one detail",
+			error422: &responseError422{Detail: []errorDetail{{Message: "field required"}}},
+			wantErr:  "status: 422 error: field required",
+		},
+		{
+			name: "422 with several details",
+			error422: &responseError422{Detail: []errorDetail{
+				{Message: "query is required"},
+				{Message: "passages must not be empty"},
+			}},
+			wantErr: "status: 422 error: query is required passages must not be empty",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(&testCrossRankerHandler{t: t, error402: tt.error402, error422: tt.error422})
+			defer server.Close()
+			c := New("key", 0, nullLogger())
+			cfg := fakeClassConfig{classConfig: map[string]interface{}{"Model": "large", "baseURL": server.URL}}
+
+			_, err := c.Rank(context.Background(), "Where do I work?", []string{"I work at Apple"}, cfg)
+
+			require.Error(t, err)
+			assert.Equal(t, "connection to NVIDIA API failed with "+tt.wantErr, err.Error())
+		})
+	}
+}
+
 type testCrossRankerHandler struct {
 	lock           sync.RWMutex
 	t              *testing.T
 	res            rankResponse
 	batchedResults []rankResponse
 	error402       *responseError402
+	error422       *responseError422
 }
 
 func (f *testCrossRankerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -149,6 +250,12 @@ func (f *testCrossRankerHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	if f.error402 != nil {
 		w.WriteHeader(http.StatusPaymentRequired)
 		jsonBytes, _ := json.Marshal(f.error402)
+		w.Write(jsonBytes)
+		return
+	}
+	if f.error422 != nil {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		jsonBytes, _ := json.Marshal(f.error422)
 		w.Write(jsonBytes)
 		return
 	}

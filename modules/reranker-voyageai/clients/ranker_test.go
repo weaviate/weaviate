@@ -160,6 +160,65 @@ func TestRank(t *testing.T) {
 	})
 }
 
+func TestRankResultIndexes(t *testing.T) {
+	documents := []string{"I work at Apple", "I work at Google"}
+	tests := []struct {
+		name    string
+		results []Data
+		want    []ent.DocumentScore
+		wantErr string
+	}{
+		{
+			name:    "results in a different order than the documents",
+			results: []Data{{Index: 1, RelevanceScore: 0.2}, {Index: 0, RelevanceScore: 0.9}},
+			want:    []ent.DocumentScore{{Document: documents[0], Score: 0.9}, {Document: documents[1], Score: 0.2}},
+		},
+		{
+			name:    "index equal to the number of documents",
+			results: []Data{{Index: 0, RelevanceScore: 0.9}, {Index: 2, RelevanceScore: 0.2}},
+			wantErr: "result index 2 out of range for 2 documents",
+		},
+		{
+			name:    "negative index",
+			results: []Data{{Index: -1, RelevanceScore: 0.9}, {Index: 1, RelevanceScore: 0.2}},
+			wantErr: "result index -1 out of range for 2 documents",
+		},
+		{
+			name:    "duplicate index",
+			results: []Data{{Index: 0, RelevanceScore: 0.9}, {Index: 0, RelevanceScore: 0.2}},
+			wantErr: "duplicate result index 0",
+		},
+		{
+			name:    "fewer results than documents",
+			results: []Data{{Index: 0, RelevanceScore: 0.9}},
+			wantErr: "1 results for 2 documents",
+		},
+		{
+			name:    "more results than documents",
+			results: []Data{{Index: 0, RelevanceScore: 0.9}, {Index: 1, RelevanceScore: 0.2}, {Index: 2, RelevanceScore: 0.1}},
+			wantErr: "3 results for 2 documents",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(&testRankHandler{t: t, response: RankResponse{Data: tt.results}})
+			defer server.Close()
+			c := New("apiKey", 0, nullLogger())
+			c.host = server.URL
+
+			res, err := c.Rank(context.Background(), "Where do I work?", documents, nil)
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assert.Nil(t, res)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, res.DocumentScores)
+		})
+	}
+}
+
 type testRankHandler struct {
 	lock           sync.RWMutex
 	t              *testing.T
