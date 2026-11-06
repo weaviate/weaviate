@@ -518,8 +518,8 @@ func newParkedLift(t *testing.T, name string) (*doubleFaultFixture, *Shard, <-ch
 	return fx, shard, lift
 }
 
-// A lift that stops waiting must not end the arm. A stamp written because a caller gave up
-// would fail a healthy migration for good.
+// The lift's arm is detached from the shard's context, so a drop that cancels that context
+// mid-arm neither stops the arm nor makes it stamp the migration Unmirrored.
 func TestALiftThatStopsWaitingStillArmsTheMirror(t *testing.T) {
 	fx, shard, lift := newParkedLift(t, "tenant-lift-gives-up")
 	shard.shutCtxCancel(errors.New("dropped"))

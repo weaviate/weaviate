@@ -227,7 +227,7 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	}
 	concreteShard, logger := entry.shard, entry.logger
 
-	// Before this node's prepare ack, a failed prepare fails the task before any replica swaps.
+	// With a prepare barrier, a failed prepare before this node's ack fails the task before any replica swaps.
 	if err := t.refuseUnmirrored(entry.rec.Subject()); err != nil {
 		return err
 	}
