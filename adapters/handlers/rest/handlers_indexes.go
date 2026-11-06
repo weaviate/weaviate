@@ -158,6 +158,17 @@ type classReader interface {
 // ReadOnlyClass below, after the task read, so the order above holds for
 // every class this returns. A collection deleted between the two reads
 // leaves ReadOnlyClass answering nil against an Exists that was true.
+//
+// FINISHED tasks are kept: [indexesHandlers.getIndexes] matches them against
+// [db.ReindexBucketEffect] to build finishedBlockmaxProps, the last check in
+// [db.SearchablePropertyIsBlockmaxParsed]. Only a property carrying no durable
+// SearchableBlockmax stamp reaches that check: one migrated by a build older
+// than the stamp, or one whose blockmax evidence is a rebuild-searchable task,
+// which never stamps. Dropping FINISHED tasks reports those as wand.
+//
+// [mergeReindexStatus] needs them for a second, independent reason: a
+// completed migration must outrank an older FAILED attempt on the same
+// property, or the entry reports "failed" after the retry succeeded.
 func readClassAndTasks(collection string, taskSource localTaskLister, classes classReader) (*models.Class, []db.ReindexRun) {
 	if !classes.ClassInfo(collection).Exists {
 		return nil, nil
@@ -170,7 +181,7 @@ func readClassAndTasks(collection string, taskSource localTaskLister, classes cl
 	if class == nil {
 		return nil, nil
 	}
-	return class, parseReindexTasks(byNamespace[db.ReindexNamespace])
+	return class, db.ReindexRuns(byNamespace[db.ReindexNamespace])
 }
 
 // getIndexes implements GET /v1/schema/{className}/indexes.
@@ -436,7 +447,9 @@ func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, c
 	return jsonResponder(http.StatusConflict, errorResponse(principal,
 		fmt.Sprintf("reindex task %q on %s.%s is in status %s: %s",
 			target.ID, collection, propertyName, target.Status,
-			cancelRefusalReason())))
+			"this build cannot classify that status, so it cannot tell whether stopping the "+
+				"task is safe and refuses the cancel on every node — the task has to reach a terminal "+
+				"state on the nodes that do recognize it")))
 }
 
 // cancelRacedResponder answers a cancel whose target stopped accepting
@@ -458,14 +471,6 @@ func (h *indexesHandlers) cancelRacedResponder(target *distributedtask.Task, col
 			"the cancel, and is no longer cancellable. Nothing was cancelled. It has either reached "+
 			"a status this node's build does not recognize, or already reached a terminal state. Re-read GET /v1/schema/%s/indexes to see where it landed",
 			target.ID, collection, propertyName, collection)))
-}
-
-// cancelRefusalReason explains a 409 from the cancel verb, which refuses
-// only a status this build cannot classify.
-func cancelRefusalReason() string {
-	return "this build cannot classify that status, so it cannot tell whether stopping the " +
-		"task is safe and refuses the cancel on every node — the task has to reach a terminal " +
-		"state on the nodes that do recognize it"
 }
 
 // cancelReindexTask finds the in-flight reindex task targeting
@@ -766,25 +771,6 @@ func firstActiveReindexTask(
 	return nil, db.ReindexTaskPayload{}, false
 }
 
-// parseReindexTasks unmarshals every reindex task's payload once. Tasks
-// with unparseable payloads are skipped — those are flagged elsewhere by
-// checkReindexConflict at submit time; for the read-side merge they're
-// the same as no task.
-//
-// FINISHED tasks are kept: [indexesHandlers.getIndexes] matches them against
-// [db.ReindexBucketEffect] to build finishedBlockmaxProps, the last check in
-// [db.SearchablePropertyIsBlockmaxParsed]. Only a property carrying no durable
-// SearchableBlockmax stamp reaches that check: one migrated by a build older
-// than the stamp, or one whose blockmax evidence is a rebuild-searchable task,
-// which never stamps. Dropping FINISHED tasks reports those as wand.
-//
-// [mergeReindexStatus] needs them for a second, independent reason: a
-// completed migration must outrank an older FAILED attempt on the same
-// property, or the entry reports "failed" after the retry succeeded.
-func parseReindexTasks(tasks []*distributedtask.Task) []db.ReindexRun {
-	return db.ReindexRuns(tasks)
-}
-
 // mergeReindexStatus checks if there's an active or recently-terminated
 // reindex task that targets the given property+indexType and updates the
 // IndexStatus accordingly. It reports whether a task drove the entry.
@@ -835,7 +821,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	//   STARTED > FAILED ≈ CANCELLED ≈ FINISHED   (in-flight beats terminal)
 	//   newer StartedAt > older StartedAt          (within the same priority)
 	// FINISHED tasks stay in the loop for the tiebreak below; see
-	// [parseReindexTasks] for why. FINISHED itself surfaces nothing (see
+	// [readClassAndTasks] for why. FINISHED itself surfaces nothing (see
 	// its case).
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload
@@ -987,7 +973,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 
 // taskStatusPriority ranks FINISHED with FAILED and CANCELLED rather than
 // above them: an in-flight retry has to outrank a completed earlier attempt,
-// so a FINISHED task can only win on recency. See [parseReindexTasks].
+// so a FINISHED task can only win on recency. See [readClassAndTasks].
 func taskStatusPriority(task *distributedtask.Task) int {
 	if task.Status.IsActive() {
 		return 2

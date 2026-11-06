@@ -58,7 +58,7 @@ func buildTask(t *testing.T, id string, status distributedtask.TaskStatus,
 }
 
 func tasksMap(tasks ...*distributedtask.Task) []db.ReindexRun {
-	return parseReindexTasks(tasks)
+	return db.ReindexRuns(tasks)
 }
 
 // Once a unit transitions to IN_PROGRESS the synthetic entry must read
@@ -328,7 +328,7 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 	} {
 		t.Run(order.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", parseReindexTasks(order.tasks), nil)
+			mergeReindexStatus(idx, "C", "foo", "filterable", db.ReindexRuns(order.tasks), nil)
 
 			require.InDelta(t, 0.9, idx.Progress, 0.0001,
 				"newest STARTED task (change-tokenization) must win regardless of slice order")
@@ -433,7 +433,7 @@ func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 
 			for _, order := range [][]*distributedtask.Task{{older, newer}, {newer, older}} {
 				idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-				mergeReindexStatus(idx, "C", "foo", "filterable", parseReindexTasks(order), nil)
+				mergeReindexStatus(idx, "C", "foo", "filterable", db.ReindexRuns(order), nil)
 
 				require.Equal(t, tt.wantStatus, idx.Status, "list starting at %s", order[0].ID)
 				require.InDelta(t, tt.wantProgress, idx.Progress, 0.0001,

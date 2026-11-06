@@ -171,7 +171,7 @@ func (h *indexesHandlers) rebuildIndex(params schema.SchemaObjectsIndexRebuildPa
 	}
 
 	plan, err := h.resolveRebuildPlan(class, prop, indexType, reindexTasks)
-	if errors.Is(err, errRebuildPartlyMigrated) {
+	if errors.Is(err, errRebuildPropertyPartlyMigrated) {
 		return jsonResponder(http.StatusConflict, errorResponse(principal, err.Error()))
 	}
 	if err != nil {
@@ -591,7 +591,7 @@ func resolveRangeableUpsert(class *models.Class, collection string, prop *models
 	return upsertPlan{migrationType: db.ReindexTypeEnableRangeable}, nil
 }
 
-var errRebuildPartlyMigrated = errors.New("cannot rebuild an index some tenants already migrated")
+var errRebuildPropertyPartlyMigrated = errors.New("cannot rebuild an index of a property some tenants already migrated")
 
 // resolveRebuildPlan validates the rebuild preconditions for the internal
 // index-type token and returns the repair/rebuild migration to submit.
@@ -637,7 +637,7 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 // naming the resubmit that finishes the run.
 func refusePartlyMigratedRebuild(collection, propName string, reindexTasks []*distributedtask.Task) error {
 	if msg := db.ReindexPartialRunConflict(reindexTasks, collection, propName, nil); msg != "" {
-		return fmt.Errorf("%w: %s", errRebuildPartlyMigrated, msg)
+		return fmt.Errorf("%w: %s", errRebuildPropertyPartlyMigrated, msg)
 	}
 	return nil
 }
@@ -782,7 +782,7 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 func skipTenantsAlreadyMigrated(ownership map[string][]string, collection, propertyName string,
 	plan upsertPlan, reindexTasks []*distributedtask.Task,
 ) map[string][]string {
-	_, paid, _ := db.ReindexMigratedTenants(parseReindexTasks(reindexTasks), propertyName, &db.ReindexTaskPayload{
+	_, paid, _ := db.ReindexMigratedTenants(db.ReindexRuns(reindexTasks), propertyName, &db.ReindexTaskPayload{
 		Collection: collection, MigrationType: plan.migrationType,
 		TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy,
 	})

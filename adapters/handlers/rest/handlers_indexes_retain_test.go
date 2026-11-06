@@ -156,7 +156,7 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 			}
 			for indexType, want := range map[string]string{"filterable": tt.filterable, "searchable": tt.searchable} {
 				idx := &models.IndexStatus{Type: indexType, Status: "ready"}
-				mergeReindexStatus(idx, "C", "foo", indexType, parseReindexTasks(kept), nil)
+				mergeReindexStatus(idx, "C", "foo", indexType, db.ReindexRuns(kept), nil)
 				require.Equal(t, want, idx.Status, indexType)
 				if want == models.IndexStatusStatusPartial {
 					require.Equal(t, int64(1), idx.MigratedTenants, "tenants already serving the new index")

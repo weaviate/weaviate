@@ -154,7 +154,7 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 			require.Equal(t, tc.want, skipTenantsAlreadyMigrated(ownership, "C", "title", plan, tc.tasks))
 
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "title", "filterable", parseReindexTasks(tc.tasks), nil)
+			mergeReindexStatus(idx, "C", "title", "filterable", db.ReindexRuns(tc.tasks), nil)
 			require.Equal(t, tc.status, idx.Status)
 			require.Equal(t, tc.migrated, idx.MigratedTenants, "migrated tenants")
 			require.Equal(t, tc.total, idx.TotalTenants, "total tenants")
@@ -195,7 +195,7 @@ func TestRebuildRefusedOnPartlyMigratedIndex(t *testing.T) {
 				require.NoError(t, err)
 				return
 			}
-			require.ErrorIs(t, err, errRebuildPartlyMigrated)
+			require.ErrorIs(t, err, errRebuildPropertyPartlyMigrated)
 			require.Contains(t, err.Error(), tc.refusal)
 			require.Contains(t, err.Error(), `PUT /v1/schema/C/properties/title/index/filterable -d '{"tokenization":"field"}'`)
 		})
