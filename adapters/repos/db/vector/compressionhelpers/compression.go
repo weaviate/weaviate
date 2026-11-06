@@ -1000,6 +1000,43 @@ func NewCenteredRQ4Compressor(
 	return rqVectorsCompressor, nil
 }
 
+// NewCenteredRQ1Compressor is the 1-bit sibling of NewCenteredRQ4Compressor:
+// same deferred-training activation, same RQData persistence, word codes.
+func NewCenteredRQ1Compressor(
+	distance distancer.Provider,
+	vectorCacheMaxObjects int,
+	logger logrus.FieldLogger,
+	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
+	makeBucketOptions lsmkv.MakeBucketOptions,
+	dim int,
+	mean []float32,
+	bucketName string,
+	vectorForID common.VectorForID[float32],
+) (VectorCompressor, error) {
+	quantizer, err := NewCenteredBinaryRotationalQuantizer(dim, DefaultFastRotationSeed, mean, distance)
+	if err != nil {
+		return nil, err
+	}
+	rqVectorsCompressor := &quantizedVectorsCompressor[uint64]{
+		quantizer:         quantizer,
+		compressedStore:   store,
+		storeId:           binary.BigEndian.PutUint64,
+		loadId:            binary.BigEndian.Uint64,
+		bucketName:        bucketName,
+		logger:            logger,
+		makeBucketOptions: makeBucketOptions,
+		vectorForID:       vectorForID,
+	}
+	if err := rqVectorsCompressor.initCompressedStore(); err != nil {
+		return nil, err
+	}
+	rqVectorsCompressor.cache = cache.NewShardedUInt64LockCache(
+		rqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
+		0, allocChecker)
+	return rqVectorsCompressor, nil
+}
+
 func RestoreRQCompressor(
 	distance distancer.Provider,
 	vectorCacheMaxObjects int,
@@ -1018,18 +1055,24 @@ func RestoreRQCompressor(
 	bucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
-	if mean != nil && bits != 4 {
-		return nil, errors.New("RQ centering requires bits=4")
+	if mean != nil && bits != 4 && bits != 1 {
+		return nil, errors.New("RQ centering requires bits=4 or bits=1")
 	}
 	var rqVectorsCompressor VectorCompressor
 	switch bits {
 	case 1:
-		quantizer, err := RestoreBinaryRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, rounding, distance)
+		var rq1Quantizer quantizer[uint64]
+		var err error
+		if mean != nil {
+			rq1Quantizer, err = RestoreCenteredBinaryRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, mean, distance)
+		} else {
+			rq1Quantizer, err = RestoreBinaryRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, rounding, distance)
+		}
 		if err != nil {
 			return nil, err
 		}
 		rqVectorsCompressor = &quantizedVectorsCompressor[uint64]{
-			quantizer:         quantizer,
+			quantizer:         rq1Quantizer,
 			compressedStore:   store,
 			storeId:           binary.BigEndian.PutUint64,
 			loadId:            binary.BigEndian.Uint64,

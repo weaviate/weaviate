@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	vectorindexcommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
@@ -1531,6 +1532,15 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 		if parsed != nil && parsed.IsMultiVector() {
 			return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
 		}
+		if parsed != nil {
+			var initialParsed schemaConfig.VectorIndexConfig
+			if initial != nil {
+				initialParsed, _ = h.parseLegacyVectorIndexConfig(initial)
+			}
+			if err := validateRQDistance(parsed, initialParsed); err != nil {
+				return err
+			}
+		}
 		// Grandfather: same compression set ⇒ skip the policy check.
 		if parsed != nil && !legacyCompressionUnchanged(parsed, initial, h) {
 			if err := h.validateAllowedCompression(class.VectorIndexType, parsed); err != nil {
@@ -1581,6 +1591,15 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 		if err := validateCreateUpdateOnlyBounds(parsed); err != nil {
 			return fmt.Errorf("target vector %q: %w", name, err)
 		}
+		var initialParsed schemaConfig.VectorIndexConfig
+		if initial != nil {
+			if initCfg, ok := initial.VectorConfig[name]; ok {
+				initialParsed, _ = h.parseNamedVectorIndexConfig(name, initCfg)
+			}
+		}
+		if err := validateRQDistance(parsed, initialParsed); err != nil {
+			return fmt.Errorf("target vector %q: %w", name, err)
+		}
 		// Grandfather: same VectorIndexType + same compressions on this
 		// named-vector entry ⇒ skip the policy check.
 		if namedCompressionUnchanged(parsed, name, initial, h) {
@@ -1599,6 +1618,52 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 func validateCreateUpdateOnlyBounds(parsed schemaConfig.VectorIndexConfig) error {
 	if uc, ok := parsed.(enthfresh.UserConfig); ok {
 		return enthfresh.ValidateMuveraUpperBounds(uc)
+	}
+	return nil
+}
+
+// validateRQDistance applies common.ValidateRQDistance to every RQ-capable
+// index the config describes: hnsw, flat, and both arms of a dynamic index,
+// which compress under the dynamic index's distance. It runs on create and
+// update only, never on startup parsing. An index whose stored config already
+// has RQ enabled is grandfathered: distance and bits are immutable once set,
+// so rejecting it would only block unrelated updates.
+func validateRQDistance(parsed, initialParsed schemaConfig.VectorIndexConfig) error {
+	grandfathered := map[string]bool{}
+	for _, arm := range rqArms(initialParsed) {
+		grandfathered[arm.name] = arm.enabled
+	}
+	for _, arm := range rqArms(parsed) {
+		if grandfathered[arm.name] {
+			continue
+		}
+		if err := vectorindexcommon.ValidateRQDistance(arm.enabled, arm.distance); err != nil {
+			if arm.name != "" {
+				return fmt.Errorf("%s: %w", arm.name, err)
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+type rqArm struct {
+	name     string // "" for a plain index, "hnsw"/"flat" for a dynamic arm
+	enabled  bool
+	distance string
+}
+
+func rqArms(parsed schemaConfig.VectorIndexConfig) []rqArm {
+	switch uc := parsed.(type) {
+	case hnsw.UserConfig:
+		return []rqArm{{"", uc.RQ.Enabled, uc.Distance}}
+	case flat.UserConfig:
+		return []rqArm{{"", uc.RQ.Enabled, uc.Distance}}
+	case dynamic.UserConfig:
+		return []rqArm{
+			{"hnsw", uc.HnswUC.RQ.Enabled, uc.Distance},
+			{"flat", uc.FlatUC.RQ.Enabled, uc.Distance},
+		}
 	}
 	return nil
 }
