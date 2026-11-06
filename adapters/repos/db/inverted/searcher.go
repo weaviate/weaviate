@@ -334,6 +334,33 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
 }
 
+// shrinkBudgetForContainsFold gives back the part of ctx's budget plan's fold
+// leaves idle, and returns the func that asks for it again, which gets back only
+// free units. Under DISABLE_SROAR_MERGE_BUDGET the merges ignore the budget, so
+// nothing is given back.
+func shrinkBudgetForContainsFold(ctx context.Context, plan containsFoldPlan) (restore func()) {
+	noop := func() {}
+	if concurrency.BudgetCapDisabled() {
+		return noop
+	}
+	need := containsFoldMergeFactor * plan.workers
+	held := concurrency.BudgetFromCtx(ctx, need)
+	if need >= held {
+		return noop
+	}
+	shrunk := concurrency.ResizeBudget(ctx, need)
+	if shrunk >= held {
+		return noop
+	}
+	return func() {
+		restored := concurrency.ResizeBudget(ctx, held)
+		if helpers.HasSlowQueryDetails(ctx) {
+			helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_budget",
+				map[string]int{"held": held, "shrunk": shrunk, "restored": restored})
+		}
+	}
+}
+
 // extractPropValuePair is the entry point. It delegates type-dispatched
 // construction of the propValuePair tree to buildPropValuePair, then
 // runs a single post-order pass over the tree to group same-root
@@ -1343,6 +1370,47 @@ func getContainsOperands[T any](propType schema.DataType, path *filters.Path, va
 	return operands
 }
 
+// containsDesugaredEntry is one Contains filter that took the desugared path.
+type containsDesugaredEntry struct {
+	prop      string
+	operator  string
+	reason    string
+	numValues int
+}
+
+// reduceContainsDesugared merges entries with the same property, operator and
+// reason, so the record does not grow with the clauses of a generated filter.
+func reduceContainsDesugared(entries []containsDesugaredEntry) []map[string]any {
+	type group struct{ prop, operator, reason string }
+	positions := make(map[group]int)
+	var merged []containsDesugaredEntry
+	var counts []int
+	for _, entry := range entries {
+		key := group{entry.prop, entry.operator, entry.reason}
+		i, ok := positions[key]
+		if !ok {
+			positions[key] = len(merged)
+			merged = append(merged, entry)
+			counts = append(counts, 1)
+			continue
+		}
+		merged[i].numValues += entry.numValues
+		counts[i]++
+	}
+
+	out := make([]map[string]any, len(merged))
+	for i, m := range merged {
+		out[i] = map[string]any{
+			"prop":       m.prop,
+			"operator":   m.operator,
+			"reason":     m.reason,
+			"num_values": m.numValues,
+			"count":      counts[i],
+		}
+	}
+	return out
+}
+
 // desugaredContains resolves the filter through the per-value path: one
 // Equal leaf per operand, combined under the operator.
 //
@@ -1353,14 +1421,12 @@ func getContainsOperands[T any](propType schema.DataType, path *filters.Path, va
 func (s *Searcher) desugaredContains(ctx context.Context, operator filters.Operator,
 	class *models.Class, path *filters.Path, operands []filters.Clause, declineReason string,
 ) (*propValuePair, error) {
-	helpers.AnnotateSlowQueryLogAppendFunc(ctx, "contains_desugared", func() map[string]any {
-		return map[string]any{
-			"prop":       string(path.Property),
-			"operator":   operator.Name(),
-			"reason":     declineReason,
-			"num_values": len(operands),
-		}
-	})
+	helpers.AnnotateSlowQueryLogAppendReducible(ctx, "contains_desugared", containsDesugaredEntry{
+		prop:      string(path.Property),
+		operator:  operator.Name(),
+		reason:    declineReason,
+		numValues: len(operands),
+	}, reduceContainsDesugared)
 
 	children, err := s.extractPropValuePairs(ctx, operands, operator, schema.ClassName(class.Class))
 	if err != nil {

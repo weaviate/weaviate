@@ -498,6 +498,53 @@ func TestShardReplicationFSM_HasActiveSelfRecoveryTargetingShard(t *testing.T) {
 	}
 }
 
+func TestShardReplicationFSM_HasActiveMoveTargetingShard(t *testing.T) {
+	const (
+		coll  = "TestClass"
+		shard = "shard1"
+	)
+
+	cases := []struct {
+		name     string
+		seed     func(t *testing.T, fsm *replication.ShardReplicationFSM)
+		replica  string
+		expected bool
+	}{
+		{
+			name: "MOVE targeting this node, INTEGRATING",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.MOVE)
+				driveToState(t, fsm, 1, api.INTEGRATING)
+			},
+			replica: "node2", expected: true,
+		},
+		{
+			name: "queried replica is the MOVE's source",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node2", "node3", coll, shard, api.MOVE)
+				driveToState(t, fsm, 1, api.INTEGRATING)
+			},
+			replica: "node2", expected: false,
+		},
+		{
+			name: "COPY targeting this node is not a MOVE",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				driveToState(t, fsm, 1, api.INTEGRATING)
+			},
+			replica: "node2", expected: false,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+			tt.seed(t, fsm)
+			assert.Equal(t, tt.expected, fsm.HasActiveMoveTargetingShard(coll, shard, tt.replica))
+		})
+	}
+}
+
 func TestShardReplicationFSM_HasActiveTargetReplicationForShardDoesNotAllocate(t *testing.T) {
 	const (
 		coll   = "TestClass"

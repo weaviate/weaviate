@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"runtime"
 
 	"github.com/buger/jsonparser"
 	"github.com/go-openapi/strfmt"
@@ -27,6 +26,7 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	errwrap "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -469,21 +469,22 @@ func withBatchLookup(bucket bucket, fn func(secondaryLookup) ([]*Object, error))
 // returns the decoded objects, dropping entries whose payload is missing.
 // Object.Class on each decoded object is stamped from bucket.ClassName(); the
 // bucket must have been opened with lsmkv.WithClassName, otherwise
-// bucket.ClassName() returns an error and the call fails.
-func ObjectsByDocID(bucket bucket, ids []uint64,
+// bucket.ClassName() returns an error and the call fails. ctx sets only how
+// many workers the fetch runs, and a cancelled ctx does not stop the fetch.
+func ObjectsByDocID(ctx context.Context, bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
-	return objectsByDocID(bucket, ids, additional, properties, logger, false)
+	return objectsByDocID(ctx, bucket, ids, additional, properties, logger, false)
 }
 
 // ObjectsByDocIDWithEmpty is like ObjectsByDocID but preserves nil entries at
 // positions where a doc ID has no payload, so the returned slice always has
 // the same length as ids. Object.Class is stamped from bucket.ClassName() —
 // see ObjectsByDocID for the bucket-resolution contract.
-func ObjectsByDocIDWithEmpty(bucket bucket, ids []uint64,
+func ObjectsByDocIDWithEmpty(ctx context.Context, bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
-	return objectsByDocID(bucket, ids, additional, properties, logger, true)
+	return objectsByDocID(ctx, bucket, ids, additional, properties, logger, true)
 }
 
 // ObjectsByDocIDWithDists resolves the doc IDs of a vector search together
@@ -492,13 +493,13 @@ func ObjectsByDocIDWithEmpty(bucket bucket, ids []uint64,
 // a torn delete whose tombstone has not landed yet) is dropped together with
 // its distance, so the returned slices keep the same length and pairing and
 // the order of the surviving hits. Both slices are compacted in place.
-func ObjectsByDocIDWithDists(bucket bucket, ids []uint64, dists []float32,
+func ObjectsByDocIDWithDists(ctx context.Context, bucket bucket, ids []uint64, dists []float32,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, []float32, error) {
 	if len(dists) != len(ids) {
 		return nil, nil, fmt.Errorf("objects by doc id: %d ids but %d distances", len(ids), len(dists))
 	}
-	objs, err := objectsByDocID(bucket, ids, additional, properties, logger, true)
+	objs, err := objectsByDocID(ctx, bucket, ids, additional, properties, logger, true)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -514,7 +515,7 @@ func ObjectsByDocIDWithDists(bucket bucket, ids []uint64, dists []float32,
 	return objs[:j], dists[:j], nil
 }
 
-func objectsByDocID(bucket bucket, ids []uint64,
+func objectsByDocID(ctx context.Context, bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 	includeEmpty bool,
 ) ([]*Object, error) {
@@ -525,24 +526,30 @@ func objectsByDocID(bucket bucket, ids []uint64,
 		if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
 			return objectsByDocIDSequentialInner(bucket, lookup, ids, additional, properties, includeEmpty)
 		}
-		return objectsByDocIDParallelInner(bucket, lookup, ids, additional, properties, logger, includeEmpty)
+		return objectsByDocIDParallelInner(bucket, lookup, ids, additional, properties, logger,
+			includeEmpty, fetchWorkers(ctx, len(ids)))
 	})
 }
 
-func objectsByDocIDParallel(bucket bucket, ids []uint64,
+func objectsByDocIDParallel(ctx context.Context, bucket bucket, ids []uint64,
 	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
 	return withBatchLookup(bucket, func(lookup secondaryLookup) ([]*Object, error) {
-		return objectsByDocIDParallelInner(bucket, lookup, ids, addProp, properties, logger, false)
+		return objectsByDocIDParallelInner(bucket, lookup, ids, addProp, properties, logger,
+			false, fetchWorkers(ctx, len(ids)))
 	})
+}
+
+// fetchWorkers allows twice GOMAXPROCS because a fetch is mostly IO-bound, and
+// fewer when the query budget in ctx is smaller.
+func fetchWorkers(ctx context.Context, nIDs int) int {
+	return concurrency.NumWorkers(ctx, nIDs, concurrency.CurrentGOMAXPROCSx2())
 }
 
 func objectsByDocIDParallelInner(bucket bucket, lookup secondaryLookup, ids []uint64,
 	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
-	includeEmpty bool,
+	includeEmpty bool, parallel int,
 ) ([]*Object, error) {
-	parallel := 2 * runtime.GOMAXPROCS(0)
-
 	out := make([]*Object, len(ids))
 
 	chunkSize := max(int(math.Ceil(float64(len(ids))/float64(parallel))), 1)
@@ -550,8 +557,6 @@ func objectsByDocIDParallelInner(bucket bucket, lookup secondaryLookup, ids []ui
 	eg := errwrap.NewErrorGroupWrapper(logger)
 
 	// prevent unbounded concurrency on massive chunks
-	// it's fine to use a multiple of GOMAXPROCS here, as the goroutines are
-	// mostly IO-bound
 	eg.SetLimit(parallel)
 	for chunk := 0; chunk < parallel; chunk++ {
 		start := chunk * chunkSize

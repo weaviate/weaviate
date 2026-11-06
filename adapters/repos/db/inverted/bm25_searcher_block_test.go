@@ -53,7 +53,7 @@ func TestCombineResults_PropagatesGetObjectsError(t *testing.T) {
 	allExplanation := [][][][]*terms.DocPointerWithScore{{{{nil}}}}
 	queryTerms := [][]string{{"journey"}}
 
-	objects, scores, err := b.combineResults(allIds, allScores, allExplanation, queryTerms, additional.Properties{}, 10)
+	objects, scores, err := b.combineResults(context.Background(), allIds, allScores, allExplanation, queryTerms, additional.Properties{}, 10)
 	require.Error(t, err, "combineResults must propagate the objects-loading error rather than swallow it")
 	require.Nil(t, objects)
 	require.Nil(t, scores)

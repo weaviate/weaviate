@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rolevisibility"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -60,6 +61,68 @@ type authZHandlers struct {
 type ControllerAndGetUsers interface {
 	authorization.Controller
 	GetUsers(userIds ...string) (map[string]apikey.UserView, error)
+}
+
+// UserGetter looks up dynamic DB users.
+type UserGetter interface {
+	GetUsers(userIds ...string) (map[string]apikey.UserView, error)
+}
+
+// InertController backs the role API on a cluster with RBAC disabled: every
+// mutation returns nil without effect and every RBAC getter returns the empty
+// value. GetUsers delegates to Users, because user existence is not RBAC state.
+type InertController struct {
+	Users UserGetter
+}
+
+var _ ControllerAndGetUsers = InertController{}
+
+func (InertController) UpdateRolesPermissions(map[string][]authorization.Policy) error {
+	return nil
+}
+
+func (InertController) CreateRolesPermissions(map[string][]authorization.Policy) error {
+	return nil
+}
+
+func (InertController) DeleteRoles(...string) error {
+	return nil
+}
+
+func (InertController) AddRolesForUser(string, []string) error {
+	return nil
+}
+
+func (InertController) RevokeRolesForUser(string, ...string) error {
+	return nil
+}
+
+func (InertController) RemovePermissions(string, []*authorization.Policy) error {
+	return nil
+}
+
+func (InertController) GetRoles(...string) (map[string][]authorization.Policy, error) {
+	return nil, nil
+}
+
+func (InertController) GetRolesForUserOrGroup(string, authentication.AuthType, bool) (map[string][]authorization.Policy, error) {
+	return nil, nil
+}
+
+func (InertController) GetUsersOrGroupForRole(string, authentication.AuthType, bool) ([]string, error) {
+	return nil, nil
+}
+
+func (InertController) HasPermission(string, *authorization.Policy) (bool, error) {
+	return false, nil
+}
+
+func (InertController) GetUsersOrGroupsWithRoles(bool, authentication.AuthType) ([]string, error) {
+	return nil, nil
+}
+
+func (c InertController) GetUsers(userIds ...string) (map[string]apikey.UserView, error) {
+	return c.Users.GetUsers(userIds...)
 }
 
 func SetupHandlers(api *operations.WeaviateAPI, controller ControllerAndGetUsers,
@@ -120,14 +183,9 @@ func (h *authZHandlers) authorizeRoleScopes(ctx context.Context, principal *mode
 
 	// Check if user can manage roles with matching permissions
 	if err = h.authorizer.Authorize(ctx, principal, authorization.VerbWithScope(originalVerb, authorization.ROLE_SCOPE_MATCH), authorization.Roles(roleName)...); err == nil {
-		// Verify user has all permissions they're trying to grant
-		var errs error
-		for _, policy := range policies {
-			if err := h.authorizer.AuthorizeSilent(ctx, principal, policy.Verb, policy.Resource); err != nil {
-				errs = errors.Join(errs, err)
-			}
-		}
-		return errs
+		// Verify user has all permissions they're trying to grant. The policies
+		// are in stored form already, so nothing is projected.
+		return rolevisibility.AuthorizePolicies(ctx, h.authorizer, principal, "", policies)
 	}
 
 	return fmt.Errorf("can only create roles with less or equal permissions as the current user: %w", err)
@@ -271,37 +329,10 @@ func (h *authZHandlers) resolveRoleForRead(ctx context.Context, principal *model
 
 // authorizeAssignRolePermissions blocks privilege escalation via role
 // assignment: the caller must already hold every permission the assigned roles
-// grant, else assign_and_revoke_users alone could be used to grant admin. For a
-// namespaced caller each permission is projected into the assignee's namespace
-// before the check, so a global template role is evaluated as it applies to the
-// assignee rather than against its raw unqualified resource strings.
+// grant, else assign_and_revoke_users alone could be used to grant admin.
 func (h *authZHandlers) authorizeAssignRolePermissions(ctx context.Context, principal *models.Principal, targetNamespace string, roles map[string][]authorization.Policy) error {
-	namespaced := rolevisibility.CallerConfined(h.namespacesEnabled, principal)
-	var errs error
-	for _, policies := range roles {
-		for _, policy := range policies {
-			// GetRoles returns this placeholder for permission-less roles; it grants nothing.
-			if policy.Resource == conv.InternalPlaceHolder {
-				continue
-			}
-			resource := policy.Resource
-			if namespaced {
-				projected, err := namespacing.ProjectResourceForNamespace(policy.Resource, targetNamespace)
-				if err != nil {
-					// A role bound elsewhere can't be granted here; deny without
-					// echoing the foreign resource back to the caller.
-					errs = errors.Join(errs, errors.New("role grants a permission you do not hold"))
-					continue
-				}
-				resource = projected
-			}
-			if err := h.authorizer.AuthorizeSilent(ctx, principal, policy.Verb, resource); err != nil {
-				errs = errors.Join(errs, err)
-			}
-		}
-	}
-	if errs != nil {
-		return fmt.Errorf("can only assign roles with less or equal permissions as the current user: %w", errs)
+	if err := rolevisibility.AuthorizeRolePermissions(ctx, h.authorizer, h.namespacesEnabled, principal, targetNamespace, roles); err != nil {
+		return fmt.Errorf("can only assign roles with less or equal permissions as the current user: %w", err)
 	}
 	return nil
 }
@@ -659,7 +690,7 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 
 	var response []*models.Role
 	for roleName, policies := range roles {
-		if roleName == authorization.Root && !slices.Contains(h.rbacconfig.RootUsers, principal.Username) {
+		if roleName == authorization.Root && (principal == nil || !slices.Contains(h.rbacconfig.RootUsers, principal.Username)) {
 			continue
 		}
 
@@ -1390,6 +1421,10 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		return authz.NewRevokeRoleFromUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
+	if err := h.validateNotConfiguredGrant(internalID, authentication.AuthType(params.Body.UserType), roleNames); err != nil {
+		return authz.NewRevokeRoleFromUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
 	existedRoles, err := h.controller.GetRoles(roleNames...)
 	if err != nil {
 		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRoles: %w", err)))
@@ -1637,6 +1672,41 @@ func (h *authZHandlers) getUserTypesAndValidateExistence(id string, userTypePara
 func validateEnvVarRoles(name string) error {
 	if slices.Contains(authorization.EnvVarRoles, name) {
 		return fmt.Errorf("modifying '%s' role or changing its assignments is not allowed", name)
+	}
+	return nil
+}
+
+// configuredGrantSettings maps each role rbac.AdminViewerGrants can return to
+// the environment variable and the config-file key that grant it.
+var configuredGrantSettings = map[string]string{
+	authorization.Admin:  "the EXPERIMENTAL_AUTHORIZATION_RBAC_ADMIN_USERS env var or the admin_users config key",
+	authorization.Viewer: "the EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_USERS env var or the viewer_users config key",
+}
+
+// validateNotConfiguredGrant refuses to revoke a role that this node's config
+// grants to internalID (see rbac.AdminViewerGrants). Every boot adds such a
+// grant back. With RBAC disabled, config grants take no effect, so this
+// refuses nothing. An empty userType checks both user types, as
+// getUserTypesAndValidateExistence does. A user with such a grant always passes
+// that existence check, so this check does not need to call the controller.
+func (h *authZHandlers) validateNotConfiguredGrant(internalID string, userType authentication.AuthType, roleNames []string) error {
+	if !h.rbacconfig.Enabled {
+		return nil
+	}
+	userTypes := []authentication.AuthType{userType}
+	if userType == "" {
+		userTypes = []authentication.AuthType{authentication.AuthTypeOIDC, authentication.AuthTypeDb}
+	}
+	grants := rbac.AdminViewerGrants(h.rbacconfig, config.Authentication{APIKey: h.apiKeysConfigs, OIDC: h.oidcConfigs})
+	for _, g := range grants {
+		if !slices.Contains(roleNames, g.Role) {
+			continue
+		}
+		for _, t := range userTypes {
+			if g.Subject == conv.UserNameWithTypeFromId(internalID, t) {
+				return fmt.Errorf("revoking: role '%s' of user '%s' is set by %s; remove the user from that setting instead", g.Role, internalID, configuredGrantSettings[g.Role])
+			}
+		}
 	}
 	return nil
 }

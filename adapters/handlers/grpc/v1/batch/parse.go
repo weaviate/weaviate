@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -45,6 +46,13 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 		var props map[string]interface{}
 
 		collection := schema.UppercaseClassName(obj.Collection)
+		// An empty collection fails this object alone, before anything is parsed.
+		// Resolving it would qualify it to "<namespace>:" for a namespaced caller,
+		// and authorizing it would check every collection for anyone else.
+		if collection == "" {
+			objectErrors[i] = objects.ErrEmptyClass
+			continue
+		}
 		resolved, class, err := authorizedGetClass(collection, obj.Tenant)
 		if err != nil {
 			objectErrors[i] = err

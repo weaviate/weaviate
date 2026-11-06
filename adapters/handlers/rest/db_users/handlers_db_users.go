@@ -60,7 +60,7 @@ type dynUserHandler struct {
 	authorizer                authorization.Authorizer
 	dbUsers                   DbUserAndRolesGetter
 	localUsers                LocalUsersGetter
-	localRoles                authorization.Controller // nil when RBAC is disabled
+	localRoles                authorization.Controller // non-nil; read only when RBAC is enabled
 	staticApiKeysConfigs      config.StaticAPIKey
 	rbacConfig                rbacconf.Config
 	adminListConfig           adminlist.Config
@@ -202,7 +202,7 @@ func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *mo
 	// The list reads roles once per user, so it reads this node's controller
 	// rather than querying the leader.
 	var roles map[string][]authorization.Policy
-	if h.localRoles != nil {
+	if h.rbacConfig.Enabled {
 		var err error
 		roles, err = h.localRoles.GetRolesForUserOrGroup(internalID, authentication.AuthTypeDb, false)
 		if err != nil {
@@ -309,9 +309,12 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 	}
 	response.DbUserType = &userType
 
-	existingRoles, err := h.dbUsers.GetRolesForUserOrGroup(internalKey, authentication.AuthTypeDb, false)
-	if err != nil {
-		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("get roles: %w", err)))
+	var existingRoles map[string][]authorization.Policy
+	if h.rbacConfig.Enabled {
+		existingRoles, err = h.dbUsers.GetRolesForUserOrGroup(internalKey, authentication.AuthTypeDb, false)
+		if err != nil {
+			return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("get roles: %w", err)))
+		}
 	}
 
 	own := apikey.IsOwnUser(principal, internalKey)
