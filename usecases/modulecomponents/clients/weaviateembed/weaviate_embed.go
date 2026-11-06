@@ -79,7 +79,7 @@ func (c *Client[T]) Vectorize(ctx context.Context, input []string, query bool, d
 
 	url, err := c.getWeaviateEmbedURL(ctx, baseURL)
 	if err != nil {
-		return nil, errors.Wrap(err, "join API host and path")
+		return nil, errors.Wrap(err, "embedding service URL")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
@@ -129,13 +129,11 @@ func (c *Client[T]) Vectorize(ctx context.Context, input []string, query bool, d
 }
 
 func (c *Client[T]) getWeaviateEmbedURL(ctx context.Context, baseURL string) (string, error) {
-	var host string
-	if baseURL != "" {
-		host = baseURL
-	} else {
-		host = DefaultBaseURL
+	origin, err := resolveOrigin(baseURL)
+	if err != nil {
+		return "", err
 	}
-	return url.JoinPath(host, URLPath)
+	return url.JoinPath(origin, URLPath)
 }
 
 func getToken(ctx context.Context) (string, error) {

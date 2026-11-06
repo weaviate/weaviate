@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/weaviateembed"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
@@ -139,11 +140,6 @@ func Test_classSettings_ValidateBaseURL(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "valid HTTPS URL",
-			baseURL: "https://api.openai.com",
-			wantErr: false,
-		},
-		{
 			name:    "HTTP URL is rejected",
 			baseURL: "http://api.example.com",
 			wantErr: true,
@@ -189,6 +185,46 @@ func Test_classSettings_ValidateBaseURL(t *testing.T) {
 			err := cs.Validate(class)
 			if tt.wantErr {
 				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func Test_classSettings_ValidateBaseURL_allowlist(t *testing.T) {
+	class := &models.Class{
+		Class:      "test",
+		Properties: []*models.Property{{DataType: []string{schema.DataTypeText.String()}, Name: "test"}},
+	}
+	tests := []struct {
+		name          string
+		baseURL       string
+		allowlist     string
+		ssrfCheckOn   bool
+		wantErrSubstr string
+	}{
+		{name: "module default", baseURL: DefaultBaseURL},
+		{name: "embedding service", baseURL: weaviateembed.DefaultBaseURL},
+		{name: "public host", baseURL: "https://other.example.com", wantErrSubstr: "is not allowed"},
+		{name: "allowlisted host", baseURL: "https://1.1.1.1", allowlist: "https://1.1.1.1"},
+		{
+			name: "allowlisting does not bypass the SSRF check", baseURL: "https://127.0.0.1", allowlist: "https://127.0.0.1",
+			ssrfCheckOn: true, wantErrSubstr: "internal addresses",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(weaviateembed.AllowedBaseURLsEnv, tt.allowlist)
+			if tt.ssrfCheckOn {
+				t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+			}
+			cs := NewClassSettings(&fakeClassConfig{classConfig: map[string]interface{}{"baseURL": tt.baseURL}})
+
+			err := cs.Validate(class)
+
+			if tt.wantErrSubstr != "" {
+				assert.ErrorContains(t, err, tt.wantErrSubstr)
 			} else {
 				assert.NoError(t, err)
 			}
