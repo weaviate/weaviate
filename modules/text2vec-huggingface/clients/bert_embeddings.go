@@ -11,7 +11,10 @@
 
 package clients
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 type bertEmbeddingsDecoder struct{}
 
@@ -20,22 +23,30 @@ func newBertEmbeddingsDecoder() *bertEmbeddingsDecoder {
 }
 
 func (d bertEmbeddingsDecoder) calculateVector(embeddings [][]float32) ([]float32, error) {
-	if len(embeddings) > 0 {
-		vectorLen := len(embeddings[0])
-		sumEmbeddings := make([]float32, vectorLen)
-		embeddingsLen := len(embeddings)
-		var sum float32
-		for i := 0; i < vectorLen; i++ {
-			sum = 0
-			for j := 0; j < embeddingsLen; j++ {
-				sum += embeddings[j][i]
-			}
-			sumEmbeddings[i] = sum
-		}
-		for i := range sumEmbeddings {
-			sumEmbeddings[i] = sumEmbeddings[i] / float32(embeddingsLen)
-		}
-		return sumEmbeddings, nil
+	if len(embeddings) == 0 {
+		return nil, errors.New("missing embeddings")
 	}
-	return nil, errors.New("missing embeddings")
+	vectorLen := len(embeddings[0])
+	if vectorLen == 0 {
+		return nil, errors.New("token vector 0 has no dimensions")
+	}
+	for j := range embeddings {
+		if len(embeddings[j]) != vectorLen {
+			return nil, fmt.Errorf("token vector %d has %d dimensions, expected %d", j, len(embeddings[j]), vectorLen)
+		}
+	}
+	sumEmbeddings := make([]float32, vectorLen)
+	embeddingsLen := len(embeddings)
+	var sum float32
+	for i := 0; i < vectorLen; i++ {
+		sum = 0
+		for j := 0; j < embeddingsLen; j++ {
+			sum += embeddings[j][i]
+		}
+		sumEmbeddings[i] = sum
+	}
+	for i := range sumEmbeddings {
+		sumEmbeddings[i] = sumEmbeddings[i] / float32(embeddingsLen)
+	}
+	return sumEmbeddings, nil
 }
