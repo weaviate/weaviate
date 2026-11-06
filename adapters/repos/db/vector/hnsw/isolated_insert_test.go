@@ -208,8 +208,9 @@ func TestInsertRetriesFromGlobalEntrypointBeforeTakingOver(t *testing.T) {
 	require.Equal(t, uint64(0), f.index.getEntrypoint())
 
 	node := publish(3)
-	require.NoError(t, f.index.findAndConnectNeighbors(f.ctx, 3, node, 5, f.vectors[3], nil, 0, 0,
-		helpers.NewAllowList()))
+	nfc := newNeighborFinderConnector(f.index, 3, node, 5, f.vectors[3], nil, 0, 0,
+		helpers.NewAllowList(3), false, nil)
+	require.NoError(t, nfc.Do(f.ctx))
 
 	require.Equal(t, uint64(0), f.index.getEntrypoint(), "live nodes are in reach of the entrypoint")
 	require.NotEmpty(t, node.connections.GetLayer(0))

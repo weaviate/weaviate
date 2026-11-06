@@ -33,6 +33,8 @@ import (
 // PutObjectBatch returns one error per object, in input order, refusals of the
 // whole batch included. The caller maps position i onto that object's position
 // in its own batch, so a shorter slice reports the objects it omits as written.
+// Writes under withReplicaRepair or withChangeLogReplay skip the object cap,
+// because they copy objects the cluster already accepted.
 func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
@@ -40,8 +42,10 @@ func (s *Shard) PutObjectBatch(ctx context.Context,
 		return duplicateErr(err, len(objects))
 	}
 
-	if err := s.index.usageLimits.CheckObjects(ctx, int64(len(objects)), s.index.Config.ClassName.String()); err != nil {
-		return duplicateErr(err, len(objects))
+	if !fromReplicaRepair(ctx) && !fromChangeLogReplay(ctx) {
+		if err := s.index.usageLimits.CheckObjects(ctx, int64(len(objects)), s.index.Config.ClassName.String()); err != nil {
+			return duplicateErr(err, len(objects))
+		}
 	}
 
 	return s.putBatch(ctx, objects)

@@ -24,6 +24,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -84,13 +85,13 @@ func NewGeoIndexQueue(
 	return newVectorIndexQueueWithID(shard, id, logger, "geo_"+propName, index, geoQueueChunkSize)
 }
 
-// newVectorIndexQueueWithID builds the queue draining into index. logger is
+// newVectorIndexQueueWithID builds the queue at queueID draining into index. logger is
 // the index's identified logger; metricsTargetVector labels the queue's
 // Prometheus series. chunkSize overrides the DiskQueue's default (10MB)
 // chunk size (0 = default) to bound how long one batch occupies a worker.
 func newVectorIndexQueueWithID(
 	shard *Shard,
-	indexID string,
+	queueID string,
 	logger logrus.FieldLogger,
 	metricsTargetVector string,
 	index VectorIndex,
@@ -111,10 +112,10 @@ func newVectorIndexQueueWithID(
 
 	q, err := queue.NewDiskQueue(
 		queue.DiskQueueOptions{
-			ID:        fmt.Sprintf("vector_index_queue_%s_%s", shard.ID(), indexID),
+			ID:        fmt.Sprintf("vector_index_queue_%s_%s", shard.ID(), queueID),
 			Logger:    logger,
 			Scheduler: shard.scheduler,
-			Dir:       filepath.Join(shard.path(), fmt.Sprintf("%s.queue.d", indexID)),
+			Dir:       filepath.Join(shard.path(), helpers.QueueDirName(queueID)),
 			TaskDecoder: &vectorIndexQueueDecoder{
 				q: &viq,
 			},
@@ -280,11 +281,20 @@ func (iq *VectorIndexQueue) BeforeSchedule() (skip bool) {
 	return iq.checkCompressionSettings()
 }
 
-// Flush the vector index after a batch is processed.
-func (iq *VectorIndexQueue) OnBatchProcessed() {
-	if err := iq.vectorIndex.Flush(); err != nil {
-		iq.Logger.WithError(err).Error("failed to flush vector index")
+// Flush the vector index after a batch is processed. A non-nil error keeps
+// the processed chunk on disk so the queue replays it on a later cycle.
+func (iq *VectorIndexQueue) OnBatchProcessed() error {
+	// the index keeps part of its data in the shard's buckets (e.g. multivector
+	// mappings, compressed vectors, HFresh postings), and its commit log must
+	// not reach the file before them
+	if store := iq.shard.Store(); store != nil {
+		err := store.WriteWALs()
+		if err != nil {
+			return err
+		}
 	}
+
+	return iq.vectorIndex.Flush()
 }
 
 type upgradableIndexer interface {

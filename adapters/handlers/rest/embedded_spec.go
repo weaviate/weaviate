@@ -1866,13 +1866,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No backup with this ID exists at this backend, bucket and path. Only callers with read_backups on all collections get 404; others get 403.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2007,13 +2007,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No restore of this backup was started at this backend, bucket and path.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5046,6 +5046,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
@@ -5574,6 +5580,12 @@ func init() {
           },
           "404": {
             "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6137,7 +6149,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6161,7 +6173,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6402,7 +6414,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6426,7 +6438,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8410,9 +8422,9 @@ func init() {
           "type": "string"
         },
         "dedupeConvergenceTimeoutSeconds": {
-          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. When omitted, BACKUP_DEDUPE_CONVERGENCE_TIMEOUT applies (15 seconds unless configured). The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
           "type": "integer",
-          "default": 60,
+          "default": 15,
           "maximum": 600,
           "minimum": 1,
           "x-nullable": false
@@ -14678,13 +14690,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No backup with this ID exists at this backend, bucket and path. Only callers with read_backups on all collections get 404; others get 403.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14819,13 +14831,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No restore of this backup was started at this backend, bucket and path.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -17980,6 +17992,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
@@ -18508,6 +18526,12 @@ func init() {
           },
           "404": {
             "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19071,7 +19095,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19095,7 +19119,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19336,7 +19360,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19360,7 +19384,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -21344,9 +21368,9 @@ func init() {
           "type": "string"
         },
         "dedupeConvergenceTimeoutSeconds": {
-          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. When omitted, BACKUP_DEDUPE_CONVERGENCE_TIMEOUT applies (15 seconds unless configured). The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
           "type": "integer",
-          "default": 60,
+          "default": 15,
           "maximum": 600,
           "minimum": 1,
           "x-nullable": false

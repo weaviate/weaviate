@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"path"
 
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -96,4 +97,36 @@ func (c *RemoteNode) GetStatistics(ctx context.Context, hostName string) (*model
 	}
 
 	return &statistics, nil
+}
+
+func (c *RemoteNode) GetRebalanceMeasurement(ctx context.Context, hostName string) (replicationTypes.RebalanceNodeMeasurement, error) {
+	p := "/replication/rebalance/measurement"
+	method := http.MethodGet
+	url := url.URL{Scheme: "http", Host: hostName, Path: p}
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
+	if err != nil {
+		return replicationTypes.RebalanceNodeMeasurement{}, enterrors.NewErrOpenHttpRequest(err)
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return replicationTypes.RebalanceNodeMeasurement{}, enterrors.NewErrSendHttpRequest(err)
+	}
+
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return replicationTypes.RebalanceNodeMeasurement{}, err
+	}
+	if res.StatusCode != http.StatusOK {
+		return replicationTypes.RebalanceNodeMeasurement{}, enterrors.NewErrUnexpectedStatusCode(res.StatusCode, body)
+	}
+
+	var measurement replicationTypes.RebalanceNodeMeasurement
+	if err := json.Unmarshal(body, &measurement); err != nil {
+		return replicationTypes.RebalanceNodeMeasurement{}, enterrors.NewErrUnmarshalBody(err)
+	}
+
+	return measurement, nil
 }

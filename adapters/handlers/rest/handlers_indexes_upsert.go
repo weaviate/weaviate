@@ -729,6 +729,9 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	} else {
 		shardOwnership, err = h.appState.DB.ShardReplicaOwnership(ctx, collection)
 	}
+	if errors.Is(err, db.ErrTenantsNotHot) {
+		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
+	}
 	if err != nil {
 		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 			fmt.Sprintf("getting shard ownership: %v", err)))
@@ -753,7 +756,8 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		return resp
 	}
 
-	if resp := h.cleanStalePartialStateOrFail(ctx, principal, h.appState.DB, collection, propertyName, migrationType); resp != nil {
+	if resp := h.cleanStalePartialStateOrFail(ctx, principal, h.appState.DB, h.reindexDrainSealer(),
+		collection, propertyName, tenants, migrationType, reindexTasks); resp != nil {
 		return resp
 	}
 
@@ -820,7 +824,57 @@ func buildReindexPayload(class *models.Class, collection string, properties []st
 // stalePartialStateCleaner opens a sweep over a property's partial reindex
 // sidecar dirs. *db.DB satisfies it.
 type stalePartialStateCleaner interface {
-	NewStalePartialReindexSweep() db.StalePartialReindexSweep
+	NewStalePartialReindexSweep(tenants []string) db.StalePartialReindexSweep
+}
+
+type localReindexDrainSealer interface {
+	SealLocalTaskDrain(ctx context.Context, desc distributedtask.TaskDescriptor) (func(), error)
+}
+
+func (h *indexesHandlers) reindexDrainSealer() localReindexDrainSealer {
+	if h.appState.ReindexProvider == nil {
+		return nil
+	}
+	return h.appState.ReindexProvider
+}
+
+func (h *indexesHandlers) sealLocalReindexWorkers(ctx context.Context, principal *models.Principal,
+	sealer localReindexDrainSealer, collection, propertyName string,
+	reindexTasks []*distributedtask.Task,
+) (func(), middleware.Responder) {
+	if sealer == nil {
+		return func() {}, nil
+	}
+	var held []func()
+	release := func() {
+		for _, unseal := range held {
+			unseal()
+		}
+	}
+	drainCtx, cancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
+	defer cancel()
+	for _, desc := range reindexTaskDescriptorsForProperty(reindexTasks, collection, propertyName, h.appState.Logger) {
+		unseal, err := sealer.SealLocalTaskDrain(drainCtx, desc)
+		if err != nil {
+			release()
+			entry := h.appState.Logger.WithFields(logrus.Fields{
+				"collection": collection,
+				"property":   propertyName,
+				"taskID":     desc.ID,
+			})
+			if errors.Is(err, context.Canceled) {
+				entry.Infof("submit: the request ended while waiting for an earlier task's local worker: %v", err)
+			} else {
+				entry.Errorf("submit: a local worker of an earlier task on this property has not exited, "+
+					"so pre-submit cleanup would race it; refusing submit: %v", err)
+			}
+			return nil, jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
+				"a local worker of an earlier reindex task on this property has not exited yet; "+
+					"pre-submit cleanup cannot run without racing it — retry shortly"))
+		}
+		held = append(held, unseal)
+	}
+	return release, nil
 }
 
 // cleanStalePartialStateOrFail scrubs pre-submit stale state for every index
@@ -833,7 +887,9 @@ type stalePartialStateCleaner interface {
 // produces that from a tenant leaving the shard map mid-walk. Refusing the
 // submit on it would turn ordinary tenant movement into a 500.
 func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, principal *models.Principal,
-	cleaner stalePartialStateCleaner, collection, propertyName string, migrationType db.ReindexMigrationType,
+	cleaner stalePartialStateCleaner, sealer localReindexDrainSealer,
+	collection, propertyName string, tenants []string, migrationType db.ReindexMigrationType,
+	reindexTasks []*distributedtask.Task,
 ) middleware.Responder {
 	indexTypesForCleanup, known := indexTypesFromMigrationType(migrationType)
 	if !known {
@@ -845,8 +901,14 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 			"internal error: unknown migration type; refusing submit (would skip stale-state cleanup)"))
 	}
+	release, resp := h.sealLocalReindexWorkers(ctx, principal, sealer, collection, propertyName, reindexTasks)
+	if resp != nil {
+		return resp
+	}
+	defer release()
+
 	// One sweep across the loop: every index type asks the same unloaded shards.
-	sweep := cleaner.NewStalePartialReindexSweep()
+	sweep := cleaner.NewStalePartialReindexSweep(tenants)
 	for _, it := range indexTypesForCleanup {
 		err := sweep(ctx, collection, propertyName, it)
 		if err == nil {
@@ -869,9 +931,7 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 	return nil
 }
 
-// mapSubmitTaskError classifies an AddDistributedTask error: an FSM conflict
-// (racing concurrent submit) maps to 409 with the task ID logged server-side,
-// not returned; everything else is a 500.
+// mapSubmitTaskError logs an ErrTaskConflict error but leaves it out of the 409, so the caller never sees the in-flight task's ID it names.
 func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collection, taskID string, err error) middleware.Responder {
 	if errors.Is(err, distributedtask.ErrTaskConflict) {
 		h.appState.Logger.WithFields(logrus.Fields{
@@ -881,6 +941,14 @@ func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collec
 		return jsonResponder(http.StatusConflict, errorResponse(principal,
 			"a conflicting reindex task on the same property is already in flight "+
 				"(a concurrent submit won the race); wait for it to finish or cancel it before retrying"))
+	}
+	if errors.Is(err, distributedtask.ErrTaskBlockedByReplicaMovement) {
+		return jsonResponder(http.StatusConflict, errorResponse(principal,
+			fmt.Sprintf("collection %q has a replica movement in flight; retry after it completes", collection)))
+	}
+	if errors.Is(err, distributedtask.ErrTaskReplicasChanged) {
+		return jsonResponder(http.StatusConflict, errorResponse(principal,
+			fmt.Sprintf("the shards or replicas of collection %q changed while the reindex was submitted; resubmit it against the current state", collection)))
 	}
 	return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 		fmt.Sprintf("submitting task: %v", err)))

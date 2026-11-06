@@ -12,6 +12,9 @@
 package backup
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -184,6 +187,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 			{name: "uncompressed 1.0", version: "1.0", serverVersion: metadata.ServerVersion, wantErr: errLegacyUncompressed},
 			{name: "uncompressed 1", version: "1", serverVersion: metadata.ServerVersion, wantErr: errLegacyUncompressed},
 			{name: "flat file structure", version: metadata.Version, serverVersion: "1.22", wantErr: errLegacyFlatFS},
+			{name: "unreadable server version", version: metadata.Version, serverVersion: "1", wantErr: errUnreadableServerVersion},
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
@@ -211,6 +215,21 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		bm := createManager(nil, nil, backend, nil)
 		resp := bm.OnCanCommit(ctx, &req)
 		assert.Contains(t, resp.Err, "not planned as a fan-out")
+		assert.Equal(t, time.Duration(0), resp.Timeout)
+	})
+
+	t.Run("RejectClassNameOutsideStagingDir", func(t *testing.T) {
+		crafted := metadata
+		crafted.Classes = []backup.ClassDescriptor{metadata.Classes[0]}
+		crafted.Classes[0].Name = "../../../../bin"
+		backend := newFakeBackend()
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(marshalMeta(crafted), nil)
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		bm := createManager(nil, nil, backend, nil)
+		resp := bm.OnCanCommit(ctx, &Request{
+			Method: OpRestore, ID: backupID, Backend: backendName, Duration: time.Millisecond * 20,
+		})
+		assert.Contains(t, resp.Err, "is not a valid class name")
 		assert.Equal(t, time.Duration(0), resp.Timeout)
 	})
 
@@ -253,6 +272,32 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		lastStatus := m.restorer.waitForCompletion(req.Backend, req.ID, 12, 50)
 		assert.Nil(t, err)
 		assert.Equal(t, lastStatus.Status, backup.Success)
+	})
+
+	t.Run("AdoptsMigrationRecordsFromTheBackupNode", func(t *testing.T) {
+		const sourceNode = "Node-0"
+		req := req
+		req.Duration = time.Hour
+		req.NodeMapping = map[string]string{sourceNode: nodeName}
+		sourceHome := backupID + "/" + sourceNode
+		dataPath := t.TempDir()
+		backend := newFakeBackend()
+		backend.chunks = map[string][]byte{chunkKey(cls, 1): tarGzWithFile(t, strings.ToLower(cls)+"/Shard1/marker")}
+		sourcer := &fakeSourcer{}
+		backend.On("GetObject", ctx, sourceHome, BackupFile).Return(marshalMeta(metadata), nil)
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		backend.On("SourceDataPath").Return(dataPath)
+		backend.On("Read", any, sourceHome, chunkKey(cls, 1), mock.Anything).Return(int64(0), nil)
+		m := createManager(sourcer, nil, backend, nil)
+		assert.Empty(t, m.OnCanCommit(ctx, &req).Err)
+		assert.Nil(t, m.OnCommit(ctx, &StatusRequest{Method: OpRestore, ID: req.ID, Backend: req.Backend}))
+		assert.Equal(t, backup.Success, m.restorer.waitForCompletion(req.Backend, req.ID, 12, 50).Status)
+		assert.Equal(t, []adoptedRecords{{
+			indexPath:    filepath.Join(dataPath, TempDirectory, cls, strings.ToLower(cls)),
+			node:         nodeName,
+			sourceNode:   sourceNode,
+			stagedShards: []string{"Shard1"},
+		}}, sourcer.adoptedCalls())
 	})
 
 	t.Run("Abort", func(t *testing.T) {
@@ -593,4 +638,15 @@ func TestAttemptGates(t *testing.T) {
 			})
 		}
 	}
+}
+
+func tarGzWithFile(t *testing.T, name string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644}))
+	require.NoError(t, tw.Close())
+	require.NoError(t, gz.Close())
+	return buf.Bytes()
 }

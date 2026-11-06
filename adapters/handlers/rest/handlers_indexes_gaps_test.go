@@ -29,11 +29,13 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/go-openapi/runtime"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -620,17 +622,6 @@ func TestMigrationTypeTargetsIndex(t *testing.T) {
 	}
 }
 
-// TestIndexTypesFromMigrationType locks in the contract that submit-time
-// pre-cleanup uses to decide which index sentinel dirs to wipe. The
-// critical case is ReindexTypeChangeTokenization (change-tokenization-both):
-// it MUST return both "searchable" and "filterable" so the submit handler
-// cleans up sentinel dirs from BOTH per-index sub-tasks. Returning only one
-// (or neither) reproduces the Sev 1 silent data loss where a stale
-// tidied.mig from a prior single-index retokenize causes the FilterableRetokenize
-// sub-task to short-circuit on OnAfterLsmInit's IsTidied check —
-// OnMigrationComplete still flips the schema's Tokenization, but the
-// filterable bucket retains the OLD tokenization (Journey 7 in
-// change_tok_delete_journeys_test.go).
 func TestIndexTypesFromMigrationType(t *testing.T) {
 	cases := []struct {
 		mt        db.ReindexMigrationType
@@ -845,6 +836,23 @@ func TestBuildUnitMaps_DeterministicSortAndCorrectMappings(t *testing.T) {
 	require.Equal(t, "node-1", unitToNode["shard-a__node-1"])
 	require.Equal(t, "shard-b", unitToShard["shard-b__node-2"])
 	require.Equal(t, "node-2", unitToNode["shard-b__node-2"])
+}
+
+func TestReindexPayload_LeaderReadsItsReplicas(t *testing.T) {
+	_, unitToShard, unitToNode := buildUnitMaps(map[string][]string{
+		"node-2": {"shard-b", "shard-a"},
+		"node-1": {"shard-a"},
+	})
+	raw, err := json.Marshal(buildReindexPayload(nil, "C", nil, upsertPlan{}, nil, unitToShard, unitToNode))
+	require.NoError(t, err)
+
+	extract := distributedTaskShardReplicasExtractors()[db.ReindexNamespace]
+	require.NotNil(t, extract, "without it the leader admits a reindex built against stale replicas")
+	got, ok := extract(raw)
+	require.True(t, ok)
+	require.Len(t, got, 2)
+	require.ElementsMatch(t, []string{"node-1", "node-2"}, got["shard-a"])
+	require.ElementsMatch(t, []string{"node-2"}, got["shard-b"])
 }
 
 func TestBuildUnitSpecs_GroupIDIsShardName(t *testing.T) {
@@ -1182,6 +1190,52 @@ func TestNormalizeSearchableAlgorithm(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got := normalizeSearchableAlgorithm(tc.input)
 			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestShardReindexActivityBuilder(t *testing.T) {
+	errNoLeader := errors.New("no leader")
+	logger, _ := test.NewNullLogger()
+	for _, tc := range []struct {
+		name    string
+		list    func(context.Context) (map[string][]*distributedtask.Task, error)
+		wantErr error
+	}{
+		{
+			name:    "the task list is unavailable",
+			list:    func(context.Context) (map[string][]*distributedtask.Task, error) { return nil, errNoLeader },
+			wantErr: errNoLeader,
+		},
+		{
+			name: "a reindex task is running",
+			list: func(context.Context) (map[string][]*distributedtask.Task, error) {
+				return map[string][]*distributedtask.Task{
+					db.ReindexNamespace: {{
+						Status: distributedtask.TaskStatusStarted,
+						Payload: mustPayload(t, db.ReindexTaskPayload{
+							Collection: "C", UnitToShard: map[string]string{"u1": "shard1"},
+						}),
+					}},
+					db.DropVectorIndexNamespace: {{
+						Status: distributedtask.TaskStatusStarted,
+						Payload: mustPayload(t, db.ReindexTaskPayload{
+							Collection: "C", UnitToShard: map[string]string{"u2": "shard2"},
+						}),
+					}},
+				}, nil
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lookup, err := shardReindexActivityBuilder(context.Background(), tc.list, logger)()
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.True(t, lookup("C", "shard1"))
+			require.False(t, lookup("C", "shard2"))
 		})
 	}
 }

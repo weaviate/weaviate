@@ -57,31 +57,33 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateMOVEDeletesSourceRepl
 		status, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
 		require.NoError(t, err, "failed to get replication operation details: %+v", err)
 		require.Equal(ct, "READY", status.Payload.Status.State)
-	}, 180*time.Second, 100*time.Millisecond, "Replication operation should be in READY state")
+	}, 20*time.Second, time.Second, "Replication operation should be in READY state")
 
 	t.Run("ensure target and source replicas are there/gone respectively", func(t *testing.T) {
 		verbose := verbosity.OutputVerbose
-		nodes, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class), nil)
-		require.NoError(t, err, "failed to get nodes for class: %+v", err)
-		foundSrc := false
-		foundDst := false
-		for _, node := range nodes.Payload.Nodes {
-			if *req.SourceNode == node.Name {
-				for _, shard := range node.Shards {
-					if shard.Name == *req.Shard {
-						foundSrc = true
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			nodes, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class), nil)
+			require.NoError(t, err, "failed to get nodes for class: %+v", err)
+			foundSrc := false
+			foundDst := false
+			for _, node := range nodes.Payload.Nodes {
+				if *req.SourceNode == node.Name {
+					for _, shard := range node.Shards {
+						if shard.Name == *req.Shard {
+							foundSrc = true
+						}
+					}
+				}
+				if *req.TargetNode == node.Name {
+					for _, shard := range node.Shards {
+						if shard.Name == *req.Shard {
+							foundDst = true
+						}
 					}
 				}
 			}
-			if *req.TargetNode == node.Name {
-				for _, shard := range node.Shards {
-					if shard.Name == *req.Shard {
-						foundDst = true
-					}
-				}
-			}
-		}
-		require.False(t, foundSrc, "source replica should not be there")
-		require.True(t, foundDst, "destination replica should be there")
+			require.False(ct, foundSrc, "source replica should not be there")
+			require.True(ct, foundDst, "destination replica should be there")
+		}, 60*time.Second, time.Second, "Replicas should be in the expected state")
 	})
 }

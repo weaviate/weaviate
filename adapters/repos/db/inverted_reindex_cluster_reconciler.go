@@ -29,7 +29,7 @@ const migrationClusterReconcileInterval = time.Minute
 
 // MigrationLocalTaskSource reads this node's own applied view of the reindex
 // task namespace. ok=false means "not installed", which licenses no discard.
-type MigrationLocalTaskSource func() ([]*distributedtask.Task, bool)
+type MigrationLocalTaskSource func() ([]distributedtask.TaskStatusEntry, bool)
 
 // MigrationClusterTaskSource reads the reindex task namespace from the leader.
 type MigrationClusterTaskSource func(context.Context) ([]*distributedtask.Task, error)
@@ -63,7 +63,7 @@ func (r *migrationClusterReconciler) samplers() (unresolved, shuttingDown *logru
 }
 
 // SetTaskSources and the periodic pass run on different goroutines, so the
-// sources are guarded; periodicOnce starts the pass on the first call only.
+// sources are guarded.
 func (r *migrationClusterReconciler) SetTaskSources(ctx context.Context, source MigrationLocalTaskSource,
 	cluster MigrationClusterTaskSource,
 ) {
@@ -187,7 +187,7 @@ func (r *migrationClusterReconciler) shardsWithUndecidedRecords() []migrationUnd
 	return found
 }
 
-func (r *migrationClusterReconciler) LocalTasks() ([]*distributedtask.Task, bool) {
+func (r *migrationClusterReconciler) LocalTasks() ([]distributedtask.TaskStatusEntry, bool) {
 	source := func() MigrationLocalTaskSource {
 		r.mu.RLock()
 		defer r.mu.RUnlock()
