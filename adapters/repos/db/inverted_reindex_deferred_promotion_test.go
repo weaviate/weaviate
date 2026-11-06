@@ -13,6 +13,8 @@ package db
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
@@ -24,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -45,7 +48,7 @@ func TestRestartBeforeTheSchemaFlipServesTheMigratedData(t *testing.T) {
 		}
 	}
 
-	for _, tc := range []struct {
+	for i, tc := range []struct {
 		name     string
 		newClass func(className string) *models.Class
 		newTask  func(t *testing.T, idx *Index, className, unitID string) *ShardReindexTaskGeneric
@@ -100,11 +103,18 @@ func TestRestartBeforeTheSchemaFlipServesTheMigratedData(t *testing.T) {
 			flipDuringLoad bool
 			// Only an unmirrored record refuses promotion over a canonical dir left on disk.
 			unmirrored bool
+			// With its task gone, only the record shows the swap; a stamp would block its promotion, so the load holds.
+			armFailsTaskGone bool
 		}{
 			{name: "flip after the load"},
 			{name: "flip during the load", flipDuringLoad: true},
 			{name: "unmirrored record", unmirrored: true},
+			{name: "mirror fails to arm after the task is gone", armFailsTaskGone: true},
 		} {
+			// The arm-failure path has no per-strategy branch, so one strategy covers it.
+			if sc.armFailsTaskGone && i > 0 {
+				continue
+			}
 			t.Run(tc.name+"/"+sc.name, func(t *testing.T) {
 				ctx := testCtx()
 				className := "DeferredPromotion_" + uuid.NewString()[:8]
@@ -132,6 +142,11 @@ func TestRestartBeforeTheSchemaFlipServesTheMigratedData(t *testing.T) {
 
 				name, lsm := shard.Name(), shard.pathLSM()
 				require.NoError(t, shard.Shutdown(ctx))
+				if sc.armFailsTaskGone {
+					idx.db.migrationCluster.local = func(string) ([]distributedtask.TaskStatusEntry, bool) { return nil, true }
+					corrupt := filepath.Join(lsm, task.ingestBucketName(propName), "segment-1.db")
+					require.NoError(t, os.WriteFile(corrupt, []byte("not a segment"), 0o600))
+				}
 				p := NewReindexProvider(idx.db, nil, nil, idx.logger, idx.getSchema.NodeName(), nil, ctx)
 				idx.shardReindexer = NewMigrationRecoveryReindexer(true, idx.logger, nil, p)
 				loadClass := class
@@ -143,6 +158,15 @@ func TestRestartBeforeTheSchemaFlipServesTheMigratedData(t *testing.T) {
 					tc.flip(class.Properties[0])
 				}
 				shard = openShardFromDisk(t, ctx, idx, loadClass, name)
+				if sc.armFailsTaskGone {
+					defer shard.Shutdown(context.Background())
+					require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+					rec, ok := task.migrationRecord(shard)
+					require.True(t, ok)
+					require.Equal(t, MigrationStateSwapped, rec.State())
+					require.False(t, rec.Subject().Unmirrored, "a stamp would block the promotion of a swapped-in record")
+					return
+				}
 				require.Len(t, p.cachedReindexTasks(distributedtask.TaskDescriptor{ID: task.taskID, Version: task.taskVersion},
 					task.unitID), 1, "the load must recover the migration")
 				require.Equal(t, []MigrationState{MigrationStatePromoted}, migrationRecordStates(t, lsm),
