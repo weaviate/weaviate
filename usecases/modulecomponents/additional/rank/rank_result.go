@@ -61,6 +61,9 @@ func (p *ReRankerProvider) getScore(ctx context.Context, cfg moduletools.ClassCo
 	if err != nil {
 		return nil, fmt.Errorf("client rank: %w", err)
 	}
+	if len(result.DocumentScores) != len(in) {
+		return nil, fmt.Errorf("reranker returned %d scores for %d documents", len(result.DocumentScores), len(in))
+	}
 
 	// add scores to results
 	for i := range in {

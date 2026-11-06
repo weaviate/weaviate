@@ -143,16 +143,13 @@ func (c *Client[T]) Vectorize(ctx context.Context, input []string,
 		return nil, nil, 0, err
 	}
 
-	texts := make([]string, len(resBody.Data))
-	embeddings := make([]T, len(resBody.Data))
-	for i := range resBody.Data {
-		index := resBody.Data[i].Index
-		texts[index] = resBody.Data[i].Object
-		if resBody.Data[i].Embedding != nil {
-			embeddings[index] = resBody.Data[i].Embedding
-		} else if resBody.Data[i].Embeddings != nil {
-			embeddings[index] = resBody.Data[i].Embeddings
-		}
+	embeddings, err := embeddingsByIndex(resBody.Data, len(input))
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	texts := make([]string, len(input))
+	for _, d := range resBody.Data {
+		texts[d.Index] = d.Object
 	}
 
 	res := &modulecomponents.VectorizationResult[T]{
@@ -173,12 +170,16 @@ func (c *Client[T]) VectorizeMultiModal(ctx context.Context, texts, images []str
 		return nil, err
 	}
 
+	embeddings, err := embeddingsByIndex(resBody.Data, len(texts)+len(images))
+	if err != nil {
+		return nil, err
+	}
 	var textVectors, imageVectors []T
-	for i := range resBody.Data {
+	for i := range embeddings {
 		if i < len(texts) {
-			textVectors = append(textVectors, resBody.Data[i].getEmbedding())
+			textVectors = append(textVectors, embeddings[i])
 		} else {
-			imageVectors = append(imageVectors, resBody.Data[i].getEmbedding())
+			imageVectors = append(imageVectors, embeddings[i])
 		}
 	}
 
@@ -187,6 +188,35 @@ func (c *Client[T]) VectorizeMultiModal(ctx context.Context, texts, images []str
 		ImageVectors: imageVectors,
 	}
 	return res, nil
+}
+
+// embeddingsByIndex places each embedding at the input position given by its
+// response index. It errors unless every input gets exactly one non-empty
+// embedding.
+func embeddingsByIndex[T dto.Embedding](data []embeddingData[T], inputCount int) ([]T, error) {
+	if len(data) == 0 {
+		return nil, errors.New("empty embeddings in response from JinaAI API")
+	}
+	embeddings := make([]T, inputCount)
+	for _, d := range data {
+		if d.Index < 0 || d.Index >= inputCount {
+			return nil, fmt.Errorf("invalid response from JinaAI API: embedding index %d out of range for %d inputs", d.Index, inputCount)
+		}
+		if embeddings[d.Index] != nil {
+			return nil, fmt.Errorf("invalid response from JinaAI API: duplicate index %d", d.Index)
+		}
+		embedding := d.getEmbedding()
+		if modulecomponents.IsEmbeddingEmpty(embedding) {
+			return nil, fmt.Errorf("invalid response from JinaAI API: empty embedding for index %d", d.Index)
+		}
+		embeddings[d.Index] = embedding
+	}
+	for i := range embeddings {
+		if embeddings[i] == nil {
+			return nil, fmt.Errorf("invalid response from JinaAI API: missing embedding for input %d (got %d of %d)", i, len(data), inputCount)
+		}
+	}
+	return embeddings, nil
 }
 
 func (c *Client[T]) vectorize(ctx context.Context,

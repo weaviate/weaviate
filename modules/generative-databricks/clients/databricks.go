@@ -126,32 +126,39 @@ func (v *databricks) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 		return nil, v.getError(res.StatusCode, resBody.Error)
 	}
 
-	responseParams := v.getResponseParams(resBody.Usage)
-	textResponse := resBody.Choices[0].Text
-	if len(resBody.Choices) > 0 && textResponse != "" {
-		trimmedResponse := strings.Trim(textResponse, "\n")
-		return &modulecapabilities.GenerateResponse{
-			Result: &trimmedResponse,
-			Debug:  debugInformation,
-			Params: responseParams,
-		}, nil
+	if len(resBody.Choices) == 0 {
+		return nil, errors.New("empty choices in response")
 	}
 
-	message := resBody.Choices[0].Message
-	if message != nil {
-		textResponse = message.Content
-		trimmedResponse := strings.Trim(textResponse, "\n")
-		return &modulecapabilities.GenerateResponse{
-			Result: &trimmedResponse,
-			Debug:  debugInformation,
-			Params: responseParams,
-		}, nil
+	choice := resBody.Choices[0]
+	// Completions endpoints answer in text, chat endpoints in message.
+	textResponse := choice.Text
+	if textResponse == nil || *textResponse == "" {
+		switch {
+		case choice.Message != nil && choice.Message.Content != nil:
+			textResponse = choice.Message.Content
+		case choice.Message != nil:
+			return nil, emptyResponseError("empty content in response", choice.FinishReason)
+		case textResponse == nil:
+			return nil, emptyResponseError("empty message in response", choice.FinishReason)
+		}
 	}
 
+	trimmedResponse := strings.Trim(*textResponse, "\n")
 	return &modulecapabilities.GenerateResponse{
-		Result: nil,
+		Result: &trimmedResponse,
 		Debug:  debugInformation,
+		Params: v.getResponseParams(resBody.Usage),
 	}, nil
+}
+
+// emptyResponseError carries the finish reason because a content filter is
+// the usual cause of a 200 response without output.
+func emptyResponseError(msg, finishReason string) error {
+	if finishReason == "" {
+		return errors.New(msg)
+	}
+	return errors.Errorf("%s (finish_reason: %s)", msg, finishReason)
 }
 
 func (v *databricks) getParameters(cfg moduletools.ClassConfig, options interface{}) databricksparams.Params {
@@ -298,11 +305,15 @@ type generateResponse struct {
 }
 
 type choice struct {
-	FinishReason string
+	FinishReason string `json:"finish_reason,omitempty"`
 	Index        float32
-	Logprobs     string
-	Text         string   `json:"text,omitempty"`
-	Message      *message `json:"message,omitempty"`
+	Text         *string          `json:"text,omitempty"`
+	Message      *responseMessage `json:"message,omitempty"`
+}
+
+type responseMessage struct {
+	Role    string  `json:"role"`
+	Content *string `json:"content"`
 }
 
 type databricksApiError struct {

@@ -122,7 +122,7 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 	if err := json.Unmarshal(bodyBytes, &rankResponse); err != nil {
 		return nil, fmt.Errorf("failed to parse reranker response (status %d): %w", res.StatusCode, err)
 	}
-	return c.toDocumentScores(documents, rankResponse.Results), nil
+	return c.toDocumentScores(documents, rankResponse.Results)
 }
 
 func (c *client) buildRankInput(query string, documents []string, cfg moduletools.ClassConfig) (RankInput, error) {
@@ -139,6 +139,10 @@ func (c *client) buildRankInput(query string, documents []string, cfg moduletool
 	}
 
 	if topN := settings.TopN(); topN > 0 {
+		if topN < len(documents) {
+			return RankInput{}, fmt.Errorf("topN %d is lower than the %d documents to rerank, but every document needs a score",
+				topN, len(documents))
+		}
 		input.TopN = &topN
 	}
 
@@ -210,15 +214,30 @@ func (c *client) chunkDocuments(documents []string, chunkSize int) [][]string {
 	return requests
 }
 
-func (c *client) toDocumentScores(documents []string, results []RerankedResult) []ent.DocumentScore {
-	documentScores := make([]ent.DocumentScore, len(results))
+// toDocumentScores puts the scores in document order. Callers read the scores
+// by position, so every document needs exactly one score.
+func (c *client) toDocumentScores(documents []string, results []RerankedResult) ([]ent.DocumentScore, error) {
+	if len(results) != len(documents) {
+		return nil, fmt.Errorf("invalid Contextual AI API response: %d results for %d documents, expected one per document",
+			len(results), len(documents))
+	}
+	documentScores := make([]ent.DocumentScore, len(documents))
+	scored := make([]bool, len(documents))
 	for _, result := range results {
+		if result.Index < 0 || result.Index >= len(documents) {
+			return nil, fmt.Errorf("invalid Contextual AI API response: result index %d out of range for %d documents",
+				result.Index, len(documents))
+		}
+		if scored[result.Index] {
+			return nil, fmt.Errorf("invalid Contextual AI API response: duplicate result index %d", result.Index)
+		}
+		scored[result.Index] = true
 		documentScores[result.Index] = ent.DocumentScore{
 			Document: documents[result.Index],
 			Score:    result.RelevanceScore,
 		}
 	}
-	return documentScores
+	return documentScores, nil
 }
 
 func (c *client) toRankResult(query string, results [][]ent.DocumentScore) *ent.RankResult {

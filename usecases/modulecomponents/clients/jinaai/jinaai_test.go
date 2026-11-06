@@ -17,9 +17,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
@@ -209,6 +211,158 @@ func TestClient(t *testing.T) {
 			"neither in request header: X-Jinaai-Api-Key "+
 			"nor in environment variable under JINAAI_APIKEY")
 	})
+}
+
+var malformedResponseTests = []struct {
+	name    string
+	texts   []string
+	images  []string
+	body    string
+	wantErr string
+}{
+	{
+		name:    "empty data array",
+		texts:   []string{"text"},
+		body:    `{"object":"list","data":[]}`,
+		wantErr: "empty embeddings in response",
+	},
+	{
+		name:    "no data field",
+		texts:   []string{"text"},
+		body:    `{"object":"list"}`,
+		wantErr: "empty embeddings in response",
+	},
+	{
+		name:    "index equal to input count",
+		texts:   []string{"text"},
+		body:    `{"data":[{"index":1,"embedding":EMB}]}`,
+		wantErr: "index 1 out of range for 1 inputs",
+	},
+	{
+		name:    "negative index",
+		texts:   []string{"text"},
+		body:    `{"data":[{"index":-1,"embedding":EMB}]}`,
+		wantErr: "index -1 out of range for 1 inputs",
+	},
+	{
+		name:    "more embeddings than inputs",
+		texts:   []string{"text"},
+		body:    `{"data":[{"index":0,"embedding":EMB},{"index":1,"embedding":EMB}]}`,
+		wantErr: "index 1 out of range for 1 inputs",
+	},
+	{
+		name:    "duplicate index",
+		texts:   []string{"first", "second"},
+		body:    `{"data":[{"index":0,"embedding":EMB},{"index":0,"embedding":EMB}]}`,
+		wantErr: "duplicate index 0",
+	},
+	{
+		name:    "fewer embeddings than inputs",
+		texts:   []string{"first", "second"},
+		body:    `{"data":[{"index":1,"embedding":EMB}]}`,
+		wantErr: "missing embedding for input 0 (got 1 of 2)",
+	},
+	{
+		name:    "empty embedding",
+		texts:   []string{"text"},
+		body:    `{"data":[{"index":0,"embedding":[]}]}`,
+		wantErr: "empty embedding for index 0",
+	},
+	{
+		name:    "multimodal: fewer embeddings than inputs",
+		texts:   []string{"text"},
+		images:  []string{"image"},
+		body:    `{"data":[{"index":0,"embedding":EMB}]}`,
+		wantErr: "missing embedding for input 1 (got 1 of 2)",
+	},
+	{
+		name:    "multimodal: more embeddings than inputs",
+		images:  []string{"image"},
+		body:    `{"data":[{"index":0,"embedding":EMB},{"index":1,"embedding":EMB}]}`,
+		wantErr: "index 1 out of range for 1 inputs",
+	},
+}
+
+func TestClientMalformedResponse(t *testing.T) {
+	for _, tt := range malformedResponseTests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Run("vector", func(t *testing.T) {
+				testMalformedResponse(t, newClientWithBody[[]float32](t, tt.body, "[0.1,0.2]"), tt.texts, tt.images, tt.wantErr)
+			})
+			t.Run("multi-vector", func(t *testing.T) {
+				testMalformedResponse(t, newClientWithBody[[][]float32](t, tt.body, "[[0.1,0.2],[0.3,0.4]]"), tt.texts, tt.images, tt.wantErr)
+			})
+		})
+	}
+}
+
+func TestClientMalformedMultiVectorResponse(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "empty token vector in embedding", body: `{"data":[{"index":0,"embedding":[[]]}]}`},
+		{name: "null token vector in embeddings", body: `{"data":[{"index":0,"embeddings":[null]}]}`},
+		{name: "empty token vector after a valid one", body: `{"data":[{"index":0,"embeddings":[[0.1,0.2],[]]}]}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newClientWithBody[[][]float32](t, tt.body, "")
+			testMalformedResponse(t, c, []string{"text"}, nil, "empty embedding for index 0")
+		})
+	}
+}
+
+func testMalformedResponse[T dto.Embedding](t *testing.T, c *Client[T], texts, images []string, wantErr string) {
+	t.Helper()
+	if len(images) == 0 {
+		res, _, _, err := c.Vectorize(context.Background(), texts, defaultSettings)
+		require.ErrorContains(t, err, wantErr)
+		assert.Nil(t, res)
+	}
+	multiModalRes, err := c.VectorizeMultiModal(context.Background(), texts, images, defaultSettings)
+	require.ErrorContains(t, err, wantErr)
+	assert.Nil(t, multiModalRes)
+}
+
+func TestClientOutOfOrderResponse(t *testing.T) {
+	body := `{"data":[{"object":"second","index":1,"embedding":[0.3,0.4]},{"object":"first","index":0,"embedding":[0.1,0.2]}]}`
+
+	t.Run("text", func(t *testing.T) {
+		c := newClientWithBody[[]float32](t, body, "")
+		res, _, _, err := c.Vectorize(context.Background(), []string{"first", "second"}, defaultSettings)
+		require.NoError(t, err)
+		assert.Equal(t, &modulecomponents.VectorizationResult[[]float32]{
+			Text:       []string{"first", "second"},
+			Vector:     [][]float32{{0.1, 0.2}, {0.3, 0.4}},
+			Dimensions: 2,
+		}, res)
+	})
+
+	t.Run("multimodal", func(t *testing.T) {
+		c := newClientWithBody[[]float32](t, body, "")
+		res, err := c.VectorizeMultiModal(context.Background(), []string{"text"}, []string{"image"}, defaultSettings)
+		require.NoError(t, err)
+		assert.Equal(t, &modulecomponents.VectorizationCLIPResult[[]float32]{
+			TextVectors:  [][]float32{{0.1, 0.2}},
+			ImageVectors: [][]float32{{0.3, 0.4}},
+		}, res)
+	})
+}
+
+// newClientWithBody returns a client whose server answers 200 with body,
+// after replacing every "EMB" in it with embedding.
+func newClientWithBody[T dto.Embedding](t *testing.T, body, embedding string) *Client[T] {
+	t.Helper()
+	body = strings.ReplaceAll(body, "EMB", embedding)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(body))
+	}))
+	t.Cleanup(server.Close)
+	buildUrlFn := func(settings Settings) (string, error) {
+		return server.URL, nil
+	}
+	return New[T]("apiKey", 0, 0, 0, buildUrlFn, nullLogger())
 }
 
 type fakeHandler struct {

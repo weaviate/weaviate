@@ -203,6 +203,81 @@ func TestClient(t *testing.T) {
 	})
 }
 
+func TestClientMalformedResponse(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   []string
+		body    string
+		wantErr string
+	}{
+		{
+			name:    "empty data array",
+			input:   []string{"text"},
+			body:    `{"object":"list","data":[]}`,
+			wantErr: "empty embeddings in response",
+		},
+		{
+			name:    "no data field",
+			input:   []string{"text"},
+			body:    `{"object":"list"}`,
+			wantErr: "empty embeddings in response",
+		},
+		{
+			name:    "fewer embeddings than inputs",
+			input:   []string{"first", "second"},
+			body:    `{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]}]}`,
+			wantErr: "got 1 embeddings for 2 inputs",
+		},
+		{
+			name:  "more embeddings than inputs",
+			input: []string{"first"},
+			body: `{"object":"list","data":[` +
+				`{"object":"embedding","index":0,"embedding":[0.1,0.2]},` +
+				`{"object":"embedding","index":1,"embedding":[0.3,0.4]}]}`,
+			wantErr: "got 2 embeddings for 1 inputs",
+		},
+		{
+			name:    "missing embedding",
+			input:   []string{"text"},
+			body:    `{"object":"list","data":[{"object":"embedding","index":0}]}`,
+			wantErr: "empty embedding for input 0",
+		},
+		{
+			name:    "null embedding",
+			input:   []string{"text"},
+			body:    `{"object":"list","data":[{"object":"embedding","index":0,"embedding":null}]}`,
+			wantErr: "empty embedding for input 0",
+		},
+		{
+			name:  "empty embedding for the second input",
+			input: []string{"first", "second"},
+			body: `{"object":"list","data":[` +
+				`{"object":"embedding","index":0,"embedding":[0.1,0.2]},` +
+				`{"object":"embedding","index":1,"embedding":[]}]}`,
+			wantErr: "empty embedding for input 1",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			c := New("databricksToken", 0, nullLogger())
+			ctx := context.WithValue(context.Background(), "X-Databricks-Endpoint", []string{server.URL})
+
+			res, _, _, err := c.Vectorize(ctx, tt.input, fakeClassConfig{})
+			require.ErrorContains(t, err, tt.wantErr)
+			assert.Nil(t, res)
+
+			queryRes, err := c.VectorizeQuery(ctx, tt.input, fakeClassConfig{})
+			require.ErrorContains(t, err, tt.wantErr)
+			assert.Nil(t, queryRes)
+		})
+	}
+}
+
 type fakeHandler struct {
 	t           *testing.T
 	serverError error

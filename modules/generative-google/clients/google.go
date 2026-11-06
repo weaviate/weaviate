@@ -244,14 +244,17 @@ func (v *google) parseGenerateMessageResponse(statusCode int, bodyBytes []byte, 
 		return nil, err
 	}
 
-	if len(resBody.Candidates) > 0 {
-		return v.getGenerateResponse(resBody.Candidates[0].Content, nil, debug)
+	if len(resBody.Candidates) == 0 {
+		reasons := make([]string, 0, len(resBody.Filters))
+		for _, f := range resBody.Filters {
+			reasons = append(reasons, f.Reason)
+		}
+		return nil, emptyResponseError("empty candidates in response", "filter reason", strings.Join(reasons, ", "))
 	}
-
-	return &modulecapabilities.GenerateResponse{
-		Result: nil,
-		Debug:  debug,
-	}, nil
+	if resBody.Candidates[0].Content == nil {
+		return nil, errors.New("empty content in response")
+	}
+	return v.getGenerateResponse(*resBody.Candidates[0].Content, nil, debug), nil
 }
 
 // validateURLSettings rejects settings that would send the request off Google's
@@ -343,23 +346,42 @@ func (v *google) parseGenerateContentResponse(statusCode int, bodyBytes []byte, 
 		return nil, err
 	}
 
-	if len(resBody.Candidates) > 0 {
-		if len(resBody.Candidates[0].Content.Parts) > 0 {
-			var params map[string]interface{}
-			if resBody.UsageMetadata != nil {
-				params = v.getResponseParams(map[string]interface{}{
-					"usageMetadata": resBody.UsageMetadata,
-				})
-			}
-			return v.getGenerateResponse(resBody.Candidates[0].Content.Parts[0].Text, params, debug)
+	if len(resBody.Candidates) == 0 {
+		var blockReason string
+		if resBody.PromptFeedback != nil {
+			blockReason = resBody.PromptFeedback.BlockReason
 		}
-		return nil, fmt.Errorf("%s", v.decodeFinishReason(resBody.Candidates[0].FinishReason))
+		return nil, emptyResponseError("empty candidates in response", "blockReason", blockReason)
+	}
+	candidate := resBody.Candidates[0]
+	if len(candidate.Content.Parts) == 0 || candidate.Content.Parts[0].Text == nil {
+		return nil, v.emptyContentError(candidate.FinishReason)
 	}
 
-	return &modulecapabilities.GenerateResponse{
-		Result: nil,
-		Debug:  debug,
-	}, nil
+	var params map[string]interface{}
+	if resBody.UsageMetadata != nil {
+		params = v.getResponseParams(map[string]interface{}{
+			"usageMetadata": resBody.UsageMetadata,
+		})
+	}
+	return v.getGenerateResponse(*candidate.Content.Parts[0].Text, params, debug), nil
+}
+
+func (v *google) emptyContentError(finishReason string) error {
+	err := emptyResponseError("empty content in response", "finishReason", finishReason)
+	if explanation := v.decodeFinishReason(finishReason); explanation != "" {
+		return fmt.Errorf("%w: %s", err, explanation)
+	}
+	return err
+}
+
+// emptyResponseError carries the provider's reason because a safety block is
+// the usual cause of a 200 response without output.
+func emptyResponseError(msg, reasonField, reason string) error {
+	if reason == "" {
+		return errors.New(msg)
+	}
+	return fmt.Errorf("%s (%s: %s)", msg, reasonField, reason)
 }
 
 func (v *google) parseResponse(statusCode int, bodyBytes []byte, debug *modulecapabilities.GenerateDebugInformation) (*modulecapabilities.GenerateResponse, error) {
@@ -372,20 +394,24 @@ func (v *google) parseResponse(statusCode int, bodyBytes []byte, debug *moduleca
 		return nil, err
 	}
 
-	if len(resBody.Predictions) > 0 && len(resBody.Predictions[0].Candidates) > 0 {
-		var params map[string]interface{}
-		if resBody.Metadata != nil {
-			params = v.getResponseParams(map[string]interface{}{
-				"metadata": resBody.Metadata,
-			})
-		}
-		return v.getGenerateResponse(resBody.Predictions[0].Candidates[0].Content, params, debug)
+	if len(resBody.Predictions) == 0 {
+		return nil, errors.New("empty predictions in response")
+	}
+	if len(resBody.Predictions[0].Candidates) == 0 {
+		return nil, errors.New("empty candidates in response")
+	}
+	content := resBody.Predictions[0].Candidates[0].Content
+	if content == nil {
+		return nil, errors.New("empty content in response")
 	}
 
-	return &modulecapabilities.GenerateResponse{
-		Result: nil,
-		Debug:  debug,
-	}, nil
+	var params map[string]interface{}
+	if resBody.Metadata != nil {
+		params = v.getResponseParams(map[string]interface{}{
+			"metadata": resBody.Metadata,
+		})
+	}
+	return v.getGenerateResponse(*content, params, debug), nil
 }
 
 func (v *google) getResponseParams(params map[string]interface{}) map[string]interface{} {
@@ -406,20 +432,13 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 	return nil
 }
 
-func (v *google) getGenerateResponse(content *string, params map[string]interface{}, debug *modulecapabilities.GenerateDebugInformation) (*modulecapabilities.GenerateResponse, error) {
-	if content != nil && *content != "" {
-		trimmedResponse := strings.Trim(*content, "\n")
-		return &modulecapabilities.GenerateResponse{
-			Result: &trimmedResponse,
-			Params: params,
-			Debug:  debug,
-		}, nil
-	}
-
+func (v *google) getGenerateResponse(content string, params map[string]interface{}, debug *modulecapabilities.GenerateDebugInformation) *modulecapabilities.GenerateResponse {
+	trimmedResponse := strings.Trim(content, "\n")
 	return &modulecapabilities.GenerateResponse{
-		Result: nil,
+		Result: &trimmedResponse,
+		Params: params,
 		Debug:  debug,
-	}, nil
+	}
 }
 
 func (v *google) checkResponse(statusCode int, googleApiError *googleApiError) error {
@@ -554,7 +573,7 @@ func (v *google) decodeFinishReason(reason string) string {
 	case FINISH_REASON_SPII:
 		return FINISH_REASON_SPII_EXPLANATION
 	default:
-		return fmt.Sprintf("unregonized finis reason: %s", reason)
+		return ""
 	}
 }
 
@@ -740,6 +759,7 @@ type contentResponse struct {
 }
 
 type promptFeedback struct {
+	BlockReason   string         `json:"blockReason,omitempty"`
 	SafetyRatings []safetyRating `json:"safetyRatings,omitempty"`
 }
 

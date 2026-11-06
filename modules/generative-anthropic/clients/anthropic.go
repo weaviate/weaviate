@@ -151,8 +151,17 @@ func (a *anthropic) generate(ctx context.Context, cfg moduletools.ClassConfig, p
 		return nil, fmt.Errorf("failed to parse generative response (status %d): %w", res.StatusCode, err)
 	}
 
-	if res.StatusCode != 200 && resBody.Type == "error" {
+	if resBody.Type == "error" {
 		return nil, fmt.Errorf("Anthropic API error: %s - %s", resBody.Error.Type, resBody.Error.Message)
+	}
+	if res.StatusCode != 200 {
+		if resBody.Error.Message != "" {
+			return nil, fmt.Errorf("connection to Anthropic API failed with status: %d error: %s", res.StatusCode, resBody.Error.Message)
+		}
+		return nil, fmt.Errorf("connection to Anthropic API failed with status: %d", res.StatusCode)
+	}
+	if len(resBody.Content) == 0 {
+		return nil, errors.New("empty content in response")
 	}
 
 	textResponse := resBody.Content[0].Text
