@@ -1653,8 +1653,11 @@ A cluster that breaks the first assumption sees this on the affected property:
   `NO_OP`.
 - A searchable rebuild is refused as a WAND index.
 - A tokenization change rebuilds the index in WAND format instead of BlockMax.
-  In a test, BM25 hits and scores matched a BlockMax rebuild and no objects
-  were lost; only the index format differs.
+  Searches return the same objects and no objects are lost, but BM25 scores
+  change, and so can the order of results. When WAND measures the length of a
+  property value, it counts a word that repeats in that value once; BlockMax
+  counts every occurrence. If no object repeats a word in that property, the
+  scores are the same.
 
 **Downgrade:** the stamp is an additive `searchableBlockmax` property field;
 an older binary ignores it and derives blockmax from the class flag / task
