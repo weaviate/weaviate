@@ -552,10 +552,8 @@ func (t *Task) StatusEntryFor(shard string) TaskStatusEntry {
 		group = ""
 	}
 	var acked []string
-	for node, ack := range t.PreparedGroups[group] {
-		if ack.Success {
-			acked = append(acked, node)
-		}
+	for node := range t.PreparedGroups[group] {
+		acked = append(acked, node)
 	}
 	return TaskStatusEntry{
 		TaskDescriptor: t.TaskDescriptor, Status: t.Status, GroupDecided: t.GroupSwapDecided(group),
