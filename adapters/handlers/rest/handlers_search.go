@@ -120,7 +120,10 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 func searchErrPayload(apiErr *restsearch.APIError) *models.ErrorResponse {
 	message := enterrors.AppendDocsLink(fmt.Sprintf("%v", apiErr.Err), apiErr.Cause())
 	return &models.ErrorResponse{
-		Error: []*models.ErrorResponseErrorItems0{{Message: message}},
+		Error: []*models.ErrorResponseErrorItems0{{
+			Message: message,
+			Code:    int64(apiErr.Status),
+		}},
 	}
 }
 

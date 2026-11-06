@@ -33,9 +33,9 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 
 	ok := t.ratelimiter.TryInc()
 	if !ok {
-		// we currently have no concept of error status code or typed errors in
-		// GraphQL, so there is no other way then to send a message containing what
-		// we want to convey
+		// GraphQL answers HTTP 200. ErrRateLimit carries status 429, which the
+		// response builder copies onto errors[].code. The message still names
+		// 429 so clients that match the text keep working.
 		return nil, enterrors.NewErrRateLimit()
 	}
 

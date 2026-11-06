@@ -233,6 +233,7 @@ func TestAddSearchBodyLimit(t *testing.T) {
 			require.Len(t, body.Error, 1)
 			assert.Equal(t, fmt.Sprintf("request body exceeds the %d byte limit", restsearch.MaxBodyBytes),
 				body.Error[0].Message)
+			assert.Equal(t, int64(http.StatusRequestEntityTooLarge), body.Error[0].Code)
 		})
 	}
 }
