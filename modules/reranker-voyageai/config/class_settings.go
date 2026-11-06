@@ -22,6 +22,10 @@ const (
 	modelProperty = "model"
 )
 
+const (
+	DefaultBaseURL = "https://api.voyageai.com/v1"
+)
+
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
 	DefaultVoyageAIModel = "rerank-lite-1"
@@ -45,6 +49,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if model == nil {
 		return errors.Errorf("no model provided")
 	}
+	if err := ic.propertyValuesHelper.ValidateBaseURL(ic.BaseURL()); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -52,6 +59,10 @@ func (ic *classSettings) Validate(class *models.Class) error {
 func (ic *classSettings) getStringProperty(name string, defaultValue string) *string {
 	asString := ic.propertyValuesHelper.GetPropertyAsStringWithNotExists(ic.cfg, name, "", defaultValue)
 	return &asString
+}
+
+func (ic *classSettings) BaseURL() string {
+	return ic.propertyValuesHelper.GetPropertyAsString(ic.cfg, "baseURL", DefaultBaseURL)
 }
 
 func (ic *classSettings) Model() string {
