@@ -123,6 +123,28 @@ func newRecordingServer(t *testing.T) *recordingServer {
 	return recorder
 }
 
+func TestEmbedURLForAllowlistedHost(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL string
+		want    string
+	}{
+		{name: "IPv6", baseURL: "http://[fd00::1]:8080", want: "http://[fd00::1]:8080/v1/embeddings/embed"},
+		{name: "scoped IPv6", baseURL: "http://[fe80::1%25eth0]:8080", want: "http://[fe80::1%25eth0]:8080/v1/embeddings/embed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(AllowedBaseURLsEnv, tt.baseURL)
+			c := New[[]float32](0, 0, 0)
+
+			got, err := c.getWeaviateEmbedURL(context.Background(), tt.baseURL)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestVectorizeCallsOnlyAllowedOrigins(t *testing.T) {
 	const callerToken = "Bearer token"
 	const clusterURL = "https://cluster.example.com"

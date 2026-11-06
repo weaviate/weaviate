@@ -55,5 +55,5 @@ func parseOrigin(rawURL string) (string, bool) {
 	if err != nil || parsed.Host == "" {
 		return "", false
 	}
-	return parsed.Scheme + "://" + strings.ToLower(parsed.Host), true
+	return (&url.URL{Scheme: parsed.Scheme, Host: strings.ToLower(parsed.Host)}).String(), true
 }
