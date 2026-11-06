@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	digitaloceanparams "github.com/weaviate/weaviate/modules/generative-digitalocean/parameters"
 	"github.com/weaviate/weaviate/usecases/build"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/credentialtest"
 )
 
 func nullLogger() logrus.FieldLogger {
@@ -67,8 +68,9 @@ func TestURL(t *testing.T) {
 			ctx := context.Background()
 			if tt.header != "" {
 				ctx = context.WithValue(ctx, "X-Digitalocean-Baseurl", []string{tt.header})
+				ctx = context.WithValue(ctx, "X-Digitalocean-Api-Key", []string{"callerKey"})
 			}
-			u, err := c.url(ctx, tt.baseURL)
+			u, _, err := c.url(ctx, tt.baseURL, tt.baseURL)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedU, u)
 		})
@@ -179,7 +181,8 @@ func TestGenerate(t *testing.T) {
 			defer server.Close()
 
 			c := New("key", time.Minute, nullLogger())
-			res, err := c.GenerateSingleResult(context.Background(), properties[0], "prompt",
+			ctx := credentialtest.Context(map[string]string{"X-Digitalocean-Api-Key": "callerKey"})
+			res, err := c.GenerateSingleResult(ctx, properties[0], "prompt",
 				digitaloceanparams.Params{BaseURL: server.URL}, false, nil)
 
 			if tt.expectedErr != "" {
@@ -259,7 +262,8 @@ func TestGenerateRequest(t *testing.T) {
 			params := tt.params
 			params.BaseURL = server.URL
 			c := New("key", time.Minute, nullLogger())
-			_, err := c.GenerateAllResults(context.Background(), properties, "task", params, false, nil)
+			_, err := c.GenerateAllResults(context.Background(), properties, "task", params, false,
+				credentialtest.ClassConfig{"baseURL": server.URL})
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.expectedPath, gotPath)
@@ -302,7 +306,8 @@ func TestGenerateUserAgent(t *testing.T) {
 
 			c := New("key", time.Minute, nullLogger())
 			params := digitaloceanparams.Params{BaseURL: server.URL}
-			_, err := c.GenerateAllResults(context.Background(), properties, "task", params, false, nil)
+			_, err := c.GenerateAllResults(context.Background(), properties, "task", params, false,
+				credentialtest.ClassConfig{"baseURL": server.URL})
 			require.NoError(t, err)
 			assert.Equal(t, strings.TrimSpace(tt.expected), gotUserAgent)
 		})

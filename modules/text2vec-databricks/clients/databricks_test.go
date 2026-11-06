@@ -38,6 +38,7 @@ func TestClient(t *testing.T) {
 		c := New("databricksToken", 0, nullLogger())
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Databricks-Endpoint", []string{server.URL})
+		ctxWithValue = context.WithValue(ctxWithValue, "X-Databricks-Token", []string{"callerToken"})
 
 		expected := &modulecomponents.VectorizationResult[[]float32]{
 			Text:       []string{"This is my text"},
@@ -57,6 +58,7 @@ func TestClient(t *testing.T) {
 		c := New("databricksToken", 0, nullLogger())
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Databricks-Endpoint", []string{server.URL})
+		ctxWithValue = context.WithValue(ctxWithValue, "X-Databricks-Token", []string{"callerToken"})
 
 		ctx, cancel := context.WithDeadline(ctxWithValue, time.Now())
 		defer cancel()
@@ -76,6 +78,7 @@ func TestClient(t *testing.T) {
 		c := New("databricksToken", 0, nullLogger())
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Databricks-Endpoint", []string{server.URL})
+		ctxWithValue = context.WithValue(ctxWithValue, "X-Databricks-Token", []string{"callerToken"})
 
 		_, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			fakeClassConfig{})
@@ -150,6 +153,7 @@ func TestClient(t *testing.T) {
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Databricks-Endpoint", []string{"http://serving-url-passed-in-header.com"})
+		ctxWithValue = context.WithValue(ctxWithValue, "X-Databricks-Token", []string{"callerToken"})
 
 		endpoint, err := c.buildURL(ctxWithValue, config)
 		require.NoError(t, err)

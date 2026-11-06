@@ -51,6 +51,57 @@ func ValidatedBaseURLFromHeader(ctx context.Context, headerKey, fallback string)
 	return headerBaseURL, nil
 }
 
+// RequestBaseURL returns the base URL a module request goes to: the value of
+// baseURLHeader if the request sets it, else requested (a query-time baseURL),
+// else configured (the class setting or module default). A base URL on another
+// scheme or host than configured is used only if the request carries its own
+// key in one of apiKeyHeaders, so the server's key is never sent to a host the
+// request names. fromRequest reports that case: the caller must then send
+// nothing else from server configuration, such as an organization ID.
+func RequestBaseURL(ctx context.Context, baseURLHeader, requested, configured string, apiKeyHeaders ...string,
+) (baseURL string, fromRequest bool, err error) {
+	source, baseURL := "baseURL", requested
+	if headerBaseURL := GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
+		source, baseURL = baseURLHeader, headerBaseURL
+	}
+	if baseURL == "" {
+		return configured, false, nil
+	}
+	if baseURL == configured || sameOrigin(baseURL, configured) {
+		return baseURL, false, nil
+	}
+	if err := RequireRequestAPIKey(ctx, source, apiKeyHeaders...); err != nil {
+		return "", false, err
+	}
+	if err := ValidateBaseURL(baseURL); err != nil {
+		return "", false, err
+	}
+	return baseURL, true, nil
+}
+
+// RequireRequestAPIKey returns an error unless the request carries a key in
+// one of apiKeyHeaders. source names the request value that set the host.
+func RequireRequestAPIKey(ctx context.Context, source string, apiKeyHeaders ...string) error {
+	for _, header := range apiKeyHeaders {
+		if GetValueFromContext(ctx, header) != "" {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
+		source, strings.Join(apiKeyHeaders, " or "))
+}
+
+// sameOrigin reports whether a and b parse to the same scheme and host:port.
+// A value that does not parse is never the same origin.
+func sameOrigin(a, b string) bool {
+	ua, errA := url.Parse(a)
+	ub, errB := url.Parse(b)
+	if errA != nil || errB != nil || ua.Host == "" {
+		return false
+	}
+	return strings.EqualFold(ua.Scheme, ub.Scheme) && strings.EqualFold(ua.Host, ub.Host)
+}
+
 // isDisallowedIP reports whether an IP points at the local host or an internal
 // network. Used both by ValidateBaseURL and by the dial guard, where it sees
 // the actually-resolved IP and so also defeats DNS rebinding (TOCTOU).

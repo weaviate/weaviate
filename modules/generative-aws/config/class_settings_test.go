@@ -173,6 +173,28 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantErr: fmt.Errorf("topP has to be an integer value between 0 and 1"),
 		},
+		{
+			name: "region that moves the host - Sagemaker",
+			cfg: fakeClassConfig{
+				classConfig: map[string]any{
+					"service":  "sagemaker",
+					"region":   "x@attacker.example.com/",
+					"endpoint": "my-endpoint-deployment",
+				},
+			},
+			wantErr: fmt.Errorf(`region must be an AWS region name, got "x@attacker.example.com/"`),
+		},
+		{
+			name: "region that moves the host - Bedrock",
+			cfg: fakeClassConfig{
+				classConfig: map[string]any{
+					"service": "bedrock",
+					"region":  "attacker.example.com#",
+					"model":   "amazon.titan-text-lite-v1",
+				},
+			},
+			wantErr: fmt.Errorf(`region must be an AWS region name, got "attacker.example.com#"`),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
