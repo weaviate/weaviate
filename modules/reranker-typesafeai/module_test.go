@@ -137,7 +137,6 @@ func TestInitGivesTheClientTheHTTPTimeout(t *testing.T) {
 	cfg := modules.NewClassBasedModuleConfig(class, Name, "", "", &config.Config{})
 
 	result := make(chan error, 1)
-	start := time.Now()
 	call.Go(func() {
 		_, err := m.reranker.RankProperty(context.Background(), "q", "text",
 			[]ent.Document{{ID: "1", Value: "a document"}}, cfg)
@@ -148,7 +147,6 @@ func TestInitGivesTheClientTheHTTPTimeout(t *testing.T) {
 	case err := <-result:
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, context.DeadlineExceeded), "got %v", err)
-		assert.Less(t, time.Since(start), 5*time.Second)
 	case <-time.After(5 * time.Second):
 		t.Fatal("the rerank call did not time out")
 	}

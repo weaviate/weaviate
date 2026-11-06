@@ -66,9 +66,9 @@ const (
 type client struct {
 	apiKey     string
 	httpClient *http.Client
-	// inFlight holds a slot per request being built or sent. It is shared by
-	// every call, so it bounds the load on the API and the request bodies in
-	// memory however many queries run.
+	// inFlight holds a slot per request to the class or default host being
+	// built or sent. It is shared by every call, so it bounds the load on the
+	// API and the request bodies in memory however many queries run.
 	inFlight chan struct{}
 	// inFlightHeaderHost is the pool of requests to a host the request header
 	// named. A caller can name a host that never answers, and that must not
@@ -78,7 +78,8 @@ type client struct {
 }
 
 // New returns a client that sends at most maxConcurrentRequests requests at
-// once.
+// once to the class or default host, and as many to hosts the request header
+// names.
 func New(apiKey string, timeout time.Duration, maxConcurrentRequests int, logger logrus.FieldLogger) *client {
 	return &client{
 		apiKey:             apiKey,
