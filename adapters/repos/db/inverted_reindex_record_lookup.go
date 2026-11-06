@@ -107,17 +107,6 @@ func migrationPropertyLoadCanStillAct(rec MigrationRecord, prop string) bool {
 	return sw.PromotionOf(prop) != migrationPromotionLost
 }
 
-func (s migrationPreservedState) bucketsOf(mainBucketName string) []string {
-	out := make([]string, 0, len(s.buckets))
-	for dir := range s.buckets {
-		if isSidecarDirOf(dir, mainBucketName) {
-			out = append(out, dir)
-		}
-	}
-	slices.Sort(out)
-	return out
-}
-
 func migrationRecordStagingIncomplete(rec MigrationRecord) bool { return !rec.StagedDataComplete() }
 
 func migrationRecordFor(records []MigrationRecord, migrationType ReindexMigrationType,

@@ -1146,11 +1146,11 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 	})
 
 	err := eg.Wait()
-	if recordSetReads := counts.recordSetReads.Load(); recordSetReads > 0 {
+	if dirsSwept := counts.dirsSwept.Load(); dirsSwept > 0 {
 		i.logger.WithFields(map[string]any{
-			"property":         property.Name,
-			"index_types":      disabledIndexTypes(property),
-			"record_set_reads": recordSetReads,
+			"property":    property.Name,
+			"index_types": disabledIndexTypes(property),
+			"dirs_swept":  dirsSwept,
 		}).Info("partial-reindex cleanup: migration dirs swept for disabled index types")
 	}
 	if err != nil {

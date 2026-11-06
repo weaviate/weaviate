@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
@@ -68,14 +69,12 @@ func TestCleanStaleSidecarDirsPreservedLogAtDebug(t *testing.T) {
 	}
 }
 
-// The sweep is built once for the whole index-type loop; building it inside
-// would multiply every tenant's disk cost by the index-type count.
-func TestApplyPathReadsAShardsRecordsOncePerProperty(t *testing.T) {
+// dirsSwept must count real removed dirs, not be inflated by looping over index types.
+func TestApplyPathCountsSweptDirsNotIndexTypes(t *testing.T) {
 	ctx := testCtx()
-	className := "ApplyReadCount" + uuid.NewString()[:8]
+	className := "ApplySweepCount" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{"title"})
 
-	// Every index type off, so the loop this read outlives runs more than once.
 	prop := class.Properties[0]
 	off := false
 	prop.IndexFilterable = &off
@@ -86,14 +85,150 @@ func TestApplyPathReadsAShardsRecordsOncePerProperty(t *testing.T) {
 	shard := shd.(*Shard)
 	defer shard.Shutdown(context.Background())
 
-	require.Greater(t, len(disabledIndexTypes(prop)), 1,
-		"the property must sweep several index types or this pins nothing")
+	// Two dirs under two index types and none under the third, so neither a
+	// count per index type nor one per dir-holding type can land on 4.
+	var seeded []string
+	for _, indexType := range []string{"filterable", "searchable"} {
+		mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
+		require.True(t, ok)
+		for gen := 1; gen <= 2; gen++ {
+			dir := filepath.Join(shard.pathLSM(), mainBucket+"__reindex"+genSuffix(gen))
+			require.NoError(t, os.MkdirAll(dir, 0o777))
+			seeded = append(seeded, dir)
+		}
+	}
 
 	var counts migrationSweepCounts
 	eg := enterrors.NewErrorGroupWrapper(shard.index.logger)
 	shard.updatePropertyBuckets(ctx, eg, prop, &counts)
 	require.NoError(t, eg.Wait())
 
-	require.Equal(t, int64(1), counts.recordSetReads.Load(),
-		"one record-set read for the shard, whatever the index-type count")
+	require.Equal(t, int64(4), counts.dirsSwept.Load(), "one per removed dir")
+	for _, dir := range seeded {
+		require.NoDirExists(t, dir)
+	}
+}
+
+// A swept count must not include a dir still on disk: preserved, or its removal failed.
+func TestCleanStaleSidecarDirsCountsOnlyRemovedDirs(t *testing.T) {
+	const mainBucket = "property_category_searchable"
+	dir := mainBucket + "__reindex" + genSuffix(1)
+
+	tests := []struct {
+		name      string
+		preserved bool
+		// unremovable puts a file inside a read-only dir, so its removal fails.
+		unremovable bool
+		wantSwept   int
+	}{
+		{name: "a removable dir", wantSwept: 1},
+		{name: "a preserved dir", preserved: true, wantSwept: 0},
+		{name: "a dir whose removal fails", unremovable: true, wantSwept: 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.unremovable && os.Geteuid() == 0 {
+				t.Skip("root ignores dir permissions")
+			}
+			logger, _ := test.NewNullLogger()
+			shard := &Shard{
+				name:  "s1",
+				index: &Index{logger: logger, Config: IndexConfig{RootPath: t.TempDir(), ClassName: "C"}},
+			}
+			path := filepath.Join(shard.pathLSM(), dir)
+			require.NoError(t, os.MkdirAll(path, 0o777))
+			if tc.unremovable {
+				require.NoError(t, os.WriteFile(filepath.Join(path, "segment.db"), nil, 0o666))
+				require.NoError(t, os.Chmod(path, 0o500))
+				t.Cleanup(func() { _ = os.Chmod(path, 0o777) })
+			}
+
+			preserved := map[string]bool{}
+			if tc.preserved {
+				preserved[dir] = true
+			}
+
+			got := shard.cleanStaleSidecarDirsWithPreserved(mainBucket, migrationPreservingOnly(preserved))
+
+			require.Equal(t, tc.wantSwept, got)
+			if tc.wantSwept == 0 {
+				require.DirExists(t, path)
+			} else {
+				require.NoDirExists(t, path)
+			}
+		})
+	}
+}
+
+type errAfterCtx struct {
+	context.Context
+	calls atomic.Int32
+	after int32
+}
+
+func (c *errAfterCtx) Err() error {
+	if c.calls.Add(1) > c.after {
+		return context.Canceled
+	}
+	return nil
+}
+
+// An apply that fails after sweeping a dir still logs that dir, since it is gone.
+func TestApplyPathFailingMidLoopKeepsItsCount(t *testing.T) {
+	ctx := testCtx()
+	class := newTestClassWithProps("ApplySweepPartial"+uuid.NewString()[:8], []string{"title"})
+	prop := class.Properties[0]
+	off := false
+	prop.IndexFilterable = &off
+	prop.IndexSearchable = &off
+	prop.IndexRangeFilters = &off
+	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(context.Background())
+
+	mainBucket, ok := mainBucketForPropertyIndex(prop.Name, "filterable")
+	require.True(t, ok)
+	require.NoError(t, os.MkdirAll(filepath.Join(shard.pathLSM(), mainBucket+"__reindex"+genSuffix(1)), 0o777))
+
+	// Fails the loop's check before the second index type, after the first swept.
+	failing := &errAfterCtx{Context: ctx, after: 1}
+	var counts migrationSweepCounts
+	eg := enterrors.NewErrorGroupWrapper(shard.index.logger)
+	shard.updatePropertyBuckets(failing, eg, prop, &counts)
+	require.Error(t, eg.Wait())
+	require.Equal(t, int64(1), counts.dirsSwept.Load())
+}
+
+// A canceled apply must see the cancellation before it builds the
+// migration-record snapshot, not after: this shard's record store is left
+// unset, so building the snapshot anyway panics instead of returning the
+// cancellation cleanly.
+func TestUpdatePropertyBucketsCanceledBeforeStartBuildsNoSnapshot(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	shard := &Shard{
+		name:  "s1",
+		index: &Index{logger: logger, Config: IndexConfig{RootPath: t.TempDir(), ClassName: "C"}},
+	}
+
+	class := newTestClassWithProps("CanceledApply"+uuid.NewString()[:8], []string{"title"})
+	prop := class.Properties[0]
+	off := false
+	prop.IndexFilterable = &off
+	prop.IndexSearchable = &off
+	prop.IndexRangeFilters = &off
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var counts migrationSweepCounts
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	shard.updatePropertyBuckets(ctx, eg, prop, &counts)
+
+	err := eg.Wait()
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled,
+		"a wrapped context.Canceled means the apply returned on its own cancellation check; "+
+			"a panic recovered into \"panic occurred: ...\" would mean it built the snapshot first")
+	require.Zero(t, counts.dirsSwept.Load())
 }

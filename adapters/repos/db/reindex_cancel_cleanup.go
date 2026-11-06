@@ -179,6 +179,7 @@ func (i *Index) cleanStalePartialReindexState(
 	}
 	shardErrs := errorcompounder.New()
 	skippedShards := 0
+	dirsRemoved := 0
 	// One cache serves every sweep of a request, so only the delta belongs to
 	// this one; its running total would re-report the first sweep's refusals.
 	refusedBefore := dirs.refusedListings()
@@ -220,7 +221,9 @@ func (i *Index) cleanStalePartialReindexState(
 			}
 			shard = unwrapped
 		}
-		if err := shard.CleanStalePartialReindexState(ctx, propName, indexType, dirs); err != nil {
+		removed, err := shard.CleanStalePartialReindexState(ctx, propName, indexType, dirs)
+		dirsRemoved += removed
+		if err != nil {
 			reported := fmt.Errorf("shard %q: %w", name, err)
 			if truncated := truncatedByCancellation(reported); truncated != nil {
 				return truncated
@@ -248,6 +251,7 @@ func (i *Index) cleanStalePartialReindexState(
 		"index_type":        indexType,
 		"operation":         "CleanStalePartialReindexState",
 		"skipped_shards":    skippedShards,
+		"dirs_removed":      dirsRemoved,
 		"uncached_listings": uncachedListings,
 	}
 	if unreadable, reasons := dirs.unreadableRecordSets(); unreadable > unreadableBefore {
