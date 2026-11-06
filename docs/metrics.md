@@ -215,6 +215,20 @@ Registered only on a node with `SELF_RECOVERY_ENABLED=true` and a well-formed We
 | `weaviate_self_recovery_giveup_total` | Self-recovery attempts that exhausted retries without reaching READY; alert on this | `Counter` | `-` | - Low 
 | `weaviate_self_recovery_accept_empty_total` | Operator invocations of the accept-empty escape hatch | `Counter` | `-` | - Low 
 
+#### Lazy Shard Unloading Metrics
+Registered only on a licensed node with lazy loading enabled; any other node exposes none of them. No metric carries a per-shard label. `namespace` labels only `weaviate_lazy_shard_unloading_loaded_shards`, and only when namespaces are enabled; its values are unbounded in principle but few in practice, so it is rated Medium. `reason` and `outcome` are bounded enums. An unload attempt's `outcome` is `ok` or why the shard was kept: `lock_busy`, `not_in_map`, `recovering`, `in_use`, `halted`, `pending_2pc`, `changelog`, `async_override`, `async_checkpoint`, `vector_op`, `reindex`, `reindex_unknown`, `manual_readonly`, `resource_readonly`, `min_residency`, `not_idle`, `queue_not_empty`, `hashtree_init`, `torn`, `index_closing`, `already_cold` or `reaccessed`. Watch `weaviate_lazy_shard_unloading_over_limit` for overcommit, loads that passed the limit because no shard could be unloaded, and low values of `weaviate_lazy_shard_unloading_reload_after_unload_seconds` for thrashing.
+
+| Name | Description | Type | Labels | High Cardinality |
+|---|---|---|---|---|
+| `weaviate_lazy_shard_unloading_admissions_total` | Lazy shard loads by admission outcome (`under_limit`, `made_room`, `overcommit`); overcommit means the load went over the limit because no shard could be unloaded to make room | `Counter` | `outcome` | - Low 
+| `weaviate_lazy_shard_unloading_loaded_shards` | Loaded lazy shards on this node | `Gauge` | `namespace` (only with namespaces enabled) | - Medium (unbounded in principle, few in practice) 
+| `weaviate_lazy_shard_unloading_unloading_shards` | Lazy shard unloads in flight on this node | `Gauge` | `-` | - Low 
+| `weaviate_lazy_shard_unloading_limit` | The configured `lazy_shard_unloading_max_loaded_shards`; 0 means no limit | `Gauge` | `-` | - Low 
+| `weaviate_lazy_shard_unloading_over_limit` | Loaded lazy shards above the limit | `Gauge` | `-` | - Low 
+| `weaviate_lazy_shard_unloading_unloads_total` | Lazy shard unload attempts by `reason` (`make_room`, `watermark`, `idle`) and `outcome` | `Counter` | `reason`, `outcome` | - Low 
+| `weaviate_lazy_shard_unloading_unload_duration_seconds` | Duration of successful lazy shard unloads (flush and close); buckets 1ms to ~33s | `Histogram` | `-` | - Low 
+| `weaviate_lazy_shard_unloading_reload_after_unload_seconds` | Time between unloading a lazy shard and its next load; buckets 1s to ~9h | `Histogram` | `-` | - Low 
+
 #### Async Checkpoint Metrics
 Checkpoints of unloaded shards, answered from their persisted hashtree, are counted like those of loaded shards. Every checkpoint leaves exactly once: as expired if it outlived its max lifetime, otherwise as a delete, replacement or clear.
 

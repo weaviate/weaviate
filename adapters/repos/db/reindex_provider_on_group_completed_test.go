@@ -19,6 +19,7 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	esync "github.com/weaviate/weaviate/entities/sync"
 )
 
 // TestOnGroupCompleted_TerminalStatusShortCircuit pins the recovery-replay
@@ -115,9 +116,9 @@ func TestRunPerUnitPhase_CapsTheErrorAcrossManyFailingUnits(t *testing.T) {
 			}
 
 			// No shard exists, so every unit fails its lookup before the phase runs.
-			err := p.runPerUnitPhase(&distributedtask.Task{}, payload, unitIDs, &Index{},
+			err := p.runPerUnitPhase(&distributedtask.Task{}, payload, unitIDs, &Index{shardCreateLocks: esync.NewKeyRWLocker()},
 				logger, "swap-requested", false,
-				func(string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult {
+				func(context.Context, string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult {
 					return phaseResult{}
 				})
 

@@ -200,7 +200,9 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 					m.db.config.LazyLoadShardSizeThresholdGB,
 				)
 				return lazyLoadShardEnabled
-			}(),
+			}() || m.db.config.wrapsShardsForUnloading(),
+			// A call, so it reads lazyLoadShardEnabled after the closure above sets it.
+			EagerShardLoads:                     func() bool { return m.db.config.wrapsShardsForUnloading() && !lazyLoadShardEnabled }(),
 			LazyLoadShardWarmupMinObjects:       m.db.config.LazyLoadShardWarmupMinObjects,
 			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
 			TransferInactivityTimeout:           m.db.config.TransferInactivityTimeout,
@@ -236,6 +238,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			MaintenanceModeEnabled:       m.db.config.MaintenanceModeEnabled,
 			AutoTenantActivation:         schema.AutoTenantActivationEnabled(class),
 			SelfRecoveryOrchestrator:     m.db.selfRecoveryOrchestrator,
+			ShardUnloader:                m.db.config.ShardUnloader,
 			ReplicationFSM:               m.db.replicationFSM,
 		},
 		// no backward-compatibility check required, since newly added classes will
@@ -1205,8 +1208,18 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU)
 	for _, index := range m.db.indices {
-		index.forEachShardSkipRecovering(func(name string, shard ShardLike) error {
+		index.forEachShardSkipRecovering(func(name string, walked ShardLike) error {
 			eg.Go(func() error {
+				shard, release, err := index.pinWhileUnloading(name, walked)
+				defer release()
+				if err != nil {
+					if index.walkSkipsPinRefusal(name, err) {
+						m.logInvertedReindexShard(walked).Debugf("skipping shard that left the walk: %v", err)
+						return nil
+					}
+					m.logInvertedReindexShard(walked).Errorf("failed pinning shard for reindexing: %v", err)
+					return errors.Wrapf(err, "pin shard '%s' for reindexing", walked.ID())
+				}
 				reindexer := NewShardInvertedReindexer(shard, m.logger)
 				for taskName, task := range tasks {
 					reindexer.AddTask(task)
@@ -1260,8 +1273,17 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 
 		eg.Go(func() error {
 			errgrpShards := enterrors.NewErrorGroupWrapper(m.logger)
-			index.forEachShardSkipRecovering(func(_ string, shard ShardLike) error {
+			index.forEachShardSkipRecovering(func(name string, walked ShardLike) error {
 				errgrpShards.Go(func() error {
+					shard, release, err := index.pinWhileUnloading(name, walked)
+					defer release()
+					if err != nil {
+						if index.walkSkipsPinRefusal(name, err) {
+							m.logMissingFilterableShard(walked).Debugf("skipping shard that left the walk: %v", err)
+							return nil
+						}
+						return errors.Wrapf(err, "pin shard '%s' for filterable indexing", walked.ID())
+					}
 					m.logMissingFilterableShard(shard).
 						Info("starting filterable indexing on shard, this may take a while")
 
@@ -1278,7 +1300,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 					m.logMissingFilterableShard(shard).
 						Info("finished filterable indexing on shard")
 					return nil
-				}, shard.ID())
+				}, walked.ID())
 				return nil
 			})
 

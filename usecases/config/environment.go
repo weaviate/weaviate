@@ -206,6 +206,8 @@ func FromEnv(config *Config) error {
 			minObjects, left)
 	}
 
+	config.LazyShardUnloading = NewLazyShardUnloading()
+
 	// Lazy load shard size threshold for auto-detection (in GB)
 	// Determines at what total shard size auto-detection enables lazy loading
 	if v := os.Getenv("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB"); v != "" {

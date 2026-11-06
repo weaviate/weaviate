@@ -197,3 +197,26 @@ func TestUpdateUserConfig_RoutesToActiveIndexType(t *testing.T) {
 			"a config update applied before the upgrade must be carried into the new HNSW index via uc")
 	})
 }
+
+func TestTryUpgradeInProgress_RefusesWhileTheIndexLockIsHeld(t *testing.T) {
+	idx, _, _ := newDynamicAboveThreshold(t)
+
+	inProgress, ok := idx.TryUpgradeInProgress()
+	require.True(t, ok, "a flat index answers without the lock")
+	require.False(t, inProgress)
+
+	upgradeDone := make(chan struct{})
+	require.NoError(t, idx.Upgrade(func() { close(upgradeDone) }))
+	<-upgradeDone
+	require.True(t, idx.status.IsUpgraded())
+
+	idx.Lock()
+	inProgress, ok = idx.TryUpgradeInProgress()
+	idx.Unlock()
+	require.False(t, ok)
+	require.False(t, inProgress)
+
+	inProgress, ok = idx.TryUpgradeInProgress()
+	require.True(t, ok)
+	require.Equal(t, idx.UpgradeInProgress(), inProgress)
+}

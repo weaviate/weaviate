@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -72,6 +73,7 @@ func shardRegistration(s ShardLike) monitoring.ShardRegistration {
 func (i *Index) evictShutShard(shardName string) {
 	if shard, ok := i.shards.LoadAndDelete(shardName); ok {
 		i.metrics.baseMetrics.DeleteUnloadedShard(shardRegistration(shard))
+		deregisterEvictedWrapper(shard)
 	}
 }
 
@@ -131,13 +133,20 @@ func shardStillAlive(s ShardLike) bool {
 	}
 }
 
-func (s *Shard) Shutdown(ctx context.Context) (err error) {
+func (s *Shard) Shutdown(ctx context.Context) error {
+	return s.shutdownWithAttempt(ctx, func() error { return s.performShutdown(ctx) })
+}
+
+// shutdownWithAttempt is Shutdown with attempt in place of each performShutdown
+// call, so a wrapper can hold its own lock per attempt instead of across the backoff.
+func (s *Shard) shutdownWithAttempt(ctx context.Context, attempt func() error) (err error) {
 	s.shutdownRequested.Store(true)
+	s.yieldPins(false)
 	var lastAttemptErr error
 	err = backoff.Retry(func() error {
 		// this retry to make sure it's retried in case
 		// the performShutdown() returned shard still in use
-		lastAttemptErr = s.performShutdown(ctx)
+		lastAttemptErr = attempt()
 		if errors.Is(lastAttemptErr, errTeardownFailed) {
 			// Sticky: no amount of retrying un-tears the shard, and callers
 			// hold shardCreateLocks across this call — fail immediately
@@ -218,6 +227,14 @@ var _ = map[ShardUnloadOutcome]struct{}{
 func shutdownOrRestoreShard(ctx context.Context, idx *Index, name string, shard ShardLike) (ShardUnloadOutcome, error) {
 	shards, logger := &idx.shards, idx.logger
 
+	// A recovered panic must not lose the entry, the last reference to a torn shard's handles.
+	defer func() {
+		if r := recover(); r != nil {
+			restoreShardIfStillAlive(shards, name, shard)
+			panic(r)
+		}
+	}()
+
 	err := shard.Shutdown(ctx)
 	if err == nil || errors.Is(err, errAlreadyShutdown) {
 		idx.metrics.baseMetrics.DeleteUnloadedShard(shardRegistration(shard))
@@ -249,7 +266,19 @@ func shutdownOrRestoreShard(ctx context.Context, idx *Index, name string, shard 
 	// already-shut case, not a failure (a cold-tenant batch would otherwise
 	// fail whole on one racy tenant).
 	idx.metrics.baseMetrics.DeleteUnloadedShard(shardRegistration(shard))
+	deregisterEvictedWrapper(shard)
 	return ShardUnloadOutcomeUnloaded, errAlreadyShutdown
+}
+
+// deregisterEvictedWrapper drops a wrapper leaving the shard map from the
+// unloader's registry: a deferred shutdown closes the shard without its
+// wrapper, which then still counts as loaded.
+func deregisterEvictedWrapper(shard ShardLike) {
+	if lazy, ok := asLazyLoadShard(shard); ok && lazy.unloader() != nil {
+		lazy.mutex.Lock()
+		lazy.markUnloaded()
+		lazy.mutex.Unlock()
+	}
 }
 
 // restoreShardIfStillAlive puts a shard whose Shutdown failed back into the
@@ -291,6 +320,13 @@ func restoreShardIfStillAlive(shards *shardMap, name string, shard ShardLike) bo
 // component was initialized. If not, it turns it into a noop to prevent
 // blocking.
 func (s *Shard) performShutdown(ctx context.Context) (err error) {
+	_, err = s.performShutdownTracked(ctx)
+	return err
+}
+
+// performShutdownTracked is performShutdown, also reporting whether this call
+// marked the shard shut, as opposed to finding it shut or in use.
+func (s *Shard) performShutdownTracked(ctx context.Context) (shutHere bool, err error) {
 	s.shutdownLock.Lock()
 	defer s.shutdownLock.Unlock()
 	defer func() {
@@ -307,23 +343,77 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	if s.shut.Load() {
 		s.shutdownRequested.Store(false)
 		if s.teardownErr != nil {
-			return fmt.Errorf("%w: %w", errTeardownFailed, s.teardownErr)
+			return false, fmt.Errorf("%w: %w", errTeardownFailed, s.teardownErr)
 		}
 		s.index.logger.
 			WithField("action", "shutdown").
 			Debugf("shard %q is already shut down", s.name)
 			// shutdown is idempotent
-		return nil
+		return false, nil
 	}
 	if s.inUseCounter.Load() > 0 {
 		s.index.logger.
 			WithField("action", "shutdown").
 			Debugf("shard %q is still in use", s.name)
-		return fmt.Errorf("shard %q: %w", s.name, errShardStillInUse)
+		return false, fmt.Errorf("shard %q: %w", s.name, errShardStillInUse)
 	}
+	return true, s.teardownLocked(ctx, nil)
+}
+
+// tryShutdownIdle is the unloader's performShutdown: it only try-locks, refuses
+// anything still pinned or holding in-memory state, and never sets
+// shutdownRequested, so a concurrent pin is never answered errShutdownInProgress.
+// marked runs once shut is set, before the teardown; the caller releases
+// shardCreateLocks there.
+func (s *Shard) tryShutdownIdle(ctx context.Context, marked func()) (outcome UnloadOutcome, err error) {
+	if !s.shutdownLock.TryLock() {
+		return UnloadOutcomeLockBusy, nil
+	}
+	defer s.shutdownLock.Unlock()
+	if s.shut.Load() {
+		if s.teardownErr != nil {
+			return UnloadOutcomeTorn, nil
+		}
+		return UnloadOutcomeAlreadyCold, nil
+	}
+	if o := s.idleUnloadBlocker(); o != "" {
+		return o, nil
+	}
+	defer func() {
+		// teardownLocked recorded it; the worker would otherwise report a torn shard as still loaded.
+		if r := recover(); r != nil {
+			enterrors.PrintStack(s.index.logger)
+			outcome, err = UnloadOutcomeTorn, s.teardownErr
+		}
+		if err != nil && s.teardownErr == nil {
+			s.teardownErr = err
+		}
+	}()
+	if err = s.teardownLocked(ctx, marked); err != nil {
+		return UnloadOutcomeTorn, err
+	}
+	return UnloadOutcomeOK, nil
+}
+
+// teardownLocked marks the shard shut and tears it down. Callers hold
+// shutdownLock for writing and have checked it is not shut and not in use.
+func (s *Shard) teardownLocked(ctx context.Context, marked func()) (err error) {
 	s.shut.Store(true)
+	// A panic past the mark leaves handles open on a shard that reads as shut, so it must stay torn, not cleanly shut.
+	defer func() {
+		if r := recover(); r != nil {
+			s.teardownErr = fmt.Errorf("teardown panicked: %v", r)
+			if s.deferredShutdownDone != nil {
+				s.deferredShutdownDone()
+			}
+			panic(r)
+		}
+	}()
 	defer s.releaseCountedStatus()
 	s.shutdownRequested.Store(false)
+	if marked != nil {
+		marked()
+	}
 	s.shutCtxCancel(fmt.Errorf("shutdown %q", s.ID()))
 
 	// The teardown below cannot be abandoned: every step of it consumes ctx.
@@ -338,11 +428,12 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		ctx = context.WithoutCancel(ctx)
 	}
 
-	// Track shard unloading: loaded -> unloading
+	// Track shard unloading: loaded -> unloading -> unloaded
 	// Only update metrics if the shard was properly registered (prevents double-counting
 	// during partial initialization cleanup)
 	if s.metricsRegistered.Load() {
 		s.metrics.baseMetrics.StartUnloadingShard(s.registration)
+		defer s.metrics.baseMetrics.FinishUnloadingShard(s.registration)
 	}
 
 	start := time.Now()
@@ -451,12 +542,37 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		ec.AddWrapf(err, "stop shard metadata db")
 	}
 
-	// Track shard unloaded: unloading -> unloaded
-	if s.metricsRegistered.Load() {
-		s.metrics.baseMetrics.FinishUnloadingShard(s.registration)
-	}
-
 	return ec.ToError()
+}
+
+// bucketTeardownGrace bounds how long a bucket teardown outlives its caller's cancellation.
+const bucketTeardownGrace = time.Minute
+
+// withBucketTeardownCtx runs the teardown of a bucket that has left its store's
+// map, where an abandoned Bucket.Shutdown keeps its registry claim and handles,
+// so nothing can reopen the directory until a restart. As in teardownLocked only
+// the cancellation is dropped and the caller's deadline stays. A caller that is
+// never cancelled keeps the wait it had; a cancelled one gets the grace, so a
+// stuck teardown cannot outlast it for good.
+func withBucketTeardownCtx(ctx context.Context, teardown func(context.Context) error) error {
+	detached, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancel()
+	if deadline, ok := ctx.Deadline(); ok {
+		var cancelDeadline context.CancelFunc
+		detached, cancelDeadline = context.WithDeadline(detached, deadline)
+		defer cancelDeadline()
+	}
+	stop := context.AfterFunc(ctx, func() {
+		grace := time.NewTimer(bucketTeardownGrace)
+		defer grace.Stop()
+		select {
+		case <-grace.C:
+			cancel()
+		case <-detached.Done():
+		}
+	})
+	defer stop()
+	return teardown(detached)
 }
 
 // drainRefsForDrop blocks new pins and waits for the in-flight ones to finish,
@@ -464,6 +580,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 // Note: this will keep drainRefsForDrop running for 30 seconds.
 func (s *Shard) drainRefsForDrop() error {
 	s.dropRequested.Store(true)
+	s.yieldPins(true)
 
 	return backoff.Retry(func() error {
 		s.shutdownLock.Lock()
@@ -526,6 +643,96 @@ func (s *Shard) preventShutdown() (release func(), err error) {
 	}, nil
 }
 
+// errShardYielded is the cancel cause of a yielding pin whose shard was asked to shut down or drop.
+var errShardYielded = errors.New("shard shutdown or drop requested")
+
+type yieldingPin struct {
+	ctx    context.Context
+	cancel context.CancelCauseFunc
+	// dropOnly keeps the pin through a shutdown request; only a drop cancels it.
+	dropOnly bool
+}
+
+// yieldOnTeardown turns a held pin into one for long-running work that must not
+// delay a teardown: the returned context is cancelled with errShardYielded as
+// soon as a shutdown or drop is requested, so the work can stop and release
+// before the teardown's first retry. The returned release is idempotent and
+// replaces releasePin.
+func (s *Shard) yieldOnTeardown(ctx context.Context, releasePin func()) (*yieldingPin, func()) {
+	return s.yieldingPin(ctx, releasePin, false)
+}
+
+// yieldOnDrop is yieldOnTeardown for work that must not stop half-way on a
+// shutdown, such as a reindex swap renaming dirs: a shutdown waits for it
+// (Shutdown's bounded retries, then the release completes it), a drop does not.
+func (s *Shard) yieldOnDrop(ctx context.Context, releasePin func()) (*yieldingPin, func()) {
+	return s.yieldingPin(ctx, releasePin, true)
+}
+
+func (s *Shard) yieldingPin(ctx context.Context, releasePin func(), dropOnly bool) (*yieldingPin, func()) {
+	yieldCtx, cancel := context.WithCancelCause(ctx)
+	pin := &yieldingPin{ctx: yieldCtx, cancel: cancel, dropOnly: dropOnly}
+	s.yieldMu.Lock()
+	if s.yielders == nil {
+		s.yielders = map[*yieldingPin]struct{}{}
+	}
+	s.yielders[pin] = struct{}{}
+	s.yieldMu.Unlock()
+	// Requests set their flag before yieldPins: either it saw this pin, or this sees the flag.
+	if (!dropOnly && s.shutdownRequested.Load()) || s.dropRequested.Load() {
+		cancel(errShardYielded)
+	}
+	var released atomic.Bool
+	return pin, func() {
+		if !released.CompareAndSwap(false, true) {
+			return
+		}
+		s.yieldMu.Lock()
+		delete(s.yielders, pin)
+		s.yieldMu.Unlock()
+		cancel(nil)
+		releasePin()
+	}
+}
+
+// pinHold narrows a held yieldOnTeardown pin in place to yieldOnDrop until the
+// returned restore runs, so no gap opens between the two for a shutdown to land
+// in. A shutdown requested first has cancelled the pin, so check its context
+// after holding; one requested during the hold cancels it at restore.
+type pinHold func() (restore func())
+
+func (s *Shard) holdThroughShutdown(pin *yieldingPin) (restore func()) {
+	s.yieldMu.Lock()
+	wasDropOnly := pin.dropOnly
+	pin.dropOnly = true
+	s.yieldMu.Unlock()
+	// Requests set their flag before yieldPins: either it cancelled the pin or saw it narrowed, and then this sees the flag.
+	cancelIfRequested := func() {
+		if !wasDropOnly && s.shutdownRequested.Load() {
+			pin.cancel(errShardYielded)
+		}
+	}
+	cancelIfRequested()
+	return func() {
+		s.yieldMu.Lock()
+		pin.dropOnly = wasDropOnly
+		s.yieldMu.Unlock()
+		cancelIfRequested()
+	}
+}
+
+// yieldPins cancels the yielding pins a shutdown, or with drop a drop, ends.
+// Callers set shutdownRequested or dropRequested first.
+func (s *Shard) yieldPins(drop bool) {
+	s.yieldMu.Lock()
+	defer s.yieldMu.Unlock()
+	for pin := range s.yielders {
+		if drop || !pin.dropOnly {
+			pin.cancel(errShardYielded)
+		}
+	}
+}
+
 func (s *Shard) refCountAdd() {
 	s.inUseCounter.Add(1)
 }
@@ -536,7 +743,12 @@ func (s *Shard) refCountSub() {
 	// a shutdown requested while the shard was in use runs once the last
 	// reference drops
 	if s.inUseCounter.Add(-1) == 0 && s.shutdownRequested.Load() {
-		if err := s.performShutdown(context.TODO()); err != nil {
+		shutHere, err := s.performShutdownTracked(context.TODO())
+		// Only the call that shut it: a wrapper that shut it itself deregisters, and may already have reloaded.
+		if shutHere && s.deferredShutdownDone != nil {
+			s.deferredShutdownDone()
+		}
+		if err != nil {
 			// No caller to receive this: the deferred completion runs on
 			// whichever request releases the last ref. teardownErr keeps deep
 			// failures sticky for later Shutdown/reactivation attempts, but

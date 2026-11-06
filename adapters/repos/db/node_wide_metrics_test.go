@@ -814,8 +814,8 @@ func TestShardActivityUsageWithoutObserver(t *testing.T) {
 	require.Empty(t, o.Usage(tenantactivity.UsageFilterAll))
 }
 
-// newColdShard returns an unloaded LazyLoadShard whose every load attempt fails,
-// so a force-load panics through mustLoad instead of passing unnoticed.
+// newColdShard returns an unloaded LazyLoadShard whose every load attempt fails
+// or panics, so a force-load cannot pass unnoticed.
 func newColdShard(index *Index, name string) *LazyLoadShard {
 	return &LazyLoadShard{
 		shardOpts:  &deferredShardOpts{name: name, index: index},

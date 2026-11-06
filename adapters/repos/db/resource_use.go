@@ -77,6 +77,10 @@ func (d *DB) scanResourceUsage() {
 // because both branches read from it: without it, shards held read-only by
 // memory pressure would never see the usage drop back below the threshold.
 func (db *DB) scanResourceUsageOnce(mon *memwatch.Monitor, du diskUse, now time.Time) {
+	// A failed disk read reports a zero total: keep the last reading rather than clear the flag.
+	if du.total > 0 {
+		db.resourceScanState.diskReadOnly.Store(db.diskAboveReadonlyThreshold(du))
+	}
 	mon.Refresh(false)
 	if mon.MappingsReadDue(now) {
 		db.warnMappingsReadFailed(mon.ReadMappings(now))
@@ -104,6 +108,16 @@ type resourceScanState struct {
 	// created or loaded while this is set comes up READONLY instead of READY.
 	// See [Shard.inheritResourcePressureReadOnly].
 	isReadOnly atomic.Bool
+
+	// diskReadOnly reports that the last scan read disk usage above its read-only
+	// threshold, whatever else holds the node read-only. A shard unload must not
+	// flush then: a flush failing on a full disk tears the shard until restart.
+	diskReadOnly atomic.Bool
+}
+
+// diskPressureReadOnly reports whether disk usage is above its read-only threshold.
+func (db *DB) diskPressureReadOnly() bool {
+	return db != nil && db.resourceScanState != nil && db.resourceScanState.diskReadOnly.Load()
 }
 
 // resourcePressureReadOnly reports whether the resource scan currently holds
