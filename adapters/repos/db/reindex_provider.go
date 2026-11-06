@@ -2268,13 +2268,21 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		// /v1/schema/{class}/indexes never reads it: it resolves
 		// models.IndexStatus.Algorithm from the per-property
 		// SearchableBlockmax stamp written above, which lands before FINISHED.
+		//
+		// With the stamp landed the property is migrated, so a failed flip is only
+		// logged: failing the run would lock the property behind a run that
+		// cannot finish. The flag then waits for the next cutover, as after a deferral.
 		if defer_, err := p.shouldDeferBlockmaxFlip(ctx, payload, logger); err != nil {
-			return err
+			logger.WithError(err).Warn("reindex provider: change-algorithm cutover: cannot check whether the class " +
+				"can use blockmax by default; the next change-algorithm cutover on this class retries the flip")
+			return nil
 		} else if defer_ {
 			return nil
 		}
 		if err := updateToBlockMaxInvertedIndexConfig(ctx, p.schemaManager, payload.Collection); err != nil {
-			return fmt.Errorf("flip UsingBlockMaxWAND: %w", err)
+			logger.WithError(err).Warn("reindex provider: change-algorithm cutover: the property is migrated, but the " +
+				"class-level blockmax flag did not flip; the next change-algorithm cutover on this class retries it")
+			return nil
 		}
 		logger.Info("reindex provider: change-algorithm cutover committed")
 		return nil
