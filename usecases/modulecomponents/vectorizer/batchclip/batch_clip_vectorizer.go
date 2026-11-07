@@ -56,6 +56,7 @@ type classSettings interface {
 	ImageFieldsWeights() ([]float32, error)
 	TextField(property string) bool
 	TextFieldsWeights() ([]float32, error)
+	VectorizableProperties(fields []string) ([]string, error)
 }
 
 type batchObject struct {
@@ -141,11 +142,18 @@ func (v *BatchCLIPVectorizer[T]) objects(ctx context.Context, objects []*models.
 		cfg, v.lowerCaseInput, v.moduleName, v.altNames, nil,
 	)
 
+	fieldWeights, err := v.fieldWeights(icheck)
+	if err != nil {
+		return nil, err
+	}
+
 	// vectorize image and text
 	textsIndex := 0
 	texts := make([]string, 0)
+	textWeights := make([]float32, 0)
 	imagesIndex := 0
 	images := make([]string, 0)
+	imageWeights := make([]float32, 0)
 
 	batchObjects := make([]batchObject, 0)
 	for i, object := range objects {
@@ -163,11 +171,17 @@ func (v *BatchCLIPVectorizer[T]) objects(ctx context.Context, objects []*models.
 						images = append(images, val)
 						batchObject.imageIndexes = append(batchObject.imageIndexes, imagesIndex)
 						imagesIndex++
+						if fieldWeights != nil {
+							imageWeights = append(imageWeights, fieldWeights[propName])
+						}
 					}
 					if icheck.TextField(propName) {
 						texts = append(texts, val)
 						batchObject.textIndexes = append(batchObject.textIndexes, textsIndex)
 						textsIndex++
+						if fieldWeights != nil {
+							textWeights = append(textWeights, fieldWeights[propName])
+						}
 					}
 				case []string:
 					if icheck.TextField(propName) {
@@ -175,6 +189,9 @@ func (v *BatchCLIPVectorizer[T]) objects(ctx context.Context, objects []*models.
 							texts = append(texts, textVal)
 							batchObject.textIndexes = append(batchObject.textIndexes, textsIndex)
 							textsIndex++
+							if fieldWeights != nil {
+								textWeights = append(textWeights, fieldWeights[propName])
+							}
 						}
 					}
 				default: // properties that are not part of the object
@@ -199,12 +216,16 @@ func (v *BatchCLIPVectorizer[T]) objects(ctx context.Context, objects []*models.
 				continue
 			}
 			vectors := []T{}
+			weights := []float32{}
 			for _, textIndex := range batchObj.textIndexes {
 				vec, ok := v.getVector(res.TextVectors, textIndex)
 				if !ok {
 					return nil, fmt.Errorf("text vector not found for object: %s at index: %v", objects[batchObj.objectIndex].ID, textIndex)
 				}
 				vectors = append(vectors, vec)
+				if fieldWeights != nil {
+					weights = append(weights, textWeights[textIndex])
+				}
 			}
 			for _, imageIndex := range batchObj.imageIndexes {
 				vec, ok := v.getVector(res.ImageVectors, imageIndex)
@@ -212,12 +233,11 @@ func (v *BatchCLIPVectorizer[T]) objects(ctx context.Context, objects []*models.
 					return nil, fmt.Errorf("image vector not found for object: %s at index: %v", objects[batchObj.objectIndex].ID, imageIndex)
 				}
 				vectors = append(vectors, vec)
+				if fieldWeights != nil {
+					weights = append(weights, imageWeights[imageIndex])
+				}
 			}
-			weights, err := v.getWeights(icheck)
-			if err != nil {
-				return nil, err
-			}
-			resultVector, err := v.combineVectors(vectors, weights)
+			resultVector, err := v.combineVectors(vectors, v.normalizeWeights(weights))
 			if err != nil {
 				return nil, err
 			}
@@ -247,8 +267,11 @@ func (v *BatchCLIPVectorizer[T]) getVector(vectors []T, index int) (T, bool) {
 	return nil, false
 }
 
-func (v *BatchCLIPVectorizer[T]) getWeights(icheck classSettings) ([]float32, error) {
-	weights := []float32{}
+// fieldWeights maps each configured field name to its weight, keyed by field
+// name rather than by position. objects() looks weights up by the field that
+// produced each vector, instead of assuming the weights and the vectors they
+// are meant to scale end up in the same order.
+func (v *BatchCLIPVectorizer[T]) fieldWeights(icheck classSettings) (map[string]float32, error) {
 	textFieldsWeights, err := icheck.TextFieldsWeights()
 	if err != nil {
 		return nil, err
@@ -258,12 +281,26 @@ func (v *BatchCLIPVectorizer[T]) getWeights(icheck classSettings) ([]float32, er
 		return nil, err
 	}
 
-	weights = append(weights, textFieldsWeights...)
-	weights = append(weights, imageFieldsWeights...)
+	weights := append(append([]float32{}, textFieldsWeights...), imageFieldsWeights...)
+	if len(weights) == 0 {
+		return nil, nil
+	}
 
-	normalizedWeights := v.normalizeWeights(weights)
+	properties, err := icheck.VectorizableProperties([]string{settings.TextFieldsProperty, settings.ImageFieldsProperty})
+	if err != nil {
+		return nil, err
+	}
+	if len(properties) != len(weights) {
+		// A field category is configured without a matching weights entry.
+		// Fall back to an unweighted combination rather than misassigning weights.
+		return nil, nil
+	}
 
-	return normalizedWeights, nil
+	fieldWeights := make(map[string]float32, len(properties))
+	for i, name := range properties {
+		fieldWeights[name] = weights[i]
+	}
+	return fieldWeights, nil
 }
 
 func (v *BatchCLIPVectorizer[T]) normalizeWeights(weights []float32) []float32 {
