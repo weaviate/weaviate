@@ -286,8 +286,8 @@ func TestToolInputSchemas(t *testing.T) {
 		{
 			name: "weaviate-collections-create",
 			properties: []string{
-				"collection_name", "description", "properties", "vector_config", "multi_tenancy_config",
-				"inverted_index_config", "replication_config", "object_ttl_config",
+				"collection_name", "description", "properties", "vector_config", "module_config",
+				"multi_tenancy_config", "inverted_index_config", "replication_config", "object_ttl_config",
 			},
 			required: []string{"collection_name"},
 		},

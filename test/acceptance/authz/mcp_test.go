@@ -449,7 +449,7 @@ func TestMCPPermissionSeparation(t *testing.T) {
 }
 
 // TestMCPCollectionsCreateAuthZ pins that weaviate-collections-create needs
-// create_collections on top of create_mcp.
+// both create_mcp and create_collections.
 func TestMCPCollectionsCreateAuthZ(t *testing.T) {
 	adminKey := "admin-key"
 	customUser := "custom-user"
@@ -473,17 +473,25 @@ func TestMCPCollectionsCreateAuthZ(t *testing.T) {
 		helper.DeleteRole(t, adminKey, name)
 		helper.CreateRole(t, adminKey, &models.Role{Name: &name, Permissions: []*models.Permission{perm}})
 	}
+	// Deleting a role also drops its user assignments.
+	defer helper.DeleteRole(t, adminKey, mcpRole)
+	defer helper.DeleteRole(t, adminKey, collectionsRole)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	args := create.CreateCollectionArgs{CollectionName: className}
+	var resp create.CreateCollectionResp
 
 	helper.AssignRoleToUser(t, adminKey, mcpRole, customUser)
-	var resp create.CreateCollectionResp
 	err := callToolOnceWithAuth(ctx, t, mcpURL, "weaviate-collections-create", customKey, args, &resp)
 	require.ErrorContains(t, err, "forbidden")
 
+	helper.RevokeRoleFromUser(t, adminKey, mcpRole, customUser)
 	helper.AssignRoleToUser(t, adminKey, collectionsRole, customUser)
+	err = callToolOnceWithAuth(ctx, t, mcpURL, "weaviate-collections-create", customKey, args, &resp)
+	require.ErrorContains(t, err, "forbidden")
+
+	helper.AssignRoleToUser(t, adminKey, mcpRole, customUser)
 	require.NoError(t, callToolOnceWithAuth(ctx, t, mcpURL, "weaviate-collections-create", customKey, args, &resp))
 	require.Equal(t, className, resp.Collection.Class)
 }

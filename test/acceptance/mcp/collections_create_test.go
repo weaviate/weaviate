@@ -76,6 +76,7 @@ func TestCreateCollectionToolWideConfig(t *testing.T) {
 		VectorConfig: map[string]any{
 			"main": map[string]any{"vectorizer": map[string]any{"none": map[string]any{}}, "vectorIndexType": "flat"},
 		},
+		ModuleConfig:        map[string]any{"generative-dummy": map[string]any{}},
 		InvertedIndexConfig: map[string]any{"indexTimestamps": true, "indexNullState": true},
 		ReplicationConfig:   map[string]any{"factor": 1},
 	}, testAPIKey)
@@ -90,6 +91,7 @@ func TestCreateCollectionToolWideConfig(t *testing.T) {
 	require.Len(t, stored.Properties[2].NestedProperties, 1)
 	require.Contains(t, stored.VectorConfig, "main")
 	assert.Equal(t, "flat", stored.VectorConfig["main"].VectorIndexType)
+	assert.Contains(t, stored.ModuleConfig, "generative-dummy")
 	assert.True(t, stored.InvertedIndexConfig.IndexTimestamps)
 	assert.True(t, stored.InvertedIndexConfig.IndexNullState)
 	assert.Equal(t, int64(1), stored.ReplicationConfig.Factor)
@@ -120,37 +122,35 @@ func TestCreateCollectionToolMultiTenantAutoCreation(t *testing.T) {
 	}, testAPIKey)
 }
 
-func TestCreateCollectionToolDuplicateName(t *testing.T) {
-	name := "MCPCreateDuplicate"
-	ctx, cleanup := setupCreateCollectionTest(t, name)
+func TestCreateCollectionToolErrors(t *testing.T) {
+	existing, unknownModule := "MCPCreateDuplicate", "MCPCreateUnknownModule"
+	ctx, cleanup := setupCreateCollectionTest(t, existing)
 	defer cleanup()
-
-	_, err := createCollection(ctx, t, create.CreateCollectionArgs{CollectionName: name}, testAPIKey)
+	_, cleanupUnknown := setupCreateCollectionTest(t, unknownModule)
+	defer cleanupUnknown()
+	_, err := createCollection(ctx, t, create.CreateCollectionArgs{CollectionName: existing}, testAPIKey)
 	require.NoError(t, err)
 
-	_, err = createCollection(ctx, t, create.CreateCollectionArgs{CollectionName: name}, testAPIKey)
-	require.ErrorContains(t, err, "already exists")
-}
-
-func TestCreateCollectionToolUppercasesRefTargets(t *testing.T) {
-	ctx, cleanupTarget := setupCreateCollectionTest(t, "RefTarget")
-	defer cleanupTarget()
-	_, cleanupSource := setupCreateCollectionTest(t, "RefSource")
-	defer cleanupSource()
-
-	_, err := createCollection(ctx, t, create.CreateCollectionArgs{CollectionName: "RefTarget"}, testAPIKey)
-	require.NoError(t, err)
-	resp, err := createCollection(ctx, t, create.CreateCollectionArgs{
-		CollectionName: "RefSource",
-		Properties: []map[string]any{
-			{"name": "to", "dataType": []string{"refTarget"}},
-			{"name": "self", "dataType": []string{"refSource"}},
-			{"name": "title", "dataType": []string{"text"}},
+	tests := []struct {
+		name    string
+		args    create.CreateCollectionArgs
+		wantErr string
+	}{
+		{name: "duplicate name", args: create.CreateCollectionArgs{CollectionName: existing}, wantErr: "already exists"},
+		{name: "invalid name", args: create.CreateCollectionArgs{CollectionName: "my-coll"}, wantErr: "not a valid class name"},
+		{
+			name: "unknown vectorizer module",
+			args: create.CreateCollectionArgs{
+				CollectionName: unknownModule,
+				VectorConfig:   map[string]any{"default": map[string]any{"vectorizer": map[string]any{"text2vec-unknown": map[string]any{}}}},
+			},
+			wantErr: "no module with name",
 		},
-	}, testAPIKey)
-	require.NoError(t, err)
-	require.Len(t, resp.Collection.Properties, 3)
-	assert.Equal(t, []string{"RefTarget"}, resp.Collection.Properties[0].DataType)
-	assert.Equal(t, []string{"RefSource"}, resp.Collection.Properties[1].DataType)
-	assert.Equal(t, []string{"text"}, resp.Collection.Properties[2].DataType)
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := createCollection(ctx, t, tt.args, testAPIKey)
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
 }

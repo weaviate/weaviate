@@ -20,7 +20,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -54,6 +53,7 @@ func classFromArgs(args CreateCollectionArgs) (*models.Class, error) {
 		"description":         args.Description,
 		"properties":          args.Properties,
 		"vectorConfig":        args.VectorConfig,
+		"moduleConfig":        args.ModuleConfig,
 		"multiTenancyConfig":  args.MultiTenancyConfig,
 		"invertedIndexConfig": args.InvertedIndexConfig,
 		"replicationConfig":   args.ReplicationConfig,
@@ -68,25 +68,8 @@ func classFromArgs(args CreateCollectionArgs) (*models.Class, error) {
 	if err := dec.Decode(class); err != nil {
 		return nil, fmt.Errorf("invalid collection config: %w", err)
 	}
-	uppercaseRefTargets(class.Properties)
 	if err := class.Validate(strfmt.Default); err != nil {
 		return nil, fmt.Errorf("invalid collection config: %w", err)
 	}
 	return class, nil
-}
-
-// uppercaseRefTargets capitalizes reference targets in dataTypes, since core
-// reads any lowercase-first entry as a primitive type.
-func uppercaseRefTargets(props []*models.Property) {
-	for _, p := range props {
-		if _, ok := schema.AsPrimitive(p.DataType); ok {
-			continue
-		}
-		if _, ok := schema.AsNested(p.DataType); ok {
-			continue
-		}
-		for i, target := range p.DataType {
-			p.DataType[i] = schema.UppercaseClassName(target)
-		}
-	}
 }
