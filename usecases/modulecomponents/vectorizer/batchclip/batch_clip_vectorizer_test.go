@@ -13,6 +13,7 @@ package batchclip
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -387,6 +388,90 @@ func checkNormalization(weights []float32) bool {
 		result += weights[i]
 	}
 	return result == 1.0
+}
+
+// Test_BatchCLIPVectorizer_WeightsFollowFields pins weights[i] being applied
+// to vectors[i] although weights follow the configured field order and
+// count, while vectors follow the sorted property names and are batched
+// across objects, which both reorder relative to the declared field order.
+func Test_BatchCLIPVectorizer_WeightsFollowFields(t *testing.T) {
+	vectorsByInput := map[string][]float32{
+		"title": {1, 0, 0},
+		"body":  {0, 1, 0},
+	}
+	client := &perInputClient{vectors: vectorsByInput}
+	vectorizer := New("moduleName", client)
+	config := newConfigBuilder().
+		// "title" is declared first (weight 0.9) but sorts after "body"
+		// alphabetically, which is the order object() walks properties in.
+		addSetting("textFields", []any{"title", "body"}).
+		addWeights([]any{0.9, 0.1}, nil).
+		build()
+
+	// A second, single-field object is batched alongside the first so the
+	// fix must also track weights through the flat, batch-wide text index
+	// bookkeeping (textIndex/imageIndex), not just within one object.
+	objects := []*models.Object{
+		{ID: "a", Properties: map[string]any{"title": "title", "body": "body"}},
+		{ID: "b", Properties: map[string]any{"body": "body"}},
+	}
+
+	vectors, _, err := vectorizer.Objects(context.Background(), objects, config)
+
+	require.NoError(t, err)
+	require.Len(t, vectors, 2)
+	// Correct: body (0.1) + title (0.9) direction points mostly towards title.
+	// A buggy positional assignment swaps them, pointing towards body instead.
+	assert.InDeltaSlice(t, unitVector([]float32{0.9, 0.1, 0}), unitVector(vectors[0]), 1e-6)
+	// Single-field object: its only weight renormalizes to 1, regardless of
+	// its declared value, so this only confirms no panic/misrouting occurs.
+	assert.InDeltaSlice(t, []float32{0, 1, 0}, vectors[1], 1e-6)
+}
+
+func unitVector(v []float32) []float32 {
+	var norm float64
+	for _, x := range v {
+		norm += float64(x) * float64(x)
+	}
+	norm = math.Sqrt(norm)
+	unit := make([]float32, len(v))
+	for i, x := range v {
+		unit[i] = float32(float64(x) / norm)
+	}
+	return unit
+}
+
+type perInputClient struct {
+	vectors map[string][]float32
+}
+
+func (c *perInputClient) VectorizeImages(ctx context.Context,
+	images []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
+	return c.getEmbeddings(nil, images)
+}
+
+func (c *perInputClient) VectorizeQuery(ctx context.Context,
+	texts []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
+	return c.getEmbeddings(texts, nil)
+}
+
+func (c *perInputClient) Vectorize(ctx context.Context,
+	texts, images []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
+	return c.getEmbeddings(texts, images)
+}
+
+func (c *perInputClient) getEmbeddings(texts, images []string) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
+	result := &modulecomponents.VectorizationCLIPResult[[]float32]{}
+	for _, text := range texts {
+		result.TextVectors = append(result.TextVectors, c.vectors[text])
+	}
+	for _, image := range images {
+		result.ImageVectors = append(result.ImageVectors, c.vectors[image])
+	}
+	return result, nil
 }
 
 type builder struct {

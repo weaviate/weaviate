@@ -58,6 +58,7 @@ type ClassSettings interface {
 	TextFieldsWeights() ([]float32, error)
 	VideoField(property string) bool
 	VideoFieldsWeights() ([]float32, error)
+	Properties() ([]string, error)
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
@@ -98,10 +99,18 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object,
 ) ([]float32, error) {
 	ichek := ent.NewClassSettings(cfg)
 
+	fieldWeights, err := v.fieldWeights(ichek)
+	if err != nil {
+		return nil, err
+	}
+
 	// vectorize image, text, and video
 	texts := []string{}
 	images := []string{}
 	videos := []string{}
+	textWeights := []float32{}
+	imageWeights := []float32{}
+	videoWeights := []float32{}
 
 	if object.Properties != nil {
 		schemamap := object.Properties.(map[string]any)
@@ -110,16 +119,30 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object,
 			case string:
 				if ichek.ImageField(propName) {
 					images = append(images, val)
+					if fieldWeights != nil {
+						imageWeights = append(imageWeights, fieldWeights[propName])
+					}
 				}
 				if ichek.TextField(propName) {
 					texts = append(texts, val)
+					if fieldWeights != nil {
+						textWeights = append(textWeights, fieldWeights[propName])
+					}
 				}
 				if ichek.VideoField(propName) {
 					videos = append(videos, val)
+					if fieldWeights != nil {
+						videoWeights = append(videoWeights, fieldWeights[propName])
+					}
 				}
 			case []string:
 				if ichek.TextField(propName) {
 					texts = append(texts, val...)
+					if fieldWeights != nil {
+						for range val {
+							textWeights = append(textWeights, fieldWeights[propName])
+						}
+					}
 				}
 			default: // properties that are not part of the object
 
@@ -129,6 +152,7 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object,
 	}
 
 	vectors := [][]float32{}
+	weights := []float32{}
 	if len(texts) > 0 || len(images) > 0 || len(videos) > 0 {
 		res, err := v.client.Vectorize(ctx, texts, images, videos, cfg)
 		if err != nil {
@@ -137,17 +161,19 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object,
 		vectors = append(vectors, res.TextVectors...)
 		vectors = append(vectors, res.ImageVectors...)
 		vectors = append(vectors, res.VideoVectors...)
-	}
-	weights, err := v.getWeights(ichek)
-	if err != nil {
-		return nil, err
+		weights = append(weights, textWeights...)
+		weights = append(weights, imageWeights...)
+		weights = append(weights, videoWeights...)
 	}
 
-	return libvectorizer.CombineVectorsWithWeights(vectors, weights), nil
+	return libvectorizer.CombineVectorsWithWeights(vectors, moduletools.NormalizeWeights(weights)), nil
 }
 
-func (v *Vectorizer) getWeights(ichek ClassSettings) ([]float32, error) {
-	weights := []float32{}
+// fieldWeights maps each configured field name to its weight, keyed by field
+// name rather than by position. object() looks weights up by the field that
+// produced each vector, instead of assuming the weights and the vectors they
+// are meant to scale end up in the same order.
+func (v *Vectorizer) fieldWeights(ichek ClassSettings) (map[string]float32, error) {
 	textFieldsWeights, err := ichek.TextFieldsWeights()
 	if err != nil {
 		return nil, err
@@ -161,11 +187,24 @@ func (v *Vectorizer) getWeights(ichek ClassSettings) ([]float32, error) {
 		return nil, err
 	}
 
-	weights = append(weights, textFieldsWeights...)
-	weights = append(weights, imageFieldsWeights...)
-	weights = append(weights, videoFieldsWeights...)
+	weights := append(append(append([]float32{}, textFieldsWeights...), imageFieldsWeights...), videoFieldsWeights...)
+	if len(weights) == 0 {
+		return nil, nil
+	}
 
-	normalizedWeights := moduletools.NormalizeWeights(weights)
+	properties, err := ichek.Properties()
+	if err != nil {
+		return nil, err
+	}
+	if len(properties) != len(weights) {
+		// A field category is configured without a matching weights entry.
+		// Fall back to an unweighted combination rather than misassigning weights.
+		return nil, nil
+	}
 
-	return normalizedWeights, nil
+	fieldWeights := make(map[string]float32, len(properties))
+	for i, name := range properties {
+		fieldWeights[name] = weights[i]
+	}
+	return fieldWeights, nil
 }

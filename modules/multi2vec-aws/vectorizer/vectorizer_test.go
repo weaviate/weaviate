@@ -13,6 +13,7 @@ package vectorizer
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -191,4 +192,109 @@ func checkNormalization(weights []float32) bool {
 		result += weights[i]
 	}
 	return result == 1.0
+}
+
+// TestVectorizerWeightsFollowFields pins weights[i] being applied to vectors[i]
+// although weights follow the configured field order and count, while vectors
+// follow the sorted property names and one vector per text[] value.
+func TestVectorizerWeightsFollowFields(t *testing.T) {
+	vectors := map[string][]float32{
+		"title": {1, 0, 0},
+		"body":  {0, 1, 0},
+		"img":   {0, 0, 1},
+		"tag1":  {1, 1, 0},
+		"tag2":  {0, 1, 1},
+	}
+	tests := []struct {
+		name         string
+		textFields   []any
+		imageFields  []any
+		textWeights  []any
+		imageWeights []any
+		props        map[string]any
+		// wantDirection is compared after scaling both vectors to unit length;
+		// nil checks only that vectorization succeeds.
+		wantDirection []float32
+	}{
+		{
+			name:          "text[] property without weights",
+			textFields:    []any{"tags"},
+			props:         map[string]any{"tags": []string{"tag1", "tag2"}},
+			wantDirection: []float32{1, 2, 1},
+		},
+		{
+			name:          "weighted text fields in alphabetical order",
+			textFields:    []any{"body", "title"},
+			textWeights:   []any{0.1, 0.9},
+			props:         map[string]any{"title": "title", "body": "body"},
+			wantDirection: []float32{0.9, 0.1, 0},
+		},
+		{
+			name:        "text[] property with a field weight",
+			textFields:  []any{"tags"},
+			textWeights: []any{1.0},
+			props:       map[string]any{"tags": []string{"tag1", "tag2"}},
+		},
+		{
+			name:         "text[] property next to a weighted image field",
+			textFields:   []any{"tags"},
+			imageFields:  []any{"image"},
+			textWeights:  []any{0.5},
+			imageWeights: []any{0.5},
+			props:        map[string]any{"tags": []string{"tag1", "tag2"}, "image": "img"},
+		},
+		{
+			name:          "weighted text fields not in alphabetical order",
+			textFields:    []any{"title", "body"},
+			textWeights:   []any{0.9, 0.1},
+			props:         map[string]any{"title": "title", "body": "body"},
+			wantDirection: []float32{0.9, 0.1, 0},
+		},
+		{
+			name:          "missing text field before a weighted image field",
+			textFields:    []any{"body", "title"},
+			imageFields:   []any{"image"},
+			textWeights:   []any{0.6, 0.3},
+			imageWeights:  []any{0.1},
+			props:         map[string]any{"body": "body", "image": "img"},
+			wantDirection: []float32{0, 0.6, 0.1},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := newConfigBuilder()
+			if tt.textFields != nil {
+				b.addSetting("textFields", tt.textFields)
+			}
+			if tt.imageFields != nil {
+				b.addSetting("imageFields", tt.imageFields)
+			}
+			config := b.addWeights(tt.textWeights, tt.imageWeights).build()
+			v := New(&perInputClient{vectors: vectors})
+
+			var vector []float32
+			var err error
+			require.NotPanics(t, func() {
+				vector, _, err = v.Object(context.Background(), &models.Object{Properties: tt.props}, config)
+			})
+			require.NoError(t, err)
+			require.NotEmpty(t, vector)
+			if tt.wantDirection != nil {
+				assert.InDeltaSlice(t, unitVector(tt.wantDirection), unitVector(vector), 1e-6)
+			}
+		})
+	}
+}
+
+func unitVector(v []float32) []float32 {
+	var norm float64
+	for _, x := range v {
+		norm += float64(x) * float64(x)
+	}
+	norm = math.Sqrt(norm)
+	unit := make([]float32, len(v))
+	for i, x := range v {
+		unit[i] = float32(float64(x) / norm)
+	}
+	return unit
 }
