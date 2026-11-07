@@ -23,6 +23,7 @@ import (
 
 	"golang.org/x/time/rate"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -171,9 +172,9 @@ func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 	if v.apiKey != "" {
 		return v.apiKey, nil
 	}
-	return "", errors.New("no api key found " +
+	return "", enterrors.NewErrModulePrecondition(errors.New("no api key found " +
 		"neither in request header: X-Mistral-Api-Key " +
-		"nor in environment variable under MISTRAL_APIKEY")
+		"nor in environment variable under MISTRAL_APIKEY"))
 }
 
 func (v *vectorizer) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {

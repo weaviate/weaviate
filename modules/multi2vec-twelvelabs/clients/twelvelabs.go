@@ -25,6 +25,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/multi2vec-twelvelabs/ent"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -221,7 +222,7 @@ func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 	if v.apiKey != "" {
 		return v.apiKey, nil
 	}
-	return "", errors.New("no api key found " +
+	return "", enterrors.NewErrModulePrecondition(errors.New("no api key found " +
 		"neither in request header: X-TwelveLabs-Api-Key " +
-		"nor in environment variable under TWELVELABS_APIKEY")
+		"nor in environment variable under TWELVELABS_APIKEY"))
 }

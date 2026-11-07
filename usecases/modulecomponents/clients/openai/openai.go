@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 
@@ -365,7 +366,7 @@ func (v *Client) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, 
 	if envVarValue != "" {
 		return envVarValue, nil
 	}
-	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
+	return "", enterrors.NewErrModulePrecondition(fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar))
 }
 
 func (v *Client) getRateLimitsFromHeader(l *logrusext.Sampler, header http.Header, isAzure bool) *modulecomponents.RateLimits {

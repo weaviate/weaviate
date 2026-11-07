@@ -298,7 +298,7 @@ func (o *SearchNearTextRequestEntityTooLarge) WriteResponse(rw http.ResponseWrit
 const SearchNearTextUnprocessableEntityCode int = 422
 
 /*
-SearchNearTextUnprocessableEntity Either a request-schema violation (a missing required field such as `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
+SearchNearTextUnprocessableEntity Either a request-schema violation (a missing required field such as `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, the vectorizer needs a request header that is missing (a provider API key header, or Authorization and X-Weaviate-Cluster-Url for text2vec-weaviate), targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
 
 swagger:response searchNearTextUnprocessableEntity
 */
