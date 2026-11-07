@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,13 +33,14 @@ func TestDiscoverInFlightReindexTasks_RuntimeReindexDisabled(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, _ := newTestProvider(t)
+			logger, _ := test.NewNullLogger()
 			root := t.TempDir()
 			lsm := filepath.Join(root, "books", "shard-1", "lsm")
 			require.NoError(t, os.MkdirAll(lsm, 0o777))
-			seedInFlightMigration(t, p, lsm, recoverableDirOwnershipCases()[0], 3, 3)
+			require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(
+				NewMigrationRecordIterated(testMigrationSubject(3, StrategyCodeSearchableRetokenize, "title"))))
 
-			recovered, err := DiscoverInFlightReindexTasks(root, tt.enabled, p.logger, nil)
+			recovered, err := DiscoverInFlightReindexTasks(root, tt.enabled, logger, nil)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantRecovered, len(recovered) > 0)
 		})

@@ -39,6 +39,9 @@ import (
 // explicitly with the error surfaced — never via Store()'s panicking mustLoad
 // — acceptable for a drop, a rare operator-initiated action that must touch
 // every shard once anyway.
+//
+// Before each shard it refuses a collection whose namespace is not active, so
+// a namespace suspended while it runs stops it at the next shard.
 func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, shardNames []string) (map[string]editOpBucket, error) {
 	idx := db.GetIndex(entschema.ClassName(collection))
 	if idx == nil {
@@ -46,6 +49,9 @@ func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, sha
 	}
 	buckets := make(map[string]editOpBucket, len(shardNames))
 	for _, name := range shardNames {
+		if err := idx.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
+			return nil, fmt.Errorf("collection %q: %w", collection, err)
+		}
 		if b := db.loadEditOpBucket(ctx, idx, collection, name); b != nil {
 			buckets[name] = b
 		}

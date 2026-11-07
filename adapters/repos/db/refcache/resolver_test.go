@@ -532,6 +532,34 @@ func TestResolver(t *testing.T) {
 		require.Nil(t, err)
 		assert.Equal(t, getExpectedResult(false), res)
 	})
+
+	// Hybrid search selects references this way to load them without
+	// resolving them (Explorer.withoutRefs in usecases/traverser).
+	t.Run("with a ref prop selected without ref classes", func(t *testing.T) {
+		refs := models.MultipleRef{
+			&models.SingleRef{
+				Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id1)),
+			},
+		}
+		input := []search.Result{
+			{
+				ID:        "foo",
+				ClassName: "BestClass",
+				Schema: map[string]interface{}{
+					"refProp": refs,
+				},
+			},
+		}
+		selectProps := search.SelectProperties{
+			search.SelectProperty{Name: "refProp"},
+		}
+
+		res, err := NewResolver(newFakeCacher()).Do(context.Background(), input, selectProps, additional.Properties{})
+
+		require.Nil(t, err)
+		require.Len(t, res, 1)
+		assert.Equal(t, refs, res[0].Schema.(map[string]interface{})["refProp"])
+	})
 }
 
 func newFakeCacher() *fakeCacher {

@@ -102,7 +102,7 @@ func NewLoader(config LoaderConfig) *Loader {
 // Returns nil result (not error) if directory is empty or doesn't exist.
 // If a truncated WAL file is detected (crash recovery), RecoveredFromCrash will be true.
 func (l *Loader) Load() (*LoadResult, error) {
-	l.maxNodeID = l.nodeIDLimit()
+	l.maxNodeID = nodeIDLimit(l.config.Dir, l.config.NodeIDsAreDocIDs, l.config.Logger)
 
 	// 0. Migrate snapshots from old directory FIRST (before any other operations)
 	// This ensures that snapshots stored in the old .hnsw.snapshot.d/ directory
@@ -367,16 +367,17 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 // after a power loss, since neither is fsynced.
 const docIDCounterSlack = 1 << 24
 
-// nodeIDLimit returns the highest node ID the index can hold, or 0 for no
-// limit: when node IDs are not document IDs, or there is no plausible counter.
-func (l *Loader) nodeIDLimit() uint64 {
-	if !l.config.NodeIDsAreDocIDs {
+// nodeIDLimit returns the highest node ID the index whose commit logs are in
+// dir can hold, or 0 for no limit: when node IDs are not document IDs, or there
+// is no plausible counter.
+func nodeIDLimit(dir string, nodeIDsAreDocIDs bool, logger logrus.FieldLogger) uint64 {
+	if !nodeIDsAreDocIDs {
 		return 0
 	}
-	counter, err := indexcounter.Read(filepath.Dir(l.config.Dir))
+	counter, err := indexcounter.Read(filepath.Dir(dir))
 	if err != nil {
-		l.config.Logger.WithField("action", "hnsw_loader").
-			Warnf("read document-ID counter, loading without a node ID limit: %v", err)
+		logger.WithField("dir", dir).
+			Warnf("read document-ID counter, continuing without a node ID limit: %v", err)
 		return 0
 	}
 	// A counter beyond maxNodeID is corrupt, and adding the slack could wrap.

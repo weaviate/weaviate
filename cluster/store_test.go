@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,11 +31,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	clusterTypes "github.com/weaviate/weaviate/cluster/types"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -1337,7 +1341,10 @@ func TestStoreMetrics(t *testing.T) {
 		ms := NewMockStore(t, nodeID, 9092)
 		store := ms.Store(doBefore)
 		m := dto.Metric{}
-		require.NoError(t, store.metrics.applyDuration.Write(&m))
+		applyDuration, err := store.metrics.applyDuration.GetMetricWithLabelValues(
+			cmd.ApplyRequest_TYPE_ADD_CLASS.String())
+		require.NoError(t, err)
+		require.NoError(t, applyDuration.(prometheus.Histogram).Write(&m))
 		// before
 		assert.Equal(t, 0, int(*m.Histogram.SampleCount))
 		store.Apply(
@@ -1348,7 +1355,7 @@ func TestStoreMetrics(t *testing.T) {
 			},
 		)
 		// after
-		require.NoError(t, store.metrics.applyDuration.Write(&m))
+		require.NoError(t, applyDuration.(prometheus.Histogram).Write(&m))
 		assert.Equal(t, 1, int(*m.Histogram.SampleCount))
 		assert.Equal(t, 0, int(testutil.ToFloat64(store.metrics.applyFailures)))
 	})
@@ -1558,7 +1565,8 @@ type MockStore struct {
 	replicationFSM *schema.MockreplicationFSM
 }
 
-func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
+// tweaks edit the config before NewFSM reads it, e.g. to register DistributedTaskCollectionExtractors.
+func NewMockStore(t *testing.T, nodeID string, raftPort int, tweaks ...func(*Config)) MockStore {
 	indexer := fakes.NewMockSchemaExecutor()
 	parser := fakes.NewMockParser()
 	logger, _ := logrustest.NewNullLogger()
@@ -1587,8 +1595,11 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 		},
 		replicationFSM: schema.NewMockreplicationFSM(t),
 	}
+	for _, tweak := range tweaks {
+		tweak(&ms.cfg)
+	}
 
-	s := NewFSM(ms.cfg, nil, prometheus.NewPedanticRegistry())
+	s := NewFSM(ms.cfg, prometheus.NewPedanticRegistry())
 	s.schemaManager.SetReplicationFSM(ms.replicationFSM)
 	ms.store = &s
 	return ms
@@ -1691,4 +1702,309 @@ func TestStoreWaitToRestoreDBAnnouncesOnce(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("WaitToRestoreDB did not return once dbLoaded flipped")
 	}
+}
+
+const (
+	exclusionCollection = "Movies"
+	exclusionNamespace  = "reindex"
+)
+
+var exclusionMovement = &cmd.ReplicationReplicateShardRequest{
+	Version: cmd.ReplicationCommandVersionV0, Uuid: "00000000-0000-0000-0000-000000000001",
+	SourceCollection: exclusionCollection, SourceShard: "shard1",
+	SourceNode: "node1", TargetNode: "node2", TransferType: cmd.COPY.String(),
+}
+
+func exclusionStore(t *testing.T) *Store {
+	t.Helper()
+	return NewMockStore(t, "node1", 0, func(c *Config) {
+		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+			exclusionNamespace: namesExclusionCollection,
+		}
+	}).store
+}
+
+func namesExclusionCollection([]byte) (string, bool) { return exclusionCollection, true }
+
+func exclusionMovementCommand(t *testing.T) *cmd.ApplyRequest {
+	t.Helper()
+	sub, err := json.Marshal(exclusionMovement)
+	require.NoError(t, err)
+	return &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_REPLICATION_REPLICATE, SubCommand: sub}
+}
+
+func exclusionTaskCommand(t *testing.T, namespace string) *cmd.ApplyRequest {
+	t.Helper()
+	sub, err := json.Marshal(&cmd.AddDistributedTaskRequest{
+		Namespace: namespace, Id: "task1", UnitIds: []string{"unit1"},
+		SubmittedAtUnixMillis: time.Now().UnixMilli(),
+	})
+	require.NoError(t, err)
+	return &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}
+}
+
+func seedExclusionTask(t *testing.T, s *Store) {
+	t.Helper()
+	require.NoError(t, s.distributedTasksManager.AddTask(exclusionTaskCommand(t, exclusionNamespace), 1))
+}
+
+func seedExclusionMovement(t *testing.T, s *Store) {
+	t.Helper()
+	require.NoError(t, s.replicationManager.GetReplicationFSM().Replicate(1, exclusionMovement))
+}
+
+// openExclusionStore opens a single-node raft, so the admitted submit really applies and the other one's check can see it.
+func openExclusionStore(t *testing.T) *Store {
+	t.Helper()
+	srv, _ := newBarrierTestStore(t, func(c *Config) {
+		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+			exclusionNamespace: namesExclusionCollection,
+		}
+	})
+
+	// Manager.Replicate validates against the schema, so the class must place shard1 on node1.
+	addClass, err := json.Marshal(cmd.AddClassRequest{
+		Class: &models.Class{Class: exclusionCollection, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+		State: &sharding.State{Physical: map[string]sharding.Physical{
+			exclusionMovement.SourceShard: {BelongsToNodes: []string{exclusionMovement.SourceNode}},
+		}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, srv.store.schemaManager.AddClass(&cmd.ApplyRequest{
+		Type: cmd.ApplyRequest_TYPE_ADD_CLASS, Class: exclusionCollection, SubCommand: addClass,
+	}, srv.store.cfg.NodeID, true, false))
+	return srv.store
+}
+
+// Without Store.Execute's per-collection lock both submits can pass admitTaskOrMovement before either applies.
+func TestExecute_ConcurrentSubmitsAdmitOnlyOne(t *testing.T) {
+	s := openExclusionStore(t)
+	commands := []*cmd.ApplyRequest{
+		exclusionMovementCommand(t),
+		exclusionTaskCommand(t, exclusionNamespace),
+	}
+
+	errs := make([]error, len(commands))
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i, command := range commands {
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			<-start
+			_, errs[i] = s.Execute(command)
+		}, s.log)
+	}
+	close(start)
+	wg.Wait()
+
+	admitted := 0
+	for _, err := range errs {
+		if err == nil {
+			admitted++
+			continue
+		}
+		require.True(t, errors.Is(err, replicationTypes.ErrMovementBlockedByTask) ||
+			errors.Is(err, distributedtask.ErrTaskBlockedByReplicaMovement),
+			"the loser must be refused by the exclusion, got: %v", err)
+	}
+	require.Equal(t, 1, admitted,
+		"both submits were admitted, so the check ran against state the other one had not committed yet")
+}
+
+func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
+	movement := exclusionMovementCommand
+	reindexTask := func(t *testing.T) *cmd.ApplyRequest { return exclusionTaskCommand(t, exclusionNamespace) }
+	unregisteredTask := func(t *testing.T) *cmd.ApplyRequest { return exclusionTaskCommand(t, "other") }
+	// ErrPermanentRejection lets a follower recover the sentinel after the gRPC hop, so it still answers 409.
+	taskRefused := []error{distributedtask.ErrTaskBlockedByReplicaMovement, distributedtask.ErrPermanentRejection}
+
+	for _, tc := range []struct {
+		name     string
+		seed     func(*testing.T, *Store)
+		command  func(*testing.T) *cmd.ApplyRequest
+		wantErrs []error
+	}{
+		{name: "a movement is admitted when no task runs", command: movement},
+		{
+			name: "a task is refused while a movement runs on the collection", command: reindexTask,
+			seed: seedExclusionMovement, wantErrs: taskRefused,
+		},
+		{name: "a task is admitted when no movement runs", command: reindexTask},
+		{
+			name:    "a task in a namespace with no collection extractor is admitted",
+			command: unregisteredTask, seed: seedExclusionMovement,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := exclusionStore(t)
+			if tc.seed != nil {
+				tc.seed(t, s)
+			}
+
+			command := tc.command(t)
+			collection, task, err := s.taskOrMovementCollection(command)
+			require.NoError(t, err)
+
+			err = s.admitPropose(command, collection, task)
+			if len(tc.wantErrs) == 0 {
+				require.NoError(t, err)
+				return
+			}
+			for _, want := range tc.wantErrs {
+				require.ErrorIs(t, err, want)
+			}
+			require.Contains(t, err.Error(), exclusionCollection,
+				"the refusal must name the collection the operator has to wait on")
+		})
+	}
+}
+
+// The deadline branch decides three things from one wakeup, and all three were wrong at some
+// point: it must re-read the applied index rather than trust the last tick, must not report a
+// gap it did not measure, and must not file a caller that went away under the outcome that
+// means the FSM was slow.
+func TestStoreWaitForAppliedIndexDeadlineBranch(t *testing.T) {
+	newStore := func(t *testing.T, waitTimeout time.Duration) (*Store, prometheus.Histogram) {
+		t.Helper()
+		logger, _ := logrustest.NewNullLogger()
+		m := newStoreMetrics(t.Name(), prometheus.NewPedanticRegistry())
+		return &Store{
+			log:     logger,
+			metrics: m,
+			cfg:     Config{ConsistencyWaitTimeout: waitTimeout},
+		}, m.waitForIndexGap
+	}
+
+	gapCount := func(t *testing.T, h prometheus.Histogram) uint64 {
+		t.Helper()
+		var m dto.Metric
+		require.NoError(t, h.(prometheus.Metric).Write(&m))
+		return m.Histogram.GetSampleCount()
+	}
+
+	t.Run("a caller that goes away is canceled, not a deadline", func(t *testing.T) {
+		st, gap := newStore(t, time.Minute)
+		st.lastAppliedIndex.Store(5)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := st.WaitForAppliedIndex(ctx, 10*time.Millisecond, 10)
+		require.ErrorIs(t, err, context.Canceled)
+		require.NotErrorIs(t, err, clusterTypes.ErrDeadlineExceeded,
+			"a disconnect must not land in the series that means the FSM was slow")
+		require.Zero(t, gapCount(t, gap),
+			"no gap was measured, so none may be reported")
+	})
+
+	t.Run("an exhausted budget is a deadline, and reports its gap", func(t *testing.T) {
+		st, gap := newStore(t, 20*time.Millisecond)
+		st.lastAppliedIndex.Store(5)
+
+		err := st.WaitForAppliedIndex(context.Background(), time.Hour, 10)
+		require.ErrorIs(t, err, clusterTypes.ErrDeadlineExceeded)
+		require.EqualValues(t, 1, gapCount(t, gap))
+	})
+
+	t.Run("catching up between the last tick and the deadline still succeeds", func(t *testing.T) {
+		st, gap := newStore(t, 40*time.Millisecond)
+		st.lastAppliedIndex.Store(5)
+
+		// The ticker never fires, so the only read of the index is the deadline branch's own.
+		// Trusting the value sampled before the loop would fail a wait that has caught up.
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			st.lastAppliedIndex.Store(10)
+		}()
+
+		require.NoError(t, st.WaitForAppliedIndex(context.Background(), time.Hour, 10))
+		require.Zero(t, gapCount(t, gap), "a wait that caught up has no gap to report")
+	})
+}
+
+func TestAdmitPropose_TaskBuiltAgainstOtherReplicas(t *testing.T) {
+	// placement is the sharding state the leader reads when it admits the task. Each case's taskReplicas stands for a payload built from an earlier read.
+	placement := map[string]sharding.Physical{
+		"shard1": {BelongsToNodes: []string{"node1", "node2"}},
+		"shard2": {BelongsToNodes: []string{"node1"}},
+	}
+
+	for _, tc := range []struct {
+		name         string
+		taskReplicas map[string][]string
+		collection   string
+		wantRefused  bool
+	}{
+		{name: "matching replicas are admitted", taskReplicas: map[string][]string{"shard1": {"node2", "node1"}, "shard2": {"node1"}}},
+		{name: "a subset of shards with matching replicas is admitted", taskReplicas: map[string][]string{"shard2": {"node1"}}},
+		{name: "a replica added after the payload was built is refused", taskReplicas: map[string][]string{"shard1": {"node1"}}, wantRefused: true},
+		{name: "a replica removed after the payload was built is refused", taskReplicas: map[string][]string{"shard2": {"node1", "node2"}}, wantRefused: true},
+		{name: "a shard deleted after the payload was built is refused", taskReplicas: map[string][]string{"shard3": {"node1"}}, wantRefused: true},
+		{name: "one stale shard among several is still refused", taskReplicas: map[string][]string{"shard1": {"node1"}, "shard2": {"node1"}}, wantRefused: true},
+		{name: "a collection deleted after the payload was built is refused", taskReplicas: map[string][]string{"shard1": {"node1"}}, collection: "Deleted", wantRefused: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := replicasAdmissionStore(t, placement)
+			payload := replicasPayload{Collection: exclusionCollection, Replicas: tc.taskReplicas}
+			if tc.collection != "" {
+				payload.Collection = tc.collection
+			}
+			payloadBytes, err := json.Marshal(payload)
+			require.NoError(t, err)
+			sub, err := json.Marshal(&cmd.AddDistributedTaskRequest{Namespace: exclusionNamespace, Id: "task1", Payload: payloadBytes})
+			require.NoError(t, err)
+			req := &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}
+
+			// Execute's own sequence, so the check sees the task as decoded from the proposal.
+			collection, task, err := s.taskOrMovementCollection(req)
+			require.NoError(t, err)
+			err = s.admitPropose(req, collection, task)
+			if !tc.wantRefused {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, distributedtask.ErrTaskReplicasChanged)
+			// ErrPermanentRejection lets a follower recover the sentinel after the gRPC hop, so it still answers 409.
+			require.ErrorIs(t, err, distributedtask.ErrPermanentRejection)
+		})
+	}
+}
+
+type replicasPayload struct {
+	Collection string
+	Replicas   map[string][]string
+}
+
+func replicasAdmissionStore(t *testing.T, placement map[string]sharding.Physical) *Store {
+	t.Helper()
+	m := NewMockStore(t, "node1", 0, func(c *Config) {
+		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+			exclusionNamespace: func(payload []byte) (string, bool) {
+				var p replicasPayload
+				err := json.Unmarshal(payload, &p)
+				return p.Collection, err == nil
+			},
+		}
+		c.DistributedTaskShardReplicasExtractors = map[string]distributedtask.ShardReplicasExtractor{
+			exclusionNamespace: func(payload []byte) (map[string][]string, bool) {
+				var p replicasPayload
+				err := json.Unmarshal(payload, &p)
+				return p.Replicas, err == nil
+			},
+		}
+	})
+	m.parser.On("ParseClass", mock.Anything).Return(nil)
+	addClass, err := json.Marshal(cmd.AddClassRequest{
+		Class: &models.Class{Class: exclusionCollection},
+		State: &sharding.State{
+			Physical: placement,
+			Virtual:  []sharding.Virtual{{Name: "v1", AssignedToPhysical: "shard1"}},
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, m.store.schemaManager.AddClass(&cmd.ApplyRequest{
+		Type: cmd.ApplyRequest_TYPE_ADD_CLASS, Class: exclusionCollection, SubCommand: addClass,
+	}, m.store.cfg.NodeID, true, false))
+	return m.store
 }

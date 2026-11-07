@@ -14,8 +14,12 @@ package inverted
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"slices"
+	"sync"
 	"testing"
 
 	entsInverted "github.com/weaviate/weaviate/entities/inverted"
@@ -27,6 +31,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -46,7 +52,7 @@ type containsBatchGateFixture struct {
 	fallback bool // read by the Searcher's isFallbackToSearchable closure
 }
 
-func newContainsBatchGateFixture(t *testing.T) *containsBatchGateFixture {
+func newContainsBatchGateFixture(t testing.TB) *containsBatchGateFixture {
 	t.Helper()
 	dir := t.TempDir()
 	logger := logrus.New()
@@ -115,6 +121,10 @@ func newContainsBatchGateFixture(t *testing.T) *containsBatchGateFixture {
 
 func containsPath(propName string) *filters.Path {
 	return &filters.Path{Property: schema.PropertyName(propName)}
+}
+
+func containsValue(propType schema.DataType, value interface{}) *filters.Value {
+	return &filters.Value{Type: propType, Value: value}
 }
 
 func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
@@ -217,7 +227,7 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := helpers.InitSlowQueryDetails(ctx)
 			pv, err := s.extractContains(ctx, containsPath(tt.prop),
-				tt.propType, tt.value, tt.operator, f.class)
+				containsValue(tt.propType, tt.value), tt.operator, f.class)
 			require.NoError(t, err)
 			require.NotNil(t, pv)
 			require.Nil(t, pv.children, "eligible shape must resolve batched, not desugared")
@@ -399,8 +409,8 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 				tt.setup(t)
 			}
 			ctx := helpers.InitSlowQueryDetails(ctx)
-			pv, err := s.extractContains(ctx, tt.path, tt.propType,
-				tt.value, tt.operator, f.class)
+			pv, err := s.extractContains(ctx, tt.path,
+				containsValue(tt.propType, tt.value), tt.operator, f.class)
 			require.Equal(t, tt.wantReason, extractContainsDesugaredReason(t, ctx),
 				"decline reason must be surfaced in the slow-query details")
 			if tt.wantErr {
@@ -427,9 +437,52 @@ func extractContainsDesugaredReason(t *testing.T, ctx context.Context) string {
 	entries, ok := entry.([]map[string]any)
 	require.True(t, ok, "contains_desugared must hold []map[string]any, got %T", entry)
 	require.Len(t, entries, 1)
+	require.Equal(t, 1, entries[0]["count"])
 	reason, ok := entries[0]["reason"].(string)
 	require.True(t, ok)
 	return reason
+}
+
+// Clauses sharing a property, operator and reason merge into one entry, and any difference keeps its own.
+func TestDesugaredContains_SlowLogMergesEntries(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	ctx := helpers.InitSlowQueryDetails(context.Background())
+	extract := func(prop string, dataType schema.DataType, value any, operator filters.Operator) {
+		_, err := f.searcher.extractContains(ctx, containsPath(prop),
+			containsValue(dataType, value), operator, f.class)
+		require.NoError(t, err)
+	}
+	extract("prop-text-word", schema.DataTypeText, []string{"a", "b", "c"}, filters.ContainsAny)
+	extract("prop-text-whitespace", schema.DataTypeText, []string{"a", "b"}, filters.ContainsAny)
+	extract("prop-text-word", schema.DataTypeText, []string{"a", "b"}, filters.ContainsAll)
+	extract("prop-int", schema.DataTypeInt, []int{1}, filters.ContainsAny)
+	for range 50 {
+		extract("prop-text-word", schema.DataTypeText, []string{"a", "b"}, filters.ContainsAny)
+	}
+
+	summary := helpers.ExtractSlowQueryDetails(ctx)["contains_desugared"]
+	got, err := json.Marshal(summary)
+	require.NoError(t, err)
+	require.Equal(t, summary, helpers.ExtractSlowQueryDetails(ctx)["contains_desugared"],
+		"a query that logs and reports a profile extracts twice")
+	require.JSONEq(t, `[
+		{"prop": "prop-text-word", "operator": "ContainsAny", "reason": "tokenization-not-field", "num_values": 103, "count": 51},
+		{"prop": "prop-text-whitespace", "operator": "ContainsAny", "reason": "tokenization-not-field", "num_values": 2, "count": 1},
+		{"prop": "prop-text-word", "operator": "ContainsAll", "reason": "tokenization-not-field", "num_values": 2, "count": 1},
+		{"prop": "prop-int", "operator": "ContainsAny", "reason": "fewer-than-two-values", "num_values": 1, "count": 1}
+	]`, string(got))
+	require.Contains(t, fmt.Sprint(summary), "prop:prop-text-whitespace",
+		"logrus's text formatter prints this value with fmt.Sprint and must keep the field names")
+
+	require.Len(t, reduceContainsDesugared([]containsDesugaredEntry{
+		{prop: "p", operator: "ContainsAny", reason: containsDeclineNotEnabled},
+		{prop: "p", operator: "ContainsAny", reason: containsDeclineFewerThanTwoValues},
+	}), 2, "every distinct reason must stay visible")
+}
+
+func docBitmapSlowLogEntries(ctx context.Context) ([]map[string]any, bool) {
+	summary, ok := helpers.ExtractSlowQueryDetails(ctx)[docBitmapSlowLogKey].(helpers.SlowestEntries)
+	return summary.Slowest, ok
 }
 
 func TestExtractContainsBatch_EncodingErrorIsEligibleButFails(t *testing.T) {
@@ -442,7 +495,7 @@ func TestExtractContainsBatch_EncodingErrorIsEligibleButFails(t *testing.T) {
 		"not-a-valid-uuid",
 	}
 	pv, err := s.extractContains(ctx, containsPath("prop-uuid"),
-		schema.DataTypeText, values, filters.ContainsAny, f.class)
+		containsValue(schema.DataTypeText, values), filters.ContainsAny, f.class)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "parse uuid filter value",
 		"the matched shape must fail in the gate, not fall through to desugar")
@@ -458,7 +511,7 @@ func TestExtractContains_FallsThroughToPerValuePath(t *testing.T) {
 	ctx := context.Background()
 
 	path := &filters.Path{Property: "prop-text-word"}
-	pv, err := s.extractContains(ctx, path, schema.DataTypeText, []string{"hello world", "goodbye"},
+	pv, err := s.extractContains(ctx, path, containsValue(schema.DataTypeText, []string{"hello world", "goodbye"}),
 		filters.ContainsAny, f.class)
 	require.NoError(t, err)
 	require.Zero(t, pv.containsKeys.Len())
@@ -473,12 +526,84 @@ func TestExtractContains_UsesBatchedPathWhenEligible(t *testing.T) {
 	s := f.searcher
 	ctx := context.Background()
 
-	pv, err := s.extractContains(ctx, containsPath("prop-int"), schema.DataTypeInt,
-		[]int{1, 2, 3}, filters.ContainsAny, f.class)
+	pv, err := s.extractContains(ctx, containsPath("prop-int"),
+		containsValue(schema.DataTypeInt, []int{1, 2, 3}), filters.ContainsAny, f.class)
 	require.NoError(t, err)
 	require.NotNil(t, pv)
 	require.Nil(t, pv.children)
 	require.Equal(t, 3, pv.containsKeys.Len())
+}
+
+// Shards searching with one filter value at once must all reuse one key build.
+func TestExtractContains_SharesKeysAcrossShards(t *testing.T) {
+	const numShards = 4
+	value := containsValue(schema.DataTypeInt, []interface{}{float64(3), float64(1), float64(2)})
+	pvs := make([]*propValuePair, numShards)
+	errs := make([]error, numShards)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range numShards {
+		f := newContainsBatchGateFixture(t)
+		wg.Go(func() {
+			<-start
+			pvs[i], errs[i] = f.searcher.extractContains(context.Background(), containsPath("prop-int"),
+				value, filters.ContainsAny, f.class)
+		})
+	}
+	close(start)
+	wg.Wait()
+
+	for i, pv := range pvs {
+		require.NoError(t, errs[i])
+		require.Equal(t, 3, pv.containsKeys.Len())
+		require.Same(t, &pvs[0].containsKeys.At(0)[0], &pv.containsKeys.At(0)[0],
+			"shard %d must reuse the first shard's keys", i)
+	}
+}
+
+// BenchmarkExtractContains_SharedKeys measures one query's key build across a
+// node's shards. The per-shard arms give each shard its own filter value, and
+// the shared arms pass one value to all, as Index.localShardSearch does.
+func BenchmarkExtractContains_SharedKeys(b *testing.B) {
+	const numValues = 100_000
+	typed := make([]int, numValues)
+	remote := make([]interface{}, numValues)
+	for i := range typed {
+		typed[i] = (i * 7919) % (numValues * 10)
+		remote[i] = float64(typed[i])
+	}
+	shapes := []struct {
+		name  string
+		value interface{}
+	}{{"typed", typed}, {"remote", remote}}
+
+	for _, numShards := range []int{1, 6} {
+		shards := make([]*containsBatchGateFixture, numShards)
+		for i := range shards {
+			shards[i] = newContainsBatchGateFixture(b)
+		}
+		for _, shape := range shapes {
+			for _, shared := range []bool{false, true} {
+				name := fmt.Sprintf("shards=%d/%s/shared=%t", numShards, shape.name, shared)
+				b.Run(name, func(b *testing.B) {
+					b.ReportAllocs()
+					ctx := context.Background()
+					for b.Loop() {
+						value := containsValue(schema.DataTypeInt, shape.value)
+						for _, f := range shards {
+							if !shared {
+								value = containsValue(schema.DataTypeInt, shape.value)
+							}
+							if _, err := f.searcher.extractContains(ctx, containsPath("prop-int"),
+								value, filters.ContainsAny, f.class); err != nil {
+								b.Fatal(err)
+							}
+						}
+					}
+				})
+			}
+		}
+	}
 }
 
 // TestNewBatchedContainsPair_RejectsNoKeys pins the invariant resolveDocIDs
@@ -520,8 +645,8 @@ func TestExtractContainsBatch_OptInGate(t *testing.T) {
 	s := f.searcher
 
 	extract := func(ctx context.Context) (*propValuePair, error) {
-		return s.extractContains(ctx, containsPath("prop-int"), schema.DataTypeInt,
-			[]int{1, 2, 3}, filters.ContainsAny, f.class)
+		return s.extractContains(ctx, containsPath("prop-int"),
+			containsValue(schema.DataTypeInt, []int{1, 2, 3}), filters.ContainsAny, f.class)
 	}
 
 	t.Run("nil gate declines", func(t *testing.T) {
@@ -621,7 +746,7 @@ func TestFetchContainsBatch_BucketErrors(t *testing.T) {
 			require.ErrorContains(t, err, tc.wantErr)
 			require.Nil(t, dbm)
 
-			entries, _ := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+			entries, _ := docBitmapSlowLogEntries(ctx)
 			if !tc.wantPlanLogged {
 				require.Empty(t, entries, "a filter rejected before it planned is not timed")
 				return
@@ -736,7 +861,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.NoError(t, err)
 		defer dbm.release()
 
-		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		entries, ok := docBitmapSlowLogEntries(ctx)
 		require.True(t, ok, "batched contains must annotate the slow query log")
 		require.Len(t, entries, 1)
 
@@ -744,6 +869,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.Equal(t, filters.ContainsAny.Name(), entries[0]["operator"])
 		require.Equal(t, 3, entries[0]["count"])
 		require.Equal(t, false, entries[0]["failed"])
+		require.Equal(t, lsmkv.StrategyRoaringSet, entries[0]["strategy"])
 		require.Equal(t, 2, entries[0]["batched_keys"])
 		require.Contains(t, entries[0], "took")
 		require.Contains(t, entries[0], "took_string")
@@ -767,7 +893,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.NoError(t, err)
 		defer dbm.release()
 
-		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		entries, ok := docBitmapSlowLogEntries(ctx)
 		require.True(t, ok)
 		require.Len(t, entries, 1)
 
@@ -817,7 +943,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.NoError(t, err)
 		defer dbm.release()
 
-		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		entries, ok := docBitmapSlowLogEntries(ctx)
 		require.True(t, ok)
 		require.Len(t, entries, 1)
 
@@ -848,7 +974,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.NoError(t, err)
 		defer dbm.release()
 
-		entries := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		entries, _ := docBitmapSlowLogEntries(ctx)
 		require.Equal(t, 2, entries[0]["batched_keys"], "four values must report two keys")
 	})
 
@@ -865,7 +991,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		_, err := pv.fetchContainsBatch(ctx, f.searcher)
 		require.Error(t, err)
 
-		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		entries, ok := docBitmapSlowLogEntries(ctx)
 		require.True(t, ok, "a filter rejected while opening the reader must still be timed")
 		require.Len(t, entries, 1)
 		require.Equal(t, "prop-nonroaringset", entries[0]["prop"])
@@ -888,7 +1014,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		_, err := newPV(keysFrom(t, []byte("a"), []byte("b"))).fetchContainsBatch(ctx, f.searcher)
 		require.ErrorIs(t, err, context.Canceled)
 
-		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		entries, ok := docBitmapSlowLogEntries(ctx)
 		require.True(t, ok, "a filter that opens the reader and then fails must still be timed")
 		require.Len(t, entries, 1)
 		require.Equal(t, "prop-int", entries[0]["prop"])
@@ -924,7 +1050,168 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 
 			_, err := pv.fetchContainsBatch(ctx, f.searcher)
 			require.Error(t, err)
-			require.NotContains(t, helpers.ExtractSlowQueryDetails(ctx), "build_allow_list_doc_bitmap")
+			require.NotContains(t, helpers.ExtractSlowQueryDetails(ctx), docBitmapSlowLogKey)
 		})
 	}
+}
+
+// recordingPool grants every resize, a grow up to growCap if set, and records
+// what it was asked and whether docIDs had finished resolving by then.
+type recordingPool struct {
+	calls   [][2]int
+	stages  []string
+	ctx     context.Context
+	growCap int
+}
+
+func (p *recordingPool) Resize(held, n int) int {
+	p.calls = append(p.calls, [2]int{held, n})
+	if p.growCap > 0 && n > held {
+		n = min(n, p.growCap)
+	}
+	details := helpers.ExtractSlowQueryDetails(p.ctx)
+	stage := "during resolve"
+	if _, ok := details["build_allow_list_resolve_took"]; ok {
+		stage = "after resolve"
+	}
+	p.stages = append(p.stages, stage)
+	return n
+}
+
+// A batched Contains fold runs on a shrunk budget, restored before a ContainsNone
+// result is inverted.
+func TestDocIDs_ShrinksBudgetForContainsFold(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	writeContainsRows(t, f, "prop-int", map[string][]uint64{"a": {1}})
+
+	const grant = 10
+	// 64 keys split into shares of containsMinKeysPerWorker
+	values := make([]int, 64)
+	for i := range values {
+		values[i] = i
+	}
+	foldBudget := containsFoldMergeFactor * min(64/containsMinKeysPerWorker, concurrency.GOMAXPROCS)
+	var wantCalls [][2]int
+	var wantStages []string
+	var wantAnnotation map[string]int
+	// nothing to give back under DISABLE_SROAR_MERGE_BUDGET, or with no unit to spare
+	if !concurrency.BudgetCapDisabled() && foldBudget < grant {
+		wantCalls = [][2]int{{grant, foldBudget}, {foldBudget, grant}}
+		wantStages = []string{"during resolve", "during resolve"}
+		wantAnnotation = map[string]int{"held": grant, "shrunk": foldBudget, "restored": grant}
+	}
+
+	for _, op := range []filters.Operator{filters.ContainsAny, filters.ContainsNone} {
+		t.Run(op.Name(), func(t *testing.T) {
+			root := filters.Clause{
+				Operator: op,
+				On:       containsPath("prop-int"),
+				Value:    containsValue(schema.DataTypeInt, values),
+			}
+			pool := &recordingPool{}
+			ctx := concurrency.CtxWithResizableBudget(helpers.InitSlowQueryDetails(context.Background()),
+				concurrency.NewBudget(pool, grant))
+			pool.ctx = ctx
+
+			allow, err := f.searcher.DocIDs(ctx, &filters.LocalFilter{Root: &root},
+				additional.Properties{}, containsBatchTestClass)
+			require.NoError(t, err)
+			allow.Close()
+
+			require.Equal(t, wantCalls, pool.calls)
+			require.Equal(t, wantStages, pool.stages)
+			require.Equal(t, grant, concurrency.BudgetFromCtx(ctx, -1))
+			annotation, _ := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_budget"].(map[string]int)
+			require.Equal(t, wantAnnotation, annotation)
+		})
+	}
+}
+
+// TestShrinkBudgetForContainsFold pins the cases that give nothing back, and a
+// restore that gets back less than was given.
+func TestShrinkBudgetForContainsFold(t *testing.T) {
+	oneWorker := containsFoldPlan{workers: 1}
+	pooled := func(grant int) func(concurrency.Pool) context.Context {
+		return func(p concurrency.Pool) context.Context {
+			return concurrency.CtxWithResizableBudget(context.Background(), concurrency.NewBudget(p, grant))
+		}
+	}
+
+	need := containsFoldMergeFactor
+	var partialCalls [][2]int
+	partialSize := 10
+	var partialAnnotation map[string]int
+	if !concurrency.BudgetCapDisabled() {
+		partialCalls = [][2]int{{10, need}, {need, 10}}
+		partialSize = 5
+		partialAnnotation = map[string]int{"held": 10, "shrunk": need, "restored": 5}
+	}
+
+	tests := []struct {
+		name           string
+		ctx            func(concurrency.Pool) context.Context
+		growCap        int
+		wantCalls      [][2]int
+		wantSize       int
+		wantAnnotation map[string]int
+	}{
+		{
+			name:     "grant at the fold's need",
+			ctx:      pooled(need),
+			wantSize: need,
+		},
+		{
+			name:     "grant below the fold's need",
+			ctx:      pooled(1),
+			wantSize: 1,
+		},
+		{
+			name:     "fixed budget",
+			ctx:      func(concurrency.Pool) context.Context { return concurrency.CtxWithBudget(context.Background(), 10) },
+			wantSize: 10,
+		},
+		{
+			name:           "restore gets back only what is free",
+			ctx:            pooled(10),
+			growCap:        5,
+			wantCalls:      partialCalls,
+			wantSize:       partialSize,
+			wantAnnotation: partialAnnotation,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pool := &recordingPool{growCap: tt.growCap}
+			ctx := helpers.InitSlowQueryDetails(tt.ctx(pool))
+			pool.ctx = ctx
+
+			shrinkBudgetForContainsFold(ctx, oneWorker)()
+
+			require.Equal(t, tt.wantCalls, pool.calls)
+			require.Equal(t, tt.wantSize, concurrency.BudgetFromCtx(ctx, -1))
+			annotation, _ := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_budget"].(map[string]int)
+			require.Equal(t, tt.wantAnnotation, annotation)
+		})
+	}
+}
+
+// The kill switch is read at init, so the check runs in a child process with it set.
+func TestShrinkBudgetForContainsFold_KillSwitch(t *testing.T) {
+	if !concurrency.BudgetCapDisabled() {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestShrinkBudgetForContainsFold_KillSwitch$",
+			"-test.count=1", "-test.v", "-test.timeout=60s")
+		cmd.Env = append(os.Environ(), "DISABLE_SROAR_MERGE_BUDGET=true")
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "%s", out)
+		require.Contains(t, string(out), "--- PASS: TestShrinkBudgetForContainsFold_KillSwitch")
+		return
+	}
+
+	pool := &recordingPool{ctx: context.Background()}
+	ctx := concurrency.CtxWithResizableBudget(context.Background(), concurrency.NewBudget(pool, 10))
+
+	shrinkBudgetForContainsFold(ctx, containsFoldPlan{workers: 1})()
+
+	require.Empty(t, pool.calls)
+	require.Equal(t, 10, concurrency.BudgetFromCtx(ctx, -1))
 }

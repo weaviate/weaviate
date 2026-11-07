@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -121,7 +120,7 @@ func (c *CursorMap) seekAll(target []byte) {
 	state := make([]cursorStateMap, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.seek(target)
-		if errors.Is(err, lsmkv.NotFound) {
+		if lsmkv.IsNotFound(err) {
 			state[i].err = err
 			continue
 		}
@@ -145,7 +144,7 @@ func (c *CursorMap) firstAll() {
 	state := make([]cursorStateMap, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.first()
-		if errors.Is(err, lsmkv.NotFound) {
+		if lsmkv.IsNotFound(err) {
 			state[i].err = err
 			continue
 		}
@@ -173,7 +172,7 @@ func (c *CursorMap) serveCurrentStateAndAdvance(ctx context.Context) ([]byte, []
 	for {
 		id, err := c.cursorWithLowestKey()
 		if err != nil {
-			if errors.Is(err, lsmkv.NotFound) {
+			if lsmkv.IsNotFound(err) {
 				return nil, nil
 			}
 		}
@@ -236,7 +235,7 @@ func (c *CursorMap) cursorWithLowestKey() (int, error) {
 	var lowest []byte
 
 	for i, res := range c.state {
-		if errors.Is(res.err, lsmkv.NotFound) {
+		if lsmkv.IsNotFound(res.err) {
 			continue
 		}
 
@@ -275,14 +274,14 @@ func (c *CursorMap) haveDuplicatesInState(idWithLowestKey int) ([]int, bool) {
 
 func (c *CursorMap) advanceInner(id int) {
 	k, v, err := c.innerCursors[id].next()
-	if errors.Is(err, lsmkv.NotFound) {
+	if lsmkv.IsNotFound(err) {
 		c.state[id].err = err
 		c.state[id].key = nil
 		c.state[id].value = nil
 		return
 	}
 
-	if errors.Is(err, lsmkv.Deleted) {
+	if lsmkv.IsDeleted(err) {
 		c.state[id].err = err
 		c.state[id].key = k
 		c.state[id].value = nil

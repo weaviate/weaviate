@@ -283,6 +283,40 @@ func (m *Manager) StoreSchemaVersion(c *cmd.ApplyRequest) error {
 	return m.replicationFSM.StoreSchemaVersion(req)
 }
 
+func (m *Manager) CreateRebalancePlan(c *cmd.ApplyRequest) error {
+	req := &CreatePlanRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	return m.replicationFSM.CreatePlan(req)
+}
+
+// CompleteRebalancePlanning applies a planning run's outcome. logTerm is the
+// Raft term of the log entry carrying c.
+func (m *Manager) CompleteRebalancePlanning(logTerm uint64, c *cmd.ApplyRequest) error {
+	req := &CompletePlanningRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	return m.replicationFSM.CompletePlanning(logTerm, req)
+}
+
+func (m *Manager) StopRebalancePlan(c *cmd.ApplyRequest) error {
+	req := &StopPlanRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	return m.replicationFSM.StopPlan(req)
+}
+
+func (m *Manager) DeleteRebalancePlan(c *cmd.ApplyRequest) error {
+	req := &DeletePlanRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	return m.replicationFSM.DeletePlan(req)
+}
+
 func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]byte, error) {
 	subCommand := cmd.ReplicationDetailsRequest{}
 	if err := json.Unmarshal(c.SubCommand, &subCommand); err != nil {
@@ -457,15 +491,14 @@ func (m *Manager) QueryShardingStateByCollectionAndShard(c *cmd.QueryRequest) ([
 			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
 		}
 
-		for _, physical := range state.Physical {
-			if physical.Name == subCommand.Shard {
-				shards = map[string][]string{
-					physical.Name: append([]string(nil), physical.BelongsToNodes...),
-				}
-				return nil
-			}
+		physical, ok := state.Physical[subCommand.Shard]
+		if !ok {
+			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Shard)
 		}
-		return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Shard)
+		shards = map[string][]string{
+			subCommand.Shard: append([]string(nil), physical.BelongsToNodes...),
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, wrapClassNotFoundErr(err, subCommand.Collection)

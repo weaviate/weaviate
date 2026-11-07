@@ -122,7 +122,7 @@ func TestNamespaces_DeleteUserAuthBlockedClusterWide(t *testing.T) {
 			}
 			var unauth *schema.SchemaDumpUnauthorized
 			return errors.As(err, &unauth)
-		}, 10*time.Second, 50*time.Millisecond,
+		}, helper.DBUserKeyTimeout, 50*time.Millisecond,
 			"auth must fail on node %s after namespace delete", nodeURI)
 	}
 	// Restore for subsequent tests; t.Cleanup also covers it.

@@ -528,6 +528,9 @@ func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexI
 		if stderrors.As(err, &eTV) {
 			return nil, storobj.NewErrNotFoundf(indexID, "target vector %q not found", targetVector)
 		}
+		if stderrors.Is(err, storobj.ErrNoVector) {
+			return nil, storobj.NewErrNotFoundf(indexID, "object has no vector")
+		}
 		return nil, err
 	}
 	return vec, nil
@@ -580,7 +583,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 			"shard":           s.ID(),
 			"tenant":          s.tenant(),
 			"query":           "ObjectSearch",
-			"filters":         filters,
+			"filters":         filters.LogSummary(),
 			"limit":           limit,
 			"sort":            sort,
 			"cursor":          cursor,
@@ -714,7 +717,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			"shard":      s.ID(),
 			"tenant":     s.tenant(),
 			"query":      "ObjectVectorSearch",
-			"filters":    filters,
+			"filters":    filters.LogSummary(),
 			"limit":      limit,
 			"sort":       sort,
 			"version":    s.versioner.Version(),
@@ -727,13 +730,9 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	s.activityTrackerRead.Add(1)
 
-	// Hold the admission seat for the whole method, for two reasons. The
-	// vector index sizes its worker pools (compressed rescoring, HFresh
-	// posting reads) from the grant in ctx, so the grant must exist while the
-	// vector phase runs. And the object fetch below fans out at 2*GOMAXPROCS
-	// without reading the grant, so the seat is what bounds how many queries
-	// run that fan-out at once. Releasing after the vector phase would let
-	// every queued query start its fetch simultaneously.
+	// Hold the grant until the method returns, because the hnsw and hfresh indexes
+	// and the object fetch below size their worker pools from it. Releasing it
+	// earlier hands its units to queued queries while those workers still run.
 	ctx, release, err := s.index.Config.QueryAdmission.Admit(ctx, concurrency.TimesGOMAXPROCS(2))
 	if err != nil {
 		return nil, nil, err
@@ -906,7 +905,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		return nil, nil, err
 	}
 	defer release()
-	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger)
+	// a doc ID the vector index still knows but the objects bucket no longer
+	// has is dropped together with its distance, instead of shifting the
+	// distances of every later hit onto the wrong object
+	objs, distCombined, err := storobj.ObjectsByDocIDWithDists(ctx, bucket, idsCombined, distCombined,
+		additional, properties, s.index.logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -940,7 +943,7 @@ func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, 
 			took := time.Since(beforeObjects)
 			helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
 		}()
-		return storobj.ObjectsByDocID(bucket, docIDs, additional, nil, s.index.logger)
+		return storobj.ObjectsByDocID(ctx, bucket, docIDs, additional, nil, s.index.logger)
 	}
 
 	if cursor == nil {

@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -80,4 +81,16 @@ func TestNewMetrics(t *testing.T) {
 		assert.Equal(t, 0.0, objectCountOf(t, "n/a", "n/a", "ns_a"))
 		assert.Equal(t, 0.0, objectCountOf(t, "n/a", "n/a", "ns_b"))
 	})
+}
+
+func TestReadObserverRecordsBytesUnderOperation(t *testing.T) {
+	m := &Metrics{IORead: monitoring.NewStripedSummaryVec("reads", "help", "operation")}
+	m.ReadObserver("preadInto")(4096, 7)
+
+	want := `# HELP reads help
+# TYPE reads summary
+reads_sum{operation="preadInto"} 4096
+reads_count{operation="preadInto"} 1
+`
+	require.NoError(t, testutil.CollectAndCompare(m.IORead, strings.NewReader(want)))
 }

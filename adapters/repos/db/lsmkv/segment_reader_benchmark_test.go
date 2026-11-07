@@ -17,8 +17,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // BenchmarkSegmentNodeReader is one cursor step: open a reader on a node, read
@@ -37,7 +37,7 @@ func BenchmarkSegmentNodeReader(b *testing.B) {
 		name string
 		seg  *segment
 	}{
-		{name: "pread", seg: &segment{contentFile: f, size: fileSize, metrics: benchIOReadMetrics(b)}},
+		{name: "pread", seg: &segment{contentFile: f, size: fileSize, metrics: benchIOReadMetrics()}},
 		{name: "memory", seg: &segment{contents: contents, size: fileSize, readFromMemory: true}},
 	}
 	for _, tt := range tests {
@@ -60,15 +60,7 @@ func BenchmarkSegmentNodeReader(b *testing.B) {
 	}
 }
 
-// benchIOReadMetrics is the read-byte summary the segment benchmarks meter into,
-// registered privately so two of them in one binary do not collide.
-func benchIOReadMetrics(tb testing.TB) *Metrics {
-	tb.Helper()
-
-	ioRead := prometheus.NewSummaryVec(prometheus.SummaryOpts{
-		Name: "test_file_io_reads_total_bytes",
-		Help: "Total number of bytes read from disk",
-	}, []string{"operation"})
-	require.NoError(tb, prometheus.NewRegistry().Register(ioRead))
-	return &Metrics{IORead: ioRead}
+func benchIOReadMetrics() *Metrics {
+	return &Metrics{IORead: monitoring.NewStripedSummaryVec("test_file_io_reads_total_bytes",
+		"Total number of bytes read from disk", "operation")}
 }

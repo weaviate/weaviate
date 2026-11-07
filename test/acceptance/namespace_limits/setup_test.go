@@ -25,10 +25,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -66,6 +63,9 @@ func TestMain(m *testing.M) {
 		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS", "1").
 		WithWeaviateEnv("PERSISTENCE_MEMTABLES_MIN_ACTIVE_DURATION_SECONDS", "1").
 		WithWeaviateEnv("PERSISTENCE_MEMTABLES_MAX_ACTIVE_DURATION_SECONDS", "2").
+		// TestObjectLimitAfterReplicaCopy registers a COPY, which the Replicate
+		// handler refuses with 501 while replica movement is off.
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		WithWeaviateClusterWithGRPC().
 		Start(ctx)
 	if err != nil {
@@ -94,26 +94,9 @@ func TestMain(m *testing.M) {
 func createNamespacedUser(t *testing.T, userID, ns string) string {
 	t.Helper()
 
-	var apikey string
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		resp, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(ns+":"+userID).WithBody(users.CreateUserBody{}),
-			helper.CreateAuth(adminKey),
-		)
-		if !assert.NoError(c, err) {
-			return
-		}
-		if !assert.NotNil(c, resp.Payload.Apikey) {
-			return
-		}
-		apikey = *resp.Payload.Apikey
-	}, 10*time.Second, 50*time.Millisecond, "user %q could not be created", userID)
+	apikey := helper.CreateUserWithNamespace(t, userID, ns, adminKey)
 
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		_, err := helper.Client(t).Users.GetOwnInfo(
-			users.NewGetOwnInfoParams(), helper.CreateAuth(apikey))
-		assert.NoError(c, err)
-	}, 10*time.Second, 50*time.Millisecond, "user %q apikey not recognized after create", userID)
+	helper.WaitForAPIKeyRecognized(t, apikey, userID)
 
 	// Mandatory RBAC: grant the built-in admin so the namespaced user can create
 	// classes and write objects. The quota chokepoint is orthogonal to RBAC and

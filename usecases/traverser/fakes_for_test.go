@@ -83,8 +83,9 @@ type fakeVectorSearcher struct {
 
 	sparseObjectSearchFn func(params dto.GetParams) ([]*storobj.Object, []float32, error)
 	// vectorSearchFn replaces the mock expectations when set.
-	vectorSearchFn func(params dto.GetParams) ([]search.Result, error)
-	crossClassErr  error
+	vectorSearchFn      func(params dto.GetParams) ([]search.Result, error)
+	resolveReferencesFn func(objs search.Results, props search.SelectProperties) (search.Results, error)
+	crossClassErr       error
 }
 
 func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
@@ -149,6 +150,9 @@ func (f *fakeVectorSearcher) ResolveReferences(ctx context.Context, objs search.
 	props search.SelectProperties, groupBy *searchparams.GroupBy,
 	additional additional.Properties, tenant string,
 ) (search.Results, error) {
+	if f.resolveReferencesFn != nil {
+		return f.resolveReferencesFn(objs, props)
+	}
 	return objs, nil
 }
 

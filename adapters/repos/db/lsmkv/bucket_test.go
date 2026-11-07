@@ -2467,8 +2467,8 @@ func flushRoaringSetTestMemtableIntoTestSegment(m memtable) *fakeSegment {
 	// NOTE: This fake pretends only additions exist, it ignores deletes
 	allEntries := m.(*testMemtable).roaringSet.FlattenInOrder()
 	data := map[string]*sroar.Bitmap{}
-	for _, e := range allEntries {
-		data[string(e.Key)] = e.Value.Additions.Clone()
+	for i := range allEntries {
+		data[string(allEntries[i].Key)] = allEntries[i].Value.Additions.Clone()
 	}
 	return newFakeRoaringSetSegment(data)
 }

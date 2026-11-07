@@ -106,7 +106,7 @@ func TestNamespaces_SuspendRejectsTheNamespacesKeys(t *testing.T) {
 			_, err := schemaDumpAs(t, userKey)
 			var unauth *schema.SchemaDumpUnauthorized
 			return errors.As(err, &unauth)
-		}, 10*time.Second, 50*time.Millisecond,
+		}, helper.DBUserKeyTimeout, 50*time.Millisecond,
 			"the key must stop authenticating on node %s", nodeURI)
 	}
 	helper.SetupClient(originalURI)

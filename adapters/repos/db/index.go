@@ -16,6 +16,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -398,7 +399,7 @@ type Index struct {
 	// db is the owning *DB, set by the caller right after NewIndex
 	// returns. Used by [Index.refuseIfReindexInFlight] to consult the
 	// DTM-backed backup gate. Nil is treated conservatively by the gate
-	// (refuses), matching the pre-wire stance.
+	// (refuses).
 	db *DB
 }
 
@@ -629,7 +630,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	}
 
 	withDirs := append(slices.Clone(openLocalShards), coldLocalShards...)
-	i.prepareDimensionsOfShards(ctx, class, withDirs)
+	i.rebuildShardsBeforeLoad(ctx, class, withDirs)
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
@@ -1102,25 +1103,6 @@ func (i *Index) maintenanceModeEnabled() bool {
 	return i.Config.MaintenanceModeEnabled != nil && i.Config.MaintenanceModeEnabled()
 }
 
-// Iterate over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
-func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard ShardLike, object *storobj.Object) error) (err error) {
-	return i.forEachShardSkipRecovering(func(_ string, shard ShardLike) error {
-		wrapper := func(object *storobj.Object) error {
-			return cb(i, shard, object)
-		}
-		// pinned for the whole iteration: the cursor underneath reads the
-		// bucket's segments, and an unpinned pointer can be shut down between
-		// the lookup and the scan
-		bucket, release := shard.Store().AcquireBucketForRead(helpers.ObjectsBucketLSM)
-		if bucket == nil {
-			return fmt.Errorf("objects bucket of shard %q: %w", shard.Name(), lsmkv.ErrBucketNotFound)
-		}
-		defer release()
-
-		return bucket.IterateObjects(ctx, wrapper)
-	})
-}
-
 // cancelOnCloseRequested derives a context cancelled on close request, so a teardown
 // does not wait behind a lock the caller holds. Call the returned func when done.
 // The derived context is cancelled with the same cause, so a caller can tell a
@@ -1178,12 +1160,23 @@ func (i *Index) closeRequestedCause() error {
 // captured before the walk, reported as [errShardsSkipped]. A shard added
 // mid-walk is out of scope either way: Range makes no consistent-snapshot
 // guarantee.
-func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) error {
+//
+// A non-empty scope limits the walk to those names, so a shard outside it
+// that is removed mid-walk is not reported as skipped.
+func (i *Index) forEachShardStrict(scope map[string]struct{}, f func(name string, shard ShardLike) error) error {
 	if cause := i.closeRequestedCause(); cause != nil {
 		return cause
 	}
+	inScope := func(name string) bool {
+		_, ok := scope[name]
+		return len(scope) == 0 || ok
+	}
 	unvisited := i.shardNameSet()
+	maps.DeleteFunc(unvisited, func(name string, _ struct{}) bool { return !inScope(name) })
 	err := i.shards.Range(func(name string, shard ShardLike) error {
+		if !inScope(name) {
+			return nil
+		}
 		delete(unvisited, name)
 		return f(name, shard)
 	})
@@ -1309,13 +1302,6 @@ func (i *Index) ForEachLoadedShardConcurrently(f func(name string, shard ShardLi
 	})
 }
 
-// Iterate over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
-func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard ShardLike) error) (err error) {
-	return i.forEachShardSkipRecovering(func(key string, shard ShardLike) error {
-		return cb(i, shard)
-	})
-}
-
 // pinLoadedShard takes a shutdown refcount so bucket work scheduled onto an
 // error group outlives the shard walk. A cold lazy shard has no store to
 // refcount; its file surgery holds shardCreateLocks in shard_lazyloader.go.
@@ -1381,27 +1367,24 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 		}
 	}()
 
-	var payloadReads atomic.Int64
+	// Shards sweep concurrently under eg, so the count is atomic.
+	var counts migrationSweepCounts
 	i.ForEachShard(func(key string, shard ShardLike) error {
 		release, ok := i.pinLoadedShard(key, shard)
 		if !ok {
 			return nil
 		}
 		releases = append(releases, release)
-		shard.updatePropertyBuckets(ctx, eg, property, &payloadReads)
+		shard.updatePropertyBuckets(ctx, eg, property, &counts)
 		return nil
 	})
 
 	err := eg.Wait()
-	// Gated on work done, not property shape: every property has some index
-	// type disabled, so gating on shape alone would log a sweep on every
-	// update. This under-reports on purpose: a tracker removed by name match
-	// alone costs no payload read, so an absent line doesn't mean nothing swept.
-	if reads := payloadReads.Load(); reads > 0 {
+	if recordSetReads := counts.recordSetReads.Load(); recordSetReads > 0 {
 		i.logger.WithFields(map[string]any{
-			"property":      property.Name,
-			"index_types":   disabledIndexTypes(property),
-			"payload_reads": reads,
+			"property":         property.Name,
+			"index_types":      disabledIndexTypes(property),
+			"record_set_reads": recordSetReads,
 		}).Info("partial-reindex cleanup: migration dirs swept for disabled index types")
 	}
 	if err != nil {
@@ -1750,7 +1733,8 @@ type IndexConfig struct {
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
 	MigrateDimensionsToRoaringSet       bool
-	DimensionsReindex                   *dimensionsReindex
+	DimensionsReindex                   *startupRebuild
+	PropertyLengthsRecount              *startupRebuild
 	UsageEnabled                        bool
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
 	StartupShards                       *startupShardCounters
@@ -2865,7 +2849,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
-	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
+	readPlan, err := i.buildReadRoutingPlan(tenant)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -3263,7 +3247,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
-	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
+	readPlan, err := i.buildReadRoutingPlan(tenant)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -3594,13 +3578,15 @@ func (i *Index) LoadLocalShardForTenantAdd(ctx context.Context, shardName string
 	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, false, false, callerTenantAdd, "tenant added")
 }
 
-// LoadLocalShardForTenantActivation loads a shard for the apply that records a
-// tenant turning HOT. It skips and returns nil for the same reason
-// [Index.LoadLocalShardForTenantAdd] does.
+// LoadLocalShardForTenantActivation registers a shard for the apply that records
+// a tenant turning HOT. It skips and returns nil for the same reason
+// [Index.LoadLocalShardForTenantAdd] does. Lazy loading opens it on first touch,
+// since a shard opened in the serial apply delays every entry behind it; with
+// lazy loading off it opens regardless, because nothing else would.
 func (i *Index) LoadLocalShardForTenantActivation(ctx context.Context, shardName string,
 	implicitShardLoading bool,
 ) error {
-	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, true, implicitShardLoading,
+	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, !i.Config.EnableLazyLoadShards, implicitShardLoading,
 		callerTenantActivation, "tenant activated")
 }
 
@@ -3612,11 +3598,17 @@ func (i *Index) LoadLocalShardForTenantProcess(ctx context.Context, shardName st
 	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, true, false, callerTenantProcess, "tenant status applied")
 }
 
-// loadLocalShardForReload opens a shard for the reload replaying committed
-// schema. A namespace refusal opens none and returns nil, since ReloadLocalDB
-// would log it as the whole class failing to reload.
-func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string, mustLoad bool) error {
-	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, false, callerReload)
+// loadLocalShardForReload registers a shard for the reload replaying committed
+// schema. A namespace that keeps no shards open opens none and returns nil: an
+// error here would skip the tenant drops and property adds the same reload
+// owes, and nothing re-runs a reload. The skip is silent, like
+// initAndStoreShards', since a suspended namespace reaches this once per
+// tenant. The reload runs from the serial apply, so lazy loading opens the
+// shard on first touch; with lazy loading off it opens regardless, because
+// nothing else would.
+func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string) error {
+	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName,
+		!i.Config.EnableLazyLoadShards, false, callerReload)
 	if namespaceRefusedShardLoad(err) {
 		return nil
 	}
@@ -4100,9 +4092,7 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 func (i *Index) aggregate(ctx context.Context, replProps *additional.ReplicationProperties,
 	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
-	// ValidateConsistencyLevel requires every shard to resolve to the same number,
-	// and ONE is the only level that does so whatever the shards' replica counts.
-	readPlan, err := i.buildReadRoutingPlan(routerTypes.ConsistencyLevelOne, params.Tenant)
+	readPlan, err := i.buildReadRoutingPlan(params.Tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -4195,6 +4185,7 @@ func (i *Index) drop() error {
 		return err
 	}
 	i.Config.DimensionsReindex.forget(i.ID())
+	i.Config.PropertyLengthsRecount.forget(i.ID())
 
 	// Check if a backup is in progress. Dont delete files in this case so the backup process can complete successfully
 	// The files will be deleted after the backup is completed and in case of a crash on next startup.
@@ -4359,6 +4350,7 @@ func (i *Index) dropShards(names []string) error {
 
 	i.purgeUnloadedShardRegistry(unloadedNames)
 	i.Config.DimensionsReindex.forget(i.ID(), names...)
+	i.Config.PropertyLengthsRecount.forget(i.ID(), names...)
 
 	return ec.ToErrorLimited(maxReportedErrors)
 }
@@ -4763,7 +4755,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
 	cl := i.consistencyLevel(repl)
-	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
+	readPlan, err := i.buildReadRoutingPlan(tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -5107,10 +5099,14 @@ func (i *Index) tenantDirExists(tenantName string) (bool, error) {
 	return len(entries) > 0, nil
 }
 
-func (i *Index) buildReadRoutingPlan(cl routerTypes.ConsistencyLevel, tenantName string) (routerTypes.ReadRoutingPlan, error) {
+// buildReadRoutingPlan resolves the index's read plan at ONE, whatever level the
+// request asks for. Callers read only the plan's shards and replicas, never its
+// required answers, so a QUORUM or ALL search with most replicas unreachable still
+// runs. The plan still fails when a shard has no reachable replica.
+func (i *Index) buildReadRoutingPlan(tenantName string) (routerTypes.ReadRoutingPlan, error) {
 	planOptions := routerTypes.RoutingPlanBuildOptions{
 		Tenant:                tenantName,
-		ConsistencyLevel:      cl,
+		ConsistencyLevel:      routerTypes.ConsistencyLevelOne,
 		AllowTenantActivation: true,
 	}
 	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)

@@ -50,7 +50,7 @@ func vectorFromObjectForTarget(targetVector string) hnsw.VectorFromObject {
 		vec, err := storobj.VectorFromBinary(objectBytes, nil, targetVector)
 		if err != nil {
 			var notFound storobj.ErrTargetVectorNotFound
-			if stderrors.As(err, &notFound) {
+			if stderrors.As(err, &notFound) || stderrors.Is(err, storobj.ErrNoVector) {
 				return nil, nil
 			}
 			return nil, err
@@ -70,9 +70,12 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	// The mapping decides the physical ID of each index. A shard without one
 	// creates everything under the naming rule; a shard with one checks its
 	// records against the schema and the disk first.
-	records, initialized, err := s.mapping.Load()
+	records, initialized, stripped, err := s.mapping.LoadAndStrip()
 	if err != nil {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
+	}
+	if len(stripped) > 0 {
+		s.index.logger.WithField("shard", s.ID()).Infof("rewrote vector index mapping records written by a newer version, dropping fields this version does not know: %v", stripped)
 	}
 	if initialized {
 		records, err = s.reconcileVectorIndexMapping(ctx, active, records)
@@ -380,7 +383,7 @@ func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg s
 	}
 	rec := vectorIndexRecordFor(targetVector, cfg, vectorIndexStateCreating)
 	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
-		err := s.refuseVectorIndexCollision(targetVector, rec.PhysicalID)
+		err := s.refuseVectorIndexCollision(targetVector, rec)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -462,12 +465,12 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 }
 
 // removeVectorIndexArtifacts deletes every file name's index owns at
-// physicalID, its dynamic state key and last its record. Siblings protect
-// what their records map them to; a sibling without a record owns nothing.
+// rec's physical ID, the queue at its queue ID, its dynamic state key and
+// last its record. Siblings protect what their records map them to; a
+// sibling without a record owns nothing.
 // Idempotent: a retry after a partial run finds less to do.
-// The queue is removed under physicalID: validate refuses a record whose
-// queue ID differs.
-func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name, physicalID string) error {
+func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name string, rec vectorIndexRecord) error {
+	physicalID := rec.PhysicalID
 	others := otherTargetVectors(s.class, name)
 	otherIDs := make([]string, 0, len(others))
 	for _, other := range others {
@@ -492,7 +495,12 @@ func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name, physicalID
 			return fmt.Errorf("drop directory %q for vector %q: %w", dir, name, err)
 		}
 	}
-	err := dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), physicalID)
+	queueDir := helpers.QueueDirName(rec.queueIDOrDefault())
+	err := removeDirIfExists(s.path(), queueDir)
+	if err != nil {
+		return fmt.Errorf("drop directory %q for vector %q: %w", queueDir, name, err)
+	}
+	err = dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), physicalID)
 	if err != nil {
 		return fmt.Errorf("vector %q: %w", name, err)
 	}
@@ -534,5 +542,5 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 	if err != nil || !recorded {
 		return err
 	}
-	return s.removeVectorIndexArtifacts(ctx, targetVector, rec.PhysicalID)
+	return s.removeVectorIndexArtifacts(ctx, targetVector, rec)
 }
