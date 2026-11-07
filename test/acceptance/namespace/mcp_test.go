@@ -35,6 +35,7 @@ const (
 	mcpToolUpsert     = "weaviate-objects-upsert"
 	mcpToolGetConfig  = "weaviate-collections-get-config"
 	mcpToolGetTenants = "weaviate-tenants-list"
+	mcpToolCreate     = "weaviate-collections-create"
 )
 
 // TestNamespaces_MCP exercises the MCP backend on a namespace-enabled cluster.
@@ -331,6 +332,27 @@ func TestNamespaces_MCP(t *testing.T) {
 		require.NoError(t, helper.CallToolOnce(t.Context(), t, mcpToolGetTenants,
 			&read.GetTenantsArgs{CollectionName: collideMT}, &tr2, user2Key))
 		assert.Equal(t, []string{"tns2"}, tenantNames(tr2.Tenants))
+
+		// collections-create: both callers create the same short name, each in its
+		// own namespace, and the response carries short names only.
+		const created = "IsoCreated"
+		t.Cleanup(func() {
+			helper.DeleteClassAuth(t, ns1+":"+created, adminKey)
+			helper.DeleteClassAuth(t, ns2+":"+created, adminKey)
+		})
+		var cr1, cr2 *create.CreateCollectionResp
+		require.NoError(t, helper.CallToolOnce(t.Context(), t, mcpToolCreate, &create.CreateCollectionArgs{
+			CollectionName: created,
+			Properties:     []map[string]any{{"name": "film", "dataType": []string{collide}}},
+		}, &cr1, user1Key))
+		require.NoError(t, helper.CallToolOnce(t.Context(), t, mcpToolCreate,
+			&create.CreateCollectionArgs{CollectionName: created}, &cr2, user2Key))
+		assert.Equal(t, created, cr1.Collection.Class)
+		assert.Equal(t, created, cr2.Collection.Class)
+		require.Len(t, cr1.Collection.Properties, 1)
+		assert.Equal(t, []string{collide}, cr1.Collection.Properties[0].DataType)
+		assert.Equal(t, ns1+":"+created, helper.GetClassAuth(t, ns1+":"+created, adminKey).Class)
+		assert.Equal(t, ns2+":"+created, helper.GetClassAuth(t, ns2+":"+created, adminKey).Class)
 	})
 }
 
@@ -343,6 +365,7 @@ var mcpCollectionScopedTools = map[string]bool{
 	mcpToolGetConfig:  true,
 	mcpToolUpsert:     true,
 	mcpToolGetTenants: true,
+	mcpToolCreate:     true,
 }
 
 // setupCollidingClassInBothNamespaces creates a class with the same short name

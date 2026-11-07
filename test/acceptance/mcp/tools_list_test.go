@@ -48,6 +48,7 @@ var defaultDescriptions = map[string]string{
 	"weaviate-tenants-list":           "Lists the tenants of a collection in the database.",
 	"weaviate-query-hybrid":           "Performs hybrid search (vector + keyword) for data in a collection.",
 	"weaviate-objects-upsert":         "Upserts (inserts or updates) one or more objects into a collection in batch. Supports batch operations for efficient bulk inserts and updates.",
+	"weaviate-collections-create":     "Creates a collection. Nested arguments use the REST schema shapes that weaviate-collections-get-config returns. Fails if a collection with that name already exists.",
 }
 
 // toolConfigFile mirrors the config file structure for parsing.
@@ -190,6 +191,7 @@ func TestToolsList(t *testing.T) {
 		"weaviate-tenants-list",
 		"weaviate-query-hybrid",
 		"weaviate-objects-upsert",
+		"weaviate-collections-create",
 	}
 	for _, expected := range expectedTools {
 		assert.Contains(t, toolNames, expected, "tool %q should be discoverable", expected)
