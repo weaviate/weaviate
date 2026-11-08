@@ -618,14 +618,14 @@ Key types & contracts:
   `OnGroupCompleted` and `OnSwapRequested` for barrier-aware
   semantic migrations.
 - **`ConflictDetector`** — pluggable interface implemented per
-  namespace (here, by `ReindexProvider.CheckConflict`). Called under
+  namespace (here, by `ReindexDetector.CheckConflict`). Called under
   Manager's lock from the AddTask apply path, BEFORE the task is
   appended. FSM-deterministic.
 - **`SchemaMutationDetector`** — the other half of the conflict
   surface: gates external schema mutations
   (`UpdateProperty`/`DeleteClass`/`DeleteTenants`/`UpdateTenants`)
   while a reindex is in flight. Implementation:
-  `ReindexProvider.CheckPropertyUpdate` / `CheckClassMutation` /
+  `ReindexDetector.CheckPropertyUpdate` / `CheckClassMutation` /
   `CheckTenantMutation`. Uses `TaskStatus.IsActive()`, so every
   non-terminal status counts as "in flight" for mutation gating (see
   **Task status classification** below).

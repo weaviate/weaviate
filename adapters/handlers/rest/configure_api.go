@@ -660,6 +660,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	namespacesController := appState.NamespacesController
 
+	dropVectorDetector := db.NewDropVectorIndexDetector(appState.Logger)
 	rConfig := rCluster.Config{
 		WorkDir:                     filepath.Join(dataPath, config.DefaultRaftDir),
 		NodeID:                      nodeName,
@@ -701,6 +702,14 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DistributedTasks:            appState.ServerConfig.Config.DistributedTasks,
 		DistributedTaskTargetVectorExtractors: map[string]distributedtask.TargetVectorExtractor{
 			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskTargets,
+		},
+		DistributedTaskConflictDetectors: map[string]distributedtask.ConflictDetector{
+			db.ReindexNamespace:         db.ReindexDetector{},
+			db.DropVectorIndexNamespace: dropVectorDetector,
+		},
+		DistributedTaskSchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{
+			db.ReindexNamespace:         db.ReindexDetector{},
+			db.DropVectorIndexNamespace: dropVectorDetector,
 		},
 		DistributedTaskCollectionExtractors:    distributedTaskCollectionExtractors(),
 		DistributedTaskShardReplicasExtractors: distributedTaskShardReplicasExtractors(),
@@ -1096,11 +1105,9 @@ func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPoo
 }
 
 // initReindexAndDistributedTasks builds the reindex provider, registers it in
-// the distributedtask providers map, constructs the scheduler, and wires the
-// cross-FSM conflict + schema-mutation detectors on the cluster service.
-// Mutates appState (ReindexProvider, DistributedTaskScheduler) and the
-// providers map. The scheduler is NOT started — caller gates Start() on RAFT
-// readiness.
+// the distributedtask providers map, and constructs the scheduler. Mutates
+// appState (ReindexProvider, DistributedTaskScheduler) and the providers map.
+// The scheduler is NOT started — caller gates Start() on RAFT readiness.
 func initReindexAndDistributedTasks(
 	appState *state.State,
 	repo *db.DB,
@@ -1131,8 +1138,7 @@ func initReindexAndDistributedTasks(
 		reindexProvider.RunSearchableBlockmaxRepair(serverShutdownCtx)
 	}, appState.Logger)
 
-	// Drop-vector-index distributed-task provider. Added to the providers map so the
-	// conflict/schema-mutation detector loops below auto-register it.
+	// Drop-vector-index distributed-task provider.
 	// Wake the reconcile loop when a round ends with work remaining (batch
 	// chains, deferrals, failed rounds) instead of idling a full interval.
 	dropVectorReconcileNudge := make(chan struct{}, 1)
@@ -1190,27 +1196,6 @@ func initReindexAndDistributedTasks(
 	// Reactive notifier: without this, barriers stagger by up to the tick
 	// interval across nodes. See [distributedtask.SchedulerNotifier].
 	appState.ClusterService.SetDistributedTaskSchedulerNotifier(appState.DistributedTaskScheduler)
-
-	// FSM-deterministic conflict reject (closes the multi-node parallel-submit
-	// race that per-node submit locks cannot cover; see
-	// weaviate/0-weaviate-issues#54 / weaviate/weaviate#10675).
-	conflictDetectors := map[string]distributedtask.ConflictDetector{}
-	for ns, p := range providers {
-		if cd, ok := p.(distributedtask.ConflictDetector); ok {
-			conflictDetectors[ns] = cd
-		}
-	}
-	appState.ClusterService.SetDistributedTaskConflictDetectors(conflictDetectors)
-
-	// Symmetric guard in the other direction: protect in-flight tasks from
-	// out-of-band schema mutations.
-	schemaMutationDetectors := map[string]distributedtask.SchemaMutationDetector{}
-	for ns, p := range providers {
-		if smd, ok := p.(distributedtask.SchemaMutationDetector); ok {
-			schemaMutationDetectors[ns] = smd
-		}
-	}
-	appState.ClusterService.SetDistributedTaskSchemaMutationDetectors(schemaMutationDetectors)
 }
 
 func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogger) db.ShardReindexerV3 {

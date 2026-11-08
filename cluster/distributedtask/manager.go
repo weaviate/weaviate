@@ -42,24 +42,13 @@ type Manager struct {
 	tasks map[string]map[string]*Task // namespace -> taskID -> Task
 
 	// conflictDetectors is the per-namespace registry consulted by
-	// [Manager.AddTask] before appending a new task. nil-safe (and any
-	// missing namespace is also nil-safe): no detector → no extra
-	// rejection, behavior matches the pre-hook code.
-	//
-	// Set once at startup via [Manager.SetConflictDetectors]. Reading
-	// it during AddTask under m.mu is safe — the setter takes m.mu, so
-	// no concurrent read/write race.
+	// [Manager.AddTask] before appending a new task. A missing namespace
+	// adds no rejection.
 	conflictDetectors map[string]ConflictDetector
 
 	// schemaMutationDetectors is the per-namespace registry consulted
-	// by the schema FSM's UpdateProperty apply path (see
+	// by the schema FSM's mutation apply paths (see
 	// [SchemaMutationDetector] godoc for the motivating bug).
-	// nil-safe per the same convention as conflictDetectors.
-	//
-	// Set once at startup via
-	// [Manager.SetSchemaMutationDetectors]. The schema FSM consults
-	// these via [Manager.CheckPropertyUpdate]; reading under m.mu is
-	// safe — the setter takes m.mu.
 	schemaMutationDetectors map[string]SchemaMutationDetector
 
 	// Per-namespace payload→collection extractors. Absent ⇒ namespace is
@@ -82,33 +71,6 @@ type Manager struct {
 	// Manager's write lock to ensure every successful apply produces a
 	// wake-up that observers cannot miss.
 	notifier SchedulerNotifier
-}
-
-// SetConflictDetectors installs the per-namespace conflict-detection
-// hook called by [Manager.AddTask]. Safe to call once at startup after
-// both the Manager and the providers exist (see configure_api.go
-// wiring). Subsequent calls overwrite the previous registration.
-//
-// Pass nil to disable conflict checking (e.g. unit tests that exercise
-// AddTask in isolation).
-func (m *Manager) SetConflictDetectors(detectors map[string]ConflictDetector) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.conflictDetectors = detectors
-}
-
-// SetSchemaMutationDetectors installs the per-namespace registry
-// consulted by [Manager.CheckPropertyUpdate] from the schema FSM's
-// UpdateProperty apply path. Safe to call once at startup after both
-// the Manager and the providers exist (configure_api.go wiring).
-// Subsequent calls overwrite the previous registration.
-//
-// Pass nil to disable the schema-mutation guard (e.g. unit tests that
-// exercise schema applies in isolation).
-func (m *Manager) SetSchemaMutationDetectors(detectors map[string]SchemaMutationDetector) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.schemaMutationDetectors = detectors
 }
 
 // CheckPropertyUpdate consults every registered
@@ -238,6 +200,11 @@ type ManagerParameters struct {
 	CompletedTaskTTL time.Duration
 
 	Logger logrus.FieldLogger
+
+	// The detectors decide apply verdicts, so they are fixed at construction,
+	// before RAFT replay: a replayed apply must reach the live apply's verdict.
+	ConflictDetectors       map[string]ConflictDetector
+	SchemaMutationDetectors map[string]SchemaMutationDetector
 }
 
 func NewManager(params ManagerParameters) *Manager {
@@ -249,6 +216,9 @@ func NewManager(params ManagerParameters) *Manager {
 		tasks:                  make(map[string]map[string]*Task),
 		collectionExtractors:   make(map[string]CollectionExtractor),
 		targetVectorExtractors: make(map[string]TargetVectorExtractor),
+
+		conflictDetectors:       params.ConflictDetectors,
+		schemaMutationDetectors: params.SchemaMutationDetectors,
 
 		completedTaskTTL: params.CompletedTaskTTL,
 

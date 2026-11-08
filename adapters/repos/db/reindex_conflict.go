@@ -125,6 +125,10 @@ func SearchablePropertyBlockmaxFromRAFT(classFlagBlockmax bool, collection, prop
 	return false
 }
 
+// ReindexDetector holds the reindex apply verdicts. It is stateless, so the
+// FSM can hold it before RAFT replay starts.
+type ReindexDetector struct{}
+
 // CheckConflict implements [distributedtask.ConflictDetector] for the
 // reindex namespace. Called under [Manager.mu] from the RAFT-apply
 // AddTask path BEFORE the new task is appended to FSM-stored state.
@@ -140,7 +144,7 @@ func SearchablePropertyBlockmaxFromRAFT(classFlagBlockmax bool, collection, prop
 // of the same collection conflict, regardless of which bucket type
 // they primarily write to. See [typesConflictReason] for the
 // rationale.
-func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*distributedtask.Task) error {
+func (ReindexDetector) CheckConflict(newPayload []byte, existingTasks []*distributedtask.Task) error {
 	var newP ReindexTaskPayload
 	if err := json.Unmarshal(newPayload, &newP); err != nil {
 		return fmt.Errorf("unmarshal new reindex payload: %w", err)
@@ -305,7 +309,7 @@ func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) s
 // Must stay a pure function of (className, propertyName, existingTasks) for
 // RAFT determinism; an unparseable payload is a hard reject, same as
 // [ConflictDetector.CheckConflict].
-func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
+func (ReindexDetector) CheckPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		// Same in-flight semantics as CheckConflict.
 		if !task.Status.IsActive() {
@@ -361,7 +365,7 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 // Same FSM-determinism contract as CheckPropertyUpdate. Unparseable
 // in-flight payloads are treated as a hard reject (we cannot prove
 // non-conflict).
-func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*distributedtask.Task) error {
+func (ReindexDetector) CheckClassMutation(className string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		// Same in-flight semantics as CheckConflict.
 		if !task.Status.IsActive() {
@@ -416,7 +420,7 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 //
 // `tenants` is informational — the rejection error names them so
 // the caller knows which tenants would be affected.
-func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
+func (ReindexDetector) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		// Same in-flight semantics as CheckConflict.
 		if !task.Status.IsActive() {
