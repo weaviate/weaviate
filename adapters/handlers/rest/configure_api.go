@@ -1105,7 +1105,8 @@ func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPoo
 }
 
 // initReindexAndDistributedTasks registers the reindex and drop-vector-index
-// providers in providers and builds appState.DistributedTaskScheduler over them.
+// providers in providers, sets appState.ReindexProvider, and builds
+// appState.DistributedTaskScheduler over them.
 // The scheduler is NOT started — caller gates Start() on RAFT readiness.
 func initReindexAndDistributedTasks(
 	appState *state.State,
