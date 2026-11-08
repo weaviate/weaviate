@@ -792,7 +792,7 @@ explicit opt-out signal that's set only by the provider's
 **`MutationGuard` (cross-FSM).** The schema FSM consults
 `distributedtask.SchemaMutationDetector` on every `UpdateProperty`,
 `DeleteClass`, `UpdateTenants(FROZEN)`, `DeleteTenants` apply.
-`ReindexProvider`'s implementation rejects any mutation overlapping the
+`ReindexDetector`'s implementation rejects any mutation overlapping the
 properties of an in-flight reindex task on the same collection. In flight
 means any non-terminal status, admitted via `TaskStatus.IsActive()` (see
 §4.2). The motivating failure mode is summarized on

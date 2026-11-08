@@ -1104,9 +1104,8 @@ func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPoo
 		appState.ServerConfig.Config.QueryBitmapBufsMaxMemory)
 }
 
-// initReindexAndDistributedTasks builds the reindex provider, registers it in
-// the distributedtask providers map, and constructs the scheduler. Mutates
-// appState (ReindexProvider, DistributedTaskScheduler) and the providers map.
+// initReindexAndDistributedTasks registers the reindex and drop-vector-index
+// providers in providers and builds appState.DistributedTaskScheduler over them.
 // The scheduler is NOT started — caller gates Start() on RAFT readiness.
 func initReindexAndDistributedTasks(
 	appState *state.State,
@@ -1138,7 +1137,8 @@ func initReindexAndDistributedTasks(
 		reindexProvider.RunSearchableBlockmaxRepair(serverShutdownCtx)
 	}, appState.Logger)
 
-	// Drop-vector-index distributed-task provider.
+	// The drop-vector-index provider. Its guards are registered separately,
+	// in the rConfig DistributedTask*Detectors maps in MakeAppState.
 	// Wake the reconcile loop when a round ends with work remaining (batch
 	// chains, deferrals, failed rounds) instead of idling a full interval.
 	dropVectorReconcileNudge := make(chan struct{}, 1)

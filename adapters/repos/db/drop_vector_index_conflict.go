@@ -19,8 +19,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-// DropVectorIndexDetector holds the drop-vector apply verdicts. It is
-// stateless, so the FSM can hold it before RAFT replay starts.
+// DropVectorIndexDetector decides whether a RAFT apply refuses a new
+// drop-vector task or a vector config removal. It keeps no state between calls,
+// so it can exist before RAFT replay starts.
 type DropVectorIndexDetector struct {
 	logger logrus.FieldLogger
 }

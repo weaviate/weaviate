@@ -202,8 +202,9 @@ type Config struct {
 	// DistributedTaskTargetVectorExtractors mirror the collection extractors for
 	// per-target cascade deletion (drop-vector marker introduction).
 	DistributedTaskTargetVectorExtractors map[string]distributedtask.TargetVectorExtractor
-	// The detectors decide apply verdicts, so like the extractors they are
-	// fixed before replay. See [distributedtask.ManagerParameters].
+	// DistributedTaskConflictDetectors and DistributedTaskSchemaMutationDetectors
+	// reach the Manager when NewFSM runs, before RAFT replay, like the
+	// extractors. See [distributedtask.ManagerParameters].
 	DistributedTaskConflictDetectors       map[string]distributedtask.ConflictDetector
 	DistributedTaskSchemaMutationDetectors map[string]distributedtask.SchemaMutationDetector
 	// DistributedTaskShardReplicasExtractors let admitTaskReplicas refuse a task

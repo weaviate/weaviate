@@ -204,9 +204,9 @@ type ConflictDetector interface {
 	CheckConflict(newPayload []byte, existingTasks []*Task) error
 }
 
-// SchemaMutationDetector lets the schema FSM's UpdateProperty apply path
-// reject external schema mutations that would race with one of a
-// namespace's in-flight tasks.
+// SchemaMutationDetector lets the schema FSM's UpdateProperty, DeleteClass,
+// UpdateTenants and DeleteTenants apply paths reject a schema mutation that
+// would race with one of a namespace's in-flight tasks.
 //
 // Without it, a mutation landing mid-migration can let the FSM apply a
 // schema flip while the migration's own sub-task is still writing,

@@ -76,7 +76,9 @@ func TestRestartReplaysRefusedEntriesWithTheSameVerdict(t *testing.T) {
 		srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 		require.NoError(t, srv.Open(ctx, m.indexer))
 		require.NoError(t, srv.store.Notify(m.cfg.NodeID, addr))
-		require.NoError(t, srv.WaitUntilDBRestored(ctx, time.Second, make(chan struct{})))
+		wctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		require.NoError(t, srv.WaitUntilDBRestored(wctx, time.Second, make(chan struct{})))
 		require.True(t, tryNTimesWithWait(20, 200*time.Millisecond, srv.store.IsLeader))
 		return srv
 	}
@@ -98,7 +100,7 @@ func TestRestartReplaysRefusedEntriesWithTheSameVerdict(t *testing.T) {
 	m.store = &s
 	srv = start()
 	require.True(t, tryNTimesWithWait(50, 100*time.Millisecond, func() bool {
-		return srv.store.raft.Load().AppliedIndex() >= lastIndex
+		return srv.store.lastAppliedIndex.Load() >= lastIndex
 	}), "the restarted node must replay the whole log")
 
 	require.Equal(t, "C", srv.SchemaReader().ClassEqual("C"), "the replayed DELETE_CLASS must stay refused")

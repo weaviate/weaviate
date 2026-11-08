@@ -201,8 +201,9 @@ type ManagerParameters struct {
 
 	Logger logrus.FieldLogger
 
-	// The detectors decide apply verdicts, so they are fixed at construction,
-	// before RAFT replay: a replayed apply must reach the live apply's verdict.
+	// ConflictDetectors and SchemaMutationDetectors decide which applies the
+	// Manager refuses. They are set only here, before RAFT replay starts, so
+	// replay refuses the same log entries their first apply refused.
 	ConflictDetectors       map[string]ConflictDetector
 	SchemaMutationDetectors map[string]SchemaMutationDetector
 }
@@ -430,8 +431,8 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		}
 	}
 
-	// Cluster-wide conflict check: if a provider registered a
-	// [ConflictDetector] for this namespace, give it the chance to
+	// Cluster-wide conflict check: if [ManagerParameters.ConflictDetectors]
+	// holds a [ConflictDetector] for this namespace, give it the chance to
 	// reject the new task based on the FSM-stored task list. This
 	// closes the multi-node parallel-submit race the REST handler's
 	// per-node submit lock cannot cover (#10675 family,

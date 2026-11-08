@@ -27,7 +27,7 @@ import (
 
 // fakeConflictDetector lets the manager-side conflict-hook test pin
 // every branch of [Manager.AddTask]'s ConflictDetector invocation
-// without standing up the real reindex provider.
+// with a scripted verdict.
 type fakeConflictDetector struct {
 	called     int
 	rejectWith error
@@ -1452,8 +1452,8 @@ func TestManager_SnapshotRestore_WithPostCompletionAcks(t *testing.T) {
 }
 
 // fakeSchemaMutationDetector lets the manager-side CheckPropertyUpdate
-// dispatch test pin every branch without standing up the real reindex
-// provider. Records arguments so we can assert the dispatch contract
+// dispatch test pin every branch with a scripted verdict. Records
+// arguments so we can assert the dispatch contract
 // (only the matching-namespace detector consulted, full FSM task list
 // passed in, etc.).
 type fakeSchemaMutationDetector struct {

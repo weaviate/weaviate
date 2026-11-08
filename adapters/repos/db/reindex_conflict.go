@@ -125,8 +125,9 @@ func SearchablePropertyBlockmaxFromRAFT(classFlagBlockmax bool, collection, prop
 	return false
 }
 
-// ReindexDetector holds the reindex apply verdicts. It is stateless, so the
-// FSM can hold it before RAFT replay starts.
+// ReindexDetector decides whether a RAFT apply refuses a new reindex task or a
+// schema mutation that overlaps an in-flight reindex. It keeps no state between
+// calls, so it can exist before RAFT replay starts.
 type ReindexDetector struct{}
 
 // CheckConflict implements [distributedtask.ConflictDetector] for the
