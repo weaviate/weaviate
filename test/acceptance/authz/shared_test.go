@@ -101,6 +101,7 @@ func getSharedCompose(t *testing.T) *docker.DockerCompose {
 		WithMCP().
 		WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
 		WithWeaviateWithGRPC().WithRBAC().WithApiKey().WithDbUsers().
 		WithBackendFilesystem().
 		WithUserApiKey(sharedRootUser, sharedRootKey).
