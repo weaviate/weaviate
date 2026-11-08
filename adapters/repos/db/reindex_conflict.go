@@ -126,8 +126,8 @@ func SearchablePropertyBlockmaxFromRAFT(classFlagBlockmax bool, collection, prop
 }
 
 // ReindexDetector decides whether a RAFT apply refuses a new reindex task or a
-// schema mutation that overlaps an in-flight reindex. It keeps no state between
-// calls, so it can exist before RAFT replay starts.
+// schema mutation that overlaps an in-flight reindex. It needs no RAFT handle,
+// so MakeAppState builds it before the cluster service opens RAFT.
 type ReindexDetector struct{}
 
 // CheckConflict implements [distributedtask.ConflictDetector] for the

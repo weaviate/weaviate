@@ -202,8 +202,8 @@ type ManagerParameters struct {
 	Logger logrus.FieldLogger
 
 	// ConflictDetectors and SchemaMutationDetectors decide which applies the
-	// Manager refuses. They are set only here, before RAFT replay starts, so
-	// replay refuses the same log entries their first apply refused.
+	// Manager refuses. They are set only here, before RAFT replay starts, so a
+	// replayed entry gets the verdict this build gives it live.
 	ConflictDetectors       map[string]ConflictDetector
 	SchemaMutationDetectors map[string]SchemaMutationDetector
 }

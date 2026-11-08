@@ -20,8 +20,8 @@ import (
 )
 
 // DropVectorIndexDetector decides whether a RAFT apply refuses a new
-// drop-vector task or a vector config removal. It keeps no state between calls,
-// so it can exist before RAFT replay starts.
+// drop-vector task or a vector config removal. It holds only a logger, so
+// MakeAppState builds it before the cluster service opens RAFT.
 type DropVectorIndexDetector struct {
 	logger logrus.FieldLogger
 }

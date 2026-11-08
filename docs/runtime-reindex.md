@@ -832,8 +832,8 @@ own scheduled completion flip still works. Class-wide
 - `OnTaskCompleted` (semantic only) → `flipSemanticMigrationSchema`
   via RAFT. It does not touch the property overlay: an entry describes
   this shard's buckets, and no task status changes those (§10).
-- `CheckConflict` / `CheckPropertyUpdate` / `CheckClassMutation` /
-  `CheckTenantMutation` — see §4.3 & §7.
+- The RAFT-apply checks are not provider hooks. They live on
+  `ReindexDetector` in `reindex_conflict.go`, below. See §4.3 & §7.
 
 **`ShardReindexTaskGeneric`** ([`inverted_reindex_task_generic.go`](../adapters/repos/db/inverted_reindex_task_generic.go))
 — the strategy-parameterized lifecycle. State machine, merge / swap /
@@ -848,7 +848,7 @@ the Add/Delete double-write callbacks, the optional `AnalyzerOverlay`
 (see §8), the `PreReindexHook`, and the `OnMigrationComplete` hook
 (see §4.5 phase contract).
 
-**`reindex_conflict.go`** — `CheckConflict` (FSM-deterministic),
+**`reindex_conflict.go`** — `ReindexDetector`: `CheckConflict` (FSM-deterministic),
 `CheckPropertyUpdate`, `CheckClassMutation`, `CheckTenantMutation`,
 plus the predicates `ReindexPropsOverlap`, `TouchesSearchable`,
 `TouchesFilterable`, `TypesConflictReason`. The exhaustive switches in
