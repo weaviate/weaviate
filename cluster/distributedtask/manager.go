@@ -128,6 +128,15 @@ func (m *Manager) CheckPropertyUpdate(className, propertyName string) error {
 	})
 }
 
+func (m *Manager) CheckMigrationPropertyUpdate(className, propertyName string) error {
+	return m.dispatchSchemaMutation(func(d SchemaMutationDetector, existing []*Task) error {
+		if gate, ok := d.(CutoverOutcome); ok {
+			return gate.CheckMigrationPropertyUpdate(className, propertyName, existing)
+		}
+		return nil
+	})
+}
+
 // CheckClassMutation consults every registered
 // [SchemaMutationDetector] for class-wide destructive mutations
 // (e.g. DeleteClass). Stricter than CheckPropertyUpdate — any
@@ -905,6 +914,12 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
 
+	// A write that landed while its proposer saw an error finishes the run.
+	if d, ok := m.schemaMutationDetectors[r.Namespace].(CutoverOutcome); ok && d.CutoverLanded(task) {
+		task.markTerminal(TaskStatusFinished, time.UnixMilli(r.FailedAtUnixMillis))
+		m.notifySchedulerWithLock()
+		return nil
+	}
 	if r.Error != "" {
 		task.appendError(r.Error)
 	}

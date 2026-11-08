@@ -1250,7 +1250,7 @@ func (s *Scheduler) runCompletedCallbackPhase(
 		return
 	}
 	s.loggerWithTask(namespace, desc).
-		Errorf("distributed task transitioned to FAILED: OnTaskCompleted did not succeed: %s", failMsg)
+		Errorf("distributed task marked FAILED, or FINISHED if its cutover write landed: OnTaskCompleted did not succeed: %s", failMsg)
 }
 
 // finalizeWork captures one finalize-phase task identity. Populated under

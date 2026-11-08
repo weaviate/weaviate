@@ -460,6 +460,33 @@ func TestCheckPropertyUpdate_NoInFlightTasksAllows(t *testing.T) {
 	}
 }
 
+// A cutover write lands only while its own run is SWAPPING: a peer's flip
+// arriving after the run was failed or cancelled is refused.
+func TestCheckMigrationPropertyUpdate(t *testing.T) {
+	payload, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"}})
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		status     distributedtask.TaskStatus
+		class      string
+		prop       string
+		wantRefuse bool
+	}{
+		{distributedtask.TaskStatusSwapping, "c", "name", false},
+		{distributedtask.TaskStatusSwapping, "C", "other", true},
+		{distributedtask.TaskStatusSwapping, "D", "name", true},
+		{distributedtask.TaskStatusFailed, "C", "name", true},
+		{distributedtask.TaskStatusCancelled, "C", "name", true},
+		{distributedtask.TaskStatusFinished, "C", "name", true},
+		{distributedtask.TaskStatusPreparing, "C", "name", true},
+	} {
+		t.Run(string(tc.status)+"/"+tc.class+"."+tc.prop, func(t *testing.T) {
+			tasks := []*distributedtask.Task{{TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1}, Status: tc.status, Payload: payload}}
+			err := (&ReindexProvider{}).CheckMigrationPropertyUpdate(tc.class, tc.prop, tasks)
+			require.Equal(t, tc.wantRefuse, err != nil, "err=%v", err)
+		})
+	}
+}
+
 // TestCheckPropertyUpdate_InFlightOnSamePropertyRejects pins the
 // load-bearing case (https://github.com/weaviate/0-weaviate-issues/issues/218): a STARTED or FINALIZING
 // reindex task on the same (collection, property) must reject every

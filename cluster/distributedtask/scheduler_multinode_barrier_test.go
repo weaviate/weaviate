@@ -231,6 +231,10 @@ func (h *barrierHarness) tick(nodeIdx int) {
 // restart replaces a node's scheduler with a fresh one, as after a process
 // restart; the provider stands for on-disk state and survives.
 func (h *barrierHarness) restart(nodeIdx int) *Scheduler {
+	return h.restartWith(nodeIdx, h.nodes[nodeIdx].provider)
+}
+
+func (h *barrierHarness) restartWith(nodeIdx int, provider Provider) *Scheduler {
 	node := h.nodes[nodeIdx]
 	logger, _ := logrustest.NewNullLogger()
 	node.scheduler.Close()
@@ -239,7 +243,7 @@ func (h *barrierHarness) restart(nodeIdx int) *Scheduler {
 		TaskLister:         h.manager,
 		TaskCleaner:        h.cleaner,
 		TaskFinalizer:      h.finalizer,
-		Providers:          map[string]Provider{h.namespace: node.provider},
+		Providers:          map[string]Provider{h.namespace: provider},
 		Clock:              h.clock,
 		Logger:             logger,
 		MetricsRegisterer:  monitoring.NoopRegisterer,

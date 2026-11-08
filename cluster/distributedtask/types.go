@@ -258,6 +258,13 @@ type SchemaMutationDetector interface {
 	CheckTenantMutation(className string, tenants []string, existingTasks []*Task) error
 }
 
+// CutoverOutcome lets a detector record a run as FINISHED exactly when its cutover write
+// landed, and refuse that write once the run stopped. Called under [Manager.mu]; deterministic.
+type CutoverOutcome interface {
+	CutoverLanded(task *Task) bool
+	CheckMigrationPropertyUpdate(className, propertyName string, existingTasks []*Task) error
+}
+
 // VectorConfigRemovalGate is an optional interface a SchemaMutationDetector also
 // implements to gate removal of a dropped ("none") VectorConfig entry: only the
 // completing cleanup task's own in-flight finalize may remove it — a SWAPPING
