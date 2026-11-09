@@ -46,15 +46,13 @@ func sweepStoppedInABucketShutdown(t *testing.T,
 
 	shd, idx := testShardWithSettings(t, testCtx(),
 		newTestClassWithProps(className, []string{"category"}),
-		enthnsw.UserConfig{Skip: true}, false, false, false,
+		enthnsw.UserConfig{Skip: true}, false, false,
 		func(i *Index) { i.logger = logger })
 	shard := shd.(*Shard)
 	t.Cleanup(func() { shard.Shutdown(testCtx()) })
-	idx.logger = logger
 
 	// A cancelled attempt at gen 2: started but never completed, so the sweep
 	// has to shut its ingest bucket down rather than preserve it.
-	mkTrackerDir(t, shard.pathLSM(), "enable_filterable_category_2", "started.mig")
 	const sidecar = "property_category__enable_filterable_ingest_2"
 	require.NoError(t, shard.store.CreateOrLoadBucket(testCtx(), sidecar,
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
@@ -89,7 +87,7 @@ func sweepStoppedInABucketShutdown(t *testing.T,
 func TestACleanupBudgetThatExpiresInABucketShutdownIsTruncatedNotFailed(t *testing.T) {
 	hook, err := sweepStoppedInABucketShutdown(t,
 		func(ctx context.Context, idx *Index, _ *Shard) error {
-			return idx.cleanStalePartialReindexState(ctx, "category", "filterable", nil)
+			return idx.cleanStalePartialReindexState(ctx, "category", "filterable", nil, nil)
 		})
 
 	require.Error(t, err)

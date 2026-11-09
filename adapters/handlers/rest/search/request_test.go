@@ -76,7 +76,7 @@ func decodeModel(body string) (*models.SearchNearTextRequest, *APIError) {
 // not-found sentinel the real classGetterWithAuthz produces.
 func fixtureGetClass(deps *testDeps) classGetterFunc {
 	return func(name string) (*models.Class, error) {
-		if c, ok := deps.schemaReader.classes[name]; ok {
+		if c, ok := deps.classes[name]; ok {
 			return c, nil
 		}
 		return nil, fmt.Errorf("%w %s in schema", errCollectionNotFound, name)
@@ -88,8 +88,7 @@ func fixtureGetClass(deps *testDeps) classGetterFunc {
 // the handler runs before buildNearTextParams.
 func buildParams(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
 	t.Helper()
-	deps := newTestHandler(t)
-	deps.schemaReader.classes[class.Class] = class
+	deps := newTestHandlerWithClass(t, class)
 
 	parsed, apiErr := decodeModel(body)
 	if apiErr != nil {
@@ -124,8 +123,7 @@ func decodeBm25Model(body string) (*models.SearchBm25Request, *APIError) {
 // runs before buildBm25Params.
 func buildBm25(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
 	t.Helper()
-	deps := newTestHandler(t)
-	deps.schemaReader.classes[class.Class] = class
+	deps := newTestHandlerWithClass(t, class)
 
 	parsed, apiErr := decodeBm25Model(body)
 	if apiErr != nil {
@@ -1091,8 +1089,7 @@ func decodeNearObjectModel(body string) (*models.SearchNearObjectRequest, *APIEr
 // the handler runs before buildNearObjectParams.
 func buildNearObject(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
 	t.Helper()
-	deps := newTestHandler(t)
-	deps.schemaReader.classes[class.Class] = class
+	deps := newTestHandlerWithClass(t, class)
 
 	parsed, apiErr := decodeNearObjectModel(body)
 	if apiErr != nil {
@@ -1279,8 +1276,7 @@ func decodeNearVectorModel(body string) (*models.SearchNearVectorRequest, *APIEr
 // handler runs before buildNearVectorParams.
 func buildNearVector(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
 	t.Helper()
-	deps := newTestHandler(t)
-	deps.schemaReader.classes[class.Class] = class
+	deps := newTestHandlerWithClass(t, class)
 
 	parsed, apiErr := decodeNearVectorModel(body)
 	if apiErr != nil {
@@ -1471,8 +1467,7 @@ func decodeHybridModel(body string) (*models.SearchHybridRequest, *APIError) {
 // runs before buildHybridParams.
 func buildHybrid(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
 	t.Helper()
-	deps := newTestHandler(t)
-	deps.schemaReader.classes[class.Class] = class
+	deps := newTestHandlerWithClass(t, class)
 
 	parsed, apiErr := decodeHybridModel(body)
 	if apiErr != nil {
@@ -1648,6 +1643,119 @@ func TestHybridVectorizerOnlyAboveAlphaZero(t *testing.T) {
 		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
 		assert.Contains(t, apiErr.Error(), "vectorizer")
 		assert.Contains(t, apiErr.Error(), "alpha")
+	})
+}
+
+// TestHybridVector: a supplied vector replaces the vectorized query for the
+// vector part, so no vectorizer module is needed and none is called.
+func TestHybridVector(t *testing.T) {
+	noVectorizer := movieClass()
+	noVectorizer.Vectorizer = "none"
+
+	t.Run("accepted", func(t *testing.T) {
+		tests := []struct {
+			name         string
+			class        *models.Class
+			body         string
+			wantAlpha    float64
+			wantFusion   int
+			wantProps    []string
+			wantDistance bool
+			wantTargets  []string
+		}{
+			{
+				name:       "collection without a vectorizer",
+				class:      noVectorizer,
+				body:       `{"query":"space","alpha":0.6,"fusionType":"ranked","queryProperties":["title"],"vector":[0.1,-0.2,0.3]}`,
+				wantAlpha:  0.6,
+				wantFusion: common_filters.HybridRankedFusion,
+				wantProps:  []string{"title"},
+			},
+			{
+				name:       "supplied vector wins over the vectorizer",
+				class:      movieClass(),
+				body:       `{"query":"space","vector":[0.1,-0.2,0.3]}`,
+				wantAlpha:  common_filters.DefaultAlpha,
+				wantFusion: common_filters.HybridFusionDefault,
+			},
+			{
+				name:         "with maxVectorDistance",
+				class:        noVectorizer,
+				body:         `{"query":"space","alpha":1,"maxVectorDistance":0.4,"vector":[0.1,-0.2,0.3]}`,
+				wantAlpha:    1,
+				wantFusion:   common_filters.HybridFusionDefault,
+				wantDistance: true,
+			},
+			{
+				name:        "sole named vector",
+				class:       namedVectorsClass("title_vec"),
+				body:        `{"query":"space","vector":[0.1,-0.2,0.3]}`,
+				wantAlpha:   common_filters.DefaultAlpha,
+				wantFusion:  common_filters.HybridFusionDefault,
+				wantTargets: []string{"title_vec"},
+			},
+			{
+				name:        "explicit targetVector among several named vectors",
+				class:       namedVectorsClass("title_vec", "summary_vec"),
+				body:        `{"query":"space","targetVector":"summary_vec","vector":[0.1,-0.2,0.3]}`,
+				wantAlpha:   common_filters.DefaultAlpha,
+				wantFusion:  common_filters.HybridFusionDefault,
+				wantTargets: []string{"summary_vec"},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				searcher, apiErr := buildHybrid(t, tt.class, tt.body)
+				require.Nil(t, apiErr)
+				hybrid := searcher.lastParams.HybridSearch
+				require.NotNil(t, hybrid)
+				assert.Equal(t, []float32{0.1, -0.2, 0.3}, hybrid.Vector)
+				assert.Equal(t, "space", hybrid.Query)
+				assert.Equal(t, tt.wantAlpha, hybrid.Alpha)
+				assert.Equal(t, tt.wantFusion, hybrid.FusionAlgorithm)
+				assert.Equal(t, tt.wantProps, hybrid.Properties)
+				assert.Equal(t, tt.wantDistance, hybrid.WithDistance)
+				assert.Equal(t, tt.wantTargets, hybrid.TargetVectors)
+				if tt.wantDistance {
+					assert.Equal(t, float32(0.4), hybrid.Distance)
+				}
+			})
+		}
+	})
+
+	t.Run("omitted leaves the vector unset", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, movieClass(), `{"query":"space"}`)
+		require.Nil(t, apiErr)
+		assert.Nil(t, searcher.lastParams.HybridSearch.Vector)
+	})
+
+	t.Run("rejected", func(t *testing.T) {
+		tests := []struct {
+			name       string
+			class      *models.Class
+			body       string
+			wantStatus int
+			want       string
+		}{
+			{"alpha 0", movieClass(), `{"query":"space","alpha":0,"vector":[0.1,0.2]}`, http.StatusBadRequest, "vector requires alpha > 0"},
+			// null counts as absent, so the missing vectorizer still matters
+			{"null without a vectorizer", noVectorizer, `{"query":"space","vector":null}`, http.StatusUnprocessableEntity, "vectorizer"},
+			{"empty query", noVectorizer, `{"query":"","alpha":1,"vector":[0.1,0.2]}`, http.StatusBadRequest, errQueryEmpty},
+			{"empty array", noVectorizer, `{"query":"space","vector":[]}`, http.StatusBadRequest, errVectorNotNumbers},
+			{"array of vectors", noVectorizer, `{"query":"space","vector":[[0.1,0.2],[0.3,0.4]]}`, http.StatusUnprocessableEntity, "multi-vector"},
+			{
+				"multi-vector target", multiVectorClass(namedVectorsClass("colbert_vec"), "colbert_vec"),
+				`{"query":"space","vector":[0.1,0.2]}`, http.StatusUnprocessableEntity, `target vector "colbert_vec" is a multi-vector index`,
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, apiErr := buildHybrid(t, tt.class, tt.body)
+				require.NotNil(t, apiErr)
+				assert.Equal(t, tt.wantStatus, apiErr.Status)
+				assert.Contains(t, apiErr.Error(), tt.want)
+			})
+		}
 	})
 }
 

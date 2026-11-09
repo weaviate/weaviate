@@ -387,9 +387,9 @@ func TestReadsWaitForTheIndexOfAClassBeingApplied(t *testing.T) {
 			waitErrReturned: false,
 		},
 		{
-			name: "GetShardsStatus",
+			name: "GetShardsStorageStatus",
 			read: func(ctx context.Context, db *DB) (bool, error) {
-				res, err := NewMigrator(db, logger, "node1").GetShardsStatus(ctx, applyingClass, "")
+				res, _, err := NewMigrator(db, logger, "node1").GetShardsStorageStatus(ctx, applyingClass, "")
 				return len(res) == 1, err
 			},
 			waitErrReturned: true,

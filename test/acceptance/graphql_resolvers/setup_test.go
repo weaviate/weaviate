@@ -392,7 +392,8 @@ func addTestSchema(t *testing.T, host string) {
 	hnswConfig := enthnsw.NewDefaultUserConfig()
 	hnswConfig.MaxConnections = 64 // RansomNote tests require higher default max connections (reduced in 1.26)
 	createObjectClass(t, &models.Class{
-		Class: "RansomNote",
+		Class:      "RansomNote",
+		Vectorizer: "text2vec-model2vec",
 		ModuleConfig: map[string]interface{}{
 			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": true,

@@ -36,10 +36,10 @@ const (
 )
 
 func startWeaviate(ctx context.Context,
-	enableModules []string, defaultVectorizerModule string,
+	enableModules []string,
 	extraEnvSettings map[string]string, networkName string, netOctet int,
 	weaviateImage, hostname string,
-	exposeGRPCPort, exposeDebugPort bool,
+	exposeGRPCPort, exposeDebugPort, tmpfsData bool,
 	wellKnownEndpoint string,
 	files []testcontainers.ContainerFile,
 	hostGateway bool,
@@ -86,7 +86,6 @@ func startWeaviate(ctx context.Context,
 		"LOG_LEVEL":                         "debug",
 		"QUERY_DEFAULTS_LIMIT":              "20",
 		"PERSISTENCE_DATA_PATH":             "./data",
-		"DEFAULT_VECTORIZER_MODULE":         "none",
 		"MEMBERLIST_FAST_FAILURE_DETECTION": "true",
 		"DISABLE_TELEMETRY":                 "true",
 		"RAFT_DRAIN_SLEEP":                  "1ms", // almost as no sleep, no 0 because will fail validation
@@ -99,9 +98,6 @@ func startWeaviate(ctx context.Context,
 	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")
-	}
-	if len(defaultVectorizerModule) > 0 {
-		env["DEFAULT_VECTORIZER_MODULE"] = defaultVectorizerModule
 	}
 	for key, value := range extraEnvSettings {
 		env[key] = value
@@ -141,6 +137,11 @@ func startWeaviate(ctx context.Context,
 		exposedPorts = append(exposedPorts, "6060/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(debugPort))
 	}
+	// Opt-in tmpfs at /data: stop unmounts it, start gets a fresh empty one.
+	var tmpfs map[string]string
+	if tmpfsData {
+		tmpfs = map[string]string{"/data": ""}
+	}
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
@@ -153,6 +154,7 @@ func startWeaviate(ctx context.Context,
 		WaitingFor:   wait.ForAll(waitStrategies...),
 		Env:          env,
 		Files:        files,
+		Tmpfs:        tmpfs,
 		LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 			{
 				// Use wait strategies as part of the lifecycle hooks as this gets propagated to the underlying container,

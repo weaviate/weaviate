@@ -92,7 +92,7 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 			}},
 		}}
 		p := NewProvider(logger, config.Config{})
-		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+		p.SetSchemaGetter(newMockSchemaGetter(t, sch))
 		p.Register(mod)
 		assert.True(t, p.UsingRef2Vec(className))
 	})
@@ -110,7 +110,7 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 			}},
 		}}
 		p := NewProvider(logger, config.Config{})
-		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+		p.SetSchemaGetter(newMockSchemaGetter(t, sch))
 		p.Register(mod)
 		assert.False(t, p.UsingRef2Vec(className))
 	})
@@ -120,7 +120,7 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 		mod := newDummyModule("", "")
 
 		p := NewProvider(logger, config.Config{})
-		p.SetSchemaGetter(&fakeSchemaGetter{schema.Schema{}})
+		p.SetSchemaGetter(newMockSchemaGetter(t, schema.Schema{}))
 		p.Register(mod)
 		assert.False(t, p.UsingRef2Vec(className))
 	})
@@ -135,7 +135,7 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 			}},
 		}}
 		p := NewProvider(logger, config.Config{})
-		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+		p.SetSchemaGetter(newMockSchemaGetter(t, sch))
 		p.Register(mod)
 		assert.False(t, p.UsingRef2Vec(className))
 	})
@@ -152,7 +152,7 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 			}},
 		}}
 		p := NewProvider(logger, config.Config{})
-		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+		p.SetSchemaGetter(newMockSchemaGetter(t, sch))
 		assert.False(t, p.UsingRef2Vec(className))
 	})
 }
@@ -186,12 +186,12 @@ func droppedAndLiveVectorClass(className, modName string) *models.Class {
 
 // dropVectorTestProvider serves class through the schema getter with a dummy
 // text2vec module registered under modName.
-func dropVectorTestProvider(class *models.Class, modName string) (*Provider, *logrus.Logger) {
+func dropVectorTestProvider(t *testing.T, class *models.Class, modName string) (*Provider, *logrus.Logger) {
 	logger, _ := test.NewNullLogger()
 	p := NewProvider(logger, config.Config{})
 	p.Register(newDummyModule(modName, modulecapabilities.Text2Vec))
 	sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
-	p.SetSchemaGetter(&fakeSchemaGetter{sch})
+	p.SetSchemaGetter(newMockSchemaGetter(t, sch))
 	return p, logger
 }
 
@@ -203,7 +203,7 @@ func TestProvider_BatchUpdateVector(t *testing.T) {
 		// Computing it here would therefore fail every write to the collection
 		// until the drop finalizes. Single-object twin in TestProvider_UpdateVector.
 		class := droppedAndLiveVectorClass("SomeClass", "some-vzr")
-		p, logger := dropVectorTestProvider(class, "some-vzr")
+		p, logger := dropVectorTestProvider(t, class, "some-vzr")
 
 		objs := []*models.Object{
 			{Class: class.Class, ID: newUUID()},
@@ -229,7 +229,7 @@ func TestProvider_BatchUpdateVector(t *testing.T) {
 				"dropped": moduleVectorEntry("some-vzr", true),
 			},
 		}
-		p, logger := dropVectorTestProvider(class, "some-vzr")
+		p, logger := dropVectorTestProvider(t, class, "some-vzr")
 
 		objs := []*models.Object{{Class: class.Class, ID: newUUID()}}
 		vecErrs, err := p.BatchUpdateVector(context.Background(), class, objs, (&fakeObjectsRepo{}).Object, logger)
@@ -267,7 +267,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 
 		p := NewProvider(logger, config.Config{})
 		p.Register(mod)
-		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+		p.SetSchemaGetter(newMockSchemaGetter(t, sch))
 
 		obj := &models.Object{Class: className, ID: newUUID()}
 		err := p.UpdateVector(ctx, obj, &class, repo.Object, logger)
@@ -286,7 +286,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 
 		p := NewProvider(logger, config.Config{})
 		p.Register(mod)
-		p.SetSchemaGetter(&fakeSchemaGetter{schema.Schema{}})
+		p.SetSchemaGetter(newMockSchemaGetter(t, schema.Schema{}))
 
 		obj := &models.Object{Class: class.Class, ID: newUUID()}
 		err := p.UpdateVector(ctx, obj, class, (&fakeObjectsRepo{}).Object, logger)
@@ -355,7 +355,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 				logger, _ := test.NewNullLogger()
 
 				p := NewProvider(logger, config.Config{})
-				p.SetSchemaGetter(&fakeSchemaGetter{sch})
+				p.SetSchemaGetter(newMockSchemaGetter(t, sch))
 
 				tt.object.ID = newUUID()
 				err := p.UpdateVector(ctx, tt.object, class, (&fakeObjectsRepo{}).Object, logger)
@@ -368,7 +368,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		// Regression for weaviate/0-weaviate-issues#481 — see
 		// TestProvider_BatchUpdateVector for the batch twin.
 		class := droppedAndLiveVectorClass("SomeClass", "some-vzr")
-		p, logger := dropVectorTestProvider(class, "some-vzr")
+		p, logger := dropVectorTestProvider(t, class, "some-vzr")
 
 		obj := &models.Object{Class: class.Class, ID: newUUID()}
 		err := p.UpdateVector(context.Background(), obj, class, (&fakeObjectsRepo{}).Object, logger)
@@ -400,7 +400,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 
 		p := NewProvider(logger, config.Config{})
 		p.Register(mod)
-		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+		p.SetSchemaGetter(newMockSchemaGetter(t, sch))
 
 		obj := &models.Object{Class: className, ID: newUUID()}
 		err := p.UpdateVector(ctx, obj, class, repo.Object, logger)
@@ -428,7 +428,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 
 		p := NewProvider(logger, config.Config{})
 		p.Register(mod)
-		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+		p.SetSchemaGetter(newMockSchemaGetter(t, sch))
 
 		obj := &models.Object{Class: className, ID: newUUID()}
 
@@ -463,7 +463,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 
 		p := NewProvider(logger, config.Config{})
 		p.Register(mod)
-		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+		p.SetSchemaGetter(newMockSchemaGetter(t, sch))
 
 		obj := &models.Object{Class: className, ID: newUUID()}
 		err := p.UpdateVector(ctx, obj, &class, repo.Object, logger)

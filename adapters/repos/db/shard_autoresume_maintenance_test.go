@@ -492,7 +492,6 @@ func TestShard_BackupPostFlushWritesAreLostWithoutLateFlush(t *testing.T) {
 
 		shd, idx := testShardWithSettings(t, ctx, class, hnswCfg,
 			false, // withStopwords
-			true,  // withCheckpoints (required for async indexing)
 			true,  // withAsyncIndexingEnabled
 		)
 		t.Cleanup(func() {
@@ -511,7 +510,8 @@ func TestShard_BackupPostFlushWritesAreLostWithoutLateFlush(t *testing.T) {
 		for _, obj := range objects {
 			require.NoError(t, shard.PutObject(ctx, obj))
 		}
-		if queue, ok := shard.GetVectorIndexQueue(""); ok && queue != nil {
+		if queue, release, ok := shard.AcquireVectorIndexQueue(""); ok && queue != nil {
+			defer release()
 			require.EventuallyWithT(t, func(collect *assert.CollectT) {
 				assert.EqualValues(collect, 0, queue.Size())
 			}, 30*time.Second, 100*time.Millisecond, "queue should drain")

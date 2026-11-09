@@ -394,7 +394,7 @@ func TestVersionMapWarmupConcurrentWithInserts(t *testing.T) {
 	cfg, uc := makeHFreshConfig(t)
 	logger, _ := test.NewNullLogger()
 	cfg.Logger = logger
-	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector,
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk("",
 		func(ctx context.Context, id uint64, _ string) ([]float32, error) {
 			return vectors[id], nil
 		})

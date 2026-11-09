@@ -12,7 +12,7 @@
 package namespacing
 
 import (
-	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/go-openapi/strfmt"
@@ -73,10 +73,17 @@ func ConfinedNamespace(principal *models.Principal) string {
 	return principal.Namespace
 }
 
-// qualify prepends the caller's confined namespace to name; operators and
-// unconfined callers (nil, global operator, namespace-less) get name unchanged.
-func qualify(principal *models.Principal, name string) string {
-	return QualifiedName(ConfinedNamespace(principal), name)
+// KeepOwnNamespace returns a new slice of the items in a confined principal's
+// namespace, dropping unnamespaced ones, so a listing's RBAC filter sees only
+// the caller's own entries. An unconfined principal gets items itself.
+func KeepOwnNamespace[T any](principal *models.Principal, items []T, namespaceOf func(T) string) []T {
+	ns := ConfinedNamespace(principal)
+	if ns == "" {
+		return items
+	}
+	return slices.DeleteFunc(slices.Clone(items), func(item T) bool {
+		return namespaceOf(item) != ns
+	})
 }
 
 // QualifyRefTarget normalises a cross-reference target. Refs can't cross
@@ -90,36 +97,35 @@ func qualify(principal *models.Principal, name string) string {
 // Rejects with `<name> is not a valid class name`:
 //   - any prefix from a namespaced principal (resolver adds it for them)
 //   - a prefix naming a different namespace from sourceClass
+//   - a prefix with no class after it
 //
 // NS-disabled: pass-through. Centralises the policy shared by
-// every reference write and by QualifyPropertyDataTypes.
-func QualifyRefTarget(principal *models.Principal, namespacesEnabled bool, sourceClass, target string) (qualified, short string, err error) {
-	if !namespacesEnabled {
+// every reference write and by QualifyPropertyDataTypes. Callers handle an
+// error from q as Qualifier describes.
+func QualifyRefTarget(principal *models.Principal, q Qualifier, sourceClass, target string) (qualified, short string, err error) {
+	if !q.NamespacesEnabled() {
 		return target, target, nil
 	}
 	// Reject namespaced principals typing any prefix, and validate prefix
 	// syntax for global principals (so admin typos surface a specific
 	// "invalid namespace prefix" error instead of the generic mismatch one).
-	if err := ValidateNamespacePrefix(principal, namespacesEnabled, target, "class"); err != nil {
+	if err := ValidateNamespacePrefix(principal, q.NamespacesEnabled(), target, "class"); err != nil {
 		return "", "", err
 	}
-	sourceNS := NamespaceFromQualified(sourceClass)
-	if ns := NamespaceFromQualified(target); ns != "" && ns != sourceNS {
-		return "", "", fmt.Errorf("'%s' is not a valid class name", target)
-	}
-	short = StripQualification(target)
-	qualified = QualifiedName(sourceNS, short)
-	return qualified, short, nil
+	return q.QualifyRefTarget(sourceClass, target)
 }
 
-// QualifyUserIDForLookup returns the storage key for a user lookup —
-// raw passthrough for NS-disabled / global principals, prepended with
-// principal.Namespace for a namespaced principal.
-func QualifyUserIDForLookup(principal *models.Principal, namespacesEnabled bool, raw string) string {
+// QualifyUserIDForLookup returns raw prefixed with a namespaced principal's
+// namespace, and raw unchanged otherwise. It refuses a ':' in a namespaced
+// principal's raw ID, since no user ID inside a namespace holds one.
+func QualifyUserIDForLookup(principal *models.Principal, namespacesEnabled bool, raw string) (string, error) {
 	if !namespacesEnabled || ConfinedNamespace(principal) == "" {
-		return raw
+		return raw, nil
 	}
-	return QualifiedName(principal.Namespace, raw)
+	if err := ValidateNamespacePrefix(principal, namespacesEnabled, raw, "user"); err != nil {
+		return "", err
+	}
+	return QualifiedName(principal.Namespace, raw), nil
 }
 
 // Resolve is the read-side entry point used everywhere a user-supplied
@@ -130,23 +136,22 @@ func QualifyUserIDForLookup(principal *models.Principal, namespacesEnabled bool,
 //  2. Uppercase the class portion of the input so storage lookups hit the
 //     canonical case. UppercaseClassName preserves a leading "<namespace>:"
 //     prefix verbatim and only touches the class portion.
-//  3. If namespaces are enabled cluster-wide, qualify the (now-uppercased)
-//     input with the principal's namespace. When NS is disabled the
-//     qualification step is skipped.
+//  3. Pass the uppercased input to q.Qualify.
 //  4. Look the (possibly qualified) name up as an alias via the existing
 //     in-memory resolver; if it matches an alias, return the alias target.
 //
 // Returns (class, qualifiedAlias, err). qualifiedAlias is the
 // namespace-prefixed alias used for lookup when an alias was hit (raw for
 // global principals), "" otherwise — used by the objects layer to preserve
-// existing alias-aware flows.
-func Resolve(principal *models.Principal, sm SchemaManager, namespacesEnabled bool, name string) (class, qualifiedAlias string, err error) {
-	if err := ValidateNamespacePrefix(principal, namespacesEnabled, name, "class"); err != nil {
+// existing alias-aware flows. Callers handle an error from q as Qualifier
+// describes.
+func Resolve(principal *models.Principal, sm SchemaManager, q Qualifier, name string) (class, qualifiedAlias string, err error) {
+	if err := ValidateNamespacePrefix(principal, q.NamespacesEnabled(), name, "class"); err != nil {
 		return "", "", err
 	}
-	qualified := schema.UppercaseClassName(name)
-	if namespacesEnabled {
-		qualified = qualify(principal, qualified)
+	qualified, err := q.Qualify(principal, schema.UppercaseClassName(name))
+	if err != nil {
+		return "", "", err
 	}
 
 	// Check if the qualified name is an alias
@@ -158,19 +163,15 @@ func Resolve(principal *models.Principal, sm SchemaManager, namespacesEnabled bo
 	return qualified, "", nil
 }
 
-// QualifyClass uppercases the class portion of name and prepends the
-// principal's namespace when namespaces are enabled. Aliases are not
-// resolved. Rejects user-supplied names whose "<namespace>:" prefix is not
-// syntactically valid.
-func QualifyClass(principal *models.Principal, namespacesEnabled bool, name string) (string, error) {
-	if err := ValidateNamespacePrefix(principal, namespacesEnabled, name, "class"); err != nil {
+// QualifyClass uppercases the class portion of name and passes it to
+// q.Qualify. Aliases are not resolved. It rejects a user-supplied name whose
+// "<namespace>:" prefix is not syntactically valid. Callers handle an error
+// from q as Qualifier describes.
+func QualifyClass(principal *models.Principal, q Qualifier, name string) (string, error) {
+	if err := ValidateNamespacePrefix(principal, q.NamespacesEnabled(), name, "class"); err != nil {
 		return "", err
 	}
-	qualified := schema.UppercaseClassName(name)
-	if namespacesEnabled {
-		qualified = qualify(principal, qualified)
-	}
-	return qualified, nil
+	return q.Qualify(principal, schema.UppercaseClassName(name))
 }
 
 // QualifyPropertyDataTypes runs each cross-reference DataType through
@@ -180,7 +181,8 @@ func QualifyClass(principal *models.Principal, namespacesEnabled bool, name stri
 //
 // Mutates properties[i].DataType slices in place. No-op when namespaces are
 // disabled. A namespaced principal's entries must be short names, because
-// QualifyRefTarget rejects any prefix from one.
+// QualifyRefTarget rejects any prefix from one. Callers handle an error from
+// q as Qualifier describes.
 //
 // Scope: top-level properties only. NestedProperty.DataType cross-refs are
 // rejected upstream.
@@ -198,11 +200,11 @@ func QualifyClass(principal *models.Principal, namespacesEnabled bool, name stri
 // Call sites referencing the split point at this comment.
 func QualifyPropertyDataTypes(
 	principal *models.Principal,
-	namespacesEnabled bool,
+	q Qualifier,
 	className string,
 	properties []*models.Property,
 ) error {
-	if !namespacesEnabled {
+	if !q.NamespacesEnabled() {
 		return nil
 	}
 	return walkCrossRefDataTypes(properties, func(p *models.Property) error {
@@ -210,7 +212,7 @@ func QualifyPropertyDataTypes(
 			if dt == "" {
 				continue
 			}
-			qualified, _, err := QualifyRefTarget(principal, namespacesEnabled, className, dt)
+			qualified, _, err := QualifyRefTarget(principal, q, className, dt)
 			if err != nil {
 				return err
 			}

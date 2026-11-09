@@ -21,6 +21,8 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -31,7 +33,6 @@ var schemaTests = []struct {
 }{
 	{name: "AddObjectClass", fn: testAddObjectClass},
 	{name: "AddObjectClassWithExplicitVectorizer", fn: testAddObjectClassExplicitVectorizer},
-	{name: "AddObjectClassWithImplicitVectorizer", fn: testAddObjectClassImplicitVectorizer},
 	{name: "AddObjectClassWithWrongVectorizer", fn: testAddObjectClassWrongVectorizer},
 	{name: "AddObjectClassWithWrongIndexType", fn: testAddObjectClassWrongIndexType},
 	{name: "RemoveObjectClass", fn: testRemoveObjectClass},
@@ -78,24 +79,6 @@ func testAddObjectClassExplicitVectorizer(t *testing.T, handler *Handler, fakeSc
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-	_, _, err := handler.AddClass(context.Background(), nil, class)
-	assert.Nil(t, err)
-}
-
-func testAddObjectClassImplicitVectorizer(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
-	t.Parallel()
-	handler.config.DefaultVectorizerModule = config.VectorizerModuleText2VecContextionary
-	class := &models.Class{
-		Class: "Car",
-		Properties: []*models.Property{{
-			DataType:     schema.DataTypeText.PropString(),
-			Tokenization: models.PropertyTokenizationWhitespace,
-			Name:         "dummy",
-		}},
-		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
-	}
-
-	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }
@@ -460,6 +443,8 @@ func TestShardsStatus(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandlerWithNamespaces(t, tc.namespacesEnabled)
+			db := &fakeDB{}
+			handler.indexer = db
 			handler.schemaReader = &fakeSchemaManagerWithAlias{
 				fakeSchemaManager: fakeSchemaManager,
 				aliasMap:          tc.aliasMap,
@@ -469,12 +454,13 @@ func TestShardsStatus(t *testing.T) {
 				require.ErrorIs(t, err, tc.wantErr)
 				return
 			}
-			fakeSchemaManager.On("GetShardsStatus", tc.resolvedClass, shardName).Return(expectedStatus, nil)
+			db.On("GetShardsStorageStatus", mock.Anything, tc.resolvedClass, shardName).Return(expectedStatus, nil)
 
 			status, err := handler.ShardsStatus(ctx, tc.principal, tc.inputClass, shardName)
 			require.NoError(t, err)
 			assert.Equal(t, expectedStatus, status)
 			fakeSchemaManager.AssertExpectations(t)
+			db.AssertExpectations(t)
 		})
 	}
 }
@@ -538,6 +524,75 @@ func TestGetAliases_WithNonExistentClass(t *testing.T) {
 		assert.Equal(t, expectedAliases, aliases)
 		fakeSchemaManager.AssertExpectations(t)
 	})
+}
+
+// TestListingsKeepOnlyCallerNamespace pins that GetConsistentSchema and
+// GetAliases list a confined caller only its own namespace, even when the
+// authorizer allows every resource, and that RBAC still filters within it.
+func TestListingsKeepOnlyCallerNamespace(t *testing.T) {
+	t.Parallel()
+	classes := []*models.Class{
+		{Class: "customer1:Movies"}, {Class: "customer1:Books"}, {Class: "customer2:Movies"}, {Class: "Movies"},
+	}
+	aliases := []*models.Alias{
+		{Alias: "customer1:Films", Class: "customer1:Movies"},
+		{Alias: "customer1:Novels", Class: "customer1:Books"},
+		{Alias: "customer2:Films", Class: "customer2:Movies"},
+		{Alias: "Films", Class: "Movies"},
+	}
+	confined := &models.Principal{Username: "customer1:alice", Namespace: "customer1"}
+
+	tests := []struct {
+		name        string
+		principal   *models.Principal
+		deny        []string
+		wantClasses []string
+		wantAliases []string
+	}{
+		{
+			name:        "confined caller gets only its own namespace",
+			principal:   confined,
+			wantClasses: []string{"customer1:Movies", "customer1:Books"},
+			wantAliases: []string{"customer1:Films", "customer1:Novels"},
+		},
+		{
+			name:      "RBAC still hides an own-namespace entry",
+			principal: confined,
+			deny: []string{
+				authorization.CollectionsMetadata("customer1:Books")[0],
+				authorization.Aliases("customer1:Books", "customer1:Novels")[0],
+			},
+			wantClasses: []string{"customer1:Movies"},
+			wantAliases: []string{"customer1:Films"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			authorizer := mocks.NewMockAuthorizer()
+			authorizer.Deny(tt.deny...)
+			handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
+			handler.config.Authorization.Rbac.Enabled = true
+			fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{Classes: classes})
+			fakeSchemaManager.On("GetAliases", ctx, "", (*models.Class)(nil)).Return(aliases, nil)
+
+			gotSchema, err := handler.GetConsistentSchema(ctx, tt.principal, false)
+			require.NoError(t, err)
+			gotClasses := make([]string, 0, len(gotSchema.Objects.Classes))
+			for _, class := range gotSchema.Objects.Classes {
+				gotClasses = append(gotClasses, class.Class)
+			}
+			assert.Equal(t, tt.wantClasses, gotClasses)
+
+			gotAliases, err := handler.GetAliases(ctx, tt.principal, "", "")
+			require.NoError(t, err)
+			gotAliasNames := make([]string, 0, len(gotAliases))
+			for _, alias := range gotAliases {
+				gotAliasNames = append(gotAliasNames, alias.Alias)
+			}
+			assert.Equal(t, tt.wantAliases, gotAliasNames)
+		})
+	}
 }
 
 // Helper struct to mock ReadOnlyClass behavior

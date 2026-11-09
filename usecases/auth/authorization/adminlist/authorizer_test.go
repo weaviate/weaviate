@@ -14,9 +14,11 @@ package adminlist
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	authZErrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
@@ -446,4 +448,28 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			assert.Nil(t, err)
 		})
 	})
+}
+
+// Test_AdminList_DenialKeepsReadOnlyGroup pins that a denied write leaves the
+// principal's groups intact, so a later read still matches the read-only group.
+func Test_AdminList_DenialKeepsReadOnlyGroup(t *testing.T) {
+	tests := []struct {
+		name   string
+		groups []string
+	}{
+		{name: "one group", groups: []string{"posse"}},
+		{name: "two groups", groups: []string{"band", "posse"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := New(Config{Enabled: true, ReadOnlyGroups: []string{"posse"}})
+			principal := &models.Principal{Username: "johndoe", Groups: slices.Clone(tt.groups)}
+
+			err := authorizer.Authorize(context.Background(), principal, "create", "things")
+			require.ErrorAs(t, err, new(authZErrors.Forbidden))
+			require.NoError(t, authorizer.Authorize(context.Background(), principal, "R", "things"))
+			assert.Equal(t, tt.groups, principal.Groups)
+		})
+	}
 }

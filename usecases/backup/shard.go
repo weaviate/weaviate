@@ -24,9 +24,13 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
-const (
-	_TimeoutShardCommit = 20 * time.Second
-)
+// maxBooking must outlast the canCommit budget or early ackers abandon their slot before Commit.
+func maxBooking(dedupeRestore bool) time.Duration {
+	if dedupeRestore {
+		return _TimeoutDedupeRestoreCanCommit + _BookingPeriod
+	}
+	return _TimeoutCanCommit + _BookingPeriod
+}
 
 type reqState struct {
 	Starttime time.Time
@@ -39,6 +43,13 @@ type reqState struct {
 	Path           string
 	OverrideBucket string
 	OverridePath   string
+	AttemptID      string
+	// CancelRequested is a user cancel awaiting the durable CANCELED descriptor; polls keep seeing the current status until then.
+	CancelRequested bool
+}
+
+func (r reqState) cancelSignalled() bool {
+	return r.CancelRequested || r.Status == backup.Cancelled
 }
 
 type backupStat struct {
@@ -67,19 +78,21 @@ func (s *backupStat) get() reqState {
 
 // renew state if and only it is not in use
 // it returns "" in case of success and current id in case of failure
-func (s *backupStat) renew(id string, path string, overrideBucket, overridePath string) string {
+func (s *backupStat) renew(id, attemptID, path, overrideBucket, overridePath string) string {
 	s.Lock()
 	defer s.Unlock()
 	if s.reqState.ID != "" {
 		return s.reqState.ID
 	}
 	s.reqState.ID = id
+	s.reqState.AttemptID = attemptID
 	s.reqState.Path = path
 	s.reqState.OverrideBucket = overrideBucket
 	s.reqState.OverridePath = overridePath
 	s.reqState.Starttime = time.Now().UTC()
 	s.reqState.Status = backup.Started
 	s.reqState.Err = ""
+	s.reqState.CancelRequested = false
 	if s.rememberedFailureID == id {
 		// A retry under the same id: the earlier failure is no longer the
 		// answer to a poll for it.
@@ -88,14 +101,27 @@ func (s *backupStat) renew(id string, path string, overrideBucket, overridePath 
 	return ""
 }
 
+// cancelIfInFlight requests cancellation of the op holding id; the status only turns Cancelled once the descriptor is durable.
+func (s *backupStat) cancelIfInFlight(id string) bool {
+	s.Lock()
+	defer s.Unlock()
+	if id == "" || s.reqState.ID != id {
+		return false
+	}
+	s.reqState.CancelRequested = true
+	return true
+}
+
 func (s *backupStat) reset() {
 	s.Lock()
 	s.reqState.ID = ""
+	s.reqState.AttemptID = ""
 	s.reqState.Path = ""
 	s.reqState.Status = ""
 	s.reqState.Err = ""
 	s.reqState.OverrideBucket = ""
 	s.reqState.OverridePath = ""
+	s.reqState.CancelRequested = false
 	s.Unlock()
 }
 
@@ -159,6 +185,8 @@ type shardSyncChan struct {
 	waitingForCoordinatorToCommit atomic.Bool
 	//  coordChan used to communicate with the coordinator
 	coordChan chan interface{}
+
+	logger logrus.FieldLogger
 
 	// lastAsyncError used for debugging when no metadata is created
 	lastAsyncError error
@@ -228,6 +256,10 @@ func (c *shardSyncChan) withCancellation(ctx context.Context, id string, done ch
 func (c *shardSyncChan) OnCommit(ctx context.Context, req *StatusRequest) error {
 	st := c.lastOp.get()
 	if st.ID == req.ID && c.waitingForCoordinatorToCommit.Load() {
+		// A stale coordinator attempt's delayed Commit must not start the attempt that booked the slot.
+		if req.AttemptID != "" && st.AttemptID != "" && req.AttemptID != st.AttemptID {
+			return fmt.Errorf("slot is held by coordinator attempt %q, not %q", st.AttemptID, req.AttemptID)
+		}
 		c.coordChan <- *req
 		return nil
 	}
@@ -238,6 +270,13 @@ func (c *shardSyncChan) OnCommit(ctx context.Context, req *StatusRequest) error 
 func (c *shardSyncChan) OnAbort(_ context.Context, req *AbortRequest) error {
 	st := c.lastOp.get()
 	if st.ID == req.ID {
+		// A refused duplicate request must not kill the attempt that booked the slot.
+		if req.AttemptID != "" && st.AttemptID != "" && req.AttemptID != st.AttemptID {
+			if c.logger != nil {
+				c.logger.WithField("backup_id", req.ID).Warnf("ignoring abort from coordinator attempt %q: slot is held by attempt %q", req.AttemptID, st.AttemptID)
+			}
+			return nil
+		}
 		c.coordChan <- *req
 		return nil
 	}

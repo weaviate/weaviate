@@ -674,6 +674,7 @@ func (f *Finder) LocalNodeName() string {
 func (f *Finder) CountObjects(ctx context.Context, plan types.ReadRoutingPlan) (int, error) {
 	shard := plan.Shard
 	c := NewReadCoordinator[int](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
+	c.skipReachabilityCheck = true
 
 	// NOTE(dyma): Why do we need to pass both the context and the timeout?
 	results, _ := c.pull(ctx, plan, func(ctx context.Context, host string, _ bool) (int, error) {
@@ -713,7 +714,7 @@ func (f *Finder) CountObjects(ctx context.Context, plan types.ReadRoutingPlan) (
 // If we can't calculate the mode, we fallback to median. We can only calculate
 // the true median for an odd-numbered set. If a set has even number of elemets
 // of which none is a mode, then the median would be calculated as an average,
-// which is not contained in the set. In that case we pick the lower value of
+// which is not contained in the set. In that case we pick the higher value of
 // the two "candidate" values.
 func reconcile(counts []int) int {
 	var mode int
@@ -801,16 +802,9 @@ func (f *Finder) BroadcastCreateAsyncCheckpoint(ctx context.Context, shardNames 
 	for addr, shards := range addrShards {
 		addr, shards := addr, shards
 		eg.Go(func() error {
-			if err := f.client.cl.CreateAsyncCheckpoint(egCtx, addr, f.class, shards, cutoffMs, createdAt); err != nil {
+			if err := f.client.CreateAsyncCheckpoint(egCtx, addr, f.class, shards, cutoffMs, createdAt); err != nil {
 				failure.Add(1)
-				f.logger.WithFields(logrus.Fields{
-					"action": "async_checkpoint_broadcast",
-					"op":     "create",
-					"class":  f.class,
-					"addr":   addr,
-					"shards": shards,
-				}).WithError(err).
-					Warn("async-checkpoint create rejected by remote replica")
+				f.logRejectedCheckpointRPC("create", addr, len(shards), err)
 				return nil
 			}
 			success.Add(1)
@@ -827,6 +821,26 @@ func (f *Finder) BroadcastCreateAsyncCheckpoint(ctx context.Context, shardNames 
 	return int(success.Load()), int(failure.Load())
 }
 
+// logRejectedCheckpointRPC warns once per op and host per throttle window; the rest, one per class, go to Debug.
+func (f *Finder) logRejectedCheckpointRPC(op, addr string, shards int, err error) {
+	log := f.logger.WithFields(logrus.Fields{
+		"action":      "async_checkpoint_broadcast",
+		"op":          op,
+		"class":       f.class,
+		"addr":        addr,
+		"shard_count": shards,
+	})
+	ok, suppressed := checkpointLogThrottle.Allow(op + "\x00" + addr)
+	if !ok {
+		log.Debugf("async-checkpoint %s rejected by remote replica: %s", op, TruncatedError(err))
+		return
+	}
+	if suppressed > 0 {
+		log = log.WithField("suppressed", suppressed)
+	}
+	log.Warnf("async-checkpoint %s rejected by remote replica: %s", op, TruncatedError(err))
+}
+
 func (f *Finder) BroadcastDeleteAsyncCheckpoint(ctx context.Context, shardNames []string) (successes, failures int) {
 	addrShards, _ := f.groupShardsByAddr(shardNames)
 	var success, failure atomic.Int64
@@ -835,16 +849,9 @@ func (f *Finder) BroadcastDeleteAsyncCheckpoint(ctx context.Context, shardNames 
 	for addr, shards := range addrShards {
 		addr, shards := addr, shards
 		eg.Go(func() error {
-			if err := f.client.cl.DeleteAsyncCheckpoint(egCtx, addr, f.class, shards); err != nil {
+			if err := f.client.DeleteAsyncCheckpoint(egCtx, addr, f.class, shards); err != nil {
 				failure.Add(1)
-				f.logger.WithFields(logrus.Fields{
-					"action": "async_checkpoint_broadcast",
-					"op":     "delete",
-					"class":  f.class,
-					"addr":   addr,
-					"shards": shards,
-				}).WithError(err).
-					Warn("async-checkpoint delete rejected by remote replica")
+				f.logRejectedCheckpointRPC("delete", addr, len(shards), err)
 				return nil
 			}
 			success.Add(1)
@@ -874,7 +881,7 @@ func (f *Finder) BroadcastGetAsyncCheckpointStatus(ctx context.Context, shardNam
 		addr, shards := addr, shards
 		nodeName := addrToName[addr]
 		eg.Go(func() error {
-			remoteStatuses, err := f.client.cl.GetAsyncCheckpointStatus(egCtx, addr, f.class, shards)
+			remoteStatuses, err := f.client.GetAsyncCheckpointStatus(egCtx, addr, f.class, shards)
 			if err != nil {
 				failure.Add(1)
 				f.logger.WithFields(logrus.Fields{
@@ -884,8 +891,7 @@ func (f *Finder) BroadcastGetAsyncCheckpointStatus(ctx context.Context, shardNam
 					"addr":   addr,
 					"node":   nodeName,
 					"shards": shards,
-				}).WithError(err).
-					Debug("async-checkpoint status: remote replica unavailable")
+				}).Debugf("async-checkpoint status: remote replica unavailable: %v", err)
 				return nil
 			}
 			success.Add(1)

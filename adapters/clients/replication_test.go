@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1218,6 +1219,17 @@ func TestReplicationClient_GetAsyncCheckpointStatus_RootLengthMismatchSurfaces(t
 		context.Background(), host, "MyClass", []string{"s1"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decode async-checkpoint root for shard")
+}
+
+// A worst-case chunk's status GET URL must fit the ~60 KiB sidecar header budget documented on replica.AsyncCheckpointMaxShardsPerChunk.
+func TestAsyncCheckpointStatusURLWorstCaseChunkFitsHeaderBudget(t *testing.T) {
+	t.Parallel()
+	shards := make([]string, replica.AsyncCheckpointMaxShardsPerChunk)
+	for i := range shards {
+		shards[i] = strings.Repeat("x", 64)
+	}
+	u := asyncCheckpointURL("weaviate-0.internal:7001", strings.Repeat("C", 64), shards, true)
+	assert.LessOrEqual(t, len(u), 60*1024)
 }
 
 func TestAsyncNotReadyErrorStatusMapping(t *testing.T) {

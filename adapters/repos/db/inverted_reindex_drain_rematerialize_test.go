@@ -25,9 +25,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestModeADrainRematerialize pins the race where a draining reindex
-// goroutine's tracker MkdirAll re-creates the class dir a concurrent DELETE
-// (Index.drop) just renamed away.
 func TestModeADrainRematerialize(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -55,30 +52,43 @@ func TestModeADrainRematerialize(t *testing.T) {
 			class := newTestClassWithProps(className, []string{"title"})
 
 			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			shard := shd.(*Shard)
 
 			idxPath := idx.path()
 			require.DirExists(t, idxPath, "class dir must exist before drop")
 
-			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-			task := newTestTask(idx.logger, strategy)
-
 			inHook := make(chan struct{})
 			releaseHook := make(chan struct{})
 			var hookOnce sync.Once
 
-			// Interpose a barrier at the tracker's pre-MkdirAll point (before
-			// the real close-lock guard runs, holding no lock) so the DELETE
-			// lands between the worker parking and its guarded MkdirAll.
-			realGuardFor := task.trackerMkdirGuard
-			task.trackerMkdirGuard = func(s ShardLike) func(func() error) error {
-				guard := realGuardFor(s)
-				return func(mkdir func() error) error {
-					hookOnce.Do(func() { close(inHook) })
-					<-releaseHook
-					return guard(mkdir)
-				}
+			// Park the first guard call so drop() lands while the entry point is
+			// in flight, then run the real guard against the dropped index.
+			blockingGuard := func(s ShardLike) error {
+				hookOnce.Do(func() { close(inHook) })
+				<-releaseHook
+				return defaultIndexClosingGuard(s)
+			}
+
+			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+			task := newTestTaskWithGuard(idx.logger, strategy, blockingGuard, shard.migrationUnit())
+
+			// Objects left to drain, so a worker ignoring the guard still has
+			// bucket writes to make; otherwise the entry points return on
+			// "nothing to do". onAfterLsmInit (unexported) is the call that
+			// actually creates the migration record, and it is unguarded, so
+			// this setup does not consume the parked guard call.
+			for i := 0; i < 10; i++ {
+				require.NoError(t, shard.PutObject(ctx,
+					createTestObjectWithText(className, "before migration "+uuid.NewString())))
+			}
+			_, err := task.onAfterLsmInit(ctx, shard)
+			require.NoError(t, err)
+			_, hasRecord := task.migrationRecord(shard)
+			require.True(t, hasRecord, "a migration record must exist, or both entry points below exit early on 'nothing to do'")
+			for i := 0; i < 5; i++ {
+				require.NoError(t, shard.PutObject(ctx,
+					createTestObjectWithText(className, "during migration "+uuid.NewString())))
 			}
 
 			var driveErr error
@@ -88,13 +98,11 @@ func TestModeADrainRematerialize(t *testing.T) {
 				driveErr = tc.drive(ctx, task, shard)
 			}()
 
-			// Worker parked pre-MkdirAll; drive the DELETE to completion.
 			<-inHook
 			require.NoError(t, idx.drop())
 			require.NoFileExists(t, idxPath,
 				"drop() must have renamed the class dir away before the worker proceeds")
 
-			// Release the worker so its MkdirAll runs AFTER the rename.
 			close(releaseHook)
 			<-workerDone
 

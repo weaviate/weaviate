@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"path"
 	"slices"
 	"strings"
@@ -26,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -34,14 +36,26 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+	"github.com/weaviate/weaviate/usecases/license"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var (
 	errLocalBackendDBRO = errors.New("local filesystem backend is not viable for backing up a node cluster, try s3 or gcs")
 	errIncludeExclude   = errors.New("malformed request: 'include' and 'exclude' cannot both contain values")
+	// errDedupePlannerMissing refuses dedupeReplicas on a licensed node whose planner was not wired.
+	errDedupePlannerMissing = errors.New("dedupeReplicas cannot run because this node has no dedupe planner")
 )
+
+// DedupeFeature names deduplicated backups in the license refusal and the startup warning.
+const DedupeFeature = "deduplicated backups"
+
+// DedupeEnabled reports the BACKUP_DEDUPE_ENABLED flag; startup folds it into the dedupe license.Mode.
+func DedupeEnabled() bool {
+	return entcfg.Enabled(os.Getenv("BACKUP_DEDUPE_ENABLED"))
+}
 
 const (
 	errMsgHigherVersion = "unable to restore backup as it was produced by a higher version"
@@ -62,6 +76,8 @@ type Scheduler struct {
 	backupper  *coordinator
 	restorer   *coordinator
 	backends   BackupBackendProvider
+	// dedupeMode gates dedupeReplicas create requests; backupper.dedupePlanner is set only in FeatureLicensed.
+	dedupeMode license.Mode
 	// nil when dynamic DB users are not enabled.
 	userLister UserLister
 	// nil when RBAC is not enabled.
@@ -81,6 +97,8 @@ func NewScheduler(
 	authorizer authorization.Authorizer,
 	client client,
 	sourcer Selector,
+	dedupeMode license.Mode,
+	dedupePlanner DedupePlanner,
 	userLister UserLister,
 	roleLister RoleLister,
 	backends BackupBackendProvider,
@@ -95,6 +113,7 @@ func NewScheduler(
 		logger:            logger,
 		authorizer:        authorizer,
 		backends:          backends,
+		dedupeMode:        dedupeMode,
 		userLister:        userLister,
 		roleLister:        roleLister,
 		schema:            schema,
@@ -104,13 +123,13 @@ func NewScheduler(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends, nil,
+			logger, nodeResolver, backends, nil, dedupePlanner,
 		),
 		restorer: newCoordinator(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends, rolesAndUsers,
+			logger, nodeResolver, backends, rolesAndUsers, nil,
 		),
 	}
 	return m
@@ -181,25 +200,36 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		if errors.As(err, &authzerrors.Forbidden{}) {
 			return nil, err
 		}
-		return nil, backup.NewErrUnprocessable(err)
+		return nil, backup.NewErrUnprocessable(withReindexRefusalHint(err))
+	}
+
+	// After validation so an unauthorized caller never learns the flag or license state; restores are never gated.
+	if req.DedupeReplicas {
+		if err := s.dedupeGate(); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
 		return nil, fmt.Errorf("init uploader: %w", err)
 	}
 	breq := Request{
-		Method:       OpCreate,
-		ID:           req.ID,
-		Backend:      req.Backend,
-		Classes:      selection.classes,
-		Users:        selection.users,
-		Roles:        selection.roles,
-		SkipUsers:    selection.skipUsers,
-		SkipRoles:    selection.skipRoles,
-		Compression:  req.Compression,
-		Bucket:       req.Bucket,
-		Path:         req.Path,
-		BaseBackupID: req.BaseBackupID,
+		Method:                          OpCreate,
+		ID:                              req.ID,
+		Backend:                         req.Backend,
+		Classes:                         selection.classes,
+		Users:                           selection.users,
+		Roles:                           selection.roles,
+		SkipUsers:                       selection.skipUsers,
+		SkipRoles:                       selection.skipRoles,
+		Compression:                     req.Compression,
+		Bucket:                          req.Bucket,
+		Path:                            req.Path,
+		BaseBackupID:                    req.BaseBackupID,
+		DedupeReplicas:                  req.DedupeReplicas,
+		DedupeConvergenceTimeoutSeconds: req.DedupeConvergenceTimeoutSeconds,
+		BaseChainDeduped:                selection.baseChainDeduped,
+		BaseDedupeDesignations:          selection.baseDesignations,
 
 		BuiltInRoleAssignments: selection.builtInRoleAssignments,
 	}
@@ -217,6 +247,21 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 			Bucket:  st.OverrideBucket,
 		}, nil
 	}
+}
+
+// dedupeGate refuses a dedupeReplicas create request unless this node runs the feature licensed and wired.
+func (s *Scheduler) dedupeGate() error {
+	switch s.dedupeMode {
+	case license.FeatureOff:
+		return backup.NewErrUnprocessable(fmt.Errorf("dedupeReplicas is not enabled on this cluster; set BACKUP_DEDUPE_ENABLED=true or retry without the option"))
+	case license.FeatureLicensed:
+		if s.backupper.dedupePlanner == nil {
+			return errDedupePlannerMissing
+		}
+		return nil
+	case license.FeatureUnlicensed:
+	}
+	return license.Required(DedupeFeature)
 }
 
 // Restore loads the backup and restores classes in temporary directories on the filesystem.
@@ -295,6 +340,10 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 				return nil, backup.NewErrUnprocessable(fmt.Errorf("replace dynamic user assignments: %w", err))
 			}
 		}
+	}
+
+	if err := validateShardNames(schema, meta.Classes()); err != nil {
+		return nil, backup.NewErrUnprocessable(err)
 	}
 
 	if err := s.validateNamespaceStripping(ctx, schema, userBlob, rbacBlob, meta.Classes(), req.UserRestoreOption, req.RbacRestoreOption); err != nil {
@@ -426,23 +475,62 @@ func backupsForbidden(pr *models.Principal, verb string) error {
 	return authzerrors.NewForbidden(pr, action, resource)
 }
 
-// authorizeBackupByID authorizes the caller against the classes recorded in the
-// backup meta. A missing meta is a no-op (the 404 may leak the id); any other
-// backend error fails closed.
-func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.Principal, verb string,
-	store coordStore, filename, overrideBucket, overridePath string,
-) error {
-	meta, err := store.Meta(ctx, filename, overrideBucket, overridePath)
-	if err != nil {
-		// A read concurrent with a write yields a partial file that fails to
-		// unmarshal; treat it as not-found so a mid-write status poll retries.
-		var syntaxErr *json.SyntaxError
-		if errors.As(err, &backup.ErrNotFound{}) || errors.As(err, &syntaxErr) {
-			return nil
-		}
-		return err
+// denyBackupByID adds to authErr, a denial of op on backup id, a reason that
+// holds whether or not the backup exists, so its text does not reveal which. It
+// logs readErrs the denial hides: a backend failure, but not a missing or partial
+// descriptor.
+func (s *Scheduler) denyBackupByID(authErr error, op Op, verb, id string, readErrs ...error) error {
+	if !errors.As(authErr, &authzerrors.Forbidden{}) {
+		return authErr
 	}
-	return s.authorizeBackupClasses(ctx, principal, verb, meta.Classes())
+	for _, err := range readErrs {
+		if descriptorReadFailed(err) {
+			s.logger.WithField("action", op).WithField("backup_id", id).
+				Warnf("denied a caller without the wildcard backup permission, since the descriptor could not be read: %v", err)
+		}
+	}
+	may := "manage"
+	if verb == authorization.READ {
+		may = "read"
+	}
+	if op == OpRestore {
+		return fmt.Errorf("%w: no restore of backup %q was found at this location, or it includes collections you may not %s",
+			authErr, id, may)
+	}
+	return fmt.Errorf("%w: backup %q was not found at this location or includes collections you may not %s", authErr, id, may)
+}
+
+// descriptorReadFailed reports whether err is a backend failure to read a
+// descriptor, rather than a missing one or a partial one mid-write.
+func descriptorReadFailed(err error) bool {
+	var syntaxErr *json.SyntaxError
+	return err != nil && !errors.As(err, &backup.ErrNotFound{}) && !errors.As(err, &syntaxErr)
+}
+
+// authorizeBackupByID authorizes the caller against the classes recorded in the
+// first readable of filenames. Without one the caller needs the wildcard backup
+// permission. Only a caller who passes gets a read error of filenames[0] other
+// than not-found.
+func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.Principal, verb string, op Op,
+	store coordStore, overrideBucket, overridePath string, filenames ...string,
+) error {
+	var classes []string
+	readErrs := make([]error, 0, len(filenames))
+	for _, filename := range filenames {
+		meta, err := metaWithRetry(ctx, store, filename, overrideBucket, overridePath)
+		if err == nil {
+			classes = meta.Classes()
+			break
+		}
+		readErrs = append(readErrs, err)
+	}
+	if err := s.authorizeBackupClasses(ctx, principal, verb, classes); err != nil {
+		return s.denyBackupByID(err, op, verb, store.backupId, readErrs...)
+	}
+	if len(readErrs) > 0 && descriptorReadFailed(readErrs[0]) {
+		return readErrs[0]
+	}
+	return nil
 }
 
 const metaReadAttempts = 3
@@ -486,11 +574,12 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, store, GlobalBackupFile, overrideBucket, overridePath); err != nil {
+	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, OpCreate, store, overrideBucket, overridePath,
+		GlobalBackupFile); err != nil {
 		return nil, err
 	}
 
-	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path, ""}
+	req := &StatusRequest{Method: OpCreate, ID: backupID, Backend: backend, Bucket: store.bucket, Path: store.path}
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
@@ -511,10 +600,13 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, store, GlobalRestoreFile, overrideBucket, overridePath); err != nil {
+	// Before a restore starts, its status is authorized like CancelRestore's, against
+	// the backup descriptor, so a caller who may read the backup gets 404, not 403.
+	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, OpRestore, store, overrideBucket, overridePath,
+		GlobalRestoreFile, GlobalBackupFile); err != nil {
 		return nil, err
 	}
-	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath, ""}
+	req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}
 	st, err := s.restorer.OnStatus(ctx, store, req)
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
@@ -543,15 +635,15 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	// Authorize before validating the id so an unpermitted caller gets 403, not a
 	// hint about the id. Scope to the backup's classes when readable, else wildcard.
 	var meta *backup.DistributedBackupDescriptor
+	var metaErr error
 	var classes []string
 	if idErr == nil {
-		if m, err := metaWithRetry(ctx, store, GlobalBackupFile, overrideBucket, overridePath); err == nil {
-			meta = m
-			classes = m.Classes()
+		if meta, metaErr = metaWithRetry(ctx, store, GlobalBackupFile, overrideBucket, overridePath); metaErr == nil {
+			classes = meta.Classes()
 		}
 	}
 	if err := s.authorizeBackupClasses(ctx, principal, authorization.DELETE, classes); err != nil {
-		return err
+		return s.denyBackupByID(err, OpCreate, authorization.DELETE, backupID, metaErr)
 	}
 	if idErr != nil {
 		return backup.NewErrUnprocessable(idErr)
@@ -572,6 +664,12 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		}
 	}
 
+	// Participant aborts only reach nodes already committed to the op; the slot
+	// signal is what stops a create still in its planning/convergence wait.
+	if s.backupper.lastOp.cancelIfInFlight(backupID) {
+		s.logger.WithField("backup_id", backupID).Info("cancel: signalled in-flight backup coordinator")
+	}
+
 	nodes, err := s.backupper.Nodes(ctx, &Request{
 		Method:  OpCreate,
 		Backend: backend,
@@ -585,6 +683,20 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		&AbortRequest{Method: OpCreate, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}, nodes)
 
 	return nil
+}
+
+// cancelCoordinatorOp lets a remote DELETE's abort fan-out cancel a create this node
+// coordinates; only user aborts qualify (empty AttemptID — coordinator cleanup aborts
+// carry theirs and must not flag their own op cancelled).
+func (s *Scheduler) cancelCoordinatorOp(method Op, id, attemptID string) bool {
+	if method != OpCreate || attemptID != "" {
+		return false
+	}
+	if s.backupper.lastOp.cancelIfInFlight(id) {
+		s.logger.WithField("backup_id", id).Info("cancel: remote abort signalled in-flight backup coordinator")
+		return true
+	}
+	return false
 }
 
 func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string,
@@ -605,17 +717,18 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	// hint about the id. Prefer the restore descriptor, else the backup descriptor;
 	// if neither is readable, require wildcard DELETE.
 	var meta *backup.DistributedBackupDescriptor
-	var metaErr error
+	var metaErr, backupMetaErr error
 	var classes []string
 	if idErr == nil {
+		var backupMeta *backup.DistributedBackupDescriptor
 		if meta, metaErr = metaWithRetry(ctx, store, GlobalRestoreFile, overrideBucket, overridePath); metaErr == nil {
 			classes = meta.Classes()
-		} else if backupMeta, err := metaWithRetry(ctx, store, GlobalBackupFile, overrideBucket, overridePath); err == nil {
+		} else if backupMeta, backupMetaErr = metaWithRetry(ctx, store, GlobalBackupFile, overrideBucket, overridePath); backupMetaErr == nil {
 			classes = backupMeta.Classes()
 		}
 	}
 	if err := s.authorizeBackupClasses(ctx, principal, authorization.DELETE, classes); err != nil {
-		return err
+		return s.denyBackupByID(err, OpRestore, authorization.DELETE, backupID, metaErr, backupMetaErr)
 	}
 	if idErr != nil {
 		return backup.NewErrUnprocessable(idErr)
@@ -835,6 +948,10 @@ func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, o
 // keep the full backend snapshot unless the corresponding skip flag is set.
 type backupSelections struct {
 	classes, users, roles []string
+	// baseChainDeduped pins the restore floor at 3.0: restoring this artifact traverses a replica-deduped base.
+	baseChainDeduped bool
+	// baseDesignations is the immediate base's dedupeDesignations; nil for non-deduped or pre-feature bases.
+	baseDesignations map[string]map[string]string
 	// Explicit empty lists and unmatched wildcards exclude the snapshot.
 	skipUsers, skipRoles bool
 	// builtInRoleAssignments holds the admin and viewer assignments an RBAC
@@ -931,8 +1048,19 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if err != nil {
 		return selections, fmt.Errorf("get compression type: %w", err)
 	}
-	if _, err = resolveBaseBackupChain(ctx, req.BaseBackupID, time.Now().UTC(), req.Bucket, req.Path, compressionType, store.MetaForBackupID); err != nil {
+	chain, err := resolveBaseBackupChain(ctx, req.BaseBackupID, time.Now().UTC(), req.Bucket, req.Path, compressionType, store.GlobalMetaForBackupID)
+	if err != nil {
 		return selections, fmt.Errorf("resolve base backup chain: %w", err)
+	}
+	for _, base := range chain {
+		if major, ok := parseMajor(base.GetVersion()); ok && major >= 3 {
+			selections.baseChainDeduped = true
+			break
+		}
+	}
+	// only the immediate base constrains stickiness: any other chain shape leaves every replica able to skip
+	if len(chain) > 0 {
+		selections.baseDesignations = chain[0].DedupeDesignations
 	}
 
 	// The response does not report users or roles, so a selector that matched
@@ -1157,8 +1285,9 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if err := meta.Validate(); err != nil {
 		return nil, fmt.Errorf("corrupted backup file: %w", err)
 	}
-	if v := meta.Version; v[0] > Version[0] {
-		return nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
+	// dedupeReplicas requires the 3.x format; 3.x without the flag is a legacy-layout artifact whose base chain pins the floor.
+	if major, ok := parseMajor(meta.Version); ok && meta.DedupeReplicas && major < 3 {
+		return nil, fmt.Errorf("corrupted backup file: version %s inconsistent with dedupeReplicas=%v", meta.Version, meta.DedupeReplicas)
 	}
 
 	// Base backups are only read after the restore has started staging data.
@@ -1213,6 +1342,26 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		meta.NodeMapping = req.NodeMapping
 	}
 	return meta, nil
+}
+
+// validateShardNames refuses a selected class whose sharding state names an
+// invalid shard. RestoreClass refuses it too, but only once every node has
+// downloaded the backup and the classes before it were applied.
+func validateShardNames(descriptors []backup.ClassDescriptor, selectedClasses []string) error {
+	for i := range descriptors {
+		d := &descriptors[i]
+		if d.ShardingState == nil || !slices.Contains(selectedClasses, d.Name) {
+			continue
+		}
+		var ss sharding.State
+		if err := json.Unmarshal(d.ShardingState, &ss); err != nil {
+			return fmt.Errorf("class %q: unmarshal sharding state: %w", d.Name, err)
+		}
+		if err := ss.ValidateShardNames(); err != nil {
+			return fmt.Errorf("class %q: sharding state: %w", d.Name, err)
+		}
+	}
+	return nil
 }
 
 // validateNamespaceStripping fails a restore into a namespace-disabled
@@ -1525,4 +1674,13 @@ func expandWildcards(patterns, candidates []string) []string {
 	}
 
 	return result
+}
+
+// withReindexRefusalHint lives here, not in the storage-layer text, because replica movement reuses that text.
+func withReindexRefusalHint(err error) error {
+	if !errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) {
+		return err
+	}
+	return fmt.Errorf("%w; for the runtime-reindex refusals: if a reindex is running on a refused collection, "+
+		"exclude that collection (other collections may be refused too); otherwise retry later", err)
 }

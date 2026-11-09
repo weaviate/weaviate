@@ -33,7 +33,10 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -68,7 +71,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, namespacing.Disabled)
 		err := handler.Handle(mockStream)
 		require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 	})
@@ -100,7 +103,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, namespacing.Disabled)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when streaming")
 	})
@@ -154,7 +157,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, namespacing.Disabled)
 		err := handler.Handle(mockStream)
 		require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 	})
@@ -209,7 +212,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, namespacing.Disabled)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when streaming")
 	})
@@ -275,7 +278,7 @@ func TestStreamHandler(t *testing.T) {
 		})).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, namespacing.Disabled)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when handling stream")
 		require.Len(t, objsCh, numObjs, "Expected all objects to be processed into mock channel")
@@ -337,7 +340,7 @@ func TestStreamHandler(t *testing.T) {
 
 		// numWorkers > 1 so worker Results overlap with receiver Acks in time.
 		numWorkers := 4
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, namespacing.Disabled)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err)
 
@@ -410,7 +413,7 @@ func TestStreamHandler(t *testing.T) {
 			Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).Maybe()
 
 		numWorkers := 4
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, namespacing.Disabled)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err)
 
@@ -652,7 +655,7 @@ func TestOutOfMemoryReply(t *testing.T) {
 		mockBatcher, mockSchemaManager, mockAuthenticator := newStreamMocks(t, collection, 1)
 		mockStream, sent := newDataStream(t, ctx, newBatchStreamObjsAndRefsRequest(objs, refs))
 
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, namespacing.Disabled,
 			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1), nil)))
 		require.NoError(t, handler.Handle(mockStream))
 
@@ -691,7 +694,7 @@ func Test_receiver_holdForMemory(t *testing.T) {
 		mockBatcher, mockSchemaManager, mockAuthenticator := newStreamMocks(t, collection, 1)
 		mockStream, sent := newDataStream(t, ctx, objsRequest(collection, 1, 0))
 
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, namespacing.Disabled,
 			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1), nil)))
 		require.NoError(t, handler.Handle(mockStream))
 
@@ -736,7 +739,7 @@ func Test_receiver_holdForMemory(t *testing.T) {
 
 		mockStream, sent := newDataStream(t, ctx, objsRequest(collection, 1, 0), objsRequest(collection, 1, 0))
 
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, namespacing.Disabled,
 			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1), nil)))
 		require.NoError(t, handler.Handle(mockStream))
 
@@ -761,7 +764,7 @@ func Test_receiver_holdForMemory(t *testing.T) {
 		mockBatcher, mockSchemaManager, mockAuthenticator := newStreamMocks(t, collection, 1)
 		mockStream, _ := newDataStream(t, ctx, objsRequest(collection, 2, 1024))
 
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, namespacing.Disabled,
 			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1), nil)))
 		require.NoError(t, handler.Handle(mockStream))
 
@@ -781,7 +784,7 @@ func Test_receiver_holdForMemory(t *testing.T) {
 		mockBatcher, mockSchemaManager, mockAuthenticator := newStreamMocks(t, collection, 1)
 		mockStream, sent := newDataStream(t, ctx, objsRequest(collection, 1, 0))
 
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, namespacing.Disabled,
 			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(0), nil)))
 		require.NoError(t, handler.Handle(mockStream))
 
@@ -807,7 +810,7 @@ func Test_receiver_holdForMemory(t *testing.T) {
 		mockBatcher, mockSchemaManager, mockAuthenticator := newStreamMocks(t, collection, 1)
 		mockStream, sent := newDataStream(t, ctx, objsRequest(collection, 1, 0))
 
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, namespacing.Disabled,
 			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(cfg))
 		require.NoError(t, handler.Handle(mockStream))
 
@@ -834,7 +837,7 @@ func Test_receiver_holdForMemory(t *testing.T) {
 
 		// the default 30s hold, so an exit inside 10s can only come from the
 		// shutdown signal
-		handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
+		handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, namespacing.Disabled,
 			batch.WithAdmissionChecker(checker))
 
 		handled := make(chan error, 1)
@@ -873,7 +876,7 @@ func Test_receiver_holdForMemory(t *testing.T) {
 
 		// the default 30s hold, so an exit inside 10s can only come from the
 		// cancelled stream context
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, namespacing.Disabled,
 			batch.WithAdmissionChecker(checker))
 
 		handled := make(chan error, 1)
@@ -903,7 +906,7 @@ func Test_receiver_holdForMemory(t *testing.T) {
 		heldStream, heldSent := newDataStream(t, ctx, objsRequest(collection, 1, vectorBytes))
 		freeStream, freeSent := newDataStream(t, ctx, objsRequest(collection, 1, 0))
 
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 2, logger, false,
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 2, logger, namespacing.Disabled,
 			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(3), nil)))
 
 		heldDone := make(chan error, 1)
@@ -974,7 +977,7 @@ func TestAtomicAdmission(t *testing.T) {
 		streamA, sentA := newDataStream(t, ctx, reqA)
 		streamB, sentB := newDataStream(t, ctx, reqB)
 
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 2, logger, false,
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 2, logger, namespacing.Disabled,
 			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(5), nil)))
 
 		aDone := make(chan error, 1)
@@ -1037,7 +1040,7 @@ func Test_receiver_ackForDelay(t *testing.T) {
 		mockBatcher, mockSchemaManager, mockAuthenticator := newStreamMocks(t, collection, 1)
 		mockStream, sent := newDataStream(t, ctx, objsRequest(collection, 1, 0))
 
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, namespacing.Disabled,
 			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(cfg))
 		require.NoError(t, handler.Handle(mockStream))
 
@@ -1059,7 +1062,7 @@ func Test_receiver_ackForDelay(t *testing.T) {
 		mockStream, _ := newDataStream(t, ctx, objsRequest(collection, 1, 0))
 
 		reg := prometheus.NewPedanticRegistry()
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, reg, 1, logger, false,
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, reg, 1, logger, namespacing.Disabled,
 			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(cfg))
 		require.NoError(t, handler.Handle(mockStream))
 
@@ -1087,7 +1090,7 @@ func Test_receiver_ackForDelay(t *testing.T) {
 		mockBatcher, mockSchemaManager, mockAuthenticator := newStreamMocks(t, collection, 1)
 		mockStream, sent := newDataStream(t, ctx, objsRequest(collection, 1, 0))
 
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, namespacing.Disabled,
 			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(cfg))
 		require.NoError(t, handler.Handle(mockStream))
 
@@ -1115,7 +1118,7 @@ func Test_receiver_ackForDelay(t *testing.T) {
 		mockBatcher, mockSchemaManager, mockAuthenticator := newStreamMocks(t, collection, 1)
 		mockStream, sent := newDataStream(t, ctx, newBatchStreamObjsAndRefsRequest(objs, refs))
 
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, namespacing.Disabled,
 			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(cfg))
 		require.NoError(t, handler.Handle(mockStream))
 
@@ -1139,7 +1142,7 @@ func Test_receiver_ackForDelay(t *testing.T) {
 		mockBatcher, mockSchemaManager, mockAuthenticator := newStreamMocks(t, collection, 1)
 		mockStream, _ := newDataStream(t, ctx, objsRequest(collection, 1, 0))
 
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, namespacing.Disabled,
 			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(cfg))
 
 		start := time.Now()
@@ -1158,7 +1161,7 @@ func Test_receiver_ackForDelay(t *testing.T) {
 		mockBatcher, mockSchemaManager, mockAuthenticator := newStreamMocks(t, collection, 1)
 		mockStream, _ := newDataStream(t, ctx, objsRequest(collection, 1, 0))
 
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, namespacing.Disabled,
 			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(cfg))
 
 		handled := make(chan error, 1)
@@ -1186,7 +1189,7 @@ func Test_receiver_ackForDelay(t *testing.T) {
 
 		// shutdown is driven through drain because shuttingDownCtx is created
 		// inside Start and cannot be injected
-		handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
+		handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, namespacing.Disabled,
 			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(cfg))
 
 		handled := make(chan error, 1)
@@ -1231,34 +1234,34 @@ func TestStreamHandlerCollectionResolution(t *testing.T) {
 	logger := logrus.New()
 
 	cases := []struct {
-		name              string
-		namespacesEnabled bool
-		principal         *models.Principal
-		rawCollection     string // value sent by the client in obj.Collection
-		resolvedAs        string // expected argument to GetCachedClassNoAuth
-		aliasTarget       string // non-empty if ResolveAlias should resolve to this target
+		name          string
+		qualifier     namespacing.Qualifier
+		principal     *models.Principal
+		rawCollection string // value sent by the client in obj.Collection
+		resolvedAs    string // expected argument to GetCachedClassNoAuth
+		aliasTarget   string // non-empty if ResolveAlias should resolve to this target
 	}{
 		{
-			name:              "namespaced principal qualifies short class",
-			namespacesEnabled: true,
-			principal:         &models.Principal{Namespace: "customer1"},
-			rawCollection:     "Movies",
-			resolvedAs:        "Movies",
+			name:          "namespaced principal qualifies short class",
+			qualifier:     wlnamespaces.NewPrefixing(),
+			principal:     &models.Principal{Namespace: "customer1"},
+			rawCollection: "Movies",
+			resolvedAs:    "Movies",
 		},
 		{
-			name:              "alias is resolved to its target class",
-			namespacesEnabled: false,
-			principal:         &models.Principal{},
-			rawCollection:     "MyAlias",
-			resolvedAs:        "Movies",
-			aliasTarget:       "Movies",
+			name:          "alias is resolved to its target class",
+			qualifier:     namespacing.Disabled,
+			principal:     &models.Principal{},
+			rawCollection: "MyAlias",
+			resolvedAs:    "Movies",
+			aliasTarget:   "Movies",
 		},
 		{
-			name:              "lowercased class is uppercased before lookup",
-			namespacesEnabled: false,
-			principal:         &models.Principal{},
-			rawCollection:     "movies",
-			resolvedAs:        "Movies",
+			name:          "lowercased class is uppercased before lookup",
+			qualifier:     namespacing.Disabled,
+			principal:     &models.Principal{},
+			rawCollection: "movies",
+			resolvedAs:    "Movies",
 		},
 	}
 
@@ -1275,7 +1278,7 @@ func TestStreamHandlerCollectionResolution(t *testing.T) {
 			mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(tc.principal, nil).Once()
 
 			expectedLookup := tc.resolvedAs
-			if tc.namespacesEnabled && tc.principal.Namespace != "" {
+			if tc.qualifier.NamespacesEnabled() && tc.principal.Namespace != "" {
 				expectedLookup = tc.principal.Namespace + ":" + tc.resolvedAs
 			}
 
@@ -1318,7 +1321,7 @@ func TestStreamHandlerCollectionResolution(t *testing.T) {
 			mockStream.EXPECT().Send(mock.Anything).Return(nil).Maybe()
 
 			numWorkers := 1
-			handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, tc.namespacesEnabled)
+			handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, tc.qualifier)
 			err := handler.Handle(mockStream)
 			require.NoError(t, err)
 		})
@@ -1331,26 +1334,35 @@ func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 	logger := logrus.New()
 
 	cases := []struct {
-		name              string
-		namespacesEnabled bool
-		principal         *models.Principal
-		collection        string
-		getClassErr       error
+		name          string
+		qualifier     namespacing.Qualifier
+		principal     *models.Principal
+		collection    string
+		getClassErr   error
+		wantForbidden bool
 	}{
 		{
-			name:              "namespace resolution failure",
-			namespacesEnabled: true,
-			principal:         &models.Principal{Namespace: "customer1"},
-			collection:        "customer2:TestClass",
+			name:       "namespace resolution failure",
+			qualifier:  wlnamespaces.NewPrefixing(),
+			principal:  &models.Principal{Namespace: "customer1"},
+			collection: "customer2:TestClass",
 		},
 		{
 			// the schema error names the namespace-qualified class, which a
 			// namespaced principal must never see
-			name:              "class fetch failure",
-			namespacesEnabled: true,
-			principal:         &models.Principal{Namespace: "customer1"},
-			collection:        "TestClass",
-			getClassErr:       fmt.Errorf("class %q not found", "customer1:TestClass"),
+			name:        "class fetch failure",
+			qualifier:   wlnamespaces.NewPrefixing(),
+			principal:   &models.Principal{Namespace: "customer1"},
+			collection:  "TestClass",
+			getClassErr: fmt.Errorf("class %q not found", "customer1:TestClass"),
+		},
+		{
+			// gRPC's translateTypedError answers a Forbidden with PermissionDenied
+			name:          "qualifier refusal",
+			qualifier:     namespacing.Refusing(authzerrors.NewForbidden(nil, "read", "collections/TestClass")),
+			principal:     &models.Principal{Namespace: "customer1"},
+			collection:    "TestClass",
+			wantForbidden: true,
 		},
 	}
 
@@ -1414,9 +1426,12 @@ func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 				}
 			}).Maybe()
 
-			handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, tc.namespacesEnabled)
+			handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, tc.qualifier)
 			err := handler.Handle(mockStream)
 			require.Error(t, err, "the stream still ends with the rejection error")
+			if tc.wantForbidden {
+				require.ErrorAs(t, err, &authzerrors.Forbidden{})
+			}
 
 			sentMu.Lock()
 			defer sentMu.Unlock()
@@ -1481,7 +1496,7 @@ func TestHandleRejectsStreamsThatStartDuringDrain(t *testing.T) {
 		}
 	}).Maybe()
 
-	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false)
+	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, namespacing.Disabled)
 
 	handled := make(chan error, 1)
 	go func() {
@@ -1546,7 +1561,7 @@ func TestReceiverPanicEndsStreamWithError(t *testing.T) {
 		}
 	}).Maybe()
 
-	handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false)
+	handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, namespacing.Disabled)
 
 	handled := make(chan error, 1)
 	go func() {
@@ -1571,17 +1586,18 @@ func TestStreamHandlerRecvGoroutineDoesNotLeakOnEarlyExit(t *testing.T) {
 	logger := logrus.New()
 
 	cases := []struct {
-		name              string
-		namespacesEnabled bool
-		principal         *models.Principal
-		collection        string
-		checkAllocErr     error
-		getClassErr       error
-		acksSendErr       error
-		invalidRequest    bool
+		name           string
+		qualifier      namespacing.Qualifier
+		principal      *models.Principal
+		collection     string
+		checkAllocErr  error
+		getClassErr    error
+		acksSendErr    error
+		invalidRequest bool
 	}{
 		{
 			name:          "out of memory",
+			qualifier:     namespacing.Disabled,
 			principal:     &models.Principal{},
 			collection:    "TestClass",
 			checkAllocErr: enterrors.ErrNotEnoughMemory,
@@ -1590,25 +1606,28 @@ func TestStreamHandlerRecvGoroutineDoesNotLeakOnEarlyExit(t *testing.T) {
 			// a namespaced principal is not allowed to prefix a class name with a
 			// namespace itself, so namespacing.Resolve rejects this before the schema
 			// manager is touched
-			name:              "schema resolve failure",
-			namespacesEnabled: true,
-			principal:         &models.Principal{Namespace: "customer1"},
-			collection:        "customer2:TestClass",
+			name:       "schema resolve failure",
+			qualifier:  wlnamespaces.NewPrefixing(),
+			principal:  &models.Principal{Namespace: "customer1"},
+			collection: "customer2:TestClass",
 		},
 		{
 			name:        "class fetch failure",
+			qualifier:   namespacing.Disabled,
 			principal:   &models.Principal{},
 			collection:  "TestClass",
 			getClassErr: errors.New("schema unavailable"),
 		},
 		{
 			name:           "invalid request",
+			qualifier:      namespacing.Disabled,
 			principal:      &models.Principal{},
 			collection:     "TestClass",
 			invalidRequest: true,
 		},
 		{
 			name:        "ack send failure",
+			qualifier:   namespacing.Disabled,
 			principal:   &models.Principal{},
 			collection:  "TestClass",
 			acksSendErr: errors.New("client gone"),
@@ -1676,7 +1695,7 @@ func TestStreamHandlerRecvGoroutineDoesNotLeakOnEarlyExit(t *testing.T) {
 
 			// the "out of memory" row never admits, so the hold is set to one
 			// second to keep the case from waiting out the 30s default
-			handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, tc.namespacesEnabled,
+			handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, tc.qualifier,
 				batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1), nil)))
 			// Defers run last-in first-out: drain retires the workers first, then the
 			// leak check runs with only the stream's own goroutines left to account for.
@@ -1770,7 +1789,7 @@ func TestSendNotSerialisedAcrossStreams(t *testing.T) {
 
 	// more workers than streams, so that a worker stuck on the stalled stream's
 	// undeliverable report does not starve the healthy stream
-	handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 4, logger, false)
+	handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 4, logger, namespacing.Disabled)
 
 	stalledHandled := make(chan error, 1)
 	go func() {

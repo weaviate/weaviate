@@ -174,7 +174,7 @@ func TestShardReleasesCounterAndVersionFiles(t *testing.T) {
 	versionPath := path.Join(shardPath, "version")
 	loadShard := func() (*Shard, error) {
 		return NewShard(ctx, nil, s.Name(), index, &models.Class{Class: className},
-			index.centralJobQueue, index.scheduler, index.indexCheckpoints,
+			index.centralJobQueue, index.scheduler,
 			index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
 	}
 
@@ -311,7 +311,7 @@ func TestShardLoadDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 					{Name: "location", DataType: schema.DataTypeGeoCoordinates.PropString()},
 				},
 			}
-			shard, index := testShardWithSettings(t, ctx, class, tc.vectorIndexConfig, false, false, false)
+			shard, index := testShardWithSettings(t, ctx, class, tc.vectorIndexConfig, false, false)
 			s, ok := shard.(*Shard)
 			require.True(t, ok)
 
@@ -335,7 +335,7 @@ func TestShardLoadDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 			}
 
 			s, err := NewShard(ctx, nil, s.Name(), index, class,
-				index.centralJobQueue, index.scheduler, index.indexCheckpoints,
+				index.centralJobQueue, index.scheduler,
 				index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
 			require.NoError(t, err)
 			defer s.Shutdown(ctx)

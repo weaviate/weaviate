@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 // UpdateObject updates object of class.
@@ -38,7 +39,7 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 ) (*models.Object, error) {
 	className, _, err := m.resolveNS(principal, updates.Class)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("%v", err)
+		return nil, userInputOrForbidden(err)
 	}
 	updates.Class = className
 
@@ -114,6 +115,9 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	prevObj := obj.Object()
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, updates, prevObj, fetchedClasses)
 	if err != nil {
+		if errors.Is(err, replicaerrors.ErrReplicas) {
+			return nil, NewErrInternal("validate object: %w", err)
+		}
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 

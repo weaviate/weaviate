@@ -13,12 +13,15 @@ package db
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"maps"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,11 +30,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -65,7 +68,6 @@ type DB struct {
 	nodeResolver              cluster.NodeResolver
 	remoteNode                *sharding.RemoteNode
 	promMetrics               *monitoring.PrometheusMetrics
-	indexCheckpoints          *indexcheckpoint.Checkpoints
 	shutdown                  chan struct{}
 	shutdownOnce              sync.Once
 	startupComplete           atomic.Bool
@@ -124,23 +126,8 @@ type DB struct {
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
 
-	// reindexAuditMu guards the audit deps installed by
-	// [DB.SetReindexAuditDeps] and the backup-gate activity lookup
-	// installed by [DB.SetShardReindexActivityLookup] so they are
-	// safely visible from any post-restore goroutine.
-	//
-	// reindexAuditDeferredRequests counts the number of times
-	// [DB.AuditOrphanReindexTrackersIfReady] was called BEFORE deps
-	// were installed (typically from the per-class-dir restore hook
-	// firing during RAFT replay while the SetReindexAuditDeps
-	// goroutine is still waiting on metaStoreReady). On the first
-	// SetReindexAuditDeps call, if the counter is non-zero, the
-	// install path runs a single replay sweep so the deferred
-	// per-class audits are not silently lost. Closes B2.
-	reindexAuditMu                     sync.RWMutex
-	reindexAuditLookupBuilder          KnownReindexTaskLookupBuilder
-	reindexAuditLogger                 logrus.FieldLogger
-	reindexAuditDeferredRequests       int
+	// reindexLookupsMu guards the two lookups below: written at scheduler start, read from backup.
+	reindexLookupsMu                   sync.RWMutex
 	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
 	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
 
@@ -165,6 +152,9 @@ type DB struct {
 	// shard decision can read its namespace's state. nil is only for tests
 	// that build no namespaced class; a namespaced one then fails closed.
 	namespacesExister namespaces.Exister
+
+	// Set after the cluster service is up. Nil-safe: nil keeps MkdirAll behavior.
+	selfRecoveryOrchestrator SelfRecoveryOrchestrator
 }
 
 // SetUsageLimits installs the usage-limits Manager on the DB. Must be
@@ -172,6 +162,41 @@ type DB struct {
 // inherit the manager. See docs/usage_limits.md.
 func (db *DB) SetUsageLimits(m *usagelimits.Manager) {
 	db.usageLimits = m
+}
+
+// SelfRecoveryOrchestrator is the narrow surface avoiding an import cycle on cluster/replication.
+type SelfRecoveryOrchestrator interface {
+	// Enabled must be checked before installing a wrapper, else it blocks load forever.
+	// True whenever the flag is on, licensed or not (UnlicensedSelfRecovery), so a resuming op is still recognised.
+	Enabled() bool
+	// SubmitRecovery is non-blocking; false = not queued and the caller MUST fall back to normal init.
+	SubmitRecovery(ctx context.Context, collection, shard string, startedWithoutRaftState bool) bool
+	// SubmitActivationRecovery queues a tenant activation whose local folder is missing; same contract as SubmitRecovery.
+	SubmitActivationRecovery(ctx context.Context, collection, shard string) bool
+	// Close stops submissions and drains in-flight workers, bounded by ctx; idempotent.
+	Close(ctx context.Context) error
+}
+
+// SetSelfRecoveryOrchestrator must be called before WaitForStartup.
+func (db *DB) SetSelfRecoveryOrchestrator(o SelfRecoveryOrchestrator) {
+	db.selfRecoveryOrchestrator = o
+}
+
+// ShardPath returns the on-disk directory for (collection, shard).
+func (db *DB) ShardPath(collection, shard string) string {
+	return shardPath(
+		path.Join(db.config.RootPath, indexID(schema.ClassName(collection))),
+		shard,
+	)
+}
+
+// LoadLocalShard is the self-recovery promote callback: never creates a shard, wraps the *NotRegistered sentinels for the orchestrator.
+func (db *DB) LoadLocalShard(ctx context.Context, collection, shard string) error {
+	idx := db.GetIndex(schema.ClassName(collection))
+	if idx == nil {
+		return fmt.Errorf("load local shard: index %q: %w", collection, enterrors.ErrIndexNotRegistered)
+	}
+	return idx.PromoteRecoveringLocalShard(ctx, shard)
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -496,14 +521,9 @@ type Config struct {
 	MaintenanceModeEnabled      func() bool
 	AsyncIndexingEnabled        bool
 
-	HFreshEnabled   bool
 	OperationalMode *configRuntime.DynamicValue[string]
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
-
-	// Plumbed through for future callers under the "wl" directory; nothing in
-	// the DB layer reads it yet.
-	WeaviateLicense bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -589,23 +609,93 @@ func (db *DB) copyIndices() map[string]*Index {
 	return indices
 }
 
-// GetLocalShardNames returns the names of all shards local to this node for
-// the given collection. Returns an error if the collection is not found or has
-// no local shards.
+// shuttingDown reports whether DB.Shutdown has begun.
+func (db *DB) shuttingDown() bool {
+	select {
+	case <-db.shutdown:
+		return true
+	default:
+		return false
+	}
+}
+
+// LocalIndexClassNames returns the sorted class names this node holds an index for,
+// closed ones included, qualified as <ns>:<Class> where the class has a namespace.
+// Its only error wraps ErrIndexClosing, which it returns after DB.Shutdown has begun.
+// A call that finds DB.Shutdown holding indexLock waits for DB.Shutdown to return.
+func (db *DB) LocalIndexClassNames() ([]string, error) {
+	if db.shuttingDown() {
+		return nil, errIndexClosingForShutdown
+	}
+
+	indices := db.copyIndices()
+
+	// copyIndices waits on indexLock while DB.Shutdown closes every index, so a stop
+	// may have begun since the check above.
+	if db.shuttingDown() {
+		return nil, errIndexClosingForShutdown
+	}
+
+	names := make([]string, 0, len(indices))
+	for _, index := range indices {
+		// indexID lowercases the map key. Config.ClassName keeps the schema's case and
+		// is written once at construction, so reading it needs no lock.
+		names = append(names, index.Config.ClassName.String())
+	}
+	slices.Sort(names)
+	return names, nil
+}
+
+// errIndexClosingForShutdown refuses a call on a node stop. A caller outside this
+// package matches ErrIndexClosing, and one inside matches errIndexShutdown.
+var errIndexClosingForShutdown = fmt.Errorf("%w: %w", ErrIndexClosing, errIndexShutdown)
+
+// ErrIndexClosing refuses a call because the collection's index is closing, for a
+// node stop or a collection delete.
+var ErrIndexClosing = stderrors.New("collection index is closing")
+
+// GetLocalShardNames returns the names of every shard of the collection on this
+// node, including a lazy shard that never loaded, without loading it. A shard
+// added or removed during the call may or may not be listed. ([]string{}, nil)
+// means this node holds no shard of the collection.
+//
+// ErrIndexClosing means the index is closing for a delete, or DB.Shutdown has
+// begun. A call that finds DB.Shutdown holding indexLock waits for DB.Shutdown to
+// return. cluster/schema.ErrClassNotFound means this node holds no index for the
+// class, and comes back after about 150 ms of DB.GetIndex retries.
 func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
+	if db.shuttingDown() {
+		return nil, errIndexClosingForShutdown
+	}
+
 	index := db.GetIndex(schema.ClassName(collection))
 	if index == nil {
-		return nil, fmt.Errorf("collection %q not found", collection)
+		return nil, fmt.Errorf("%w: collection %q", clusterSchema.ErrClassNotFound, collection)
 	}
-	var names []string
+	if err := index.enterRead(); err != nil {
+		// The refusal wraps enterRead's error and the close cause, so errors.Is
+		// matches either.
+		return nil, fmt.Errorf("%w %q: %w: %w",
+			ErrIndexClosing, collection, err, index.closeRequestedCause())
+	}
+	defer index.exitRead()
+
+	names := make([]string, 0)
 	if err := index.ForEachShard(func(name string, _ ShardLike) error {
 		names = append(names, name)
 		return nil
 	}); err != nil {
 		return nil, err
 	}
-	if len(names) == 0 {
-		return nil, fmt.Errorf("collection %q has no local shards", collection)
+	// DB.Shutdown closes db.shutdown before it takes indexLock, so a stop may have
+	// begun since the entry check without having closed this index yet.
+	if db.shuttingDown() {
+		return nil, errIndexClosingForShutdown
+	}
+	// ForEachShard returns nil without walking a closing index, and
+	// closeRequestedCause also sees a delete that has not closed the index yet.
+	if cause := index.closeRequestedCause(); cause != nil {
+		return nil, fmt.Errorf("%w %q: %w", ErrIndexClosing, collection, cause)
 	}
 	return names, nil
 }
@@ -750,8 +840,15 @@ func (db *DB) deleteIndex(className schema.ClassName) (collided bool, err error)
 }
 
 func (db *DB) Shutdown(ctx context.Context) error {
-	// Close, never send: the sole receiver is the resource-scan loop, and a recovered panic there would leave an unbuffered send hanging the whole shutdown until SIGKILL.
+	// Close, never send: a send reaches one receiver, and a recovered panic in
+	// scanResourceUsage would hang the whole shutdown on it until SIGKILL.
 	db.shutdownOnce.Do(func() { close(db.shutdown) })
+	// Stop self-recovery workers first so in-flight promote callbacks don't race Index.Shutdown.
+	if db.selfRecoveryOrchestrator != nil {
+		if err := db.selfRecoveryOrchestrator.Close(ctx); err != nil {
+			db.logger.Warnf("self-recovery: Close did not drain in time; workers may still be running: %v", err)
+		}
+	}
 	db.bitmapBufPoolClose()
 
 	if !db.AsyncIndexingEnabled {
@@ -786,10 +883,6 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	}
 
 	db.shutDownWg.Wait() // wait until job queue shutdown is completed
-
-	if db.AsyncIndexingEnabled {
-		db.indexCheckpoints.Close()
-	}
 
 	return ec.ToErrorLimited(maxReportedErrors)
 }

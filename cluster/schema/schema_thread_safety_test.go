@@ -75,10 +75,6 @@ func TestConcurrentSchemaAccess(t *testing.T) {
 			test: testConcurrentTenantManagementOperations,
 		},
 		{
-			name: "concurrent sharding state operations",
-			test: testConcurrentShardingStateOperations,
-		},
-		{
 			name: "concurrent alias snapshot and alias writes",
 			test: testConcurrentAliasSnapshot,
 		},
@@ -90,7 +86,7 @@ func TestConcurrentSchemaAccess(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := NewSchema("testNode", &mockShardReader{}, prometheus.NewPedanticRegistry())
+			s := NewSchema("testNode", prometheus.NewPedanticRegistry())
 			tt.test(t, s)
 		})
 	}
@@ -717,47 +713,6 @@ func testConcurrentTenantManagementOperations(t *testing.T, s *schema) {
 	wg.Wait()
 }
 
-func testConcurrentShardingStateOperations(t *testing.T, s *schema) {
-	// Setup initial class
-	class := &models.Class{
-		Class: "TestClass",
-		Properties: []*models.Property{
-			{Name: "prop1", DataType: []string{"string"}},
-		},
-	}
-	shardState := &sharding.State{
-		Physical: map[string]sharding.Physical{
-			"shard1": {
-				Name:   "shard1",
-				Status: "HOT",
-			},
-		},
-	}
-	require.NoError(t, s.addClass(class, shardState, 1))
-
-	const numGoroutines = 10
-	const iterations = 100
-
-	var wg sync.WaitGroup
-	wg.Add(numGoroutines) // For GetShardsStatus operations
-
-	// Test concurrent GetShardsStatus operations
-	for i := 0; i < numGoroutines; i++ {
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
-				status, _ := s.GetShardsStatus("TestClass", "")
-				if status != nil {
-					assert.NotEmpty(t, status)
-				}
-				time.Sleep(time.Microsecond)
-			}
-		}()
-	}
-
-	wg.Wait()
-}
-
 // AliasSnapshot runs while raft applies alias commands. Reading the alias map
 // without the lock is a concurrent map iteration and write, which crashes the
 // process. RestoreAlias is covered too: it replaces the map rather than
@@ -818,15 +773,6 @@ func testConcurrentAliasSnapshot(t *testing.T, s *schema) {
 	wg.Wait()
 }
 
-// Additional mock for shard reader
-type mockShardReader struct{}
-
-func (m *mockShardReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	return models.ShardStatusList{
-		{Status: "HOT", Name: "shard1"},
-	}, nil
-}
-
 // testConcurrentCopyShardingStateAndUpdate reproduces the production pair that
 // raced: the RAFT FSM applying an UpdateClass while a gRPC QueryShardingState
 // copies the same class.
@@ -835,7 +781,7 @@ func (m *mockShardReader) GetShardsStatus(class, tenant string) (models.ShardSta
 // the schema-map lock before returning the pointer — so reading Sharding and
 // ClassVersion afterwards is unsynchronised, while updateClass mutates exactly
 // those fields under the class lock. The sibling test above only drives
-// GetShardsStatus, which goes through a different reader, so it never covered
+// GetShardsStorageStatus, which goes through a different reader, so it never covered
 // this path.
 //
 // Only meaningful under -race: without the class lock the detector reports the

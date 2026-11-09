@@ -256,6 +256,10 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 			c.config.Voter,
 			c.config.NodeSelector,
 			c.Raft.Ready,
+			// wiped-joiner catch-up barrier; no-op for non-wiped nodes.
+			c.Raft.store.SetJoinBarrier,
+			// a wiped joiner is "ready" pre-join; keep joining until the barrier lands.
+			c.Raft.store.NeedsJoinBarrier,
 		)
 		if err := bs.Do(
 			bootstrapCtx,

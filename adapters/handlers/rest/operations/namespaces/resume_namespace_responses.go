@@ -78,7 +78,7 @@ func (o *ResumeNamespaceUnauthorized) WriteResponse(rw http.ResponseWriter, prod
 const ResumeNamespaceForbiddenCode int = 403
 
 /*
-ResumeNamespaceForbidden Forbidden
+ResumeNamespaceForbidden Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node
 
 swagger:response resumeNamespaceForbidden
 */

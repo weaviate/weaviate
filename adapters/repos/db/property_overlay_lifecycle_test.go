@@ -59,7 +59,7 @@ func newOverlayFixture(t *testing.T, prefix, prop string,
 	shape(class.Properties[0])
 
 	hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	t.Cleanup(func() { hot.Shutdown(context.Background()) })
 	shard, err := unwrapShard(ctx, hot)
 	require.NoError(t, err)

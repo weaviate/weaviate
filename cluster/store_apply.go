@@ -13,7 +13,9 @@ package cluster
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -21,10 +23,15 @@ import (
 	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
@@ -49,11 +56,22 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.collectionAddLocks.Unlock(ns)
 	}
 
+	// taskMovementLocks is held until the apply returns, so a second submit on the same collection is checked only after the first has applied. Like tenantAddLocks and collectionAddLocks it is taken before waitLeaderFSMCaughtUp, and none of them nest.
+	collection, task, err := st.taskOrMovementCollection(req)
+	if err != nil {
+		return 0, err
+	}
+	if collection != "" {
+		st.taskMovementLocks.Lock(collection)
+		defer st.taskMovementLocks.Unlock(collection)
+	}
+
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
-	// has not drained what it inherited must not judge yet. After the tenant and
-	// collection locks, not before: each is held across the apply, so a caller
-	// can wait on it long enough for leadership to turn over, and a term
-	// confirmed before the wait says nothing about the term it wakes up in.
+	// has not drained what it inherited must not judge yet. After the tenant,
+	// collection and task-movement locks, not before: each is held across the
+	// apply, so a caller can wait on it long enough for leadership to turn over,
+	// and a term confirmed before the wait says nothing about the term it wakes
+	// up in.
 	if err := st.waitLeaderFSMCaughtUp(); err != nil {
 		return 0, err
 	}
@@ -68,7 +86,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	// Namespace admission runs before the schema-shape filter so a suspended
 	// namespace answers with its own state rather than a complaint about the
 	// entity the caller named.
-	if err := st.admitPropose(req); err != nil {
+	if err := st.admitPropose(req, collection, task); err != nil {
 		return 0, err
 	}
 
@@ -116,14 +134,110 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // apply whose schema half has committed. An Apply-side check would not close
 // that window either: the DB half runs after the schema half commits, so a flip
 // landing in between produces the same state.
-func (st *Store) admitPropose(req *api.ApplyRequest) error {
+// admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. It also refuses a task whose units no longer match the current replicas of the shards they name. collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
+func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *api.AddDistributedTaskRequest) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
 	}
 	if err := st.admitCreateLike(req); err != nil {
 		return err
 	}
-	return st.admitShardStatus(req)
+	if err := st.admitShardStatus(req); err != nil {
+		return err
+	}
+	if err := st.admitTaskOrMovement(req.Type, collection); err != nil {
+		return err
+	}
+	return st.admitTaskReplicas(task, collection)
+}
+
+// admitTaskReplicas refuses a task whose units no longer match the current replicas of the shards they name, since a replica with no unit is never reindexed.
+// A copy that finishes between the REST handler's read and this check has already changed the sharding state read here.
+// A payload the extractor cannot parse is admitted unchecked, because the reindex conflict check in Apply parses the same payload and rejects it.
+func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collection string) error {
+	if task == nil || collection == "" {
+		return nil
+	}
+	extract := st.cfg.DistributedTaskShardReplicasExtractors[task.Namespace]
+	if extract == nil {
+		return nil
+	}
+	taskReplicas, ok := extract(task.Payload)
+	if !ok {
+		return nil
+	}
+
+	changed := false
+	if err := st.schemaManager.NewSchemaReader().Read(collection, false, func(_ *models.Class, state *sharding.State) error {
+		for shard, nodes := range taskReplicas {
+			if !sameNodes(nodes, state.Physical[shard].BelongsToNodes) {
+				changed = true
+				return nil
+			}
+		}
+		return nil
+	}); errors.Is(err, schema.ErrClassNotFound) {
+		changed = true
+	} else if err != nil {
+		return fmt.Errorf("read sharding state of collection %q: %w", collection, err)
+	}
+	if changed {
+		return distributedtask.NewReplicasChangedError(collection)
+	}
+	return nil
+}
+
+func sameNodes(a, b []string) bool {
+	// The submit path skips empty node names, so the comparison must too.
+	notEmpty := func(nodes []string) []string {
+		nodes = slices.DeleteFunc(slices.Clone(nodes), func(n string) bool { return n == "" })
+		slices.Sort(nodes)
+		return slices.Compact(nodes)
+	}
+	return slices.Equal(notEmpty(a), notEmpty(b))
+}
+
+// taskOrMovementCollection also returns the decoded task of a task add, so admitPropose need not decode it again.
+func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, *api.AddDistributedTaskRequest, error) {
+	switch req.Type {
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+		sub := &api.ReplicationReplicateShardRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return "", nil, fmt.Errorf("unmarshal replicate subcommand: %w", err)
+		}
+		return sub.SourceCollection, nil, nil
+
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
+		sub := &api.AddDistributedTaskRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return "", nil, fmt.Errorf("unmarshal add-task subcommand: %w", err)
+		}
+		return st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload), sub, nil
+
+	default:
+		return "", nil, nil
+	}
+}
+
+// admitTaskOrMovement keeps a task and a movement from running on the same collection at once, since a reindex rewrites the files a movement copies.
+func (st *Store) admitTaskOrMovement(cmdType api.ApplyRequest_Type, collection string) error {
+	switch cmdType {
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+		if !st.distributedTasksManager.HasActiveTaskForCollection(collection) {
+			return nil
+		}
+		return fmt.Errorf("%w: collection %q has a running background task; retry after it completes",
+			replicationTypes.ErrMovementBlockedByTask, collection)
+
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
+		if !st.replicationManager.GetReplicationFSM().HasActiveReplicationForCollection(collection) {
+			return nil
+		}
+		return distributedtask.NewBlockedByReplicaMovementError(collection)
+
+	default:
+		return nil
+	}
 }
 
 // admitShardStatus refuses a manual shard status change outside the active
@@ -142,6 +256,7 @@ func (st *Store) admitShardStatus(req *api.ApplyRequest) error {
 // alias commands write schema and no store, and the RBAC and user commands write
 // neither, so a late one leaves nothing half-built. The class and tenant commands
 // do materialize a shard, and admitPropose says why a late one is still safe.
+// It also refuses a user create whose ID prefix is not its namespace.
 func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_ADD_CLASS,
@@ -205,6 +320,12 @@ func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 		sub := &api.CreateUsersRequest{}
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
 			return fmt.Errorf("unmarshal upsert-user subcommand: %w", err)
+		}
+		// NamespaceLocalRBAC finds a user's role assignments by its ID prefix, and
+		// DeleteUsersInNamespace finds its record by Namespace, so a mismatch
+		// splits the user across two namespaces.
+		if namespacing.NamespaceFromQualified(sub.UserId) != sub.Namespace {
+			return fmt.Errorf("user %q is not in namespace %q", sub.UserId, sub.Namespace)
 		}
 		return usecasesNamespaces.RequireActive(st.namespaceManager, sub.Namespace)
 
@@ -284,14 +405,27 @@ func (st *Store) Apply(l *raft.Log) any {
 		panic("error proto un-marshalling log data")
 	}
 
+	// Exclude the watcher's off-thread reload for this entry's whole apply; uncontended outside the wiped-joiner window.
+	if st.wipedJoinerCandidate.Load() {
+		st.wipedJoinerApplyMu.RLock()
+		defer st.wipedJoinerApplyMu.RUnlock()
+	}
+
 	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
 	// don't update the database. This can lead to data loss for example if we drop then re-add a class.
 	// If we don't have any last applied index on start, schema only is always false.
 	// we check for index !=0 to force apply of the 1st index in both db and schema
 	catchingUp := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load()
+
+	// A wiped joiner forces schemaOnly until its reload, so re-hydratable shards aren't materialised empty.
+	forceSchemaOnly := st.wipedJoinerCandidate.Load() && !st.wipedJoinerReloaded.Load()
+
 	// TODO: get rid off schema only as it causes more trouble than it's worth
 	// T-Nr: DB-306
-	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
+	schemaOnly := catchingUp || forceSchemaOnly || st.cfg.MetadataOnlyVoters
+
+	// Callback gated off during catch-up so it fires once at the reload, not per replayed entry.
+	schemaCallback := !catchingUp && !forceSchemaOnly
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
@@ -307,6 +441,16 @@ func (st *Store) Apply(l *raft.Log) any {
 				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
 			}).Info("reloading local DB as RAFT and local DB are now caught up")
 			st.reloadDBFromSchema()
+		}
+
+		// Reload on the Apply thread once applied up to the barrier; idempotent with the other paths.
+		if st.wipedJoinerCandidate.Load() &&
+			wipedJoinerBarrierReached(st.wipedJoinerReloaded.Load(), st.joinBarrier.Load(), l.Index) {
+			st.log.WithFields(logrus.Fields{
+				"log_index":    l.Index,
+				"join_barrier": st.joinBarrier.Load(),
+			}).Info("wiped joiner: caught up to join barrier; running self-recovery reload")
+			st.finishWipedJoinerReload()
 		}
 
 		// we update no mater the error status to avoid any edge cases in the DB layer for already released versions,
@@ -367,17 +511,17 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly, schemaCallback)
 		}
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly, schemaCallback)
 		}
 
 	case api.ApplyRequest_TYPE_UPDATE_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.UpdateClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.UpdateClass(&cmd, st.cfg.NodeID, schemaOnly, schemaCallback)
 		}
 
 	case api.ApplyRequest_TYPE_DELETE_CLASS:
@@ -400,16 +544,16 @@ func (st *Store) Apply(l *raft.Log) any {
 					cmd.Class = existingClass
 				}
 			}
-			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly, schemaCallback)
 		}
 
 	case api.ApplyRequest_TYPE_ADD_PROPERTY:
 		f = func() {
-			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly, schemaCallback)
 		}
 	case api.ApplyRequest_TYPE_UPDATE_PROPERTY:
 		f = func() {
-			ret.Error = st.schemaManager.UpdateProperty(&cmd, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.UpdateProperty(&cmd, schemaOnly, schemaCallback)
 		}
 	case api.ApplyRequest_TYPE_CREATE_ALIAS:
 		f = func() {
@@ -647,6 +791,10 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_CLUSTER_ID_SET:
 		f = func() {
 			ret.Error = st.applyClusterIDSet(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_FORCE_TERMINATE:
+		f = func() {
+			ret.Error = st.distributedTasksManager.ForceTerminateTask(&cmd)
 		}
 
 	default:

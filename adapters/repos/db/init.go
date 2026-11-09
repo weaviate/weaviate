@@ -22,7 +22,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
@@ -52,15 +51,6 @@ func (db *DB) init(ctx context.Context) error {
 	// over.
 	if err := db.migrateFileStructureIfNecessary(); err != nil {
 		return err
-	}
-
-	if db.AsyncIndexingEnabled {
-		// init the index checkpoint file
-		var err error
-		db.indexCheckpoints, err = indexcheckpoint.New(db.config.RootPath, db.logger)
-		if err != nil {
-			return errors.Wrap(err, "init index checkpoint")
-		}
 	}
 
 	objects := db.schemaGetter.GetSchemaSkipAuth().Objects
@@ -211,15 +201,16 @@ func (db *DB) init(ctx context.Context) error {
 				QueryBatchedContainsEnabled:  db.config.QueryBatchedContainsEnabled,
 				LazyPropertyLengthsEnabled:   db.config.LazyPropertyLengthsEnabled,
 				MaintenanceModeEnabled:       db.config.MaintenanceModeEnabled,
-				HFreshEnabled:                db.config.HFreshEnabled,
 				AutoTenantActivation:         schema.AutoTenantActivationEnabled(class),
 				DisableDimensionMetrics:      db.config.DisableDimensionMetrics,
+				SelfRecoveryOrchestrator:     db.selfRecoveryOrchestrator,
+				ReplicationFSM:               db.replicationFSM,
 			},
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
 				indexRouter, shardResolver, db.schemaGetter, db.schemaReader, db, db.logger, db.nodeResolver, db.remoteIndex,
-				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler, db.indexCheckpoints,
+				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler,
 				db.memMonitor, db.reindexer, db.bitmapBufPool, db.AsyncIndexingEnabled, db.tenantsManager)
 			if err != nil {
 				return errors.Wrap(err, "create index")
@@ -392,7 +383,17 @@ func (db *DB) migrateFileStructureIfNecessary() error {
 func (db *DB) migrateToHierarchicalFS() error {
 	before := time.Now()
 
-	if err := migratefs.MigrateToHierarchicalFS(db.config.RootPath, db.schemaReader); err != nil {
+	schema := db.schemaReader.ReadOnlySchema()
+	collections := make([]migratefs.ClassShards, 0, len(schema.Classes))
+	for _, class := range schema.Classes {
+		shards, err := db.schemaReader.Shards(class.Class)
+		if err != nil {
+			return fmt.Errorf("unable to retrieve shards for class %q: %w", class.Class, err)
+		}
+		collections = append(collections, migratefs.ClassShards{Class: class, Shards: shards})
+	}
+
+	if err := migratefs.MigrateToHierarchicalFS(db.config.RootPath, collections); err != nil {
 		return err
 	}
 	db.logger.WithField("action", "hierarchical_fs_migration").

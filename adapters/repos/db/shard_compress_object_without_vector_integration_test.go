@@ -36,7 +36,7 @@ func TestShardCompressSkipsObjectsWithoutVector(t *testing.T) {
 	vic := enthnsw.NewDefaultUserConfig()
 	vic.SQ.Enabled = true
 
-	shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, vic, false, false, false)
+	shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, vic, false, false)
 	s, ok := shd.(*Shard)
 	require.True(t, ok)
 
@@ -54,8 +54,9 @@ func TestShardCompressSkipsObjectsWithoutVector(t *testing.T) {
 	var notFound storobj.ErrNotFound
 	require.ErrorAs(t, err, &notFound)
 
-	idx, ok := shd.GetVectorIndex("")
+	idx, release, ok := shd.AcquireVectorIndex("")
 	require.True(t, ok)
+	defer release()
 	upgradable, ok := idx.(interface {
 		Upgrade(func()) error
 		Compressed() bool

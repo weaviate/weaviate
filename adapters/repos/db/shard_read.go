@@ -673,32 +673,37 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 
 	distances := make([]float32, len(targetVectors))
 	for j, target := range targetVectors {
-		index, ok := s.GetVectorIndex(target)
-		if !ok {
+		found, err := s.WithVectorIndex(target, func(index VectorIndex) error {
+			var distancer common.QueryVectorDistancer
+			switch v := searchVectors[j].(type) {
+			case []float32:
+				err := checkVectorKind(index, target, false)
+				if err != nil {
+					return err
+				}
+				distancer = index.QueryVectorDistancer(v)
+			case [][]float32:
+				multiIndex, err := asMultiVectorIndex(index, target)
+				if err != nil {
+					return err
+				}
+				distancer = multiIndex.QueryMultiVectorDistancer(v)
+			default:
+				return fmt.Errorf("unsupported vector type: %T", v)
+			}
+			dist, err := distancer.DistanceToNode(docId)
+			if err != nil {
+				return err
+			}
+			distances[j] = dist
+			return nil
+		})
+		if !found {
 			return nil, fmt.Errorf("index %s not found", target)
 		}
-		var distancer common.QueryVectorDistancer
-		switch v := searchVectors[j].(type) {
-		case []float32:
-			err := checkVectorKind(index, target, false)
-			if err != nil {
-				return nil, err
-			}
-			distancer = index.QueryVectorDistancer(v)
-		case [][]float32:
-			multiIndex, err := asMultiVectorIndex(index, target)
-			if err != nil {
-				return nil, err
-			}
-			distancer = multiIndex.QueryMultiVectorDistancer(v)
-		default:
-			return nil, fmt.Errorf("unsupported vector type: %T", v)
-		}
-		dist, err := distancer.DistanceToNode(docId)
 		if err != nil {
 			return nil, err
 		}
-		distances[j] = dist
 	}
 	return distances, nil
 }
@@ -725,13 +730,9 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	s.activityTrackerRead.Add(1)
 
-	// Hold the admission seat for the whole method, for two reasons. The
-	// vector index sizes its worker pools (compressed rescoring, HFresh
-	// posting reads) from the grant in ctx, so the grant must exist while the
-	// vector phase runs. And the object fetch below fans out at 2*GOMAXPROCS
-	// without reading the grant, so the seat is what bounds how many queries
-	// run that fan-out at once. Releasing after the vector phase would let
-	// every queued query start its fetch simultaneously.
+	// Hold the grant until the method returns, because the hnsw and hfresh indexes
+	// and the object fetch below size their worker pools from it. Releasing it
+	// earlier hands its units to queued queries while those workers still run.
 	ctx, release, err := s.index.Config.QueryAdmission.Admit(ctx, concurrency.TimesGOMAXPROCS(2))
 	if err != nil {
 		return nil, nil, err
@@ -768,10 +769,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 				err   error
 			)
 
-			vidx, ok := s.GetVectorIndex(targetVector)
+			vidx, release, ok := s.AcquireVectorIndex(targetVector)
 			if !ok {
 				return fmt.Errorf("index for target vector %q not found", targetVector)
 			}
+			defer release()
 
 			if limit < 0 {
 				switch searchVector := searchVectors[i].(type) {
@@ -903,7 +905,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		return nil, nil, err
 	}
 	defer release()
-	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger)
+	// a doc ID the vector index still knows but the objects bucket no longer
+	// has is dropped together with its distance, instead of shifting the
+	// distances of every later hit onto the wrong object
+	objs, distCombined, err := storobj.ObjectsByDocIDWithDists(ctx, bucket, idsCombined, distCombined,
+		additional, properties, s.index.logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -937,7 +943,7 @@ func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, 
 			took := time.Since(beforeObjects)
 			helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
 		}()
-		return storobj.ObjectsByDocID(bucket, docIDs, additional, nil, s.index.logger)
+		return storobj.ObjectsByDocID(ctx, bucket, docIDs, additional, nil, s.index.logger)
 	}
 
 	if cursor == nil {

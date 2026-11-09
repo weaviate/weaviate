@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp/syntax"
 	"slices"
 	"strconv"
 	"strings"
@@ -393,17 +394,47 @@ func operatorOnlyResource(path string) bool {
 		strings.HasPrefix(path, groupsPrefix)
 }
 
+// namespaceFreeResource reports whether a namespaced caller may match path
+// literally instead of being denied by the shape check in
+// namespaceAwareMatcher.
+//
+// Only mcp qualifies. Its resource is the bare string "mcp" with no collection
+// segment, so it always fails the shape check. Without this exception no
+// namespaced caller could use MCP, not even one whose role grants read_mcp
+// explicitly. Letting it through is safe because the mcp check only opens the
+// door to the tools. Each tool then checks the collection it touches under its
+// namespaced name, so data access is never decided on "mcp" alone. A caller
+// whose only grant is a bare "*" passes the mcp check, but every tool still
+// denies them.
+//
+// A new global domain belongs in operatorOnlyResource, not here.
+func namespaceFreeResource(path string) bool {
+	return path == authorization.McpDomain
+}
+
 // weaviateKeyMatch runs the `/shards/#` vs `/shards/.*` carve-out then
 // KeyMatch5: a collection-level request must not match a per-tenant policy.
 //
 // A verbose nodes policy on any collection also satisfies the minimal nodes request.
-func weaviateKeyMatch(reqObj, polObj string) bool {
+//
+// Past those carve-outs, a policy whose pattern does not compile matches
+// nothing. KeyMatch5 panics on it, which casbin turns into an error failing
+// the whole Enforce call.
+func weaviateKeyMatch(reqObj, polObj string) (matched bool) {
 	if strings.HasSuffix(reqObj, "/shards/#") && strings.HasSuffix(polObj, "/shards/.*") {
 		return false
 	}
 	if reqObj == nodesMinimalResource && strings.HasPrefix(polObj, nodesVerbosePrefix) {
 		return true
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			if err, ok := r.(error); !ok || !errors.As(err, new(*syntax.Error)) {
+				panic(r)
+			}
+			matched = false
+		}
+	}()
 	return casbinutil.KeyMatch5(reqObj, polObj)
 }
 
@@ -419,7 +450,9 @@ func weaviateKeyMatch(reqObj, polObj string) bool {
 //     non-namespaceable shape: no rewrite.
 //
 // Namespaced callers are denied the operator-only domains (backups, nodes,
-// replicate, cluster, namespaces, groups) outright.
+// replicate, cluster, namespaces, groups) outright. They are also denied any
+// request or policy shape FindNamespaceSegments does not know, such as a bare
+// "*", unless the request is mcp.
 func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 	// Namespaced callers have no access to operator-only domains, whatever the policy.
 	if ns != "" && operatorOnlyResource(reqObj) {
@@ -467,10 +500,12 @@ func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 	_, reqColEnd, reqHasAlias := namespacing.FindNamespaceSegments(reqObj)
 
 	// 2. Shape check. If either path isn't a namespaceable shape (end==0),
-	//    or the two disagree on alias-ness (one is schema/data, the other
-	//    aliases), there's nothing meaningful to rewrite — defer to plain
-	//    KeyMatch5 (which returns false on a shape mismatch anyway).
+	//    or the two disagree on alias-ness, there's nothing to rewrite. A
+	//    namespaced caller is denied, since a bare "*" matches any namespace.
 	if reqColEnd == 0 || polColEnd == 0 || reqHasAlias != polHasAlias {
+		if ns != "" && !namespaceFreeResource(reqObj) {
+			return false
+		}
 		return weaviateKeyMatch(reqObj, polObj)
 	}
 

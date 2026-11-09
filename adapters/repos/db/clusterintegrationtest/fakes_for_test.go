@@ -43,6 +43,7 @@ import (
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -172,7 +173,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
 	n.scheduler = ubak.NewScheduler(
-		&fakeAuthorizer{}, backupClient, n.repo, nil, nil, backendProvider, nodeResolver, n.schemaManager, nil, nil, nil, logger)
+		&fakeAuthorizer{}, backupClient, n.repo, license.FeatureOff, nil, nil, nil, backendProvider, nodeResolver, n.schemaManager, nil, nil, nil, logger)
 
 	n.migrator = db.NewMigrator(n.repo, logger, n.name)
 
@@ -465,10 +466,9 @@ func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key, overri
 }
 
 func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {
-	f.Lock()
-	defer f.Unlock()
 	defer r.Close()
-	return 0, nil
+	// Closing unread fails the sender with "read/write on closed pipe".
+	return io.Copy(io.Discard, r)
 }
 
 func (f *fakeBackupBackend) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
@@ -530,7 +530,7 @@ func (f *fakeBackupBackend) successGlobalMeta() backup.DistributedBackupDescript
 		},
 		Status:        "SUCCESS",
 		Version:       ubak.Version,
-		ServerVersion: "x.x.x",
+		ServerVersion: "1.38.0",
 	}
 }
 
@@ -538,7 +538,7 @@ func (f *fakeBackupBackend) successLocalMeta() backup.BackupDescriptor {
 	return backup.BackupDescriptor{
 		ID:            f.backupID,
 		Status:        "SUCCESS",
-		ServerVersion: "x.x.x",
+		ServerVersion: "1.38.0",
 		Version:       ubak.Version,
 		StartedAt:     f.startedAt,
 		Classes: []backup.ClassDescriptor{
@@ -557,7 +557,7 @@ func (f *fakeBackupBackend) successLocalMeta() backup.BackupDescriptor {
 						PropLengthTrackerPath: ".",
 					},
 				},
-				ShardingState: []byte("sharding state!"),
+				ShardingState: []byte(`{"physical":{"123":{"name":"123","belongsToNodes":["node-0"]}}}`),
 				Schema:        []byte("schema!"),
 			},
 		},

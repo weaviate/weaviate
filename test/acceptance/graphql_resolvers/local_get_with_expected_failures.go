@@ -29,7 +29,8 @@ func getsWithExpectedFailures(t *testing.T) {
 
 		t.Run("create class configured with distance type l2-squared", func(t *testing.T) {
 			createObjectClass(t, &models.Class{
-				Class: className,
+				Class:      className,
+				Vectorizer: "text2vec-model2vec",
 				ModuleConfig: map[string]interface{}{
 					"text2vec-model2vec": map[string]interface{}{
 						"vectorizeClassName": true,
@@ -72,7 +73,8 @@ func getsWithExpectedFailures(t *testing.T) {
 
 		t.Run("create class configured with distance type dot", func(t *testing.T) {
 			createObjectClass(t, &models.Class{
-				Class: className,
+				Class:      className,
+				Vectorizer: "text2vec-model2vec",
 				ModuleConfig: map[string]interface{}{
 					"text2vec-model2vec": map[string]interface{}{
 						"vectorizeClassName": true,

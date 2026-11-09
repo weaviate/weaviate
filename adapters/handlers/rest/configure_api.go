@@ -60,7 +60,6 @@ import (
 	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
-	rest_namespaces "github.com/weaviate/weaviate/adapters/handlers/rest/namespaces"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/restcompat"
@@ -184,6 +183,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
+	"github.com/weaviate/weaviate/wl/backupdedupe"
+	wlnshandlers "github.com/weaviate/weaviate/wl/namespaces/handlers"
+	"github.com/weaviate/weaviate/wl/selfrecovery"
+	srhandlers "github.com/weaviate/weaviate/wl/selfrecovery/handlers"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -203,6 +206,12 @@ type vectorRepo interface {
 	SetSchemaGetter(schema.SchemaGetter)
 	WaitForStartup(ctx context.Context) error
 	Shutdown(ctx context.Context) error
+}
+
+func distributedTaskShardReplicasExtractors() map[string]distributedtask.ShardReplicasExtractor {
+	return map[string]distributedtask.ShardReplicasExtractor{
+		db.ReindexNamespace: db.ExtractReindexTaskReplicas,
+	}
 }
 
 func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
@@ -554,10 +563,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LazyPropertyLengthsEnabled:    appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
 		MaintenanceModeEnabled:        appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		AsyncIndexingEnabled:          appState.ServerConfig.Config.AsyncIndexingEnabled,
-		HFreshEnabled:                 appState.ServerConfig.Config.HFreshEnabled,
 		OperationalMode:               appState.ServerConfig.Config.OperationalMode,
 		DisableDimensionMetrics:       appState.ServerConfig.Config.DisableDimensionMetrics,
-		WeaviateLicense:               appState.ServerConfig.Config.WeaviateLicense,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil, appState.NamespacesController) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -668,6 +675,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		MetadataOnlyVoters:          appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
 		EnableOneNodeRecovery:       appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
 		ForceOneNodeRecovery:        appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
+		SelfRecoveryEnabled:         appState.ServerConfig.Config.Replication.SelfRecoveryEnabled,
+		WipedJoinerBarrierTimeout:   appState.ServerConfig.Config.Replication.SelfRecoveryBarrierTimeout,
 		DB:                          nil,
 		Parser:                      schemaParser,
 		NodeNameToPortMap:           server2port,
@@ -693,6 +702,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DistributedTaskTargetVectorExtractors: map[string]distributedtask.TargetVectorExtractor{
 			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskTargets,
 		},
+		DistributedTaskShardReplicasExtractors: distributedTaskShardReplicasExtractors(),
 		DrainSleep:                             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
 		MaxTenantsPerCollection:                appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
 		MaxCollections:                         appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount,
@@ -721,41 +731,44 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		enterrors.SetClusterIDSource(appState.ClusterService.ClusterID)
 	}
 
-	// Wrap RestoreClassDir so each post-RAFT-apply class-dir move also
-	// fires the orphan-reindex audit on the restored on-disk state.
-	// AuditOrphanReindexTrackersIfReady returns a Skipped outcome until
-	// the deps closure is installed (below, from the Scheduler.Start
-	// goroutine); SetReindexAuditDeps replays any audits requested
-	// during the install race window so per-class restores that win
-	// the race against deps install do not silently no-op (B2).
-	classDirMover := backup.RestoreClassDir(dataPath)
-	restoreClassDirWithAudit := func(class string) error {
-		if err := classDirMover(class); err != nil {
-			return err
+	// Wired after Cluster (Raft dep) and before WaitForStartup so schema-replay shard-init can hand off missing shards.
+	selfRecoveryMode := selfRecoveryModeFor(appState.ServerConfig.Config)
+	logUnlicensedSelfRecovery(appState.Logger, selfRecoveryMode)
+	selfRecoveryHousekeeping(selfRecoveryMode, dataPath, appState.Logger)
+	var selfRecoveryOrch db.SelfRecoveryOrchestrator
+	appState.DB.SetSelfRecoveryOrchestrator(selfRecoveryFor(selfRecoveryMode, appState.Logger, func() db.SelfRecoveryOrchestrator {
+		selfRecoveryOrch = selfrecovery.New(selfrecovery.Config{
+			Raft:                   appState.ClusterService.Raft,
+			Schema:                 selfRecoverySchemaReader{r: appState.ClusterService.SchemaReader()},
+			PathResolver:           selfRecoveryDBPathResolver{db: appState.DB, root: dataPath},
+			ClientFactory:          remoteClientFactory,
+			NodeSelector:           nodeSelector,
+			NodeName:               nodeName,
+			Concurrency:            appState.ServerConfig.Config.Replication.SelfRecoveryConcurrency,
+			MaintenanceModeEnabled: appState.Cluster.MaintenanceModeEnabledForLocalhost,
+			OnRecoveryComplete:     appState.DB.LoadLocalShard,
+			RootDataPath:           dataPath,
+			Logger:                 appState.Logger,
+			Registerer:             prometheus.DefaultRegisterer,
+		})
+		return selfRecoveryOrch
+	}))
+	setupSelfRecoveryDebugHandlers(http.DefaultServeMux, selfRecoveryMode, func(mux *http.ServeMux) {
+		orch, ok := selfRecoveryOrch.(*selfrecovery.Orchestrator)
+		if !ok {
+			appState.Logger.WithField("action", "startup").
+				Errorf("self-recovery debug endpoints will answer 503: the orchestrator is %T, not the licensed one", selfRecoveryOrch)
 		}
-		// Background ctx: invoked from the RAFT FSM apply path,
-		// which does not propagate an audit-scoped ctx.
-		outcome, err := repo.AuditOrphanReindexTrackersIfReady(context.Background())
-		if err != nil {
-			appState.Logger.WithField("action", "reindex_orphan_audit_post_class_dir_restore").
-				WithField("class", class).
-				Warnf("reindex orphan audit failed after class-dir restore; the next process restart will retry: %v", err)
-		} else if outcome.Status == db.AuditStatusSkipped {
-			// Skipped is benign during normal startup (the install
-			// goroutine hasn't run yet) but the post-install replay
-			// path in SetReindexAuditDeps will pick this up.
-			appState.Logger.WithField("action", "reindex_orphan_audit_post_class_dir_restore").
-				WithField("class", class).
-				WithField("skip_reason", outcome.SkipReason).
-				Info("reindex orphan audit skipped after class-dir restore; deferred for post-install replay")
-		}
-		return nil
+		srhandlers.SetupHandlers(mux, appState.Logger, orch)
+	})
+	if selfRecoveryMode != license.FeatureOff {
+		setupRaftDebugHandlers(appState, appState.ClusterService.Raft)
 	}
 
 	executor := schema.NewExecutor(
 		migrator,
 		appState.ClusterService.SchemaReader(),
-		appState.Logger, restoreClassDirWithAudit,
+		appState.Logger, backup.RestoreClassDir(dataPath),
 	)
 
 	offloadmod, _ := appState.Modules.OffloadBackend("offload-s3")
@@ -778,6 +791,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
+		executor,
 		schemaRepo,
 		appState.Logger, appState.Authorizer, &appState.ServerConfig.Config.SchemaHandlerConfig, appState.ServerConfig.Config,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
@@ -786,6 +800,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		collectionRetrievalStrategyConfigFlag,
 		appState.NamespacesController,
 		dropVectorEnqueuer,
+		appState.NamespaceQualifier,
 	)
 	if err != nil {
 		appState.Logger.
@@ -863,10 +878,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// OnAfterLsmInit during shard load — BEFORE any post-restart write
 	// reaches the shard. Without this, writes between shard init and the
 	// deferred swap go only to the old main bucket and are silently lost.
-	// Reads: <data>/<index>/<shard>/lsm/.migrations/<dir>/payload.mig
-	// (written by ReindexProvider.persistRecoveryRecord before reindex
-	// starts), plus the existing started.mig / tidied.mig sentinels to
-	// decide which migrations are still in flight.
 	recoveredReindexes, recoveryErr := db.DiscoverInFlightReindexTasks(
 		appState.ServerConfig.Config.Persistence.DataPath,
 		appState.ServerConfig.Config.RuntimeReindexEnabled,
@@ -902,7 +913,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Logger, prometheus.DefaultRegisterer)
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		schemaManager, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, appState.Metrics, appState.AutoSchemaManager)
+		appState.Authorizer, appState.Metrics, appState.AutoSchemaManager,
+		appState.NamespaceQualifier)
 	appState.BatchManager = batchManager
 
 	err = migrator.AdjustFilterablePropSettings(ctx)
@@ -1070,75 +1082,16 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		if metaStoreReady.waitForMetaStore() != nil {
 			return
 		}
+
+		raft := appState.ClusterService.Raft
+		repo.SetMigrationTaskSources(serverShutdownCtx,
+			newMigrationLocalTaskSource(raft), newMigrationClusterTaskSource(raft))
+
 		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
 			appState.Logger.WithField("action", "startup").
 				Errorf("failed to start distributed task scheduler: %v", err)
 			return
 		}
-
-		// Post-bootstrap orphan-reindex audit. Must run AFTER
-		// Scheduler.Start so the lookup observes the steady-state
-		// view of RAFT-known tasks.
-		//
-		// Use serverShutdownCtx, not the outer MakeAppState ctx: the
-		// outer ctx is canceled by configureAPI's defer once HTTP
-		// server init returns, which is before this goroutine runs.
-		// That cancellation propagates into Store.PauseCompaction and
-		// surfaces as a misleading "context canceled" error.
-		auditCtx := serverShutdownCtx
-		// buildKnownTask returns an error on ListDistributedTasks
-		// failure. Callers MUST propagate the error rather than
-		// substitute a soft default — prior versions returned a
-		// "treat every tracker as known" closure, which silently
-		// misclassified orphans during a DTM partition. Explicit
-		// error makes the failure path operator-observable.
-		buildKnownTask := func() (db.KnownReindexTaskLookup, error) {
-			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
-			if err != nil {
-				return nil, fmt.Errorf("ListDistributedTasks: %w", err)
-			}
-			return db.NewLiveReindexTrackerLookup(tasksByNamespace[db.ReindexNamespace]), nil
-		}
-		// Wait until ListDistributedTasks succeeds at least once before
-		// running the startup audit. Without this, a transient DTM-list
-		// failure during the bootstrap window means buildKnownTask
-		// returns nil and the audit skips → orphan tracker dirs left
-		// behind by a backup-restore are never classified. Exponential
-		// backoff capped at 5s; bound the total wait so an offline
-		// cluster doesn't block startup indefinitely.
-		auditReadyBackoff := 100 * time.Millisecond
-		auditReadyDeadline := time.Now().Add(60 * time.Second)
-		for {
-			_, listErr := appState.ClusterService.ListDistributedTasks(auditCtx)
-			if listErr == nil {
-				break
-			}
-			if time.Now().After(auditReadyDeadline) {
-				appState.Logger.WithField("action", "reindex_orphan_audit").
-					Errorf("reindex orphan audit: DTM list unavailable after 60s; skipping startup audit. Orphans from a prior restore (if any) will be picked up by the next process restart: %v", listErr)
-				break
-			}
-			appState.Logger.WithField("action", "reindex_orphan_audit").
-				Debugf("reindex orphan audit: DTM list not yet ready; retrying in %s: %v", auditReadyBackoff, listErr)
-			select {
-			case <-time.After(auditReadyBackoff):
-			case <-auditCtx.Done():
-				return
-			}
-			auditReadyBackoff = min(auditReadyBackoff*2, 5*time.Second)
-		}
-		startupLookup, startupBuildErr := buildKnownTask()
-		if startupBuildErr != nil {
-			appState.Logger.WithField("action", "startup").
-				Errorf("reindex orphan audit: builder failed; skipping startup audit. The next process restart will retry: %v", startupBuildErr)
-		} else if _, err := repo.AuditOrphanReindexTrackers(auditCtx, startupLookup, appState.Logger); err != nil {
-			appState.Logger.WithField("action", "startup").
-				Warnf("reindex orphan audit did not run cleanly; restored clusters may retain orphan sidecar buckets: %v", err)
-		}
-
-		// Install the audit deps so the post-restore-class-dir hook
-		// (wired into RestoreClassDir above) can run the audit.
-		repo.SetReindexAuditDeps(buildKnownTask, appState.Logger)
 
 		// Install the backup-gate activity lookup so refuseIfReindexInFlight
 		// consults DTM rather than per-shard filesystem markers. Built per
@@ -1146,16 +1099,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// fall back to refusing every backup until DTM is reachable, to
 		// avoid races against in-flight reindexes that the local node
 		// cannot see.
-		buildShardReindexActivity := func() db.ShardReindexActivityLookup {
-			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
-			if err != nil {
-				appState.Logger.WithField("action", "backup_reindex_gate").
-					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
-				return func(string, string) bool { return true }
-			}
-			return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger)
-		}
-		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
+		repo.SetShardReindexActivityLookup(shardReindexActivityBuilder(serverShutdownCtx,
+			appState.ClusterService.ListDistributedTasks, appState.Logger))
 		// S1: the DTM-activity lookup flips a shard "free" the moment a
 		// task lands in a terminal status; autoCleanupAfterTerminal then
 		// tears the sidecar __reindex / __ingest dirs over the next
@@ -1166,6 +1111,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}, appState.Logger)
 
 	return appState
+}
+
+func shardReindexActivityBuilder(ctx context.Context,
+	listTasks func(context.Context) (map[string][]*distributedtask.Task, error), logger logrus.FieldLogger,
+) db.ShardReindexActivityLookupBuilder {
+	return func() (db.ShardReindexActivityLookup, error) {
+		tasksByNamespace, err := listTasks(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("cannot list the cluster's distributed tasks: %w", err)
+		}
+		return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], logger), nil
+	}
 }
 
 func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPool, close func()) {
@@ -1201,6 +1158,8 @@ func initReindexAndDistributedTasks(
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
+
+	repo.SetReindexUnitSeal(reindexProvider.ReindexUnitSealBuilder())
 
 	// Read-repair for the v1.38→v1.39 stamp-migration residual; see
 	// [db.ReindexProvider.RunSearchableBlockmaxRepair].
@@ -1256,6 +1215,7 @@ func initReindexAndDistributedTasks(
 		// after OnGroupCompleted, so a failed ack flips the task to FAILED
 		// before the cluster-wide schema flip can run.
 		AckRecorder:        appState.ClusterService.Raft,
+		ForceTerminator:    appState.ClusterService.Raft,
 		LocalTaskInspector: appState.ClusterService.Raft,
 		Providers:          providers,
 		Logger:             appState.Logger,
@@ -1493,15 +1453,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.APIKey.Dynamic, appState.AuthzController, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
-	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer)
+	setupNamespaceHandlers(api, namespaceModeFor(appState.ServerConfig.Config), func(api *operations.WeaviateAPI) {
+		wlnshandlers.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer)
+	})
 
-	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ServerConfig.Config.Namespaces.Enabled)
+	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.NamespaceQualifier)
 	setupIndexesHandlers(api, appState)
-	setupTokenizeHandlers(api, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger)
+	setupTokenizeHandlers(api, appState.SchemaManager, appState.NamespaceQualifier, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.DB, appState.Modules,
-		objects.NewMetrics(appState.Metrics), appState.MemWatch, appState.AutoSchemaManager)
+		objects.NewMetrics(appState.Metrics), appState.MemWatch, appState.AutoSchemaManager,
+		appState.NamespaceQualifier)
 	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger,
 		appState.Modules, appState.Metrics)
 	setupObjectBatchHandlers(api, appState.BatchManager, appState.Metrics, appState.Logger)
@@ -1512,6 +1475,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.License, appState.Metrics, appState.Logger)
 	setupClassificationHandlers(api, classifier, appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
+	// Lets a DELETE landing on a non-coordinator cancel the create via abort fan-out.
+	appState.BackupManager.SetCoordinatorCanceller(backupScheduler)
 	setupBackupHandlers(api, backupScheduler, appState.ServerConfig.Config.Authorization.Rbac, appState.Metrics, appState.Logger)
 	exportScheduler := startExportScheduler(appState)
 	setupExportHandlers(api, exportScheduler, appState.Metrics, appState.Logger)
@@ -1596,9 +1561,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	serverShutdown := func() {
 		// Leave announces the node's departure before internal infrastructure
-		// closes. Public HTTP has stopped by now; it waits up to
-		// GracefulTimeout. gRPC then gets up to 20s to stop. After that, gRPC
-		// may still be stopping in the background (see shutdownHooks).
+		// closes. Public HTTP has drained by now, or been closed and its handlers
+		// awaited (see ServeAndShutdown). gRPC then gets up to 20s to stop. After
+		// that, gRPC may still be stopping in the background (see shutdownHooks).
 		if err := appState.Cluster.Leave(); err != nil {
 			appState.Logger.WithError(err).Error("leave node from cluster")
 		}
@@ -1773,10 +1738,27 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	if appState.RBAC != nil {
 		roleLister = appState.RBAC
 	}
+	dedupeMode := dedupeModeFor(appState.ServerConfig.Config)
+	logUnlicensedDedupe(appState.Logger, dedupeMode)
+	dedupePlanner, err := dedupePlannerFor(dedupeMode, func() (backup.DedupePlanner, error) {
+		p, err := backupdedupe.New(backupdedupe.Config{
+			Checkpointer:  appState.DB,
+			Logger:        appState.Logger,
+			DefaultBudget: appState.ServerConfig.Config.Backup.DedupeConvergenceTimeout.Get,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return p, nil
+	})
+	if err != nil {
+		appState.Logger.WithField("action", "startup").
+			Errorf("dedupeReplicas backup requests will be refused on this node: cannot build the dedupe planner: %v", err)
+	}
 	backupScheduler := backup.NewScheduler(
 		appState.Authorizer,
 		clients.NewClusterBackups(appState.ClusterHttpClient),
-		appState.DB, userLister, roleLister, appState.Modules,
+		appState.DB, dedupeMode, dedupePlanner, userLister, roleLister, appState.Modules,
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
 		rbac.StaticAPIKeyUsers(appState.ServerConfig.Config.Authentication),
@@ -1848,13 +1830,6 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	}
 
 	logger.WithFields(logrus.Fields{
-		"action":                    "startup",
-		"default_vectorizer_module": serverConfig.Config.DefaultVectorizerModule,
-	}).Infof("the default vectorizer modules is set to %q, as a result all new "+
-		"schema classes without an explicit vectorizer setting, will use this "+
-		"vectorizer", serverConfig.Config.DefaultVectorizerModule)
-
-	logger.WithFields(logrus.Fields{
 		"action":              "startup",
 		"auto_schema_enabled": serverConfig.Config.AutoSchema.Enabled,
 	}).Infof("auto schema enabled setting is set to \"%v\"", serverConfig.Config.AutoSchema.Enabled)
@@ -1866,6 +1841,9 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	// classifier's nsExister, so the controller must be initialised
 	// before this call.
 	appState.NamespacesController = usecasesNamespaces.NewController(logger)
+	namespaceMode := namespaceModeFor(serverConfig.Config)
+	appState.NamespaceQualifier = namespaceQualifier(namespaceMode)
+	logUnlicensedNamespaces(logger, namespaceMode)
 	appState.OIDC = configureOIDC(appState)
 	appState.APIKey = configureAPIKey(appState)
 	appState.APIKeyRemote = apikey.NewRemoteApiKey(appState.APIKey)
@@ -1918,9 +1896,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 			WithField("action", "startup").
 			Fatalf("modules didn't initialize: %v", err)
 	}
-	// now that modules are loaded we can run the remaining config validation
-	// which is module dependent
-	if err := appState.ServerConfig.Config.ValidateModules(appState.Modules); err != nil {
+	if err := appState.ServerConfig.Config.ValidateDefaultVectorDistanceMetric(); err != nil {
 		appState.Logger.
 			WithField("action", "startup").
 			Fatalf("invalid config: %v", err)

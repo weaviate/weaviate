@@ -71,6 +71,12 @@ func (r *ThrottledRecorder) RecordDistributedTaskUnitFailure(ctx context.Context
 	return r.inner.RecordDistributedTaskUnitFailure(ctx, namespace, taskID, version, nodeID, unitID, errMsg)
 }
 
+func (r *ThrottledRecorder) RecordDistributedTaskRetryableUnitFailure(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID, errMsg string) error {
+	// Do NOT cleanup the throttle entry: the unit may be re-opened and
+	// continue emitting progress.
+	return r.inner.RecordDistributedTaskRetryableUnitFailure(ctx, namespace, taskID, version, nodeID, unitID, errMsg)
+}
+
 func (r *ThrottledRecorder) cleanupThrottleEntry(namespace, taskID string, version uint64, unitID string) {
 	key := fmt.Sprintf("%s/%s/%d/%s", namespace, taskID, version, unitID)
 	r.mu.Lock()

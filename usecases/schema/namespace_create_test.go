@@ -29,9 +29,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingcfg "github.com/weaviate/weaviate/usecases/sharding/config"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // fakeNamespacesExister implements [namespaces.Exister] for tests that only
@@ -64,10 +66,13 @@ func newTestHandlerWithNamespaces(t *testing.T, enabled bool) (*Handler, *fakeSc
 		valid: []string{"text2vec-contextionary", "model1", "model2"},
 	}
 	cfg := config.Config{
-		DefaultVectorizerModule:     config.VectorizerModuleNone,
 		DefaultVectorDistanceMetric: "cosine",
 	}
 	cfg.Namespaces.Enabled = enabled
+	qualifier := namespacing.Disabled
+	if enabled {
+		qualifier = wlnamespaces.NewPrefixing()
+	}
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}
 	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{}, nil, nil)
@@ -76,10 +81,10 @@ func newTestHandlerWithNamespaces(t *testing.T, enabled bool) (*Handler, *fakeSc
 	// Tests that exercise placement should set handler.namespacesExister
 	// directly to override this default.
 	handler, err := NewHandler(
-		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
+		schemaManager, schemaManager, &fakeDB{}, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil,
-		fakeNamespacesExister{defaultHomeNode: "node-1"}, nil)
+		fakeNamespacesExister{defaultHomeNode: "node-1"}, nil, qualifier)
 	require.NoError(t, err)
 	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 	return &handler, schemaManager
@@ -732,6 +737,20 @@ func TestAddAlias(t *testing.T) {
 			require.Equal(t, tt.wantClass, got.Class)
 		})
 	}
+}
+
+func TestUpdateAlias_RejectsCrossNamespaceTarget(t *testing.T) {
+	t.Parallel()
+	handler, sm := newTestHandlerWithNamespaces(t, true)
+	sm.On("GetAliases", mock.Anything, "customer1:Films", mock.Anything).
+		Return([]*models.Alias{{Alias: "customer1:Films", Class: "customer1:Movies"}}, nil)
+	sm.On("ReadOnlyClass", "customer2:Secret").Return(&models.Class{Class: "customer2:Secret"})
+	sm.On("ReplaceAlias", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	_, err := handler.UpdateAlias(context.Background(), globalPrincipal(), "customer1:Films", "customer2:Secret")
+	require.ErrorIs(t, err, ErrValidation)
+	assert.ErrorContains(t, err, "are in different namespaces")
+	sm.AssertNotCalled(t, "ReplaceAlias", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // TestUpdateClass_QualifiesPropertyDataTypes pins the GET→PUT round-trip.

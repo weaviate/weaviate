@@ -112,4 +112,4 @@ grpc:
 	./tools/dev/grpc_regenerate.sh
 
 deps:
-	@echo "Sync go deps in Weaviate, e2e with Go client and benchmark_bm25" && go mod tidy && go mod vendor && cd test/acceptance_with_go_client/ && go mod tidy && go mod vendor && cd ../benchmark_bm25/ && go mod tidy && go mod vendor && cd ../.. && echo "Success" || echo "Failed"
+	@echo "Sync go deps in Weaviate, generated gRPC stubs, e2e with Go client and benchmark_bm25" && go mod tidy && go mod vendor && cd grpc/generated/protocol && go mod tidy && go mod vendor && cd ../../../test/acceptance_with_go_client/ && go mod tidy && go mod vendor && cd ../benchmark_bm25/ && go mod tidy && go mod vendor && cd ../.. && echo "Success" || echo "Failed"

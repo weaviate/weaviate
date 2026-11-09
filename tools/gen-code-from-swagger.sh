@@ -5,6 +5,10 @@ set -eou pipefail
 # Version of go-swagger to use.
 version=v0.30.4
 
+# Version of golangci-lint.
+# Keep this version in sync with .github/actions/golangci-lint/action.yml and .pre-commit-config.yaml.
+golangci_lint_version=v2.14.0
+
 # Always points to the directory of this script.
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SWAGGER=$DIR/swagger-${version}
@@ -22,9 +26,15 @@ if [ ! -f "$SWAGGER" ]; then
   chmod +x "$SWAGGER"
 fi
 
-# Install golangci-lint if it's not installed; keep the version in sync with .github/actions/golangci-lint/action.yml and .pre-commit-config.yaml.
+# Install golangci-lint if missing, then check that the installed version matches.
 if ! command -v golangci-lint >/dev/null 2>&1; then
-  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${golangci_lint_version}
+fi
+installed_golangci_lint_version="v$(golangci-lint version --short)"
+if [ "$installed_golangci_lint_version" != "$golangci_lint_version" ]; then
+  echo "golangci-lint ${golangci_lint_version} is required, found ${installed_golangci_lint_version}; install it with:"
+  echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${golangci_lint_version}"
+  exit 1
 fi
 
 # Always install goimports to ensure that all parties use the same version

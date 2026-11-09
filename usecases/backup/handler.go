@@ -16,8 +16,10 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -35,7 +37,7 @@ import (
 // Classification uses errors.Is against the shared
 // [backup.ErrBackupBlockedByInFlightReindex] sentinel rather than substring
 // comparison; the storage layer's Backupable() wraps that sentinel inside
-// errors.Join when multiple shards refuse, and errors.Is walks the join.
+// errors.Join when several classes refuse, and errors.Is walks the join.
 func classifyCanCommitErr(err error) CanCommitErrorKind {
 	if err == nil {
 		return ""
@@ -48,6 +50,8 @@ func classifyCanCommitErr(err error) CanCommitErrorKind {
 
 // Version of backup structure
 const (
+	// "3.0" replica-deduped artifact layout; requires fan-out restore
+	VersionDedupeReplicas = "3.0"
 	// "2.1" support restore on 2 phases
 	Version = "2.1"
 	// "2.0" support compression
@@ -62,6 +66,7 @@ var (
 	errLegacyUncompressed = legacyRestoreErr("by Weaviate older than v1.21, which stored files uncompressed")
 	errLegacyFlatFS       = legacyRestoreErr("by Weaviate older than v1.23, which stored shard files " +
 		"in a flat directory instead of one directory per shard")
+	errUnreadableServerVersion = errors.New("backup has an unreadable server version")
 )
 
 // legacyRestoreErr builds the refusal for a backup format this build no longer restores.
@@ -70,8 +75,8 @@ func legacyRestoreErr(origin string) error {
 		"release that still supports it and create a new backup", origin)
 }
 
-// maxMajorVersion is the newest backup-structure major version this build restores.
-var maxMajorVersion, _ = parseMajor(Version)
+// maxRestorableMajorVersion is the newest backup-structure major this build restores; 3.x = replica-deduped layout.
+const maxRestorableMajorVersion = 3
 
 // checkRestorableVersion refuses backups this build cannot restore, either because their
 // format is too old or because a later Weaviate produced them. version is the
@@ -81,12 +86,20 @@ func checkRestorableVersion(version, serverVersion string) error {
 	if version != "" && version <= version1 {
 		return errLegacyUncompressed
 	}
-	if serverVersionOlderThan(serverVersion, 1, 23) {
+	older, err := serverVersionOlderThan(serverVersion, 1, 23)
+	if err != nil {
+		return err
+	}
+	if older {
 		return errLegacyFlatFS
 	}
 	// A structure version may omit the minor, so compare majors only.
-	if major, ok := parseMajor(version); ok && major > maxMajorVersion {
-		return fmt.Errorf("%s: %s > %s", errMsgHigherVersion, version, Version)
+	major, ok := parseMajor(version)
+	if version != "" && !ok {
+		return fmt.Errorf("corrupted backup: unrecognized structure version %q", version)
+	}
+	if ok && major > maxRestorableMajorVersion {
+		return fmt.Errorf("%s: %s > %d.x", errMsgHigherVersion, version, maxRestorableMajorVersion)
 	}
 	return nil
 }
@@ -117,16 +130,16 @@ func parseVersion(version string) (major, minor int, ok bool) {
 }
 
 // serverVersionOlderThan reports whether serverVersion, formatted "major.minor[.patch]",
-// is older than major.minor. An unparseable version is not treated as older.
-func serverVersionOlderThan(serverVersion string, major, minor int) bool {
+// is older than major.minor. It fails when serverVersion does not parse.
+func serverVersionOlderThan(serverVersion string, major, minor int) (bool, error) {
 	gotMajor, gotMinor, ok := parseVersion(serverVersion)
 	if !ok {
-		return false
+		return false, fmt.Errorf("%w %q: want major.minor[.patch]", errUnreadableServerVersion, serverVersion)
 	}
 	if gotMajor != major {
-		return gotMajor < major
+		return gotMajor < major, nil
 	}
-	return gotMinor < minor
+	return gotMinor < minor, nil
 }
 
 // TODO error handling need to be implemented properly.
@@ -189,6 +202,11 @@ type Status struct {
 	BaseBackupID string
 }
 
+// CoordinatorCanceller lets a cluster abort reach the coordinator slot (*Scheduler).
+type CoordinatorCanceller interface {
+	cancelCoordinatorOp(method Op, id, attemptID string) bool
+}
+
 type Handler struct {
 	node string
 	// deps
@@ -197,6 +215,8 @@ type Handler struct {
 	backupper  *backupper
 	restorer   *restorer
 	backends   BackupBackendProvider
+	// atomic: wired after the cluster API already serves OnAbort.
+	coordCanceller atomic.Pointer[CoordinatorCanceller]
 }
 
 func NewHandler(
@@ -275,6 +295,28 @@ type BackupRequest struct {
 	UserRestoreOption string
 
 	BaseBackupID string
+
+	// DedupeReplicas opts in to single-replica archiving of convergence-proven shards; the artifact then needs fan-out-capable versions to restore.
+	DedupeReplicas bool
+
+	// DedupeConvergenceTimeoutSeconds bounds the convergence wait; 0 = default.
+	DedupeConvergenceTimeoutSeconds int
+}
+
+// originalNodeName reverse-maps this node's name to its backup-time name; a wrong answer here makes a mapped fan-out restore silently restore nothing.
+// Sorted iteration keeps the answer deterministic under a non-injective mapping (rejected up front for deduped restores, still accepted on the legacy path).
+func originalNodeName(local string, mapping map[string]string) string {
+	oldNames := make([]string, 0, len(mapping))
+	for oldName := range mapping {
+		oldNames = append(oldNames, oldName)
+	}
+	sort.Strings(oldNames)
+	for _, oldName := range oldNames {
+		if local == mapping[oldName] {
+			return oldName
+		}
+	}
+	return local
 }
 
 // OnCanCommit will be triggered when coordinator asks the node to participate
@@ -283,15 +325,9 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 	ret := &CanCommitResponse{Method: req.Method, ID: req.ID}
 
 	nodeName := m.node
-	// If we are doing a restore and have a nodeMapping specified, ensure we use the "old" node name from the backup to retrieve/store the
-	// backup information.
+	// A restore must read/store backup information under the node's backup-time name.
 	if req.Method == OpRestore {
-		for oldNodeName, newNodeName := range req.NodeMapping {
-			if nodeName == newNodeName {
-				nodeName = oldNodeName
-				break
-			}
-		}
+		nodeName = originalNodeName(m.node, req.NodeMapping)
 	}
 	store, err := nodeBackend(nodeName, m.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
@@ -319,10 +355,34 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 			return ret
 		}
 		ret.Timeout = res.Timeout
+		ret.DedupeHonored = req.DedupeReplicas
 	case OpRestore:
+		if req.DedupeReplicas {
+			plan, err := m.restorer.buildFanoutPlan(ctx, nodeName, req)
+			if err != nil {
+				ret.Err = err.Error()
+				ret.ErrKind = CanCommitErrCannotCommit
+				return ret
+			}
+			res, err := m.restorer.restoreFanout(req, plan, store)
+			if err != nil {
+				ret.Err = err.Error()
+				ret.ErrKind = CanCommitErrCannotCommit
+				return ret
+			}
+			ret.Timeout = res.Timeout
+			ret.DedupeHonored = true
+			return ret
+		}
 		meta, _, err := m.restorer.validate(ctx, &store, req)
 		if err != nil {
 			ret.Err = err.Error()
+			ret.ErrKind = CanCommitErrCannotCommit
+			return ret
+		}
+		// validateNodeMeta only catches version/flag mismatch; restoring a deduped descriptor thin would silently omit designated-away shards.
+		if meta.DedupeReplicas {
+			ret.Err = "per-node descriptor is replica-deduped but the restore was not planned as a fan-out; global descriptor is corrupt"
 			ret.ErrKind = CanCommitErrCannotCommit
 			return ret
 		}
@@ -354,8 +414,17 @@ func (m *Handler) OnCommit(ctx context.Context, req *StatusRequest) (err error) 
 	}
 }
 
+// SetCoordinatorCanceller lets an abort RPC cancel an op this node coordinates.
+func (m *Handler) SetCoordinatorCanceller(c CoordinatorCanceller) {
+	m.coordCanceller.Store(&c)
+}
+
 // OnAbort will be triggered when the coordinator abort the execution of a previous operation
 func (m *Handler) OnAbort(ctx context.Context, req *AbortRequest) error {
+	// A create waiting out planning has no participant slots; only this reaches it.
+	if c := m.coordCanceller.Load(); c != nil {
+		(*c).cancelCoordinatorOp(req.Method, req.ID, req.AttemptID)
+	}
 	switch req.Method {
 	case OpCreate:
 		return m.backupper.OnAbort(ctx, req)

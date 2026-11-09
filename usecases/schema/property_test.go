@@ -186,6 +186,8 @@ func TestHandler_AddProperty_ReservedSuffix(t *testing.T) {
 		// merge=true with a name matching an existing property must skip the
 		// suffix check (case-insensitively) so legacy schemas stay upsert-able.
 		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(class)
+		fakeSchemaManager.On("ReadOnlyVersionedClass", class.Class).
+			Return(versioned.Class{Class: class, Version: 1}).Maybe()
 		fakeSchemaManager.On("AddProperty", class.Class, mock.Anything).Return(nil).Maybe()
 		upsert := &models.Property{
 			Name:     "Foo_searchable",
@@ -193,6 +195,30 @@ func TestHandler_AddProperty_ReservedSuffix(t *testing.T) {
 		}
 		_, _, err := handler.AddClassProperty(ctx, nil, class.Class, true, upsert)
 		require.NoError(t, err)
+	})
+
+	t.Run("returns the class version when every property already exists", func(t *testing.T) {
+		// Callers gate their writes on this version; 0 lets them through before
+		// the owner shard has created the property buckets (0-weaviate-issues#697).
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		title := &models.Property{Name: "title", DataType: schema.DataTypeText.PropString()}
+		class := &models.Class{
+			Class:             "Movie",
+			Properties:        []*models.Property{title},
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+		const addedAt uint64 = 42
+		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(class)
+		fakeSchemaManager.On("ReadOnlyVersionedClass", class.Class).
+			Return(versioned.Class{Class: class, Version: addedAt})
+
+		same := &models.Property{Name: "title", DataType: schema.DataTypeText.PropString()}
+		got, version, err := handler.AddClassProperty(ctx, nil, class.Class, true, same)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, addedAt, version)
+		fakeSchemaManager.AssertNotCalled(t, "AddProperty", mock.Anything, mock.Anything)
 	})
 }
 
@@ -854,7 +880,6 @@ func (pdt *fakePropertyDataType) ContainsClass(name schema.ClassName) bool {
 }
 
 func TestHandler_DeleteClassVectorIndex(t *testing.T) {
-	t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")
 	ctx := context.Background()
 
 	t.Run("class not found returns error", func(t *testing.T) {
@@ -1076,7 +1101,7 @@ func TestAddClassProperty_Namespacing(t *testing.T) {
 				handler.Authorizer = authorizer
 			}
 
-			lookup, err := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			lookup, err := namespacing.QualifyClass(tt.principal, handler.qualifier, tt.inputName)
 			require.NoError(t, err)
 			if lookup == tt.stored {
 				sm.On("ReadOnlyClass", lookup).Return(&models.Class{
@@ -1187,7 +1212,7 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 			t.Parallel()
 			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
 
-			lookup, err := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			lookup, err := namespacing.QualifyClass(tt.principal, handler.qualifier, tt.inputName)
 			require.NoError(t, err)
 			prop := &models.Property{
 				Name:            "title",
@@ -1552,7 +1577,6 @@ func TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff(t *testing.T) {
 func boolPtr(b bool) *bool { return &b }
 
 func TestDeleteClassVectorIndex_Namespacing(t *testing.T) {
-	t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")
 	cases := []struct {
 		name         string
 		enabled      bool
@@ -1600,7 +1624,7 @@ func TestDeleteClassVectorIndex_Namespacing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
 
-			lookup, err := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			lookup, err := namespacing.QualifyClass(tt.principal, handler.qualifier, tt.inputName)
 			require.NoError(t, err)
 			storedClass := &models.Class{
 				Class: tt.stored,

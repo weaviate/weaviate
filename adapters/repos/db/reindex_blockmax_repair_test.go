@@ -29,6 +29,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
 	schemauc "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // stampCall records one masked-RAFT UpdatePropertyFromMigration the repair fires.
@@ -98,7 +99,7 @@ func TestReconcileClassSearchableBlockmax_BackfillsResidualStamp(t *testing.T) {
 	}
 
 	shd, idx := testShardWithSettings(t, ctx, initClass, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 
@@ -130,8 +131,8 @@ func TestReconcileClassSearchableBlockmax_BackfillsResidualStamp(t *testing.T) {
 	// Real schema.Manager wired to fakes: the stamp write routes through
 	// Handler's unexported schemaManager/schemaReader, so NewHandler is the
 	// only way to inject the capture; mgr.ReadOnlyClass resolves via the embedded SchemaReader.
-	h, err := schemauc.NewHandler(reader, capMgr, nil, logger, nil, nil, config.Config{},
-		nil, nil, nil, nil, nil, nil, schemauc.Parser{}, nil, nil, nil)
+	h, err := schemauc.NewHandler(reader, capMgr, nil, nil, logger, nil, nil, config.Config{},
+		nil, nil, nil, nil, nil, nil, schemauc.Parser{}, nil, nil, nil, namespacing.Disabled)
 	require.NoError(t, err)
 	mgr := &schemauc.Manager{Handler: h, SchemaReader: reader}
 
@@ -195,8 +196,8 @@ func TestReconcileClassSearchableBlockmax_SeedsFromFinishedTaskWhileShardless(t 
 	logger, _ := test.NewNullLogger()
 	capMgr := &capturingSchemaManager{}
 	reader := repairResidualReader{class: residualClass}
-	h, err := schemauc.NewHandler(reader, capMgr, nil, logger, nil, nil, config.Config{},
-		nil, nil, nil, nil, nil, nil, schemauc.Parser{}, nil, nil, nil)
+	h, err := schemauc.NewHandler(reader, capMgr, nil, nil, logger, nil, nil, config.Config{},
+		nil, nil, nil, nil, nil, nil, schemauc.Parser{}, nil, nil, nil, namespacing.Disabled)
 	require.NoError(t, err)
 	mgr := &schemauc.Manager{Handler: h, SchemaReader: reader}
 

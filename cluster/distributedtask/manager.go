@@ -258,8 +258,9 @@ func NewManager(params ManagerParameters) *Manager {
 }
 
 // RegisterCollectionExtractor opts a task namespace into DeleteTasksForCollection's
-// cascade. Extractor runs under the Manager lock — must not block or recurse. Last
+// cascade. Extractor may run concurrently, with or without the Manager lock — must not block or recurse. Last
 // write wins per namespace; nil / empty arguments are silently dropped.
+// It also keeps this namespace's tasks and replica movements from running on the same collection at once (HasActiveTaskForCollection, CollectionOfTask).
 func (m *Manager) RegisterCollectionExtractor(namespace string, extractor CollectionExtractor) {
 	if namespace == "" || extractor == nil {
 		return
@@ -267,6 +268,15 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.collectionExtractors[namespace] = extractor
+}
+
+// cacheCollectionWithLock runs once per add or restore, since HasActiveTaskForCollection runs on every replica copy.
+func (m *Manager) cacheCollectionWithLock(task *Task) {
+	if extractor := m.collectionExtractors[task.Namespace]; extractor != nil {
+		if c, ok := extractor(task.Payload); ok {
+			task.collection = c
+		}
+	}
 }
 
 // RegisterTargetVectorExtractor opts a task namespace into
@@ -398,6 +408,35 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	return removed
 }
 
+func (m *Manager) CollectionOfTask(namespace string, payload []byte) string {
+	extractor := m.collectionExtractor(namespace)
+	if extractor == nil {
+		return ""
+	}
+	collection, _ := extractor(payload)
+	return collection
+}
+
+func (m *Manager) collectionExtractor(namespace string) CollectionExtractor {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.collectionExtractors[namespace]
+}
+
+func (m *Manager) HasActiveTaskForCollection(collection string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for ns := range m.collectionExtractors {
+		for _, task := range m.tasks[ns] {
+			if task.Status.IsActive() && strings.EqualFold(task.collection, collection) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // AddTask registers a new distributed task from a Raft apply. The seqNum becomes the task's
 // Version, used to distinguish re-runs of the same task ID. Returns an error if a task with
 // the same namespace/ID is already running, or if no units are provided.
@@ -413,7 +452,8 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	task := m.findTaskWithLock(r.Namespace, r.Id)
 	if task != nil {
 		if task.Status == TaskStatusStarted {
-			return fmt.Errorf("task %s/%s is already running with version %d", r.Namespace, r.Id, task.Version)
+			return wrapPermanent(ErrTaskAlreadyRunning,
+				fmt.Sprintf("task %s/%s is already running with version %d", r.Namespace, r.Id, task.Version))
 		}
 
 		if seqNum <= task.Version {
@@ -430,6 +470,13 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	// of (newPayload, existingTasks) — see the ConflictDetector
 	// godoc on the FSM-determinism contract.
 	if cd, ok := m.conflictDetectors[r.Namespace]; ok && cd != nil {
+		if cncd, isCross := cd.(CrossNamespaceConflictDetector); isCross {
+			if err := cncd.CheckCrossNamespaceConflict(r.Payload, m.tasks); err != nil {
+				return wrapPermanent(ErrTaskConflict,
+					fmt.Sprintf("task %s/%s conflicts with existing task: %v", r.Namespace, r.Id, err))
+			}
+		}
+
 		var existing []*Task
 		for _, t := range m.tasks[r.Namespace] {
 			existing = append(existing, t)
@@ -449,6 +496,9 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		NeedsPreparationBarrier: r.NeedsPreparationBarrier,
 		Status:                  TaskStatusStarted,
 		StartedAt:               time.UnixMilli(r.SubmittedAtUnixMillis),
+		FormatVersion:           1,
+		StaleTimeoutMs:          r.StaleTimeoutMs,
+		MaxUnitRetries:          r.MaxUnitRetries,
 	}
 
 	if len(r.UnitSpecs) > 0 {
@@ -472,6 +522,7 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		return fmt.Errorf("task %s/%s must have at least one unit", r.Namespace, r.Id)
 	}
 
+	m.cacheCollectionWithLock(newTask)
 	m.setTaskWithLock(newTask)
 	m.notifySchedulerWithLock()
 
@@ -544,6 +595,18 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 	finishedAt := time.UnixMilli(r.FinishedAtUnixMillis)
 
 	if r.Error != "" {
+		// Retryable failure with budget remaining: re-open the unit
+		// instead of failing the task.
+		if r.Retryable && task.MaxUnitRetries > 0 && u.Attempts < task.MaxUnitRetries {
+			u.Attempts++
+			u.Status = UnitStatusPending
+			u.Error = ""
+			u.Progress = 0
+			// The unit keeps its NodeID so the retry runs on the same node.
+			m.notifySchedulerWithLock()
+			return nil
+		}
+
 		u.markTerminal(UnitStatusFailed, finishedAt)
 		u.Error = r.Error
 		task.Error = fmt.Sprintf("unit %s failed: %s", r.UnitId, r.Error)
@@ -950,6 +1013,61 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	return nil
 }
 
+// ForceTerminateTask transitions a task to the requested terminal status
+// from {STARTED, PREPARING, SWAPPING}. Refused for unrecognized statuses
+// and for SWAPPING when all post-completion acks landed (finalize is
+// imminent). Idempotent against already-terminal tasks.
+//
+// Records reason in Task.Error. Does not affect CancelTask semantics.
+func (m *Manager) ForceTerminateTask(c *api.ApplyRequest) error {
+	var r api.ForceTerminateDistributedTaskRequest
+	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
+		return fmt.Errorf("unmarshal force terminate task request: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
+	if err != nil {
+		return err
+	}
+
+	if task.Status.IsTerminal() {
+		return nil
+	}
+
+	if !task.Status.IsForceTerminable() {
+		return wrapPermanent(ErrForceTerminateRefused,
+			fmt.Sprintf("task %s/%s/%d cannot be force-terminated from status %s",
+				r.Namespace, r.Id, task.Version, task.Status))
+	}
+
+	// Every ack has landed, so finalize is imminent and nothing is left to terminate.
+	if task.Status == TaskStatusSwapping && task.AllPostCompletionAcksSuccessful() {
+		return wrapPermanent(ErrForceTerminateRefused,
+			fmt.Sprintf("task %s/%s/%d is SWAPPING with all acks landed; finalize is imminent",
+				r.Namespace, r.Id, task.Version))
+	}
+
+	terminalStatus := TaskStatusFailed
+	if TaskStatus(r.RequestedTerminalStatus) == TaskStatusCancelled {
+		terminalStatus = TaskStatusCancelled
+	}
+
+	task.Status = terminalStatus
+	task.FinishedAt = time.UnixMilli(r.TerminatedAtUnixMillis)
+	if r.Reason != "" {
+		if task.Error != "" {
+			task.Error = task.Error + "; " + r.Reason
+		} else {
+			task.Error = r.Reason
+		}
+	}
+	m.notifySchedulerWithLock()
+	return nil
+}
+
 // CleanUpTask removes a task from the Manager's state. It refuses a task that is both
 // [TaskStatus.IsActive] and [TaskStatus.IsRecognized], and a task whose completedTaskTTL
 // has not yet elapsed, preventing premature removal of status information that other
@@ -1016,6 +1134,20 @@ func (m *Manager) LocalDistributedTasks() map[string][]*Task {
 		sortTasksForDisplay(result[namespace])
 	}
 	return result
+}
+
+// LocalTaskStatuses copies no units: a decider can read once per record, under
+// the lock RAFT applies wait on, where [Manager.LocalDistributedTasks] clones them all.
+func (m *Manager) LocalTaskStatuses(namespace string) []TaskStatusEntry {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	tasks := m.tasks[namespace]
+	out := make([]TaskStatusEntry, 0, len(tasks))
+	for _, task := range tasks {
+		out = append(out, task.StatusEntry())
+	}
+	return out
 }
 
 // This is not reached through the [TaskLister] interface in production —
@@ -1091,6 +1223,42 @@ func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, erro
 
 	return json.Marshal(&ListDistributedTasksResponse{
 		Tasks: tasks,
+	})
+}
+
+// GetDistributedTask returns a cloned snapshot of a single task by
+// namespace and ID, or nil if no such task exists.
+func (m *Manager) GetDistributedTask(namespace, taskID string) *Task {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	task := m.findTaskWithLock(namespace, taskID)
+	if task == nil {
+		return nil
+	}
+	return task.Clone()
+}
+
+// GetDistributedTaskPayload returns the JSON-marshaled by-id response
+// for the TYPE_DISTRIBUTED_TASK_GET query. Returns a typed not-found
+// when the task does not exist.
+func (m *Manager) GetDistributedTaskPayload(subCommand []byte) ([]byte, error) {
+	var r api.GetDistributedTaskRequest
+	if err := json.Unmarshal(subCommand, &r); err != nil {
+		return nil, fmt.Errorf("unmarshal get task request: %w", err)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	task := m.findTaskWithLock(r.Namespace, r.Id)
+	if task == nil {
+		return nil, wrapPermanent(ErrTaskDoesNotExist,
+			fmt.Sprintf("task %s/%s does not exist", r.Namespace, r.Id))
+	}
+
+	return json.Marshal(&GetDistributedTaskResponse{
+		Task: task.Clone(),
 	})
 }
 
@@ -1178,6 +1346,7 @@ func (m *Manager) Restore(bytes []byte) error {
 				task.FinishedAt = time.Time{}
 			}
 
+			m.cacheCollectionWithLock(task)
 			m.tasks[namespace][task.ID] = task
 		}
 	}

@@ -27,7 +27,7 @@ import (
 // refs, but derives single-target linked classes from the schema. REST has no
 // schema lookup here and qualifies the caller-typed name as-is, so a
 // wrong-but-same-NS class only fails the schema lookup downstream.
-func Parse(in *models.WhereFilter, rootClass string, namespacesEnabled bool, principal *models.Principal) (*filters.LocalFilter, error) {
+func Parse(in *models.WhereFilter, rootClass string, qualifier namespacing.Qualifier, principal *models.Principal) (*filters.LocalFilter, error) {
 	if in == nil {
 		return nil, nil
 	}
@@ -38,14 +38,14 @@ func Parse(in *models.WhereFilter, rootClass string, namespacesEnabled bool, pri
 	}
 
 	if operator.OnValue() {
-		filter, err := parseValueFilter(in, operator, rootClass, namespacesEnabled, principal)
+		filter, err := parseValueFilter(in, operator, rootClass, qualifier, principal)
 		if err != nil {
 			return nil, fmt.Errorf("invalid where filter: %w", err)
 		}
 		return filter, nil
 	}
 
-	filter, err := parseNestedFilter(in, operator, rootClass, namespacesEnabled, principal)
+	filter, err := parseNestedFilter(in, operator, rootClass, qualifier, principal)
 	if err != nil {
 		return nil, fmt.Errorf("invalid where filter: %w", err)
 	}
@@ -53,14 +53,14 @@ func Parse(in *models.WhereFilter, rootClass string, namespacesEnabled bool, pri
 }
 
 func parseValueFilter(in *models.WhereFilter,
-	operator filters.Operator, rootClass string, namespacesEnabled bool, principal *models.Principal,
+	operator filters.Operator, rootClass string, qualifier namespacing.Qualifier, principal *models.Principal,
 ) (*filters.LocalFilter, error) {
 	value, err := parseValue(in)
 	if err != nil {
 		return nil, err
 	}
 
-	path, err := parsePath(in.Path, rootClass, namespacesEnabled, principal)
+	path, err := parsePath(in.Path, rootClass, qualifier, principal)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func parseValueFilter(in *models.WhereFilter,
 }
 
 func parseNestedFilter(in *models.WhereFilter,
-	operator filters.Operator, rootClass string, namespacesEnabled bool, principal *models.Principal,
+	operator filters.Operator, rootClass string, qualifier namespacing.Qualifier, principal *models.Principal,
 ) (*filters.LocalFilter, error) {
 	if in.Path != nil {
 		return nil, fmt.Errorf(
@@ -98,7 +98,7 @@ func parseNestedFilter(in *models.WhereFilter,
 			operator.Name())
 	}
 
-	operands, err := parseOperands(in.Operands, rootClass, namespacesEnabled, principal)
+	operands, err := parseOperands(in.Operands, rootClass, qualifier, principal)
 	if err != nil {
 		return nil, err
 	}
@@ -111,10 +111,10 @@ func parseNestedFilter(in *models.WhereFilter,
 	}, nil
 }
 
-func parseOperands(ops []*models.WhereFilter, rootClass string, namespacesEnabled bool, principal *models.Principal) ([]filters.Clause, error) {
+func parseOperands(ops []*models.WhereFilter, rootClass string, qualifier namespacing.Qualifier, principal *models.Principal) ([]filters.Clause, error) {
 	out := make([]filters.Clause, len(ops))
 	for i, operand := range ops {
-		res, err := Parse(operand, rootClass, namespacesEnabled, principal)
+		res, err := Parse(operand, rootClass, qualifier, principal)
 		if err != nil {
 			return nil, fmt.Errorf("operand %d: %w", i, err)
 		}
@@ -162,19 +162,19 @@ func parseOperator(in string) (filters.Operator, error) {
 	}
 }
 
-func parsePath(in []string, rootClass string, namespacesEnabled bool, principal *models.Principal) (*filters.Path, error) {
+func parsePath(in []string, rootClass string, qualifier namespacing.Qualifier, principal *models.Principal) (*filters.Path, error) {
 	if len(in) == 0 {
 		return nil, fmt.Errorf("field 'path': must have at least one element")
 	}
 
 	// Qualify each inner class segment (odd indices) against its parent's
 	// namespace: rootClass for path[1], the qualified path[1] for path[3], etc.
-	if namespacesEnabled && len(in) > 1 {
+	if qualifier.NamespacesEnabled() && len(in) > 1 {
 		qualified := make([]string, len(in))
 		copy(qualified, in)
 		parent := rootClass
 		for i := 1; i < len(qualified); i += 2 {
-			q, _, err := namespacing.QualifyRefTarget(principal, namespacesEnabled, parent, qualified[i])
+			q, _, err := namespacing.QualifyRefTarget(principal, qualifier, parent, qualified[i])
 			if err != nil {
 				return nil, fmt.Errorf("field 'path': %w", err)
 			}

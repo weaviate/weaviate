@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -135,6 +136,15 @@ func TestShardShutdownWhenIdleEventually(t *testing.T) {
 
 func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup func()) {
 	logger, _ := test.NewNullLogger()
+	return initIndexAndPopulateWithLogger(t, dirName, logger)
+}
+
+// initIndexAndPopulateWithLogger is initIndexAndPopulate with the caller's
+// logger installed from construction. A test that wants a log hook passes
+// its logger here rather than swapping index.logger afterwards: the index
+// starts its lazy-shard warmup goroutine as soon as it exists, and that
+// goroutine reads the logger, so a later swap is a data race.
+func initIndexAndPopulateWithLogger(t *testing.T, dirName string, logger *logrus.Logger) (index *Index, cleanup func()) {
 	className := "Test"
 
 	// create db

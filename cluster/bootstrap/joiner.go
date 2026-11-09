@@ -44,8 +44,8 @@ func NewJoiner(peerJoiner PeerJoiner, localNodeID string, localRaftAddr string, 
 
 // Do will attempt to send to any nodes in remoteNodes a JoinPeerRequest for j.localNodeID with the address j.localRaftAddr.
 // Will join as voter if j.voter is true, non voter otherwise.
-// Returns the leader address if a cluster was joined or an error otherwise.
-func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[string]string) (string, error) {
+// Returns the leader address and its committed index at join (catch-up barrier; 0 when unavailable).
+func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[string]string) (string, uint64, error) {
 	if entSentry.Enabled() {
 		span := sentry.StartSpan(ctx, "raft.bootstrap.join",
 			sentry.WithOpName("join"),
@@ -74,7 +74,7 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 		}).Info("attempting to join")
 		resp, err = j.peerJoiner.Join(ctx, addr, req)
 		if err == nil {
-			return addr, nil
+			return addr, resp.GetLeaderCommitIndex(), nil
 		}
 
 		rpcStatusCode := status.Convert(err).Code()
@@ -87,7 +87,8 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 
 		// avoid self multiple join attempts
 		if rpcStatusCode == rpc.NotLeaderRPCCode && leaderAddr == j.localRaftAddr {
-			return leaderAddr, nil
+			// We are the leader; no barrier needed.
+			return leaderAddr, 0, nil
 		}
 
 		lg.WithFields(logrus.Fields{
@@ -100,9 +101,10 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 		// Get the leader from response and if not empty try to join it
 		if rpcStatusCode == rpc.NotLeaderRPCCode {
 			// join the actual leader
-			_, err = j.peerJoiner.Join(ctx, leaderAddr, req)
+			var leaderResp *cmd.JoinPeerResponse
+			leaderResp, err = j.peerJoiner.Join(ctx, leaderAddr, req)
 			if err == nil {
-				return leaderAddr, nil
+				return leaderAddr, leaderResp.GetLeaderCommitIndex(), nil
 			}
 			lg.WithFields(logrus.Fields{
 				"action":          "join",
@@ -111,7 +113,7 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 			}).Info("attempted to follow to leader and failed")
 		}
 	}
-	return "", fmt.Errorf("could not join a cluster from %v", remoteNodes)
+	return "", 0, fmt.Errorf("could not join a cluster from %v", remoteNodes)
 }
 
 // Rejoin calls Do until it succeeds or ctx ends. A failed attempt is retried
@@ -127,7 +129,8 @@ func (j *Joiner) Rejoin(ctx context.Context, lg *logrus.Logger, resolveNodes fun
 	for {
 		if !time.Now().Before(nextAttempt) || (!leaderKnown && hasLeader()) {
 			leaderKnown = hasLeader()
-			_, err := j.Do(ctx, lg, resolveNodes())
+			// Node has existing state, not a wiped joiner; barrier discarded.
+			_, _, err := j.Do(ctx, lg, resolveNodes())
 			if err == nil {
 				return nil
 			}

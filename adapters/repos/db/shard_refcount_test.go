@@ -52,7 +52,7 @@ func refCountTestIndex(t *testing.T, className string) (*Index, *Shard) {
 	nodeResolver.EXPECT().NodeHostname(mock.Anything).Return("", false).Maybe()
 
 	shard, idx := testShardWithSettings(t, t.Context(), &models.Class{Class: className},
-		enthnsw.NewDefaultUserConfig(), false, false, false, func(i *Index) {
+		enthnsw.NewDefaultUserConfig(), false, false, func(i *Index) {
 			i.shardResolver = resolver.NewShardResolver(className, false, i.getSchema)
 			i.remote = sharding.NewRemoteIndex(className, i.getSchema,
 				nodeResolver, &FakeRemoteClient{})

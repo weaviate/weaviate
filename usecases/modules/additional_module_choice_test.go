@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // plainReranker is a reranker module that records in served when it runs.
@@ -59,7 +60,7 @@ func rerankProperty(module string, served *[]string) map[string]modulecapabiliti
 	}
 }
 
-func rerankSchemaReader(t *testing.T) schemaGetter {
+func rerankSchemaReader(t *testing.T) *schemaUC.MockSchemaGetter {
 	t.Helper()
 	sch := enitiesSchema.Schema{
 		Objects: &models.Schema{
@@ -82,7 +83,7 @@ func rerankSchemaReader(t *testing.T) schemaGetter {
 			},
 		},
 	}
-	return &fakeSchemaGetter{schema: sch}
+	return newMockSchemaGetter(t, sch)
 }
 
 // A class that names two rerankers must get the same one on every request.
@@ -192,7 +193,7 @@ func TestGenerativeDefaultProviderIsStable(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	var served []string
 	p := NewProvider(logger, config.Config{})
-	p.SetSchemaGetter(&fakeSchemaGetter{schema: enitiesSchema.Schema{Objects: &models.Schema{
+	p.SetSchemaGetter(newMockSchemaGetter(t, enitiesSchema.Schema{Objects: &models.Schema{
 		Classes: []*models.Class{{
 			Class: "ClassTwoGenerative",
 			ModuleConfig: map[string]interface{}{
@@ -200,7 +201,7 @@ func TestGenerativeDefaultProviderIsStable(t *testing.T) {
 				"generative-m": map[string]interface{}{},
 			},
 		}},
-	}}})
+	}}))
 	for _, name := range []string{"generative-m", "generative-z", "generative-a"} {
 		p.Register(generativeModule{dummyNonVectorizerModule: dummyNonVectorizerModule{name: name}, served: &served})
 	}

@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
@@ -160,7 +161,7 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			config := &config.WeaviateConfig{}
-			validator := New(fakeExists, config, nil, nil, false)
+			validator := New(fakeExists, config, nil, nil, namespacing.Disabled)
 
 			obj := &models.Object{
 				Class: "Person",

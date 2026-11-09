@@ -1037,7 +1037,7 @@ func newObjectCountIndex(t *testing.T, rootPath, className string, shardCounts m
 	index.allShardsReady.Store(true)
 
 	for name, count := range shardCounts {
-		require.NoError(t, os.MkdirAll(shardPath(index.path(), name), os.ModePerm))
+		require.NoError(t, os.MkdirAll(shardPathLSM(index.path(), name), os.ModePerm))
 		shard := NewMockShardLike(t)
 		shard.EXPECT().ObjectCountAsync(mock.Anything).Return(count, nil).Maybe()
 		index.shards.Store(name, shard)
