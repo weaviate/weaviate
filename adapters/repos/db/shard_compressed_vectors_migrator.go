@@ -35,34 +35,39 @@ func newCompressedVectorsMigrator(logger logrus.FieldLogger) compressedVectorsMi
 	return compressedVectorsMigrator{logger: logger.WithField("action", "compressed_vector_migration")}
 }
 
-// do runs the compressed-vectors layout migration. legacy and targets are
-// caller-held snapshots, never the live index fields.
-func (m compressedVectorsMigrator) do(s *Shard, legacy schemaConfig.VectorIndexConfig,
-	targets map[string]schemaConfig.VectorIndexConfig,
+// do runs the compressed-vectors layout migration. records say where each
+// vector's files live: the vector at "main" owns vectors_compressed, every
+// other vector is a target. configs are the vectors' configs, the legacy one
+// under the empty name.
+func (m compressedVectorsMigrator) do(s *Shard, records map[string]vectorIndexRecord,
+	configs map[string]schemaConfig.VectorIndexConfig,
 ) error {
 	lsmDir := s.store.GetDir()
-	totalVectors := len(targets)
-	if legacy != nil {
-		totalVectors++
-	}
-
 	if m.isMigrationDone(lsmDir) {
 		// migration was performed, nothing to do
 		return nil
 	}
 
+	owner, hasOwner := "", false
+	targets := make(map[string]vectorIndexRecord, len(records))
+	for name, rec := range records {
+		if rec.storageID() == vectorIndexID("") {
+			owner, hasOwner = name, true
+			continue
+		}
+		targets[name] = rec
+	}
+
 	vectorsCompressedPath := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
 	if _, err := os.Stat(vectorsCompressedPath); !os.IsNotExist(err) {
-		switch totalVectors {
-		case 0:
+		switch {
+		case len(records) == 0:
 			// do nothing
-		case 1:
-			if len(targets) > 0 {
-				for targetVector, vectorIndexConfig := range targets {
-					// rename old bucket to new target vector bucket
-					if err := m.migrate(targetVector, vectorIndexConfig, lsmDir, true); err != nil {
-						return fmt.Errorf("failed to rename old compressed vector bucket for target vector %s: %w", targetVector, err)
-					}
+		case !hasOwner && len(targets) == 1:
+			for name, rec := range targets {
+				// rename old bucket to new target vector bucket
+				if err := m.migrate(name, rec, configs[name], lsmDir, true); err != nil {
+					return fmt.Errorf("failed to rename old compressed vector bucket for target vector %s: %w", name, err)
 				}
 			}
 			if err := m.markMigrationDone(lsmDir); err != nil {
@@ -70,25 +75,25 @@ func (m compressedVectorsMigrator) do(s *Shard, legacy schemaConfig.VectorIndexC
 			}
 		default:
 			// copy old buckets to new target vector buckets
-			for targetVector, vectorIndexConfig := range targets {
-				if err := m.migrate(targetVector, vectorIndexConfig, lsmDir, false); err != nil {
-					return fmt.Errorf("failed to copy from old compressed vector bucket to new bucket for target vector: %s: %w", targetVector, err)
+			for name, rec := range targets {
+				if err := m.migrate(name, rec, configs[name], lsmDir, false); err != nil {
+					return fmt.Errorf("failed to copy from old compressed vector bucket to new bucket for target vector: %s: %w", name, err)
 				}
 			}
-			if legacy == nil {
-				// remove the old bucket directory after all copies are complete, only if was not defined for legacy vector
+			if !hasOwner {
+				// remove the old bucket directory after all copies are complete, only if no vector owns it
 				if err := os.RemoveAll(vectorsCompressedPath); err != nil {
 					return fmt.Errorf("failed to remove old bucket directory after copying all target vectors: %w", err)
 				}
 				m.logger.Info("removed old vectors compressed bucket")
 			} else {
-				// legacy vector defined together with named vectors, we need to mark that the migration was performed
+				// its owner keeps the bucket, we need to mark that the migration was performed
 				if err := m.markMigrationDone(lsmDir); err != nil {
 					return fmt.Errorf("failed to mark migration as done: %w", err)
 				}
 			}
 		}
-	} else if legacy != nil && m.isQuantizationEnabled(legacy) {
+	} else if hasOwner && m.isQuantizationEnabled(configs[owner]) {
 		// a new legacy vector config was created, quantization is enabled but we didn't create the vectors_compressed
 		// folder yet but we need to mark that the migration was done in order for it to not be trigered on healthy vector indexes
 		if err := m.markMigrationDone(lsmDir); err != nil {
@@ -98,7 +103,7 @@ func (m compressedVectorsMigrator) do(s *Shard, legacy schemaConfig.VectorIndexC
 	return nil
 }
 
-func (m compressedVectorsMigrator) migrate(targetVector string,
+func (m compressedVectorsMigrator) migrate(targetVector string, rec vectorIndexRecord,
 	vectorIndexConfig schemaConfig.VectorIndexConfig,
 	lsmDir string,
 	renameBucket bool,
@@ -108,13 +113,7 @@ func (m compressedVectorsMigrator) migrate(targetVector string,
 		return nil
 	}
 
-	targetVectorBucket := helpers.GetCompressedBucketName(targetVector)
-
-	if !renameBucket && targetVectorBucket == helpers.VectorsCompressedBucketLSM {
-		m.logger.Info("skipping migration, proper bucket exists for legacy vector")
-		return nil
-	}
-
+	targetVectorBucket := helpers.CompressedBucketNameForID(rec.storageID())
 	targetVectorBucketPath := filepath.Join(lsmDir, targetVectorBucket)
 
 	// Skip if the proper bucket name already exists

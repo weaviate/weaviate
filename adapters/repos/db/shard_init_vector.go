@@ -96,7 +96,7 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	// shard without one can hold the pre-1.30.19 layout. A failed repair fails
 	// the load before the mapping is written, and the next load retries it.
 	if !initialized {
-		err := newCompressedVectorsMigrator(s.index.logger).do(s, legacy, targets)
+		err := newCompressedVectorsMigrator(s.index.logger).do(s, records, active)
 		if err != nil {
 			return fmt.Errorf("shard %q: migrate compressed vectors: %w", s.ID(), err)
 		}
