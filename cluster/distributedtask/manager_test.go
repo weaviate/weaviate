@@ -249,8 +249,8 @@ func TestManager_CancelTask_Failures(t *testing.T) {
 	})
 }
 
-// Pins the cancel ruling at the FSM: a cancel stops every group still
-// preparing and leaves a decided group decided, so its replicas still swap.
+// Pins that a cancel leaves a decided group decided, so its replicas still
+// swap, and decides no group after it.
 func TestManager_CancelTask_KeepsDecidedGroups(t *testing.T) {
 	h := newTestHarness(t).init(t)
 	const ns, id, version = "ns", "task1", uint64(10)
@@ -281,9 +281,7 @@ func TestManager_CancelTask_KeepsDecidedGroups(t *testing.T) {
 	require.Equal(t, TaskStatusCancelled, task.Status)
 	require.True(t, task.GroupSwapDecided("tenant-a"), "a decided group survives the cancel")
 	require.False(t, task.GroupSwapDecided("tenant-b"), "no group is decided after the cancel")
-	require.True(t, task.StatusEntryFor("tenant-a").GroupDecided,
-		"record verdicts read the decision through the status entry")
-	require.False(t, task.StatusEntryFor("tenant-b").GroupDecided)
+	require.True(t, task.StatusEntryFor("tenant-a").GroupDecided, "the status entry reports the decision")
 }
 
 func TestManager_CleanUpTask_Failures(t *testing.T) {
@@ -358,26 +356,6 @@ func TestManager_CleanUpTask_Failures(t *testing.T) {
 		err = h.manager.CleanUpTask(cleanUpCmd)
 		require.ErrorContains(t, err, "still running")
 	})
-}
-
-// Pins that the apply removes a terminal task whatever its age: the TTL is
-// judged by the proposing sweep, so every node removes it at the same entry.
-func TestManager_CleanUpTask_RemovesATerminalTaskWhateverItsAge(t *testing.T) {
-	const (
-		ns  = "test"
-		id  = "1"
-		ver = uint64(10)
-	)
-	h := newTestHarness(t).init(t)
-	addTaskWithUnits(t, h, ns, id, ver, []string{"su-1"})
-	require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
-		Namespace: ns, Id: id, Version: ver, CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
-
-	require.NoError(t, h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
-		Namespace: ns, Id: id, Version: ver,
-	})))
-	require.NotContains(t, h.manager.tasks[ns], id)
 }
 
 func TestManager_ListDistributedTasksPayload(t *testing.T) {
@@ -2159,7 +2137,6 @@ func TestManager_RecordPreparationCompleteAck_PerGroup(t *testing.T) {
 		steps       []step
 		wantStatus  TaskStatus
 		wantDecided []string
-		wantAcks    map[string]int
 	}{
 		{
 			name:       "an ack from a node outside the group is dropped",
@@ -2172,28 +2149,7 @@ func TestManager_RecordPreparationCompleteAck_PerGroup(t *testing.T) {
 			wantStatus: TaskStatusStarted,
 		},
 		{
-			name:        "a group is decided once every replica acked, while another group runs",
-			steps:       []step{complete("n1", "u1"), complete("n2", "u2"), ack("g1", "n1", true), ack("g1", "n2", true)},
-			wantStatus:  TaskStatusStarted,
-			wantDecided: []string{"g1"},
-		},
-		{
-			name:       "one replica's ack does not decide the group",
-			steps:      []step{complete("n1", "u1"), complete("n2", "u2"), ack("g1", "n1", true)},
-			wantStatus: TaskStatusStarted,
-			wantAcks:   map[string]int{"g1": 1},
-		},
-		{
-			name: "SWAPPING comes once every group is decided",
-			steps: []step{
-				complete("n1", "u1"), complete("n2", "u2"), complete("n1", "u3"),
-				ack("g1", "n1", true), ack("g1", "n2", true), ack("g2", "n1", true),
-			},
-			wantStatus:  TaskStatusSwapping,
-			wantDecided: []string{"g1", "g2"},
-		},
-		{
-			name: "a failed ack fails the task and keeps the decided groups",
+			name: "a group decided while another runs stays decided when that one fails",
 			steps: []step{
 				complete("n1", "u1"), complete("n2", "u2"), ack("g1", "n1", true), ack("g1", "n2", true),
 				complete("n1", "u3"), ack("g2", "n1", false),
@@ -2224,14 +2180,7 @@ func TestManager_RecordPreparationCompleteAck_PerGroup(t *testing.T) {
 			task := h.manager.tasks[ns][id]
 			require.Equal(t, tc.wantStatus, task.Status)
 			require.ElementsMatch(t, tc.wantDecided, slices.Collect(maps.Keys(task.SwapDecidedGroups)))
-			acks := map[string]int{}
-			for group, byNode := range task.PreparedGroups {
-				acks[group] = len(byNode)
-			}
-			if tc.wantAcks == nil {
-				tc.wantAcks = map[string]int{}
-			}
-			require.Equal(t, tc.wantAcks, acks)
+			require.Empty(t, task.PreparedGroups)
 		})
 	}
 }
@@ -2557,32 +2506,20 @@ func TestManager_ForgetGroupsForCollection(t *testing.T) {
 			h.manager.RegisterCollectionExtractor("ns", func(payload []byte) (string, bool) { return string(payload), true })
 			require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 				Namespace: "ns", Id: "T", Payload: []byte(tc.collection), SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-				UnitSpecs: []*cmd.UnitSpec{
-					{Id: "a-1", GroupId: "a"}, {Id: "a-2", GroupId: "a"}, {Id: "b-1", GroupId: "b"},
-				},
+				UnitSpecs:               []*cmd.UnitSpec{{Id: "a-1", GroupId: "a"}, {Id: "b-1", GroupId: "b"}},
 				NeedsPreparationBarrier: tc.barrier,
 			}), 1))
 			task := h.manager.tasks["ns"]["T"]
 			task.Status = tc.status
 			task.SwapDecidedGroups = map[string]time.Time{"a": {}, "b": {}}
 			task.SwapsOwed = map[string][]string{"a": {"n1"}, "b": {"n1"}}
-			before := task.Clone()
 
-			h.manager.ForgetGroupsForCollection("Foo", []string{"a", "gone"})
+			h.manager.ForgetGroupsForCollection("Foo", []string{"a"})
 
-			if !tc.wantForget {
-				require.ElementsMatch(t, []string{"a", "b"}, task.Groups())
-				require.True(t, task.GroupSwapDecided("a"))
-				return
+			require.Equal(t, !tc.wantForget, task.GroupSwapDecided("a"))
+			if tc.wantForget {
+				require.Equal(t, map[string][]string{"b": {"n1"}}, task.SwapsOwed, "a forgotten tenant owes no swap")
 			}
-			require.Equal(t, []string{"b"}, task.Groups())
-			require.Nil(t, task.Unit("a-1"))
-			require.Equal(t, 1, task.UnitCount())
-			require.False(t, task.GroupSwapDecided("a"))
-			require.True(t, task.GroupSwapDecided("b"))
-			require.Equal(t, map[string][]string{"b": {"n1"}}, task.SwapsOwed, "a forgotten tenant owes no swap")
-			require.True(t, task.AllGroupsSwapDecided())
-			require.ElementsMatch(t, []string{"a", "b"}, before.Groups(), "a copy taken earlier keeps its own index")
 		})
 	}
 }

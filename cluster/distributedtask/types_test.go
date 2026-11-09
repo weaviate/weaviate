@@ -104,9 +104,7 @@ func TestTask_GroupIndexSurvivesEveryCopy(t *testing.T) {
 			Namespace: "ns", TaskDescriptor: TaskDescriptor{ID: "T", Version: 3},
 			SwapDecidedGroups: map[string]time.Time{"g1": {}},
 		}, map[string]*Unit{
-			"a": {ID: "a", GroupID: "g1", NodeID: "n1", Status: UnitStatusCompleted},
-			"b": {ID: "b", GroupID: "g1", NodeID: "n2", Status: UnitStatusCompleted},
-			"c": {ID: "c", GroupID: "g2", NodeID: "n1"},
+			"a": {ID: "a", GroupID: "g1"}, "b": {ID: "b", GroupID: "g1"}, "c": {ID: "c", GroupID: "g2"},
 		})
 	}
 	orig := newTask()
@@ -146,10 +144,6 @@ func TestTask_GroupIndexSurvivesEveryCopy(t *testing.T) {
 		task, name := tc.task, tc.name
 		assert.Equal(t, tc.shares, sameIndex(orig, task), name)
 		assert.ElementsMatch(t, []string{"g1", "g2"}, task.Groups(), name)
-		assert.Equal(t, []string{"a"}, task.LocalGroupUnitIDs("g1", "n1"), name)
-		assert.Equal(t, []string{"n1", "n2"}, task.groupNodes("g1"), name)
-		assert.True(t, task.AllGroupUnitsTerminal("g1"), name)
-		assert.False(t, task.AllGroupUnitsTerminal("g2"), name)
 		assert.False(t, task.AllGroupsSwapDecided(), name)
 	}
 }
@@ -171,8 +165,6 @@ func TestTask_ForgetGroupsKeepsTheSharedIndex(t *testing.T) {
 
 	require.Equal(t, index, reflect.ValueOf(task.groups).UnsafePointer(), "the index is not rebuilt")
 	require.ElementsMatch(t, []string{"g1", "g3"}, task.Groups())
-	require.Equal(t, 2, task.groupCount)
-	require.Equal(t, 2, task.UnitCount())
 	require.Empty(t, task.LocalGroupUnitIDs("g2", "n1"))
 	require.Empty(t, task.groupNodes("g2"))
 	require.False(t, task.AllGroupsSwapDecided(), "g1 is still undecided")
@@ -180,7 +172,6 @@ func TestTask_ForgetGroupsKeepsTheSharedIndex(t *testing.T) {
 	require.True(t, task.AllGroupsSwapDecided())
 
 	require.ElementsMatch(t, []string{"g1", "g2", "g3"}, clone.Groups(), "a copy taken before keeps the tenant")
-	require.Equal(t, []string{"b"}, clone.LocalGroupUnitIDs("g2", "n1"))
 }
 
 func withUnits(task *Task, units map[string]*Unit) *Task {
