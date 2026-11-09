@@ -264,7 +264,8 @@ type SchemaMutationDetector interface {
 // do not consult it.
 type CutoverOutcome interface {
 	CutoverLanded(task *Task, readClass func(collection string) *models.Class) bool
-	CheckMigrationPropertyUpdate(className, propertyName string, existingTasks []*Task) error
+	// CheckMigrationPropertyUpdate is given the flip's own run, nil when that run is gone.
+	CheckMigrationPropertyUpdate(className, propertyName string, run *Task) error
 }
 
 // VectorConfigRemovalGate is an optional interface a SchemaMutationDetector also

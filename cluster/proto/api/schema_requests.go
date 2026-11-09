@@ -91,8 +91,8 @@ type UpdatePropertyRequest struct {
 	// flip (see adapters/repos/db/reindex_provider.go's
 	// flipSemanticMigrationSchema). The schema FSM then checks it with
 	// MutationGuard.CheckMigrationPropertyUpdate instead of
-	// CheckPropertyUpdate: it is admitted only while a reindex run on the
-	// same (collection, property) is SWAPPING, and refused otherwise.
+	// CheckPropertyUpdate: it is admitted only while MigrationRun is
+	// SWAPPING on the same (collection, property), and refused otherwise.
 	//
 	// Set only by the migration completion path (via
 	// [Raft.UpdatePropertyFromMigration] →
@@ -113,6 +113,15 @@ type UpdatePropertyRequest struct {
 	// so a mid-rolling-upgrade migration completion would still get the
 	// migration check on whichever node issues the flip.
 	FromInFlightMigration bool `json:"FromInFlightMigration"`
+	// MigrationRun names the run a flip completes. Released binaries wrote
+	// flips without it and admitted them unconditionally, so replay must too.
+	MigrationRun *MigrationRun `json:"MigrationRun,omitempty"`
+}
+
+type MigrationRun struct {
+	Namespace string `json:"namespace"`
+	ID        string `json:"id"`
+	Version   uint64 `json:"version"`
 }
 
 type DeleteClassRequest struct {

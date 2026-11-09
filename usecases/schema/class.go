@@ -32,6 +32,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -698,7 +699,7 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // through [SchemaManager.UpdatePropertyFromMigration], which sets the
 // [api.UpdatePropertyRequest.FromInFlightMigration] flag so the schema
 // FSM checks it with MutationGuard.CheckMigrationPropertyUpdate: it is
-// admitted only while a reindex run on that property is SWAPPING.
+// admitted only while run is SWAPPING on that property.
 //
 // Used by the reindex provider's
 // [adapters/repos/db.applyPerPropertySchemaUpdate] from the scheduler's
@@ -708,11 +709,11 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // applies to external mutations.
 //
 // Returns only after the local FSM has applied the update.
-func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, prop *models.Property,
-	fields ...string,
+func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, run command.MigrationRun,
+	prop *models.Property, fields ...string,
 ) error {
 	setPropertyDefaults(prop)
-	version, err := h.schemaManager.UpdatePropertyFromMigration(ctx, className, prop, fields...)
+	version, err := h.schemaManager.UpdatePropertyFromMigration(ctx, className, run, prop, fields...)
 	if err != nil {
 		return err
 	}

@@ -1673,7 +1673,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	// p.serverCtx outlives the per-task ctx (which is gone by the time the
 	// scheduler tick fires OnTaskCompleted).
 	ctx := p.serverCtx
-	if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
+	if err := p.flipSemanticMigrationSchema(ctx, api.MigrationRun{Namespace: task.Namespace, ID: task.ID, Version: task.Version}, payload, logger); err != nil {
 		logger.Errorf("reindex provider: task-completion: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state): %v", err)
 		return fmt.Errorf("schema flip: %w", err)
 	}
@@ -2216,7 +2216,7 @@ func repairCommandsForFailedMigration(payload *ReindexTaskPayload, propName stri
 // apply=false when the value already matches) so multiple nodes firing
 // OnTaskCompleted produce at most one RAFT commit.
 func (p *ReindexProvider) flipSemanticMigrationSchema(
-	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
+	ctx context.Context, run api.MigrationRun, payload *ReindexTaskPayload, logger logrus.FieldLogger,
 ) error {
 	if p.schemaManager == nil {
 		// Defensive: tests can construct the provider without a schema
@@ -2230,7 +2230,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		if payload.TargetTokenization == "" {
 			return fmt.Errorf("change-tokenization without targetTokenization in payload")
 		}
-		missing, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+		missing, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, run, payload.Collection, payload.Properties,
 			[]string{api.PropertyFieldTokenization},
 			func(prop *models.Property) bool {
 				if propertyTokenizationAtTarget(prop, payload.TargetTokenization) {
@@ -2254,7 +2254,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 
 	case ReindexTypeEnableFilterable:
 		trueVal := true
-		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, run, payload.Collection, payload.Properties,
 			[]string{api.PropertyFieldIndexFilterable},
 			func(prop *models.Property) bool {
 				if propertyFilterableEnabled(prop) {
@@ -2273,7 +2273,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 
 	case ReindexTypeEnableRangeable:
 		trueVal := true
-		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, run, payload.Collection, payload.Properties,
 			[]string{api.PropertyFieldIndexRangeFilters},
 			func(prop *models.Property) bool {
 				if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
@@ -2297,7 +2297,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		trueVal := true
 		// EnableSearchableStrategy.TargetStrategy() is hardcoded blockmax, so
 		// stamp SearchableBlockmax alongside the flag flip — one RAFT commit.
-		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, run, payload.Collection, payload.Properties,
 			[]string{api.PropertyFieldIndexSearchable, api.PropertyFieldTokenization, api.PropertyFieldSearchableBlockmax},
 			func(prop *models.Property) bool {
 				if propertySearchableAtTarget(prop, payload.TargetTokenization) {
@@ -2319,7 +2319,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		// Stamp FIRST and unconditionally: per-property truth must be durable
 		// before a sibling's same-tick defer check runs, or that sibling would
 		// read this property as WAND.
-		if err := p.stampSearchableBlockmax(ctx, payload.Collection, payload.Properties); err != nil {
+		if err := p.stampSearchableBlockmax(ctx, run, payload.Collection, payload.Properties); err != nil {
 			return fmt.Errorf("stamp searchableBlockmax: %w", err)
 		}
 		// Defer the cluster-wide class-flag flip until every local searchable
@@ -2362,9 +2362,9 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 // stampSearchableBlockmax durably records propNames as blockmax via a masked
 // RAFT UpdateProperty. Idempotent — already-stamped properties are skipped —
 // so repeated firings and replays produce at most one commit per property.
-func (p *ReindexProvider) stampSearchableBlockmax(ctx context.Context, collection string, propNames []string) error {
+func (p *ReindexProvider) stampSearchableBlockmax(ctx context.Context, run api.MigrationRun, collection string, propNames []string) error {
 	trueVal := true
-	_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, collection, propNames,
+	_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, run, collection, propNames,
 		[]string{api.PropertyFieldSearchableBlockmax},
 		func(prop *models.Property) bool {
 			if propertyBlockmaxStamped(prop) {

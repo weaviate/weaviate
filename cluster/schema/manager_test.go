@@ -724,7 +724,7 @@ type recordingMutationGuard struct {
 	rejectMigrationWith error
 }
 
-func (g *recordingMutationGuard) CheckMigrationPropertyUpdate(class, prop string) error {
+func (g *recordingMutationGuard) CheckMigrationPropertyUpdate(class, prop string, _ cmd.MigrationRun) error {
 	g.migrationCalls++
 	return g.rejectMigrationWith
 }
@@ -778,6 +778,9 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 			FieldsToUpdate:        fields,
 			FromInFlightMigration: fromMigration,
 		}
+		if fromMigration {
+			req.MigrationRun = &cmd.MigrationRun{Namespace: "reindex", ID: "T", Version: 1}
+		}
 		sub, err := json.Marshal(&req)
 		require.NoError(t, err)
 		return &cmd.ApplyRequest{
@@ -828,6 +831,18 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 		err = newSM(guard).UpdateProperty(mkRequest("C", "name", true), true, false)
 		require.ErrorIs(t, err, late)
 		require.ErrorIs(t, err, ErrBadRequest)
+	})
+
+	t.Run("a migration write naming no run consults no guard", func(t *testing.T) {
+		guard := &recordingMutationGuard{rejectWith: errors.New("refused"), rejectMigrationWith: errors.New("refused")}
+		req := mkRequest("C", "name", true)
+		var body cmd.UpdatePropertyRequest
+		require.NoError(t, json.Unmarshal(req.SubCommand, &body))
+		body.MigrationRun = nil
+		req.SubCommand, _ = json.Marshal(&body)
+		err := newSM(guard).UpdateProperty(req, true, false)
+		require.NotContains(t, err.Error(), "refused")
+		require.Zero(t, guard.called+guard.migrationCalls)
 	})
 
 	t.Run("no guard registered → no extra rejection", func(t *testing.T) {

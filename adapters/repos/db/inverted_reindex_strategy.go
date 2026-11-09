@@ -18,6 +18,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
@@ -129,6 +130,7 @@ func (noAnalyzerOverlay) AnalyzerOverlay(_ []string) map[string]inverted.Propert
 func applyPerPropertySchemaUpdate(
 	ctx context.Context,
 	mgr *schema.Manager,
+	run api.MigrationRun,
 	className string,
 	propNames []string,
 	fields []string,
@@ -162,8 +164,8 @@ func applyPerPropertySchemaUpdate(
 		// FromInFlightMigration flag is set on the resulting RAFT
 		// command. Without it, CheckPropertyUpdate would refuse this
 		// update because the run is still in flight; with it,
-		// CheckMigrationPropertyUpdate admits it while the run is SWAPPING.
-		if err := schema.UpdatePropertyInternalFromMigration(&mgr.Handler, ctx, className, &updated, fields...); err != nil {
+		// CheckMigrationPropertyUpdate admits it while run is SWAPPING.
+		if err := schema.UpdatePropertyInternalFromMigration(&mgr.Handler, ctx, className, run, &updated, fields...); err != nil {
 			return missing, fmt.Errorf("updating property %q: %w", propName, err)
 		}
 	}

@@ -42,10 +42,10 @@ func (d *landedDetector) CutoverLanded(*Task, func(string) *models.Class) bool {
 	return d.schema.landed
 }
 
-func (d *landedDetector) CheckMigrationPropertyUpdate(string, string, []*Task) error { return nil }
-func (d *landedDetector) CheckPropertyUpdate(string, string, []*Task) error          { return nil }
-func (d *landedDetector) CheckClassMutation(string, []*Task) error                   { return nil }
-func (d *landedDetector) CheckTenantMutation(string, []string, []*Task) error        { return nil }
+func (d *landedDetector) CheckMigrationPropertyUpdate(string, string, *Task) error { return nil }
+func (d *landedDetector) CheckPropertyUpdate(string, string, []*Task) error        { return nil }
+func (d *landedDetector) CheckClassMutation(string, []*Task) error                 { return nil }
+func (d *landedDetector) CheckTenantMutation(string, []string, []*Task) error      { return nil }
 
 type cutoverWritingProvider struct {
 	*barrierRecordingProvider

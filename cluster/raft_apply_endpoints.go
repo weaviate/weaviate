@@ -124,7 +124,7 @@ func (s *Raft) AddProperty(ctx context.Context, class string, props ...*models.P
 // Internal callers driven by the distributed-task scheduler's own
 // completion path must use [Raft.UpdatePropertyFromMigration] instead.
 func (s *Raft) UpdateProperty(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
-	return s.updateProperty(ctx, class, property, false, fields...)
+	return s.updateProperty(ctx, class, property, nil, fields...)
 }
 
 // UpdatePropertyFromMigration schedules a RAFT command for a property
@@ -133,26 +133,27 @@ func (s *Raft) UpdateProperty(ctx context.Context, class string, property *model
 // adapters/repos/db/reindex_provider.flipSemanticMigrationSchema). The
 // resulting command carries [api.UpdatePropertyRequest.FromInFlightMigration]
 // = true, so the schema FSM checks it with CheckMigrationPropertyUpdate
-// instead of CheckPropertyUpdate: it is admitted only while a run on
-// that property is SWAPPING, and refused once the run has ended.
+// instead of CheckPropertyUpdate: it is admitted only while run is
+// SWAPPING on that property, and refused once run has ended.
 //
 // Public REST / gRPC handlers must not call this; they go through
 // [Raft.UpdateProperty]. The separate check exists because the
 // scheduler's OnTaskCompleted fires while the task is still SWAPPING
 // (status not yet FINISHED), so the check that protects the property
 // from external mutations would refuse the migration's own flip.
-func (s *Raft) UpdatePropertyFromMigration(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
-	return s.updateProperty(ctx, class, property, true, fields...)
+func (s *Raft) UpdatePropertyFromMigration(ctx context.Context, class string, run cmd.MigrationRun, property *models.Property, fields ...string) (uint64, error) {
+	return s.updateProperty(ctx, class, property, &run, fields...)
 }
 
-func (s *Raft) updateProperty(ctx context.Context, class string, property *models.Property, fromInFlightMigration bool, fields ...string) (uint64, error) {
+func (s *Raft) updateProperty(ctx context.Context, class string, property *models.Property, run *cmd.MigrationRun, fields ...string) (uint64, error) {
 	if class == "" || property == nil {
 		return 0, fmt.Errorf("empty property or empty class name: %w", schema.ErrBadRequest)
 	}
 	req := cmd.UpdatePropertyRequest{
 		Property:              property,
 		FieldsToUpdate:        fields,
-		FromInFlightMigration: fromInFlightMigration,
+		FromInFlightMigration: run != nil,
+		MigrationRun:          run,
 	}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {

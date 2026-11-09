@@ -64,8 +64,8 @@ type MutationGuard interface {
 	CheckPropertyUpdate(className, propertyName string) error
 
 	// CheckMigrationPropertyUpdate gates that migration flip instead: it
-	// is admitted only while a run on the property is SWAPPING.
-	CheckMigrationPropertyUpdate(className, propertyName string) error
+	// is admitted only while the run it names is SWAPPING.
+	CheckMigrationPropertyUpdate(className, propertyName string, run command.MigrationRun) error
 
 	// CheckClassMutation gates class-wide destructive ops (DeleteClass).
 	// Stricter than CheckPropertyUpdate: any in-flight reindex on the
@@ -889,14 +889,17 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 	}
 
 	// Cross-FSM mutation guard — see [MutationGuard]. A migration's own
-	// flip (FromInFlightMigration=true) is checked by
-	// CheckMigrationPropertyUpdate instead.
+	// flip is checked by CheckMigrationPropertyUpdate instead, unless it
+	// names no run: a released binary wrote it and admitted it unchecked.
 	if s.mutationGuard != nil {
-		check := s.mutationGuard.CheckPropertyUpdate
-		if req.FromInFlightMigration {
-			check = s.mutationGuard.CheckMigrationPropertyUpdate
+		var err error
+		switch {
+		case !req.FromInFlightMigration:
+			err = s.mutationGuard.CheckPropertyUpdate(cmd.Class, req.Property.Name)
+		case req.MigrationRun != nil:
+			err = s.mutationGuard.CheckMigrationPropertyUpdate(cmd.Class, req.Property.Name, *req.MigrationRun)
 		}
-		if err := check(cmd.Class, req.Property.Name); err != nil {
+		if err != nil {
 			return fmt.Errorf("%w: %w", ErrBadRequest, err)
 		}
 	}

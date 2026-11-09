@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -84,7 +85,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 			Properties:         []string{"title"},
 			TargetTokenization: models.PropertyTokenizationWord,
 		}
-		err := p.flipSemanticMigrationSchema(ctx, payload, logger)
+		err := p.flipSemanticMigrationSchema(ctx, api.MigrationRun{}, payload, logger)
 		require.Error(t, err)
 		require.ErrorIs(t, err, distributedtask.ErrTaskCompletionPermanent)
 	})
@@ -99,7 +100,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 			Properties:         []string{"title"},
 			TargetTokenization: models.PropertyTokenizationWord,
 		}
-		err := p.flipSemanticMigrationSchema(ctx, payload, logger)
+		err := p.flipSemanticMigrationSchema(ctx, api.MigrationRun{}, payload, logger)
 		require.Error(t, err)
 		require.NotErrorIs(t, err, distributedtask.ErrTaskCompletionPermanent)
 	})
@@ -112,7 +113,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 			Collection:    "Docs",
 			Properties:    []string{"title"},
 		}
-		err := p.flipSemanticMigrationSchema(ctx, payload, logger)
+		err := p.flipSemanticMigrationSchema(ctx, api.MigrationRun{}, payload, logger)
 		require.NoError(t, err)
 	})
 
@@ -137,7 +138,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 					Collection:    "Docs",
 					Properties:    []string{"price"},
 				}
-				require.NoError(t, p.flipSemanticMigrationSchema(ctx, payload, logger))
+				require.NoError(t, p.flipSemanticMigrationSchema(ctx, api.MigrationRun{}, payload, logger))
 			})
 		}
 	})
@@ -200,7 +201,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 		payload := &ReindexTaskPayload{
 			MigrationType: ReindexTypeChangeAlgorithm, Collection: "Docs", Properties: []string{"title"},
 		}
-		require.NoError(t, p.flipSemanticMigrationSchema(ctx, payload, logger),
+		require.NoError(t, p.flipSemanticMigrationSchema(ctx, api.MigrationRun{}, payload, logger),
 			"a failed run would lock the migrated property behind a run that cannot finish")
 	})
 
@@ -212,7 +213,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 			Properties:         []string{"title"},
 			TargetTokenization: models.PropertyTokenizationWord,
 		}
-		err := p.flipSemanticMigrationSchema(ctx, payload, logger)
+		err := p.flipSemanticMigrationSchema(ctx, api.MigrationRun{}, payload, logger)
 		require.NoError(t, err)
 	})
 }

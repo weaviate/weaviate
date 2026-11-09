@@ -480,11 +480,12 @@ func TestCheckMigrationPropertyUpdate(t *testing.T) {
 		{distributedtask.TaskStatusPreparing, "C", "name", true},
 	} {
 		t.Run(string(tc.status)+"/"+tc.class+"."+tc.prop, func(t *testing.T) {
-			tasks := []*distributedtask.Task{{TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1}, Status: tc.status, Payload: payload}}
-			err := ReindexDetector{}.CheckMigrationPropertyUpdate(tc.class, tc.prop, tasks)
+			task := &distributedtask.Task{TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1}, Status: tc.status, Payload: payload}
+			err := ReindexDetector{}.CheckMigrationPropertyUpdate(tc.class, tc.prop, task)
 			require.Equal(t, tc.wantRefuse, err != nil, "err=%v", err)
 		})
 	}
+	require.Error(t, ReindexDetector{}.CheckMigrationPropertyUpdate("C", "name", nil), "a run that is gone completes nothing")
 }
 
 // TestCheckPropertyUpdate_InFlightOnSamePropertyRejects pins the

@@ -93,13 +93,18 @@ func (m *Manager) CheckPropertyUpdate(className, propertyName string) error {
 	})
 }
 
-func (m *Manager) CheckMigrationPropertyUpdate(className, propertyName string) error {
-	return m.dispatchSchemaMutation(func(d SchemaMutationDetector, existing []*Task) error {
-		if gate, ok := d.(CutoverOutcome); ok {
-			return gate.CheckMigrationPropertyUpdate(className, propertyName, existing)
-		}
+func (m *Manager) CheckMigrationPropertyUpdate(className, propertyName string, run api.MigrationRun) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	gate, ok := m.schemaMutationDetectors[run.Namespace].(CutoverOutcome)
+	if !ok {
 		return nil
-	})
+	}
+	task := m.tasks[run.Namespace][run.ID]
+	if task != nil && task.Version != run.Version {
+		task = nil
+	}
+	return gate.CheckMigrationPropertyUpdate(className, propertyName, task)
 }
 
 // CheckClassMutation consults every registered

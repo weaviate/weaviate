@@ -74,10 +74,11 @@ func (ReindexDetector) CutoverLanded(task *distributedtask.Task, readClass func(
 }
 
 // CheckMigrationPropertyUpdate keeps a write arriving after its run ended from landing.
-func (ReindexDetector) CheckMigrationPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
-	for _, run := range ReindexRuns(existingTasks) {
-		if run.Task.Status == distributedtask.TaskStatusSwapping &&
-			strings.EqualFold(run.Payload.Collection, className) && slices.Contains(run.Payload.Properties, propertyName) {
+func (ReindexDetector) CheckMigrationPropertyUpdate(className, propertyName string, task *distributedtask.Task) error {
+	if task != nil && task.Status == distributedtask.TaskStatusSwapping {
+		var payload ReindexTaskPayload
+		if json.Unmarshal(task.Payload, &payload) == nil &&
+			strings.EqualFold(payload.Collection, className) && slices.Contains(payload.Properties, propertyName) {
 			return nil
 		}
 	}
