@@ -699,7 +699,8 @@ func receiveWithin[T any](t *testing.T, ch <-chan T) T {
 }
 
 // A step that meets the hold waits instead of failing its migration, and the
-// scheduler runs it again on a later tick once the shard is lifted.
+// scheduler runs it again on a later tick once the shard is lifted. A committed
+// swap held on its own migration reports a failure first, but is still retried.
 func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -707,6 +708,8 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 		// The migration whose step meets the hold.
 		payload func(fx *doubleFaultFixture) ReindexTaskPayload
 		unit    distributedtask.UnitStatus
+		// failsWhileHeld says the step acks a failure naming the hold instead of waiting.
+		failsWhileHeld bool
 	}{
 		{
 			name: "prepare of the held migration", status: distributedtask.TaskStatusPreparing,
@@ -715,7 +718,7 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 		},
 		{
 			name: "swap of the held migration", status: distributedtask.TaskStatusSwapping,
-			unit:    distributedtask.UnitStatusCompleted,
+			unit: distributedtask.UnitStatusCompleted, failsWhileHeld: true,
 			payload: func(fx *doubleFaultFixture) ReindexTaskPayload { return fx.subject.reindexPayload() },
 		},
 		{
@@ -765,6 +768,16 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 			require.NoError(t, sched.Start(fx.ctx))
 			t.Cleanup(sched.Close)
 
+			if tc.failsWhileHeld {
+				require.Contains(t, receiveWithin(t, outcome.done), "is held READONLY")
+				fx.healRecords(t)
+				require.NoError(t, os.Remove(fx.corrupt))
+				require.NoError(t, liftAndAwaitRetry(t, fx, shard, liftReady(shard)))
+				require.NoError(t, liftReady(shard)())
+				require.Eventually(t, func() bool { return receiveWithin(t, outcome.done) == "succeeded" },
+					10*time.Second, time.Millisecond)
+				return
+			}
 			// Each wake relaunches a waiting step, as unit events elsewhere in the cluster do.
 			require.Never(t, func() bool { sched.Wake(); return len(outcome.done) > 0 }, time.Second, 20*time.Millisecond,
 				"the step must wait while the shard is held")

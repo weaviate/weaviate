@@ -11,7 +11,10 @@
 
 package db
 
-import "sync"
+import (
+	"slices"
+	"sync"
+)
 
 type migrationMirrorRegistry struct {
 	mu      sync.Mutex
@@ -113,6 +116,13 @@ func (r *migrationMirrorRegistry) holding() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.held) > 0
+}
+
+// holds reports whether m is held and no retry has settled it yet.
+func (r *migrationMirrorRegistry) holds(m taskMigration) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return !r.heldSettled && slices.ContainsFunc(r.held, func(t *ShardReindexTaskGeneric) bool { return t.migration() == m })
 }
 
 var _ migrationMirrorDisarmer = (*Shard)(nil)

@@ -1,0 +1,191 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package db
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
+)
+
+// A committed swap whose shard is held on its own migration fails the task
+// instead of keeping it SWAPPING, so the collection can be deleted; the swap
+// stays owed and is paid once the segment is repaired and the shard set READY.
+func TestAHeldCommittedSwapFailsTheTaskAndKeepsItsDebt(t *testing.T) {
+	fx := newDoubleFaultFixture(t, "tenant-held-commit")
+	node, unitID := fx.idx.getSchema.NodeName(), fx.subject.Key.UnitID
+	mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
+		Logger:                  fx.logger,
+		SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{ReindexNamespace: ReindexDetector{}},
+	})
+	payload := fx.subject.reindexPayload()
+	payload.UnitToShard, payload.UnitToNode = map[string]string{unitID: fx.name}, map[string]string{unitID: node}
+	restoreSwappingTask(t, mgr, fx.desc, payload, unitID, fx.name, node)
+	// The node's applied task list decides the swap, so the unarmable record cannot be stamped.
+	fx.idx.db.SetMigrationTaskSources(fx.ctx,
+		func(shard string) ([]distributedtask.TaskStatusEntry, bool) {
+			return mgr.LocalTaskStatuses(ReindexNamespace, shard), true
+		},
+		func(context.Context) ([]*distributedtask.Task, error) { return nil, errors.New("leader unreachable") })
+
+	logs := test.NewLocal(fx.logger.(*logrus.Logger))
+	shard := fx.load(t)
+	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
+	require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+	require.Len(t, shard.migrationMirrors.heldUnarmed(), 1)
+	fx.idx.db.indexLock.Lock()
+	fx.idx.db.indices[indexID(schema.ClassName(fx.className))] = fx.idx
+	fx.idx.db.indexLock.Unlock()
+
+	sched := distributedtask.NewScheduler(distributedtask.SchedulerParams{
+		CompletionRecorder: &heldStepOutcome{done: make(chan string, 16)},
+		AckRecorder:        managerAckRecorder{mgr},
+		TaskLister:         mgr,
+		Providers:          map[string]distributedtask.Provider{ReindexNamespace: fx.provider},
+		Logger:             fx.logger, LocalNode: node, TickInterval: 50 * time.Millisecond,
+	})
+	require.NoError(t, sched.Start(fx.ctx))
+	t.Cleanup(sched.Close)
+
+	task := func() *distributedtask.Task {
+		tasks, _ := mgr.ListDistributedTasks(fx.ctx)
+		return tasks[ReindexNamespace][0]
+	}
+	require.Eventually(t, func() bool { sched.Wake(); return task().Status == distributedtask.TaskStatusFailed },
+		10*time.Second, 20*time.Millisecond, "the held swap's failure ack fails the task")
+	require.Contains(t, task().Error, "held READONLY")
+	require.Equal(t, []string{node}, task().SwapsOwed[fx.name], "the swap stays owed")
+	require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+	require.NoError(t, mgr.CheckClassMutation(fx.className))
+	require.NoError(t, mgr.CheckTenantMutation(fx.className, []string{fx.name}))
+
+	// Repairing the segment and setting READY lets the owed swap run and pay the debt.
+	require.NoError(t, os.Remove(fx.corrupt))
+	// The repair happens after the failed task's teardown, which must leave the committed record.
+	require.Eventually(t, func() bool {
+		return slices.ContainsFunc(logs.AllEntries(), func(e *logrus.Entry) bool {
+			return e.Data["operation"] == "autoCleanupAfterTerminal"
+		})
+	}, 10*time.Second, 20*time.Millisecond, "the failed task's teardown ends")
+	require.NoError(t, liftAndAwaitRetry(t, fx, shard, liftReady(shard)))
+	require.NoError(t, liftReady(shard)())
+	require.Eventually(t, func() bool { sched.Wake(); return len(task().SwapsOwed) == 0 },
+		10*time.Second, 20*time.Millisecond, "the retried swap pays the debt")
+	rec, ok := shard.migrationRecords.Get(fx.subject.Key)
+	require.True(t, ok)
+	require.True(t, rec.FlipDecided())
+	require.Equal(t, distributedtask.TaskStatusFailed, task().Status)
+}
+
+// Only a hold on the swap's own migration fails it: a hold for another
+// migration, or a step outside a barrier task's swap, still waits.
+func TestAHeldSwapWaitsUnlessItsOwnMigrationIsHeld(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		status    distributedtask.TaskStatus
+		otherHeld bool
+		wantFail  bool
+	}{
+		{name: "own migration held, swapping", status: distributedtask.TaskStatusSwapping, wantFail: true},
+		{name: "own migration held, preparing", status: distributedtask.TaskStatusPreparing},
+		{name: "another migration held, swapping", status: distributedtask.TaskStatusSwapping, otherHeld: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newDoubleFaultFixture(t, "tenant-held-classify")
+			var other MigrationSubject
+			if tc.otherHeld {
+				other, _ = fx.addHalf(t, StrategyCodeFilterableRetokenize, "U", fx.desc.Version+1, true)
+			}
+			fx.breakDisk(t)
+			shard := fx.load(t)
+			t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
+			if tc.otherHeld {
+				// The lift arms the swap's own migration and keeps holding only the other one.
+				require.NoError(t, os.Remove(fx.corrupt))
+				require.Error(t, liftAndAwaitRetry(t, fx, shard, liftReady(shard)))
+				held := shard.migrationMirrors.heldUnarmed()
+				require.Len(t, held, 1)
+				require.Equal(t, other.Key, held[0].migrationRecordKey())
+			}
+
+			payload := fx.subject.reindexPayload()
+			payload.UnitToShard = map[string]string{fx.subject.Key.UnitID: fx.name}
+			task := &distributedtask.Task{TaskDescriptor: fx.desc, Status: tc.status, NeedsPreparationBarrier: true}
+			err := fx.provider.runPerUnitPhase(task, &payload, []string{fx.subject.Key.UnitID}, fx.idx, fx.logger,
+				"swap-requested", "starting", true,
+				func(string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult {
+					t.Fatal("the swap ran on a held shard")
+					return phaseResult{}
+				})
+			require.ErrorContains(t, err, "is held READONLY")
+			require.Equal(t, !tc.wantFail, errors.Is(err, context.Canceled))
+		})
+	}
+}
+
+func restoreSwappingTask(t *testing.T, mgr *distributedtask.Manager, desc distributedtask.TaskDescriptor,
+	payload ReindexTaskPayload, unitID, group, node string,
+) {
+	t.Helper()
+	raw, err := json.Marshal(payload)
+	require.NoError(t, err)
+	type taskWithUnits struct {
+		*distributedtask.Task
+		Units map[string]*distributedtask.Unit `json:"units"`
+	}
+	snapshot, err := json.Marshal(map[string]map[string][]taskWithUnits{"tasks": {ReindexNamespace: {{
+		Task: &distributedtask.Task{
+			Namespace: ReindexNamespace, TaskDescriptor: desc, Payload: raw,
+			Status: distributedtask.TaskStatusSwapping, NeedsPreparationBarrier: true,
+			SwapDecidedGroups: map[string]time.Time{group: time.Now()},
+			SwapsOwed:         map[string][]string{group: {node}},
+		},
+		Units: map[string]*distributedtask.Unit{unitID: {
+			ID: unitID, GroupID: group, NodeID: node, Status: distributedtask.UnitStatusCompleted,
+		}},
+	}}}})
+	require.NoError(t, err)
+	require.NoError(t, mgr.Restore(snapshot))
+}
+
+// managerAckRecorder applies the scheduler's acks to the FSM, as a RAFT apply would.
+type managerAckRecorder struct{ mgr *distributedtask.Manager }
+
+func (r managerAckRecorder) RecordDistributedTaskPostCompletionAck(_ context.Context, namespace, taskID string,
+	version uint64, groupID, nodeID string, success bool, errMsg string,
+) error {
+	sub, err := json.Marshal(&api.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace: namespace, Id: taskID, Version: version, GroupId: groupID, NodeId: nodeID,
+		Success: success, Error: errMsg, AckedAtUnixMillis: time.Now().UnixMilli(),
+	})
+	if err != nil {
+		return err
+	}
+	return r.mgr.RecordPostCompletionAck(&api.ApplyRequest{SubCommand: sub})
+}
+
+func (r managerAckRecorder) RecordDistributedTaskPreparationCompleteAck(context.Context, string, string, uint64, string, string, bool, string) error {
+	return errors.New("no PREP ack expected")
+}
