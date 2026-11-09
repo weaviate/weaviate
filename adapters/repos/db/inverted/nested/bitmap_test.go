@@ -213,7 +213,7 @@ func TestConstants(t *testing.T) {
 func TestBitmapOps_NewEmpty(t *testing.T) {
 	ops := newTrackingOps(t)
 
-	result, release := ops.NewEmpty(1024)
+	result, release := ops.NewEmpty()
 	defer release()
 
 	requireBitmapValid(t, result)

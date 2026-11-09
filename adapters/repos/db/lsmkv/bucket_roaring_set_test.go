@@ -563,9 +563,17 @@ func TestBucket_RoaringSet_ReleasesAllPooledBuffers(t *testing.T) {
 	// segment holding the key is read through segment.roaringSetGet, which
 	// pools the buffer the returned release must free — newer segments are
 	// folded via roaringSetMergeWith, which pools nothing lasting.
+	small := []uint64{1, 3}
+	// large outgrows the base's buffer, so the fold grows it through the pool.
+	large := make([]uint64, 0, 10_000)
+	for i := uint64(1); len(large) < cap(large); i += 3 {
+		large = append(large, i)
+	}
+
 	scenarios := []struct {
 		name     string
 		seg1     func(t *testing.T, b *Bucket, key []byte)
+		newer    []uint64
 		expected []uint64
 	}{
 		{
@@ -574,6 +582,7 @@ func TestBucket_RoaringSet_ReleasesAllPooledBuffers(t *testing.T) {
 				require.NoError(t, b.RoaringSetAddList(key, []uint64{2}))
 				require.NoError(t, b.RoaringSetRemoveOne(key, 5))
 			},
+			newer:    small,
 			expected: []uint64{1, 2, 3},
 		},
 		{
@@ -581,6 +590,7 @@ func TestBucket_RoaringSet_ReleasesAllPooledBuffers(t *testing.T) {
 			seg1: func(t *testing.T, b *Bucket, key []byte) {
 				require.NoError(t, b.RoaringSetAddList(key, []uint64{2}))
 			},
+			newer:    small,
 			expected: []uint64{1, 2, 3},
 		},
 		{
@@ -588,7 +598,17 @@ func TestBucket_RoaringSet_ReleasesAllPooledBuffers(t *testing.T) {
 			seg1: func(t *testing.T, b *Bucket, key []byte) {
 				require.NoError(t, b.RoaringSetRemoveOne(key, 5))
 			},
+			newer:    small,
 			expected: []uint64{1, 3},
+		},
+		{
+			name: "newer segment grows the base past its buffer",
+			seg1: func(t *testing.T, b *Bucket, key []byte) {
+				require.NoError(t, b.RoaringSetAddList(key, []uint64{2}))
+				require.NoError(t, b.RoaringSetRemoveOne(key, 5))
+			},
+			newer:    large,
+			expected: append([]uint64{2}, large...),
 		},
 	}
 
@@ -614,7 +634,7 @@ func TestBucket_RoaringSet_ReleasesAllPooledBuffers(t *testing.T) {
 				scenario.seg1(t, b, key)
 				require.NoError(t, b.FlushAndSwitch())
 
-				require.NoError(t, b.RoaringSetAddList(key, []uint64{1, 3}))
+				require.NoError(t, b.RoaringSetAddList(key, scenario.newer))
 				require.NoError(t, b.FlushAndSwitch())
 
 				bm, release, err := b.RoaringSetGet(ctx, key)

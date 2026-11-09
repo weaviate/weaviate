@@ -153,24 +153,6 @@ func TestSerialization_CloneToBuf(t *testing.T) {
 		assert.Equal(t, int64(0), pool.Outstanding())
 	})
 
-	t.Run("clone can grow in place within the pooled buffer's capacity", func(t *testing.T) {
-		sn, err := NewSegmentNode(key, NewBitmap(1), NewBitmap())
-		require.Nil(t, err)
-		newSN := NewSegmentNodeFromBuffer(sn.ToBuffer())
-
-		// factor wrapper hands out a buffer with headroom, mirroring the first
-		// disk layer's pool in SegmentGroup.roaringSetGet
-		pool := NewBitmapBufPoolFactorWrapper(NewBitmapBufPoolTrackingForTests(), 2)
-		addClone, addRelease := newSN.AdditionsCloneToBuf(pool)
-		require.NotNil(t, addClone)
-		defer addRelease()
-
-		for i := uint64(2); i < 100; i++ {
-			addClone.Set(i)
-		}
-		assert.Equal(t, 99, addClone.GetCardinality())
-	})
-
 	t.Run("empty region returns nil bitmap and nil release", func(t *testing.T) {
 		sn, err := NewSegmentNode(key, NewBitmap(), NewBitmap())
 		require.Nil(t, err)
@@ -180,6 +162,70 @@ func TestSerialization_CloneToBuf(t *testing.T) {
 		addClone, addRelease := newSN.AdditionsCloneToBuf(pool)
 		assert.Nil(t, addClone)
 		assert.Nil(t, addRelease)
+		assert.Equal(t, int64(0), pool.Outstanding())
+	})
+}
+
+// TestSerialization_AdditionsOwningBuf pins that the bitmap lives in the node's
+// buffer until it grows, and that growth or put releases that buffer once.
+func TestSerialization_AdditionsOwningBuf(t *testing.T) {
+	key := []byte("my-key")
+
+	// nodeInPoolBuf copies a serialized node into a buffer from pool, as a pread
+	// does, counting releases of that buffer.
+	nodeInPoolBuf := func(t *testing.T, pool BitmapBufPool, additions, deletions *sroar.Bitmap,
+	) (*SegmentNode, func(), *int) {
+		sn, err := NewSegmentNode(key, additions, deletions)
+		require.NoError(t, err)
+		buf, put := pool.Get(len(sn.ToBuffer()))
+		buf = buf[:len(sn.ToBuffer())]
+		copy(buf, sn.ToBuffer())
+		released := 0
+		return NewSegmentNodeFromBuffer(buf), func() { released++; put() }, &released
+	}
+
+	t.Run("wraps the node without copying and grows into a pool buffer", func(t *testing.T) {
+		pool := NewBitmapBufPoolTrackingForTests()
+		sn, release, released := nodeInPoolBuf(t, pool, NewBitmap(1, 2, 3), NewBitmap(4, 5))
+
+		bm, put := sn.AdditionsOwningBuf(pool, release)
+		require.Same(t, &sn.ToBuffer()[16], &bm.ToBuffer()[0])
+		assert.Equal(t, []uint64{1, 2, 3}, bm.ToArray())
+
+		want := NewBitmap(1, 2, 3)
+		for i := uint64(10); i < 50_000; i += 3 {
+			bm.Set(i)
+			want.Set(i)
+		}
+		assert.Equal(t, 1, *released, "growth past the node buffer must release it")
+		assert.Equal(t, int64(1), pool.Outstanding())
+		assert.Equal(t, want.ToArray(), bm.ToArray())
+
+		put()
+		assert.Equal(t, 1, *released)
+		assert.Equal(t, int64(0), pool.Outstanding())
+	})
+
+	t.Run("put releases the node buffer when the bitmap never grew", func(t *testing.T) {
+		pool := NewBitmapBufPoolTrackingForTests()
+		sn, release, released := nodeInPoolBuf(t, pool, NewBitmap(1, 2, 3), NewBitmap())
+
+		_, put := sn.AdditionsOwningBuf(pool, release)
+		assert.Zero(t, *released)
+		put()
+		assert.Equal(t, 1, *released)
+		assert.Equal(t, int64(0), pool.Outstanding())
+	})
+
+	t.Run("no additions hands release back unused", func(t *testing.T) {
+		pool := NewBitmapBufPoolTrackingForTests()
+		sn, release, released := nodeInPoolBuf(t, pool, NewBitmap(), NewBitmap(4, 5))
+
+		bm, returned := sn.AdditionsOwningBuf(pool, release)
+		assert.Nil(t, bm)
+		assert.Zero(t, *released)
+		returned()
+		assert.Equal(t, 1, *released)
 		assert.Equal(t, int64(0), pool.Outstanding())
 	})
 }
@@ -311,7 +357,7 @@ func TestNewSegmentNodeCompactedMatchesNewSegmentNode(t *testing.T) {
 			want, err := NewSegmentNode(tt.key, additions, deletions)
 			require.NoError(t, err)
 
-			got, _, err := NewSegmentNodeCompacted(tt.key, additions, deletions, nil)
+			got, err := NewSegmentNodeCompacted(tt.key, additions, deletions, &SegmentNodeScratch{})
 			require.NoError(t, err)
 
 			require.Equal(t, want.ToBuffer(), got.ToBuffer())
@@ -335,10 +381,10 @@ func TestNewSegmentNodeCompactedMatchesNewSegmentNode(t *testing.T) {
 	}
 
 	t.Run("a key over uint32 is refused before any buffer is sized", func(t *testing.T) {
-		// The guard has to run ahead of the callbacks, or one of them sizes a node
-		// around a key length the node cannot record.
-		_, _, err := NewSegmentNodeCompacted(make([]byte, math.MaxUint32+1),
-			NewBitmap(1), NewBitmap(), nil)
+		// The guard has to run ahead of the compaction, or it sizes a node around
+		// a key length the node cannot record.
+		_, err := NewSegmentNodeCompacted(make([]byte, math.MaxUint32+1),
+			NewBitmap(1), NewBitmap(), &SegmentNodeScratch{})
 		require.ErrorContains(t, err, "key too long")
 		require.ErrorContains(t, err, fmt.Sprintf("%d bytes", math.MaxUint32+1),
 			"the message must report the length it compared, not only the limit")
@@ -349,50 +395,66 @@ func TestNewSegmentNodeCompactedMatchesNewSegmentNode(t *testing.T) {
 // equality alone would pass for an encoder that built each bitmap beside the
 // node and copied it in.
 func TestNewSegmentNodeCompactedReusesTheBuffer(t *testing.T) {
-	t.Run("the node aliases the buffer it was given", func(t *testing.T) {
+	t.Run("the node lives in the scratch it was given", func(t *testing.T) {
 		buf := make([]byte, 4096)
-		node, out, err := NewSegmentNodeCompacted([]byte("k"),
-			NewBitmap(slice(0, 100)...).Compacted(), NewBitmap(), buf)
+		scratch := &SegmentNodeScratch{buf: buf}
+		node, err := NewSegmentNodeCompacted([]byte("k"),
+			NewBitmap(slice(0, 100)...).Compacted(), NewBitmap(), scratch)
 		require.NoError(t, err)
 
-		require.Same(t, unsafe.SliceData(buf), unsafe.SliceData(out))
 		require.Same(t, unsafe.SliceData(buf), unsafe.SliceData(node.ToBuffer()))
 	})
 
-	t.Run("encoding into the returned buffer costs less than one node's payload", func(t *testing.T) {
-		additions := NewBitmap(slice(0, 1000)...).Compacted()
-
-		var buf []byte
-		res := testing.Benchmark(func(b *testing.B) {
-			b.ReportAllocs()
-			for i := 0; i < b.N; i++ {
-				node, out, err := NewSegmentNodeCompacted([]byte("k"), additions, NewBitmap(), buf)
-				if err != nil || node.Len() == 0 {
-					b.Fatal(err)
+	t.Run("a warm scratch encodes without allocating", func(t *testing.T) {
+		shapes := []struct {
+			name     string
+			add, del *sroar.Bitmap
+		}{
+			{"both sides", NewBitmap(slice(0, 1000)...), NewBitmap(slice(2000, 2100)...)},
+			{"additions only", NewBitmap(slice(0, 1000)...), NewBitmap()},
+			{"deletions only", NewBitmap(), NewBitmap(slice(0, 1000)...)},
+			{"both empty", NewBitmap(), NewBitmap()},
+		}
+		for _, sh := range shapes {
+			t.Run(sh.name, func(t *testing.T) {
+				var scratch SegmentNodeScratch
+				encode := func() {
+					node, err := NewSegmentNodeCompacted([]byte("k"), sh.add, sh.del, &scratch)
+					if err != nil || node.Len() == 0 {
+						t.Fatal(err)
+					}
 				}
-				buf = out
-			}
-		})
+				encode()
+				require.Zero(t, testing.AllocsPerRun(20, encode))
+			})
+		}
+	})
 
-		// Bytes, not a count: an encoder building each bitmap beside the node and
-		// copying it in also allocates fewer times with the buffer carried forward
-		// than without, so only the size separates the two.
-		require.Less(t, res.AllocedBytesPerOp(), int64(len(additions.ToBuffer())),
-			"one node's payload must not be allocated per node")
+	t.Run("a node outgrowing the scratch grows it once", func(t *testing.T) {
+		add, del := NewBitmap(slice(0, 1000)...), NewBitmap(slice(2000, 2100)...)
+		var scratch SegmentNodeScratch
+		encode := func() {
+			scratch = SegmentNodeScratch{}
+			if _, err := NewSegmentNodeCompacted([]byte("k"), add, del, &scratch); err != nil {
+				t.Fatal(err)
+			}
+		}
+		encode()
+		require.Equal(t, 1.0, testing.AllocsPerRun(20, encode))
 	})
 
 	t.Run("a smaller node after a larger one leaves none of it behind", func(t *testing.T) {
 		// The shrink direction is where a leak lands: growing allocates fresh
 		// zeroed memory and hides it. The 0xFF fill is what a dirty buffer looks
 		// like to the second encode.
-		buf := bytes.Repeat([]byte{0xFF}, 8192)
+		scratch := &SegmentNodeScratch{buf: bytes.Repeat([]byte{0xFF}, 8192)}
 
-		_, buf, err := NewSegmentNodeCompacted([]byte("large"),
-			NewBitmap(slice(0, 5000)...).Compacted(), NewBitmap(slice(0, 5000)...).Compacted(), buf)
+		_, err := NewSegmentNodeCompacted([]byte("large"),
+			NewBitmap(slice(0, 5000)...).Compacted(), NewBitmap(slice(0, 5000)...).Compacted(), scratch)
 		require.NoError(t, err)
 
 		small := NewBitmap(slice(0, 3)...).Compacted()
-		got, _, err := NewSegmentNodeCompacted([]byte("k"), small, NewBitmap(), buf)
+		got, err := NewSegmentNodeCompacted([]byte("k"), small, NewBitmap(), scratch)
 		require.NoError(t, err)
 
 		want, err := NewSegmentNode([]byte("k"), small, NewBitmap())
@@ -401,29 +463,32 @@ func TestNewSegmentNodeCompactedReusesTheBuffer(t *testing.T) {
 	})
 }
 
-// TestCompactedToBufCallsGetOnceWithTheExactSize pins sroar's contract where it
-// lives. NewSegmentNodeCompacted builds its callbacks internally, so no caller
-// of it can observe them, and a sroar bump that changed the arity would surface
-// inside the encoder rather than here.
+// TestCompactedToBufCallsGetOnceWithTheExactSize pins the sroar contract that
+// scratchPool.Get relies on. No caller can observe its calls, so a sroar
+// bump calling Get twice or with another size would surface inside the encoder
+// rather than here.
 func TestCompactedToBufCallsGetOnceWithTheExactSize(t *testing.T) {
 	bm := NewBitmap(slice(0, 5000)...)
 
-	calls := 0
-	var handed int
-	bm.CompactedToBuf(func(sizeBytes int) []byte {
-		calls++
-		handed = sizeBytes
-		return make([]byte, sizeBytes)
-	})
+	pool := &countingPool{}
+	bm.CompactedToBuf(nil, pool)
 
-	require.Equal(t, 1, calls)
-	require.Equal(t, len(bm.Compacted().ToBuffer()), handed)
+	require.Equal(t, 1, pool.calls)
+	require.Equal(t, len(bm.Compacted().ToBuffer()), pool.handed)
 }
 
-// TestNewSegmentNodeCompactedScratchOutlivesTheNode pins the one thing the two
-// return values do not share: the node is exactly its own bytes, while scratch
-// stays at the largest node built so far. A caller writing scratch instead of the
-// node would append the previous node's tail, so the shrink rows carry the claim.
+type countingPool struct{ calls, handed int }
+
+func (p *countingPool) Get(minBytes int) ([]byte, func()) {
+	p.calls++
+	p.handed = minBytes
+	return make([]byte, minBytes), nil
+}
+
+// TestNewSegmentNodeCompactedScratchOutlivesTheNode pins that the node is exactly
+// its own bytes, while scratch keeps the largest node's buffer. A node spanning
+// the scratch would carry the previous node's tail, so the shrink rows carry the
+// claim.
 //
 // The shapes overlap TestNewSegmentNodeCompactedMatchesNewSegmentNode's table on
 // purpose — they are what makes a node shrink — but the bytes are that table's
@@ -446,7 +511,7 @@ func TestNewSegmentNodeCompactedScratchOutlivesTheNode(t *testing.T) {
 	}
 
 	var (
-		scratch   []byte
+		scratch   SegmentNodeScratch
 		highWater int
 	)
 	for _, tt := range tests {
@@ -459,9 +524,8 @@ func TestNewSegmentNodeCompactedScratchOutlivesTheNode(t *testing.T) {
 				del = NewBitmap(tt.del...)
 			}
 
-			node, out, err := NewSegmentNodeCompacted([]byte(tt.key), add, del, scratch)
+			node, err := NewSegmentNodeCompacted([]byte(tt.key), add, del, &scratch)
 			require.NoError(t, err)
-			scratch = out
 
 			// Derived from the inputs rather than read back off the node:
 			// ToBuffer is data[:Len()], so comparing those two pins nothing.
@@ -475,16 +539,12 @@ func TestNewSegmentNodeCompactedScratchOutlivesTheNode(t *testing.T) {
 			}
 			require.Equal(t, uint64(want), node.Len(),
 				"the node's declared length must be its payloads plus its key, not the scratch it sits in")
-			require.GreaterOrEqual(t, len(scratch), int(node.Len()),
-				"scratch must cover the node it just built")
 			if highWater == 0 || int(node.Len()) > highWater {
 				highWater = int(node.Len())
 			}
-			// The whole point of the second return: it stays at the largest node
-			// built so far, where the node shrinks back. Returning the node's own
-			// slice instead would make these equal on every row.
-			require.Equal(t, highWater, len(scratch),
-				"scratch must hold the high-water mark, not the node just built")
+			// A fresh buffer per node would only cover the node just built.
+			require.GreaterOrEqual(t, cap(scratch.buf), highWater,
+				"scratch must keep the largest node's buffer")
 
 			// Only that the node is readable at all: the values are
 			// TestNewSegmentNodeCompactedMatchesNewSegmentNode's job, and it
@@ -497,5 +557,63 @@ func TestNewSegmentNodeCompactedScratchOutlivesTheNode(t *testing.T) {
 	// large row's 16k is the only outcome that says it was carried forward.
 	require.Greater(t, highWater, 8000,
 		"the fixture no longer contains a row large enough to tell a carried-forward buffer from a fresh one")
-	require.Equal(t, highWater, len(scratch))
+	require.GreaterOrEqual(t, cap(scratch.buf), highWater)
+}
+
+// BenchmarkNewSegmentNodeCompacted prices the encoder with the scratch warm,
+// cold, and growing on every node, where it reallocates.
+func BenchmarkNewSegmentNodeCompacted(b *testing.B) {
+	shapes := []struct {
+		name     string
+		add, del func(n uint64) *sroar.Bitmap
+	}{
+		{
+			"both sides", func(n uint64) *sroar.Bitmap { return NewBitmap(slice(0, n)...) },
+			func(n uint64) *sroar.Bitmap { return NewBitmap(slice(n, n+n/10)...) },
+		},
+		{
+			"additions only", func(n uint64) *sroar.Bitmap { return NewBitmap(slice(0, n)...) },
+			func(uint64) *sroar.Bitmap { return NewBitmap() },
+		},
+	}
+	key := []byte("key")
+	for _, sh := range shapes {
+		add, del := sh.add(20_000), sh.del(20_000)
+		b.Run(sh.name+"/warm", func(b *testing.B) {
+			var scratch SegmentNodeScratch
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				if _, err := NewSegmentNodeCompacted(key, add, del, &scratch); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		b.Run(sh.name+"/cold", func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				var scratch SegmentNodeScratch
+				if _, err := NewSegmentNodeCompacted(key, add, del, &scratch); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+
+		const steps = 32
+		adds, dels := make([]*sroar.Bitmap, steps), make([]*sroar.Bitmap, steps)
+		for i := range adds {
+			n := uint64(i+1) * 1000
+			adds[i], dels[i] = sh.add(n), sh.del(n)
+		}
+		b.Run(sh.name+"/growing", func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				var scratch SegmentNodeScratch
+				for j := range adds {
+					if _, err := NewSegmentNodeCompacted(key, adds[j], dels[j], &scratch); err != nil {
+						b.Fatal(err)
+					}
+				}
+			}
+		})
+	}
 }

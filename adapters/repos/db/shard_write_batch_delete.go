@@ -327,7 +327,7 @@ func (s *Shard) resolveAndCollectUUIDs(ctx context.Context, filter *filters.Loca
 		}
 		s.bitmapFactory.Remove(deadDocIDs)
 		pass.pruned += deadCount
-		deadDocIDs = sroar.NewBitmap().CloneToBuf(deadDocIDs.ToBuffer())
+		deadDocIDs.Reset()
 		deadCount = 0
 	}
 	defer pruneDeadDocIDs()
