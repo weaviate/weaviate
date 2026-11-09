@@ -1989,10 +1989,7 @@ func (alwaysFailingAckRecorder) RecordDistributedTaskPreparationCompleteAck(
 	return errors.New("raft unavailable")
 }
 
-// Pins: each steady-state reporter samples on its own budget. Each
-// re-reports every tick until something outside the scheduler clears the
-// condition, so on the shared budget they crowd out the one-off errors it
-// exists for — measured against a cleanup error site that keeps failing.
+// Pins: each steady-state reporter samples on its own budget, so none crowds out one-off error logs.
 func TestSchedulerTick_SteadyStateWarnsDoNotStarveErrorLogging(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

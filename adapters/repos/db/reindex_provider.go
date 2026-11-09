@@ -222,7 +222,7 @@ func (p *ReindexProvider) SetCompletionRecorder(recorder distributedtask.TaskCom
 
 // SeedReindexTaskCache caches the tasks a shard load recovered, so OnGroupCompleted and OnSwapRequested
 // reuse their armed instances instead of rehydrating new ones. It fills only a unit with no cached tasks
-// and skips a task in endedTasks. It writes under p.mu, as cacheReindexTasks and clearTaskCaches do.
+// and skips a task in endedTasks.
 func (p *ReindexProvider) SeedReindexTaskCache(
 	cache map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric,
 ) {

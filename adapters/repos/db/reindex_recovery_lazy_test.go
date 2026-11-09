@@ -875,7 +875,7 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 			}
 			require.Equal(t, tc.status != distributedtask.TaskStatusStarted, retries > 0)
 			require.Positive(t, holdWaits, "the step waits on the hold")
-			// At most two windows of the scheduler's sampled lines, the task's unsampled first start line, and the waiting unit's own Warn budget.
+			// Two sampled windows, the unsampled first start line, and the unit's own Warn budget.
 			require.LessOrEqual(t, infoOrAbove, 2*5+1+maxReportedErrors)
 			fx.healRecords(t)
 			require.NoError(t, os.Remove(fx.corrupt))

@@ -968,8 +968,7 @@ func (s *Scheduler) runPreparationPhase(
 		if s.ackRecorder == nil || (prepState != nil && prepState.preparationAckEmitted) {
 			return prepAckSnapshot{}
 		}
-		// One failed group decides this node's verdict, so a failure does not
-		// wait for groups that are still retrying.
+		// A failure is acked at once; only a success waits for every group.
 		success, joined := s.aggregatePreparationAckErrorsLocked(task, desc)
 		if success && !s.allLocalGroupsPreparationFiredLocked(task, desc) {
 			return prepAckSnapshot{}
@@ -1123,8 +1122,7 @@ func (s *Scheduler) runSwapPhase(
 			task.Status == TaskStatusStarted {
 			return swapAckSnapshot{}
 		}
-		// One failed group decides this node's verdict, so a failure does not
-		// wait for groups that are still retrying.
+		// A failure is acked at once; only a success waits for every group.
 		success, joined := s.aggregateAckErrorsLocked(task, desc)
 		if success && !s.allLocalGroupsFiredLocked(task, desc) {
 			return swapAckSnapshot{}
@@ -1412,10 +1410,7 @@ func (s *Scheduler) loggerWithTask(namespace string, taskDesc TaskDescriptor) *l
 // OnGroupCompleted fire on THIS scheduler instance (i.e.
 // s.groupCallbackFired[desc][groupID] == true). Caller must hold s.mu.
 //
-// Used as the gating predicate for emitting a successful per-node
-// post-completion ack: success is only known once every relevant local
-// group has fired. A failure is acked without it, because one failed
-// group already decides the node's verdict.
+// Gates a successful per-node post-completion ack; a failure is acked without it.
 //
 // Groups in which this node has zero local units are skipped — those
 // groups' OnGroupCompleted only fires on the nodes that own units in
@@ -1435,8 +1430,7 @@ func (s *Scheduler) allLocalGroupsFiredLocked(task *Task, desc TaskDescriptor) b
 }
 
 // allLocalGroupsPreparationFiredLocked — PREP counterpart to allLocalGroupsFiredLocked.
-// Gates a successful per-node RecordPreparationCompleteAck; a failure is
-// acked without it. Caller must hold s.mu.
+// Gates a successful RecordPreparationCompleteAck only. Caller must hold s.mu.
 func (s *Scheduler) allLocalGroupsPreparationFiredLocked(task *Task, desc TaskDescriptor) bool {
 	state := s.perTaskStateLocked(desc)
 	for _, groupID := range task.Groups() {
