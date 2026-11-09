@@ -55,3 +55,11 @@ type Cache[T any] interface {
 type IfAbsentPreloader[T any] interface {
 	PreloadIfAbsent(id uint64, vec []T) bool
 }
+
+// PreloadSummarizer is implemented by caches that count refused preloads
+// instead of logging each one. Bulk loaders call FlushPreloadSummary once
+// the batch is done, so the count reaches the log without waiting for a
+// background tick (production caches run without one).
+type PreloadSummarizer interface {
+	FlushPreloadSummary()
+}
