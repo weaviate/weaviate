@@ -855,7 +855,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	)
 	// The reindexer is set before any shard loads, so each load re-arms its mirrors before its first write.
 	repo.SetReindexer(db.NewMigrationRecoveryReindexer(
-		appState.ServerConfig.Config.RuntimeReindexEnabled,
 		appState.Logger,
 		appState.SchemaManager,
 		reindexProvider,

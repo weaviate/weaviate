@@ -54,7 +54,7 @@ func TestAShardLoadArmsAndCachesItsMigration(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	p := NewReindexProvider(idx.db, nil, nil, logger, idx.getSchema.NodeName(), nil, ctx)
-	recovery := NewMigrationRecoveryReindexer(true, logger, nil, p)
+	recovery := NewMigrationRecoveryReindexer(logger, nil, p)
 	idx.shardReindexer = recovery
 
 	desc := distributedtask.TaskDescriptor{ID: "T", Version: 3}
@@ -100,7 +100,7 @@ func TestShardLoadStampsAnUnarmableFlipBeforeTheReconcilerPromotesIt(t *testing.
 
 	logger, _ := test.NewNullLogger()
 	p := NewReindexProvider(idx.db, nil, nil, logger, idx.getSchema.NodeName(), nil, ctx)
-	idx.shardReindexer = NewMigrationRecoveryReindexer(true, logger, nil, p)
+	idx.shardReindexer = NewMigrationRecoveryReindexer(logger, nil, p)
 
 	subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
 	// The writer accepts this record, but recovery cannot build a task from it.
@@ -145,7 +145,7 @@ func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) 
 
 			logger, _ := test.NewNullLogger()
 			p := NewReindexProvider(idx.db, nil, nil, logger, idx.getSchema.NodeName(), nil, ctx)
-			idx.shardReindexer = NewMigrationRecoveryReindexer(true, logger, nil, p)
+			idx.shardReindexer = NewMigrationRecoveryReindexer(logger, nil, p)
 
 			// Both halves of one unit, of which only the searchable one fails to arm.
 			desc := distributedtask.TaskDescriptor{ID: "T", Version: 3}
@@ -865,7 +865,7 @@ var bareRecoveryTask = distributedtask.TaskDescriptor{ID: "T", Version: 1}
 func newBareRecovery() (*ReindexProvider, *MigrationRecoveryReindexer) {
 	logger, _ := test.NewNullLogger()
 	p := NewReindexProvider(nil, nil, nil, logger, "node1", nil, testCtx())
-	return p, NewMigrationRecoveryReindexer(true, logger, nil, p)
+	return p, NewMigrationRecoveryReindexer(logger, nil, p)
 }
 
 func bareShardWithMergedRecord(t *testing.T, name string) *Shard {
@@ -943,7 +943,7 @@ func newDoubleFaultFixture(t *testing.T, name string) *doubleFaultFixture {
 
 	logger, _ := test.NewNullLogger()
 	p := NewReindexProvider(idx.db, nil, nil, logger, idx.getSchema.NodeName(), nil, ctx)
-	idx.shardReindexer = NewMigrationRecoveryReindexer(true, logger, nil, p)
+	idx.shardReindexer = NewMigrationRecoveryReindexer(logger, nil, p)
 	fx := &doubleFaultFixture{
 		ctx: ctx, name: name, className: className, class: class, idx: idx, provider: p, logger: logger,
 		desc: distributedtask.TaskDescriptor{ID: "T", Version: 3},
