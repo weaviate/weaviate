@@ -1091,7 +1091,10 @@ Then, per shard load:
        swap fails only when its migration has no task cached on the
        shard, and otherwise waits too.
      - The shard list (`GET /v1/schema/<class>/shards`) shows only
-       READONLY, with no reason, the same as under disk pressure.
+       READONLY, with no reason, the same as under disk pressure. The
+       node's `reindex_held_shards` gauge counts its held shards, with no
+       labels; it drops when a hold is lifted or the shard shuts down or
+       is dropped.
      - The owning node logs one Error line per hold, when it starts,
        naming the shard, the cause and the way out. A waiting step's
        retry line is at Debug and names the hold; with Debug on it

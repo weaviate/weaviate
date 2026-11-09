@@ -27,6 +27,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -653,6 +654,39 @@ func TestAHeldStepWaitsUntilTheLiftWritesTheStatus(t *testing.T) {
 	require.NoError(t, liftReady(shard)())
 	require.Equal(t, storagestate.StatusReady, shard.GetStatus())
 	fx.requireSwapProceeds(t, shard)
+}
+
+func TestTheHeldShardGaugeCountsAShardUntilItsHoldEnds(t *testing.T) {
+	held := func() float64 { return testutil.ToFloat64(monitoring.GetMetrics().ReindexHeldShards) }
+	for _, tc := range []struct {
+		name string
+		end  func(t *testing.T, fx *doubleFaultFixture, shard *Shard)
+	}{
+		{name: "lift", end: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) {
+			holding := held()
+			fx.healRecords(t)
+			require.NoError(t, os.Remove(fx.corrupt))
+			require.NoError(t, liftAndAwaitRetry(t, fx, shard, liftReady(shard)))
+			require.Equal(t, holding, held(), "the steps still wait until the next lift")
+			require.NoError(t, liftReady(shard)())
+		}},
+		{name: "shutdown", end: func(t *testing.T, _ *doubleFaultFixture, shard *Shard) {
+			require.NoError(t, shard.Shutdown(context.Background()))
+		}},
+		{name: "drop", end: func(t *testing.T, _ *doubleFaultFixture, shard *Shard) {
+			require.NoError(t, shard.drop(true))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newDoubleFaultFixture(t, "tenant-held-gauge")
+			fx.breakDisk(t)
+			before := held()
+			shard := fx.load(t)
+			require.Equal(t, before+1, held())
+			tc.end(t, fx, shard)
+			require.Equal(t, before, held())
+		})
+	}
 }
 
 func liftReady(shard *Shard) func() error {

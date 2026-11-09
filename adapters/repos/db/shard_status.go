@@ -65,6 +65,7 @@ func (s *Shard) moveCountedStatusUnlocked(next storagestate.Status) {
 func (s *Shard) releaseCountedStatus() {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
+	s.migrationMirrors.stopCountingHeld()
 
 	if s.countedStatus == "" {
 		return
