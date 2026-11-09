@@ -256,6 +256,7 @@ func (st *Store) admitShardStatus(req *api.ApplyRequest) error {
 // alias commands write schema and no store, and the RBAC and user commands write
 // neither, so a late one leaves nothing half-built. The class and tenant commands
 // do materialize a shard, and admitPropose says why a late one is still safe.
+// It also refuses a user create whose ID prefix is not its namespace.
 func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_ADD_CLASS,
@@ -319,6 +320,12 @@ func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 		sub := &api.CreateUsersRequest{}
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
 			return fmt.Errorf("unmarshal upsert-user subcommand: %w", err)
+		}
+		// NamespaceLocalRBAC finds a user's role assignments by its ID prefix, and
+		// DeleteUsersInNamespace finds its record by Namespace, so a mismatch
+		// splits the user across two namespaces.
+		if namespacing.NamespaceFromQualified(sub.UserId) != sub.Namespace {
+			return fmt.Errorf("user %q is not in namespace %q", sub.UserId, sub.Namespace)
 		}
 		return usecasesNamespaces.RequireActive(st.namespaceManager, sub.Namespace)
 

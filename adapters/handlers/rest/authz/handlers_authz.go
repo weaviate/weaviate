@@ -789,7 +789,10 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 
 func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	internalID := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	internalID, err := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	if err != nil {
+		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
 
 	for _, role := range params.Body.Roles {
 		if strings.TrimSpace(role) == "" {
@@ -1077,7 +1080,10 @@ func (h *authZHandlers) visibleRolesForSubject(ctx context.Context, principal *m
 
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	internalID := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	internalID, err := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	if err != nil {
+		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
 
 	if err := h.validateUserIDForNamespaces(internalID); err != nil {
 		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
@@ -1320,7 +1326,10 @@ func (h *authZHandlers) getUsersForRoleDeprecated(params authz.GetUsersForRoleDe
 
 func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	internalID := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	internalID, err := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	if err != nil {
+		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
 
 	for _, role := range params.Body.Roles {
 		if strings.TrimSpace(role) == "" {
