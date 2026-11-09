@@ -389,16 +389,7 @@ func (e *recExecutor) runIdxLoopRecursive(ctx context.Context, g *recGroupNode, 
 
 	idxPrefix := invnested.IdxKeyPrefix(g.lca)
 
-	capHint := 64
-	for _, leaf := range g.here {
-		if bm, ok := e.rawsByCond[leaf]; ok {
-			if l := bm.LenInBytes(); l > capHint {
-				capHint = l
-			}
-		}
-	}
-
-	result, releaseResult := e.bitmapOps.NewEmpty(capHint)
+	result, releaseResult := e.bitmapOps.NewEmpty()
 	succeeded := false
 	defer func() {
 		if !succeeded {
@@ -576,14 +567,14 @@ func (e *recExecutor) evalSplitBranch(ctx context.Context, lcaPath string, br re
 	defer idxRel()
 
 	if idxK.IsEmpty() {
-		empty, emptyRel := e.bitmapOps.NewEmpty(64)
+		empty, emptyRel := e.bitmapOps.NewEmpty()
 		return empty, emptyRel, nil
 	}
 
 	branchScope, branchScopeRel := e.intersectScope(idxK, parentScope)
 	defer branchScopeRel()
 	if branchScope.IsEmpty() {
-		empty, emptyRel := e.bitmapOps.NewEmpty(64)
+		empty, emptyRel := e.bitmapOps.NewEmpty()
 		return empty, emptyRel, nil
 	}
 
@@ -699,7 +690,7 @@ func (e *recExecutor) evalNot(ctx context.Context, n *recNotNode, parentScope *s
 		if universeBucketRel != nil {
 			universeBucketRel()
 		}
-		empty, emptyRel := e.bitmapOps.NewEmpty(0)
+		empty, emptyRel := e.bitmapOps.NewEmpty()
 		return empty, emptyRel, nil
 	}
 
@@ -729,7 +720,7 @@ func (e *recExecutor) evalNot(ctx context.Context, n *recNotNode, parentScope *s
 				pinRel()
 			}
 			// Pin slice not present in any doc — universe becomes empty.
-			empty, emptyRel := e.bitmapOps.NewEmpty(0)
+			empty, emptyRel := e.bitmapOps.NewEmpty()
 			succeeded = true
 			universeRel()
 			return empty, emptyRel, nil

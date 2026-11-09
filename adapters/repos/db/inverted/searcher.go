@@ -239,7 +239,7 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		if deletedIds.Set(id) {
 			if deletedCount++; deletedCount >= 1024 {
 				s.bitmapFactory.Remove(deletedIds)
-				deletedIds = sroar.NewBitmap().CloneToBuf(deletedIds.ToBuffer())
+				deletedIds.Reset()
 				deletedCount = 0
 			}
 		}

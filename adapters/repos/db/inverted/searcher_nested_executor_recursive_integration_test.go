@@ -797,7 +797,7 @@ func TestRecExecutorFilterExamples(t *testing.T) {
 	// _idx[""][0] only carries country[0] positions (root_idx=1) and
 	// _idx.garages.cars[5] only carries cars[5] positions in country[2]
 	// (root_idx=3). Their AndAll is empty → branchScope.IsEmpty() fires inside
-	// the inner evalSplitBranch, which returns NewEmpty(64). The pool buffer
+	// the inner evalSplitBranch, which returns NewEmpty(). The pool buffer
 	// allocated by intersectScope's AndAll must still be released through the
 	// deferred branchScopeRel.
 	// -----------------------------------------------------------------------

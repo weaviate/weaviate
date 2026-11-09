@@ -14,6 +14,7 @@ package roaringset
 import (
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -912,6 +913,15 @@ func TestBitmapBufPoolTrackingForTests_CloneToBuf(t *testing.T) {
 		assert.Equal(t, int64(0), pool.Outstanding())
 	})
 
+	t.Run("second put of a cloned bitmap panics", func(t *testing.T) {
+		pool := NewBitmapBufPoolTrackingForTests()
+		bm := sroar.NewBitmap()
+		bm.Set(1)
+		_, release := pool.CloneToBuf(bm)
+		release()
+		assert.PanicsWithValue(t, "bitmap released twice", release)
+	})
+
 	t.Run("release zeroes cloned bitmap backing buffer", func(t *testing.T) {
 		pool := NewBitmapBufPoolTrackingForTests()
 
@@ -935,59 +945,37 @@ func TestBitmapBufPoolTrackingForTests_CloneToBuf(t *testing.T) {
 	})
 }
 
-// TestPooledBitmapStructReuse pins the pooled-entry Bitmap contract: the
-// clone paths hand out the entry's embedded struct (re-initialized per
-// checkout, not allocated), the struct cycles with its buffer, and a bitmap
-// that grew past its buffer cannot leak state into the next checkout.
+// TestPooledBitmapStructReuse pins that a struct still held is never handed out
+// again, and that put leaves nothing of a grown bitmap in it.
 func TestPooledBitmapStructReuse(t *testing.T) {
-	// syncMaxBufSize 0 puts every range on the channel-backed in-memory
-	// pools, which reuse entries deterministically — sync.Pool guarantees no
-	// steady-state allocation but NOT entry identity across cycles (and the
-	// race detector deliberately randomizes it), so the pointer-identity
-	// assertions below need the channel pools.
+	// syncMaxBufSize 0 puts every range on the channel-backed in-memory pools,
+	// whose buffers are reused deterministically.
 	newRanged := func() *bitmapBufPoolRanged {
 		return NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
 	}
 
 	src := sroar.NewBitmap()
 	src.SetMany([]uint64{1, 2, 3, 100_000})
-	serialized := src.ToBufferWithCopy()
+	serialized := slices.Clone(src.ToBuffer())
 
-	t.Run("same struct across checkout cycles", func(t *testing.T) {
+	t.Run("a held struct is not handed out again", func(t *testing.T) {
 		pool := newRanged()
 		bm1, put1 := pool.CloneBytesToBuf(serialized)
-		require.Equal(t, src.ToArray(), bm1.ToArray())
-		put1()
-		bm2, put2 := pool.CloneBytesToBuf(serialized)
-		defer put2()
-		require.Equal(t, src.ToArray(), bm2.ToArray())
-		assert.Same(t, bm1, bm2, "the pooled entry's embedded Bitmap must be reused, not reallocated")
-	})
-
-	t.Run("CloneToBuf uses the embedded struct too", func(t *testing.T) {
-		pool := newRanged()
-		bm1, put1 := pool.CloneToBuf(src)
-		require.Equal(t, src.ToArray(), bm1.ToArray())
-		put1()
 		bm2, put2 := pool.CloneToBuf(src)
+		bm3, put3 := pool.AccumulatorToBuf(sroar.NewAccumulator())
+		defer put1()
 		defer put2()
-		assert.Same(t, bm1, bm2)
-	})
-
-	t.Run("factor wrapper preserves entry reuse", func(t *testing.T) {
-		pool := NewBitmapBufPoolFactorWrapper(newRanged(), 1.5)
-		bm1, put1 := pool.CloneBytesToBuf(serialized)
-		put1()
-		bm2, put2 := pool.CloneBytesToBuf(serialized)
-		defer put2()
-		assert.Same(t, bm1, bm2)
+		defer put3()
+		assert.NotSame(t, bm1, bm2)
+		assert.NotSame(t, bm1, bm3)
+		assert.NotSame(t, bm2, bm3)
+		assert.Equal(t, src.ToArray(), bm1.ToArray())
+		assert.Equal(t, src.ToArray(), bm2.ToArray())
 	})
 
 	t.Run("growth past the buffer cannot corrupt the next checkout", func(t *testing.T) {
 		pool := newRanged()
 		bm1, put1 := pool.CloneBytesToBuf(serialized)
-		// Force the bitmap to outgrow the pooled buffer: sroar migrates its
-		// data to the heap internally.
 		for i := uint64(0); i < 100_000; i += 7 {
 			bm1.Set(i)
 		}
@@ -998,41 +986,36 @@ func TestPooledBitmapStructReuse(t *testing.T) {
 			"reused entry must reflect only the new clone, not the grown bitmap")
 	})
 
-	t.Run("release resets the embedded struct", func(t *testing.T) {
-		// The reset is invisible to functional assertions (every checkout
-		// re-initializes the struct before use); its job is retention: a
-		// grown bitmap migrates its data to the heap, and a parked entry
-		// whose struct still points there would pin that heap for as long
-		// as the entry sits in the pool. The zeroed fields ARE the dropped
-		// references, so observing them observes the fix.
+	t.Run("put resets the struct", func(t *testing.T) {
+		// A parked struct still pointing at a grown bitmap's memory would pin it
+		// for as long as the struct sits in the pool.
 		pools := []struct {
 			name string
 			pool BitmapBufPool
 		}{
 			{"channel-backed", NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)},
 			{"sync.Pool-backed", NewBitmapBufPoolRanged(nil, 1<<20, nil, 512, 1024)},
+			{"oversized, on the heap", NewBitmapBufPoolRanged(nil, 0, nil, 8)},
 		}
 		for _, tc := range pools {
 			t.Run(tc.name, func(t *testing.T) {
 				bm, put := tc.pool.CloneBytesToBuf(serialized)
-				// Outgrow the pooled buffer so the bitmap's data migrates to
-				// a fresh heap allocation the entry must not keep alive.
 				for i := uint64(0); i < 100_000; i += 7 {
 					bm.Set(i)
 				}
 				require.NotZero(t, bm.GetCardinality())
 				put()
 				assert.Equal(t, sroar.Bitmap{}, *bm,
-					"released entry must not retain the grown bitmap's heap")
+					"released struct must not retain the grown bitmap's memory")
 			})
 		}
 	})
 
 	t.Run("clone allocates nothing steady-state", func(t *testing.T) {
 		pool := newRanged()
-		// warm the pool entry
 		_, put := pool.CloneBytesToBuf(serialized)
 		put()
+		// A sync.Pool miss allocates a struct, but never on every run.
 		allocs := testing.AllocsPerRun(100, func() {
 			bm, put := pool.CloneBytesToBuf(serialized)
 			_ = bm.GetCardinality()
@@ -1041,6 +1024,129 @@ func TestPooledBitmapStructReuse(t *testing.T) {
 		assert.Zero(t, allocs, "pooled clone must reuse both buffer and Bitmap struct")
 	})
 }
+
+// dirtyTrackingPool hands out buffers filled with garbage, as reused pool
+// buffers are, and tracks them like the pool it wraps.
+type dirtyTrackingPool struct {
+	*BitmapBufPoolTrackingForTests
+	gets int
+}
+
+func (p *dirtyTrackingPool) Get(minCap int) ([]byte, func()) {
+	p.gets++
+	buf, put := p.BitmapBufPoolTrackingForTests.Get(minCap)
+	full := buf[:cap(buf)]
+	for i := range full {
+		full[i] = 0xA5
+	}
+	return buf, put
+}
+
+func (p *dirtyTrackingPool) CloneToBuf(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
+	return cloneToBuf(p, bm)
+}
+
+func (p *dirtyTrackingPool) CloneBytesToBuf(src []byte) (*sroar.Bitmap, func()) {
+	return cloneBytesToBuf(p, src)
+}
+
+func (p *dirtyTrackingPool) AccumulatorToBuf(acc *sroar.Accumulator) (*sroar.Bitmap, func()) {
+	return accumulatorToBuf(p, acc)
+}
+
+// TestPooledBitmapGrowsThroughThePool pins that growth takes dirty buffers from
+// the pool, releases each outgrown one exactly once, and matches the heap result.
+func TestPooledBitmapGrowsThroughThePool(t *testing.T) {
+	base := []uint64{1, 2, 3, 70_000}
+	baseBM := func() *sroar.Bitmap {
+		bm := sroar.NewBitmap()
+		bm.SetMany(base)
+		return bm
+	}
+	dense := sroar.NewBitmap()
+	for i := uint64(0); i < 300_000; i += 3 {
+		dense.Set(i)
+	}
+
+	constructors := []struct {
+		name string
+		get  func(BitmapBufPool) (*sroar.Bitmap, func())
+	}{
+		{"CloneToBuf", func(p BitmapBufPool) (*sroar.Bitmap, func()) { return p.CloneToBuf(baseBM()) }},
+		{"CloneBytesToBuf", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
+			return p.CloneBytesToBuf(slices.Clone(baseBM().ToBuffer()))
+		}},
+		{"AccumulatorToBuf", func(p BitmapBufPool) (*sroar.Bitmap, func()) {
+			acc := sroar.NewAccumulator()
+			acc.Or(baseBM())
+			return p.AccumulatorToBuf(acc)
+		}},
+	}
+	ops := []struct {
+		name string
+		grow func(bm *sroar.Bitmap)
+	}{
+		{"Set one by one", func(bm *sroar.Bitmap) {
+			for i := uint64(0); i < 200_000; i += 5 {
+				bm.Set(i)
+			}
+		}},
+		{"Or", func(bm *sroar.Bitmap) { bm.Or(dense) }},
+		{"OrConc", func(bm *sroar.Bitmap) { bm.OrConc(dense, 4) }},
+		{"Or then AndNot", func(bm *sroar.Bitmap) {
+			bm.Or(dense)
+			bm.AndNot(baseBM())
+		}},
+	}
+
+	for _, c := range constructors {
+		for _, op := range ops {
+			t.Run(c.name+"/"+op.name, func(t *testing.T) {
+				want := baseBM()
+				op.grow(want)
+
+				pool := &dirtyTrackingPool{BitmapBufPoolTrackingForTests: NewBitmapBufPoolTrackingForTests()}
+				bm, put := c.get(pool)
+				getsBefore := pool.gets
+				op.grow(bm)
+
+				require.Greater(t, pool.gets, getsBefore, "the bitmap must have grown through the pool")
+				require.Equal(t, int64(1), pool.Outstanding(), "every outgrown buffer must be released")
+				require.Equal(t, want.ToArray(), bm.ToArray())
+				put()
+				require.Equal(t, int64(0), pool.Outstanding())
+			})
+		}
+	}
+}
+
+// TestPooledBitmapGrowthAllocatesNothing pins that a warm pool serves every
+// grown size inside its ranges, with no heap or disposable buffer.
+func TestPooledBitmapGrowthAllocatesNothing(t *testing.T) {
+	disposable := &countingDisposableMetrics{}
+	pool := NewBitmapBufPoolRanged(nil, 0, nil, calculateSyncBufferRanges(9, 20)...)
+	pool.disposableMetrics = disposable
+	src := sroar.NewBitmap()
+	src.Set(1)
+
+	// One value per key grows the buffer with every new container, and never
+	// converts an array container, which sroar does on the heap.
+	grow := func() {
+		bm, put := pool.CloneToBuf(src)
+		for i := uint64(1); i < 4000; i++ {
+			bm.Set(i << 16)
+		}
+		put()
+	}
+	grow()
+	allocs := testing.AllocsPerRun(100, grow)
+	assert.Zero(t, allocs)
+	assert.Zero(t, disposable.created)
+}
+
+type countingDisposableMetrics struct{ created int }
+
+func (m *countingDisposableMetrics) bufCreated(int) { m.created++ }
 
 func TestAccumulatorToBuf(t *testing.T) {
 	ids := []uint64{1, 2, 3, 70_000, 200_000}
@@ -1059,7 +1165,6 @@ func TestAccumulatorToBuf(t *testing.T) {
 		{"noop", NewBitmapBufPoolNoop()},
 		{"ranged channel-backed", NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)},
 		{"ranged sync.Pool-backed", NewBitmapBufPoolRanged(nil, 1<<20, nil, 512, 1024)},
-		{"factor wrapper", NewBitmapBufPoolFactorWrapper(NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024), 1.5)},
 		{"tracking", NewBitmapBufPoolTrackingForTests()},
 	}
 	for _, tc := range pools {
@@ -1086,14 +1191,11 @@ func TestAccumulatorToBuf(t *testing.T) {
 		require.Panics(t, func() { pool.AccumulatorToBuf(nil) })
 	})
 
-	t.Run("reuses the pooled entry's struct, allocates nothing warm", func(t *testing.T) {
+	t.Run("allocates nothing warm", func(t *testing.T) {
 		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
 		acc := newAcc()
-		bm1, put1 := pool.AccumulatorToBuf(acc)
-		put1()
-		bm2, put2 := pool.AccumulatorToBuf(acc)
-		assert.Same(t, bm1, bm2, "the pooled entry's embedded Bitmap must be reused, not reallocated")
-		put2()
+		_, put := pool.AccumulatorToBuf(acc)
+		put()
 
 		allocs := testing.AllocsPerRun(100, func() {
 			bm, put := pool.AccumulatorToBuf(acc)
