@@ -20,18 +20,16 @@ while [[ "$#" -gt 0 ]]; do
   shift
 done
 
-# Prints the highest vX.Y.Z tag on origin, without the "v".
-# Reads origin because CI checkouts are shallow and have no local tags.
+# Prints the highest vX.Y.Z tag on origin, without "v".
+# Reads origin because CI checkouts have no local tags.
 function highest_stable_release() {
   git ls-remote --tags --refs origin 'v*' \
-    | sed -n 's|.*refs/tags/v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$|\1|p' \
+    | sed -En 's|.*refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$|\1|p' \
     | sort -V | tail -n 1
 }
 
-# Points <repo>:latest at the highest stable release whose image is published.
-# Release builds run concurrently, so each one calls this after pushing its own
-# tag. Whichever finishes last leaves latest on the highest published release,
-# regardless of finishing order. Failures only warn: the next release retries.
+# Calls after every release to ensure 'latest' correct even when builds overlap.
+# Warns instead because the next release build retries.
 function promote_latest() {
   local docker_repo="$1"
   local highest
