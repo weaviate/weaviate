@@ -92,7 +92,15 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		}
 	}
 
-	s.migrateCompressedVectors(legacy, targets)
+	// A shard has a mapping only after a load that ran the repair, so only a
+	// shard without one can hold the pre-1.30.19 layout. A failed repair fails
+	// the load before the mapping is written, and the next load retries it.
+	if !initialized {
+		err := newCompressedVectorsMigrator(s.index.logger).do(s, legacy, targets)
+		if err != nil {
+			return fmt.Errorf("shard %q: migrate compressed vectors: %w", s.ID(), err)
+		}
+	}
 
 	// legacy first, then names in order. The record says where the index and
 	// its queue live; the schema says what config to build with, until the
@@ -359,16 +367,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 	}
 	defer vectorIndex.PostStartup(s.shutCtx)
 	return vectorIndex, nil
-}
-
-// migrateCompressedVectors logs a failed compressed-vectors folder migration.
-func (s *Shard) migrateCompressedVectors(legacy schemaConfig.VectorIndexConfig, configs map[string]schemaConfig.VectorIndexConfig) {
-	if err := newCompressedVectorsMigrator(s.index.logger).do(s, legacy, configs); err != nil {
-		s.index.logger.WithFields(logrus.Fields{
-			"action":   "init_target_vectors",
-			"shard_id": s.ID(),
-		}).Errorf("failed to migrate vectors compressed folder: %v", err)
-	}
 }
 
 // initTargetVector creates the named vector's index and queue under the
