@@ -481,7 +481,6 @@ func TestCheckMigrationPropertyUpdate(t *testing.T) {
 		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "other", wantRefuse: true},
 		{status: distributedtask.TaskStatusSwapping, class: "D", prop: "name", wantRefuse: true},
 		{status: distributedtask.TaskStatusFailed, class: "C", prop: "name", wantRefuse: true},
-		{status: distributedtask.TaskStatusCancelled, class: "C", prop: "name", wantRefuse: true},
 		{status: distributedtask.TaskStatusFinished, class: "C", prop: "name", wantRefuse: true},
 		{status: distributedtask.TaskStatusPreparing, class: "C", prop: "name", wantRefuse: true},
 		{

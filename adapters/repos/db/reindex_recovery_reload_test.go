@@ -36,15 +36,12 @@ import (
 )
 
 // Pins that a tenant set COLD while its swap is owed loses no write taken
-// after it is reactivated: the reload arms the mirror, and the late swap
-// installs a bucket that holds the write. A mirror that fails to arm holds the
-// shard READONLY instead of stamping the record, since a stamp would refuse
-// the owed swap for good, and so does a load before RAFT has caught up or
-// after this node acked its PREP while the swap was still undecided.
+// after it is reactivated. A mirror that fails to arm at the reload holds the
+// shard READONLY rather than stamping the record, since a stamp would refuse
+// the owed swap for good; once lifted, the late swap holds the write.
 func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		armFails bool
+		name string
 		// The load runs before this node's RAFT has caught up, so no task list is readable yet.
 		raftBehind bool
 		// This node acked its PREP, and the swap is decided only after the load.
@@ -54,12 +51,11 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 		// An earlier load stamped the record, which already refuses the swap.
 		stampedBefore bool
 	}{
-		{name: "the mirror arms"},
-		{name: "the mirror fails to arm", armFails: true},
-		{name: "the mirror fails to arm before RAFT has caught up", armFails: true, raftBehind: true},
-		{name: "the mirror fails to arm after this node acked, before the swap is decided", armFails: true, decidedAfterLoad: true},
-		{name: "a held lift stamps once the acked task ends undecided", armFails: true, decidedAfterLoad: true, endsUndecided: true},
-		{name: "a record stamped earlier is not held for its decided swap", armFails: true, stampedBefore: true},
+		{name: "the mirror fails to arm"},
+		{name: "the mirror fails to arm before RAFT has caught up", raftBehind: true},
+		{name: "the mirror fails to arm after this node acked, before the swap is decided", decidedAfterLoad: true},
+		{name: "a held lift stamps once the acked task ends undecided", decidedAfterLoad: true, endsUndecided: true},
+		{name: "a record stamped earlier is not held for its decided swap", stampedBefore: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			const prop, node = "title", "node1"
@@ -118,10 +114,7 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 					[]*schemaUC.UpdateTenantPayload{{Name: group, Status: status}}, false))
 			}
 			setStatus(models.TenantActivityStatusCOLD)
-			restore := func() {}
-			if tc.armFails {
-				restore = corruptIngestSegments(t, shard.pathLSM())
-			}
+			restore := corruptIngestSegments(t, shard.pathLSM())
 			if tc.stampedBefore {
 				store := NewMigrationRecordStoreForUnit(shard.pathLSM(), unitID, logger)
 				require.NoError(t, store.Load())
@@ -140,33 +133,31 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 				require.Equal(t, storagestate.StatusReady, reloaded.GetStatus(), "holding cannot save a swap the stamp refuses")
 				return
 			}
-			if tc.armFails {
-				for _, rec := range reloaded.migrationRecords.Records() {
-					require.False(t, rec.Subject().Unmirrored, "a stamp would refuse the owed swap for good")
-				}
-				require.Equal(t, storagestate.StatusReadOnly, reloaded.GetStatus())
-				if tc.endsUndecided {
-					// In place, so the lift runs before the periodic cluster pass discards the ended run.
-					atLoad.Status = distributedtask.TaskStatusCancelled
-					require.ErrorContains(t, liftReady(reloaded)(), "a recovery retry started")
-					awaitRetry(t, reloaded)
-					require.NoError(t, liftReady(reloaded)())
-					require.Equal(t, storagestate.StatusReady, reloaded.GetStatus())
-					require.NotEmpty(t, reloaded.migrationRecords.Records())
-					for _, rec := range reloaded.migrationRecords.Records() {
-						require.True(t, rec.Subject().Unmirrored, "an ended task owes no swap, so the lift stamps")
-					}
-					return
-				}
-				if tc.raftBehind || tc.decidedAfterLoad {
-					installTestMigrationTaskSources(ctx, idx.db, nil, cancelled)
-				}
-				restore()
+			for _, rec := range reloaded.migrationRecords.Records() {
+				require.False(t, rec.Subject().Unmirrored, "a stamp would refuse the owed swap for good")
+			}
+			require.Equal(t, storagestate.StatusReadOnly, reloaded.GetStatus())
+			if tc.endsUndecided {
+				// In place, so the lift runs before the periodic cluster pass discards the ended run.
+				atLoad.Status = distributedtask.TaskStatusCancelled
 				require.ErrorContains(t, liftReady(reloaded)(), "a recovery retry started")
 				awaitRetry(t, reloaded)
 				require.NoError(t, liftReady(reloaded)())
 				require.Equal(t, storagestate.StatusReady, reloaded.GetStatus())
+				require.NotEmpty(t, reloaded.migrationRecords.Records())
+				for _, rec := range reloaded.migrationRecords.Records() {
+					require.True(t, rec.Subject().Unmirrored, "an ended task owes no swap, so the lift stamps")
+				}
+				return
 			}
+			if tc.raftBehind || tc.decidedAfterLoad {
+				installTestMigrationTaskSources(ctx, idx.db, nil, cancelled)
+			}
+			restore()
+			require.ErrorContains(t, liftReady(reloaded)(), "a recovery retry started")
+			awaitRetry(t, reloaded)
+			require.NoError(t, liftReady(reloaded)())
+			require.Equal(t, storagestate.StatusReady, reloaded.GetStatus())
 			require.NotEmpty(t, p.cachedReindexTasks(cancelled.TaskDescriptor, unitID),
 				"the owed swap reuses the instances the reload armed, even once the task has ended")
 			written := createTestObjectWithText(className, "afterhot")

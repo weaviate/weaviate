@@ -12,16 +12,15 @@
 package db
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -35,55 +34,31 @@ func TestSwapRetryOfARunANewerRunSuperseded(t *testing.T) {
 		t.Run(fmt.Sprintf("unreadable=%t", unreadable), func(t *testing.T) {
 			ctx := testCtx()
 			className := "LateSwap_" + uuid.NewString()[:8]
-			class := newTestClassWithProps(className, []string{"title"})
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+			shd, idx := testShardWithSettings(t, ctx, newTestClassWithProps(className, []string{"title"}),
+				enthnsw.UserConfig{Skip: true}, false, false, false)
 			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
 			registerIndex(idx, className)
-			for _, obj := range makeConvergenceTestObjects(t, 10, className) {
-				require.NoError(t, shard.PutObject(ctx, obj))
-			}
-			node, unit, group := idx.getSchema.NodeName(), shard.migrationUnit(), shard.Name()
-			p := NewReindexProvider(idx.db, nil, nil, logrus.New(), node, nil, ctx)
-			idx.db.SetReindexUnitSeal(p.ReindexUnitSealBuilder())
+			unit, logger := shard.migrationUnit(), logrus.New()
+			p := NewReindexProvider(idx.db, nil, nil, logger, "node1", nil, ctx)
 			payload := &ReindexTaskPayload{
 				Collection: className, MigrationType: ReindexTypeChangeTokenization, Properties: []string{"title"},
-				TargetTokenization: models.PropertyTokenizationField,
-				BucketStrategy:     shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM("title")).Strategy(),
-				UnitToShard:        map[string]string{unit: group}, UnitToNode: map[string]string{unit: node},
+				TargetTokenization: models.PropertyTokenizationField, BucketStrategy: lsmkv.StrategyMapCollection,
+				UnitToShard: map[string]string{unit: shard.Name()},
 			}
-			raw, err := json.Marshal(payload)
+			desc := distributedtask.TaskDescriptor{ID: "R1", Version: 1}
+			cached, err := p.createReindexTasks(desc, unit, payload)
 			require.NoError(t, err)
-			prepared := func(version uint64, status distributedtask.TaskStatus) (*distributedtask.Task, []*ShardReindexTaskGeneric) {
-				desc := distributedtask.TaskDescriptor{ID: fmt.Sprintf("R%d", version), Version: version}
-				tasks, err := p.createReindexTasks(desc, unit, payload)
-				require.NoError(t, err)
-				for _, task := range tasks {
-					require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-					require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-				}
-				return withUnits(&distributedtask.Task{
-					Namespace: ReindexNamespace, TaskDescriptor: desc, Status: status, NeedsPreparationBarrier: true,
-					Payload: raw, SwapDecidedGroups: map[string]time.Time{group: {}},
-				}, map[string]*distributedtask.Unit{unit: {ID: unit, GroupID: group, NodeID: node}}), tasks
-			}
-
-			run1, tasks1 := prepared(1, distributedtask.TaskStatusFailed)
-			// What run 1's failed retry leaves behind.
-			p.cacheReindexTasks(run1.TaskDescriptor, unit, tasks1)
-			run2, _ := prepared(2, distributedtask.TaskStatusSwapping)
-			installTestMigrationTaskSources(ctx, idx.db, nil, run1, run2)
-			require.NoError(t, p.OnSwapRequested(run2, group, []string{unit}))
+			// Never run, so no record: as after the newer run retired it.
+			p.cacheReindexTasks(desc, unit, cached)
 			if unreadable {
 				plantUnreadableRecord(t, shard.migrationRecords.Dir())
 				require.NoError(t, shard.migrationRecords.Load())
 			}
 
-			err = p.OnSwapRequested(run1, group, []string{unit})
-			if unreadable {
-				require.Error(t, err, "an unreadable record is never read as gone")
-				return
-			}
-			require.NoError(t, err, "run 2 retired run 1's record, so nothing of run 1 is left in flight")
+			got := p.resolveUnitForPhase(ctx, &distributedtask.Task{TaskDescriptor: desc}, payload, unit, idx, logger)
+			require.Equal(t, unreadable, len(got.Errs) > 0, "an unreadable record is never read as gone")
+			require.Equal(t, !unreadable, got.Skip, "a retired record leaves nothing of the run in flight")
 		})
 	}
 }

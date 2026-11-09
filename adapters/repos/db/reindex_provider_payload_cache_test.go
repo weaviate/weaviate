@@ -13,7 +13,6 @@ package db
 
 import (
 	"encoding/json"
-	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -22,32 +21,16 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-func payloadTask(t testing.TB, tenants int) *distributedtask.Task {
-	payload := ReindexTaskPayload{
-		Collection: "Docs", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"body"},
-		UnitToNode: map[string]string{}, UnitToShard: map[string]string{},
-	}
-	for i := range tenants {
-		tenant := fmt.Sprintf("tenant-%d", i)
-		payload.Tenants = append(payload.Tenants, tenant)
-		for r := range 3 {
-			unit := fmt.Sprintf("%s__node-%d", tenant, (i+r)%9)
-			payload.UnitToNode[unit], payload.UnitToShard[unit] = fmt.Sprintf("node-%d", (i+r)%9), tenant
-		}
-	}
-	raw, err := json.Marshal(payload)
-	require.NoError(t, err)
-	return &distributedtask.Task{
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
-		Status:         distributedtask.TaskStatusFailed, Payload: raw,
-	}
-}
-
 // Pins that a decided swap retried after OnTaskCompleted decodes the payload
 // once, and that the decoded copy is freed once the task leaves the list.
 func TestLoadPayloadIsKeptUntilTheTaskLeavesTheList(t *testing.T) {
 	p := NewReindexProvider(nil, nil, nil, logrus.New(), "node-0", nil, nil)
-	task := payloadTask(t, 3)
+	raw, err := json.Marshal(ReindexTaskPayload{Collection: "Docs", MigrationType: ReindexTypeChangeTokenization})
+	require.NoError(t, err)
+	task := &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
+		Status:         distributedtask.TaskStatusFailed, Payload: raw,
+	}
 
 	first, err := p.loadPayload(task)
 	require.NoError(t, err)

@@ -32,8 +32,7 @@ import (
 )
 
 // A replica that swapped its buckets to the new tokenization and then restarted
-// before the cluster-wide schema flip must still answer like a replica that did
-// not restart (weaviate/etienne-claude-issues#398).
+// before the cluster-wide schema flip must still answer like one that did not.
 func TestRestartBetweenSwapAndSchemaFlipKeepsQueriesCorrect(t *testing.T) {
 	const (
 		prop  = "title"
@@ -43,22 +42,11 @@ func TestRestartBetweenSwapAndSchemaFlipKeepsQueriesCorrect(t *testing.T) {
 
 	tests := []struct {
 		name string
-		// afterRestart is what the scheduler does with this node's swap once
-		// the node is back.
-		afterRestart func(t *testing.T, idx *Index, task *distributedtask.Task, unitID string)
+		// The restart lost this node's swap ack, so the scheduler requests the swap again.
+		reswap bool
 	}{
-		{
-			name:         "the swap ack landed before the restart, so the swap does not run again",
-			afterRestart: func(*testing.T, *Index, *distributedtask.Task, string) {},
-		},
-		{
-			name: "the restart lost the swap ack, so the scheduler requests the swap again",
-			afterRestart: func(t *testing.T, idx *Index, task *distributedtask.Task, unitID string) {
-				logger, _ := logrustest.NewNullLogger()
-				p := NewReindexProvider(idx.db, nil, nil, logger, node, nil, testCtx())
-				require.NoError(t, p.OnSwapRequested(task, "g1", []string{unitID}))
-			},
-		},
+		{name: "the swap ack landed before the restart"},
+		{name: "the restart lost the swap ack", reswap: true},
 	}
 
 	for _, tc := range tests {
@@ -131,7 +119,10 @@ func TestRestartBetweenSwapAndSchemaFlipKeepsQueriesCorrect(t *testing.T) {
 				"a replica that swapped and did not restart answers with the new tokenization, or this test proves nothing")
 
 			f.restart(t, ctx)
-			tc.afterRestart(t, idx, task(distributedtask.TaskStatusSwapping), unitID)
+			if tc.reswap {
+				p := NewReindexProvider(idx.db, nil, nil, logger, node, nil, ctx)
+				require.NoError(t, p.OnSwapRequested(task(distributedtask.TaskStatusSwapping), "g1", []string{unitID}))
+			}
 			assert.Equal(t, want, probe(),
 				"before the schema flip, the restarted replica must answer like one that did not restart")
 

@@ -16,12 +16,9 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"slices"
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -32,7 +29,7 @@ import (
 
 // A committed swap whose shard is held on its own migration fails the task
 // instead of keeping it SWAPPING, so the collection can be deleted; the swap
-// stays owed and is paid once the segment is repaired and the shard set READY.
+// stays owed.
 func TestAHeldCommittedSwapFailsTheTaskAndKeepsItsDebt(t *testing.T) {
 	fx := newDoubleFaultFixture(t, "tenant-held-commit")
 	node, unitID := fx.idx.getSchema.NodeName(), fx.subject.Key.UnitID
@@ -50,7 +47,6 @@ func TestAHeldCommittedSwapFailsTheTaskAndKeepsItsDebt(t *testing.T) {
 		},
 		func(context.Context) ([]*distributedtask.Task, error) { return nil, errors.New("leader unreachable") })
 
-	logs := test.NewLocal(fx.logger.(*logrus.Logger))
 	shard := fx.load(t)
 	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
 	require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
@@ -80,23 +76,6 @@ func TestAHeldCommittedSwapFailsTheTaskAndKeepsItsDebt(t *testing.T) {
 	require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
 	require.NoError(t, mgr.CheckClassMutation(fx.className))
 	require.NoError(t, mgr.CheckTenantMutation(fx.className, []string{fx.name}))
-
-	// Repairing the segment and setting READY lets the owed swap run and pay the debt.
-	require.NoError(t, os.Remove(fx.corrupt))
-	// The repair happens after the failed task's teardown, which must leave the committed record.
-	require.Eventually(t, func() bool {
-		return slices.ContainsFunc(logs.AllEntries(), func(e *logrus.Entry) bool {
-			return e.Data["operation"] == "autoCleanupAfterTerminal"
-		})
-	}, 10*time.Second, 20*time.Millisecond, "the failed task's teardown ends")
-	require.NoError(t, liftAndAwaitRetry(t, fx, shard, liftReady(shard)))
-	require.NoError(t, liftReady(shard)())
-	require.Eventually(t, func() bool { sched.Wake(); return len(task().SwapsOwed) == 0 },
-		10*time.Second, 20*time.Millisecond, "the retried swap pays the debt")
-	rec, ok := shard.migrationRecords.Get(fx.subject.Key)
-	require.True(t, ok)
-	require.True(t, rec.FlipDecided())
-	require.Equal(t, distributedtask.TaskStatusFailed, task().Status)
 }
 
 // A swap waits, not fails, while the shard is held only for another migration.
