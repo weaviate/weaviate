@@ -28,8 +28,8 @@ function highest_stable_release() {
     | sort -V | tail -n 1
 }
 
-# Calls after every release to ensure 'latest' correct even when builds overlap.
-# Warns instead because the next release build retries.
+# Every release build calls this after pushing its own tag, so latest is correct
+# even when builds overlap. Failures warn rather than fail; the next release retries.
 function promote_latest() {
   local docker_repo="$1"
   local highest
