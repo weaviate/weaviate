@@ -52,6 +52,7 @@ type hnswCommitLogger struct {
 	currentWriter   *bufio.Writer
 	walWriter       *compact.WALWriter
 	closed          bool
+	closeErr        error // first flush/close result, returned by every later close
 
 	// Compaction (replaces condensor + combiner)
 	compactor *compact.Compactor
@@ -499,7 +500,7 @@ func (l *hnswCommitLogger) Reset() error {
 	return l.walWriter.WriteResetIndex()
 }
 
-// Shutdown stops the maintenance cycles, then flushes and closes the active file; later writes fail with ErrCommitLogClosed.
+// Shutdown stops the maintenance cycles, then flushes and closes the active file once (every later call reports that result); later writes fail with ErrCommitLogClosed.
 func (l *hnswCommitLogger) Shutdown(ctx context.Context) error {
 	// drain before locking (an in-flight switchCommitLogs takes l.Mutex), and close even if the drain failed
 	unregisterErr := l.unregisterMaintenance(ctx)
@@ -530,16 +531,17 @@ func (l *hnswCommitLogger) close() error {
 	l.Lock()
 	defer l.Unlock()
 
+	// a failed bufio flush is sticky, so a retry could never succeed either; report the first result instead
 	if l.closed {
-		return nil
+		return l.closeErr
 	}
-	// a failed bufio flush is sticky, so a retry could never succeed either
 	l.closed = true
 
 	ec := errorcompounder.New()
 	ec.AddWrapf(l.currentWriter.Flush(), "flush hnsw commit log")
 	ec.AddWrapf(l.currentFile.Close(), "close hnsw commit log")
-	return ec.ToError()
+	l.closeErr = ec.ToError()
+	return l.closeErr
 }
 
 func (l *hnswCommitLogger) RootPath() string {

@@ -405,3 +405,125 @@ func TestIndexShutdownStopsTombstoneCleanupBeforeClosingCommitLog(t *testing.T) 
 	require.NoError(t, index.Shutdown(context.Background()))
 	require.Equal(t, []string{"tombstone cleanup unregister", "commit log shutdown"}, recorder.steps)
 }
+
+var (
+	errInjectedUnregister = errors.New("injected unregister failure")
+	errInjectedWrite      = errors.New("injected write failure")
+	errInjectedClose      = errors.New("injected close failure")
+)
+
+type shutdownFaultFS struct {
+	common.FS
+	writeErr error
+	closeErr error
+}
+
+func (f *shutdownFaultFS) OpenFile(name string, flag int, perm os.FileMode) (common.File, error) {
+	file, err := f.FS.OpenFile(name, flag, perm)
+	if err != nil {
+		return nil, err
+	}
+	return &shutdownFaultFile{File: file, fs: f}, nil
+}
+
+type shutdownFaultFile struct {
+	common.File
+	fs *shutdownFaultFS
+}
+
+func (f *shutdownFaultFile) Write(p []byte) (int, error) {
+	if f.fs.writeErr != nil {
+		return 0, f.fs.writeErr
+	}
+	return f.File.Write(p)
+}
+
+func (f *shutdownFaultFile) Close() error {
+	err := f.File.Close()
+	if f.fs.closeErr != nil {
+		return f.fs.closeErr
+	}
+	return err
+}
+
+type failOnceCallbackCtrl struct {
+	cyclemanager.CycleCallbackCtrl
+	err    error
+	failed bool
+}
+
+func (c *failOnceCallbackCtrl) Unregister(ctx context.Context) error {
+	if !c.failed {
+		c.failed = true
+		return c.err
+	}
+	return c.CycleCallbackCtrl.Unregister(ctx)
+}
+
+func TestCommitLoggerShutdownFailures(t *testing.T) {
+	tests := []struct {
+		name          string
+		unregisterErr error
+		writeErr      error
+		closeErr      error
+	}{
+		{name: "unregister fails", unregisterErr: errInjectedUnregister},
+		{name: "flush fails", writeErr: errInjectedWrite},
+		{name: "close fails", closeErr: errInjectedClose},
+		{name: "flush and close fail", writeErr: errInjectedWrite, closeErr: errInjectedClose},
+		{name: "unregister and flush fail", unregisterErr: errInjectedUnregister, writeErr: errInjectedWrite},
+		{name: "unregister, flush and close fail", unregisterErr: errInjectedUnregister, writeErr: errInjectedWrite, closeErr: errInjectedClose},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			disableGC(t)
+			ctx := context.Background()
+			root := t.TempDir()
+			fs := &shutdownFaultFS{FS: common.NewOSFS()}
+			nullLogger, _ := test.NewNullLogger()
+			cl, err := NewCommitLogger(root, "shutdown", nullLogger, cyclemanager.NewCallbackGroupNoop(), WithFS(fs))
+			require.NoError(t, err)
+			cl.InitMaintenance()
+			if tt.unregisterErr != nil {
+				cl.switchLogsCallbackCtrl = &failOnceCallbackCtrl{CycleCallbackCtrl: cl.switchLogsCallbackCtrl, err: tt.unregisterErr}
+			}
+			filePath := cl.ActiveFilePath()
+			require.NoError(t, cl.AddTombstone(1))
+			fs.writeErr, fs.closeErr = tt.writeErr, tt.closeErr
+
+			closeErrs := []error{}
+			for _, e := range []error{tt.writeErr, tt.closeErr} {
+				if e != nil {
+					closeErrs = append(closeErrs, e)
+				}
+			}
+
+			err = cl.Shutdown(ctx)
+			require.Error(t, err)
+			for _, want := range append([]error{tt.unregisterErr}, closeErrs...) {
+				if want != nil {
+					require.ErrorIs(t, err, want)
+				}
+			}
+			require.Zero(t, openDescriptorCount(t, filePath), "a failed shutdown left the commit log file open")
+			require.ErrorIs(t, cl.AddTombstone(2), ErrCommitLogClosed)
+
+			retryErr := cl.Shutdown(ctx)
+			dropErr := cl.Drop(ctx, false)
+			_, statErr := os.Stat(commitLogDirectory(root, "shutdown"))
+			if len(closeErrs) == 0 {
+				require.NoError(t, retryErr)
+				require.NoError(t, dropErr)
+				require.ErrorIs(t, statErr, os.ErrNotExist)
+				return
+			}
+			for _, want := range closeErrs {
+				require.ErrorIs(t, retryErr, want, "a repeated shutdown hid the failed close")
+				require.ErrorIs(t, dropErr, want, "drop ignored the failed close")
+			}
+			require.NotErrorIs(t, retryErr, errInjectedUnregister)
+			require.NoError(t, statErr, "drop deleted the commit log after a failed close")
+		})
+	}
+}
