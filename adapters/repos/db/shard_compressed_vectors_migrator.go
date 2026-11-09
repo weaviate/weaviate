@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -60,9 +61,25 @@ func (m compressedVectorsMigrator) do(s *Shard, records map[string]vectorIndexRe
 
 	vectorsCompressedPath := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
 	if _, err := os.Stat(vectorsCompressedPath); !os.IsNotExist(err) {
+		// Only a vector with an index of its own can have written to the shared
+		// bucket; a newcomer must not start from another vector's codes. An
+		// hfresh owner's bucket holds its centroids' codes, never a target's.
+		var err error
+		targets, err = m.targetsWithStorage(s, targets)
+		if err != nil {
+			return err
+		}
+		if hasOwner && records[owner].IndexType == vectorindex.VectorIndexTypeHFresh {
+			targets = nil
+		}
 		switch {
 		case len(records) == 0:
 			// do nothing
+		case len(targets) == 0:
+			// nothing to move: the bucket stays with its owner, or unattributed
+			if err := m.markMigrationDone(lsmDir); err != nil {
+				return fmt.Errorf("failed to mark migration as done: %w", err)
+			}
 		case !hasOwner && len(targets) == 1:
 			for name, rec := range targets {
 				// rename old bucket to new target vector bucket
@@ -101,6 +118,28 @@ func (m compressedVectorsMigrator) do(s *Shard, records map[string]vectorIndexRe
 		}
 	}
 	return nil
+}
+
+// targetsWithStorage keeps the targets whose index already has its files.
+func (m compressedVectorsMigrator) targetsWithStorage(s *Shard, targets map[string]vectorIndexRecord,
+) (map[string]vectorIndexRecord, error) {
+	kept := make(map[string]vectorIndexRecord, len(targets))
+	for name, rec := range targets {
+		dirs, err := s.vectorIndexStorageDirsFor(rec)
+		if err != nil {
+			return nil, fmt.Errorf("vector %q: %w", name, err)
+		}
+		exists, err := vectorIndexStorageExists(dirs)
+		if err != nil {
+			return nil, fmt.Errorf("vector %q: %w", name, err)
+		}
+		if !exists {
+			m.logger.Infof("skipping migration, target vector %s has no index of its own yet", name)
+			continue
+		}
+		kept[name] = rec
+	}
+	return kept, nil
 }
 
 func (m compressedVectorsMigrator) migrate(targetVector string, rec vectorIndexRecord,
