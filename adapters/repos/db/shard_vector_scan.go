@@ -36,8 +36,8 @@ var defaultVectorScanWindow = vectorScanWindow{maxDuration: 10 * time.Minute, ch
 // scanVectors calls fn once for every stored vector of the named vector
 // targetVector, skipping objects that do not have it. It returns nil once
 // every object was read, ctx's error when cancelled and any other error on
-// failure. The view is not fixed: objects written during the scan may or may
-// not be seen.
+// failure. Each reopened cursor sees the store as it is then, so objects
+// written during the scan may or may not be read.
 func (s *Shard) scanVectors(ctx context.Context, targetVector string, multiVector bool,
 	fn func(common.VectorRecord) error,
 ) error {
