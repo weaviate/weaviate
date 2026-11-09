@@ -256,9 +256,11 @@ type SchemaMutationDetector interface {
 	CheckTenantMutation(className string, tenants []string, existingTasks []*Task) error
 }
 
-// CutoverOutcome lets a detector record a run as FINISHED exactly when its cutover write
-// landed, and refuse that write once the run stopped. Called under [Manager.mu]; deterministic.
-// readClass reads the FSM's own schema at the apply's index.
+// CutoverOutcome lets a detector record a failing run as FINISHED when its cutover write
+// already landed, and refuse that write once the run stopped. Called under [Manager.mu].
+// CutoverLanded is decided once, in the MarkTaskFailed apply, from the FSM's own schema
+// (readClass) at that index; the swap-ack paths (recordSwapAck, RecordPostCompletionAck)
+// do not consult it.
 type CutoverOutcome interface {
 	CutoverLanded(task *Task, readClass func(collection string) *models.Class) bool
 	CheckMigrationPropertyUpdate(className, propertyName string, existingTasks []*Task) error

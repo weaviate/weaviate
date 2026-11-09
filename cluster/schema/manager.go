@@ -58,13 +58,13 @@ type replicationFSM interface {
 // FSM-determinism: implementations MUST be pure functions of their
 // arguments + RAFT-replicated FSM state.
 type MutationGuard interface {
-	// CheckPropertyUpdate gates UpdateProperty. The migration completion
-	// path bypasses this by setting FromInFlightMigration=true on its
-	// own scheduled flip, since the task is still FINALIZING when the
-	// flip lands.
+	// CheckPropertyUpdate gates UpdateProperty. A migration's own flip
+	// (FromInFlightMigration=true) is not checked here, since its run is
+	// still SWAPPING when the flip lands and this check would refuse it.
 	CheckPropertyUpdate(className, propertyName string) error
 
-	// CheckMigrationPropertyUpdate gates that migration flip instead.
+	// CheckMigrationPropertyUpdate gates that migration flip instead: it
+	// is admitted only while a run on the property is SWAPPING.
 	CheckMigrationPropertyUpdate(className, propertyName string) error
 
 	// CheckClassMutation gates class-wide destructive ops (DeleteClass).
@@ -888,9 +888,9 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 		return fmt.Errorf("%w: empty property", ErrBadRequest)
 	}
 
-	// Cross-FSM mutation guard — see [MutationGuard.CheckPropertyUpdate].
-	// FromInFlightMigration=true bypasses the guard for the migration's
-	// own scheduled schema flip; see the bypass clause in that godoc.
+	// Cross-FSM mutation guard — see [MutationGuard]. A migration's own
+	// flip (FromInFlightMigration=true) is checked by
+	// CheckMigrationPropertyUpdate instead.
 	if s.mutationGuard != nil {
 		check := s.mutationGuard.CheckPropertyUpdate
 		if req.FromInFlightMigration {
@@ -902,7 +902,7 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 	}
 
 	// Disabling an index deletes the property's LSM buckets, which an in-flight movement's
-	// snapshot+CCL can't reconcile. FromInFlightMigration bypasses, as with the reindex guard.
+	// snapshot+CCL can't reconcile. A migration's own flip (FromInFlightMigration) skips this check.
 	if s.replicationFSM != nil && !req.FromInFlightMigration &&
 		s.replicationFSM.HasActiveReplicationForCollection(cmd.Class) {
 		if cls, _ := s.schema.ReadOnlyClass(cmd.Class); cls != nil {

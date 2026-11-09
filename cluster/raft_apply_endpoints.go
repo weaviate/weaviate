@@ -120,11 +120,9 @@ func (s *Raft) AddProperty(ctx context.Context, class string, props ...*models.P
 //
 // This is the public entry point: callers reach it from the REST / gRPC
 // schema handlers. The cluster-side MutationGuard at apply time blocks
-// updates while a reindex on the same (collection, property) is STARTED
-// or FINALIZING. Internal callers driven by the distributed-task
-// scheduler's own completion path must use
-// [Raft.UpdatePropertyFromMigration] instead, which sets the bypass
-// flag.
+// updates while a reindex on the same (collection, property) is active.
+// Internal callers driven by the distributed-task scheduler's own
+// completion path must use [Raft.UpdatePropertyFromMigration] instead.
 func (s *Raft) UpdateProperty(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
 	return s.updateProperty(ctx, class, property, false, fields...)
 }
@@ -134,15 +132,15 @@ func (s *Raft) UpdateProperty(ctx context.Context, class string, property *model
 // own completion handler (see
 // adapters/repos/db/reindex_provider.flipSemanticMigrationSchema). The
 // resulting command carries [api.UpdatePropertyRequest.FromInFlightMigration]
-// = true, which the schema FSM uses to bypass the in-flight-reindex
-// MutationGuard for this single update.
+// = true, so the schema FSM checks it with CheckMigrationPropertyUpdate
+// instead of CheckPropertyUpdate: it is admitted only while a run on
+// that property is SWAPPING, and refused once the run has ended.
 //
 // Public REST / gRPC handlers must not call this; they go through
-// [Raft.UpdateProperty]. The migration-only bypass exists because the
-// scheduler's OnTaskCompleted fires while the task is still FINALIZING
-// (status not yet FINISHED), so the same MutationGuard that protects
-// the property from external mutations would otherwise reject the
-// migration's own scheduled flip.
+// [Raft.UpdateProperty]. The separate check exists because the
+// scheduler's OnTaskCompleted fires while the task is still SWAPPING
+// (status not yet FINISHED), so the check that protects the property
+// from external mutations would refuse the migration's own flip.
 func (s *Raft) UpdatePropertyFromMigration(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
 	return s.updateProperty(ctx, class, property, true, fields...)
 }

@@ -857,10 +857,13 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 	return nil
 }
 
-// MarkTaskFailed transitions SWAPPING → FAILED when a node's
+// MarkTaskFailed ends a SWAPPING task when a node's
 // [UnitAwareProvider.OnTaskCompleted] returns a terminal error, so a
 // swallowed cutover failure can't leave the task FINISHED with an
-// un-flipped schema (weaviate/0-weaviate-issues#297).
+// un-flipped schema (weaviate/0-weaviate-issues#297). It records FAILED,
+// or FINISHED when [CutoverOutcome.CutoverLanded] reports the run's
+// cutover write already landed, since the proposer's error may come
+// after a write that committed.
 //
 // Idempotent at the FSM layer: the first commit wins; a later call on an
 // already-FAILED task is a no-op, and one racing a peer's FINISHED/CANCELLED

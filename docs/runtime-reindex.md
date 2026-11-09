@@ -769,11 +769,12 @@ live class state. An empty mask falls back to "replace every field"
 semantics for callers that don't care.
 
 **`FromInFlightMigration` flag.** Routed via
-`UpdatePropertyInternalFromMigration`. Bypasses the MutationGuard
-described next: migration-driven schema flips are exactly the kind of
-"in-flight" mutation the guard would otherwise reject, so they need an
-explicit opt-out signal that's set only by the provider's
-`OnTaskCompleted` path.
+`UpdatePropertyInternalFromMigration` and set only by the provider's
+`OnTaskCompleted` path. The MutationGuard described next would refuse a
+migration's own schema flip, because its run is still in flight. The
+flag routes the flip to `CheckMigrationPropertyUpdate` instead, which
+admits it only while a run on that property is `SWAPPING`, so a flip
+arriving after its run ended is refused.
 
 **`MutationGuard` (cross-FSM).** The schema FSM consults
 `distributedtask.SchemaMutationDetector` on every `UpdateProperty`,
@@ -794,8 +795,9 @@ failure mode but triggered by an external schema mutation instead of
 a crash.
 
 The guard is intentionally blanket: any overlap rejects. Migration-
-driven flips bypass via `FromInFlightMigration=true` so the migration's
-own scheduled completion flip still works. Class-wide
+driven flips (`FromInFlightMigration=true`) are checked by
+`CheckMigrationPropertyUpdate` instead, which admits them only while a
+run on the property is `SWAPPING`. Class-wide
 (`CheckClassMutation`) is stricter — any reindex on the class
 (regardless of property) blocks DeleteClass.
 
@@ -1349,7 +1351,9 @@ included; see §4.2.
 **Cluster-wide FSM schema-mutation check**
 (`SchemaMutationDetector`). See §4.3. Blanket reject any external
 mutation overlapping an in-flight task's properties on the same
-collection. Migration-driven flips bypass via `FromInFlightMigration`.
+collection. Migration-driven flips (`FromInFlightMigration`) are checked
+by `CheckMigrationPropertyUpdate`, admitted only while a run on the
+property is `SWAPPING`.
 
 **Per-collection in-flight cap: 32** (`maxConcurrentReindexPerCollection`).
 Bumped from the original DTM default of 4 specifically for this

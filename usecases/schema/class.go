@@ -697,8 +697,8 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // variant of [UpdatePropertyInternal]. It routes the RAFT command
 // through [SchemaManager.UpdatePropertyFromMigration], which sets the
 // [api.UpdatePropertyRequest.FromInFlightMigration] flag so the schema
-// FSM's cross-FSM MutationGuard bypasses the in-flight-reindex check
-// for this single update.
+// FSM checks it with MutationGuard.CheckMigrationPropertyUpdate: it is
+// admitted only while a reindex run on that property is SWAPPING.
 //
 // Used by the reindex provider's
 // [adapters/repos/db.applyPerPropertySchemaUpdate] from the scheduler's

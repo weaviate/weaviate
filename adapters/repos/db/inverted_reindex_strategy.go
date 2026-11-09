@@ -160,10 +160,9 @@ func applyPerPropertySchemaUpdate(
 		}
 		// Route through the migration-aware path so the
 		// FromInFlightMigration flag is set on the resulting RAFT
-		// command. Without this flag the schema FSM's MutationGuard
-		// would reject this update because the in-flight reindex task
-		// is in STARTED/FINALIZING — the very guard the migration
-		// completion depends on bypassing.
+		// command. Without it, CheckPropertyUpdate would refuse this
+		// update because the run is still in flight; with it,
+		// CheckMigrationPropertyUpdate admits it while the run is SWAPPING.
 		if err := schema.UpdatePropertyInternalFromMigration(&mgr.Handler, ctx, className, &updated, fields...); err != nil {
 			return missing, fmt.Errorf("updating property %q: %w", propName, err)
 		}
