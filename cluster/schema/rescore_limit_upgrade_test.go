@@ -100,7 +100,7 @@ func TestRestoreLegacyQuantizerRescoreLimit(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			parser := schema.NewParser(fakes.NewFakeClusterState(), vectorindex.ParseAndValidateConfig,
 				acceptAllIndexUpdates{}, endpointModules{}, nil, nil)
-			sm := clusterSchema.NewSchemaManager("node1", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			sm := clusterSchema.NewSchemaManager("node1", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 
 			// the snapshot is the on-disk form of the schema's class map: a
 			// metaClass per name, whose Class is the swagger model with the

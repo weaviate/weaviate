@@ -448,10 +448,11 @@ func (st *Store) StoreConfiguration(index uint64, _ raft.Configuration) {
 // The returned value is returned to the client as the ApplyFuture.Response.
 //
 // That determinism is why [Store.admitPropose] refuses a command for its
-// namespace state before the entry is appended. TYPE_REPLICATION_REPLICATE is
-// the one command an arm below refuses as well. Every node of one binary
-// answers it the same, because the namespace and replication FSMs restore from
-// one snapshot.
+// namespace's lifecycle state before the entry is appended.
+// TYPE_REPLICATION_REPLICATE is the one command an arm below refuses for it as
+// well. SchemaManager.AddClass, and UpdateClass on a raise, refuse a factor
+// above the namespace's HomeNodes count at that log index. Every node of one
+// binary answers both alike, because its FSMs restore from one snapshot.
 func (st *Store) Apply(l *raft.Log) any {
 	ret := Response{Version: l.Index}
 

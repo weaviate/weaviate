@@ -39,7 +39,7 @@ func newGuardSchemaReader(t *testing.T, collection string, belongsToNodes []stri
 	t.Helper()
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
-	sm := schema.NewSchemaManager("guard-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	sm := schema.NewSchemaManager("guard-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 
 	sub, err := json.Marshal(api.AddClassRequest{
 		Class: &models.Class{Class: collection, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},

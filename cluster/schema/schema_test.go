@@ -598,7 +598,7 @@ func Test_UpdateClass_MovementRejection(t *testing.T) {
 	// run registers oldClass, then applies an UpdateClass whose parser yields newClass.
 	run := func(t *testing.T, oldClass, newClass *models.Class, movementActive bool) (*SchemaManager, error) {
 		t.Helper()
-		sm := NewSchemaManager("testNode", nil, &fixedParser{updated: newClass}, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("testNode", nil, &fixedParser{updated: newClass}, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		fsm := NewMockreplicationFSM(t)
 		fsm.On("HasActiveReplicationForCollection", mock.Anything).Return(movementActive).Maybe()
 		sm.SetReplicationFSM(fsm)
@@ -804,7 +804,7 @@ func Test_UpdateProperty_MovementRejection(t *testing.T) {
 	const className = "TestClass"
 	build := func(t *testing.T, movementActive bool) *SchemaManager {
 		t.Helper()
-		sm := NewSchemaManager("testNode", nil, &fixedParser{}, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("testNode", nil, &fixedParser{}, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		fsm := NewMockreplicationFSM(t)
 		fsm.On("HasActiveReplicationForCollection", mock.Anything).Return(movementActive).Maybe()
 		sm.SetReplicationFSM(fsm)

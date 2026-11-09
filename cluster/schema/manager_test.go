@@ -35,7 +35,7 @@ import (
 func TestResolveAlais(t *testing.T) {
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
-	sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 	areq := cmd.QueryResolveAliasRequest{
 		Alias: "AliasNotExist",
 	}
@@ -337,7 +337,7 @@ func TestPropertiesMigration(t *testing.T) {
 func TestReloadKeepsNestedRangeFiltersInSchema(t *testing.T) {
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
-	sm := NewSchemaManager("node1", &recordingIndexer{}, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	sm := NewSchemaManager("node1", &recordingIndexer{}, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 
 	vTrue := true
 	sub, err := json.Marshal(cmd.AddClassRequest{
@@ -558,7 +558,7 @@ func TestSchemaManager_ReplicationAddReplicaToShard_AtomicallySetsUnCancellable(
 		parser.On("ParseClass", mock.Anything).Return(nil)
 		indexer := fakes.NewMockSchemaExecutor()
 		indexer.On("ReconcileAsyncReplicationForShard", mock.Anything, mock.Anything).Return(nil).Maybe()
-		sm := NewSchemaManager("local-node", indexer, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("local-node", indexer, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		sm.SetReplicationFSM(fsm)
 
 		ss := &sharding.State{Physical: map[string]sharding.Physical{
@@ -677,7 +677,7 @@ func TestSchemaManagerReplicaAddRoutesByCommandType(t *testing.T) {
 			indexer.On(tc.wantIndexer, className, shardName, nodeID).Return(nil)
 			indexer.On("ReconcileAsyncReplicationForShard", className, shardName).Return(nil)
 
-			sm := NewSchemaManager(nodeID, indexer, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			sm := NewSchemaManager(nodeID, indexer, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 			sm.SetReplicationFSM(&fakeReplicationFSM{})
 
 			ss := &sharding.State{Physical: map[string]sharding.Physical{
@@ -771,7 +771,7 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 	newSM := func(guard MutationGuard) *SchemaManager {
 		parser := fakes.NewMockParser()
 		parser.On("ParseClass", mock.Anything).Return(nil)
-		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		if guard != nil {
 			sm.SetMutationGuard(guard)
 		}
@@ -873,7 +873,7 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 	newSM := func(guard MutationGuard) *SchemaManager {
 		parser := fakes.NewMockParser()
 		parser.On("ParseClass", mock.Anything).Return(nil)
-		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		if guard != nil {
 			sm.SetMutationGuard(guard)
 		}
@@ -955,7 +955,7 @@ func TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords(t *testing.T)
 	newSM := func(deleter *fakeCascadeDeleter, initial, parsed *models.Class) *SchemaManager {
 		parser := fakes.NewMockParser()
 		parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(parsed, nil)
-		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		sm.SetDistributedTaskManager(deleter)
 		require.NoError(t, sm.schema.addClass(initial,
 			&sharding.State{Physical: map[string]sharding.Physical{}}, 1))
@@ -1121,7 +1121,7 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 	newSM := func(guard MutationGuard, parsed *models.Class) *SchemaManager {
 		parser := fakes.NewMockParser()
 		parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(parsed, nil)
-		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		if guard != nil {
 			sm.SetMutationGuard(guard)
 		}
@@ -1167,7 +1167,7 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 		guard := &recordingMutationGuard{}
 		parser := fakes.NewMockParser()
 		parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(parsed, nil)
-		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		sm.SetMutationGuard(guard)
 		initial := &models.Class{
 			Class:        "C",
@@ -1210,7 +1210,7 @@ func TestSchemaManager_DeleteTenants_MutationGuard(t *testing.T) {
 	newSM := func(guard MutationGuard) *SchemaManager {
 		parser := fakes.NewMockParser()
 		parser.On("ParseClass", mock.Anything).Return(nil)
-		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("test-node", nil, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		if guard != nil {
 			sm.SetMutationGuard(guard)
 		}
@@ -1325,7 +1325,7 @@ func TestSchemaManager_SetMutationGuard(t *testing.T) {
 func TestSchemaManager_PreApplyFilterRestoreClassCollision(t *testing.T) {
 	newManager := func(t *testing.T) *SchemaManager {
 		t.Helper()
-		sm := NewSchemaManager("testNode", nil, nil, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager("testNode", nil, nil, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		require.NoError(t, sm.schema.addClass(&models.Class{Class: "Movies"},
 			&sharding.State{Physical: make(map[string]sharding.Physical)}, 0))
 		require.NoError(t, sm.schema.createAlias("Movies", "Films"))
@@ -1421,7 +1421,7 @@ func TestUpdatePropertyStoreSeesTheMergedProperty(t *testing.T) {
 			idx := &propertyRecordingIndexer{}
 			parser := fakes.NewMockParser()
 			parser.On("ParseClass", mock.Anything).Return(nil)
-			sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			sm := NewSchemaManager("node1", idx, parser, nil, prometheus.NewPedanticRegistry(), logrus.New())
 
 			require.NoError(t, sm.schema.addClass(&models.Class{
 				Class: "C",

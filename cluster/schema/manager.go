@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
@@ -99,6 +100,7 @@ type SchemaManager struct {
 	replicationFSM         replicationFSM
 	mutationGuard          MutationGuard
 	distributedTaskManager distributedTaskCascadeDeleter
+	namespaces             usecasesNamespaces.Exister
 	// tenantLimit resolves the per-collection tenant cap (negative = unlimited;
 	// nil = unenforced); read pre-commit, never in the FSM apply path.
 	tenantLimit func() int
@@ -122,12 +124,16 @@ type SchemaManager struct {
 	orphanedClasses map[string]bool
 }
 
-func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
+// NewSchemaManager returns a SchemaManager. Its apply methods read
+// namespaces, which must return each namespace as of the entry being applied.
+// With nil namespaces they skip the factor checks and the HomeNodes fill.
+func NewSchemaManager(nodeId string, db Indexer, parser Parser, namespaces usecasesNamespaces.Exister, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
 	return &SchemaManager{
-		schema: NewSchema(nodeId, reg),
-		db:     db,
-		parser: parser,
-		log:    log,
+		schema:     NewSchema(nodeId, reg),
+		db:         db,
+		parser:     parser,
+		namespaces: namespaces,
+		log:        log,
 	}
 }
 
@@ -268,6 +274,28 @@ func (s *SchemaManager) SetMetadataOnly(v bool) {
 
 func (s *SchemaManager) SetReplicationFSM(fsm replicationFSM) {
 	s.replicationFSM = fsm
+}
+
+func (s *SchemaManager) classNamespace(class string) (command.Namespace, bool) {
+	name := namespacing.NamespaceFromQualified(class)
+	if name == "" {
+		return command.Namespace{}, false
+	}
+	return s.namespaces.GetNamespace(name)
+}
+
+// checkNamespaceFactor refuses a factor above the HomeNodes count of class's
+// namespace. It passes a class whose namespace classNamespace does not find,
+// rather than reading that namespace as zero home nodes.
+func (s *SchemaManager) checkNamespaceFactor(class string, factor int64) error {
+	ns, ok := s.classNamespace(class)
+	if !ok {
+		return nil
+	}
+	if err := ns.CheckReplicationFactor(factor); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	return nil
 }
 
 // Wires the cascade-delete used by [SchemaManager.DeleteClass]. nil-safe;
@@ -488,6 +516,11 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 	if req.State == nil {
 		return fmt.Errorf("%w: nil sharding state", ErrBadRequest)
 	}
+	if rc := req.Class.ReplicationConfig; rc != nil {
+		if err := s.checkNamespaceFactor(req.Class.Class, rc.Factor); err != nil {
+			return err
+		}
+	}
 	// Validate xref existence. DataType is pre-qualified on NS clusters.
 	for _, prop := range req.Class.Properties {
 		if !entSchema.IsRefDataType(prop.DataType) {
@@ -607,6 +640,9 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 
 		// validate replication factor increase
 		if initialRF < updatedRF {
+			if err := s.checkNamespaceFactor(meta.Class.Class, updatedRF); err != nil {
+				return err
+			}
 			for _, physical := range meta.Sharding.Physical {
 				if int64(len(physical.BelongsToNodes)) < updatedRF {
 					return fmt.Errorf(

@@ -11,7 +11,10 @@
 
 package api
 
-import "slices"
+import (
+	"fmt"
+	"slices"
+)
 
 const (
 	// NamespaceLatestCommandPolicyVersion is bumped when a namespace RAFT
@@ -48,6 +51,16 @@ func (n Namespace) MissingHomeNodes(candidates []string) []string {
 		}
 	}
 	return missing
+}
+
+// CheckReplicationFactor refuses a factor above the HomeNodes count, because
+// each replica of a namespaced shard goes on a different home node.
+func (n Namespace) CheckReplicationFactor(factor int64) error {
+	if factor > int64(len(n.HomeNodes)) {
+		return fmt.Errorf("replication factor %d exceeds the %d home node(s) of the namespace; "+
+			"an administrator must add home nodes", factor, len(n.HomeNodes))
+	}
+	return nil
 }
 
 // NamespaceState is the lifecycle state of a Namespace entity.

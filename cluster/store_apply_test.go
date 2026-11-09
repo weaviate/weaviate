@@ -22,6 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterschema "github.com/weaviate/weaviate/cluster/schema"
@@ -533,7 +534,7 @@ func setupApplyTest(t *testing.T) (MockStore, *raft.Log) {
 	}
 
 	// Initialize the schema manager with replication FSM
-	mockStore.store.schemaManager = clusterschema.NewSchemaManager("Node-1", mockStore.indexer, mockStore.parser, prometheus.NewPedanticRegistry(), mockStore.logger)
+	mockStore.store.schemaManager = clusterschema.NewSchemaManager("Node-1", mockStore.indexer, mockStore.parser, nil, prometheus.NewPedanticRegistry(), mockStore.logger)
 	mockStore.store.schemaManager.SetReplicationFSM(mockStore.replicationFSM)
 
 	return mockStore, log
@@ -541,23 +542,7 @@ func setupApplyTest(t *testing.T) (MockStore, *raft.Log) {
 
 func setupCascadeTestStore(t *testing.T, className string) (*MockStore, *raft.Log, *raft.Log) {
 	t.Helper()
-	ms := NewMockStore(t, "Node-1", 0)
-	ms.store.metrics = newStoreMetrics("Node-1", prometheus.NewPedanticRegistry())
-
-	tmpDir := t.TempDir()
-	snapshotStore, err := raft.NewFileSnapshotStore(tmpDir, 3, nil)
-	if err != nil {
-		t.Fatalf("snapshot store: %v", err)
-	}
-	ms.store.snapshotStore = snapshotStore
-
-	ms.indexer.On("Open", mock.Anything).Return(nil)
-	ms.indexer.On("AddClass", mock.Anything).Return(nil)
-	ms.indexer.On("DeleteClass", mock.Anything).Return(nil)
-	ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
-	ms.parser.On("ParseClass", mock.Anything).Return(nil)
-	// Optional: only the class-delete applies cascade.
-	ms.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil).Maybe()
+	ms := newClassApplyTestStore(t)
 
 	cls := &models.Class{Class: className}
 	state := &sharding.State{
@@ -576,7 +561,31 @@ func setupCascadeTestStore(t *testing.T, className string) (*MockStore, *raft.Lo
 		Type:  raft.LogCommand,
 		Data:  cmdAsBytes(className, api.ApplyRequest_TYPE_DELETE_CLASS, nil, nil),
 	}
-	return &ms, addLog, deleteLog
+	return ms, addLog, deleteLog
+}
+
+// newClassApplyTestStore returns a store built by NewFSM, with its own
+// SchemaManager, whose indexer and parser accept class adds and deletes.
+func newClassApplyTestStore(t *testing.T) *MockStore {
+	t.Helper()
+	ms := NewMockStore(t, "Node-1", 0)
+	ms.store.metrics = newStoreMetrics("Node-1", prometheus.NewPedanticRegistry())
+
+	tmpDir := t.TempDir()
+	snapshotStore, err := raft.NewFileSnapshotStore(tmpDir, 3, nil)
+	if err != nil {
+		t.Fatalf("snapshot store: %v", err)
+	}
+	ms.store.snapshotStore = snapshotStore
+
+	ms.indexer.On("Open", mock.Anything).Return(nil)
+	ms.indexer.On("AddClass", mock.Anything).Return(nil)
+	ms.indexer.On("DeleteClass", mock.Anything).Return(nil)
+	ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	ms.parser.On("ParseClass", mock.Anything).Return(nil)
+	// Optional: only the class-delete applies cascade.
+	ms.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil).Maybe()
+	return &ms
 }
 
 func applyOrFail(t *testing.T, ms *MockStore, log *raft.Log, label string) {
@@ -822,5 +831,114 @@ func TestStore_Apply_DeleteClass_CascadesOnSchemaOnlyReplay(t *testing.T) {
 	}
 	if got := len(postTasks["test-namespace"]); got != 0 {
 		t.Fatalf("post-replay-delete: got %d tasks, want 0 (cascade must fire even on schemaOnly apply)", got)
+	}
+}
+
+// TestStore_Apply_NamespaceFactorBound pins the apply-time bound of a class's
+// factor by its namespace's HomeNodes count. Each row requires every entry
+// before its last to apply, then checks the last entry's outcome.
+func TestStore_Apply_NamespaceFactorBound(t *testing.T) {
+	const (
+		qualified   = "alpha:Foo"
+		unqualified = "Foo"
+	)
+	addNamespace := cmdAsBytes("", api.ApplyRequest_TYPE_ADD_NAMESPACE, api.AddNamespaceRequest{
+		Namespace: api.Namespace{Name: "alpha", HomeNodes: []string{"Node-1"}},
+		Version:   api.NamespaceLatestCommandPolicyVersion,
+	}, nil)
+	addClass := func(class string, factor int64, owners ...string) []byte {
+		cls := &models.Class{Class: class, ReplicationConfig: &models.ReplicationConfig{Factor: factor}}
+		state := &sharding.State{ReplicationFactor: factor, Physical: map[string]sharding.Physical{}}
+		if len(owners) == 0 {
+			cls.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
+			state.PartitioningEnabled = true
+		} else {
+			state.Physical["S1"] = sharding.Physical{Name: "S1", BelongsToNodes: owners}
+		}
+		return cmdAsBytes(class, api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{Class: cls, State: state}, nil)
+	}
+	raiseFactor := func(class string, factor int64) []byte {
+		return cmdAsBytes(class, api.ApplyRequest_TYPE_UPDATE_CLASS, api.UpdateClassRequest{Class: &models.Class{
+			Class:              class,
+			ReplicationConfig:  &models.ReplicationConfig{Factor: factor},
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		}}, nil)
+	}
+	const refusal = "replication factor 3 exceeds the 1 home node(s) of the namespace"
+
+	tests := []struct {
+		name    string
+		entries [][]byte
+		class   string
+		// wantFactor is class's stored factor after the last entry, 0 where
+		// the class does not exist.
+		wantFactor int64
+		wantErr    string
+	}{
+		{
+			name:    "class add above the home-node count is refused",
+			entries: [][]byte{addNamespace, addClass(qualified, 3, "Node-1", "Node-2", "Node-3")},
+			class:   qualified,
+			wantErr: refusal,
+		},
+		{
+			name:       "factor raise of an MT class with no tenants above the home-node count is refused",
+			entries:    [][]byte{addNamespace, addClass(qualified, 1), raiseFactor(qualified, 3)},
+			class:      qualified,
+			wantFactor: 1,
+			wantErr:    refusal,
+		},
+		{
+			name:       "factor raise of an unqualified MT class applies",
+			entries:    [][]byte{addNamespace, addClass(unqualified, 1), raiseFactor(unqualified, 3)},
+			class:      unqualified,
+			wantFactor: 3,
+		},
+		{
+			name:       "class add within the home-node count applies",
+			entries:    [][]byte{addNamespace, addClass(qualified, 1, "Node-1")},
+			class:      qualified,
+			wantFactor: 1,
+		},
+		{
+			name:       "class add for a namespace never added applies",
+			entries:    [][]byte{addClass(qualified, 3, "Node-1", "Node-2", "Node-3")},
+			class:      qualified,
+			wantFactor: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ms := newClassApplyTestStore(t)
+			ms.indexer.On("UpdateClass", mock.Anything).Return(nil).Maybe()
+			ms.parser.On("ParseClassUpdate", mock.Anything).Return(nil, nil).Maybe()
+			ms.replicationFSM.On("HasActiveReplicationForCollection", mock.Anything).Return(false).Maybe()
+
+			var resp Response
+			for i, data := range tt.entries {
+				if i > 0 {
+					require.NoError(t, resp.Error, "entry %d", i-1)
+				}
+				var ok bool
+				resp, ok = ms.store.Apply(&raft.Log{Index: uint64(i + 1), Type: raft.LogCommand, Data: data}).(Response)
+				require.True(t, ok)
+			}
+
+			if tt.wantErr == "" {
+				require.NoError(t, resp.Error)
+			} else {
+				require.ErrorIs(t, resp.Error, clusterschema.ErrBadRequest)
+				assert.ErrorContains(t, resp.Error, tt.wantErr)
+			}
+
+			cls := ms.store.SchemaReader().ReadOnlyClass(tt.class)
+			if tt.wantFactor == 0 {
+				require.Nil(t, cls)
+				return
+			}
+			require.NotNil(t, cls)
+			assert.Equal(t, tt.wantFactor, cls.ReplicationConfig.Factor)
+		})
 	}
 }

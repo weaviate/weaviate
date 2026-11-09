@@ -45,7 +45,7 @@ func TestPreApplyFilter_TenantCap(t *testing.T) {
 
 	newManager := func(t *testing.T, cap int) *SchemaManager {
 		t.Helper()
-		sm := NewSchemaManager(nodeID, nil, nil, prometheus.NewPedanticRegistry(), logrus.New())
+		sm := NewSchemaManager(nodeID, nil, nil, nil, prometheus.NewPedanticRegistry(), logrus.New())
 		require.NoError(t, sm.schema.addClass(&models.Class{
 			Class:              className,
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},

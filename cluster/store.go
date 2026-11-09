@@ -444,7 +444,7 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 }
 
 func NewFSM(cfg Config, reg prometheus.Registerer) Store {
-	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
+	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.NamespacesController, reg, cfg.Logger)
 	schemaManager.SetMetadataOnly(cfg.MetadataOnlyVoters)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())

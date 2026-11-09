@@ -13,10 +13,12 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -53,6 +55,13 @@ func (f fakeNamespacesExister) GetNamespace(name string) (cmd.Namespace, bool) {
 		return cmd.Namespace{Name: name, HomeNodes: []string{f.defaultHomeNode}, State: cmd.NamespaceStateActive}, true
 	}
 	return cmd.Namespace{}, false
+}
+
+// homeNodes seeds an active namespace customer1 with nodes as its HomeNodes.
+func homeNodes(nodes ...string) fakeNamespacesExister {
+	return fakeNamespacesExister{byName: map[string]cmd.Namespace{
+		"customer1": {Name: "customer1", HomeNodes: nodes, State: cmd.NamespaceStateActive},
+	}}
 }
 
 // newTestHandlerWithNamespaces returns a Handler that has the cluster-wide
@@ -217,10 +226,9 @@ func TestAddClass(t *testing.T) {
 	}
 }
 
-// TestAddClass_PinsShardsToNamespaceHomeNode covers the placement override
-// on NS-enabled clusters: the shard state is built with [home_node] as the
-// candidate list, instead of the full storage candidate set. NS-disabled
-// clusters fall back to the default-spread behaviour.
+// TestAddClass_PinsShardsToNamespaceHomeNode pins a namespaced class to one
+// shard owned by the first RF home nodes in stored order, and refuses a factor
+// above their count. NS-disabled clusters place on the storage candidates.
 func TestAddClass_PinsShardsToNamespaceHomeNode(t *testing.T) {
 	t.Parallel()
 
@@ -231,30 +239,36 @@ func TestAddClass_PinsShardsToNamespaceHomeNode(t *testing.T) {
 		enabled   bool
 		principal *models.Principal
 		exister   fakeNamespacesExister
-		inputName string
-		// allowedNodes is the set the picked shard node is expected to be
-		// a member of. With NS enabled and a pinned home_node it's the
-		// singleton {home_node}; with NS disabled InitState spreads across
-		// all storage candidates and picks one.
-		allowedNodes []string
+		factor    int64
+		storage   []string // defaults to allCandidates
+		// wantOwners is the one shard's BelongsToNodes, in order.
+		wantOwners []string
+		wantErr    string
 	}{
 		{
-			name:      "NS enabled: shard pinned to namespace home_node",
-			enabled:   true,
-			principal: namespacedPrincipal("customer1"),
-			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
-				"customer1": {Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive},
-			}},
-			inputName:    "Movies",
-			allowedNodes: []string{"node-2"},
+			name:       "NS enabled: RF=2 takes the first two home nodes in stored order",
+			enabled:    true,
+			principal:  namespacedPrincipal("customer1"),
+			exister:    homeNodes("node-3", "node-1", "node-2"),
+			factor:     2,
+			storage:    []string{"node-1", "node-2", "node-3", "node-4"},
+			wantOwners: []string{"node-3", "node-1"},
 		},
 		{
-			name:         "NS disabled: pick from full storage candidates",
-			enabled:      false,
-			principal:    globalPrincipal(),
-			exister:      fakeNamespacesExister{},
-			inputName:    "Movies",
-			allowedNodes: allCandidates,
+			name:      "NS enabled: RF above the home-node count refused",
+			enabled:   true,
+			principal: namespacedPrincipal("customer1"),
+			exister:   homeNodes("node-1", "node-2"),
+			factor:    3,
+			wantErr:   "replication factor 3 exceeds the 2 home node(s) of the namespace",
+		},
+		{
+			name:       "NS disabled: placed on the storage candidates",
+			enabled:    false,
+			principal:  globalPrincipal(),
+			exister:    fakeNamespacesExister{},
+			factor:     1,
+			wantOwners: []string{"node-1"},
 		},
 	}
 
@@ -263,7 +277,12 @@ func TestAddClass_PinsShardsToNamespaceHomeNode(t *testing.T) {
 			t.Parallel()
 			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
 			sm.storageCandidates = allCandidates
+			if tt.storage != nil {
+				sm.storageCandidates = tt.storage
+			}
 			handler.namespacesExister = tt.exister
+			logger, hook := test.NewNullLogger()
+			handler.logger = logger
 
 			var capturedState *sharding.State
 			sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
@@ -271,30 +290,49 @@ func TestAddClass_PinsShardsToNamespaceHomeNode(t *testing.T) {
 			}), mock.MatchedBy(func(s *sharding.State) bool {
 				capturedState = s
 				return true
-			})).Return(nil)
+			})).Return(nil).Maybe()
 
 			class := &models.Class{
-				Class:             tt.inputName,
+				Class:             "Movies",
 				Vectorizer:        "model1",
 				VectorIndexConfig: map[string]interface{}{},
-				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				ReplicationConfig: &models.ReplicationConfig{Factor: tt.factor},
 			}
 			_, _, err := handler.AddClass(context.Background(), tt.principal, class)
+			if tt.wantErr != "" {
+				require.ErrorIs(t, err, ErrValidation)
+				assert.ErrorContains(t, err, tt.wantErr)
+				assertErrorOmits(t, err, append([]string{"customer1"}, tt.exister.byName["customer1"].HomeNodes...)...)
+				sm.AssertNotCalled(t, "AddClass", mock.Anything, mock.Anything)
+				require.Len(t, hook.AllEntries(), 1)
+				assert.Equal(t, logrus.WarnLevel, hook.LastEntry().Level)
+				assert.Equal(t, "customer1", hook.LastEntry().Data["namespace"])
+				return
+			}
 			require.NoError(t, err)
 
 			require.NotNil(t, capturedState, "expected AddClass to be called with a sharding state")
 			require.Len(t, capturedState.Physical, 1, "single non-MT shard expected")
 			for _, phys := range capturedState.Physical {
-				require.Len(t, phys.BelongsToNodes, 1, "RF=1 should pick exactly one node")
-				assert.Contains(t, tt.allowedNodes, phys.BelongsToNodes[0])
+				assert.Equal(t, tt.wantOwners, phys.BelongsToNodes)
 			}
 		})
 	}
 }
 
+// assertErrorOmits fails when err holds any of names. A namespaced caller
+// receives the placement and factor refusals, so they name neither the
+// namespace nor a node.
+func assertErrorOmits(t *testing.T, err error, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		assert.NotContains(t, err.Error(), name)
+	}
+}
+
 // TestAddClass_NamespacePlacementErrors covers the failure modes that
-// surface before the RAFT propose: missing namespace, missing home_node, or
-// a home_node that no longer belongs to the cluster's storage candidates.
+// surface before the RAFT propose: missing namespace, missing home_nodes, or
+// a home node that no longer belongs to the cluster's storage candidates.
 func TestAddClass_NamespacePlacementErrors(t *testing.T) {
 	t.Parallel()
 
@@ -303,28 +341,28 @@ func TestAddClass_NamespacePlacementErrors(t *testing.T) {
 		exister    fakeNamespacesExister
 		candidates []string
 		wantErr    string
+		// wantLoggedMissing is the Warn line's home_nodes field, nil where the
+		// line carries none.
+		wantLoggedMissing []string
 	}{
 		{
 			name:       "namespace not found",
 			exister:    fakeNamespacesExister{}, // no seed
 			candidates: []string{"node-1"},
-			wantErr:    "namespace \"customer1\" not found",
+			wantErr:    "namespace not found",
 		},
 		{
-			name: "home_node empty",
-			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
-				"customer1": {Name: "customer1", HomeNodes: nil, State: cmd.NamespaceStateActive},
-			}},
+			name:       "home_nodes empty",
+			exister:    homeNodes(),
 			candidates: []string{"node-1"},
-			wantErr:    "has no home_node",
+			wantErr:    "the namespace has no home_nodes; refusing placement",
 		},
 		{
-			name: "home_node not in storage candidates",
-			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
-				"customer1": {Name: "customer1", HomeNodes: []string{"node-9"}, State: cmd.NamespaceStateActive},
-			}},
-			candidates: []string{"node-1"},
-			wantErr:    "is not a current storage candidate",
+			name:              "home_node not in storage candidates",
+			exister:           homeNodes("node-1", "node-9"),
+			candidates:        []string{"node-1"},
+			wantErr:           "1 home node(s) of the namespace are not storage candidates",
+			wantLoggedMissing: []string{"node-9"},
 		},
 	}
 
@@ -334,6 +372,8 @@ func TestAddClass_NamespacePlacementErrors(t *testing.T) {
 			handler, sm := newTestHandlerWithNamespaces(t, true)
 			sm.storageCandidates = tt.candidates
 			handler.namespacesExister = tt.exister
+			logger, hook := test.NewNullLogger()
+			handler.logger = logger
 
 			class := &models.Class{
 				Class:             "Movies",
@@ -343,7 +383,16 @@ func TestAddClass_NamespacePlacementErrors(t *testing.T) {
 			}
 			_, _, err := handler.AddClass(context.Background(), namespacedPrincipal("customer1"), class)
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.wantErr)
+			assert.ErrorContains(t, err, tt.wantErr)
+			assertErrorOmits(t, err, "customer1", "node-1", "node-9")
+
+			require.Len(t, hook.AllEntries(), 1)
+			entry := hook.LastEntry()
+			assert.Equal(t, logrus.WarnLevel, entry.Level)
+			assert.Equal(t, "customer1", entry.Data["namespace"])
+			if tt.wantLoggedMissing != nil {
+				assert.Equal(t, tt.wantLoggedMissing, entry.Data["home_nodes"])
+			}
 		})
 	}
 }
@@ -473,7 +522,7 @@ func TestAddClass_OmittedShardingConfigPinsToHomeNode(t *testing.T) {
 	require.NotNil(t, capturedClass)
 	got, ok := capturedClass.ShardingConfig.(shardingcfg.Config)
 	require.True(t, ok, "ShardingConfig should be shardingcfg.Config, got %T", capturedClass.ShardingConfig)
-	assert.Equal(t, 1, got.DesiredCount, "override caps DesiredCount to len(candidates)")
+	assert.Equal(t, 1, got.DesiredCount, "a namespaced class has one shard")
 	assert.Equal(t, got.DesiredCount, got.ActualCount)
 	assert.Equal(t, got.DesiredCount*got.VirtualPerPhysical, got.DesiredVirtualCount)
 
@@ -932,6 +981,85 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 	}
 }
 
+// TestUpdateClass_NamespaceFactorAboveHomeNodes pins that UpdateClass refuses
+// a factor above the namespace's HomeNodes count before anything is proposed.
+func TestUpdateClass_NamespaceFactorAboveHomeNodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		exister fakeNamespacesExister
+		mt      bool
+		// owners is the one shard's BelongsToNodes of a class that is not MT.
+		owners  []string
+		factor  int64
+		wantErr string
+	}{
+		{
+			name:    "MT class with no tenants raised above the home-node count",
+			exister: homeNodes("node-1"),
+			mt:      true,
+			factor:  3,
+			wantErr: "replication factor 3 exceeds the 1 home node(s) of the namespace",
+		},
+		{
+			name:    "class with one shard raised above the home-node count",
+			exister: homeNodes("node-1"),
+			owners:  []string{"node-1"},
+			factor:  2,
+			wantErr: "replication factor 2 exceeds the 1 home node(s) of the namespace",
+		},
+		{
+			name:    "MT class whose namespace is not found raised",
+			exister: fakeNamespacesExister{},
+			mt:      true,
+			factor:  3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sm := newTestHandlerWithNamespaces(t, true)
+			handler.namespacesExister = tt.exister
+			principal, bodyName, storedName := namespacedPrincipal("customer1"), "Movies", "customer1:Movies"
+
+			class := func(name string, factor int64) *models.Class {
+				return &models.Class{
+					Class:              name,
+					Vectorizer:         "model1",
+					VectorIndexConfig:  map[string]interface{}{},
+					ReplicationConfig:  &models.ReplicationConfig{Factor: factor},
+					MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: tt.mt},
+				}
+			}
+			stored := class(storedName, 1)
+			state := &sharding.State{PartitioningEnabled: tt.mt, Physical: map[string]sharding.Physical{}}
+			if tt.owners != nil {
+				state.Physical["S1"] = sharding.Physical{Name: "S1", BelongsToNodes: tt.owners}
+			}
+			sm.On("ReadOnlyClass", storedName).Return(stored).Maybe()
+			sm.On("ReadOnlyClassesFromLeader", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
+			sm.On("Read", storedName, mock.Anything).Run(func(args mock.Arguments) {
+				reader := args.Get(1).(func(*models.Class, *sharding.State) error)
+				_ = reader(stored, state)
+			}).Return(nil).Maybe()
+			sm.On("UpdateClass", mock.Anything, mock.Anything, cmd.ClassUpdateOriginUser).Return(nil).Maybe()
+
+			err := handler.UpdateClass(context.Background(), principal, bodyName, class(bodyName, tt.factor))
+			if tt.wantErr != "" {
+				require.ErrorIs(t, err, ErrValidation)
+				assert.ErrorContains(t, err, tt.wantErr)
+				assertErrorOmits(t, err, append([]string{"customer1"}, tt.exister.byName["customer1"].HomeNodes...)...)
+				sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything, mock.Anything)
+				return
+			}
+			require.NoError(t, err)
+			sm.AssertCalled(t, "UpdateClass", mock.Anything, mock.Anything, cmd.ClassUpdateOriginUser)
+		})
+	}
+}
+
 // TestAddClass_NamespacedCollectionLimit checks that the
 // MAXIMUM_ALLOWED_COLLECTIONS_COUNT cap is enforced per namespace when
 // namespaces are enabled, using principal.Namespace as the selector.
@@ -1004,4 +1132,25 @@ func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
 			sm.AssertExpectations(t)
 		})
 	}
+}
+
+// TestAddClass_NamespaceChecksRunAfterAuthorize pins that a namespaced caller
+// the authorizer denies gets that denial, not a placement or factor refusal.
+func TestAddClass_NamespaceChecksRunAfterAuthorize(t *testing.T) {
+	t.Parallel()
+	handler, sm := newTestHandlerWithNamespaces(t, true)
+	handler.namespacesExister = homeNodes("node-1")
+	denied := errors.New("denied")
+	authorizer := mocks.NewMockAuthorizer()
+	authorizer.SetErr(denied)
+	handler.Authorizer = authorizer
+
+	_, _, err := handler.AddClass(context.Background(), namespacedPrincipal("customer1"), &models.Class{
+		Class:             "Movies",
+		Vectorizer:        "model1",
+		VectorIndexConfig: map[string]interface{}{},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 3},
+	})
+	require.ErrorIs(t, err, denied)
+	sm.AssertNotCalled(t, "AddClass", mock.Anything, mock.Anything)
 }
