@@ -157,16 +157,15 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 		failed                = `shard "tenant1" failed`
 	)
 	taskOn := func(collection string) *distributedtask.Task {
-		return &distributedtask.Task{
+		return withUnits(&distributedtask.Task{
 			Namespace:      boundNamespace,
 			TaskDescriptor: distributedtask.TaskDescriptor{ID: collection},
 			Payload: []byte(`{"collection":"` + collection + `","migrationType":"repair-filterable","note":"tenant1",` +
 				`"tenants":["tenant1"],"unitToShard":{"tenant1__node1":"tenant1"}}`),
 			Error: failed,
-			Units: map[string]*distributedtask.Unit{
-				"tenant1__node1": {ID: "tenant1__node1", Error: failed},
-			},
-		}
+		}, map[string]*distributedtask.Unit{
+			"tenant1__node1": {ID: "tenant1__node1", Error: failed},
+		})
 	}
 	fullPayload := func(collection string) map[string]interface{} {
 		return map[string]interface{}{
@@ -257,11 +256,10 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 				items: map[string][]*distributedtask.Task{
 					boundNamespace:   bound,
 					unboundNamespace: {unbound},
-					noCollectionNamespace: {{
+					noCollectionNamespace: {withUnits(&distributedtask.Task{
 						Namespace: noCollectionNamespace,
 						Payload:   []byte(`{"collection":"","migrationType":"repair-filterable","tenants":["tenant1"]}`),
-						Units:     map[string]*distributedtask.Unit{"tenant1__node1": {ID: "tenant1__node1"}},
-					}},
+					}, map[string]*distributedtask.Unit{"tenant1__node1": {ID: "tenant1__node1"}})},
 				},
 			}, map[string]distributedtask.CollectionExtractor{
 				boundNamespace:        extractCollection,
