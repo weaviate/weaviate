@@ -867,7 +867,6 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 	} {
 		everyStatus = append(everyStatus, status.String())
 	}
-	racedAbsent := everyStatus
 
 	for _, tc := range []struct {
 		name      string
@@ -895,7 +894,7 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 			wantCode:         http.StatusConflict,
 			wantAudit:        "reindex_task_cancel_raced",
 			wantBody:         "T1",
-			wantAbsent:       racedAbsent,
+			wantAbsent:       everyStatus,
 			wantStatusAtRead: "STARTED",
 		},
 		{
@@ -906,7 +905,7 @@ func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
 			wantCode:         http.StatusConflict,
 			wantAudit:        "reindex_task_cancel_raced",
 			wantBody:         "T1",
-			wantAbsent:       racedAbsent,
+			wantAbsent:       everyStatus,
 			wantStatusAtRead: "STARTED",
 		},
 		{

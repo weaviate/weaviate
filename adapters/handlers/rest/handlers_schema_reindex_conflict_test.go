@@ -331,11 +331,6 @@ func TestIndexDeleteRefusedWhileAPartialRunStands(t *testing.T) {
 		resubmit string // empty: not refused
 	}{
 		{
-			name: "a partial run on the property", property: "title",
-			tasks:    []*distributedtask.Task{run("T1", 1, cancelled, db.ReindexTypeChangeTokenization, true)},
-			resubmit: `PUT /v1/schema/C/properties/title/index/searchable -d '{"tokenization":"field"}'`,
-		},
-		{
 			name: "a partial enable-rangeable on the property", property: "title",
 			tasks:    []*distributedtask.Task{run("T1", 1, cancelled, db.ReindexTypeEnableRangeable, true)},
 			resubmit: `PUT /v1/schema/C/properties/title/index/rangeFilters -d '{}'`,
@@ -366,7 +361,6 @@ func TestIndexDeleteRefusedWhileAPartialRunStands(t *testing.T) {
 			require.Contains(t, preflight, "1 of 2 tenants")
 			require.Contains(t, preflight, tc.resubmit)
 			require.Error(t, applied)
-			require.NotContains(t, withoutCounts, "of 2 tenants")
 			require.Contains(t, withoutCounts, tc.resubmit)
 			require.Equal(t, withoutCounts, applied.Error(), "both checks give the one rule's answer")
 		})

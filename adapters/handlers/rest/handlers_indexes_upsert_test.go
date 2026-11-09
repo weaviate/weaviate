@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -98,6 +99,19 @@ func activeReindexTask(id, collection string, mt db.ReindexMigrationType, target
 		Status:         status,
 		Payload:        payload,
 	}
+}
+
+// partlyMigratedRun builds a cancelled run on C.prop whose first group swapped.
+func partlyMigratedRun(t *testing.T, prop string, mt db.ReindexMigrationType, tok string, groups ...string) *distributedtask.Task {
+	units := map[string]*distributedtask.Unit{}
+	for _, g := range groups {
+		units["u"+g] = &distributedtask.Unit{ID: "u" + g, GroupID: g}
+	}
+	task := buildTask(t, "T", distributedtask.TaskStatusCancelled, db.ReindexTaskPayload{
+		Collection: "C", Properties: []string{prop}, MigrationType: mt, TargetTokenization: tok,
+	}, units)
+	task.SwapDecidedGroups = map[string]time.Time{groups[0]: {}}
+	return task
 }
 
 // TestResolveSearchableUpsert_Option2 pins that an in-flight task owns the
@@ -186,6 +200,14 @@ func TestResolveSearchableUpsert_Option2(t *testing.T) {
 			algorithm: "blockmax",
 			tasks:     []*distributedtask.Task{activeReindexTask("C:rebuild-searchable:t:ab3f", "C", db.ReindexTypeRebuildSearchable, "", distributedtask.TaskStatusStarted, "t")},
 			wantNoop:  true,
+		},
+		{
+			name:      "class flag set by a class update while a change-algorithm run stands partial → its resubmit runs",
+			prop:      textProp("t", "word", on, on),
+			classBM:   true,
+			algorithm: "blockmax",
+			tasks:     []*distributedtask.Task{partlyMigratedRun(t, "t", db.ReindexTypeChangeAlgorithm, "", "a", "b")},
+			wantMT:    db.ReindexTypeChangeAlgorithm,
 		},
 		{
 			name:      "already blockmax + change-algorithm in flight → plain NO_OP",
@@ -547,6 +569,7 @@ func TestResolveRebuildPlan(t *testing.T) {
 		indexType string
 		prop      *models.Property
 		blockmax  bool
+		tasks     []*distributedtask.Task
 		wantMT    db.ReindexMigrationType
 		wantErr   string
 	}{
@@ -595,12 +618,37 @@ func TestResolveRebuildPlan(t *testing.T) {
 			prop:      &models.Property{Name: "n", DataType: []string{"int"}, IndexRangeFilters: boolPtr(false)},
 			wantErr:   "does not have a rangeable index",
 		},
+		// A partial run refuses a rebuild of any index of its property.
+		{
+			name:      "partial filterable run, rebuild searchable -> refused with the resubmit",
+			indexType: "searchable",
+			prop:      textProp("t", "word", boolPtr(true), boolPtr(true)),
+			blockmax:  true,
+			tasks:     []*distributedtask.Task{partlyMigratedRun(t, "t", db.ReindexTypeChangeTokenizationFilterable, "field", "a", "b")},
+			wantErr:   `1 of 2 tenants of property "t" are migrated; finish the migration with PUT /v1/schema/C/properties/t/index/filterable -d '{"tokenization":"field"}'`,
+		},
+		{
+			name:      "partial searchable run -> refused",
+			indexType: "searchable",
+			prop:      textProp("t", "word", boolPtr(true), boolPtr(true)),
+			blockmax:  true,
+			tasks:     []*distributedtask.Task{partlyMigratedRun(t, "t", db.ReindexTypeChangeAlgorithm, "", "a", "b")},
+			wantErr:   "1 of 2 tenants",
+		},
+		{
+			name:      "partial single-tenant run -> refused, never named in tenants",
+			indexType: "filterable",
+			prop:      textProp("t", "word", boolPtr(true), boolPtr(true)),
+			tasks:     []*distributedtask.Task{partlyMigratedRun(t, "t", db.ReindexTypeChangeTokenizationFilterable, "field", "")},
+			wantErr:   `property "t" of the collection is migrated`,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(tc.blockmax, tc.prop)
+			class.Class = "C"
 			h := &indexesHandlers{}
-			plan, err := h.resolveRebuildPlan(class, tc.prop, tc.indexType, nil, true)
+			plan, err := h.resolveRebuildPlan(class, tc.prop, tc.indexType, tc.tasks, true)
 			if tc.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErr)

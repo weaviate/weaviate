@@ -12,14 +12,28 @@
 package rest
 
 import (
+	"encoding/json"
+	"maps"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/runtime/middleware"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/config"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // Pins that the resubmit skip and the partial status agree on which tenants
@@ -162,46 +176,6 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 	}
 }
 
-// Pins that while a partial run stands, a rebuild of any index of its property
-// is refused with the resubmit that finishes the migration.
-func TestRebuildRefusedOnPartlyMigratedIndex(t *testing.T) {
-	partial := buildTask(t, "T", distributedtask.TaskStatusCancelled, db.ReindexTaskPayload{
-		Collection: "C", Properties: []string{"title"}, MigrationType: db.ReindexTypeChangeTokenizationFilterable,
-		TargetTokenization: models.PropertyTokenizationField,
-	}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
-	partial.SwapDecidedGroups = map[string]time.Time{"a": {}}
-	singleTenant := buildTask(t, "T", distributedtask.TaskStatusFailed, db.ReindexTaskPayload{
-		Collection: "C", Properties: []string{"title"}, MigrationType: db.ReindexTypeChangeTokenizationFilterable,
-		TargetTokenization: models.PropertyTokenizationField,
-	}, map[string]*distributedtask.Unit{"s1": {ID: "s1"}, "s2": {ID: "s2"}})
-	singleTenant.SwapDecidedGroups = map[string]time.Time{"": {}}
-	prop := &models.Property{Name: "title", DataType: []string{"text"}, IndexFilterable: boolPtr(true), IndexSearchable: boolPtr(true)}
-	class := &models.Class{Class: "C", Properties: []*models.Property{prop}, InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: true}}
-
-	for _, tc := range []struct {
-		name      string
-		indexType string
-		tasks     []*distributedtask.Task
-		refusal   string // empty: not refused
-	}{
-		{name: "the migrated index is refused", indexType: "filterable", tasks: []*distributedtask.Task{partial}, refusal: "1 of 2 tenants"},
-		{name: "a single-tenant collection is refused too, never named in tenants", indexType: "filterable", tasks: []*distributedtask.Task{singleTenant}, refusal: `property "title" of the collection is migrated`},
-		{name: "another index of the property is refused too", indexType: "searchable", tasks: []*distributedtask.Task{partial}, refusal: "1 of 2 tenants"},
-		{name: "no partial run, no refusal", indexType: "filterable"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := (&indexesHandlers{}).resolveRebuildPlan(class, prop, tc.indexType, tc.tasks, true)
-			if tc.refusal == "" {
-				require.NoError(t, err)
-				return
-			}
-			require.ErrorIs(t, err, errRebuildPropertyPartlyMigrated)
-			require.Contains(t, err.Error(), tc.refusal)
-			require.Contains(t, err.Error(), `PUT /v1/schema/C/properties/title/index/filterable -d '{"tokenization":"field"}'`)
-		})
-	}
-}
-
 // Pins that while a partial run stands, a PUT is refused with the resubmit
 // unless it is that resubmit, so no second target can hide the partial run.
 // "body" and "summary" pin that a run on one index type refuses a PUT on the
@@ -276,10 +250,161 @@ func TestUpsertRefusedOnPartlyMigratedIndex(t *testing.T) {
 			}
 			require.Contains(t, plan.conflict, "1 of 2 tenants")
 			require.Contains(t, plan.conflict, tc.refusal)
-			hidden, err := resolveUpsertPlan(class, "C", props[tc.property], tc.indexType, tc.body, tasks, false)
+		})
+	}
+}
+
+// failApplied runs the FSM's fail apply on task over a schema holding class
+// and returns the task as the FSM recorded it.
+func failApplied(t *testing.T, task *distributedtask.Task, class *models.Class) *distributedtask.Task {
+	raw, err := json.Marshal(task)
+	require.NoError(t, err)
+	var enc map[string]any
+	require.NoError(t, json.Unmarshal(raw, &enc))
+	enc["units"] = maps.Collect(task.Units())
+	snap, err := json.Marshal(map[string]any{"tasks": map[string]any{db.ReindexNamespace: []any{enc}}})
+	require.NoError(t, err)
+	m := distributedtask.NewManager(distributedtask.ManagerParameters{
+		Logger:                  logrus.New(),
+		SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{db.ReindexNamespace: db.ReindexDetector{}},
+		ReadOnlyClass:           func(string) *models.Class { return class },
+	})
+	require.NoError(t, m.Restore(snap))
+	sub, err := json.Marshal(&cmd.MarkTaskFailedRequest{
+		Namespace: db.ReindexNamespace, Id: task.ID, Version: task.Version,
+		Error: "rpc error after the leader committed", FailedAtUnixMillis: time.Now().UnixMilli(),
+	})
+	require.NoError(t, err)
+	require.NoError(t, m.MarkTaskFailed(&cmd.ApplyRequest{SubCommand: sub}))
+	list, err := m.ListDistributedTasks(t.Context())
+	require.NoError(t, err)
+	require.Len(t, list[db.ReindexNamespace], 1)
+	return list[db.ReindexNamespace][0]
+}
+
+// A run whose cutover write landed while its proposer saw an error, with a
+// swap still owed: dropping and re-adding its index must lock nothing, and the
+// re-add must rebuild every tenant.
+func TestDropAndReAddAfterALandedRun(t *testing.T) {
+	cases := []struct {
+		name   string
+		mt     db.ReindexMigrationType
+		tok    string
+		idx    string
+		landed func() *models.Property
+		drop   func(*models.Property)
+		readd  *models.IndexUpsertRequest
+	}{
+		{
+			"enable-filterable", db.ReindexTypeEnableFilterable, "", "filterable",
+			func() *models.Property {
+				return &models.Property{Name: "p", DataType: []string{"text"}, Tokenization: "word", IndexFilterable: boolPtr(true), IndexSearchable: boolPtr(true)}
+			},
+			func(p *models.Property) { p.IndexFilterable = boolPtr(false) }, &models.IndexUpsertRequest{},
+		},
+		{
+			"enable-searchable", db.ReindexTypeEnableSearchable, "word", "searchable",
+			func() *models.Property {
+				return &models.Property{Name: "p", DataType: []string{"text"}, Tokenization: "word", IndexFilterable: boolPtr(true), IndexSearchable: boolPtr(true), SearchableBlockmax: boolPtr(true)}
+			},
+			func(p *models.Property) { p.IndexSearchable, p.SearchableBlockmax = boolPtr(false), nil }, &models.IndexUpsertRequest{Tokenization: "word"},
+		},
+		{
+			"enable-rangeable", db.ReindexTypeEnableRangeable, "", "rangeable",
+			func() *models.Property {
+				return &models.Property{Name: "p", DataType: []string{"int"}, IndexFilterable: boolPtr(true), IndexRangeFilters: boolPtr(true)}
+			},
+			func(p *models.Property) { p.IndexRangeFilters = boolPtr(false) }, &models.IndexUpsertRequest{},
+		},
+		{
+			"change-algorithm", db.ReindexTypeChangeAlgorithm, "", "searchable",
+			func() *models.Property {
+				return &models.Property{Name: "p", DataType: []string{"text"}, Tokenization: "word", IndexFilterable: boolPtr(true), IndexSearchable: boolPtr(true), SearchableBlockmax: boolPtr(true)}
+			},
+			func(p *models.Property) { p.IndexSearchable, p.SearchableBlockmax = boolPtr(false), nil }, nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := tc.landed()
+			class := &models.Class{Class: "C", Properties: []*models.Property{p}, InvertedIndexConfig: &models.InvertedIndexConfig{}}
+
+			run := buildTask(t, "T1", distributedtask.TaskStatusSwapping,
+				db.ReindexTaskPayload{Collection: "C", Properties: []string{"p"}, MigrationType: tc.mt, TargetTokenization: tc.tok},
+				map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
+			run.SwapDecidedGroups = map[string]time.Time{"a": {}, "b": {}}
+			run.SwapsOwed = map[string][]string{"b": {"n2"}}
+			tasks := []*distributedtask.Task{failApplied(t, run, class)}
+
+			require.NoError(t, db.ReindexDetector{}.CheckPropertyUpdate("C", "p", tasks), "the drop")
+			tc.drop(p)
+			require.NoError(t, db.ReindexDetector{}.CheckPropertyUpdate("C", "p", tasks), "a change after the drop")
+			_, err := (&indexesHandlers{}).resolveRebuildPlan(class, p, "filterable", tasks, true)
+			require.NotErrorIs(t, err, errRebuildPropertyPartlyMigrated)
+			if tc.readd == nil {
+				return
+			}
+			plan, err := resolveUpsertPlan(class, "C", p, tc.idx, tc.readd, tasks, true)
 			require.NoError(t, err)
-			require.NotContains(t, hidden.conflict, "of 2 tenants", "a caller who may not read tenants is not told how many")
-			require.Contains(t, hidden.conflict, tc.refusal)
+			require.Empty(t, plan.conflict)
+			require.Equal(t, tc.mt, plan.migrationType)
+			got := skipTenantsAlreadyMigrated(map[string][]string{"n1": {"a", "b"}, "n2": {"a", "b"}}, "C", "p", plan, tasks)
+			require.ElementsMatch(t, []string{"a", "b"}, got["n1"])
+		})
+	}
+}
+
+// Pins that each refusal of a partly migrated property tells only a caller who
+// may read the collection's tenants how many of them migrated.
+func TestPartialRunRefusalsCountTenantsOnlyForTenantReaders(t *testing.T) {
+	partial := partlyMigratedRun(t, "title", db.ReindexTypeChangeTokenization, models.PropertyTokenizationField, "a", "b")
+	tasks := map[string][]*distributedtask.Task{db.ReindexNamespace: {partial}}
+	prop := &models.Property{Name: "title", DataType: []string{"text"}, Tokenization: models.PropertyTokenizationWord, IndexFilterable: boolPtr(true), IndexSearchable: boolPtr(true)}
+	class := &models.Class{Class: "C", Properties: []*models.Property{prop}, InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: true}}
+
+	indexes := func(t *testing.T, authz authorization.Authorizer) *indexesHandlers {
+		reader := schemaUC.NewMockSchemaReader(t)
+		reader.EXPECT().ReadOnlyClass("C").Return(class)
+		return &indexesHandlers{appState: &state.State{
+			Authorizer: authz, SchemaManager: &schemaUC.Manager{SchemaReader: reader},
+			ReindexSubmitLocks: state.NewReindexSubmitLocks(), Logger: logrus.New(),
+			ServerConfig: &config.WeaviateConfig{Config: config.Config{RuntimeReindexEnabled: true}},
+		}, taskLister: fakeReindexTaskLister{tasks: tasks}}
+	}
+	for _, tc := range []struct {
+		name     string
+		wantCode int
+		call     func(t *testing.T, authz authorization.Authorizer) middleware.Responder
+	}{
+		{name: "upsert", wantCode: http.StatusConflict, call: func(t *testing.T, authz authorization.Authorizer) middleware.Responder {
+			return indexes(t, authz).upsertIndex(schema.SchemaObjectsIndexUpsertParams{
+				HTTPRequest: httptest.NewRequest(http.MethodPut, "/", nil), ClassName: "C", PropertyName: "title",
+				IndexName: "searchable", Body: &models.IndexUpsertRequest{Tokenization: models.PropertyTokenizationWhitespace},
+			}, nil)
+		}},
+		{name: "rebuild", wantCode: http.StatusConflict, call: func(t *testing.T, authz authorization.Authorizer) middleware.Responder {
+			return indexes(t, authz).rebuildIndex(schema.SchemaObjectsIndexRebuildParams{
+				HTTPRequest: httptest.NewRequest(http.MethodPost, "/", nil), ClassName: "C", PropertyName: "title", IndexName: "filterable",
+			}, nil)
+		}},
+		{name: "index delete", wantCode: http.StatusUnprocessableEntity, call: func(t *testing.T, authz authorization.Authorizer) middleware.Responder {
+			h := gateWithTasks(partial)
+			h.authorizer = authz
+			return h.deleteClassPropertyIndex(schema.SchemaObjectsPropertiesDeleteParams{
+				HTTPRequest: httptest.NewRequest(http.MethodDelete, "/", nil), ClassName: "C", PropertyName: "title", IndexName: "filterable",
+			}, nil)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, reader := range []struct {
+				authz      authorization.Authorizer
+				seesCounts bool
+			}{{&authorization.DummyAuthorizer{}, true}, {&collectionsOnly{}, false}} {
+				rec := httptest.NewRecorder()
+				tc.call(t, reader.authz).WriteResponse(rec, runtime.JSONProducer())
+				require.Equal(t, tc.wantCode, rec.Code, rec.Body.String())
+				require.Equal(t, reader.seesCounts, strings.Contains(rec.Body.String(), "1 of 2 tenants"), rec.Body.String())
+			}
 		})
 	}
 }

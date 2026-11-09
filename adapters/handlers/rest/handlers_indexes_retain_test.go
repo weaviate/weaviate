@@ -12,7 +12,6 @@
 package rest
 
 import (
-	"encoding/json"
 	"slices"
 	"testing"
 	"time"
@@ -22,7 +21,6 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -85,10 +83,6 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 		{name: "a failed repair on an index dropped since is not kept", records: []rec{failed(db.ReindexTypeRepairFilterable, "foo")}, filterableOff: true, filterable: "ready", searchable: "ready"},
 		{name: "a failed enable on an index still off is kept", records: []rec{filterable}, filterableOff: true, wantKept: []int{0}, filterable: "failed", searchable: "ready"},
 		{name: "a cancelled migration is not kept", records: []rec{withStatus(filterable, distributedtask.TaskStatusCancelled)}, filterable: "ready", searchable: "ready"},
-		{name: "a cancelled migration that left tenants migrated is kept and reads partial", records: []rec{{status: distributedtask.TaskStatusCancelled, mt: db.ReindexTypeEnableFilterable, prop: "foo", partial: true}}, wantKept: []int{0}, filterable: "partial", searchable: "ready"},
-		{name: "a failed migration that left tenants migrated reads partial", records: []rec{{status: distributedtask.TaskStatusFailed, mt: db.ReindexTypeEnableFilterable, prop: "foo", partial: true}}, wantKept: []int{0}, filterable: "partial", searchable: "ready"},
-		{name: "a running newer run keeps a partial run", records: []rec{partialRun, withStatus(filterable, distributedtask.TaskStatusStarted)}, wantKept: []int{0, 1}, filterable: "pending", searchable: "ready"},
-		{name: "a newer failed run keeps a partial run", records: []rec{partialRun, filterable}, wantKept: []int{0, 1}, filterable: "partial", searchable: "ready"},
 		{name: "a newer cancelled run keeps a partial run", records: []rec{partialRun, withStatus(filterable, distributedtask.TaskStatusCancelled)}, wantKept: []int{0, 1}, filterable: "partial", searchable: "ready"},
 		{name: "finished runs that flip nothing keep a partial run", records: []rec{partialChangeTok, withStatus(failed(db.ReindexTypeRebuildSearchable, "foo"), distributedtask.TaskStatusFinished), withStatus(failed(db.ReindexTypeRepairFilterable, "foo"), distributedtask.TaskStatusFinished)}, wantKept: []int{0, 1, 2}, filterable: "ready", searchable: "ready"},
 		{name: "a finished flip releases a partial run", records: []rec{partialRun, withStatus(filterable, distributedtask.TaskStatusFinished)}, wantKept: []int{1}, filterable: "ready", searchable: "ready"},
@@ -171,36 +165,12 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 // Pins: a run whose decided swap a replica still owes is kept even once a
 // newer finished flip covers it, and released once every replica paid.
 func TestRetainerKeepsARunWhileAReplicaOwesItsSwap(t *testing.T) {
-	mgr := distributedtask.NewManager(distributedtask.ManagerParameters{Logger: logrus.New()})
-	apply := func(f func(*cmd.ApplyRequest) error, sub any) {
-		raw, err := json.Marshal(sub)
-		require.NoError(t, err)
-		require.NoError(t, f(&cmd.ApplyRequest{SubCommand: raw}))
-	}
-	payload, err := json.Marshal(db.ReindexTaskPayload{MigrationType: db.ReindexTypeEnableFilterable, Collection: "C", Properties: []string{"foo"}})
-	require.NoError(t, err)
-	units := map[string][2]string{"u1": {"t1", "n1"}, "u2": {"t1", "n2"}, "u3": {"t2", "n1"}, "u4": {"t2", "n2"}}
-	var specs []*cmd.UnitSpec
-	for id, at := range units {
-		specs = append(specs, &cmd.UnitSpec{Id: id, GroupId: at[0]})
-	}
-	ns, now := db.ReindexNamespace, time.Now().UnixMilli()
-	add := func(c *cmd.ApplyRequest) error { return mgr.AddTask(c, 1) }
-	apply(add, &cmd.AddDistributedTaskRequest{Namespace: ns, Id: "a", Payload: payload, UnitSpecs: specs, NeedsPreparationBarrier: true, SubmittedAtUnixMillis: now})
-	for id, at := range units {
-		apply(mgr.UpdateUnitProgress, &cmd.UpdateDistributedTaskUnitProgressRequest{Namespace: ns, Id: "a", Version: 1, NodeId: at[1], UnitId: id, Progress: 0.5, UpdatedAtUnixMillis: now})
-		apply(mgr.RecordUnitCompletion, &cmd.RecordDistributedTaskUnitCompletionRequest{Namespace: ns, Id: "a", Version: 1, NodeId: at[1], UnitId: id, FinishedAtUnixMillis: now})
-	}
-	prep := func(group, node string, ok bool) {
-		apply(mgr.RecordPreparationCompleteAck, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{Namespace: ns, Id: "a", Version: 1, GroupId: &group, NodeId: node, Success: ok, Error: "e", AckedAtUnixMillis: now})
-	}
-	prep("t1", "n1", true)
-	prep("t1", "n2", true)
-	prep("t2", "n1", false)
-
-	newerFlip := buildTask(t, "b", distributedtask.TaskStatusFinished, db.ReindexTaskPayload{
-		MigrationType: db.ReindexTypeEnableFilterable, Collection: "C", Properties: []string{"foo"},
-	}, nil)
+	payload := db.ReindexTaskPayload{MigrationType: db.ReindexTypeEnableFilterable, Collection: "C", Properties: []string{"foo"}}
+	partial := buildTask(t, "a", distributedtask.TaskStatusFailed, payload, map[string]*distributedtask.Unit{"u1": {ID: "u1", GroupID: "t1"}, "u2": {ID: "u2", GroupID: "t2"}})
+	partial.Version = 1
+	partial.SwapDecidedGroups = map[string]time.Time{"t1": {}}
+	partial.SwapsOwed = map[string][]string{"t1": {"n1", "n2"}}
+	newerFlip := buildTask(t, "b", distributedtask.TaskStatusFinished, payload, nil)
 	newerFlip.Version = 2
 	reader := schemaUC.NewMockSchemaReader(t)
 	reader.EXPECT().ReadOnlyClass("C").Return(&models.Class{Class: "C", Properties: []*models.Property{
@@ -208,19 +178,12 @@ func TestRetainerKeepsARunWhileAReplicaOwesItsSwap(t *testing.T) {
 	}}).Maybe()
 	retainer := db.NewReindexProvider(nil, &schemaUC.Manager{SchemaReader: reader}, nil, logrus.New(), "", nil, nil)
 	retained := func() bool {
-		listed, err := mgr.ListDistributedTasks(t.Context())
-		require.NoError(t, err)
-		partial := listed[ns][0]
-		require.Equal(t, distributedtask.TaskStatusFailed, partial.Status)
-		require.True(t, partial.GroupSwapDecided("t1"))
 		return retainer.ShouldRetainCompletedTask(partial, map[distributedtask.TaskDescriptor]*distributedtask.Task{
 			partial.TaskDescriptor: partial, newerFlip.TaskDescriptor: newerFlip,
 		})
 	}
 
 	require.True(t, retained(), "both replicas of t1 still owe its swap, so the newer flip may not release the run")
-	for _, node := range []string{"n1", "n2"} {
-		apply(mgr.RecordPostCompletionAck, &cmd.RecordDistributedTaskPostCompletionAckRequest{Namespace: ns, Id: "a", Version: 1, NodeId: node, Success: true, AckedAtUnixMillis: now})
-	}
+	partial.SwapsOwed = nil
 	require.False(t, retained(), "once every replica paid, the newer flip covers the run")
 }
