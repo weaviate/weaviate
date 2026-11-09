@@ -1131,3 +1131,179 @@ func TestInitShardVectors_FinishesADroppingRecordBeforeRecreatingTheName(t *test
 	require.NoError(t, err)
 	require.True(t, found)
 }
+
+// TestCompressedVectorsMigrator pins the pre-1.30.19 layout repair: the vector
+// recorded at main owns vectors_compressed, and only a target with an index of
+// its own gets a copy, at the bucket its recorded ID names.
+func TestCompressedVectorsMigrator(t *testing.T) {
+	const generated = "3f2a9c1e-0b7d"
+	bq := enthnsw.NewDefaultUserConfig()
+	bq.BQ.Enabled = true
+	hnswRec := func(id string) vectorIndexRecord {
+		return vectorIndexRecord{PhysicalID: id, IndexType: "hnsw", State: "ready", QueueID: id}
+	}
+	hfreshRec := vectorIndexRecord{PhysicalID: "main", IndexType: "hfresh", State: "ready", QueueID: "main"}
+
+	tests := []struct {
+		name    string
+		records map[string]vectorIndexRecord
+		// buckets that hold the shared bucket's content afterwards
+		wantCopies []string
+		// buckets that must not exist afterwards
+		wantAbsent  []string
+		wantShared  bool
+		wantDone bool
+	}{
+		{
+			name:        "legacy owner keeps the bucket, targets get a copy",
+			records:     map[string]vectorIndexRecord{"": hnswRec("main"), "foo": hnswRec("vectors_foo"), "mv": hnswRec("vectors_mv")},
+			wantCopies:  []string{"vectors_compressed_foo", "vectors_compressed_mv"},
+			wantShared:  true,
+			wantDone: true,
+		},
+		{
+			name:        "a target without an index of its own gets nothing",
+			records:     map[string]vectorIndexRecord{"": hnswRec("main"), "foo": hnswRec("vectors_foo"), "new": hnswRec("vectors_new")},
+			wantCopies:  []string{"vectors_compressed_foo"},
+			wantAbsent:  []string{"vectors_compressed_new"},
+			wantShared:  true,
+			wantDone: true,
+		},
+		{
+			name:        "a named vector recorded at main owns the bucket",
+			records:     map[string]vectorIndexRecord{"default": hnswRec("main"), "foo": hnswRec("vectors_foo")},
+			wantCopies:  []string{"vectors_compressed_foo"},
+			wantAbsent:  []string{"vectors_compressed_default"},
+			wantShared:  true,
+			wantDone: true,
+		},
+		{
+			name:        "an hfresh owner's bucket holds its centroids",
+			records:     map[string]vectorIndexRecord{"": hfreshRec, "foo": hnswRec("vectors_foo")},
+			wantAbsent:  []string{"vectors_compressed_foo"},
+			wantShared:  true,
+			wantDone: true,
+		},
+		{
+			name:        "no owner, one target: the bucket moves",
+			records:     map[string]vectorIndexRecord{"foo": hnswRec("vectors_foo")},
+			wantCopies:  []string{"vectors_compressed_foo"},
+			wantDone: true,
+		},
+		{
+			name:        "no owner, one target and a newcomer: the bucket moves to the target",
+			records:     map[string]vectorIndexRecord{"foo": hnswRec("vectors_foo"), "new": hnswRec("vectors_new")},
+			wantCopies:  []string{"vectors_compressed_foo"},
+			wantAbsent:  []string{"vectors_compressed_new"},
+			wantDone: true,
+		},
+		{
+			name:       "no owner, two targets: copies, then the bucket goes",
+			records:    map[string]vectorIndexRecord{"foo": hnswRec("vectors_foo"), "mv": hnswRec("vectors_mv")},
+			wantCopies: []string{"vectors_compressed_foo", "vectors_compressed_mv"},
+		},
+		{
+			name:        "no owner, only a newcomer: the bucket stays unattributed",
+			records:     map[string]vectorIndexRecord{"new": hnswRec("vectors_new")},
+			wantAbsent:  []string{"vectors_compressed_new"},
+			wantShared:  true,
+			wantDone: true,
+		},
+		{
+			name:        "a target at a generated ID gets its copy under that ID",
+			records:     map[string]vectorIndexRecord{"": hnswRec("main"), "foo": hnswRec(generated)},
+			wantCopies:  []string{"vectors_compressed_" + generated},
+			wantAbsent:  []string{"vectors_compressed_foo"},
+			wantShared:  true,
+			wantDone: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, _ := setupDropVectorShard(t, ctx)
+			lsmDir := shard.store.GetDir()
+			m := newCompressedVectorsMigrator(shard.index.logger)
+			require.NoError(t, os.RemoveAll(m.migrationDirectory(lsmDir)))
+			// the generated target's index exists, as after a rebuild
+			require.NoError(t, os.MkdirAll(filepath.Join(shard.path(), helpers.HNSWCommitLogDirNameForID("vectors_"+generated)), 0o755))
+
+			shared := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
+			require.NoError(t, os.MkdirAll(shared, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(shared, "codes"), []byte("shared"), 0o600))
+
+			configs := make(map[string]schemaConfig.VectorIndexConfig, len(tt.records))
+			for name := range tt.records {
+				configs[name] = bq
+			}
+			require.NoError(t, m.do(shard, tt.records, configs))
+
+			for _, bucket := range tt.wantCopies {
+				content, err := os.ReadFile(filepath.Join(lsmDir, bucket, "codes"))
+				require.NoError(t, err, bucket)
+				assert.Equal(t, "shared", string(content), bucket)
+			}
+			for _, bucket := range tt.wantAbsent {
+				_, err := os.Stat(filepath.Join(lsmDir, bucket))
+				assert.True(t, os.IsNotExist(err), "%s must not exist", bucket)
+			}
+			_, err := os.Stat(filepath.Join(shared, "codes"))
+			assert.Equal(t, tt.wantShared, err == nil, "shared bucket kept")
+			assert.Equal(t, tt.wantDone, m.isMigrationDone(lsmDir), "done flag")
+		})
+	}
+}
+
+// The repair runs only on a shard without a mapping: a mapping is written by
+// a load that ran it. A repair that fails fails the load before the mapping
+// is written, so the next load retries it.
+func TestInitShardVectors_CompressedRepairOnlyWithoutMapping(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	m := newCompressedVectorsMigrator(shard.index.logger)
+	shared := filepath.Join(shard.pathLSM(), helpers.VectorsCompressedBucketLSM)
+	strayRename := filepath.Join(shard.pathLSM(), "vectors_compressed_foo")
+	sharedWithCodes := func() {
+		require.NoError(t, os.RemoveAll(m.migrationDirectory(shard.pathLSM())))
+		require.NoError(t, os.MkdirAll(shared, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(shared, "codes"), []byte("shared"), 0o600))
+	}
+	unmapped := func() {
+		withOfflineMapping(t, shard.path(), func(_ *vectorIndexMapping, ns *shardmeta.Namespace) {
+			var keys [][]byte
+			require.NoError(t, ns.ForEach(func(k, _ []byte) error {
+				keys = append(keys, append([]byte(nil), k...))
+				return nil
+			}))
+			for _, k := range keys {
+				require.NoError(t, ns.Delete(k))
+			}
+		})
+	}
+
+	// with a mapping: a vectors_compressed folder is the legacy vector's
+	shard = reloadAfter(t, ctx, shard, class, sharedWithCodes)
+	assert.False(t, m.isMigrationDone(shard.pathLSM()), "the repair did not run")
+	_, err := os.Stat(strayRename)
+	assert.True(t, os.IsNotExist(err))
+
+	// without one: it runs, and a failure stops the load
+	migrations := m.migrationDirectory(shard.pathLSM())
+	reloadExpectingError(t, ctx, shard, class, "migrate compressed vectors", func() {
+		sharedWithCodes()
+		unmapped()
+		// the done flag cannot be written under a file
+		require.NoError(t, os.WriteFile(migrations, nil, 0o600))
+	})
+	version, _, err := shardmeta.GetOffline(shard.path(), vectorIndexMappingNamespace, []byte(vectorIndexMappingFormatVersionKey))
+	require.NoError(t, err)
+	assert.Nil(t, version, "a failed repair writes no mapping")
+
+	require.NoError(t, os.Remove(migrations))
+	shard = openShardFromDisk(t, ctx, shard.index, class, shard.Name())
+	assert.True(t, m.isMigrationDone(shard.pathLSM()), "the next load retried the repair")
+	records, initialized, err := shard.mapping.Load()
+	require.NoError(t, err)
+	assert.True(t, initialized)
+	assert.Len(t, records, 3)
+}
