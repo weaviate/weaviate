@@ -112,6 +112,7 @@ func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconc
 	return newMigrationReconciler(s.migrationRecords, s.pathLSM(),
 		s.index.logger.WithField("shard", s.ID()),
 		migrationReconcileDeps{
+			Shard:      s.name,
 			LocalTasks: s.migrations().LocalTasks,
 			SealUnit:   s.migrations().SealUnit,
 			Class:      class,

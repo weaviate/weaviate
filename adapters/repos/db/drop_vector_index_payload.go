@@ -164,7 +164,7 @@ func CompletedUnitShards(task *distributedtask.Task, payload *DropVectorIndexTas
 	// record for counts as not completed.
 	allCompleted := make(map[string]bool)
 	for unitID, shard := range payload.UnitToShard {
-		unit := task.Units[unitID]
+		unit := task.Unit(unitID)
 		done := unit != nil && unit.Status == distributedtask.UnitStatusCompleted
 		if prev, seen := allCompleted[shard]; seen {
 			allCompleted[shard] = prev && done

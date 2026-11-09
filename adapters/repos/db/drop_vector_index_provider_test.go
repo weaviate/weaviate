@@ -336,13 +336,12 @@ func dropTask(status distributedtask.TaskStatus, units map[string]*distributedta
 		UnitToShard: map[string]string{"u1": "shard1"},
 	}
 	enc, _ := payload.encode()
-	return &distributedtask.Task{
+	return withUnits(&distributedtask.Task{
 		Namespace:      DropVectorIndexNamespace,
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "t1", Version: 1},
 		Payload:        enc,
 		Status:         status,
-		Units:          units,
-	}
+	}, units)
 }
 
 func waitDone(t *testing.T, h distributedtask.TaskHandle) {
@@ -654,16 +653,15 @@ func TestStartTask_ProcessesOnlyLocalUnits(t *testing.T) {
 		UnitToShard: map[string]string{"u1": "shard1", "u2": "shard2"},
 	}
 	enc, _ := payload.encode()
-	task := &distributedtask.Task{
+	task := withUnits(&distributedtask.Task{
 		Namespace:      DropVectorIndexNamespace,
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "t1", Version: 1},
 		Payload:        enc,
 		Status:         distributedtask.TaskStatusStarted,
-		Units: map[string]*distributedtask.Unit{
-			"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
-			"u2": {ID: "u2", Status: distributedtask.UnitStatusPending},
-		},
-	}
+	}, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+		"u2": {ID: "u2", Status: distributedtask.UnitStatusPending},
+	})
 	h, err := p.StartTask(task)
 	require.NoError(t, err)
 	waitDone(t, h)
@@ -689,16 +687,15 @@ func TestProcessUnits_PartialArm_DrainsArmedFailsMissing(t *testing.T) {
 		UnitToShard: map[string]string{"u1": "shard1", "u2": "shard2"},
 	}
 	enc, _ := payload.encode()
-	task := &distributedtask.Task{
+	task := withUnits(&distributedtask.Task{
 		Namespace:      DropVectorIndexNamespace,
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "t1", Version: 1},
 		Payload:        enc,
 		Status:         distributedtask.TaskStatusStarted,
-		Units: map[string]*distributedtask.Unit{
-			"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
-			"u2": {ID: "u2", Status: distributedtask.UnitStatusPending},
-		},
-	}
+	}, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+		"u2": {ID: "u2", Status: distributedtask.UnitStatusPending},
+	})
 	h, err := p.StartTask(task)
 	require.NoError(t, err)
 	waitDone(t, h)
@@ -1261,16 +1258,15 @@ func TestProcessUnits_ArmsAllBeforeDraining(t *testing.T) {
 		UnitToShard: map[string]string{"u1": "shard1", "u2": "shard2"},
 	}
 	enc, _ := payload.encode()
-	task := &distributedtask.Task{
+	task := withUnits(&distributedtask.Task{
 		Namespace:      DropVectorIndexNamespace,
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "t1", Version: 1},
 		Payload:        enc,
 		Status:         distributedtask.TaskStatusStarted,
-		Units: map[string]*distributedtask.Unit{
-			"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
-			"u2": {ID: "u2", Status: distributedtask.UnitStatusPending},
-		},
-	}
+	}, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+		"u2": {ID: "u2", Status: distributedtask.UnitStatusPending},
+	})
 	h, err := p.StartTask(task)
 	require.NoError(t, err)
 	waitDone(t, h)
@@ -1464,17 +1460,16 @@ func TestCompletedUnitShards_RequiresAllReplicaUnits(t *testing.T) {
 			"s3__nodeA": "s3", "s3__nodeB": "s3",
 		},
 	}
-	task := &distributedtask.Task{
+	task := withUnits(&distributedtask.Task{
 		Status: distributedtask.TaskStatusFailed,
-		Units: map[string]*distributedtask.Unit{
-			"s1__nodeA": {Status: distributedtask.UnitStatusCompleted},
-			// s1__nodeB orphaned: no FSM record at all.
-			"s2__nodeA": {Status: distributedtask.UnitStatusCompleted},
-			"s2__nodeB": {Status: distributedtask.UnitStatusFailed},
-			"s3__nodeA": {Status: distributedtask.UnitStatusCompleted},
-			"s3__nodeB": {Status: distributedtask.UnitStatusCompleted},
-		},
-	}
+	}, map[string]*distributedtask.Unit{
+		"s1__nodeA": {Status: distributedtask.UnitStatusCompleted},
+		// s1__nodeB orphaned: no FSM record at all.
+		"s2__nodeA": {Status: distributedtask.UnitStatusCompleted},
+		"s2__nodeB": {Status: distributedtask.UnitStatusFailed},
+		"s3__nodeA": {Status: distributedtask.UnitStatusCompleted},
+		"s3__nodeB": {Status: distributedtask.UnitStatusCompleted},
+	})
 	require.Equal(t, []string{"s3"}, CompletedUnitShards(task, payload),
 		"a shard with any non-completed replica unit must not count as covered")
 }
@@ -1584,9 +1579,9 @@ func TestCheckConflict_InheritanceSourceGuard(t *testing.T) {
 			payload: payload("E1", []string{"s1"}),
 			tasks: []*distributedtask.Task{func() *distributedtask.Task {
 				task := record("t1", "E1", distributedtask.TaskStatusFailed, []string{"s1"}, nil, "v1")
-				task.Units = map[string]*distributedtask.Unit{
+				task.SetUnits(map[string]*distributedtask.Unit{
 					"s1__u0": {Status: distributedtask.UnitStatusCompleted},
-				}
+				})
 				return task
 			}()},
 		},
@@ -1595,9 +1590,9 @@ func TestCheckConflict_InheritanceSourceGuard(t *testing.T) {
 			payload: payload("E1", []string{"s1"}),
 			tasks: []*distributedtask.Task{func() *distributedtask.Task {
 				task := record("t1", "E1", distributedtask.TaskStatusCancelled, []string{"s1"}, nil, "v1")
-				task.Units = map[string]*distributedtask.Unit{
+				task.SetUnits(map[string]*distributedtask.Unit{
 					"s1__u0": {Status: distributedtask.UnitStatusCompleted},
-				}
+				})
 				return task
 			}()},
 		},
@@ -1606,9 +1601,9 @@ func TestCheckConflict_InheritanceSourceGuard(t *testing.T) {
 			payload: payload("E1", []string{"s1"}),
 			tasks: []*distributedtask.Task{func() *distributedtask.Task {
 				task := record("t1", "E1", distributedtask.TaskStatusFailed, []string{"s1"}, nil, "v1")
-				task.Units = map[string]*distributedtask.Unit{
+				task.SetUnits(map[string]*distributedtask.Unit{
 					"s1__u0": {Status: distributedtask.UnitStatusFailed},
-				}
+				})
 				return task
 			}()},
 			wantErr: "no surviving source record",
@@ -2124,4 +2119,9 @@ func TestExtractDropVectorIndexTaskTargets(t *testing.T) {
 
 	_, _, ok = ExtractDropVectorIndexTaskTargets([]byte("not json"))
 	require.False(t, ok, "an unparseable payload must not match any purge")
+}
+
+func withUnits(task *distributedtask.Task, units map[string]*distributedtask.Unit) *distributedtask.Task {
+	task.SetUnits(units)
+	return task
 }

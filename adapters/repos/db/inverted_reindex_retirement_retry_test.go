@@ -97,7 +97,7 @@ func TestARepromotionSkipsWhatRetirementOwns(t *testing.T) {
 		"fixture: the displaced claim has to be absent, or the narrower check would already answer")
 
 	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	withheld, err := r.repromoteWhatTheRecordOutran(testCtx(), all, predecessor)
+	withheld, err := r.repromoteWhatTheRecordOutran(testCtx(), all, predecessor, true)
 	require.NoError(t, err)
 	require.Empty(t, withheld, "a superseded property is retirement's, not the schema gate's")
 

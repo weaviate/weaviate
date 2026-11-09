@@ -64,6 +64,9 @@ type MutationGuard interface {
 	// flip lands.
 	CheckPropertyUpdate(className, propertyName string) error
 
+	// CheckMigrationPropertyUpdate gates that migration flip instead.
+	CheckMigrationPropertyUpdate(className, propertyName string) error
+
 	// CheckClassMutation gates class-wide destructive ops (DeleteClass).
 	// Stricter than CheckPropertyUpdate: any in-flight reindex on the
 	// class blocks the mutation.
@@ -89,6 +92,7 @@ type MutationGuard interface {
 type distributedTaskCascadeDeleter interface {
 	DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor
 	PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error)
+	ForgetGroupsForCollection(collection string, groups []string)
 }
 
 type SchemaManager struct {
@@ -887,8 +891,12 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 	// Cross-FSM mutation guard — see [MutationGuard.CheckPropertyUpdate].
 	// FromInFlightMigration=true bypasses the guard for the migration's
 	// own scheduled schema flip; see the bypass clause in that godoc.
-	if s.mutationGuard != nil && !req.FromInFlightMigration {
-		if err := s.mutationGuard.CheckPropertyUpdate(cmd.Class, req.Property.Name); err != nil {
+	if s.mutationGuard != nil {
+		check := s.mutationGuard.CheckPropertyUpdate
+		if req.FromInFlightMigration {
+			check = s.mutationGuard.CheckMigrationPropertyUpdate
+		}
+		if err := check(cmd.Class, req.Property.Name); err != nil {
 			return fmt.Errorf("%w: %w", ErrBadRequest, err)
 		}
 	}
@@ -1082,6 +1090,9 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 					return err
 				}
 				s.cascadeDeleteReplicationOpsForTenants(cmd.Class, req.Tenants)
+				if s.distributedTaskManager != nil {
+					s.distributedTaskManager.ForgetGroupsForCollection(cmd.Class, req.Tenants)
+				}
 				return nil
 			},
 			updateStore: func() error {

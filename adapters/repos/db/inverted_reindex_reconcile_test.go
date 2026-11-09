@@ -178,8 +178,10 @@ func (f *reconcileFixture) reconcile() *migrationReconciler {
 
 func (f *reconcileFixture) deps() migrationReconcileDeps {
 	return migrationReconcileDeps{
+		// The shard testMigrationSubject's unit names.
+		Shard: "shard-1",
 		LocalTasks: func() ([]distributedtask.TaskStatusEntry, bool) {
-			return migrationTaskStatuses(f.tasks), f.tasksReadable
+			return migrationTaskStatuses(f.tasks, "shard-1"), f.tasksReadable
 		},
 		SealUnit: func(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
 			f.asked = append(f.asked, liveUnitKey{desc, unitID})
@@ -350,6 +352,10 @@ func TestReconcileMergedDisposition(t *testing.T) {
 		task            *distributedtask.Task
 		tasksUnreadable bool
 		noStagedDir     bool
+		// decided marks the record's shard as one whose group's swap the task decided.
+		decided bool
+		// adopted renames the record's unit to a node the task never had, as a replica copy does.
+		adopted bool
 		// A second property the record names one directory for, and only a
 		// sidecar: a property does not have to reach the staging phase.
 		secondProperty bool
@@ -400,6 +406,25 @@ func TestReconcileMergedDisposition(t *testing.T) {
 			wantRecord:     false,
 			wantStagedGone: true,
 			wantCanonical:  "property_title_searchable",
+		},
+		{
+			name:          "task failed after this unit's group was decided: leave it for the swap the replica still owes",
+			task:          testTask(taskID, 42, distributedtask.TaskStatusFailed),
+			decided:       true,
+			class:         testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			wantState:     MigrationStateMerged,
+			wantRecord:    true,
+			wantCanonical: "property_title_searchable",
+		},
+		{
+			name:          "a record a replica copy adopted reads its shard's decision",
+			task:          testTask(taskID, 42, distributedtask.TaskStatusCancelled),
+			decided:       true,
+			adopted:       true,
+			class:         testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			wantState:     MigrationStateMerged,
+			wantRecord:    true,
+			wantCanonical: "property_title_searchable",
 		},
 		{
 			name:          "a status this build does not recognize is left for whoever does",
@@ -469,6 +494,13 @@ func TestReconcileMergedDisposition(t *testing.T) {
 			}
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
 			subject.TaskID = taskID
+			if tt.decided {
+				tt.task.SetUnits(map[string]*distributedtask.Unit{subject.Key.UnitID: {ID: subject.Key.UnitID, GroupID: "shard-1"}})
+				tt.task.SwapDecidedGroups = map[string]time.Time{"shard-1": {}}
+			}
+			if tt.adopted {
+				subject.Key.UnitID = MigrationUnitID("shard-1", "node-1")
+			}
 			if tt.noStagedDir {
 				f.mkdirs("property_title__s42_reindex", "property_title_searchable")
 			} else {
@@ -1076,9 +1108,11 @@ func TestTheReconcilerReportsOneLinePerRecordNotOnePerProperty(t *testing.T) {
 
 func TestReconcilePromotedClosure(t *testing.T) {
 	tests := []struct {
-		name       string
-		leftovers  []string
-		class      *models.Class
+		name      string
+		leftovers []string
+		class     *models.Class
+		// taskStatus is the owning task's; empty means it is gone.
+		taskStatus distributedtask.TaskStatus
 		wantRecord bool
 		wantWarn   string
 	}{
@@ -1090,6 +1124,7 @@ func TestReconcilePromotedClosure(t *testing.T) {
 		{
 			name:       "directories gone but the effect is not visible yet: keep the record",
 			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			taskStatus: distributedtask.TaskStatusFailed,
 			wantRecord: true,
 			wantWarn:   "effect is not in the schema",
 		},
@@ -1097,8 +1132,20 @@ func TestReconcilePromotedClosure(t *testing.T) {
 			name:       "a leftover with the effect still not visible: reclaim it and keep the record",
 			leftovers:  []string{"property_title__s42_reindex"},
 			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			taskStatus: distributedtask.TaskStatusFailed,
 			wantRecord: true,
 			wantWarn:   "effect is not in the schema",
+		},
+		{
+			name:       "the effect is not visible but the owning task finished: the schema answers",
+			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			taskStatus: distributedtask.TaskStatusFinished,
+			wantRecord: false,
+		},
+		{
+			name:       "the effect is not visible and the owning task is gone: the schema answers",
+			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			wantRecord: false,
 		},
 		{
 			name:       "a leftover from a retirement that partly failed is reclaimed, then the record goes",
@@ -1125,6 +1172,9 @@ func TestReconcilePromotedClosure(t *testing.T) {
 			f.class = tt.class
 
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
+			if tt.taskStatus != "" {
+				f.tasks = []*distributedtask.Task{testTask(subject.TaskID, 42, tt.taskStatus)}
+			}
 			f.mkdirs(append([]string{"property_title_searchable"}, tt.leftovers...)...)
 			f.put(NewMigrationRecordPromoted(subject, []string{"title"}, map[string]string{"title": "property_title_searchable"}))
 
@@ -1747,7 +1797,7 @@ func TestACancelledPassRemovesNothing(t *testing.T) {
 	require.Equal(t, "property_body__g50_ingest", f.contentOf("property_body__g50_ingest"),
 		"so the rename it would have run never ran")
 
-	_, outranErr := r.repromoteWhatTheRecordOutran(ctx, all, committing)
+	_, outranErr := r.repromoteWhatTheRecordOutran(ctx, all, committing, true)
 	require.ErrorIs(t, outranErr, context.Canceled,
 		"and so does the sweep that re-runs a promotion the record outran")
 	require.Equal(t, "property_body__g50_ingest", f.contentOf("property_body__g50_ingest"))
@@ -1952,4 +2002,35 @@ func TestMigrationReportedNamesCapsAPropertyList(t *testing.T) {
 	require.Equal(t, "prop_00", got[0], "sorted, so the same list reads the same way twice")
 	require.Equal(t, []string{"only"}, migrationReportedNames([]string{"only"}),
 		"a list within the cap is reported whole")
+}
+
+// Pins that terminal-task cleanup keeps a decided shard's record (so its
+// replicas still swap) and discards an undecided one's, whether the run
+// grouped its units by shard (multi-tenant) or not at all (single-tenant).
+func TestDiscardTaskKeepsTheRecordsOfDecidedGroups(t *testing.T) {
+	for _, decided := range []bool{true, false} {
+		for _, group := range []string{"shard-1", ""} {
+			t.Run(fmt.Sprintf("decided=%t/group=%q", decided, group), func(t *testing.T) {
+				f := newReconcileFixture(t)
+				f.class = testClassWithTokenization(models.PropertyTokenizationWord, "title")
+				subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
+				task := withUnits(testTask(subject.TaskID, 42, distributedtask.TaskStatusFailed), map[string]*distributedtask.Unit{
+					subject.Key.UnitID: {ID: subject.Key.UnitID, GroupID: group, NodeID: "node-0"},
+				})
+				task.SwapDecidedGroups = map[string]time.Time{"shard-2": {}}
+				if decided {
+					task.SwapDecidedGroups[group] = time.Time{}
+				}
+				f.mkdirs("property_title__g42_ingest")
+				f.put(NewMigrationRecordMerged(subject))
+
+				require.NoError(t, newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
+					DiscardTask(context.Background(), task))
+
+				_, kept := f.state(subject.Key)
+				require.Equal(t, decided, kept, "only a decided shard's record survives the cleanup")
+				require.Equal(t, decided, f.exists("property_title__g42_ingest"), "and so does its staged data")
+			})
+		}
+	}
 }

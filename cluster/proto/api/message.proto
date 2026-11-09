@@ -355,6 +355,8 @@ message RecordDistributedTaskPostCompletionAckRequest {
   bool success = 5;
   string error = 6;
   int64 acked_at_unix_millis = 7;
+  // A barrier task's ack pays one group's swap; empty speaks for every group of the node.
+  string group_id = 8;
 }
 
 message RecordDistributedTaskPreparationCompleteAckRequest {
@@ -365,6 +367,7 @@ message RecordDistributedTaskPreparationCompleteAckRequest {
   bool success = 5;
   string error = 6;
   int64 acked_at_unix_millis = 7;
+  optional string group_id = 8;
 }
 
 // SetClusterIDRequest carries the stable cluster identity committed once per

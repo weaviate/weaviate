@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -104,6 +105,7 @@ func TestSwapPhaseLoadsTheShardBeforeClaimingItsUnit(t *testing.T) {
 	require.NoError(t, p.OnSwapRequested(&distributedtask.Task{
 		Namespace: ReindexNamespace, TaskDescriptor: desc,
 		Status: distributedtask.TaskStatusSwapping, NeedsPreparationBarrier: true, Payload: raw,
+		SwapDecidedGroups: map[string]time.Time{"g1": {}},
 	}, "g1", []string{unitID}))
 
 	got, err := os.ReadFile(filepath.Join(tenantLSM, canonical, "promoted.marker"))
@@ -135,6 +137,10 @@ func TestAPhaseHoldsItsUnitWhileItRuns(t *testing.T) {
 	tasks, err := p.createReindexTasks(desc, "u1", payload)
 	require.NoError(t, err)
 	require.NotEmpty(t, tasks)
+	// Recovery seeds only tasks whose record is on disk.
+	for _, task := range tasks {
+		require.NoError(t, task.RunReindexOnlyOnShard(ctx, hot))
+	}
 	p.SeedReindexTaskCache(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric{
 		desc: {"u1": tasks},
 	})

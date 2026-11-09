@@ -21,6 +21,8 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/replication"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -176,6 +178,30 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 				require.NoError(t, err, "a non-swapping status must not touch the schema")
 			})
 		}
+	})
+
+	t.Run("change-algorithm finishes once the property is stamped, even if the class flag cannot flip", func(t *testing.T) {
+		// The class flip is refused, here by a replication minimum raised after the class was created.
+		trueVal := true
+		cls := &models.Class{
+			Class: "Docs", InvertedIndexConfig: &models.InvertedIndexConfig{},
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			Properties: []*models.Property{{
+				Name: "title", DataType: []string{"text"}, IndexSearchable: &trueVal, SearchableBlockmax: &trueVal,
+			}},
+		}
+		reader := classReaderStub{class: cls}
+		handler, err := schema.NewHandler(reader, nil, nil, logger, nil, nil,
+			config.Config{Replication: replication.GlobalConfig{MinimumFactor: 3}},
+			nil, nil, nil, nil, nil, nil, schema.Parser{}, nil, nil, nil)
+		require.NoError(t, err)
+		p := newClassificationProvider(cls)
+		p.schemaManager = &schema.Manager{SchemaReader: reader, Handler: handler}
+		payload := &ReindexTaskPayload{
+			MigrationType: ReindexTypeChangeAlgorithm, Collection: "Docs", Properties: []string{"title"},
+		}
+		require.NoError(t, p.flipSemanticMigrationSchema(ctx, payload, logger),
+			"a failed run would lock the migrated property behind a run that cannot finish")
 	})
 
 	t.Run("enable-searchable tolerates a missing property", func(t *testing.T) {

@@ -1311,7 +1311,9 @@ func (t *ShardReindexTaskGeneric) obsoleteSidecarDirs(logger logrus.FieldLogger,
 			}
 			switch suffixBase {
 			case currentReindexBase:
-				out = append(out, name)
+				if suffixGen <= currentGenN {
+					out = append(out, name)
+				}
 			case currentIngestBase:
 				if suffixGen < currentGenN {
 					out = append(out, name)

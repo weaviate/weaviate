@@ -705,13 +705,12 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 			payload.UnitToShard, payload.UnitToNode = map[string]string{unitID: fx.name}, map[string]string{unitID: node}
 			raw, err := json.Marshal(payload)
 			require.NoError(t, err)
-			task := &distributedtask.Task{
+			task := withUnits(&distributedtask.Task{
 				Namespace: ReindexNamespace, TaskDescriptor: fx.desc, Payload: raw, Status: tc.status,
 				NeedsPreparationBarrier: true,
-				Units: map[string]*distributedtask.Unit{unitID: {
-					ID: unitID, GroupID: fx.name, NodeID: node, Status: tc.unit,
-				}},
-			}
+			}, map[string]*distributedtask.Unit{unitID: {
+				ID: unitID, GroupID: fx.name, NodeID: node, Status: tc.unit,
+			}})
 			outcome := &heldStepOutcome{task: task, done: make(chan string, 4)}
 			fx.logger.(*logrus.Logger).SetLevel(logrus.DebugLevel)
 			logs := test.NewLocal(fx.logger.(*logrus.Logger))
@@ -766,7 +765,7 @@ func (o *heldStepOutcome) ListDistributedTasks(context.Context) (map[string][]*d
 	return map[string][]*distributedtask.Task{ReindexNamespace: {o.task}}, nil
 }
 
-func (o *heldStepOutcome) RecordDistributedTaskPreparationCompleteAck(_ context.Context, _, _ string, _ uint64, _ string, ok bool, msg string) error {
+func (o *heldStepOutcome) RecordDistributedTaskPreparationCompleteAck(_ context.Context, _, _ string, _ uint64, _, _ string, ok bool, msg string) error {
 	o.verdict(ok, msg)
 	return nil
 }
@@ -781,7 +780,7 @@ func (o *heldStepOutcome) RecordDistributedTaskUnitCompletion(context.Context, s
 	return nil
 }
 
-func (o *heldStepOutcome) RecordDistributedTaskPostCompletionAck(_ context.Context, _, _ string, _ uint64, _ string, ok bool, msg string) error {
+func (o *heldStepOutcome) RecordDistributedTaskPostCompletionAck(_ context.Context, _, _ string, _ uint64, _, _ string, ok bool, msg string) error {
 	o.verdict(ok, msg)
 	return nil
 }

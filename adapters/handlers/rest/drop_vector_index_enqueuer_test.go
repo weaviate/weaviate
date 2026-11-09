@@ -592,14 +592,15 @@ func failedEpochTask(t *testing.T, collection, id, epoch string, version uint64,
 	t.Helper()
 	all := append(append([]string{}, completedShards...), otherShards...)
 	task := epochTask(t, collection, id, epoch, version, distributedtask.TaskStatusFailed, all, nil)
-	task.Units = map[string]*distributedtask.Unit{}
+	units := map[string]*distributedtask.Unit{}
 	for i, shard := range all {
 		status := distributedtask.UnitStatusFailed
 		if i < len(completedShards) {
 			status = distributedtask.UnitStatusCompleted
 		}
-		task.Units[fmt.Sprintf("%s__u%d", shard, i)] = &distributedtask.Unit{Status: status}
+		units[fmt.Sprintf("%s__u%d", shard, i)] = &distributedtask.Unit{Status: status}
 	}
+	task.SetUnits(units)
 	return task
 }
 

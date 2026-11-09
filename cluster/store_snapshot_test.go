@@ -181,9 +181,9 @@ func TestSnapshotRestore_DistributedTaskStateRoundTrip(t *testing.T) {
 	require.Len(t, tasks["test-namespace"], 1, "post-Restore state must equal the snapshot, not pre-state ∪ snapshot")
 	restored := tasks["test-namespace"][0]
 	require.Equal(t, "drop-a", restored.ID)
-	require.Equal(t, distributedtask.UnitStatusCompleted, restored.Units["s1"].Status,
+	require.Equal(t, distributedtask.UnitStatusCompleted, restored.Unit("s1").Status,
 		"per-unit completion state must survive the round trip")
-	require.Equal(t, distributedtask.UnitStatusPending, restored.Units["s2"].Status)
+	require.Equal(t, distributedtask.UnitStatusPending, restored.Unit("s2").Status)
 }
 
 // TestSchemaSnapshotEmptyStore tests snapshot persistence and restoration with an empty store

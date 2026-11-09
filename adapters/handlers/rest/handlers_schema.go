@@ -267,7 +267,9 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	// UpdateProperty apply ([MutationGuard]) still closes the
 	// multi-node race that this per-node check cannot — they are
 	// complementary, not redundant.
-	if conflict := s.checkReindexConflictForPropertyMutation(ctx, qualifiedClass, params.PropertyName); conflict != "" {
+	tenantCounts := s.authorizer.AuthorizeSilent(ctx, principal, authorization.READ,
+		authorization.ShardsMetadata(qualifiedClass)...) == nil
+	if conflict := s.checkReindexConflictForPropertyMutation(ctx, qualifiedClass, params.PropertyName, tenantCounts); conflict != "" {
 		s.metricRequestsTotal.logError(params.ClassName, fmt.Errorf("reindex conflict: %s", conflict))
 		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("%s", conflict)))
@@ -320,7 +322,9 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // detected) so the request proceeds to RAFT and the apply-time guard
 // handles correctness. We never spuriously reject due to a transient
 // local error.
-func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Context, className, propertyName string) string {
+func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Context, className, propertyName string,
+	tenantCounts bool,
+) string {
 	if s.reindexTaskLister == nil {
 		return ""
 	}
@@ -377,7 +381,7 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 			db.MutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
 				"cancel it via the reindex REST API before retrying"))
 	}
-	return ""
+	return db.ReindexPartialRunConflict(tasksByNamespace[db.ReindexNamespace], className, propertyName, nil, tenantCounts)
 }
 
 func (s *schemaHandlers) deleteClassVectorIndex(params schema.SchemaObjectsVectorsDeleteParams,

@@ -95,8 +95,8 @@ func (s *Raft) LocalDistributedTasks() map[string][]*distributedtask.Task {
 
 // LocalTaskStatuses reads this node's FSM, which can lag behind the leader. A task the
 // leader holds may be missing here or show an older status.
-func (s *Raft) LocalTaskStatuses(namespace string) []distributedtask.TaskStatusEntry {
-	return s.store.LocalTaskStatuses(namespace)
+func (s *Raft) LocalTaskStatuses(namespace, shard string) []distributedtask.TaskStatusEntry {
+	return s.store.LocalTaskStatuses(namespace, shard)
 }
 
 func (s *Raft) Ready() bool {

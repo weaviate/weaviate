@@ -379,7 +379,7 @@ func TestResolveUpsertPlan_Searchable(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(tc.blockmax, tc.prop)
-			plan, err := resolveUpsertPlan(class, "C", tc.prop, "searchable", tc.body, nil)
+			plan, err := resolveUpsertPlan(class, "C", tc.prop, "searchable", tc.body, nil, true)
 			if tc.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErr)
@@ -464,7 +464,7 @@ func TestResolveUpsertPlan_Filterable(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(false, tc.prop)
-			plan, err := resolveUpsertPlan(class, "C", tc.prop, "filterable", tc.body, nil)
+			plan, err := resolveUpsertPlan(class, "C", tc.prop, "filterable", tc.body, nil, true)
 			if tc.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErr)
@@ -523,7 +523,7 @@ func TestResolveUpsertPlan_RangeFilters(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(false, tc.prop)
-			plan, err := resolveUpsertPlan(class, "C", tc.prop, "rangeable", tc.body, nil)
+			plan, err := resolveUpsertPlan(class, "C", tc.prop, "rangeable", tc.body, nil, true)
 			if tc.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErr)
@@ -599,10 +599,8 @@ func TestResolveRebuildPlan(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(tc.blockmax, tc.prop)
-			// nil task list → searchablePropertyIsBlockmax derives from the
-			// class flag alone, so these class-granular cases behave as before.
 			h := &indexesHandlers{}
-			plan, err := h.resolveRebuildPlan(class, tc.prop, tc.indexType, nil)
+			plan, err := h.resolveRebuildPlan(class, tc.prop, tc.indexType, nil, true)
 			if tc.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErr)
