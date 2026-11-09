@@ -388,6 +388,34 @@ func TestFractionalIdleTTLWaitsUntilTheShardIsIdle(t *testing.T) {
 	}
 }
 
+func TestIdleShardIsNeverUnloadedBeforeIdleTTL(t *testing.T) {
+	for _, idleTTL := range []time.Duration{time.Second, 1500 * time.Millisecond, 2 * time.Second, 10 * time.Second} {
+		t.Run(idleTTL.String(), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				h := newHarness(t, func(k *testKnobs) {
+					set(t, k.idleTTL, idleTTL)
+					set(t, k.minResidency, 0)
+					set(t, k.interval, 50*time.Millisecond)
+					set(t, k.idleCheckInterval, 50*time.Millisecond)
+				})
+				shard := h.reg.load("idle", "")
+				time.Sleep(950 * time.Millisecond)
+				shard.touch()
+				touched := time.Now()
+
+				for time.Since(touched) < idleTTL+2*time.Second {
+					time.Sleep(50 * time.Millisecond)
+					synctest.Wait()
+					if idle := time.Since(touched); idle < idleTTL {
+						require.True(t, shard.loaded(), "unloaded after %v idle with idle_ttl %v", idle, idleTTL)
+					}
+				}
+				require.False(t, shard.loaded())
+			})
+		})
+	}
+}
+
 func TestIdleSweepRunsEveryIdleCheckIntervalAndResumesWhenCutShort(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t, func(k *testKnobs) {
