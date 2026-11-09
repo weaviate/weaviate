@@ -435,6 +435,9 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache(ctx context.Contex
 	for _, vec := range vecs {
 		compressor.cache.Preload(vec.Id, vec.Vec)
 	}
+	if summarizer, ok := compressor.cache.(cache.PreloadSummarizer); ok {
+		summarizer.FlushPreloadSummary()
+	}
 
 	took := time.Since(before)
 	compressor.logger.WithFields(logrus.Fields{
