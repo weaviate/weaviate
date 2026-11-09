@@ -35,15 +35,16 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// scanTestShard returns a shard with the named vectors "title" and "body".
+// scanTestShard returns a shard with the named vectors "title" and "body" and the multi vector "colbert".
 func scanTestShard(t *testing.T) *Shard {
 	t.Helper()
 	shardLike, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "Scan"}, enthnsw.UserConfig{Skip: true},
 		false, false, func(idx *Index) {
 			idx.vectorIndexUserConfig = nil
 			idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-				"title": enthnsw.UserConfig{Skip: true},
-				"body":  enthnsw.UserConfig{Skip: true},
+				"title":   enthnsw.UserConfig{Skip: true},
+				"body":    enthnsw.UserConfig{Skip: true},
+				"colbert": enthnsw.UserConfig{Skip: true, Multivector: enthnsw.MultivectorConfig{Enabled: true}},
 			}
 		})
 	return underlyingShard(t, shardLike)
@@ -364,4 +365,33 @@ func TestReadMultiVectorByIndexID_MissingVector(t *testing.T) {
 			require.Equal(t, docID, notFound.DocID)
 		})
 	}
+}
+
+func TestScanVectors_MultiVector(t *testing.T) {
+	shard := scanTestShard(t)
+	want := map[uint64][][]float32{}
+	for i := range 10 {
+		obj := &storobj.Object{
+			MarshallerVersion: 1,
+			Object:            models.Object{ID: strfmt.UUID(uuid.NewString()), Class: "Scan"},
+			Vectors:           map[string][]float32{"title": {1, 1}},
+		}
+		// every other object lacks the multi vector and must be skipped
+		if i%2 == 0 {
+			obj.MultiVectors = map[string][][]float32{"colbert": {{float32(i), 1}, {2, 2}}}
+		}
+		require.NoError(t, shard.PutObject(testCtx(), obj))
+		if obj.MultiVectors != nil {
+			want[docIDOf(t, shard, obj.ID())] = obj.MultiVectors["colbert"]
+		}
+	}
+
+	seen := map[uint64][][]float32{}
+	err := shard.scanVectors(testCtx(), "colbert", true, func(record common.VectorRecord) error {
+		vec := record.(*common.Vector[[][]float32])
+		seen[vec.ID] = vec.Vector
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, want, seen)
 }
