@@ -412,7 +412,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		return h.schemaReader.ReadOnlyClass(name), nil
 	}
 
-	err = h.validateClassInvariants(ctx, class, class.Class, classGetterWrapper, true)
+	err = h.validateClassInvariants(ctx, class, class.Class, classGetterWrapper, true, true)
 	if err != nil {
 		return err
 	}
@@ -1167,7 +1167,7 @@ func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, 
 		}
 	}
 
-	return h.validateClassInvariants(ctx, class, originalName, classGetterWithAuth, relaxCrossRefValidation)
+	return h.validateClassInvariants(ctx, class, originalName, classGetterWithAuth, relaxCrossRefValidation, false)
 }
 
 // rejectVectorIndexTypeNone rejects a client update that newly introduces the
@@ -1214,7 +1214,7 @@ func rejectVectorIndexTypeNone(prev, next *models.Class) error {
 
 func (h *Handler) validateClassInvariants(
 	ctx context.Context, class *models.Class, originalName string, classGetterWithAuth func(string) (*models.Class, error),
-	relaxCrossRefValidation bool,
+	relaxCrossRefValidation bool, restoring bool,
 ) error {
 	if _, err := schema.ValidateClassName(originalName); err != nil {
 		return err
@@ -1228,7 +1228,7 @@ func (h *Handler) validateClassInvariants(
 		existingPropertyNames[strings.ToLower(property.Name)] = true
 	}
 
-	if err := h.validateVectorSettings(class); err != nil {
+	if err := h.validateVectorSettingsFor(class, nil, restoring); err != nil {
 		return err
 	}
 
@@ -1499,10 +1499,6 @@ func validateStopwordPresetsStillReferenced(properties []*models.Property,
 	return nil
 }
 
-func (h *Handler) validateVectorSettings(class *models.Class) error {
-	return h.validateVectorSettingsAgainst(class, nil)
-}
-
 // validateVectorSettingsAgainst is the AddClass / UpdateClass entry
 // point (initial == nil on add). When initial is non-nil, allow-list
 // checks for unchanged fields are skipped — operators who tighten
@@ -1510,6 +1506,15 @@ func (h *Handler) validateVectorSettings(class *models.Class) error {
 // unrelated edits. Per-type correctness (async-indexing for dynamic,
 // vectorizer compatibility, etc.) always runs.
 func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) error {
+	return h.validateVectorSettingsFor(class, initial, false)
+}
+
+// validateVectorSettingsFor is validateVectorSettingsAgainst with the
+// backup-restore case: restoring skips the create/update-only checks
+// (validateCreateUpdateOnlyBounds, validateRQDistance). A restored class
+// was accepted when it was first written and is persisted state, like a
+// class parsed at startup, so a limit added since must not refuse it.
+func (h *Handler) validateVectorSettingsFor(class, initial *models.Class, restoring bool) error {
 	if modelsext.ClassHasLegacyVectorIndex(class) {
 		typeUnchanged := initial != nil && initial.VectorIndexType == class.VectorIndexType
 		if err := h.validateVectorIndexTypeBasic(class.VectorIndexType); err != nil {
@@ -1532,7 +1537,7 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 		if parsed != nil && parsed.IsMultiVector() {
 			return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
 		}
-		if parsed != nil {
+		if parsed != nil && !restoring {
 			var initialParsed schemaConfig.VectorIndexConfig
 			if initial != nil {
 				initialParsed, _ = h.parseLegacyVectorIndexConfig(initial)
@@ -1585,20 +1590,22 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 			continue
 		}
 		// Create/update-only hard limits. They must not live in the config
-		// parser itself: that also runs on startup/restore, where a
-		// persisted out-of-range class must not prevent the node from
-		// starting.
-		if err := validateCreateUpdateOnlyBounds(parsed); err != nil {
-			return fmt.Errorf("target vector %q: %w", name, err)
-		}
-		var initialParsed schemaConfig.VectorIndexConfig
-		if initial != nil {
-			if initCfg, ok := initial.VectorConfig[name]; ok {
-				initialParsed, _ = h.parseNamedVectorIndexConfig(name, initCfg)
+		// parser itself: that also runs on startup, where a persisted
+		// out-of-range class must not prevent the node from starting. For
+		// the same reason they are skipped on backup restore.
+		if !restoring {
+			if err := validateCreateUpdateOnlyBounds(parsed); err != nil {
+				return fmt.Errorf("target vector %q: %w", name, err)
 			}
-		}
-		if err := validateRQDistance(parsed, initialParsed); err != nil {
-			return fmt.Errorf("target vector %q: %w", name, err)
+			var initialParsed schemaConfig.VectorIndexConfig
+			if initial != nil {
+				if initCfg, ok := initial.VectorConfig[name]; ok {
+					initialParsed, _ = h.parseNamedVectorIndexConfig(name, initCfg)
+				}
+			}
+			if err := validateRQDistance(parsed, initialParsed); err != nil {
+				return fmt.Errorf("target vector %q: %w", name, err)
+			}
 		}
 		// Grandfather: same VectorIndexType + same compressions on this
 		// named-vector entry ⇒ skip the policy check.
@@ -1614,7 +1621,7 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 
 // validateCreateUpdateOnlyBounds enforces limits that only apply to schema
 // writes (AddClass/UpdateClass), never to parsing persisted schemas at
-// startup or during RAFT log replay.
+// startup, during RAFT log replay, or on backup restore.
 func validateCreateUpdateOnlyBounds(parsed schemaConfig.VectorIndexConfig) error {
 	if uc, ok := parsed.(enthfresh.UserConfig); ok {
 		return enthfresh.ValidateMuveraUpperBounds(uc)
@@ -1625,7 +1632,7 @@ func validateCreateUpdateOnlyBounds(parsed schemaConfig.VectorIndexConfig) error
 // validateRQDistance applies common.ValidateRQDistance to every RQ-capable
 // index the config describes: hnsw, flat, and both arms of a dynamic index,
 // which compress under the dynamic index's distance. It runs on create and
-// update only, never on startup parsing. An index whose stored config already
+// update only, never on startup parsing or backup restore. An index whose stored config already
 // has RQ enabled is grandfathered: distance and bits are immutable once set,
 // so rejecting it would only block unrelated updates.
 func validateRQDistance(parsed, initialParsed schemaConfig.VectorIndexConfig) error {
