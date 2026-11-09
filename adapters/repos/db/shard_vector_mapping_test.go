@@ -145,6 +145,10 @@ func TestVectorIndexMapping_Load(t *testing.T) {
 		{name: "record without format version", noVersion: true, key: "title", value: `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready"}`, wantErr: "format version"},
 		{name: "config of an unknown index type", key: "title", value: `{"physical_id":"vectors_title","index_type":"none","state":"ready","config":{}}`, wantErr: `unknown vector index type "none"`},
 		{name: "unparsable config", key: "title", value: `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready","config":{"ef":"many"}}`, wantErr: `record "title": config`},
+		{name: "physical id outside the naming rule", key: "title", value: `{"physical_id":"title","index_type":"hnsw","state":"ready"}`, wantErr: `physical id: "title" is neither`},
+		{name: "physical id with a character a file name must not have", key: "title", value: `{"physical_id":"a/b-c","index_type":"hnsw","state":"ready"}`, wantErr: `physical id: "a/b-c" is neither`},
+		{name: "physical id naming an invalid vector", key: "title", value: `{"physical_id":"vectors_1title","index_type":"hnsw","state":"ready"}`, wantErr: `physical id: "vectors_1title" is neither`},
+		{name: "queue id outside the naming rule", key: "title", value: `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready","queue_id":"title.q"}`, wantErr: `queue id: "title.q" is neither`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -155,6 +159,54 @@ func TestVectorIndexMapping_Load(t *testing.T) {
 			put(t, db, tt.key, tt.value)
 			_, _, err := m.Load()
 			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+// Every ID the naming rule gives a vector name loads, and so does a generated
+// ID, which has a "-"; a record without a queue ID predates the field.
+func TestVectorIndexMapping_LoadAcceptedIDs(t *testing.T) {
+	tests := []struct {
+		name       string
+		physicalID string
+		queueID    string
+	}{
+		{name: "legacy", physicalID: "main", queueID: "main"},
+		{name: "named", physicalID: "vectors_title", queueID: "vectors_title"},
+		{name: "named with an underscore first", physicalID: "vectors__title_2", queueID: "vectors__title_2"},
+		{name: "generated", physicalID: "3f2a9c1e-0b7d-4c1a-9e2f-5d6c7b8a9f00", queueID: "8c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f"},
+		{name: "generated with a vectors prefix", physicalID: "vectors_title-2", queueID: "vectors_title-2"},
+		{name: "no queue id", physicalID: "vectors_title"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, _ := newTestVectorIndexMapping(t)
+			rec := vectorIndexRecord{PhysicalID: tt.physicalID, IndexType: "hnsw", State: "ready", QueueID: tt.queueID}
+			require.NoError(t, m.Initialize(map[string]vectorIndexRecord{"title": rec}))
+			records, _, err := m.Load()
+			require.NoError(t, err)
+			assert.Equal(t, rec, records["title"])
+		})
+	}
+}
+
+// The naming rule: the IDs a vector name gets keep their files, any other ID
+// is named as if it carried the vectors_ prefix, never as the legacy vector.
+func TestVectorIndexStorageID(t *testing.T) {
+	tests := []struct {
+		physicalID string
+		want       string
+	}{
+		{physicalID: "main", want: "main"},
+		{physicalID: "vectors_title", want: "vectors_title"},
+		{physicalID: "vectors_title-2", want: "vectors_title-2"},
+		{physicalID: "3f2a9c1e-0b7d", want: "vectors_3f2a9c1e-0b7d"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.physicalID, func(t *testing.T) {
+			rec := vectorIndexRecord{PhysicalID: tt.physicalID}
+			assert.Equal(t, tt.want, rec.storageID())
+			assert.Equal(t, tt.physicalID, rec.recordedID())
 		})
 	}
 }
