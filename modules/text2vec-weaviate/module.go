@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-weaviate/ent"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/weaviateembed"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 )
 
@@ -65,6 +66,7 @@ func (m *WeaviateEmbedModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
+	weaviateembed.WarnInvalidAllowedBaseURLs(m.logger)
 
 	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, m.logger); err != nil {
 		return errors.Wrap(err, "init vectorizer")
