@@ -45,9 +45,8 @@ func (m compressedVectorsMigrator) do(s *Shard, legacy schemaConfig.VectorIndexC
 	if legacy != nil {
 		totalVectors++
 	}
-	hasOnly1NamedVector := legacy == nil && len(targets) == 1
 
-	if m.isMigrationDone(lsmDir, hasOnly1NamedVector) {
+	if m.isMigrationDone(lsmDir) {
 		// migration was performed, nothing to do
 		return nil
 	}
@@ -89,30 +88,11 @@ func (m compressedVectorsMigrator) do(s *Shard, legacy schemaConfig.VectorIndexC
 				}
 			}
 		}
-	} else {
-		if legacy != nil && m.isQuantizationEnabled(legacy) {
-			// a new legacy vector config was created, quantization is enabled but we didn't create the vectors_compressed
-			// folder yet but we need to mark that the migration was done in order for it to not be trigered on healthy vector indexes
-			if err := m.markMigrationDone(lsmDir); err != nil {
-				return fmt.Errorf("failed to mark migration as done: %w", err)
-			}
-		} else if hasOnly1NamedVector {
-			if err := m.tryToCreateVectorCompressedFolder(lsmDir, targets); err != nil {
-				return fmt.Errorf("create 1 named vector config: %w", err)
-			}
-		}
-	}
-	return nil
-}
-
-func (m compressedVectorsMigrator) doUpdate(s *Shard, legacy schemaConfig.VectorIndexConfig,
-	targets map[string]schemaConfig.VectorIndexConfig, updated map[string]schemaConfig.VectorIndexConfig,
-) error {
-	lsmDir := s.store.GetDir()
-	hasOnly1NamedVector := legacy == nil && len(targets) == 1
-	if hasOnly1NamedVector && !m.isMigrationDone(lsmDir, hasOnly1NamedVector) && len(updated) == 1 {
-		if err := m.tryToCreateVectorCompressedFolder(lsmDir, updated); err != nil {
-			return fmt.Errorf("update vector config: %w", err)
+	} else if legacy != nil && m.isQuantizationEnabled(legacy) {
+		// a new legacy vector config was created, quantization is enabled but we didn't create the vectors_compressed
+		// folder yet but we need to mark that the migration was done in order for it to not be trigered on healthy vector indexes
+		if err := m.markMigrationDone(lsmDir); err != nil {
+			return fmt.Errorf("failed to mark migration as done: %w", err)
 		}
 	}
 	return nil
@@ -166,10 +146,6 @@ func (m compressedVectorsMigrator) migrate(targetVector string,
 			return err
 		}
 		m.logger.Infof("renamed old vectors compressed bucket for target vector: %s", targetVector)
-		if err := m.createVectorsCompressedFolderSymlink(lsmDir, targetVectorBucket); err != nil {
-			return err
-		}
-		m.logger.Infof("created symbolic link to old vectors compressed folder for target vector: %s", targetVector)
 		return nil
 	} else {
 		// Define temporary target vector bucket name
@@ -270,57 +246,9 @@ func (m compressedVectorsMigrator) markMigrationDone(lsmDir string) error {
 	return nil
 }
 
-func (m compressedVectorsMigrator) isMigrationDone(lsmDir string, hasOnly1NamedVector bool) bool {
+func (m compressedVectorsMigrator) isMigrationDone(lsmDir string) bool {
 	_, err := os.Stat(m.migrationPerformedFlagFile(lsmDir))
-	if os.IsNotExist(err) {
-		return false
-	}
-	isMigrationDone := err == nil
-	if hasOnly1NamedVector {
-		isVectorsCompressedFolderSymlink := m.isVectorsCompressedFolderSymlink(lsmDir)
-		return isMigrationDone && isVectorsCompressedFolderSymlink
-	}
-	return isMigrationDone
-}
-
-func (m compressedVectorsMigrator) isVectorsCompressedFolderSymlink(lsmDir string) bool {
-	fileInfo, err := os.Lstat(filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM))
-	if err != nil {
-		return false
-	}
-	return (fileInfo.Mode() & os.ModeSymlink) != 0
-}
-
-func (m compressedVectorsMigrator) createVectorsCompressedFolderSymlink(lsmDir, targetVectorBucket string) error {
-	linkPath := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
-	if err := os.Symlink(targetVectorBucket, linkPath); err != nil {
-		return fmt.Errorf("failed to create a symlink: %w", err)
-	}
-	return nil
-}
-
-func (m compressedVectorsMigrator) tryToCreateVectorCompressedFolder(lsmDir string, vectorIndexUserConfigs map[string]schemaConfig.VectorIndexConfig) error {
-	// in order to enable downgrades in situations where we have 1 new named vector created with a quantized vector index
-	// we created the compressed folders upfront together with the symlink to old vectors_compressed folder
-	for targetVector, vectorIndexConfig := range vectorIndexUserConfigs {
-		if m.isQuantizationEnabled(vectorIndexConfig) && !m.isVectorsCompressedFolderSymlink(lsmDir) {
-			targetVectorBucket := helpers.GetCompressedBucketName(targetVector)
-			targetVectorBucketPath := filepath.Join(lsmDir, targetVectorBucket)
-			if _, err := os.Stat(targetVectorBucketPath); os.IsNotExist(err) {
-				if err := os.Mkdir(targetVectorBucketPath, os.FileMode(0o755)); err != nil {
-					return fmt.Errorf("failed to create empty %s folder: %w", targetVectorBucketPath, err)
-				}
-			}
-			if err := m.createVectorsCompressedFolderSymlink(lsmDir, targetVectorBucket); err != nil {
-				return fmt.Errorf("create symlink to %s for new named vector: %w", helpers.VectorsCompressedBucketLSM, err)
-			}
-			if err := m.markMigrationDone(lsmDir); err != nil {
-				return fmt.Errorf("failed to mark migration as done: %w", err)
-			}
-			m.logger.Infof("created old vectors compressed bucket symlink for a new index created for target vector: %s", targetVector)
-		}
-	}
-	return nil
+	return err == nil
 }
 
 func (m compressedVectorsMigrator) isVectorsCompressedFolderAlreadySymlinked(
