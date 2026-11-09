@@ -34,6 +34,10 @@ func TestReplicaCandidates(t *testing.T) {
 		cmd.Namespace{Name: "tenant-a", HomeNodes: []string{"node-3"}}, 1))
 	require.NoError(t, m.cfg.NamespacesController.Create(
 		cmd.Namespace{Name: "home-gone", HomeNodes: []string{"node-9"}}, 2))
+	require.NoError(t, m.cfg.NamespacesController.Create(
+		cmd.Namespace{Name: "pair", HomeNodes: []string{"node-1", "node-3"}}, 3))
+	require.NoError(t, m.cfg.NamespacesController.Create(
+		cmd.Namespace{Name: "half-gone", HomeNodes: []string{"node-1", "node-9"}}, 4))
 
 	r := NewRaft(mocks.NewMockNodeSelector("node-1", "node-2", "node-3"), m.store, nil)
 
@@ -61,7 +65,19 @@ func TestReplicaCandidates(t *testing.T) {
 		{
 			name:      "home node outside the cluster leaves no candidate",
 			className: "home-gone:Foo",
-			wantErr:   `home_node "node-9" is not a storage candidate`,
+			wantErr: `home node(s) node-9 of namespace "home-gone" are not storage candidates; ` +
+				`an administrator must replace them in the namespace's home_nodes`,
+		},
+		{
+			name:      "namespaced class may use every home node",
+			className: "pair:Foo",
+			want:      []string{"node-1", "node-3"},
+		},
+		{
+			name:      "one home node outside the cluster leaves no candidate",
+			className: "half-gone:Foo",
+			wantErr: `home node(s) node-9 of namespace "half-gone" are not storage candidates; ` +
+				`an administrator must replace them in the namespace's home_nodes`,
 		},
 	}
 
@@ -93,6 +109,7 @@ func TestRemoveRefusesNamespaceHomeNode(t *testing.T) {
 	require.NoError(t, ns.Create(cmd.Namespace{Name: "alpha", HomeNodes: []string{"node-4"}}, 3))
 	require.NoError(t, ns.Create(cmd.Namespace{Name: "paused", HomeNodes: []string{"node-5"}}, 4))
 	require.NoError(t, ns.Create(cmd.Namespace{Name: "going", HomeNodes: []string{"node-6"}}, 5))
+	require.NoError(t, ns.Create(cmd.Namespace{Name: "pair", HomeNodes: []string{"node-7", "node-8"}}, 8))
 	require.NoError(t, ns.ChangeState("paused", cmd.NamespaceStateSuspended,
 		usecasesNamespaces.StateChange{AppliedIndex: 6}))
 	require.NoError(t, ns.ChangeState("going", cmd.NamespaceStateDeleting,
@@ -112,17 +129,26 @@ func TestRemoveRefusesNamespaceHomeNode(t *testing.T) {
 		{
 			name:        "refuses the home node of a single namespace",
 			removedNode: "node-3",
-			wantErr:     `cannot remove node "node-3": it is the home_node of namespace(s) tenant-a`,
+			wantErr: `cannot remove node "node-3": it is a home node of 1 namespace(s) (tenant-a); ` +
+				`remove or replace it in each namespace's home_nodes first`,
 		},
 		{
 			name:        "names every namespace pinned to the node, sorted",
 			removedNode: "node-4",
-			wantErr:     `cannot remove node "node-4": it is the home_node of namespace(s) alpha, zeta`,
+			wantErr: `cannot remove node "node-4": it is a home node of 2 namespace(s) (alpha, zeta); ` +
+				`remove or replace it in each namespace's home_nodes first`,
 		},
 		{
 			name:        "refuses the home node of a suspended namespace",
 			removedNode: "node-5",
-			wantErr:     `cannot remove node "node-5": it is the home_node of namespace(s) paused`,
+			wantErr: `cannot remove node "node-5": it is a home node of 1 namespace(s) (paused); ` +
+				`remove or replace it in each namespace's home_nodes first`,
+		},
+		{
+			name:        "refuses a home node that is not the first entry",
+			removedNode: "node-8",
+			wantErr: `cannot remove node "node-8": it is a home node of 1 namespace(s) (pair); ` +
+				`remove or replace it in each namespace's home_nodes first`,
 		},
 		{
 			name:        "a namespace being deleted does not pin its home node",

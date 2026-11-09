@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 
@@ -221,8 +222,8 @@ func (s *Raft) processShardReplicaRemoval(ctx context.Context, schemaReader sche
 }
 
 // addReplacementReplicas tops the shard up towards desiredRF + 1 replicas so the
-// departing one can be deleted. Best effort: a namespaced class may only use its
-// home_node, so the shard can stay below that target.
+// departing one can be deleted. A namespaced class may only use its home nodes,
+// so the shard can stay below that target.
 func (s *Raft) addReplacementReplicas(ctx context.Context, className, shardName string, currentReplicas []string, removedNode string, desiredRF int) error {
 	candidates, err := s.replicaCandidates(className)
 	if err != nil {
@@ -257,8 +258,8 @@ func (s *Raft) addReplacementReplicas(ctx context.Context, className, shardName 
 }
 
 // replicaCandidates returns the nodes eligible to hold a replica of className.
-// A namespace-qualified class is pinned to its namespace's home_node, so that
-// node is its only candidate.
+// For a namespace-qualified class those are its namespace's home nodes, and it
+// returns an error while any of them is not a storage candidate.
 func (s *Raft) replicaCandidates(className string) ([]string, error) {
 	storageCandidates := s.StorageCandidates()
 
@@ -271,11 +272,12 @@ func (s *Raft) replicaCandidates(className string) ([]string, error) {
 	if !ok {
 		return nil, fmt.Errorf("namespace %q not found", namespace)
 	}
-	homeNode := ns.Primary()
-	if !slices.Contains(storageCandidates, homeNode) {
-		return nil, fmt.Errorf("namespace %q home_node %q is not a storage candidate", namespace, homeNode)
+	if missing := ns.MissingHomeNodes(storageCandidates); len(missing) > 0 {
+		return nil, fmt.Errorf("home node(s) %s of namespace %q are not storage candidates; "+
+			"an administrator must replace them in the namespace's home_nodes",
+			strings.Join(missing, ", "), namespace)
 	}
-	return []string{homeNode}, nil
+	return ns.HomeNodes, nil
 }
 
 func (s *Raft) Stats() map[string]any {

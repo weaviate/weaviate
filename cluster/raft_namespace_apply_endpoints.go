@@ -59,10 +59,9 @@ func (s *Raft) AddNamespace(ctx context.Context, ns cmd.Namespace) (cmd.Namespac
 }
 
 // UpdateNamespace proposes an UpdateNamespace RAFT command and returns the
-// apply version. The apply side returns [namespaces.ErrNotFound] when the
-// target namespace does not exist, and [namespaces.ErrBadRequest] when
-// HomeNodes does not contain exactly one entry. Only HomeNodes is mutable;
-// existing live shards are not moved.
+// apply version. The apply side returns the errors of
+// [usecasesNamespaces.Controller.Update]. Only HomeNodes is mutable; existing
+// live shards are not moved.
 func (s *Raft) UpdateNamespace(ctx context.Context, ns cmd.Namespace) (uint64, error) {
 	req := cmd.UpdateNamespaceRequest{
 		Namespace: ns,

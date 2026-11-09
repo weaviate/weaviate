@@ -11,15 +11,16 @@
 
 package api
 
+import "slices"
+
 const (
 	// NamespaceLatestCommandPolicyVersion is bumped when a namespace RAFT
 	// command's wire shape requires version-gated apply handling.
 	NamespaceLatestCommandPolicyVersion = iota
 )
 
-// Namespace is the cluster-level control-plane entity. HomeNodes pins
-// every namespace-owned shard. The controller enforces len(HomeNodes)==1;
-// read it via Primary() to keep callers stable if that ever relaxes.
+// Namespace is the cluster-level control-plane entity. HomeNodes holds one
+// or more unique node names and pins every namespace-owned shard.
 type Namespace struct {
 	Name      string
 	HomeNodes []string
@@ -35,6 +36,18 @@ func (n Namespace) Primary() string {
 		return ""
 	}
 	return n.HomeNodes[0]
+}
+
+// MissingHomeNodes returns the HomeNodes entries not in candidates, in stored
+// order.
+func (n Namespace) MissingHomeNodes(candidates []string) []string {
+	var missing []string
+	for _, node := range n.HomeNodes {
+		if !slices.Contains(candidates, node) {
+			missing = append(missing, node)
+		}
+	}
+	return missing
 }
 
 // NamespaceState is the lifecycle state of a Namespace entity.
