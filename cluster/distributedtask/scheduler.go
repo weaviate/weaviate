@@ -963,12 +963,15 @@ func (s *Scheduler) runPreparationPhase(
 			state.preparationCompletionGroupErrors[w.groupID] = groupErr
 		}
 		prepState := s.perTaskStateLocked(desc)
-		if s.ackRecorder == nil ||
-			(prepState != nil && prepState.preparationAckEmitted) ||
-			!s.allLocalGroupsPreparationFiredLocked(task, desc) {
+		if s.ackRecorder == nil || (prepState != nil && prepState.preparationAckEmitted) {
 			return prepAckSnapshot{}
 		}
+		// One failed group decides this node's verdict, so a failure does not
+		// wait for groups that are still retrying.
 		success, joined := s.aggregatePreparationAckErrorsLocked(task, desc)
+		if success && !s.allLocalGroupsPreparationFiredLocked(task, desc) {
+			return prepAckSnapshot{}
+		}
 		return prepAckSnapshot{eligible: true, success: success, joined: joined}
 	}()
 	if !ackSnap.eligible {
@@ -1115,11 +1118,15 @@ func (s *Scheduler) runSwapPhase(
 		ackState := s.perTaskStateLocked(desc)
 		if s.ackRecorder == nil ||
 			(ackState != nil && ackState.postCompletionAckEmitted) ||
-			task.Status == TaskStatusStarted ||
-			!s.allLocalGroupsFiredLocked(task, desc) {
+			task.Status == TaskStatusStarted {
 			return swapAckSnapshot{}
 		}
+		// One failed group decides this node's verdict, so a failure does not
+		// wait for groups that are still retrying.
 		success, joined := s.aggregateAckErrorsLocked(task, desc)
+		if success && !s.allLocalGroupsFiredLocked(task, desc) {
+			return swapAckSnapshot{}
+		}
 		return swapAckSnapshot{eligible: true, success: success, joined: joined}
 	}()
 	if !ackSnap.eligible {
@@ -1403,9 +1410,10 @@ func (s *Scheduler) loggerWithTask(namespace string, taskDesc TaskDescriptor) *l
 // OnGroupCompleted fire on THIS scheduler instance (i.e.
 // s.groupCallbackFired[desc][groupID] == true). Caller must hold s.mu.
 //
-// Used as the gating predicate for emitting the per-node post-completion
-// ack: we only ack after every relevant local group has fired, so the
-// aggregated success/error reflects the full local picture for the task.
+// Used as the gating predicate for emitting a successful per-node
+// post-completion ack: success is only known once every relevant local
+// group has fired. A failure is acked without it, because one failed
+// group already decides the node's verdict.
 //
 // Groups in which this node has zero local units are skipped — those
 // groups' OnGroupCompleted only fires on the nodes that own units in
@@ -1425,7 +1433,8 @@ func (s *Scheduler) allLocalGroupsFiredLocked(task *Task, desc TaskDescriptor) b
 }
 
 // allLocalGroupsPreparationFiredLocked — PREP counterpart to allLocalGroupsFiredLocked.
-// Gates per-node RecordPreparationCompleteAck emission. Caller must hold s.mu.
+// Gates a successful per-node RecordPreparationCompleteAck; a failure is
+// acked without it. Caller must hold s.mu.
 func (s *Scheduler) allLocalGroupsPreparationFiredLocked(task *Task, desc TaskDescriptor) bool {
 	state := s.perTaskStateLocked(desc)
 	for _, groupID := range task.Groups() {
