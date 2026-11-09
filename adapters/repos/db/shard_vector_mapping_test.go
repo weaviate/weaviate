@@ -28,6 +28,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	entdynamic "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	entflat "github.com/weaviate/weaviate/entities/vectorindex/flat"
@@ -270,6 +271,32 @@ func TestVectorIndexRecord_PhysicalIDReadOnlyByTheMapping(t *testing.T) {
 		})
 	}
 	assert.Empty(t, offenders, "read the physical ID through storageID, or recordedID for messages")
+}
+
+// The schema's collision check reads vector names only. It is complete
+// because every file name a generated ID owns has a "-" and no file name a
+// vector name owns has one, so the two can never share a file.
+func TestVectorIndexGeneratedIDsNeverCollideWithNames(t *testing.T) {
+	generated := []string{"3f2a9c1e-0b7d-4c1a-9e2f-5d6c7b8a9f00", "a-b", "-", "x_-_y"}
+	for _, id := range generated {
+		require.NoError(t, validateVectorIndexID(id), id)
+		for _, n := range ownerOf(vectorIndexRecord{PhysicalID: id, QueueID: id}).names() {
+			assert.Contains(t, n, "-", "generated ID %q owns %q", id, n)
+		}
+	}
+
+	names := []string{"", "title", "_", "compressed", "a_centroids", "x", "Muvera_Vectors", "mv_mappings"}
+	for _, name := range names {
+		require.Regexp(t, `^(`+schema.TargetVectorNameRegex+`)?$`, name)
+		for _, n := range ownerAt(vectorIndexID(name)).names() {
+			assert.NotContains(t, n, "-", "vector %q owns %q", name, n)
+		}
+	}
+
+	// without a "-" an ID outside the naming rule would be one a vector name can reach
+	for _, id := range []string{"title", "vectors_", "abc_def", "vectors_9x"} {
+		assert.Error(t, validateVectorIndexID(id), id)
+	}
 }
 
 // A record written by a newer version carries fields this one ignores; the
