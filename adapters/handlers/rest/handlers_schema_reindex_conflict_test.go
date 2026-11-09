@@ -357,7 +357,7 @@ func TestIndexDeleteRefusedWhileAPartialRunStands(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			preflight := gateWithTasks(tc.tasks...).checkReindexConflictForPropertyMutation(context.Background(), "C", tc.property, true)
 			withoutCounts := gateWithTasks(tc.tasks...).checkReindexConflictForPropertyMutation(context.Background(), "C", tc.property, false)
-			applied := (&db.ReindexProvider{}).CheckPropertyUpdate("C", tc.property, tc.tasks)
+			applied := db.ReindexDetector{}.CheckPropertyUpdate("C", tc.property, tc.tasks)
 			if tc.resubmit == "" {
 				require.Empty(t, preflight)
 				require.NoError(t, applied)

@@ -481,7 +481,7 @@ func TestCheckMigrationPropertyUpdate(t *testing.T) {
 	} {
 		t.Run(string(tc.status)+"/"+tc.class+"."+tc.prop, func(t *testing.T) {
 			tasks := []*distributedtask.Task{{TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1}, Status: tc.status, Payload: payload}}
-			err := (&ReindexProvider{}).CheckMigrationPropertyUpdate(tc.class, tc.prop, tasks)
+			err := ReindexDetector{}.CheckMigrationPropertyUpdate(tc.class, tc.prop, tasks)
 			require.Equal(t, tc.wantRefuse, err != nil, "err=%v", err)
 		})
 	}

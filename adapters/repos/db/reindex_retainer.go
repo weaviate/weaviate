@@ -64,17 +64,17 @@ func ReindexRunLanded(class *models.Class, mt ReindexMigrationType, targetTok st
 }
 
 // CutoverLanded is read once, by the fail apply, while only the run may write its target.
-func (p *ReindexProvider) CutoverLanded(task *distributedtask.Task) bool {
+func (ReindexDetector) CutoverLanded(task *distributedtask.Task, readClass func(string) *models.Class) bool {
 	var payload ReindexTaskPayload
-	if p.schemaManager == nil || json.Unmarshal(task.Payload, &payload) != nil {
+	if json.Unmarshal(task.Payload, &payload) != nil {
 		return false
 	}
-	return ReindexRunLanded(p.schemaManager.ReadOnlyClass(payload.Collection), payload.MigrationType,
+	return ReindexRunLanded(readClass(payload.Collection), payload.MigrationType,
 		payload.TargetTokenization, payload.Properties)
 }
 
 // CheckMigrationPropertyUpdate keeps a write arriving after its run ended from landing.
-func (p *ReindexProvider) CheckMigrationPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
+func (ReindexDetector) CheckMigrationPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
 	for _, run := range ReindexRuns(existingTasks) {
 		if run.Task.Status == distributedtask.TaskStatusSwapping &&
 			strings.EqualFold(run.Payload.Collection, className) && slices.Contains(run.Payload.Properties, propertyName) {

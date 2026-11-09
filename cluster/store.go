@@ -43,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	entsync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -430,10 +431,14 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 
 	// Two-way wiring: mutation-guard (prevents schema↔reindex races) and
 	// cascade-delete (weaviate/0-weaviate-issues#231).
+	schemaReader := schemaManager.NewSchemaReader()
 	distributedTasksManager := distributedtask.NewManager(distributedtask.ManagerParameters{
 		Logger:                  cfg.Logger,
 		ConflictDetectors:       cfg.DistributedTaskConflictDetectors,
 		SchemaMutationDetectors: cfg.DistributedTaskSchemaMutationDetectors,
+		ReadOnlyClass: func(collection string) *models.Class {
+			return schemaReader.ReadOnlyVersionedClass(collection).Class
+		},
 	})
 
 	schemaManager.SetMutationGuard(distributedTasksManager)

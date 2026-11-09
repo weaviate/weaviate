@@ -24,12 +24,11 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
-// failApplied runs the FSM's fail apply on task with prov as the reindex
-// detector and returns the task as the FSM recorded it.
-func failApplied(t *testing.T, task *distributedtask.Task, prov *db.ReindexProvider) *distributedtask.Task {
+// failApplied runs the FSM's fail apply on task over a schema holding class
+// and returns the task as the FSM recorded it.
+func failApplied(t *testing.T, task *distributedtask.Task, class *models.Class) *distributedtask.Task {
 	raw, err := json.Marshal(task)
 	require.NoError(t, err)
 	var enc map[string]any
@@ -37,9 +36,12 @@ func failApplied(t *testing.T, task *distributedtask.Task, prov *db.ReindexProvi
 	enc["units"] = maps.Collect(task.Units())
 	snap, err := json.Marshal(map[string]any{"tasks": map[string]any{db.ReindexNamespace: []any{enc}}})
 	require.NoError(t, err)
-	m := distributedtask.NewManager(distributedtask.ManagerParameters{Logger: logrus.New()})
+	m := distributedtask.NewManager(distributedtask.ManagerParameters{
+		Logger:                  logrus.New(),
+		SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{db.ReindexNamespace: db.ReindexDetector{}},
+		ReadOnlyClass:           func(string) *models.Class { return class },
+	})
 	require.NoError(t, m.Restore(snap))
-	m.SetSchemaMutationDetectors(map[string]distributedtask.SchemaMutationDetector{db.ReindexNamespace: prov})
 	sub, err := json.Marshal(&cmd.MarkTaskFailedRequest{
 		Namespace: db.ReindexNamespace, Id: task.ID, Version: task.Version,
 		Error: "rpc error after the leader committed", FailedAtUnixMillis: time.Now().UnixMilli(),
@@ -98,20 +100,17 @@ func TestDropAndReAddAfterALandedRun(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := tc.landed()
 			class := &models.Class{Class: "C", Properties: []*models.Property{p}, InvertedIndexConfig: &models.InvertedIndexConfig{}}
-			reader := schemaUC.NewMockSchemaReader(t)
-			reader.EXPECT().ReadOnlyClass("C").Return(class).Maybe()
-			prov := db.NewReindexProvider(nil, &schemaUC.Manager{SchemaReader: reader}, nil, logrus.New(), "", nil, nil)
 
 			run := buildTask(t, "T1", distributedtask.TaskStatusSwapping,
 				db.ReindexTaskPayload{Collection: "C", Properties: []string{"p"}, MigrationType: tc.mt, TargetTokenization: tc.tok},
 				map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
 			run.SwapDecidedGroups = map[string]time.Time{"a": {}, "b": {}}
 			run.SwapsOwed = map[string][]string{"b": {"n2"}}
-			tasks := []*distributedtask.Task{failApplied(t, run, prov)}
+			tasks := []*distributedtask.Task{failApplied(t, run, class)}
 
-			require.NoError(t, prov.CheckPropertyUpdate("C", "p", tasks), "the drop")
+			require.NoError(t, db.ReindexDetector{}.CheckPropertyUpdate("C", "p", tasks), "the drop")
 			tc.drop(p)
-			require.NoError(t, prov.CheckPropertyUpdate("C", "p", tasks), "a change after the drop")
+			require.NoError(t, db.ReindexDetector{}.CheckPropertyUpdate("C", "p", tasks), "a change after the drop")
 			_, err := (&indexesHandlers{}).resolveRebuildPlan(class, p, "filterable", tasks, true)
 			require.NotErrorIs(t, err, errRebuildPropertyPartlyMigrated)
 			if tc.readd == nil {

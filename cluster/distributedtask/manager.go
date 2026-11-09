@@ -24,6 +24,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func errTaskNotRunning(namespace, taskID string, version uint64) error {
@@ -50,6 +51,8 @@ type Manager struct {
 	// by the schema FSM's mutation apply paths (see
 	// [SchemaMutationDetector] godoc for the motivating bug).
 	schemaMutationDetectors map[string]SchemaMutationDetector
+
+	readOnlyClass func(collection string) *models.Class
 
 	// Per-namespace payload→collection extractors. Absent ⇒ namespace is
 	// not collection-scoped and survives DeleteTasksForCollection.
@@ -207,6 +210,9 @@ type ManagerParameters struct {
 	// replayed entry gets the verdict this build gives it live.
 	ConflictDetectors       map[string]ConflictDetector
 	SchemaMutationDetectors map[string]SchemaMutationDetector
+	// ReadOnlyClass reads this FSM's schema without waiting, so a replayed
+	// fail apply sees the schema at its own index.
+	ReadOnlyClass func(collection string) *models.Class
 }
 
 func NewManager(params ManagerParameters) *Manager {
@@ -217,6 +223,7 @@ func NewManager(params ManagerParameters) *Manager {
 
 		conflictDetectors:       params.ConflictDetectors,
 		schemaMutationDetectors: params.SchemaMutationDetectors,
+		readOnlyClass:           params.ReadOnlyClass,
 
 		logger: params.Logger,
 	}
@@ -886,7 +893,7 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 	}
 
 	// A write that landed while its proposer saw an error finishes the run.
-	if d, ok := m.schemaMutationDetectors[r.Namespace].(CutoverOutcome); ok && d.CutoverLanded(task) {
+	if d, ok := m.schemaMutationDetectors[r.Namespace].(CutoverOutcome); ok && d.CutoverLanded(task, m.readOnlyClass) {
 		task.markTerminal(TaskStatusFinished, time.UnixMilli(r.FailedAtUnixMillis))
 		m.notifySchedulerWithLock()
 		return nil

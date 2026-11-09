@@ -17,6 +17,8 @@ import (
 	"maps"
 	"slices"
 	"time"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // TaskLister is an interface for listing distributed tasks in the cluster.
@@ -256,8 +258,9 @@ type SchemaMutationDetector interface {
 
 // CutoverOutcome lets a detector record a run as FINISHED exactly when its cutover write
 // landed, and refuse that write once the run stopped. Called under [Manager.mu]; deterministic.
+// readClass reads the FSM's own schema at the apply's index.
 type CutoverOutcome interface {
-	CutoverLanded(task *Task) bool
+	CutoverLanded(task *Task, readClass func(collection string) *models.Class) bool
 	CheckMigrationPropertyUpdate(className, propertyName string, existingTasks []*Task) error
 }
 

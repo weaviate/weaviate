@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // sharedSchema is the one schema value every node's cutover writes and the
@@ -32,11 +33,10 @@ type sharedSchema struct {
 
 // landedDetector answers the fail apply from the shared schema.
 type landedDetector struct {
-	*barrierRecordingProvider
 	schema *sharedSchema
 }
 
-func (d *landedDetector) CutoverLanded(*Task) bool {
+func (d *landedDetector) CutoverLanded(*Task, func(string) *models.Class) bool {
 	d.schema.mu.Lock()
 	defer d.schema.mu.Unlock()
 	return d.schema.landed
@@ -99,9 +99,9 @@ func TestFailApplyFinishesARunWhoseCutoverLanded(t *testing.T) {
 			for i, node := range h.nodes {
 				h.restartWith(i, &cutoverWritingProvider{barrierRecordingProvider: node.provider, node: node.id, schema: schema})
 			}
-			h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
-				h.namespace: &landedDetector{barrierRecordingProvider: h.nodes[0].provider, schema: schema},
-			})
+			h.manager.schemaMutationDetectors = map[string]SchemaMutationDetector{
+				h.namespace: &landedDetector{schema: schema},
+			}
 
 			barrierAddTaskOneUnitPerNode(t, h, "t")
 			barrierDriveToPreparing(t, h, "t")
