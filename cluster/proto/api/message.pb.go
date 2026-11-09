@@ -2134,9 +2134,10 @@ func (x *MarkTaskFinalizedRequest) GetFinalizedAtUnixMillis() int64 {
 	return 0
 }
 
-// MarkTaskFailedRequest transitions a task SWAPPING → FAILED when
-// OnTaskCompleted returns a terminal error: permanent schema-flip failure
-// or retry-exhausted transient one (weaviate/0-weaviate-issues#297).
+// MarkTaskFailedRequest ends a SWAPPING task when OnTaskCompleted returns
+// a terminal error: permanent schema-flip failure or retry-exhausted
+// transient one. It records FAILED, or FINISHED when the run's cutover
+// write already landed (weaviate/0-weaviate-issues#297).
 // Idempotent at the FSM layer: a later commit on a terminal task is a no-op.
 type MarkTaskFailedRequest struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`

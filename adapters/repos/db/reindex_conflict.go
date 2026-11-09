@@ -229,11 +229,10 @@ func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) s
 // commits, leaving the schema at the old tokenization and the filterable
 // bucket on the new one.
 //
-// Migration-driven flips bypass the guard via
-// [api.UpdatePropertyRequest.FromInFlightMigration], set by
-// [Raft.UpdatePropertyFromMigration] from the scheduler's own completion
-// dispatch, so external mutations are blocked without blocking the
-// migration's scheduled flip.
+// A migration's own flip, marked by
+// [api.UpdatePropertyRequest.FromInFlightMigration], is checked by
+// [ReindexDetector.CheckMigrationPropertyUpdate] instead, which admits it
+// only while the run it names is SWAPPING.
 //
 // Must stay a pure function of (className, propertyName, existingTasks) for
 // RAFT determinism; an unparseable payload is a hard reject, same as

@@ -89,10 +89,10 @@ type TaskFinalizer interface {
 	// [TaskStatusSwapping] for the race this fixes.
 	MarkDistributedTaskFinalized(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 
-	// MarkDistributedTaskFailed transitions SWAPPING → FAILED when
-	// OnTaskCompleted returns a terminal error: permanent
-	// ([ErrTaskCompletionPermanent]) or retry-exhausted transient. errMsg is
-	// recorded on the task (weaviate/0-weaviate-issues#297).
+	// MarkDistributedTaskFailed ends a SWAPPING task when OnTaskCompleted
+	// returns a terminal error: permanent ([ErrTaskCompletionPermanent]) or
+	// retry-exhausted transient. It records FAILED with errMsg, or FINISHED
+	// when the run's cutover write already landed (weaviate/0-weaviate-issues#297).
 	MarkDistributedTaskFailed(ctx context.Context, namespace, taskID string, taskVersion uint64, errMsg string) error
 }
 
