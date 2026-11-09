@@ -130,7 +130,7 @@ func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, 
 	return uc, nil
 }
 
-func parseCompressionMap(in interface{}, cuc *CompressionUserConfig) error {
+func parseCompressionMap(in interface{}, cuc *CompressionUserConfig, name string) error {
 	configMap, ok := in.(map[string]interface{})
 	if ok {
 		if err := vectorindexcommon.OptionalBoolFromMap(configMap, "enabled", func(v bool) {
@@ -150,6 +150,10 @@ func parseCompressionMap(in interface{}, cuc *CompressionUserConfig) error {
 		}); err != nil {
 			return err
 		}
+
+		if cuc.RescoreLimit < 0 {
+			return fmt.Errorf("%s.rescoreLimit must be non-negative, got %d", name, cuc.RescoreLimit)
+		}
 	}
 	return nil
 }
@@ -165,21 +169,21 @@ func parseCompression(in map[string]interface{}, uc *UserConfig) error {
 	}
 
 	if pqOk {
-		err := parseCompressionMap(pqConfigValue, &uc.PQ)
+		err := parseCompressionMap(pqConfigValue, &uc.PQ, "pq")
 		if err != nil {
 			return err
 		}
 	}
 
 	if bqOk {
-		err := parseCompressionMap(bqConfigValue, &uc.BQ)
+		err := parseCompressionMap(bqConfigValue, &uc.BQ, "bq")
 		if err != nil {
 			return err
 		}
 	}
 
 	if sqOk {
-		err := parseCompressionMap(sqConfigValue, &uc.SQ)
+		err := parseCompressionMap(sqConfigValue, &uc.SQ, "sq")
 		if err != nil {
 			return err
 		}
@@ -250,6 +254,10 @@ func parseRQConfig(in interface{}, rq *RQUserConfig) error {
 			rq.RescoreLimit = v
 		}); err != nil {
 			return err
+		}
+
+		if rq.RescoreLimit < 0 {
+			return fmt.Errorf("rq.rescoreLimit must be non-negative, got %d", rq.RescoreLimit)
 		}
 
 		if err := vectorindexcommon.OptionalIntFromMap(configMap, "bits", func(v int) {
