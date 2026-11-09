@@ -721,11 +721,13 @@ type recordingMutationGuard struct {
 	rejectWith  error
 	// migrationCalls counts CheckMigrationPropertyUpdate; rejectMigrationWith is its answer.
 	migrationCalls      int
+	lastRun             cmd.MigrationRun
 	rejectMigrationWith error
 }
 
-func (g *recordingMutationGuard) CheckMigrationPropertyUpdate(class, prop string, _ cmd.MigrationRun) error {
+func (g *recordingMutationGuard) CheckMigrationPropertyUpdate(class, prop string, run cmd.MigrationRun) error {
 	g.migrationCalls++
+	g.lastRun = run
 	return g.rejectMigrationWith
 }
 
@@ -824,6 +826,7 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 		require.NotContains(t, err.Error(), "MUST be bypassed")
 		require.Equal(t, 0, guard.called, "the property guard MUST NOT be consulted for a migration write")
 		require.Equal(t, 1, guard.migrationCalls)
+		require.Equal(t, cmd.MigrationRun{Namespace: "reindex", ID: "T", Version: 1}, guard.lastRun)
 
 		// A peer's flip arriving after its run was marked FAILED or CANCELLED.
 		late := errors.New("no reindex run is completing")

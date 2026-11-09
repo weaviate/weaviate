@@ -13,10 +13,14 @@ package db
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -460,8 +464,9 @@ func TestCheckPropertyUpdate_NoInFlightTasksAllows(t *testing.T) {
 	}
 }
 
-// A cutover write lands only while its own run is SWAPPING: a peer's flip
-// arriving after the run was failed or cancelled is refused.
+// A cutover write lands only while the run it names is SWAPPING: a peer's
+// flip arriving after its run was failed or cancelled is refused, even while
+// another run on the same property is SWAPPING.
 func TestCheckMigrationPropertyUpdate(t *testing.T) {
 	payload, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"}})
 	require.NoError(t, err)
@@ -469,23 +474,40 @@ func TestCheckMigrationPropertyUpdate(t *testing.T) {
 		status     distributedtask.TaskStatus
 		class      string
 		prop       string
+		run        api.MigrationRun
 		wantRefuse bool
 	}{
-		{distributedtask.TaskStatusSwapping, "c", "name", false},
-		{distributedtask.TaskStatusSwapping, "C", "other", true},
-		{distributedtask.TaskStatusSwapping, "D", "name", true},
-		{distributedtask.TaskStatusFailed, "C", "name", true},
-		{distributedtask.TaskStatusCancelled, "C", "name", true},
-		{distributedtask.TaskStatusFinished, "C", "name", true},
-		{distributedtask.TaskStatusPreparing, "C", "name", true},
+		{status: distributedtask.TaskStatusSwapping, class: "c", prop: "name"},
+		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "other", wantRefuse: true},
+		{status: distributedtask.TaskStatusSwapping, class: "D", prop: "name", wantRefuse: true},
+		{status: distributedtask.TaskStatusFailed, class: "C", prop: "name", wantRefuse: true},
+		{status: distributedtask.TaskStatusCancelled, class: "C", prop: "name", wantRefuse: true},
+		{status: distributedtask.TaskStatusFinished, class: "C", prop: "name", wantRefuse: true},
+		{status: distributedtask.TaskStatusPreparing, class: "C", prop: "name", wantRefuse: true},
+		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "name", wantRefuse: true,
+			run: api.MigrationRun{Namespace: ReindexNamespace, ID: "T1", Version: 2}},
+		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "name", wantRefuse: true,
+			run: api.MigrationRun{Namespace: ReindexNamespace, ID: "gone", Version: 1}},
 	} {
-		t.Run(string(tc.status)+"/"+tc.class+"."+tc.prop, func(t *testing.T) {
-			task := &distributedtask.Task{TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1}, Status: tc.status, Payload: payload}
-			err := ReindexDetector{}.CheckMigrationPropertyUpdate(tc.class, tc.prop, task)
+		if tc.run == (api.MigrationRun{}) {
+			tc.run = api.MigrationRun{Namespace: ReindexNamespace, ID: "T1", Version: 1}
+		}
+		t.Run(fmt.Sprintf("%s/%s.%s/%s.v%d", tc.status, tc.class, tc.prop, tc.run.ID, tc.run.Version), func(t *testing.T) {
+			snapshot, err := json.Marshal(map[string]map[string][]*distributedtask.Task{"tasks": {ReindexNamespace: {
+				{Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1}, Status: tc.status, Payload: payload},
+				{Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "U", Version: 1}, Status: distributedtask.TaskStatusSwapping, Payload: payload},
+			}}})
+			require.NoError(t, err)
+			logger, _ := test.NewNullLogger()
+			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{
+				Logger:                  logger,
+				SchemaMutationDetectors: map[string]distributedtask.SchemaMutationDetector{ReindexNamespace: ReindexDetector{}},
+			})
+			require.NoError(t, mgr.Restore(snapshot))
+			err = mgr.CheckMigrationPropertyUpdate(tc.class, tc.prop, tc.run)
 			require.Equal(t, tc.wantRefuse, err != nil, "err=%v", err)
 		})
 	}
-	require.Error(t, ReindexDetector{}.CheckMigrationPropertyUpdate("C", "name", nil), "a run that is gone completes nothing")
 }
 
 // TestCheckPropertyUpdate_InFlightOnSamePropertyRejects pins the
