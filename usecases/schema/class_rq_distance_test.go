@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/restrictions"
 )
 
 func rqMap(bits int, centering bool) map[string]interface{} {
@@ -257,4 +258,84 @@ func TestRQDefaultQuantizationSkipsUnsupportedDistance(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestRQDefaultUnderCompressionAllowList pins the review finding on
+// #13656: under a compression allow-list the server default is always an
+// allowed entry, and an index with no compression of its own passes the
+// allow-list because the default fills the gap. When that default is RQ and
+// the distance is one RQ cannot compress, the default is skipped, so the
+// index would be created uncompressed, which the same policy refuses when
+// asked for explicitly. It must be rejected at create, naming the
+// restriction and the distance. Policies that admit "none", non-RQ
+// defaults, supported distances, explicit compression and unrestricted
+// servers are unaffected.
+func TestRQDefaultUnderCompressionAllowList(t *testing.T) {
+	create := func(t *testing.T, allow []string, def, indexType, distance string, shape func(string, map[string]interface{}) *models.Class) (*models.Class, error) {
+		t.Helper()
+		handler, manager := newTestHandlerAndManagerWithRealVectorConfigParser(t)
+		handler.asyncIndexingEnabled = true
+		if allow != nil {
+			handler.config.Restrictions.AllowedCompressionTypes = runtime.NewDynamicValue(allow)
+		}
+		handler.config.DefaultQuantization = runtime.NewDynamicValue(def)
+		var stored *models.Class
+		manager.On("AddClass", mock.Anything, mock.Anything).
+			Run(func(args mock.Arguments) { stored = args.Get(0).(*models.Class) }).
+			Return(nil).Maybe()
+		class := shape(indexType, rqIndexConfig(indexType, "", distance, nil))
+		class.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
+		_, _, err := handler.AddClass(context.Background(), nil, class)
+		return stored, err
+	}
+
+	for _, tt := range []struct {
+		indexType, compression string
+	}{
+		{"hnsw", "rq-1"},
+		{"hnsw", "rq-4"},
+		{"hnsw", "rq-8"},
+		{"flat", "rq-1"},
+		{"flat", "rq-8"},
+		{"dynamic", "rq-1"},
+		{"dynamic", "rq-8"},
+	} {
+		for _, shape := range rqClassShapes {
+			prefix := tt.indexType + "/" + tt.compression + "/" + shape.name
+			for _, distance := range []string{"hamming", "manhattan"} {
+				t.Run(prefix+"/"+distance+"/rejected", func(t *testing.T) {
+					stored, err := create(t, []string{tt.compression}, tt.compression, tt.indexType, distance, shape.class)
+					require.Error(t, err)
+					require.Nil(t, stored, "the class must not be created")
+					v, ok := restrictions.AsViolation(err)
+					require.True(t, ok, "a restriction violation, got %v", err)
+					require.Equal(t, restrictions.RestrictionCompression, v.Restriction)
+					require.Equal(t, "none", v.Value)
+					require.Contains(t, err.Error(), fmt.Sprintf("distance %q", distance))
+					require.Contains(t, err.Error(), tt.compression)
+				})
+			}
+			t.Run(prefix+"/cosine/default applied", func(t *testing.T) {
+				stored, err := create(t, []string{tt.compression}, tt.compression, tt.indexType, "cosine", shape.class)
+				require.NoError(t, err)
+				require.NotNil(t, stored)
+			})
+			t.Run(prefix+"/hamming/none allowed", func(t *testing.T) {
+				stored, err := create(t, []string{tt.compression, "none"}, tt.compression, tt.indexType, "hamming", shape.class)
+				require.NoError(t, err)
+				require.NotNil(t, stored)
+			})
+			t.Run(prefix+"/hamming/unrestricted keeps the skip", func(t *testing.T) {
+				stored, err := create(t, nil, tt.compression, tt.indexType, "hamming", shape.class)
+				require.NoError(t, err)
+				require.NotNil(t, stored)
+			})
+		}
+	}
+
+	t.Run("non-RQ default on hamming is not this check's concern", func(t *testing.T) {
+		stored, err := create(t, []string{"bq"}, "bq", "flat", "hamming", legacyRQClass)
+		require.NoError(t, err)
+		require.NotNil(t, stored)
+	})
 }
