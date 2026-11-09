@@ -134,6 +134,26 @@ func TestGRPC_Aggregate(t *testing.T) {
 				assert.Equal(t, "text", textAggregation.GetType())
 			}
 		})
+		t.Run("text count without top occurrences", func(t *testing.T) {
+			resp, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
+				Collection: cities.City,
+				Aggregations: []*pb.AggregateRequest_Aggregation{
+					{
+						Property: "name",
+						Aggregation: &pb.AggregateRequest_Aggregation_Text_{
+							Text: &pb.AggregateRequest_Aggregation_Text{Count: true},
+						},
+					},
+				},
+			})
+			require.NoError(t, err)
+			aggregations := resp.GetSingleResult().GetAggregations().GetAggregations()
+			require.Len(t, aggregations, 1)
+			textAggregation := aggregations[0].GetText()
+			require.NotNil(t, textAggregation)
+			assert.Equal(t, int64(5), textAggregation.GetCount())
+			assert.Nil(t, textAggregation.GetTopOccurences())
+		})
 		t.Run("boolean", func(t *testing.T) {
 			resp, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
 				Collection: cities.City,
