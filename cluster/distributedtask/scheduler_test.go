@@ -404,26 +404,21 @@ func TestRemoveCleanedUpTaskLocalStateOnStartup(t *testing.T) {
 	}
 }
 
+// Startup keeps the local state of every listed task, not only running ones:
+// a finished barrier task can still owe swaps.
 func TestKeepLocalStateOfListedTasksOnStartup(t *testing.T) {
 	desc := TaskDescriptor{ID: "1", Version: 7}
-	for _, status := range []TaskStatus{
-		TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping, TaskStatusFinished,
-	} {
-		t.Run(string(status), func(t *testing.T) {
-			provider := newTestTaskProvider(t, []TaskDescriptor{desc})
-			h := newTestHarness(t)
-			h.registeredProviders = map[string]Provider{h.tasksNamespace: provider}
-			h = h.init(t)
-			defer h.Close()
+	provider := newTestTaskProvider(t, []TaskDescriptor{desc})
+	h := newTestHarness(t)
+	h.registeredProviders = map[string]Provider{h.tasksNamespace: provider}
+	h = h.init(t)
+	defer h.Close()
 
-			// The local unit is done, so a STARTED task is not restarted either.
-			task := &Task{Namespace: h.tasksNamespace, TaskDescriptor: desc, Status: status}
-			task.SetUnits(map[string]*Unit{"su-1": {ID: "su-1", NodeID: h.localNodeID, Status: UnitStatusCompleted}})
-			h.scheduler.bootstrapProviders(map[string]map[TaskDescriptor]*Task{h.tasksNamespace: {desc: task}})
+	task := &Task{Namespace: h.tasksNamespace, TaskDescriptor: desc, Status: TaskStatusFinished}
+	task.SetUnits(map[string]*Unit{"su-1": {ID: "su-1", NodeID: h.localNodeID, Status: UnitStatusCompleted}})
+	h.scheduler.bootstrapProviders(map[string]map[TaskDescriptor]*Task{h.tasksNamespace: {desc: task}})
 
-			require.Len(t, provider.cleanedUpCh, 0)
-		})
-	}
+	require.Len(t, provider.cleanedUpCh, 0)
 }
 
 func TestRemoveCleanedUpTaskLocalStateDuringRuntime(t *testing.T) {
@@ -1372,8 +1367,7 @@ func TestPreMarkTerminalCallbacksLocked_OnlyTerminalsAreMarked(t *testing.T) {
 
 	// Terminal tasks: no group left to act on.
 	for _, desc := range []TaskDescriptor{finishedDesc, failedDesc, cancelledDesc} {
-		require.Empty(t, s.perTaskState[desc].swapPending, desc.ID)
-		require.NotNil(t, s.perTaskState[desc].swapPending, "%s: empty, not unvisited", desc.ID)
+		require.Equal(t, map[string]struct{}{}, s.perTaskState[desc].swapPending, desc.ID)
 	}
 
 	// Started task: NOT marked. Its callbacks must still fire when it

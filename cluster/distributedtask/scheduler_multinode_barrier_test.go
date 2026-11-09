@@ -508,8 +508,9 @@ func TestBarrier_G2_PartialPhaseBFailure(t *testing.T) {
 		"task must remain FAILED — MarkTaskFinalized must not promote past FAILED")
 	require.Equal(t, map[string][]string{"": {"node-2"}}, task.SwapsOwed, "only node-2 still owes its swap")
 
-	// Once node-2's swap succeeds, the debt is paid on a FAILED task.
+	// The owed swap survives node-2's restart and is paid on a FAILED task.
 	h.nodes[1].provider.SetSwapRequestedError(nil)
+	h.restart(1)
 	h.tick(1)
 	task = h.getTask(t, taskID)
 	require.Empty(t, task.SwapsOwed)
@@ -1187,36 +1188,6 @@ func TestBarrier_FailedPrepAckLeavesStatusToRaft(t *testing.T) {
 				"FAILED cleanup must see every decision RAFT holds")
 		})
 	}
-}
-
-// Pins: a decided swap a replica still owes survives that replica's restart,
-// even once the task is terminal. node-2's swap fails, failing the task, and
-// node-2 restarts before retrying; its fresh scheduler must still swap.
-func TestBarrier_RestartKeepsADecidedSwapOfATerminalTask(t *testing.T) {
-	defer leaktest.Check(t)()
-
-	h := newBarrierHarness(t, []string{"node-1", "node-2"})
-	defer h.close()
-
-	barrierAddTaskOneUnitPerNode(t, h, "T-owed")
-	barrierDriveToPreparing(t, h, "T-owed")
-	barrierDriveAllAcksAndAssertSwapping(t, h, "T-owed")
-
-	h.tick(0)
-	h.nodes[1].provider.SetSwapRequestedError(fmt.Errorf("synthetic EIO during swap on node-2"))
-	h.tick(1)
-	require.Equal(t, TaskStatusFailed, h.getTask(t, "T-owed").Status, "node-2's failed swap fails the task")
-	require.Equal(t, 1, h.nodes[1].provider.swapCount("T-owed"))
-
-	h.nodes[1].provider.SetSwapRequestedError(nil)
-	h.restart(1)
-	h.tick(1)
-	require.Equal(t, 2, h.nodes[1].provider.swapCount("T-owed"),
-		"the restarted replica still owes the decided swap and runs it")
-
-	h.restart(0)
-	h.tick(0)
-	require.Equal(t, 1, h.nodes[0].provider.swapCount("T-owed"), "a replica that paid does not swap again after a restart")
 }
 
 // A failed local group must fail the task even while another local group

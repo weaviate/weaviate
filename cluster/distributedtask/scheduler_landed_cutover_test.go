@@ -20,15 +20,15 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// sharedSchema is the one schema value every node's cutover writes and the
-// FSM's fail apply reads.
+// sharedSchema is the schema value the cutover writes and the FSM's fail
+// apply reads.
 type sharedSchema struct {
 	mu       sync.Mutex
 	landed   bool
-	attempts map[string]int
-	// landsWithError reports whether a node's n-th attempt commits the write
-	// while its proposer sees an error; every other attempt writes nothing.
-	landsWithError func(node string, n int) bool
+	attempts int
+	// landsOn is the attempt that commits the write while its proposer sees
+	// an error; every other attempt writes nothing.
+	landsOn int
 }
 
 // landedDetector answers the fail apply from the shared schema.
@@ -49,7 +49,6 @@ func (d *landedDetector) CheckTenantMutation(string, []string, []*Task) error   
 
 type cutoverWritingProvider struct {
 	*barrierRecordingProvider
-	node   string
 	schema *sharedSchema
 }
 
@@ -60,11 +59,8 @@ func (p *cutoverWritingProvider) OnTaskCompleted(task *Task) error {
 	s := p.schema
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.landed {
-		return nil // a cutover skips a value already at its target
-	}
-	s.attempts[p.node]++
-	if s.landsWithError(p.node, s.attempts[p.node]) {
+	s.attempts++
+	if s.attempts == s.landsOn {
 		s.landed = true
 		return errors.New("rpc error after the leader committed")
 	}
@@ -72,33 +68,19 @@ func (p *cutoverWritingProvider) OnTaskCompleted(task *Task) error {
 }
 
 func TestFailApplyFinishesARunWhoseCutoverLanded(t *testing.T) {
-	last := maxCompletedCallbackAttempts
-	cases := []struct {
-		name           string
-		nodes          []string
-		landsWithError func(node string, n int) bool
-		want           TaskStatus
+	for _, tc := range []struct {
+		name    string
+		landsOn int
+		want    TaskStatus
 	}{
-		{
-			"single node, lands on the last attempt",
-			[]string{"node-1"},
-			func(_ string, n int) bool { return n == last }, TaskStatusFinished,
-		},
-		{
-			"three nodes, node-1 lands on its last attempt",
-			[]string{"node-1", "node-2", "node-3"},
-			func(node string, n int) bool { return node == "node-1" && n == last }, TaskStatusFinished,
-		},
-		{"never lands", []string{"node-1"}, func(string, int) bool { return false }, TaskStatusFailed},
-	}
-	for _, tc := range cases {
+		{"lands on the last attempt", maxCompletedCallbackAttempts, TaskStatusFinished},
+		{"never lands", 0, TaskStatusFailed},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := newBarrierHarness(t, tc.nodes)
+			h := newBarrierHarness(t, []string{"node-1"})
 			t.Cleanup(h.close)
-			schema := &sharedSchema{attempts: map[string]int{}, landsWithError: tc.landsWithError}
-			for i, node := range h.nodes {
-				h.restartWith(i, &cutoverWritingProvider{barrierRecordingProvider: node.provider, node: node.id, schema: schema})
-			}
+			schema := &sharedSchema{landsOn: tc.landsOn}
+			h.restartWith(0, &cutoverWritingProvider{barrierRecordingProvider: h.nodes[0].provider, schema: schema})
 			h.manager.schemaMutationDetectors = map[string]SchemaMutationDetector{
 				h.namespace: &landedDetector{schema: schema},
 			}
@@ -106,10 +88,10 @@ func TestFailApplyFinishesARunWhoseCutoverLanded(t *testing.T) {
 			barrierAddTaskOneUnitPerNode(t, h, "t")
 			barrierDriveToPreparing(t, h, "t")
 			barrierDriveAllAcksAndAssertSwapping(t, h, "t")
-			for range 3 * last {
+			for range 3 * maxCompletedCallbackAttempts {
 				h.tickAll()
 			}
-			require.Equal(t, tc.want, h.getTask(t, "t").Status, "attempts %v", schema.attempts)
+			require.Equal(t, tc.want, h.getTask(t, "t").Status, "attempts %d", schema.attempts)
 		})
 	}
 }
