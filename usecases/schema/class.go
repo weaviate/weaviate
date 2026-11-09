@@ -1552,9 +1552,16 @@ func (h *Handler) validateVectorSettingsFor(class, initial *models.Class, restor
 				return err
 			}
 		}
-		if parsed != nil && initial == nil && !restoring {
-			if err := h.validateDefaultCompressionApplies(class.VectorIndexType, parsed); err != nil {
-				return err
+		if initial == nil && !restoring {
+			forDefault := parsed
+			if forDefault == nil && class.VectorIndexType != "" {
+				forDefault = h.configCreationParses(class.VectorIndexType, class.VectorIndexConfig,
+					h.parser.modules.IsMultiVector(class.Vectorizer))
+			}
+			if forDefault != nil {
+				if err := h.validateDefaultCompressionApplies(class.VectorIndexType, forDefault); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -1592,6 +1599,19 @@ func (h *Handler) validateVectorSettingsFor(class, initial *models.Class, restor
 			return err
 		}
 		if parsed == nil {
+			if initial == nil && !restoring {
+				isMultiVector := false
+				if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
+					for vectorizer := range vm {
+						isMultiVector = h.parser.modules.IsMultiVector(vectorizer)
+					}
+				}
+				if forDefault := h.configCreationParses(cfg.VectorIndexType, cfg.VectorIndexConfig, isMultiVector); forDefault != nil {
+					if err := h.validateDefaultCompressionApplies(cfg.VectorIndexType, forDefault); err != nil {
+						return fmt.Errorf("target vector %q: %w", name, err)
+					}
+				}
+			}
 			continue
 		}
 		// Create/update-only hard limits. They must not live in the config
@@ -1792,49 +1812,85 @@ func (h *Handler) validateAllowedCompression(vectorIndexType string, cfg schemaC
 // validateDefaultCompressionApplies covers the gap validateAllowedCompression
 // leaves on create. An index with no compression of its own passes it,
 // because the server default (always an allowed entry under a compression
-// allow-list) fills the gap at creation. An RQ default is skipped on a
-// distance RQ cannot compress (hnsw/flat ParseDefaultQuantizationForDistance),
-// which would leave the index uncompressed, so under an allow-list that does
-// not admit "none" such an index is rejected here, naming the restriction
-// and the distance. Unrestricted servers keep the skip.
+// allow-list) fills the gap at creation. The default does not always apply:
+// an index type may not take it at all (flat takes only rq-1, rq-8 and bq),
+// and an RQ default is skipped on a distance RQ cannot compress. Either way
+// the index is created uncompressed. Rather than restate those rules, this
+// applies the default to a copy of cfg through setDefaultQuantization, the
+// path creation takes, and under an allow-list that does not admit "none"
+// rejects the class when an index (or dynamic arm) still ends up with no
+// compression, naming the restriction and the cause. Unrestricted servers
+// keep creating such indexes uncompressed.
 func (h *Handler) validateDefaultCompressionApplies(vectorIndexType string, cfg schemaConfig.VectorIndexConfig) error {
 	allow := h.allowedCompressionTypes()
 	if allow == nil || slices.Contains(allow, "none") || vectorIndexType == vectorindex.VectorIndexTypeHFresh {
 		return nil
 	}
-	defaultCompression := ""
-	if h.config.DefaultQuantization != nil {
-		defaultCompression = strings.ToLower(strings.TrimSpace(h.config.DefaultQuantization.Get()))
-	}
-	if !strings.HasPrefix(defaultCompression, "rq-") {
+	if h.config.DefaultQuantization == nil {
 		return nil
 	}
-	for _, arm := range defaultCompressionArms(cfg) {
-		if vectorindexcommon.RQSupportsDistance(arm.distance) {
-			continue
-		}
-		v := restrictions.NewViolationError(
-			h.restrictionsErrorMessageTemplate(),
-			restrictions.RestrictionCompression,
-			"none",
-			allow,
-		)
-		where := ""
-		if arm.name != "" {
-			where = " on the dynamic index's " + arm.name + " arm"
-		}
+	defaultCompression := h.config.DefaultQuantization.Get()
+	if defaultCompression == "" {
+		return nil
+	}
+	if len(vectorIndexType) == 0 {
+		vectorIndexType = vectorindex.DefaultVectorIndexType
+	}
+	// The parse error is not needed here: an arm the default could not be
+	// applied to is left without compression, which is what is checked.
+	applied, _ := setDefaultQuantization(vectorIndexType, cfg, defaultCompression)
+	uncompressed := uncompressedArms(applied)
+	if len(uncompressed) == 0 {
+		return nil
+	}
+	// Tell the causes apart by the same path: if the default applies to the
+	// arm once the distance is one every quantizer supports, the distance
+	// was the cause; otherwise the index type cannot take the default.
+	onDefaultDistance, _ := setDefaultQuantization(vectorIndexType,
+		withDistance(cfg, vectorindexcommon.DefaultDistanceMetric), defaultCompression)
+	stillUncompressed := uncompressedArms(onDefaultDistance)
+
+	arm := uncompressed[0]
+	v := restrictions.NewViolationError(
+		h.restrictionsErrorMessageTemplate(),
+		restrictions.RestrictionCompression,
+		"none",
+		allow,
+	)
+	where, armType := "", vectorIndexType
+	if arm.name != "" {
+		where = " on the dynamic index's " + arm.name + " arm"
+		armType = arm.name
+	}
+	if slices.ContainsFunc(stillUncompressed, func(a rqArm) bool { return a.name == arm.name }) {
 		v.RenderedMessage += fmt.Sprintf(" No compression is configured%s, and the default compression %q "+
-			"cannot compress distance %q, so the index would be created uncompressed. Use a distance %q supports "+
-			"or configure an allowed compression explicitly.", where, defaultCompression, arm.distance, defaultCompression)
+			"cannot be applied to a %s index, so the index would be created uncompressed. Configure an allowed "+
+			"compression the %s index supports explicitly, or use an index type %q applies to.",
+			where, defaultCompression, armType, armType, defaultCompression)
 		return v
 	}
-	return nil
+	v.RenderedMessage += fmt.Sprintf(" No compression is configured%s, and the default compression %q "+
+		"cannot compress distance %q, so the index would be created uncompressed. Use a distance %q supports "+
+		"or configure an allowed compression explicitly.", where, defaultCompression, arm.distance, defaultCompression)
+	return v
 }
 
-// defaultCompressionArms lists the indexes in cfg (both arms of a dynamic
-// index, under the dynamic index's distance) that configure no compression
-// and so receive the server default.
-func defaultCompressionArms(cfg schemaConfig.VectorIndexConfig) []rqArm {
+// configCreationParses returns the config ParseClass builds, after
+// validation, for an index that carries no config of its own: the index
+// type's defaults, which the server default is then applied to. nil when
+// that parse fails; ParseClass reports the error.
+func (h *Handler) configCreationParses(vectorIndexType string, raw interface{}, isMultiVector bool) schemaConfig.VectorIndexConfig {
+	parsed, err := h.parser.parseGivenVectorIndexConfig(vectorIndexType, raw, isMultiVector, h.config.DefaultQuantization)
+	if err != nil {
+		return nil
+	}
+	return parsed
+}
+
+// uncompressedArms lists the indexes in cfg (both arms of a dynamic index,
+// under the dynamic index's distance) that have no compression and did not
+// opt out of the default with skipDefaultQuantization.
+func uncompressedArms(cfg schemaConfig.VectorIndexConfig) []rqArm {
 	var out []rqArm
 	switch c := cfg.(type) {
 	case hnsw.UserConfig:
@@ -1854,6 +1910,23 @@ func defaultCompressionArms(cfg schemaConfig.VectorIndexConfig) []rqArm {
 		}
 	}
 	return out
+}
+
+// withDistance returns a copy of cfg whose distance (the dynamic index's,
+// which both arms compress under) is distance.
+func withDistance(cfg schemaConfig.VectorIndexConfig, distance string) schemaConfig.VectorIndexConfig {
+	switch c := cfg.(type) {
+	case hnsw.UserConfig:
+		c.Distance = distance
+		return c
+	case flat.UserConfig:
+		c.Distance = distance
+		return c
+	case dynamic.UserConfig:
+		c.Distance = distance
+		return c
+	}
+	return cfg
 }
 
 // compressionsFromIndexConfig lists every user-selected compression in
