@@ -28,7 +28,6 @@ import (
 // MigrationRecoveryReindexer builds, as each shard loads, the tasks whose mirrors the shard re-arms,
 // and stamps Unmirrored the records it cannot build a task from.
 type MigrationRecoveryReindexer struct {
-	enabled       bool
 	logger        logrus.FieldLogger
 	schemaManager *schema.Manager
 	provider      *ReindexProvider
@@ -37,12 +36,11 @@ type MigrationRecoveryReindexer struct {
 	unreadableFaults, unbuildableFaults, unarmedFaults, armFaults, stampFaults *logrusext.Sampler
 }
 
-func NewMigrationRecoveryReindexer(runtimeReindexEnabled bool, logger logrus.FieldLogger,
+func NewMigrationRecoveryReindexer(logger logrus.FieldLogger,
 	schemaManager *schema.Manager, provider *ReindexProvider,
 ) *MigrationRecoveryReindexer {
 	faults := func() *logrusext.Sampler { return logrusext.NewSampler(logger, maxReportedErrors, time.Minute) }
 	return &MigrationRecoveryReindexer{
-		enabled:       runtimeReindexEnabled,
 		logger:        logger,
 		schemaManager: schemaManager,
 		provider:      provider,
@@ -138,10 +136,6 @@ func (r *MigrationRecoveryReindexer) evictUnits(unarmed []*ShardReindexTaskGener
 func (r *MigrationRecoveryReindexer) recoverFromStore(store *MigrationRecordStore,
 	shardName string,
 ) []*ShardReindexTaskGeneric {
-	// With RUNTIME_REINDEX_ENABLED off, recovery returns no task and stamps no record, so the load re-arms no mirror.
-	if !r.enabled {
-		return nil
-	}
 	logger := r.logger.WithField("shard", shardName)
 	someRecordsUnreadable := len(store.Unreadable()) > 0
 	if someRecordsUnreadable {

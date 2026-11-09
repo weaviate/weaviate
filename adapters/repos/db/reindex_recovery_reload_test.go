@@ -75,7 +75,7 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 			logger, _ := logrustest.NewNullLogger()
 			p := NewReindexProvider(idx.db, nil, nil, logger, node, nil, ctx)
 			idx.db.SetReindexUnitSeal(p.ReindexUnitSealBuilder())
-			idx.shardReindexer = NewMigrationRecoveryReindexer(true, logger, nil, p)
+			idx.shardReindexer = NewMigrationRecoveryReindexer(logger, nil, p)
 
 			unitID, group := shard.migrationUnit(), shard.Name()
 			payload := ReindexTaskPayload{

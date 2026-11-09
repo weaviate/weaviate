@@ -131,6 +131,7 @@ type Scheduler struct {
 	// sharing sampledLogger's budget would crowd out its one-off errors.
 	unrecognizedStatusLogger *logrusext.Sampler
 	postCompletionAckLogger  *logrusext.Sampler
+	relaunchLogger           *logrusext.Sampler
 
 	tasksRunning *prometheus.GaugeVec
 
@@ -241,6 +242,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 
 		unrecognizedStatusLogger: logrusext.NewSampler(params.Logger, 3, unrecognizedStatusWarnWindow),
 		postCompletionAckLogger:  logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
+		relaunchLogger:           logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
 
 		tasksRunning: promauto.With(params.MetricsRegisterer).NewGaugeVec(prometheus.GaugeOpts{
 			Name: "weaviate_distributed_tasks_running",
@@ -817,8 +819,8 @@ func (s *Scheduler) reconcileRunningTasks(
 			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
 			continue
 		}
-		// The relaunch line is sampled because a task whose unit waits on an operator is relaunched on every tick and wake; it shares sampledLogger by choice (docs/runtime-reindex.md §6.2).
-		s.sampledLogger.WithSampling(func(logrus.FieldLogger) {
+		// A task whose unit waits on an operator is relaunched on every tick and wake.
+		s.relaunchLogger.WithSampling(func(logrus.FieldLogger) {
 			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
 		})
 	}
@@ -1014,11 +1016,15 @@ func (s *Scheduler) runSwapPhase(
 			}
 			state.postCompletionGroupErrors[w.groupID] = groupErrors[i]
 		}
-		if s.ackRecorder == nil || state.postCompletionAckEmitted ||
-			task.Status != TaskStatusSwapping || !s.allLocalGroupsReturnedLocked(task, desc) {
+		if s.ackRecorder == nil || state.postCompletionAckEmitted || task.Status != TaskStatusSwapping {
 			return swapAckSnapshot{}
 		}
+		// One failed group decides this node's verdict, so a failure does not
+		// wait for groups that are still retrying.
 		success, joined := s.joinGroupErrors(state.postCompletionGroupErrors)
+		if success && !s.allLocalGroupsReturnedLocked(task, desc) {
+			return swapAckSnapshot{}
+		}
 		return swapAckSnapshot{eligible: true, success: success, joined: joined}
 	}()
 	if !ackSnap.eligible {
@@ -1411,9 +1417,10 @@ func (s *Scheduler) loggerWithTask(namespace string, taskDesc TaskDescriptor) *l
 }
 
 // allLocalGroupsReturnedLocked reports whether every group with a unit on
-// this node has returned from its callback at least once, so the ack reflects
-// the full local picture. A group whose callback was cancelled has not
-// returned: it is retried, and the ack waits for it. Caller must hold s.mu.
+// this node has returned from its callback at least once. It gates only a
+// successful ack, since success needs the full local picture; one failed group
+// already decides the node's verdict. A group whose callback was cancelled has
+// not returned: it is retried. Caller must hold s.mu.
 func (s *Scheduler) allLocalGroupsReturnedLocked(task *Task, desc TaskDescriptor) bool {
 	state := s.perTaskStateLocked(desc)
 	for _, groupID := range task.Groups() {

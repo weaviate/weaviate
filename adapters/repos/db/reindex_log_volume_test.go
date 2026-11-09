@@ -90,7 +90,7 @@ func TestRecoveryReportsEachFaultKindOnce(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
 			store := NewMigrationRecordStore(lsm, logger)
 			require.NoError(t, store.Load())
-			recovered := NewMigrationRecoveryReindexer(true, logger, nil, nil).recoverFromStore(store, "tenant-00")
+			recovered := NewMigrationRecoveryReindexer(logger, nil, nil).recoverFromStore(store, "tenant-00")
 			require.Empty(t, recovered)
 
 			about := entriesAbout(hook, tt.about)
@@ -107,7 +107,7 @@ func TestRecoveryReportsEachFaultKindOnce(t *testing.T) {
 func TestRecoveryCapsFaultLinesAcrossShards(t *testing.T) {
 	const dropped = 5
 	logger, hook := logrustest.NewNullLogger()
-	recovery := NewMigrationRecoveryReindexer(true, logger, nil, nil)
+	recovery := NewMigrationRecoveryReindexer(logger, nil, nil)
 	recoverShard := func(seed func(lsm string)) {
 		lsm := filepath.Join(t.TempDir(), "books_abc", "tenant", "lsm")
 		seed(lsm)

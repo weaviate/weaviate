@@ -1113,31 +1113,28 @@ Then, per shard load:
        repeats once per held shard and waiting migration on every tick
        and wake. A task whose unit waits is relaunched on every tick and
        wake. A task's first "started distributed task execution" line is
-       always logged; the line for each relaunch is sampled: at most 5 a
-       node per 5 ticks, a budget shared with the
-       scheduler's one-off Error lines. While a STARTED task's unit
-       waits on a held shard and no other unit of that task runs on the
-       node, its relaunches spend that budget: with one such task the
-       "failed to clean up distributed task" and "failed to start
-       distributed task" lines drop to about 2 a window, and with five
-       or more the cleanup line can be dropped entirely. Cancelling the
-       waiting task restores the full budget from the next window. A unit, prepare or swap that waits, including one of a
+       always logged; the line for each relaunch is sampled on a budget
+       of its own: at most 5 a node per 5 ticks. A unit, prepare or swap that waits, including one of a
        migration submitted after the hold began, logs a Warn naming its
        task, unit and shard. These lines share one budget with the line
        about a teardown holding a unit: at most 10 a minute per node.
      - A refused write names the hold's status reason; a refused lift
-       names the cause.
+       names the cause, or that a recovery retry started.
      - Of the status writers, only a manual status update lifts the hold, and a restart retries too (below). A vector-index config
        change is refused while the shard is READONLY, and disk-pressure
        recovery lifts only its own reason. Like any manual READY, the lift
        overrides disk and memory pressure: the node does not set the shard
        back READONLY while usage stays high, so bring disk and memory below
        the read-only thresholds first.
-     - The lift first retries the arm: if the mirror now arms, the shard
-       goes writable and the migration continues; if only the stamp lands,
-       it goes writable and the migration must be resubmitted; otherwise
-       the lift is refused with the cause, and any bucket the retry opened
-       is set back to READONLY.
+     - A lift never waits for the disk: it starts a retry of the arm in the
+       background and is refused at once, so lifting takes two status
+       writes, and every "set READY" below means: set it, wait for the
+       retry, set it again. If the mirror arms, the next lift makes the
+       shard writable and the migration continues; if only the stamp lands,
+       the next lift makes it writable and the migration must be
+       resubmitted; otherwise any bucket the retry opened is set back to
+       READONLY, the owning node logs the cause at Error level, and the
+       next lift starts another retry.
      - The way out depends on what stopped the arm, which the hold log and
        the refusal name. For a migration whose swap is not committed,
        clearing what blocks the stamp also ends the hold: the stamp lands,
@@ -1156,17 +1153,13 @@ Then, per shard load:
        | The disk fails reads or writes | Once it works, set the shard READY |
        | A staged bucket cannot open because a segment file is damaged | Repair that file in place, then set the shard READY or restart the node. Never put back an older copy: compaction reuses segment file names, so an older copy silently lacks entries a later compaction merged in. If the migration's swap is not committed, and no migration with a committed swap or already swapped in is held on the same shard, you can instead make the records dir writable (or repair the unreadable record and restart) and set READY: the migration then fails and must be resubmitted. The refused lift says when a swap is committed ("has a committed swap"); then see the next row |
        | A migration whose swap is committed but not yet made on this node, and whose damaged segment cannot be repaired | **There is currently no supported way to make this shard writable again without losing data.** We say this plainly because the remaining options are serious, and a fix that rebuilds the staged copy from this shard's own objects is planned. Nothing is lost while the shard stays READONLY: it keeps serving reads, and the other replicas keep serving the tenant. Take the time to choose, and contact Weaviate support before any step that deletes data. While the migration's task is still running, none of the options below is available: the task cannot be cancelled once it is swapping, and it blocks the replica copy and every delete. Once the task has ended, in the order we recommend: **1. Recover from a healthy replica.** With a replication factor above 1, the other replicas hold the migrated data. It may be possible to rebuild this replica from one of them with the replication API: copy the tenant to a node that does not hold it (`POST /v1/replication/replicate`, type `COPY`), then remove the held replica with a scale plan (`POST /v1/replication/scale`, `removeNodes`), after making its records dir writable. Removing a held replica has not been verified, so try it on a test cluster first. **2. Restore from a backup.** If no healthy replica exists, for example with a replication factor of 1, restore the collection from a backup. This replaces the whole collection: every write since the backup is lost, on every tenant. **3. Delete the tenant or the collection, only as a last resort.** This permanently deletes that data on every replica, not only on this node. Use it only when neither a replica nor a backup can recover the data, and make the records dir writable first, or the delete leaves the record behind. **Do not delete the staged bucket directories** to get past the hold: READY then succeeds, but this replica never makes its swap and silently returns different results from its peers. |
-       | A migration already swapped in whose segment cannot be repaired, while its promotion is blocked: by a second fault (an unwritable records dir or another unreadable record), or because this node loaded before applying the schema change the migration makes | No supported exit. While its task still runs, it blocks deleting the collection, deleting or deactivating its tenants, and updating the properties it covers, and so does any other migration whose unit, prepare or swap waits on this shard; on several nodes, another node's failed step can move a SWAPPING task to FAILED, which lifts its block but not the hold. Once the task has FINISHED (a swapped-in record outlives its task until the shard's next load), only such another migration blocks those changes (cancel it first if it is STARTED), and this shard stays READONLY. The replica copy below is refused while any task on the collection is still running, including a migration that waits on this shard past STARTED, which cannot be cancelled. Clearing what blocks the promotion and restarting makes the shard fail to load. Once the task has FINISHED, look for a healthy copy first. With a replication factor above 1, it may be possible to rebuild the tenant from a healthy replica with the replication API: copy it to a node that does not hold it (`POST /v1/replication/replicate`, type `COPY`), then remove the broken replica with a scale plan (`POST /v1/replication/scale`, `removeNodes`), after making its records dir writable. Removing a held replica has not been verified, so confirm on a test cluster before relying on it. With a replication factor of 1 there is no healthy copy: restoring a backup replaces the whole collection (delete it, then restore it), and every write since the backup is lost on every tenant. Deleting the tenant also ends the hold, but it permanently deletes that tenant's data on every replica; use it only when no copy or backup can recover the tenant, and make the records dir writable first, or the delete leaves the record behind. Deactivating the tenant is not a way out: while the promotion is still blocked, reactivating holds the shard again; once nothing blocks it, reactivating makes the shard fail to load, as a restart does. |
-     - Reads are served while the retry runs, a second lift
-       meanwhile is refused, and a lift waits at most 30 s. The owning node
-       runs a lift inside its schema apply, so while a lift waits that node
-       applies no other schema or task change; on a disk that still hangs,
-       lift one shard and confirm it went writable before lifting the rest.
-       A retry still
-       running then keeps going, and the shard's shutdown waits for it: a
-       migration is stamped only because its arm failed, never because a
-       caller stopped waiting. If it arms or stamps, the next lift goes
-       writable, and the migration's steps wait until then. A cancel or
+       | A migration already swapped in whose segment cannot be repaired, while its promotion is blocked: by a second fault (an unwritable records dir or another unreadable record), or because this node loaded before applying the schema change the migration makes | No supported exit. While its task still runs, it blocks deleting the collection, deleting or deactivating its tenants, and updating the properties it covers, and so does any other migration whose unit, prepare or swap waits on this shard; a failed step on any node can move a SWAPPING task to FAILED, which lifts its block but not the hold. Once the task has FINISHED (a swapped-in record outlives its task until the shard's next load), only such another migration blocks those changes (cancel it first if it is STARTED), and this shard stays READONLY. The replica copy below is refused while any task on the collection is still running, including a migration that waits on this shard past STARTED, which cannot be cancelled. Clearing what blocks the promotion and restarting makes the shard fail to load. Once the task has FINISHED, look for a healthy copy first. With a replication factor above 1, it may be possible to rebuild the tenant from a healthy replica with the replication API: copy it to a node that does not hold it (`POST /v1/replication/replicate`, type `COPY`), then remove the broken replica with a scale plan (`POST /v1/replication/scale`, `removeNodes`), after making its records dir writable. Removing a held replica has not been verified, so confirm on a test cluster before relying on it. With a replication factor of 1 there is no healthy copy: restoring a backup replaces the whole collection (delete it, then restore it), and every write since the backup is lost on every tenant. Deleting the tenant also ends the hold, but it permanently deletes that tenant's data on every replica; use it only when no copy or backup can recover the tenant, and make the records dir writable first, or the delete leaves the record behind. Deactivating the tenant is not a way out: while the promotion is still blocked, reactivating holds the shard again; once nothing blocks it, reactivating makes the shard fail to load, as a restart does. |
+     - Reads are served while the retry runs, and a lift meanwhile is
+       refused. The owning node runs a lift inside its schema apply, which
+       therefore never waits on the disk. The shard's shutdown waits for a
+       running retry: a migration is stamped only because its arm failed,
+       never because the shard shut down. The migration's steps wait until
+       the next lift writes the status. A cancel or
        failure that ends the migration while the retry runs waits up to
        10 s for it; past that, cleanup on this node is skipped with a
        Warn, and the next reconciliation pass (within a minute of the

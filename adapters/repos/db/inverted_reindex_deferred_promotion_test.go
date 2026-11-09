@@ -148,7 +148,7 @@ func TestRestartBeforeTheSchemaFlipServesTheMigratedData(t *testing.T) {
 					require.NoError(t, os.WriteFile(corrupt, []byte("not a segment"), 0o600))
 				}
 				p := NewReindexProvider(idx.db, nil, nil, idx.logger, idx.getSchema.NodeName(), nil, ctx)
-				idx.shardReindexer = NewMigrationRecoveryReindexer(true, idx.logger, nil, p)
+				idx.shardReindexer = NewMigrationRecoveryReindexer(idx.logger, nil, p)
 				loadClass := class
 				if sc.flipDuringLoad {
 					snapshot := *class

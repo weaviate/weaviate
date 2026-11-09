@@ -92,7 +92,7 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 
 			reread := NewMigrationRecordStore(lsm, logger)
 			require.NoError(t, reread.Load())
-			recovered := NewMigrationRecoveryReindexer(true, logger, nil, nil).recoverFromStore(reread, "shard-1")
+			recovered := NewMigrationRecoveryReindexer(logger, nil, nil).recoverFromStore(reread, "shard-1")
 
 			if !tt.wantIn {
 				require.Empty(t, recovered, tt.because)
