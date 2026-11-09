@@ -32,6 +32,7 @@ func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
+		t.Setenv(AllowedBaseURLsEnv, server.URL)
 		c := New[[]float32](0, 0, 0)
 		expected := &embeddingsResponse[[]float32]{
 			Embeddings: [][]float32{{0.1, 0.2, 0.3}},
@@ -59,6 +60,7 @@ func TestClient(t *testing.T) {
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
+		t.Setenv(AllowedBaseURLsEnv, server.URL)
 		c := New[[]float32](0, 0, 0)
 
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
@@ -78,6 +80,7 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
+		t.Setenv(AllowedBaseURLsEnv, server.URL)
 		c := New[[]float32](0, 0, 0)
 
 		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
@@ -91,6 +94,7 @@ func TestClient(t *testing.T) {
 	t.Run("when Authorization header is passed but empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
+		t.Setenv(AllowedBaseURLsEnv, server.URL)
 		c := New[[]float32](0, 0, 0)
 		ctx := context.WithValue(context.Background(), "Authorization", []string{""})
 
@@ -103,18 +107,22 @@ func TestClient(t *testing.T) {
 	t.Run("get embed URL", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
+		t.Setenv(AllowedBaseURLsEnv, server.URL)
 		c := New[[]float32](0, 0, 0)
 
-		url, _ := c.getWeaviateEmbedURL(context.Background(), "")
+		url, _ := c.getWeaviateEmbedURL("")
 		assert.Equal(t, "https://api.embedding.weaviate.io/v1/embeddings/embed", url)
 
-		url, _ = c.getWeaviateEmbedURL(context.Background(), "http://override-url.com")
+		t.Setenv(AllowedBaseURLsEnv, "http://override-url.com")
+		c = New[[]float32](0, 0, 0)
+		url, _ = c.getWeaviateEmbedURL("http://override-url.com")
 		assert.Equal(t, "http://override-url.com/v1/embeddings/embed", url)
 	})
 
 	t.Run("pass rate limit headers requests", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
+		t.Setenv(AllowedBaseURLsEnv, server.URL)
 		c := New[[]float32](0, 0, 0)
 
 		ctxWithValue := context.WithValue(context.Background(),
@@ -133,6 +141,7 @@ func TestClient(t *testing.T) {
 			"x-ratelimit-reset-tokens":     "37s",
 		}})
 		defer server.Close()
+		t.Setenv(AllowedBaseURLsEnv, server.URL)
 		c := New[[]float32](0, 10000, 6000000)
 		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
 		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{server.URL})
@@ -154,6 +163,7 @@ func TestClient(t *testing.T) {
 			"x-ratelimit-limit-tokens": "6000000",
 		}})
 		defer server.Close()
+		t.Setenv(AllowedBaseURLsEnv, server.URL)
 		c := New[[]float32](0, 10000, 6000000)
 		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
 		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{server.URL})
@@ -167,6 +177,7 @@ func TestClient(t *testing.T) {
 	t.Run("when X-Weaviate-Cluster-URL header is missing", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
+		t.Setenv(AllowedBaseURLsEnv, server.URL)
 		c := New[[]float32](0, 0, 0)
 		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
 

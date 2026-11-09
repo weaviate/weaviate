@@ -1823,8 +1823,8 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 		lsmPath := shardPathLSM(idx.path(), shardName)
 		// Memos per shard, not per walk: no two shards name the same path, so
 		// nothing carries over between them anyway.
-		records, someRecordsUnreadable, recordSetErr := migrationRecordsAt(lsmPath, p.logger)
-		if someRecordsUnreadable || recordSetErr != nil {
+		records, faults, _ := migrationRecordsAt(lsmPath, p.logger)
+		if len(faults) > 0 {
 			unreadable[shardName] = struct{}{}
 			return true
 		}
@@ -2105,8 +2105,8 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 			continue
 		}
 		recordReads++
-		records, someRecordsUnreadable, recordSetErr := migrationRecordsAt(shardPathLSM(idx.path(), shardName), p.logger)
-		if someRecordsUnreadable || recordSetErr != nil {
+		records, faults, _ := migrationRecordsAt(shardPathLSM(idx.path(), shardName), p.logger)
+		if len(faults) > 0 {
 			unreadable[shardName] = struct{}{}
 			return false
 		}

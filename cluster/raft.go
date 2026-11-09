@@ -79,25 +79,6 @@ func (s *Raft) SetDistributedTaskSchedulerNotifier(notifier distributedtask.Sche
 	s.store.SetDistributedTaskSchedulerNotifier(notifier)
 }
 
-// SetDistributedTaskConflictDetectors installs the per-namespace
-// conflict-detection hooks on the underlying distributed task FSM
-// Manager. Called once at startup from MakeAppState, after the
-// providers are registered. See [distributedtask.ConflictDetector] for
-// the FSM-determinism contract.
-func (s *Raft) SetDistributedTaskConflictDetectors(detectors map[string]distributedtask.ConflictDetector) {
-	s.store.SetDistributedTaskConflictDetectors(detectors)
-}
-
-// SetDistributedTaskSchemaMutationDetectors installs the per-namespace
-// schema-mutation detectors consulted from the schema FSM's
-// UpdateProperty apply path. Called once at startup from MakeAppState,
-// after the providers are registered. See
-// [distributedtask.SchemaMutationDetector] for the contract and
-// motivating failure mode.
-func (s *Raft) SetDistributedTaskSchemaMutationDetectors(detectors map[string]distributedtask.SchemaMutationDetector) {
-	s.store.SetDistributedTaskSchemaMutationDetectors(detectors)
-}
-
 // LocalUnrecognizedDistributedTasks implements
 // [distributedtask.LocalTaskInspector].
 func (s *Raft) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask.Task {
@@ -113,8 +94,8 @@ func (s *Raft) LocalDistributedTasks() map[string][]*distributedtask.Task {
 	return s.store.LocalDistributedTasks()
 }
 
-// LocalTaskStatuses is the decider's read of this node's FSM. It can trail the
-// leader, so a task missing from it licenses no decision.
+// LocalTaskStatuses reads this node's FSM, which can lag behind the leader. A task the
+// leader holds may be missing here or show an older status.
 func (s *Raft) LocalTaskStatuses(namespace string) []distributedtask.TaskStatusEntry {
 	return s.store.LocalTaskStatuses(namespace)
 }
