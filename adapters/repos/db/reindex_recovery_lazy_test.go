@@ -915,8 +915,7 @@ func bareShardWithMergedRecord(t *testing.T, name string) *Shard {
 	return &Shard{name: name, migrationRecords: store}
 }
 
-// A client that gives up on a lazy load must not stamp a healthy migration
-// Unmirrored for good.
+// A load whose client gives up still arms a healthy migration instead of stamping it Unmirrored.
 func TestACancelledShardLoadStillArmsTheMirror(t *testing.T) {
 	fx := newDoubleFaultFixture(t, "tenant-cancelled-load")
 	require.NoError(t, os.Remove(fx.corrupt))

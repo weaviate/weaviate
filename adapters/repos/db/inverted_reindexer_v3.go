@@ -11,8 +11,9 @@
 
 package db
 
-// ShardReindexerV3 returns the tasks a loading shard must re-arm, and is told which failed to.
-// An error from AbandonUnarmed holds the shard read-only, along with the tasks it returns.
+// ShardReindexerV3 recovers a loading shard's migrations. RecoverMigrations returns the tasks to re-arm.
+// AbandonUnarmed stamps Unmirrored those that failed, and its error holds the shard READONLY with the tasks it returns.
+// ClaimUnits keeps a teardown off each claimed task's unit until release runs, and returns in skipped the tasks a teardown holds.
 type ShardReindexerV3 interface {
 	RecoverMigrations(shard *Shard) []*ShardReindexTaskGeneric
 	AbandonUnarmed(shard *Shard, unarmed []*ShardReindexTaskGeneric, cause error) ([]*ShardReindexTaskGeneric, error)
