@@ -91,7 +91,7 @@ type ReindexProvider struct {
 	// the double-write callbacks registered via OnAfterLsmInit. Creating new
 	// task instances in OnGroupCompleted would lose those callbacks.
 	reindexTasks map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric
-	// A load after a task ended must not cache it again. Guarded by [mu].
+	// A load after a task ended in this process does not cache it again. A restart empties it. Guarded by [mu].
 	endedTasks map[distributedtask.TaskDescriptor]struct{}
 
 	// activeWorkers tracks units that currently have a per-unit goroutine
@@ -222,15 +222,9 @@ func (p *ReindexProvider) SetCompletionRecorder(recorder distributedtask.TaskCom
 	p.recorder = recorder
 }
 
-// SeedReindexTaskCache pre-populates the per-descriptor task cache with
-// instances recovered as shards load (see [MigrationRecoveryReindexer]). The
-// purpose is to make OnGroupCompleted reuse the recovered instances —
-// whose double-write callbacks were re-registered during shard init —
-// rather than fall through to the rehydrate branch and call
-// OnAfterLsmInit a second time (which would attempt to load already
-// loaded ingest buckets).
-//
-// Safe to call concurrently with StartTask: both write under p.mu, and seeding fills only empty entries.
+// SeedReindexTaskCache caches the tasks a shard load recovered, so OnGroupCompleted and OnSwapRequested
+// reuse their armed instances instead of rehydrating new ones. It fills only a unit with no cached tasks
+// and skips a task in endedTasks.
 func (p *ReindexProvider) SeedReindexTaskCache(
 	cache map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric,
 ) {
@@ -585,7 +579,7 @@ func (p *ReindexProvider) processOneUnit(
 			return
 		}
 	}
-	// A held shard's unit is not failed, so the next tick relaunches it.
+	// A held shard's unit is not failed, so the scheduler relaunches the task once its other local units end.
 	if p.unitWaitsOnHold(concreteShard, task.ID, unitID) {
 		return
 	}

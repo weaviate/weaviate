@@ -14,6 +14,8 @@ package db
 import (
 	"slices"
 	"sync"
+
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type migrationMirrorRegistry struct {
@@ -23,6 +25,8 @@ type migrationMirrorRegistry struct {
 	held []*ShardReindexTaskGeneric
 	// The steps still wait after a retry settled the held set, until a status write makes the shard writable.
 	heldSettled bool
+	// counted is whether this shard is in the node's held-shard gauge; closed stops a late arm from re-adding it after teardown.
+	counted, closed bool
 }
 
 type migrationMirrorKey struct {
@@ -88,6 +92,7 @@ func (r *migrationMirrorRegistry) takeAll(key MigrationRecordKey) []func() {
 func (r *migrationMirrorRegistry) holdUnarmed(tasks []*ShardReindexTaskGeneric) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.countHeldLocked(len(tasks) > 0)
 	r.held, r.heldSettled = tasks, false
 }
 
@@ -109,7 +114,27 @@ func (r *migrationMirrorRegistry) markHeldSettled() {
 func (r *migrationMirrorRegistry) releaseHeld() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.countHeldLocked(false)
 	r.held, r.heldSettled = nil, false
+}
+
+func (r *migrationMirrorRegistry) stopCountingHeld() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.countHeldLocked(false)
+	r.closed = true
+}
+
+func (r *migrationMirrorRegistry) countHeldLocked(holding bool) {
+	if r.closed || r.counted == holding {
+		return
+	}
+	r.counted = holding
+	if holding {
+		monitoring.GetMetrics().AddReindexHeldShards(1)
+	} else {
+		monitoring.GetMetrics().AddReindexHeldShards(-1)
+	}
 }
 
 func (r *migrationMirrorRegistry) holding() bool {

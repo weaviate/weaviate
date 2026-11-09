@@ -65,6 +65,7 @@ func (s *Shard) moveCountedStatusUnlocked(next storagestate.Status) {
 func (s *Shard) releaseCountedStatus() {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
+	s.migrationMirrors.stopCountingHeld()
 
 	if s.countedStatus == "" {
 		return
@@ -198,7 +199,7 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 
 // retryHeldMigrations starts the arm and refuses at once: a status change can run inside a RAFT apply,
 // which must never wait on the disk. The next lift reads the outcome from the held set.
-// The shard's teardown waits for the arm's shard reference.
+// A shutdown waits for the arm's shard reference, and a drop waits about 30 s for it.
 func (s *Shard) retryHeldMigrations(in string) error {
 	target, err := storagestate.ValidateStatus(strings.ToUpper(in))
 	held := s.migrationMirrors.heldUnarmed()

@@ -1019,8 +1019,7 @@ func (s *Scheduler) runSwapPhase(
 		if s.ackRecorder == nil || state.postCompletionAckEmitted || task.Status != TaskStatusSwapping {
 			return swapAckSnapshot{}
 		}
-		// One failed group decides this node's verdict, so a failure does not
-		// wait for groups that are still retrying.
+		// A failure is acked at once; only a success waits for every group.
 		success, joined := s.joinGroupErrors(state.postCompletionGroupErrors)
 		if success && !s.allLocalGroupsReturnedLocked(task, desc) {
 			return swapAckSnapshot{}
@@ -1417,10 +1416,9 @@ func (s *Scheduler) loggerWithTask(namespace string, taskDesc TaskDescriptor) *l
 }
 
 // allLocalGroupsReturnedLocked reports whether every group with a unit on
-// this node has returned from its callback at least once. It gates only a
-// successful ack, since success needs the full local picture; one failed group
-// already decides the node's verdict. A group whose callback was cancelled has
-// not returned: it is retried. Caller must hold s.mu.
+// this node has returned from its callback at least once. It gates a
+// successful ack only; a failure is acked without it. A group whose callback
+// was cancelled has not returned: it is retried. Caller must hold s.mu.
 func (s *Scheduler) allLocalGroupsReturnedLocked(task *Task, desc TaskDescriptor) bool {
 	state := s.perTaskStateLocked(desc)
 	for _, groupID := range task.Groups() {

@@ -166,7 +166,7 @@ func (r *MigrationRecoveryReindexer) recoverFromStore(store *MigrationRecordStor
 	}
 	if unbuildableCount > 0 {
 		r.unbuildableFaults.WithSampling(func(logrus.FieldLogger) {
-			logger.Warnf("reindex recovery: the record of %d migration(s) builds no reindex task, so those "+
+			logger.WithField("migrations", unbuildableCount).Warnf("reindex recovery: the record of %d migration(s) builds no reindex task, so those "+
 				"migrations' mirrors stay unarmed: %v", unbuildableCount, unbuildable.ToErrorLimited(maxReportedErrors))
 		})
 	}
