@@ -1072,9 +1072,8 @@ func NewCenteredRQ1Compressor(
 	if err := rqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
 	}
-	rqVectorsCompressor.cache = cache.NewShardedUInt64LockCache(
-		rqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
-		0, allocChecker)
+	rqVectorsCompressor.cache = newRQUint64Cache(rqVectorsCompressor.getCompressedVectorForID,
+		oneBitFieldWords+int(quantizer.Data().Rotation.OutputDim)/64, vectorCacheMaxObjects, logger, allocChecker)
 	return rqVectorsCompressor, nil
 }
 
