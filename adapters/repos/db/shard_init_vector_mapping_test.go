@@ -1150,52 +1150,52 @@ func TestCompressedVectorsMigrator(t *testing.T) {
 		// buckets that hold the shared bucket's content afterwards
 		wantCopies []string
 		// buckets that must not exist afterwards
-		wantAbsent  []string
-		wantShared  bool
-		wantDone bool
+		wantAbsent []string
+		wantShared bool
+		wantDone   bool
 	}{
 		{
-			name:        "legacy owner keeps the bucket, targets get a copy",
-			records:     map[string]vectorIndexRecord{"": hnswRec("main"), "foo": hnswRec("vectors_foo"), "mv": hnswRec("vectors_mv")},
-			wantCopies:  []string{"vectors_compressed_foo", "vectors_compressed_mv"},
-			wantShared:  true,
-			wantDone: true,
+			name:       "legacy owner keeps the bucket, targets get a copy",
+			records:    map[string]vectorIndexRecord{"": hnswRec("main"), "foo": hnswRec("vectors_foo"), "mv": hnswRec("vectors_mv")},
+			wantCopies: []string{"vectors_compressed_foo", "vectors_compressed_mv"},
+			wantShared: true,
+			wantDone:   true,
 		},
 		{
-			name:        "a target without an index of its own gets nothing",
-			records:     map[string]vectorIndexRecord{"": hnswRec("main"), "foo": hnswRec("vectors_foo"), "new": hnswRec("vectors_new")},
-			wantCopies:  []string{"vectors_compressed_foo"},
-			wantAbsent:  []string{"vectors_compressed_new"},
-			wantShared:  true,
-			wantDone: true,
+			name:       "a target without an index of its own gets nothing",
+			records:    map[string]vectorIndexRecord{"": hnswRec("main"), "foo": hnswRec("vectors_foo"), "new": hnswRec("vectors_new")},
+			wantCopies: []string{"vectors_compressed_foo"},
+			wantAbsent: []string{"vectors_compressed_new"},
+			wantShared: true,
+			wantDone:   true,
 		},
 		{
-			name:        "a named vector recorded at main owns the bucket",
-			records:     map[string]vectorIndexRecord{"default": hnswRec("main"), "foo": hnswRec("vectors_foo")},
-			wantCopies:  []string{"vectors_compressed_foo"},
-			wantAbsent:  []string{"vectors_compressed_default"},
-			wantShared:  true,
-			wantDone: true,
+			name:       "a named vector recorded at main owns the bucket",
+			records:    map[string]vectorIndexRecord{"default": hnswRec("main"), "foo": hnswRec("vectors_foo")},
+			wantCopies: []string{"vectors_compressed_foo"},
+			wantAbsent: []string{"vectors_compressed_default"},
+			wantShared: true,
+			wantDone:   true,
 		},
 		{
-			name:        "an hfresh owner's bucket holds its centroids",
-			records:     map[string]vectorIndexRecord{"": hfreshRec, "foo": hnswRec("vectors_foo")},
-			wantAbsent:  []string{"vectors_compressed_foo"},
-			wantShared:  true,
-			wantDone: true,
+			name:       "an hfresh owner's bucket holds its centroids",
+			records:    map[string]vectorIndexRecord{"": hfreshRec, "foo": hnswRec("vectors_foo")},
+			wantAbsent: []string{"vectors_compressed_foo"},
+			wantShared: true,
+			wantDone:   true,
 		},
 		{
-			name:        "no owner, one target: the bucket moves",
-			records:     map[string]vectorIndexRecord{"foo": hnswRec("vectors_foo")},
-			wantCopies:  []string{"vectors_compressed_foo"},
-			wantDone: true,
+			name:       "no owner, one target: the bucket moves",
+			records:    map[string]vectorIndexRecord{"foo": hnswRec("vectors_foo")},
+			wantCopies: []string{"vectors_compressed_foo"},
+			wantDone:   true,
 		},
 		{
-			name:        "no owner, one target and a newcomer: the bucket moves to the target",
-			records:     map[string]vectorIndexRecord{"foo": hnswRec("vectors_foo"), "new": hnswRec("vectors_new")},
-			wantCopies:  []string{"vectors_compressed_foo"},
-			wantAbsent:  []string{"vectors_compressed_new"},
-			wantDone: true,
+			name:       "no owner, one target and a newcomer: the bucket moves to the target",
+			records:    map[string]vectorIndexRecord{"foo": hnswRec("vectors_foo"), "new": hnswRec("vectors_new")},
+			wantCopies: []string{"vectors_compressed_foo"},
+			wantAbsent: []string{"vectors_compressed_new"},
+			wantDone:   true,
 		},
 		{
 			name:       "no owner, two targets: copies, then the bucket goes",
@@ -1203,19 +1203,19 @@ func TestCompressedVectorsMigrator(t *testing.T) {
 			wantCopies: []string{"vectors_compressed_foo", "vectors_compressed_mv"},
 		},
 		{
-			name:        "no owner, only a newcomer: the bucket stays unattributed",
-			records:     map[string]vectorIndexRecord{"new": hnswRec("vectors_new")},
-			wantAbsent:  []string{"vectors_compressed_new"},
-			wantShared:  true,
-			wantDone: true,
+			name:       "no owner, only a newcomer: the bucket stays unattributed",
+			records:    map[string]vectorIndexRecord{"new": hnswRec("vectors_new")},
+			wantAbsent: []string{"vectors_compressed_new"},
+			wantShared: true,
+			wantDone:   true,
 		},
 		{
-			name:        "a target at a generated ID gets its copy under that ID",
-			records:     map[string]vectorIndexRecord{"": hnswRec("main"), "foo": hnswRec(generated)},
-			wantCopies:  []string{"vectors_compressed_" + generated},
-			wantAbsent:  []string{"vectors_compressed_foo"},
-			wantShared:  true,
-			wantDone: true,
+			name:       "a target at a generated ID gets its copy under that ID",
+			records:    map[string]vectorIndexRecord{"": hnswRec("main"), "foo": hnswRec(generated)},
+			wantCopies: []string{"vectors_compressed_" + generated},
+			wantAbsent: []string{"vectors_compressed_foo"},
+			wantShared: true,
+			wantDone:   true,
 		},
 	}
 	for _, tt := range tests {
