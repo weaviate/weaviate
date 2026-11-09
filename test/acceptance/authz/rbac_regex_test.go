@@ -131,6 +131,7 @@ func TestAuthZInvalidRegexPermissionRejected(t *testing.T) {
 	}{
 		{"unbalanced bracket", "["},
 		{"unicode class escape (survives a naive compile check)", `\p{L}`},
+		{"alternation whose \\Q quotes the closing paren of its stored group", `x|\Q`},
 		{"slash breaks segment boundaries", "a/b"},
 		{"over-long target", strings.Repeat("a", 300)},
 	}

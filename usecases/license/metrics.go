@@ -18,7 +18,10 @@ import (
 
 // allStatuses lists every reachable status so the gauge exposes a series for
 // each: 1 for the current status, 0 for the others.
-var allStatuses = []Status{StatusUnlicensed, StatusValid}
+var allStatuses = []Status{
+	StatusUnlicensed, StatusValid, StatusExpired, StatusRevoked,
+	StatusUnknown, StatusUnreachable, StatusDegraded,
+}
 
 // RegisterMetrics registers the license metrics with reg and sets them to the
 // given state. With monitoring disabled, reg is a no-op registerer and this

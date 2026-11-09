@@ -62,6 +62,7 @@ var (
 	errLegacyUncompressed = legacyRestoreErr("by Weaviate older than v1.21, which stored files uncompressed")
 	errLegacyFlatFS       = legacyRestoreErr("by Weaviate older than v1.23, which stored shard files " +
 		"in a flat directory instead of one directory per shard")
+	errUnreadableServerVersion = errors.New("backup has an unreadable server version")
 )
 
 // legacyRestoreErr builds the refusal for a backup format this build no longer restores.
@@ -81,7 +82,11 @@ func checkRestorableVersion(version, serverVersion string) error {
 	if version != "" && version <= version1 {
 		return errLegacyUncompressed
 	}
-	if serverVersionOlderThan(serverVersion, 1, 23) {
+	older, err := serverVersionOlderThan(serverVersion, 1, 23)
+	if err != nil {
+		return err
+	}
+	if older {
 		return errLegacyFlatFS
 	}
 	// A structure version may omit the minor, so compare majors only.
@@ -117,16 +122,16 @@ func parseVersion(version string) (major, minor int, ok bool) {
 }
 
 // serverVersionOlderThan reports whether serverVersion, formatted "major.minor[.patch]",
-// is older than major.minor. An unparseable version is not treated as older.
-func serverVersionOlderThan(serverVersion string, major, minor int) bool {
+// is older than major.minor. It fails when serverVersion does not parse.
+func serverVersionOlderThan(serverVersion string, major, minor int) (bool, error) {
 	gotMajor, gotMinor, ok := parseVersion(serverVersion)
 	if !ok {
-		return false
+		return false, fmt.Errorf("%w %q: want major.minor[.patch]", errUnreadableServerVersion, serverVersion)
 	}
 	if gotMajor != major {
-		return gotMajor < major
+		return gotMajor < major, nil
 	}
-	return gotMinor < minor
+	return gotMinor < minor, nil
 }
 
 // TODO error handling need to be implemented properly.
