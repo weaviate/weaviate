@@ -112,6 +112,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ReplicationApplyReplicationScalePlanHandler: replication.ApplyReplicationScalePlanHandlerFunc(func(params replication.ApplyReplicationScalePlanParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.ApplyReplicationScalePlan has not yet been implemented")
 		}),
+		ReplicationApproveRebalancePlanHandler: replication.ApproveRebalancePlanHandlerFunc(func(params replication.ApproveRebalancePlanParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.ApproveRebalancePlan has not yet been implemented")
+		}),
 		AuthzAssignRoleToGroupHandler: authz.AssignRoleToGroupHandlerFunc(func(params authz.AssignRoleToGroupParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.AssignRoleToGroup has not yet been implemented")
 		}),
@@ -163,6 +166,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		NamespacesCreateNamespaceHandler: namespaces.CreateNamespaceHandlerFunc(func(params namespaces.CreateNamespaceParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation namespaces.CreateNamespace has not yet been implemented")
 		}),
+		ReplicationCreateRebalancePlanHandler: replication.CreateRebalancePlanHandlerFunc(func(params replication.CreateRebalancePlanParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.CreateRebalancePlan has not yet been implemented")
+		}),
 		AuthzCreateRoleHandler: authz.CreateRoleHandlerFunc(func(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.CreateRole has not yet been implemented")
 		}),
@@ -177,6 +183,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		NamespacesDeleteNamespaceHandler: namespaces.DeleteNamespaceHandlerFunc(func(params namespaces.DeleteNamespaceParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation namespaces.DeleteNamespace has not yet been implemented")
+		}),
+		ReplicationDeleteRebalancePlanHandler: replication.DeleteRebalancePlanHandlerFunc(func(params replication.DeleteRebalancePlanParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.DeleteRebalancePlan has not yet been implemented")
 		}),
 		ReplicationDeleteReplicationHandler: replication.DeleteReplicationHandlerFunc(func(params replication.DeleteReplicationParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.DeleteReplication has not yet been implemented")
@@ -219,6 +228,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		UsersGetOwnInfoHandler: users.GetOwnInfoHandlerFunc(func(params users.GetOwnInfoParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.GetOwnInfo has not yet been implemented")
+		}),
+		ReplicationGetRebalancePlanHandler: replication.GetRebalancePlanHandlerFunc(func(params replication.GetRebalancePlanParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.GetRebalancePlan has not yet been implemented")
 		}),
 		ReplicationGetReplicationScalePlanHandler: replication.GetReplicationScalePlanHandlerFunc(func(params replication.GetReplicationScalePlanParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.GetReplicationScalePlan has not yet been implemented")
@@ -424,6 +436,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		UsersSetUserExpirationHandler: users.SetUserExpirationHandlerFunc(func(params users.SetUserExpirationParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.SetUserExpiration has not yet been implemented")
 		}),
+		ReplicationStopRebalancePlanHandler: replication.StopRebalancePlanHandlerFunc(func(params replication.StopRebalancePlanParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.StopRebalancePlan has not yet been implemented")
+		}),
 		NamespacesSuspendNamespaceHandler: namespaces.SuspendNamespaceHandlerFunc(func(params namespaces.SuspendNamespaceParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation namespaces.SuspendNamespace has not yet been implemented")
 		}),
@@ -535,6 +550,8 @@ type WeaviateAPI struct {
 	SchemaAliasesUpdateHandler schema.AliasesUpdateHandler
 	// ReplicationApplyReplicationScalePlanHandler sets the operation handler for the apply replication scale plan operation
 	ReplicationApplyReplicationScalePlanHandler replication.ApplyReplicationScalePlanHandler
+	// ReplicationApproveRebalancePlanHandler sets the operation handler for the approve rebalance plan operation
+	ReplicationApproveRebalancePlanHandler replication.ApproveRebalancePlanHandler
 	// AuthzAssignRoleToGroupHandler sets the operation handler for the assign role to group operation
 	AuthzAssignRoleToGroupHandler authz.AssignRoleToGroupHandler
 	// AuthzAssignRoleToUserHandler sets the operation handler for the assign role to user operation
@@ -569,6 +586,8 @@ type WeaviateAPI struct {
 	ClusterClusterGetStatisticsHandler cluster.ClusterGetStatisticsHandler
 	// NamespacesCreateNamespaceHandler sets the operation handler for the create namespace operation
 	NamespacesCreateNamespaceHandler namespaces.CreateNamespaceHandler
+	// ReplicationCreateRebalancePlanHandler sets the operation handler for the create rebalance plan operation
+	ReplicationCreateRebalancePlanHandler replication.CreateRebalancePlanHandler
 	// AuthzCreateRoleHandler sets the operation handler for the create role operation
 	AuthzCreateRoleHandler authz.CreateRoleHandler
 	// UsersCreateUserHandler sets the operation handler for the create user operation
@@ -579,6 +598,8 @@ type WeaviateAPI struct {
 	ReplicationDeleteAllReplicationsHandler replication.DeleteAllReplicationsHandler
 	// NamespacesDeleteNamespaceHandler sets the operation handler for the delete namespace operation
 	NamespacesDeleteNamespaceHandler namespaces.DeleteNamespaceHandler
+	// ReplicationDeleteRebalancePlanHandler sets the operation handler for the delete rebalance plan operation
+	ReplicationDeleteRebalancePlanHandler replication.DeleteRebalancePlanHandler
 	// ReplicationDeleteReplicationHandler sets the operation handler for the delete replication operation
 	ReplicationDeleteReplicationHandler replication.DeleteReplicationHandler
 	// AuthzDeleteRoleHandler sets the operation handler for the delete role operation
@@ -607,6 +628,8 @@ type WeaviateAPI struct {
 	NamespacesGetNamespaceHandler namespaces.GetNamespaceHandler
 	// UsersGetOwnInfoHandler sets the operation handler for the get own info operation
 	UsersGetOwnInfoHandler users.GetOwnInfoHandler
+	// ReplicationGetRebalancePlanHandler sets the operation handler for the get rebalance plan operation
+	ReplicationGetRebalancePlanHandler replication.GetRebalancePlanHandler
 	// ReplicationGetReplicationScalePlanHandler sets the operation handler for the get replication scale plan operation
 	ReplicationGetReplicationScalePlanHandler replication.GetReplicationScalePlanHandler
 	// AuthzGetRoleHandler sets the operation handler for the get role operation
@@ -743,6 +766,8 @@ type WeaviateAPI struct {
 	SearchSearchNearVectorHandler search.SearchNearVectorHandler
 	// UsersSetUserExpirationHandler sets the operation handler for the set user expiration operation
 	UsersSetUserExpirationHandler users.SetUserExpirationHandler
+	// ReplicationStopRebalancePlanHandler sets the operation handler for the stop rebalance plan operation
+	ReplicationStopRebalancePlanHandler replication.StopRebalancePlanHandler
 	// NamespacesSuspendNamespaceHandler sets the operation handler for the suspend namespace operation
 	NamespacesSuspendNamespaceHandler namespaces.SuspendNamespaceHandler
 	// SchemaTenantExistsHandler sets the operation handler for the tenant exists operation
@@ -884,6 +909,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.ReplicationApplyReplicationScalePlanHandler == nil {
 		unregistered = append(unregistered, "replication.ApplyReplicationScalePlanHandler")
 	}
+	if o.ReplicationApproveRebalancePlanHandler == nil {
+		unregistered = append(unregistered, "replication.ApproveRebalancePlanHandler")
+	}
 	if o.AuthzAssignRoleToGroupHandler == nil {
 		unregistered = append(unregistered, "authz.AssignRoleToGroupHandler")
 	}
@@ -935,6 +963,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.NamespacesCreateNamespaceHandler == nil {
 		unregistered = append(unregistered, "namespaces.CreateNamespaceHandler")
 	}
+	if o.ReplicationCreateRebalancePlanHandler == nil {
+		unregistered = append(unregistered, "replication.CreateRebalancePlanHandler")
+	}
 	if o.AuthzCreateRoleHandler == nil {
 		unregistered = append(unregistered, "authz.CreateRoleHandler")
 	}
@@ -949,6 +980,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.NamespacesDeleteNamespaceHandler == nil {
 		unregistered = append(unregistered, "namespaces.DeleteNamespaceHandler")
+	}
+	if o.ReplicationDeleteRebalancePlanHandler == nil {
+		unregistered = append(unregistered, "replication.DeleteRebalancePlanHandler")
 	}
 	if o.ReplicationDeleteReplicationHandler == nil {
 		unregistered = append(unregistered, "replication.DeleteReplicationHandler")
@@ -991,6 +1025,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.UsersGetOwnInfoHandler == nil {
 		unregistered = append(unregistered, "users.GetOwnInfoHandler")
+	}
+	if o.ReplicationGetRebalancePlanHandler == nil {
+		unregistered = append(unregistered, "replication.GetRebalancePlanHandler")
 	}
 	if o.ReplicationGetReplicationScalePlanHandler == nil {
 		unregistered = append(unregistered, "replication.GetReplicationScalePlanHandler")
@@ -1196,6 +1233,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.UsersSetUserExpirationHandler == nil {
 		unregistered = append(unregistered, "users.SetUserExpirationHandler")
 	}
+	if o.ReplicationStopRebalancePlanHandler == nil {
+		unregistered = append(unregistered, "replication.StopRebalancePlanHandler")
+	}
 	if o.NamespacesSuspendNamespaceHandler == nil {
 		unregistered = append(unregistered, "namespaces.SuspendNamespaceHandler")
 	}
@@ -1377,6 +1417,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
+	o.handlers["POST"]["/replication/rebalance/approve"] = replication.NewApproveRebalancePlan(o.context, o.ReplicationApproveRebalancePlanHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
 	o.handlers["POST"]["/authz/groups/{id}/assign"] = authz.NewAssignRoleToGroup(o.context, o.AuthzAssignRoleToGroupHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
@@ -1445,6 +1489,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
+	o.handlers["POST"]["/replication/rebalance"] = replication.NewCreateRebalancePlan(o.context, o.ReplicationCreateRebalancePlanHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
 	o.handlers["POST"]["/authz/roles"] = authz.NewCreateRole(o.context, o.AuthzCreateRoleHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
@@ -1462,6 +1510,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/namespaces/{namespace_id}"] = namespaces.NewDeleteNamespace(o.context, o.NamespacesDeleteNamespaceHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/replication/rebalance"] = replication.NewDeleteRebalancePlan(o.context, o.ReplicationDeleteRebalancePlanHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
@@ -1518,6 +1570,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/users/own-info"] = users.NewGetOwnInfo(o.context, o.UsersGetOwnInfoHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/replication/rebalance"] = replication.NewGetRebalancePlan(o.context, o.ReplicationGetRebalancePlanHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -1790,6 +1846,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/users/db/{user_id}/expiration"] = users.NewSetUserExpiration(o.context, o.UsersSetUserExpirationHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/replication/rebalance/stop"] = replication.NewStopRebalancePlan(o.context, o.ReplicationStopRebalancePlanHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}

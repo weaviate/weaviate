@@ -24,6 +24,8 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.ReplicationScalePlan) (opsUUIDs []strfmt.UUID, err error) {
@@ -72,6 +74,12 @@ func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.Repl
 		return nil, fmt.Errorf("collection %q: %w", scalePlan.Collection, replicationTypes.ErrNotFound)
 	}
 	if copiesReplica {
+		// admitPropose runs both checks on each copy too. Checking here first
+		// answers a refused plan with the namespace or task refusal rather than
+		// a copy's validation error.
+		if err := usecasesNamespaces.RequireActive(s.store.namespaceManager, namespacing.NamespaceFromQualified(scalePlan.Collection)); err != nil {
+			return nil, fmt.Errorf("replica movement of %q: %w", scalePlan.Collection, err)
+		}
 		if err := s.store.admitTaskOrMovement(api.ApplyRequest_TYPE_REPLICATION_REPLICATE, scalePlan.Collection); err != nil {
 			return nil, err
 		}
@@ -90,49 +98,81 @@ func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.Repl
 		}
 	}()
 
-	for shardName, shardActions := range scalePlan.ShardReplicationScaleActions {
-		for node := range shardActions.RemoveNodes {
-			_, err := s.DeleteReplicaFromShard(ctx, scalePlan.Collection, shardName, node)
-			if err != nil {
-				return opsUUIDs, fmt.Errorf("delete replica %q from shard %q: %w", node, shardName, err)
-			}
-		}
+	// Every copy registers before any replica is removed or added, so a refused
+	// copy leaves every replica in place.
+	opsUUIDs, err = s.registerScalePlanCopies(ctx, scalePlan)
+	if err != nil {
+		return opsUUIDs, err
+	}
+	if err = s.applyScalePlanMembership(ctx, scalePlan); err != nil {
+		return opsUUIDs, err
+	}
+	return opsUUIDs, nil
+}
 
+// registerScalePlanCopies registers an op for every addition with a source
+// node, a MOVE where the plan also removes that source. It returns the ops it
+// registered before any error.
+func (s *Raft) registerScalePlanCopies(ctx context.Context, scalePlan api.ReplicationScalePlan) ([]strfmt.UUID, error) {
+	var opsUUIDs []strfmt.UUID
+	for shardName, shardActions := range scalePlan.ShardReplicationScaleActions {
 		for newNode, sourceNode := range shardActions.AddNodes {
 			if sourceNode == "" {
-				// empty source node means create empty replica
-				_, err := s.AddReplicaToShard(ctx, scalePlan.Collection, shardName, newNode)
-				if err != nil {
-					return opsUUIDs, fmt.Errorf("add empty replica %q to shard %q: %w", newNode, shardName, err)
-				}
 				continue
 			}
 
-			var transferType api.ShardReplicationTransferType
-
-			_, isBeingRemoved := shardActions.RemoveNodes[sourceNode]
-			if isBeingRemoved {
+			transferType := api.COPY
+			if _, isBeingRemoved := shardActions.RemoveNodes[sourceNode]; isBeingRemoved {
 				transferType = api.MOVE
-			} else {
-				transferType = api.COPY
 			}
 
 			id, err := uuid.NewRandom()
 			if err != nil {
 				return opsUUIDs, fmt.Errorf("create uuid for new replica: %w", err)
 			}
-			uuid := strfmt.UUID(id.String())
+			opUUID := strfmt.UUID(id.String())
 
-			err = s.ReplicationReplicateReplica(ctx, uuid, sourceNode, scalePlan.Collection, shardName, newNode, transferType.String())
+			err = s.ReplicationReplicateReplica(ctx, opUUID, sourceNode, scalePlan.Collection, shardName, newNode, transferType.String())
 			if err != nil {
 				return opsUUIDs, fmt.Errorf("replication add replica to shard for %q: %w", scalePlan.Collection, err)
 			}
-
-			opsUUIDs = append(opsUUIDs, uuid)
+			opsUUIDs = append(opsUUIDs, opUUID)
 		}
 	}
-
 	return opsUUIDs, nil
+}
+
+// applyScalePlanMembership removes the plan's replicas and adds its empty ones.
+// It skips a removed node that sources an addition, because that addition is a
+// MOVE and removes its source once the copy is in.
+func (s *Raft) applyScalePlanMembership(ctx context.Context, scalePlan api.ReplicationScalePlan) error {
+	for shardName, shardActions := range scalePlan.ShardReplicationScaleActions {
+		additionSources := make(map[string]struct{}, len(shardActions.AddNodes))
+		for _, sourceNode := range shardActions.AddNodes {
+			if sourceNode != "" {
+				additionSources[sourceNode] = struct{}{}
+			}
+		}
+
+		for node := range shardActions.RemoveNodes {
+			if _, isMoveSource := additionSources[node]; isMoveSource {
+				continue
+			}
+			if _, err := s.DeleteReplicaFromShard(ctx, scalePlan.Collection, shardName, node); err != nil {
+				return fmt.Errorf("delete replica %q from shard %q: %w", node, shardName, err)
+			}
+		}
+
+		for newNode, sourceNode := range shardActions.AddNodes {
+			if sourceNode != "" {
+				continue
+			}
+			if _, err := s.AddReplicaToShard(ctx, scalePlan.Collection, shardName, newNode); err != nil {
+				return fmt.Errorf("add empty replica %q to shard %q: %w", newNode, shardName, err)
+			}
+		}
+	}
+	return nil
 }
 
 // RegisterSelfRecovery registers a SELF_RECOVERY op, bypassing the ongoing-replications guard.

@@ -54,6 +54,8 @@ func TestMultiNode_ShardlessNodeBlockmaxFromRAFT(t *testing.T) {
 	taskID := reindexhelpers.SubmitIndexUpsert(t, submitURI, className, "title", "searchable", `{"algorithm":"blockmax"}`)
 	reindexhelpers.AwaitReindexViaIndexes(t, submitURI, className, "title", "searchable", reindexhelpers.WithTimeout(180*time.Second))
 	reindexhelpers.AwaitReindexFinished(t, submitURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
+	reindexhelpers.AwaitIndexOnNodes(t, []string{shardlessURI, shardHolderURI}, className, "title", "searchable",
+		reindexhelpers.IndexWant{Status: "ready", Algorithm: "blockmax"})
 
 	// Class flag must stay false everywhere (including shardless nodes) while
 	// "body" is still on WAND.

@@ -767,6 +767,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			Concurrency:            appState.ServerConfig.Config.Replication.SelfRecoveryConcurrency,
 			MaintenanceModeEnabled: appState.Cluster.MaintenanceModeEnabledForLocalhost,
 			OnRecoveryComplete:     appState.DB.LoadLocalShard,
+			NamespaceStateForClass: appState.DB.NamespaceStateForClass,
 			RootDataPath:           dataPath,
 			Logger:                 appState.Logger,
 			Registerer:             prometheus.DefaultRegisterer,
@@ -1468,7 +1469,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger)
 
-	replicationHandlers.SetupHandlers(appState.ServerConfig.Config.Replication.ReplicaMovementEnabled, api, appState.ClusterService.Raft, appState.Metrics, appState.Authorizer, appState.Logger,
+	replicationHandlers.SetupHandlers(appState.ServerConfig.Config.Replication.ReplicaMovementEnabled, appState.ServerConfig.Config.Replication.ReplicaRebalanceEnabled,
+		api, appState.ClusterService.Raft, appState.ClusterService.Raft, appState.Cluster, appState.Metrics, appState.Authorizer, appState.Logger,
 		appState.ServerConfig.Config.Persistence.DataPath)
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
@@ -1772,7 +1774,11 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	dedupeMode := dedupeModeFor(appState.ServerConfig.Config)
 	logUnlicensedDedupe(appState.Logger, dedupeMode)
 	dedupePlanner, err := dedupePlannerFor(dedupeMode, func() (backup.DedupePlanner, error) {
-		p, err := backupdedupe.New(backupdedupe.Config{Checkpointer: appState.DB, Logger: appState.Logger})
+		p, err := backupdedupe.New(backupdedupe.Config{
+			Checkpointer:  appState.DB,
+			Logger:        appState.Logger,
+			DefaultBudget: appState.ServerConfig.Config.Backup.DedupeConvergenceTimeout.Get,
+		})
 		if err != nil {
 			return nil, err
 		}

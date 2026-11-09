@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 func createReplicationHandlerWithMocks(t *testing.T, logger *logrus.Logger) (*replicationHandler, *authorization.MockAuthorizer, *types.MockManager) {
@@ -694,6 +695,16 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 			"conflict when a task is running on the collection",
 			types.ErrMovementBlockedByTask,
 			&replication.ApplyReplicationScalePlanConflict{},
+		},
+		{
+			"unprocessable when a copy names a replica it cannot copy",
+			fmt.Errorf("%w: shard already exists on target node", types.ErrInvalidRequest),
+			&replication.ApplyReplicationScalePlanUnprocessableEntity{},
+		},
+		{
+			"unprocessable when the collection's namespace is suspended",
+			fmt.Errorf("replica movement of %q: %w", "alpha:Books", namespaces.ErrNamespaceSuspended),
+			&replication.ApplyReplicationScalePlanUnprocessableEntity{},
 		},
 		{"internal error", errors.New("internal error"), &replication.ApplyReplicationScalePlanInternalServerError{}},
 	} {

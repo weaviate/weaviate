@@ -31,6 +31,12 @@ import (
 // hfresh muvera bounds actually run against parsed configs.
 func newTestHandlerWithRealVectorConfigParser(t *testing.T) *Handler {
 	t.Helper()
+	handler, _ := newTestHandlerAndManagerWithRealVectorConfigParser(t)
+	return handler
+}
+
+func newTestHandlerAndManagerWithRealVectorConfigParser(t *testing.T) (*Handler, *fakeSchemaManager) {
+	t.Helper()
 	schemaManager := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
@@ -48,7 +54,7 @@ func newTestHandlerWithRealVectorConfigParser(t *testing.T) *Handler {
 		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil, nil, namespacing.Disabled)
 	require.NoError(t, err)
 	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
-	return &handler
+	return &handler, schemaManager
 }
 
 func classWithMuveraParams(ksim, dprojections, repetitions int) *models.Class {

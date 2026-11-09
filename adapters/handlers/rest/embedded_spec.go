@@ -5006,6 +5006,221 @@ func init() {
         ]
       }
     },
+    "/replication/rebalance": {
+      "get": {
+        "description": "Returns the cluster's rebalance plan, including the node measurements and baseline balance taken by its planning run.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Get the rebalance plan",
+        "operationId": "getRebalancePlan",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, the read goes through the cluster leader for read-your-writes. If false, the node serving the request answers from its local state, which can lag the leader. Default is false.",
+            "name": "consistency",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The rebalance plan.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalancePlan"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No rebalance plan exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.get"
+        ]
+      },
+      "post": {
+        "description": "Creates the cluster's rebalance plan in the ` + "`" + `PLANNING` + "`" + ` state and starts an asynchronous planning run. The run measures the listed source and target nodes and decides whether their shard replicas need rebalancing. GET /replication/rebalance reports the plan and its outcome. A new plan replaces a finished one; an unfinished plan blocks it.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Create a rebalance plan",
+        "operationId": "createRebalancePlan",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalanceRequest"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Rebalance plan created and planning started. ID of the plan is returned.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalanceCreateResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request: a node list is empty or repeats a node, or a node appears in both ` + "`" + `sourceNodes` + "`" + ` and ` + "`" + `targetNodes` + "`" + `.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "An unfinished rebalance plan exists. GET /replication/rebalance reports it.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "A listed node is not a live storage node. The ErrorResponse holds one entry per failing node.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement or replica rebalancing is disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.create"
+        ]
+      },
+      "delete": {
+        "description": "Removes the cluster's rebalance plan. Only a ` + "`" + `PROPOSED` + "`" + ` plan or a plan in an end state can be deleted; stop a ` + "`" + `PLANNING` + "`" + ` plan first. Succeeds when no plan exists.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Delete the rebalance plan",
+        "operationId": "deleteRebalancePlan",
+        "responses": {
+          "204": {
+            "description": "Successfully deleted, or no plan existed."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The plan is not in a deletable state, e.g. it is ` + "`" + `PLANNING` + "`" + `.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.delete"
+        ]
+      }
+    },
+    "/replication/rebalance/approve": {
+      "post": {
+        "description": "Approves a ` + "`" + `PROPOSED` + "`" + ` rebalance plan for execution. Approval is not implemented yet and always answers 501.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Approve the rebalance plan",
+        "operationId": "approveRebalancePlan",
+        "responses": {
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Approving a rebalance plan is not implemented.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.approve"
+        ]
+      }
+    },
+    "/replication/rebalance/stop": {
+      "post": {
+        "description": "Stops the cluster's rebalance plan while it is ` + "`" + `PLANNING` + "`" + `. The plan ends ` + "`" + `STOPPED` + "`" + ` and the result of its planning run is discarded.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Stop the rebalance plan",
+        "operationId": "stopRebalancePlan",
+        "responses": {
+          "202": {
+            "description": "Rebalance plan stopped."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No rebalance plan exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The plan is not in a stoppable state: only a ` + "`" + `PLANNING` + "`" + ` plan can be stopped.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.stop"
+        ]
+      }
+    },
     "/replication/replicate": {
       "post": {
         "description": "Begins an asynchronous operation to move or copy a specific shard replica from its current node to a designated target node. The operation involves copying data, synchronizing, and potentially decommissioning the source replica.",
@@ -5585,7 +5800,13 @@ func init() {
             }
           },
           "409": {
-            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. None of the plan's replica removals or empty additions was applied.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. None of the plan's replica removals or empty additions was applied.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8422,9 +8643,9 @@ func init() {
           "type": "string"
         },
         "dedupeConvergenceTimeoutSeconds": {
-          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. When omitted, BACKUP_DEDUPE_CONVERGENCE_TIMEOUT applies (15 seconds unless configured). The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
           "type": "integer",
-          "default": 60,
+          "default": 15,
           "maximum": 600,
           "minimum": 1,
           "x-nullable": false
@@ -9982,7 +10203,7 @@ func init() {
           "type": "string"
         },
         "state": {
-          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, and role assignments, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, role assignments, and replica movements, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way, replica movements included. \"deleting\" namespaces are being removed: new classes, aliases, users, and replica movements can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
           "type": "string",
           "enum": [
             "active",
@@ -11023,6 +11244,177 @@ func init() {
         "factor": {
           "description": "Number of times a collection (class) is replicated (default: 1).",
           "type": "integer"
+        }
+      }
+    },
+    "ReplicationRebalanceCreateResponse": {
+      "description": "Contains the unique identifier of a newly created rebalance plan. GET /replication/rebalance reports the plan's progress.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The unique identifier (ID) of the rebalance plan.",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationRebalancePlan": {
+      "description": "The cluster's rebalance plan: the request it was created from, its current state, and the node measurements and baseline balance taken by its planning run.",
+      "type": "object",
+      "properties": {
+        "baseline": {
+          "description": "The measured load of each listed node before any move.",
+          "type": "array",
+          "items": {
+            "description": "One node's measured load.",
+            "type": "object",
+            "properties": {
+              "diskUtilisation": {
+                "description": "The node's used disk bytes divided by its disk usage warning threshold in bytes.",
+                "type": "number",
+                "x-omitempty": false
+              },
+              "node": {
+                "description": "The name of the node.",
+                "type": "string",
+                "x-omitempty": false
+              },
+              "replicaCount": {
+                "description": "The number of shard replicas the node hosts, not counting replicas of FROZEN tenants.",
+                "type": "integer",
+                "x-omitempty": false
+              }
+            }
+          }
+        },
+        "collections": {
+          "description": "The names of the collections given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAtUnixMs": {
+          "description": "The UNIX timestamp in ms when the plan was created.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "id": {
+          "description": "The unique identifier (ID) of the rebalance plan.",
+          "type": "string"
+        },
+        "measuredAtUnixMs": {
+          "description": "The UNIX timestamp in ms when the applied planning run started measuring the nodes. Zero until a planning run completes.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "nodes": {
+          "description": "The resource measurement of each listed node, taken by the applied planning run.",
+          "type": "array",
+          "items": {
+            "description": "One node's resource measurement.",
+            "type": "object",
+            "properties": {
+              "diskAvailableBytes": {
+                "description": "The free bytes on the disk holding the node's data. The count includes blocks reserved for root.",
+                "type": "integer",
+                "format": "int64",
+                "x-omitempty": false
+              },
+              "diskTotalBytes": {
+                "description": "The total size in bytes of the disk holding the node's data.",
+                "type": "integer",
+                "format": "int64",
+                "x-omitempty": false
+              },
+              "diskWarningPercentage": {
+                "description": "The node's disk usage warning threshold, as a percentage of the disk's total size.",
+                "type": "integer",
+                "format": "int64",
+                "x-omitempty": false
+              },
+              "error": {
+                "description": "Why the node could not be measured. Empty when the measurement succeeded.",
+                "type": "string"
+              },
+              "memoryLimitBytes": {
+                "description": "The node's Go runtime memory limit in bytes.",
+                "type": "integer",
+                "format": "int64",
+                "x-omitempty": false
+              },
+              "node": {
+                "description": "The name of the node.",
+                "type": "string",
+                "x-omitempty": false
+              },
+              "replicationWorkers": {
+                "description": "The number of replication engine workers configured on the node.",
+                "type": "integer",
+                "x-omitempty": false
+              }
+            }
+          }
+        },
+        "reason": {
+          "description": "A human-readable explanation of the planning outcome, e.g. why planning failed.",
+          "type": "string"
+        },
+        "sourceNodes": {
+          "description": "The names of the nodes that replicas move away from, as given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
+          "description": "The current state of the rebalance plan. A plan starts in ` + "`" + `PLANNING` + "`" + `. A planning run ends it ` + "`" + `NOT_NEEDED` + "`" + `, ` + "`" + `PROPOSED` + "`" + `, ` + "`" + `NO_ACCEPTABLE_PLAN` + "`" + ` or ` + "`" + `PLANNING_FAILED` + "`" + `, and a stop ends it ` + "`" + `STOPPED` + "`" + `.",
+          "type": "string",
+          "enum": [
+            "PLANNING",
+            "PROPOSED",
+            "NOT_NEEDED",
+            "NO_ACCEPTABLE_PLAN",
+            "PLANNING_FAILED",
+            "RUNNING",
+            "STOPPING",
+            "STOPPED",
+            "COMPLETED",
+            "FAILED"
+          ]
+        },
+        "targetNodes": {
+          "description": "The names of the nodes that replicas move to, as given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ReplicationRebalanceRequest": {
+      "description": "Specifies the nodes a rebalance plan moves shard replicas between. Replicas move from the source nodes to the target nodes.",
+      "type": "object",
+      "properties": {
+        "collections": {
+          "description": "The names of the collections the plan covers. The value is stored with the plan and does not yet affect planning.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sourceNodes": {
+          "description": "The names of the nodes that replicas move away from. The list must be non-empty, must not repeat a node, and must not share a node with ` + "`" + `targetNodes` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "targetNodes": {
+          "description": "The names of the nodes that replicas move to. The list must be non-empty, must not repeat a node, and must not share a node with ` + "`" + `sourceNodes` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -17952,6 +18344,221 @@ func init() {
         ]
       }
     },
+    "/replication/rebalance": {
+      "get": {
+        "description": "Returns the cluster's rebalance plan, including the node measurements and baseline balance taken by its planning run.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Get the rebalance plan",
+        "operationId": "getRebalancePlan",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, the read goes through the cluster leader for read-your-writes. If false, the node serving the request answers from its local state, which can lag the leader. Default is false.",
+            "name": "consistency",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The rebalance plan.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalancePlan"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No rebalance plan exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.get"
+        ]
+      },
+      "post": {
+        "description": "Creates the cluster's rebalance plan in the ` + "`" + `PLANNING` + "`" + ` state and starts an asynchronous planning run. The run measures the listed source and target nodes and decides whether their shard replicas need rebalancing. GET /replication/rebalance reports the plan and its outcome. A new plan replaces a finished one; an unfinished plan blocks it.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Create a rebalance plan",
+        "operationId": "createRebalancePlan",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalanceRequest"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Rebalance plan created and planning started. ID of the plan is returned.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalanceCreateResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request: a node list is empty or repeats a node, or a node appears in both ` + "`" + `sourceNodes` + "`" + ` and ` + "`" + `targetNodes` + "`" + `.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "An unfinished rebalance plan exists. GET /replication/rebalance reports it.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "A listed node is not a live storage node. The ErrorResponse holds one entry per failing node.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement or replica rebalancing is disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.create"
+        ]
+      },
+      "delete": {
+        "description": "Removes the cluster's rebalance plan. Only a ` + "`" + `PROPOSED` + "`" + ` plan or a plan in an end state can be deleted; stop a ` + "`" + `PLANNING` + "`" + ` plan first. Succeeds when no plan exists.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Delete the rebalance plan",
+        "operationId": "deleteRebalancePlan",
+        "responses": {
+          "204": {
+            "description": "Successfully deleted, or no plan existed."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The plan is not in a deletable state, e.g. it is ` + "`" + `PLANNING` + "`" + `.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.delete"
+        ]
+      }
+    },
+    "/replication/rebalance/approve": {
+      "post": {
+        "description": "Approves a ` + "`" + `PROPOSED` + "`" + ` rebalance plan for execution. Approval is not implemented yet and always answers 501.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Approve the rebalance plan",
+        "operationId": "approveRebalancePlan",
+        "responses": {
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Approving a rebalance plan is not implemented.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.approve"
+        ]
+      }
+    },
+    "/replication/rebalance/stop": {
+      "post": {
+        "description": "Stops the cluster's rebalance plan while it is ` + "`" + `PLANNING` + "`" + `. The plan ends ` + "`" + `STOPPED` + "`" + ` and the result of its planning run is discarded.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Stop the rebalance plan",
+        "operationId": "stopRebalancePlan",
+        "responses": {
+          "202": {
+            "description": "Rebalance plan stopped."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No rebalance plan exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The plan is not in a stoppable state: only a ` + "`" + `PLANNING` + "`" + ` plan can be stopped.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.stop"
+        ]
+      }
+    },
     "/replication/replicate": {
       "post": {
         "description": "Begins an asynchronous operation to move or copy a specific shard replica from its current node to a designated target node. The operation involves copying data, synchronizing, and potentially decommissioning the source replica.",
@@ -18531,7 +19138,13 @@ func init() {
             }
           },
           "409": {
-            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. None of the plan's replica removals or empty additions was applied.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. None of the plan's replica removals or empty additions was applied.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -21368,9 +21981,9 @@ func init() {
           "type": "string"
         },
         "dedupeConvergenceTimeoutSeconds": {
-          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. When omitted, BACKUP_DEDUPE_CONVERGENCE_TIMEOUT applies (15 seconds unless configured). The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
           "type": "integer",
-          "default": 60,
+          "default": 15,
           "maximum": 600,
           "minimum": 1,
           "x-nullable": false
@@ -23075,7 +23688,7 @@ func init() {
           "type": "string"
         },
         "state": {
-          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, and role assignments, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, role assignments, and replica movements, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way, replica movements included. \"deleting\" namespaces are being removed: new classes, aliases, users, and replica movements can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
           "type": "string",
           "enum": [
             "active",
@@ -24301,6 +24914,183 @@ func init() {
         "factor": {
           "description": "Number of times a collection (class) is replicated (default: 1).",
           "type": "integer"
+        }
+      }
+    },
+    "ReplicationRebalanceCreateResponse": {
+      "description": "Contains the unique identifier of a newly created rebalance plan. GET /replication/rebalance reports the plan's progress.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The unique identifier (ID) of the rebalance plan.",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationRebalancePlan": {
+      "description": "The cluster's rebalance plan: the request it was created from, its current state, and the node measurements and baseline balance taken by its planning run.",
+      "type": "object",
+      "properties": {
+        "baseline": {
+          "description": "The measured load of each listed node before any move.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationRebalancePlanBaselineItems0"
+          }
+        },
+        "collections": {
+          "description": "The names of the collections given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAtUnixMs": {
+          "description": "The UNIX timestamp in ms when the plan was created.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "id": {
+          "description": "The unique identifier (ID) of the rebalance plan.",
+          "type": "string"
+        },
+        "measuredAtUnixMs": {
+          "description": "The UNIX timestamp in ms when the applied planning run started measuring the nodes. Zero until a planning run completes.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "nodes": {
+          "description": "The resource measurement of each listed node, taken by the applied planning run.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationRebalancePlanNodesItems0"
+          }
+        },
+        "reason": {
+          "description": "A human-readable explanation of the planning outcome, e.g. why planning failed.",
+          "type": "string"
+        },
+        "sourceNodes": {
+          "description": "The names of the nodes that replicas move away from, as given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
+          "description": "The current state of the rebalance plan. A plan starts in ` + "`" + `PLANNING` + "`" + `. A planning run ends it ` + "`" + `NOT_NEEDED` + "`" + `, ` + "`" + `PROPOSED` + "`" + `, ` + "`" + `NO_ACCEPTABLE_PLAN` + "`" + ` or ` + "`" + `PLANNING_FAILED` + "`" + `, and a stop ends it ` + "`" + `STOPPED` + "`" + `.",
+          "type": "string",
+          "enum": [
+            "PLANNING",
+            "PROPOSED",
+            "NOT_NEEDED",
+            "NO_ACCEPTABLE_PLAN",
+            "PLANNING_FAILED",
+            "RUNNING",
+            "STOPPING",
+            "STOPPED",
+            "COMPLETED",
+            "FAILED"
+          ]
+        },
+        "targetNodes": {
+          "description": "The names of the nodes that replicas move to, as given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ReplicationRebalancePlanBaselineItems0": {
+      "description": "One node's measured load.",
+      "type": "object",
+      "properties": {
+        "diskUtilisation": {
+          "description": "The node's used disk bytes divided by its disk usage warning threshold in bytes.",
+          "type": "number",
+          "x-omitempty": false
+        },
+        "node": {
+          "description": "The name of the node.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "replicaCount": {
+          "description": "The number of shard replicas the node hosts, not counting replicas of FROZEN tenants.",
+          "type": "integer",
+          "x-omitempty": false
+        }
+      }
+    },
+    "ReplicationRebalancePlanNodesItems0": {
+      "description": "One node's resource measurement.",
+      "type": "object",
+      "properties": {
+        "diskAvailableBytes": {
+          "description": "The free bytes on the disk holding the node's data. The count includes blocks reserved for root.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "diskTotalBytes": {
+          "description": "The total size in bytes of the disk holding the node's data.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "diskWarningPercentage": {
+          "description": "The node's disk usage warning threshold, as a percentage of the disk's total size.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "error": {
+          "description": "Why the node could not be measured. Empty when the measurement succeeded.",
+          "type": "string"
+        },
+        "memoryLimitBytes": {
+          "description": "The node's Go runtime memory limit in bytes.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "node": {
+          "description": "The name of the node.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "replicationWorkers": {
+          "description": "The number of replication engine workers configured on the node.",
+          "type": "integer",
+          "x-omitempty": false
+        }
+      }
+    },
+    "ReplicationRebalanceRequest": {
+      "description": "Specifies the nodes a rebalance plan moves shard replicas between. Replicas move from the source nodes to the target nodes.",
+      "type": "object",
+      "properties": {
+        "collections": {
+          "description": "The names of the collections the plan covers. The value is stored with the plan and does not yet affect planning.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sourceNodes": {
+          "description": "The names of the nodes that replicas move away from. The list must be non-empty, must not repeat a node, and must not share a node with ` + "`" + `targetNodes` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "targetNodes": {
+          "description": "The names of the nodes that replicas move to. The list must be non-empty, must not repeat a node, and must not share a node with ` + "`" + `sourceNodes` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

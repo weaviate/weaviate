@@ -1117,3 +1117,32 @@ func TestBuildRegisteredRuntimeConfig(t *testing.T) {
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupIncludeCancelled, registered.ReplicaMovementCleanupIncludeCancelled)
 	require.Same(t, cfg.Namespaces.SuspendReconcileInterval, registered.SuspendReconcileInterval)
 }
+
+func TestBackupDedupeConvergenceTimeoutRuntimeOverride(t *testing.T) {
+	t.Run("yaml key is parsed", func(t *testing.T) {
+		cfg, err := ParseRuntimeConfig([]byte(`backup_dedupe_convergence_timeout: 40s`))
+		require.NoError(t, err)
+		assert.Equal(t, 40*time.Second, cfg.BackupDedupeConvergenceTimeout.Get())
+	})
+
+	t.Run("override applies to the env-registered value and rejects out-of-range", func(t *testing.T) {
+		t.Setenv("BACKUP_DEDUPE_CONVERGENCE_TIMEOUT", "20s")
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		require.Equal(t, 20*time.Second, conf.Backup.DedupeConvergenceTimeout.Get())
+
+		registered := &WeaviateRuntimeConfig{}
+		parsed, err := ParseRuntimeConfig([]byte(`backup_dedupe_convergence_timeout: 40s`))
+		require.NoError(t, err)
+		registered.BackupDedupeConvergenceTimeout = conf.Backup.DedupeConvergenceTimeout
+		require.NoError(t, UpdateRuntimeConfig(logrus.New(), registered, parsed, nil, nil))
+		assert.Equal(t, 40*time.Second, conf.Backup.DedupeConvergenceTimeout.Get())
+
+		require.Error(t, conf.Backup.DedupeConvergenceTimeout.SetValue(0))
+		require.Error(t, conf.Backup.DedupeConvergenceTimeout.SetValue(601*time.Second))
+		assert.Equal(t, 40*time.Second, conf.Backup.DedupeConvergenceTimeout.Get())
+
+		conf.Backup.DedupeConvergenceTimeout.Reset()
+		assert.Equal(t, 20*time.Second, conf.Backup.DedupeConvergenceTimeout.Get())
+	})
+}
