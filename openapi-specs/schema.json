@@ -3875,7 +3875,7 @@
           "type": "string"
         },
         "state": {
-          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, and role assignments, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, role assignments, and replica movements, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way, replica movements included. \"deleting\" namespaces are being removed: new classes, aliases, users, and replica movements can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
           "type": "string",
           "enum": [
             "active",
@@ -5392,7 +5392,13 @@
             }
           },
           "409": {
-            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. None of the plan's replica removals or empty additions was applied.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. None of the plan's replica removals or empty additions was applied.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
