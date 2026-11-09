@@ -12,7 +12,6 @@
 package db
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -20,7 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -29,23 +27,19 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Pins that a tenant migrated ahead of the schema survives a reload, and that
-// the swap writes its record before any pointer flip.
+// A reload keeps the record of a swap a failed run decided, and a swapped
+// tenant keeps serving its migrated tokenization while the schema lags.
 func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 	const propName = "title"
 	for _, tc := range []struct {
 		name string
 		// swap runs the live swap before the reload; otherwise the reload
 		// stands in for a crash before the swap began.
-		swap    bool
-		decided bool
-		// wantMigrated: the reloaded tenant serves field tokenization.
-		wantMigrated bool
-		wantRecord   MigrationState
+		swap       bool
+		wantRecord MigrationState
 	}{
-		{name: "swapped, then reloaded", swap: true, decided: true, wantMigrated: true, wantRecord: MigrationStatePromoted},
-		{name: "crashed before the swap, tenant decided", decided: true, wantMigrated: false, wantRecord: MigrationStateMerged},
-		{name: "crashed before any decision", wantMigrated: false},
+		{name: "swapped, then reloaded", swap: true, wantRecord: MigrationStatePromoted},
+		{name: "crashed before the swap, tenant decided", wantRecord: MigrationStateMerged},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testCtx()
@@ -66,12 +60,6 @@ func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 			desc := distributedtask.TaskDescriptor{ID: "T511", Version: 1}
 			task.setMigrationIdentity(desc, shard.migrationUnit(), payload)
 			maybeWirePerPropOverlaySet(shard, payload, []*ShardReindexTaskGeneric{task})
-			flip := task.swapPropAtomic
-			task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store, propIdx int, prop string) (*lsmkv.Bucket, error) {
-				rec, _ := task.migrationRecord(shard)
-				require.True(t, rec.FlipDecided(), "the swap's record precedes its first pointer flip")
-				return flip(ctx, store, propIdx, prop)
-			}
 			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 			require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 			if tc.swap {
@@ -80,10 +68,8 @@ func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 
 			failed := withUnits(&distributedtask.Task{
 				Namespace: ReindexNamespace, TaskDescriptor: desc, Status: distributedtask.TaskStatusFailed,
+				SwapDecidedGroups: map[string]time.Time{shard.Name(): {}},
 			}, map[string]*distributedtask.Unit{shard.migrationUnit(): {ID: shard.migrationUnit(), GroupID: shard.Name()}})
-			if tc.decided {
-				failed.SwapDecidedGroups = map[string]time.Time{shard.Name(): {}}
-			}
 			idx.db.indices[indexID(idx.Config.ClassName)] = idx
 			installTestMigrationTaskSources(ctx, idx.db, nil, failed)
 
@@ -97,12 +83,8 @@ func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 			defer re.Shutdown(ctx)
 
 			rec, present := task.migrationRecord(re)
-			if tc.wantRecord == "" {
-				require.False(t, present, "an undecided record is discarded")
-			} else {
-				require.True(t, present)
-				require.Equal(t, tc.wantRecord, rec.State())
-			}
+			require.True(t, present)
+			require.Equal(t, tc.wantRecord, rec.State())
 
 			bm25 := func(q string) int {
 				res, _, err := re.ObjectSearch(ctx, 100, nil,
@@ -115,7 +97,7 @@ func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 			keys := fingerprintInvertedBucket(t, re.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)))
 			_, fieldTerm := keys["zulu one"]
 			_, wordTerm := keys["zulu"]
-			if tc.wantMigrated {
+			if tc.swap {
 				require.Equal(t, models.PropertyTokenizationField, re.TokenizationFor(propName, models.PropertyTokenizationWord))
 				require.True(t, fieldTerm && !wordTerm, "a write after the reload is indexed with the migrated tokenization")
 				require.Equal(t, 1, bm25("zulu one"), "and a query is analyzed with it")

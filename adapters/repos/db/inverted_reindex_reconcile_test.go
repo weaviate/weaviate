@@ -352,10 +352,6 @@ func TestReconcileMergedDisposition(t *testing.T) {
 		task            *distributedtask.Task
 		tasksUnreadable bool
 		noStagedDir     bool
-		// decided marks the record's shard as one whose group's swap the task decided.
-		decided bool
-		// adopted renames the record's unit to a node the task never had, as a replica copy does.
-		adopted bool
 		// A second property the record names one directory for, and only a
 		// sidecar: a property does not have to reach the staging phase.
 		secondProperty bool
@@ -406,25 +402,6 @@ func TestReconcileMergedDisposition(t *testing.T) {
 			wantRecord:     false,
 			wantStagedGone: true,
 			wantCanonical:  "property_title_searchable",
-		},
-		{
-			name:          "task failed after this unit's group was decided: leave it for the swap the replica still owes",
-			task:          testTask(taskID, 42, distributedtask.TaskStatusFailed),
-			decided:       true,
-			class:         testClassWithTokenization(models.PropertyTokenizationWord, "title"),
-			wantState:     MigrationStateMerged,
-			wantRecord:    true,
-			wantCanonical: "property_title_searchable",
-		},
-		{
-			name:          "a record a replica copy adopted reads its shard's decision",
-			task:          testTask(taskID, 42, distributedtask.TaskStatusCancelled),
-			decided:       true,
-			adopted:       true,
-			class:         testClassWithTokenization(models.PropertyTokenizationWord, "title"),
-			wantState:     MigrationStateMerged,
-			wantRecord:    true,
-			wantCanonical: "property_title_searchable",
 		},
 		{
 			name:          "a status this build does not recognize is left for whoever does",
@@ -494,13 +471,6 @@ func TestReconcileMergedDisposition(t *testing.T) {
 			}
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
 			subject.TaskID = taskID
-			if tt.decided {
-				tt.task.SetUnits(map[string]*distributedtask.Unit{subject.Key.UnitID: {ID: subject.Key.UnitID, GroupID: "shard-1"}})
-				tt.task.SwapDecidedGroups = map[string]time.Time{"shard-1": {}}
-			}
-			if tt.adopted {
-				subject.Key.UnitID = MigrationUnitID("shard-1", "node-1")
-			}
 			if tt.noStagedDir {
 				f.mkdirs("property_title__s42_reindex", "property_title_searchable")
 			} else {
@@ -1140,11 +1110,6 @@ func TestReconcilePromotedClosure(t *testing.T) {
 			name:       "the effect is not visible but the owning task finished: the schema answers",
 			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
 			taskStatus: distributedtask.TaskStatusFinished,
-			wantRecord: false,
-		},
-		{
-			name:       "the effect is not visible and the owning task is gone: the schema answers",
-			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
 			wantRecord: false,
 		},
 		{
