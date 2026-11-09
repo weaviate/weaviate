@@ -668,7 +668,7 @@ func liftAndAwaitRetry(t *testing.T, fx *doubleFaultFixture, shard *Shard, lift 
 	awaitRetry(t, shard)
 	for _, e := range logs.AllEntries() {
 		if e.Level == logrus.ErrorLevel {
-			return e.Data[logrus.ErrorKey].(error)
+			return errors.New(e.Message)
 		}
 	}
 	return nil

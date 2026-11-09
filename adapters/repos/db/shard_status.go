@@ -218,7 +218,7 @@ func (s *Shard) retryHeldMigrations(in string) error {
 		defer release()
 		defer s.liftRetry.Unlock()
 		if err := s.rearmHeld(); err != nil {
-			s.index.logger.WithField("shard", s.name).WithError(err).Error("recovery retry of a held shard failed")
+			s.index.logger.WithField("shard", s.name).Errorf("recovery retry of a held shard failed: %v", err)
 		}
 	}, s.index.logger)
 	return s.heldReadOnlyErr(errors.New("a recovery retry started; set the status again once it ends, and this node's log names a failure"))
