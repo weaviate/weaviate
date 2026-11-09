@@ -25,8 +25,10 @@ func TestPerTenantSwap(t *testing.T) {
 		require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 			Namespace: h.namespace, Id: taskID, SubmittedAtUnixMillis: h.clock.Now().UnixMilli(), NeedsPreparationBarrier: true,
 			UnitSpecs: []*cmd.UnitSpec{
-				{Id: "a-1", GroupId: "tenant-a"}, {Id: "a-2", GroupId: "tenant-a"},
-				{Id: "b-1", GroupId: "tenant-b"}, {Id: "b-2", GroupId: "tenant-b"},
+				{Id: "a-1", GroupId: "tenant-a"},
+				{Id: "a-2", GroupId: "tenant-a"},
+				{Id: "b-1", GroupId: "tenant-b"},
+				{Id: "b-2", GroupId: "tenant-b"},
 			},
 		}), 1))
 	}
