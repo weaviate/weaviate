@@ -183,7 +183,7 @@ func TestSegmentCopyNodeServesBucketReads(t *testing.T) {
 func BenchmarkSegmentCopyNode(b *testing.B) {
 	const fileSize = 1024 * 1024
 
-	metrics := benchIOReadMetrics(b)
+	metrics := benchIOReadMetrics()
 
 	// seed the global cache, which a test in the same binary may have filled
 	readObserver.Store(copyNodeMetricName, metrics.ReadObserver(copyNodeMetricName))

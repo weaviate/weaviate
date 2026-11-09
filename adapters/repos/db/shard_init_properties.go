@@ -237,21 +237,10 @@ func (s *migrationSweepState) recordSetReads() int {
 // No disk read: the shard's store is the only writer to .migrations/records/.
 func (s *Shard) migrationSweepState() *migrationSweepState {
 	store := s.migrationRecordStore()
-	unreadable := store.Unreadable()
 	return &migrationSweepState{
 		recordReads: 1,
-		committed: migrationPreservedStateFromRecords(store.Records(),
-			len(unreadable) > 0, migrationRecordSetUnreadable(unreadable)),
+		committed:   migrationPreservedStateFromRecords(store.Records(), store.Unreadable()),
 	}
-}
-
-func migrationRecordSetUnreadable(faults []MigrationRecordUnreadable) bool {
-	for _, fault := range faults {
-		if fault.Scope == MigrationRecordFaultStore {
-			return true
-		}
-	}
-	return false
 }
 
 // CleanStalePartialReindexState removes the on-disk state of a previously
@@ -261,7 +250,9 @@ func migrationRecordSetUnreadable(faults []MigrationRecordUnreadable) bool {
 //
 // Crash safety: sidecar buckets shut down before their dirs go (open lsmkv
 // handles); the .migrations/records/ record stays, still naming the run's dirs.
-func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, indexType string) error {
+func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, indexType string,
+	dirs *dirNamesCache,
+) error {
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
 		return fmt.Errorf("clean stale partial reindex state: unknown indexType %q", indexType)
@@ -275,12 +266,14 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		"operation":   "CleanStalePartialReindexState",
 	})
 
-	// A shard whose record set cannot be read at all keeps every sidecar, so the
-	// sweep has removed nothing and must not report success.
-	committed, err := migrationPreservedStateAt(s.pathLSM(), s.index.logger)
+	// Only an unlistable dir fails the shard: any other unreadable record set
+	// preserves every sidecar, and the sweep summary's count reports it.
+	records, faults, err := migrationRecordsAt(s.pathLSM(), s.index.logger)
+	dirs.chargeUnreadableRecordSet(s.pathLSM(), faults, err)
 	if err != nil {
 		return fmt.Errorf("partial-reindex cleanup: %w", err)
 	}
+	committed := migrationPreservedStateFromRecords(records, faults)
 
 	loaded := s.store.GetBucketsByName()
 	var shutDown []string

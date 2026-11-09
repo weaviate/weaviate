@@ -179,18 +179,35 @@ func indexResourceURL(restURI, collection, property, indexType, verb string, ten
 type IndexesResponse struct {
 	Collection string `json:"collection"`
 	Properties []struct {
-		Name    string `json:"name"`
-		Indexes []struct {
-			Type               string  `json:"type"`
-			Status             string  `json:"status"`
-			Progress           float32 `json:"progress"`
-			TaskID             string  `json:"taskId,omitempty"`
-			Tokenization       string  `json:"tokenization,omitempty"`
-			TargetTokenization string  `json:"targetTokenization,omitempty"`
-			Algorithm          string  `json:"algorithm,omitempty"`
-			TargetAlgorithm    string  `json:"targetAlgorithm,omitempty"`
-		} `json:"indexes"`
+		Name    string       `json:"name"`
+		Indexes []IndexEntry `json:"indexes"`
 	} `json:"properties"`
+}
+
+// IndexEntry is one index's status in an IndexesResponse.
+type IndexEntry struct {
+	Type               string  `json:"type"`
+	Status             string  `json:"status"`
+	Progress           float32 `json:"progress"`
+	TaskID             string  `json:"taskId,omitempty"`
+	Tokenization       string  `json:"tokenization,omitempty"`
+	TargetTokenization string  `json:"targetTokenization,omitempty"`
+	Algorithm          string  `json:"algorithm,omitempty"`
+	TargetAlgorithm    string  `json:"targetAlgorithm,omitempty"`
+}
+
+func (r *IndexesResponse) find(property, indexType string) (IndexEntry, bool) {
+	for _, prop := range r.Properties {
+		if prop.Name != property {
+			continue
+		}
+		for _, idx := range prop.Indexes {
+			if idx.Type == indexType {
+				return idx, true
+			}
+		}
+	}
+	return IndexEntry{}, false
 }
 
 // GetIndexes fires GET /v1/schema/{collection}/indexes and returns the
@@ -440,6 +457,50 @@ func AwaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexTy
 		t.Logf("index monitoring: saw indexing->ready for %s/%s (final progress: %f)", property, indexType, lastProgress.Load())
 	} else {
 		t.Logf("index monitoring: task completed too fast for %s/%s", property, indexType)
+	}
+}
+
+// IndexWant is the index state AwaitIndexOnNodes waits for. An empty field
+// matches any value.
+type IndexWant struct {
+	Status    string
+	Algorithm string
+}
+
+func (w IndexWant) matches(e IndexEntry) bool {
+	return (w.Status == "" || w.Status == e.Status) &&
+		(w.Algorithm == "" || w.Algorithm == e.Algorithm)
+}
+
+const nodeCatchUpTimeout = 10 * time.Second
+
+// AwaitIndexOnNodes waits until each node's own GET /indexes reports want.
+// Use after AwaitReindexFinished: /v1/tasks answers from the leader, but
+// /indexes from the node's own task copy, which can lag FINISHED.
+func AwaitIndexOnNodes(t *testing.T, nodeURIs []string, collection, property, indexType string, want IndexWant) {
+	t.Helper()
+	for _, uri := range nodeURIs {
+		last := "no successful read"
+		deadline := time.Now().Add(nodeCatchUpTimeout)
+		for polls := 1; ; polls++ {
+			if resp, ok := TryGetIndexes(uri, collection); ok {
+				last = fmt.Sprintf("no %s/%s entry", property, indexType)
+				if e, found := resp.find(property, indexType); found {
+					if want.matches(e) {
+						if polls > 1 {
+							t.Logf("node %s: %s/%s reached %+v after %d polls", uri, property, indexType, want, polls)
+						}
+						break
+					}
+					last = fmt.Sprintf("status=%q algorithm=%q", e.Status, e.Algorithm)
+				}
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("node %s: %s.%s %s index did not reach %+v within %s (last: %s)",
+					uri, collection, property, indexType, want, nodeCatchUpTimeout, last)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
 	}
 }
 

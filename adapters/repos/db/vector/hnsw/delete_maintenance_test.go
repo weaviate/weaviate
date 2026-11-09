@@ -152,9 +152,9 @@ func TestMaintenanceFlagLeakOnReconnectError(t *testing.T) {
 }
 
 // TestMaintenanceFlagLeakOnInsertError verifies that a node's maintenance flag
-// is cleared even when findAndConnectNeighbors fails during insertion.
+// is cleared even when connecting neighbors fails during insertion.
 //
-// Bug reproduction: In addOne, if findAndConnectNeighbors returns an error
+// Bug reproduction: In addOne, if connecting neighbors returns an error
 // after markAsMaintenance() is called and the node is added to h.nodes,
 // unmarkAsMaintenance() must still be called.
 func TestMaintenanceFlagLeakOnInsertError(t *testing.T) {
@@ -196,10 +196,10 @@ func TestMaintenanceFlagLeakOnInsertError(t *testing.T) {
 	require.NoError(t, err)
 
 	// Enable failure injection for ReplaceLinksAtLevel
-	// This will cause findAndConnectNeighbors to fail after the node is added to h.nodes
+	// This will cause connecting neighbors to fail after the node is added to h.nodes
 	commitLogger.setFailOnReplaceLinks(true)
 
-	// Try to insert second node - this should fail in findAndConnectNeighbors
+	// Try to insert second node - this should fail while connecting neighbors
 	err = index.Add(ctx, 1, vectors[1])
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "injected commit log error")
