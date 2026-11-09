@@ -339,3 +339,29 @@ func corruptFirstSegmentNode(t *testing.T, shard *Shard) {
 	_, err = f.WriteAt(length, segmentindex.HeaderSize+1)
 	require.NoError(t, err)
 }
+
+// A read of a multi vector the object does not have reports the object as not
+// found, as the single vector read does.
+func TestReadMultiVectorByIndexID_MissingVector(t *testing.T) {
+	shard := scanTestShard(t)
+	docID := putScanObject(t, shard, map[string][]float32{"title": {1, 2}})
+
+	for _, tc := range []struct {
+		name string
+		read func() ([][]float32, error)
+	}{
+		{name: "with a view", read: func() ([][]float32, error) {
+			return shard.multiVectorByIndexID(testCtx(), docID, "colbert")
+		}},
+		{name: "into a slice", read: func() ([][]float32, error) {
+			return shard.readMultiVectorByIndexIDIntoSlice(testCtx(), docID, &common.VectorSlice{Buff8: make([]byte, 8)}, "colbert")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tc.read()
+			var notFound storobj.ErrNotFound
+			require.ErrorAs(t, err, &notFound)
+			require.Equal(t, docID, notFound.DocID)
+		})
+	}
+}
