@@ -478,10 +478,7 @@ func (pv *propValuePair) readFromBucket(ctx context.Context, s *Searcher, limit 
 	b := s.store.Bucket(bucketName)
 
 	// TODO:  I think we can delete this check entirely.  The bucket will never be nill, and routines should now check if their particular feature is active in the schema.  However, not all those routines have checks yet.
-	if b == nil && pv.operator != filters.OperatorWithinGeoRange {
-		// a nil bucket is ok for a WithinGeoRange filter, as this query is not
-		// served by the inverted index, but propagated to a secondary index in
-		// .docPointers()
+	if b == nil {
 		return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 	}
 
@@ -496,6 +493,15 @@ func (pv *propValuePair) getBucketName() string {
 	if pv.nested.isNested {
 		if pv.hasFilterableIndex {
 			return helpers.BucketNestedFromPropNameLSM(pv.prop)
+		}
+		return ""
+	}
+
+	// a geo range is served by the property's geopoints bucket, which the
+	// filterable index of a geoCoordinates property is
+	if pv.operator == filters.OperatorWithinGeoRange {
+		if pv.hasFilterableIndex {
+			return helpers.BucketGeoFromPropNameLSM(pv.prop)
 		}
 		return ""
 	}

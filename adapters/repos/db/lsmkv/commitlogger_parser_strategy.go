@@ -56,6 +56,7 @@ func init() {
 	prioritizedAllStrategies = []string{
 		StrategyRoaringSet,
 		StrategyRoaringSetRange,
+		StrategyGeoPoints,
 		StrategyMapCollection,
 		StrategyInverted,
 		StrategyReplace,
@@ -69,6 +70,8 @@ func init() {
 		StrategySetCollection:   isCommitLogCompatibleSetCollection,
 		StrategyRoaringSet:      isCommitLogCompatibleRoaringSet,
 		StrategyRoaringSetRange: isCommitLogCompatibleRoaringSetRange,
+		// a geopoints log is roaringset nodes keyed by doc ID, see memtable_geo_points.go
+		StrategyGeoPoints: isCommitLogCompatibleRoaringSet,
 	}
 }
 

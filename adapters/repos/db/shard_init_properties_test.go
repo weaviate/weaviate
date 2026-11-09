@@ -20,8 +20,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// createsGeoIndex decides which props leave the per-property fan-out, so it has
-// to agree with the branch createPropertyValueIndex actually takes.
+// createsGeoIndex decides which props get a geo bucket, so it has to agree with
+// the branch createPropertyValueIndex actually takes.
 func TestCreatesGeoIndex(t *testing.T) {
 	geoDataType := []string{string(schema.DataTypeGeoCoordinates)}
 
@@ -41,8 +41,7 @@ func TestCreatesGeoIndex(t *testing.T) {
 			want: true,
 		},
 		{
-			// createPropertyValueIndex never reaches initGeoProp for these, so
-			// batching them would claim work that is not happening
+			// createPropertyValueIndex never reaches initGeoProp for these
 			name: "geo prop with filterable off",
 			prop: &models.Property{Name: "location", DataType: geoDataType, IndexFilterable: boolPtr(false)},
 			want: false,

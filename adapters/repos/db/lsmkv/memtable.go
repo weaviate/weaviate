@@ -29,6 +29,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/geopoints"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
@@ -89,6 +90,7 @@ type memtable interface {
 	// contract.
 	roaringSetGetWindow(keys inverted.SortedKeys, from, to int, dst []roaringset.BitmapLayer, budget int) (windowFill, error)
 	newRoaringSetRangeReader() roaringsetrange.InnerReader
+	newGeoPointsReader() geopoints.InnerReader
 	newMapCursor() innerCursorMap
 
 	roaringSetAddOne(key []byte, value uint64) error
@@ -111,6 +113,9 @@ type memtable interface {
 	roaringSetRangeAddCommitLog(key uint64, additions []uint64, deletions []uint64) error
 	extractRoaringSetRange() *roaringsetrange.Memtable
 
+	geoPointsAdd(docID uint64, lat, lon float32) error
+	geoPointsRemove(docID uint64) error
+
 	flushDataReplace(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
 	flushDataSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
 	flushDataMap(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
@@ -118,6 +123,7 @@ type memtable interface {
 	flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.MeteredWriter, bufw *bufio.Writer) ([]segmentindex.Key, *sroar.Bitmap, error)
 	flushDataRoaringSet(f *segmentindex.SegmentFile, ogF io.WriteSeeker, bufw *bufio.Writer) error
 	flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+	flushDataGeoPoints(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
 
 	incWriterCount()
 	decWriterCount()
@@ -133,6 +139,7 @@ type Memtable struct {
 	primaryIndex    *binarySearchTree
 	roaringSet      *roaringset.BinarySearchTree
 	roaringSetRange *roaringsetrange.Memtable
+	geoPoints       *geopoints.Memtable
 	commitlog       memtableCommitLogger
 	// scratch for the map and inverted write paths, guarded by the embedded lock
 	mapPairScratch  []byte
@@ -223,6 +230,7 @@ func newMemtable(cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldL
 		primaryIndex:                 &binarySearchTree{}, // todo, sort upfront
 		roaringSet:                   &roaringset.BinarySearchTree{},
 		roaringSetRange:              roaringsetrange.NewMemtable(logger),
+		geoPoints:                    geopoints.NewMemtable(),
 		commitlog:                    cl,
 		path:                         config.path,
 		strategy:                     config.strategy,

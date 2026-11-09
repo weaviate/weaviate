@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
@@ -553,22 +554,22 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 			return nil
 		}))
 
-		locationBefore, locationQueueBefore := geoIndexAndQueue(t, shard, locationProp)
-		homeBefore, _ := geoIndexAndQueue(t, shard, homeProp)
+		geoBucket := func(propName string) *lsmkv.Bucket {
+			return shard.store.Bucket(helpers.BucketGeoFromPropNameLSM(propName))
+		}
+		locationBefore := geoBucket(locationProp)
+		homeBefore := geoBucket(homeProp)
+		require.NotNil(t, locationBefore)
+		require.NotNil(t, homeBefore)
 
 		for i := 0; i < iterations; i++ {
 			require.NoError(t, migrator.UpdateIndex(ctx, geoClass, ss))
 		}
 
-		locationAfter, locationQueueAfter := geoIndexAndQueue(t, shard, locationProp)
-		homeAfter, _ := geoIndexAndQueue(t, shard, homeProp)
-
-		require.Same(t, locationBefore, locationAfter,
-			"UpdateIndex rebuilt the geo index, blocking on a full cache prefill")
-		require.Same(t, locationQueueBefore, locationQueueAfter,
-			"UpdateIndex rebuilt the geo queue, leaving the old one registered")
-		require.Same(t, homeBefore, homeAfter,
-			"UpdateIndex rebuilt the second geo index")
+		require.Same(t, locationBefore, geoBucket(locationProp),
+			"UpdateIndex replaced the geo bucket, rebuilding it from the objects")
+		require.Same(t, homeBefore, geoBucket(homeProp),
+			"UpdateIndex replaced the geo bucket of a property it did not touch")
 	})
 
 	t.Run("single tenant, a geo property the shard lacks is still added", func(t *testing.T) {
@@ -611,8 +612,7 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 
 		require.NoError(t, migrator.UpdateIndex(ctx, incomingClass, ss))
 
-		location, _ := geoIndexAndQueue(t, shard, locationProp)
-		require.NotNil(t, location, "a geo property missing from the shard must be added")
+		require.True(t, shard.hasGeoIndexForProp(locationProp), "a geo property missing from the shard must be added")
 	})
 }
 

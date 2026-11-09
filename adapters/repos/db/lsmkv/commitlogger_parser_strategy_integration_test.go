@@ -57,19 +57,20 @@ func TestIsCommitLogCompatible(t *testing.T) {
 			expectedStrategies: []string{StrategySetCollection},
 		},
 		{
-			name:               "strategy roaring set (bool)",
-			path:               pathRoaringSet_bool,
-			expectedStrategies: []string{StrategyRoaringSet},
+			name: "strategy roaring set (bool)",
+			path: pathRoaringSet_bool,
+			// a geopoints log is roaringset nodes, so its check accepts any of them
+			expectedStrategies: []string{StrategyRoaringSet, StrategyGeoPoints},
 		},
 		{
 			name:               "strategy roaring set (number)",
 			path:               pathRoaringSet_number,
-			expectedStrategies: []string{StrategyRoaringSet, StrategyRoaringSetRange},
+			expectedStrategies: []string{StrategyRoaringSet, StrategyRoaringSetRange, StrategyGeoPoints},
 		},
 		{
 			name:               "strategy roaring set range (number)",
 			path:               pathRoaringSetRange_number,
-			expectedStrategies: []string{StrategyRoaringSet, StrategyRoaringSetRange},
+			expectedStrategies: []string{StrategyRoaringSet, StrategyRoaringSetRange, StrategyGeoPoints},
 		},
 	}
 

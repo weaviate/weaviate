@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	entinverted "github.com/weaviate/weaviate/entities/inverted"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -190,7 +191,7 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 
 	maxDocID := uint64(numDocs + 1)
 	bitmapFactory := roaringset.NewBitmapFactory(bufPool, newFakeMaxIDGetter(maxDocID))
-	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
+	searcher := NewSearcher(logger, store, createSchema().GetClass, nil,
 		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false },
 		func(string) bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
@@ -1102,14 +1103,28 @@ func TestDocBitmap_SlowLogEntryFields(t *testing.T) {
 
 	t.Run("a geo leaf", func(t *testing.T) {
 		ctx := helpers.InitSlowQueryDetails(context.Background())
-		_, err := f.searcher.docBitmap(ctx, nil, 0, &propValuePair{
+		geoBucketName := helpers.BucketGeoFromPropNameLSM("location")
+		require.NoError(t, f.store.CreateOrLoadBucket(ctx, geoBucketName,
+			lsmkv.WithStrategy(lsmkv.StrategyGeoPoints)))
+		geoBucket := f.store.Bucket(geoBucketName)
+		require.NoError(t, geoBucket.GeoPointsAdd(7, 52.5, 13.4))
+
+		lat, lon := float32(52.5), float32(13.4)
+		bm, err := f.searcher.docBitmap(ctx, geoBucket, 0, &propValuePair{
 			prop: "location", operator: filters.OperatorWithinGeoRange,
+			valueGeoRange: &filters.GeoRange{
+				GeoCoordinates: &models.GeoCoordinates{Latitude: &lat, Longitude: &lon},
+				Distance:       1000,
+			},
 		})
 		require.NoError(t, err)
+		require.Equal(t, []uint64{7}, bm.IDs())
+		bm.release()
 
 		entries, ok := docBitmapSlowLogEntries(ctx)
 		require.True(t, ok)
 		require.Len(t, entries, 1)
-		require.Equal(t, "geo", entries[0]["strategy"])
+		require.Equal(t, lsmkv.StrategyGeoPoints, entries[0]["strategy"])
+		require.Equal(t, 1, entries[0]["count"])
 	})
 }

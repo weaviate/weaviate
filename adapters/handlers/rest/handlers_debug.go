@@ -905,15 +905,16 @@ func newRebuildVectorIndexHandler(logger logrus.FieldLogger, asyncIndexingEnable
 	getIndex func(schema.ClassName) debugVectorIndexResetter,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !asyncIndexingEnabled {
-			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
-			return
-		}
-
 		colName := r.URL.Query().Get("collection")
 		shardName := r.URL.Query().Get("shard")
 		targetVector := r.URL.Query().Get("vector")
 		geoProp := r.URL.Query().Get("geo")
+
+		// a geo index is rebuilt synchronously from the objects and needs no queue
+		if !asyncIndexingEnabled && geoProp == "" {
+			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
+			return
+		}
 
 		if colName == "" || shardName == "" {
 			http.Error(w, "collection and shard are required", http.StatusBadRequest)

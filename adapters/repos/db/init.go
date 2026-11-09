@@ -192,7 +192,6 @@ func (db *DB) init(ctx context.Context) error {
 			HNSWFlatSearchConcurrency:    db.config.HNSWFlatSearchConcurrency,
 			HNSWAcornFilterRatio:         db.config.HNSWAcornFilterRatio,
 			BM25FilterTombMergeGateRatio: db.config.BM25FilterTombMergeGateRatio,
-			HNSWGeoIndexEF:               db.config.HNSWGeoIndexEF,
 			VisitedListPoolMaxSize:       db.config.VisitedListPoolMaxSize,
 			QuerySlowLogEnabled:          db.config.QuerySlowLogEnabled,
 			QuerySlowLogThreshold:        db.config.QuerySlowLogThreshold,
