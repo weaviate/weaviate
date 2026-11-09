@@ -484,10 +484,14 @@ func TestCheckMigrationPropertyUpdate(t *testing.T) {
 		{status: distributedtask.TaskStatusCancelled, class: "C", prop: "name", wantRefuse: true},
 		{status: distributedtask.TaskStatusFinished, class: "C", prop: "name", wantRefuse: true},
 		{status: distributedtask.TaskStatusPreparing, class: "C", prop: "name", wantRefuse: true},
-		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "name", wantRefuse: true,
-			run: api.MigrationRun{Namespace: ReindexNamespace, ID: "T1", Version: 2}},
-		{status: distributedtask.TaskStatusSwapping, class: "C", prop: "name", wantRefuse: true,
-			run: api.MigrationRun{Namespace: ReindexNamespace, ID: "gone", Version: 1}},
+		{
+			status: distributedtask.TaskStatusSwapping, class: "C", prop: "name", wantRefuse: true,
+			run: api.MigrationRun{Namespace: ReindexNamespace, ID: "T1", Version: 2},
+		},
+		{
+			status: distributedtask.TaskStatusSwapping, class: "C", prop: "name", wantRefuse: true,
+			run: api.MigrationRun{Namespace: ReindexNamespace, ID: "gone", Version: 1},
+		},
 	} {
 		if tc.run == (api.MigrationRun{}) {
 			tc.run = api.MigrationRun{Namespace: ReindexNamespace, ID: "T1", Version: 1}
