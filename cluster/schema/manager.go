@@ -1036,6 +1036,14 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
+	if len(req.ClusterNodes) == 0 {
+		if ns, ok := s.classNamespace(cmd.Class); ok {
+			// With the whole list, GetPartitions would spread one request's
+			// tenants over every home node.
+			factor := s.schema.ClassInfo(cmd.Class).ReplicationFactor
+			req.ClusterNodes = ns.HomeNodes[:min(factor, len(ns.HomeNodes))]
+		}
+	}
 
 	return s.apply(
 		applyOp{
@@ -1051,6 +1059,12 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 	req := &command.UpdateTenantsRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if len(req.ClusterNodes) == 0 {
+		// metaClass.unfreeze calls GetPartitions per tenant, so each takes the first RF entries.
+		if ns, ok := s.classNamespace(cmd.Class); ok {
+			req.ClusterNodes = ns.HomeNodes
+		}
 	}
 
 	// Cross-FSM mutation guard — see [MutationGuard.CheckTenantMutation].

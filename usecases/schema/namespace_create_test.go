@@ -582,10 +582,9 @@ func TestAddClass_ShardCapAppliesAfterOverride(t *testing.T) {
 	}
 }
 
-// TestAddTenants_PinsShardsToNamespaceHomeNode covers the placement
-// override for tenant creation on NS-enabled clusters: the AddTenants RPC
-// is built with ClusterNodes=[home_node]. NS-disabled clusters fall back
-// to the full storage candidate set.
+// TestAddTenants_PinsShardsToNamespaceHomeNode checks that a tenant create
+// sends nil ClusterNodes on NS-enabled clusters, for apply to fill from
+// HomeNodes, and every storage candidate on NS-disabled clusters.
 func TestAddTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 	t.Parallel()
 
@@ -598,16 +597,22 @@ func TestAddTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 		exister   fakeNamespacesExister
 		class     string
 		wantNodes []string
+		wantErr   string
 	}{
 		{
-			name:      "NS enabled: ClusterNodes pinned to home_node",
+			name:      "NS enabled: ClusterNodes left for apply to fill",
 			enabled:   true,
 			principal: namespacedPrincipal("customer1"),
-			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
-				"customer1": {Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive},
-			}},
+			exister:   homeNodes("node-2"),
 			class:     "Movies",
-			wantNodes: []string{"node-2"},
+		},
+		{
+			name:      "NS enabled: a home node outside the storage candidates is refused",
+			enabled:   true,
+			principal: namespacedPrincipal("customer1"),
+			exister:   homeNodes("node-1", "node-9"),
+			class:     "Movies",
+			wantErr:   "1 home node(s) of the namespace are not storage candidates",
 		},
 		{
 			name:      "NS disabled: ClusterNodes is the full candidate set",
@@ -634,6 +639,12 @@ func TestAddTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 
 			_, err := handler.AddTenants(context.Background(), tt.principal, tt.class,
 				[]*models.Tenant{{Name: "T1"}, {Name: "T2"}})
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assertErrorOmits(t, err, "customer1", "node-9")
+				assert.Nil(t, captured, "nothing may be proposed")
+				return
+			}
 			require.NoError(t, err)
 			require.NotNil(t, captured, "expected AddTenants to be called")
 			assert.Equal(t, tt.wantNodes, captured.ClusterNodes)
@@ -641,12 +652,9 @@ func TestAddTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 	}
 }
 
-// TestUpdateTenants_PinsShardsToNamespaceHomeNode covers the placement
-// override on the UpdateTenants path. The candidate list is consumed by
-// the apply-side unfreeze flow (GetPartitions), so pinning to [home_node]
-// here is what lands a reactivated tenant back on the namespace's home
-// node. Non-unfreeze transitions ignore the candidate list, so we just
-// assert what's serialized in the propose payload.
+// TestUpdateTenants_PinsShardsToNamespaceHomeNode checks that a tenant update
+// sends nil ClusterNodes on NS-enabled clusters, for SchemaManager.UpdateTenants
+// to fill from HomeNodes at apply, and every storage candidate on NS-disabled clusters.
 func TestUpdateTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 	t.Parallel()
 
@@ -661,14 +669,11 @@ func TestUpdateTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 		wantNodes []string
 	}{
 		{
-			name:      "NS enabled: ClusterNodes pinned to home_node",
+			name:      "NS enabled: ClusterNodes left for apply to fill",
 			enabled:   true,
 			principal: namespacedPrincipal("customer1"),
-			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
-				"customer1": {Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive},
-			}},
+			exister:   homeNodes("node-2"),
 			class:     "Movies",
-			wantNodes: []string{"node-2"},
 		},
 		{
 			name:      "NS disabled: ClusterNodes is the full candidate set",

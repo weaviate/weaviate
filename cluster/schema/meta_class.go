@@ -337,7 +337,6 @@ func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, re
 	for i, tenant := range req.Tenants {
 		names[i] = tenant.Name
 	}
-	// First determine the partition based on the node *present at the time of the log entry being created*
 	partitions, err := m.Sharding.GetPartitions(req.ClusterNodes, names, replFactor)
 	if err != nil {
 		return nil, fmt.Errorf("get partitions: %w", err)

@@ -285,9 +285,9 @@ func rejectExplicitMultiShardOnNamespacedClass(shardingConfig any) error {
 	return nil
 }
 
-// namespaceCandidates returns the namespace's HomeNodes for placing
-// qualifiedClass's shards, or every storage candidate on NS-disabled clusters.
-// A class takes the first RF entries, so the first home node carries the most load.
+// namespaceCandidates returns the namespace's HomeNodes, or every storage
+// candidate on NS-disabled clusters. Classes and tenants take the first RF
+// entries, so the first home node carries the most load.
 func (h *Handler) namespaceCandidates(qualifiedClass string) ([]string, error) {
 	if !h.config.Namespaces.Enabled {
 		return h.membership.StorageCandidates(), nil

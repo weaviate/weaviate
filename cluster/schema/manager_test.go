@@ -29,6 +29,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -1451,6 +1452,129 @@ func TestUpdatePropertyStoreSeesTheMergedProperty(t *testing.T) {
 			require.Equal(t, *schemaProp.IndexFilterable, *idx.got.IndexFilterable)
 			require.Equal(t, *schemaProp.IndexSearchable, *idx.got.IndexSearchable)
 			require.Equal(t, *schemaProp.IndexRangeFilters, *idx.got.IndexRangeFilters)
+		})
+	}
+}
+
+// newManagerWithNamespacedClass returns a SchemaManager holding the multi-tenant
+// class alpha:Foo at factor with the tenants in physical, where namespace alpha
+// has homeNodes.
+func newManagerWithNamespacedClass(t *testing.T, factor int64, homeNodes []string,
+	physical map[string]sharding.Physical,
+) *SchemaManager {
+	t.Helper()
+	exister := usecasesNamespaces.NewMockExister(t)
+	exister.On("GetNamespace", "alpha").Return(cmd.Namespace{Name: "alpha", HomeNodes: homeNodes}, true).Maybe()
+	sm := NewSchemaManager("n1", nil, nil, exister, prometheus.NewPedanticRegistry(), logrus.New())
+	require.NoError(t, sm.schema.addClass(&models.Class{
+		Class:              "alpha:Foo",
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		ReplicationConfig:  &models.ReplicationConfig{Factor: factor},
+	}, &sharding.State{PartitioningEnabled: true, Physical: physical}, 1))
+	return sm
+}
+
+func tenantApplyRequest(t *testing.T, typ cmd.ApplyRequest_Type, req gproto.Message) *cmd.ApplyRequest {
+	t.Helper()
+	sub, err := gproto.Marshal(req)
+	require.NoError(t, err)
+	return &cmd.ApplyRequest{Type: typ, Class: "alpha:Foo", SubCommand: sub}
+}
+
+func TestSchemaManager_AddTenantsFillsHomeNodes(t *testing.T) {
+	tests := []struct {
+		name      string
+		factor    int64
+		homeNodes []string
+		sent      []string
+		tenants   []string
+		wantNodes []string
+		wantErr   string
+	}{
+		{
+			name:      "an empty list puts every tenant on the first RF home nodes",
+			factor:    2,
+			homeNodes: []string{"n1", "n2", "n3"},
+			tenants:   []string{"t1", "t2", "t3"},
+			wantNodes: []string{"n1", "n2"},
+		},
+		{
+			name:      "a sent list is kept",
+			factor:    1,
+			homeNodes: []string{"n1"},
+			sent:      []string{"n4"},
+			tenants:   []string{"t1"},
+			wantNodes: []string{"n4"},
+		},
+		{
+			name:      "a factor above the home-node count is refused",
+			factor:    2,
+			homeNodes: []string{"n1"},
+			tenants:   []string{"t1"},
+			wantErr:   "not enough replicas",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm := newManagerWithNamespacedClass(t, tt.factor, tt.homeNodes, nil)
+			req := &cmd.AddTenantsRequest{ClusterNodes: tt.sent}
+			for _, name := range tt.tenants {
+				req.Tenants = append(req.Tenants, &cmd.Tenant{Name: name, Status: models.TenantActivityStatusHOT})
+			}
+
+			err := sm.AddTenants(tenantApplyRequest(t, cmd.ApplyRequest_TYPE_ADD_TENANT, req), true)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			for _, name := range tt.tenants {
+				owners, _, err := sm.schema.ShardReplicas("alpha:Foo", name)
+				require.NoError(t, err)
+				assert.ElementsMatch(t, tt.wantNodes, owners, name)
+			}
+		})
+	}
+}
+
+func TestSchemaManager_UpdateTenantsFillsHomeNodes(t *testing.T) {
+	tests := []struct {
+		name      string
+		factor    int64
+		homeNodes []string
+		sent      []string
+		wantNodes []string
+	}{
+		{
+			name:      "an empty list unfreezes onto the first RF home nodes",
+			factor:    2,
+			homeNodes: []string{"n1", "n2", "n3"},
+			wantNodes: []string{"n1", "n2"},
+		},
+		{
+			name:      "a sent list is kept",
+			factor:    1,
+			homeNodes: []string{"n1"},
+			sent:      []string{"n4"},
+			wantNodes: []string{"n4"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm := newManagerWithNamespacedClass(t, tt.factor, tt.homeNodes, map[string]sharding.Physical{
+				"t1": {Name: "t1", Status: models.TenantActivityStatusFROZEN, BelongsToNodes: []string{"n9"}},
+			})
+			req := &cmd.UpdateTenantsRequest{
+				ClusterNodes: tt.sent,
+				Tenants:      []*cmd.Tenant{{Name: "t1", Status: models.TenantActivityStatusHOT}},
+			}
+
+			require.NoError(t, sm.UpdateTenants(tenantApplyRequest(t, cmd.ApplyRequest_TYPE_UPDATE_TENANT, req), true))
+			owners, _, err := sm.schema.ShardReplicas("alpha:Foo", "t1")
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.wantNodes, owners)
 		})
 	}
 }

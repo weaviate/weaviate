@@ -97,12 +97,12 @@ func (h *Handler) AddTenants(ctx context.Context,
 		}
 	}
 
-	candidates, err := h.namespaceCandidates(class)
+	nodes, err := h.tenantClusterNodes(class)
 	if err != nil {
 		return 0, err
 	}
 	request := api.AddTenantsRequest{
-		ClusterNodes: candidates,
+		ClusterNodes: nodes,
 		Tenants:      make([]*api.Tenant, 0, len(validated)),
 	}
 	for i, tenant := range validated {
@@ -113,6 +113,17 @@ func (h *Handler) AddTenants(ctx context.Context,
 	}
 
 	return h.schemaManager.AddTenants(ctx, class, &request)
+}
+
+// tenantClusterNodes returns the ClusterNodes of a tenant add or update of
+// qualifiedClass. On NS-enabled clusters it is nil after namespaceCandidates
+// checks the HomeNodes, and SchemaManager fills it from them at apply.
+func (h *Handler) tenantClusterNodes(qualifiedClass string) ([]string, error) {
+	candidates, err := h.namespaceCandidates(qualifiedClass)
+	if err != nil || h.config.Namespaces.Enabled {
+		return nil, err
+	}
+	return candidates, nil
 }
 
 func validateTenants(tenants []*models.Tenant, allowOverHundred bool) (validated []*models.Tenant, err error) {
@@ -216,16 +227,15 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 		return nil, err
 	}
 
-	// ClusterNodes is only consulted on unfreeze. Pinning to [home_node]
-	// makes the unfrozen tenant land back on its namespace's home_node;
-	// HOT↔COLD ignore the list and stay no-ops.
-	candidates, err := h.namespaceCandidates(class)
+	// ClusterNodes is read only on unfreeze. A namespaced unfreeze takes its
+	// nodes from HomeNodes at apply.
+	nodes, err := h.tenantClusterNodes(class)
 	if err != nil {
 		return nil, err
 	}
 	req := api.UpdateTenantsRequest{
 		Tenants:      make([]*api.Tenant, len(tenants)),
-		ClusterNodes: candidates,
+		ClusterNodes: nodes,
 	}
 	tNames := make([]string, len(tenants))
 	for i, tenant := range tenants {
