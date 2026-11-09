@@ -1468,7 +1468,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger)
 
-	replicationHandlers.SetupHandlers(appState.ServerConfig.Config.Replication.ReplicaMovementEnabled, api, appState.ClusterService.Raft, appState.Metrics, appState.Authorizer, appState.Logger)
+	replicationHandlers.SetupHandlers(appState.ServerConfig.Config.Replication.ReplicaMovementEnabled, api, appState.ClusterService.Raft, appState.Metrics, appState.Authorizer, appState.Logger,
+		appState.ServerConfig.Config.Persistence.DataPath)
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	dbUserExpirationMode := dbUserExpirationModeFor(appState.ServerConfig.Config)

@@ -842,35 +842,24 @@ func TestReleaseBackupForeignHalt(t *testing.T) {
 	})
 }
 
-func TestDescriptorHardlinksUnsupported(t *testing.T) {
-	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
-	rootDir := t.TempDir()
-	className := "TestClass"
-	backupID := "test-backup"
+func TestBackupableHardlinkPreflight(t *testing.T) {
+	t.Run("an unsupported filesystem refuses before any class is checked", func(t *testing.T) {
+		t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+		const className = "ClassA"
+		builder := NewMultiTenantShardingStateBuilder().WithReplicationFactor(1)
+		builder.AddTenant("cold-tenant", models.TenantActivityStatusCOLD)
+		db := backupTestDBWithColdTenants(t, []string{className}, []string{"cold-tenant"}, builder.Build())
+		var fetches atomic.Int64
+		db.SetShardReindexActivityLookup(func() (ShardReindexActivityLookup, error) {
+			fetches.Add(1)
+			return makeActivityBuilder(nil)()
+		})
 
-	shardState := NewMultiTenantShardingStateBuilder().
-		AddTenant("cold-tenant", models.TenantActivityStatusCOLD).
-		AddTenant("hot-tenant", models.TenantActivityStatusHOT).
-		WithReplicationFactor(1).
-		Build()
-
-	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
-	createColdShardFiles(t, rootDir, className, "cold-tenant")
-	hotShard := NewMockShardLike(t)
-	idx.shards.Store("hot-tenant", hotShard)
-
-	var desc backup.ClassDescriptor
-	err := idx.descriptor(context.Background(), backupID, &desc, nil, nil, newReindexGate(idx.db, reindexGateMaxAge))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "supports hard links")
-
-	assert.NoDirExists(t, backupStagingDir(rootDir, backupID, schema.ClassName(className)))
-	assert.Empty(t, hotShard.Calls, "the refusal must not touch a shard")
-	for _, name := range []string{"cold-tenant", "hot-tenant"} {
-		require.True(t, idx.backupLock.TryRLock(name), "backupLock of %s must be free", name)
-		idx.backupLock.RUnlock(name)
-	}
-	assert.Nil(t, idx.lastBackup.Load(), "the refusal must not start a backup")
+		err := db.Backupable(context.Background(), []string{className, "MissingClass"})
+		require.ErrorContains(t, err, "backup requires a filesystem that supports hard links")
+		assert.NotContains(t, err.Error(), "doesn't exist", "the refusal must precede the per-class checks")
+		assert.Zero(t, fetches.Load(), "the refusal must precede the reindex gate")
+	})
 }
 
 // TestDescriptorHotTenants verifies that descriptor() correctly backs up HOT

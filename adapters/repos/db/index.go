@@ -967,7 +967,7 @@ func (i *Index) recoverShardFromPeerIfNeeded(ctx context.Context, class *models.
 	if !orch.SubmitRecovery(context.Background(), collection, shardName, enterrors.IsStartedWithoutRaftState(ctx)) {
 		i.shards.LoadAndDelete(shardName)
 		i.logger.WithFields(logFields).
-			Warn("self-recovery: submission was not queued (feature disabled, unlicensed, in maintenance mode or shutting down); falling back to normal shard init")
+			Warn("self-recovery: submission was not queued (feature disabled, unlicensed, filesystem without hard link support, in maintenance mode or shutting down); falling back to normal shard init")
 		return false
 	}
 	i.logger.WithFields(logFields).
@@ -1007,7 +1007,7 @@ func (i *Index) recoverShardOnActivation(ctx context.Context, class *models.Clas
 	if !orch.SubmitActivationRecovery(context.Background(), collection, shardName) {
 		i.shards.LoadAndDelete(shardName)
 		i.logger.WithFields(logFields).
-			Warn("self-recovery: activation submission was not queued (unlicensed, in maintenance mode or shutting down); materialising the shard empty")
+			Warn("self-recovery: activation submission was not queued (unlicensed, filesystem without hard link support, in maintenance mode or shutting down); materialising the shard empty")
 		return false
 	}
 	i.logger.WithFields(logFields).
@@ -2290,7 +2290,9 @@ func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string)
 		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
 	}
 
-	// At halt count 0 this leaves the maintenance cycles untouched, unless a previous resume failed; then it retries that resume.
+	// Ends the offload's halt. If HaltForTransfer already rolled itself back,
+	// the count is 0 and this does nothing unless a previous resume failed,
+	// which it then retries.
 	if err := shard.resumeMaintenanceCycles(ctx); err != nil {
 		return fmt.Errorf("resume maintenance cycles on shard %q: %w", shardName, err)
 	}

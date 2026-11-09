@@ -41,7 +41,6 @@ import (
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	localschema "github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	entreplication "github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -2501,12 +2500,6 @@ func TestResumeMaintenanceCyclesReapplyGate(t *testing.T) {
 		s.index.Config.AsyncReplicationConfig = minAsyncReplicationConfig()
 		s.index.replicationConfigLock.Unlock()
 
-		treeInstalled := func() bool {
-			s.asyncReplicationRWMux.RLock()
-			defer s.asyncReplicationRWMux.RUnlock()
-			return s.hashtree != nil
-		}
-
 		require.NoError(t, s.HaltForTransfer(ctx, false))
 		require.NoError(t, s.addTargetNodeOverride(ctx, additional.AsyncReplicationTargetNodeOverride{
 			CollectionID:   class,
@@ -2515,7 +2508,7 @@ func TestResumeMaintenanceCyclesReapplyGate(t *testing.T) {
 			TargetNode:     "nodeB",
 			UpperTimeBound: time.Now().Add(time.Hour).UnixMilli(),
 		}))
-		require.False(t, treeInstalled(), "the enable must be skipped while halted")
+		require.False(t, asyncReplicationInstalled(s), "the enable must be skipped while halted")
 
 		// Unregistering makes the resume's Activate fail with ErrorCallbackNotFound.
 		cc := s.cycleCallbacks
@@ -2523,18 +2516,13 @@ func TestResumeMaintenanceCyclesReapplyGate(t *testing.T) {
 		require.Error(t, s.resumeMaintenanceCycles(ctx))
 		require.Zero(t, s.haltForTransferCount.Load())
 		require.True(t, s.resumeIncomplete.Load())
-		require.False(t, treeInstalled(), "a failed resume must not re-apply the skipped enable")
+		require.False(t, asyncReplicationInstalled(s), "a failed resume must not re-apply the skipped enable")
 
-		// Register the callbacks again as inactive, the state the halt left them in.
-		cc.vectorCombinedCallbacksCtrl = cyclemanager.NewCombinedCallbackCtrl(2, s.index.logger,
-			s.index.cycleCallbacks.vectorCommitLoggerCallbacks.Register(
-				"retry/commit_logger", cc.vectorCommitLoggerCallbacks.CycleCallback, cyclemanager.AsInactive()),
-			s.index.cycleCallbacks.vectorTombstoneCleanupCallbacks.Register(
-				"retry/tombstone_cleanup", cc.vectorTombstoneCleanupCallbacks.CycleCallback, cyclemanager.AsInactive()))
+		reregisterVectorCallbacks(s)
 
 		require.NoError(t, s.resumeMaintenanceCycles(ctx))
 		require.False(t, s.resumeIncomplete.Load())
-		require.True(t, treeInstalled(), "the successful retry must re-apply the skipped enable")
+		require.True(t, asyncReplicationInstalled(s), "the successful retry must re-apply the skipped enable")
 	})
 }
 

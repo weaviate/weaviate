@@ -96,23 +96,10 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	defer i.replicaSnapshotOpLocks.Unlock(opID)
 
 	// A recovering shard cannot be a copy source. Shard-data probes must read this as "not usable now", not "definitively empty".
-	// This check runs before the hardlink probe, so a recovering shard answers ErrShardRecovering even when the hardlink probe fails.
 	if s := i.shards.Load(shardName); s != nil {
 		if rec, ok := s.(*RecoveringShard); ok && rec.IsRecovering() {
 			return nil, fmt.Errorf("incoming create replica snapshot for shard %s: %w", shardName, enterrors.ErrShardRecovering)
 		}
-	}
-
-	// Checked before GetShard, so a refusal never loads a cold lazy shard.
-	// A probe error is not wrapped as ErrShardBusyStructuralOp, so it counts
-	// against the movement's MaxErrors budget.
-	supported, err := file.ProbeHardlinkSupport(i.Config.RootPath)
-	if err != nil {
-		return nil, fmt.Errorf("probe hardlink support: %w", err)
-	}
-	if !supported {
-		return nil, fmt.Errorf("replica movement requires a filesystem that supports hard links; "+
-			"the data directory for class %s does not", i.Config.ClassName)
 	}
 
 	shard, release, err := i.GetShard(ctx, shardName)
@@ -227,8 +214,9 @@ func (i *Index) recordReplicaSnapshot(opID string) {
 	i.replicaSnapshots[opID] = struct{}{}
 }
 
-// releaseReplicaSnapshot has no halt to undo: CreateReplicaSnapshot resumes
-// the shard before it returns.
+// releaseReplicaSnapshot forgets opID and removes its staging directory. It
+// resumes no shard, because Shard.CreateReplicaSnapshot resumes it before
+// returning.
 func (i *Index) releaseReplicaSnapshot(opID string) error {
 	i.replicaSnapshotsMu.Lock()
 	delete(i.replicaSnapshots, opID)

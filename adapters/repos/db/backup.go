@@ -62,9 +62,11 @@ var nonVectorShardDirs = map[string]struct{}{
 }
 
 // Backupable returns whether all given class can be backed up.
-// Refuses if any shard has an in-flight runtime-reindex; this runs in
-// the coordinator's canCommit phase so no staging dir is created on
-// rejection.
+// It refuses if the data root does not support hard links or any shard has a
+// runtime reindex in progress. It runs twice: on the coordinator while it
+// validates the request, and on every participant at the start of its
+// canCommit phase. Both runs precede staging, so a refusal creates no staging
+// dir.
 //
 // All per-class failures are accumulated and joined into a
 // single error rather than short-circuiting on the first one. Joining
@@ -79,6 +81,15 @@ var nonVectorShardDirs = map[string]struct{}{
 // circuit the whole loop; other classes still get checked.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
+	// Only this node's filesystem is probed. Clusters whose nodes mix filesystems are unsupported.
+	supported, err := file.ProbeHardlinkSupport(db.config.RootPath)
+	if err != nil {
+		return fmt.Errorf("probe hardlink support: %w", err)
+	}
+	if !supported {
+		return fmt.Errorf("backup requires a filesystem that supports hard links; the data directory of node %s does not", nodeName)
+	}
+
 	gate := newReindexGate(db, reindexGateMaxAge)
 	var errs []error
 	for _, c := range classes {
@@ -321,14 +332,6 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 
 // descriptor record everything needed to restore a class
 func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.BaseClassDescriptor, designated map[string]string, gate reindexGate) (err error) {
-	supported, err := file.ProbeHardlinkSupport(i.Config.RootPath)
-	if err != nil {
-		return fmt.Errorf("probe hardlink support: %w", err)
-	}
-	if !supported {
-		return fmt.Errorf("backup requires a filesystem that supports hard links; the data directory for class %s does not", i.Config.ClassName)
-	}
-
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}

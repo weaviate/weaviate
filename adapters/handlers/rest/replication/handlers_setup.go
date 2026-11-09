@@ -28,9 +28,12 @@ type replicationHandler struct {
 	logger  logrus.FieldLogger
 	metrics *monitoring.PrometheusMetrics
 	enabled *runtime.DynamicValue[bool]
+	// dataPath is the node's persistence data root, probed for hardlink support.
+	dataPath string
 }
 
 func SetupHandlers(enabled *runtime.DynamicValue[bool], api *operations.WeaviateAPI, replicationManager replicationTypes.Manager, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
+	dataPath string,
 ) {
 	h := &replicationHandler{
 		authorizer:         authorizer,
@@ -38,6 +41,7 @@ func SetupHandlers(enabled *runtime.DynamicValue[bool], api *operations.Weaviate
 		logger:             logger,
 		metrics:            metrics,
 		enabled:            enabled,
+		dataPath:           dataPath,
 	}
 	api.ReplicationReplicateHandler = replication.ReplicateHandlerFunc(h.replicate)
 	api.ReplicationReplicationDetailsHandler = replication.ReplicationDetailsHandlerFunc(h.getReplicationDetailsByReplicationId)

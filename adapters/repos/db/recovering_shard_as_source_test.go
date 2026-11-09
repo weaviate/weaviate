@@ -13,8 +13,6 @@ package db
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -85,15 +83,4 @@ func TestRecoveringShardRefusesToServeAsSource(t *testing.T) {
 			require.True(t, rec.IsRecovering())
 		})
 	}
-
-	t.Run("create replica snapshot answers recovering before the hardlink probe", func(t *testing.T) {
-		idx := newRecoveringIndex(t)
-		idx.replicaSnapshotOpLocks = esync.NewKeyRWLocker()
-		idx.Config.RootPath = filepath.Join(t.TempDir(), "missing")
-
-		_, err := idx.IncomingCreateReplicaSnapshot(ctx, "S", "7")
-		require.ErrorIs(t, err, enterrors.ErrShardRecovering)
-		require.NotErrorIs(t, err, os.ErrNotExist)
-		require.NotContains(t, err.Error(), "probe hardlink support")
-	})
 }

@@ -20,9 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	esync "github.com/weaviate/weaviate/entities/sync"
 )
 
 func TestHardlinkProbeCallers(t *testing.T) {
@@ -32,9 +30,10 @@ func TestHardlinkProbeCallers(t *testing.T) {
 		call func(idx *Index) error
 	}{
 		{
-			name: "backup descriptor surfaces the probe error",
+			name: "backup pre-flight surfaces the probe error",
 			call: func(idx *Index) error {
-				return idx.descriptor(ctx, "backup-id", &backup.ClassDescriptor{}, nil, nil, nil)
+				db := &DB{config: Config{RootPath: idx.Config.RootPath}}
+				return db.Backupable(ctx, []string{idx.Config.ClassName.String()})
 			},
 		},
 		{
@@ -44,19 +43,11 @@ func TestHardlinkProbeCallers(t *testing.T) {
 				return err
 			},
 		},
-		{
-			name: "replica snapshot surfaces the probe error as a plain error",
-			call: func(idx *Index) error {
-				_, err := idx.IncomingCreateReplicaSnapshot(ctx, "shard-0", "op-id")
-				return err
-			},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			idx := newTestIndexForSnapshot(t, "TestClass")
 			idx.Config.RootPath = filepath.Join(t.TempDir(), "missing")
-			idx.replicaSnapshotOpLocks = esync.NewKeyRWLocker()
 
 			err := tt.call(idx)
 			require.Error(t, err)

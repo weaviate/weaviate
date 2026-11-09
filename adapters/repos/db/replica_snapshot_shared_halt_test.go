@@ -165,13 +165,7 @@ func TestResumeMaintenanceCyclesRetry(t *testing.T) {
 		require.Zero(t, shard.haltForTransferCount.Load())
 		require.True(t, shard.resumeIncomplete.Load())
 
-		// Register the callbacks again as inactive, the state the halt left
-		// them in, so only a retried Activate can make them active.
-		cc.vectorCombinedCallbacksCtrl = cyclemanager.NewCombinedCallbackCtrl(2, shard.index.logger,
-			shard.index.cycleCallbacks.vectorCommitLoggerCallbacks.Register(
-				"retry/commit_logger", cc.vectorCommitLoggerCallbacks.CycleCallback, cyclemanager.AsInactive()),
-			shard.index.cycleCallbacks.vectorTombstoneCleanupCallbacks.Register(
-				"retry/tombstone_cleanup", cc.vectorTombstoneCleanupCallbacks.CycleCallback, cyclemanager.AsInactive()))
+		reregisterVectorCallbacks(shard)
 
 		require.NoError(t, shard.resumeMaintenanceCycles(ctx))
 		require.Zero(t, shard.haltForTransferCount.Load())
@@ -269,13 +263,7 @@ func TestHaltForTransferRollback(t *testing.T) {
 		require.True(t, s.resumeIncomplete.Load())
 		require.False(t, asyncReplicationInstalled(s), "a rollback whose resume failed must not re-apply")
 
-		// Register the callbacks again as inactive, the state the halt left them in.
-		cc := s.cycleCallbacks
-		cc.vectorCombinedCallbacksCtrl = cyclemanager.NewCombinedCallbackCtrl(2, s.index.logger,
-			s.index.cycleCallbacks.vectorCommitLoggerCallbacks.Register(
-				"retry/commit_logger", cc.vectorCommitLoggerCallbacks.CycleCallback, cyclemanager.AsInactive()),
-			s.index.cycleCallbacks.vectorTombstoneCleanupCallbacks.Register(
-				"retry/tombstone_cleanup", cc.vectorTombstoneCleanupCallbacks.CycleCallback, cyclemanager.AsInactive()))
+		reregisterVectorCallbacks(s)
 
 		require.NoError(t, s.resumeMaintenanceCycles(ctx))
 		require.False(t, s.resumeIncomplete.Load())
