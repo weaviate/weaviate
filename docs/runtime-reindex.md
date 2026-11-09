@@ -1074,7 +1074,10 @@ Then, per shard load:
      replicas can swap before this node's swap phase refuses the unit and
      fails the task. For a format-only migration (no prepare barrier), the
      unit fails, and other replicas may already have swapped. Either way
-     it has to be resubmitted. A task can already be past its prepare, as when
+     it has to be resubmitted. Replicas that swapped before the refusal
+     keep the new tokenization while the schema keeps the old one. Their
+     queries use the new tokenization until a resubmitted migration
+     finishes, which is what repairs them. A task can already be past its prepare, as when
      the node restarts mid-swap, so the swap phase checks every task of the
      unit first and swaps none of them if any record is `Unmirrored`.
    - **The mirror fails to arm and no stamp can be written.** This covers a
@@ -1122,7 +1125,10 @@ Then, per shard load:
        the next lift makes it writable and the migration must be
        resubmitted; otherwise any bucket the retry opened is set back to
        READONLY, the owning node logs the cause at Error level, and the
-       next lift starts another retry.
+       next lift starts another retry. Since its first write is refused,
+       every lift shows up on each replica holding the shard as an `apply
+       command` Error and in `weaviate_cluster_store_fsm_apply_failures_total`.
+       Here that does not mean the cluster state diverged.
      - The way out depends on what stopped the arm, which the hold log and
        the refusal name. For a migration not yet swapped in, clearing what
        blocks the stamp also ends the hold: the stamp lands, the shard goes
