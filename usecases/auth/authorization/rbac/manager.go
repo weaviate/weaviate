@@ -707,21 +707,7 @@ func ReplaceDynamicUserAssignments(backup, target []byte, staticAPIKeyUsers []st
 		}
 	}
 
-	static := make(map[string]struct{}, len(staticAPIKeyUsers))
-	for _, u := range staticAPIKeyUsers {
-		static[u] = struct{}{}
-	}
-	isDynamicUserRow := func(g []string) bool {
-		if len(g) == 0 {
-			return false
-		}
-		user, prefix, err := conv.GetUserAndPrefix(g[0])
-		if err != nil || prefix != string(authentication.AuthTypeDb) || user == conv.InternalPlaceHolder {
-			return false
-		}
-		_, ok := static[user]
-		return !ok
-	}
+	isDynamicUserRow := dynamicUserRowClassifier(staticAPIKeyUsers)
 
 	live := make(map[string]struct{}, len(authorization.BuiltInRoles))
 	for _, r := range authorization.BuiltInRoles {
@@ -734,7 +720,7 @@ func ReplaceDynamicUserAssignments(backup, target []byte, staticAPIKeyUsers []st
 	}
 	var groupingPolicy [][]string
 	for _, g := range sb.GroupingPolicy {
-		if isDynamicUserRow(g) {
+		if _, ok := isDynamicUserRow(g); ok {
 			continue
 		}
 		groupingPolicy = append(groupingPolicy, g)
@@ -743,7 +729,7 @@ func ReplaceDynamicUserAssignments(backup, target []byte, staticAPIKeyUsers []st
 		}
 	}
 	for _, g := range st.GroupingPolicy {
-		if len(g) < 2 || !isDynamicUserRow(g) {
+		if _, ok := isDynamicUserRow(g); len(g) < 2 || !ok {
 			continue
 		}
 		if _, ok := live[g[1]]; ok {
@@ -761,6 +747,29 @@ func ReplaceDynamicUserAssignments(backup, target []byte, staticAPIKeyUsers []st
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// dynamicUserRowClassifier returns a function that takes a g-row. When the row
+// assigns a role to a dynamic user, it returns that user's id and true.
+// A subject that does not parse is never a dynamic user.
+func dynamicUserRowClassifier(staticAPIKeyUsers []string) func(g []string) (string, bool) {
+	static := make(map[string]struct{}, len(staticAPIKeyUsers))
+	for _, u := range staticAPIKeyUsers {
+		static[u] = struct{}{}
+	}
+	return func(g []string) (string, bool) {
+		if len(g) == 0 {
+			return "", false
+		}
+		user, prefix, err := conv.GetUserAndPrefix(g[0])
+		if err != nil || prefix != string(authentication.AuthTypeDb) || user == conv.InternalPlaceHolder {
+			return "", false
+		}
+		if _, ok := static[user]; ok {
+			return "", false
+		}
+		return user, true
+	}
 }
 
 // referencedNamespaces returns the namespaces the given rows refer to, in sorted order.
@@ -842,6 +851,39 @@ type snapshot struct {
 // come along too. A selection of custom roles carries no admin or viewer assignments
 // ([Manager.BuiltInAssignments] and [Manager.OIDCBuiltInAssignments] carry those).
 func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
+	return m.buildSnapshot(roles, nil)
+}
+
+// ScopedSnapshot is [Manager.Snapshot] minus the dynamic-user role assignments
+// of users not in forUsers. A backup that carries only some dynamic users calls
+// it, so every carried assignment belongs to a carried user.
+//
+// forUsers holds user ids in the dynamic-user store's form: "ns1:alice" matches
+// the subject "db:ns1:alice". An empty forUsers drops every dynamic-user
+// assignment. All p-rows and all other g-rows are kept.
+func (m *Manager) ScopedSnapshot(forUsers []string, roles ...string) ([]byte, error) {
+	if m == nil {
+		return []byte{}, nil
+	}
+	isDynamicUserRow := dynamicUserRowClassifier(StaticAPIKeyUsers(m.authNconf))
+	carried := make(map[string]struct{}, len(forUsers))
+	for _, u := range forUsers {
+		carried[u] = struct{}{}
+	}
+	return m.buildSnapshot(roles, func(g []string) bool {
+		user, ok := isDynamicUserRow(g)
+		if !ok {
+			return true
+		}
+		_, ok = carried[user]
+		return ok
+	})
+}
+
+// buildSnapshot encodes the rows that [Manager.Snapshot] selects for roles.
+// If keepGrouping is non-nil, each g-row it returns false for is dropped.
+// The drop happens before the namespace list is computed.
+func (m *Manager) buildSnapshot(roles []string, keepGrouping func(g []string) bool) ([]byte, error) {
 	// snapshot isn't always initialized, e.g. when RBAC is disabled
 	if m == nil {
 		return []byte{}, nil
@@ -884,6 +926,15 @@ func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 			policy = append(policy, ps...)
 			groupingPolicy = append(groupingPolicy, gs...)
 		}
+	}
+	if keepGrouping != nil {
+		var kept [][]string
+		for _, g := range groupingPolicy {
+			if keepGrouping(g) {
+				kept = append(kept, g)
+			}
+		}
+		groupingPolicy = kept
 	}
 
 	// Use a buffer to stream the JSON encoding

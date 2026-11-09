@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -316,6 +317,90 @@ func TestSnapshotBuiltInGrantScope(t *testing.T) {
 			[]string{"db:ns1:local-admin", "db:ns2:boss", "db:global-admin", "oidc:ns1:someone"},
 			grantedAdmins(t, blob))
 	})
+}
+
+func TestScopedSnapshot(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	editor := conv.PrefixRoleName("editor")
+	reader := conv.PrefixRoleName("reader")
+	alice := []string{"db:alice", editor}
+	aliceReader := []string{"db:alice", reader}
+	bob := []string{"db:bob", editor}
+	nsAlice := []string{"db:ns1:alice", editor}
+
+	seed := func(t *testing.T) *Manager {
+		m, err := setupTestManagerWithStaticUsers(t, logger, "custom-user")
+		require.NoError(t, err)
+		_, err = m.casbin.AddNamedPolicy("p", editor, "collections/*", authorization.UPDATE, authorization.SchemaDomain)
+		require.NoError(t, err)
+		_, err = m.casbin.AddNamedPolicy("p", reader, "collections/*", authorization.READ, authorization.SchemaDomain)
+		require.NoError(t, err)
+		for _, g := range [][]string{
+			{conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), editor},
+			{"db:custom-user", editor},
+			{"oidc:carl", editor},
+			{conv.PrefixGroupName("devs"), editor},
+			alice, aliceReader, bob, nsAlice,
+		} {
+			_, err = m.casbin.AddRoleForUser(g[0], g[1])
+			require.NoError(t, err)
+		}
+		return m
+	}
+
+	// Each case expects the unscoped Snapshot of the same roles, minus the rows in
+	// drop. Every other row must survive, including static, placeholder, oidc and
+	// group rows.
+	tests := []struct {
+		name     string
+		forUsers []string
+		roles    []string
+		drop     [][]string
+	}{
+		{
+			name:     "a partial user set keeps that set's dynamic rows and drops the rest",
+			forUsers: []string{"alice"},
+			drop:     [][]string{bob, nsAlice},
+		},
+		{
+			name: "an empty set drops every dynamic row and keeps static, placeholder, oidc and group rows",
+			drop: [][]string{alice, aliceReader, bob, nsAlice},
+		},
+		{
+			name:     "a namespaced subject matches its qualified id",
+			forUsers: []string{"ns1:alice"},
+			drop:     [][]string{alice, aliceReader, bob},
+		},
+		{
+			name:     "role filtering still applies",
+			forUsers: []string{"bob"},
+			roles:    []string{"reader"},
+			drop:     [][]string{aliceReader},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := seed(t)
+			full, err := m.Snapshot(tt.roles...)
+			require.NoError(t, err)
+			var want snapshot
+			require.NoError(t, json.Unmarshal(full, &want))
+			for _, d := range tt.drop {
+				require.Contains(t, want.GroupingPolicy, d, "seed lacks a row the case drops")
+			}
+			want.GroupingPolicy = slices.DeleteFunc(want.GroupingPolicy, func(g []string) bool {
+				return slices.ContainsFunc(tt.drop, func(d []string) bool { return slices.Equal(d, g) })
+			})
+
+			blob, err := m.ScopedSnapshot(tt.forUsers, tt.roles...)
+			require.NoError(t, err)
+			var got snapshot
+			require.NoError(t, json.Unmarshal(blob, &got))
+			assert.ElementsMatch(t, want.Policy, got.Policy)
+			assert.ElementsMatch(t, want.GroupingPolicy, got.GroupingPolicy)
+			assert.Equal(t, SnapshotVersionLatest, got.Version)
+		})
+	}
 }
 
 // TestBuiltInAssignments covers the admin and viewer grants a backup carries for the
