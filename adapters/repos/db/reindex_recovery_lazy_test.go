@@ -376,23 +376,90 @@ func TestAFailedLiftLeavesTheBucketsItOpenedReadOnly(t *testing.T) {
 	require.Equal(t, storagestate.StatusReadOnly, opened.GetStatus())
 }
 
-// A lift that arms only some held migrations keeps holding just the others.
+// A lift that arms or stamps only some held migrations keeps holding just the others.
 func TestAPartlyFailedLiftHoldsOnlyTheUnarmedMigrations(t *testing.T) {
-	fx := newDoubleFaultFixture(t, "tenant-lift-partly")
-	other, _ := fx.addHalf(t, StrategyCodeFilterableRetokenize, "U", fx.desc.Version+1, true)
-	fx.breakDisk(t)
+	for _, tt := range []struct {
+		name string
+		heal func(t *testing.T, fx *doubleFaultFixture, shard *Shard, other MigrationSubject)
+	}{
+		{name: "one mirror arms", heal: func(t *testing.T, fx *doubleFaultFixture, _ *Shard, _ MigrationSubject) {
+			require.NoError(t, os.Remove(fx.corrupt))
+		}},
+		{name: "one stamp lands", heal: func(t *testing.T, fx *doubleFaultFixture, shard *Shard, other MigrationSubject) {
+			fx.healRecords(t)
+			// A directory at the other record's path fails only that rewrite.
+			path := shard.migrationRecords.path(other.Key)
+			require.NoError(t, os.Remove(path))
+			require.NoError(t, os.Mkdir(path, 0o700))
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fx := newDoubleFaultFixture(t, "tenant-lift-partly")
+			other, _ := fx.addHalf(t, StrategyCodeFilterableRetokenize, "U", fx.desc.Version+1, true)
+			fx.breakDisk(t)
+			logs := test.NewLocal(fx.idx.logger.(*logrus.Logger))
+			shard := fx.load(t)
+			t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
+			require.Len(t, shard.migrationMirrors.heldUnarmed(), 2)
+			holdLines := entriesAbout(logs, "its reindex migrations wait")
+			require.Len(t, holdLines, 1, "one Error line per hold, naming the shard")
+			require.Equal(t, logrus.ErrorLevel, holdLines[0].Level)
+			require.Equal(t, shard.ID(), holdLines[0].Data["shard"])
+
+			tt.heal(t, fx, shard, other)
+			require.Error(t, liftAndAwaitRetry(t, fx, shard, liftReady(shard)))
+			held := shard.migrationMirrors.heldUnarmed()
+			require.Len(t, held, 1)
+			require.Equal(t, other.Key, held[0].migrationRecordKey())
+			unseal, sealed := fx.provider.SealLocalUnit(fx.desc, fx.subject.Key.UnitID)
+			require.True(t, sealed, "the lift released every unit claim it took")
+			unseal()
+		})
+	}
+}
+
+// The swap checks every half of a unit first, so a prepared half is not swapped beside a stamped one.
+func TestASwapRefusesTheHealthyHalfOfAStampedMigration(t *testing.T) {
+	fx := newDoubleFaultFixture(t, "tenant-swap-stamped-half")
+	half, _ := fx.addHalf(t, StrategyCodeFilterableRetokenize, fx.desc.ID, fx.desc.Version, false)
+	require.NoError(t, os.Remove(fx.corrupt))
 	shard := fx.load(t)
 	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
-	require.Len(t, shard.migrationMirrors.heldUnarmed(), 2)
+	tasks := fx.provider.cachedReindexTasks(fx.desc, fx.subject.Key.UnitID)
+	require.Len(t, tasks, 2, "both halves armed")
+	prepOK, prep := fx.provider.runShardPrepPhase(fx.ctx, fx.subject.Key.UnitID, shard, tasks, false, fx.logger)
+	require.True(t, prepOK, "%v", prep.Errs)
 
-	require.NoError(t, os.Remove(fx.corrupt))
-	require.Error(t, liftAndAwaitRetry(t, fx, shard, liftReady(shard)))
-	held := shard.migrationMirrors.heldUnarmed()
-	require.Len(t, held, 1)
-	require.Equal(t, other.Key, held[0].migrationRecordKey())
-	unseal, sealed := fx.provider.SealLocalUnit(fx.desc, fx.subject.Key.UnitID)
-	require.True(t, sealed, "the lift released every unit claim it took")
-	unseal()
+	rec, ok := shard.migrationRecords.Get(fx.subject.Key)
+	require.True(t, ok)
+	stamped, ok := migrationRecordStampedUnmirrored(rec)
+	require.True(t, ok)
+	require.NoError(t, shard.migrationRecords.Put(stamped))
+	payload := fx.subject.reindexPayload()
+	swap := fx.provider.runShardSwapPhase(fx.ctx, &payload, fx.subject.Key.UnitID, fx.name, shard, tasks, fx.logger)
+	require.NotEmpty(t, swap.Errs)
+	rec, ok = shard.migrationRecords.Get(half.Key)
+	require.True(t, ok)
+	require.False(t, rec.FlipDecided(), "the prepared half must not swap")
+}
+
+// An unreadable record fails an uncached prepare or swap on a held shard instead of letting it wait,
+// because without its record the unit could read as finished.
+func TestAnUncachedStepFailsOnAHeldShardWithAnUnreadableRecord(t *testing.T) {
+	fx := newDoubleFaultFixture(t, "tenant-held-unreadable")
+	plantUnreadableRecord(t, fx.recordsDir)
+	shard := fx.load(t)
+	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
+	require.NotEmpty(t, shard.migrationMirrors.heldUnarmed())
+	fx.provider.evictReindexTasks(fx.desc, fx.subject.Key.UnitID)
+
+	payload := fx.subject.reindexPayload()
+	payload.UnitToShard = map[string]string{fx.subject.Key.UnitID: fx.name}
+	err := fx.provider.runPerUnitPhase(&distributedtask.Task{TaskDescriptor: fx.desc}, &payload,
+		[]string{fx.subject.Key.UnitID}, fx.idx, fx.logger, "group-completion", "starting", false,
+		func(string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult { return phaseResult{} })
+	require.ErrorContains(t, err, "could not be read")
+	require.NotErrorIs(t, err, context.Canceled, "the step fails instead of waiting")
 }
 
 // A migration with a stamped half fails its swap, so no half of it is armed, and only a stamp
