@@ -15,6 +15,7 @@ import (
 	"encoding/binary"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
@@ -134,68 +135,25 @@ func NewSegmentNode(key uint8, additions, deletions *sroar.Bitmap) (*SegmentNode
 	}, nil
 }
 
-// NewSegmentNodeCompacted builds the node into scratch, growing it as needed and
-// handing it back for the next call. Write the node through [SegmentNode.ToBuffer].
-// Scratch runs to the largest node built so far, so writing it appends trailing
-// bytes belonging to no node. The node points into scratch, so nothing may hold
-// it past the next call. Neither bitmap may live in scratch, because sroar leaves
-// an overlapping side undefined and nothing here checks for one. A nil bitmap is an
-// empty side, and a non-zero key records no deletions.
+// NewSegmentNodeCompacted builds the node into scratch, which grows as needed
+// and is reused by the next call. Write the node through [SegmentNode.ToBuffer].
+// The node points into scratch, so nothing may hold it past the next call.
+// Neither bitmap may live in scratch, because sroar leaves an overlapping side
+// undefined and nothing here checks for one. A nil bitmap is an empty side, and
+// a non-zero key records no deletions.
 func NewSegmentNodeCompacted(key uint8, additions, deletions *sroar.Bitmap,
-	scratch []byte,
-) (SegmentNode, []byte) {
+	scratch *roaringset.SegmentNodeScratch,
+) SegmentNode {
 	overhead := AdditionsStart
 	if key == 0 {
 		overhead = AdditionsStart + BitmapLengthSize
+	} else {
+		deletions = nil
 	}
-
-	buf := scratch
-	var additionsSize, deletionsSize int
-	// IsEmpty walks every container until it finds a non-empty one, and the
-	// switch below tests each side in two of its arms, so each is asked once.
-	additionsEmpty := additions.IsEmpty()
-	noDeletions := key != 0 || deletions.IsEmpty()
-
-	// An empty side skips CompactedToBuf. Calling it would hand back a non-empty
-	// region where a zero length indicator belongs, and Additions would read a
-	// bitmap there. Where both sides are present the two calls nest, because the
-	// deletions region starts after the additions one. The inner callback is the
-	// first point at which both sizes are known, and it must not touch deletions,
-	// which sroar sizes before it calls back.
-	writeAdditions := func() {
-		additions.CompactedToBuf(func(size int) []byte {
-			additionsSize = size
-			buf = byteops.Resize(buf, overhead+additionsSize+deletionsSize)
-			end := AdditionsStart + additionsSize
-			// The three-index slice holds sroar to this payload's own region,
-			// which it would otherwise adopt to the end of buf's capacity.
-			return buf[AdditionsStart:end:end]
-		})
-	}
-	deletionsRegion := func() []byte {
-		start := AdditionsStart + additionsSize + BitmapLengthSize
-		end := start + deletionsSize
-		return buf[start:end:end]
-	}
-
-	switch {
-	case !additionsEmpty && !noDeletions:
-		deletions.CompactedToBuf(func(size int) []byte {
-			deletionsSize = size
-			writeAdditions()
-			return deletionsRegion()
-		})
-	case !additionsEmpty:
-		writeAdditions()
-	case !noDeletions:
-		deletions.CompactedToBuf(func(size int) []byte {
-			deletionsSize = size
-			buf = byteops.Resize(buf, overhead+deletionsSize)
-			return deletionsRegion()
-		})
-	default:
-		buf = byteops.Resize(buf, overhead)
-	}
+	scratch.Reserve(overhead + additions.LenInBytes() + deletions.LenInBytes())
+	additionsSize := scratch.CompactAt(additions, AdditionsStart)
+	deletionsSize := scratch.CompactAt(deletions, AdditionsStart+additionsSize+BitmapLengthSize)
+	buf := scratch.Node(overhead + additionsSize + deletionsSize)
 
 	// The payloads are already in place. Every remaining byte is written here,
 	// because a reused scratch still holds the previous node's bytes.
@@ -208,7 +166,7 @@ func NewSegmentNodeCompacted(key uint8, additions, deletions *sroar.Bitmap,
 		rw.WriteUint64(uint64(deletionsSize))
 	}
 
-	return SegmentNode{data: buf, rw: rw}, buf[:cap(buf)]
+	return SegmentNode{data: buf, rw: rw}
 }
 
 // ToBuffer returns the internal buffer without copying data. Only use this,

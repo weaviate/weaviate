@@ -351,7 +351,7 @@ func assertNodeMatchesShape(t *testing.T, shapes []fixtureShape, node *roaringse
 
 // TestFlushRoaringSetStoresNoEmptyBitmap pins that an empty side costs a zero
 // length indicator and no payload. An empty sroar bitmap still owns its key-0
-// container and occupies bytes in memory, and CompactedToBuf hands a caller
+// container and occupies bytes in memory, and CompactedTo hands a caller
 // that size rather than zero, so storing one is an easy mistake to make.
 //
 // TestFlushRoaringSetRoundTrip does catch it, but only through Additions()
