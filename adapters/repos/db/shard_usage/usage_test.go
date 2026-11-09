@@ -317,7 +317,7 @@ func TestQuantizedVectorsExist(t *testing.T) {
 			bucket: "",
 		},
 		{
-			name:   "bucket created empty for a downgrade",
+			name:   "bucket created empty by an older version",
 			bucket: "vectors_compressed_named",
 		},
 		{
@@ -346,9 +346,9 @@ func TestQuantizedVectorsExist(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			targetVector := "named"
+			indexID := "vectors_named"
 			if tt.bucket == "vectors_compressed" {
-				targetVector = ""
+				indexID = "main"
 			}
 
 			lsmPath := filepath.Join(t.TempDir(), "lsm")
@@ -366,7 +366,7 @@ func TestQuantizedVectorsExist(t *testing.T) {
 
 			metrics, err := CalculateUnloadedVectorsMetrics(lsmPath, directories)
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, metrics.QuantizedVectorsExist(targetVector))
+			assert.Equal(t, tt.want, metrics.QuantizedVectorsExist(indexID))
 		})
 	}
 }
