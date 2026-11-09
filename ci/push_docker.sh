@@ -28,25 +28,27 @@ function highest_stable_release() {
     | sort -V | tail -n 1
 }
 
-# Succeeds only for the highest stable release, so backports and pre-releases
-# never move latest.
-function should_tag_latest() {
-  local version="$1"
+# Points <repo>:latest at the highest stable release whose image is published.
+# Release builds run concurrently, so each one calls this after pushing its own
+# tag. Whichever finishes last leaves latest on the highest published release,
+# regardless of finishing order. Failures only warn: the next release retries.
+function promote_latest() {
+  local docker_repo="$1"
   local highest
 
-  if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "Not tagging latest: $version is not a stable release."
-    return 1
-  fi
-
   if ! highest="$(highest_stable_release)" || [ -z "$highest" ]; then
-    echo "::warning::Not tagging latest: could not list release tags on origin."
-    return 1
+    echo "::warning::Not updating latest: could not list release tags on origin."
+    return 0
   fi
 
-  if [ "$version" != "$highest" ]; then
-    echo "Not tagging latest: $version is not the highest stable release ($highest)."
-    return 1
+  if ! docker buildx imagetools inspect "${docker_repo}:${highest}" >/dev/null 2>&1; then
+    echo "Not updating latest: ${docker_repo}:${highest} is not published yet; its own build will update latest."
+    return 0
+  fi
+
+  echo "Pointing ${docker_repo}:latest at ${docker_repo}:${highest}."
+  if ! docker buildx imagetools create -t "${docker_repo}:latest" "${docker_repo}:${highest}"; then
+    echo "::warning::Failed to point ${docker_repo}:latest at ${docker_repo}:${highest}."
   fi
 }
 
@@ -63,8 +65,8 @@ function release() {
   # the scanned image, and the amd64 image reuses its `apk upgrade` layer.
   docker buildx inspect >/dev/null 2>&1 || docker buildx create --use
 
-  # nightly tag was added to be pushed on merges to main branch, latest tag is used to get latest released version
-  tag_latest="${DOCKER_REPO}:latest"
+  # nightly tag was added to be pushed on merges to main branch; latest is set
+  # by promote_latest after release builds
   tag_exact=
   tag_preview=
   tag_preview_semver=
@@ -133,9 +135,6 @@ function release() {
   if [ -n "$tag_exact" ]; then
     # exact tag on main
     args+=("-t=$tag_exact")
-    if should_tag_latest "$weaviate_version"; then
-      args+=("-t=$tag_latest")
-    fi
   fi
   if [ -n "$tag_preview" ]; then
     # preview tag on PR builds
@@ -147,6 +146,10 @@ function release() {
   fi
 
   docker buildx build "${args[@]}" . || exit 1
+
+  if [ -n "$tag_exact" ]; then
+    promote_latest "$DOCKER_REPO"
+  fi
 
   if [ -n "$tag_preview" ]; then
     echo "PREVIEW_TAG=$tag_preview" >> "$GITHUB_OUTPUT"
