@@ -13,7 +13,9 @@ package traverser
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -134,6 +136,8 @@ func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, gr
 // extractGroupByValues extracts string values from various property types for grouping.
 // It handles:
 // - string: returns as single-element slice
+// - bool, int and number: returns the value formatted as it is stored, so the
+// group keys match what vector search produces ("true", "1", "0.5")
 // - []string: returns all elements
 // - []interface{}: converts each element to string if possible
 // - other types: returns empty slice (skips grouping)
@@ -145,6 +149,21 @@ func extractGroupByValues(rawValue interface{}) ([]string, error) {
 	switch v := rawValue.(type) {
 	case string:
 		return []string{v}, nil
+	case bool:
+		return []string{strconv.FormatBool(v)}, nil
+	case int:
+		return []string{strconv.Itoa(v)}, nil
+	case int64:
+		return []string{strconv.FormatInt(v, 10)}, nil
+	case float64:
+		// Marshal like the object store does, so 2 stays "2" and not "2.0".
+		b, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		return []string{string(b)}, nil
+	case json.Number:
+		return []string{v.String()}, nil
 	case []string:
 		return v, nil
 	case []interface{}:
