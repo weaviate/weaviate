@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"bufio"
 	"io"
 	"sync"
 	"testing"
@@ -148,15 +149,13 @@ func TestSegmentNodeReaderMetersReads(t *testing.T) {
 }
 
 // Every pread scan of a replace bucket meters what it reads under
-// segmentCursorReplace, whichever cursor the caller picked.
+// segmentCursorReplace, whichever cursor the caller picked: at least the
+// segment's data section, also when the whole file fits in one read that
+// returns io.EOF.
 func TestReplaceCursorsMeterPreadReads(t *testing.T) {
-	const (
-		metricName = "ReadFromSegmentsegmentCursorReplace"
-		docs       = 50
-		valueSize  = 1000
-	)
+	const metricName = "ReadFromSegmentsegmentCursorReplace"
 
-	tests := []struct {
+	cursors := []struct {
 		name   string
 		cursor func(b *Bucket) *CursorReplace
 	}{
@@ -166,29 +165,70 @@ func TestReplaceCursorsMeterPreadReads(t *testing.T) {
 			return b.CursorReplaceDigestReusable(8)
 		}},
 	}
+	segments := []struct {
+		name      string
+		docs      int
+		valueSize int
+	}{
+		{name: "smaller than one read", docs: 3, valueSize: 100},
+		{name: "many reads", docs: 50, valueSize: 1000},
+	}
+	for _, seg := range segments {
+		for _, tt := range cursors {
+			t.Run(seg.name+"/"+tt.name, func(t *testing.T) {
+				b := newSecondaryTestBucket(t)
+				for docID := range uint64(seg.docs) {
+					putDoc(t, b, docID, make([]byte, seg.valueSize))
+				}
+				require.NoError(t, b.FlushAndSwitch())
+				require.Len(t, b.disk.segments, 1)
+				s, ok := b.disk.segments[0].(*segment)
+				require.True(t, ok)
+
+				var observed int64
+				readObserver.Store(metricName, BytesReadObserver(func(n, _ int64) {
+					observed += n
+				}))
+				t.Cleanup(func() { readObserver.Delete(metricName) })
+
+				c := tt.cursor(b)
+				keys := 0
+				for k, _ := c.First(); k != nil; k, _ = c.Next() {
+					keys++
+				}
+				c.Close()
+
+				require.Equal(t, seg.docs, keys)
+				require.GreaterOrEqual(t, observed, int64(s.dataEndPos-s.dataStartPos))
+			})
+		}
+	}
+}
+
+// A sequential read through meteredOffsetReader meters every byte it returns,
+// including the last ones, which the file returns together with io.EOF.
+func TestMeteredOffsetReaderMetersEveryByte(t *testing.T) {
+	const start = 16
+
+	tests := []struct {
+		name string
+		size int
+	}{
+		{name: "smaller than one read", size: segmentCursorReaderBufSize / 2},
+		{name: "ends in a short read", size: 2*segmentCursorReaderBufSize + 500},
+		{name: "ends on a read boundary", size: 2*segmentCursorReaderBufSize + start},
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			b := newSecondaryTestBucket(t)
-			for docID := range uint64(docs) {
-				putDoc(t, b, docID, make([]byte, valueSize))
-			}
-			require.NoError(t, b.FlushAndSwitch())
-
+			f, contents := preadSegmentFile(t, tt.size)
 			var observed int64
-			readObserver.Store(metricName, BytesReadObserver(func(n, _ int64) {
-				observed += n
-			}))
-			t.Cleanup(func() { readObserver.Delete(metricName) })
+			r := &meteredOffsetReader{ra: f, off: start, observe: func(n, _ int64) { observed += n }}
 
-			c := tt.cursor(b)
-			keys := 0
-			for k, _ := c.First(); k != nil; k, _ = c.Next() {
-				keys++
-			}
-			c.Close()
+			got, err := io.ReadAll(bufio.NewReaderSize(r, segmentCursorReaderBufSize))
 
-			require.Equal(t, docs, keys)
-			require.Positive(t, observed)
+			require.NoError(t, err)
+			require.Equal(t, contents[start:], got)
+			require.Equal(t, int64(tt.size-start), observed)
 		})
 	}
 }
