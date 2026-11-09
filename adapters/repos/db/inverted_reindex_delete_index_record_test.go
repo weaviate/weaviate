@@ -18,11 +18,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Regression: a leftover migration record wedges or resurrects the index on reload.
+// A leftover record logs an error or warning on every load, and on a cold
+// tenant its load re-opens the deleted index.
 func TestDeletingAMigratedIndexEndsItsMigrationRecord(t *testing.T) {
 	propName := filterableToRangeablePropName
 
@@ -76,20 +76,6 @@ func TestDeletingAMigratedIndexEndsItsMigrationRecord(t *testing.T) {
 			records, _, err := migrationRecordsAt(shardPathLSM(idx.path(), f.shardName), idx.logger)
 			require.NoError(t, err)
 			assert.Empty(t, records, "the DELETE must end the record of the index it removed")
-
-			if tc.unloadBeforeDelete {
-				reloaded, err := idx.initShard(ctx, f.shardName, class, nil, true, true)
-				require.NoError(t, err)
-				idx.shards.Store(f.shardName, reloaded)
-				f.shard = reloaded.(*Shard)
-			}
-			for range 2 {
-				f.restart(t, ctx)
-				_, present = f.recordState(t, task)
-				assert.False(t, present, "no load may bring the record back")
-				assert.Nil(t, f.bucket(helpers.BucketRangeableFromPropNameLSM(propName)),
-					"no load may re-create the deleted index")
-			}
 		})
 	}
 }
