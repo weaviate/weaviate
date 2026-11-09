@@ -134,6 +134,7 @@ type Scheduler struct {
 	// sharing sampledLogger's budget would crowd out its one-off errors.
 	unrecognizedStatusLogger *logrusext.Sampler
 	postCompletionAckLogger  *logrusext.Sampler
+	relaunchLogger           *logrusext.Sampler
 
 	tasksRunning *prometheus.GaugeVec
 
@@ -244,6 +245,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 
 		unrecognizedStatusLogger: logrusext.NewSampler(params.Logger, 3, unrecognizedStatusWarnWindow),
 		postCompletionAckLogger:  logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
+		relaunchLogger:           logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
 
 		tasksRunning: promauto.With(params.MetricsRegisterer).NewGaugeVec(prometheus.GaugeOpts{
 			Name: "weaviate_distributed_tasks_running",
@@ -861,8 +863,8 @@ func (s *Scheduler) reconcileRunningTasks(
 			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
 			continue
 		}
-		// The relaunch line is sampled because a task whose unit waits on an operator is relaunched on every tick and wake; it shares sampledLogger by choice (docs/runtime-reindex.md §6.2).
-		s.sampledLogger.WithSampling(func(logrus.FieldLogger) {
+		// A task whose unit waits on an operator is relaunched on every tick and wake.
+		s.relaunchLogger.WithSampling(func(logrus.FieldLogger) {
 			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
 		})
 	}

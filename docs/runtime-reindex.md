@@ -1098,15 +1098,8 @@ Then, per shard load:
        repeats once per held shard and waiting migration on every tick
        and wake. A task whose unit waits is relaunched on every tick and
        wake. A task's first "started distributed task execution" line is
-       always logged; the line for each relaunch is sampled: at most 5 a
-       node per 5 ticks, a budget shared with the
-       scheduler's one-off Error lines. While a STARTED task's unit
-       waits on a held shard and no other unit of that task runs on the
-       node, its relaunches spend that budget: with one such task the
-       "failed to clean up distributed task" and "failed to start
-       distributed task" lines drop to about 2 a window, and with five
-       or more the cleanup line can be dropped entirely. Cancelling the
-       waiting task restores the full budget from the next window. A unit, prepare or swap that waits, including one of a
+       always logged; the line for each relaunch is sampled on a budget
+       of its own: at most 5 a node per 5 ticks. A unit, prepare or swap that waits, including one of a
        migration submitted after the hold began, logs a Warn naming its
        task, unit and shard. These lines share one budget with the line
        about a teardown holding a unit: at most 10 a minute per node.

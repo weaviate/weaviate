@@ -1973,19 +1973,21 @@ func (alwaysFailingAckRecorder) RecordDistributedTaskPreparationCompleteAck(
 	return errors.New("raft unavailable")
 }
 
-// Pins: each steady-state reporter samples on its own budget. Both
-// re-report every tick until something outside the scheduler clears the
+// Pins: each steady-state reporter samples on its own budget. Each
+// re-reports every tick until something outside the scheduler clears the
 // condition, so on the shared budget they crowd out the one-off errors it
 // exists for — measured against a cleanup error site that keeps failing.
 func TestSchedulerTick_SteadyStateWarnsDoNotStarveErrorLogging(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
+		level   logrus.Level
 		warn    string
 		prepare func(h *testHarness)
 		arm     func(t *testing.T, h *testHarness)
 	}{
 		{
 			name:    "unrecognized status",
+			level:   logrus.WarnLevel,
 			warn:    "unrecognized status",
 			prepare: func(*testHarness) {},
 			arm: func(t *testing.T, h *testHarness) {
@@ -1994,8 +1996,9 @@ func TestSchedulerTick_SteadyStateWarnsDoNotStarveErrorLogging(t *testing.T) {
 			},
 		},
 		{
-			name: "post-completion ack failure",
-			warn: "post-completion ack",
+			name:  "post-completion ack failure",
+			level: logrus.WarnLevel,
+			warn:  "post-completion ack",
 			prepare: func(h *testHarness) {
 				prov := newUnitAwareTestProvider(t)
 				h.registeredProviders = map[string]Provider{h.tasksNamespace: prov}
@@ -2010,6 +2013,19 @@ func TestSchedulerTick_SteadyStateWarnsDoNotStarveErrorLogging(t *testing.T) {
 				completeUnit(t, h, h.tasksNamespace, "swapping", 10, h.localNodeID, "u-1")
 				require.Equal(t, TaskStatusSwapping,
 					h.manager.tasks[h.tasksNamespace]["swapping"].Status)
+			},
+		},
+		{
+			name:  "task relaunch",
+			level: logrus.InfoLevel,
+			warn:  "started distributed task execution",
+			prepare: func(h *testHarness) {
+				prov := exitingTaskProvider{newTestTaskProvider(t, nil)}
+				h.registeredProviders = map[string]Provider{h.tasksNamespace: prov}
+			},
+			arm: func(t *testing.T, h *testHarness) {
+				// Its handle exits at once while its unit stays open, so every tick relaunches it.
+				addTaskWithUnits(t, h, h.tasksNamespace, "waiting", 10, []string{"u-1"})
 			},
 		},
 	} {
@@ -2041,7 +2057,7 @@ func TestSchedulerTick_SteadyStateWarnsDoNotStarveErrorLogging(t *testing.T) {
 			var warns, cleanupErrors int
 			for _, e := range h.loggerHook.AllEntries() {
 				switch {
-				case e.Level == logrus.WarnLevel && strings.Contains(e.Message, tc.warn):
+				case e.Level == tc.level && strings.Contains(e.Message, tc.warn):
 					warns++
 				case e.Level == logrus.ErrorLevel && strings.Contains(e.Message, "failed to clean up distributed task"):
 					cleanupErrors++
@@ -2053,6 +2069,20 @@ func TestSchedulerTick_SteadyStateWarnsDoNotStarveErrorLogging(t *testing.T) {
 				"the persistent cleanup failure must get the shared sampler's whole budget")
 		})
 	}
+}
+
+type exitingTaskProvider struct{ *testTaskProvider }
+
+func (exitingTaskProvider) StartTask(*Task) (TaskHandle, error) { return exitedHandle{}, nil }
+
+type exitedHandle struct{}
+
+func (exitedHandle) Terminate() {}
+
+func (exitedHandle) Done() <-chan struct{} {
+	done := make(chan struct{})
+	close(done)
+	return done
 }
 
 // localTaskInspectorStub stands in for this node's own FSM copies of
