@@ -165,7 +165,9 @@ func TestDeferredPromotionServesStagedDataAcrossTheFlip(t *testing.T) {
 					require.True(t, ok)
 					require.False(t, rec.Subject().Unmirrored)
 					require.NoError(t, os.Remove(corrupt))
-					require.NoError(t, shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate))
+					require.ErrorContains(t, liftReady(shard)(), "a recovery retry started")
+					awaitRetry(t, shard)
+					require.NoError(t, liftReady(shard)())
 				}
 				require.Equal(t, []MigrationState{MigrationStateSwapped}, migrationRecordStates(t, lsm),
 					"the unflipped schema must defer the promotion")
