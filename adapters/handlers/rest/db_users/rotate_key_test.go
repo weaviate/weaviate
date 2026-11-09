@@ -266,6 +266,9 @@ func TestRotateKeyTargetPermissions(t *testing.T) {
 	coll := func(verb, collection string) authorization.Policy {
 		return authorization.Policy{Resource: authorization.Collections(collection)[0], Verb: verb, Domain: authorization.SchemaDomain}
 	}
+	readUser := func(user string) authorization.Policy {
+		return authorization.Policy{Resource: authorization.Users(user)[0], Verb: authorization.READ, Domain: authorization.UsersDomain}
+	}
 	admin := &models.Principal{Username: "admin", UserType: models.UserTypeInputDb}
 	nsAdmin := &models.Principal{Username: "customer1:admin", UserType: models.UserTypeInputDb, Namespace: "customer1"}
 
@@ -308,13 +311,21 @@ func TestRotateKeyTargetPermissions(t *testing.T) {
 			wantOK:            true,
 		},
 		{
-			name:              "namespaced caller: role bound to another namespace",
+			name:              "namespaced caller: a role bound to another namespace does not end the check",
 			principal:         nsAdmin,
 			namespacesEnabled: true,
 			userID:            "bob",
 			internalKey:       "customer1:bob",
-			targetRoles:       map[string][]authorization.Policy{"other": {coll(authorization.READ, "customer2:Movies")}},
-			callerHolds:       []authorization.Policy{coll(authorization.READ, "customer1:Movies"), coll(authorization.READ, "customer2:Movies")},
+			targetRoles:       map[string][]authorization.Policy{"mixed": {coll(authorization.READ, "customer2:Movies"), coll(authorization.READ, "Movies")}},
+		},
+		{
+			name:              "global caller: a bare user grant is checked in the target's namespace",
+			principal:         admin,
+			namespacesEnabled: true,
+			userID:            "customer1:target",
+			internalKey:       "customer1:target",
+			targetRoles:       map[string][]authorization.Policy{"reader": {readUser("bob")}},
+			callerHolds:       []authorization.Policy{readUser("bob")},
 		},
 	}
 

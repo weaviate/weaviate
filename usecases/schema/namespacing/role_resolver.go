@@ -142,8 +142,7 @@ func ProjectResourceForNamespace(resource, namespace string) (string, error) {
 }
 
 // ErrForeignNamespace marks a resource bound to a namespace other than the
-// projection target; callers map it to a generic denial so no foreign
-// namespace surfaces in a response.
+// projection target. A subject in the target namespace never holds it.
 var ErrForeignNamespace = errors.New("resource bound to a different namespace")
 
 // RoleShortNameConflict describes why a candidate role name collides with an
