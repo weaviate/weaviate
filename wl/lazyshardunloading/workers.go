@@ -44,15 +44,33 @@ func (p *policy[S]) adjustWorkers(n int) {
 	}
 }
 
-// work prefers make-room handoffs, which a request is waiting to see land, over background ones.
+// makeRoomStreak is how many make-room handoffs in a row a worker takes before a waiting background one.
+const makeRoomStreak = 4
+
+// work prefers make-room handoffs, which a request is waiting to see land, but never starves background ones.
 func (p *policy[S]) work(stop <-chan struct{}) {
+	streak := 0
 	for {
+		if streak >= makeRoomStreak {
+			select {
+			case <-p.ctx.Done():
+				return
+			case <-stop:
+				return
+			case it := <-p.backgroundCh:
+				streak = 0
+				p.process(it)
+				continue
+			default:
+			}
+		}
 		select {
 		case <-p.ctx.Done():
 			return
 		case <-stop:
 			return
 		case it := <-p.makeRoomCh:
+			streak++
 			p.process(it)
 			continue
 		default:
@@ -63,8 +81,10 @@ func (p *policy[S]) work(stop <-chan struct{}) {
 		case <-stop:
 			return
 		case it := <-p.makeRoomCh:
+			streak++
 			p.process(it)
 		case it := <-p.backgroundCh:
+			streak = 0
 			p.process(it)
 		}
 	}
