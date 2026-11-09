@@ -434,17 +434,9 @@ func testMutationGuardBlocksDeleteClassDuringInFlight(t *testing.T, restURI stri
 		"400 body must explain that a task is in flight; got: %s", bodyStr)
 	assert.Contains(t, bodyStr, className,
 		"400 body must name the class being deleted; got: %s", bodyStr)
-	// The refusal names the status it read, and a cancel is accepted for
-	// every in-flight status, so each one must point the operator at it.
-	const cancelRemedy = "cancel the reindex via the REST API before deleting the class"
-	switch {
-	case strings.Contains(bodyStr, "status=STARTED"), strings.Contains(bodyStr, "status=PREPARING"),
-		strings.Contains(bodyStr, "status=SWAPPING"):
-		assert.Contains(t, bodyStr, cancelRemedy,
-			"400 body for an in-flight task must point operators at the cancel remedy; got: %s", bodyStr)
-	default:
-		t.Fatalf("400 body must name the in-flight status it read; got: %s", bodyStr)
-	}
+	// A cancel is accepted in every in-flight status, so the body names it as the remedy.
+	assert.Regexp(t, `status=(STARTED|PREPARING|SWAPPING)`, bodyStr)
+	assert.Contains(t, bodyStr, "cancel the reindex via the REST API before deleting the class")
 
 	getURL := fmt.Sprintf("http://%s/v1/schema/%s", restURI, className)
 	resp, err = http.Get(getURL)

@@ -25,7 +25,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -67,25 +66,16 @@ func TestBlockmaxStoppedChangeAlgorithmResubmitAfterRestart(t *testing.T) {
 	require.Equal(t, "CANCELLED", cancelled.Status, "the large tenant must still be running at cancel")
 	require.False(t, bananaScoresEqual(t, class, "large"), "the large tenant stays on WAND after the cancel")
 
-	restURI = restartNode(t, ctx, compose)
+	require.NoError(t, compose.StopAt(ctx, 0, nil))
+	require.NoError(t, compose.StartAt(ctx, 0))
+	restURI = compose.GetWeaviate().URI()
+	helper.SetupClient(restURI)
 
-	resp := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, class, "title", "searchable", `{"algorithm":"blockmax"}`)
-	require.Equal(t, http.StatusAccepted, resp.StatusCode, "the resubmit must start a run: %s", resp.Body)
-	var body map[string]string
-	require.NoError(t, json.Unmarshal([]byte(resp.Body), &body))
-	reindexhelpers.AwaitReindexFinished(t, restURI, body["taskId"], reindexhelpers.WithTimeout(5*time.Minute))
+	retry := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "title", "searchable", `{"algorithm":"blockmax"}`)
+	reindexhelpers.AwaitReindexFinished(t, restURI, retry, reindexhelpers.WithTimeout(5*time.Minute))
 	assertEqualBananaScores(t, class, "large", "the large tenant after the resubmit")
 	assertEqualBananaScores(t, class, "small", "the small tenant after the resubmit")
 	require.Equal(t, "blockmax", searchableAlgorithm(t, restURI, class, "title"))
-}
-
-func restartNode(t *testing.T, ctx context.Context, compose *docker.DockerCompose) string {
-	t.Helper()
-	require.NoError(t, compose.StopAt(ctx, 0, nil))
-	require.NoError(t, compose.StartAt(ctx, 0))
-	uri := compose.GetWeaviate().URI()
-	helper.SetupClient(uri)
-	return uri
 }
 
 func bananaScoresEqual(t *testing.T, class, tenant string) bool {

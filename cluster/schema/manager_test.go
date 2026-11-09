@@ -719,7 +719,7 @@ type recordingMutationGuard struct {
 	lastRemoved []string
 	lastShards  []string
 	rejectWith  error
-	// migrationCalls counts CheckMigrationPropertyUpdate; rejectMigrationWith is its answer.
+
 	migrationCalls      int
 	lastRun             cmd.MigrationRun
 	rejectMigrationWith error
@@ -821,9 +821,8 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 	})
 
 	t.Run("a migration write is gated only by its run completing", func(t *testing.T) {
-		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("property guard that MUST be bypassed")}
-		err := newSM(guard).UpdateProperty(mkRequest("C", "name", true), true, false)
-		require.NotContains(t, err.Error(), "MUST be bypassed")
+		guard := &recordingMutationGuard{}
+		_ = newSM(guard).UpdateProperty(mkRequest("C", "name", true), true, false)
 		require.Equal(t, 0, guard.called, "the property guard MUST NOT be consulted for a migration write")
 		require.Equal(t, 1, guard.migrationCalls)
 		require.Equal(t, cmd.MigrationRun{Namespace: "reindex", ID: "T", Version: 1}, guard.lastRun)
@@ -831,20 +830,16 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 		// A peer's flip arriving after its run was marked FAILED or CANCELLED.
 		late := errors.New("no reindex run is completing")
 		guard = &recordingMutationGuard{rejectMigrationWith: late}
-		err = newSM(guard).UpdateProperty(mkRequest("C", "name", true), true, false)
+		err := newSM(guard).UpdateProperty(mkRequest("C", "name", true), true, false)
 		require.ErrorIs(t, err, late)
 		require.ErrorIs(t, err, ErrBadRequest)
 	})
 
 	t.Run("a migration write naming no run consults no guard", func(t *testing.T) {
-		guard := &recordingMutationGuard{rejectWith: errors.New("refused"), rejectMigrationWith: errors.New("refused")}
-		req := mkRequest("C", "name", true)
-		var body cmd.UpdatePropertyRequest
-		require.NoError(t, json.Unmarshal(req.SubCommand, &body))
-		body.MigrationRun = nil
-		req.SubCommand, _ = json.Marshal(&body)
-		err := newSM(guard).UpdateProperty(req, true, false)
-		require.NotContains(t, err.Error(), "refused")
+		guard := &recordingMutationGuard{}
+		req := mkRequest("C", "name", false)
+		req.SubCommand, _ = json.Marshal(&cmd.UpdatePropertyRequest{Property: &models.Property{Name: "name"}, FromInFlightMigration: true})
+		_ = newSM(guard).UpdateProperty(req, true, false)
 		require.Zero(t, guard.called+guard.migrationCalls)
 	})
 

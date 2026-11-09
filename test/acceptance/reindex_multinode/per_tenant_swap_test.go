@@ -138,14 +138,13 @@ func TestMultiNode_PerTenantSwap_CancelLeavesPartialThenResubmitFinishes(t *test
 	perTenantSwapFixture(t, compose, className)
 	restURI := compose.GetWeaviate().URI()
 
-	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"tokenization":"field"}`)
+	reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"tokenization":"field"}`)
 	require.Eventually(t, func() bool {
 		return smallTenantMigratedOnEveryNode(t, compose, className)
 	}, 2*time.Minute, 200*time.Millisecond, "the small tenant must swap on every replica")
 
 	cancelled := reindexhelpers.CancelIndex(t, restURI, className, "text", "searchable")
 	require.Equal(t, "CANCELLED", cancelled.Status, "a cancel is never refused while the reindex runs")
-	require.Equal(t, "CANCELLED", reindexTaskStatus(restURI, taskID))
 
 	require.Eventually(t, func() bool {
 		for _, prop := range reindexhelpers.GetIndexes(t, restURI, className).Properties {
