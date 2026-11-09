@@ -207,6 +207,12 @@ func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 		// log it and leave the planner nil.
 		cfg.Logger.Errorf("could not construct the rebalance planner: %v", err)
 	}
+	if rebalancePlanner != nil {
+		// Every node wakes its own planner when a plan create is applied. Only
+		// the leader runs a planning pass, and only when it is ready and both
+		// flags are on.
+		fsm.replicationManager.SetPlanCreated(rebalancePlanner.Wake)
+	}
 
 	return &Service{
 		Raft:               raft,
