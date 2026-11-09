@@ -210,7 +210,7 @@ func (c *Client) vectorize(ctx context.Context, input []string, cfg moduletools.
 }
 
 func buildURL(ctx context.Context, baseURL string) (string, error) {
-	baseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Digitalocean-Baseurl", baseURL)
+	baseURL, err := modulecomponents.ResolveBaseURL(ctx, "X-Digitalocean-Baseurl", baseURL)
 	if err != nil {
 		return "", err
 	}

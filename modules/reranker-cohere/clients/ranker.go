@@ -203,7 +203,7 @@ func (c *client) getApiKey(ctx context.Context) (string, error) {
 }
 
 func (c *client) getCohereUrl(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Cohere-Baseurl", baseURL)
+	passedBaseURL, err := modulecomponents.ResolveBaseURL(ctx, "X-Cohere-Baseurl", baseURL)
 	if err != nil {
 		return "", err
 	}

@@ -219,7 +219,7 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 }
 
 func (v *cohere) getCohereUrl(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Cohere-Baseurl", baseURL)
+	passedBaseURL, err := modulecomponents.ResolveBaseURL(ctx, "X-Cohere-Baseurl", baseURL)
 	if err != nil {
 		return "", err
 	}

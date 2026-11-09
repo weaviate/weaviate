@@ -183,7 +183,7 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 }
 
 func (v *friendliai) getFriendliUrl(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Friendli-Baseurl", baseURL)
+	passedBaseURL, err := modulecomponents.ResolveBaseURL(ctx, "X-Friendli-Baseurl", baseURL)
 	if err != nil {
 		return "", err
 	}

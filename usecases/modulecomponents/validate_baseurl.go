@@ -51,6 +51,25 @@ func ValidatedBaseURLFromHeader(ctx context.Context, headerKey, fallback string)
 	return headerBaseURL, nil
 }
 
+// ResolveBaseURL returns the baseURL carried in the given request header if
+// present, otherwise fallback, and validates whichever is chosen. Unlike
+// ValidatedBaseURLFromHeader it also checks fallback, which can be a per-query
+// generative parameter or a class config stored before
+// MODULES_VALIDATE_BASE_URL was enabled. Use it only for modules whose class
+// validation already calls ValidateBaseURL, so that it rejects nothing schema
+// validation accepts; modules defaulting to a local endpoint (e.g. Ollama's
+// http://localhost) must keep using ValidatedBaseURLFromHeader.
+func ResolveBaseURL(ctx context.Context, headerKey, fallback string) (string, error) {
+	baseURL := fallback
+	if headerBaseURL := GetValueFromContext(ctx, headerKey); headerBaseURL != "" {
+		baseURL = headerBaseURL
+	}
+	if err := ValidateBaseURL(baseURL); err != nil {
+		return "", err
+	}
+	return baseURL, nil
+}
+
 // isDisallowedIP reports whether an IP points at the local host or an internal
 // network. Used both by ValidateBaseURL and by the dial guard, where it sees
 // the actually-resolved IP and so also defeats DNS rebinding (TOCTOU).

@@ -162,7 +162,7 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 }
 
 func (v *qna) buildOpenAIUrl(ctx context.Context, baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Openai-Baseurl", baseURL)
+	passedBaseURL, err := modulecomponents.ResolveBaseURL(ctx, "X-Openai-Baseurl", baseURL)
 	if err != nil {
 		return "", err
 	}

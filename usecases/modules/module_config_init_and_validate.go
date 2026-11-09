@@ -161,8 +161,10 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 	case 0:
 		// legacy configuration
 		if class.Vectorizer == "none" {
-			// the class does not use a vectorizer, nothing to do for us
-			return nil
+			// the class does not use a vectorizer, but non-vectorizer modules
+			// (generative, reranker) configured on it must still be validated,
+			// otherwise their settings (e.g. baseURL) bypass all checks
+			return p.validateLegacyNoneVectorizerModules(ctx, class, class.ModuleConfig)
 		}
 		if err := p.validateClassesModuleConfig(ctx, class, class.ModuleConfig); err != nil {
 			return err
@@ -225,6 +227,30 @@ func (p *Provider) validateClassesModuleConfigNoneVectorizers(ctx context.Contex
 			if err := p.validateClassModuleConfig(ctx, class, modName, ""); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+// validateLegacyNoneVectorizerModules validates the non-vectorizer modules
+// configured on a legacy class with vectorizer "none". Vectorizer module
+// configs are inert on such a class and stay unvalidated, and unknown modules
+// are skipped, matching the leniency of validateClassesModuleConfig so that
+// existing classes keep accepting updates.
+func (p *Provider) validateLegacyNoneVectorizerModules(ctx context.Context,
+	class *models.Class, moduleConfig interface{},
+) error {
+	modConfig, ok := moduleConfig.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	for modName := range modConfig {
+		mod := p.GetByName(modName)
+		if mod == nil || p.isVectorizerModule(mod.Type()) {
+			continue
+		}
+		if err := p.validateClassModuleConfig(ctx, class, modName, ""); err != nil {
+			return err
 		}
 	}
 	return nil

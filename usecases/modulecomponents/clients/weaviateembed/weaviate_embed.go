@@ -157,6 +157,9 @@ func (c *Client[T]) getWeaviateEmbedURL(ctx context.Context, baseURL string) (st
 	} else {
 		host = DefaultBaseURL
 	}
+	if err := modulecomponents.ValidateBaseURL(host); err != nil {
+		return "", err
+	}
 	return url.JoinPath(host, URLPath)
 }
 
