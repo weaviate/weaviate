@@ -13,7 +13,12 @@ package db
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -209,6 +214,32 @@ func TestVectorIndexStorageID(t *testing.T) {
 			assert.Equal(t, tt.physicalID, rec.recordedID())
 		})
 	}
+}
+
+// Only the mapping reads a record's raw physical ID. Anywhere else a raw ID
+// that is not main or vectors_<x> would name the legacy vector's files.
+func TestVectorIndexRecord_PhysicalIDReadOnlyByTheMapping(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	require.NoError(t, err)
+	fset := token.NewFileSet()
+	var offenders []string
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") ||
+			name == "shard_vector_mapping.go" {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
+		require.NoError(t, err)
+		ast.Inspect(f, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if ok && sel.Sel.Name == "PhysicalID" {
+				offenders = append(offenders, fset.Position(sel.Pos()).String())
+			}
+			return true
+		})
+	}
+	assert.Empty(t, offenders, "read the physical ID through storageID, or recordedID for messages")
 }
 
 // A record written by a newer version carries fields this one ignores; the
