@@ -59,7 +59,7 @@ func TestCheckExpectedStrategy(t *testing.T) {
 			name:     "no expected strategies names them all when rejecting",
 			strategy: unknownStrategy,
 			wantErr: "one of strategies [replace setcollection mapcollection roaringset " +
-				"roaringsetrange inverted] expected, got n/a",
+				"roaringsetrange inverted geopoints] expected, got n/a",
 		},
 		{
 			name:     "CheckStrategyRoaringSet mismatches",

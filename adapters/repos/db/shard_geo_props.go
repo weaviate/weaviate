@@ -15,150 +15,164 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (s *Shard) initGeoProp(prop *models.Property) error {
-	// Building one index at a time keeps a prop's commit log directory to a
-	// single writer. A second index there prunes the empty raw file the first
-	// one holds open, so the surviving index appends to an unlinked inode and
-	// loses everything it logs, and a startup scan running at the same time
-	// fails on the file that just vanished. The check below cannot prevent
-	// this: it only sees indexes that are already registered, not the ones
-	// other callers are still building.
-	s.geoInitLock.Lock()
-	defer s.geoInitLock.Unlock()
+// A geoCoordinates property with a filterable index is served by a geopoints
+// bucket, helpers.BucketGeoFromPropNameLSM, that holds a BKD tree per segment.
+// It is an lsmkv bucket like every other property index, so flushing,
+// compaction, backups and crash recovery need nothing geo-specific. Until
+// v1.40 the index was an HNSW graph beside the shard; initGeoProp rebuilds
+// such a graph's bucket from the objects and removes its directories.
 
-	// replacing a live index would leave its commit logger and queue registered,
-	// putting two writers on the same files
-	if s.hasGeoIndexForProp(prop.Name) {
+// initGeoProp opens propName's geo bucket, building it from the objects when
+// the shard still holds the geo HNSW of an earlier version.
+func (s *Shard) initGeoProp(ctx context.Context, prop *models.Property,
+	makeBucketOptions lsmkv.MakeBucketOptions,
+) error {
+	if err := s.store.CreateOrLoadBucket(ctx, helpers.BucketGeoFromPropNameLSM(prop.Name),
+		makeBucketOptions(lsmkv.StrategyGeoPoints)...); err != nil {
+		return err
+	}
+	return s.migrateLegacyGeoIndex(ctx, prop.Name, makeBucketOptions)
+}
+
+// legacyGeoIndexDirs are the directories the geo HNSW of versions before 1.40
+// kept beside the shard's lsm directory: its commit log and, with async
+// indexing, its queue.
+func legacyGeoIndexDirs(shardPath, propName string) []string {
+	return []string{
+		filepath.Join(shardPath, fmt.Sprintf("geo.%s.hnsw.commitlog.d", propName)),
+		filepath.Join(shardPath, fmt.Sprintf("geo.%s.queue.d", propName)),
+	}
+}
+
+// migrateLegacyGeoIndex rebuilds propName's bucket from the objects when a geo
+// HNSW directory is present, then removes the directories. The directories go
+// last, so a crash before that point repeats the rebuild on the next start
+// rather than leaving a partial bucket behind.
+func (s *Shard) migrateLegacyGeoIndex(ctx context.Context, propName string,
+	makeBucketOptions lsmkv.MakeBucketOptions,
+) error {
+	dirs := legacyGeoIndexDirs(s.path(), propName)
+	found := false
+	for _, dir := range dirs {
+		if _, err := os.Stat(dir); err == nil {
+			found = true
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("stat legacy geo index dir %q: %w", dir, err)
+		}
+	}
+	if !found {
 		return nil
 	}
 
-	// starts geo props cycles if actual geo property is present
-	// (safe to start multiple times)
-	s.index.cycleCallbacks.geoPropsCommitLoggerCycle.Start()
-	s.index.cycleCallbacks.geoPropsTombstoneCleanupCycle.Start()
+	logger := s.index.logger.WithField("shard", s.name).WithField("geo", propName)
+	logger.Info("legacy geo index found, rebuilding the geo bucket from the stored objects")
 
-	idx, err := s.newGeoIndex(prop.Name)
-	if err != nil {
-		return err
+	if err := s.rebuildGeoBucketFromObjects(ctx, propName, makeBucketOptions); err != nil {
+		return fmt.Errorf("migrate legacy geo index of prop %q: %w", propName, err)
 	}
 
-	s.propertyIndicesLock.Lock()
-	s.propertyIndices[prop.Name] = propertyspecific.Index{
-		Type:     schema.DataTypeGeoCoordinates,
-		GeoIndex: idx,
-		Name:     prop.Name,
-	}
-	s.propertyIndicesLock.Unlock()
-
-	idx.PostStartup(s.shutCtx)
-
-	// Create a geo queue wrapping the underlying HNSW for async indexing
-	if underlyingVI, ok := idx.UnderlyingVectorIndex().(VectorIndex); ok {
-		geoQueue, err := NewGeoIndexQueue(s, prop.Name, underlyingVI)
-		if err != nil {
-			// the guard at the top would skip the retry, leaving the prop with an
-			// index but no queue until the shard is reloaded
-			s.propertyIndicesLock.Lock()
-			delete(s.propertyIndices, prop.Name)
-			s.propertyIndicesLock.Unlock()
-
-			ec := errorcompounder.New()
-			ec.AddWrapf(err, "create geo index queue for prop %q", prop.Name)
-			ec.AddWrapf(idx.Shutdown(s.shutCtx), "shutdown geo index for prop %q", prop.Name)
-			return ec.ToError()
+	for _, dir := range dirs {
+		if err := os.RemoveAll(dir); err != nil {
+			return fmt.Errorf("remove legacy geo index dir %q: %w", dir, err)
 		}
-		s.propertyIndicesLock.Lock()
-		s.geoQueues[prop.Name] = geoQueue
-		s.propertyIndicesLock.Unlock()
 	}
-
+	logger.Info("legacy geo index removed")
 	return nil
 }
 
-// newGeoIndex builds propName's geo index without registering it.
-func (s *Shard) newGeoIndex(propName string) (*geo.Index, error) {
-	idx, err := geo.NewIndex(geo.Config{
-		ID:                    geoPropID(propName),
-		RootPath:              s.path(),
-		CoordinatesForID:      s.makeCoordinatesForID(propName),
-		Store:                 s.store,
-		CoordinatesFromObject: s.makeCoordinatesFromObject(propName),
-		WaitForCachePrefill:   s.index.Config.HNSWWaitForCachePrefill,
-		DisablePersistence:    false,
-		Logger:                s.index.logger,
-		ClassName:             s.index.Config.ClassName.String(),
-		ShardName:             s.name,
-		HNSWEF:                s.index.Config.HNSWGeoIndexEF,
-		AllocChecker:          s.index.allocChecker,
-	},
-		s.cycleCallbacks.geoPropsCommitLoggerCallbacks,
-		s.cycleCallbacks.geoPropsTombstoneCleanupCallbacks,
-	)
-	if err != nil {
-		return nil, errors.Wrapf(err, "create geo index for prop %q", propName)
+// rebuildGeoBucketFromObjects replaces propName's geo bucket with one built
+// from every stored object. The bucket is gone for the duration, so writes
+// and geo filters on the property fail while it runs; the startup migration
+// runs before the shard serves, the debug endpoint is for a node without
+// traffic.
+func (s *Shard) rebuildGeoBucketFromObjects(ctx context.Context, propName string,
+	makeBucketOptions lsmkv.MakeBucketOptions,
+) error {
+	start := time.Now()
+	bucketName := helpers.BucketGeoFromPropNameLSM(propName)
+
+	// an earlier attempt may have left a partial bucket
+	if err := s.removeBucket(ctx, bucketName); err != nil {
+		return fmt.Errorf("remove geo bucket: %w", err)
 	}
-	return idx, nil
-}
+	if err := s.store.CreateOrLoadBucket(ctx, bucketName,
+		makeBucketOptions(lsmkv.StrategyGeoPoints)...); err != nil {
+		return fmt.Errorf("create geo bucket: %w", err)
+	}
+	bucket := s.store.Bucket(bucketName)
+	if bucket == nil {
+		return fmt.Errorf("geo bucket %q missing after creation", bucketName)
+	}
 
-func (s *Shard) makeCoordinatesForID(propName string) geo.CoordinatesForID {
-	// read-only once built, so all lookups can share it
-	propExtraction := storobj.NewPropExtraction().Add(propName)
-
-	return func(ctx context.Context, id uint64) (*models.GeoCoordinates, error) {
-		obj, err := s.objectByIndexIDWithProps(ctx, id, propExtraction)
-		if err != nil {
-			// reporting a read or decode failure as a not-found would make the
-			// geo index tombstone a doc that is still there
-			return nil, err
-		}
-
+	var count int
+	err := s.iterateOnLSMObjects(ctx, 0, func(obj *storobj.Object) error {
 		coordinates, err := geoCoordinatesOfProp(obj, propName)
 		if err != nil {
-			return nil, err
+			return fmt.Errorf("doc %d: %w", obj.DocID, err)
 		}
 		if coordinates == nil {
-			return nil, storobj.NewErrNotFoundf(id,
-				"object has no property %q", propName)
+			return nil
 		}
-
-		return coordinates, nil
+		if err := bucket.GeoPointsAdd(obj.DocID, *coordinates.Latitude, *coordinates.Longitude); err != nil {
+			return fmt.Errorf("doc %d: %w", obj.DocID, err)
+		}
+		count++
+		return nil
+	}, additional.Properties{}, storobj.NewPropExtraction().Add(propName))
+	if err != nil {
+		return errors.Wrap(err, "iterate on LSM objects")
 	}
+	if err := bucket.WriteWAL(); err != nil {
+		return fmt.Errorf("write geo bucket WAL: %w", err)
+	}
+
+	s.index.logger.
+		WithField("count", count).
+		WithField("took", time.Since(start)).
+		WithField("shard_id", s.ID()).
+		WithField("geo", propName).
+		Info("rebuilt geo bucket from LSM store")
+	return nil
 }
 
-// makeCoordinatesFromObject reads a coordinate straight out of an object's
-// stored bytes, so the geo cache prefill can scan the objects bucket in storage
-// order instead of seeking once per doc ID. The class name comes from the
-// schema because objects may be written without it on disk.
-func (s *Shard) makeCoordinatesFromObject(propName string) geo.CoordinatesFromObject {
-	// read-only once built, so all lookups can share it
-	propExtraction := storobj.NewPropExtraction().Add(propName)
-	className := s.index.Config.ClassName.String()
-
-	return func(objectBytes []byte) (*models.GeoCoordinates, error) {
-		obj, err := storobj.FromBinaryOptionalDisk(objectBytes, className,
-			additional.Properties{}, propExtraction)
-		if err != nil {
-			return nil, err
+// geoProps lists the class properties served by a geo bucket.
+func geoProps(class *models.Class) []*models.Property {
+	var out []*models.Property
+	for _, prop := range class.Properties {
+		if createsGeoIndex(prop) {
+			out = append(out, prop)
 		}
-
-		return geoCoordinatesOfProp(obj, propName)
 	}
+	return out
+}
+
+// geoBucket returns propName's geo bucket, or an error when the shard has none:
+// an object with coordinates that go unindexed would be a silent gap.
+func (s *Shard) geoBucket(propName string) (*lsmkv.Bucket, error) {
+	bucket := s.store.Bucket(helpers.BucketGeoFromPropNameLSM(propName))
+	if bucket == nil {
+		return nil, fmt.Errorf("no geo bucket for prop %q found", propName)
+	}
+	return bucket, nil
 }
 
 // geoCoordinatesOfProp returns propName's coordinates, or nil if the object
-// carries no such property.
+// carries no such property. A value arriving as a map, as a merge produces, is
+// accepted alongside the model type.
 func geoCoordinatesOfProp(obj *storobj.Object, propName string) (*models.GeoCoordinates, error) {
 	props, ok := obj.Properties().(map[string]interface{})
 	if !ok {
@@ -166,57 +180,44 @@ func geoCoordinatesOfProp(obj *storobj.Object, propName string) (*models.GeoCoor
 	}
 
 	prop, ok := props[propName]
-	if !ok {
+	if !ok || prop == nil {
 		return nil, nil
 	}
 
-	geoProp, ok := prop.(*models.GeoCoordinates)
-	if !ok {
-		return nil, fmt.Errorf("expected property to be of type %T, got: %T",
-			&models.GeoCoordinates{}, prop)
+	var coordinates *models.GeoCoordinates
+	switch val := prop.(type) {
+	case *models.GeoCoordinates:
+		coordinates = val
+	case map[string]any:
+		asBytes, err := json.Marshal(val)
+		if err != nil {
+			return nil, fmt.Errorf("adjust geo property type: marshal geo property map: %w", err)
+		}
+		var adjusted models.GeoCoordinates
+		if err := json.Unmarshal(asBytes, &adjusted); err != nil {
+			return nil, fmt.Errorf("adjust geo property type: unmarshal geo property map: %w", err)
+		}
+		coordinates = &adjusted
+	default:
+		return nil, fmt.Errorf("expected property %q to be of type %T, got: %T",
+			propName, &models.GeoCoordinates{}, prop)
 	}
 
-	return geoProp, nil
+	if coordinates.Latitude == nil {
+		return nil, fmt.Errorf("property %q: latitude must be set", propName)
+	}
+	if coordinates.Longitude == nil {
+		return nil, fmt.Errorf("property %q: longitude must be set", propName)
+	}
+	return coordinates, nil
 }
 
-func geoPropID(propName string) string {
-	return fmt.Sprintf("geo.%s", propName)
-}
-
+// updatePropertySpecificIndices writes object's geo coordinates to every geo
+// bucket of its class, after removing the doc ID the object had before. It
+// removes from every geo bucket, not only those the object has a value for,
+// since the update may have dropped the property.
 func (s *Shard) updatePropertySpecificIndices(ctx context.Context, object *storobj.Object,
 	status objectInsertStatus,
-) error {
-	if err := s.isReadOnly(); err != nil {
-		return err
-	}
-
-	s.propertyIndicesLock.RLock()
-	defer s.propertyIndicesLock.RUnlock()
-
-	for propName, propIndex := range s.propertyIndices {
-		if err := s.updatePropertySpecificIndex(ctx, propName, propIndex,
-			object, status); err != nil {
-			return errors.Wrapf(err, "property %q", propName)
-		}
-	}
-
-	return nil
-}
-
-func (s *Shard) updatePropertySpecificIndex(ctx context.Context, propName string,
-	index propertyspecific.Index, obj *storobj.Object,
-	status objectInsertStatus,
-) error {
-	if index.Type != schema.DataTypeGeoCoordinates {
-		return fmt.Errorf("unsupported per-property index type %q", index.Type)
-	}
-
-	// currently the only property-specific index we support
-	return s.updateGeoIndex(ctx, propName, index, obj, status)
-}
-
-func (s *Shard) updateGeoIndex(ctx context.Context, propName string,
-	index propertyspecific.Index, obj *storobj.Object, status objectInsertStatus,
 ) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
@@ -227,86 +228,85 @@ func (s *Shard) updateGeoIndex(ctx context.Context, propName string,
 		return nil
 	}
 
-	if status.docIDChanged {
-		if err := s.deleteFromGeoIndex(propName, index, status.oldDocID); err != nil {
-			return errors.Wrap(err, "delete old doc id from geo index")
-		}
+	class := s.index.getSchema.ReadOnlyClass(object.Class().String())
+	if class == nil {
+		return fmt.Errorf("could not find class %s in schema", object.Class().String())
 	}
 
-	return s.addToGeoIndex(ctx, propName, index, obj, status)
-}
-
-func (s *Shard) addToGeoIndex(ctx context.Context, propName string,
-	index propertyspecific.Index,
-	obj *storobj.Object, status objectInsertStatus,
-) error {
-	if err := s.isReadOnly(); err != nil {
-		return err
-	}
-
-	if obj.Properties() == nil {
-		return nil
-	}
-
-	asMap := obj.Properties().(map[string]interface{})
-	propValue, ok := asMap[propName]
-	if !ok {
-		return nil
-	}
-
-	var asGeo *models.GeoCoordinates
-	switch val := propValue.(type) {
-	case map[string]any:
-		asGeoBytes, err := json.Marshal(val)
+	for _, prop := range geoProps(class) {
+		bucket, err := s.geoBucket(prop.Name)
 		if err != nil {
-			return fmt.Errorf("adjust geo property type: marshal geo property map: %w", err)
+			return err
 		}
-		var asGeoAdjusted models.GeoCoordinates
-		err = json.Unmarshal(asGeoBytes, &asGeoAdjusted)
-		if err != nil {
-			return fmt.Errorf("adjust geo property type: unmarshal geo property map: %w", err)
-		}
-		asGeo = &asGeoAdjusted
-	case *models.GeoCoordinates:
-		asGeo = val
-	default:
-		return fmt.Errorf("expected prop to be of type %T, but got: %T",
-			&models.GeoCoordinates{}, propValue)
-	}
 
-	if s.index.AsyncIndexingEnabled {
-		if geoQueue, ok := s.geoQueues[propName]; ok {
-			vec, err := geo.GeoCoordinatesToVector(asGeo)
-			if err != nil {
-				return errors.Wrapf(err, "convert geo coordinates to vector")
+		if status.docIDChanged {
+			if err := bucket.GeoPointsRemove(status.oldDocID); err != nil {
+				return errors.Wrapf(err, "delete old doc id from geo index of prop %q", prop.Name)
 			}
-			return geoQueue.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vec})
+		}
+
+		coordinates, err := geoCoordinatesOfProp(object, prop.Name)
+		if err != nil {
+			return err
+		}
+		if coordinates == nil {
+			continue
+		}
+		if err := bucket.GeoPointsAdd(status.docID, *coordinates.Latitude, *coordinates.Longitude); err != nil {
+			return errors.Wrapf(err, "insert into geo index of prop %q", prop.Name)
 		}
 	}
-
-	if err := index.GeoIndex.Add(ctx, status.docID, asGeo); err != nil {
-		return errors.Wrapf(err, "insert into geo index")
-	}
-
 	return nil
 }
 
-func (s *Shard) deleteFromGeoIndex(propName string, index propertyspecific.Index,
-	docID uint64,
-) error {
-	if err := s.isReadOnly(); err != nil {
-		return err
+// deleteFromGeoIndexes removes docID from the geo bucket of every property the
+// deleted object carried a coordinate for.
+func (s *Shard) deleteFromGeoIndexes(previous *storobj.Object, docID uint64) error {
+	class := s.index.getSchema.ReadOnlyClass(previous.Class().String())
+	if class == nil {
+		return fmt.Errorf("could not find class %s in schema", previous.Class().String())
 	}
 
-	if s.index.AsyncIndexingEnabled {
-		if geoQueue, ok := s.geoQueues[propName]; ok {
-			return geoQueue.Delete(docID)
+	for _, prop := range geoProps(class) {
+		coordinates, err := geoCoordinatesOfProp(previous, prop.Name)
+		if err != nil {
+			return err
+		}
+		if coordinates == nil {
+			continue
+		}
+		bucket, err := s.geoBucket(prop.Name)
+		if err != nil {
+			return err
+		}
+		if err := bucket.GeoPointsRemove(docID); err != nil {
+			return errors.Wrapf(err, "delete from geo index of prop %q", prop.Name)
 		}
 	}
-
-	if err := index.GeoIndex.Delete(docID); err != nil {
-		return errors.Wrapf(err, "delete from geo index")
-	}
-
 	return nil
+}
+
+// hasGeoIndex reports whether the shard's class has a geo property with a
+// filterable index, so a batch can skip the geo write entirely.
+func (s *Shard) hasGeoIndex() bool {
+	class := s.index.getSchema.ReadOnlyClass(s.index.Config.ClassName.String())
+	if class == nil {
+		return false
+	}
+	return len(geoProps(class)) > 0
+}
+
+// hasGeoIndexForProp reports whether propName's geo bucket is open on this shard.
+func (s *Shard) hasGeoIndexForProp(propName string) bool {
+	return s.store.Bucket(helpers.BucketGeoFromPropNameLSM(propName)) != nil
+}
+
+// createsGeoIndex reports whether createPropertyValueIndex builds a geo bucket
+// for prop rather than inverted buckets.
+func createsGeoIndex(prop *models.Property) bool {
+	if !inverted.HasFilterableIndex(prop) {
+		return false
+	}
+	dt, _ := schema.AsPrimitive(prop.DataType)
+	return dt == schema.DataTypeGeoCoordinates
 }

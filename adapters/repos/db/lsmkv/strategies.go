@@ -27,6 +27,7 @@ const (
 	StrategyRoaringSet      = "roaringset"
 	StrategyRoaringSetRange = "roaringsetrange"
 	StrategyInverted        = "inverted"
+	StrategyGeoPoints       = "geopoints"
 )
 
 var allStrategies = []string{
@@ -36,6 +37,7 @@ var allStrategies = []string{
 	StrategyRoaringSet,
 	StrategyRoaringSetRange,
 	StrategyInverted,
+	StrategyGeoPoints,
 }
 
 // strategyUsesSharedIndexWriter reports whether a strategy's flush routes its
@@ -45,7 +47,7 @@ var allStrategies = []string{
 // answers cannot drift apart.
 func strategyUsesSharedIndexWriter(strategy string) bool {
 	switch strategy {
-	case StrategyRoaringSet, StrategyRoaringSetRange, StrategyInverted:
+	case StrategyRoaringSet, StrategyRoaringSetRange, StrategyInverted, StrategyGeoPoints:
 		return false
 	default:
 		return true
@@ -66,6 +68,8 @@ func SegmentStrategyFromString(in string) segmentindex.Strategy {
 		return segmentindex.StrategyRoaringSetRange
 	case StrategyInverted:
 		return segmentindex.StrategyInverted
+	case StrategyGeoPoints:
+		return segmentindex.StrategyGeoPoints
 	default:
 		panic("unsupported strategy")
 	}
@@ -136,6 +140,10 @@ func CheckStrategyRoaringSet(strategy string) error {
 
 func CheckStrategyRoaringSetRange(strategy string) error {
 	return checkStrategy(strategy, StrategyRoaringSetRange)
+}
+
+func CheckStrategyGeoPoints(strategy string) error {
+	return checkStrategy(strategy, StrategyGeoPoints)
 }
 
 func DefaultSearchableStrategy(useInvertedSearchable bool) string {

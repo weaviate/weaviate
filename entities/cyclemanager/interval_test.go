@@ -41,11 +41,6 @@ func Test_CycleTickersBackOffWhenIdle(t *testing.T) {
 			intervals: MemtableFlushCycleIntervals,
 		},
 		{
-			name:      "geo commit logger",
-			newTicker: func() CycleTicker { return GeoCommitLoggerCycleTicker(true) },
-			intervals: GeoCommitLoggerCycleIntervals,
-		},
-		{
 			name:      "hnsw commit logger",
 			newTicker: func() CycleTicker { return HnswCommitLoggerCycleTicker(true) },
 			intervals: HnswCommitLoggerCycleIntervals,

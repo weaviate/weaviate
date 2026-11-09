@@ -14,14 +14,9 @@
 package db
 
 import (
-	"maps"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // ForEachVectorIndex iterates through each vector index initialized in the shard (named and legacy).
@@ -136,73 +131,4 @@ func (s *Shard) setFallbackToSearchable(fallback bool) {
 
 func (s *Shard) addJobToQueue(job job) {
 	s.centralJobQueue <- job
-}
-
-// ForEachGeoQueue iterates through each geo index queue initialized in the shard.
-// Iteration stops at the first return of non-nil error.
-func (s *Shard) ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error {
-	s.propertyIndicesLock.RLock()
-	defer s.propertyIndicesLock.RUnlock()
-
-	for propName, q := range s.geoQueues {
-		if q == nil {
-			continue
-		}
-
-		if err := f(propName, q); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// ForEachGeoIndex iterates through each geo index initialized in the shard.
-// Iteration stops at the first return of non-nil error.
-func (s *Shard) ForEachGeoIndex(f func(propName string, index *geo.Index) error) error {
-	s.propertyIndicesLock.RLock()
-	defer s.propertyIndicesLock.RUnlock()
-
-	for propName, idx := range s.propertyIndices {
-		if idx.Type != schema.DataTypeGeoCoordinates || idx.GeoIndex == nil {
-			continue
-		}
-
-		if err := f(propName, idx.GeoIndex); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// propertyIndicesSnapshot copies the property-specific indices for a searcher
-// to read after this returns. Handing out the live map instead would race with
-// initGeoProp and DropAll, which is fatal rather than recoverable. The copy is
-// shallow: the *geo.Index values stay shared, so a concurrent drop reaches them.
-func (s *Shard) propertyIndicesSnapshot() propertyspecific.Indices {
-	s.propertyIndicesLock.RLock()
-	defer s.propertyIndicesLock.RUnlock()
-
-	if len(s.propertyIndices) == 0 {
-		return nil
-	}
-	return maps.Clone(s.propertyIndices)
-}
-
-func (s *Shard) hasGeoIndex() bool {
-	s.propertyIndicesLock.RLock()
-	defer s.propertyIndicesLock.RUnlock()
-
-	for _, idx := range s.propertyIndices {
-		if idx.Type == schema.DataTypeGeoCoordinates {
-			return true
-		}
-	}
-	return false
-}
-
-func (s *Shard) hasGeoIndexForProp(propName string) bool {
-	s.propertyIndicesLock.RLock()
-	defer s.propertyIndicesLock.RUnlock()
-
-	return s.propertyIndices[propName].Type == schema.DataTypeGeoCoordinates
 }

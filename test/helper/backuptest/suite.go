@@ -598,11 +598,10 @@ func (s *BackupTestSuite) VerifyObjectDataIntegrity(t *testing.T) {
 // VerifyGeoSearch runs a withinGeoRange filter per tenant and compares the hits
 // against the objects that were placed inside the queried range.
 //
-// The filter is answered by a separate index kept per geo property, which is
-// stored in files of its own rather than alongside the objects. A backup that
-// misses those files restores an empty index, and an empty index returns nothing
-// at all without reporting an error — which neither a count nor an
-// object-by-object comparison can notice.
+// The filter is answered by a bucket kept per geo property, separate from the
+// objects. A backup that misses that bucket restores an empty index, and an
+// empty index returns nothing at all without reporting an error — which neither
+// a count nor an object-by-object comparison can notice.
 func (s *BackupTestSuite) VerifyGeoSearch(t *testing.T) {
 	t.Helper()
 

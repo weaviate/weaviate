@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/sroar"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/geopoints"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -303,6 +304,13 @@ func (s *lazySegment) newRoaringSetCursor() roaringset.SegmentCursor {
 func (s *lazySegment) newRoaringSetRangeCursor() roaringsetrange.SegmentCursor {
 	s.mustLoad()
 	return s.segment.newRoaringSetRangeCursor()
+}
+
+func (s *lazySegment) newGeoPointsReader() (*geopoints.SegmentReader, error) {
+	if err := s.load(); err != nil {
+		return nil, err
+	}
+	return s.segment.newGeoPointsReader()
 }
 
 func (s *lazySegment) newRoaringSetRangeReader() roaringsetrange.InnerReader {

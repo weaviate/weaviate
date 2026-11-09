@@ -50,34 +50,6 @@ type VectorIndexQueue struct {
 	vectorIndex VectorIndex
 }
 
-// geoQueueChunkSize bounds how much work one geo queue batch hands to a
-// worker, like the HFresh task queues do. A batch is one chunk file, and a
-// geo record is ~23 bytes on disk, so the default 10MB chunk holds ~450k
-// points, which the scheduler compresses into a single AddBatch call that
-// can occupy a worker for minutes (and with one worker, starve every other
-// index queue on the node, weaviate/0-weaviate-issues#670). 24KB ≈ 1000
-// points per batch.
-const geoQueueChunkSize = 24 * 1024
-
-// NewGeoIndexQueue creates a VectorIndexQueue for a geo property index.
-// It uses a geo-specific ID to avoid the misleading "vectors_" prefix.
-func NewGeoIndexQueue(
-	shard *Shard,
-	propName string,
-	index VectorIndex,
-) (*VectorIndexQueue, error) {
-	id := geoPropID(propName)
-	// No target_vector, like the geo index's own lines: a geo index has no
-	// object-vector identity. The Prometheus label keeps "geo_<prop>" so geo
-	// series stay apart from the object vectors'.
-	logger := shard.index.logger.WithFields(logrus.Fields{
-		"class":    shard.index.Config.ClassName.String(),
-		"shard":    shard.name,
-		"index_id": id,
-	})
-	return newVectorIndexQueueWithID(shard, id, logger, "geo_"+propName, index, geoQueueChunkSize)
-}
-
 // newVectorIndexQueueWithID builds the queue at queueID draining into index. logger is
 // the index's identified logger; metricsTargetVector labels the queue's
 // Prometheus series. chunkSize overrides the DiskQueue's default (10MB)

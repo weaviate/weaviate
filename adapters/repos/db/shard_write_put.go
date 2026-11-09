@@ -523,9 +523,8 @@ func (s *Shard) determineInsertStatus(prevObj, nextObj *storobj.Object) (objectI
 	// update objects and inverted indexes, skip update of vector index.
 	// https://github.com/weaviate/weaviate/issues/3948
 	//
-	// Due to geo index's (using HNSW vector index) requirement new docID for delete+insert
-	// (delete initially adds tombstone, which "overwrite" following insert of the same docID)
-	// any update of geo property needs new docID for updating geo index.
+	// A geo index entry is removed by doc ID and never rewritten under the same
+	// one, so any update of a geo property needs a new docID as well.
 	if preserve, skip := compareObjsForInsertStatus(prevObj, nextObj); preserve || skip {
 		out.docID = prevObj.DocID
 		// Content unchanged, but if the update time advanced, take the docID-preserved

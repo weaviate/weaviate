@@ -859,10 +859,6 @@ func (l *LazyLoadShard) ForEachVectorQueue(f func(targetVector string, queue *Ve
 	return l.mustLoad(context.Background()).ForEachVectorQueue(f)
 }
 
-func (l *LazyLoadShard) ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error {
-	return l.mustLoad(context.Background()).ForEachGeoQueue(f)
-}
-
 func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error) {
 	shard, _, err := l.loadIfCold(ctx)
 	if err != nil {
