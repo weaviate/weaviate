@@ -383,7 +383,9 @@ func (s *arenaByteCache) checkRecordSize(id uint64, vec []byte) error {
 // error, so the search reaching it fails (as RQ4 on the sharded cache does
 // through its length check). A systematic size mismatch would refuse every
 // record of a prefill, so only the first refusal is logged in full; later
-// ones are counted and summarized by flushBadRecords.
+// ones are counted and summarized by flushBadRecords at the end of the
+// prefill (FlushPreloadSummary), on the deletion ticker when one runs, and
+// on Drop.
 func (s *arenaByteCache) skipBadRecord(err error) {
 	if s.badRecordLogged.CompareAndSwap(false, true) {
 		if s.logger != nil {
@@ -396,13 +398,22 @@ func (s *arenaByteCache) skipBadRecord(err error) {
 }
 
 // flushBadRecords logs one line for the records refused since the last one,
-// if any. It runs on the deletion ticker and on Drop, so a prefill with a
-// systematic mismatch logs its first refusal and then one count per tick.
+// if any. Production caches are built with deletionInterval 0, so no ticker
+// runs: the compressed prefill flushes through FlushPreloadSummary when it
+// finishes, and Drop flushes whatever is left. A prefill with a systematic
+// mismatch therefore logs its first refusal and one count line.
 func (s *arenaByteCache) flushBadRecords() {
 	if n := s.badRecords.Swap(0); n > 0 && s.logger != nil {
 		s.logger.WithField("action", "vector_cache_preload").
 			Warnf("skipped %d more records whose size is not %d bytes", n, s.recordSize)
 	}
+}
+
+var _ PreloadSummarizer = (*arenaByteCache)(nil)
+
+// FlushPreloadSummary implements PreloadSummarizer.
+func (s *arenaByteCache) FlushPreloadSummary() {
+	s.flushBadRecords()
 }
 
 // chunkMissing reports whether id is covered but its chunk is not yet
