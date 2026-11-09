@@ -333,14 +333,14 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 				if want == "" {
 					want = storagestate.StatusReady
 				}
-				switch {
-				case d.recovers == "armed":
+				switch d.recovers {
+				case "armed":
 					require.NoError(t, err)
 					require.Equal(t, want, shard.GetStatus())
 					require.False(t, rec.Subject().Unmirrored)
 					require.NotZero(t, shard.migrationMirrors.ArmedMigrationMirrors())
 					fx.requireSwapProceeds(t, shard)
-				case d.recovers == "stamped":
+				case "stamped":
 					require.NoError(t, err)
 					require.Equal(t, want, shard.GetStatus())
 					require.True(t, rec.Subject().Unmirrored)
