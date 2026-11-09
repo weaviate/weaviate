@@ -44,6 +44,8 @@ type fakeShard struct {
 	retryAt    [2]atomic.Uint32
 	// refuse, when set, is the correctness refusal every TryUnload answers.
 	refuse atomic.Pointer[db.UnloadOutcome]
+	// seq is the registry-wide order in which TryUnload was entered, 0 if never.
+	seq atomic.Int64
 
 	mu   sync.Mutex
 	reqs []db.UnloadRequest
@@ -85,6 +87,10 @@ func (f *fakeShard) ClearUnloadPending() { f.pending.Store(false) }
 
 func (f *fakeShard) TryUnload(_ context.Context, req db.UnloadRequest) db.UnloadOutcome {
 	defer f.ClearUnloadPending()
+	f.seq.Store(f.reg.unloadSeq.Add(1))
+	if d := f.reg.unloadDelay.Load(); d > 0 {
+		time.Sleep(time.Duration(d))
+	}
 	f.mu.Lock()
 	f.reqs = append(f.reqs, req)
 	f.mu.Unlock()
@@ -134,6 +140,9 @@ func (f *fakeShard) touch() { f.lastAccess.Store(f.reg.clock()) }
 
 type fakeRegistry struct {
 	epoch time.Time
+
+	unloadSeq   atomic.Int64
+	unloadDelay atomic.Int64
 
 	mu     sync.Mutex
 	shards []*fakeShard
