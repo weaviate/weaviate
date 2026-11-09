@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 // DeleteObjects deletes objects in batch based on the match filter
@@ -36,9 +35,15 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 ) (*BatchDeleteResponse, error) {
 	class := "*"
 	if match != nil {
+		// An empty class is refused before resolveNS, which would qualify it to
+		// "<namespace>:" for a namespaced caller. Authorization reads "" as every
+		// collection.
+		if match.Class == "" {
+			return nil, NewErrInvalidUserInput("empty match.class clause")
+		}
 		resolved, _, err := b.resolveNS(principal, match.Class)
 		if err != nil {
-			return nil, NewErrInvalidUserInput("%v", err)
+			return nil, userInputOrForbidden(err)
 		}
 		match.Class = resolved
 		class = match.Class
@@ -139,10 +144,6 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		return nil, 0, NewErrInvalidUserInput("empty match clause")
 	}
 
-	if len(match.Class) == 0 {
-		return nil, 0, NewErrInvalidUserInput("empty match.class clause")
-	}
-
 	if match.Where == nil {
 		return nil, 0, NewErrInvalidUserInput("empty match.where clause")
 	}
@@ -151,10 +152,7 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 	// other lookup failures as caller input (→ 422).
 	vclasses, err := b.schemaManager.GetCachedClass(ctx, principal, match.Class)
 	if err != nil {
-		if errors.As(err, &authzerrs.Forbidden{}) {
-			return nil, 0, fmt.Errorf("failed to get class: %s: %w", match.Class, err)
-		}
-		return nil, 0, NewErrInvalidUserInput("failed to get class: %s: %v", match.Class, err)
+		return nil, 0, userInputOrForbidden(fmt.Errorf("failed to get class: %s: %w", match.Class, err))
 	}
 	if vclasses[match.Class].Class == nil {
 		return nil, 0, NewErrInvalidUserInput("failed to get class: %s", match.Class)
@@ -165,7 +163,7 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 	// class name, etc.) is caller input, so classify it as ErrInvalidUserInput
 	// — otherwise the REST handler maps the parse/validation failure to a 500
 	// instead of a 422. The message wording is preserved for callers/tests.
-	filter, err := filterext.Parse(match.Where, class.Class, b.config.Config.Namespaces.Enabled, principal)
+	filter, err := filterext.Parse(match.Where, class.Class, b.qualifier, principal)
 	if err != nil {
 		return nil, 0, NewErrInvalidUserInput("failed to parse where filter: %v", err)
 	}
@@ -175,10 +173,7 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		// The schema lookup inside validation authorizes class reads, so a
 		// Forbidden must stay a Forbidden (→ 403); everything else is a plain
 		// validation failure and is caller input (→ 422, not 500).
-		if errors.As(err, &authzerrs.Forbidden{}) {
-			return nil, 0, fmt.Errorf("invalid where filter: %w", err)
-		}
-		return nil, 0, NewErrInvalidUserInput("invalid where filter: %v", err)
+		return nil, 0, userInputOrForbidden(fmt.Errorf("invalid where filter: %w", err))
 	}
 
 	dryRunParam := false

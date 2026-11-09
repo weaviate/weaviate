@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func Test_DeleteObjectsWithSameId(t *testing.T) {
@@ -139,6 +140,6 @@ func newDeleteDependency() (*Manager, *fakeObjectFinder, *mocks.FakeAuthorizer, 
 		vectorRepo,
 		getFakeModulesProvider(),
 		new(fakeMetrics), nil,
-		NewAutoSchemaManager(new(fakeSchemaManager), vectorRepo, new(config.WeaviateConfig), logger, prometheus.NewPedanticRegistry()))
+		NewAutoSchemaManager(new(fakeSchemaManager), vectorRepo, new(config.WeaviateConfig), logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	return manager, vectorRepo, authorizer, smanager
 }

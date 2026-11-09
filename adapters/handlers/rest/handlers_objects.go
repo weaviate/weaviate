@@ -174,6 +174,10 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		}
 		if err != nil {
 			h.metricRequestsTotal.logUserError(params.ClassName)
+			if errors.As(err, &authzerrors.Forbidden{}) {
+				return objects.NewObjectsClassGetForbidden().
+					WithPayload(errPayloadFromSingleErr(principal, err))
+			}
 			return objects.NewObjectsClassGetBadRequest().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		}

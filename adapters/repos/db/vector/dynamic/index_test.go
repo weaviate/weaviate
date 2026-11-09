@@ -26,9 +26,10 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/bbolt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -54,10 +55,10 @@ func TestDynamic(t *testing.T) {
 	queries_size := 10
 	k := 10
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		db.Close()
+		meta.Close()
 	})
 
 	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
@@ -92,7 +93,7 @@ func TestDynamic(t *testing.T) {
 		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           noopCallback,
-		SharedDB:                     db,
+		State:                        meta.Namespace(StateNamespace),
 		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 		AsyncIndexingEnabled:         true,
 	}, ent.UserConfig{
@@ -134,10 +135,10 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 	fuc := flatent.UserConfig{}
 	fuc.SetDefaults()
 	hnswuc := hnswent.NewDefaultUserConfig()
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		db.Close()
+		meta.Close()
 	})
 
 	distancer := distancer.NewL2SquaredProvider()
@@ -153,7 +154,7 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(nil),
 		TombstoneCallbacks:           noopCallback,
-		SharedDB:                     db,
+		State:                        meta.Namespace(StateNamespace),
 		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 		AsyncIndexingEnabled:         false, // Explicitly set to false to test error condition
 	}, ent.UserConfig{
@@ -195,10 +196,10 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 	queries_size := 10
 	k := 10
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		db.Close()
+		meta.Close()
 	})
 
 	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
@@ -223,9 +224,8 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		dynamic, err := New(Config{
 			AllocChecker:          memwatch.NewDummyMonitor(),
-			TargetVector:          "target_" + strconv.Itoa(i),
 			RootPath:              rootPath,
-			ID:                    "nil-vector-test_" + strconv.Itoa(i),
+			ID:                    helpers.VectorIndexIDForTarget("target_" + strconv.Itoa(i)),
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 			DistanceProvider:      distancer,
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
@@ -238,7 +238,7 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 			TombstoneCallbacks:           noopCallback,
-			SharedDB:                     db,
+			State:                        meta.Namespace(StateNamespace),
 			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 			AsyncIndexingEnabled:         true,
 		}, ent.UserConfig{
@@ -285,10 +285,10 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 	queries_size := 10
 	k := 10
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		db.Close()
+		meta.Close()
 	})
 
 	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
@@ -324,7 +324,7 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           noopCallback,
-		SharedDB:                     db,
+		State:                        meta.Namespace(StateNamespace),
 		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 		AsyncIndexingEnabled:         true,
 	}, ent.UserConfig{
@@ -369,9 +369,9 @@ func newUpgradeRetryTestDynamic(t *testing.T, vectorsSize int) *dynamic {
 	ctx := context.Background()
 	dimensions := 4
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { meta.Close() })
 
 	vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, dimensions)
 	dist := distancer.NewL2SquaredProvider()
@@ -401,7 +401,7 @@ func newUpgradeRetryTestDynamic(t *testing.T, vectorsSize int) *dynamic {
 		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           noopCallback,
-		SharedDB:                     db,
+		State:                        meta.Namespace(StateNamespace),
 		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 		AsyncIndexingEnabled:         true,
 	}, ent.UserConfig{
@@ -688,10 +688,10 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 
 			tempDir := t.TempDir()
 
-			db, err := bbolt.Open(filepath.Join(tempDir, "index.db"), 0o666, nil)
+			meta, err := shardmeta.Open(tempDir, time.Second)
 			require.NoError(t, err)
 			t.Cleanup(func() {
-				db.Close()
+				meta.Close()
 			})
 
 			vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
@@ -716,7 +716,6 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 
 			config := Config{
 				AllocChecker: memwatch.NewDummyMonitor(),
-				TargetVector: "",
 				RootPath:     rootPath,
 				ID:           "vector-test_0",
 				MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
@@ -733,7 +732,7 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 				GetViewThunk:                 GetViewThunk,
 				TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 				TombstoneCallbacks:           noopCallback,
-				SharedDB:                     db,
+				State:                        meta.Namespace(StateNamespace),
 				HNSWWaitForCachePrefill:      true,
 				AsyncIndexingEnabled:         true,
 				MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
@@ -857,10 +856,10 @@ func TestDynamicAndStoreOperations(t *testing.T) {
 	queries_size := 10
 	k := 10
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		db.Close()
+		meta.Close()
 	})
 
 	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
@@ -895,7 +894,7 @@ func TestDynamicAndStoreOperations(t *testing.T) {
 		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           noopCallback,
-		SharedDB:                     db,
+		State:                        meta.Namespace(StateNamespace),
 		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 		AsyncIndexingEnabled:         true,
 	}, ent.UserConfig{
@@ -949,23 +948,16 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 	queries_size := 10
 	k := 10
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		db.Close()
+		meta.Close()
 	})
 
-	// update the boltdb with the old bugged state
-	err = db.Update(func(tx *bbolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists(dynamicBucket)
-		if err != nil {
-			return err
-		}
-
-		// set the upgraded flag
-		return b.Put([]byte(composerUpgradedKey), []byte{1})
-	})
-	require.NoError(t, err)
+	// update the metadata db with the old bugged state: set the upgraded flag
+	// under the shared legacy key
+	ns := meta.Namespace(StateNamespace)
+	require.NoError(t, ns.Put([]byte(composerUpgradedKey), []byte{1}))
 
 	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
 	rootPath := t.TempDir()
@@ -988,9 +980,8 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		dynamic, err := New(Config{
-			TargetVector:          "target_" + strconv.Itoa(i),
 			RootPath:              rootPath,
-			ID:                    "nil-vector-test_" + strconv.Itoa(i),
+			ID:                    helpers.VectorIndexIDForTarget("target_" + strconv.Itoa(i)),
 			AllocChecker:          memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 			DistanceProvider:      distancer,
@@ -1004,7 +995,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 			TombstoneCallbacks:           noopCallback,
-			SharedDB:                     db,
+			State:                        meta.Namespace(StateNamespace),
 			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 			AsyncIndexingEnabled:         true,
 		}, ent.UserConfig{
@@ -1042,18 +1033,12 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 		assert.True(t, recall2 > 0.9)
 	}
 
-	// check the content of the bolt db
-	err = db.View(func(tx *bbolt.Tx) error {
-		for i := 0; i < 5; i++ {
-			b := tx.Bucket(dynamicBucket)
-			require.NotNil(t, b, "bucket should exist")
-
-			upgraded := b.Get([]byte(composerUpgradedKey + "_target_" + strconv.Itoa(i)))
-			require.Equal(t, []byte{1}, upgraded)
-		}
-		return nil
-	})
-	require.NoError(t, err)
+	// check the content of the metadata db
+	for i := 0; i < 5; i++ {
+		upgraded, err := ns.Get([]byte(composerUpgradedKey + "_target_" + strconv.Itoa(i)))
+		require.NoError(t, err)
+		require.Equal(t, []byte{1}, upgraded)
+	}
 
 	// close the indexes
 	for _, v := range indexes {
@@ -1066,9 +1051,8 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 	// open them again to ensure the state is correct
 	for i := 0; i < 5; i++ {
 		dynamic, err := New(Config{
-			TargetVector:          "target_" + strconv.Itoa(i),
 			RootPath:              rootPath,
-			ID:                    "nil-vector-test_" + strconv.Itoa(i),
+			ID:                    helpers.VectorIndexIDForTarget("target_" + strconv.Itoa(i)),
 			AllocChecker:          memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 			DistanceProvider:      distancer,
@@ -1082,7 +1066,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 			TombstoneCallbacks:           noopCallback,
-			SharedDB:                     db,
+			State:                        meta.Namespace(StateNamespace),
 			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 			AsyncIndexingEnabled:         true,
 		}, ent.UserConfig{
@@ -1103,18 +1087,12 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 		require.True(t, v.IsUpgraded())
 	}
 
-	// check the content of the bolt db
-	err = db.View(func(tx *bbolt.Tx) error {
-		for i := 0; i < 5; i++ {
-			b := tx.Bucket(dynamicBucket)
-			require.NotNil(t, b, "bucket should exist")
-
-			upgraded := b.Get([]byte(composerUpgradedKey + "_target_" + strconv.Itoa(i)))
-			require.Equal(t, []byte{1}, upgraded)
-		}
-		return nil
-	})
-	require.NoError(t, err)
+	// check the content of the metadata db
+	for i := 0; i < 5; i++ {
+		upgraded, err := ns.Get([]byte(composerUpgradedKey + "_target_" + strconv.Itoa(i)))
+		require.NoError(t, err)
+		require.Equal(t, []byte{1}, upgraded)
+	}
 
 	// close the indexes
 	for _, v := range indexes {
@@ -1127,26 +1105,18 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 	// we know have 5 upgraded target vectors.
 	// let's now simulate a similar case where they all share the same key
 	// but this time they are already upgraded.
-	err = db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(dynamicBucket)
-
-		// delete all individual upgraded keys
-		for i := 0; i < 5; i++ {
-			err := b.Delete([]byte(composerUpgradedKey + "_target_" + strconv.Itoa(i)))
-			require.NoError(t, err)
-		}
-
-		// set the old upgraded key
-		return b.Put([]byte(composerUpgradedKey), []byte{1})
-	})
-	require.NoError(t, err)
+	// delete all individual upgraded keys
+	for i := 0; i < 5; i++ {
+		require.NoError(t, ns.Delete([]byte(composerUpgradedKey+"_target_"+strconv.Itoa(i))))
+	}
+	// set the old upgraded key
+	require.NoError(t, ns.Put([]byte(composerUpgradedKey), []byte{1}))
 
 	// in this scenario, we must not lose the upgraded state
 	for i := 0; i < 5; i++ {
 		dynamic, err := New(Config{
-			TargetVector:          "target_" + strconv.Itoa(i),
 			RootPath:              rootPath,
-			ID:                    "nil-vector-test_" + strconv.Itoa(i),
+			ID:                    helpers.VectorIndexIDForTarget("target_" + strconv.Itoa(i)),
 			AllocChecker:          memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 			DistanceProvider:      distancer,
@@ -1160,7 +1130,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 			TombstoneCallbacks:           noopCallback,
-			SharedDB:                     db,
+			State:                        meta.Namespace(StateNamespace),
 			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 			AsyncIndexingEnabled:         true,
 		}, ent.UserConfig{
@@ -1181,18 +1151,12 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 		require.True(t, v.IsUpgraded())
 	}
 
-	// check the content of the bolt db
-	err = db.View(func(tx *bbolt.Tx) error {
-		for i := 0; i < 5; i++ {
-			b := tx.Bucket(dynamicBucket)
-			require.NotNil(t, b, "bucket should exist")
-
-			upgraded := b.Get([]byte(composerUpgradedKey + "_target_" + strconv.Itoa(i)))
-			require.Equal(t, []byte{1}, upgraded)
-		}
-		return nil
-	})
-	require.NoError(t, err)
+	// check the content of the metadata db
+	for i := 0; i < 5; i++ {
+		upgraded, err := ns.Get([]byte(composerUpgradedKey + "_target_" + strconv.Itoa(i)))
+		require.NoError(t, err)
+		require.Equal(t, []byte{1}, upgraded)
+	}
 }
 
 // TestDynamicStaleCommitLogCleanedOnRestart is a regression test for a
@@ -1220,9 +1184,9 @@ func TestDynamicStaleCommitLogCleanedOnRestart(t *testing.T) {
 	)
 
 	tempDir := t.TempDir()
-	db, err := bbolt.Open(filepath.Join(tempDir, "index.db"), 0o666, nil)
+	meta, err := shardmeta.Open(tempDir, time.Second)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { meta.Close() })
 
 	vectors, queries := testinghelpers.RandomVecs(vectorsSize, queriesSize, dimensions)
 	dist := distancer.NewL2SquaredProvider()
@@ -1267,7 +1231,7 @@ func TestDynamicStaleCommitLogCleanedOnRestart(t *testing.T) {
 			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 			TombstoneCallbacks:           noopCallback,
-			SharedDB:                     db,
+			State:                        meta.Namespace(StateNamespace),
 			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 			AsyncIndexingEnabled:         true,
 		}
@@ -1348,8 +1312,8 @@ func TestDynamicStaleCommitLogCleanedOnRestart(t *testing.T) {
 // newUpgradeTestDynamic builds a dynamic index for tests around the
 // flat->HNSW upgrade path. The caller controls the commit logger thunk so
 // tests can observe the on-disk HNSW commit log directory.
-func newUpgradeTestDynamic(t *testing.T, rootPath, id, targetVector string,
-	db *bbolt.DB, vectors [][]float32, thunk hnsw.MakeCommitLogger,
+func newUpgradeTestDynamic(t *testing.T, rootPath, id string,
+	meta *shardmeta.DB, vectors [][]float32, thunk hnsw.MakeCommitLogger,
 ) *dynamic {
 	t.Helper()
 
@@ -1367,7 +1331,6 @@ func newUpgradeTestDynamic(t *testing.T, rootPath, id, targetVector string,
 		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              rootPath,
 		ID:                    id,
-		TargetVector:          targetVector,
 		MakeCommitLoggerThunk: thunk,
 		DistanceProvider:      distancer,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
@@ -1376,7 +1339,7 @@ func newUpgradeTestDynamic(t *testing.T, rootPath, id, targetVector string,
 		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           cyclemanager.NewCallbackGroupNoop(),
-		SharedDB:                     db,
+		State:                        meta.Namespace(StateNamespace),
 		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 		AsyncIndexingEnabled:         true,
 	}, ent.UserConfig{
@@ -1404,14 +1367,14 @@ func (f *failingAddBatchIndex) AddBatch(ctx context.Context, ids []uint64, vecto
 func TestDynamicCopyToVectorIndexPropagatesAddBatchError(t *testing.T) {
 	ctx := context.Background()
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		db.Close()
+		meta.Close()
 	})
 
 	vectors, _ := testinghelpers.RandomVecs(100, 0, 8)
-	idx := newUpgradeTestDynamic(t, t.TempDir(), "copy-err-test", "", db, vectors, hnsw.MakeNoopCommitLogger)
+	idx := newUpgradeTestDynamic(t, t.TempDir(), "copy-err-test", meta, vectors, hnsw.MakeNoopCommitLogger)
 
 	for i := range vectors {
 		require.NoError(t, idx.Add(ctx, uint64(i), vectors[i]))
@@ -1427,14 +1390,14 @@ func TestDynamicAbortedUpgradeCleansPartialCommitLog(t *testing.T) {
 	rootPath := t.TempDir()
 	const id = "upgrade-abort-test"
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		db.Close()
+		meta.Close()
 	})
 
 	vectors, _ := testinghelpers.RandomVecs(1_000, 0, 20)
-	idx := newUpgradeTestDynamic(t, rootPath, id, "", db, vectors, func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+	idx := newUpgradeTestDynamic(t, rootPath, id, meta, vectors, func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
 		return hnsw.NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop())
 	})
 
@@ -1473,11 +1436,11 @@ func TestDynamicUpgradeStatePersistFailureCleansPartialCommitLog(t *testing.T) {
 	rootPath := t.TempDir()
 	const id = "upgrade-persist-fail-test"
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
 
 	vectors, _ := testinghelpers.RandomVecs(200, 0, 8)
-	idx := newUpgradeTestDynamic(t, rootPath, id, "", db, vectors, func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+	idx := newUpgradeTestDynamic(t, rootPath, id, meta, vectors, func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
 		return hnsw.NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop())
 	})
 	t.Cleanup(func() {
@@ -1488,9 +1451,9 @@ func TestDynamicUpgradeStatePersistFailureCleansPartialCommitLog(t *testing.T) {
 		require.NoError(t, idx.Add(ctx, uint64(i), vectors[i]))
 	}
 
-	// close the bbolt db so persisting the upgraded state fails after the
+	// close the metadata db so persisting the upgraded state fails after the
 	// HNSW has been fully built
-	require.NoError(t, db.Close())
+	require.NoError(t, meta.Close())
 
 	called := make(chan struct{})
 	require.NoError(t, idx.Upgrade(func() {
@@ -1514,8 +1477,6 @@ func TestDynamicUpgradeStatePersistFailureCleansPartialCommitLog(t *testing.T) {
 // unless the vector is positively marked as upgraded — otherwise the partial
 // state gets replayed into the rebuilt index.
 func TestDynamicStaleCommitLogCleanedOnInit(t *testing.T) {
-	const id = "stale-commitlog-test"
-
 	tests := []struct {
 		name         string
 		targetVector string
@@ -1565,11 +1526,12 @@ func TestDynamicStaleCommitLogCleanedOnInit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rootPath := t.TempDir()
+			id := helpers.VectorIndexIDForTarget(tt.targetVector)
 
-			db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+			meta, err := shardmeta.Open(t.TempDir(), time.Second)
 			require.NoError(t, err)
 			t.Cleanup(func() {
-				db.Close()
+				meta.Close()
 			})
 
 			// simulate a commit log left on disk by a previous run. An empty
@@ -1583,18 +1545,11 @@ func TestDynamicStaleCommitLogCleanedOnInit(t *testing.T) {
 				if tt.targetVector != "" {
 					key += "_" + tt.targetVector
 				}
-				err = db.Update(func(tx *bbolt.Tx) error {
-					b, err := tx.CreateBucketIfNotExists(dynamicBucket)
-					if err != nil {
-						return err
-					}
-					return b.Put([]byte(key), tt.storedState)
-				})
-				require.NoError(t, err)
+				require.NoError(t, meta.Namespace(StateNamespace).Put([]byte(key), tt.storedState))
 			}
 
 			vectors, _ := testinghelpers.RandomVecs(10, 0, 8)
-			idx := newUpgradeTestDynamic(t, rootPath, id, tt.targetVector, db, vectors, hnsw.MakeNoopCommitLogger)
+			idx := newUpgradeTestDynamic(t, rootPath, id, meta, vectors, hnsw.MakeNoopCommitLogger)
 			t.Cleanup(func() {
 				idx.Shutdown(context.Background())
 			})
@@ -1605,6 +1560,49 @@ func TestDynamicStaleCommitLogCleanedOnInit(t *testing.T) {
 			} else {
 				require.True(t, os.IsNotExist(err), "stale commit log dir should have been removed")
 			}
+		})
+	}
+}
+
+// TestStorageNamesDeriveFromID pins the buckets and the state key for the
+// two shipped ID shapes; the index has no other name to derive them from.
+func TestStorageNamesDeriveFromID(t *testing.T) {
+	tests := []struct {
+		name           string
+		id             string
+		wantBucket     string
+		wantCompressed string
+		wantStateKey   string
+	}{
+		{
+			name:           "legacy",
+			id:             "main",
+			wantBucket:     "vectors",
+			wantCompressed: "vectors_compressed",
+			wantStateKey:   "upgraded",
+		},
+		{
+			name:           "named",
+			id:             "vectors_title",
+			wantBucket:     "vectors_title",
+			wantCompressed: "vectors_compressed_title",
+			wantStateKey:   "upgraded_title",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			meta, err := shardmeta.Open(t.TempDir(), time.Second)
+			require.NoError(t, err)
+			t.Cleanup(func() { meta.Close() })
+
+			vectors, _ := testinghelpers.RandomVecs(10, 0, 4)
+			idx := newUpgradeTestDynamic(t, t.TempDir(), tt.id, meta, vectors, hnsw.MakeNoopCommitLogger)
+			t.Cleanup(func() { idx.Shutdown(context.Background()) })
+
+			assert.Equal(t, tt.wantBucket, idx.getBucketName())
+			assert.Equal(t, tt.wantCompressed, idx.getCompressedBucketName())
+			assert.Equal(t, []byte(tt.wantStateKey), idx.dbKey())
+			assert.Equal(t, []byte(tt.wantStateKey), dbKeyForID(tt.id))
 		})
 	}
 }
@@ -1622,9 +1620,9 @@ func TestDynamicUpgradedIndexDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 	)
 
 	tempDir := t.TempDir()
-	db, err := bbolt.Open(filepath.Join(tempDir, "index.db"), 0o666, nil)
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { meta.Close() })
 
 	vectors, _ := testinghelpers.RandomVecs(count, 0, dimensions)
 	dist := distancer.NewL2SquaredProvider()
@@ -1651,7 +1649,7 @@ func TestDynamicUpgradedIndexDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 			TombstoneCallbacks:           noopCallback,
-			SharedDB:                     db,
+			State:                        meta.Namespace(StateNamespace),
 			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 			AsyncIndexingEnabled:         true,
 		}

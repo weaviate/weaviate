@@ -18,17 +18,18 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-// HTTPStatusForNamespaceErr maps a namespace/collection lifecycle sentinel
-// to its REST status: the terminal family (deleting, not-empty,
-// invalid-state, suspended, invalid-transition) renders 422, a resuming
-// namespace renders 503. ok is false for anything else, so the caller falls
-// through to its own default.
+// HTTPStatusForNamespaceErr maps a missing license key to 403, a resuming
+// namespace to 503, and the other lifecycle errors (deleting, not-empty,
+// invalid-state, suspended, invalid-transition) to 422. ok is false for any other err.
 func HTTPStatusForNamespaceErr(err error) (status int, ok bool) {
 	switch {
+	case errors.Is(err, license.ErrRequired):
+		return http.StatusForbidden, true
 	case errors.Is(err, namespaces.ErrNamespaceResuming):
 		return http.StatusServiceUnavailable, true
 	case errors.Is(err, namespaces.ErrNamespaceDeleting),

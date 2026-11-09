@@ -14,10 +14,15 @@ package hfresh
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
@@ -62,6 +67,52 @@ func TestTaskQueueRegisterIsExplicit(t *testing.T) {
 	index.taskQueue.Register()
 
 	require.Equal(t, 4, scheduler.QueueCount())
+}
+
+func TestWaitForMaintenanceDrainsQueuedTasks(t *testing.T) {
+	tf := createHFreshIndex(t)
+	const postingID = uint64(42)
+
+	require.NoError(t, tf.Index.taskQueue.EnqueueAnalyze(postingID))
+	require.True(t, tf.Index.taskQueue.analyzeList.Contains(postingID))
+	require.EqualValues(t, 1, tf.Index.taskQueue.Size())
+
+	tf.Index.waitForMaintenance(t)
+
+	require.Zero(t, tf.Index.taskQueue.Size())
+	require.False(t, tf.Index.taskQueue.analyzeList.Contains(postingID))
+}
+
+func TestWaitForMaintenanceDrainsFollowUpTasks(t *testing.T) {
+	vector := []float32{1, 0, 0, 0}
+	tf := createHFreshIndexWithVectorStore(t, [][]float32{vector})
+	addVectorToIndex(t, &tf, 0, vector)
+	tf.Index.waitForMaintenance(t)
+
+	require.NoError(t, tf.Index.taskQueue.EnqueueReassign(42, 0))
+	tf.Index.waitForMaintenance(t)
+
+	require.Zero(t, tf.Index.taskQueue.Size())
+	require.Zero(t, tf.Index.taskQueue.analyzeList.LivePages())
+	require.Zero(t, tf.Index.taskQueue.reassignList.LivePages())
+}
+
+// The pending-task gauges are updated once a processed chunk is removed, so a
+// drained queue reports no backlog.
+func TestTaskQueuePendingMetricsAfterProcessing(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, ucfg := makeHFreshConfig(t)
+	index := makeHFreshWithConfig(t, store, cfg, ucfg)
+
+	require.NoError(t, index.taskQueue.EnqueueAnalyze(1))
+	require.Equal(t, 1.0, testutil.ToFloat64(index.metrics.analyzePending))
+
+	require.Eventually(t, func() bool {
+		return index.taskQueue.analyzeQueue.Size() == 0
+	}, 10*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		return testutil.ToFloat64(index.metrics.analyzePending) == 0
+	}, time.Second, 10*time.Millisecond, "the gauge still reports the processed chunk")
 }
 
 func TestDecodeReassignTaskLegacyFormat(t *testing.T) {
@@ -179,4 +230,31 @@ func TestDecodeTaskNonReassignFormatsUnchanged(t *testing.T) {
 			require.IsType(t, tt.want, task)
 		})
 	}
+}
+
+// Postings live in the shard's buckets, so the task queue hook writes their
+// logs out before the queue removes the processed chunk.
+func TestTaskQueueOnBatchProcessedWritesLSMLogs(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, ucfg := makeHFreshConfig(t)
+	index := makeHFreshWithConfig(t, store, cfg, ucfg)
+
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	// small enough to stay in the log's buffer
+	require.NoError(t, bucket.Put([]byte("key"), []byte("value")))
+	walSize := func() int64 {
+		paths, err := filepath.Glob(filepath.Join(bucket.GetDir(), "*.wal"))
+		require.NoError(t, err)
+		var size int64
+		for _, p := range paths {
+			fi, err := os.Stat(p)
+			require.NoError(t, err)
+			size += fi.Size()
+		}
+		return size
+	}
+	before := walSize()
+
+	require.NoError(t, index.taskQueue.OnBatchProcessed())
+	require.Greater(t, walSize(), before, "the bucket log was not written out")
 }

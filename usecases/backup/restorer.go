@@ -13,11 +13,14 @@ package backup
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"reflect"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,11 +28,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type restorer struct {
@@ -56,8 +56,27 @@ func newRestorer(node string, logger logrus.FieldLogger,
 		sourcer:           sourcer,
 		backends:          backends,
 		namespacesEnabled: namespacesEnabled,
-		shardSyncChan:     shardSyncChan{coordChan: make(chan interface{}, 5)},
+		shardSyncChan:     shardSyncChan{coordChan: make(chan interface{}, 5), logger: logger},
 	}
+}
+
+// stagedDirs records the staging dirs one restore attempt created; the paths are class-scoped, so cleanup additionally checks the on-disk marker before removing.
+type stagedDirs struct {
+	mu        sync.Mutex
+	attemptID string
+	dirs      []string
+}
+
+func (s *stagedDirs) record(dir string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.dirs = append(s.dirs, dir)
+}
+
+func (s *stagedDirs) list() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.dirs)
 }
 
 func (r *restorer) restore(
@@ -65,9 +84,16 @@ func (r *restorer) restore(
 	desc *backup.BackupDescriptor,
 	store nodeStore,
 ) (CanCommitResponse, error) {
-	expiration := min(req.Duration, _TimeoutShardCommit)
+	return r.startRestore(req, store, func(ctx context.Context, staged *stagedDirs) error {
+		return r.restoreAll(ctx, desc, req.CPUPercentage, store, req.Bucket, req.Path, !r.namespacesEnabled, staged)
+	})
+}
+
+// startRestore reserves the restore slot and runs work in a coordinator-gated goroutine; RAFT applies staged files after Finalizing.
+func (r *restorer) startRestore(req *Request, store nodeStore, work func(ctx context.Context, staged *stagedDirs) error) (CanCommitResponse, error) {
+	expiration := min(req.Duration, maxBooking(req.DedupeReplicas))
 	ret := CanCommitResponse{
-		Method:  OpCreate,
+		Method:  req.Method,
 		ID:      req.ID,
 		Timeout: expiration,
 	}
@@ -81,12 +107,13 @@ func (r *restorer) restore(
 	}
 
 	// make sure there is no active restore
-	if prevID := r.lastOp.renew(req.ID, destPath, req.Bucket, req.Path); prevID != "" {
+	if prevID := r.lastOp.renew(req.ID, req.AttemptID, destPath, req.Bucket, req.Path); prevID != "" {
 		err := fmt.Errorf("restore %s already in progress", prevID)
 		return ret, err
 	}
 	r.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
 
+	staged := &stagedDirs{attemptID: req.AttemptID}
 	f := func() {
 		var err error
 		status := Status{
@@ -109,6 +136,16 @@ func (r *restorer) restore(
 					status.Status = backup.Failed
 					monitoring.GetBackgroundProcessMetrics().Failed(monitoring.ProcessRestore)
 				}
+				// A later RAFT-applied RestoreClassDir would adopt leftovers; remove only dirs still marked as this attempt's.
+				for _, dir := range staged.list() {
+					if req.AttemptID != "" && !stagingMarkerMatches(dir, req.AttemptID) {
+						r.logger.WithField("backup_id", req.ID).Warnf("keep restore staging dir %s: owned by another attempt", dir)
+						continue
+					}
+					if rerr := os.RemoveAll(dir); rerr != nil {
+						r.logger.WithField("backup_id", req.ID).Warnf("remove restore staging dir %s: %v", dir, rerr)
+					}
+				}
 			}
 			r.restoreStatusMap.Store(basePath(req.Backend, req.ID), status)
 			r.lastOp.reset()
@@ -126,10 +163,7 @@ func (r *restorer) restore(
 		ctx := r.withCancellation(context.Background(), req.ID, done, r.logger)
 		defer close(done)
 
-		overrideBucket := req.Bucket
-		overridePath := req.Path
-
-		err = r.restoreAll(ctx, desc, req.CPUPercentage, store, overrideBucket, overridePath, !r.namespacesEnabled)
+		err = work(ctx, staged)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
@@ -149,7 +183,7 @@ func (r *restorer) restore(
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
 	store nodeStore, overrideBucket, overridePath string,
-	stripNamespaces bool,
+	stripNamespaces bool, staged *stagedDirs,
 ) error {
 	compressionType := desc.GetCompressionType()
 	r.lastOp.set(backup.Transferring)
@@ -166,7 +200,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 			r.lastOp.set(backup.Cancelled)
 			return fmt.Errorf("restore cancelled: %w", err)
 		}
-		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, cpuPercentage, store, overrideBucket, overridePath, stripNamespaces); err != nil {
+		if err := r.restoreOne(ctx, &cdesc, compressionType, cpuPercentage, store, overrideBucket, overridePath, stripNamespaces, staged); err != nil {
 			if errors.Is(err, context.Canceled) {
 				r.lastOp.set(backup.Cancelled)
 				return fmt.Errorf("restore cancelled: %w", err)
@@ -190,10 +224,10 @@ func getType(myvar interface{}) string {
 }
 
 func (r *restorer) restoreOne(ctx context.Context,
-	desc *backup.ClassDescriptor, serverVersion string, compressionType backup.CompressionType,
+	desc *backup.ClassDescriptor, compressionType backup.CompressionType,
 	cpuPercentage int, store nodeStore,
 	overrideBucket, overridePath string,
-	stripNamespaces bool,
+	stripNamespaces bool, staged *stagedDirs,
 ) (err error) {
 	classLabel := desc.Name
 	if monitoring.GetMetrics().Group {
@@ -206,16 +240,9 @@ func (r *restorer) restoreOne(ctx context.Context,
 	}
 
 	fw := newFileWriter(r.sourcer, store, r.logger).
-		WithPoolPercentage(cpuPercentage)
-
-	// Pre-v1.23 versions store files in a flat format
-	if serverVersion < "1.23" {
-		f, err := hfsMigrator(desc, r.node, serverVersion)
-		if err != nil {
-			return fmt.Errorf("migrate to pre 1.23: %w", err)
-		}
-		fw.setMigrator(f)
-	}
+		WithPoolPercentage(cpuPercentage).
+		withStagedRecorder(staged.record).
+		withAttemptID(staged.attemptID)
 
 	// Local staging dir uses the post-strip name so the RAFT-applied
 	// RestoreClassDir (sees the stripped class.Class) finds the files.
@@ -229,6 +256,12 @@ func (r *restorer) restoreOne(ctx context.Context,
 		return fmt.Errorf("write files: %w", err)
 	}
 
+	// The records name the node the backup was taken on, so under a node mapping
+	// the shard would set them aside and serve the migrated indexes empty.
+	indexPath := filepath.Join(fw.tempDir, materializedName, strings.ToLower(materializedName))
+	if err := r.sourcer.AdoptRestoredMigrationRecords(indexPath, desc, r.node, store.node); err != nil {
+		return fmt.Errorf("adopt migration records: %w", err)
+	}
 	return nil
 }
 
@@ -259,19 +292,8 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 		}
 		return nil, nil, fmt.Errorf("find backup %s: %w", destPath, err)
 	}
-	if meta.ID != req.ID {
-		return nil, nil, fmt.Errorf("wrong backup file: restore request asked for %q but the per-node descriptor at %q reports backup ID %q (this happens when metadata from a different backup was placed into this slot, or a prior aborted restore wrote stale state; remove %s/ on the backend and retry with the original backup ID)",
-			req.ID, path.Join(destPath, BackupFile), meta.ID, destPath)
-	}
-	if meta.Status != backup.Success {
-		err = fmt.Errorf("invalid backup in restorer %s status: %s", destPath, meta.Status)
+	if err := validateNodeMeta(meta, destPath, req.ID); err != nil {
 		return nil, nil, err
-	}
-	if err := checkRestorableVersion(meta.Version, meta.ServerVersion); err != nil {
-		return nil, nil, err
-	}
-	if err := meta.Validate(); err != nil {
-		return nil, nil, fmt.Errorf("corrupted backup file: %w", err)
 	}
 	cs := meta.List()
 	if len(req.Classes) > 0 {
@@ -285,52 +307,24 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 	return meta, cs, nil
 }
 
-// oneClassSchema allows for creating schema with one class
-// This is required when migrating to hierarchical file structure from pre-v1.23
-type oneClassSchema struct {
-	cls *models.Class
-	ss  *sharding.State
-}
-
-func (s oneClassSchema) Read(_ string, reader func(*models.Class, *sharding.State) error) error {
-	return reader(s.cls, s.ss)
-}
-
-func (s oneClassSchema) Shards(_ string) ([]string, error) {
-	return s.ss.AllPhysicalShards(), nil
-}
-
-func (s oneClassSchema) LocalShards() ([]string, error) {
-	return s.ss.AllLocalPhysicalShards(), nil
-}
-
-func (s oneClassSchema) ReadOnlySchema() models.Schema {
-	return models.Schema{
-		Classes: []*models.Class{s.cls},
+// validateNodeMeta checks a per-node descriptor is the requested, successful, restorable backup.
+func validateNodeMeta(meta *backup.BackupDescriptor, destPath, reqID string) error {
+	if meta.ID != reqID {
+		return fmt.Errorf("wrong backup file: restore request asked for %q but the per-node descriptor at %q reports backup ID %q (this happens when metadata from a different backup was placed into this slot, or a prior aborted restore wrote stale state; remove %s/ on the backend and retry with the original backup ID)",
+			reqID, path.Join(destPath, BackupFile), meta.ID, destPath)
 	}
-}
-
-// hfsMigrator builds and return a class migrator ready for use
-func hfsMigrator(desc *backup.ClassDescriptor, nodeName string, serverVersion string) (func(classDir string) error, error) {
-	if serverVersion >= "1.23" {
-		return func(string) error { return nil }, nil
+	if meta.Status != backup.Success {
+		return fmt.Errorf("invalid backup in restorer %s status: %s", destPath, meta.Status)
 	}
-	var ss sharding.State
-	if desc.ShardingState != nil {
-		err := json.Unmarshal(desc.ShardingState, &ss)
-		if err != nil {
-			return nil, fmt.Errorf("marshal sharding state: %w", err)
-		}
+	if err := checkRestorableVersion(meta.Version, meta.ServerVersion); err != nil {
+		return err
 	}
-	ss.SetLocalName(nodeName)
-
-	// get schema and sharding state
-	class := &models.Class{}
-	if err := json.Unmarshal(desc.Schema, &class); err != nil {
-		return nil, fmt.Errorf("marshal class schema: %w", err)
+	// Mirrors the scheduler's global gate: a 3.x per-node descriptor without the flag (or the reverse) is tampered or corrupt; OnCanCommit's legacy branch separately refuses any deduped descriptor so it is never restored thin.
+	if major, ok := parseMajor(meta.Version); ok && (major >= 3) != meta.DedupeReplicas {
+		return fmt.Errorf("corrupted backup file: version %s inconsistent with dedupeReplicas=%v", meta.Version, meta.DedupeReplicas)
 	}
-
-	return func(classDir string) error {
-		return migratefs.MigrateToHierarchicalFS(classDir, oneClassSchema{class, &ss})
-	}, nil
+	if err := meta.Validate(); err != nil {
+		return fmt.Errorf("corrupted backup file: %w", err)
+	}
+	return nil
 }

@@ -17,46 +17,19 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
-
-// TestShardConvertQueueWithoutCheckpoints pins that a shard with no checkpoint
-// store converts nothing. NewShard calls this on a goroutine, so a nil crashes
-// the process rather than failing a caller.
-func TestShardConvertQueueWithoutCheckpoints(t *testing.T) {
-	tests := []struct {
-		name         string
-		targetVector string
-	}{
-		{name: "legacy vector", targetVector: ""},
-		{name: "named vector", targetVector: "custom"},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			s := &Shard{
-				name: "shard1",
-				index: &Index{
-					Config:               IndexConfig{ClassName: schema.ClassName("MyClass")},
-					AsyncIndexingEnabled: true,
-				},
-			}
-
-			require.NoError(t, s.ConvertQueue(test.targetVector))
-		})
-	}
-}
 
 // The shards endpoint reports the vectors still waiting in the async indexing
 // queue; they are not searchable until the queue drains.
 func TestGetShardsQueueSize_CountsQueuedVectors(t *testing.T) {
 	ctx := testCtx()
 	className := "QueueSizeClass"
-	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, hnsw.UserConfig{}, false, true, true)
+	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, hnsw.UserConfig{}, false, true)
 
-	q, ok := shd.GetVectorIndexQueue("")
+	q, release, ok := shd.(*Shard).AcquireVectorIndexQueue("")
 	require.True(t, ok)
+	t.Cleanup(release)
 	require.NoError(t, q.Pause(ctx))
 	t.Cleanup(q.Resume)
 

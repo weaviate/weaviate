@@ -71,7 +71,7 @@ type StreamHandler struct {
 	admitMu              sync.Mutex // taken only by tryAdmit, to check and reserve as one step
 	memInFlight          atomic.Int64
 	schemaManager        schemaManager
-	namespacesEnabled    bool
+	qualifier            namespacing.Qualifier
 	config               config.BatchStream
 }
 
@@ -86,7 +86,7 @@ func NewStreamHandler(
 	metrics *BatchStreamingMetrics,
 	logger logrus.FieldLogger,
 	schemaManager schemaManager,
-	namespacesEnabled bool,
+	qualifier namespacing.Qualifier,
 	admissionChecker admissionChecker,
 	cfg config.BatchStream,
 ) *StreamHandler {
@@ -105,7 +105,7 @@ func NewStreamHandler(
 		stoppingPerStream:    &sync.Map{},
 		admissionChecker:     admissionChecker,
 		schemaManager:        schemaManager,
-		namespacesEnabled:    namespacesEnabled,
+		qualifier:            qualifier,
 		config:               cfg,
 	}
 }
@@ -606,7 +606,7 @@ func (h *StreamHandler) enqueue(ctx context.Context, stream pb.Weaviate_BatchStr
 		if _, ok := resolvedByRaw[obj.Collection]; ok {
 			continue
 		}
-		resolved, _, err := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, obj.Collection)
+		resolved, _, err := namespacing.Resolve(principal, h.schemaManager, h.qualifier, obj.Collection)
 		if err != nil {
 			h.reportRejectedBatch(stream, log, principal, objs, refs, err)
 			return err

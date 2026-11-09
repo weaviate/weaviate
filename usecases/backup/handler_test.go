@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,9 +34,11 @@ type fakeSchemaManger struct {
 	lastStripNamespaces bool
 	namespacesEnabled   bool
 	liveEntities        []string
+	restoreClassCalls   atomic.Int32
 }
 
 func (f *fakeSchemaManger) RestoreClass(ctx context.Context, desc *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool, stripNamespaces bool) error {
+	f.restoreClassCalls.Add(1)
 	f.lastNodeMapping = nodeMapping
 	f.lastStripNamespaces = stripNamespaces
 	return f.errRestoreClass
@@ -81,6 +84,7 @@ func TestServerVersionOlderThan(t *testing.T) {
 	tests := []struct {
 		serverVersion string
 		want          bool
+		wantErr       bool
 	}{
 		{serverVersion: "1.9", want: true},
 		{serverVersion: "1.100", want: false},
@@ -90,15 +94,27 @@ func TestServerVersionOlderThan(t *testing.T) {
 		{serverVersion: "1.16", want: true},
 		{serverVersion: "2.0", want: false},
 		{serverVersion: "0.9", want: true},
-		{serverVersion: "", want: false},
-		{serverVersion: "garbage", want: false},
-		{serverVersion: "1", want: false},
-		{serverVersion: "1.x", want: false},
-		{serverVersion: "v1.22", want: false},
+		// Release builds write the version from the OpenAPI spec, suffixes included.
+		{serverVersion: "1.38.24", want: false},
+		{serverVersion: "1.23.0-rc.0", want: false},
+		{serverVersion: "1.38.0-dev", want: false},
+		{serverVersion: "1.25.0-raft", want: false},
+		{serverVersion: "1.22.0-rc.0", want: true},
+		{serverVersion: "", wantErr: true},
+		{serverVersion: "garbage", wantErr: true},
+		{serverVersion: "1", wantErr: true},
+		{serverVersion: "1.x", wantErr: true},
+		{serverVersion: "v1.22", wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("%q", tc.serverVersion), func(t *testing.T) {
-			assert.Equal(t, tc.want, serverVersionOlderThan(tc.serverVersion, 1, 23))
+			got, err := serverVersionOlderThan(tc.serverVersion, 1, 23)
+			if tc.wantErr {
+				require.ErrorIs(t, err, errUnreadableServerVersion)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }
@@ -117,25 +133,33 @@ func TestCheckRestorableVersion(t *testing.T) {
 		{version: "2.0", serverVersion: current},
 		{version: "2.1", serverVersion: current},
 		{version: "2.9", serverVersion: current},
-		{version: "3.0", serverVersion: current, wantMsg: errMsgHigherVersion},
+		{version: "3.0", serverVersion: current},
 		// A structure version may omit the minor; the major still decides.
-		{version: "3", serverVersion: current, wantMsg: errMsgHigherVersion},
+		{version: "3", serverVersion: current},
+		{version: "4.0", serverVersion: current, wantMsg: errMsgHigherVersion},
+		{version: "4", serverVersion: current, wantMsg: errMsgHigherVersion},
 		{version: "10", serverVersion: current, wantMsg: errMsgHigherVersion},
 		// A byte compare read this as older than "2.1" and wrongly accepted it.
 		{version: "10.0", serverVersion: current, wantMsg: errMsgHigherVersion},
 		// A corrupt descriptor is reported by Validate, not refused as an old format.
 		{version: "", serverVersion: current},
-		// The version this build writes must stay restorable by it.
+		// An unparseable version must refuse, not skip every gate.
+		{version: "x.0", serverVersion: current, wantMsg: "unrecognized structure version"},
+		{version: "garbage", serverVersion: current, wantMsg: "unrecognized structure version"},
+		// The versions this build writes must stay restorable by it.
 		{version: Version, serverVersion: current},
+		{version: VersionDedupeReplicas, serverVersion: current},
 
 		{version: Version, serverVersion: "1.22", wantErr: errLegacyFlatFS},
 		{version: Version, serverVersion: "1.16", wantErr: errLegacyFlatFS},
 		// A lexical compare read "1.100" as older than "1.23" and would have refused it.
 		{version: Version, serverVersion: "1.100"},
 		{version: Version, serverVersion: "2.0"},
-		// An unreadable server version is never classified as an old format.
-		{version: Version, serverVersion: ""},
-		{version: Version, serverVersion: "garbage"},
+		{version: Version, serverVersion: "1.38.0-rc.0"},
+		// A server version that does not parse is refused, not restored as a current format.
+		{version: Version, serverVersion: "1", wantErr: errUnreadableServerVersion},
+		{version: Version, serverVersion: "", wantErr: errUnreadableServerVersion},
+		{version: Version, serverVersion: "garbage", wantErr: errUnreadableServerVersion},
 		// Both clauses match; the format the version names is reported first.
 		{version: "1.0", serverVersion: "1.16", wantErr: errLegacyUncompressed},
 	}
@@ -152,6 +176,14 @@ func TestCheckRestorableVersion(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDedupeVersionRefusedByOldReleases pins the refusal predicates old builds apply to VersionDedupeReplicas.
+func TestDedupeVersionRefusedByOldReleases(t *testing.T) {
+	require.Greater(t, VersionDedupeReplicas[0], Version[0])
+	major, ok := parseMajor(VersionDedupeReplicas)
+	require.True(t, ok)
+	require.Greater(t, major, 2)
 }
 
 func TestHandlerValidateCoordinationOperation(t *testing.T) {
@@ -203,6 +235,53 @@ func TestHandlerValidateCoordinationOperation(t *testing.T) {
 		ret := bm.OnStatus(ctx, &req)
 		assert.Contains(t, ret.Err, errUnknownOp.Error())
 	}
+}
+
+type recordingCanceller struct {
+	method  Op
+	id, att string
+	calls   int
+}
+
+func (r *recordingCanceller) cancelCoordinatorOp(method Op, id, attemptID string) bool {
+	r.method, r.id, r.att = method, id, attemptID
+	r.calls++
+	return true
+}
+
+func TestOnAbortReachesCoordinatorCanceller(t *testing.T) {
+	ctx := context.Background()
+	bm := createManager(nil, nil, nil, nil)
+	rc := &recordingCanceller{}
+	bm.SetCoordinatorCanceller(rc)
+	require.NoError(t, bm.OnAbort(ctx, &AbortRequest{Method: OpCreate, ID: "b1", AttemptID: "a1"}))
+	require.Equal(t, 1, rc.calls)
+	require.Equal(t, OpCreate, rc.method)
+	require.Equal(t, "b1", rc.id)
+	require.Equal(t, "a1", rc.att)
+	require.NoError(t, bm.OnAbort(ctx, &AbortRequest{Method: OpRestore, ID: "b2"}))
+	require.Equal(t, 2, rc.calls)
+	require.Equal(t, OpRestore, rc.method)
+}
+
+func TestSetCoordinatorCancellerConcurrentWithOnAbort(t *testing.T) {
+	ctx := context.Background()
+	bm := createManager(nil, nil, nil, nil)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			err := bm.OnAbort(ctx, &AbortRequest{Method: Op("bogus"), ID: "b1"})
+			assert.ErrorIs(t, err, errUnknownOp)
+		}
+	}()
+	rc := &recordingCanceller{}
+	for i := 0; i < 500; i++ {
+		bm.SetCoordinatorCanceller(rc)
+	}
+	<-done
+	require.NoError(t, bm.OnAbort(ctx, &AbortRequest{Method: OpCreate, ID: "b1"}))
+	require.GreaterOrEqual(t, rc.calls, 1)
 }
 
 // TestCanCommitResponse_PreservesInFlightReindexErrorKind verifies that when

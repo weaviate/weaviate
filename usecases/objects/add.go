@@ -31,6 +31,7 @@ import (
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
@@ -40,7 +41,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 ) (*models.Object, error) {
 	className, _, err := m.resolveNS(principal, object.Class)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("%v", err)
+		return nil, userInputOrForbidden(err)
 	}
 	object.Class = className
 
@@ -118,6 +119,9 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil, fetchedClasses)
 	if err != nil {
+		if errors.Is(err, replicaerrors.ErrReplicas) {
+			return nil, NewErrInternal("validate object: %w", err)
+		}
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
@@ -206,7 +210,7 @@ func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
 	class := fetchedClasses[incoming.Class].Class
 
 	return validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.config.Config.Namespaces.Enabled).
+		principal, m.qualifier).
 		Object(ctx, class, incoming, existing)
 }
 

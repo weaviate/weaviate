@@ -70,7 +70,7 @@ type PrometheusMetrics struct {
 	QueryDimensionsCombined             prometheus.Counter
 	GoroutinesCount                     *prometheus.GaugeVec
 	FileIOWrites                        *prometheus.SummaryVec
-	FileIOReads                         *prometheus.SummaryVec
+	FileIOReads                         *StripedSummaryVec
 	MmapOperations                      *prometheus.CounterVec
 	MmapProcMaps                        prometheus.Gauge
 
@@ -87,6 +87,10 @@ type PrometheusMetrics struct {
 	BackupRestoreBackupInitDurations  *prometheus.SummaryVec
 	BackupRestoreFromStorageDurations *prometheus.SummaryVec
 	BackupRestoreDataTransferred      *prometheus.CounterVec
+	BackupDedupePlanningDurations     prometheus.Summary
+	BackupDedupeShards                *prometheus.CounterVec
+	BackupDedupeFallbacks             *prometheus.CounterVec
+	BackupDedupeRestoreAnomalies      *prometheus.CounterVec
 	BackupStoreDataTransferred        *prometheus.CounterVec
 	RestorePhaseDurations             *prometheus.HistogramVec
 
@@ -626,10 +630,8 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "file_io_writes_total_bytes",
 			Help: "Total number of bytes written to disk",
 		}, []string{"operation", "strategy"}),
-		FileIOReads: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "file_io_reads_total_bytes",
-			Help: "Total number of bytes read from disk",
-		}, []string{"operation"}),
+		FileIOReads: NewStripedSummaryVec("file_io_reads_total_bytes",
+			"Total number of bytes read from disk", "operation"),
 		MmapOperations: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "mmap_operations_total",
 			Help: "Total number of mmap operations",
@@ -812,6 +814,22 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "bucket_pause_durations_ms",
 			Help: "bucket pause durations",
 		}, []string{"bucket_dir"}),
+		BackupDedupePlanningDurations: promauto.NewSummary(prometheus.SummaryOpts{
+			Name: "backup_dedupe_planning_ms",
+			Help: "Wall time of replica-dedupe convergence planning per backup",
+		}),
+		BackupDedupeShards: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "backup_dedupe_shards_total",
+			Help: "Shards planned by replica-dedupe backups, by outcome (designated = archived once, fallback = archived by every replica)",
+		}, []string{"outcome"}),
+		BackupDedupeFallbacks: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "backup_dedupe_fallback_total",
+			Help: "Replica-dedupe fallbacks by reason",
+		}, []string{"reason"}),
+		BackupDedupeRestoreAnomalies: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "backup_dedupe_restore_anomalies_total",
+			Help: "Fan-out restore shards without a normal source, by reason (no_holder = nothing restored, multi_holder = deterministic pick among duplicates, schema_source_fallback = shard membership derived from local snapshots)",
+		}, []string{"reason"}),
 		BackupRestoreDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "backup_restore_data_transferred",
 			Help: "Total number of bytes transferred during a backup restore",
@@ -1026,6 +1044,8 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Number of bytes read during checksum validation",
 		}),
 	}
+
+	m.Registerer.MustRegister(m.FileIOReads)
 
 	if err := m.initObjectsTtl(); err != nil {
 		panic(err)

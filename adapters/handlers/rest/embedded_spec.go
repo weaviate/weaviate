@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.39.14"
+    "version": "1.40.4"
   },
   "basePath": "/v1",
   "paths": {
@@ -1866,13 +1866,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No backup with this ID exists at this backend, bucket and path. Only callers with read_backups on all collections get 404; others get 403.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2007,13 +2007,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No restore of this backup was started at this backend, bucket and path.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3073,7 +3073,7 @@ func init() {
     },
     "/namespaces": {
       "get": {
-        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list rather than 403.",
         "tags": [
           "namespaces"
         ],
@@ -3088,6 +3088,12 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden: no well-formed Weaviate license key is configured on this node",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Not Found - The namespaces feature is not enabled on this cluster.",
@@ -3138,7 +3144,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3199,7 +3205,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3259,7 +3265,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3314,7 +3320,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3365,7 +3371,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3428,7 +3434,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5040,6 +5046,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
@@ -5568,6 +5580,12 @@ func init() {
           },
           "404": {
             "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6131,7 +6149,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6155,7 +6173,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6396,7 +6414,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6420,7 +6438,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7192,7 +7210,7 @@ func init() {
             }
           },
           "400": {
-            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], negative paging, unknown property) or an unparseable request body.",
+            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], a vector that is empty, holds a non-number or a number outside the 32-bit float range, a vector with alpha 0, negative paging, unknown property) or an unparseable request body.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7222,7 +7240,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0 and no ` + "`" + `vector` + "`" + ` is supplied, the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7436,7 +7454,7 @@ func init() {
     },
     "/search/{collection}/near-vector": {
       "post": {
-        "description": "Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query ` + "`" + `vector` + "`" + ` is searched against the vector index and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. A vector of the wrong dimensionality is rejected with 422 by uncompressed HNSW and flat indexes; a BQ- or RQ-compressed HNSW index does not detect it and yields an empty result set instead.",
+        "description": "Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query ` + "`" + `vector` + "`" + ` is searched against the vector index and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector.",
         "consumes": [
           "application/json"
         ],
@@ -8317,6 +8335,20 @@ func init() {
         "Path": {
           "description": "Path or key within the bucket.",
           "type": "string"
+        },
+        "dedupeConvergenceTimeoutSeconds": {
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. When omitted, BACKUP_DEDUPE_CONVERGENCE_TIMEOUT applies (15 seconds unless configured). The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "type": "integer",
+          "default": 15,
+          "maximum": 600,
+          "minimum": 1,
+          "x-nullable": false
+        },
+        "dedupeReplicas": {
+          "description": "If true, shards of replicated collections proven in sync by async-replication checkpoints are archived by one replica instead of all, and restore copies them back to every replica; other shards are archived by every replica. Requires async replication, BACKUP_DEDUPE_ENABLED=true (else 422) and a Weaviate license key (else 403) on every node. Such backups restore only on versions that support this option; restoring needs no license.",
+          "type": "boolean",
+          "default": false,
+          "x-nullable": false
         }
       }
     },
@@ -8896,7 +8928,7 @@ func init() {
           "type": "string"
         },
         "vectorizer": {
-          "description": "Specify how the vectors for this collection should be determined. The options are either ` + "`" + `none` + "`" + ` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as ` + "`" + `text2vec-weaviate` + "`" + `. If left empty, it will use the globally configured default ([` + "`" + `DEFAULT_VECTORIZER_MODULE` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be ` + "`" + `none` + "`" + ` or a specific module.",
+          "description": "Specify how the vectors for this collection should be determined. The options are either ` + "`" + `none` + "`" + ` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as ` + "`" + `text2vec-weaviate` + "`" + `. If left empty, it defaults to ` + "`" + `none` + "`" + `.",
           "type": "string"
         }
       }
@@ -11500,7 +11532,7 @@ func init() {
       }
     },
     "SearchHybridRequest": {
-      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + `, ` + "`" + `targetVector` + "`" + ` and ` + "`" + `vector` + "`" + `.",
       "allOf": [
         {
           "$ref": "#/definitions/SearchCommon"
@@ -11512,7 +11544,7 @@ func init() {
           ],
           "properties": {
             "alpha": {
-              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + ` the query is never vectorized, so a collection without a vectorizer module is searchable.",
+              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + `, or with ` + "`" + `vector` + "`" + ` supplied, the query is never vectorized, so a collection without a vectorizer module is searchable.",
               "type": "number",
               "format": "float64",
               "x-nullable": true
@@ -11532,7 +11564,7 @@ func init() {
               "x-nullable": true
             },
             "query": {
-              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part. Must not be empty.",
+              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part, unless ` + "`" + `vector` + "`" + ` is supplied. Must not be empty.",
               "type": "string"
             },
             "queryProperties": {
@@ -11545,6 +11577,9 @@ func init() {
             "targetVector": {
               "description": "The named vector to search. Required when the collection has more than one named vector.",
               "type": "string"
+            },
+            "vector": {
+              "description": "The query vector for the vector part of the search, used instead of vectorizing ` + "`" + `query` + "`" + `. A non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. Requires ` + "`" + `alpha` + "`" + ` \u003e 0."
             }
           }
         }
@@ -11655,7 +11690,7 @@ func init() {
               "type": "string"
             },
             "vector": {
-              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. A vector of the wrong dimensionality is rejected with 422 by uncompressed HNSW and flat indexes; a BQ- or RQ-compressed HNSW index does not detect it and yields an empty result set instead."
+              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector."
             }
           }
         }
@@ -11927,12 +11962,19 @@ func init() {
           "description": "Name of the shard",
           "type": "string"
         },
+        "per_node_status": {
+          "description": "Status of the shard on each of its replicas",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "status": {
-          "description": "Status of the shard",
+          "description": "Deprecated: value is not consistent in replicated clusters.",
           "type": "string"
         },
         "vectorQueueSize": {
-          "description": "Size of the vector queue of the shard",
+          "description": "Deprecated: value is not consistent in replicated clusters.",
           "type": "integer",
           "x-omitempty": false
         }
@@ -12691,7 +12733,7 @@ func init() {
       "name": "meta"
     },
     {
-      "description": "Operations related to managing collections. In Weaviate, 'collections' (formerly called 'classes') store your data objects. Each collection has a definition that specifies its data structure (properties and their data types), vectorizer settings (how vectors are generated or managed), and indexing configuration (how data is indexed for efficient search). These endpoints allow you to create, retrieve, update, and delete collection definitions. For detailed usage and code examples on interacting with collections, see the documentation: [https://weaviate.io/developers/weaviate/manage-data/collections](https://weaviate.io/developers/weaviate/manage-data/collections).",
+      "description": "Operations related to managing collections. In Weaviate, 'collections' (formerly called 'classes') store your data objects. Each collection has a definition that specifies its data structure (properties and their data types), vectorizer settings (how vectors are generated or managed), and indexing configuration (how data is indexed for efficient search). These endpoints allow you to create, retrieve, update, and delete collection definitions. For detailed usage and code examples on interacting with collections, see the documentation: [https://docs.weaviate.io/weaviate/manage-collections](https://docs.weaviate.io/weaviate/manage-collections).",
       "name": "schema"
     },
     {
@@ -12719,7 +12761,7 @@ func init() {
       "name": "mcp"
     },
     {
-      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action and, on namespace-enabled clusters, a well-formed Weaviate license key on the serving node.",
       "name": "namespaces"
     }
   ],
@@ -12747,7 +12789,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.39.14"
+    "version": "1.40.4"
   },
   "basePath": "/v1",
   "paths": {
@@ -14541,13 +14583,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No backup with this ID exists at this backend, bucket and path. Only callers with read_backups on all collections get 404; others get 403.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14682,13 +14724,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No restore of this backup was started at this backend, bucket and path.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15760,7 +15802,7 @@ func init() {
     },
     "/namespaces": {
       "get": {
-        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list rather than 403.",
         "tags": [
           "namespaces"
         ],
@@ -15775,6 +15817,12 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden: no well-formed Weaviate license key is configured on this node",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Not Found - The namespaces feature is not enabled on this cluster.",
@@ -15825,7 +15873,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15886,7 +15934,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15946,7 +15994,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -16001,7 +16049,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -16052,7 +16100,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -16115,7 +16163,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -17837,6 +17885,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
@@ -18365,6 +18419,12 @@ func init() {
           },
           "404": {
             "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18928,7 +18988,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18952,7 +19012,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19193,7 +19253,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19217,7 +19277,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19989,7 +20049,7 @@ func init() {
             }
           },
           "400": {
-            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], negative paging, unknown property) or an unparseable request body.",
+            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], a vector that is empty, holds a non-number or a number outside the 32-bit float range, a vector with alpha 0, negative paging, unknown property) or an unparseable request body.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20019,7 +20079,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0 and no ` + "`" + `vector` + "`" + ` is supplied, the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20233,7 +20293,7 @@ func init() {
     },
     "/search/{collection}/near-vector": {
       "post": {
-        "description": "Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query ` + "`" + `vector` + "`" + ` is searched against the vector index and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. A vector of the wrong dimensionality is rejected with 422 by uncompressed HNSW and flat indexes; a BQ- or RQ-compressed HNSW index does not detect it and yields an empty result set instead.",
+        "description": "Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query ` + "`" + `vector` + "`" + ` is searched against the vector index and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector.",
         "consumes": [
           "application/json"
         ],
@@ -21114,6 +21174,20 @@ func init() {
         "Path": {
           "description": "Path or key within the bucket.",
           "type": "string"
+        },
+        "dedupeConvergenceTimeoutSeconds": {
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. When omitted, BACKUP_DEDUPE_CONVERGENCE_TIMEOUT applies (15 seconds unless configured). The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "type": "integer",
+          "default": 15,
+          "maximum": 600,
+          "minimum": 1,
+          "x-nullable": false
+        },
+        "dedupeReplicas": {
+          "description": "If true, shards of replicated collections proven in sync by async-replication checkpoints are archived by one replica instead of all, and restore copies them back to every replica; other shards are archived by every replica. Requires async replication, BACKUP_DEDUPE_ENABLED=true (else 422) and a Weaviate license key (else 403) on every node. Such backups restore only on versions that support this option; restoring needs no license.",
+          "type": "boolean",
+          "default": false,
+          "x-nullable": false
         }
       }
     },
@@ -21784,7 +21858,7 @@ func init() {
           "type": "string"
         },
         "vectorizer": {
-          "description": "Specify how the vectors for this collection should be determined. The options are either ` + "`" + `none` + "`" + ` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as ` + "`" + `text2vec-weaviate` + "`" + `. If left empty, it will use the globally configured default ([` + "`" + `DEFAULT_VECTORIZER_MODULE` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be ` + "`" + `none` + "`" + ` or a specific module.",
+          "description": "Specify how the vectors for this collection should be determined. The options are either ` + "`" + `none` + "`" + ` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as ` + "`" + `text2vec-weaviate` + "`" + `. If left empty, it defaults to ` + "`" + `none` + "`" + `.",
           "type": "string"
         }
       }
@@ -24635,7 +24709,7 @@ func init() {
       }
     },
     "SearchHybridRequest": {
-      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + `, ` + "`" + `targetVector` + "`" + ` and ` + "`" + `vector` + "`" + `.",
       "allOf": [
         {
           "$ref": "#/definitions/SearchCommon"
@@ -24647,7 +24721,7 @@ func init() {
           ],
           "properties": {
             "alpha": {
-              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + ` the query is never vectorized, so a collection without a vectorizer module is searchable.",
+              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + `, or with ` + "`" + `vector` + "`" + ` supplied, the query is never vectorized, so a collection without a vectorizer module is searchable.",
               "type": "number",
               "format": "float64",
               "x-nullable": true
@@ -24667,7 +24741,7 @@ func init() {
               "x-nullable": true
             },
             "query": {
-              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part. Must not be empty.",
+              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part, unless ` + "`" + `vector` + "`" + ` is supplied. Must not be empty.",
               "type": "string"
             },
             "queryProperties": {
@@ -24680,6 +24754,9 @@ func init() {
             "targetVector": {
               "description": "The named vector to search. Required when the collection has more than one named vector.",
               "type": "string"
+            },
+            "vector": {
+              "description": "The query vector for the vector part of the search, used instead of vectorizing ` + "`" + `query` + "`" + `. A non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. Requires ` + "`" + `alpha` + "`" + ` \u003e 0."
             }
           }
         }
@@ -24790,7 +24867,7 @@ func init() {
               "type": "string"
             },
             "vector": {
-              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. A vector of the wrong dimensionality is rejected with 422 by uncompressed HNSW and flat indexes; a BQ- or RQ-compressed HNSW index does not detect it and yields an empty result set instead."
+              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector."
             }
           }
         }
@@ -25062,12 +25139,19 @@ func init() {
           "description": "Name of the shard",
           "type": "string"
         },
+        "per_node_status": {
+          "description": "Status of the shard on each of its replicas",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "status": {
-          "description": "Status of the shard",
+          "description": "Deprecated: value is not consistent in replicated clusters.",
           "type": "string"
         },
         "vectorQueueSize": {
-          "description": "Size of the vector queue of the shard",
+          "description": "Deprecated: value is not consistent in replicated clusters.",
           "type": "integer",
           "x-omitempty": false
         }
@@ -25838,7 +25922,7 @@ func init() {
       "name": "meta"
     },
     {
-      "description": "Operations related to managing collections. In Weaviate, 'collections' (formerly called 'classes') store your data objects. Each collection has a definition that specifies its data structure (properties and their data types), vectorizer settings (how vectors are generated or managed), and indexing configuration (how data is indexed for efficient search). These endpoints allow you to create, retrieve, update, and delete collection definitions. For detailed usage and code examples on interacting with collections, see the documentation: [https://weaviate.io/developers/weaviate/manage-data/collections](https://weaviate.io/developers/weaviate/manage-data/collections).",
+      "description": "Operations related to managing collections. In Weaviate, 'collections' (formerly called 'classes') store your data objects. Each collection has a definition that specifies its data structure (properties and their data types), vectorizer settings (how vectors are generated or managed), and indexing configuration (how data is indexed for efficient search). These endpoints allow you to create, retrieve, update, and delete collection definitions. For detailed usage and code examples on interacting with collections, see the documentation: [https://docs.weaviate.io/weaviate/manage-collections](https://docs.weaviate.io/weaviate/manage-collections).",
       "name": "schema"
     },
     {
@@ -25866,7 +25950,7 @@ func init() {
       "name": "mcp"
     },
     {
-      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action and, on namespace-enabled clusters, a well-formed Weaviate license key on the serving node.",
       "name": "namespaces"
     }
   ],

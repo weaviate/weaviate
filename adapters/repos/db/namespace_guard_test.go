@@ -108,7 +108,7 @@ func newIndexForNamespaceTest(t *testing.T, className string, e namespaces.Exist
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil,
 		resolver.NewShardResolver(className, false, sg),
-		sg, reader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
+		sg, reader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler,
 		memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	if err != nil {
@@ -1134,6 +1134,47 @@ func TestTenantApplyShardLoadAdmission(t *testing.T) {
 	}
 }
 
+// changeLogShard is a MockShardLike that also carries the change-capture
+// surface, which lives on shardChangeLogger rather than on ShardLike. Calls run
+// through the embedded mock, so expectations are set with On as on any other
+// method.
+type changeLogShard struct {
+	*MockShardLike
+}
+
+var _ shardChangeLogger = (*changeLogShard)(nil)
+
+func newChangeLogShard(t *testing.T) *changeLogShard {
+	t.Helper()
+	return &changeLogShard{MockShardLike: NewMockShardLike(t)}
+}
+
+func (s *changeLogShard) ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error) {
+	args := s.Called(ctx, opID)
+	log, _ := args.Get(0).(*changelog.ChangeLog)
+	return log, args.Error(1)
+}
+
+func (s *changeLogShard) SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error) {
+	args := s.Called(ctx, opID)
+	return args.Get(0).(uint64), args.Error(1)
+}
+
+func (s *changeLogShard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, error) {
+	args := s.Called(ctx, opID)
+	return args.Get(0).(uint64), args.Error(1)
+}
+
+func (s *changeLogShard) StopChangeCapture(ctx context.Context, opID string) error {
+	return s.Called(ctx, opID).Error(0)
+}
+
+func (s *changeLogShard) GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool) {
+	args := s.Called(ctx, opID)
+	log, _ := args.Get(0).(*changelog.ChangeLog)
+	return log, args.Bool(1)
+}
+
 // A movement begins by touching its source shard, and both ways in take the
 // request-path check — neither is exempt. That is what keeps a movement
 // registered against a suspended namespace from starting, and it is the reason
@@ -1149,13 +1190,13 @@ func TestMovementCannotStartWhileSuspended(t *testing.T) {
 		call func(*Index) error
 		// admit sets the calls the entry point makes once the namespace lets it
 		// through, so the allow rows fail if it stops reaching the shard.
-		admit func(*MockShardLike)
+		admit func(*changeLogShard)
 	}{
 		{
 			name: "starting change capture",
 			call: func(idx *Index) error { return idx.IncomingStartChangeCapture(ctx, "t1", opID) },
-			admit: func(s *MockShardLike) {
-				s.EXPECT().ActivateChangeLog(mock.Anything, opID).Return(nil, nil)
+			admit: func(s *changeLogShard) {
+				s.On("ActivateChangeLog", mock.Anything, opID).Return(nil, nil).Once()
 			},
 		},
 		{
@@ -1164,7 +1205,7 @@ func TestMovementCannotStartWhileSuspended(t *testing.T) {
 				_, err := idx.IncomingCreateReplicaSnapshot(ctx, "t1", opID)
 				return err
 			},
-			admit: func(s *MockShardLike) {
+			admit: func(s *changeLogShard) {
 				s.EXPECT().CreateReplicaSnapshot(mock.Anything, mock.Anything).Return(nil, nil)
 			},
 		},
@@ -1185,7 +1226,7 @@ func TestMovementCannotStartWhileSuspended(t *testing.T) {
 		// every row above.
 		t.Run(ep.name+" is admitted while active", func(t *testing.T) {
 			idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateActive))
-			shard := NewMockShardLike(t)
+			shard := newChangeLogShard(t)
 			shard.EXPECT().preventShutdown().Return(func() {}, nil)
 			ep.admit(shard)
 			idx.shards.Store("t1", shard)
@@ -1303,7 +1344,7 @@ func TestCleanupPathsSkipTheGuard(t *testing.T) {
 
 	t.Run("change capture stops without a namespace lookup", func(t *testing.T) {
 		idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
-		shard := NewMockShardLike(t)
+		shard := newChangeLogShard(t)
 		shard.On("preventShutdown").Return(func() {}, nil).Once()
 		shard.On("StopChangeCapture", mock.Anything, opID).Return(nil).Once()
 		idx.shards.Store(shardName, shard)
@@ -1335,7 +1376,7 @@ func TestCleanupPathsSkipTheGuard(t *testing.T) {
 	// The same shard a teardown may reach is still refused to a request.
 	t.Run("a request for the same shard is still refused", func(t *testing.T) {
 		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
-		shard := NewMockShardLike(t)
+		shard := newChangeLogShard(t)
 		shard.On("preventShutdown").Return(func() {}, nil).Once()
 		shard.On("StopChangeCapture", mock.Anything, opID).Return(nil).Once()
 		idx.shards.Store(shardName, shard)
@@ -1368,7 +1409,7 @@ func TestCleanupPathsSkipTheGuard(t *testing.T) {
 	// A failed teardown must not report success.
 	t.Run("a failing shard surfaces its error", func(t *testing.T) {
 		idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
-		shard := NewMockShardLike(t)
+		shard := newChangeLogShard(t)
 		shard.On("preventShutdown").Return(func() {}, nil).Once()
 		shard.On("StopChangeCapture", mock.Anything, opID).
 			Return(errors.New("deactivate failed")).Once()
@@ -1392,11 +1433,11 @@ func TestChangeLogDrainSkipsTheGuard(t *testing.T) {
 
 	drains := []struct {
 		name string
-		call func(t *testing.T, idx *Index, shard *MockShardLike)
+		call func(t *testing.T, idx *Index, shard *changeLogShard)
 	}{
 		{
 			name: "get change log",
-			call: func(t *testing.T, idx *Index, shard *MockShardLike) {
+			call: func(t *testing.T, idx *Index, shard *changeLogShard) {
 				log, err := changelog.Open(filepath.Join(t.TempDir(), opID), idx.logger)
 				require.NoError(t, err)
 				shard.On("GetChangeLog", mock.Anything, opID).Return(log, true).Once()
@@ -1408,7 +1449,7 @@ func TestChangeLogDrainSkipsTheGuard(t *testing.T) {
 		},
 		{
 			name: "snapshot change-log LSN",
-			call: func(t *testing.T, idx *Index, shard *MockShardLike) {
+			call: func(t *testing.T, idx *Index, shard *changeLogShard) {
 				shard.On("SnapshotChangeLogLSN", mock.Anything, opID).Return(uint64(7), nil).Once()
 
 				lsn, err := idx.IncomingSnapshotChangeLogLSN(ctx, shardName, opID)
@@ -1418,7 +1459,7 @@ func TestChangeLogDrainSkipsTheGuard(t *testing.T) {
 		},
 		{
 			name: "finalize change log",
-			call: func(t *testing.T, idx *Index, shard *MockShardLike) {
+			call: func(t *testing.T, idx *Index, shard *changeLogShard) {
 				shard.On("FinalizeChangeLog", mock.Anything, opID).Return(uint64(9), nil).Once()
 
 				lsn, err := idx.IncomingFinalizeChangeLog(ctx, shardName, opID)
@@ -1432,7 +1473,7 @@ func TestChangeLogDrainSkipsTheGuard(t *testing.T) {
 		// An exister with no expectations fails the test on any lookup.
 		t.Run(tc.name+" takes no namespace lookup", func(t *testing.T) {
 			idx := indexForGuardTest(t, class, namespaces.NewMockExister(t))
-			shard := NewMockShardLike(t)
+			shard := newChangeLogShard(t)
 			shard.On("preventShutdown").Return(func() {}, nil).Once()
 			idx.shards.Store(shardName, shard)
 
@@ -1441,7 +1482,7 @@ func TestChangeLogDrainSkipsTheGuard(t *testing.T) {
 
 		t.Run(tc.name+" is served while the namespace is suspended", func(t *testing.T) {
 			idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
-			shard := NewMockShardLike(t)
+			shard := newChangeLogShard(t)
 			shard.On("preventShutdown").Return(func() {}, nil).Once()
 			idx.shards.Store(shardName, shard)
 
@@ -1843,6 +1884,7 @@ func seedShardMissingProperty(t *testing.T, idx *Index, name string) {
 
 	shard := NewMockShardLike(t)
 	shard.EXPECT().Store().Return(store)
+	shard.EXPECT().preventShutdown().Return(func() {}, nil)
 	shard.EXPECT().initPropertyBuckets(mock.Anything, mock.Anything, false, mock.Anything)
 	idx.shards.Store(name, shard)
 }

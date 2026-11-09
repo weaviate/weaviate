@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -102,7 +103,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 		// it was signalled with, nil for an unsignalled close.
 		closing    bool
 		closeCause error
-		// staleOnDisk writes a tracker dir for the swept tuple on every
+		// staleOnDisk writes a stale sidecar for the swept tuple on every
 		// shard, which is what puts them all on the sweep's list.
 		staleOnDisk bool
 		// indexType is "filterable" unless set.
@@ -290,8 +291,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			}
 			for _, name := range tc.shards {
 				if tc.staleOnDisk {
-					mkTrackerDir(t, shardPathLSM(idx.path(), name),
-						"enable_filterable_title_1", "started.mig")
+					mkSidecarDir(t, shardPathLSM(idx.path(), name), "property_title__enable_filterable_ingest_1")
 				}
 				(*sync.Map)(&idx.shards).Store(name, &LazyLoadShard{
 					shardOpts:        &deferredShardOpts{name: name, index: idx, class: &models.Class{Class: "Movies"}},
@@ -312,7 +312,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			if indexType == "" {
 				indexType = "filterable"
 			}
-			err := idx.cleanStalePartialReindexState(ctx, "title", indexType, nil)
+			err := idx.cleanStalePartialReindexState(ctx, "title", indexType, nil, nil)
 
 			if !tc.wantErr {
 				require.NoError(t, err,
@@ -409,8 +409,7 @@ func TestCleanStalePartialReindexStateRefusesAnAlreadyRequestedClose(t *testing.
 
 			monitor := &loadAttemptMonitor{}
 			for _, name := range []string{"shard-a", "shard-b"} {
-				mkTrackerDir(t, shardPathLSM(idx.path(), name),
-					"enable_filterable_title_1", "started.mig")
+				mkSidecarDir(t, shardPathLSM(idx.path(), name), "property_title__enable_filterable_ingest_1")
 				(*sync.Map)(&idx.shards).Store(name, &LazyLoadShard{
 					shardOpts:  &deferredShardOpts{name: name, index: idx, class: &models.Class{Class: "Movies"}},
 					memMonitor: monitor,
@@ -423,7 +422,7 @@ func TestCleanStalePartialReindexStateRefusesAnAlreadyRequestedClose(t *testing.
 			}
 
 			err := idx.cleanStalePartialReindexState(
-				context.Background(), "title", "filterable", nil)
+				context.Background(), "title", "filterable", nil, nil)
 
 			require.Error(t, err)
 			if tc.requestedCause == nil {
@@ -506,7 +505,9 @@ func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {
 		closeCause error
 		// deleteSiblings drops the shards the walk has not reached yet.
 		deleteSiblings bool
-		wantErr        error
+		// scope limits the walk to these shards; nil walks them all.
+		scope   map[string]struct{}
+		wantErr error
 	}{
 		{
 			name: "a walk nothing interrupted is clean",
@@ -527,6 +528,11 @@ func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {
 			name:           "a tenant deleted mid-walk explains nothing and is still not swept",
 			deleteSiblings: true,
 			wantErr:        errShardsSkipped,
+		},
+		{
+			name:           "a tenant deleted mid-walk outside the scope is not reported",
+			deleteSiblings: true,
+			scope:          map[string]struct{}{"shard-a": {}},
 		},
 	}
 
@@ -552,8 +558,13 @@ func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {
 				})
 			}
 
+			wantVisited := len(shardNames)
+			if tc.scope != nil {
+				wantVisited = len(tc.scope)
+			}
+
 			var visited int
-			err := idx.forEachShardStrict(func(name string, _ ShardLike) error {
+			err := idx.forEachShardStrict(tc.scope, func(name string, _ ShardLike) error {
 				visited++
 				if visited > 1 || !tc.deleteSiblings {
 					return nil
@@ -573,7 +584,7 @@ func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {
 
 			if tc.wantErr == nil {
 				require.NoError(t, err)
-				require.Equal(t, len(shardNames), visited)
+				require.Equal(t, wantVisited, visited)
 				return
 			}
 			require.ErrorIs(t, err, tc.wantErr,
@@ -725,7 +736,7 @@ func TestIndexCleanStalePartialReindexStateLogsOneSummaryPerSweep(t *testing.T) 
 
 	tests := []struct {
 		name string
-		// staleOnDisk puts a tracker dir on every tenant, which is what makes
+		// staleOnDisk puts a stale sidecar on every tenant, which is what makes
 		// the gate hydrate rather than skip.
 		staleOnDisk bool
 		// requestedCause is what a delete or a shutdown signalled before the sweep.
@@ -770,8 +781,7 @@ func TestIndexCleanStalePartialReindexStateLogsOneSummaryPerSweep(t *testing.T) 
 
 			for _, name := range []string{"tenant-a", "tenant-b"} {
 				if tc.staleOnDisk {
-					mkTrackerDir(t, shardPathLSM(idx.path(), name),
-						"enable_filterable_title_1", "started.mig")
+					mkSidecarDir(t, shardPathLSM(idx.path(), name), "property_title__enable_filterable_ingest_1")
 				}
 				storeUnloadableTenant(idx, name)
 			}
@@ -779,7 +789,7 @@ func TestIndexCleanStalePartialReindexStateLogsOneSummaryPerSweep(t *testing.T) 
 				signalCloseRequested(tc.requestedCause)
 			}
 
-			_ = idx.cleanStalePartialReindexState(context.Background(), "title", "filterable", nil)
+			_ = idx.cleanStalePartialReindexState(context.Background(), "title", "filterable", nil, nil)
 
 			summary := onlySweepSummary(t, hook)
 			require.Equal(t, tc.wantMsg, summary.Message)
@@ -788,31 +798,6 @@ func TestIndexCleanStalePartialReindexStateLogsOneSummaryPerSweep(t *testing.T) 
 				"a truncated sweep must not lose the numbers it did gather")
 		})
 	}
-}
-
-// The sweep's own line has to carry what the gate paid, whichever way the gate
-// then answered. Counting only the shards it skipped reports zero reads on the
-// node doing the most reading: thousands of cold tenants each holding one
-// tracker dir only a payload can attribute.
-func TestIndexCleanStalePartialReindexStateReportsGatePayloadReads(t *testing.T) {
-	logger, hook := test.NewNullLogger()
-	idx, _, closeIndex := newSweepTestIndex(t, logger)
-	defer closeIndex()
-
-	// ["cat","dog"] sorts to exactly this name, so only the payload can say
-	// whether the dir belongs to the swept property.
-	lsm := shardPathLSM(idx.path(), "tenant-a")
-	mkTrackerDir(t, lsm, "enable_filterable_cat_dog_1", "started.mig")
-	mkRecoveryPayload(t, lsm, "enable_filterable_cat_dog_1", "cat", "dog")
-	storeUnloadableTenant(idx, "tenant-a")
-
-	err := idx.cleanStalePartialReindexState(context.Background(), "cat", "filterable", nil)
-
-	require.ErrorIs(t, err, ErrCleanupShardFailed,
-		"the gate must have answered stale, or the read this pins was never paid")
-	summary := onlySweepSummary(t, hook)
-	require.Equal(t, 1, summary.Data["payload_reads"])
-	require.Equal(t, 0, summary.Data["skipped_shards"])
 }
 
 // A ShardLike that is neither implementation is a shard the sweep reached and
@@ -824,7 +809,7 @@ func TestIndexCleanStalePartialReindexStateFailsOnAnUnknownShardImplementation(t
 	defer closeIndex()
 	idx.shards.Store("tenant-a", NewMockShardLike(t))
 
-	err := idx.cleanStalePartialReindexState(context.Background(), "title", "filterable", nil)
+	err := idx.cleanStalePartialReindexState(context.Background(), "title", "filterable", nil, nil)
 
 	require.ErrorIs(t, err, ErrCleanupShardFailed)
 	require.Contains(t, err.Error(), "tenant-a", "the shard nothing swept has to be named")
@@ -835,13 +820,13 @@ func TestIndexCleanStalePartialReindexStateFailsOnAnUnknownShardImplementation(t
 // else reports.
 func TestDirNamesCacheReportsRefusedListings(t *testing.T) {
 	lsm := t.TempDir()
-	mkTrackerDir(t, lsm, "enable_filterable_title_1", "started.mig")
+	mkSidecarDir(t, lsm, "property_title__enable_filterable_ingest_1")
 
 	full := &dirNamesCache{cost: maxCachedDirNames}
-	names, err := full.list(filepath.Join(lsm, ".migrations"))
+	names, err := full.listSidecarCandidates(lsm)
 
 	require.NoError(t, err)
-	require.Equal(t, []string{"enable_filterable_title_1"}, names,
+	require.Equal(t, []string{"property_title__enable_filterable_ingest_1"}, names,
 		"a listing the bound refuses is still answered, just not remembered")
 	require.Equal(t, 1, full.refused)
 	require.Empty(t, full.listings)
@@ -859,7 +844,7 @@ func TestIndexCleanStalePartialReindexStateReportsAFullDirNamesCache(t *testing.
 
 	full := &dirNamesCache{cost: maxCachedDirNames}
 	require.NoError(t,
-		idx.cleanStalePartialReindexState(context.Background(), "title", "filterable", full))
+		idx.cleanStalePartialReindexState(context.Background(), "title", "filterable", nil, full))
 
 	summary := onlySweepSummary(t, hook)
 	require.Equal(t, 1, summary.Data["uncached_listings"])
@@ -874,13 +859,12 @@ func TestIndexCleanStalePartialReindexStateReportsRefusedListingsPerSweep(t *tes
 	logger, hook := test.NewNullLogger()
 	idx, _, closeIndex := newSweepTestIndex(t, logger)
 	defer closeIndex()
-	mkTrackerDir(t, shardPathLSM(idx.path(), "tenant-a"),
-		"enable_filterable_title_1", "started.mig")
+	mkSidecarDir(t, shardPathLSM(idx.path(), "tenant-a"), "property_title__enable_filterable_ingest_1")
 	storeUnloadableTenant(idx, "tenant-a")
 
 	full := &dirNamesCache{cost: maxCachedDirNames}
 	require.Error(t,
-		idx.cleanStalePartialReindexState(context.Background(), "title", "filterable", full))
+		idx.cleanStalePartialReindexState(context.Background(), "title", "filterable", nil, full))
 	first := onlySweepSummary(t, hook)
 	require.Positive(t, full.refusedListings(), "the first sweep has to fill the cache")
 	require.Equal(t, full.refusedListings(), first.Data["uncached_listings"],
@@ -892,7 +876,7 @@ func TestIndexCleanStalePartialReindexStateReportsRefusedListingsPerSweep(t *tes
 	_, dropped := idx.shards.LoadAndDelete("tenant-a")
 	require.True(t, dropped)
 	require.NoError(t,
-		idx.cleanStalePartialReindexState(context.Background(), "title", "filterable", full))
+		idx.cleanStalePartialReindexState(context.Background(), "title", "filterable", nil, full))
 
 	second := onlySweepSummary(t, hook)
 	require.Equal(t, 0, second.Data["uncached_listings"],
@@ -903,11 +887,51 @@ func TestIndexCleanStalePartialReindexStateReportsRefusedListingsPerSweep(t *tes
 		"the cache still carries the first sweep's refusals")
 }
 
+// An unloaded shard's record set is read by the sweep alone, so a read that
+// fails there reaches no other log: the count says how many, the reason says
+// whether an operator is looking at a permission fault or a broken disk.
+func TestIndexCleanStalePartialReindexStateReportsUnreadableRecordSets(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	idx, _, closeIndex := newSweepTestIndex(t, logger)
+	defer closeIndex()
+	lsm := shardPathLSM(idx.path(), "tenant-a")
+	require.NoError(t, os.MkdirAll(filepath.Join(lsm, ".migrations"), 0o755))
+	// A file where the record set's directory belongs: the read of it fails with
+	// a reason, which is the arm under test.
+	require.NoError(t, os.WriteFile(
+		filepath.Join(lsm, ".migrations", migrationRecordsDirName), nil, 0o600))
+	storeUnloadableTenant(idx, "tenant-a")
+
+	cache := &dirNamesCache{}
+	require.Error(t, idx.cleanStalePartialReindexState(
+		context.Background(), "title", "filterable", nil, cache),
+		"a record set it cannot read leaves the sweep no choice but to hydrate")
+
+	summary := onlySweepSummary(t, hook)
+	require.Equal(t, 1, summary.Data["unreadable_record_sets"])
+	reasons, ok := summary.Data["unreadable_record_set_reasons"].(error)
+	require.True(t, ok, "the summary carries the reason, not only the count")
+	require.Contains(t, reasons.Error(), "read migration records dir")
+	require.Contains(t, reasons.Error(), lsm, "the reason names the shard it belongs to")
+
+	// One cache serves every sweep of a request, so a later sweep must not
+	// re-report what this one already did.
+	hook.Reset()
+	_, dropped := idx.shards.LoadAndDelete("tenant-a")
+	require.True(t, dropped)
+	require.NoError(t, idx.cleanStalePartialReindexState(
+		context.Background(), "title", "filterable", nil, cache))
+
+	second := onlySweepSummary(t, hook)
+	require.NotContains(t, second.Data, "unreadable_record_sets")
+	require.Equal(t, logrus.InfoLevel, second.Level)
+}
+
 // Pins that a collection already gone is reported as dropped, not clean.
 func TestDBCleanStalePartialReindexStateOnACollectionThatIsNotHere(t *testing.T) {
 	db := &DB{indices: map[string]*Index{}}
 
-	err := db.NewStalePartialReindexSweep()(context.Background(), "Movies", "title", "filterable")
+	err := db.NewStalePartialReindexSweep(nil)(context.Background(), "Movies", "title", "filterable")
 
 	require.True(t, IsCleanupCollectionDropped(err),
 		"the caller has nothing to act on, and no later sweep to retry")

@@ -10,6 +10,7 @@ ENV GO111MODULE=on
 RUN apk add --no-cache bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/weaviate/weaviate
 COPY go.mod go.sum ./
+COPY grpc/generated/protocol/go.mod grpc/generated/protocol/go.sum ./grpc/generated/protocol/
 # Retry to ride out transient proxy.golang.org flakes; http2client=0 forces HTTP/1.1,
 # which avoids the HTTP/2 "stream INTERNAL_ERROR" class seen mid-download.
 RUN for i in 1 2 3 4 5; do \
@@ -22,7 +23,6 @@ RUN for i in 1 2 3 4 5; do \
 ###############################################################################
 # This image builds the weaviate server
 FROM build_base AS server_builder
-RUN mkdir -p /runtime/go-ego
 
 ARG TARGETARCH
 ARG GIT_BRANCH="unknown"
@@ -42,9 +42,6 @@ RUN GOOS=linux GOARCH=${TARGETARCH} \
         -X github.com/weaviate/weaviate/usecases/build.BuildDate=${BUILD_DATE}" \
       -o /weaviate-server ./cmd/weaviate-server
 
-RUN go_ego_dir=/go/pkg/mod/github.com/go-ego && \
-    if [ -d "$go_ego_dir" ]; then cp -a "$go_ego_dir/." /runtime/go-ego/; fi
-
 
 ###############################################################################
 # This creates an image that can be used to fake an api for telemetry acceptance test purposes
@@ -61,6 +58,5 @@ FROM alpine:3.24 AS weaviate
 RUN apk upgrade --no-cache && \
     apk add --no-cache bc ca-certificates "openssl>=3.5.8-r0" "zlib>=1.3.2-r1" && mkdir ./modules
 COPY --from=server_builder /weaviate-server /bin/weaviate
-COPY --from=server_builder /runtime/go-ego/ /go/pkg/mod/github.com/go-ego/
 ENTRYPOINT ["/bin/weaviate"]
 CMD ["--host","0.0.0.0","--port","8080","--scheme","http"]

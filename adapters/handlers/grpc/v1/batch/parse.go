@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -34,7 +35,7 @@ func sliceToInterface[T any](values []T) []interface{} {
 	return tmpArray
 }
 
-func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string, string) (string, *models.Class, error), principal *models.Principal, namespacesEnabled bool) ([]*models.Object, map[int]int, map[int]error) {
+func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string, string) (string, *models.Class, error), principal *models.Principal, qualifier namespacing.Qualifier) ([]*models.Object, map[int]int, map[int]error) {
 	objectsBatch := req.Objects
 	objs := make([]*models.Object, 0, len(objectsBatch))
 	objOriginalIndex := make(map[int]int)
@@ -45,6 +46,13 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 		var props map[string]interface{}
 
 		collection := schema.UppercaseClassName(obj.Collection)
+		// An empty collection fails this object alone, before anything is parsed.
+		// Resolving it would qualify it to "<namespace>:" for a namespaced caller,
+		// and authorizing it would check every collection for anyone else.
+		if collection == "" {
+			objectErrors[i] = objects.ErrEmptyClass
+			continue
+		}
 		resolved, class, err := authorizedGetClass(collection, obj.Tenant)
 		if err != nil {
 			objectErrors[i] = err
@@ -76,7 +84,7 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 					objectErrors[i] = err
 					continue
 				}
-				if err := extractMultiRefTarget(class, obj.Properties.MultiTargetRefProps, props, principal, namespacesEnabled); err != nil {
+				if err := extractMultiRefTarget(class, obj.Properties.MultiTargetRefProps, props, principal, qualifier); err != nil {
 					objectErrors[i] = err
 					continue
 				}
@@ -159,7 +167,7 @@ func extractSingleRefTarget(class *models.Class, properties []*pb.BatchObject_Si
 	return nil
 }
 
-func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_MultiTargetRefProps, props map[string]interface{}, principal *models.Principal, namespacesEnabled bool) error {
+func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_MultiTargetRefProps, props map[string]interface{}, principal *models.Principal, qualifier namespacing.Qualifier) error {
 	for _, refMulti := range properties {
 		propName := refMulti.GetPropName()
 		prop, err := schema.GetPropertyByName(class, propName)
@@ -172,7 +180,7 @@ func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_Mul
 		// TargetCollection is user-supplied; route through QualifyRefTarget
 		// for cross-NS policy + storage-shape rule.
 		targetCollection := schema.UppercaseClassName(refMulti.TargetCollection)
-		_, shortTarget, err := namespacing.QualifyRefTarget(principal, namespacesEnabled, class.Class, targetCollection)
+		_, shortTarget, err := namespacing.QualifyRefTarget(principal, qualifier, class.Class, targetCollection)
 		if err != nil {
 			return err
 		}

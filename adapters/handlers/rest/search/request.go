@@ -106,7 +106,7 @@ func (h *Handler) fillSelectionAndFilter(out *dto.GetParams, class *models.Class
 		out.AdditionalProperties.NoProps = true
 	}
 
-	filter, apiErr := h.parseWhere(common.Where, class, className, h.namespacesEnabled, principal, getClass)
+	filter, apiErr := h.parseWhere(common.Where, class, className, h.qualifier, principal, getClass)
 	if apiErr != nil {
 		return apiErr
 	}
@@ -499,12 +499,14 @@ func requireNonEmptyQuery(query *string) *APIError {
 	return nil
 }
 
-// parseHybrid builds the hybrid search params, mirroring the gRPC parser:
+// parseHybrid builds the hybrid search params, following the gRPC parser except where noted:
 // alpha weights the vector part, fusionType picks the fusion algorithm,
-// maxVectorDistance is the distance cutoff, queryProperties as in bm25.
+// maxVectorDistance is the distance cutoff, queryProperties as in bm25, and
+// vector is the caller's query vector (gRPC's vectors/vector_bytes/vector).
 // The vector part is skipped entirely at alpha 0, so a vectorizer module is
-// only required above 0.
+// only required above 0, and only when no vector is supplied.
 func parseHybrid(class *models.Class, body *models.SearchHybridRequest, targetVectors []string) (*searchparams.HybridSearch, *APIError) {
+	// required even with a vector, at any alpha
 	if apiErr := requireNonEmptyQuery(body.Query); apiErr != nil {
 		return nil, apiErr
 	}
@@ -520,6 +522,9 @@ func parseHybrid(class *models.Class, body *models.SearchHybridRequest, targetVe
 	// vector part is skipped entirely) — it would be silently ignored
 	if body.MaxVectorDistance != nil && alpha == 0 {
 		return nil, newAPIError(http.StatusBadRequest, "maxVectorDistance requires alpha > 0")
+	}
+	if body.Vector != nil && alpha == 0 {
+		return nil, newAPIError(http.StatusBadRequest, "vector requires alpha > 0")
 	}
 
 	fusion := common_filters.HybridFusionDefault
@@ -547,7 +552,16 @@ func parseHybrid(class *models.Class, body *models.SearchHybridRequest, targetVe
 		params.WithDistance = true
 	}
 
-	if alpha > 0 {
+	if body.Vector != nil {
+		vector, apiErr := parseVector(body.Vector)
+		if apiErr != nil {
+			return nil, apiErr
+		}
+		if apiErr := rejectMultiVectorTarget(class, targetVectors); apiErr != nil {
+			return nil, apiErr
+		}
+		params.Vector = vector
+	} else if alpha > 0 {
 		if apiErr := checkVectorizer(class, targetVectors, "hybrid with alpha > 0"); apiErr != nil {
 			return nil, apiErr
 		}
@@ -923,7 +937,7 @@ func (h *Handler) resolveRefTarget(schemaProp *models.Property, name, className,
 		if targetCollection == "" {
 			return schemaProp.DataType[0], nil
 		}
-		qualified, _, err := namespacing.QualifyRefTarget(principal, h.namespacesEnabled, className, targetCollection)
+		qualified, _, err := namespacing.QualifyRefTarget(principal, h.qualifier, className, targetCollection)
 		if err != nil {
 			return "", &APIError{Status: http.StatusBadRequest, Err: err}
 		}
@@ -940,7 +954,7 @@ func (h *Handler) resolveRefTarget(schemaProp *models.Property, name, className,
 			"returnReferences: %q is a multi-target reference and needs targetCollection. Available target collections %v",
 			name, schemaProp.DataType)
 	}
-	qualified, _, err := namespacing.QualifyRefTarget(principal, h.namespacesEnabled, className, targetCollection)
+	qualified, _, err := namespacing.QualifyRefTarget(principal, h.qualifier, className, targetCollection)
 	if err != nil {
 		return "", &APIError{Status: http.StatusBadRequest, Err: err}
 	}
@@ -1038,13 +1052,13 @@ func refDepth(props search.SelectProperties, currDepth, limit int) int {
 }
 
 func (h *Handler) parseWhere(where *models.WhereFilter, class *models.Class, className string,
-	namespacesEnabled bool, principal *models.Principal, getClass classGetterFunc,
+	qualifier namespacing.Qualifier, principal *models.Principal, getClass classGetterFunc,
 ) (*filters.LocalFilter, *APIError) {
 	if where == nil {
 		return nil, nil
 	}
 
-	filter, err := filterext.Parse(where, className, namespacesEnabled, principal)
+	filter, err := filterext.Parse(where, className, qualifier, principal)
 	if err != nil {
 		return nil, &APIError{Status: http.StatusBadRequest, Err: err}
 	}

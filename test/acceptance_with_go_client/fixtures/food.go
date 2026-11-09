@@ -137,6 +137,9 @@ func createSchema(t *testing.T, client *weaviate.Client, class *models.Class) {
 		WithClass(class).
 		Do(context.Background())
 	if err != nil {
+		// tolerated so a re-created class does not fail the caller, but never
+		// silent: a genuine rejection here surfaces later as "class not found"
+		t.Logf("create class %q: %v", class.Class, err)
 		return
 	}
 

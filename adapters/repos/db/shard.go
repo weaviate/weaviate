@@ -24,17 +24,16 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
-	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
@@ -67,20 +66,34 @@ const IdLockPoolSize uint64 = 1024
 var (
 	errAlreadyShutdown    = errors.New("already shut or dropped")
 	errShutdownInProgress = errors.New("shard shutdown in progress")
+	errDropInProgress     = errors.New("shard drop in progress")
 	errShardStillInUse    = errors.New("shard still in use")
 	errTeardownFailed     = errors.New("previous shutdown attempt failed mid-teardown")
-	errDropInProgress     = errors.New("shard drop in progress")
 )
 
+// shardWriter is the object-mutation and status surface of a shard. Callbacks
+// take this rather than ShardLike so they cannot reach the shard's locks,
+// teardown or reference counting.
+type shardWriter interface {
+	PutObject(context.Context, *storobj.Object) error
+	PutObjectBatch(context.Context, []*storobj.Object) []error
+	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
+	DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error
+	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects
+	MergeObject(ctx context.Context, object objects.MergeDocument) error
+	UpdateStatus(status, reason string) error
+	UpdateStatusIf(cond func(ShardStatus) bool, status, reason string) error // Set shard status if cond holds, without loading an unloaded shard
+}
+
 type ShardLike interface {
+	shardWriter
+
 	Index() *Index                                                                                 // Get the parent index
 	Name() string                                                                                  // Get the shard name
 	Store() *lsmkv.Store                                                                           // Get the underlying store
 	NotifyReady()                                                                                  // Set shard status to ready
 	GetStatus() storagestate.Status                                                                // Return the shard status
 	GetStatusReason() string                                                                       // Return the reason for the current status
-	UpdateStatus(status, reason string) error                                                      // Set shard status
-	UpdateStatusIf(cond func(ShardStatus) bool, status, reason string) error                       // Set shard status if cond holds, without loading an unloaded shard
 	SetStatusReadonly(reason string) error                                                         // Set shard status to readonly with reason
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) // Resolve a filter to the UUIDs it matches; see Shard.FindUUIDs
 
@@ -89,8 +102,6 @@ type ShardLike interface {
 	ObjectCountAsync(ctx context.Context) (int64, error)
 	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
-	PutObject(context.Context, *storobj.Object) error
-	PutObjectBatch(context.Context, []*storobj.Object) []error
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
 	ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
@@ -99,9 +110,6 @@ type ShardLike interface {
 	UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error
 	UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error
 	DropVectorIndex(ctx context.Context, targetVector string) error
-	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
-	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
-	DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error                                           // Delete object by id
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
 	ObjectDigests(ctx context.Context, query []multi.Identifier) ([]types.RepairResponse, error)
 	ObjectDigestsInRange(ctx context.Context, initialUUID, finalUUID strfmt.UUID, limit int) (objs []types.RepairDigest, err error)
@@ -113,9 +121,9 @@ type ShardLike interface {
 	// against the halt watchdog. No-op on unhalted shards.
 	MayResetTransferInactivityTimer()
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
-	// payloadReads must be non-nil; the sweep cost accrues there instead of being logged per call.
-	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property, payloadReads *atomic.Int64)
-	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error)
+	// counts must be non-nil; the sweep cost accrues there instead of being logged per call.
+	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property, counts *migrationSweepCounts)
+	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate reindexGate) ([]string, error)
 	CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error)
 	ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error)
@@ -128,9 +136,7 @@ type ShardLike interface {
 	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
 	HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	HashTreeRoot() (root hashtree.Digest, ok bool)
-	MergeObject(ctx context.Context, object objects.MergeDocument) error
 	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error)
-	ConvertQueue(targetVector string) error
 	FillQueue(targetVector string, from uint64) error
 	Shutdown(context.Context) error // Shutdown the shard
 	// preventShutdown blocks shutdown until release is called; release is never nil, including on error.
@@ -140,8 +146,10 @@ type ShardLike interface {
 	ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor,
 		additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) // Search and return objects
 	WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) // Check if an object was deleted
-	GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool)
-	GetVectorIndex(targetVector string) (VectorIndex, bool)
+	WithVectorIndex(targetVector string, f func(index VectorIndex) error) (found bool, err error)
+	WithVectorIndexQueue(targetVector string, f func(queue *VectorIndexQueue) error) (found bool, err error)
+	AcquireVectorIndex(targetVector string) (index VectorIndex, release func(), ok bool)
+	AcquireVectorIndexQueue(targetVector string) (queue *VectorIndexQueue, release func(), ok bool)
 	ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error
 	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
 	ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error
@@ -151,13 +159,7 @@ type ShardLike interface {
 	isReadOnly() error
 	pathLSM() string
 	migrationRecordStore() *MigrationRecordStore
-
-	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
-	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
-	prepareMergeObject(context.Context, string, *objects.MergeDocument) replica.SimpleResponse
-	prepareDeleteObject(context.Context, string, strfmt.UUID, time.Time) replica.SimpleResponse
-	prepareDeleteObjects(context.Context, string, []strfmt.UUID, time.Time, bool) replica.SimpleResponse
-	prepareAddReferences(context.Context, string, []objects.BatchReference) replica.SimpleResponse
+	migrationMirrorRegistry() *migrationMirrorRegistry
 
 	commitReplication(context.Context, string) interface{}
 	abortReplication(context.Context, string) replica.SimpleResponse
@@ -191,20 +193,6 @@ type ShardLike interface {
 
 	// getAsyncReplicationStats returns all current sync replication stats for this node/shard
 	getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus
-
-	// ActivateChangeLog registers a change-capture log under opID and returns
-	// it for in-process callers.
-	ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error)
-	// SnapshotChangeLogLSN returns the current LSN without sealing the log.
-	SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error)
-	// FinalizeChangeLog drains the pre-seal in-flight PREPARE set, then
-	// seals the log and returns the final LSN. Tailers drain to finalLSN
-	// and EOF.
-	FinalizeChangeLog(ctx context.Context, opID string) (uint64, error)
-	// StopChangeCapture unregisters and deactivates the log without sealing.
-	StopChangeCapture(ctx context.Context, opID string) error
-	// GetChangeLog returns the active log for opID, or (nil, false) if none.
-	GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool)
 
 	// CreateAsyncCheckpoint takes createdAt from the initiator as the
 	// strict-greater-than tie-breaker; older/equal proposals are rejected.
@@ -260,7 +248,6 @@ type Shard struct {
 	name              string
 	store             *lsmkv.Store
 	counter           *indexcounter.Counter
-	indexCheckpoints  *indexcheckpoint.Checkpoints
 	metrics           *Metrics
 	promMetrics       *monitoring.PrometheusMetrics
 	slowQueryReporter helpers.SlowQueryReporter
@@ -268,11 +255,9 @@ type Shard struct {
 	propLenTracker    *inverted.JsonShardMetaData
 	versioner         *shardVersioner
 
-	vectorIndexMu sync.RWMutex
-	vectorIndex   VectorIndex
-	queue         *VectorIndexQueue
-	vectorIndexes map[string]VectorIndex
-	queues        map[string]*VectorIndexQueue
+	// vectors owns the vector indexes and their queues, one slot per logical
+	// vector; see shard_vector_slots.go
+	vectors vectorIndexSlots
 
 	geoQueues map[string]*VectorIndexQueue
 
@@ -297,8 +282,9 @@ type Shard struct {
 	// Async checkpoint, guarded by asyncReplicationRWMux. The hashtree is a
 	// frozen clone of s.hashtree taken at create time. All in-memory only
 	// (not persisted, not replicated via RAFT); a restart drops it and the
-	// operator must re-create. activatedAt is local-clock so the lifetime
-	// histogram doesn't depend on cross-node clock skew.
+	// operator must re-create; an undeleted one expires after
+	// replica.AsyncCheckpointMaxLifetime. activatedAt is local-clock so the
+	// lifetime histogram and expiry don't depend on cross-node clock skew.
 	asyncCheckpointHashtree    hashtree.AggregatedHashTree
 	asyncCheckpointCutoff      int64
 	asyncCheckpointCreatedAt   time.Time
@@ -391,28 +377,14 @@ type Shard struct {
 	// query?" answer that gates whether the query path can route range
 	// queries to the local rangeable bucket.
 	//
-	// True means the local rangeable bucket has all the data for this
-	// property — either the property was created with
-	// IndexRangeFilters=true (no migration ever ran) or an
-	// enable-rangeable / repair-rangeable migration completed locally
-	// (markTidied fired in [runtimeSwap]).
-	//
-	// False means the rangeable bucket is mid-migration on THIS replica:
-	// a PreReindexHook created an empty main bucket but the per-shard
-	// runtimeSwap that prepends ingest+reindex segments into it hasn't
-	// run yet on this node.
-	//
 	// repair-rangeable is where the false earns its keep: it runs with
 	// the cluster-wide flag already true, so only this entry keeps range
 	// queries off the empty bucket until the local swap catches up.
-	//
-	// Read on every range-filter query plan, so kept under a fast
-	// RWMutex rather than a sync.Map. Default value (missing key)
-	// returns true via IsRangeableLocallyReady — at shard init we
-	// pessimistically set false for any in-flight migration tracker
-	// found on disk, and the post-tidy hook flips it back to true.
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
+
+	// Shard-wide because an unreadable migration record names no property.
+	rangeableUndecidable atomic.Bool
 
 	// Bridges this shard's bucket swap and the cluster-wide schema flip: a
 	// write in that window is otherwise lost (weaviate/etienne-claude-issues#449).
@@ -435,9 +407,11 @@ type Shard struct {
 	activityTrackerRead  atomic.Int32
 	activityTrackerWrite atomic.Int32
 
-	// shared bolt database for dynamic vector indexes.
-	// nil if there is no configured dynamic vector index
-	dynamicVectorIndexDB *bbolt.DB
+	// metadataDB is <shard>/index.db, open for the shard's life: the vector
+	// index mapping and dynamic's upgrade verdicts live in it.
+	metadataDB *shardmeta.DB
+	// mapping is the shard's persisted view of its vector indexes.
+	mapping *vectorIndexMapping
 
 	// indicates whether shard is shut down or dropped (or ongoing)
 	shut atomic.Bool
@@ -461,6 +435,8 @@ type Shard struct {
 	propertyValueIndexCallbacksMu sync.Mutex
 
 	migrationRecords *MigrationRecordStore
+
+	migrationMirrors migrationMirrorRegistry
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid
 	// computing delta between previous and current values of properties
@@ -473,8 +449,6 @@ type Shard struct {
 	shutdownRequested atomic.Bool
 	// dropRequested marks shard as requested for drop.
 	dropRequested atomic.Bool
-
-	HFreshEnabled bool
 
 	lazySegmentLoadingEnabled bool
 
@@ -507,7 +481,7 @@ func (s *Shard) pathLSM() string {
 const hashTreeDirName = "hashtree_uuid"
 
 func (s *Shard) pathHashTree() string {
-	return path.Join(s.path(), hashTreeDirName)
+	return s.index.shardPathHashTree(s.name)
 }
 
 func (s *Shard) vectorIndexID(targetVector string) string {
@@ -535,30 +509,25 @@ func (s *Shard) uuidToIdLockPoolId(uuidBytes []byte) uint {
 	return uint((lo ^ hi) % IdLockPoolSize)
 }
 
+// noopCallback is passed to VectorIndex.UpdateUserConfig, which invokes the
+// callback unconditionally once the (possibly long, async) config apply settles.
+// The callback used to restore the shard from READONLY to READY; the shard is no
+// longer marked READONLY for a config update, so there is nothing to restore.
+func noopCallback() {}
+
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 
-	// Resolve the index BEFORE flipping the store read-only: the restore only
-	// runs in the success callback, so erroring after the flip would leave
-	// the shard read-only forever. A missing legacy index is a no-op, not an
-	// error — a named-vectors collection that dropped its last vector carries
-	// an inert legacy config in the schema, but its shards were built without
-	// a legacy index and there is nothing to reconfigure.
-	index, ok := s.GetVectorIndex("")
-	if !ok {
-		return nil
-	}
-
-	reason := statusReasonVectorIndexUpdate
-	if err := s.SetStatusReadonly(reason); err != nil {
-		return fmt.Errorf("attempt to mark read-only: %w", err)
-	}
-
-	return index.UpdateUserConfig(updated, func() {
-		s.UpdateStatus(storagestate.StatusReady.String(), reason)
+	// A missing legacy index is a no-op, not an error — a named-vectors
+	// collection that dropped its last vector carries an inert legacy config in
+	// the schema, but its shards were built without a legacy index and there is
+	// nothing to reconfigure.
+	_, err := s.WithVectorIndex("", func(index VectorIndex) error {
+		return index.UpdateUserConfig(updated, noopCallback)
 	})
+	return err
 }
 
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
@@ -566,30 +535,24 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 		return err
 	}
 
-	if err := newCompressedVectorsMigrator(s.index.logger).doUpdate(s, updated); err != nil {
+	legacy := s.index.GetVectorIndexConfig("")
+	targets := s.index.getTargetVectorIndexConfigs()
+
+	if err := newCompressedVectorsMigrator(s.index.logger).doUpdate(s, legacy, targets, updated); err != nil {
 		s.index.logger.WithFields(logrus.Fields{
 			"action":   "init_target_vectors",
 			"shard_id": s.ID(),
 		}).Errorf("failed to migrate vectors compressed folder: %v", err)
 	}
 
-	i := 0
-	targetVecs := make([]string, len(updated))
-	for targetVec := range updated {
-		targetVecs[i] = targetVec
-		i++
-	}
-	reason := fmt.Sprintf("UpdateVectorIndexConfigs: %v", targetVecs)
-	if err := s.SetStatusReadonly(reason); err != nil {
-		return fmt.Errorf("attempt to mark read-only: %w", err)
-	}
-
-	wg := new(sync.WaitGroup)
 	var err error
 	for targetVector, targetCfg := range updated {
-		if index, ok := s.GetVectorIndex(targetVector); ok {
-			wg.Add(1)
-			if err = index.UpdateUserConfig(targetCfg, wg.Done); err != nil {
+		var found bool
+		found, err = s.WithVectorIndex(targetVector, func(index VectorIndex) error {
+			return index.UpdateUserConfig(targetCfg, noopCallback)
+		})
+		if found {
+			if err != nil {
 				break
 			}
 		} else {
@@ -603,12 +566,6 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 			}
 		}
 	}
-
-	f := func() {
-		wg.Wait()
-		s.UpdateStatus(storagestate.StatusReady.String(), reason)
-	}
-	enterrors.GoWrapper(f, s.index.logger)
 
 	return err
 }
@@ -708,27 +665,6 @@ func (s *Shard) isFallbackToSearchable() bool {
 // IsRangeableLocallyReady reports whether this shard's local rangeable
 // bucket for the given property is fully populated and safe to query.
 // See [rangeableLocalReady] for the full rationale.
-//
-// Returns true when:
-//   - The per-shard map has an explicit `true` entry. Set by
-//     [setRangeableLocallyReady] after a local
-//     enable-rangeable / repair-rangeable migration's swap completes
-//     (markTidied + OnMigrationComplete), OR
-//   - There is no explicit entry in the map AND the rangeable bucket
-//     for this prop exists in the LSM store. This covers native
-//     rangeable props (created with IndexRangeFilters=true, bucket
-//     populated on initial import) and props whose migrations
-//     completed before this shard restarted (the per-shard map is
-//     in-memory only and starts empty).
-//
-// Returns false when:
-//   - The per-shard map has an explicit `false` entry (set by the
-//     migration's PreReindexHook), OR
-//   - There is no explicit entry AND the rangeable bucket does not exist in
-//     the LSM store yet. repair-rangeable runs with `IndexRangeFilters`
-//     already true, so between this replica joining the task and its
-//     PreReindexHook firing the query path would otherwise look up a bucket
-//     that isn't there and fail with "bucket for prop %s not found".
 func (s *Shard) IsRangeableLocallyReady(propName string) bool {
 	s.rangeableLocalReadyMu.RLock()
 	if s.rangeableLocalReady != nil {
@@ -738,6 +674,10 @@ func (s *Shard) IsRangeableLocallyReady(propName string) bool {
 		}
 	}
 	s.rangeableLocalReadyMu.RUnlock()
+
+	if s.rangeableUndecidable.Load() {
+		return false
+	}
 
 	// Default: ready iff the rangeable bucket physically exists in the
 	// store. Cheap (a map lookup under bucketAccessLock.RLock in
@@ -929,6 +869,10 @@ func shardPathLSM(indexPath, shardName string) string {
 	return path.Join(indexPath, shardName, "lsm")
 }
 
+func (i *Index) shardPathHashTree(shardName string) string {
+	return path.Join(i.path(), shardName, hashTreeDirName)
+}
+
 func bucketKeyPropertyLength(length int) ([]byte, error) {
 	return entinverted.LexicographicallySortableInt64(int64(length))
 }
@@ -943,47 +887,6 @@ func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
 // Activity score for read and write
 func (s *Shard) Activity() (int32, int32) {
 	return s.activityTrackerRead.Load(), s.activityTrackerWrite.Load()
-}
-
-// registerAddToPropertyValueIndex appends callback to the folded write-path
-// snapshot and returns a disarm func that REMOVES it again (by id, copy-on-write
-// under the mutex). Removing rather than flagging keeps the slice bounded: the
-// backup-window migration path (re)registers a pair per run, so a
-// flag-and-keep disarm would leak one entry per migration onto the hot path for
-// the life of the shard. Disarm is idempotent — a second call finds no matching
-// id and no-ops.
-func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) func() {
-	var id uint64
-	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
-		id = cur.nextCallbackID
-		cur.nextCallbackID++
-		cur.add = appendAddCallback(cur.add, id, callback)
-		return cur
-	})
-
-	return func() {
-		s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
-			cur.add = removeAddCallback(cur.add, id)
-			return cur
-		})
-	}
-}
-
-func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) func() {
-	var id uint64
-	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
-		id = cur.nextCallbackID
-		cur.nextCallbackID++
-		cur.del = appendDeleteCallback(cur.del, id, callback)
-		return cur
-	})
-
-	return func() {
-		s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
-			cur.del = removeDeleteCallback(cur.del, id)
-			return cur
-		})
-	}
 }
 
 // AnyActiveMovement reports whether a replica movement is in flight for this shard.

@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -113,12 +114,12 @@ func TestUpdateIndexTenants(t *testing.T) {
 				ReplicationFactor: 1,
 				ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
+				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			shutdownIndexOnCleanup(t, index)
 
-			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
+			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler,
 				NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
 				monitoring.ShardRegistrationEager)
 			require.NoError(t, err)
@@ -594,7 +595,7 @@ func TestUpdateIndexShards(t *testing.T) {
 				ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 				EnableLazyLoadShards: tt.lazyLoading, // Enable lazy loading when lazyLoading is true
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			shutdownIndexOnCleanup(t, index)
@@ -933,10 +934,12 @@ func TestUpdateIndexAddsPropertiesDespiteShardFailure(t *testing.T) {
 			// property-add probe reaches it too. It answers "has the index" so
 			// the probe keeps walking to keep1 instead of stopping here.
 			gone.EXPECT().hasGeoIndexForProp("location").Return(true).Maybe()
+			gone.EXPECT().preventShutdown().Return(func() {}, nil).Maybe()
 			idx.shards.Store("gone1", gone)
 
 			keep := NewMockShardLike(t)
 			keep.EXPECT().hasGeoIndexForProp("location").Return(true)
+			keep.EXPECT().preventShutdown().Return(func() {}, nil)
 			idx.shards.Store("keep1", keep)
 
 			incomingSS := localShardingState([]string{"keep1"})
@@ -990,9 +993,9 @@ func TestShardsStatusNonExistingIndexWrapsNotFound(t *testing.T) {
 		call func() error
 	}{
 		{
-			name: "GetShardsStatus",
+			name: "GetShardsStorageStatus",
 			call: func() error {
-				_, err := migrator.GetShardsStatus(context.Background(), "DoesNotExist", "")
+				_, _, err := migrator.GetShardsStorageStatus(context.Background(), "DoesNotExist", "")
 				return err
 			},
 		},
@@ -1062,7 +1065,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
+		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 	shutdownIndexOnCleanup(t, index)
@@ -1071,7 +1074,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	// the no-live-reindex stub so the gate is satisfied.
 	index.db = stubDBWithNoLiveReindex()
 
-	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
+	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler,
 		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
 		monitoring.ShardRegistrationEager)
 	require.NoError(t, err)
@@ -1391,6 +1394,51 @@ func TestShardHasProperty(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			require.Equal(t, test.want, shardHasProperty(test.shard(t), test.prop))
+		})
+	}
+}
+
+// A schema update that adds a vector whose files another vector owns is
+// refused before the schema commits; the legacy vector arrives under "".
+func TestMigrator_ValidateVectorIndexConfigsUpdate_Collisions(t *testing.T) {
+	m := &Migrator{}
+	cfg := hnsw.NewDefaultUserConfig()
+	skipped := hnsw.UserConfig{Skip: true}
+	with := func(names ...string) map[string]schemaConfig.VectorIndexConfig {
+		out := map[string]schemaConfig.VectorIndexConfig{}
+		for _, n := range names {
+			out[n] = cfg
+		}
+		return out
+	}
+	tests := []struct {
+		name    string
+		old     map[string]schemaConfig.VectorIndexConfig
+		updated map[string]schemaConfig.VectorIndexConfig
+		wantErr string
+	}{
+		{name: "unrelated addition", old: with("", "foo"), updated: with("", "foo", "bar")},
+		{name: "compressed next to the legacy vector", old: with(""), updated: with("", "compressed"), wantErr: `vectors "" and "compressed" share "vectors_compressed"`},
+		{name: "muvera next to its sibling", old: with("foo"), updated: with("foo", "foo_muvera_vectors"), wantErr: `share "vectors_foo_muvera_vectors"`},
+		{name: "an existing collision does not block an unrelated addition", old: with("foo", "foo_muvera_vectors"), updated: with("foo", "foo_muvera_vectors", "bar")},
+		{name: "two colliding newcomers", old: with(""), updated: with("", "foo", "foo_muvera_vectors"), wantErr: `share "vectors_foo_muvera_vectors"`},
+		{
+			name: "a skipped newcomer owns nothing",
+			old:  with(""), updated: map[string]schemaConfig.VectorIndexConfig{"": cfg, "compressed": skipped},
+		},
+		{
+			name: "a skipped owner blocks nothing",
+			old:  map[string]schemaConfig.VectorIndexConfig{"foo": skipped}, updated: map[string]schemaConfig.VectorIndexConfig{"foo": skipped, "foo_muvera_vectors": cfg},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := m.ValidateVectorIndexConfigsUpdate(tt.old, tt.updated)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
 }

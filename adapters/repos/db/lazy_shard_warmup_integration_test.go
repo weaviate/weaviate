@@ -56,7 +56,23 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	allocChecker memwatch.AllocChecker, tenants ...string,
 ) (*Index, *test.Hook) {
 	t.Helper()
-	ctx := context.Background()
+	return newWarmupIndexWithOpts(t, dirName, minObjects, allocChecker, warmupIndexOpts{}, tenants...)
+}
+
+type warmupIndexOpts struct {
+	ctx   context.Context
+	orch  SelfRecoveryOrchestrator
+	eager bool
+}
+
+func newWarmupIndexWithOpts(t *testing.T, dirName string, minObjects int64,
+	allocChecker memwatch.AllocChecker, opts warmupIndexOpts, tenants ...string,
+) (*Index, *test.Hook) {
+	t.Helper()
+	ctx := opts.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	logger, hook := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
 
@@ -118,13 +134,16 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 		ClassName:                     schema.ClassName(warmupClassName),
 		ReplicationFactor:             1,
 		ShardLoadLimiter:              loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-		EnableLazyLoadShards:          true,
+		EnableLazyLoadShards:          !opts.eager,
 		LazyLoadShardWarmupMinObjects: minObjects,
+		// A periodic flush would give the uncounted seed objects a count sidecar.
+		MemtablesFlushDirtyAfter: int(time.Hour.Seconds()),
+		SelfRecoveryOrchestrator: opts.orch,
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{VectorCacheMaxObjects: 1000}, nil, mockRouter, shardResolver,
 		mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{},
 		monitoring.GetMetrics(),
-		class, nil, scheduler, nil, allocChecker,
+		class, nil, scheduler, allocChecker,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 
@@ -159,6 +178,7 @@ func requireSweepTally(t *testing.T, hook *test.Hook, want map[monitoring.Warmup
 		monitoring.WarmupSkippedAlreadyLoaded,
 		monitoring.WarmupSkippedEmpty,
 		monitoring.WarmupSkippedBelowThreshold,
+		monitoring.WarmupSkippedRecovering,
 	} {
 		require.Equal(t, want[outcome], tally[string(outcome)], "shards reported as %q", outcome)
 	}

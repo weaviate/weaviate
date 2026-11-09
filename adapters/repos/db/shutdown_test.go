@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -498,16 +497,11 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
-			checkpoints, err := indexcheckpoint.New(t.TempDir(), logger)
-			require.NoError(t, err)
-
 			db := &DB{
 				logger:                    logger,
 				shutdown:                  make(chan struct{}, 1),
 				bitmapBufPoolClose:        func() {},
-				AsyncIndexingEnabled:      true,
 				asyncReplicationScheduler: newSchedulerForUnitTest(t),
-				indexCheckpoints:          checkpoints,
 				indices:                   map[string]*Index{},
 			}
 
@@ -523,7 +517,7 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 				db.indices[spec.name] = idx
 			}
 
-			err = db.Shutdown(context.Background())
+			err := db.Shutdown(context.Background())
 
 			if len(tt.wantErrContains) == 0 {
 				require.NoError(t, err)
@@ -536,11 +530,6 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 			for _, want := range tt.wantErrIs {
 				require.ErrorIs(t, err, want)
 			}
-
-			// closing the checkpoint store is the last statement after the index
-			// loop, so a closed store proves the whole post-loop cleanup ran
-			_, _, err = checkpoints.Get("shard1", "")
-			require.Error(t, err)
 		})
 	}
 }

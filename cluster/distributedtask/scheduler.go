@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -24,6 +26,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -65,6 +68,23 @@ type taskSchedulerState struct {
 	// the SWAPPING path; at [maxCompletedCallbackAttempts] the scheduler stops
 	// retrying and fails the task (weaviate/0-weaviate-issues#297).
 	completedCallbackAttempts int
+
+	// Stale detection records the local time each unit's state was first
+	// observed. A unit is stale when (now - firstObserved) exceeds the
+	// task's timeout. Watermarks reset on restart, which delays detection
+	// by at most one timeout (the safe direction).
+	unitWatermarks map[string]staleWatermark // key: unitID
+	ackWatermark   *time.Time                // local time the ack set was first observed unchanged
+}
+
+// staleWatermark records when a unit's state was first observed. The
+// progress/updatedAt/status fields form a fingerprint: any change resets
+// firstObserved.
+type staleWatermark struct {
+	firstObserved time.Time
+	progress      float32
+	updatedAt     time.Time
+	status        UnitStatus
 }
 
 // maxCompletedCallbackAttempts bounds transient OnTaskCompleted retries on
@@ -115,6 +135,7 @@ type Scheduler struct {
 	taskCleaner        TaskCleaner
 	taskFinalizer      TaskFinalizer
 	ackRecorder        PostCompletionAckRecorder
+	forceTerminator    ForceTerminator
 	clock              clockwork.Clock
 
 	localNode        string
@@ -195,6 +216,9 @@ type SchedulerParams struct {
 	// AckRecorder publishes per-node phase results via RAFT. nil in unit
 	// tests; production wiring in configure_api.go always sets this.
 	AckRecorder PostCompletionAckRecorder
+	// ForceTerminator proposes force-terminate via Raft.
+	// nil in unit tests; configure_api.go sets it in production.
+	ForceTerminator ForceTerminator
 	// nil in unit tests that don't exercise the unrecognized-status warn.
 	LocalTaskInspector LocalTaskInspector
 	Providers          map[string]Provider
@@ -226,6 +250,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		taskCleaner:        params.TaskCleaner,
 		taskFinalizer:      params.TaskFinalizer,
 		ackRecorder:        params.AckRecorder,
+		forceTerminator:    params.ForceTerminator,
 		localTaskInspector: params.LocalTaskInspector,
 		clock:              params.Clock,
 
@@ -384,6 +409,19 @@ func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]m
 							WithField("taskID", desc.ID).
 							WithField("taskVersion", desc.Version).
 							Info("scheduler bootstrap: skipping pre-mark for terminal task with pending local recovery (callbacks will re-fire on next tick)")
+						continue
+					}
+				}
+			}
+			// TerminalCleanupProvider: skip the pre-mark so the next
+			// tick re-fires OnTaskCompleted for pending cleanup.
+			if task.Status == TaskStatusFailed || task.Status == TaskStatusCancelled {
+				if tcp, ok := provider.(TerminalCleanupProvider); ok {
+					if !tcp.TerminalCleanupDone(task, s.localNode) {
+						s.logger.WithField("namespace", namespace).
+							WithField("taskID", desc.ID).
+							WithField("taskVersion", desc.Version).
+							Infof("scheduler bootstrap: skipping pre-mark for %s task with pending terminal cleanup (callbacks will re-fire on next tick)", task.Status)
 						continue
 					}
 				}
@@ -651,20 +689,8 @@ func (s *Scheduler) tick() {
 		suProvider, providerIsUnitAware := provider.(UnitAwareProvider)
 		if providerIsUnitAware {
 			for desc, task := range tasks {
-				// effectiveStatus carries the per-tick state-machine view: it
-				// starts at task.Status (what ListDistributedTasks returned)
-				// and the PREP-ack / SWAP-ack failure paths advance it to
-				// FAILED so PHASE B and Phase 2 can react inside the same
-				// tick without overwriting the FSM clone. The clone stays
-				// equal to the RAFT-replicated state for the entire tick;
-				// any downstream code that re-reads from `tasks` sees the
-				// authoritative status, not a hidden in-tick mutation.
-				effectiveStatus := task.Status
-
-				// State-machine dispatch by effectiveStatus. CANCELLED skips
-				// the ack barriers: [Manager.CancelTask] accepts a cancel
-				// only from STARTED, so the barriers cannot have opened.
-				switch effectiveStatus {
+				// CANCELLED skips the ack barriers: [Manager.CancelTask] only cancels from STARTED, before any barrier opens.
+				switch task.Status {
 				case TaskStatusCancelled:
 					// Skip PHASE A / PHASE B / ack barriers; Phase 2
 					// below still fires OnTaskCompleted exactly once
@@ -685,10 +711,8 @@ func (s *Scheduler) tick() {
 					// per-task state with the load-bearing state re-fetch
 					// (local cleanup may have deleted the entry while we
 					// ran callbacks — a nil state means "nothing to record").
-					if task.NeedsPreparationBarrier && effectiveStatus == TaskStatusPreparing {
-						if newStatus := s.runPreparationPhase(namespace, desc, task, suProvider, effectiveStatus); newStatus != effectiveStatus {
-							effectiveStatus = newStatus
-						}
+					if task.NeedsPreparationBarrier && task.Status == TaskStatusPreparing {
+						s.runPreparationPhase(namespace, desc, task, suProvider)
 					}
 
 					// PHASE B: SWAP-phase callback firing. Barrier tasks fire
@@ -702,10 +726,8 @@ func (s *Scheduler) tick() {
 					// whole phase (provider callbacks + the per-node
 					// post-completion ack RAFT-write), re-acquire and
 					// commit with the load-bearing state re-fetch.
-					if newStatus := s.runSwapPhase(namespace, desc, task, suProvider, effectiveStatus); newStatus != effectiveStatus {
-						effectiveStatus = newStatus
-					}
-				} // end switch effectiveStatus
+					s.runSwapPhase(namespace, desc, task, suProvider)
+				}
 
 				// Phase 2: fire OnTaskCompleted on SWAPPING/FAILED/FINISHED/
 				// CANCELLED. FINISHED is included because the first node to
@@ -717,7 +739,7 @@ func (s *Scheduler) tick() {
 				// A non-nil OnTaskCompleted error on the SWAPPING path withholds
 				// FINISHED and retries or fails the task; see
 				// runCompletedCallbackPhase (weaviate/0-weaviate-issues#297).
-				s.runCompletedCallbackPhase(namespace, desc, task, suProvider, effectiveStatus)
+				s.runCompletedCallbackPhase(namespace, desc, task, suProvider)
 			}
 		}
 
@@ -786,6 +808,15 @@ func (s *Scheduler) tick() {
 			}
 		}
 	}
+
+	// Stale detection runs on the tick loop, not in a separate goroutine.
+	allTasks := make(map[TaskDescriptor]*Task)
+	for _, tasks := range tasksByNamespace {
+		for desc, task := range tasks {
+			allTasks[desc] = task
+		}
+	}
+	s.runStaleDetectionPhase(allTasks)
 }
 
 // reconcileRunningTasks owns the start/terminate decisions for a single
@@ -883,17 +914,15 @@ type preparationGroupWork struct {
 //     have deleted the entry).
 //   - Lock again to snapshot ack eligibility (success/joined identity),
 //     unlock for the ack RAFT-write, lock to commit ack-emitted + the
-//     effectiveStatus advance.
+//     FAILED flip onto task.
 //
-// Returns the new effectiveStatus (may advance to TaskStatusFailed if
-// the ack RAFT-write reports success=false). No outer lock inherited.
+// No outer lock inherited.
 func (s *Scheduler) runPreparationPhase(
 	namespace string,
 	desc TaskDescriptor,
 	task *Task,
 	suProvider UnitAwareProvider,
-	effectiveStatus TaskStatus,
-) TaskStatus {
+) {
 	// Snapshot: collect per-group work + pre-set fired marks, under a
 	// deferred-Unlock closure for panic safety.
 	worklist := func() []preparationGroupWork {
@@ -942,11 +971,12 @@ func (s *Scheduler) runPreparationPhase(
 			if state == nil {
 				continue
 			}
+			// context.Canceled is the provider's retryable signal; dropping the mark lets a retry happen.
 			if errors.Is(groupErr, context.Canceled) {
 				delete(state.preparationCallbackFired, w.groupID)
 				s.loggerWithTask(namespace, desc).
 					WithField("groupID", w.groupID).
-					Info("PREP phase aborted by graceful shutdown; recovery on next boot will re-fire and emit the prep-complete ack")
+					Info("PREP phase did not complete and is retryable; a later tick or the next boot re-fires it and emits the prep-complete ack")
 				continue
 			}
 			if state.preparationCompletionGroupErrors == nil {
@@ -964,7 +994,7 @@ func (s *Scheduler) runPreparationPhase(
 		return prepAckSnapshot{eligible: true, success: success, joined: joined}
 	}()
 	if !ackSnap.eligible {
-		return effectiveStatus
+		return
 	}
 	success, joined := ackSnap.success, ackSnap.joined
 
@@ -980,7 +1010,7 @@ func (s *Scheduler) runPreparationPhase(
 	if ackErr != nil {
 		s.loggerWithTask(namespace, desc).
 			Warnf("failed to record distributed task prep-complete ack; will retry on next tick or wake: %v", ackErr)
-		return effectiveStatus
+		return
 	}
 	if afterAckState := s.perTaskStateLocked(desc); afterAckState != nil {
 		afterAckState.preparationAckEmitted = true
@@ -993,12 +1023,10 @@ func (s *Scheduler) runPreparationPhase(
 		Error:   joined,
 		AckedAt: s.clock.Now(),
 	}
-	// Advance effectiveStatus to FAILED (in lieu of overwriting task.Status)
-	// so PHASE B and Phase 2 react inside this same tick.
-	if !success && effectiveStatus == TaskStatusPreparing {
-		effectiveStatus = TaskStatusFailed
+	// Mirrors the FSM's FAILED flip so later phases this tick see it on task.Status.
+	if !success && task.Status == TaskStatusPreparing {
+		task.markTerminal(TaskStatusFailed, s.clock.Now())
 	}
-	return effectiveStatus
 }
 
 // swapGroupWork captures one PHASE-B per-group work item. Populated
@@ -1024,11 +1052,10 @@ func (s *Scheduler) runSwapPhase(
 	desc TaskDescriptor,
 	task *Task,
 	suProvider UnitAwareProvider,
-	effectiveStatus TaskStatus,
-) TaskStatus {
-	postStarted := effectiveStatus == TaskStatusSwapping ||
-		effectiveStatus == TaskStatusFailed ||
-		effectiveStatus == TaskStatusFinished
+) {
+	postStarted := task.Status == TaskStatusSwapping ||
+		task.Status == TaskStatusFailed ||
+		task.Status == TaskStatusFinished
 
 	// Snapshot: per-group eligibility + pre-set fired marks under a
 	// deferred-Unlock closure.
@@ -1093,15 +1120,11 @@ func (s *Scheduler) runSwapPhase(
 			if state == nil {
 				continue
 			}
-			// ctx.Canceled from a graceful SIGTERM is transient; drop the
-			// fired mark so the post-restart tick re-fires SWAP. Treating
-			// it as a permanent failure would flip the task to FAILED and
-			// short-circuit recovery.
 			if errors.Is(groupErr, context.Canceled) {
 				delete(state.groupCallbackFired, w.groupID)
 				s.loggerWithTask(namespace, desc).
 					WithField("groupID", w.groupID).
-					Info("SWAP callback aborted by graceful shutdown; recovery on next boot will re-fire and emit the post-completion ack")
+					Info("SWAP callback did not complete and is retryable; a later tick or the next boot re-fires it and emits the post-completion ack")
 				continue
 			}
 			// Record nil too so the ack-emission gate can tell "fired and
@@ -1114,7 +1137,7 @@ func (s *Scheduler) runSwapPhase(
 		ackState := s.perTaskStateLocked(desc)
 		if s.ackRecorder == nil ||
 			(ackState != nil && ackState.postCompletionAckEmitted) ||
-			effectiveStatus == TaskStatusStarted ||
+			task.Status == TaskStatusStarted ||
 			!s.allLocalGroupsFiredLocked(task, desc) {
 			return swapAckSnapshot{}
 		}
@@ -1122,7 +1145,7 @@ func (s *Scheduler) runSwapPhase(
 		return swapAckSnapshot{eligible: true, success: success, joined: joined}
 	}()
 	if !ackSnap.eligible {
-		return effectiveStatus
+		return
 	}
 	success, joined := ackSnap.success, ackSnap.joined
 
@@ -1142,15 +1165,12 @@ func (s *Scheduler) runSwapPhase(
 			s.loggerWithTask(namespace, desc).
 				Warnf("failed to record distributed task post-completion ack; will retry on next tick or wake: %v", ackErr)
 		})
-		return effectiveStatus
+		return
 	}
 	if afterAckState := s.perTaskStateLocked(desc); afterAckState != nil {
 		afterAckState.postCompletionAckEmitted = true
 	}
-	// Reflect the ack on the per-tick local clone's ack map (mirror of
-	// what the FSM apply path records) so the Phase 2 gate has the
-	// up-to-date view without re-listing. Status itself stays on
-	// effectiveStatus; the clone's Status field is never overwritten.
+	// Mirrors the FSM's ack record onto the per-tick clone so later phases see it without re-listing.
 	if task.PostCompletionAcks == nil {
 		task.PostCompletionAcks = map[string]PostCompletionAck{}
 	}
@@ -1159,10 +1179,9 @@ func (s *Scheduler) runSwapPhase(
 		Error:   joined,
 		AckedAt: s.clock.Now(),
 	}
-	if !success && effectiveStatus == TaskStatusSwapping {
-		effectiveStatus = TaskStatusFailed
+	if !success && task.Status == TaskStatusSwapping {
+		task.markTerminal(TaskStatusFailed, s.clock.Now())
 	}
-	return effectiveStatus
 }
 
 // runCompletedCallbackPhase fires OnTaskCompleted for a single task in
@@ -1183,16 +1202,15 @@ func (s *Scheduler) runCompletedCallbackPhase(
 	desc TaskDescriptor,
 	task *Task,
 	suProvider UnitAwareProvider,
-	effectiveStatus TaskStatus,
 ) {
-	readyForFinalize := effectiveStatus == TaskStatusSwapping ||
-		effectiveStatus == TaskStatusFailed ||
-		effectiveStatus == TaskStatusFinished ||
-		effectiveStatus == TaskStatusCancelled
+	readyForFinalize := task.Status == TaskStatusSwapping ||
+		task.Status == TaskStatusFailed ||
+		task.Status == TaskStatusFinished ||
+		task.Status == TaskStatusCancelled
 	if !readyForFinalize {
 		return
 	}
-	if s.ackRecorder != nil && effectiveStatus == TaskStatusSwapping {
+	if s.ackRecorder != nil && task.Status == TaskStatusSwapping {
 		if len(task.MissingPostCompletionAckNodes()) > 0 {
 			return
 		}
@@ -1220,11 +1238,25 @@ func (s *Scheduler) runCompletedCallbackPhase(
 		return
 	}
 
-	// Only the SWAPPING cutover retries/fails; a terminal-status error is
-	// best-effort cleanup — leave the fired mark set so it doesn't re-fire.
-	if effectiveStatus != TaskStatusSwapping {
-		s.loggerWithTask(namespace, desc).
-			Warnf("OnTaskCompleted returned an error on terminal status %s; ignoring (best-effort cleanup): %v", effectiveStatus, cbErr)
+	// Non-SWAPPING terminal errors are best-effort cleanup. If the
+	// provider implements TerminalCleanupProvider and reports not-done,
+	// the fired mark is cleared so the next tick retries. This path
+	// never increments completedCallbackAttempts or proposes MarkFailed.
+	if task.Status != TaskStatusSwapping {
+		if tcp, ok := suProvider.(TerminalCleanupProvider); ok && !tcp.TerminalCleanupDone(task, s.localNode) {
+			s.loggerWithTask(namespace, desc).
+				Warnf("OnTaskCompleted returned an error on terminal status %s; TerminalCleanupProvider re-fire enabled, will retry next tick: %v", task.Status, cbErr)
+			func() {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				if state := s.perTaskStateLocked(desc); state != nil {
+					state.completedCallbackFired = false
+				}
+			}()
+		} else {
+			s.loggerWithTask(namespace, desc).
+				Warnf("OnTaskCompleted returned an error on terminal status %s; ignoring (best-effort cleanup): %v", task.Status, cbErr)
+		}
 		return
 	}
 
@@ -1447,32 +1479,12 @@ func (s *Scheduler) allLocalGroupsPreparationFiredLocked(task *Task, desc TaskDe
 // aggregateAckErrorsLocked returns (success, joined-error-message) for
 // THIS node's OnGroupCompleted results captured in
 // postCompletionGroupErrors[desc]. Caller must hold s.mu.
-//
-// success is true iff every group's OnGroupCompleted returned nil.
-// joined is the semicolon-joined error messages from the failing groups,
-// empty when success==true. Order is unspecified (map iteration); the
-// FSM persists the joined string as-is on PostCompletionAck.Error for
-// forensic visibility.
 func (s *Scheduler) aggregateAckErrorsLocked(task *Task, desc TaskDescriptor) (bool, string) {
 	state := s.perTaskStateLocked(desc)
 	if state == nil {
 		return true, ""
 	}
-	errs := state.postCompletionGroupErrors
-	if len(errs) == 0 {
-		return true, ""
-	}
-	var msgs []string
-	for groupID, err := range errs {
-		if err == nil {
-			continue
-		}
-		msgs = append(msgs, fmt.Sprintf("group=%q: %v", groupID, err))
-	}
-	if len(msgs) == 0 {
-		return true, ""
-	}
-	return false, strings.Join(msgs, "; ")
+	return s.joinGroupErrors(state.postCompletionGroupErrors)
 }
 
 // aggregatePreparationAckErrorsLocked — PREP counterpart to aggregateAckErrorsLocked.
@@ -1482,21 +1494,26 @@ func (s *Scheduler) aggregatePreparationAckErrorsLocked(task *Task, desc TaskDes
 	if state == nil {
 		return true, ""
 	}
-	errs := state.preparationCompletionGroupErrors
-	if len(errs) == 0 {
-		return true, ""
-	}
-	var msgs []string
-	for groupID, err := range errs {
-		if err == nil {
-			continue
+	return s.joinGroupErrors(state.preparationCompletionGroupErrors)
+}
+
+// maxReportedGroupErrors bounds the ack error (stored in the RAFT log and
+// snapshots) so it can't grow with the tenant count.
+const maxReportedGroupErrors = 10
+
+// joinGroupErrors returns false and the failing groups' errors when any group
+// failed. Sorting keeps the reported subset the same on every call.
+func (s *Scheduler) joinGroupErrors(errs map[string]error) (bool, string) {
+	ec := errorcompounder.New()
+	for _, groupID := range slices.Sorted(maps.Keys(errs)) {
+		if err := errs[groupID]; err != nil {
+			ec.Addf("group=%q: {%v}", groupID, err)
 		}
-		msgs = append(msgs, fmt.Sprintf("group=%q: %v", groupID, err))
 	}
-	if len(msgs) == 0 {
+	if ec.Empty() {
 		return true, ""
 	}
-	return false, strings.Join(msgs, "; ")
+	return false, fmt.Sprintf("%d group(s) failed: %v", ec.Len(), ec.ToErrorLimited(maxReportedGroupErrors))
 }
 
 // perTaskStateLocked returns the per-task scheduler state for desc, or
@@ -1526,4 +1543,98 @@ func (s *Scheduler) perTaskStateLockedOrInit(desc TaskDescriptor) *taskScheduler
 // silently leaked any map a contributor forgot to register.
 func (s *Scheduler) deletePerTaskStateLocked(desc TaskDescriptor) {
 	delete(s.perTaskState, desc)
+}
+
+// runStaleDetectionPhase proposes force-terminate for tasks whose units
+// or acks have not changed within stale_timeout_ms. Detection is
+// proposal-side only: the FSM never reads clocks. Watermarks compare
+// local observations only, never another node's timestamps.
+//
+// No env-flag check: tasks with stale_timeout_ms > 0 can only exist
+// if an operator-controlled gate admitted them.
+func (s *Scheduler) runStaleDetectionPhase(tasks map[TaskDescriptor]*Task) {
+	if s.forceTerminator == nil {
+		return
+	}
+
+	now := s.clock.Now()
+
+	for desc, task := range tasks {
+		if task.StaleTimeoutMs <= 0 {
+			continue
+		}
+		if task.Status.IsTerminal() {
+			continue
+		}
+
+		timeout := time.Duration(task.StaleTimeoutMs) * time.Millisecond
+
+		var staleReason string
+		func() {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			state := s.perTaskStateLockedOrInit(desc)
+			if state.unitWatermarks == nil {
+				state.unitWatermarks = map[string]staleWatermark{}
+			}
+
+			for unitID, u := range task.Units {
+				wm, exists := state.unitWatermarks[unitID]
+
+				// The state changed, or this is the first observation; reset the watermark.
+				if !exists || wm.progress != u.Progress || !wm.updatedAt.Equal(u.UpdatedAt) || wm.status != u.Status {
+					state.unitWatermarks[unitID] = staleWatermark{
+						firstObserved: now,
+						progress:      u.Progress,
+						updatedAt:     u.UpdatedAt,
+						status:        u.Status,
+					}
+					continue
+				}
+
+				elapsed := now.Sub(wm.firstObserved)
+				if elapsed < timeout {
+					continue
+				}
+
+				if u.Status == UnitStatusPending || u.Status == UnitStatusInProgress {
+					staleReason = fmt.Sprintf("unit %s on node %q stale for %s (status %s, progress %.2f)",
+						unitID, u.NodeID, elapsed.Round(time.Second), u.Status, u.Progress)
+					break
+				}
+			}
+
+			if staleReason == "" && task.Status == TaskStatusSwapping {
+				missing := task.MissingPostCompletionAckNodes()
+				if len(missing) > 0 {
+					if state.ackWatermark == nil {
+						t := now
+						state.ackWatermark = &t
+					} else if now.Sub(*state.ackWatermark) >= timeout {
+						staleReason = fmt.Sprintf("missing post-completion acks from nodes %v for %s",
+							missing, now.Sub(*state.ackWatermark).Round(time.Second))
+					}
+				} else {
+					state.ackWatermark = nil
+				}
+			}
+		}()
+
+		if staleReason == "" {
+			continue
+		}
+
+		reason := fmt.Sprintf("stale-node detection: %s", staleReason)
+		s.loggerWithTask(task.Namespace, desc).
+			Warnf("proposing force-terminate(FAILED) for stale task: %s", reason)
+
+		if err := s.forceTerminator.ForceTerminateDistributedTask(
+			context.Background(),
+			task.Namespace, task.ID, task.Version,
+			reason, string(TaskStatusFailed),
+		); err != nil {
+			s.loggerWithTask(task.Namespace, desc).
+				Warnf("stale-detection force-terminate proposal failed (idempotent, will retry): %v", err)
+		}
+	}
 }

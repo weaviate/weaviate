@@ -58,3 +58,21 @@ func TestFilter(t *testing.T) {
 		})
 	}
 }
+
+// TestFilterSingleCollectionChecksCollectionResource pins that a lone
+// collection is checked on its own resource, since its "/shards/*" wildcard is
+// a tenants resource that a tenants-only grant satisfies.
+func TestFilterSingleCollectionChecksCollectionResource(t *testing.T) {
+	authorizer := mocks.NewMockAuthorizer()
+	authorizer.Deny(authorization.CollectionsMetadata("customer1:Movies")[0])
+
+	got := New[*models.Class](authorizer, rbacconf.Config{Enabled: true}).Filter(
+		context.Background(),
+		&models.Principal{Username: "customer1:carol", Namespace: "customer1"},
+		[]*models.Class{{Class: "customer1:Movies"}},
+		authorization.READ,
+		func(class *models.Class) string { return authorization.CollectionsMetadata(class.Class)[0] },
+	)
+
+	require.Empty(t, got)
+}

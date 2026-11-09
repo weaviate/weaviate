@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/objects"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // mustAggregateModel is mustModel for the aggregate request model.
@@ -391,8 +392,7 @@ func TestAggregateHandlerTenantAuthorization(t *testing.T) {
 }
 
 func TestAggregateHandlerResolvesAliases(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.schemaReader.aliases = map[string]string{"Films": "Movie"}
+	deps := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
 	deps.searcher.aggregateRes = ungroupedCount(1)
 
 	_, apiErr := doAggregate(t, deps, nil, "Films", `{}`)
@@ -402,7 +402,7 @@ func TestAggregateHandlerResolvesAliases(t *testing.T) {
 
 func TestAggregateHandlerStripsNamespaceFromErrors(t *testing.T) {
 	deps := newTestHandler(t)
-	deps.handler.namespacesEnabled = true
+	deps.handler.qualifier = wlnamespaces.NewPrefixing()
 	principal := &models.Principal{Username: "someone", Namespace: "ns1"}
 
 	// unknown collection: the internal error names the qualified collection
@@ -643,11 +643,12 @@ func TestGroupValueBeaconStrip(t *testing.T) {
 // the reply builder strips beacon namespaces; a non-ref groupBy is not
 // flagged. Exercised through the full handler with a namespaced principal.
 func TestAggregateGroupByRefDetection(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.handler.namespacesEnabled = true
-	principal := &models.Principal{Username: "someone", Namespace: "ns1"}
 	// the namespaced schema stores the qualified class name
-	deps.schemaReader.classes["ns1:Movie"] = movieClass()
+	qualified := movieClass()
+	qualified.Class = "ns1:Movie"
+	deps := newTestHandlerWithClass(t, qualified)
+	deps.handler.qualifier = wlnamespaces.NewPrefixing()
+	principal := &models.Principal{Username: "someone", Namespace: "ns1"}
 	deps.searcher.aggregateRes = &aggregation.Result{Groups: []aggregation.Group{
 		{
 			GroupedBy: &aggregation.GroupedBy{

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -43,23 +44,38 @@ func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, sha
 	}
 	buckets := make(map[string]editOpBucket, len(shardNames))
 	for _, name := range shardNames {
-		s := idx.shards.Load(name)
-		if s == nil {
-			continue
-		}
-		if lazy, ok := s.(*LazyLoadShard); ok {
-			if err := lazy.Load(ctx); err != nil {
-				db.logger.WithField("collection", collection).WithField("shard", name).
-					WithFields(enterrors.DocsLinkFields(err)).
-					Warnf("drop-vector: load lazy shard: %v", err)
-				continue // absent from result; the unit fails instead of panicking
-			}
-		}
-		if b := s.Store().Bucket(helpers.ObjectsBucketLSM); b != nil {
+		if b := db.loadEditOpBucket(ctx, idx, collection, name); b != nil {
 			buckets[name] = b
 		}
 	}
 	return buckets, nil
+}
+
+// loadEditOpBucket keeps the index open and holds the shard's create lock until
+// the bucket is read. An unload or index shutdown before the load would leave
+// the loaded shard outside the map.
+func (db *DB) loadEditOpBucket(ctx context.Context, idx *Index, collection, name string) *lsmkv.Bucket {
+	if idx.enterRead() != nil {
+		return nil
+	}
+	defer idx.exitRead()
+	idx.shardCreateLocks.RLock(name)
+	defer idx.shardCreateLocks.RUnlock(name)
+
+	s := idx.shards.Load(name)
+	if s == nil {
+		return nil
+	}
+	// asLazyLoadShard: a recovering shard's blocked Load warns+skips instead of panicking in Store() below.
+	if lazy, ok := asLazyLoadShard(s); ok {
+		if err := lazy.Load(ctx); err != nil {
+			db.logger.WithField("collection", collection).WithField("shard", name).
+				WithFields(enterrors.DocsLinkFields(err)).
+				Warnf("drop-vector: load lazy shard: %v", err)
+			return nil // absent from result; the unit fails instead of panicking
+		}
+	}
+	return s.Store().Bucket(helpers.ObjectsBucketLSM)
 }
 
 // EditOpBucketsForLoadedShards is EditOpBucketsForShards restricted to shards
@@ -74,23 +90,23 @@ func (db *DB) EditOpBucketsForLoadedShards(collection string, shardNames []strin
 	}
 	buckets := make(map[string]editOpBucket, len(shardNames))
 	for _, name := range shardNames {
-		s := idx.shards.Load(name)
-		if s == nil {
-			continue
-		}
-		if lazy, ok := s.(*LazyLoadShard); ok {
-			lazy.mutex.Lock()
-			loaded := lazy.loaded
-			lazy.mutex.Unlock()
-			if !loaded {
-				continue
-			}
-		}
-		if b := s.Store().Bucket(helpers.ObjectsBucketLSM); b != nil {
+		if b := loadedEditOpBucket(idx, name); b != nil {
 			buckets[name] = b
 		}
 	}
 	return buckets, nil
+}
+
+// loadedEditOpBucket returns the objects bucket of a shard that is already
+// loaded, and nil otherwise, including while the index or the shard shuts down.
+// getLoadedShard's pin keeps Store from loading a shard an unload released.
+func loadedEditOpBucket(idx *Index, name string) *lsmkv.Bucket {
+	shard, release, err := idx.getLoadedShard(name)
+	defer release()
+	if err != nil || shard == nil {
+		return nil
+	}
+	return shard.Store().Bucket(helpers.ObjectsBucketLSM)
 }
 
 // EnsureDroppedVectorFilesRemoved removes the on-disk artifacts (LSM buckets +
@@ -99,6 +115,23 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 	idx := db.GetIndex(entschema.ClassName(collection))
 	if idx == nil {
 		return fmt.Errorf("index for collection %q not found", collection)
+	}
+	// Loads and unloads hold this lock while they update the map and shut the
+	// shard down. Under it, a shard in the map stays loaded, and one missing
+	// from the map has already closed index.db, so the offline path is safe.
+	idx.shardCreateLocks.RLock(shardName)
+	defer idx.shardCreateLocks.RUnlock(shardName)
+
+	// A shard in the map finishes its own drops: loaded, it retries them, which
+	// never opens index.db against its own lock; a lazy one does so under its
+	// loading mutex, so no load starts against the offline removal. Only a
+	// shard that left the map is swept by path, under the create lock its
+	// unload holds until index.db is closed.
+	switch s := idx.shards.Load(shardName).(type) {
+	case *Shard:
+		return s.retryDroppedVectorIndexes(targets)
+	case *LazyLoadShard:
+		return s.sweepDroppedVectorIndexes(targets)
 	}
 	helper := newVectorDropIndexHelper()
 	class := idx.getClass()
@@ -305,4 +338,22 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 		return nil
 	}
 	return fmt.Errorf("drop-vector finalize: bounded retry exhausted: %w", lastErr)
+}
+
+// retryDroppedVectorIndexes re-runs the shard's drop for each target, pinned
+// against shutdown. A shard shutting down is an error: the ack fails, and the
+// next load or the replayed callback sweeps files and record together.
+func (s *Shard) retryDroppedVectorIndexes(targets []string) error {
+	release, err := s.preventShutdown()
+	if err != nil {
+		return fmt.Errorf("sweep dropped vectors of shard %q: %w", s.ID(), err)
+	}
+	defer release()
+	for _, target := range targets {
+		err := s.DropVectorIndex(context.Background(), target)
+		if err != nil {
+			return fmt.Errorf("retry drop of vector %q on loaded shard: %w", target, err)
+		}
+	}
+	return nil
 }

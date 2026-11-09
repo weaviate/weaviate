@@ -73,7 +73,7 @@ func newLazyDropTenant(t *testing.T) (lazy *LazyLoadShard, reload func() *LazyLo
 		},
 	}
 	_, idx := testShardWithSettings(t, ctx, class, hnsw.UserConfig{Distance: common.DefaultDistanceMetric},
-		false, true, false, func(i *Index) {
+		false, false, func(i *Index) {
 			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
 				lazyDropKeep:    keepCfg,
 				lazyDropDropped: dropCfg,
@@ -82,7 +82,7 @@ func newLazyDropTenant(t *testing.T) (lazy *LazyLoadShard, reload func() *LazyLo
 
 	reload = func() *LazyLoadShard {
 		return NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-			idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+			idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 			false, idx.bitmapBufPool)
 	}
 	vector := func(i, offset int) []float32 {

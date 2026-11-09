@@ -77,9 +77,15 @@ type HardlinkPair struct {
 // shard) and pass only immutable files: a shared inode would let post-snapshot
 // writes corrupt the staged copy. Use CopyFile for mutable files.
 func HardlinkFiles(pairs []HardlinkPair) error {
+	var lastDir string
 	for _, p := range pairs {
-		if err := os.MkdirAll(filepath.Dir(p.Dst), 0o755); err != nil {
-			return fmt.Errorf("create staging subdir for %s: %w", p.Dst, err)
+		// Callers list a directory's files in one run, so MkdirAll's stat runs
+		// once per directory rather than once per file.
+		if dir := filepath.Dir(p.Dst); dir != lastDir {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return fmt.Errorf("create staging subdir for %s: %w", p.Dst, err)
+			}
+			lastDir = dir
 		}
 		if err := os.Link(p.Src, p.Dst); err != nil {
 			return fmt.Errorf("hardlink %s to staging: %w", p.Dst, err)

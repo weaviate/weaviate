@@ -40,7 +40,7 @@ func TestInit_ClientConfigWiring(t *testing.T) {
 		{name: "export only", backupFlag: false, exportFlag: true},
 		{
 			name:      "grpc transport reaches both clients",
-			transport: config.BackupGCS{UseGRPC: true, GRPCConnPool: config.DefaultBackupGCSGRPCConnPool},
+			transport: config.BackupGCS{UseGRPC: new(true), GRPCConnPool: config.DefaultBackupGCSGRPCConnPool},
 		},
 	}
 	for _, tt := range tests {

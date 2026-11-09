@@ -71,7 +71,7 @@ const rangeableMigrationCorpusSize = 5 * filterableToRangeableNumDistinctValues
 func newRangeableMigrationShard(t *testing.T, ctx context.Context, class *models.Class) (*Shard, *Index) {
 	t.Helper()
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	for _, obj := range makeFilterableToRangeableTestObjects(t, rangeableMigrationCorpusSize, class.Class) {
 		require.NoError(t, shard.PutObject(ctx, obj))
@@ -92,7 +92,7 @@ func TestReindex_ConcurrentWriteDuringEnableRangeable_NotLost(t *testing.T) {
 	shard, idx := newRangeableMigrationShard(t, ctx, newNoLiveIndexRangeableTestClass(className))
 	defer shard.Shutdown(ctx)
 
-	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+	task, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 
 	// Drive to reindexed-but-not-swapped: iterator done, double-write live.
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))

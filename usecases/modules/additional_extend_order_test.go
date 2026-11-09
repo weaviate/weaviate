@@ -127,7 +127,7 @@ func newProviderWithAdditionalProperties(t *testing.T, recorder *callRecorder) *
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	p := NewProvider(logger, config.Config{})
-	p.SetSchemaGetter(getFakeSchemaGetter())
+	p.SetSchemaGetter(getMockSchemaGetter(t))
 
 	module := newGraphQLAdditionalModule("mod1")
 	for _, name := range []string{"rerank", "generate", "answer", "summary", "abstract"} {

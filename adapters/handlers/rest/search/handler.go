@@ -26,6 +26,7 @@ import (
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	dbinverted "github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -59,20 +60,14 @@ type classSearcher interface {
 		params *aggregation.Params) (any, error)
 }
 
-// schemaReader is the subset of schema.Manager used by the handler.
-type schemaReader interface {
-	ReadOnlyClass(name string) *models.Class
-	ResolveAlias(alias string) string
-}
-
 // HandlerConfig wires the handler's dependencies.
 type HandlerConfig struct {
-	Traverser         classSearcher
-	SchemaReader      schemaReader
-	Authorizer        authorization.Authorizer
-	NamespacesEnabled bool
-	DefaultLimit      int64
-	MaximumResults    int64
+	Traverser      classSearcher
+	SchemaReader   schema.SchemaReader
+	Authorizer     authorization.Authorizer
+	Qualifier      namespacing.Qualifier
+	DefaultLimit   int64
+	MaximumResults int64
 	// CrossRefDepthLimit is QUERY_CROSS_REFERENCE_DEPTH_LIMIT; the handler
 	// rejects deeper returnReferences nesting than the traverser would.
 	CrossRefDepthLimit int
@@ -83,9 +78,9 @@ type HandlerConfig struct {
 // the swagger security layer; the handler receives the resulting principal.
 type Handler struct {
 	traverser          classSearcher
-	schemaReader       schemaReader
+	schemaReader       schema.SchemaReader
 	authorizer         authorization.Authorizer
-	namespacesEnabled  bool
+	qualifier          namespacing.Qualifier
 	defaultLimit       int64
 	maximumResults     int64
 	crossRefDepthLimit int
@@ -97,7 +92,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		traverser:          cfg.Traverser,
 		schemaReader:       cfg.SchemaReader,
 		authorizer:         cfg.Authorizer,
-		namespacesEnabled:  cfg.NamespacesEnabled,
+		qualifier:          cfg.Qualifier,
 		defaultLimit:       cfg.DefaultLimit,
 		maximumResults:     cfg.MaximumResults,
 		crossRefDepthLimit: cfg.CrossRefDepthLimit,
@@ -161,9 +156,13 @@ type buildParamsFunc func(class *models.Class, className string,
 func (h *Handler) resolveAuthorizedClass(ctx context.Context, principal *models.Principal,
 	collection, tenant string,
 ) (context.Context, *models.Class, string, classGetterFunc, *APIError) {
-	resolved, aliasUsed, err := namespacing.Resolve(principal, h.schemaReader, h.namespacesEnabled, collection)
+	resolved, aliasUsed, err := namespacing.Resolve(principal, h.schemaReader, h.qualifier, collection)
 	if err != nil {
-		return ctx, nil, "", nil, &APIError{Status: http.StatusBadRequest, Err: err}
+		status := http.StatusBadRequest
+		if errors.As(err, &autherrs.Forbidden{}) {
+			status = http.StatusForbidden
+		}
+		return ctx, nil, "", nil, &APIError{Status: status, Err: err}
 	}
 
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
@@ -417,7 +416,8 @@ func statusFromError(err error) *APIError {
 	case errors.As(err, &certainty):
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &missingIndex):
-		// filter on a property whose inverted index is disabled
+		// filter on a property whose inverted index is disabled, or whose
+		// range index this shard does not serve yet
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.Is(err, distancer.ErrVectorLength):
 		// the query vector (supplied or vectorized) does not have the

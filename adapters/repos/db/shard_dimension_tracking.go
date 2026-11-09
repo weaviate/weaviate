@@ -152,7 +152,7 @@ func (s *Shard) clearDimensionMetrics() {
 // accounted for the next time nodeWideMetricsObserver recalculates
 // total vector dimensions, because only _active_ shards are considered.
 func clearDimensionMetrics(cfg IndexConfig, promMetrics *monitoring.PrometheusMetrics, className, shardName string) {
-	if !cfg.TrackVectorDimensions || promMetrics.Group {
+	if promMetrics == nil || !cfg.TrackVectorDimensions || promMetrics.Group {
 		return
 	}
 	namespace := namespacing.NamespaceFromQualified(className)
@@ -309,7 +309,7 @@ func correctEmptySegments(segments int, dimensions int) int {
 // back for a re-created vector of the same name to inherit. The check sits at
 // the write so nothing can stall between the two.
 func (s *Shard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error {
-	if _, ok := s.GetVectorIndex(targetVector); !ok {
+	if _, ok := s.vectors.get(targetVector); !ok {
 		return nil
 	}
 	return s.addToDimensionBucket(dimLength, docID, targetVector, false)

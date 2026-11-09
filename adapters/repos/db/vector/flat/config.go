@@ -20,9 +20,12 @@ import (
 )
 
 type Config struct {
-	ID                string
-	RootPath          string
-	TargetVector      string
+	// ID is the index's physical identity: it names everything the index
+	// stores on disk. "main" for the legacy unnamed vector, canonically
+	// "vectors_<name>" for a named vector.
+	ID       string
+	RootPath string
+	// It routes object-vector lookup and diagnostics and never names storage.
 	Logger            logrus.FieldLogger
 	DistanceProvider  distancer.Provider
 	AllocChecker      memwatch.AllocChecker

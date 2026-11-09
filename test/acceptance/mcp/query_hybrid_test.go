@@ -255,7 +255,7 @@ func TestQueryHybridWithLimit(t *testing.T) {
 	})
 	assert.Equal(t, 2, len(results.Results), "should return exactly 2 results")
 
-	// Test with limit=0
+	// Test with limit=0, which uses the default limit
 	limit = 0
 	results = executeHybridQuery(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
@@ -263,7 +263,7 @@ func TestQueryHybridWithLimit(t *testing.T) {
 		Alpha:          &alpha,
 		Limit:          &limit,
 	})
-	assert.Len(t, results.Results, 0, "limit=0 should return no results")
+	assert.Len(t, results.Results, 3, "limit=0 should use the default limit")
 }
 
 // Test 3: Return specific properties
@@ -923,4 +923,21 @@ func TestQueryHybridTargetVectors(t *testing.T) {
 				"result %d: response should contain content_vector when both targeted", i)
 		}
 	}
+}
+
+// The tool uses relative score fusion, so the best pure BM25 match scores 1.0.
+// Ranked fusion would give 1/60.
+func TestQueryHybridScoresUseRelativeScoreFusion(t *testing.T) {
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
+	defer cleanup()
+
+	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
+		CollectionName: cls.Class,
+		Query:          "learning",
+		Alpha:          &alpha,
+		ReturnMetadata: []string{"score"},
+	}, 3)
+
+	top := results.Results[0].(map[string]any)["_additional"].(map[string]any)["score"]
+	require.InDelta(t, 1.0, top, 1e-6)
 }

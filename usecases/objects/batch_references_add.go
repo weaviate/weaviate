@@ -133,7 +133,7 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		var qualifiedTarget string
 		if ref.To != nil && ref.To.Class != "" {
 			qualified, short, err := namespacing.QualifyRefTarget(
-				principal, b.config.Config.Namespaces.Enabled,
+				principal, b.qualifier,
 				ref.From.Class.String(), ref.To.Class)
 			if err != nil {
 				refs[i].Err = err

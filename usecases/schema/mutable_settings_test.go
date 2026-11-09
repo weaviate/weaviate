@@ -222,7 +222,8 @@ type schemaWithModules struct {
 func newSchemaWithModules(t *testing.T) *schemaWithModules {
 	recorder := &moduleValidationRecorder{}
 	vectorizers := &fakeVectorizerValidator{valid: []string{mutableModule, fixedModule}}
-	handler, schemaManager := newTestHandlerWithModules(t, mutableModules{}, recorder, vectorizers)
+	handler, schemaManager := newTestHandlerWithModules(t, &fakeDB{}, mutableModules{}, recorder, vectorizers)
+	schemaManager.On("QueryCollectionsCount").Return(0, nil)
 	schemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 	schemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
 

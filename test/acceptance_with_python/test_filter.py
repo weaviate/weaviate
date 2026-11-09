@@ -1,7 +1,8 @@
 from typing import List
 
 import pytest
-from weaviate.collections.classes.config import Configure, Property, DataType
+
+from weaviate.collections.classes.config import Configure, DataType, Property
 from weaviate.collections.classes.filters import Filter, _FilterValue
 
 from .conftest import CollectionFactory

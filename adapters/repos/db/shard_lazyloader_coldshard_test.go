@@ -635,13 +635,16 @@ func TestShardsStatusEndpoint_DoesNotForceLoadColdShards(t *testing.T) {
 	f := newAddPropertyLazyFixture(t, className, multiShardState())
 	cold := f.coldShards(t)
 
-	statuses, err := f.migrator.GetShardsStatus(ctx, className, "")
+	perNode, statuses, err := f.migrator.GetShardsStorageStatus(ctx, className, "")
 	require.NoError(t, err)
 	sizes, err := f.migrator.GetShardsQueueSize(ctx, className, "")
 	require.NoError(t, err)
 
 	for name, shard := range cold {
 		require.Equal(t, storagestate.StatusLazyLoading.String(), statuses[name])
+		for node, status := range perNode[name] {
+			require.Equal(t, storagestate.StatusLazyLoading.String(), status, "node %s", node)
+		}
 		require.Zero(t, sizes[name])
 
 		status, err := f.index.IncomingGetShardStatus(ctx, name)
@@ -657,7 +660,7 @@ func TestShardsStatusEndpoint_DoesNotForceLoadColdShards(t *testing.T) {
 	// a loaded shard still reports its own status
 	for name, shard := range cold {
 		require.NoError(t, shard.Load(ctx))
-		statuses, err := f.migrator.GetShardsStatus(ctx, className, "")
+		_, statuses, err := f.migrator.GetShardsStorageStatus(ctx, className, "")
 		require.NoError(t, err)
 		require.Equal(t, storagestate.StatusReady.String(), statuses[name])
 		break

@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
 	"testing"
@@ -500,6 +501,82 @@ func TestIndex_CreateAsyncCheckpoints_RejectsNonPositiveCutoff(t *testing.T) {
 	assert.Contains(t, err.Error(), "must be > 0")
 	// The broadcaster must NOT have been called.
 	assert.Empty(t, br.gotCreateShards, "guard must fire before any fan-out")
+}
+
+func TestIndex_CreateAsyncCheckpoints_ContextCancellation(t *testing.T) {
+	cases := []struct {
+		name          string
+		deadline      bool
+		cancelOnEntry bool
+		wantErr       error
+	}{
+		{name: "cancelled on entry", cancelOnEntry: true, wantErr: context.Canceled},
+		{name: "deadline exceeded on entry", cancelOnEntry: true, deadline: true, wantErr: context.DeadlineExceeded},
+		{name: "cancelled mid fan-out"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := indexForCheckpointTest(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tc.deadline {
+				ctx, cancel = context.WithDeadline(ctx, time.Now().Add(-time.Second))
+				defer cancel()
+			}
+			if tc.cancelOnEntry {
+				cancel()
+			} else {
+				s1 := NewMockShardLike(t)
+				expectPreventShutdown(t, s1)
+				s1.On("CreateAsyncCheckpoint", mock.Anything, mock.Anything, mock.Anything).
+					Run(func(mock.Arguments) { cancel() }).Return(nil).Once()
+				idx.shards.Store("s1", s1)
+			}
+			br := &stubBroadcaster{localNode: "node-A"}
+
+			err := idx.createAsyncCheckpoints(ctx, 123, []string{"s1"}, br)
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				assert.Empty(t, br.gotCreateShards)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, []string{"s1"}, br.gotCreateShards)
+		})
+	}
+}
+
+func TestIndex_AsyncCheckpointFanOutLogsNothingAboveDebug(t *testing.T) {
+	shards := make([]string, 200)
+	for i := range shards {
+		shards[i] = fmt.Sprintf("tenant-%d", i)
+	}
+	tests := []struct {
+		name string
+		call func(*Index, *stubBroadcaster) error
+	}{
+		{name: "create", call: func(idx *Index, br *stubBroadcaster) error {
+			return idx.createAsyncCheckpoints(context.Background(), time.Now().Add(time.Hour).UnixMilli(), shards, br)
+		}},
+		{name: "delete", call: func(idx *Index, br *stubBroadcaster) error {
+			return idx.deleteAsyncCheckpoints(context.Background(), shards, br)
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := indexForCheckpointTest(t)
+			logger, hook := test.NewNullLogger()
+			idx.logger = logger
+			br := &stubBroadcaster{localNode: "node-A", createFailures: 3, deleteFailures: 3}
+			for range 50 {
+				require.NoError(t, tc.call(idx, br))
+			}
+			for _, e := range hook.AllEntries() {
+				assert.Greater(t, e.Level, logrus.InfoLevel, "per-class line above Debug: %s", e.Message)
+			}
+		})
+	}
 }
 
 func TestIndex_DeleteAsyncCheckpoints_FansOutAfterLocalLoop(t *testing.T) {

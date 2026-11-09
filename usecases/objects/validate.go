@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 // ValidateObject without adding it to the database. Can be used in UIs for
@@ -30,7 +31,7 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 ) error {
 	className, _, err := m.resolveNS(principal, obj.Class)
 	if err != nil {
-		return NewErrInvalidUserInput("%v", err)
+		return userInputOrForbidden(err)
 	}
 	obj.Class = className
 
@@ -51,6 +52,9 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 		var forbidden autherrs.Forbidden
 		if errors.As(err, &forbidden) {
 			return err
+		}
+		if errors.Is(err, replicaerrors.ErrReplicas) {
+			return NewErrInternal("validate object: %w", err)
 		}
 		return NewErrInvalidUserInput("invalid object: %v", err)
 	}

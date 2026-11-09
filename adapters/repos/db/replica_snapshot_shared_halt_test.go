@@ -270,13 +270,13 @@ func newSharedHaltTestShard(t *testing.T) (*Index, *Shard) {
 		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader,
-		nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
+		nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 	shutdownIndexOnCleanup(t, index)
 	index.db = stubDBWithNoLiveReindex()
 
-	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
+	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler,
 		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
 		monitoring.ShardRegistrationEager)
 	require.NoError(t, err)
@@ -308,7 +308,7 @@ func TestReplicaTransferCarriesTheDynamicUpgrade(t *testing.T) {
 			duc := dynamicent.UserConfig{}
 			duc.SetDefaults()
 			duc.Threshold = 10 // the queue upgrades the index once this many are indexed
-			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, duc, false, true, true)
+			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, duc, false, true)
 			shard := shd.(*Shard)
 			t.Cleanup(func() { _ = idx.drop() })
 

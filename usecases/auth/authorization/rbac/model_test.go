@@ -400,6 +400,20 @@ func TestNamespaceAwareMatcher(t *testing.T) {
 			"",
 			true,
 		},
+		{
+			"ns=customer1, cross-ns data request, bare * policy → mismatch (no rewrite, denied)",
+			authorization.Objects("customer2:Movies", "t1"),
+			"*",
+			"customer1",
+			false,
+		},
+		{
+			"ns=customer1, mcp request, bare * policy → match (namespaceFreeResource)",
+			authorization.Mcp(),
+			"*",
+			"customer1",
+			true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1143,6 +1157,40 @@ func TestEnforce_GlobalRoleAssignedToNamespacedSubject(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := enforcer.Enforce(tt.subject, tt.resource, tt.verb, tt.ns)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestEnforce_UncompilablePolicyMatchesNothing stores a policy whose pattern does
+// not compile ahead of a valid grant, as a row already on disk can be. Enforce
+// must skip it rather than fail every check that reaches it.
+func TestEnforce_UncompilablePolicyMatchesNothing(t *testing.T) {
+	enforcer, err := Init(rbacconf.Config{Enabled: true}, freshPolicyDir(t), config.Authentication{}, false)
+	require.NoError(t, err)
+
+	role := conv.PrefixRoleName("poisoned")
+	for _, collection := range []string{`X|\Q`, "Movies"} {
+		_, err := enforcer.AddNamedPolicy("p", role, conv.CasbinData(collection, "*"), authorization.READ, authorization.DataDomain)
+		require.NoError(t, err)
+	}
+	alice := conv.UserNameWithTypeFromId("alice", authentication.AuthTypeDb)
+	_, err = enforcer.AddRoleForUser(alice, role)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		resource string
+		want     bool
+	}{
+		{"grant stored after the uncompilable policy → allow", authorization.Objects("Movies", ""), true},
+		{"no grant → deny", authorization.Objects("Books", ""), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := enforcer.Enforce(alice, tt.resource, authorization.READ, "")
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
