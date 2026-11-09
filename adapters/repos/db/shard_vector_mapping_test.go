@@ -21,6 +21,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/bbolt"
@@ -47,6 +48,35 @@ func newTestVectorIndexMapping(t *testing.T) (*vectorIndexMapping, *shardmeta.DB
 func recorded(shard *Shard, name, physicalID, state string) vectorIndexRecord {
 	cfg := shard.index.GetVectorIndexConfig(name)
 	return vectorIndexRecord{PhysicalID: physicalID, IndexType: cfg.IndexType(), State: state, QueueID: physicalID, Config: cfg}
+}
+
+// seedGeneratedVectorIndexRecords initializes the mapping of the shard at
+// shardDir before its first load, every vector in configs (the legacy one
+// under the empty name) recorded creating at a generated physical and queue
+// ID, as a rebuild names them. The first load builds each index there.
+func seedGeneratedVectorIndexRecords(t *testing.T, shardDir string,
+	configs map[string]schemaConfig.VectorIndexConfig,
+) map[string]vectorIndexRecord {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(shardDir, 0o755))
+	db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
+	require.NoError(t, err)
+	defer db.Close()
+	records := make(map[string]vectorIndexRecord, len(configs))
+	for name, cfg := range configs {
+		if !vectorIndexHasStorage(cfg) {
+			continue
+		}
+		records[name] = vectorIndexRecord{
+			PhysicalID: uuid.NewString(),
+			IndexType:  cfg.IndexType(),
+			State:      vectorIndexStateCreating,
+			QueueID:    uuid.NewString(),
+			Config:     cfg,
+		}
+	}
+	require.NoError(t, newVectorIndexMapping(db).Initialize(records))
+	return records
 }
 
 // TestVectorIndexMapping_KeyLayout pins the on-disk keys. They are read by
@@ -547,6 +577,81 @@ func TestVectorIndexMapping_Delete(t *testing.T) {
 
 // The offline reader refuses what Load refuses: a deletion must not act on
 // a record this binary cannot read.
+// A cold shard's vectors are found through their records; a vector without
+// one, or a shard without a mapping, is where the naming rule puts it.
+func TestUnloadedVectorIndexStorageIDs(t *testing.T) {
+	const generated = "3f2a9c1e-0b7d-4c1a-9e2f-5d6c7b8a9f00"
+	names := []string{"", "title", "body"}
+	defaults := map[string]string{"": "main", "title": "vectors_title", "body": "vectors_body"}
+
+	writeMapping := func(t *testing.T, dir, version string, records map[string]string) {
+		t.Helper()
+		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		ns := db.Namespace(vectorIndexMappingNamespace)
+		require.NoError(t, ns.Put([]byte(vectorIndexMappingFormatVersionKey), []byte(version)))
+		for name, rec := range records {
+			require.NoError(t, ns.Put([]byte(vectorIndexMappingKey(name)), []byte(rec)))
+		}
+		require.NoError(t, db.Close())
+	}
+
+	t.Run("no metadata file", func(t *testing.T) {
+		ids, locked, err := unloadedVectorIndexStorageIDs(t.TempDir(), names)
+		require.NoError(t, err)
+		assert.False(t, locked)
+		assert.Equal(t, defaults, ids)
+	})
+
+	t.Run("metadata file without a mapping", func(t *testing.T) {
+		dir := t.TempDir()
+		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		require.NoError(t, db.Close())
+		ids, locked, err := unloadedVectorIndexStorageIDs(dir, names)
+		require.NoError(t, err)
+		assert.False(t, locked)
+		assert.Equal(t, defaults, ids)
+	})
+
+	t.Run("records decide, a vector without one keeps the naming rule", func(t *testing.T) {
+		dir := t.TempDir()
+		writeMapping(t, dir, "1", map[string]string{
+			"":      `{"physical_id":"main","index_type":"hnsw","state":"ready"}`,
+			"title": `{"physical_id":"` + generated + `","index_type":"hnsw","state":"ready"}`,
+		})
+		ids, locked, err := unloadedVectorIndexStorageIDs(dir, names)
+		require.NoError(t, err)
+		assert.False(t, locked)
+		assert.Equal(t, map[string]string{"": "main", "title": "vectors_" + generated, "body": "vectors_body"}, ids)
+	})
+
+	t.Run("a load holding the file", func(t *testing.T) {
+		dir := t.TempDir()
+		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		t.Cleanup(func() { db.Close() })
+		ids, locked, err := unloadedVectorIndexStorageIDs(dir, names)
+		require.NoError(t, err)
+		assert.True(t, locked)
+		assert.Equal(t, defaults, ids)
+	})
+
+	t.Run("unsupported format version", func(t *testing.T) {
+		dir := t.TempDir()
+		writeMapping(t, dir, "2", nil)
+		_, _, err := unloadedVectorIndexStorageIDs(dir, names)
+		require.ErrorContains(t, err, "format version")
+	})
+
+	t.Run("invalid record", func(t *testing.T) {
+		dir := t.TempDir()
+		writeMapping(t, dir, "1", map[string]string{"title": `{"physical_id":"title","index_type":"hnsw","state":"ready"}`})
+		_, _, err := unloadedVectorIndexStorageIDs(dir, names)
+		require.ErrorContains(t, err, `record "title": physical id`)
+	})
+}
+
 func TestReadVectorIndexRecordOffline(t *testing.T) {
 	valid := `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready"}`
 	tests := []struct {

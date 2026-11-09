@@ -23,7 +23,9 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/cluster/usage/types"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -247,4 +249,34 @@ func markSavedShardUsage(t *testing.T, indexPath, shardName string) {
 	saved := readSavedShardUsage(t, indexPath, shardName)
 	saved.ShardUsage.ObjectsCount = savedObjectsCount
 	writeSavedShardUsage(t, indexPath, shardName, saved)
+}
+
+// TestUnloadedShardUsageNotSavedWhileMappingLocked pins that a cold reading taken
+// while a load holds the shard's metadata is reported but not saved: it locates
+// the vector files by the naming rule, which a rebuilt index does not follow, and
+// a saved reading is served until the vector configs change.
+func TestUnloadedShardUsageNotSavedWhileMappingLocked(t *testing.T) {
+	ctx := context.Background()
+	tenantName := "test-tenant"
+	hnswCfg := enthnsw.NewDefaultUserConfig()
+	index, vectorConfigs := setupPopulatedLazyIndex(ctx, t, usageIndexParams{
+		namedVectors: map[string]models.VectorConfig{
+			"title": {VectorIndexType: hnswCfg.IndexType(), VectorIndexConfig: hnswCfg},
+		},
+		generatedIDs: true,
+	})
+	t.Cleanup(func() { _ = index.Shutdown(ctx) })
+
+	metadata, err := shardmeta.Open(shardPath(index.path(), tenantName), entlsmkv.BoltFlockTimeout)
+	require.NoError(t, err)
+	usage, err := index.usageForCollection(ctx, semaphore.NewWeighted(1), true, vectorConfigs)
+	require.NoError(t, err)
+	require.Len(t, usage.Shards, 1)
+	assert.False(t, shardusage.ComputedUsageDataExists(index.path(), tenantName))
+
+	require.NoError(t, metadata.Close())
+	usage, err = index.usageForCollection(ctx, semaphore.NewWeighted(1), true, vectorConfigs)
+	require.NoError(t, err)
+	require.Len(t, usage.Shards, 1)
+	assert.True(t, shardusage.ComputedUsageDataExists(index.path(), tenantName))
 }

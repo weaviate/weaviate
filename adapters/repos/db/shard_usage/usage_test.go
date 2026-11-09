@@ -337,6 +337,12 @@ func TestQuantizedVectorsExist(t *testing.T) {
 			fileSize: 100,
 		},
 		{
+			name:     "index rebuilt under a generated ID",
+			bucket:   "vectors_compressed_3f2a-0b7d",
+			fileSize: 1,
+			want:     true,
+		},
+		{
 			name:     "legacy unnamed vector",
 			bucket:   "vectors_compressed",
 			fileSize: 100,
@@ -347,8 +353,11 @@ func TestQuantizedVectorsExist(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			indexID := "vectors_named"
-			if tt.bucket == "vectors_compressed" {
+			switch tt.bucket {
+			case "vectors_compressed":
 				indexID = "main"
+			case "vectors_compressed_3f2a-0b7d":
+				indexID = "vectors_3f2a-0b7d"
 			}
 
 			lsmPath := filepath.Join(t.TempDir(), "lsm")
