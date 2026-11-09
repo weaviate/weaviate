@@ -99,7 +99,7 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	// cutover makes the record authoritative for that too.
 	for _, name := range slices.Sorted(maps.Keys(records)) {
 		rec := records[name]
-		err := s.createVectorIndex(ctx, name, rec.PhysicalID, rec.queueIDOrDefault(), active[name], s.lazySegmentLoadingEnabled)
+		err := s.createVectorIndex(ctx, name, rec.storageID(), rec.queueIDOrDefault(), active[name], s.lazySegmentLoadingEnabled)
 		if err != nil {
 			return err
 		}
@@ -391,7 +391,7 @@ func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg s
 		if err != nil {
 			return nil, nil, err
 		}
-		index, queue, err := s.buildVectorIndexAndQueue(ctx, targetVector, rec.PhysicalID, rec.QueueID, cfg, lazyLoadSegments)
+		index, queue, err := s.buildVectorIndexAndQueue(ctx, targetVector, rec.storageID(), rec.queueIDOrDefault(), cfg, lazyLoadSegments)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -470,7 +470,7 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 // sibling without a record owns nothing.
 // Idempotent: a retry after a partial run finds less to do.
 func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name string, rec vectorIndexRecord) error {
-	physicalID := rec.PhysicalID
+	physicalID := rec.storageID()
 	others := otherTargetVectors(s.class, name)
 	otherIDs := make([]string, 0, len(others))
 	for _, other := range others {
@@ -479,7 +479,7 @@ func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name string, rec
 			return fmt.Errorf("vector %q: %w", other, err)
 		}
 		if ok {
-			otherIDs = append(otherIDs, rec.PhysicalID)
+			otherIDs = append(otherIDs, rec.storageID())
 		}
 	}
 	artifacts := helpers.VectorIndexArtifactsForID(physicalID, otherIDs)

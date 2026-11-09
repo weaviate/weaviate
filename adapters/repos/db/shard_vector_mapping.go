@@ -19,6 +19,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
@@ -100,6 +101,30 @@ func (r *vectorIndexRecord) UnmarshalJSON(data []byte) error {
 	}
 	r.Config = cfg
 	return nil
+}
+
+// storageID is the ID r's index files are named by. Every reader of the
+// physical ID goes through it; a test refuses any other read of the field.
+func (r vectorIndexRecord) storageID() string {
+	return vectorIndexStorageID(r.PhysicalID)
+}
+
+// recordedID is the physical ID as the record holds it, for messages only:
+// files are named by storageID.
+func (r vectorIndexRecord) recordedID() string {
+	return r.PhysicalID
+}
+
+// vectorIndexStorageID is the naming rule from a physical ID to the ID its
+// files are named by. "main" and "vectors_<x>" keep their names; any other ID
+// is named as if it were "vectors_<id>". The index implementations treat an
+// ID without the "vectors_" prefix as the legacy vector's, so an ID that
+// skipped this rule would name the legacy vector's files.
+func vectorIndexStorageID(physicalID string) string {
+	if physicalID == vectorIndexID("") || strings.HasPrefix(physicalID, helpers.VectorsBucketLSM+"_") {
+		return physicalID
+	}
+	return helpers.VectorsBucketLSM + "_" + physicalID
 }
 
 // queueIDOrDefault is the queue ID a record names, or the physical ID for a

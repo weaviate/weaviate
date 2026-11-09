@@ -107,7 +107,7 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 	case !recorded:
 		return nil // nothing recorded, nothing owned
 	default:
-		id = rec.PhysicalID
+		id = rec.storageID()
 		var otherIDs []string
 		for _, other := range otherTargetVectors {
 			otherRec, ok, _, err := readVectorIndexRecordOffline(shardDir, other)
@@ -121,7 +121,7 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 			if otherRec.queueIDOrDefault() == rec.queueIDOrDefault() {
 				return fmt.Errorf("vectors %q and %q both record queue %q", other, targetVector, rec.queueIDOrDefault())
 			}
-			otherIDs = append(otherIDs, otherRec.PhysicalID)
+			otherIDs = append(otherIDs, otherRec.storageID())
 		}
 		artifacts = helpers.VectorIndexArtifactsForID(id, otherIDs)
 		artifacts.ShardDirs = append(artifacts.ShardDirs, helpers.QueueDirName(rec.queueIDOrDefault()))

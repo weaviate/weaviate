@@ -81,7 +81,7 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 		}
 		if rec.IndexType != cfg.IndexType() {
 			return nil, fmt.Errorf("vector %q: the mapping records a %s index at %q but the schema says %s",
-				name, rec.IndexType, rec.PhysicalID, cfg.IndexType())
+				name, rec.IndexType, rec.recordedID(), cfg.IndexType())
 		}
 		if rec.State == vectorIndexStateReady {
 			rebuild, err := s.readyVectorIndexNeedsRebuild(name, rec)
@@ -187,7 +187,7 @@ func (s *Shard) commitVectorIndexRecords(records map[string]vectorIndexRecord,
 }
 
 // markVectorIndexCreating records that name's index is about to be built at
-// rec.PhysicalID. A crash from here on leaves a record the next load resumes.
+// rec's storage ID. A crash from here on leaves a record the next load resumes.
 func (s *Shard) markVectorIndexCreating(name string, rec vectorIndexRecord) error {
 	rec.State = vectorIndexStateCreating
 	return s.mapping.Put(name, rec)
@@ -248,7 +248,7 @@ func vectorIndexRecordFor(name string, cfg schemaConfig.VectorIndexConfig, state
 
 // vectorIndexStorageDirsFor lists the directories rec occupies under this shard.
 func (s *Shard) vectorIndexStorageDirsFor(rec vectorIndexRecord) ([]string, error) {
-	return vectorIndexStorageDirs(s.path(), s.metadataDB.Namespace(dynamic.StateNamespace), rec.IndexType, rec.PhysicalID)
+	return vectorIndexStorageDirs(s.path(), s.metadataDB.Namespace(dynamic.StateNamespace), rec.IndexType, rec.storageID())
 }
 
 // syncVectorIndexRecordStorage makes rec's directories durable before the
@@ -274,7 +274,7 @@ type vectorIndexOwner struct {
 
 // ownerOf is where rec's files live.
 func ownerOf(rec vectorIndexRecord) vectorIndexOwner {
-	return vectorIndexOwner{physicalID: rec.PhysicalID, queueID: rec.queueIDOrDefault()}
+	return vectorIndexOwner{physicalID: rec.storageID(), queueID: rec.queueIDOrDefault()}
 }
 
 // ownerAt is a vector whose index and queue are both at id, as the naming
