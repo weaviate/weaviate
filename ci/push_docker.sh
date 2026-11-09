@@ -20,36 +20,6 @@ while [[ "$#" -gt 0 ]]; do
   shift
 done
 
-# Prints the highest vX.Y.Z tag on origin, without "v".
-# Reads origin because CI checkouts have no local tags.
-function highest_stable_release() {
-  git ls-remote --tags --refs origin 'v*' \
-    | sed -En 's|.*refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$|\1|p' \
-    | sort -V | tail -n 1
-}
-
-# Every release build calls this after pushing its own tag, so latest is correct
-# even when builds overlap. Failures warn rather than fail; the next release retries.
-function promote_latest() {
-  local docker_repo="$1"
-  local highest
-
-  if ! highest="$(highest_stable_release)" || [ -z "$highest" ]; then
-    echo "::warning::Not updating latest: could not list release tags on origin."
-    return 0
-  fi
-
-  if ! docker buildx imagetools inspect "${docker_repo}:${highest}" >/dev/null 2>&1; then
-    echo "Not updating latest: ${docker_repo}:${highest} is not published yet; its own build will update latest."
-    return 0
-  fi
-
-  echo "Pointing ${docker_repo}:latest at ${docker_repo}:${highest}."
-  if ! docker buildx imagetools create -t "${docker_repo}:latest" "${docker_repo}:${highest}"; then
-    echo "::warning::Failed to point ${docker_repo}:latest at ${docker_repo}:${highest}."
-  fi
-}
-
 function release() {
   DOCKER_REPO=$DOCKER_REPO_WEAVIATE
 
@@ -64,7 +34,7 @@ function release() {
   docker buildx inspect >/dev/null 2>&1 || docker buildx create --use
 
   # nightly tag was added to be pushed on merges to main branch; latest is set
-  # by promote_latest after release builds
+  # by the promote-latest workflow after release builds
   tag_exact=
   tag_preview=
   tag_preview_semver=
@@ -144,10 +114,6 @@ function release() {
   fi
 
   docker buildx build "${args[@]}" . || exit 1
-
-  if [ -n "$tag_exact" ]; then
-    promote_latest "$DOCKER_REPO"
-  fi
 
   if [ -n "$tag_preview" ]; then
     echo "PREVIEW_TAG=$tag_preview" >> "$GITHUB_OUTPUT"

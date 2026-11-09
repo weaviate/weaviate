@@ -1,0 +1,44 @@
+name: Promote latest
+
+# Points semitechnologies/weaviate:latest at the highest published stable
+# release. Release builds in the Tests workflow push only their version tag;
+# this workflow is the only writer of latest.
+on:
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
+  schedule:
+    # Daily backstop in case a promotion failed and was not re-run.
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+# One promotion at a time, so an older run cannot overwrite a newer result.
+# Queued runs may be replaced; the run that remains recomputes from scratch.
+concurrency:
+  group: promote-latest
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    name: promote latest
+    runs-on: ubuntu-latest
+    # Tests also runs for PRs and branch pushes; only tag pushes publish releases.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.event == 'push' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Login to Docker Hub
+        uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Promote latest
+        run: ./ci/promote_latest.sh
