@@ -12,6 +12,7 @@
 package namespacing
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/go-openapi/strfmt"
@@ -70,6 +71,19 @@ func ConfinedNamespace(principal *models.Principal) string {
 		return ""
 	}
 	return principal.Namespace
+}
+
+// KeepOwnNamespace returns a new slice of the items in a confined principal's
+// namespace, dropping unnamespaced ones, so a listing's RBAC filter sees only
+// the caller's own entries. An unconfined principal gets items itself.
+func KeepOwnNamespace[T any](principal *models.Principal, items []T, namespaceOf func(T) string) []T {
+	ns := ConfinedNamespace(principal)
+	if ns == "" {
+		return items
+	}
+	return slices.DeleteFunc(slices.Clone(items), func(item T) bool {
+		return namespaceOf(item) != ns
+	})
 }
 
 // QualifyRefTarget normalises a cross-reference target. Refs can't cross

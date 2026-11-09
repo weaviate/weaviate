@@ -130,7 +130,9 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	allUsers := slices.Collect(maps.Values(allDbUsers))
+	allUsers := namespacing.KeepOwnNamespace(principal, slices.Collect(maps.Values(allDbUsers)), func(user apikey.UserView) string {
+		return user.Namespace
+	})
 
 	resourceFilter := filter.New[apikey.UserView](h.authorizer, h.rbacConfig)
 	filteredUsers := resourceFilter.Filter(
