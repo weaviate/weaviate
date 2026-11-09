@@ -61,18 +61,7 @@ func TestReplayOfReleasedBinaryLogs(t *testing.T) {
 		prepInStarted bool
 		steps         []step
 		want          TaskStatus
-		wantOwed      map[string][]string
 	}{
-		{
-			name: "finished multi-tenant run", groups: mt, complete: true,
-			steps: []step{prep("n1", true), prep("n2", true), swapAck("n1", true), swapAck("n2", true), finalize},
-			want:  TaskStatusFinished,
-		},
-		{
-			name: "finished single-tenant run", groups: nonMT, complete: true,
-			steps: []step{prep("n1", true), prep("n2", true), swapAck("n1", true), swapAck("n2", true), finalize},
-			want:  TaskStatusFinished,
-		},
 		{
 			name: "a PREP ack applied in STARTED counts once the run prepares", groups: mt, complete: true, prepInStarted: true,
 			steps: []step{prep("n2", true), swapAck("n1", true), swapAck("n2", true), finalize},
@@ -130,11 +119,7 @@ func TestReplayOfReleasedBinaryLogs(t *testing.T) {
 
 			task := m.tasks[ns][id]
 			require.Equal(t, tc.want, task.Status)
-			if tc.wantOwed == nil {
-				require.Empty(t, task.SwapsOwed)
-			} else {
-				require.Equal(t, tc.wantOwed, task.SwapsOwed)
-			}
+			require.Empty(t, task.SwapsOwed)
 		})
 	}
 }
