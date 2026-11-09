@@ -20,6 +20,36 @@ while [[ "$#" -gt 0 ]]; do
   shift
 done
 
+# Prints the highest vX.Y.Z tag on origin, without the "v".
+# Reads origin because CI checkouts are shallow and have no local tags.
+function highest_stable_release() {
+  git ls-remote --tags --refs origin 'v*' \
+    | sed -n 's|.*refs/tags/v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$|\1|p' \
+    | sort -V | tail -n 1
+}
+
+# Succeeds only for the highest stable release, so backports and pre-releases
+# never move latest.
+function should_tag_latest() {
+  local version="$1"
+  local highest
+
+  if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Not tagging latest: $version is not a stable release."
+    return 1
+  fi
+
+  if ! highest="$(highest_stable_release)" || [ -z "$highest" ]; then
+    echo "::warning::Not tagging latest: could not list release tags on origin."
+    return 1
+  fi
+
+  if [ "$version" != "$highest" ]; then
+    echo "Not tagging latest: $version is not the highest stable release ($highest)."
+    return 1
+  fi
+}
+
 function release() {
   DOCKER_REPO=$DOCKER_REPO_WEAVIATE
 
@@ -103,7 +133,9 @@ function release() {
   if [ -n "$tag_exact" ]; then
     # exact tag on main
     args+=("-t=$tag_exact")
-    args+=("-t=$tag_latest")
+    if should_tag_latest "$weaviate_version"; then
+      args+=("-t=$tag_latest")
+    fi
   fi
   if [ -n "$tag_preview" ]; then
     # preview tag on PR builds
