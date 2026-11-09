@@ -35,7 +35,10 @@ type arenaUint64Cache struct {
 	words int
 }
 
-var _ IfAbsentPreloader[uint64] = (*arenaUint64Cache)(nil)
+var (
+	_ IfAbsentPreloader[uint64] = (*arenaUint64Cache)(nil)
+	_ PreloadSummarizer         = (*arenaUint64Cache)(nil)
+)
 
 // NewArenaUint64Cache constructs an arena-backed Cache[uint64] for codes of
 // exactly recordWords words. Parameters mirror NewShardedUInt64LockCache.
@@ -108,6 +111,12 @@ func (s *arenaUint64Cache) Prefetch(id uint64) {
 
 func (s *arenaUint64Cache) PrefetchGet(id uint64) []uint64 {
 	return bytesAsU64(s.inner.PrefetchGet(id))
+}
+
+// FlushPreloadSummary forwards to the byte arena, which counts the refused
+// records.
+func (s *arenaUint64Cache) FlushPreloadSummary() {
+	s.inner.FlushPreloadSummary()
 }
 
 func (s *arenaUint64Cache) Preload(id uint64, vec []uint64) {

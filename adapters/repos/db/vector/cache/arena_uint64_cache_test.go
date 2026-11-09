@@ -18,6 +18,7 @@ import (
 	"testing"
 	"unsafe"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -242,4 +243,31 @@ func TestArenaUint64CacheOverlappingFillsRaceFree(t *testing.T) {
 	for g := 0; g < 8; g++ {
 		<-done
 	}
+}
+
+// TestArenaUint64CacheFlushPreloadSummary: the word adapter must forward
+// the prefill's summary flush to the byte arena, or a mismatched 1-bit RQ
+// prefill on an interval-0 cache logs its count only on Drop.
+func TestArenaUint64CacheFlushPreloadSummary(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	c, err := NewArenaUint64Cache(nil, 4, 1e12, 1, logger, 0, nil)
+	require.NoError(t, err)
+	t.Cleanup(c.Drop)
+	c.Grow(100)
+	for id := uint64(0); id < 50; id++ {
+		c.Preload(id, make([]uint64, 5))
+	}
+
+	summarizer, ok := c.(PreloadSummarizer)
+	require.True(t, ok)
+	summarizer.FlushPreloadSummary()
+
+	var warnings []string
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.WarnLevel {
+			warnings = append(warnings, e.Message)
+		}
+	}
+	require.Len(t, warnings, 2)
+	assert.Contains(t, warnings[1], "skipped 49 more records")
 }
