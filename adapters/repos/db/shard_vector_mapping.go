@@ -17,10 +17,12 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 )
@@ -127,6 +129,23 @@ func vectorIndexStorageID(physicalID string) string {
 	return helpers.VectorsBucketLSM + "_" + physicalID
 }
 
+var (
+	vectorIndexDefaultIDPattern   = regexp.MustCompile(`^` + helpers.VectorsBucketLSM + `_` + schema.TargetVectorNameRegex + `$`)
+	vectorIndexGeneratedIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]*-[A-Za-z0-9_-]*$`)
+)
+
+// validateVectorIndexID accepts the IDs the naming rule gives a vector name,
+// "main" and "vectors_<name>", and generated IDs, which contain a "-" so they
+// can never equal one of those: a vector name has no "-". The schema's
+// collision check reads names only and relies on it.
+func validateVectorIndexID(id string) error {
+	if id == vectorIndexID("") || vectorIndexDefaultIDPattern.MatchString(id) || vectorIndexGeneratedIDPattern.MatchString(id) {
+		return nil
+	}
+	return fmt.Errorf("%q is neither %q, \"vectors_<vector name>\", nor an ID with a \"-\" made of letters, digits, \"_\" and \"-\"",
+		id, vectorIndexID(""))
+}
+
 // queueIDOrDefault is the queue ID a record names, or the physical ID for a
 // record from before the field existed: the queue has always lived under
 // the index's ID.
@@ -182,6 +201,17 @@ func vectorIndexMappingName(key string) (name string, ok bool) {
 func (r vectorIndexRecord) validate() error {
 	if r.PhysicalID == "" {
 		return errors.New("empty physical id")
+	}
+	err := validateVectorIndexID(r.PhysicalID)
+	if err != nil {
+		return fmt.Errorf("physical id: %w", err)
+	}
+	// empty in a record from before the field existed
+	if r.QueueID != "" {
+		err := validateVectorIndexID(r.QueueID)
+		if err != nil {
+			return fmt.Errorf("queue id: %w", err)
+		}
 	}
 	if r.IndexType == "" {
 		return errors.New("empty index type")
