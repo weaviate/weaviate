@@ -148,7 +148,9 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 				if tc.endsUndecided {
 					// In place, so the lift runs before the periodic cluster pass discards the ended run.
 					atLoad.Status = distributedtask.TaskStatusCancelled
-					require.NoError(t, reloaded.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate))
+					require.ErrorContains(t, liftReady(reloaded)(), "a recovery retry started")
+					awaitRetry(t, reloaded)
+					require.NoError(t, liftReady(reloaded)())
 					require.Equal(t, storagestate.StatusReady, reloaded.GetStatus())
 					require.NotEmpty(t, reloaded.migrationRecords.Records())
 					for _, rec := range reloaded.migrationRecords.Records() {
@@ -160,7 +162,9 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 					installTestMigrationTaskSources(ctx, idx.db, nil, cancelled)
 				}
 				restore()
-				require.NoError(t, reloaded.UpdateStatus(storagestate.StatusReady.String(), statusReasonManualUpdate))
+				require.ErrorContains(t, liftReady(reloaded)(), "a recovery retry started")
+				awaitRetry(t, reloaded)
+				require.NoError(t, liftReady(reloaded)())
 				require.Equal(t, storagestate.StatusReady, reloaded.GetStatus())
 			}
 			require.NotEmpty(t, p.cachedReindexTasks(cancelled.TaskDescriptor, unitID),
