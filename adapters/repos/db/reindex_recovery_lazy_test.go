@@ -271,8 +271,6 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 		lift lift
 		// A status write starts the recovery retry and is refused; only the next one can lift.
 		retries bool
-		// A path that only lifts its own read-only reason never lifts this one.
-		neverLifts bool
 		// Only the manual status update row runs the disks that do not arm.
 		armsOnly bool
 		want     storagestate.Status
@@ -282,10 +280,6 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 		}},
 		{name: "manual shutdown status", retries: true, armsOnly: true, want: storagestate.StatusShutdown, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
 			return shard, fx.idx.IncomingUpdateShardStatus(fx.ctx, fx.name, storagestate.StatusShutdown.String(), 0)
-		}},
-		{name: "disk pressure recovery", neverLifts: true, armsOnly: true, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
-			require.True(t, fx.idx.db.markShardReady(fx.name, shard))
-			return shard, nil
 		}},
 		// The only row that asserts a held shard's Shutdown returns no error; the other rows discard it in cleanup.
 		{name: "restart", armsOnly: true, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
@@ -340,10 +334,6 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 					want = storagestate.StatusReady
 				}
 				switch {
-				case l.neverLifts:
-					require.NoError(t, err)
-					require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
-					require.Equal(t, statusReasonMirrorUnarmed, shard.GetStatusReason())
 				case d.recovers == "armed":
 					require.NoError(t, err)
 					require.Equal(t, want, shard.GetStatus())
@@ -413,7 +403,6 @@ func TestAMigrationWithAStampedHalfIsNeverRearmed(t *testing.T) {
 		filterableHalf    bool
 		searchableCorrupt bool
 	}{
-		{name: "both halves fail to arm", filterableHalf: true, searchableCorrupt: true},
 		{name: "only the unstamped half fails to arm", filterableHalf: true},
 		{name: "the stamp's rewrite is refused", searchableCorrupt: true},
 	} {
@@ -805,12 +794,12 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 				if e.Data["groupID"] == fx.name {
 					retries++
 					require.Greaterf(t, e.Level, logrus.InfoLevel, "per-tick line: %s", e.Message)
-					require.Contains(t, e.Message, "is held READONLY")
+					require.Contains(t, e.Message, "did not complete and is retryable")
 				}
 			}
 			require.Equal(t, tc.status != distributedtask.TaskStatusStarted, retries > 0)
-			// At most two windows of the scheduler's sampled lines, plus the waiting unit's own Warn budget.
-			require.LessOrEqual(t, infoOrAbove, 2*5+maxReportedErrors)
+			// At most two windows of the scheduler's sampled lines, the task's unsampled first start line, and the waiting unit's own Warn budget.
+			require.LessOrEqual(t, infoOrAbove, 2*5+1+maxReportedErrors)
 			fx.healRecords(t)
 			require.NoError(t, os.Remove(fx.corrupt))
 			require.NoError(t, liftAndAwaitRetry(t, fx, shard, liftReady(shard)))

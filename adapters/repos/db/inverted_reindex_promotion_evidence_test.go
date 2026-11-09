@@ -218,9 +218,3 @@ func aColdShardWithMergedStagedData(t *testing.T, ctx context.Context, class *mo
 }
 
 type noRecoveryTaskReindexer struct{ shardReindexerV3Noop }
-
-func (r *noRecoveryTaskReindexer) RecoverMigrations(*Shard) []*ShardReindexTaskGeneric { return nil }
-
-func (r *noRecoveryTaskReindexer) AbandonUnarmed(*Shard, []*ShardReindexTaskGeneric, error) ([]*ShardReindexTaskGeneric, error) {
-	return nil, nil
-}

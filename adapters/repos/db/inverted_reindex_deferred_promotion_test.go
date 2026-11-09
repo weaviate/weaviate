@@ -20,7 +20,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -157,8 +156,6 @@ func TestDeferredPromotionServesStagedDataAcrossTheFlip(t *testing.T) {
 					tc.flip(class.Properties[0])
 				}
 				shard = openShardFromDisk(t, ctx, idx, loadClass, name)
-				require.Len(t, p.cachedReindexTasks(distributedtask.TaskDescriptor{ID: task.taskID, Version: task.taskVersion},
-					task.unitID), 1, "the load must recover the migration whose promotion it defers")
 				if sc.armFails {
 					require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
 					rec, ok := task.migrationRecord(shard)

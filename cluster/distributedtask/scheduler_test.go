@@ -84,7 +84,10 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 // Every task's first start line shows however many start at once; only relaunches are sampled.
 func TestSchedulerLogsEveryTasksFirstStart(t *testing.T) {
 	defer leaktest.Check(t)()
-	h := newTestHarness(t).init(t)
+	const relaunching = "relaunching-namespace"
+	h := newTestHarness(t)
+	h.registeredProviders[relaunching] = exitingTaskProvider{newTestTaskProvider(t, nil)}
+	h = h.init(t)
 	h.startScheduler(t)
 	defer h.Close()
 
@@ -117,6 +120,19 @@ func TestSchedulerLogsEveryTasksFirstStart(t *testing.T) {
 		defer h.scheduler.mu.Unlock()
 		return len(h.scheduler.startLogged[h.tasksNamespace]) == 0
 	}, 5*time.Second, 10*time.Millisecond)
+
+	// A task whose handle exits on every tick logs its first start and at most 5 relaunches a window.
+	addTaskWithUnits(t, h, relaunching, "relaunched", 1, []string{"u-1"})
+	for range 8 {
+		h.advanceClock(h.schedulerTickInterval)
+	}
+	starts := 0
+	for _, e := range h.loggerHook.AllEntries() {
+		if e.Message == "started distributed task execution" && e.Data["taskID"] == "relaunched" {
+			starts++
+		}
+	}
+	require.Equal(t, 1+5, starts)
 }
 
 func TestHappyPathTaskLifecycleWithMultipleNode(t *testing.T) {
