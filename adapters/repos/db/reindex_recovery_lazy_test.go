@@ -732,6 +732,11 @@ func TestTheHeldShardGaugeCountsAShardUntilItsHoldEnds(t *testing.T) {
 		{name: "drop", end: func(t *testing.T, _ *doubleFaultFixture, shard *Shard) {
 			require.NoError(t, shard.drop(true))
 		}},
+		// A drop proceeds while a retry may still run, and that retry can hold the shard again.
+		{name: "drop, then a late arm's hold", end: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) {
+			require.NoError(t, shard.drop(true))
+			shard.migrationMirrors.holdUnarmed([]*ShardReindexTaskGeneric{fx.task})
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fx := newDoubleFaultFixture(t, "tenant-held-gauge")
@@ -853,10 +858,14 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 			// Each wake relaunches a waiting step, as unit events elsewhere in the cluster do.
 			require.Never(t, func() bool { sched.Wake(); return len(outcome.done) > 0 }, time.Second, 20*time.Millisecond,
 				"the step must wait while the shard is held")
-			retries, infoOrAbove := 0, 0
+			retries, holdWaits, infoOrAbove := 0, 0, 0
 			for _, e := range logs.AllEntries() {
 				if e.Level <= logrus.InfoLevel {
 					infoOrAbove++
+				}
+				if e.Data["shard"] == fx.name && e.Data["unit"] == unitID &&
+					strings.Contains(e.Message, "waits because its shard is held READONLY") {
+					holdWaits++
 				}
 				if e.Data["groupID"] == fx.name {
 					retries++
@@ -865,6 +874,7 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 				}
 			}
 			require.Equal(t, tc.status != distributedtask.TaskStatusStarted, retries > 0)
+			require.Positive(t, holdWaits, "the step waits on the hold")
 			// At most two windows of the scheduler's sampled lines, the task's unsampled first start line, and the waiting unit's own Warn budget.
 			require.LessOrEqual(t, infoOrAbove, 2*5+1+maxReportedErrors)
 			fx.healRecords(t)

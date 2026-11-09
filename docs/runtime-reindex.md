@@ -86,7 +86,8 @@ together into a small REST surface rooted at
 > The cancel verb and `GET .../indexes` keep working, so a task that was
 > already running stays observable and, for as long as it is still
 > `STARTED`, cancellable (§12). Everything below describes behavior with
-> the flag on.
+> the flag on, except recovery at shard load (§6.2), which re-arms or
+> stamps an in-flight migration whatever the flag says.
 
 A replica movement requested while a migration runs on its collection is
 refused with 409. One that reaches a shard still being cleaned up after a
@@ -1126,7 +1127,7 @@ Then, per shard load:
        resubmitted; otherwise any bucket the retry opened is set back to
        READONLY, the owning node logs the cause at Error level, and the
        next lift starts another retry. Since its first write is refused,
-       every lift shows up on each replica holding the shard as an `apply
+       every lift shows up on each replica where the shard is held as an `apply
        command` Error and in `weaviate_cluster_store_fsm_apply_failures_total`.
        Here that does not mean the cluster state diverged.
      - The way out depends on what stopped the arm, which the hold log and
