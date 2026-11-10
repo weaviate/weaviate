@@ -113,7 +113,7 @@ func (f *fakeShard) TryUnload(_ context.Context, req db.UnloadRequest) db.Unload
 		if req.MinResidency > 0 && time.Since(f.LoadedAt()) < req.MinResidency {
 			return db.UnloadOutcomeMinResidency
 		}
-		if req.IdleTTL > 0 && time.Duration(f.reg.clock()-f.lastAccess.Load())*time.Second < req.IdleTTL {
+		if req.IdleTTL > 0 && !db.AccessClockIdle(f.reg.clock(), f.lastAccess.Load(), req.IdleTTL) {
 			return db.UnloadOutcomeNotIdle
 		}
 		if f.queueBusy.Load() {

@@ -281,8 +281,7 @@ func (l *LazyLoadShard) softUnloadBlocker(s *Shard, req UnloadRequest) UnloadOut
 		}
 	}
 	if req.IdleTTL > 0 {
-		now, last := AccessClockNow(), l.lastAccess.Load()
-		if now < last || time.Duration(now-last)*time.Second < req.IdleTTL {
+		if !AccessClockIdle(AccessClockNow(), l.lastAccess.Load(), req.IdleTTL) {
 			return UnloadOutcomeNotIdle
 		}
 	}

@@ -369,6 +369,11 @@ const accessClockTick = time.Second
 // AccessClockNow returns the coarse access clock, in seconds since process start.
 func AccessClockNow() uint32 { return accessClock.Load() }
 
+// AccessClockIdle reports whether last is at least idleTTL behind now; one spare tick covers an access just before a tick.
+func AccessClockIdle(now, last uint32, idleTTL time.Duration) bool {
+	return now > last && time.Duration(now-last-1)*accessClockTick >= idleTTL
+}
+
 // advanceAccessClock never moves the clock back, whichever DB's ticker runs it.
 func advanceAccessClock() {
 	now := uint32(time.Since(accessClockEpoch)/time.Second) + 1

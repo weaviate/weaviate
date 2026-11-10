@@ -496,3 +496,25 @@ func TestLazyLoadShard_LateDeferredShutdownHookKeepsAReloadRegistered(t *testing
 	reloaded.deferredShutdownDone()
 	require.Zero(t, f.unloader.registry.Loaded(), "the current shard's hook deregisters")
 }
+
+func TestAccessClockIdle(t *testing.T) {
+	for _, tc := range []struct {
+		now, last uint32
+		ttl       time.Duration
+		want      bool
+	}{
+		{now: 10, last: 10, ttl: 0, want: false},
+		{now: 10, last: 11, ttl: 0, want: false},
+		{now: 11, last: 10, ttl: 0, want: true},
+		{now: 11, last: 10, ttl: time.Second, want: false},
+		{now: 12, last: 10, ttl: time.Second, want: true},
+		{now: 12, last: 10, ttl: 1500 * time.Millisecond, want: false},
+		{now: 13, last: 10, ttl: 1500 * time.Millisecond, want: true},
+		{now: 12, last: 10, ttl: 2 * time.Second, want: false},
+		{now: 13, last: 10, ttl: 2 * time.Second, want: true},
+		{now: 0, last: 1<<32 - 1, ttl: time.Second, want: false},
+		{now: 1<<32 - 1, last: 0, ttl: time.Hour, want: true},
+	} {
+		require.Equal(t, tc.want, AccessClockIdle(tc.now, tc.last, tc.ttl), "now=%d last=%d ttl=%v", tc.now, tc.last, tc.ttl)
+	}
+}

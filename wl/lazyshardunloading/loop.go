@@ -180,7 +180,8 @@ func (p *policy[S]) rank(s *snapshot, now time.Time, k int, idle bool) []ranked[
 			continue
 		}
 		at := c.LastAccess()
-		if idle && (clock < at || clock-at < idleSeconds) {
+		// Strictly more ticks than idle_ttl, the same rule as db.AccessClockIdle.
+		if idle && (clock <= at || clock-at <= idleSeconds) {
 			continue
 		}
 		preferred := p.namespaces && s.nsShare > 0 && p.overShare(s, c.Namespace(), p.nsCounts[c.Namespace()])
