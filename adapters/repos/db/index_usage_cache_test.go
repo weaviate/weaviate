@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,6 +29,7 @@ import (
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -305,4 +307,32 @@ func TestUnloadedShardUsageReportedWhenMappingUnreadable(t *testing.T) {
 	require.Len(t, usage.Shards, 1)
 	assert.Len(t, usage.Shards[0].NamedVectors, 2)
 	assert.False(t, shardusage.ComputedUsageDataExists(index.path(), tenantName))
+}
+
+// TestUnloadedVectorStateWhileMetadataLocked pins that once the mapping read
+// found a load holding the shard's metadata, a dynamic vector's state is not
+// read from the same file: each read would wait out the lock timeout.
+func TestUnloadedVectorStateWhileMetadataLocked(t *testing.T) {
+	ctx := context.Background()
+	tenantName := "test-tenant"
+	hnswCfg := enthnsw.NewDefaultUserConfig()
+	index, _ := setupPopulatedLazyIndex(ctx, t, usageIndexParams{
+		namedVectors: map[string]models.VectorConfig{
+			"title": {VectorIndexType: hnswCfg.IndexType(), VectorIndexConfig: hnswCfg},
+		},
+	})
+	t.Cleanup(func() { _ = index.Shutdown(ctx) })
+
+	metadata, err := shardmeta.Open(shardPath(index.path(), tenantName), entlsmkv.BoltFlockTimeout)
+	require.NoError(t, err)
+	t.Cleanup(func() { metadata.Close() })
+
+	dynamicCfg := dynamicent.NewDefaultUserConfig()
+	start := time.Now()
+	state, cacheable := index.unloadedVectorState(tenantName, "dyn", "vectors_dyn", true,
+		models.VectorConfig{VectorIndexType: dynamicCfg.IndexType(), VectorIndexConfig: dynamicCfg},
+		shardusage.VectorsMetrics{})
+	assert.Less(t, time.Since(start), 500*time.Millisecond, "no wait on the held lock")
+	assert.False(t, cacheable)
+	assert.False(t, state.dynamicUpgraded)
 }
