@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 )
 
 func (v *Validator) vector(ctx context.Context, class *models.Class,
@@ -127,6 +128,50 @@ func (v *Validator) vectorShapes(class *models.Class, incomingObject *models.Obj
 			if err := validateMultiVectorTokens(class.Class, name, vec); err != nil {
 				return err
 			}
+		}
+		if indexCfg.IndexType() == vectorindex.VectorIndexTypeTachiomFresh {
+			if got, want := len(incomingObject.TokenIds[name]), outerVectorLen(vec); got != want {
+				return fmt.Errorf("vector %q in collection %q: the tachiomfresh vector index needs one token id per token, got %d token ids for %d tokens", name, class.Class, got, want)
+			}
+		}
+	}
+	return nil
+}
+
+// tokenIDsHaveTheirMultiVector refuses token ids under a name that is not a
+// multi-vector the object brings: a name the collection has no vector for,
+// a single vector, or a multi-vector the object does not carry. The count
+// of a tachiomfresh multi-vector's ids is checked by vectorShapes.
+func tokenIDsHaveTheirMultiVector(class *models.Class, incomingObject *models.Object) error {
+	for name := range incomingObject.TokenIds {
+		vec, ok := incomingObject.Vectors[name]
+		if !ok || !isMultiVectorShaped(vec) {
+			return fmt.Errorf("token ids for %q in collection %q: the object brings no multi-vector of that name", name, class.Class)
+		}
+	}
+	return nil
+}
+
+// TokenIDsMatchTokens checks token ids against the multi-vectors an object
+// will hold: every tachiomfresh multi-vector the ids name needs one id per
+// token. A patch can bring token ids for a multi-vector it leaves as it
+// was, which the check of the incoming vectors does not see.
+func TokenIDsMatchTokens(class *models.Class, tokenIDs models.TokenIds, vectors models.Vectors) error {
+	for name, ids := range tokenIDs {
+		cfg, ok := class.VectorConfig[name]
+		if !ok {
+			continue
+		}
+		indexCfg, ok := cfg.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+		if !ok || indexCfg.IndexType() != vectorindex.VectorIndexTypeTachiomFresh {
+			continue
+		}
+		want := 0 // the object holds no such multi-vector
+		if vec, ok := vectors[name]; ok {
+			want = outerVectorLen(vec)
+		}
+		if got := len(ids); got != want {
+			return fmt.Errorf("vector %q in collection %q: the tachiomfresh vector index needs one token id per token, got %d token ids for %d tokens", name, class.Class, got, want)
 		}
 	}
 	return nil

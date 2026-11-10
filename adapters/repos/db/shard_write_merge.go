@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -410,9 +411,13 @@ func mergeProps(previous *storobj.Object,
 	if len(merge.Vectors) == 0 {
 		next.Vectors = previous.Vectors
 		next.MultiVectors = previous.MultiVectors
+		// the merge may bring new token ids for multi-vectors it leaves as
+		// they were
+		next.Object.TokenIds = mergeTokenIDs(previous, next.MultiVectors, merge.TokenIds)
 	} else {
 		next.Vectors = vectorsAsMap(merge.Vectors)
 		next.MultiVectors = multiVectorsAsMap(merge.Vectors)
+		next.Object.TokenIds = mergeTokenIDs(previous, next.MultiVectors, merge.TokenIds)
 	}
 
 	next.Object.LastUpdateTimeUnix = merge.UpdateTime
@@ -458,4 +463,24 @@ func multiVectorsAsMap(in models.Vectors) map[string][][]float32 {
 		return out
 	}
 	return nil
+}
+
+// mergeTokenIDs returns the token ids of a merged object: those the merge
+// brings, and the previous ones of every multi-vector the merge left as it
+// was. A multi-vector the merge changed without bringing its token ids has
+// none: the previous ones belong to the tokens it replaced.
+func mergeTokenIDs(previous *storobj.Object, next map[string][][]float32, merged models.TokenIds) models.TokenIds {
+	ids := models.TokenIds{}
+	for name, prevIDs := range previous.Object.TokenIds {
+		if nextVecs, ok := next[name]; ok && common.MultiVectorsEqual(previous.MultiVectors[name], nextVecs) {
+			ids[name] = prevIDs
+		}
+	}
+	for name, mergedIDs := range merged {
+		ids[name] = mergedIDs
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return ids
 }

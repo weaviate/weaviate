@@ -22,6 +22,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	enttachiomfresh "github.com/weaviate/weaviate/entities/vectorindex/tachiomfresh"
 )
 
 func TestVectors(t *testing.T) {
@@ -328,6 +330,126 @@ func TestVectorsUnmarshalKeepsEmpty(t *testing.T) {
 			if spec.expKept {
 				require.Equal(t, spec.expVec, got)
 			}
+		})
+	}
+}
+
+// A tachiomfresh multi-vector needs one token id per token: without them the
+// object is refused before it is stored, instead of failing when the index
+// takes it later.
+func TestTachiomFreshTokenIDs(t *testing.T) {
+	class := &models.Class{
+		Class:      "TokenIDsTest",
+		Vectorizer: "none",
+		VectorConfig: map[string]models.VectorConfig{"vec": {
+			VectorIndexType:   "tachiomfresh",
+			VectorIndexConfig: enttachiomfresh.NewDefaultUserConfig(),
+			Vectorizer:        map[string]interface{}{"none": nil},
+		}},
+	}
+	tokens := [][]float32{{1, 0}, {0, 1}, {1, 1}}
+	specs := map[string]struct {
+		ids    models.TokenIds
+		expErr string
+	}{
+		"one id per token":  {ids: models.TokenIds{"vec": {5, 6, 7}}},
+		"no token ids":      {expErr: "got 0 token ids for 3 tokens"},
+		"too few token ids": {ids: models.TokenIds{"vec": {5, 6}}, expErr: "got 2 token ids for 3 tokens"},
+		"ids of another vector": {
+			ids:    models.TokenIds{"other": {5, 6, 7}},
+			expErr: "got 0 token ids for 3 tokens",
+		},
+	}
+	for name, spec := range specs {
+		t.Run(name, func(t *testing.T) {
+			obj := &models.Object{Vectors: models.Vectors{"vec": tokens}, TokenIds: spec.ids}
+			err := (&Validator{}).vector(context.Background(), class, obj)
+			if spec.expErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, spec.expErr)
+		})
+	}
+}
+
+// A create or a batch refuses token ids under a name that is not a
+// multi-vector the object brings: a name the collection has no vector for, a
+// single vector, or a multi-vector the object does not carry. Ids of a
+// multi-vector of another index type are kept, which that index ignores. A
+// patch may bring token ids for a multi-vector it leaves as it was; those are
+// checked against the merged object (TokenIDsMatchTokens).
+func TestTokenIDsNeedTheirMultiVector(t *testing.T) {
+	hnswMulti := enthnsw.NewDefaultUserConfig()
+	hnswMulti.Multivector.Enabled = true
+	class := &models.Class{
+		Class: "TokenIDsTest",
+		VectorConfig: map[string]models.VectorConfig{
+			"vec": {
+				VectorIndexType:   "tachiomfresh",
+				VectorIndexConfig: enttachiomfresh.NewDefaultUserConfig(),
+				Vectorizer:        map[string]interface{}{"none": nil},
+			},
+			"mv": {
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: hnswMulti,
+				Vectorizer:        map[string]interface{}{"none": nil},
+			},
+			"single": {
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+				Vectorizer:        map[string]interface{}{"none": nil},
+			},
+		},
+	}
+	tokens := [][]float32{{1, 0}, {0, 1}}
+	specs := map[string]struct {
+		vectors models.Vectors
+		ids     models.TokenIds
+		patch   bool
+		expErr  string
+	}{
+		"ids of the multi-vector": {
+			vectors: models.Vectors{"vec": tokens},
+			ids:     models.TokenIds{"vec": {5, 6}},
+		},
+		"ids of a multi-vector of another index type": {
+			vectors: models.Vectors{"vec": tokens, "mv": tokens},
+			ids:     models.TokenIds{"vec": {5, 6}, "mv": {7, 8}},
+		},
+		"ids under a name the collection has no vector for": {
+			vectors: models.Vectors{"vec": tokens},
+			ids:     models.TokenIds{"vec": {5, 6}, "ghost": {7, 8}},
+			expErr:  `token ids for "ghost"`,
+		},
+		"ids of a single vector": {
+			vectors: models.Vectors{"vec": tokens, "single": []float32{1, 2}},
+			ids:     models.TokenIds{"vec": {5, 6}, "single": {7, 8}},
+			expErr:  `token ids for "single"`,
+		},
+		"ids of a multi-vector the object does not bring": {
+			vectors: models.Vectors{"vec": tokens},
+			ids:     models.TokenIds{"vec": {5, 6}, "mv": {7, 8}},
+			expErr:  `token ids for "mv"`,
+		},
+		"a patch with ids of a multi-vector it leaves as it was": {
+			ids:   models.TokenIds{"vec": {5, 6}},
+			patch: true,
+		},
+	}
+	for name, spec := range specs {
+		t.Run(name, func(t *testing.T) {
+			obj := &models.Object{Class: class.Class, Vectors: spec.vectors, TokenIds: spec.ids}
+			var existing *models.Object
+			if spec.patch {
+				existing = &models.Object{Class: class.Class}
+			}
+			err := (&Validator{}).Object(context.Background(), class, obj, existing)
+			if spec.expErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, spec.expErr)
 		})
 	}
 }

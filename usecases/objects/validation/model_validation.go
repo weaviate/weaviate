@@ -99,6 +99,14 @@ func (v *Validator) Object(ctx context.Context, class *models.Class,
 	if err := v.vector(ctx, class, incoming); err != nil {
 		return err
 	}
+	// A create or a batch brings its whole object. A patch may bring token
+	// ids for a multi-vector it leaves as it was; those are checked against
+	// the merged object (TokenIDsMatchTokens).
+	if existing == nil {
+		if err := tokenIDsHaveTheirMultiVector(class, incoming); err != nil {
+			return err
+		}
+	}
 
 	return v.properties(ctx, class, incoming, existing)
 }
