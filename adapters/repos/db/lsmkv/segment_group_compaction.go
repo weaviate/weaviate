@@ -553,6 +553,19 @@ func (sg *SegmentGroup) compactOnceAbortable(ctx context.Context,
 		if err != nil {
 			return false, fmt.Errorf("open right segment: %w", err)
 		}
+		// the merge holds every point of both segments in memory, which the
+		// general check above does not size; a pair too large for the memory
+		// left is skipped until there is room, like any other compaction
+		if sg.allocChecker != nil {
+			if err := sg.allocChecker.CheckAlloc(geopoints.MergeMemoryEstimate(leftReader, rightReader)); err != nil {
+				sg.logger.WithFields(logrus.Fields{
+					"action": "lsm_compaction",
+					"event":  "compaction_skipped_oom",
+					"path":   sg.dir,
+				}).Warnf("skipping geopoints compaction due to memory pressure: %v", err)
+				return false, nil
+			}
+		}
 		c := geopoints.NewCompactor(f, leftReader, rightReader,
 			level, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize)
 

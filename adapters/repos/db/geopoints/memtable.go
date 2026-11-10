@@ -35,17 +35,14 @@ func NewMemtable() *Memtable {
 	return &Memtable{deleted: sroar.NewBitmap()}
 }
 
-// Add records a point. A doc ID removed earlier in this memtable comes back,
-// which the write path never asks for but a replayed log must not break on.
+// Add records a point. A removal of the same doc ID recorded earlier stands:
+// doc IDs are never reused, so such an add belongs to a write that lost a race
+// with the delete of its object, and the point it carries is already gone.
 func (m *Memtable) Add(docID uint64, lat, lon float32) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
 	m.points = append(m.points, Point{DocID: docID, Lat: lat, Lon: lon})
-	if m.deleted.Contains(docID) {
-		m.deleted.Remove(docID)
-		m.deletedCount--
-	}
 }
 
 // Remove records that docID's point, wherever it is, is gone.
@@ -88,26 +85,27 @@ func (m *Memtable) WithinRange(ctx context.Context, c *Circle, out, deleted *sro
 	return nil
 }
 
-// Serialize builds the segment body for a flush. A point removed again in this
-// same memtable is dropped along with its deletion: a doc ID is added once, so
-// that deletion can refer to nothing else.
-func (m *Memtable) Serialize() []byte {
+// Body returns the segment content for a flush. A point whose doc ID this
+// memtable also removes is dropped along with the removal: a doc ID is added
+// once, so that removal can refer to nothing else. Every point of the doc ID
+// goes, should a stale write have added it twice.
+func (m *Memtable) Body() *Body {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
 	points := make([]Point, 0, len(m.points))
-	deleted := m.deleted.Clone()
+	carried := m.deleted.Clone()
 	for _, p := range m.points {
-		if deleted.Contains(p.DocID) {
-			deleted.Remove(p.DocID)
+		if m.deleted.Contains(p.DocID) {
+			carried.Remove(p.DocID)
 			continue
 		}
 		points = append(points, p)
 	}
 
-	var deletions []byte
-	if !deleted.IsEmpty() {
-		deletions = deleted.ToBuffer()
+	body := &Body{Points: points}
+	if !carried.IsEmpty() {
+		body.Deletions = carried.ToBuffer()
 	}
-	return Build(points, deletions)
+	return body
 }

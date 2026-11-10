@@ -81,10 +81,6 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		}
 	}
 
-	if err := s.updatePropertySpecificIndices(ctx, object, status); err != nil {
-		return errors.Wrap(err, "update property-specific indices")
-	}
-
 	if err := s.store.WriteWALs(); err != nil {
 		return errors.Wrap(err, "flush all buffered WALs")
 	}
@@ -397,6 +393,12 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 
 		if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
 			return errors.Wrap(err, "object creation in hashtree")
+		}
+
+		// under the lock: a delete or update of this object running in between
+		// would retire the doc ID this write is about to index
+		if err := s.updatePropertySpecificIndices(ctx, obj, status); err != nil {
+			return errors.Wrap(err, "update property-specific indices")
 		}
 
 		return nil

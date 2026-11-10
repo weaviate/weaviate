@@ -467,9 +467,10 @@ func CalculateUnloadedIndicesSize(lsmPath string, directories []string) (uint64,
 	includedPrefixes := []string{
 		helpers.DimensionsBucketLSM,
 		helpers.BucketFromPropNameLSM(""),
-		// nested buckets use "property." not "property_", so the prefix above misses them
+		// nested and geo buckets use "property." not "property_", so the prefix above misses them
 		helpers.BucketNestedFromPropNameLSM(""),
 		helpers.BucketNestedMetaFromPropNameLSM(""),
+		helpers.BucketGeoFromPropNameLSM(""),
 	}
 
 	// check all folders and add their sizes

@@ -14,6 +14,7 @@ package geopoints
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"math/rand"
@@ -89,14 +90,18 @@ func TestNewCircleRejectsBadInput(t *testing.T) {
 
 func TestCircleBoundingBoxes(t *testing.T) {
 	tests := []struct {
-		name          string
-		lat, lon      float32
-		distance      float32
-		wantBoxes     int
-		wantEveryLon  bool
-		wantWrapsLeft bool // the second box sits at the far side of the antimeridian
+		name         string
+		lat, lon     float32
+		distance     float32
+		wantBoxes    int
+		wantEveryLon bool
+		// maxLatWidth and maxLonWidth bound the first box, so the slack added
+		// for rounding stays negligible against the circle
+		maxLatWidth, maxLonWidth float32
 	}{
-		{name: "small circle in europe", lat: 52, lon: 13, distance: 10_000, wantBoxes: 1},
+		{name: "small circle in europe", lat: 52, lon: 13, distance: 10_000, wantBoxes: 1, maxLatWidth: 0.181, maxLonWidth: 0.293},
+		// the slack for float32 rounding is a few meters, so it shows here
+		{name: "a meter at the equator", lat: 0, lon: 0, distance: 1, wantBoxes: 1, maxLatWidth: 0.00007, maxLonWidth: 0.00011},
 		{name: "crossing the antimeridian east", lat: 0, lon: 179.9, distance: 50_000, wantBoxes: 2},
 		{name: "crossing the antimeridian west", lat: 0, lon: -179.9, distance: 50_000, wantBoxes: 2},
 		{name: "covering the north pole", lat: 89, lon: 0, distance: 200_000, wantBoxes: 1, wantEveryLon: true},
@@ -111,8 +116,12 @@ func TestCircleBoundingBoxes(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, c.boxes, test.wantBoxes)
 			if test.wantEveryLon {
-				assert.Less(t, c.boxes[0].MinLon, float32(-180))
-				assert.Greater(t, c.boxes[0].MaxLon, float32(180))
+				assert.LessOrEqual(t, c.boxes[0].MinLon, float32(-180))
+				assert.GreaterOrEqual(t, c.boxes[0].MaxLon, float32(180))
+			}
+			if test.maxLatWidth > 0 {
+				assert.Less(t, c.boxes[0].MaxLat-c.boxes[0].MinLat, test.maxLatWidth)
+				assert.Less(t, c.boxes[0].MaxLon-c.boxes[0].MinLon, test.maxLonWidth)
 			}
 			// the center is always in a box
 			assert.True(t, c.IntersectsBox(Box{test.lat, test.lat, test.lon, test.lon}))
@@ -365,7 +374,7 @@ func TestMemtable(t *testing.T) {
 	assert.Equal(t, []uint64{1, 2}, out.ToArray())
 	assert.Equal(t, []uint64{2, 99}, deleted.ToArray())
 
-	reader, err := NewSegmentReader(m.Serialize())
+	reader, err := NewSegmentReader(m.Body().Bytes())
 	require.NoError(t, err)
 	points, err := reader.Points()
 	require.NoError(t, err)
@@ -374,14 +383,30 @@ func TestMemtable(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []uint64{99}, del.ToArray(), "the spent deletion is dropped, the other kept")
 
-	// an add after a remove revives the doc ID
+	// an add after a remove is a write that lost a race with the delete of its
+	// object: the removal stands, in the memtable and in the flushed segment
 	m.Add(99, 1, 1)
-	assert.False(t, m.deleted.Contains(99))
-	assert.Equal(t, 4*16+1*8, m.Size())
+	assert.True(t, m.deleted.Contains(99))
+	assert.Equal(t, 4*16+2*8, m.Size())
+
+	c99, _ := NewCircle(1, 1, 1_000)
+	out, deleted = sroar.NewBitmap(), sroar.NewBitmap()
+	require.NoError(t, m.WithinRange(context.Background(), c99, out, deleted))
+	out.AndNot(deleted)
+	assert.True(t, out.IsEmpty(), "the bucket's subtraction hides the late add")
+
+	reader, err = NewSegmentReader(m.Body().Bytes())
+	require.NoError(t, err)
+	points, err = reader.Points()
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []Point{{1, 10, 10}, {3, 50, 50}}, points, "the late add is dropped at flush")
+	del, err = reader.Deletions()
+	require.NoError(t, err)
+	assert.True(t, del.IsEmpty(), "both deletions found their point in this memtable")
 }
 
 func TestMemtableSerializeEmpty(t *testing.T) {
-	reader, err := NewSegmentReader(NewMemtable().Serialize())
+	reader, err := NewSegmentReader(NewMemtable().Body().Bytes())
 	require.NoError(t, err)
 	assert.Zero(t, reader.PointCount())
 	c, _ := NewCircle(0, 0, 1e9)
@@ -392,7 +417,9 @@ func TestMemtableSerializeEmpty(t *testing.T) {
 
 func TestMerge(t *testing.T) {
 	leftDel := sroar.NewBitmap()
-	leftDel.Set(1000) // refers to a segment older than left
+	// 1000 refers to a segment older than left; 4 is a point of right that was
+	// added after its removal, a write that lost a race with its delete
+	leftDel.SetMany([]uint64{1000, 4})
 	left := mustReader(t, Build([]Point{{1, 1, 1}, {2, 2, 2}, {3, 3, 3}}, leftDel.ToBuffer()))
 
 	rightDel := sroar.NewBitmap()
@@ -411,11 +438,13 @@ func TestMerge(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			body, err := Merge(context.Background(), left, right, test.cleanup)
 			require.NoError(t, err)
-			merged := mustReader(t, body)
+			require.Equal(t, body.Size(), len(body.Bytes()))
+			merged := mustReader(t, body.Bytes())
 
 			points, err := merged.Points()
 			require.NoError(t, err)
-			assert.ElementsMatch(t, []Point{{1, 1, 1}, {3, 3, 3}, {4, 4, 4}, {5, 5, 5}}, points)
+			assert.ElementsMatch(t, []Point{{1, 1, 1}, {3, 3, 3}, {5, 5, 5}}, points,
+				"a point deleted by either segment is dropped")
 
 			del, err := merged.Deletions()
 			require.NoError(t, err)
@@ -448,7 +477,7 @@ func TestMergeMatchesBruteForce(t *testing.T) {
 		mustReader(t, Build(left, nil)),
 		mustReader(t, Build(right, rightDel.ToBuffer())), false)
 	require.NoError(t, err)
-	merged := mustReader(t, body)
+	merged := mustReader(t, body.Bytes())
 
 	var want []Point
 	for _, p := range all {
@@ -594,5 +623,169 @@ func TestSelectNth(t *testing.T) {
 				assertSamePoints(t, points, got, "selectNth must only reorder")
 			}
 		}
+	}
+}
+
+func TestCanonical(t *testing.T) {
+	tests := []struct {
+		name             string
+		lat, lon         float32
+		wantLat, wantLon float32
+	}{
+		{name: "in range", lat: 52.5, lon: 13.4, wantLat: 52.5, wantLon: 13.4},
+		{name: "the edges stay", lat: 90, lon: 180, wantLat: 90, wantLon: 180},
+		{name: "minus 180 stays", lat: -90, lon: -180, wantLat: -90, wantLon: -180},
+		{name: "a full turn east", lat: 0, lon: 360, wantLat: 0, wantLon: 0},
+		{name: "past the antimeridian", lat: 10, lon: 190, wantLat: 10, wantLon: -170},
+		{name: "two turns west", lat: 10, lon: -730, wantLat: 10, wantLon: -10},
+		{name: "over the north pole", lat: 100, lon: 0, wantLat: 80, wantLon: -180},
+		{name: "over the south pole", lat: -100, lon: 10, wantLat: -80, wantLon: -170},
+		{name: "the antipode", lat: 180, lon: 20, wantLat: 0, wantLon: -160},
+		{name: "a turn and a bit in latitude", lat: 370, lon: 0, wantLat: 10, wantLon: 0},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			lat, lon := Canonical(test.lat, test.lon)
+			assert.InDelta(t, test.wantLat, lat, 1e-4)
+			assert.InDelta(t, test.wantLon, lon, 1e-4)
+			assert.LessOrEqual(t, float32(-90), lat)
+			assert.GreaterOrEqual(t, float32(90), lat)
+			assert.LessOrEqual(t, float32(-180), lon)
+			assert.GreaterOrEqual(t, float32(180), lon)
+			// the same point on the sphere
+			x1, y1, z1 := unitVector(test.lat, test.lon)
+			x2, y2, z2 := unitVector(lat, lon)
+			assert.InDelta(t, x1, x2, 1e-5)
+			assert.InDelta(t, y1, y2, 1e-5)
+			assert.InDelta(t, z1, z2, 1e-5)
+		})
+	}
+}
+
+func unitVector(lat, lon float32) (float64, float64, float64) {
+	phi, lambda := float64(lat)*math.Pi/180, float64(lon)*math.Pi/180
+	return math.Cos(phi) * math.Cos(lambda), math.Cos(phi) * math.Sin(lambda), math.Sin(phi)
+}
+
+// TestCircleAcceptsNoncanonicalCenter pins that a query centered on (0, 360)
+// is the query centered on (0, 0), as it was for the geo HNSW.
+func TestCircleAcceptsNoncanonicalCenter(t *testing.T) {
+	c, err := NewCircle(0, 360, 1_000)
+	require.NoError(t, err)
+	assert.Equal(t, float32(0), c.Lon)
+	assert.True(t, c.Contains(0, 0))
+	assert.True(t, c.IntersectsBox(Box{0, 0, 0, 0}))
+	assert.False(t, c.IntersectsBox(Box{0, 0, 10, 10}))
+}
+
+// destination is the point at angular distance d (radians) from (lat, lon)
+// along the bearing, on the sphere, in degrees.
+func destination(lat, lon, bearing, d float64) (float64, float64) {
+	phi := lat * math.Pi / 180
+	lambda := lon * math.Pi / 180
+	phi2 := math.Asin(math.Sin(phi)*math.Cos(d) + math.Cos(phi)*math.Sin(d)*math.Cos(bearing))
+	lambda2 := lambda + math.Atan2(math.Sin(bearing)*math.Sin(d)*math.Cos(phi),
+		math.Cos(d)-math.Sin(phi)*math.Sin(phi2))
+	lon2 := lambda2 * 180 / math.Pi
+	for lon2 > 180 {
+		lon2 -= 360
+	}
+	for lon2 < -180 {
+		lon2 += 360
+	}
+	return phi2 * 180 / math.Pi, lon2
+}
+
+func stepFloat32(f float32, n int) float32 {
+	for ; n > 0; n-- {
+		f = math.Nextafter32(f, math.MaxFloat32)
+	}
+	for ; n < 0; n++ {
+		f = math.Nextafter32(f, -math.MaxFloat32)
+	}
+	return f
+}
+
+// TestCircleBoxesCoverBoundary puts points right on the circle, and their
+// float32 neighbours, and checks that none Contains accepts is outside the
+// boxes. The boxes are derived from the ideal cap while Contains rounds to
+// float32, so this is where the two can disagree: a point the memtable's scan
+// finds would then vanish once the segment's tree prunes it.
+func TestCircleBoxesCoverBoundary(t *testing.T) {
+	r := rand.New(rand.NewSource(11))
+	checked := 0
+	for i := 0; i < 2000; i++ {
+		lat := float32(r.Float64()*180 - 90)
+		lon := float32(r.Float64()*360 - 180)
+		switch i % 4 {
+		case 1: // hugging the antimeridian
+			lon = float32(math.Copysign(180-math.Exp(r.Float64()*6-6), r.Float64()-0.5))
+		case 2: // hugging a pole
+			lat = float32(math.Copysign(90-math.Exp(r.Float64()*8-6), r.Float64()-0.5))
+		}
+		dist := float32(math.Exp(r.Float64() * 17)) // 1 m .. ~24,000 km
+		c, err := NewCircle(lat, lon, dist)
+		require.NoError(t, err)
+
+		for j := 0; j < 64; j++ {
+			bearing := r.Float64() * 2 * math.Pi
+			d := float64(dist) / earthRadiusMeters * (1 + (r.Float64()-0.5)*1e-6)
+			plat, plon := destination(float64(c.Lat), float64(c.Lon), bearing, d)
+			base := Point{Lat: float32(plat), Lon: float32(plon)}
+			for dlat := -2; dlat <= 2; dlat++ {
+				for dlon := -2; dlon <= 2; dlon++ {
+					p := Point{Lat: stepFloat32(base.Lat, dlat), Lon: stepFloat32(base.Lon, dlon)}
+					p.Lat, p.Lon = Canonical(p.Lat, p.Lon)
+					if !c.Contains(p.Lat, p.Lon) {
+						continue
+					}
+					checked++
+					require.True(t, c.IntersectsBox(Box{p.Lat, p.Lat, p.Lon, p.Lon}),
+						"circle (%v,%v,%v) contains (%v,%v) but its boxes %v miss it", c.Lat, c.Lon, dist, p.Lat, p.Lon, c.boxes)
+				}
+			}
+		}
+	}
+	require.Greater(t, checked, 1_000_000, "the sampling found too few boundary points")
+
+	t.Run("a point across the antimeridian the formula accepts", func(t *testing.T) {
+		c, err := NewCircle(10.43258285522461, 179.2627410888672, 178805.828125)
+		require.NoError(t, err)
+		lat, lon := float32(10.441040992736816), float32(-179.1021728515625)
+		require.True(t, c.Contains(lat, lon))
+		assert.True(t, c.IntersectsBox(Box{lat, lat, lon, lon}), "boxes %v", c.boxes)
+	})
+}
+
+// TestSegmentReaderRejectsLoopingTree pins that a tree whose inner node points
+// back at itself ends in an error rather than a stack that grows until the
+// node runs out of memory.
+func TestSegmentReaderRejectsLoopingTree(t *testing.T) {
+	body := Build(genPoints(rand.New(rand.NewSource(12)), 4*MaxPointsPerLeaf), nil)
+	reader, err := NewSegmentReader(body)
+	require.NoError(t, err)
+	require.Greater(t, reader.hdr.nodeCount, uint32(1))
+
+	// the root's first child becomes the root
+	binary.LittleEndian.PutUint32(body[bodyHeaderSize+16:], 0)
+	c, _ := NewCircle(0, 0, float32(math.Pi*earthRadiusMeters))
+	err = reader.WithinRange(context.Background(), c, sroar.NewBitmap(), sroar.NewBitmap())
+	require.ErrorContains(t, err, "does not terminate")
+}
+
+// TestBodyWriteToMatchesBuild pins that the streamed layout is the one Build
+// produces, byte for byte, and reports its size.
+func TestBodyWriteToMatchesBuild(t *testing.T) {
+	for _, n := range []int{0, 1, 3 * MaxPointsPerLeaf, 70_000} {
+		points := genPoints(rand.New(rand.NewSource(int64(n))), n)
+		del := sroar.NewBitmap()
+		del.SetMany([]uint64{1, 2, 3})
+		body := &Body{Points: append([]Point(nil), points...), Deletions: del.ToBuffer()}
+
+		var buf bytes.Buffer
+		written, err := body.WriteTo(&buf)
+		require.NoError(t, err)
+		assert.Equal(t, int64(body.Size()), written)
+		assert.Equal(t, Build(points, del.ToBuffer()), buf.Bytes())
 	}
 }

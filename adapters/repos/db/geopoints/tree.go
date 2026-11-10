@@ -12,8 +12,10 @@
 package geopoints
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 )
 
@@ -105,50 +107,125 @@ func leafCount(n int) int {
 	return leafCount(mid) + leafCount(n-mid)
 }
 
+// Body is a segment's content before serialization: its live points and the
+// deletions it carries for older segments. WriteTo lays the tree out in the
+// format above, reordering the points in place, so that neither a flush nor a
+// compaction holds a second copy of the points.
+type Body struct {
+	Points    []Point
+	Deletions []byte
+}
+
+// Size is the number of bytes WriteTo writes.
+func (b *Body) Size() int {
+	return BodySize(len(b.Points), len(b.Deletions))
+}
+
+// Bytes is WriteTo into memory.
+func (b *Body) Bytes() []byte {
+	buf := bytes.NewBuffer(make([]byte, 0, b.Size()))
+	if _, err := b.WriteTo(buf); err != nil {
+		// a bytes.Buffer only fails by running out of memory, which panics
+		panic(err)
+	}
+	return buf.Bytes()
+}
+
+// WriteTo implements io.WriterTo. It writes exactly Size bytes.
+func (b *Body) WriteTo(w io.Writer) (int64, error) {
+	cw := &countingWriter{w: w}
+	err := b.write(cw)
+	return cw.n, err
+}
+
 // Build serializes a BKD tree over points, reordering the slice in place, and
 // deletions, which may be nil. The result is the segment body described above.
 func Build(points []Point, deletions []byte) []byte {
-	out := make([]byte, BodySize(len(points), len(deletions)))
-	b := builder{points: points, out: out}
-	b.build(deletions)
-	return out
+	return (&Body{Points: points, Deletions: deletions}).Bytes()
+}
+
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	return n, err
+}
+
+// scratchSize is the write buffer for the nodes and the point columns: 64 KiB
+// holds 2048 nodes, 8192 doc IDs or 16384 coordinates at a time.
+const scratchSize = 64 << 10
+
+func (b *Body) write(w io.Writer) error {
+	var hdr [bodyHeaderSize]byte
+	binary.LittleEndian.PutUint16(hdr[0:], bodyVersion)
+	binary.LittleEndian.PutUint16(hdr[2:], 0)
+	binary.LittleEndian.PutUint64(hdr[8:], uint64(len(b.Points)))
+	binary.LittleEndian.PutUint64(hdr[16:], uint64(len(b.Deletions)))
+
+	var nodes []node
+	if len(b.Points) > 0 {
+		bd := builder{points: b.Points, nodes: make([]node, 0, nodeCount(len(b.Points)))}
+		bd.split(0, len(b.Points))
+		nodes = bd.nodes
+	}
+	binary.LittleEndian.PutUint32(hdr[4:], uint32(len(nodes)))
+
+	if _, err := w.Write(hdr[:]); err != nil {
+		return err
+	}
+	if _, err := w.Write(b.Deletions); err != nil {
+		return err
+	}
+
+	scratch := make([]byte, scratchSize)
+	for lo := 0; lo < len(nodes); lo += scratchSize / nodeSize {
+		hi := min(lo+scratchSize/nodeSize, len(nodes))
+		for i := lo; i < hi; i++ {
+			nodes[i].marshal(scratch[(i-lo)*nodeSize:])
+		}
+		if _, err := w.Write(scratch[:(hi-lo)*nodeSize]); err != nil {
+			return err
+		}
+	}
+
+	points := b.Points
+	for lo := 0; lo < len(points); lo += scratchSize / 8 {
+		hi := min(lo+scratchSize/8, len(points))
+		for i := lo; i < hi; i++ {
+			binary.LittleEndian.PutUint64(scratch[(i-lo)*8:], points[i].DocID)
+		}
+		if _, err := w.Write(scratch[:(hi-lo)*8]); err != nil {
+			return err
+		}
+	}
+	for lo := 0; lo < len(points); lo += scratchSize / 4 {
+		hi := min(lo+scratchSize/4, len(points))
+		for i := lo; i < hi; i++ {
+			binary.LittleEndian.PutUint32(scratch[(i-lo)*4:], math.Float32bits(points[i].Lat))
+		}
+		if _, err := w.Write(scratch[:(hi-lo)*4]); err != nil {
+			return err
+		}
+	}
+	for lo := 0; lo < len(points); lo += scratchSize / 4 {
+		hi := min(lo+scratchSize/4, len(points))
+		for i := lo; i < hi; i++ {
+			binary.LittleEndian.PutUint32(scratch[(i-lo)*4:], math.Float32bits(points[i].Lon))
+		}
+		if _, err := w.Write(scratch[:(hi-lo)*4]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type builder struct {
 	points []Point
-	out    []byte
 	nodes  []node
-}
-
-func (b *builder) build(deletions []byte) {
-	hdr := b.out
-	binary.LittleEndian.PutUint16(hdr[0:], bodyVersion)
-	binary.LittleEndian.PutUint16(hdr[2:], 0)
-	binary.LittleEndian.PutUint64(hdr[8:], uint64(len(b.points)))
-	binary.LittleEndian.PutUint64(hdr[16:], uint64(len(deletions)))
-	copy(hdr[bodyHeaderSize:], deletions)
-
-	if len(b.points) > 0 {
-		b.nodes = make([]node, 0, nodeCount(len(b.points)))
-		b.split(0, len(b.points))
-	}
-	binary.LittleEndian.PutUint32(hdr[4:], uint32(len(b.nodes)))
-
-	off := bodyHeaderSize + len(deletions)
-	for i := range b.nodes {
-		b.nodes[i].marshal(b.out[off:])
-		off += nodeSize
-	}
-
-	n := len(b.points)
-	ids := b.out[off : off+n*8]
-	lats := b.out[off+n*8 : off+n*12]
-	lons := b.out[off+n*12 : off+n*16]
-	for i, p := range b.points {
-		binary.LittleEndian.PutUint64(ids[i*8:], p.DocID)
-		binary.LittleEndian.PutUint32(lats[i*4:], math.Float32bits(p.Lat))
-		binary.LittleEndian.PutUint32(lons[i*4:], math.Float32bits(p.Lon))
-	}
 }
 
 // split builds the subtree over points[lo:hi] and returns its node index. The

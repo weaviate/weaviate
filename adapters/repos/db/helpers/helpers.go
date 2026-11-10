@@ -383,9 +383,13 @@ func BucketRangeableFromPropNameLSM(propName string) string {
 }
 
 // BucketGeoFromPropNameLSM names the geopoints bucket that is the filterable
-// index of a geoCoordinates property.
+// index of a geoCoordinates property. Like the nested buckets it sits under
+// "property." rather than "property_", so it cannot collide with the bucket
+// of another property however that one is named: a suffix on the property
+// name would, since a schema may already hold both "location" and
+// "location_geo".
 func BucketGeoFromPropNameLSM(propName string) string {
-	return BucketFromPropNameLSM(propName + schema.InternalGeoSuffix)
+	return "property.geo_" + propName
 }
 
 // propertyBucketGenSuffix returns the suffix appended to a property bucket

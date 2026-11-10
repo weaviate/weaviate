@@ -230,3 +230,99 @@ func TestGeoPointsBucketRejectsBadWrites(t *testing.T) {
 	_, err = other.GeoPointsWithinRange(ctx, 0, 0, 1)
 	require.Error(t, err)
 }
+
+// TestGeoPointsBucketCanonicalCoordinates pins that a coordinate outside the
+// usual ranges is the point on the sphere it names, before and after a flush:
+// the memtable scans every point, the segment prunes by canonical ranges.
+func TestGeoPointsBucketCanonicalCoordinates(t *testing.T) {
+	ctx := testCtx()
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyGeoPoints))
+	require.NoError(t, err)
+	defer b.Shutdown(ctx)
+
+	require.NoError(t, b.GeoPointsAdd(1, 0, 360))   // (0, 0)
+	require.NoError(t, b.GeoPointsAdd(2, 100, 0))   // (80, 180)
+	require.NoError(t, b.GeoPointsAdd(3, 10, -190)) // (10, 170)
+
+	check := func(t *testing.T) {
+		t.Helper()
+		within := func(lat, lon, dist float32) []uint64 {
+			bm, err := b.GeoPointsWithinRange(ctx, lat, lon, dist)
+			require.NoError(t, err)
+			return bm.ToArray()
+		}
+		assert.Equal(t, []uint64{1}, within(0, 0, 1_000))
+		assert.Equal(t, []uint64{1}, within(0, 360, 1_000), "a query center is canonical too")
+		assert.Equal(t, []uint64{2}, within(80, 180, 1_000))
+		assert.Equal(t, []uint64{2}, within(80, -180, 1_000))
+		assert.Equal(t, []uint64{3}, within(10, 170, 1_000))
+		assert.Empty(t, within(0, 180, 1_000))
+	}
+	check(t)
+	require.NoError(t, b.FlushAndSwitch())
+	check(t)
+}
+
+// TestGeoPointsBucketRemoveBeforeAdd pins that a removal stands over an add of
+// the same doc ID that arrives after it, in the memtable and across a flush.
+// The shard writes an object's geo points under the object's lock, so this
+// order cannot arise there; the bucket's semantics are the backstop. They end
+// where compaction of the oldest segments drops its unspent deletions, on the
+// premise the lock guarantees: a point can only be in a layer at least as old
+// as its removal.
+func TestGeoPointsBucketRemoveBeforeAdd(t *testing.T) {
+	ctx := testCtx()
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyGeoPoints), WithWriteSegmentInfoIntoFileName(true))
+	require.NoError(t, err)
+	defer b.Shutdown(ctx)
+
+	within := func(t *testing.T) []uint64 {
+		t.Helper()
+		bm, err := b.GeoPointsWithinRange(ctx, 52.5, 13.4, 1_000)
+		require.NoError(t, err)
+		return bm.ToArray()
+	}
+
+	// the live point every check expects
+	require.NoError(t, b.GeoPointsAdd(1, 52.5, 13.4))
+
+	// same memtable: the late add is dropped at the flush along with the removal
+	require.NoError(t, b.GeoPointsRemove(7))
+	require.NoError(t, b.GeoPointsAdd(7, 52.5, 13.4))
+	assert.Equal(t, []uint64{1}, within(t))
+	require.NoError(t, b.FlushAndSwitch())
+	assert.Equal(t, []uint64{1}, within(t))
+	reader, err := b.disk.segments[0].newGeoPointsReader()
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), reader.PointCount())
+	del, err := reader.Deletions()
+	require.NoError(t, err)
+	assert.True(t, del.IsEmpty(), "the removal found its point in the memtable and is spent")
+
+	// removal in a segment, add in the memtable, then in a later segment
+	require.NoError(t, b.GeoPointsRemove(8))
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.GeoPointsAdd(8, 52.5, 13.4))
+	assert.Equal(t, []uint64{1}, within(t))
+	require.NoError(t, b.FlushAndSwitch())
+	assert.Equal(t, []uint64{1}, within(t))
+
+	// merging the two newest segments spends the removal on the late add
+	require.Len(t, b.disk.segments, 3)
+	segments := b.disk.segments
+	merged, err := geopoints.Merge(ctx, mustGeoReader(t, segments[1]), mustGeoReader(t, segments[2]), false)
+	require.NoError(t, err)
+	assert.Empty(t, merged.Points)
+	assert.Nil(t, merged.Deletions)
+}
+
+func mustGeoReader(t *testing.T, seg Segment) *geopoints.SegmentReader {
+	t.Helper()
+	reader, err := seg.newGeoPointsReader()
+	require.NoError(t, err)
+	return reader
+}

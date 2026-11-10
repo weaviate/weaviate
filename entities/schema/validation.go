@@ -27,7 +27,6 @@ const (
 	InternalNullStateSuffix      = "_nullState"
 	InternalSearchableSuffix     = "_searchable"
 	InternalRangeableSuffix      = "_rangeable"
-	InternalGeoSuffix            = "_geo"
 	InternalTempSuffix           = "_temp"
 	InternalMetaCountSuffix      = "__meta_count"
 )
@@ -45,7 +44,6 @@ var (
 	reservedPropertyNameSuffixes = []string{
 		InternalSearchableSuffix,
 		InternalRangeableSuffix,
-		InternalGeoSuffix,
 		InternalTempSuffix,
 		InternalMetaCountSuffix,
 		InternalPropertyLengthSuffix,
@@ -90,7 +88,7 @@ const (
 	// Restricted by max length allowed for dir name (255 chars)
 	// Property name is used to build dir names of various purposes containing property
 	// related data. Among them might be (depending on the settings):
-	// - property_{property_name}_geo
+	// - property.geo_{property_name}
 	// - property_{property_name}__meta_count
 	// - property_{property_name}_propertyLength
 	// Last one seems to add the most additional characters (24) to property name,

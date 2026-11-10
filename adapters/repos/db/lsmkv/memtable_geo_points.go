@@ -41,6 +41,8 @@ func (m *Memtable) geoPointsAdd(docID uint64, lat, lon float32) error {
 	if err := geopoints.ValidateCoordinates(lat, lon); err != nil {
 		return err
 	}
+	// the tree prunes by canonical ranges, so (0, 360) is stored as (0, 0)
+	lat, lon = geopoints.Canonical(lat, lon)
 
 	m.Lock()
 	defer m.Unlock()
@@ -97,12 +99,13 @@ func (m *Memtable) newGeoPointsReader() geopoints.InnerReader {
 }
 
 // flushDataGeoPoints writes the tree as the whole data section and leaves the
-// index section empty, like roaringsetrange.
+// index section empty, like roaringsetrange. The body is streamed, so the
+// flush holds the points once.
 func (m *Memtable) flushDataGeoPoints(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
-	body := m.geoPoints.Serialize()
+	body := m.geoPoints.Body()
 
 	header := &segmentindex.Header{
-		IndexStart:       uint64(segmentindex.HeaderSize + len(body)),
+		IndexStart:       uint64(segmentindex.HeaderSize + body.Size()),
 		Level:            0, // always level zero on a new one
 		Version:          segmentindex.ChooseHeaderVersion(m.enableChecksumValidation),
 		SecondaryIndices: 0,
@@ -111,7 +114,7 @@ func (m *Memtable) flushDataGeoPoints(f *segmentindex.SegmentFile) ([]segmentind
 	if _, err := f.WriteHeader(header); err != nil {
 		return nil, err
 	}
-	if _, err := f.BodyWriter().Write(body); err != nil {
+	if _, err := body.WriteTo(f.BodyWriter()); err != nil {
 		return nil, fmt.Errorf("write geopoints body: %w", err)
 	}
 	return make([]segmentindex.Key, 0), nil

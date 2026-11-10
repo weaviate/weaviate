@@ -4362,51 +4362,6 @@ func (_c *MockShardLike_getAsyncReplicationStats_Call) RunAndReturn(run func(con
 	return _c
 }
 
-// hasGeoIndex provides a mock function with no fields
-func (_m *MockShardLike) hasGeoIndex() bool {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for hasGeoIndex")
-	}
-
-	var r0 bool
-	if rf, ok := ret.Get(0).(func() bool); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(bool)
-	}
-
-	return r0
-}
-
-// MockShardLike_hasGeoIndex_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'hasGeoIndex'
-type MockShardLike_hasGeoIndex_Call struct {
-	*mock.Call
-}
-
-// hasGeoIndex is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) hasGeoIndex() *MockShardLike_hasGeoIndex_Call {
-	return &MockShardLike_hasGeoIndex_Call{Call: _e.mock.On("hasGeoIndex")}
-}
-
-func (_c *MockShardLike_hasGeoIndex_Call) Run(run func()) *MockShardLike_hasGeoIndex_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockShardLike_hasGeoIndex_Call) Return(_a0 bool) *MockShardLike_hasGeoIndex_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_hasGeoIndex_Call) RunAndReturn(run func() bool) *MockShardLike_hasGeoIndex_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // hasGeoIndexForProp provides a mock function with given fields: propName
 func (_m *MockShardLike) hasGeoIndexForProp(propName string) bool {
 	ret := _m.Called(propName)
@@ -5113,54 +5068,6 @@ func (_c *MockShardLike_updatePropertyBuckets_Call) Return() *MockShardLike_upda
 
 func (_c *MockShardLike_updatePropertyBuckets_Call) RunAndReturn(run func(context.Context, *errors.ErrorGroupWrapper, *models.Property, *migrationSweepCounts)) *MockShardLike_updatePropertyBuckets_Call {
 	_c.Run(run)
-	return _c
-}
-
-// updatePropertySpecificIndices provides a mock function with given fields: ctx, object, status
-func (_m *MockShardLike) updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error {
-	ret := _m.Called(ctx, object, status)
-
-	if len(ret) == 0 {
-		panic("no return value specified for updatePropertySpecificIndices")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *storobj.Object, objectInsertStatus) error); ok {
-		r0 = rf(ctx, object, status)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockShardLike_updatePropertySpecificIndices_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'updatePropertySpecificIndices'
-type MockShardLike_updatePropertySpecificIndices_Call struct {
-	*mock.Call
-}
-
-// updatePropertySpecificIndices is a helper method to define mock.On call
-//   - ctx context.Context
-//   - object *storobj.Object
-//   - status objectInsertStatus
-func (_e *MockShardLike_Expecter) updatePropertySpecificIndices(ctx interface{}, object interface{}, status interface{}) *MockShardLike_updatePropertySpecificIndices_Call {
-	return &MockShardLike_updatePropertySpecificIndices_Call{Call: _e.mock.On("updatePropertySpecificIndices", ctx, object, status)}
-}
-
-func (_c *MockShardLike_updatePropertySpecificIndices_Call) Run(run func(ctx context.Context, object *storobj.Object, status objectInsertStatus)) *MockShardLike_updatePropertySpecificIndices_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*storobj.Object), args[2].(objectInsertStatus))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_updatePropertySpecificIndices_Call) Return(_a0 error) *MockShardLike_updatePropertySpecificIndices_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_updatePropertySpecificIndices_Call) RunAndReturn(run func(context.Context, *storobj.Object, objectInsertStatus) error) *MockShardLike_updatePropertySpecificIndices_Call {
-	_c.Call.Return(run)
 	return _c
 }
 
