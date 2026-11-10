@@ -89,9 +89,7 @@ type TaskFinalizer interface {
 	// [TaskStatusSwapping] for the race this fixes.
 	MarkDistributedTaskFinalized(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 
-	// MarkDistributedTaskFailed ends a SWAPPING task on a terminal OnTaskCompleted
-	// error. Records FAILED with errMsg, or FINISHED if the cutover write
-	// already landed (weaviate/0-weaviate-issues#297).
+	// MarkDistributedTaskFailed proposes [Manager.MarkTaskFailed].
 	MarkDistributedTaskFailed(ctx context.Context, namespace, taskID string, taskVersion uint64, errMsg string) error
 }
 
@@ -124,9 +122,7 @@ type PostCompletionAckRecorder interface {
 		errMsg string,
 	) error
 
-	// RecordDistributedTaskPreparationCompleteAck commits one node's PREP result
-	// for one group. The group's swap is decided once every owning node acked
-	// success; success=false fails the task. First ack per (group, node) wins.
+	// RecordDistributedTaskPreparationCompleteAck proposes [Manager.RecordPreparationCompleteAck].
 	RecordDistributedTaskPreparationCompleteAck(
 		ctx context.Context,
 		namespace, taskID string,

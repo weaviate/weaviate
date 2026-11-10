@@ -1606,10 +1606,8 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 // the schema remains pre-migration when the cluster-wide migration didn't
 // succeed.
 //
-// Returns a non-nil error on the SWAPPING path when the flip fails (for
-// change-algorithm, only when the stamp fails): wrapped in
-// [distributedtask.ErrTaskCompletionPermanent] when unrecoverable, plain when
-// transient (weaviate/0-weaviate-issues#297). Terminal-status cleanup always returns nil.
+// On SWAPPING, a failed flip (for change-algorithm, a failed stamp) returns an error,
+// wrapped in [distributedtask.ErrTaskCompletionPermanent] when unrecoverable.
 func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	// Clear caches up-front so a failed-task early return doesn't leak.
 	payload, payloadErr := p.loadPayload(task)
