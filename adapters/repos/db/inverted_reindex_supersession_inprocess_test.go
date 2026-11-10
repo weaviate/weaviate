@@ -188,50 +188,81 @@ func TestASwapLeavesADisplacedDirAnotherRecordStillNames(t *testing.T) {
 		"the successor's flip must not remove the directory the predecessor names as its staged data")
 }
 
-// A resumed swap writes no record, so only runtimeSwap's Unreadable check
+// A resumed swap writes no record, so only runtimeSwap's own records check
 // can save a dir another record still needs.
-func TestAResumedSwapLeavesItsDisplacedDirWhileARecordIsNotUnderstood(t *testing.T) {
-	ctx := testCtx()
-	className := "SwapKeepsDirOnFault_" + uuid.NewString()[:8]
-	props := []string{"title", "body"}
-	class := newEnableFilterableTestClass(className, props...)
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(context.Background())
-
-	for _, obj := range makeConvergenceTestObjects(t, 10, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
+func TestAResumedSwapLeavesItsDisplacedDirWhileItsRecordsAreIncomplete(t *testing.T) {
+	tests := []struct {
+		name string
+		// breakRecords leaves the shard's records incomplete for the swap.
+		breakRecords func(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric)
+		wantWarn     string
+		wantNotWarn  string
+	}{
+		{
+			name: "a record is not understood",
+			breakRecords: func(t *testing.T, shard *Shard, _ *ShardReindexTaskGeneric) {
+				plantUnreadableRecord(t, shard.migrationRecords.Dir())
+				require.NoError(t, shard.migrationRecords.Load())
+			},
+			wantWarn: unreadableRecordFile,
+		},
+		{
+			// Stands in for a lazy shard that fails to reload mid-swap.
+			name: "the records cannot be read at all",
+			breakRecords: func(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric) {
+				task.onPropSwapped = func(string) { shard.migrationRecords = nil }
+			},
+			wantWarn:    "could not be read",
+			wantNotWarn: "fault",
+		},
 	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "SwapKeepsDirOnFault_" + uuid.NewString()[:8]
+			props := []string{"title", "body"}
+			class := newEnableFilterableTestClass(className, props...)
 
-	task, strategy := newEnableFilterableTaskAtGeneration(t, idx, className, 1, shard.migrationUnit(), props...)
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
 
-	displaced := map[string]string{}
-	for _, prop := range props {
-		displaced[prop] = filepath.Base(shard.store.Bucket(task.strategy.SourceBucketName(prop)).GetDir())
+			for _, obj := range makeConvergenceTestObjects(t, 10, className) {
+				require.NoError(t, shard.PutObject(ctx, obj))
+			}
+
+			task, strategy := newEnableFilterableTaskAtGeneration(t, idx, className, 1, shard.migrationUnit(), props...)
+			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+			require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+
+			displaced := map[string]string{}
+			for _, prop := range props {
+				displaced[prop] = filepath.Base(shard.store.Bucket(task.strategy.SourceBucketName(prop)).GetDir())
+			}
+			subject, err := task.migrationSubjectNow(shard)
+			require.NoError(t, err)
+			require.NoError(t, task.putMigrationRecord(shard, NewMigrationRecordSwapped(subject, props, displaced)))
+			tc.breakRecords(t, shard, task)
+
+			logger, hook := test.NewNullLogger()
+			require.NoError(t, task.runtimeSwap(ctx, logger, shard, props))
+
+			for _, dir := range displaced {
+				require.DirExists(t, filepath.Join(shard.pathLSM(), dir))
+			}
+			var warned []string
+			for _, entry := range hook.AllEntries() {
+				if entry.Level == logrus.WarnLevel {
+					warned = append(warned, entry.Message)
+				}
+			}
+			require.NotEmpty(t, warned)
+			require.Contains(t, warned[0], tc.wantWarn)
+			if tc.wantNotWarn != "" {
+				require.NotContains(t, warned[0], tc.wantNotWarn, "the warning must not name a fault that does not exist")
+			}
+			require.True(t, strategy.migrationCompleted, "keeping the dirs must not cut the rest of the swap short")
+		})
 	}
-	subject, err := task.migrationSubjectNow(shard)
-	require.NoError(t, err)
-	require.NoError(t, task.putMigrationRecord(shard, NewMigrationRecordSwapped(subject, props, displaced)))
-	plantUnreadableRecord(t, shard.migrationRecords.Dir())
-	require.NoError(t, shard.migrationRecords.Load())
-
-	logger, hook := test.NewNullLogger()
-	require.NoError(t, task.runtimeSwap(ctx, logger, shard, props))
-
-	for _, dir := range displaced {
-		require.DirExists(t, filepath.Join(shard.pathLSM(), dir))
-	}
-	var warned []string
-	for _, entry := range hook.AllEntries() {
-		if entry.Level == logrus.WarnLevel {
-			warned = append(warned, entry.Message)
-		}
-	}
-	require.NotEmpty(t, warned)
-	require.Contains(t, warned[0], unreadableRecordFile, "the kept-dirs warning names the file to fix")
-	require.True(t, strategy.migrationCompleted, "keeping the dirs must not cut the rest of the swap short")
 }

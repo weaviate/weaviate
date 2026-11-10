@@ -27,7 +27,6 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1204,14 +1203,15 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		}
 	}
 	if len(kept) > 0 {
-		first := "unknown"
+		cause, remedy := "this shard's migration records could not be read, and one may name them", "restart"
 		if len(preserve.faults) > 0 {
-			first = strconv.Quote(preserve.faults[0].FileName)
+			cause = fmt.Sprintf("a migration record fault on this shard (first: %q) may name them",
+				preserve.faults[0].FileName)
+			remedy = "fix that fault and restart"
 		}
 		logger.WithField("dirs", strings.Join(migrationReportedNames(kept), ", ")).Warnf(
-			"leaving %d displaced directory/directories in place, because a migration record fault on "+
-				"this shard (first: %s) may name them; fix that fault and restart the node (or deactivate "+
-				"and reactivate the tenant) to clear them", len(kept), first)
+			"leaving %d displaced directory/directories in place, because %s; %s the node (or deactivate "+
+				"and reactivate the tenant) to clear them", len(kept), cause, remedy)
 	}
 
 	logger.Debug("runtime swap: displaced dirs settled (staged→canonical rename deferred to next load)")
