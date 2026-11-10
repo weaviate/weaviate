@@ -313,8 +313,7 @@ var discardLogger = func() *logrus.Logger {
 	return l
 }()
 
-// swapLogger logs a task's first swap attempt in full. A decided swap that keeps
-// failing is retried every tick, so a retry logs only when the node-wide sampler admits it.
+// swapLogger logs a task's first swap attempt in full and its per-tick retries within the node-wide sample.
 func (t *ShardReindexTaskGeneric) swapLogger(retries *logrusext.Sampler) logrus.FieldLogger {
 	if !t.swapAttempted.Swap(true) {
 		return t.logger

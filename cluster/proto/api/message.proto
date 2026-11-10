@@ -314,10 +314,9 @@ message MarkTaskFinalizedRequest {
   int64 finalized_at_unix_millis = 4;
 }
 
-// MarkTaskFailedRequest ends a SWAPPING task when OnTaskCompleted returns
-// a terminal error: permanent schema-flip failure or retry-exhausted
-// transient one. It records FAILED, or FINISHED when the run's cutover
-// write already landed (weaviate/0-weaviate-issues#297).
+// MarkTaskFailedRequest ends a SWAPPING task when OnTaskCompleted returns a
+// terminal error: a permanent schema-flip failure or an exhausted retry. It
+// records FAILED, or FINISHED when the run's cutover write already landed.
 // Idempotent at the FSM layer: a later commit on a terminal task is a no-op.
 message MarkTaskFailedRequest {
   string namespace = 1;

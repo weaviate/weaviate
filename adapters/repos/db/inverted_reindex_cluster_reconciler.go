@@ -34,9 +34,7 @@ type MigrationLocalTaskSource func(shard string) ([]distributedtask.TaskStatusEn
 // MigrationClusterTaskSource reads the reindex task namespace from the leader.
 type MigrationClusterTaskSource func(context.Context) ([]*distributedtask.Task, error)
 
-// migrationClusterReconciler decides this node's undecided migration records
-// against the leader's reindex task list, and the overrides a load decided
-// without the local one.
+// migrationClusterReconciler decides undecided records and unsure load overrides against the leader's tasks.
 type migrationClusterReconciler struct {
 	db *DB
 

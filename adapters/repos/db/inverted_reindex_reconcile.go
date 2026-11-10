@@ -714,8 +714,7 @@ func (r *migrationReconciler) reconcilePromoted(ctx context.Context, rec Migrati
 	})
 }
 
-// RedecideOverrides runs the load's decision again for each promoted record a
-// load kept without reading the task list, and returns the records it released.
+// RedecideOverrides re-decides the records a load kept without the task list, returning those released.
 func (r *migrationReconciler) RedecideOverrides(ctx context.Context) []MigrationSubject {
 	if _, readable := r.localTasks(); !readable || !r.store.overridesUnsure.Swap(false) {
 		return nil

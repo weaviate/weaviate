@@ -124,9 +124,8 @@ func migratedIndexStandsIn(records []MigrationRecord, tasks []distributedtask.Ta
 	return false
 }
 
-// Reads no task list, so every flip-decided record stands: a newer run records
-// its flip before it sets its overlay, so under this lock either its record is
-// seen or its overlay lands after.
+// Every flip-decided record stands: a newer run records its flip before it sets
+// its overlay, so under this lock its record is seen or its overlay lands after.
 func (s *Shard) retireReleasedOverlays(released []MigrationSubject, class *models.Class) {
 	s.propertyOverlayMu.Lock()
 	defer s.propertyOverlayMu.Unlock()
