@@ -2348,6 +2348,31 @@ func TestStorageObjectRemoveTargetVector(t *testing.T) {
 	}
 }
 
+// The token ids of a multi-vector go with it: an object whose multi-vector
+// is removed keeps no token ids under that name, and token ids left alone
+// under a removed name are removed too.
+func TestStorageObjectRemoveTargetVectorTokenIDs(t *testing.T) {
+	tests := []struct {
+		name         string
+		multiVectors map[string][][]float32
+		wantChanged  bool
+	}{
+		{name: "with its multi-vector", multiVectors: map[string][][]float32{"mv": {{1, 2}}, "keep": {{3, 4}}}, wantChanged: true},
+		{name: "token ids alone", multiVectors: map[string][][]float32{"keep": {{3, 4}}}, wantChanged: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := &Object{
+				Object:       models.Object{TokenIds: models.TokenIds{"mv": {7}, "keep": {8}}},
+				MultiVectors: tt.multiVectors,
+			}
+			assert.Equal(t, tt.wantChanged, o.RemoveTargetVector("mv"))
+			assert.Equal(t, models.TokenIds{"keep": {8}}, o.Object.TokenIds)
+			assert.False(t, o.RemoveTargetVector("mv"))
+		})
+	}
+}
+
 func TestStorageObjectRemoveTargetVectorRoundTrip(t *testing.T) {
 	before := FromObject(
 		&models.Object{

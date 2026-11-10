@@ -326,3 +326,41 @@ func BenchmarkExportFromBinary(b *testing.B) {
 		}
 	})
 }
+
+// The token ids stored with the multi-vectors are exported, so that a
+// collection exported and imported again keeps them. An object without
+// token ids exports none.
+func TestExportFieldsFromBinaryTokenIDs(t *testing.T) {
+	tests := []struct {
+		name     string
+		tokenIDs models.TokenIds
+	}{
+		{name: "with token ids", tokenIDs: models.TokenIds{"colbert": {101, 7592}}},
+		{name: "without token ids"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			obj := &Object{
+				MarshallerVersion: 1,
+				Object: models.Object{
+					ID:       strfmt.UUID("33333333-4444-5555-6666-777777777777"),
+					Class:    "TokenClass",
+					TokenIds: tc.tokenIDs,
+				},
+				MultiVectors: map[string][][]float32{"colbert": {{1, 2}, {3, 4}}},
+			}
+			data, err := obj.MarshalBinary()
+			require.NoError(t, err)
+
+			fields, err := ExportFieldsFromBinary(data)
+			require.NoError(t, err)
+			if tc.tokenIDs == nil {
+				assert.Nil(t, fields.TokenIDs)
+				return
+			}
+			var actual models.TokenIds
+			require.NoError(t, json.Unmarshal(fields.TokenIDs, &actual))
+			assert.Equal(t, tc.tokenIDs, actual)
+		})
+	}
+}

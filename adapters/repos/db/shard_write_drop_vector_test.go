@@ -154,6 +154,14 @@ func TestStripDroppedVectors(t *testing.T) {
 	require.Len(t, shared, 2, "the shared previous-version map must not be mutated")
 	require.Len(t, sharedMulti, 2, "the shared previous-version multi map must not be mutated")
 
+	// the token ids of a dropped multi-vector go with it
+	sharedIDs := models.TokenIds{"mdropped": {5}, "mlive": {6}}
+	obj3 := &storobj.Object{MultiVectors: map[string][][]float32{"mlive": {{4}}}}
+	obj3.Object.TokenIds = sharedIDs
+	stripDroppedVectors(class, obj3)
+	require.Equal(t, models.TokenIds{"mlive": {6}}, obj3.Object.TokenIds)
+	require.Len(t, sharedIDs, 2, "the shared previous-version token ids must not be mutated")
+
 	// Nothing dropped: maps are kept as-is (no rebuild).
 	obj2 := &storobj.Object{Vectors: map[string][]float32{"live": {2}}}
 	before := obj2.Vectors

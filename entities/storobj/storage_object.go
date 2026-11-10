@@ -892,11 +892,14 @@ func (ko *Object) RemoveTargetVector(targetVector string) bool {
 		delete(ko.Vectors, targetVector)
 		return true
 	}
+	// the token ids of a multi-vector go with it
+	_, hasIDs := ko.Object.TokenIds[targetVector]
+	delete(ko.Object.TokenIds, targetVector)
 	if _, ok := ko.MultiVectors[targetVector]; ok {
 		delete(ko.MultiVectors, targetVector)
 		return true
 	}
-	return false
+	return hasIDs
 }
 
 func SearchResults(in []*Object, additional additional.Properties, tenant string) search.Results {

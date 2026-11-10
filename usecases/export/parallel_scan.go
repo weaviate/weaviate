@@ -203,6 +203,7 @@ func scanRangeToWriter(
 			Vector:       fields.VectorBytes,
 			NamedVectors: fields.NamedVectors,
 			MultiVectors: fields.MultiVectors,
+			TokenIDs:     fields.TokenIDs,
 			Properties:   fields.Properties,
 		}
 
