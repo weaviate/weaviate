@@ -1,0 +1,502 @@
+{
+  "arm": "postingedge",
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "vectors": 990000,
+  "dims": 1536,
+  "queries": 100,
+  "k": 10,
+  "goVersion": "go1.27.0",
+  "goarch": "arm64",
+  "gomaxprocs": 10,
+  "config": {
+    "edges": 16,
+    "postings": 4195,
+    "probes": [
+      128,
+      256
+    ],
+    "rescues": [
+      64,
+      128,
+      256,
+      512,
+      1024,
+      2048,
+      4096
+    ],
+    "sample": 1000,
+    "targetPostingSize": 236
+  },
+  "buildSec": 0,
+  "memBaseline": {
+    "heapAllocMB": 5829.45955657959,
+    "heapInuseMB": 5831.734375,
+    "rssMB": 5868.546875,
+    "footprintMB": 5852
+  },
+  "memAfterBuild": {
+    "heapAllocMB": 0,
+    "heapInuseMB": 0,
+    "rssMB": 0
+  },
+  "memAfterQueries": {
+    "heapAllocMB": 0,
+    "heapInuseMB": 0,
+    "rssMB": 0
+  },
+  "settleQueries": 0,
+  "indexHeapMB": 0,
+  "peakRSSMB": 0,
+  "componentsMB": null,
+  "points": null,
+  "edgeRecall": [
+    {
+      "codeBits": 0,
+      "probe": 128,
+      "rescue": 64,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 1640.398432,
+      "edgeRecall": 0.927405119152692
+    },
+    {
+      "codeBits": 0,
+      "probe": 128,
+      "rescue": 128,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 1791.699661,
+      "edgeRecall": 0.9297219770520742
+    },
+    {
+      "codeBits": 0,
+      "probe": 128,
+      "rescue": 256,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 1916.100396,
+      "edgeRecall": 0.9298323036187114
+    },
+    {
+      "codeBits": 0,
+      "probe": 128,
+      "rescue": 512,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 2173.660593,
+      "edgeRecall": 0.9298323036187114
+    },
+    {
+      "codeBits": 0,
+      "probe": 128,
+      "rescue": 1024,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 2705.898373,
+      "edgeRecall": 0.9298323036187114
+    },
+    {
+      "codeBits": 0,
+      "probe": 128,
+      "rescue": 2048,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 4175.8955989999995,
+      "edgeRecall": 0.9298323036187114
+    },
+    {
+      "codeBits": 0,
+      "probe": 128,
+      "rescue": 4096,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 6733.443837000001,
+      "edgeRecall": 0.9298323036187114
+    },
+    {
+      "codeBits": 0,
+      "probe": 256,
+      "rescue": 64,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 3327.387997,
+      "edgeRecall": 0.9609443954104149
+    },
+    {
+      "codeBits": 0,
+      "probe": 256,
+      "rescue": 128,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 3493.652752,
+      "edgeRecall": 0.9634819064430715
+    },
+    {
+      "codeBits": 0,
+      "probe": 256,
+      "rescue": 256,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 3628.5975780000003,
+      "edgeRecall": 0.9635922330097088
+    },
+    {
+      "codeBits": 0,
+      "probe": 256,
+      "rescue": 512,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 3878.591054,
+      "edgeRecall": 0.9635922330097088
+    },
+    {
+      "codeBits": 0,
+      "probe": 256,
+      "rescue": 1024,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 4311.570544,
+      "edgeRecall": 0.9635922330097088
+    },
+    {
+      "codeBits": 0,
+      "probe": 256,
+      "rescue": 2048,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 5563.574987,
+      "edgeRecall": 0.9635922330097088
+    },
+    {
+      "codeBits": 0,
+      "probe": 256,
+      "rescue": 4096,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 8130.672618,
+      "edgeRecall": 0.9635922330097088
+    },
+    {
+      "codeBits": 768,
+      "probe": 128,
+      "rescue": 64,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 1364.208308,
+      "edgeRecall": 0.8799646954986761
+    },
+    {
+      "codeBits": 768,
+      "probe": 128,
+      "rescue": 128,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 1482.180422,
+      "edgeRecall": 0.9162621359223301
+    },
+    {
+      "codeBits": 768,
+      "probe": 128,
+      "rescue": 256,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 1643.7303700000002,
+      "edgeRecall": 0.9268534863195057
+    },
+    {
+      "codeBits": 768,
+      "probe": 128,
+      "rescue": 512,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 2219.8524350000002,
+      "edgeRecall": 0.9290600176522507
+    },
+    {
+      "codeBits": 768,
+      "probe": 128,
+      "rescue": 1024,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 2614.4700040000002,
+      "edgeRecall": 0.9297219770520742
+    },
+    {
+      "codeBits": 768,
+      "probe": 128,
+      "rescue": 2048,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 3826.1175780000003,
+      "edgeRecall": 0.9297219770520742
+    },
+    {
+      "codeBits": 768,
+      "probe": 128,
+      "rescue": 4096,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 6590.0999170000005,
+      "edgeRecall": 0.9298323036187114
+    },
+    {
+      "codeBits": 768,
+      "probe": 256,
+      "rescue": 64,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 2717.907122,
+      "edgeRecall": 0.9069947043248014
+    },
+    {
+      "codeBits": 768,
+      "probe": 256,
+      "rescue": 128,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 2890.463758,
+      "edgeRecall": 0.9478155339805825
+    },
+    {
+      "codeBits": 768,
+      "probe": 256,
+      "rescue": 256,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 3031.933919,
+      "edgeRecall": 0.9596204766107679
+    },
+    {
+      "codeBits": 768,
+      "probe": 256,
+      "rescue": 512,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 3215.09712,
+      "edgeRecall": 0.962819947043248
+    },
+    {
+      "codeBits": 768,
+      "probe": 256,
+      "rescue": 1024,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 3765.846284,
+      "edgeRecall": 0.9634819064430715
+    },
+    {
+      "codeBits": 768,
+      "probe": 256,
+      "rescue": 2048,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 5181.578458,
+      "edgeRecall": 0.9634819064430715
+    },
+    {
+      "codeBits": 768,
+      "probe": 256,
+      "rescue": 4096,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 7676.433659,
+      "edgeRecall": 0.9635922330097088
+    },
+    {
+      "codeBits": 512,
+      "probe": 128,
+      "rescue": 64,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 1191.576906,
+      "edgeRecall": 0.815864960282436
+    },
+    {
+      "codeBits": 512,
+      "probe": 128,
+      "rescue": 128,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 1345.431658,
+      "edgeRecall": 0.8794130626654898
+    },
+    {
+      "codeBits": 512,
+      "probe": 128,
+      "rescue": 256,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 1444.805021,
+      "edgeRecall": 0.9110767872903796
+    },
+    {
+      "codeBits": 512,
+      "probe": 128,
+      "rescue": 512,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 1713.966973,
+      "edgeRecall": 0.9244263018534863
+    },
+    {
+      "codeBits": 512,
+      "probe": 128,
+      "rescue": 1024,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 2321.338073,
+      "edgeRecall": 0.9291703442188879
+    },
+    {
+      "codeBits": 512,
+      "probe": 128,
+      "rescue": 2048,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 3819.445708,
+      "edgeRecall": 0.9296116504854369
+    },
+    {
+      "codeBits": 512,
+      "probe": 128,
+      "rescue": 4096,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 6459.912946,
+      "edgeRecall": 0.9298323036187114
+    },
+    {
+      "codeBits": 512,
+      "probe": 256,
+      "rescue": 64,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 2346.649828,
+      "edgeRecall": 0.8374889673433362
+    },
+    {
+      "codeBits": 512,
+      "probe": 256,
+      "rescue": 128,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 2571.6073939999997,
+      "edgeRecall": 0.9074360105913504
+    },
+    {
+      "codeBits": 512,
+      "probe": 256,
+      "rescue": 256,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 2635.299167,
+      "edgeRecall": 0.9410856134157105
+    },
+    {
+      "codeBits": 512,
+      "probe": 256,
+      "rescue": 512,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 2927.9250669999997,
+      "edgeRecall": 0.9563106796116505
+    },
+    {
+      "codeBits": 512,
+      "probe": 256,
+      "rescue": 1024,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 3415.162942,
+      "edgeRecall": 0.9622683142100618
+    },
+    {
+      "codeBits": 512,
+      "probe": 256,
+      "rescue": 2048,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 4614.967994,
+      "edgeRecall": 0.9633715798764343
+    },
+    {
+      "codeBits": 512,
+      "probe": 256,
+      "rescue": 4096,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 7460.992286000001,
+      "edgeRecall": 0.9634819064430715
+    },
+    {
+      "codeBits": 256,
+      "probe": 128,
+      "rescue": 64,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 711.882671,
+      "edgeRecall": 0.64022506619594
+    },
+    {
+      "codeBits": 256,
+      "probe": 128,
+      "rescue": 128,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 823.154647,
+      "edgeRecall": 0.7424977934686673
+    },
+    {
+      "codeBits": 256,
+      "probe": 128,
+      "rescue": 256,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 962.136784,
+      "edgeRecall": 0.8273389232127096
+    },
+    {
+      "codeBits": 256,
+      "probe": 128,
+      "rescue": 512,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 1293.246135,
+      "edgeRecall": 0.8767652250661959
+    },
+    {
+      "codeBits": 256,
+      "probe": 128,
+      "rescue": 1024,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 1914.11949,
+      "edgeRecall": 0.9097528684907326
+    },
+    {
+      "codeBits": 256,
+      "probe": 128,
+      "rescue": 2048,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 3167.243569,
+      "edgeRecall": 0.9236540158870256
+    },
+    {
+      "codeBits": 256,
+      "probe": 128,
+      "rescue": 4096,
+      "candidatesPerVector": 25739.41,
+      "microsPerVector": 5859.100529,
+      "edgeRecall": 0.928729037952339
+    },
+    {
+      "codeBits": 256,
+      "probe": 256,
+      "rescue": 64,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 1312.229341,
+      "edgeRecall": 0.6497131509267432
+    },
+    {
+      "codeBits": 256,
+      "probe": 256,
+      "rescue": 128,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 1456.327304,
+      "edgeRecall": 0.7577228596646073
+    },
+    {
+      "codeBits": 256,
+      "probe": 256,
+      "rescue": 256,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 1589.000944,
+      "edgeRecall": 0.8453221535745807
+    },
+    {
+      "codeBits": 256,
+      "probe": 256,
+      "rescue": 512,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 1881.280802,
+      "edgeRecall": 0.8992718446601942
+    },
+    {
+      "codeBits": 256,
+      "probe": 256,
+      "rescue": 1024,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 2539.803658,
+      "edgeRecall": 0.9361209179170344
+    },
+    {
+      "codeBits": 256,
+      "probe": 256,
+      "rescue": 2048,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 3897.8215440000004,
+      "edgeRecall": 0.9532215357458076
+    },
+    {
+      "codeBits": 256,
+      "probe": 256,
+      "rescue": 4096,
+      "candidatesPerVector": 51222.127,
+      "microsPerVector": 6654.316033,
+      "edgeRecall": 0.9607237422771403
+    }
+  ]
+}

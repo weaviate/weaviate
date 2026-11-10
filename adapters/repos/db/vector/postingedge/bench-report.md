@@ -4,6 +4,56 @@
 **Dataset:** dbpedia-openai-1000k-angular (990 000 × 1536d, cosine, GT exacto top-100), el de las sims de `findings.md`
 **Máquina:** Apple M1 Max (8P+2E), 64 GB, Go 1.27, GOMAXPROCS=10, escritorio en uso ligero
 
+## v1.2, Fase B: presupuesto de código. Parada en el gate del recall de arista (2026-11-10)
+
+**Estado: detenida antes de correr las celdas capadas, a la espera de decisión.** Con el rescate exacto del constructor intacto (top-64), el recall de arista cae bajo el gate de 0.90 en dos de las tres celdas capadas. El problema es el constructor, no la búsqueda, como anticipaba el stop-and-report.
+
+`CodeBits` conserva los primeros N bits de signo de cada código CRQ1; el mismo código sirve al scan, al routing y al constructor. Antes de construir ninguna celda se midió solo el constructor: una partición y una asignación a 1M (4 195 postings, S=236), y sobre una muestra de 1 000 vectores la búsqueda de vecinos del constructor para cada ancho de código, P y límite de rescate R. El recall de arista es la fracción de los vecinos exactos del top-16 que viven en otro posting y que el constructor encuentra.
+
+Recall de arista con P=256 (51 222 candidatos por vector):
+
+| código | B por vector | R=64 | R=128 | R=256 | R=512 | R=1024 | R=2048 | R=4096 |
+|---|---|---|---|---|---|---|---|---|
+| completo (control) | 200 | **0.9609** | 0.9635 | 0.9636 | 0.9636 | 0.9636 | 0.9636 | 0.9636 |
+| capado a 768 bits | 104 | 0.9070 | 0.9478 | 0.9596 | **0.9628** | 0.9635 | 0.9635 | 0.9636 |
+| capado a 512 bits | 72 | 0.8375 | 0.9074 | 0.9411 | 0.9563 | **0.9623** | 0.9634 | 0.9635 |
+| capado a 256 bits | 40 | 0.6497 | 0.7577 | 0.8453 | 0.8993 | 0.9361 | 0.9532 | **0.9607** |
+
+Los bytes por vector incluyen la palabra de cabecera (8 B). En negrita, el menor R de la malla que iguala al control dentro del ruido de la muestra (~9 000 aristas, error típico ~0.002).
+
+Lectura:
+
+1. **La cobertura no es el problema.** El techo es el mismo para todos los códigos, 0.9636: los vecinos están entre los candidatos. Lo que se pierde es el corte a los R mejores por código, que con códigos más ruidosos deja fuera vecinos verdaderos.
+2. **Con R=64, el gate salta.** 0.907 a 768 bits (pasa el 0.90, pero 5 puntos bajo el control), 0.838 a 512 y 0.650 a 256.
+3. **Subir R lo recupera, y a 768 y 512 bits no cuesta build.** El código capado puntúa más rápido, y eso paga las distancias exactas de más:
+
+| celda | recall de arista | CPU por vector, µs | contra el control |
+|---|---|---|---|
+| completo, R=64 (control) | 0.9609 | 3 327 | 1.00x |
+| 768 bits, R=512 | 0.9628 | 3 215 | 0.97x |
+| 512 bits, R=1024 | 0.9623 | 3 415 | 1.03x |
+| 256 bits, R=2048 | 0.9532 | 3 898 | 1.17x |
+| 256 bits, R=4096 | 0.9607 | 6 654 | 2.00x |
+
+El coste es el de la búsqueda de vecinos de un vector de la muestra. La muestra está dispersa por los postings, así que sus códigos están más fríos que en un build, que recorre los vectores posting a posting: es una cota superior. El control coincide con la etapa de aristas medida en el v1.1 (331 s en 10 cores para 990 000 vectores, 3.3 ms de CPU por vector).
+
+Con P=128 el patrón es el mismo con un techo más bajo (0.9298): 0.9274 el control, y 0.880 / 0.816 / 0.640 con R=64 a 768 / 512 / 256 bits.
+
+Opciones para seguir:
+
+- **A. Escalar R con el ancho del código** (768 → 512, 512 → 1024, 256 → 4096). Mantiene un solo código en todo el índice, iguala el recall de arista del control y deja el build donde estaba salvo a 256 bits (2x en la etapa de aristas). Es la recomendada.
+- **B. Constructor con códigos completos transitorios**, que se descartan al terminar el build (+189 MB de pico a 1M). Las aristas serían idénticas en todas las celdas, el aislamiento más limpio del efecto en la búsqueda, pero rompe "mismo código para scan, routing y constructor".
+- **C. Correr las celdas tal cual (R=64).** Mide la búsqueda sobre un grafo peor: el resultado mezclaría los dos efectos, y solo la celda de 768 bits pasa el gate.
+
+Datos: `testdata/bench/v1.2/edge-recall-grid.json`. Reproducción:
+
+```bash
+go test -tags postingedgebench -run 'TestBenchmark$' -timeout 0 -v ./adapters/repos/db/vector/postingedge/ \
+  -bench.dataset $D -bench.arm postingedge -bench.mode edgerecall -bench.posting 236 \
+  -bench.codebitslist 0,768,512,256 -bench.probes 128,256 -bench.rescues 64,128,256,512,1024,2048,4096 \
+  -bench.out $B/v1.2/edge-recall-grid.json
+```
+
 ## v1.1: optimización del cuello (2026-11-10)
 
 Segunda ronda, sobre el mismo dataset, la misma máquina y el mismo protocolo. El brazo HNSW es el del v1, sin re-medir. El índice se midió sobre el commit `243a571e65`; los defaults se fijaron después, a partir de estas medidas.
