@@ -110,9 +110,11 @@ func TestBenchmarkReport(t *testing.T) {
 	require.NoError(t, os.MkdirAll(*reportOut, 0o755))
 
 	var md strings.Builder
+	var chartBefore *benchResult
 	if *reportBefore != "" {
 		var before benchResult
 		readJSON(t, *reportBefore, &before)
+		chartBefore = &before
 		var beforeWork *benchResult
 		if *reportBeforeWork != "" {
 			beforeWork = &benchResult{}
@@ -155,7 +157,7 @@ func TestBenchmarkReport(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(*reportOut, "tables.md"), []byte(md.String()), 0o644))
 
 	for _, threads := range threadCounts(&ours, &theirs) {
-		chart := recallQPSChart(&ours, &theirs, threads)
+		chart := recallQPSChart(&ours, &theirs, chartBefore, threads)
 		name := fmt.Sprintf("recall-qps-threads%d.svg", threads)
 		require.NoError(t, os.WriteFile(filepath.Join(*reportOut, name), []byte(chart), 0o644))
 	}
@@ -245,6 +247,29 @@ func qpsAtRecall(front []benchPoint, target float64) (qps float64, ok bool) {
 	return 0, false
 }
 
+// bestQPSAtRecall reads the best QPS a set of operating points reaches at a
+// recall level. The points are grouped into the curves they were measured as,
+// one per rescore limit, load batch and source margin with ef as the only
+// variable, and each curve is read on its own: interpolating between points
+// of different curves would invent operating points nobody measured.
+func bestQPSAtRecall(points []benchPoint, target float64) (qps float64, ok bool) {
+	type curve struct {
+		rescore, batch int
+		margin         float64
+	}
+	curves := map[curve][]benchPoint{}
+	for _, p := range points {
+		c := curve{p.RescoreLimit, p.LoadBatch, p.SourceMargin}
+		curves[c] = append(curves[c], p)
+	}
+	for _, curvePoints := range curves {
+		if read, reached := qpsAtRecall(frontier(curvePoints), target); reached && read > qps {
+			qps, ok = read, true
+		}
+	}
+	return qps, ok
+}
+
 // writeIsoRecallTable compares the QPS of the two indexes at equal recall,
 // first with both at the same rescore limit and the default load batch, then
 // with each index on the best operating points it has.
@@ -269,15 +294,15 @@ func writeIsoRecallTable(md *strings.Builder, ours, theirs *benchResult) {
 	}
 
 	fmt.Fprintf(md, "## QPS at equal recall\n\n")
-	fmt.Fprintf(md, "Read off each index's Pareto frontier, interpolated linearly in recall and log QPS.\n\n")
+	fmt.Fprintf(md, "Read off the ef curve of each configuration, interpolated linearly in recall and log QPS; the best configuration of each index at each recall.\n\n")
 	fmt.Fprintf(md, "| comparison | threads | recall | posting-edge QPS | HNSW QPS | HNSW / posting-edge |\n|---|---|---|---|---|---|\n")
 	for _, view := range views {
 		for _, threads := range threadCounts(ours, theirs) {
-			oursFront := frontier(pick(ours, threads, view.ours))
-			theirsFront := frontier(pick(theirs, threads, view.theirs))
+			oursPoints := pick(ours, threads, view.ours)
+			theirsPoints := pick(theirs, threads, view.theirs)
 			for _, target := range isoRecallTargets {
-				oursQPS, oursOK := qpsAtRecall(oursFront, target)
-				theirsQPS, theirsOK := qpsAtRecall(theirsFront, target)
+				oursQPS, oursOK := bestQPSAtRecall(oursPoints, target)
+				theirsQPS, theirsOK := bestQPSAtRecall(theirsPoints, target)
 				ratio := "—"
 				if oursOK && theirsOK {
 					ratio = fmt.Sprintf("%.2fx", theirsQPS/oursQPS)
@@ -295,16 +320,16 @@ func writeIsoRecallTable(md *strings.Builder, ours, theirs *benchResult) {
 // against HNSW.
 func writeBeforeAfterTable(md *strings.Builder, before, after, theirs *benchResult) {
 	fmt.Fprintf(md, "## QPS at equal recall, before and after\n\n")
-	fmt.Fprintf(md, "Each index on its best measured points, read off its Pareto frontier.\n\n")
+	fmt.Fprintf(md, "The best configuration of each index at each recall, read off its ef curve.\n\n")
 	fmt.Fprintf(md, "| threads | recall | before QPS | after QPS | after / before | HNSW QPS | HNSW / before | HNSW / after |\n|---|---|---|---|---|---|---|---|\n")
 	for _, threads := range threadCounts(before, after, theirs) {
-		beforeFront := frontier(pick(before, threads, nil))
-		afterFront := frontier(pick(after, threads, nil))
-		theirsFront := frontier(pick(theirs, threads, nil))
+		beforePoints := pick(before, threads, nil)
+		afterPoints := pick(after, threads, nil)
+		theirsPoints := pick(theirs, threads, nil)
 		for _, target := range isoRecallTargets {
-			b, bOK := qpsAtRecall(beforeFront, target)
-			a, aOK := qpsAtRecall(afterFront, target)
-			h, hOK := qpsAtRecall(theirsFront, target)
+			b, bOK := bestQPSAtRecall(beforePoints, target)
+			a, aOK := bestQPSAtRecall(afterPoints, target)
+			h, hOK := bestQPSAtRecall(theirsPoints, target)
 			ratio := func(x, y float64, ok bool) string {
 				if !ok {
 					return "—"
@@ -978,7 +1003,6 @@ const (
 	chartHeight    = 520.0
 	chartLeft      = 76.0
 	chartRight     = 26.0
-	chartTop       = 96.0
 	chartBottom    = 62.0
 	chartFontStack = "-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
 )
@@ -986,7 +1010,12 @@ const (
 // recallQPSChart draws recall against QPS for one thread count. Recall runs
 // on a -log10(1-recall) scale, which spreads the high-recall end where the
 // operating points crowd together, and QPS on a log scale.
-func recallQPSChart(ours, theirs *benchResult, threads int) string {
+//
+// Without an earlier result it draws every configuration of the posting-edge
+// index. With one it draws the story of the change instead: the index at the
+// configuration it would be run with, before and after, and after without a
+// source margin.
+func recallQPSChart(ours, theirs, before *benchResult, threads int) string {
 	var series []chartSeries
 	add := func(result *benchResult, label, color, dash string, accept func(benchPoint) bool) bool {
 		points := pick(result, threads, accept)
@@ -1002,20 +1031,50 @@ func recallQPSChart(ours, theirs *benchResult, threads int) string {
 		add(theirs, fmt.Sprintf("HNSW, rescore %d", rescore), chartHNSW, dashes[min(i, len(dashes)-1)],
 			func(p benchPoint) bool { return p.RescoreLimit == rescore })
 	}
-	style := 0
-	for _, margin := range sourceMargins(ours.Points) {
-		for _, rescore := range rescoreLimits(ours) {
-			for _, batch := range loadBatches(ours) {
-				label := fmt.Sprintf("posting-edge, rescore %d, batch %d", rescore, batch)
-				if margin != 0 {
-					label += fmt.Sprintf(", margin %.2f", margin)
-				}
-				added := add(ours, label, chartPostEdge, dashes[min(style, len(dashes)-1)],
-					func(p benchPoint) bool {
-						return p.RescoreLimit == rescore && p.LoadBatch == batch && p.SourceMargin == margin
-					})
-				if added {
-					style++
+	if before != nil {
+		// The configuration either version would be run with: its lowest
+		// rescore limit, the default load batch, and for the new one the
+		// margin that is fastest at the lowest ef.
+		lowest := func(result *benchResult) int { return slices.Min(rescoreLimits(result)) }
+		at := func(result *benchResult, margin float64) func(benchPoint) bool {
+			rescore := lowest(result)
+			return func(p benchPoint) bool {
+				return p.RescoreLimit == rescore && p.LoadBatch == DefaultLoadBatch && p.SourceMargin == margin
+			}
+		}
+		bestMargin, bestQPS := 0.0, 0.0
+		for _, margin := range sourceMargins(ours.Points) {
+			points := pick(ours, threads, at(ours, margin))
+			slices.SortFunc(points, func(a, b benchPoint) int { return a.EF - b.EF })
+			if len(points) > 0 && points[0].QPS > bestQPS {
+				bestMargin, bestQPS = margin, points[0].QPS
+			}
+		}
+		label := fmt.Sprintf("posting-edge now, rescore %d", lowest(ours))
+		if bestMargin != 0 {
+			label += fmt.Sprintf(", margin %.2f", bestMargin)
+			add(ours, label, chartPostEdge, dashes[0], at(ours, bestMargin))
+			add(ours, "posting-edge now, no margin", chartPostEdge, dashes[2], at(ours, 0))
+		} else {
+			add(ours, label, chartPostEdge, dashes[0], at(ours, 0))
+		}
+		add(before, fmt.Sprintf("posting-edge before, rescore %d", lowest(before)), chartPostEdge, dashes[1], at(before, 0))
+	} else {
+		style := 0
+		for _, margin := range sourceMargins(ours.Points) {
+			for _, rescore := range rescoreLimits(ours) {
+				for _, batch := range loadBatches(ours) {
+					label := fmt.Sprintf("posting-edge, rescore %d, batch %d", rescore, batch)
+					if margin != 0 {
+						label += fmt.Sprintf(", margin %.2f", margin)
+					}
+					added := add(ours, label, chartPostEdge, dashes[min(style, len(dashes)-1)],
+						func(p benchPoint) bool {
+							return p.RescoreLimit == rescore && p.LoadBatch == batch && p.SourceMargin == margin
+						})
+					if added {
+						style++
+					}
 				}
 			}
 		}
@@ -1034,6 +1093,17 @@ func recallQPSChart(ours, theirs *benchResult, threads int) string {
 	// A little air below the slowest point, for the label under it.
 	minY, maxY := math.Floor((math.Log10(minQPS)-0.08)*4)/4, math.Ceil(math.Log10(maxQPS)*4)/4
 
+	// The legend sits above the plot: three keys to a row, or two when a
+	// label is too long for a third of the width.
+	legendColumns := 3
+	for _, s := range series {
+		if len(s.label) > 32 {
+			legendColumns = 2
+		}
+	}
+	legendRows := (len(series) + legendColumns - 1) / legendColumns
+	chartTop := 64.0 + 16*float64(legendRows)
+
 	plotW, plotH := chartWidth-chartLeft-chartRight, chartHeight-chartTop-chartBottom
 	px := func(recall float64) float64 { return chartLeft + (xOf(recall)-minX)/(maxX-minX)*plotW }
 	py := func(qps float64) float64 { return chartTop + (maxY-math.Log10(qps))/(maxY-minY)*plotH }
@@ -1047,18 +1117,13 @@ func recallQPSChart(ours, theirs *benchResult, threads int) string {
 	fmt.Fprintf(&svg, `<text x="%.0f" y="45" font-size="12" fill="%s">%s, %d vectors x %d dimensions, %d queries. Up and to the right is better.</text>`+"\n",
 		chartLeft, chartInkMuted, ours.Dataset, ours.Vectors, ours.Dims, ours.Queries)
 
-	// legend: line keys above the plot, three to a row
-	legendX := chartLeft
 	for i, s := range series {
-		if i%3 == 0 {
-			legendX = chartLeft
-		}
-		y := 64.0 + 16*float64(i/3)
+		x := chartLeft + float64(i%legendColumns)*plotW/float64(legendColumns)
+		y := 64.0 + 16*float64(i/legendColumns)
 		fmt.Fprintf(&svg, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="2"%s/>`+"\n",
-			legendX, y, legendX+26, y, s.color, dashAttr(s.dash))
+			x, y, x+26, y, s.color, dashAttr(s.dash))
 		fmt.Fprintf(&svg, `<text x="%.1f" y="%.1f" font-size="12" fill="%s">%s</text>`+"\n",
-			legendX+32, y+4, chartInk, s.label)
-		legendX += 250
+			x+32, y+4, chartInk, s.label)
 	}
 
 	// grid and axes

@@ -4,13 +4,143 @@
 **Dataset:** dbpedia-openai-1000k-angular (990 000 × 1536d, cosine, GT exacto top-100), el de las sims de `findings.md`
 **Máquina:** Apple M1 Max (8P+2E), 64 GB, Go 1.27, GOMAXPROCS=10, escritorio en uso ligero
 
-## Veredicto contra las expectativas pre-registradas
+## v1.1: optimización del cuello (2026-11-10)
+
+Segunda ronda, sobre el mismo dataset, la misma máquina y el mismo protocolo. El brazo HNSW es el del v1, sin re-medir. El índice se midió sobre el commit `243a571e65`; los defaults se fijaron después, a partir de estas medidas.
+
+**Resultado: entre 1.5× y 1.7× más QPS a igual recall. El factor contra HNSW baja de ~3.2× a ~2.0× con 1 thread.**
+
+Cada índice en su mejor configuración a cada recall, leída de su curva de ef:
+
+| threads | recall | QPS v1 | QPS v1.1 | v1.1 / v1 | QPS HNSW | HNSW / v1 | HNSW / v1.1 |
+|---|---|---|---|---|---|---|---|
+| 1 | 0.90 | 1028 | 1555 | 1.51x | 3344 | 3.25x | 2.15x |
+| 1 | 0.95 | 701 | 1221 | 1.74x | 2315 | 3.30x | 1.90x |
+| 1 | 0.99 | 190 | 299 | 1.57x | 600 | 3.16x | 2.01x |
+| 8 | 0.90 | 5563 | 9675 | 1.74x | 25006 | 4.49x | 2.58x |
+| 8 | 0.95 | 4707 | 7888 | 1.68x | 16576 | 3.52x | 2.10x |
+| 8 | 0.99 | 1263 | 1931 | 1.53x | 4353 | 3.45x | 2.25x |
+
+| pre-registro | resultado |
+|---|---|
+| fase de endpoints ≤ 0.5 ms a iso-0.95 | **Se cumple: 377 µs** (eran 947 µs), con el margen elegido. Sin margen no se cumple: 795 µs. |
+| ratio total contra HNSW ≤ 2.2× | **Se cumple a iso-0.95:** 1.90× con 1 thread y 2.10× con 8. A 0.90 y 0.99 queda en 2.15× y 2.01× con 1 thread, y en 2.58× y 2.25× con 8. |
+
+![Recall@10 vs QPS, 1 thread, v1 y v1.1](testdata/bench/v1.1/recall-qps-threads1.svg)
+
+![Recall@10 vs QPS, 8 threads, v1 y v1.1](testdata/bench/v1.1/recall-qps-threads8.svg)
+
+En el punto default (ef=20, margen 0.06, rescore 64, lotes de 4, 1 thread): recall 0.9502, 1 219 QPS, latencia p50 0.70 ms y p95 1.73 ms, 2.3 rondas de media.
+
+### Qué cambió
+
+1. **Corte por margen (`SourceMargin`).** Solo se siguen las aristas de los vectores escaneados cuya estimación queda a menos de un margen del umbral de parada. Es una heurística, no una cota: cuesta recall. Sustituye a la poda triangular, que no poda (adenda más abajo).
+2. **Scoring de endpoints por lotes.** Los endpoints de un posting se puntúan en una llamada que pide a la CPU cada código unos pasos por delante, el patrón de `DistancesToNodes`. Bit-idéntico al escalar. En microbenchmark, 49 ns por endpoint frente a 147 ns uno a uno, con el kernel en ~42 ns en caliente.
+3. **Defaults** de ef, rescoreLimit y margen, al final de esta sección.
+
+Lo que se probó y no entra:
+
+- **Gather antes de puntuar** (copiar los códigos a un buffer contiguo): más lento que el prefetch por delante, porque la copia añade trabajo que los hints ya hacen innecesario.
+- **Caché de las estimaciones re-escaneadas.** Cabe en menos de 20 líneas, pero necesita un array de 4 B/vector por búsqueda en curso y una consulta al visited-set por vector escaneado, para ahorrar como mucho 37 µs de 1.46 ms: las distancias que evita son las secuenciales, las baratas.
+- **P menor que 256:** ningún valor del grid llega al recall de arista 0.94.
+
+Cuánto aporta cada cambio, a ef=20 con 1 thread: el scoring por lotes solo, 695 → 781 QPS (+12 %) y la fase de endpoints de 947 a 795 µs; el corte por margen encima, 781 → 1 219 QPS (+56 %) y la fase a 377 µs.
+
+### Corte por margen: calibración a igual ef
+
+Recall contra sin corte, al mismo ef (P=256, rescore 64, lotes de 4, 5000 queries, sin cronometrar):
+
+| M | ef=10 | ef=20 | ef=40 | ef=80 | ef=160 | ef=320 | ef=640 | peor |
+|---|---|---|---|---|---|---|---|---|
+| 0.04 | -0.0088 | -0.0056 | -0.0030 | -0.0030 | -0.0017 | -0.0007 | -0.0004 | -0.0088, fuera de tolerancia |
+| 0.06 | -0.0029 | -0.0009 | -0.0009 | -0.0007 | -0.0004 | -0.0001 | -0.0001 | -0.0029, fuera de tolerancia |
+| 0.08 | -0.0007 | -0.0003 | -0.0001 | -0.0000 | -0.0000 | -0.0001 | +0.0000 | -0.0007, dentro |
+| 0.10 | -0.0001 | -0.0001 | +0.0000 | +0.0000 | +0.0000 | +0.0000 | +0.0000 | -0.0001, dentro |
+| 0.12 | +0.0000 | +0.0000 | +0.0000 | +0.0000 | +0.0000 | +0.0000 | +0.0000 | +0.0000, dentro |
+
+Endpoints puntuados por query:
+
+| M | ef=10 | ef=20 | ef=40 | ef=80 | ef=160 | ef=320 | ef=640 | media sobre sin corte |
+|---|---|---|---|---|---|---|---|---|
+| sin corte | 8478 | 10944 | 15057 | 21491 | 31861 | 47934 | 73471 | 100% |
+| 0.04 | 1529 (18%) | 2476 (23%) | 4000 (27%) | 6433 (30%) | 10376 (33%) | 16841 (35%) | 27686 (38%) | 29% |
+| 0.06 | 3319 (39%) | 4953 (45%) | 7526 (50%) | 11577 (54%) | 18126 (57%) | 28749 (60%) | 46314 (63%) | 53% |
+| 0.08 | 5291 (62%) | 7461 (68%) | 10936 (73%) | 16359 (76%) | 25167 (79%) | 39215 (82%) | 61947 (84%) | 75% |
+| 0.10 | 6831 (81%) | 9280 (85%) | 13257 (88%) | 19446 (90%) | 29468 (92%) | 45141 (94%) | 70150 (95%) | 89% |
+| 0.12 | 7757 (91%) | 10288 (94%) | 14426 (96%) | 20870 (97%) | 31238 (98%) | 47314 (99%) | 72830 (99%) | 96% |
+
+- **Con la regla iso-ef pre-registrada el corte no paga:** el menor M dentro de 0.002 de recall en todos los ef es 0.08, y ahorra un 25 % de los endpoints de media, bajo el listón del 40 %.
+- **M=0.06 solo sale de tolerancia en ef=10** (−0.0029). De ef=20 en adelante cuesta menos de 0.001 y ahorra entre el 55 % y el 37 %.
+- **El diagnóstico previo era optimista.** Estimaba que con M=0.08 se puntuaría el 44 % de los endpoints; se puntúa entre el 62 % y el 84 %. Usaba el umbral final más bajo posible, y la búsqueda corta contra el umbral del momento, más alto al principio y con ef grande.
+- El corte casi no cambia qué postings se cargan (10.1 a ef=20 con y sin él): lo que recorta es la puntuación.
+
+### Corte por margen: el default se decide por frontera
+
+El criterio final: el default es el M cuya frontera recall-QPS va al menos igual de rápido que sin corte en todo el rango medido. QPS interpolado a recall 0.90 / 0.95 / 0.99 y extremo rápido (mejor QPS con recall ≥ 0.92), rescore 64, lotes de 4:
+
+| threads | M | QPS a 0.90 | QPS a 0.95 | QPS a 0.99 | extremo rápido | contra sin corte |
+|---|---|---|---|---|---|---|
+| 1 | sin corte | 950 | 788 | 212 | 950 |  |
+| 1 | 0.06 | 1555 (+63.7%) | 1221 (+54.9%) | 299 (+41.0%) | 1555 (+63.7%) | al menos igual de rápido en todo |
+| 1 | 0.08 | 1238 (+30.3%) | 939 (+19.1%) | 244 (+15.1%) | 1238 (+30.3%) | al menos igual de rápido en todo |
+| 8 | sin corte | 6179 | 5145 | 1379 | 6179 |  |
+| 8 | 0.06 | 9675 (+56.6%) | 7888 (+53.3%) | 1931 (+40.0%) | 9675 (+56.6%) | al menos igual de rápido en todo |
+| 8 | 0.08 | 7337 (+18.7%) | 5922 (+15.1%) | 1431 (+3.8%) | 7337 (+18.7%) | al menos igual de rápido en todo |
+
+**M=0.06 domina en las ocho comparaciones, por entre un 40 % y un 64 %, y es el default.** M=0.08 también domina, por menos. El margen está en unidades de la distancia: 0.06 vale para cosine. Para l2-squared no hay calibración y el default es sin corte.
+
+### Dónde se va el tiempo a recall 0.95, antes y después
+
+Microsegundos medios por query, 1 thread:
+
+| | ef | rescore | margen | recall | etapa de centroides | scan de postings | puntuación de endpoints | selección de rondas | rescore | otros | total | endpoints puntuados |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| v1 | 20 | 64 | 0.00 | 0.9511 | 196 (13%) | 138 (9%) | 947 (65%) | 5 (0%) | 69 (5%) | 108 (7%) | 1462 | 10944 |
+| v1.1 | 20 | 64 | 0.06 | 0.9502 | 181 (21%) | 139 (16%) | 377 (43%) | 3 (0%) | 69 (8%) | 100 (11%) | 869 | 4953 |
+
+- **La puntuación de endpoints sigue siendo la mayor partida, pero ya es el 43 %, no el 65 %.** Son 4 950 endpoints a ~76 ns cada uno, contando el filtrado de aristas.
+- **La etapa de centroides pasa a ser la segunda, con el 21 %.** No ha cambiado (181 µs): un HNSW con ef=64 sobre 4 195 centroides f32.
+- Scan, rescore y "otros" tampoco han cambiado en términos absolutos: 139, 69 y 100 µs.
+
+### Sweep de P
+
+El constructor de aristas a cada P, sobre una misma partición (42 s) y asignación (133 s):
+
+| P | tiempo de aristas (s) | candidatos por vector | aristas por vector | recall de arista |
+|---|---|---|---|---|
+| 32 | 53 | 6804 | 8.57 | 0.8044 |
+| 64 | 94 | 13164 | 8.78 | 0.8741 |
+| 128 | 171 | 25781 | 8.91 | 0.9274 |
+| 256 | 330 | 51351 | 8.99 | 0.9609 |
+
+- **P se queda en 256:** es el menor del grid con recall de arista ≥ 0.94. El umbral cae entre 128 y 256; un P intermedio no se midió.
+- El tiempo de aristas es lineal en P, así que cada escalón de recall cuesta el doble que el anterior.
+- Este sweep corre sobre su propia partición, no la del índice medido; su 0.961 a P=256 coincide con el 0.963 del índice dentro del ruido de la muestra de 1000 vectores.
+
+### Defaults fijados
+
+| parámetro | antes | ahora | por qué |
+|---|---|---|---|
+| `EF` | 0 (= k) | 20 | el menor ef del sweep con recall ≥ 0.95 (0.9502). A ef=k el recall es 0.922. |
+| `RescoreLimit` | 512 | 64 | mismo recall que 512 (0.9511 frente a 0.9512 a ef=20) y 0.45 ms menos por query. |
+| `SourceMargin` | 0 (sin corte) | automático: 0.06 para cosine, sin corte para l2-squared | domina la frontera de sin corte en todo el rango medido. |
+| `BuildProbe` | 256 | 256 | ningún P menor del grid llega a recall de arista 0.94. |
+
+### Notas
+
+- **El extremo rápido lo limita ef=k.** A 0.90 el factor contra HNSW es 2.15× (2.58× con 8 threads) porque nuestro punto más rápido es ef=10 a recall 0.922 y no hay ninguno más barato. Lotes de 1 no ayudan con el corte puesto (1 485 QPS interpolados a 0.90, frente a 1 555).
+- **Ruido:** 2 de los 63 puntos superan el 10 % de dispersión entre pasadas (M=0.08, ef=320, 8 threads; y lotes de 1, M=0.06, ef=10). Ninguno decide el default.
+- **Build y memoria no cambian:** 490 s en este run (515 s en el v1, mismas etapas) y 263.5 MB de índice.
+- **Lectura de las tablas iso-recall.** Desde esta ronda cada configuración se lee sobre su propia curva de ef y se toma la mejor, en vez de interpolar sobre la unión de todos los puntos, que con tres márgenes inventaba puntos intermedios entre curvas. Las cifras del v1 de más abajo están recalculadas así y se mueven menos de un 3 %.
+- Tablas completas de puntos de operación, trabajo por query y memoria del v1.1: `testdata/bench/v1.1/tables.md`. Resultados: `testdata/bench/v1.1/*.json`.
+
+## v1: veredicto contra las expectativas pre-registradas
 
 | | expectativa | resultado |
 |---|---|---|
 | (a) | memoria del índice (sin f32) claramente bajo HNSW | **Se cumple.** 263.5 MB frente a 420.1 MB (−37 %). Los códigos pesan lo mismo en ambos (200 B/vector); la estructura es 3.1× menor: 79 B/vector (aristas + ids + centroides) frente a 245 B/vector del grafo. |
 | (b) | recall ≥ 0.99 alcanzable con ef | **Se cumple, con matiz.** 0.9913 a ef=320 y 0.9945 a ef=640. Pero ef≈2k no "acerca a 1": da 0.951. La curva satura despacio; HNSW tampoco pasa de 0.9975 a ef=1024. |
-| (c) | QPS más lento pero misma clase | **~3.2× más lento a iso-recall con 1 thread**, constante de 0.90 a 0.99 (3.25× / 3.28× / 3.17×), y ~3.5× con 8 threads, tomando el mejor punto medido de cada índice. Es un factor fijo, no una curva que se despega; si eso es "misma clase" queda a tu criterio. El cuello es la puntuación de endpoints: 65 % del tiempo a recall 0.95. |
+| (c) | QPS más lento pero misma clase | **~3.2× más lento a iso-recall con 1 thread**, constante de 0.90 a 0.99 (3.25× / 3.30× / 3.16×), y ~3.5× con 8 threads, tomando el mejor punto medido de cada índice. Es un factor fijo, no una curva que se despega; si eso es "misma clase" queda a tu criterio. El cuello es la puntuación de endpoints: 65 % del tiempo a recall 0.95. |
 
 Ningún stop-and-report se disparó: el recall llega a 0.99, y el benchmark no obligó a implementar persistencia (corre in-process).
 
@@ -34,7 +164,7 @@ La incógnita de la fase, la profundidad serial: a recall 0.95 (ef=20, lotes de 
 
 Las dos curvas son paralelas en escala logarítmica: la distancia entre ellas es un factor casi constante, no una pendiente distinta.
 
-Leído de la frontera de Pareto de cada índice, interpolando linealmente en recall y en log QPS.
+Leído de la curva de ef de cada configuración, interpolando linealmente en recall y en log QPS; la mejor configuración de cada índice a cada recall.
 
 | comparación | threads | recall | QPS posting-edge | QPS HNSW | HNSW / posting-edge |
 |---|---|---|---|---|---|
@@ -45,11 +175,11 @@ Leído de la frontera de Pareto de cada índice, interpolando linealmente en rec
 | mismo rescore (512), lotes de 4 | 8 | 0.95 | 3410 | 16576 | 4.86x |
 | mismo rescore (512), lotes de 4 | 8 | 0.99 | 1209 | 3799 | 3.14x |
 | mejor punto medido de cada índice | 1 | 0.90 | 1028 | 3344 | 3.25x |
-| mejor punto medido de cada índice | 1 | 0.95 | 705 | 2315 | 3.28x |
-| mejor punto medido de cada índice | 1 | 0.99 | 186 | 592 | 3.17x |
+| mejor punto medido de cada índice | 1 | 0.95 | 701 | 2315 | 3.30x |
+| mejor punto medido de cada índice | 1 | 0.99 | 190 | 600 | 3.16x |
 | mejor punto medido de cada índice | 8 | 0.90 | 5563 | 25006 | 4.49x |
 | mejor punto medido de cada índice | 8 | 0.95 | 4707 | 16576 | 3.52x |
-| mejor punto medido de cada índice | 8 | 0.99 | 1237 | 4374 | 3.54x |
+| mejor punto medido de cada índice | 8 | 0.99 | 1263 | 4353 | 3.45x |
 
 Lectura:
 
@@ -254,14 +384,12 @@ Lectura, como entrada para la lista de v2 (aquí no se optimizó nada más):
 
 ## Decisiones abiertas
 
-- **Default de ef.** Hoy es 0, que equivale a k: la parada natural, recall 0.925 aquí. El default dinámico de HNSW (ef entre 100 y 500) lo deja por encima de 0.98.
-- **Default de rescoreLimit.** Hoy es 512, el de RQ-1 en HNSW. En este dataset 64 da el mismo recall y ahorra 0.45 ms por query.
-- **P.** 256 por especificación. Con postings de 236 vectores cubre 5× más candidatos que en las sims y es el 66 % del build.
+- Los defaults de ef, rescoreLimit y P quedaron fijados en el v1.1 (arriba).
 - **Nombre del paquete y del tipo de índice** (`postingedge`), al abrir el PR.
 
 ## Adenda v1.1: la poda triangular por source no poda (gate, 2026-11-10)
 
-La ronda v1.1 proponía saltar un source cuando `dist(q, source) − L_max(source) ≥ dist del ef-ésimo candidato`, con L_max la longitud de su arista más larga. El gate pre-registrado era parar si poda menos del 20 % de los sources. **Poda el 0.1 %**, así que la ronda está parada aquí; los cambios 3 a 5 no están empezados.
+La ronda v1.1 proponía saltar un source cuando `dist(q, source) − L_max(source) ≥ dist del ef-ésimo candidato`, con L_max la longitud de su arista más larga. El gate pre-registrado era parar si poda menos del 20 % de los sources. **Poda el 0.1 %**, así que se descartó. La sustituyó el corte por margen del v1.1.
 
 No se implementó en el índice: se midió antes su mejor caso con un diagnóstico del harness (`-bench.reach`, 500 queries sobre el índice de 1M). El mejor caso es L_max exacto y sin cuantizar, y el umbral más bajo que una búsqueda puede alcanzar (la ef-ésima mejor estimación de todo el corpus). La cota se evalúa en ángulos: la distancia coseno no cumple la desigualdad triangular, el ángulo sí, y es la métrica más ajustada.
 
@@ -297,7 +425,7 @@ Lectura:
 | 0.15 | 96 % | 95 % | 95 % | 100 % | 100 % |
 
 - Con margen 0.08 se puntuaría el 44 % de los endpoints conservando el 99.2 % de los útiles; con 0.10, el 67 % y el 99.8 %.
-- **Es una heurística, no una cota:** el recall puede bajar y el margen habría que calibrarlo con el sweep. El diagnóstico usa el umbral final y los 16 postings más cercanos como aproximación de los cargados; el efecto real en recall y en tiempo no está medido.
+- **Es una heurística, no una cota.** El diagnóstico usa el umbral final y los 16 postings más cercanos como aproximación de los cargados, y resultó optimista: la medición real está en la sección del v1.1.
 
 Datos: `testdata/bench/dbpedia-1m-postingedge-reach.json`.
 
@@ -347,6 +475,37 @@ go test -tags postingedgebench -run 'TestBenchmarkReport$' ./adapters/repos/db/v
 ```
 
 Los JSON de resultados, `tables.md` y los SVG están en `testdata/bench/`.
+
+Las medidas del v1.1, con `V=$B/v1.1`:
+
+```bash
+# calibración del margen a igual ef (sin cronometrar)
+go test -tags postingedgebench -run 'TestBenchmark$' -timeout 0 -v ./adapters/repos/db/vector/postingedge/ \
+  -bench.dataset $D -bench.arm postingedge -bench.mode work -bench.queries 5000 \
+  -bench.efs 10,20,40,80,160,320,640 \
+  -bench.sweep "margin=0,0.04,0.06,0.08,0.10,0.12 rescore=64 batch=4 threads=1" -bench.out $V/dbpedia-1m-margin.json
+
+# el constructor de aristas a cada P
+go test -tags postingedgebench -run 'TestBenchmark$' -timeout 0 -v ./adapters/repos/db/vector/postingedge/ \
+  -bench.dataset $D -bench.arm postingedge -bench.mode probes -bench.probes 32,64,128,256 \
+  -bench.out $V/dbpedia-1m-probes.json
+
+# sweep cronometrado
+go test -tags postingedgebench -run 'TestBenchmark$' -timeout 0 -v ./adapters/repos/db/vector/postingedge/ \
+  -bench.dataset $D -bench.arm postingedge -bench.queries 5000 -bench.runs 3 \
+  -bench.efs 10,20,40,80,160,320,640 \
+  -bench.sweep "margin=0,0.06,0.08 rescore=64 batch=4 threads=1,8" \
+  -bench.sweep "margin=0 rescore=512 batch=4 threads=1" \
+  -bench.sweep "margin=0,0.06 rescore=64 batch=1 threads=1" -bench.out $V/dbpedia-1m-postingedge.json
+
+# tablas y gráficos, contra el v1 y el HNSW ya medido
+go test -tags postingedgebench -run 'TestBenchmarkReport$' ./adapters/repos/db/vector/postingedge/ \
+  -bench.report.postingedge $V/dbpedia-1m-postingedge.json -bench.report.hnsw $B/dbpedia-1m-hnsw.json \
+  -bench.report.hnsw.work $B/dbpedia-1m-hnsw-work.json \
+  -bench.report.before $B/dbpedia-1m-postingedge.json -bench.report.before.work $B/dbpedia-1m-postingedge-work.json \
+  -bench.report.margin $V/dbpedia-1m-margin.json -bench.report.probes $V/dbpedia-1m-probes.json \
+  -bench.report.out $V
+```
 
 ## Puntos de operación
 

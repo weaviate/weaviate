@@ -4,12 +4,12 @@
 <text x="76" y="45" font-size="12" fill="#52514e">dbpedia-openai-1000k-angular.bin, 990000 vectors x 1536 dimensions, 5000 queries. Up and to the right is better.</text>
 <line x1="76.0" y1="64.0" x2="102.0" y2="64.0" stroke="#2a78d6" stroke-width="2"/>
 <text x="108.0" y="68.0" font-size="12" fill="#0b0b0b">HNSW, rescore 512</text>
-<line x1="326.0" y1="64.0" x2="352.0" y2="64.0" stroke="#2a78d6" stroke-width="2" stroke-dasharray="7 5"/>
-<text x="358.0" y="68.0" font-size="12" fill="#0b0b0b">HNSW, rescore 64</text>
-<line x1="576.0" y1="64.0" x2="602.0" y2="64.0" stroke="#eb6834" stroke-width="2"/>
-<text x="608.0" y="68.0" font-size="12" fill="#0b0b0b">posting-edge, rescore 512, batch 4</text>
-<line x1="76.0" y1="80.0" x2="102.0" y2="80.0" stroke="#eb6834" stroke-width="2" stroke-dasharray="7 5"/>
-<text x="108.0" y="84.0" font-size="12" fill="#0b0b0b">posting-edge, rescore 64, batch 4</text>
+<line x1="455.0" y1="64.0" x2="481.0" y2="64.0" stroke="#2a78d6" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="487.0" y="68.0" font-size="12" fill="#0b0b0b">HNSW, rescore 64</text>
+<line x1="76.0" y1="80.0" x2="102.0" y2="80.0" stroke="#eb6834" stroke-width="2"/>
+<text x="108.0" y="84.0" font-size="12" fill="#0b0b0b">posting-edge, rescore 512, batch 4</text>
+<line x1="455.0" y1="80.0" x2="481.0" y2="80.0" stroke="#eb6834" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="487.0" y="84.0" font-size="12" fill="#0b0b0b">posting-edge, rescore 64, batch 4</text>
 <line x1="83.7" y1="96.0" x2="83.7" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>
 <text x="83.7" y="476.0" font-size="12" fill="#52514e" text-anchor="middle">0.7</text>
 <line x1="143.0" y1="96.0" x2="143.0" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>

@@ -4,112 +4,112 @@
 <text x="76" y="45" font-size="12" fill="#52514e">dbpedia-openai-1000k-angular.bin, 990000 vectors x 1536 dimensions, 5000 queries. Up and to the right is better.</text>
 <line x1="76.0" y1="64.0" x2="102.0" y2="64.0" stroke="#2a78d6" stroke-width="2"/>
 <text x="108.0" y="68.0" font-size="12" fill="#0b0b0b">HNSW, rescore 512</text>
-<line x1="326.0" y1="64.0" x2="352.0" y2="64.0" stroke="#2a78d6" stroke-width="2" stroke-dasharray="7 5"/>
-<text x="358.0" y="68.0" font-size="12" fill="#0b0b0b">HNSW, rescore 64</text>
-<line x1="576.0" y1="64.0" x2="602.0" y2="64.0" stroke="#eb6834" stroke-width="2"/>
-<text x="608.0" y="68.0" font-size="12" fill="#0b0b0b">posting-edge, rescore 512, batch 4</text>
-<line x1="76.0" y1="80.0" x2="102.0" y2="80.0" stroke="#eb6834" stroke-width="2" stroke-dasharray="7 5"/>
-<text x="108.0" y="84.0" font-size="12" fill="#0b0b0b">posting-edge, rescore 64, batch 4</text>
-<line x1="326.0" y1="80.0" x2="352.0" y2="80.0" stroke="#eb6834" stroke-width="2" stroke-dasharray="2 4"/>
-<text x="358.0" y="84.0" font-size="12" fill="#0b0b0b">posting-edge, rescore 64, batch 1</text>
-<line x1="83.7" y1="96.0" x2="83.7" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>
+<line x1="455.0" y1="64.0" x2="481.0" y2="64.0" stroke="#2a78d6" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="487.0" y="68.0" font-size="12" fill="#0b0b0b">HNSW, rescore 64</text>
+<line x1="76.0" y1="80.0" x2="102.0" y2="80.0" stroke="#eb6834" stroke-width="2"/>
+<text x="108.0" y="84.0" font-size="12" fill="#0b0b0b">posting-edge, rescore 512, batch 4</text>
+<line x1="455.0" y1="80.0" x2="481.0" y2="80.0" stroke="#eb6834" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="487.0" y="84.0" font-size="12" fill="#0b0b0b">posting-edge, rescore 64, batch 4</text>
+<line x1="76.0" y1="96.0" x2="102.0" y2="96.0" stroke="#eb6834" stroke-width="2" stroke-dasharray="2 4"/>
+<text x="108.0" y="100.0" font-size="12" fill="#0b0b0b">posting-edge, rescore 64, batch 1</text>
+<line x1="83.7" y1="112.0" x2="83.7" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>
 <text x="83.7" y="476.0" font-size="12" fill="#52514e" text-anchor="middle">0.7</text>
-<line x1="143.0" y1="96.0" x2="143.0" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>
+<line x1="143.0" y1="112.0" x2="143.0" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>
 <text x="143.0" y="476.0" font-size="12" fill="#52514e" text-anchor="middle">0.8</text>
-<line x1="244.4" y1="96.0" x2="244.4" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>
+<line x1="244.4" y1="112.0" x2="244.4" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>
 <text x="244.4" y="476.0" font-size="12" fill="#52514e" text-anchor="middle">0.9</text>
-<line x1="345.9" y1="96.0" x2="345.9" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>
+<line x1="345.9" y1="112.0" x2="345.9" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>
 <text x="345.9" y="476.0" font-size="12" fill="#52514e" text-anchor="middle">0.95</text>
-<line x1="479.9" y1="96.0" x2="479.9" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>
+<line x1="479.9" y1="112.0" x2="479.9" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>
 <text x="479.9" y="476.0" font-size="12" fill="#52514e" text-anchor="middle">0.98</text>
-<line x1="581.3" y1="96.0" x2="581.3" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>
+<line x1="581.3" y1="112.0" x2="581.3" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>
 <text x="581.3" y="476.0" font-size="12" fill="#52514e" text-anchor="middle">0.99</text>
-<line x1="682.7" y1="96.0" x2="682.7" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>
+<line x1="682.7" y1="112.0" x2="682.7" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>
 <text x="682.7" y="476.0" font-size="12" fill="#52514e" text-anchor="middle">0.995</text>
-<line x1="816.8" y1="96.0" x2="816.8" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>
+<line x1="816.8" y1="112.0" x2="816.8" y2="458.0" stroke="#e7e6e1" stroke-width="1"/>
 <text x="816.8" y="476.0" font-size="12" fill="#52514e" text-anchor="middle">0.998</text>
-<line x1="76.0" y1="412.7" x2="834.0" y2="412.7" stroke="#e7e6e1" stroke-width="1"/>
-<text x="68.0" y="416.7" font-size="12" fill="#52514e" text-anchor="end">100</text>
-<line x1="76.0" y1="358.3" x2="834.0" y2="358.3" stroke="#e7e6e1" stroke-width="1"/>
-<text x="68.0" y="362.3" font-size="12" fill="#52514e" text-anchor="end">200</text>
-<line x1="76.0" y1="286.2" x2="834.0" y2="286.2" stroke="#e7e6e1" stroke-width="1"/>
-<text x="68.0" y="290.2" font-size="12" fill="#52514e" text-anchor="end">500</text>
-<line x1="76.0" y1="231.8" x2="834.0" y2="231.8" stroke="#e7e6e1" stroke-width="1"/>
-<text x="68.0" y="235.8" font-size="12" fill="#52514e" text-anchor="end">1000</text>
-<line x1="76.0" y1="177.3" x2="834.0" y2="177.3" stroke="#e7e6e1" stroke-width="1"/>
-<text x="68.0" y="181.3" font-size="12" fill="#52514e" text-anchor="end">2000</text>
-<line x1="76.0" y1="105.2" x2="834.0" y2="105.2" stroke="#e7e6e1" stroke-width="1"/>
-<text x="68.0" y="109.2" font-size="12" fill="#52514e" text-anchor="end">5000</text>
+<line x1="76.0" y1="414.7" x2="834.0" y2="414.7" stroke="#e7e6e1" stroke-width="1"/>
+<text x="68.0" y="418.7" font-size="12" fill="#52514e" text-anchor="end">100</text>
+<line x1="76.0" y1="362.7" x2="834.0" y2="362.7" stroke="#e7e6e1" stroke-width="1"/>
+<text x="68.0" y="366.7" font-size="12" fill="#52514e" text-anchor="end">200</text>
+<line x1="76.0" y1="293.8" x2="834.0" y2="293.8" stroke="#e7e6e1" stroke-width="1"/>
+<text x="68.0" y="297.8" font-size="12" fill="#52514e" text-anchor="end">500</text>
+<line x1="76.0" y1="241.8" x2="834.0" y2="241.8" stroke="#e7e6e1" stroke-width="1"/>
+<text x="68.0" y="245.8" font-size="12" fill="#52514e" text-anchor="end">1000</text>
+<line x1="76.0" y1="189.7" x2="834.0" y2="189.7" stroke="#e7e6e1" stroke-width="1"/>
+<text x="68.0" y="193.7" font-size="12" fill="#52514e" text-anchor="end">2000</text>
+<line x1="76.0" y1="120.8" x2="834.0" y2="120.8" stroke="#e7e6e1" stroke-width="1"/>
+<text x="68.0" y="124.8" font-size="12" fill="#52514e" text-anchor="end">5000</text>
 <text x="455.0" y="504.0" font-size="12" fill="#52514e" text-anchor="middle">recall@10</text>
-<text x="18" y="277.0" font-size="12" fill="#52514e" text-anchor="middle" transform="rotate(-90 18 277.0)">queries per second</text>
-<path d="M89.6 102.1 L179.2 120.7 L251.8 138.3 L302.8 151.2 L368.6 171.9 L410.8 191.8 L464.7 215.3 L503.0 235.9 L552.7 263.0 L593.2 282.6 L648.0 307.3 L685.7 326.7 L730.0 354.6 L781.8 366.3" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round"/>
-<path d="M463.2 210.1 L500.5 229.5 L549.2 254.6 L587.9 275.0 L639.9 299.3 L675.3 314.5 L716.1 336.3 L760.4 359.5" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-dasharray="7 5"/>
-<path d="M286.7 273.0 L349.5 284.5 L408.6 300.6 L473.5 321.7 L537.0 346.8 L601.4 375.3 L669.3 407.9" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round"/>
-<path d="M286.5 244.0 L349.2 260.4 L408.0 281.7 L472.2 307.2 L534.0 338.6 L596.1 368.4 L659.5 406.4" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-dasharray="7 5"/>
-<path d="M217.5 221.3 L307.7 243.8 L377.6 295.2 L448.2 305.4 L520.8 335.2 L582.8 371.3 L652.7 407.2" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-dasharray="2 4"/>
-<circle cx="89.6" cy="102.1" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 10: recall 0.7118, 5203 QPS</title></circle>
-<circle cx="179.2" cy="120.7" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 16: recall 0.8438, 4107 QPS</title></circle>
-<circle cx="251.8" cy="138.3" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 24: recall 0.9049, 3285 QPS</title></circle>
-<circle cx="302.8" cy="151.2" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 32: recall 0.9329, 2786 QPS</title></circle>
-<circle cx="368.6" cy="171.9" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 48: recall 0.9572, 2141 QPS</title></circle>
-<circle cx="410.8" cy="191.8" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 64: recall 0.9679, 1663 QPS</title></circle>
-<circle cx="464.7" cy="215.3" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 96: recall 0.9778, 1233 QPS</title></circle>
-<circle cx="503.0" cy="235.9" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 128: recall 0.9829, 949 QPS</title></circle>
-<circle cx="552.7" cy="263.0" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 192: recall 0.9878, 672 QPS</title></circle>
-<circle cx="593.2" cy="282.6" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 256: recall 0.9908, 524 QPS</title></circle>
-<circle cx="648.0" cy="307.3" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 384: recall 0.9937, 383 QPS</title></circle>
-<circle cx="685.7" cy="326.7" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 512: recall 0.9951, 299 QPS</title></circle>
-<circle cx="730.0" cy="354.6" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 768: recall 0.9964, 209 QPS</title></circle>
-<circle cx="781.8" cy="366.3" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 1024: recall 0.9975, 180 QPS</title></circle>
-<circle cx="463.2" cy="210.1" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 64, ef 96: recall 0.9776, 1317 QPS</title></circle>
-<circle cx="500.5" cy="229.5" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 64, ef 128: recall 0.9826, 1030 QPS</title></circle>
-<circle cx="549.2" cy="254.6" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 64, ef 192: recall 0.9875, 748 QPS</title></circle>
-<circle cx="587.9" cy="275.0" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 64, ef 256: recall 0.9904, 577 QPS</title></circle>
-<circle cx="639.9" cy="299.3" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 64, ef 384: recall 0.9933, 424 QPS</title></circle>
-<circle cx="675.3" cy="314.5" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 64, ef 512: recall 0.9947, 349 QPS</title></circle>
-<circle cx="716.1" cy="336.3" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 64, ef 768: recall 0.9960, 265 QPS</title></circle>
-<circle cx="760.4" cy="359.5" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 64, ef 1024: recall 0.9971, 197 QPS</title></circle>
-<circle cx="286.7" cy="273.0" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 512, batch 4, ef 10: recall 0.9251, 592 QPS</title></circle>
-<circle cx="349.5" cy="284.5" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 512, batch 4, ef 20: recall 0.9512, 511 QPS</title></circle>
-<circle cx="408.6" cy="300.6" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 512, batch 4, ef 40: recall 0.9674, 416 QPS</title></circle>
-<circle cx="473.5" cy="321.7" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 512, batch 4, ef 80: recall 0.9791, 318 QPS</title></circle>
-<circle cx="537.0" cy="346.8" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 512, batch 4, ef 160: recall 0.9865, 231 QPS</title></circle>
-<circle cx="601.4" cy="375.3" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 512, batch 4, ef 320: recall 0.9913, 161 QPS</title></circle>
-<circle cx="669.3" cy="407.9" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 512, batch 4, ef 640: recall 0.9945, 106 QPS</title></circle>
-<circle cx="286.5" cy="244.0" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 4, ef 10: recall 0.9250, 855 QPS</title></circle>
-<circle cx="349.2" cy="260.4" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 4, ef 20: recall 0.9511, 695 QPS</title></circle>
-<circle cx="408.0" cy="281.7" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 4, ef 40: recall 0.9673, 529 QPS</title></circle>
-<circle cx="472.2" cy="307.2" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 4, ef 80: recall 0.9789, 383 QPS</title></circle>
-<circle cx="534.0" cy="338.6" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 4, ef 160: recall 0.9862, 257 QPS</title></circle>
-<circle cx="596.1" cy="368.4" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 4, ef 320: recall 0.9910, 176 QPS</title></circle>
-<circle cx="659.5" cy="406.4" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 4, ef 640: recall 0.9941, 108 QPS</title></circle>
-<circle cx="217.5" cy="221.3" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 1, ef 10: recall 0.8798, 1142 QPS</title></circle>
-<circle cx="307.7" cy="243.8" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 1, ef 20: recall 0.9351, 858 QPS</title></circle>
-<circle cx="377.6" cy="295.2" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 1, ef 40: recall 0.9598, 446 QPS</title></circle>
-<circle cx="448.2" cy="305.4" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 1, ef 80: recall 0.9752, 392 QPS</title></circle>
-<circle cx="520.8" cy="335.2" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 1, ef 160: recall 0.9849, 268 QPS</title></circle>
-<circle cx="582.8" cy="371.3" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 1, ef 320: recall 0.9901, 169 QPS</title></circle>
-<circle cx="652.7" cy="407.2" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 1, ef 640: recall 0.9939, 107 QPS</title></circle>
-<text x="89.6" y="92.1" font-size="10" fill="#52514e" text-anchor="middle">10</text>
-<text x="179.2" y="110.7" font-size="10" fill="#52514e" text-anchor="middle">16</text>
-<text x="251.8" y="128.3" font-size="10" fill="#52514e" text-anchor="middle">24</text>
-<text x="302.8" y="141.2" font-size="10" fill="#52514e" text-anchor="middle">32</text>
-<text x="368.6" y="161.9" font-size="10" fill="#52514e" text-anchor="middle">48</text>
-<text x="410.8" y="181.8" font-size="10" fill="#52514e" text-anchor="middle">64</text>
-<text x="464.7" y="205.3" font-size="10" fill="#52514e" text-anchor="middle">96</text>
-<text x="503.0" y="225.9" font-size="10" fill="#52514e" text-anchor="middle">128</text>
-<text x="552.7" y="253.0" font-size="10" fill="#52514e" text-anchor="middle">192</text>
-<text x="593.2" y="272.6" font-size="10" fill="#52514e" text-anchor="middle">256</text>
-<text x="648.0" y="297.3" font-size="10" fill="#52514e" text-anchor="middle">384</text>
-<text x="685.7" y="316.7" font-size="10" fill="#52514e" text-anchor="middle">512</text>
-<text x="730.0" y="344.6" font-size="10" fill="#52514e" text-anchor="middle">768</text>
-<text x="781.8" y="356.3" font-size="10" fill="#52514e" text-anchor="middle">1024</text>
-<text x="286.7" y="291.0" font-size="10" fill="#52514e" text-anchor="middle">10</text>
-<text x="349.5" y="302.5" font-size="10" fill="#52514e" text-anchor="middle">20</text>
-<text x="408.6" y="318.6" font-size="10" fill="#52514e" text-anchor="middle">40</text>
-<text x="473.5" y="339.7" font-size="10" fill="#52514e" text-anchor="middle">80</text>
-<text x="537.0" y="364.8" font-size="10" fill="#52514e" text-anchor="middle">160</text>
-<text x="601.4" y="393.3" font-size="10" fill="#52514e" text-anchor="middle">320</text>
-<text x="669.3" y="425.9" font-size="10" fill="#52514e" text-anchor="middle">640</text>
+<text x="18" y="285.0" font-size="12" fill="#52514e" text-anchor="middle" transform="rotate(-90 18 285.0)">queries per second</text>
+<path d="M89.6 117.8 L179.2 135.6 L251.8 152.4 L302.8 164.8 L368.6 184.6 L410.8 203.5 L464.7 226.0 L503.0 245.7 L552.7 271.6 L593.2 290.4 L648.0 313.9 L685.7 332.5 L730.0 359.2 L781.8 370.4" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round"/>
+<path d="M463.2 221.0 L500.5 239.6 L549.2 263.6 L587.9 283.1 L639.9 306.3 L675.3 320.8 L716.1 341.7 L760.4 363.8" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-dasharray="7 5"/>
+<path d="M286.7 281.2 L349.5 292.2 L408.6 307.6 L473.5 327.7 L537.0 351.7 L601.4 378.9 L669.3 410.1" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round"/>
+<path d="M286.5 253.5 L349.2 269.1 L408.0 289.5 L472.2 313.8 L534.0 343.9 L596.1 372.3 L659.5 408.7" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-dasharray="7 5"/>
+<path d="M217.5 231.8 L307.7 253.3 L377.6 302.4 L448.2 312.2 L520.8 340.7 L582.8 375.1 L652.7 409.5" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-dasharray="2 4"/>
+<circle cx="89.6" cy="117.8" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 10: recall 0.7118, 5203 QPS</title></circle>
+<circle cx="179.2" cy="135.6" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 16: recall 0.8438, 4107 QPS</title></circle>
+<circle cx="251.8" cy="152.4" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 24: recall 0.9049, 3285 QPS</title></circle>
+<circle cx="302.8" cy="164.8" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 32: recall 0.9329, 2786 QPS</title></circle>
+<circle cx="368.6" cy="184.6" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 48: recall 0.9572, 2141 QPS</title></circle>
+<circle cx="410.8" cy="203.5" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 64: recall 0.9679, 1663 QPS</title></circle>
+<circle cx="464.7" cy="226.0" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 96: recall 0.9778, 1233 QPS</title></circle>
+<circle cx="503.0" cy="245.7" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 128: recall 0.9829, 949 QPS</title></circle>
+<circle cx="552.7" cy="271.6" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 192: recall 0.9878, 672 QPS</title></circle>
+<circle cx="593.2" cy="290.4" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 256: recall 0.9908, 524 QPS</title></circle>
+<circle cx="648.0" cy="313.9" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 384: recall 0.9937, 383 QPS</title></circle>
+<circle cx="685.7" cy="332.5" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 512: recall 0.9951, 299 QPS</title></circle>
+<circle cx="730.0" cy="359.2" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 768: recall 0.9964, 209 QPS</title></circle>
+<circle cx="781.8" cy="370.4" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 512, ef 1024: recall 0.9975, 180 QPS</title></circle>
+<circle cx="463.2" cy="221.0" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 64, ef 96: recall 0.9776, 1317 QPS</title></circle>
+<circle cx="500.5" cy="239.6" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 64, ef 128: recall 0.9826, 1030 QPS</title></circle>
+<circle cx="549.2" cy="263.6" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 64, ef 192: recall 0.9875, 748 QPS</title></circle>
+<circle cx="587.9" cy="283.1" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 64, ef 256: recall 0.9904, 577 QPS</title></circle>
+<circle cx="639.9" cy="306.3" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 64, ef 384: recall 0.9933, 424 QPS</title></circle>
+<circle cx="675.3" cy="320.8" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 64, ef 512: recall 0.9947, 349 QPS</title></circle>
+<circle cx="716.1" cy="341.7" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 64, ef 768: recall 0.9960, 265 QPS</title></circle>
+<circle cx="760.4" cy="363.8" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>HNSW, rescore 64, ef 1024: recall 0.9971, 197 QPS</title></circle>
+<circle cx="286.7" cy="281.2" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 512, batch 4, ef 10: recall 0.9251, 592 QPS</title></circle>
+<circle cx="349.5" cy="292.2" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 512, batch 4, ef 20: recall 0.9512, 511 QPS</title></circle>
+<circle cx="408.6" cy="307.6" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 512, batch 4, ef 40: recall 0.9674, 416 QPS</title></circle>
+<circle cx="473.5" cy="327.7" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 512, batch 4, ef 80: recall 0.9791, 318 QPS</title></circle>
+<circle cx="537.0" cy="351.7" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 512, batch 4, ef 160: recall 0.9865, 231 QPS</title></circle>
+<circle cx="601.4" cy="378.9" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 512, batch 4, ef 320: recall 0.9913, 161 QPS</title></circle>
+<circle cx="669.3" cy="410.1" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 512, batch 4, ef 640: recall 0.9945, 106 QPS</title></circle>
+<circle cx="286.5" cy="253.5" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 4, ef 10: recall 0.9250, 855 QPS</title></circle>
+<circle cx="349.2" cy="269.1" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 4, ef 20: recall 0.9511, 695 QPS</title></circle>
+<circle cx="408.0" cy="289.5" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 4, ef 40: recall 0.9673, 529 QPS</title></circle>
+<circle cx="472.2" cy="313.8" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 4, ef 80: recall 0.9789, 383 QPS</title></circle>
+<circle cx="534.0" cy="343.9" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 4, ef 160: recall 0.9862, 257 QPS</title></circle>
+<circle cx="596.1" cy="372.3" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 4, ef 320: recall 0.9910, 176 QPS</title></circle>
+<circle cx="659.5" cy="408.7" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 4, ef 640: recall 0.9941, 108 QPS</title></circle>
+<circle cx="217.5" cy="231.8" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 1, ef 10: recall 0.8798, 1142 QPS</title></circle>
+<circle cx="307.7" cy="253.3" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 1, ef 20: recall 0.9351, 858 QPS</title></circle>
+<circle cx="377.6" cy="302.4" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 1, ef 40: recall 0.9598, 446 QPS</title></circle>
+<circle cx="448.2" cy="312.2" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 1, ef 80: recall 0.9752, 392 QPS</title></circle>
+<circle cx="520.8" cy="340.7" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 1, ef 160: recall 0.9849, 268 QPS</title></circle>
+<circle cx="582.8" cy="375.1" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 1, ef 320: recall 0.9901, 169 QPS</title></circle>
+<circle cx="652.7" cy="409.5" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>posting-edge, rescore 64, batch 1, ef 640: recall 0.9939, 107 QPS</title></circle>
+<text x="89.6" y="107.8" font-size="10" fill="#52514e" text-anchor="middle">10</text>
+<text x="179.2" y="125.6" font-size="10" fill="#52514e" text-anchor="middle">16</text>
+<text x="251.8" y="142.4" font-size="10" fill="#52514e" text-anchor="middle">24</text>
+<text x="302.8" y="154.8" font-size="10" fill="#52514e" text-anchor="middle">32</text>
+<text x="368.6" y="174.6" font-size="10" fill="#52514e" text-anchor="middle">48</text>
+<text x="410.8" y="193.5" font-size="10" fill="#52514e" text-anchor="middle">64</text>
+<text x="464.7" y="216.0" font-size="10" fill="#52514e" text-anchor="middle">96</text>
+<text x="503.0" y="235.7" font-size="10" fill="#52514e" text-anchor="middle">128</text>
+<text x="552.7" y="261.6" font-size="10" fill="#52514e" text-anchor="middle">192</text>
+<text x="593.2" y="280.4" font-size="10" fill="#52514e" text-anchor="middle">256</text>
+<text x="648.0" y="303.9" font-size="10" fill="#52514e" text-anchor="middle">384</text>
+<text x="685.7" y="322.5" font-size="10" fill="#52514e" text-anchor="middle">512</text>
+<text x="730.0" y="349.2" font-size="10" fill="#52514e" text-anchor="middle">768</text>
+<text x="781.8" y="360.4" font-size="10" fill="#52514e" text-anchor="middle">1024</text>
+<text x="286.7" y="299.2" font-size="10" fill="#52514e" text-anchor="middle">10</text>
+<text x="349.5" y="310.2" font-size="10" fill="#52514e" text-anchor="middle">20</text>
+<text x="408.6" y="325.6" font-size="10" fill="#52514e" text-anchor="middle">40</text>
+<text x="473.5" y="345.7" font-size="10" fill="#52514e" text-anchor="middle">80</text>
+<text x="537.0" y="369.7" font-size="10" fill="#52514e" text-anchor="middle">160</text>
+<text x="601.4" y="396.9" font-size="10" fill="#52514e" text-anchor="middle">320</text>
+<text x="669.3" y="428.1" font-size="10" fill="#52514e" text-anchor="middle">640</text>
 <text x="834.0" y="504.0" font-size="10" fill="#52514e" text-anchor="end">point labels: ef</text>
 </svg>
