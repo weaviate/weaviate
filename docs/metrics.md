@@ -199,6 +199,14 @@ A write aborted only because replicas refused it at the object cap (`MAXIMUM_ALL
 | `weaviate_replication_coordinator_writes_failed` | Replicated writes no replica committed, excluding writes refused only at the object cap | `Counter` | `-` | - Low 
 | `weaviate_replication_coordinator_writes_duration_seconds` | Duration of every replicated write, writes refused at the object cap included; buckets ~1ms to ~136s | `Histogram` | `-` | - Low 
 
+#### License Metrics
+License metrics are read from the current license snapshot on every scrape. The status gauge exposes every supported status and sets exactly one to 1. The expiry gauge is the signed license expiry as Unix seconds, or 0 when no signed expiry is known.
+
+| Name | Description | Type | Labels | High Cardinality |
+|---|---|---|---|---|
+| `weaviate_license_status` | Current license status (1 for the current status, 0 for all others) | `Gauge` | `edition, status` | - Low (bounded editions and statuses)
+| `weaviate_license_expires_at_seconds` | Signed license expiry as Unix seconds; 0 when unknown | `Gauge` | `-` | - Low
+
 #### Self-Recovery Metrics
 Registered only on a node with `SELF_RECOVERY_ENABLED=true` and a well-formed Weaviate license key (`LICENSE_KEY` or `LICENSE_KEY_FILE`); a node with the flag off or without a license exposes none of them. No metric carries collection or shard labels, so a wiped node with many shards adds no series per shard. See `docs/self-recovery.md`.
 

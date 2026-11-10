@@ -89,9 +89,12 @@ type Checker struct {
 	// IDs are re-verified on load, so a tampered or foreign cache is
 	// ignored.
 	CachePath string
-	// GracePeriod is how long without a signed "valid" before the node
-	// degrades. Zero means DefaultGracePeriod.
+	// GracePeriod is how long without a signed "valid" before an enforcing
+	// node degrades. Zero means DefaultGracePeriod.
 	GracePeriod time.Duration
+	// ReportingOnly exposes verification failures without turning them into
+	// enforcement states. It is used while M5 leaves feature gating unchanged.
+	ReportingOnly bool
 	// OnChange is called whenever the State changes.
 	OnChange func(old, new Snapshot)
 	Log      *slog.Logger
@@ -171,6 +174,19 @@ func (c *Checker) Snapshot() Snapshot {
 
 // Allowed is shorthand for Snapshot().Allowed().
 func (c *Checker) Allowed() bool { return c.Snapshot().Allowed() }
+
+// Current returns the reporting view of the latest cloned snapshot.
+func (c *Checker) Current() licensestate.State {
+	snapshot := c.Snapshot()
+	return licensestate.State{
+		Status:            snapshot.State,
+		LicenseID:         snapshot.LicenseID,
+		ExpiresAt:         snapshot.ExpiresAt,
+		LastCheckedAt:     snapshot.LastCheckedAt,
+		GracePeriodEndsAt: snapshot.GraceEndsAt,
+		ClusterMismatch:   snapshot.ClusterMismatch,
+	}
+}
 
 // Start loads the cache and returns; call Run to begin checking.
 func (c *Checker) Start() {
@@ -288,19 +304,25 @@ func (c *Checker) recompute() {
 	}
 
 	// Grace runs only from a signed "valid" answer for this license ("no
-	// valid response for 7 days"). A node that never had one — the server
-	// unreachable or every answer non-valid — degrades at once; otherwise
-	// every restart would start a fresh grace period. A stale "valid"
-	// answer counts as expired, not valid: a week-long license-server
-	// outage must not be indistinguishable from a healthy license.
+	// valid response for 7 days"). With enforcement, a node that never had
+	// one degrades at once; otherwise every restart would start a fresh grace
+	// period. Reporting-only nodes retain the underlying verification status.
 	anchor := s.LastValidAt
 	if anchor.IsZero() {
-		s.State = licensestate.StatusDegraded
+		if c.ReportingOnly {
+			s.State = base
+		} else {
+			s.State = licensestate.StatusDegraded
+		}
 		return
 	}
 	s.GraceEndsAt = anchor.Add(c.grace())
 	if !now.Before(s.GraceEndsAt) {
-		base = licensestate.StatusDegraded
+		if c.ReportingOnly {
+			base = licensestate.StatusUnreachable
+		} else {
+			base = licensestate.StatusDegraded
+		}
 	}
 	s.State = base
 }
@@ -317,9 +339,12 @@ func (c *Checker) logState(old, new Snapshot) {
 		l.Warn("license was issued for a different cluster; contact Weaviate support")
 	}
 	if new.State != licensestate.StatusValid && new.State != licensestate.StatusUnlicensed {
-		if new.State == licensestate.StatusDegraded {
+		switch {
+		case new.State == licensestate.StatusDegraded:
 			l.Error("license degraded: enterprise features are disabled; contact Weaviate support")
-		} else {
+		case c.ReportingOnly:
+			l.Warn("license not confirmed; feature gating is unchanged in reporting-only mode", "grace_ends_at", new.GraceEndsAt)
+		default:
 			l.Warn("license not confirmed; enterprise features will be disabled at grace end", "grace_ends_at", new.GraceEndsAt)
 		}
 	}
