@@ -1332,6 +1332,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 	refused := map[string]struct{}{}
 	// started logs start once a unit passes the hold check, so a group that only waits on a hold logs no start line per tick.
 	var started sync.Once
+	retried := false
 
 	runOne := func(unitID string) {
 		res := p.resolveUnitForPhase(ctx, task, payload, unitID, idx, logger)
@@ -1374,6 +1375,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 				logger.Info(start)
 				return
 			}
+			retried = true
 			p.swapRetrySampler().WithSampling(func(logrus.FieldLogger) { logger.Info(start) })
 		})
 		release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
@@ -1429,8 +1431,15 @@ func (p *ReindexProvider) runPerUnitPhase(
 	// The task error drops acks from nodes that fail after the first one, so
 	// this line is the only record such a node leaves.
 	if len(refused) > 0 {
-		logger.WithField("shards", reportedShardNames(refused)).
-			Errorf("reindex provider: swap refused on %d shard(s): property overlay could not be installed; first error: %v", len(refused), agg.OverlayUnwrapErr)
+		logRefused := func(logrus.FieldLogger) {
+			logger.WithField("shards", reportedShardNames(refused)).
+				Errorf("reindex provider: swap refused on %d shard(s): property overlay could not be installed; first error: %v", len(refused), agg.OverlayUnwrapErr)
+		}
+		if retried {
+			p.swapRetrySampler().WithSampling(logRefused)
+		} else {
+			logRefused(logger)
+		}
 	}
 
 	if len(agg.Errs) == 0 {

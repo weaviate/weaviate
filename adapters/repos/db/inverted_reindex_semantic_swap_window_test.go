@@ -421,9 +421,6 @@ func TestSwapPhaseFailsWhenTheOverlayCannotBeWired(t *testing.T) {
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 
-	lazy := &LazyLoadShard{shardOpts: &deferredShardOpts{name: shard.Name(), index: idx}}
-	lazy.memMonitor = &allocCheckerLosingTheFirstReservation{lazy: lazy, shard: shard}
-
 	const unitID = "unit-1"
 	logger, hook := logrustest.NewNullLogger()
 	p := NewReindexProvider(nil, nil, nil, logger, "node1", nil, ctx)
@@ -436,14 +433,22 @@ func TestSwapPhaseFailsWhenTheOverlayCannotBeWired(t *testing.T) {
 		UnitToShard:   map[string]string{unitID: shard.Name()},
 	}
 
-	err := p.runPerUnitPhase(&distributedtask.Task{TaskDescriptor: desc}, payload,
-		[]string{unitID}, idx, logger, "swap-requested", "starting", true,
-		func(unitID string, _ ShardLike, unitTasks []*ShardReindexTaskGeneric, _ bool) phaseResult {
-			return p.runShardSwapPhase(ctx, payload, unitID, shard.Name(), lazy, unitTasks, logger)
-		})
-
-	require.ErrorContains(t, err, "overlay wiring",
-		"a unit that never wired its overlay must report a failure, not ack success")
+	// Use up the retry sample, so a retried refusal logged in full would show.
+	for range maxReportedErrors {
+		p.swapRetrySampler().WithSampling(func(logrus.FieldLogger) {})
+	}
+	// A refused swap re-fires every tick.
+	for range 3 {
+		lazy := &LazyLoadShard{shardOpts: &deferredShardOpts{name: shard.Name(), index: idx}}
+		lazy.memMonitor = &allocCheckerLosingTheFirstReservation{lazy: lazy, shard: shard}
+		err := p.runPerUnitPhase(&distributedtask.Task{TaskDescriptor: desc}, payload,
+			[]string{unitID}, idx, logger, "swap-requested", "starting", true,
+			func(unitID string, _ ShardLike, unitTasks []*ShardReindexTaskGeneric, _ bool) phaseResult {
+				return p.runShardSwapPhase(ctx, payload, unitID, shard.Name(), lazy, unitTasks, logger)
+			})
+		require.ErrorContains(t, err, "overlay wiring",
+			"a unit that never wired its overlay must report a failure, not ack success")
+	}
 	require.Empty(t, shard.SnapshotPropertyOverlay([]string{propName}),
 		"and it must stop before the swap that would need the overlay")
 
@@ -453,7 +458,7 @@ func TestSwapPhaseFailsWhenTheOverlayCannotBeWired(t *testing.T) {
 			refusals = append(refusals, entry)
 		}
 	}
-	require.Len(t, refusals, 1, "the scheduler logs no group error, so this line is the node's only record")
+	require.Len(t, refusals, 1, "the first refusal is logged in full and its retries only within the sample")
 	require.Equal(t, []string{shard.Name()}, refusals[0].Data["shards"])
 }
 
