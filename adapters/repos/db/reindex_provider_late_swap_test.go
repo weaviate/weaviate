@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -94,43 +95,36 @@ func TestSwapRetryOfARunANewerRunSuperseded(t *testing.T) {
 	}
 }
 
-// Pins that a failing swap step returns its fault without logging it: a
-// decided swap retries every tick, and the scheduler reports the fault sampled.
-func TestFailingSwapStepReturnsItsFaultUnlogged(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		run  func(t *testing.T, ctx context.Context, f lateSwapFixture) []string
-	}{
-		{"shard not loaded", func(t *testing.T, ctx context.Context, f lateSwapFixture) []string {
-			f.payload.UnitToShard[f.unit] = "cold-tenant"
-			return f.resolve(ctx).Errs
-		}},
-		{"shard cannot be unwrapped", func(t *testing.T, ctx context.Context, f lateSwapFixture) []string {
-			f.idx.shards.Store("odd", NewMockShardLike(t))
-			t.Cleanup(func() { f.idx.shards.LoadAndDelete("odd") })
-			f.payload.UnitToShard[f.unit] = "odd"
-			return f.resolve(ctx).Errs
-		}},
-		{"tasks cannot be built", func(t *testing.T, ctx context.Context, f lateSwapFixture) []string {
-			f.payload.Properties = nil
-			return f.resolve(ctx).Errs
-		}},
-		{"unmirrored record refuses the swap", func(t *testing.T, ctx context.Context, f lateSwapFixture) []string {
-			tasks, err := f.p.createReindexTasks(lateSwapDesc, f.unit, f.payload)
-			require.NoError(t, err)
-			for _, task := range tasks {
-				subject := task.migrationSubject(f.shard, f.payload.Properties, time.Now())
-				subject.Unmirrored = true
-				require.NoError(t, f.shard.migrationRecords.Put(NewMigrationRecordMerged(subject)))
-			}
-			return f.p.runShardSwapPhase(ctx, f.payload, f.unit, f.shard.Name(), f.shard, tasks, f.p.logger).Errs
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := testCtx()
-			f := newLateSwapFixture(t, ctx)
-			require.NotEmpty(t, tc.run(t, ctx, f))
-			require.Empty(t, f.hook.AllEntries())
-		})
+// Pins that a decided swap retried every tick logs each task's first attempt
+// in full and its retries only within the node-wide sample.
+func TestFailingSwapRetryLogsSampled(t *testing.T) {
+	ctx := testCtx()
+	f := newLateSwapFixture(t, ctx)
+	tasks, err := f.p.createReindexTasks(lateSwapDesc, f.unit, f.payload)
+	require.NoError(t, err)
+	for _, task := range tasks {
+		subject := task.migrationSubject(f.shard, f.payload.Properties, time.Now())
+		require.NoError(t, f.shard.migrationRecords.Put(NewMigrationRecordMerged(subject)))
 	}
+	// Leave one sampled slot, so a first attempt that waited for one would go unlogged.
+	for range maxReportedErrors - 1 {
+		f.p.swapRetrySampler().WithSampling(func(logrus.FieldLogger) {})
+	}
+	// No staged bucket is open, so every attempt fails.
+	for range 3 * maxReportedErrors {
+		require.NotEmpty(t, f.p.runShardSwapPhase(ctx, f.payload, f.unit, f.shard.Name(), f.shard, tasks, f.p.logger).Errs)
+	}
+
+	count := func(msg string) (n int) {
+		for _, e := range f.hook.AllEntries() {
+			if e.Message == msg {
+				n++
+			}
+		}
+		return n
+	}
+	require.Equal(t, len(tasks), count("RunSwapOnShard: resuming from merged state, in-memory atomic swap"))
+	retries := count("RunSwapOnShard: flip already decided; running OnMigrationComplete only")
+	require.Positive(t, retries)
+	require.LessOrEqual(t, retries, maxReportedErrors)
 }

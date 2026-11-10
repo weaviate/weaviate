@@ -23,12 +23,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,6 +42,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -100,6 +103,8 @@ type ShardReindexTaskGeneric struct {
 	// failure-injecting wrapper. Always set - no test-only branch runs in
 	// production.
 	rebuildRangeableRepFn func(ctx context.Context, b *lsmkv.Bucket) error
+
+	swapAttempted atomic.Bool
 }
 
 type indexClosingGuard func(shard ShardLike) error
@@ -221,7 +226,7 @@ func (t *ShardReindexTaskGeneric) runReindexOnlyOnShard(ctx context.Context, sha
 // MUST run before the tokenization overlay is set, which would otherwise tokenize
 // query input as new against the still-old bucket for the seconds prep takes.
 func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard ShardLike) error {
-	entry, err := t.enterDTMPhase(ctx, shard, "RunPrepareOnShard")
+	entry, err := t.enterDTMPhase(ctx, shard, t.logger, "RunPrepareOnShard")
 	if err != nil {
 		return err
 	}
@@ -257,13 +262,15 @@ type dtmPhaseEntry struct {
 	rec    MigrationRecord
 }
 
-func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard ShardLike, method string) (*dtmPhaseEntry, error) {
+func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard ShardLike,
+	logger logrus.FieldLogger, method string,
+) (*dtmPhaseEntry, error) {
 	concreteShard, err := unwrapShard(ctx, shard)
 	if err != nil {
 		return nil, fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
 	}
 
-	logger := t.logger.WithFields(map[string]any{
+	logger = logger.WithFields(map[string]any{
 		"collection": concreteShard.Index().Config.ClassName.String(),
 		"shard":      concreteShard.Name(),
 		"method":     method,
@@ -293,7 +300,28 @@ func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard Shard
 }
 
 func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard ShardLike) error {
-	entry, err := t.enterDTMPhase(ctx, shard, "RunSwapOnShard")
+	return t.runSwapOnShard(ctx, shard, t.logger)
+}
+
+var discardLogger = func() *logrus.Logger {
+	l := logrus.New()
+	l.Out = io.Discard
+	return l
+}()
+
+// swapLogger logs a task's first swap attempt in full. A decided swap that keeps
+// failing is retried every tick, so a retry logs only when the node-wide sampler admits it.
+func (t *ShardReindexTaskGeneric) swapLogger(retries *logrusext.Sampler) logrus.FieldLogger {
+	if !t.swapAttempted.Swap(true) {
+		return t.logger
+	}
+	logger := logrus.FieldLogger(discardLogger)
+	retries.WithSampling(func(logrus.FieldLogger) { logger = t.logger })
+	return logger
+}
+
+func (t *ShardReindexTaskGeneric) runSwapOnShard(ctx context.Context, shard ShardLike, logger logrus.FieldLogger) error {
+	entry, err := t.enterDTMPhase(ctx, shard, logger, "RunSwapOnShard")
 	if err != nil {
 		return err
 	}

@@ -110,6 +110,8 @@ type ReindexProvider struct {
 	teardownHeld     *logrusext.Sampler
 	swapFailedOnce   sync.Once
 	swapFailed       *logrusext.Sampler
+	swapRetryOnce    sync.Once
+	swapRetry        *logrusext.Sampler
 
 	// sealedUnits/sealedTasks count teardowns, guarded by [mu]. A seal, not a [liveUnits] read, which is stale on return.
 	sealedUnits unitClaims
@@ -433,6 +435,13 @@ func (p *ReindexProvider) swapFailedSampler() *logrusext.Sampler {
 		p.swapFailed = logrusext.NewSampler(p.logger, maxReportedErrors, migrationUnitContentionWindow)
 	})
 	return p.swapFailed
+}
+
+func (p *ReindexProvider) swapRetrySampler() *logrusext.Sampler {
+	p.swapRetryOnce.Do(func() {
+		p.swapRetry = logrusext.NewSampler(p.logger, maxReportedErrors, migrationUnitContentionWindow)
+	})
+	return p.swapRetry
 }
 
 func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescriptor, unitID string) {
@@ -1252,7 +1261,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 	maybeWirePerPropOverlaySet(setShard, payload, unitTasks)
 
 	for _, reindexTask := range unitTasks {
-		if err := reindexTask.RunSwapOnShard(ctx, shard); err != nil {
+		if err := reindexTask.runSwapOnShard(ctx, shard, reindexTask.swapLogger(p.swapRetrySampler())); err != nil {
 			p.swapFailedSampler().WithSampling(func(l logrus.FieldLogger) {
 				l.WithField("unit", unitID).WithField("task", reindexTask.Name()).
 					Errorf("reindex provider: shard swap — swap failed on this shard: %v", err)
