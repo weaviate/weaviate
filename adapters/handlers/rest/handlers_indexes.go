@@ -156,10 +156,12 @@ type classReader interface {
 // never be the older of the two. A nil lister means no cluster service: the
 // caller gets the class with no tasks. classes must be non-nil.
 //
-// ClassInfo runs first so a missing collection skips the costly task read; the
-// authoritative existence check stays on ReadOnlyClass, after the task read.
-//
-// FINISHED tasks are kept so a completed migration outranks an older FAILED attempt.
+// ClassInfo runs ahead of the task read so a collection that does not exist
+// skips it: the task read clones and sorts every task in every namespace.
+// It is not the existence check the response is built on — that stays on
+// ReadOnlyClass below, after the task read, so the order above holds for
+// every class this returns. A collection deleted between the two reads
+// leaves ReadOnlyClass answering nil against an Exists that was true.
 func readClassAndTasks(collection string, taskSource localTaskLister, classes classReader) (*models.Class, []db.ReindexRun) {
 	if !classes.ClassInfo(collection).Exists {
 		return nil, nil
@@ -765,8 +767,7 @@ func firstActiveReindexTask(
 //     status this build does not recognize.
 //   - "failed":     latest matching task ended in FAILED.
 //   - "cancelled":  latest matching task ended in CANCELLED.
-//   - "partial":    latest matching task ended in FAILED or CANCELLED after
-//     some tenants' swaps were decided.
+//   - "partial":    latest matching task ended FAILED or CANCELLED after some tenants' swaps were decided.
 //
 // Property matching is uniform across all migration types: every branch
 // requires payload.Properties to be non-empty and to contain propName.
@@ -801,7 +802,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	//   STARTED > FAILED ≈ CANCELLED ≈ FINISHED   (in-flight beats terminal)
 	//   newer StartedAt > older StartedAt          (within the same priority)
 	// FINISHED tasks stay in the loop for the tiebreak below; see
-	// [readClassAndTasks] for why. FINISHED itself surfaces nothing (see
+	// [taskStatusPriority] for why. FINISHED itself surfaces nothing (see
 	// its case).
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload
@@ -952,7 +953,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 
 // taskStatusPriority ranks FINISHED with FAILED and CANCELLED rather than
 // above them: an in-flight retry has to outrank a completed earlier attempt,
-// so a FINISHED task can only win on recency. See [readClassAndTasks].
+// so a FINISHED task can only win on recency, e.g. over an older FAILED attempt.
 func taskStatusPriority(task *distributedtask.Task) int {
 	if task.Status.IsActive() {
 		return 2

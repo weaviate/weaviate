@@ -120,14 +120,17 @@ func (s *Raft) AddProperty(ctx context.Context, class string, props ...*models.P
 //
 // This is the public entry point: callers reach it from the REST / gRPC
 // schema handlers. The cluster-side MutationGuard at apply time blocks
-// updates while a reindex on the same (collection, property) is active.
+// updates while a reindex on the same (collection, property) is STARTED
+// or FINALIZING. Internal callers driven by the distributed-task
+// scheduler's own completion path must use
+// [Raft.UpdatePropertyFromMigration] instead, which sets the migration
+// flag.
 func (s *Raft) UpdateProperty(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
 	return s.updateProperty(ctx, class, property, nil, fields...)
 }
 
 // UpdatePropertyFromMigration schedules a RAFT command for a property
-// schema flip emitted by the scheduler's completion handler. The FSM admits it
-// only while run is SWAPPING on that property. Public handlers must use [Raft.UpdateProperty].
+// schema flip from the scheduler's completion handler; the FSM admits it only while run is SWAPPING.
 func (s *Raft) UpdatePropertyFromMigration(ctx context.Context, class string, run cmd.MigrationRun, property *models.Property, fields ...string) (uint64, error) {
 	return s.updateProperty(ctx, class, property, &run, fields...)
 }

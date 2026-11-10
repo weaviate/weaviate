@@ -44,12 +44,9 @@ import (
 // [Scheduler.perTaskStateLocked].
 //
 //   - completedCallbackFired: per-task one-shot for [UnitAwareProvider.OnTaskCompleted].
-//   - swapPending / prepPending: groups PHASE B / PHASE A may still act on;
-//     nil until the first tick fills them.
+//   - swapPending / prepPending: groups PHASE B / PHASE A may still act on; nil until the first tick.
 //   - postCompletionAckEmitted: per-task one-shot for emitting the per-node
 //     PostCompletionAck via [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck].
-//   - postCompletionGroupErrors: swap callback results (incl. nil), to tell "returned" from "not yet".
-//   - preparationCompletionGroupErrors / swapAcksPending: results whose ack is not emitted yet.
 type taskSchedulerState struct {
 	completedCallbackFired           bool
 	swapPending                      map[string]struct{}
@@ -348,8 +345,7 @@ func (s *Scheduler) bootstrapProviders(tasksByNamespace map[string]map[TaskDescr
 	s.bootstrapped = true
 }
 
-// preMarkTerminalCallbacksLocked sets completedCallbackFired for every
-// terminal task in the snapshot. The per-task state is empty on every fresh
+// preMarkTerminalCallbacksLocked marks terminal tasks fired. The per-task state is empty on every fresh
 // scheduler, and without this pre-mark the tick loop would re-fire
 // OnGroupCompleted + OnTaskCompleted for every task still in the FSM
 // (including tasks whose callbacks already fired before the restart).
@@ -625,8 +621,7 @@ func (s *Scheduler) tick() {
 		// their callbacks fire — the FINISHED transition is committed by
 		// [TaskFinalizer.MarkDistributedTaskFinalized] below only AFTER
 		// OnTaskCompleted returns successfully, so a task in the FINISHED
-		// state is by construction past this point. The bootstrap pre-mark stops
-		// a restart replaying it; a FINISHED task with pending local recovery is not pre-marked.
+		// state is by construction past this point. The bootstrap pre-mark stops a restart replaying it.
 		suProvider, providerIsUnitAware := provider.(UnitAwareProvider)
 		if providerIsUnitAware {
 			for desc, task := range tasks {
@@ -905,7 +900,6 @@ func (s *Scheduler) runPreparationPhase(
 			context.Background(), namespace, task.ID, task.Version,
 			ack.groupID, s.localNode, ack.err == nil, errMsg,
 		)
-		// A failed RAFT write fails the rest: log once, retry next tick.
 		if ackErr != nil {
 			s.postCompletionAckLogger.WithSampling(func(l logrus.FieldLogger) {
 				s.loggerWithTask(namespace, desc).WithField("pending_group_count", len(acks)-i).
@@ -1387,8 +1381,6 @@ func (s *Scheduler) loggerWithTask(namespace string, taskDesc TaskDescriptor) *l
 	})
 }
 
-// allLocalGroupsReturnedLocked reports whether every local group's callback has
-// returned (a cancelled one has not). Caller must hold s.mu.
 func (s *Scheduler) allLocalGroupsReturnedLocked(task *Task, desc TaskDescriptor) bool {
 	state := s.perTaskStateLocked(desc)
 	for _, groupID := range task.Groups() {

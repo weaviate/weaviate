@@ -35,7 +35,6 @@ func propertyIndexRemoved(propertyIndexSetting *bool) bool {
 // for nonexistent property indexes which may be left on disk in two cases:
 // - tenant was inactive during drop property index operation hence their property buckets may still exist on disk
 // - an error occurred during update property operation and most probably property buckets haven't been removed
-//
 // migrated reports an index a migration turned on ahead of the schema; its bucket is not a leftover.
 func (p *propertyDeleteIndexHelper) ensureBucketsAreRemovedForNonExistentPropertyIndexes(
 	indexPath, shardName string, class *models.Class, migrated func(propName, indexType string) bool,

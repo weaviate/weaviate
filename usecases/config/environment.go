@@ -1504,7 +1504,6 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	// 0 = clean completed tasks on the next tick.
 	if err = parseIntVerify(
 		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
 		int(DefaultDistributedTasksCompletedTaskTTL.Hours()),

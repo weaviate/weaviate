@@ -84,9 +84,8 @@ type ReindexRun struct {
 	Payload ReindexTaskPayload
 }
 
-// ReindexMigratedTenants reads property's failed or cancelled runs since the last
-// finished flip. migrated: tenants whose newest decided swap went to target;
-// covered: every tenant target's runs held; paid: migrated tenants no replica still owes.
+// ReindexMigratedTenants reads property's failed/cancelled runs since the last finished flip. migrated:
+// newest decided swap went to target; covered: held by target's runs; paid: no replica still owes it.
 func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexTaskPayload) (migrated, paid, covered map[string]struct{}) {
 	targetTypes, _ := ReindexIndexTypes(target.MigrationType)
 	var onProperty []ReindexRun

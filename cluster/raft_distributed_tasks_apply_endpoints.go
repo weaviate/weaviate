@@ -207,8 +207,6 @@ func (s *Raft) RecordDistributedTaskPostCompletionAck(
 		})
 }
 
-// RecordDistributedTaskPreparationCompleteAck commits one node's PREP result for one group.
-//
 // See [distributedtask.PostCompletionAckRecorder].
 func (s *Raft) RecordDistributedTaskPreparationCompleteAck(
 	ctx context.Context,

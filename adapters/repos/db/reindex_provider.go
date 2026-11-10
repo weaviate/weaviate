@@ -1528,7 +1528,6 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	return out
 }
 
-// OnSwapRequested runs OVERLAY+SWAP for a barrier task's decided group, even after the task ended.
 func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
 		WithField("localGroupUnitCount", len(localGroupUnitIDs))
@@ -1607,8 +1606,10 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 // the schema remains pre-migration when the cluster-wide migration didn't
 // succeed.
 //
-// On SWAPPING, a failed flip (for change-algorithm, a failed stamp) returns an error,
-// wrapped in [distributedtask.ErrTaskCompletionPermanent] when unrecoverable.
+// Returns a non-nil error on the SWAPPING path when the cutover write fails: wrapped
+// in [distributedtask.ErrTaskCompletionPermanent] when unrecoverable, plain
+// when transient (weaviate/0-weaviate-issues#297). Terminal-status cleanup
+// always returns nil.
 func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	// Clear caches up-front so a failed-task early return doesn't leak.
 	payload, payloadErr := p.loadPayload(task)
@@ -2312,9 +2313,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		// /v1/schema/{class}/indexes never reads it: it resolves
 		// models.IndexStatus.Algorithm from the per-property
 		// SearchableBlockmax stamp written above, which lands before FINISHED.
-		//
-		// The stamp landed, so a failed flip is only logged: failing the run would
-		// lock the property behind a run that cannot finish.
+		// The stamp landed, so a failed flip is only logged: failing would lock the property behind the run.
 		if defer_, err := p.shouldDeferBlockmaxFlip(payload, logger); err != nil {
 			logger.WithError(err).Warn("reindex provider: change-algorithm cutover: cannot check whether the class " +
 				"can use blockmax by default; a later change-algorithm cutover on this class, or a class update while " +

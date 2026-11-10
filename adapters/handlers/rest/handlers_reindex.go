@@ -292,7 +292,6 @@ func validateTokenizationChange(
 		return "", fmt.Errorf("property %q already uses tokenization %q", propName, targetTokenization)
 	}
 
-	// change-tokenization preserves the bucket's existing strategy.
 	return lsmkv.DefaultSearchableStrategy(db.SearchablePropertyIsBlockmax(class, propName)), nil
 }
 

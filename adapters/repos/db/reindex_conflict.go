@@ -25,8 +25,8 @@ import (
 //
 // ok is false only for an unrecognized type — forward-compat for a rolling
 // upgrade observing a newer peer's task; must never panic on peer input. Such
-// types fail safe: touches=true rejects a racing submit. Exhaustiveness lives
-// in TestReindexBucketEffect_Exhaustive.
+// types fail safe: touches=true rejects a racing submit. Exhaustiveness lives in
+// TestReindexBucketEffect_Exhaustive.
 func ReindexBucketEffect(t ReindexMigrationType) (touchesSearchable, touchesFilterable, ok bool) {
 	switch t {
 	case ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable, ReindexTypeEnableSearchable:
@@ -43,8 +43,7 @@ func ReindexBucketEffect(t ReindexMigrationType) (touchesSearchable, touchesFilt
 }
 
 // SearchablePropertyIsBlockmax resolves whether (class, propName)'s searchable
-// bucket is blockmax: the durable per-property stamp if set, else the
-// class-wide flag. Every read site must route through this resolver.
+// bucket is blockmax: stamp if set, else class flag. Every read site must route through this resolver.
 func SearchablePropertyIsBlockmax(class *models.Class, propName string) bool {
 	for _, p := range class.Properties {
 		if p.Name == propName {

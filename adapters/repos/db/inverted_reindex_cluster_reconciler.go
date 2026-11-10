@@ -28,8 +28,7 @@ const migrationClusterQueryTimeout = 5 * time.Second
 const migrationClusterReconcileInterval = time.Minute
 
 // MigrationLocalTaskSource reads this node's own applied view of the reindex
-// task namespace, each entry answering for shard. ok=false means "not
-// installed", which licenses no discard.
+// task namespace. ok=false means "not installed", which licenses no discard.
 type MigrationLocalTaskSource func(shard string) ([]distributedtask.TaskStatusEntry, bool)
 
 // MigrationClusterTaskSource reads the reindex task namespace from the leader.

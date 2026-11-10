@@ -89,7 +89,6 @@ type TaskFinalizer interface {
 	// [TaskStatusSwapping] for the race this fixes.
 	MarkDistributedTaskFinalized(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 
-	// MarkDistributedTaskFailed proposes [Manager.MarkTaskFailed].
 	MarkDistributedTaskFailed(ctx context.Context, namespace, taskID string, taskVersion uint64, errMsg string) error
 }
 
@@ -122,7 +121,6 @@ type PostCompletionAckRecorder interface {
 		errMsg string,
 	) error
 
-	// RecordDistributedTaskPreparationCompleteAck proposes [Manager.RecordPreparationCompleteAck].
 	RecordDistributedTaskPreparationCompleteAck(
 		ctx context.Context,
 		namespace, taskID string,
@@ -251,8 +249,7 @@ type SchemaMutationDetector interface {
 	CheckTenantMutation(className string, tenants []string, existingTasks []*Task) error
 }
 
-// CutoverOutcome lets a detector record a failing run as FINISHED when its cutover
-// write already landed, and refuse that write once the run stopped. Called under [Manager.mu].
+// CutoverOutcome judges a run's cutover write: did it land, may it still land. Called under [Manager.mu].
 type CutoverOutcome interface {
 	CutoverLanded(task *Task, readClass func(collection string) *models.Class) bool
 	CheckMigrationPropertyUpdate(className, propertyName string, run *Task) error
@@ -326,8 +323,7 @@ type RecoveryAwareProvider interface {
 // Callback phases:
 //  1. OnGroupCompleted — fires per group as each group's units reach terminal.
 //     PREP-only for barrier tasks; PREP+OVERLAY+SWAP inline otherwise.
-//  2. OnSwapRequested — fires once the group's swap is decided in RAFT.
-//     Barrier tasks only; carries OVERLAY+SWAP.
+//  2. OnSwapRequested — OVERLAY+SWAP per decided group this node owes, even after the task ended.
 //  3. OnTaskCompleted — fires once on every node after ALL units terminal.
 type UnitAwareProvider interface {
 	Provider
@@ -337,8 +333,6 @@ type UnitAwareProvider interface {
 	// RecordPreparationCompleteAck (barrier tasks) or RecordPostCompletionAck.
 	OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) error
 
-	// OnSwapRequested fires for each decided group this node owes, even after
-	// the task failed or was cancelled. An error re-queues the group.
 	OnSwapRequested(task *Task, groupID string, localGroupUnitIDs []string) error
 
 	// OnTaskCompleted is invoked by the [Scheduler] once per task that has
@@ -428,8 +422,10 @@ const (
 	TaskStatusStarted TaskStatus = "STARTED"
 
 	// TaskStatusPreparing means every unit terminal AND the task uses the
-	// PREP barrier (semantic migrations), but not every group's swap is
-	// decided yet. Non-barrier tasks skip this status.
+	// PREP barrier (semantic migrations), but some groups' swaps are not decided yet. The
+	// task transitions to SWAPPING only after every node's PreparationCompleteAck
+	// lands successfully — any failure flips the task to FAILED. Non-barrier
+	// tasks skip this status entirely.
 	TaskStatusPreparing TaskStatus = "PREPARING"
 
 	// TaskStatusSwapping means every node is firing its per-shard atomic
@@ -593,13 +589,11 @@ type Task struct {
 
 	PreparedGroups map[string]map[string]PostCompletionAck `json:"preparedGroups,omitempty"`
 
-	// SwapDecidedGroups maps decided groups to when. Outlives FAILED/CANCELLED: a
-	// decided group must swap on every replica or they diverge for good.
+	// SwapDecidedGroups outlives FAILED/CANCELLED: a decided group must swap on every replica or they diverge.
 	SwapDecidedGroups map[string]time.Time `json:"swapDecidedGroups,omitempty"`
 
 	SwapsOwed map[string][]string `json:"swapsOwed,omitempty"`
 
-	// NodePreparationAcks holds groupless PREP acks from older binaries.
 	NodePreparationAcks map[string]PostCompletionAck `json:"preparationCompletionAcks,omitempty"`
 
 	// PostCompletionAcks records a non-barrier task's per-node completion acks.
@@ -627,8 +621,7 @@ type PostCompletionAck struct {
 	AckedAt time.Time `json:"ackedAt"`
 }
 
-// taskJSON is the wire form of a Task. Task has no JSON methods because
-// encoding/json rescans custom method output, doubling the per-tick list cost.
+// taskJSON is Task's wire form: JSON methods on Task would double the per-tick list cost (encoding/json rescans).
 type taskJSON struct {
 	*Task
 	Units map[string]*Unit `json:"units,omitempty"`

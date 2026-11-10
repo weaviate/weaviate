@@ -160,7 +160,6 @@ func applyPerPropertySchemaUpdate(
 		if !mutate(&updated) {
 			continue
 		}
-		// Migration-aware path: the run is still in flight, so the plain guard would refuse this.
 		if err := schema.UpdatePropertyInternalFromMigration(&mgr.Handler, ctx, className, run, &updated, fields...); err != nil {
 			return missing, fmt.Errorf("updating property %q: %w", propName, err)
 		}

@@ -618,8 +618,8 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 // Gates SWAPPING → FINISHED on every expected ack landing successfully;
 // any Success=false flips to FAILED, which skips the cluster-wide schema
 // flip in OnTaskCompleted. Idempotent: first ack per (task, node) wins;
-// late acks against terminal states are silently dropped. A barrier task's
-// ack pays a swap debt instead.
+// late acks against terminal states are silently dropped.
+// A barrier task's ack pays a swap debt instead.
 func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	var r api.RecordDistributedTaskPostCompletionAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -679,7 +679,6 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	return nil
 }
 
-// recordSwapAck takes an ack in any status; one naming no group pays for every group of its node.
 func recordSwapAck(task *Task, r *api.RecordDistributedTaskPostCompletionAckRequest) {
 	if r.Success {
 		if r.GroupId != "" {
@@ -728,9 +727,7 @@ func recordNodePreparationAck(task *Task, r *api.RecordDistributedTaskPreparatio
 	task.Status = TaskStatusSwapping
 }
 
-// RecordPreparationCompleteAck records one node's PREP ack for a group. Once every
-// owning node acked success the group's swap is decided for good; a failed ack
-// fails the task. First ack per (group, node) wins.
+// RecordPreparationCompleteAck decides a group's swap for good once every owning node acked success.
 func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 	var r api.RecordDistributedTaskPreparationCompleteAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -849,11 +846,11 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 	return nil
 }
 
-// MarkTaskFailed ends a SWAPPING task when a node's
+// MarkTaskFailed transitions SWAPPING → FAILED when a node's
 // [UnitAwareProvider.OnTaskCompleted] returns a terminal error, so a
 // swallowed cutover failure can't leave the task FINISHED with an
-// un-flipped schema (weaviate/0-weaviate-issues#297). Records FAILED, or
-// FINISHED when [CutoverOutcome.CutoverLanded] says the cutover write landed.
+// un-flipped schema (weaviate/0-weaviate-issues#297).
+// It records FINISHED instead when [CutoverOutcome.CutoverLanded] reports the write landed.
 //
 // Idempotent at the FSM layer: the first commit wins; a later call on an
 // already-FAILED task is a no-op, and one racing a peer's FINISHED/CANCELLED
@@ -962,9 +959,9 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 	return nil
 }
 
-// CancelTask transitions an in-flight task to CANCELLED and refuses a terminal status or
-// one this build cannot name (see [TaskStatus.IsCancellable]). In-flight units are not
-// waited for — the [Scheduler] will terminate their local handles on the next tick.
+// CancelTask transitions a STARTED or PREPARING task to CANCELLED and refuses every other status,
+// including one this build cannot name (see [TaskStatus.IsCancellable]). In-flight units
+// are not waited for — the [Scheduler] will terminate their local handles on the next tick.
 // Decided groups keep their swap; SWAPPING answers [ErrNothingLeftToCancel].
 func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	var r api.CancelDistributedTaskRequest
@@ -1053,7 +1050,8 @@ func (m *Manager) LocalDistributedTasks() map[string][]*Task {
 	return result
 }
 
-// LocalTaskStatuses copies no units, unlike [Manager.LocalDistributedTasks]: it runs under the lock RAFT applies wait on.
+// LocalTaskStatuses copies no units: a decider can read once per record, under
+// the lock RAFT applies wait on, where [Manager.LocalDistributedTasks] clones them all.
 func (m *Manager) LocalTaskStatuses(namespace, shard string) []TaskStatusEntry {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

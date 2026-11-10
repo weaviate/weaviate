@@ -32,8 +32,6 @@ func migrationEnablesIndexType(mt ReindexMigrationType) (string, bool) {
 	}
 }
 
-// migrationOverridesSchema reports whether rec, not the schema, answers for
-// what it migrated: from its flip decision until its task finishes or leaves the list.
 func migrationOverridesSchema(rec MigrationRecord, tasks []distributedtask.TaskStatusEntry, readable bool) bool {
 	if !rec.FlipDecided() {
 		return false

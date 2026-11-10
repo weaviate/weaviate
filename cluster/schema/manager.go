@@ -884,8 +884,7 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 		return fmt.Errorf("%w: empty property", ErrBadRequest)
 	}
 
-	// Cross-FSM mutation guard — see [MutationGuard]. A flip naming no run was
-	// written by an older binary and is admitted unchecked.
+	// Cross-FSM mutation guard — see [MutationGuard]. A flip naming no run (older binary) is admitted.
 	if s.mutationGuard != nil {
 		var err error
 		switch {
