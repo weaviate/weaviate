@@ -138,7 +138,7 @@ func (s *sidecar) code(slot uint32) []uint64 {
 // (compressionhelpers, DistancesToNodes): hints issued a few codes ahead,
 // inside the loop, rather than for the whole batch up front, which would ask
 // for more lines than a core keeps in flight. 8 measured best for 25-word
-// codes; 4 and 16 are within 15% of it.
+// codes, with 4 and 16 within 15% of it.
 const scoreAhead = 8
 
 // codeEstimator estimates the distance from a query to a stored code.
@@ -153,8 +153,9 @@ type codeEstimator interface {
 // The endpoints a search scores are scattered over the whole sidecar, which
 // is far larger than the CPU caches. Scored one by one, each code is a cache
 // miss that waits behind the bit counting of the code before it. Fetching
-// ahead lets the misses overlap: on a 1M x 1536d sidecar it cuts the cost of
-// scoring an endpoint to less than a third.
+// ahead lets the misses overlap: BenchmarkSidecarScore measures 49 ns per
+// 1536d code against 147 ns one by one, close to the 42 ns of a code that is
+// already cached.
 func (s *sidecar) score(estimator codeEstimator, slots []uint32, dists []float32) error {
 	for i := range min(scoreAhead, len(slots)) {
 		s.prefetch(slots[i])

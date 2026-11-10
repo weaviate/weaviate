@@ -21,9 +21,12 @@
 //	    -bench.report.hnsw.work hnsw-work.json \
 //	    -bench.report.out testdata/bench
 //
-// The first two files come from TestBenchmark, one per arm. The work files
-// are optional: TestBenchmark with -bench.mode work for the posting-edge
-// index, and TestSearchWork of the hnsw package for HNSW.
+// The first two files come from TestBenchmark, one per arm. The others are
+// optional: the work files (TestBenchmark with -bench.mode work for the
+// posting-edge index, TestSearchWork of the hnsw package for HNSW), an earlier
+// posting-edge result to compare against (-bench.report.before), a source
+// margin sweep (-bench.report.margin), a probe sweep (-bench.report.probes)
+// and work results to compare at equal ef (-bench.report.probecheck).
 
 package postingedge
 
@@ -47,6 +50,19 @@ var (
 	reportPostingEdgeWork = flag.String("bench.report.postingedge.work", "", "posting-edge result file of TestBenchmark -bench.mode work")
 	reportHNSWWork        = flag.String("bench.report.hnsw.work", "", "result file of TestSearchWork of the hnsw package")
 	reportOut             = flag.String("bench.report.out", "", "directory to write tables.md and the charts to")
+	reportBefore          = flag.String("bench.report.before", "", "an earlier posting-edge result file of TestBenchmark, to compare against")
+	reportBeforeWork      = flag.String("bench.report.before.work", "", "the work result file that goes with -bench.report.before")
+	reportMargin          = flag.String("bench.report.margin", "", "posting-edge work result file of a source margin sweep")
+	reportProbes          = flag.String("bench.report.probes", "", "posting-edge result file of TestBenchmark -bench.mode probes")
+	reportProbeCheck      = flag.String("bench.report.probecheck", "", "posting-edge work result files to compare at equal ef, as label=path pairs separated by commas")
+)
+
+// marginTolerance is how much recall a source margin may cost at any ef, and
+// marginSaving how much of the endpoint scoring it has to save to be worth
+// having.
+const (
+	marginTolerance = 0.002
+	marginSaving    = 0.40
 )
 
 // isoRecallTargets are the recall levels the two indexes are compared at.
@@ -94,6 +110,40 @@ func TestBenchmarkReport(t *testing.T) {
 	require.NoError(t, os.MkdirAll(*reportOut, 0o755))
 
 	var md strings.Builder
+	if *reportBefore != "" {
+		var before benchResult
+		readJSON(t, *reportBefore, &before)
+		var beforeWork *benchResult
+		if *reportBeforeWork != "" {
+			beforeWork = &benchResult{}
+			readJSON(t, *reportBeforeWork, beforeWork)
+		}
+		writeBeforeAfterTable(&md, &before, &ours, &theirs)
+		writeProfileComparison(&md, &before, beforeWork, &ours, oursWork)
+	}
+	if *reportMargin != "" {
+		var margin benchResult
+		readJSON(t, *reportMargin, &margin)
+		writeMarginTables(&md, &margin)
+	}
+	if *reportProbes != "" {
+		var probes benchResult
+		readJSON(t, *reportProbes, &probes)
+		writeProbeTable(&md, &probes)
+	}
+	if *reportProbeCheck != "" {
+		var labels []string
+		var results []*benchResult
+		for _, pair := range strings.Split(*reportProbeCheck, ",") {
+			label, path, found := strings.Cut(pair, "=")
+			require.Truef(t, found, "-bench.report.probecheck entry %q is not label=path", pair)
+			result := &benchResult{}
+			readJSON(t, path, result)
+			labels, results = append(labels, label), append(results, result)
+		}
+		writeEqualEFTable(&md, labels, results)
+	}
+	writeMarginFrontierTable(&md, &ours)
 	writeIsoRecallTable(&md, &ours, &theirs)
 	writeBuildTable(&md, &ours, &theirs)
 	writeMemoryTables(&md, &ours, oursWork, &theirs, theirsWork)
@@ -236,6 +286,399 @@ func writeIsoRecallTable(md *strings.Builder, ours, theirs *benchResult) {
 					qpsCell(oursQPS, oursOK), qpsCell(theirsQPS, theirsOK), ratio)
 			}
 		}
+	}
+	fmt.Fprintf(md, "\n")
+}
+
+// writeBeforeAfterTable compares an earlier posting-edge result with the
+// current one at equal recall, each on its best measured points, and both
+// against HNSW.
+func writeBeforeAfterTable(md *strings.Builder, before, after, theirs *benchResult) {
+	fmt.Fprintf(md, "## QPS at equal recall, before and after\n\n")
+	fmt.Fprintf(md, "Each index on its best measured points, read off its Pareto frontier.\n\n")
+	fmt.Fprintf(md, "| threads | recall | before QPS | after QPS | after / before | HNSW QPS | HNSW / before | HNSW / after |\n|---|---|---|---|---|---|---|---|\n")
+	for _, threads := range threadCounts(before, after, theirs) {
+		beforeFront := frontier(pick(before, threads, nil))
+		afterFront := frontier(pick(after, threads, nil))
+		theirsFront := frontier(pick(theirs, threads, nil))
+		for _, target := range isoRecallTargets {
+			b, bOK := qpsAtRecall(beforeFront, target)
+			a, aOK := qpsAtRecall(afterFront, target)
+			h, hOK := qpsAtRecall(theirsFront, target)
+			ratio := func(x, y float64, ok bool) string {
+				if !ok {
+					return "—"
+				}
+				return fmt.Sprintf("%.2fx", x/y)
+			}
+			fmt.Fprintf(md, "| %d | %.2f | %s | %s | %s | %s | %s | %s |\n", threads, target,
+				qpsCell(b, bOK), qpsCell(a, aOK), ratio(a, b, aOK && bOK),
+				qpsCell(h, hOK), ratio(h, b, hOK && bOK), ratio(h, a, hOK && aOK))
+		}
+	}
+	fmt.Fprintf(md, "\n")
+}
+
+// profileAt returns the single-thread point of a configuration at the lowest
+// ef that reaches the profile recall, with its work stats.
+func profileAt(points []benchPoint, accept func(benchPoint) bool) *benchPoint {
+	var chosen *benchPoint
+	for i := range points {
+		p := &points[i]
+		if p.Stats == nil || p.Recall < profileRecall || !accept(*p) {
+			continue
+		}
+		if chosen == nil || p.EF < chosen.EF {
+			chosen = p
+		}
+	}
+	return chosen
+}
+
+// writeProfileComparison breaks the search time down by phase before and
+// after, for the default load batch and each index at its lowest rescore
+// limit: the configuration either would be run with.
+func writeProfileComparison(md *strings.Builder, before, beforeWork, after, afterWork *benchResult) {
+	lowestRescore := func(points []benchPoint) int {
+		lowest := math.MaxInt
+		for _, p := range points {
+			lowest = min(lowest, p.RescoreLimit)
+		}
+		return lowest
+	}
+	rows := []struct {
+		name   string
+		points []benchPoint
+	}{{"before", workPoints(before, beforeWork)}, {"after", workPoints(after, afterWork)}}
+
+	fmt.Fprintf(md, "## Where the time goes at recall %.2f, before and after\n\n", profileRecall)
+	fmt.Fprintf(md, "Mean microseconds per query on one thread, load batch %d, at the lowest ef that reaches the recall.\n\n", DefaultLoadBatch)
+	fmt.Fprintf(md, "| | ef | rescore | margin | recall | centroid stage | posting scan | endpoint scoring | round selection | rescore | other | total | endpoints scored |\n")
+	fmt.Fprintf(md, "|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+	for _, row := range rows {
+		rescore := lowestRescore(row.points)
+		// Of the margins measured, the one that scores the fewest
+		// endpoints is the one the index would be run with.
+		var chosen *benchPoint
+		for _, margin := range sourceMargins(row.points) {
+			p := profileAt(row.points, func(p benchPoint) bool {
+				return p.RescoreLimit == rescore && p.LoadBatch == DefaultLoadBatch && p.SourceMargin == margin
+			})
+			if p != nil && (chosen == nil || p.Stats.ExpandUs < chosen.Stats.ExpandUs) {
+				chosen = p
+			}
+		}
+		if chosen == nil {
+			continue
+		}
+		s := chosen.Stats
+		phases := s.CentroidUs + s.ScanUs + s.ExpandUs + s.SelectUs + s.RescoreUs
+		total := s.TotalUs
+		if total == 0 {
+			total = chosen.MeanMs * 1000
+		}
+		cell := func(us float64) string { return fmt.Sprintf("%.0f (%.0f%%)", us, 100*us/total) }
+		fmt.Fprintf(md, "| %s | %d | %d | %.2f | %.4f | %s | %s | %s | %s | %s | %s | %.0f | %.0f |\n",
+			row.name, chosen.EF, chosen.RescoreLimit, chosen.SourceMargin, chosen.Recall,
+			cell(s.CentroidUs), cell(s.ScanUs), cell(s.ExpandUs), cell(s.SelectUs), cell(s.RescoreUs),
+			cell(total-phases), total, s.EndpointsMean)
+	}
+	fmt.Fprintf(md, "\n")
+}
+
+// fastEndRecall is the recall floor of the fast end of a frontier: the best
+// QPS an index reaches without dropping below it.
+const fastEndRecall = 0.92
+
+// writeMarginFrontierTable compares the recall/QPS frontier of each source
+// margin with the frontier without one, at the lowest rescore limit and the
+// default load batch: the QPS at the iso-recall targets and at the fast end.
+// A margin dominates if it is at least as fast as no margin at every one of
+// them, for every thread count.
+func writeMarginFrontierTable(md *strings.Builder, ours *benchResult) {
+	margins := sourceMargins(ours.Points)
+	if len(margins) < 2 {
+		return
+	}
+	rescore := math.MaxInt
+	for _, p := range ours.Points {
+		rescore = min(rescore, p.RescoreLimit)
+	}
+	// readings are, per margin, the QPS at each recall target and then at
+	// the fast end; a negative value is a target the frontier never reaches.
+	read := func(threads int, margin float64) []float64 {
+		points := pick(ours, threads, func(p benchPoint) bool {
+			return p.RescoreLimit == rescore && p.LoadBatch == DefaultLoadBatch && p.SourceMargin == margin
+		})
+		front := frontier(points)
+		out := make([]float64, 0, len(isoRecallTargets)+1)
+		for _, target := range isoRecallTargets {
+			qps, ok := qpsAtRecall(front, target)
+			if !ok {
+				qps = -1
+			}
+			out = append(out, qps)
+		}
+		fast := -1.0
+		for _, p := range points {
+			if p.Recall >= fastEndRecall {
+				fast = max(fast, p.QPS)
+			}
+		}
+		return append(out, fast)
+	}
+
+	fmt.Fprintf(md, "## Source margin: frontier against no margin\n\n")
+	fmt.Fprintf(md, "Rescore %d, load batch %d. QPS read off the Pareto frontier of each margin; the fast end is the best QPS with recall of at least %.2f. In brackets, against no margin.\n\n",
+		rescore, DefaultLoadBatch, fastEndRecall)
+	fmt.Fprintf(md, "| threads | margin |")
+	for _, target := range isoRecallTargets {
+		fmt.Fprintf(md, " QPS at %.2f |", target)
+	}
+	fmt.Fprintf(md, " fast end QPS | against no margin |\n|---|---|")
+	for range isoRecallTargets {
+		fmt.Fprintf(md, "---|")
+	}
+	fmt.Fprintf(md, "---|---|\n")
+
+	dominates := map[float64]bool{}
+	for _, margin := range margins {
+		dominates[margin] = margin != 0
+	}
+	for _, threads := range threadCounts(ours) {
+		baseline := read(threads, 0)
+		for _, margin := range margins {
+			readings := read(threads, margin)
+			fmt.Fprintf(md, "| %d | %s |", threads, marginLabel(margin))
+			worst := math.Inf(1)
+			for i, qps := range readings {
+				switch {
+				case qps < 0:
+					fmt.Fprintf(md, " not reached |")
+					worst = math.Inf(-1)
+				case margin == 0 || baseline[i] < 0:
+					fmt.Fprintf(md, " %.0f |", qps)
+				default:
+					gain := qps/baseline[i] - 1
+					worst = min(worst, gain)
+					fmt.Fprintf(md, " %.0f (%+.1f%%) |", qps, 100*gain)
+				}
+			}
+			verdict := ""
+			if margin != 0 {
+				verdict = "at least as fast everywhere"
+				if worst < 0 {
+					verdict = "slower somewhere"
+					dominates[margin] = false
+				}
+			}
+			fmt.Fprintf(md, " %s |\n", verdict)
+		}
+	}
+	fmt.Fprintf(md, "\n")
+	for _, margin := range margins {
+		if margin == 0 {
+			continue
+		}
+		outcome := "does not dominate"
+		if dominates[margin] {
+			outcome = "dominates"
+		}
+		fmt.Fprintf(md, "- Margin %.2f %s no margin over the measured range.\n", margin, outcome)
+	}
+	fmt.Fprintf(md, "\n")
+}
+
+func sourceMargins(points []benchPoint) []float64 {
+	var out []float64
+	for _, p := range points {
+		if !slices.Contains(out, p.SourceMargin) {
+			out = append(out, p.SourceMargin)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// writeMarginTables shows what each source margin of a sweep costs in recall
+// and saves in endpoint scoring, at every ef, against the points without a
+// margin, and names the margin the calibration rule picks: the smallest one
+// that costs at most marginTolerance of recall at every ef.
+func writeMarginTables(md *strings.Builder, result *benchResult) {
+	type key struct {
+		margin float64
+		ef     int
+	}
+	points := map[key]benchPoint{}
+	var efs []int
+	for _, p := range result.Points {
+		points[key{p.SourceMargin, p.EF}] = p
+		if !slices.Contains(efs, p.EF) {
+			efs = append(efs, p.EF)
+		}
+	}
+	slices.Sort(efs)
+	margins := sourceMargins(result.Points)
+
+	header := func(title, unit string) {
+		fmt.Fprintf(md, "### %s\n\n| margin |", title)
+		for _, ef := range efs {
+			fmt.Fprintf(md, " ef=%d |", ef)
+		}
+		fmt.Fprintf(md, " %s |\n|---|", unit)
+		for range efs {
+			fmt.Fprintf(md, "---|")
+		}
+		fmt.Fprintf(md, "---|\n")
+	}
+
+	fmt.Fprintf(md, "## Source margin calibration\n\n")
+	fmt.Fprintf(md, "Rescore %d, load batch %d, %d queries. Every margin against no margin at the same ef.\n\n",
+		result.Points[0].RescoreLimit, result.Points[0].LoadBatch, result.Queries)
+
+	header("Recall", "")
+	for _, margin := range margins {
+		fmt.Fprintf(md, "| %s |", marginLabel(margin))
+		for _, ef := range efs {
+			fmt.Fprintf(md, " %.4f |", points[key{margin, ef}].Recall)
+		}
+		fmt.Fprintf(md, " |\n")
+	}
+	fmt.Fprintf(md, "\n")
+
+	chosen, found := 0.0, false
+	header("Recall against no margin", "worst")
+	for _, margin := range margins {
+		if margin == 0 {
+			continue
+		}
+		worst := 0.0
+		fmt.Fprintf(md, "| %s |", marginLabel(margin))
+		for _, ef := range efs {
+			delta := points[key{margin, ef}].Recall - points[key{0, ef}].Recall
+			if math.Abs(delta) > math.Abs(worst) {
+				worst = delta
+			}
+			fmt.Fprintf(md, " %+.4f |", delta)
+		}
+		verdict := "within tolerance"
+		if math.Abs(worst) > marginTolerance {
+			verdict = "too much"
+		} else if !found {
+			chosen, found = margin, true
+		}
+		fmt.Fprintf(md, " %+.4f, %s |\n", worst, verdict)
+	}
+	fmt.Fprintf(md, "\n")
+
+	header("Endpoints scored per query", "mean share of no margin")
+	for _, margin := range margins {
+		share := 0.0
+		fmt.Fprintf(md, "| %s |", marginLabel(margin))
+		for _, ef := range efs {
+			scored := points[key{margin, ef}].Stats.EndpointsMean
+			baseline := points[key{0, ef}].Stats.EndpointsMean
+			share += scored / baseline / float64(len(efs))
+			if margin == 0 {
+				fmt.Fprintf(md, " %.0f |", scored)
+			} else {
+				fmt.Fprintf(md, " %.0f (%.0f%%) |", scored, 100*scored/baseline)
+			}
+		}
+		fmt.Fprintf(md, " %.0f%% |\n", 100*share)
+	}
+	fmt.Fprintf(md, "\n")
+
+	header("Postings loaded per query", "")
+	for _, margin := range margins {
+		fmt.Fprintf(md, "| %s |", marginLabel(margin))
+		for _, ef := range efs {
+			fmt.Fprintf(md, " %.1f |", points[key{margin, ef}].Stats.LoadsMean)
+		}
+		fmt.Fprintf(md, " |\n")
+	}
+	fmt.Fprintf(md, "\n")
+
+	if !found {
+		fmt.Fprintf(md, "No margin of the sweep stays within %.3f of recall at every ef.\n\n", marginTolerance)
+		return
+	}
+	saved := 0.0
+	for _, ef := range efs {
+		saved += (1 - points[key{chosen, ef}].Stats.EndpointsMean/points[key{0, ef}].Stats.EndpointsMean) / float64(len(efs))
+	}
+	verdict := "pays"
+	if saved < marginSaving {
+		verdict = "does not pay"
+	}
+	fmt.Fprintf(md, "Smallest margin within %.3f of recall at every ef: **%.2f**. It saves %.0f%% of the endpoint scoring on average over the ef sweep, against a bar of %.0f%%: it %s.\n\n",
+		marginTolerance, chosen, 100*saved, 100*marginSaving, verdict)
+}
+
+func marginLabel(margin float64) string {
+	if margin == 0 {
+		return "none"
+	}
+	return fmt.Sprintf("%.2f", margin)
+}
+
+func writeProbeTable(md *strings.Builder, result *benchResult) {
+	fmt.Fprintf(md, "## Build probe sweep\n\n")
+	fmt.Fprintf(md, "The edge builder at each probe width over one partition (%.0f s) and assignment (%.0f s).\n\n",
+		result.BuildStage["partition"], result.BuildStage["assign"])
+	fmt.Fprintf(md, "| probe | edge time s | candidates per vector | edges per vector | edge recall |\n|---|---|---|---|---|\n")
+	for _, p := range result.ProbeSweep {
+		fmt.Fprintf(md, "| %d | %.0f | %.0f | %.2f | %.4f |\n", p.Probe, p.EdgeSec, p.CandidatesPerVector, p.EdgesPerVector, p.EdgeRecall)
+	}
+	fmt.Fprintf(md, "\n")
+}
+
+// writeEqualEFTable compares the recall and the work of several work results
+// point by point, against the first one.
+func writeEqualEFTable(md *strings.Builder, labels []string, results []*benchResult) {
+	type key struct {
+		ef, rescore, batch int
+		margin             float64
+	}
+	keyOf := func(p benchPoint) key { return key{p.EF, p.RescoreLimit, p.LoadBatch, p.SourceMargin} }
+	indexed := make([]map[key]benchPoint, len(results))
+	for i, result := range results {
+		indexed[i] = map[key]benchPoint{}
+		for _, p := range result.Points {
+			indexed[i][keyOf(p)] = p
+		}
+	}
+
+	fmt.Fprintf(md, "## Recall at equal ef\n\n| ef | rescore | batch | margin |")
+	for _, label := range labels {
+		fmt.Fprintf(md, " %s recall | %s endpoints |", label, label)
+	}
+	fmt.Fprintf(md, " recall against %s |\n|---|---|---|---|", labels[0])
+	for range labels {
+		fmt.Fprintf(md, "---|---|")
+	}
+	fmt.Fprintf(md, "---|\n")
+	for _, p := range results[0].Points {
+		k := keyOf(p)
+		complete := true
+		for i := range results {
+			if _, ok := indexed[i][k]; !ok {
+				complete = false
+			}
+		}
+		if !complete {
+			continue
+		}
+		fmt.Fprintf(md, "| %d | %d | %d | %s |", k.ef, k.rescore, k.batch, marginLabel(k.margin))
+		var deltas []string
+		for i := range results {
+			q := indexed[i][k]
+			fmt.Fprintf(md, " %.4f | %.0f |", q.Recall, q.Stats.EndpointsMean)
+			if i > 0 {
+				deltas = append(deltas, fmt.Sprintf("%+.4f", q.Recall-p.Recall))
+			}
+		}
+		fmt.Fprintf(md, " %s |\n", strings.Join(deltas, " / "))
 	}
 	fmt.Fprintf(md, "\n")
 }
@@ -399,8 +842,8 @@ func workPoints(ours, oursWork *benchResult) []benchPoint {
 func writeWorkTables(md *strings.Builder, ours, oursWork *benchResult, theirsWork *hnswWork) {
 	fmt.Fprintf(md, "## Work per query\n\n### Posting-edge\n\n")
 	fmt.Fprintf(md, "Per query. Code distances are the vectors scanned plus the endpoints scored.\n\n")
-	fmt.Fprintf(md, "| ef | rescore | batch | recall | postings loaded mean / p50 / p95 | rounds mean / p50 / p95 / max | vectors scanned | edges followed | into loaded postings | repeated endpoints | endpoints scored | code distances | full-precision distances |\n")
-	fmt.Fprintf(md, "|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+	fmt.Fprintf(md, "| ef | rescore | batch | margin | recall | postings loaded mean / p50 / p95 | rounds mean / p50 / p95 / max | vectors scanned | sources cut | edges followed | into loaded postings | repeated endpoints | endpoints scored | code distances | full-precision distances |\n")
+	fmt.Fprintf(md, "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
 	for _, p := range workPoints(ours, oursWork) {
 		s := p.Stats
 		edges := "—"
@@ -414,9 +857,9 @@ func writeWorkTables(md *strings.Builder, ours, oursWork *benchResult, theirsWor
 		if s.LoadsP50 > 0 {
 			loads = fmt.Sprintf("%.1f / %.0f / %.0f", s.LoadsMean, s.LoadsP50, s.LoadsP95)
 		}
-		fmt.Fprintf(md, "| %d | %d | %d | %.4f | %s | %.1f / %.0f / %.0f / %.0f | %.0f | %s | %s | %s | %.0f | %.0f | %.0f |\n",
-			p.EF, p.RescoreLimit, p.LoadBatch, p.Recall, loads,
-			s.RoundsMean, s.RoundsP50, s.RoundsP95, s.RoundsMax, s.ScannedMean,
+		fmt.Fprintf(md, "| %d | %d | %d | %s | %.4f | %s | %.1f / %.0f / %.0f / %.0f | %.0f | %.0f | %s | %s | %s | %.0f | %.0f | %.0f |\n",
+			p.EF, p.RescoreLimit, p.LoadBatch, marginLabel(p.SourceMargin), p.Recall, loads,
+			s.RoundsMean, s.RoundsP50, s.RoundsP95, s.RoundsMax, s.ScannedMean, s.SourcesCut,
 			edges, inLoaded, repeated, s.EndpointsMean, s.ScannedMean+s.EndpointsMean, s.RescoredMean)
 	}
 	fmt.Fprintf(md, "\n")
@@ -437,23 +880,27 @@ func writeWorkTables(md *strings.Builder, ours, oursWork *benchResult, theirsWor
 // points nearest above the profile recall, one per rescore limit and batch.
 func writeProfileTable(md *strings.Builder, ours, oursWork *benchResult) {
 	points := workPoints(ours, oursWork)
-	type config struct{ rescore, batch int }
+	type config struct {
+		rescore, batch int
+		margin         float64
+	}
 	var configs []config
 	for _, p := range points {
-		if c := (config{p.RescoreLimit, p.LoadBatch}); !slices.Contains(configs, c) {
+		if c := (config{p.RescoreLimit, p.LoadBatch, p.SourceMargin}); !slices.Contains(configs, c) {
 			configs = append(configs, c)
 		}
 	}
 
 	fmt.Fprintf(md, "## Where the time goes at recall %.2f\n\n", profileRecall)
 	fmt.Fprintf(md, "Mean microseconds per query on one thread, at the first operating point of each configuration that reaches the recall. \"Other\" is what the phases do not cover: preparing the query, borrowing scratch, assembling the result.\n\n")
-	fmt.Fprintf(md, "| rescore | batch | ef | recall | centroid stage | posting scan | endpoint scoring | round selection | rescore | other | total |\n")
-	fmt.Fprintf(md, "|---|---|---|---|---|---|---|---|---|---|---|\n")
+	fmt.Fprintf(md, "| rescore | batch | margin | ef | recall | centroid stage | posting scan | endpoint scoring | round selection | rescore | other | total |\n")
+	fmt.Fprintf(md, "|---|---|---|---|---|---|---|---|---|---|---|---|\n")
 	for _, c := range configs {
 		var chosen *benchPoint
 		for i := range points {
 			p := &points[i]
-			if p.RescoreLimit != c.rescore || p.LoadBatch != c.batch || p.Recall < profileRecall {
+			if p.RescoreLimit != c.rescore || p.LoadBatch != c.batch || p.SourceMargin != c.margin ||
+				p.Recall < profileRecall {
 				continue
 			}
 			if chosen == nil || p.EF < chosen.EF {
@@ -472,8 +919,8 @@ func writeProfileTable(md *strings.Builder, ours, oursWork *benchResult) {
 			total = chosen.MeanMs * 1000
 		}
 		cell := func(us float64) string { return fmt.Sprintf("%.0f (%.0f%%)", us, 100*us/total) }
-		fmt.Fprintf(md, "| %d | %d | %d | %.4f | %s | %s | %s | %s | %s | %s | %.0f |\n",
-			c.rescore, c.batch, chosen.EF, chosen.Recall, cell(s.CentroidUs), cell(s.ScanUs), cell(s.ExpandUs),
+		fmt.Fprintf(md, "| %d | %d | %s | %d | %.4f | %s | %s | %s | %s | %s | %s | %.0f |\n",
+			c.rescore, c.batch, marginLabel(c.margin), chosen.EF, chosen.Recall, cell(s.CentroidUs), cell(s.ScanUs), cell(s.ExpandUs),
 			cell(s.SelectUs), cell(s.RescoreUs), cell(total-phases), total)
 	}
 	fmt.Fprintf(md, "\n")
@@ -481,11 +928,11 @@ func writeProfileTable(md *strings.Builder, ours, oursWork *benchResult) {
 
 func writePostingEdgePoints(md *strings.Builder, result *benchResult) {
 	fmt.Fprintf(md, "## Posting-edge operating points\n\n")
-	fmt.Fprintf(md, "| ef | rescore | batch | threads | recall@%d | QPS | QPS of the runs | mean ms | p50 ms | p95 ms | p99 ms |\n", result.K)
-	fmt.Fprintf(md, "|---|---|---|---|---|---|---|---|---|---|---|\n")
+	fmt.Fprintf(md, "| ef | rescore | batch | margin | threads | recall@%d | QPS | QPS of the runs | mean ms | p50 ms | p95 ms | p99 ms |\n", result.K)
+	fmt.Fprintf(md, "|---|---|---|---|---|---|---|---|---|---|---|---|\n")
 	for _, p := range result.Points {
-		fmt.Fprintf(md, "| %d | %d | %d | %d | %.4f | %.0f | %s | %.2f | %.2f | %.2f | %.2f |\n",
-			p.EF, p.RescoreLimit, p.LoadBatch, p.Threads, p.Recall, p.QPS, runList(p.QPSRuns),
+		fmt.Fprintf(md, "| %d | %d | %d | %s | %d | %.4f | %.0f | %s | %.2f | %.2f | %.2f | %.2f |\n",
+			p.EF, p.RescoreLimit, p.LoadBatch, marginLabel(p.SourceMargin), p.Threads, p.Recall, p.QPS, runList(p.QPSRuns),
 			p.MeanMs, p.P50Ms, p.P95Ms, p.P99Ms)
 	}
 	fmt.Fprintf(md, "\n")
@@ -556,13 +1003,20 @@ func recallQPSChart(ours, theirs *benchResult, threads int) string {
 			func(p benchPoint) bool { return p.RescoreLimit == rescore })
 	}
 	style := 0
-	for _, rescore := range rescoreLimits(ours) {
-		for _, batch := range loadBatches(ours) {
-			added := add(ours, fmt.Sprintf("posting-edge, rescore %d, batch %d", rescore, batch), chartPostEdge,
-				dashes[min(style, len(dashes)-1)],
-				func(p benchPoint) bool { return p.RescoreLimit == rescore && p.LoadBatch == batch })
-			if added {
-				style++
+	for _, margin := range sourceMargins(ours.Points) {
+		for _, rescore := range rescoreLimits(ours) {
+			for _, batch := range loadBatches(ours) {
+				label := fmt.Sprintf("posting-edge, rescore %d, batch %d", rescore, batch)
+				if margin != 0 {
+					label += fmt.Sprintf(", margin %.2f", margin)
+				}
+				added := add(ours, label, chartPostEdge, dashes[min(style, len(dashes)-1)],
+					func(p benchPoint) bool {
+						return p.RescoreLimit == rescore && p.LoadBatch == batch && p.SourceMargin == margin
+					})
+				if added {
+					style++
+				}
 			}
 		}
 	}
