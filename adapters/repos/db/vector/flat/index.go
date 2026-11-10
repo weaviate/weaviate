@@ -81,6 +81,9 @@ type flat struct {
 
 	count                uint64
 	concurrentCacheReads int
+	// idLocks make the membership check, bucket write and count update of one
+	// id a single step, so concurrent mutations of the same id cannot skew the count.
+	idLocks *common.ShardedLocks
 }
 
 type distanceCalc func(vecAsBytes []byte) (float32, error)
@@ -106,6 +109,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		pool:                 newPools(),
 		store:                store,
 		concurrentCacheReads: runtime.GOMAXPROCS(0) * 2,
+		idLocks:              common.NewDefaultShardedLocks(),
 	}
 	if err := index.initBuckets(context.Background(), cfg); err != nil {
 		return nil, fmt.Errorf("init flat index buckets: %w", err)
@@ -241,8 +245,31 @@ func (index *flat) storeCompressedVector(id uint64, vector []byte) error {
 	return index.storeGenericVector(id, vector, index.getCompressedBucketName())
 }
 
+// storeVector writes the vector to the primary bucket and counts the id when it
+// was not stored yet. The count follows this bucket alone, so a later failure
+// in the compressed bucket cannot leave the two out of step. The caller holds
+// the id's lock.
 func (index *flat) storeVector(id uint64, vector []byte) error {
-	return index.storeGenericVector(id, vector, index.getBucketName())
+	bucket, release, err := index.getBucket(index.getBucketName())
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	idBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(idBytes, id)
+	live, err := bucket.Exists(idBytes)
+	if err != nil {
+		return err
+	}
+	if err := bucket.Put(idBytes, vector); err != nil {
+		return err
+	}
+	if !live {
+		atomic.AddUint64(&index.count, 1)
+	}
+
+	return nil
 }
 
 func (index *flat) storeGenericVector(id uint64, vector []byte, bucketName string) error {
@@ -256,21 +283,15 @@ func (index *flat) storeGenericVector(id uint64, vector []byte, bucketName strin
 	return bucket.Put(idBytes, vector)
 }
 
-func (index *flat) primaryBucketContains(id uint64) (bool, error) {
-	bucket, release, err := index.getBucket(index.getBucketName())
-	if err != nil {
-		return false, err
+// decrementCount stops at zero: the count restored at startup ignores the
+// unflushed memtable, so more ids can be deleted than were counted.
+func (index *flat) decrementCount() {
+	for {
+		oldCount := atomic.LoadUint64(&index.count)
+		if oldCount == 0 || atomic.CompareAndSwapUint64(&index.count, oldCount, oldCount-1) {
+			return
+		}
 	}
-	defer release()
-
-	idBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(idBytes, id)
-	v, err := bucket.Get(idBytes)
-	if err != nil && !errors.Is(err, entlsmkv.NotFound) {
-		return false, err
-	}
-
-	return v != nil, nil
 }
 
 func (index *flat) Cached() bool {
@@ -436,66 +457,46 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 		index.initializeDimensionsAndRQ(vector)
 	})
 
-	alreadyIndexed, err := index.primaryBucketContains(id)
-	if err != nil {
-		return err
-	}
-
 	vector = index.normalized(vector)
 	slice := make([]byte, len(vector)*4)
+
+	index.idLocks.Lock(id)
+	defer index.idLocks.Unlock(id)
+
 	if err := index.storeVector(id, byteSliceFromFloat32Slice(vector, slice)); err != nil {
 		return err
 	}
 
-	if err := index.preload(id, vector); err != nil {
-		return err
-	}
-
-	if !alreadyIndexed {
-		for {
-			oldCount := atomic.LoadUint64(&index.count)
-			if atomic.CompareAndSwapUint64(&index.count, oldCount, oldCount+1) {
-				break
-			}
-		}
-	}
-
-	return nil
+	return index.preload(id, vector)
 }
 
 func (index *flat) Delete(ids ...uint64) error {
 	for i := range ids {
-		alreadyIndexed, err := index.primaryBucketContains(ids[i])
-		if err != nil {
+		if err := index.deleteOne(ids[i]); err != nil {
 			return err
-		}
-
-		if index.Cached() {
-			index.cache.Delete(context.Background(), ids[i])
-		}
-		idBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(idBytes, ids[i])
-
-		if err := index.deleteFromBuckets(idBytes); err != nil {
-			return err
-		}
-
-		if alreadyIndexed {
-			for {
-				oldCount := atomic.LoadUint64(&index.count)
-				if oldCount == 0 || atomic.CompareAndSwapUint64(&index.count, oldCount, oldCount-1) {
-					break
-				}
-			}
 		}
 	}
 	return nil
+}
+
+func (index *flat) deleteOne(id uint64) error {
+	index.idLocks.Lock(id)
+	defer index.idLocks.Unlock(id)
+
+	if index.Cached() {
+		index.cache.Delete(context.Background(), id)
+	}
+	idBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(idBytes, id)
+
+	return index.deleteFromBuckets(idBytes)
 }
 
 // deleteFromBuckets drops one id from the vector bucket and, when the index is
 // compressed, from the compressed bucket. Split out of [flat.Delete] so each
 // id's bucket pins are released as its iteration ends rather than piling up
-// for the whole batch.
+// for the whole batch. Like [flat.storeVector] it counts against the vector
+// bucket alone.
 func (index *flat) deleteFromBuckets(idBytes []byte) error {
 	bucket, release, err := index.getBucket(index.getBucketName())
 	if err != nil {
@@ -503,8 +504,15 @@ func (index *flat) deleteFromBuckets(idBytes []byte) error {
 	}
 	defer release()
 
+	live, err := bucket.Exists(idBytes)
+	if err != nil {
+		return err
+	}
 	if err := bucket.Delete(idBytes); err != nil {
 		return err
+	}
+	if live {
+		index.decrementCount()
 	}
 
 	if !index.Compressed() {
