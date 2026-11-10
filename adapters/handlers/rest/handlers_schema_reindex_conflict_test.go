@@ -92,7 +92,7 @@ func TestCheckReindexConflictForPropertyMutation_EndsOnTheFSMGuardsRemedy(t *tes
 		task := buildTask(t, "T1", status, payload, nil)
 		return gateWithTasks(task).
 				checkReindexConflictForPropertyMutation(context.Background(), "C", "title"),
-			(&db.ReindexProvider{}).
+			db.ReindexDetector{}.
 				CheckPropertyUpdate("C", "title", []*distributedtask.Task{task})
 	}
 
@@ -203,7 +203,7 @@ func TestCheckReindexConflictForPropertyMutation_AgreesWithTheFSMGuard(t *testin
 
 			restReason := gateWithTasks(task).
 				checkReindexConflictForPropertyMutation(context.Background(), "C", "title")
-			fsmErr := (&db.ReindexProvider{}).
+			fsmErr := db.ReindexDetector{}.
 				CheckPropertyUpdate("C", "title", []*distributedtask.Task{task})
 
 			require.Equal(t, tc.wantBlocked, restReason != "",

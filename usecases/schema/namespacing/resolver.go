@@ -12,6 +12,7 @@
 package namespacing
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/go-openapi/strfmt"
@@ -66,6 +67,19 @@ func ConfinedNamespace(principal *models.Principal) string {
 	return principal.Namespace
 }
 
+// KeepOwnNamespace returns a new slice of the items in a confined principal's
+// namespace, dropping unnamespaced ones, so a listing's RBAC filter sees only
+// the caller's own entries. An unconfined principal gets items itself.
+func KeepOwnNamespace[T any](principal *models.Principal, items []T, namespaceOf func(T) string) []T {
+	ns := ConfinedNamespace(principal)
+	if ns == "" {
+		return items
+	}
+	return slices.DeleteFunc(slices.Clone(items), func(item T) bool {
+		return namespaceOf(item) != ns
+	})
+}
+
 // QualifyRefTarget normalises a cross-reference target. Refs can't cross
 // namespaces, so the source class's namespace is the authority — never the
 // principal's.
@@ -95,14 +109,17 @@ func QualifyRefTarget(principal *models.Principal, q Qualifier, sourceClass, tar
 	return q.QualifyRefTarget(sourceClass, target)
 }
 
-// QualifyUserIDForLookup returns the storage key for a user lookup —
-// raw passthrough for NS-disabled / global principals, prepended with
-// principal.Namespace for a namespaced principal.
-func QualifyUserIDForLookup(principal *models.Principal, namespacesEnabled bool, raw string) string {
+// QualifyUserIDForLookup returns raw prefixed with a namespaced principal's
+// namespace, and raw unchanged otherwise. It refuses a ':' in a namespaced
+// principal's raw ID, since no user ID inside a namespace holds one.
+func QualifyUserIDForLookup(principal *models.Principal, namespacesEnabled bool, raw string) (string, error) {
 	if !namespacesEnabled || ConfinedNamespace(principal) == "" {
-		return raw
+		return raw, nil
 	}
-	return QualifiedName(principal.Namespace, raw)
+	if err := ValidateNamespacePrefix(principal, namespacesEnabled, raw, "user"); err != nil {
+		return "", err
+	}
+	return QualifiedName(principal.Namespace, raw), nil
 }
 
 // Resolve is the read-side entry point used everywhere a user-supplied

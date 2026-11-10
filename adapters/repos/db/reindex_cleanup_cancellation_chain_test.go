@@ -94,7 +94,7 @@ func sidecarShutdownStoppedByACancelledContext(t *testing.T) error {
 	t.Helper()
 	_, err := sweepStoppedInABucketShutdown(t,
 		func(ctx context.Context, _ *Index, shard *Shard) error {
-			err := shard.CleanStalePartialReindexState(ctx, "category", "filterable")
+			err := shard.CleanStalePartialReindexState(ctx, "category", "filterable", nil)
 			return err
 		})
 	return err

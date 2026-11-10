@@ -1169,7 +1169,7 @@ func TestExecuteGate_RejectsCreateLikeApplyTypes(t *testing.T) {
 		{
 			name:    "TYPE_UPSERT_USER",
 			cmdType: api.ApplyRequest_TYPE_UPSERT_USER,
-			jsonSub: api.CreateUsersRequest{UserId: "bob", Namespace: "alpha"},
+			jsonSub: api.CreateUsersRequest{UserId: "alpha:bob", Namespace: "alpha"},
 		},
 	}
 
@@ -1179,6 +1179,38 @@ func TestExecuteGate_RejectsCreateLikeApplyTypes(t *testing.T) {
 		})
 		t.Run(tt.name+"/active namespace admitted", func(t *testing.T) {
 			assertProposeAdmits(t, tt, alphaAt(api.NamespaceStateActive))
+		})
+	}
+}
+
+// TestExecuteGate_RejectsUserCreateOutsideItsNamespace drives user creates whose
+// ID prefix and Namespace disagree through the propose-time check, with alpha
+// active so only the mismatch can refuse them.
+func TestExecuteGate_RejectsUserCreateOutsideItsNamespace(t *testing.T) {
+	tests := []struct {
+		name      string
+		userID    string
+		namespace string
+		wantErr   bool
+	}{
+		{name: "prefix names another namespace", userID: "beta:bob", namespace: "alpha", wantErr: true},
+		{name: "bare ID with a namespace", userID: "bob", namespace: "alpha", wantErr: true},
+		{name: "qualified ID without a namespace", userID: "alpha:bob", namespace: "", wantErr: true},
+		{name: "bare ID without a namespace", userID: "bob", namespace: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ms, _ := setupApplyTest(t)
+			seedNamespaceInState(t, ms.cfg.NamespacesController, "alpha", api.NamespaceStateActive)
+
+			sub := api.CreateUsersRequest{UserId: tt.userID, Namespace: tt.namespace}
+			err := admitProposeBytes(t, &ms, cmdAsBytes("", api.ApplyRequest_TYPE_UPSERT_USER, sub, nil))
+			if tt.wantErr {
+				require.ErrorContains(t, err, "is not in namespace")
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }
