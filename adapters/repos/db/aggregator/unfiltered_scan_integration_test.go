@@ -153,7 +153,8 @@ func (f *scanFixture) delete(i int) {
 	delete(f.live, i)
 }
 
-// aggregate runs prop through the unfiltered aggregator the way a gRPC query does.
+// aggregate runs prop through the unfiltered aggregator without
+// [aggregation.Params.OnlyRequestedAggregations].
 func (f *scanFixture) aggregate(ctx context.Context, prop aggregation.ParamProperty) aggregation.Property {
 	f.tb.Helper()
 	return f.aggregateWith(ctx, prop, false)

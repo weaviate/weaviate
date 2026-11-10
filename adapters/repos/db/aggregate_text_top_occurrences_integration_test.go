@@ -35,8 +35,7 @@ const aggTextTopOccClass = "AggregateTextTopOccurrences"
 
 // TestAggregateTextCountOnlyKeepsTopOccurrencesUnlessOnlyRequested pins that a
 // count-only text aggregation still returns the top occurrences unless the
-// caller reads only the aggregations it requests: gRPC replies carry them
-// either way, and clients read them without asking for them.
+// caller sets [aggregation.Params.OnlyRequestedAggregations].
 func TestAggregateTextCountOnlyKeepsTopOccurrencesUnlessOnlyRequested(t *testing.T) {
 	ctx := context.Background()
 	class := &models.Class{

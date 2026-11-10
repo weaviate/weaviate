@@ -338,6 +338,8 @@ func TestGRPCAggregateRequest(t *testing.T) {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
+				require.True(t, out.OnlyRequestedAggregations)
+				out.OnlyRequestedAggregations = false
 				require.EqualValues(t, tt.out, out)
 			}
 		})
