@@ -747,3 +747,18 @@ func TestSearchUsesPooledReadsWhenConfigured(t *testing.T) {
 	require.Greater(t, pooledCalls.Load(), int64(0),
 		"rescore must read through the pooled with-view thunk when available")
 }
+
+// TestLateInteractionStopsOnCancel: the exact scoring of the candidates
+// returns the context's error once the query is cancelled, rather than
+// reading and scoring every candidate.
+func TestLateInteractionStopsOnCancel(t *testing.T) {
+	mvStore := newMuveraTestStore()
+	tf := newTestIndex(t, muveraUserConfig(), mvStore)
+	for id := range uint64(3) {
+		mvStore.storeMultiVector(id, [][]float32{{1, 0}, {0, 1}})
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, _, err := tf.Index.computeLateInteraction(ctx, [][]float32{{1, 0}}, 2, []uint64{0, 1, 2})
+	require.ErrorIs(t, err, context.Canceled)
+}

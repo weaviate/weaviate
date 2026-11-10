@@ -18,7 +18,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -30,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -37,6 +37,9 @@ import (
 
 type muveraTestStore struct {
 	multiVectors map[uint64][][]float32
+	// deleted holds the ids deleteMultiVector removed: those read as an
+	// object the shard no longer holds, any other missing id as a test bug
+	deleted map[uint64]struct{}
 }
 
 // testVectorStore backs VectorForIDThunk in tests: splitPosting and
@@ -72,19 +75,32 @@ type TestHFresh struct {
 func newMuveraTestStore() *muveraTestStore {
 	return &muveraTestStore{
 		multiVectors: make(map[uint64][][]float32),
+		deleted:      make(map[uint64]struct{}),
 	}
 }
 
 func (s *muveraTestStore) storeMultiVector(id uint64, vecs [][]float32) {
 	s.multiVectors[id] = vecs
+	delete(s.deleted, id)
 }
 
 func (s *muveraTestStore) getMultiVector(id uint64) ([][]float32, error) {
 	vecs, ok := s.multiVectors[id]
 	if !ok {
-		return nil, errors.Errorf("multi-vector not found for id %d", id)
+		if _, gone := s.deleted[id]; gone {
+			// the error a shard returns for an object it no longer holds
+			return nil, storobj.NewErrNotFoundf(id, "multi-vector not found for id %d", id)
+		}
+		return nil, fmt.Errorf("multi-vector %d not stored in this test", id)
 	}
 	return vecs, nil
+}
+
+// deleteMultiVector removes the document's record, as a shard removes the
+// object before the index sees the delete.
+func (s *muveraTestStore) deleteMultiVector(id uint64) {
+	delete(s.multiVectors, id)
+	s.deleted[id] = struct{}{}
 }
 
 // waitForMaintenance blocks until all HFresh background queues are drained.
