@@ -108,6 +108,7 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 		return nil // nothing recorded, nothing owned
 	default:
 		id = rec.storageID()
+		records := map[string]vectorIndexRecord{targetVector: rec}
 		var otherIDs []string
 		for _, other := range otherTargetVectors {
 			otherRec, ok, _, err := readVectorIndexRecordOffline(shardDir, other)
@@ -117,11 +118,17 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 			if !ok {
 				continue
 			}
-			// the sibling would lose its pending work; a load refuses the pair
-			if otherRec.queueIDOrDefault() == rec.queueIDOrDefault() {
-				return fmt.Errorf("vectors %q and %q both record queue %q", other, targetVector, rec.queueIDOrDefault())
-			}
+			records[other] = otherRec
 			otherIDs = append(otherIDs, otherRec.storageID())
+		}
+		// a sibling sharing a queue or files would lose them; a load refuses the pair
+		err := refuseSharedVectorIndexQueues(records)
+		if err != nil {
+			return err
+		}
+		err = refuseGeneratedVectorIndexCollisions(records)
+		if err != nil {
+			return err
 		}
 		artifacts = helpers.VectorIndexArtifactsForID(id, otherIDs)
 		artifacts.ShardDirs = append(artifacts.ShardDirs, helpers.QueueDirName(rec.queueIDOrDefault()))
