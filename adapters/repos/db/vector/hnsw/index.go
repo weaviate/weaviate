@@ -848,8 +848,9 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 	h.compressWg.Wait()
 
 	ec := errorcompounder.New()
-	ec.AddWrapf(h.commitLog.Shutdown(ctx), "shutdown commit log")
+	// a tombstone cleanup cycle writes to the commit log, so it stops before the log closes
 	ec.AddWrapf(h.tombstoneCleanupCallbackCtrl.Unregister(ctx), "unregister tombstone cleanup cycle")
+	ec.AddWrapf(h.commitLog.Shutdown(ctx), "shutdown commit log")
 
 	// release the vectors even if the steps above failed, otherwise a failed
 	// teardown keeps the whole cache in memory

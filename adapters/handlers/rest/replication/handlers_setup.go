@@ -25,19 +25,28 @@ type replicationHandler struct {
 	authorizer         authorization.Authorizer
 	replicationManager replicationTypes.Manager
 
+	rebalanceManager rebalanceManager
+	nodes            rebalanceNodes
+
 	logger  logrus.FieldLogger
 	metrics *monitoring.PrometheusMetrics
-	enabled *runtime.DynamicValue[bool]
+	// enabled is REPLICA_MOVEMENT_ENABLED.
+	enabled          *runtime.DynamicValue[bool]
+	rebalanceEnabled *runtime.DynamicValue[bool]
 }
 
-func SetupHandlers(enabled *runtime.DynamicValue[bool], api *operations.WeaviateAPI, replicationManager replicationTypes.Manager, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
+func SetupHandlers(enabled, rebalanceEnabled *runtime.DynamicValue[bool], api *operations.WeaviateAPI, replicationManager replicationTypes.Manager,
+	rebalanceManager rebalanceManager, nodes rebalanceNodes, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) {
 	h := &replicationHandler{
 		authorizer:         authorizer,
 		replicationManager: replicationManager,
+		rebalanceManager:   rebalanceManager,
+		nodes:              nodes,
 		logger:             logger,
 		metrics:            metrics,
 		enabled:            enabled,
+		rebalanceEnabled:   rebalanceEnabled,
 	}
 	api.ReplicationReplicateHandler = replication.ReplicateHandlerFunc(h.replicate)
 	api.ReplicationReplicationDetailsHandler = replication.ReplicationDetailsHandlerFunc(h.getReplicationDetailsByReplicationId)
@@ -53,4 +62,11 @@ func SetupHandlers(enabled *runtime.DynamicValue[bool], api *operations.Weaviate
 
 	// Replication node details query handlers
 	api.ReplicationListReplicationHandler = replication.ListReplicationHandlerFunc(h.listReplication)
+
+	// Rebalance plan handlers
+	api.ReplicationCreateRebalancePlanHandler = replication.CreateRebalancePlanHandlerFunc(h.createRebalancePlan)
+	api.ReplicationGetRebalancePlanHandler = replication.GetRebalancePlanHandlerFunc(h.getRebalancePlan)
+	api.ReplicationStopRebalancePlanHandler = replication.StopRebalancePlanHandlerFunc(h.stopRebalancePlan)
+	api.ReplicationApproveRebalancePlanHandler = replication.ApproveRebalancePlanHandlerFunc(h.approveRebalancePlan)
+	api.ReplicationDeleteRebalancePlanHandler = replication.DeleteRebalancePlanHandlerFunc(h.deleteRebalancePlan)
 }
