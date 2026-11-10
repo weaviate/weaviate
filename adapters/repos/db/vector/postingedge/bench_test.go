@@ -92,6 +92,8 @@ var (
 	benchPosting       = flag.Int("bench.posting", 0, "postingedge: target posting size (0 = default budget)")
 	benchSample        = flag.Int("bench.edgesample", 1000, "postingedge: vectors sampled to measure edge recall")
 	benchCodeBits      = flag.Int("bench.codebits", 0, "postingedge: sign bits kept per code (0 = the full code)")
+	benchEdgeCodeBits  = flag.Int("bench.edgecodebits", -1, "postingedge: build the edges with codes of this width instead of the codes of the index, 0 for full codes (-1 = the codes of the index); a diagnostic that tells what a search loses to its edges from what it loses to its codes")
+	benchEdgeRescue    = flag.Int("bench.edgerescue", DefaultRescueLimit, "postingedge: the rescue limit that goes with -bench.edgecodebits")
 	benchMinEdgeRecall = flag.Float64("bench.minedgerecall", 0, "postingedge: fail before the sweeps if the edge recall of the build is below this")
 	benchAutoMargins   = flag.String("bench.automargins", "0.04,0.06,0.08,0.10,0.12", "postingedge: the margins a sweep with margin=auto chooses from")
 	benchAutoTolerance = flag.Float64("bench.autotolerance", 0.002, "postingedge: the recall a margin=auto margin may cost at any ef, against no margin")
@@ -368,32 +370,61 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 		"quantization":  "rq bits=1 centering=true", "distance": uc.Distance,
 	}
 
-	index, err := New(Config{
-		ID:                           "bench",
-		RootPath:                     t.TempDir(),
-		Logger:                       logger,
-		DistanceProvider:             distancer.NewCosineDistanceProvider(),
-		TempVectorForIDWithViewThunk: tempVectorForID,
-		GetViewThunk:                 func() common.BucketView { return noopBucketView{} },
-		Seed:                         1,
-	}, uc)
-	require.NoError(t, err)
-	defer index.Shutdown(ctx)
+	// buildIndex adds the train set to a new index and builds it.
+	buildIndex := func(uc UserConfig) (index *Index, addTime, total time.Duration) {
+		index, err := New(Config{
+			ID:                           "bench",
+			RootPath:                     t.TempDir(),
+			Logger:                       logger,
+			DistanceProvider:             distancer.NewCosineDistanceProvider(),
+			TempVectorForIDWithViewThunk: tempVectorForID,
+			GetViewThunk:                 func() common.BucketView { return noopBucketView{} },
+			Seed:                         1,
+		}, uc)
+		require.NoError(t, err)
 
-	begin := time.Now()
-	const batch = 10_000
-	ids := make([]uint64, batch)
-	for start := 0; start < len(data.train); start += batch {
-		end := min(start+batch, len(data.train))
-		for i := start; i < end; i++ {
-			ids[i-start] = uint64(i)
+		begin := time.Now()
+		const batch = 10_000
+		ids := make([]uint64, batch)
+		for start := 0; start < len(data.train); start += batch {
+			end := min(start+batch, len(data.train))
+			for i := start; i < end; i++ {
+				ids[i-start] = uint64(i)
+			}
+			require.NoError(t, index.AddBatch(ctx, ids[:end-start], data.train[start:end]))
 		}
-		require.NoError(t, index.AddBatch(ctx, ids[:end-start], data.train[start:end]))
+		addTime = time.Since(begin)
+		require.NoError(t, index.Build(ctx))
+		return index, addTime, time.Since(begin)
 	}
-	addTime := time.Since(begin)
-	require.NoError(t, index.Build(ctx))
-	result.BuildSec = time.Since(begin).Seconds()
+
+	// The edges of another code width: an index built with those codes over
+	// the same partition lends its edges to the one that is measured.
+	var lent *postingStore
+	if *benchEdgeCodeBits >= 0 {
+		donorConfig := uc
+		donorConfig.CodeBits, donorConfig.RescueLimit = *benchEdgeCodeBits, *benchEdgeRescue
+		donor, _, _ := buildIndex(donorConfig)
+		lent = donor.state.Load().postings
+		require.NoError(t, donor.Shutdown(ctx))
+		result.Config["edgeCodeBits"], result.Config["edgeRescueLimit"] = *benchEdgeCodeBits, *benchEdgeRescue
+		runtime.GC()
+		result.Baseline = takeMemSnapshot(t)
+	}
+
+	index, addTime, buildTime := buildIndex(uc)
+	defer index.Shutdown(ctx)
+	result.BuildSec = buildTime.Seconds()
 	result.PeakRSSMB = peakRSSMB()
+	if lent != nil {
+		// Slots are positions in the partition, so the edges of one index
+		// mean the same in the other only if both laid the vectors out alike.
+		store := index.state.Load().postings
+		require.Equal(t, lent.start, store.start, "the two builds partitioned the vectors differently")
+		require.Equal(t, lent.docIDs, store.docIDs, "the two builds laid the vectors out differently")
+		store.edgeStart, store.edges = lent.edgeStart, lent.edges
+		lent = nil
+	}
 
 	build, _ := index.BuildStats()
 	result.BuildStage = map[string]float64{
