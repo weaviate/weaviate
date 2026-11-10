@@ -84,21 +84,29 @@ var (
 	benchRescores   = flag.String("bench.rescores", strconv.Itoa(enthnsw.DefaultBRQRescoreLimit), "rescore limit sweep, for both arms")
 	benchTraining   = flag.Int("bench.training", enthnsw.DefaultRQTrainingLimit, "quantizer training limit of both arms")
 
-	benchBatches = flag.String("bench.batches", "4", "postingedge: load batch sweep")
-	benchMargins = flag.String("bench.margins", "0", "postingedge: source margin sweep (0 = no cut)")
-	benchEntries = flag.Int("bench.entries", DefaultEntryPostings, "postingedge: entry postings")
-	benchProbe   = flag.Int("bench.probe", DefaultBuildProbe, "postingedge: build probe")
-	benchPosting = flag.Int("bench.posting", 0, "postingedge: target posting size (0 = default budget)")
-	benchSample  = flag.Int("bench.edgesample", 1000, "postingedge: vectors sampled to measure edge recall")
-	benchReach   = flag.Int("bench.reach", 0, "postingedge: queries sampled to measure what a triangle bound on the edge lengths could prune (0 = skip)")
+	benchBatches       = flag.String("bench.batches", "4", "postingedge: load batch sweep")
+	benchMargins       = flag.String("bench.margins", "0", "postingedge: source margin sweep (0 = no cut)")
+	benchEntries       = flag.Int("bench.entries", DefaultEntryPostings, "postingedge: entry postings")
+	benchProbe         = flag.Int("bench.probe", DefaultBuildProbe, "postingedge: build probe")
+	benchRescue        = flag.Int("bench.rescue", DefaultRescueLimit, "postingedge: code-ranked candidates the edge builder re-ranks exactly")
+	benchPosting       = flag.Int("bench.posting", 0, "postingedge: target posting size (0 = default budget)")
+	benchSample        = flag.Int("bench.edgesample", 1000, "postingedge: vectors sampled to measure edge recall")
+	benchCodeBits      = flag.Int("bench.codebits", 0, "postingedge: sign bits kept per code (0 = the full code)")
+	benchMinEdgeRecall = flag.Float64("bench.minedgerecall", 0, "postingedge: fail before the sweeps if the edge recall of the build is below this")
+	benchAutoMargins   = flag.String("bench.automargins", "0.04,0.06,0.08,0.10,0.12", "postingedge: the margins a sweep with margin=auto chooses from")
+	benchAutoTolerance = flag.Float64("bench.autotolerance", 0.002, "postingedge: the recall a margin=auto margin may cost at any ef, against no margin")
+	benchReach         = flag.Int("bench.reach", 0, "postingedge: queries sampled to measure what a triangle bound on the edge lengths could prune (0 = skip)")
 
 	benchMaxConn = flag.Int("bench.maxconn", enthnsw.DefaultMaxConnections, "hnsw: max connections")
 	benchEFC     = flag.Int("bench.efc", enthnsw.DefaultEFConstruction, "hnsw: ef construction")
 
 	benchMode = flag.String("bench.mode", "full", "full: timed passes plus work stats; work: postingedge only, the work stats without the timed passes; "+
-		"probes: postingedge only, the edge builder at each width of -bench.probes, no index")
-	benchProbes = flag.String("bench.probes", "32,64,128,256", "postingedge: build probe widths of the probes mode")
-	benchSettle = flag.Int("bench.settle", 1000, "queries run before the after-queries memory reading")
+		"probes: postingedge only, the edge builder at each width of -bench.probes, no index; "+
+		"edgerecall: postingedge only, the edge recall of a sample over -bench.codebitslist x -bench.probes x -bench.rescues, no index")
+	benchProbes   = flag.String("bench.probes", "32,64,128,256", "postingedge: build probe widths of the probes and edgerecall modes")
+	benchRescues  = flag.String("bench.rescues", strconv.Itoa(DefaultRescueLimit), "postingedge: rescue limits of the edgerecall mode")
+	benchCodeList = flag.String("bench.codebitslist", "0", "postingedge: code widths of the edgerecall mode (0 = the full code)")
+	benchSettle   = flag.Int("bench.settle", 1000, "queries run before the after-queries memory reading")
 
 	benchSweeps sweepFlag
 )
@@ -118,6 +126,10 @@ func (s *sweepFlag) Set(value string) error {
 	*s = append(*s, value)
 	return nil
 }
+
+// autoMargin stands in a sweep for the source margin the calibration picks,
+// see calibrateMargin.
+const autoMargin = -1
 
 // sweep is one set of operating points: the cross product of its lists.
 type sweep struct {
@@ -154,7 +166,11 @@ func benchSweepPlan(t *testing.T) []sweep {
 			case "batch":
 				sw.batches = parseInts(t, list)
 			case "margin":
-				sw.margins = parseFloats(t, list)
+				if list == "auto" {
+					sw.margins = []float64{autoMargin}
+				} else {
+					sw.margins = parseFloats(t, list)
+				}
 			default:
 				t.Fatalf("unknown sweep key %q", key)
 			}
@@ -253,8 +269,13 @@ type benchResult struct {
 	Components    map[string]float64 `json:"componentsMB"`
 	Diagnostics   map[string]float64 `json:"diagnostics,omitempty"`
 
-	Points     []benchPoint `json:"points"`
-	ProbeSweep []probePoint `json:"probeSweep,omitempty"`
+	Points     []benchPoint      `json:"points"`
+	ProbeSweep []probePoint      `json:"probeSweep,omitempty"`
+	EdgeRecall []edgeRecallPoint `json:"edgeRecall,omitempty"`
+	// Calibration holds the untimed points the source margin of margin=auto
+	// sweeps was chosen from, and AutoMargin what was chosen.
+	Calibration []benchPoint `json:"calibration,omitempty"`
+	AutoMargin  *float64     `json:"autoMargin,omitempty"`
 }
 
 func TestBenchmark(t *testing.T) {
@@ -283,6 +304,10 @@ func TestBenchmark(t *testing.T) {
 	case "postingedge":
 		if *benchMode == "probes" {
 			benchProbeSweep(t, ctx, data, result)
+			return
+		}
+		if *benchMode == "edgerecall" {
+			benchEdgeRecallGrid(t, ctx, data, result)
 			return
 		}
 		benchPostingEdge(t, ctx, data, result)
@@ -321,12 +346,14 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 
 	uc := NewDefaultUserConfig()
 	uc.TargetPostingSize = *benchPosting
+	uc.CodeBits = *benchCodeBits
 	uc.BuildProbe = *benchProbe
+	uc.RescueLimit = *benchRescue
 	uc.TrainingLimit = *benchTraining
 	uc.EntryPostings = *benchEntries
 	result.Config = map[string]any{
-		"targetPostingSize": uc.TargetPostingSize, "edges": uc.Edges, "buildProbe": uc.BuildProbe,
-		"rescueLimit": uc.RescueLimit, "trainingLimit": uc.TrainingLimit,
+		"targetPostingSize": uc.TargetPostingSize, "codeBits": uc.CodeBits, "edges": uc.Edges,
+		"buildProbe": uc.BuildProbe, "rescueLimit": uc.RescueLimit, "trainingLimit": uc.TrainingLimit,
 		"entryPostings": uc.EntryPostings,
 		"quantization":  "rq bits=1 centering=true", "distance": uc.Distance,
 	}
@@ -392,7 +419,7 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 	}
 	plan := benchSweepPlan(t)
 	uc.EF, uc.LoadBatch, uc.RescoreLimit = plan[0].efs[0], plan[0].batches[0], plan[0].rescores[0]
-	uc.SourceMargin = float32(plan[0].margins[0])
+	uc.SourceMargin = float32(max(plan[0].margins[0], 0))
 	require.NoError(t, index.UpdateUserConfig(uc, func() {}))
 	settle(t, data, search, result)
 
@@ -404,6 +431,24 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 	}
 	t.Logf("diagnostics: %v", result.Diagnostics)
 	writeBenchResult(t, result)
+	if recall := result.Diagnostics["edgeRecall"]; recall < *benchMinEdgeRecall {
+		t.Fatalf("edge recall %.4f is below the required %.4f, not running the sweeps", recall, *benchMinEdgeRecall)
+	}
+
+	needsAuto := false
+	for _, sw := range plan {
+		needsAuto = needsAuto || slices.Contains(sw.margins, autoMargin)
+	}
+	if needsAuto {
+		chosen := calibrateMargin(t, index, data, uc, plan[0], result)
+		for i := range plan {
+			for j, margin := range plan[i].margins {
+				if margin == autoMargin {
+					plan[i].margins[j] = chosen
+				}
+			}
+		}
+	}
 
 	for _, sw := range plan {
 		for _, margin := range sw.margins {
@@ -446,6 +491,49 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 			}
 		}
 	}
+}
+
+// calibrateMargin picks the source margin of margin=auto sweeps: the smallest
+// margin of -bench.automargins that costs at most -bench.autotolerance of
+// recall at every ef of the first sweep, against no margin at the same ef. It
+// runs untimed passes, which is enough for recall, and falls back to no
+// margin if none qualifies.
+func calibrateMargin(t *testing.T, index *Index, data *benchData, uc UserConfig, sw sweep, result *benchResult,
+) float64 {
+	measure := func(margin float64) []float64 {
+		recalls := make([]float64, len(sw.efs))
+		for i, ef := range sw.efs {
+			uc.EF, uc.LoadBatch, uc.RescoreLimit = ef, sw.batches[0], sw.rescores[0]
+			uc.SourceMargin = float32(margin)
+			require.NoError(t, index.UpdateUserConfig(uc, func() {}))
+			stats, recall := collectSearchStats(t, index, data)
+			recalls[i] = recall
+			result.Calibration = append(result.Calibration, benchPoint{
+				EF: ef, Threads: 1, RescoreLimit: uc.RescoreLimit, LoadBatch: uc.LoadBatch,
+				SourceMargin: margin, Recall: recall, Stats: stats,
+			})
+		}
+		writeBenchResult(t, result)
+		return recalls
+	}
+
+	baseline := measure(0)
+	chosen := 0.0
+	for _, margin := range parseFloats(t, *benchAutoMargins) {
+		worst := 0.0
+		for i, recall := range measure(margin) {
+			worst = min(worst, recall-baseline[i])
+		}
+		t.Logf("calibration: margin %.2f costs at most %.4f of recall", margin, -worst)
+		if -worst <= *benchAutoTolerance {
+			chosen = margin
+			break
+		}
+	}
+	t.Logf("calibration: margin=auto is %.2f", chosen)
+	result.AutoMargin = &chosen
+	writeBenchResult(t, result)
+	return chosen
 }
 
 func benchHNSW(t *testing.T, ctx context.Context, data *benchData, result *benchResult) {
@@ -1158,6 +1246,7 @@ func benchProbeSweep(t *testing.T, ctx context.Context, data *benchData, result 
 	require.NoError(t, cfg.validate())
 	uc := NewDefaultUserConfig()
 	uc.TargetPostingSize = *benchPosting
+	uc.CodeBits = *benchCodeBits
 	uc.TrainingLimit = *benchTraining
 	probes := parseInts(t, *benchProbes)
 	vectors, n := data.train, len(data.train)
@@ -1180,7 +1269,7 @@ func benchProbeSweep(t *testing.T, ctx context.Context, data *benchData, result 
 	side := &sidecar{codeWords: codeWords, codes: codes, postingOf: postingOfSlots(layout.start)}
 	result.BuildStage = map[string]float64{"partition": partitionTime.Seconds(), "assign": assignTime.Seconds()}
 	result.Config = map[string]any{
-		"targetPostingSize": target, "edges": uc.Edges, "rescueLimit": uc.RescueLimit,
+		"targetPostingSize": target, "codeBits": uc.CodeBits, "edges": uc.Edges, "rescueLimit": uc.RescueLimit,
 		"probes": probes, "postings": len(centroids),
 	}
 	t.Logf("partition %.1fs, assign %.1fs, %d postings", partitionTime.Seconds(), assignTime.Seconds(), len(centroids))
@@ -1213,6 +1302,118 @@ func benchProbeSweep(t *testing.T, ctx context.Context, data *benchData, result 
 		t.Logf("probe=%d edges %.1fs, %.0f candidates and %.2f edges per vector, edge recall %.4f",
 			probe, point.EdgeSec, point.CandidatesPerVector, point.EdgesPerVector, point.EdgeRecall)
 		writeBenchResult(t, result)
+	}
+}
+
+// edgeRecallPoint is the edge recall of one way of building the edges.
+type edgeRecallPoint struct {
+	CodeBits            int     `json:"codeBits"`
+	Probe               int     `json:"probe"`
+	Rescue              int     `json:"rescue"`
+	CandidatesPerVector float64 `json:"candidatesPerVector"`
+	// MicrosPerVector is the CPU time of the neighbor search of one
+	// sampled vector. The sample is scattered over the postings, so its
+	// candidate codes are colder than those of a build, which walks the
+	// vectors posting by posting: an upper bound of the build cost.
+	MicrosPerVector float64 `json:"microsPerVector"`
+	EdgeRecall      float64 `json:"edgeRecall"`
+}
+
+// benchEdgeRecallGrid measures the edge recall over code widths, probe widths
+// and rescue limits without building any edges but those of the sample the
+// recall is measured on: the neighbor search of the edge builder, run for the
+// sampled vectors only. One partition and assignment serve the whole grid,
+// since neither depends on the codes.
+func benchEdgeRecallGrid(t *testing.T, ctx context.Context, data *benchData, result *benchResult) {
+	logger := logrus.New()
+	_, tempVectorForID := benchThunks(data)
+	cfg := Config{
+		ID:                           "bench",
+		RootPath:                     t.TempDir(),
+		Logger:                       logger,
+		DistanceProvider:             distancer.NewCosineDistanceProvider(),
+		TempVectorForIDWithViewThunk: tempVectorForID,
+		GetViewThunk:                 func() common.BucketView { return noopBucketView{} },
+		Seed:                         1,
+	}
+	require.NoError(t, cfg.validate())
+	uc := NewDefaultUserConfig()
+	uc.TrainingLimit = *benchTraining
+	probes, rescues := parseInts(t, *benchProbes), parseInts(t, *benchRescues)
+	vectors, n := data.train, len(data.train)
+
+	// The posting size is taken as given, or from the full code: it must
+	// not move with the code width, or the grid would compare partitions.
+	full, err := trainQuantizer(vectors, data.dims, uc.TrainingLimit, 0, &cfg)
+	require.NoError(t, err)
+	target := targetPostingSize(*benchPosting, 8*len(full.Encode(vectors[0])))
+	centroids, err := partition(ctx, logger, vectors, data.dims, int(math.Ceil(float64(n)/float64(target))), cfg.Seed)
+	require.NoError(t, err)
+	assigned, err := assign(ctx, logger, vectors, centroids, slices.Max(probes))
+	require.NoError(t, err)
+	centroids = dropEmpty(centroids, assigned)
+	layout := newSlotLayout(assigned.primary, len(centroids))
+	postingOf := postingOfSlots(layout.start)
+	result.Config = map[string]any{
+		"targetPostingSize": target, "edges": uc.Edges, "postings": len(centroids),
+		"probes": probes, "rescues": rescues, "sample": *benchSample,
+	}
+	t.Logf("%d postings of %d vectors on average", len(centroids), target)
+
+	truth := sampleEdgeTruth(data, *benchSample, uc.Edges, layout.slotOf, postingOf)
+	for _, codeBits := range parseInts(t, *benchCodeList) {
+		quantizer, err := trainQuantizer(vectors, data.dims, uc.TrainingLimit, codeBits, &cfg)
+		require.NoError(t, err)
+		codes, codeWords, err := encode(ctx, logger, vectors, layout, quantizer)
+		require.NoError(t, err)
+		side := &sidecar{codeWords: codeWords, codes: codes, postingOf: postingOf}
+
+		for _, probe := range probes {
+			for _, rescue := range rescues {
+				in := edgeInput{
+					vectors:   vectors,
+					layout:    layout,
+					assign:    assigned,
+					side:      side,
+					quantizer: quantizer,
+					provider:  cfg.DistanceProvider,
+					probe:     probe,
+					neighbors: uc.Edges,
+					rescue:    rescue,
+				}
+				found := make([][]uint32, len(truth.slots))
+				var ranked, spent atomic.Int64
+				parallelFor(len(truth.slots), func(i int) {
+					var sc edgeScratch
+					begin := time.Now()
+					nearest, count, err := in.nearestNeighbors(truth.slots[i], &sc)
+					if err != nil {
+						panic(err)
+					}
+					spent.Add(int64(time.Since(begin)))
+					ranked.Add(count)
+					for _, nb := range nearest {
+						found[i] = append(found[i], uint32(nb.id))
+					}
+				})
+				bySlot := map[uint32][]uint32{}
+				for i, slot := range truth.slots {
+					bySlot[slot] = found[i]
+				}
+				point := edgeRecallPoint{
+					CodeBits:            codeBits,
+					Probe:               probe,
+					Rescue:              rescue,
+					CandidatesPerVector: float64(ranked.Load()) / float64(len(truth.slots)),
+					MicrosPerVector:     float64(spent.Load()) / 1e3 / float64(len(truth.slots)),
+					EdgeRecall:          truth.recall(func(slot uint32) []uint32 { return bySlot[slot] }),
+				}
+				result.EdgeRecall = append(result.EdgeRecall, point)
+				t.Logf("code bits %d, probe %d, rescue %d: %.0f candidates and %.0f us per vector, edge recall %.4f",
+					codeBits, probe, rescue, point.CandidatesPerVector, point.MicrosPerVector, point.EdgeRecall)
+				writeBenchResult(t, result)
+			}
+		}
 	}
 }
 
