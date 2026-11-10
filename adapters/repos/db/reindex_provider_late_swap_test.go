@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -27,12 +26,15 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Pins that a stopped run's cached swap retry pays its debt once a newer run
-// of the same migration retired its record, and that an unreadable record
-// still fails it.
+// Pins that a stopped run's swap retry, cached or rebuilt after a restart,
+// pays its debt once a newer run of the same migration retired its record,
+// and that an unreadable record still fails it.
 func TestSwapRetryOfARunANewerRunSuperseded(t *testing.T) {
-	for _, unreadable := range []bool{false, true} {
-		t.Run(fmt.Sprintf("unreadable=%t", unreadable), func(t *testing.T) {
+	for _, tc := range []struct{ cached, unreadable bool }{
+		{false, false}, {false, true}, {true, false}, {true, true},
+	} {
+		cached, unreadable := tc.cached, tc.unreadable
+		t.Run(fmt.Sprintf("cached=%t/unreadable=%t", cached, unreadable), func(t *testing.T) {
 			ctx := testCtx()
 			className := "LateSwap_" + uuid.NewString()[:8]
 			shd, idx := testShardWithSettings(t, ctx, newTestClassWithProps(className, []string{"title"}),
@@ -49,10 +51,12 @@ func TestSwapRetryOfARunANewerRunSuperseded(t *testing.T) {
 				UnitToShard: map[string]string{unit: shard.Name()},
 			}
 			desc := distributedtask.TaskDescriptor{ID: "R1", Version: 1}
-			cached, err := p.createReindexTasks(desc, unit, payload)
-			require.NoError(t, err)
 			// Never run, so no record: as after the newer run retired it.
-			p.cacheReindexTasks(desc, unit, cached)
+			if cached {
+				tasks, err := p.createReindexTasks(desc, unit, payload)
+				require.NoError(t, err)
+				p.cacheReindexTasks(desc, unit, tasks)
+			}
 			if unreadable {
 				plantUnreadableRecord(t, shard.migrationRecords.Dir())
 				require.NoError(t, shard.migrationRecords.Load())
@@ -64,13 +68,7 @@ func TestSwapRetryOfARunANewerRunSuperseded(t *testing.T) {
 			for range maxReportedErrors {
 				p.resolveUnitForPhase(ctx, &distributedtask.Task{TaskDescriptor: desc}, payload, unit, idx, logger)
 			}
-			var skipLines int
-			for _, e := range hook.AllEntries() {
-				if strings.Contains(e.Message, "migration records are gone") {
-					skipLines++
-				}
-			}
-			require.LessOrEqual(t, skipLines, maxReportedErrors, "a retry per tick logs a sampled skip line")
+			require.LessOrEqual(t, len(hook.AllEntries()), maxReportedErrors, "a retry per tick logs only sampled lines")
 		})
 	}
 }

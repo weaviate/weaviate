@@ -1117,7 +1117,6 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	// Get reads only decoded records, so an unreadable one would read as a
 	// migration already finalized, and the schema would flip over an unrebuilt bucket.
 	if fault := unreadableRecordFault(unitID, store); fault != "" {
-		logger.WithField("unit", unitID).Errorf("reindex provider: resolveUnitForPhase: %s", fault)
 		return phaseUnitResolution{Errs: []string{fault}}
 	}
 	built, err := p.createReindexTasks(task.TaskDescriptor, unitID, payload)
@@ -1131,8 +1130,10 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	}
 	fresh := tasksWithRecord(built, store)
 	if len(fresh) == 0 {
-		logger.WithField("unit", unitID).
-			Info("reindex provider: resolveUnitForPhase: no in-flight state on disk for this unit (migration already finalized); skipping")
+		p.swapFailedSampler().WithSampling(func(l logrus.FieldLogger) {
+			l.WithField("unit", unitID).
+				Info("reindex provider: resolveUnitForPhase: no in-flight state on disk for this unit (migration already finalized); skipping")
+		})
 		return phaseUnitResolution{Skip: true}
 	}
 
