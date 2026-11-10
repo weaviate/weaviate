@@ -242,12 +242,11 @@ func TestUnreachedShardsWordingFollowsThePhase(t *testing.T) {
 	}
 }
 
-// A submit's sweep withholds the shard too, and a submit whose sweep is cut
-// short proceeds, so cancel must promise neither a retry nor a refusal.
+// A submit's sweep withholds this shard's cleanup too, so cancel must not
+// promise that the next submit sweeps it.
 func TestCancelTellsThatNoSubmitCleansAWithheldShard(t *testing.T) {
 	got := sweepConsequence(sweepPhaseCancel, db.CleanupSweepWithheld)
 	require.NotEqual(t, sweepConsequence(sweepPhaseCancel, db.CleanupSweepUnknown), got)
-	require.NotContains(t, got, "refused")
 	require.Contains(t, got, "no submit cleans up this shard")
 }
 

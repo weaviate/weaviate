@@ -119,7 +119,7 @@ func TestTerminalCleanupSettlesTheTasksRecordsOnTheShardsItHolds(t *testing.T) {
 // clean shard unable to hide one that kept its records.
 func TestTerminalCleanupReportsTheWorstShardNotTheLast(t *testing.T) {
 	require.Greater(t, CleanupSweepFailed, CleanupSweepWithheld, "a partly swept shard outranks an untouched one")
-	require.Greater(t, CleanupSweepWithheld, CleanupSweepUnknown, "knowing state is left outranks not knowing")
+	require.Greater(t, CleanupSweepWithheld, CleanupSweepUnknown, "a known record fault outranks not knowing")
 	require.Greater(t, CleanupSweepUnknown, CleanupSweepDropped, "an unvisited shard outranks a collection going away")
 	require.Greater(t, CleanupSweepDropped, CleanupSweepClean)
 

@@ -280,7 +280,7 @@ func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
 //
 // The two sweep paths look at the same disk, so the phase is the only thing
 // that may differ between their lines. A shard that could not be swept and one
-// whose cleanup was withheld both confirm state remains, so both are Errors.
+// whose cleanup was withheld both need an operator, so both are Errors.
 func TestCleanupSweepSummary(t *testing.T) {
 	const (
 		unchecked = ": the sweep did not reach every shard, so what is on the ones it missed or did not finish is unverified"

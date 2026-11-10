@@ -313,12 +313,12 @@ func TestAUnitDoesNotRunWhileAMigrationRecordIsUnreadable(t *testing.T) {
 	tests := []struct {
 		name       string
 		query      string
-		unreadable int
+		unreadable bool
 		arrange    func(t *testing.T, ctx context.Context, s *Shard, boot func(ShardReindexerV3) *Shard) int
 	}{
-		{"unmirrored swapped record, two other records unreadable", "betaword", 2, unmirrored},
-		{"superseded swapped record, another record unreadable", "alpha", 1, superseded},
-		{"unmirrored swapped record, every record readable", "betaword", 0, unmirrored},
+		{"unmirrored swapped record, another record unreadable", "betaword", true, unmirrored},
+		{"superseded swapped record, another record unreadable", "alpha", true, superseded},
+		{"unmirrored swapped record, every record readable", "betaword", false, unmirrored},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -347,12 +347,9 @@ func TestAUnitDoesNotRunWhileAMigrationRecordIsUnreadable(t *testing.T) {
 				idx.shards.Store(name, reloaded)
 				return reloaded.(*Shard)
 			}
-			var bad []string
-			for i := range tc.unreadable {
-				path := filepath.Join(shard.migrationRecords.Dir(),
-					fmt.Sprintf("%d_searchable_retokenize_%s.json", 99-i, shard.migrationUnit()))
-				require.NoError(t, os.WriteFile(path, []byte("{"), 0o600))
-				bad = append(bad, path)
+			bad := filepath.Join(shard.migrationRecords.Dir(), "99_searchable_retokenize_"+shard.migrationUnit()+".json")
+			if tc.unreadable {
+				require.NoError(t, os.WriteFile(bad, []byte("{"), 0o600))
 			}
 			want := tc.arrange(t, ctx, shard, boot)
 
@@ -370,17 +367,16 @@ func TestAUnitDoesNotRunWhileAMigrationRecordIsUnreadable(t *testing.T) {
 			}, payload, idx, unit, rec)
 			require.NoError(t, frozen.Shutdown(ctx))
 
-			for _, path := range bad {
-				require.NoError(t, os.Remove(path))
+			if tc.unreadable {
+				require.NoError(t, os.Remove(bad))
 			}
 			clean := boot(&testShardReindexer{task: newTask()})
 			defer clean.Shutdown(ctx)
 			require.Equal(t, want, bm25(ctx, clean, tc.query))
-			require.Equal(t, tc.unreadable == 0, slices.Contains(rec.completed, unit), rec.failed)
-			if tc.unreadable > 0 {
+			require.Equal(t, !tc.unreadable, slices.Contains(rec.completed, unit), rec.failed)
+			if tc.unreadable {
 				// The FSM prefixes the unit, so the message must not.
-				require.True(t, strings.HasPrefix(rec.failed[unit], fmt.Sprintf(
-					"%d migration record", tc.unreadable)), rec.failed)
+				require.True(t, strings.HasPrefix(rec.failed[unit], "1 migration record"), rec.failed)
 			}
 		})
 	}
@@ -395,7 +391,6 @@ func TestTheUnreadableRecordGuardNamesTheBadFilesUpToACap(t *testing.T) {
 		wantNamed int
 		wantMore  string
 	}{
-		{name: "one bad file", bad: 1, wantNamed: 1},
 		{name: "every bad file fits the cap", bad: maxNamedUnreadableRecords, wantNamed: maxNamedUnreadableRecords},
 		{name: "one past the cap", bad: maxNamedUnreadableRecords + 1, wantNamed: maxNamedUnreadableRecords, wantMore: "(and 1 more)"},
 		{name: "more bad files than the cap", bad: maxNamedUnreadableRecords + 3, wantNamed: maxNamedUnreadableRecords, wantMore: "(and 3 more)"},

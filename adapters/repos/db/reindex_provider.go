@@ -1689,7 +1689,7 @@ func (i *Index) discardTaskRecordsOn(ctx context.Context, name string, task *dis
 }
 
 // CleanupSweepOutcome is what one stale-partial-reindex sweep left for the
-// operator, ordered by how certain it is that actionable state remains, so a
+// operator, ordered by how certain it is that an operator has to act, so a
 // caller running several sweeps can report the max as the run's outcome.
 //
 // "Every shard" means every shard in the index's map when the sweep starts:
@@ -1753,7 +1753,7 @@ const (
 // reaches an operator as two claims at two severities.
 //
 // [CleanupSweepFailed] and [CleanupSweepWithheld] are the only Errors: each
-// reports a shard that was reached and still holds state, so an operator has to act.
+// reports a shard an operator has to act on, left partly swept or never swept.
 // Everything else is either clean or merely unverified, and routine tenant
 // churn produces unverified on a healthy node.
 //
