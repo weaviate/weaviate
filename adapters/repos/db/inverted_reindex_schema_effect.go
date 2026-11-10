@@ -130,7 +130,6 @@ func migrationCanonicalIndexFlag(code MigrationStrategyCode, prop *models.Proper
 
 // Follows the load-time sweep's own rule, an explicit false: [migrationEffectStatus]
 // reads an unset flag as not-enabled and would defer every retokenize promotion.
-// An enabling migration whose record overrides the schema is never swept.
 func migrationCanonicalSweptBySchema(class *models.Class, subject MigrationSubject,
 	prop string, overridesSchema bool,
 ) (swept bool, why string) {

@@ -182,8 +182,7 @@ func (h *indexesHandlers) rebuildIndex(params schema.SchemaObjectsIndexRebuildPa
 }
 
 // listReindexTasks fetches the RAFT reindex task list under the submit lock.
-// Fails closed (503) rather than let callers derive idempotency or the
-// conflict/cap gate from a partial view.
+// Fails closed (503) rather than gate on a partial view.
 func (h *indexesHandlers) listReindexTasks(ctx context.Context, principal *models.Principal) ([]*distributedtask.Task, middleware.Responder) {
 	if h.taskLister == nil {
 		return nil, jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
@@ -313,7 +312,6 @@ const reindexStartedStatus = "STARTED"
 
 // resolveUpsertPlan diffs the request against current state, returning a
 // migration to submit, a NO_OP, a 409 conflict, or a 400 validation error.
-// reindexTasks supplies the active-task idempotency check and the partial-run refusal.
 func resolveUpsertPlan(class *models.Class, collection string, prop *models.Property, indexType string,
 	body *models.IndexUpsertRequest, reindexTasks []*distributedtask.Task, tenantCounts bool,
 ) (upsertPlan, error) {
@@ -445,7 +443,6 @@ func resolveSearchableUpsert(class *models.Class, collection string, prop *model
 		// Per-property truth: the class-wide flag only flips once every
 		// property has migrated, so an already-migrated property must
 		// NO_OP even while siblings are still pending.
-		// A class flag set by a class update is not a standing run's own write: its resubmit still runs.
 		run, _, _ := db.ReindexPartialRun(db.ReindexRuns(reindexTasks), collection, prop.Name, []string{"searchable"})
 		if db.SearchablePropertyIsBlockmax(class, prop.Name) && (run == nil || run.Payload.MigrationType != db.ReindexTypeChangeAlgorithm) {
 			return upsertPlan{noop: true}, nil
@@ -638,9 +635,6 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 	return upsertPlan{}, fmt.Errorf("unsupported index type %q", indexType)
 }
 
-// refusePartlyMigratedRebuild refuses a rebuild of any index of propName while a
-// partial run stands on that property ([db.ReindexPartialRunConflict] says why),
-// naming the resubmit that finishes the run.
 func refusePartlyMigratedRebuild(collection, propName string, reindexTasks []*distributedtask.Task, tenantCounts bool) error {
 	if msg := db.ReindexPartialRunConflict(reindexTasks, collection, propName, nil, tenantCounts); msg != "" {
 		return fmt.Errorf("%w: %s", errRebuildPropertyPartlyMigrated, msg)
@@ -648,14 +642,12 @@ func refusePartlyMigratedRebuild(collection, propName string, reindexTasks []*di
 	return nil
 }
 
-// refuseOtherThanPartialRun accepts only a partial run's resubmit on its property.
 func refuseOtherThanPartialRun(collection, propName, tok string, plan upsertPlan, reindexTasks []*distributedtask.Task,
 	tenantCounts bool,
 ) string {
 	if plan.joinTaskID != "" || (plan.migrationType == "" && (!plan.noop || tok == "")) {
 		return ""
 	}
-	// The strategy is not compared: the named resubmit cannot carry one.
 	return db.ReindexPartialRunConflict(reindexTasks, collection, propName, func(run *db.ReindexRun) bool {
 		return plan.migrationType == run.Payload.MigrationType && plan.targetTok == run.Payload.TargetTokenization
 	}, tenantCounts)
@@ -750,8 +742,6 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		return resp
 	}
 
-	// Semantic migrations decide each group's swap in RAFT; MT semantic
-	// migrations group by tenant, so each tenant swaps once its replicas are ready.
 	if isMT && semantic {
 		unitSpecs := buildUnitSpecs(shardOwnership)
 		if err := h.appState.ClusterService.AddDistributedTaskWithGroupsBarrier(
@@ -784,9 +774,6 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	})
 }
 
-// skipTenantsAlreadyMigrated drops tenants every replica has swapped to the plan's
-// target, so a resubmit after a partial failure doesn't redo them. The answer
-// comes from the tasks' RAFT records, never shard state.
 func skipTenantsAlreadyMigrated(ownership map[string][]string, collection, propertyName string,
 	plan upsertPlan, reindexTasks []*distributedtask.Task,
 ) map[string][]string {
@@ -805,7 +792,6 @@ func skipTenantsAlreadyMigrated(ownership map[string][]string, collection, prope
 			}
 		}
 	}
-	// Every tenant swapped but the flip never landed: only a full run reaches it.
 	if len(remaining) == 0 {
 		return ownership
 	}

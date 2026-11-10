@@ -83,7 +83,7 @@ func (s *Shard) hasStampedHalf(tasks []*ShardReindexTaskGeneric) bool {
 	})
 }
 
-// migrationSwapCommitted reports whether a stamp would refuse a swap the cluster made or will make; docs/runtime-reindex.md says why.
+// migrationSwapCommitted reports whether a stamp would refuse a swap the cluster made or will make.
 func (s *Shard) migrationSwapCommitted(rec MigrationRecord) bool {
 	if rec.FlipDecided() {
 		return true

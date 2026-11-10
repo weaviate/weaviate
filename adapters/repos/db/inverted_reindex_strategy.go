@@ -160,11 +160,7 @@ func applyPerPropertySchemaUpdate(
 		if !mutate(&updated) {
 			continue
 		}
-		// Route through the migration-aware path so the
-		// FromInFlightMigration flag is set on the resulting RAFT
-		// command. Without it, CheckPropertyUpdate would refuse this
-		// update because the run is still in flight; with it,
-		// CheckMigrationPropertyUpdate admits it while run is SWAPPING.
+		// Migration-aware path: the run is still in flight, so the plain guard would refuse this.
 		if err := schema.UpdatePropertyInternalFromMigration(&mgr.Handler, ctx, className, run, &updated, fields...); err != nil {
 			return missing, fmt.Errorf("updating property %q: %w", propName, err)
 		}

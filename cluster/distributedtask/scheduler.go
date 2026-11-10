@@ -44,15 +44,12 @@ import (
 // [Scheduler.perTaskStateLocked].
 //
 //   - completedCallbackFired: per-task one-shot for [UnitAwareProvider.OnTaskCompleted].
-//   - swapPending / prepPending: the groups PHASE B / PHASE A may still have
-//     to act on here; nil until the first tick fills them (a terminal barrier task's swapPending with its owed groups only).
-//     A tick visits only these, and drops a group once nothing is left for it.
+//   - swapPending / prepPending: groups PHASE B / PHASE A may still act on;
+//     nil until the first tick fills them.
 //   - postCompletionAckEmitted: per-task one-shot for emitting the per-node
 //     PostCompletionAck via [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck].
-//   - postCompletionGroupErrors: return values from the swap callbacks (incl.
-//     nil) so the ack-emission gate can tell "returned" from "not yet".
-//   - preparationCompletionGroupErrors: PREP results whose ack is not emitted yet.
-//   - swapAcksPending: decided-swap results whose ack is not emitted yet.
+//   - postCompletionGroupErrors: swap callback results (incl. nil), to tell "returned" from "not yet".
+//   - preparationCompletionGroupErrors / swapAcksPending: results whose ack is not emitted yet.
 type taskSchedulerState struct {
 	completedCallbackFired           bool
 	swapPending                      map[string]struct{}
@@ -343,8 +340,7 @@ func (s *Scheduler) bootstrapProviders(tasksByNamespace map[string]map[TaskDescr
 			Set(float64(len(startedTasks)))
 	}
 
-	// Pre-mark already-terminal tasks so the tick skips their callbacks, except
-	// the swaps a barrier task still owes. This MUST
+	// Pre-mark already-terminal tasks so the tick skips their callbacks. This MUST
 	// happen for every provider's tasks, not just the providers we have
 	// registered locally — a task in a namespace we don't host can still
 	// appear in tasksByNamespace via RAFT replication.
@@ -352,10 +348,8 @@ func (s *Scheduler) bootstrapProviders(tasksByNamespace map[string]map[TaskDescr
 	s.bootstrapped = true
 }
 
-// preMarkTerminalCallbacksLocked sets completedCallbackFired and empties
-// prepPending for every task already terminal in the provided snapshot, and
-// swapPending for a non-barrier one: the first tick refills a barrier task's
-// swapPending from SwapsOwed. The per-task state is empty on every fresh
+// preMarkTerminalCallbacksLocked sets completedCallbackFired for every
+// terminal task in the snapshot. The per-task state is empty on every fresh
 // scheduler, and without this pre-mark the tick loop would re-fire
 // OnGroupCompleted + OnTaskCompleted for every task still in the FSM
 // (including tasks whose callbacks already fired before the restart).
@@ -395,7 +389,6 @@ func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]m
 			state := s.perTaskStateLockedOrInit(desc)
 			state.completedCallbackFired = true
 			state.prepPending = map[string]struct{}{}
-			// A barrier task's swaps stay owed past its end; the first tick refills them.
 			if !task.NeedsPreparationBarrier {
 				state.swapPending = map[string]struct{}{}
 			}
@@ -405,7 +398,7 @@ func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]m
 }
 
 // cleanupStaleTasks removes local state for tasks that the provider knows about
-// but that are no longer in the task list, the same rule as the tick's cleanup.
+// but that are no longer in the task list.
 func (s *Scheduler) cleanupStaleTasks(namespace string, provider Provider, tasks map[TaskDescriptor]*Task) {
 	for _, taskDesc := range provider.GetLocalTasks() {
 		if _, ok := tasks[taskDesc]; ok {
@@ -632,24 +625,17 @@ func (s *Scheduler) tick() {
 		// their callbacks fire — the FINISHED transition is committed by
 		// [TaskFinalizer.MarkDistributedTaskFinalized] below only AFTER
 		// OnTaskCompleted returns successfully, so a task in the FINISHED
-		// state is by construction past this point. The pre-mark in
-		// [Scheduler.bootstrapProviders] (and the deferred-bootstrap path in
-		// this tick) marks terminal tasks' OnTaskCompleted as fired, so a node
-		// restart cannot replay it; only a barrier task's owed swaps still run.
-		// A FINISHED task with pending local recovery is not pre-marked, so its
-		// callbacks fire again.
+		// state is by construction past this point. The bootstrap pre-mark stops
+		// a restart replaying it; a FINISHED task with pending local recovery is not pre-marked.
 		suProvider, providerIsUnitAware := provider.(UnitAwareProvider)
 		if providerIsUnitAware {
 			for desc, task := range tasks {
-				// PHASE B first, so a decided swap does not wait behind this task's PREP.
 				if task.NeedsPreparationBarrier {
 					s.runDecidedSwapPhase(namespace, desc, task, suProvider)
 				} else if task.Status != TaskStatusCancelled {
 					s.runSwapPhase(namespace, desc, task, suProvider)
 				}
 
-				// PHASE A: a barrier group prepares as soon as its own units are
-				// done, while other groups still run; no group waits for another.
 				if task.NeedsPreparationBarrier &&
 					(task.Status == TaskStatusStarted || task.Status == TaskStatusPreparing) {
 					s.runPreparationPhase(namespace, desc, task, suProvider)
@@ -839,10 +825,7 @@ type preparationGroupWork struct {
 	localIDs []string
 }
 
-// runPreparationPhase runs PHASE A for every group of a barrier task whose
-// units are all done and whose swap is not decided yet, then emits this
-// node's PREP ack per group. Owns its own lock lifecycle: s.mu is held only
-// to snapshot and commit, never across the provider callbacks or RAFT writes.
+// runPreparationPhase: s.mu is never held across provider callbacks or RAFT writes.
 func (s *Scheduler) runPreparationPhase(
 	namespace string,
 	desc TaskDescriptor,
@@ -865,8 +848,6 @@ func (s *Scheduler) runPreparationPhase(
 			if !task.AllGroupUnitsTerminal(groupID) {
 				continue
 			}
-			// Every unit is done, so every unit has its node; a deleted
-			// tenant has no units and is dropped here too.
 			delete(state.prepPending, groupID)
 			if ids := task.LocalGroupUnitIDs(groupID, s.localNode); len(ids) > 0 {
 				list = append(list, preparationGroupWork{groupID: groupID, localIDs: ids})
@@ -892,7 +873,6 @@ func (s *Scheduler) runPreparationPhase(
 			return nil
 		}
 		for i, w := range worklist {
-			// context.Canceled is the provider's retryable signal; re-queuing the group lets a later tick retry it.
 			if errors.Is(groupErrors[i], context.Canceled) {
 				state.prepPending[w.groupID] = struct{}{}
 				// This line is at Debug because a step that waits on an operator re-fires every tick, and the provider logs that wait itself.
@@ -925,8 +905,7 @@ func (s *Scheduler) runPreparationPhase(
 			context.Background(), namespace, task.ID, task.Version,
 			ack.groupID, s.localNode, ack.err == nil, errMsg,
 		)
-		// A failed RAFT write fails the rest the same way: stop, log once per
-		// tick for all of them, and retry next tick.
+		// A failed RAFT write fails the rest: log once, retry next tick.
 		if ackErr != nil {
 			s.postCompletionAckLogger.WithSampling(func(l logrus.FieldLogger) {
 				s.loggerWithTask(namespace, desc).WithField("pending_group_count", len(acks)-i).
@@ -952,7 +931,6 @@ type swapGroupWork struct {
 	localIDs []string
 }
 
-// runSwapPhase runs a non-barrier task's OnGroupCompleted and acks once every local group returned.
 func (s *Scheduler) runSwapPhase(
 	namespace string,
 	desc TaskDescriptor,
@@ -975,7 +953,6 @@ func (s *Scheduler) runSwapPhase(
 			if !postStarted && !task.AllGroupUnitsTerminal(groupID) {
 				continue
 			}
-			// Dropped even with nothing local, so later ticks skip the group.
 			delete(state.swapPending, groupID)
 			if localIDs := task.LocalGroupUnitIDs(groupID, s.localNode); len(localIDs) > 0 {
 				list = append(list, swapGroupWork{groupID: groupID, localIDs: localIDs})
@@ -1009,8 +986,7 @@ func (s *Scheduler) runSwapPhase(
 					Debugf("SWAP callback did not complete and is retryable; a later tick or the next boot re-fires it and emits the post-completion ack: %v", groupErrors[i])
 				continue
 			}
-			// Record nil too so the ack-emission gate can tell "returned and
-			// succeeded" from "not returned yet".
+			// Record nil too: the ack gate must tell "succeeded" from "not returned".
 			if state.postCompletionGroupErrors == nil {
 				state.postCompletionGroupErrors = map[string]error{}
 			}
@@ -1063,8 +1039,6 @@ func (s *Scheduler) runSwapPhase(
 	}
 }
 
-// runDecidedSwapPhase runs OnSwapRequested for each group RAFT says this node
-// owes, in any status, and acks each one; a failed swap retries every tick.
 func (s *Scheduler) runDecidedSwapPhase(
 	namespace string,
 	desc TaskDescriptor,
@@ -1076,7 +1050,6 @@ func (s *Scheduler) runDecidedSwapPhase(
 		defer s.mu.Unlock()
 		state := s.perTaskStateLockedOrInit(desc)
 		if state.swapPending == nil && task.Status.IsTerminal() {
-			// A terminal task decides nothing more, so only its owed groups can need a swap.
 			state.swapPending = make(map[string]struct{}, len(task.SwapsOwed))
 			for groupID := range task.SwapsOwed {
 				state.swapPending[groupID] = struct{}{}
@@ -1087,7 +1060,6 @@ func (s *Scheduler) runDecidedSwapPhase(
 		var list []swapGroupWork
 		for groupID := range state.swapPending {
 			if !task.GroupSwapDecided(groupID) {
-				// A terminal task takes no more PREP acks, so the group is never decided.
 				if task.Status.IsTerminal() {
 					delete(state.swapPending, groupID)
 				}
@@ -1415,10 +1387,8 @@ func (s *Scheduler) loggerWithTask(namespace string, taskDesc TaskDescriptor) *l
 	})
 }
 
-// allLocalGroupsReturnedLocked reports whether every group with a unit on
-// this node has returned from its callback at least once. It gates a
-// successful ack only; a failure is acked without it. A group whose callback
-// was cancelled has not returned: it is retried. Caller must hold s.mu.
+// allLocalGroupsReturnedLocked reports whether every local group's callback has
+// returned (a cancelled one has not). Caller must hold s.mu.
 func (s *Scheduler) allLocalGroupsReturnedLocked(task *Task, desc TaskDescriptor) bool {
 	state := s.perTaskStateLocked(desc)
 	for _, groupID := range task.Groups() {

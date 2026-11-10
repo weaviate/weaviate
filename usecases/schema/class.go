@@ -698,8 +698,7 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // variant of [UpdatePropertyInternal]. It routes the RAFT command
 // through [SchemaManager.UpdatePropertyFromMigration], which sets the
 // [api.UpdatePropertyRequest.FromInFlightMigration] flag so the schema
-// FSM checks it with MutationGuard.CheckMigrationPropertyUpdate: it is
-// admitted only while run is SWAPPING on that property.
+// FSM checks it with MutationGuard.CheckMigrationPropertyUpdate.
 //
 // Used by the reindex provider's
 // [adapters/repos/db.applyPerPropertySchemaUpdate] from the scheduler's
@@ -824,8 +823,7 @@ func setPropertyDefaults(props ...*models.Property) {
 // clearInternalPropertyFields nils RAFT-internal per-property fields on
 // client-provided properties so they can only be set inside the engine.
 // SearchableBlockmax is written only by a migration's cutover; a client-seeded
-// value would be a wrong stamp nothing corrects. Create paths only —
-// UpdateProperty's DeepEqual guard already blocks mutation on update.
+// value would be a wrong stamp nothing corrects. Create paths only.
 func clearInternalPropertyFields(props ...*models.Property) {
 	for _, prop := range props {
 		if prop != nil {

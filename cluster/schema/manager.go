@@ -58,13 +58,9 @@ type replicationFSM interface {
 // FSM-determinism: implementations MUST be pure functions of their
 // arguments + RAFT-replicated FSM state.
 type MutationGuard interface {
-	// CheckPropertyUpdate gates UpdateProperty. A migration's own flip
-	// (FromInFlightMigration=true) is not checked here, since its run is
-	// still SWAPPING when the flip lands and this check would refuse it.
 	CheckPropertyUpdate(className, propertyName string) error
 
-	// CheckMigrationPropertyUpdate gates that migration flip instead: it
-	// is admitted only while the run it names is SWAPPING.
+	// CheckMigrationPropertyUpdate gates a migration's flip: admitted only while its run is SWAPPING.
 	CheckMigrationPropertyUpdate(className, propertyName string, run command.MigrationRun) error
 
 	// CheckClassMutation gates class-wide destructive ops (DeleteClass).
@@ -888,9 +884,8 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 		return fmt.Errorf("%w: empty property", ErrBadRequest)
 	}
 
-	// Cross-FSM mutation guard — see [MutationGuard]. A migration's own
-	// flip is checked by CheckMigrationPropertyUpdate instead, unless it
-	// names no run: a released binary wrote it and admitted it unchecked.
+	// Cross-FSM mutation guard — see [MutationGuard]. A flip naming no run was
+	// written by an older binary and is admitted unchecked.
 	if s.mutationGuard != nil {
 		var err error
 		switch {
@@ -905,7 +900,7 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 	}
 
 	// Disabling an index deletes the property's LSM buckets, which an in-flight movement's
-	// snapshot+CCL can't reconcile. A migration's own flip (FromInFlightMigration) skips this check.
+	// snapshot+CCL can't reconcile. A migration's own flip skips this check.
 	if s.replicationFSM != nil && !req.FromInFlightMigration &&
 		s.replicationFSM.HasActiveReplicationForCollection(cmd.Class) {
 		if cls, _ := s.schema.ReadOnlyClass(cmd.Class); cls != nil {

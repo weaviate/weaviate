@@ -40,15 +40,11 @@ func ReindexIndexTypes(mt ReindexMigrationType) (indexTypes []string, known bool
 	return nil, false
 }
 
-// ReindexLeftPartial reports whether a task stopped after some groups' swaps
-// were decided: those tenants are migrated, the rest are not.
 func ReindexLeftPartial(task *distributedtask.Task) bool {
 	return (task.Status == distributedtask.TaskStatusFailed || task.Status == distributedtask.TaskStatusCancelled) &&
 		len(task.SwapDecidedGroups) > 0
 }
 
-// ReindexRunLanded reports whether class holds a run's own cutover write on every
-// property. While the run stands only it may make that write, so the run is finished.
 func ReindexRunLanded(class *models.Class, mt ReindexMigrationType, targetTok string, props []string) bool {
 	visible, _ := migrationEffectReader(mt)
 	if class == nil || visible == nil || len(props) == 0 {
@@ -63,7 +59,6 @@ func ReindexRunLanded(class *models.Class, mt ReindexMigrationType, targetTok st
 	return true
 }
 
-// CutoverLanded is read once, by the fail apply, while only the run may write its target.
 func (ReindexDetector) CutoverLanded(task *distributedtask.Task, readClass func(string) *models.Class) bool {
 	var payload ReindexTaskPayload
 	if json.Unmarshal(task.Payload, &payload) != nil {
@@ -73,7 +68,6 @@ func (ReindexDetector) CutoverLanded(task *distributedtask.Task, readClass func(
 		payload.TargetTokenization, payload.Properties)
 }
 
-// CheckMigrationPropertyUpdate keeps a write arriving after its run ended from landing.
 func (ReindexDetector) CheckMigrationPropertyUpdate(className, propertyName string, task *distributedtask.Task) error {
 	if task != nil && task.Status == distributedtask.TaskStatusSwapping {
 		var payload ReindexTaskPayload
@@ -85,16 +79,14 @@ func (ReindexDetector) CheckMigrationPropertyUpdate(className, propertyName stri
 	return fmt.Errorf("no reindex run is completing on %s.%s; its cutover write is refused", className, propertyName)
 }
 
-// ReindexRun pairs a reindex task with its decoded payload.
 type ReindexRun struct {
 	Task    *distributedtask.Task
 	Payload ReindexTaskPayload
 }
 
 // ReindexMigratedTenants reads property's failed or cancelled runs since the last
-// finished flip on target's index types. migrated is each tenant whose newest
-// decided swap went to target. covered is every tenant target's runs held. paid is
-// the part of migrated no replica still owes a swap for, which only a resubmit skips.
+// finished flip. migrated: tenants whose newest decided swap went to target;
+// covered: every tenant target's runs held; paid: migrated tenants no replica still owes.
 func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexTaskPayload) (migrated, paid, covered map[string]struct{}) {
 	targetTypes, _ := ReindexIndexTypes(target.MigrationType)
 	var onProperty []ReindexRun
@@ -137,8 +129,6 @@ func ReindexMigratedTenants(runs []ReindexRun, property string, target *ReindexT
 	return migrated, paid, covered
 }
 
-// ReindexMigratedPhrase names a single-tenant collection as a whole, never in tenants.
-// Without tenantCounts it hides how many tenants, from a caller who may not read them.
 func ReindexMigratedPhrase(migrated, covered map[string]struct{}, property string, tenantCounts bool) string {
 	if _, ungrouped := migrated[""]; ungrouped {
 		return fmt.Sprintf("property %q of the collection is migrated", property)
@@ -149,7 +139,6 @@ func ReindexMigratedPhrase(migrated, covered map[string]struct{}, property strin
 	return fmt.Sprintf("%d of %d tenants of property %q are migrated", len(migrated), len(covered), property)
 }
 
-// ReindexRuns decodes tasks into runs, skipping an undecodable payload.
 func ReindexRuns(tasks []*distributedtask.Task) []ReindexRun {
 	runs := make([]ReindexRun, 0, len(tasks))
 	for _, task := range tasks {
@@ -161,7 +150,6 @@ func ReindexRuns(tasks []*distributedtask.Task) []ReindexRun {
 	return runs
 }
 
-// ReindexPartialRunConflict is the one rule for what a standing partial run refuses, naming its resubmit.
 // A run claims its whole property: searchable and filterable share one tokenization.
 func ReindexPartialRunConflict(tasks []*distributedtask.Task, collection, property string,
 	accepts func(*ReindexRun) bool, tenantCounts bool,
@@ -181,9 +169,6 @@ func ReindexPartialRunConflict(tasks []*distributedtask.Task, collection, proper
 	return ""
 }
 
-// ReindexPartialRun returns the newest run on property that left tenants of
-// indexTypes on its target, with those tenants. It returns nil once a flip
-// covered the run or no tenant still serves its target.
 func ReindexPartialRun(runs []ReindexRun, collection, property string, indexTypes []string) (partial *ReindexRun, migrated, covered map[string]struct{}) {
 	for i := range runs {
 		run := &runs[i]
@@ -203,11 +188,8 @@ func ReindexPartialRun(runs []ReindexRun, collection, property string, indexType
 	return partial, migrated, covered
 }
 
-// ShouldRetainCompletedTask keeps a task while a replica owes one of its decided
-// swaps, and a FAILED or partial task until a newer run (for a partial one, a
-// finished flip) covers its index types or they are dropped, so the status keeps
-// reading it. A newer run is kept while it hides such an older task. It assumes
-// one property per payload.
+// ShouldRetainCompletedTask keeps a task while a replica owes a decided swap, and
+// a FAILED or partial task until a newer run covers it. Assumes one property per payload.
 func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task,
 ) bool {
@@ -272,8 +254,6 @@ func (ts reindexTargets) of(task *distributedtask.Task) *reindexTarget {
 	return target
 }
 
-// indexTypesNotRunSince returns task's index types that no newer run on the
-// same properties has covered; with flipsOnly, only finished schema flips count.
 func (p *ReindexProvider) indexTypesNotRunSince(task *distributedtask.Task, target *reindexTarget,
 	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task, targets reindexTargets, flipsOnly bool,
 ) []string {

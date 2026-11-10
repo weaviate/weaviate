@@ -160,8 +160,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	recovered := s.reconcileMigrationRecords(ctx, class)
 	s.restoreMigratedOverlays(class)
 
-	// After the records load, so the bucket of an index a migration turned on
-	// survives while the schema still has that index off.
 	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(
 		index.path(), shardName, class, s.migratedIndexStands); err != nil {
 		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)

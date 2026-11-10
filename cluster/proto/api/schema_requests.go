@@ -89,10 +89,8 @@ type UpdatePropertyRequest struct {
 	// FromInFlightMigration, when true, signals that this request was
 	// emitted by the in-process distributed-task scheduler's own schema
 	// flip (see adapters/repos/db/reindex_provider.go's
-	// flipSemanticMigrationSchema). The schema FSM then checks it with
-	// MutationGuard.CheckMigrationPropertyUpdate instead of
-	// CheckPropertyUpdate: it is admitted only while MigrationRun is
-	// SWAPPING on the same (collection, property), and refused otherwise.
+	// flipSemanticMigrationSchema). The schema FSM checks it with
+	// MutationGuard.CheckMigrationPropertyUpdate instead of CheckPropertyUpdate.
 	//
 	// Set only by the migration completion path (via
 	// [Raft.UpdatePropertyFromMigration] →
@@ -113,8 +111,7 @@ type UpdatePropertyRequest struct {
 	// so a mid-rolling-upgrade migration completion would still get the
 	// migration check on whichever node issues the flip.
 	FromInFlightMigration bool `json:"FromInFlightMigration"`
-	// MigrationRun names the run a flip completes. Released binaries wrote
-	// flips without it and admitted them unconditionally, so replay must too.
+	// MigrationRun names the run a flip completes; older binaries wrote none and replay admits those.
 	MigrationRun *MigrationRun `json:"MigrationRun,omitempty"`
 }
 

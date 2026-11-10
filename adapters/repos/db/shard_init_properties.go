@@ -183,7 +183,6 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			counts.recordSetReads.Add(int64(sweep.recordSetReads()))
 		}()
 		for _, indexType := range disabledIndexTypes(prop) {
-			// A migration this shard swapped in may still answer for the index.
 			if s.migratedIndexStands(prop.Name, indexType) {
 				continue
 			}

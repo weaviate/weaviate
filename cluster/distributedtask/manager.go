@@ -215,9 +215,7 @@ type ManagerParameters struct {
 	// replayed entry gets the verdict this build gives it live.
 	ConflictDetectors       map[string]ConflictDetector
 	SchemaMutationDetectors map[string]SchemaMutationDetector
-	// ReadOnlyClass reads this FSM's schema without waiting, so a replayed
-	// fail apply sees the schema at its own index.
-	ReadOnlyClass func(collection string) *models.Class
+	ReadOnlyClass           func(collection string) *models.Class
 }
 
 func NewManager(params ManagerParameters) *Manager {
@@ -285,9 +283,7 @@ var ErrTaskStillActiveForTargetVectors = errors.New("a task bound to these targe
 // inheritance — the caller must refuse the marker introduction and let the
 // client retry once the task settles. NOTE: SWAPPING normally lasts
 // milliseconds, but a node that dies before delivering its post-completion
-// ack holds SWAPPING until it acks (finalize waits for every node,
-// CancelTask accepts only STARTED and PREPARING, the TTL pruner skips active
-// tasks, and DeleteClass is refused while the task is active).
+// ack holds SWAPPING until it acks.
 //
 // Overlap semantics: a record is purged WHOLE when ANY of its target vectors
 // overlaps `targets` — records are atomic, so a multi-target record's
@@ -385,9 +381,6 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	return removed
 }
 
-// ForgetGroupsForCollection removes deleted tenants from collection's terminal
-// barrier tasks, so a tenant recreated under the same name inherits no swap
-// decision. It skips active tasks, since a tenant delete is refused while one runs.
 func (m *Manager) ForgetGroupsForCollection(collection string, groups []string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -686,8 +679,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	return nil
 }
 
-// recordSwapAck takes an ack in any status, since a decided swap stays owed
-// after the task ends; an ack naming no group pays for every group of its node.
+// recordSwapAck takes an ack in any status; one naming no group pays for every group of its node.
 func recordSwapAck(task *Task, r *api.RecordDistributedTaskPostCompletionAckRequest) {
 	if r.Success {
 		if r.GroupId != "" {
@@ -710,8 +702,6 @@ func recordSwapAck(task *Task, r *api.RecordDistributedTaskPostCompletionAckRequ
 	task.markTerminal(TaskStatusFailed, time.UnixMilli(r.AckedAtUnixMillis))
 }
 
-// recordNodePreparationAck applies a groupless PREP ack by the rule of the
-// released binaries that wrote it: it speaks for every group of its node.
 func recordNodePreparationAck(task *Task, r *api.RecordDistributedTaskPreparationCompleteAckRequest) {
 	if _, present := task.NodePreparationAcks[r.NodeId]; present {
 		return
@@ -730,7 +720,6 @@ func recordNodePreparationAck(task *Task, r *api.RecordDistributedTaskPreparatio
 		task.markTerminal(TaskStatusFailed, ackedAt)
 		return
 	}
-	// Stops at the first unit whose node has not acked, so only the last ack walks every unit.
 	for _, u := range task.units {
 		if ack, ok := task.NodePreparationAcks[u.NodeID]; u.NodeID != "" && (!ok || !ack.Success) {
 			return
@@ -740,9 +729,8 @@ func recordNodePreparationAck(task *Task, r *api.RecordDistributedTaskPreparatio
 }
 
 // RecordPreparationCompleteAck records one node's PREP ack for a group. Once every
-// node owning one of the group's units acked success, the group's swap is decided
-// and stays decided whatever happens to the task. A failed ack fails the task, and
-// PREPARING moves to SWAPPING once every group is decided. The first ack per (group, node) wins.
+// owning node acked success the group's swap is decided for good; a failed ack
+// fails the task. First ack per (group, node) wins.
 func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 	var r api.RecordDistributedTaskPreparationCompleteAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -762,7 +750,6 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 
 	switch task.Status {
 	case TaskStatusFailed, TaskStatusFinished, TaskStatusCancelled, TaskStatusSwapping:
-		// No group can be decided past this point; drop the late ack.
 		return nil
 	case TaskStatusStarted, TaskStatusPreparing:
 	default:
@@ -865,10 +852,8 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 // MarkTaskFailed ends a SWAPPING task when a node's
 // [UnitAwareProvider.OnTaskCompleted] returns a terminal error, so a
 // swallowed cutover failure can't leave the task FINISHED with an
-// un-flipped schema (weaviate/0-weaviate-issues#297). It records FAILED,
-// or FINISHED when [CutoverOutcome.CutoverLanded] reports the run's
-// cutover write already landed, since the proposer's error may come
-// after a write that committed.
+// un-flipped schema (weaviate/0-weaviate-issues#297). Records FAILED, or
+// FINISHED when [CutoverOutcome.CutoverLanded] says the cutover write landed.
 //
 // Idempotent at the FSM layer: the first commit wins; a later call on an
 // already-FAILED task is a no-op, and one racing a peer's FINISHED/CANCELLED
@@ -900,7 +885,6 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
 
-	// A write that landed while its proposer saw an error finishes the run.
 	if d, ok := m.schemaMutationDetectors[r.Namespace].(CutoverOutcome); ok && d.CutoverLanded(task, m.readOnlyClass) {
 		task.markTerminal(TaskStatusFinished, time.UnixMilli(r.FailedAtUnixMillis))
 		m.notifySchedulerWithLock()
@@ -980,9 +964,8 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 
 // CancelTask transitions an in-flight task to CANCELLED and refuses a terminal status or
 // one this build cannot name (see [TaskStatus.IsCancellable]). In-flight units are not
-// waited for — the [Scheduler] will terminate their local handles on the next tick. Groups
-// whose swap is already decided keep it: the scheduler still swaps them. A SWAPPING task
-// answers [ErrNothingLeftToCancel].
+// waited for — the [Scheduler] will terminate their local handles on the next tick.
+// Decided groups keep their swap; SWAPPING answers [ErrNothingLeftToCancel].
 func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	var r api.CancelDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -1013,8 +996,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 }
 
 // CleanUpTask removes a task from the Manager's state. It refuses a task that is both
-// [TaskStatus.IsActive] and [TaskStatus.IsRecognized]. The TTL is judged once, by the
-// proposing sweep: reading this node's clock here would let nodes keep different task lists.
+// [TaskStatus.IsActive] and [TaskStatus.IsRecognized]. The TTL is judged by the proposing sweep.
 func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	var r api.CleanUpDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -1029,8 +1011,6 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	// An unrecognized status is let through deliberately: the TTL sweep is the sole proposer and reads the
-	// leader's view, so a clean-up for it means the cluster already calls it done.
 	if task.Status.IsActive() && task.Status.IsRecognized() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}
@@ -1073,9 +1053,7 @@ func (m *Manager) LocalDistributedTasks() map[string][]*Task {
 	return result
 }
 
-// LocalTaskStatuses copies no units: a decider can read once per record, under
-// the lock RAFT applies wait on, where [Manager.LocalDistributedTasks] clones them all.
-// Each entry answers for that shard alone.
+// LocalTaskStatuses copies no units, unlike [Manager.LocalDistributedTasks]: it runs under the lock RAFT applies wait on.
 func (m *Manager) LocalTaskStatuses(namespace, shard string) []TaskStatusEntry {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -1162,8 +1140,6 @@ func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, erro
 	return m.encodeTasks(tasks)
 }
 
-// DecodeTaskList decodes the leader's task list. A run this node holds lends
-// its group index, so a tick builds none.
 func (m *Manager) DecodeTaskList(data []byte) (map[string][]*Task, error) {
 	tasks, err := m.decodeTasks(data)
 	if err != nil {
@@ -1191,7 +1167,6 @@ func (m *Manager) encodeTasks(tasks map[string][]*Task) ([]byte, error) {
 	return json.Marshal(&list)
 }
 
-// decodeTasks leaves the group index unset: the caller builds or shares it.
 func (m *Manager) decodeTasks(data []byte) (map[string][]*Task, error) {
 	var list taskListJSON
 	if err := json.Unmarshal(data, &list); err != nil {

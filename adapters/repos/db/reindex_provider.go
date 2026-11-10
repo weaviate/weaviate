@@ -67,8 +67,6 @@ type ReindexProvider struct {
 	localNode     string
 	concurrency   func() int
 
-	// taskLister lists earlier runs for the repair guidance
-	// (reindexRunsWith). cluster.Raft satisfies it.
 	taskLister distributedtask.TaskLister
 
 	// serverCtx is cancelled when the server is shutting down. OnGroupCompleted
@@ -248,8 +246,6 @@ func (p *ReindexProvider) SeedReindexTaskCache(
 	}
 }
 
-// GetLocalTasks reports the tasks this provider caches state for, so the
-// scheduler calls CleanupTask once a task leaves the task list.
 func (p *ReindexProvider) GetLocalTasks() []distributedtask.TaskDescriptor {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -319,7 +315,6 @@ func (p *ReindexProvider) evictReindexTasks(desc distributedtask.TaskDescriptor,
 	delete(p.reindexTasks[desc], unitID)
 }
 
-// ended stops a later load from caching the task again; a task this node still owes a swap is not ended.
 func (p *ReindexProvider) clearTaskCaches(desc distributedtask.TaskDescriptor, ended bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -433,7 +428,6 @@ func (p *ReindexProvider) teardownHeldSampler() *logrusext.Sampler {
 	return p.teardownHeld
 }
 
-// A stopped run's failing swap is retried every tick, so its lines are sampled.
 func (p *ReindexProvider) swapFailedSampler() *logrusext.Sampler {
 	p.swapFailedOnce.Do(func() {
 		p.swapFailed = logrusext.NewSampler(p.logger, maxReportedErrors, migrationUnitContentionWindow)
@@ -930,7 +924,6 @@ func (p *ReindexProvider) loadPayload(task *distributedtask.Task) (*ReindexTaskP
 	if err := json.Unmarshal(task.Payload, &pl); err != nil {
 		return nil, fmt.Errorf("unmarshal payload: %w", err)
 	}
-	// A decided swap retried after OnTaskCompleted would decode it every tick.
 	p.cachePayload(task.TaskDescriptor, &pl)
 	return &pl, nil
 }
@@ -1152,8 +1145,6 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	return phaseUnitResolution{Shard: resolvedShard, UnitTasks: fresh, Rehydrate: true}
 }
 
-// A newer run's swap retires this run's records, so a cached task whose
-// record is gone has nothing left in flight.
 func (p *ReindexProvider) resolveCachedUnit(resolvedShard ShardLike, concreteShard *Shard,
 	unitID string, cached []*ShardReindexTaskGeneric, logger logrus.FieldLogger,
 ) phaseUnitResolution {
@@ -1349,7 +1340,6 @@ func (p *ReindexProvider) runPerUnitPhase(
 		}
 
 		if p.unitWaitsOnHold(res.Shard, task.ID, unitID) {
-			// A SWAPPING task cannot be cancelled, so a held swap fails it; the swap stays owed.
 			failsTask := task.NeedsPreparationBarrier && task.Status == distributedtask.TaskStatusSwapping
 			func() {
 				aggMu.Lock()
@@ -1537,9 +1527,7 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	return out
 }
 
-// OnSwapRequested runs OVERLAY+SWAP for a barrier task's decided group, even once
-// the task failed or was cancelled: every replica of a decided group must swap.
-// A non-nil error is retried next tick, and fails the task only while SWAPPING.
+// OnSwapRequested runs OVERLAY+SWAP for a barrier task's decided group, even after the task ended.
 func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
 		WithField("localGroupUnitCount", len(localGroupUnitIDs))
@@ -2089,9 +2077,6 @@ func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 	return true
 }
 
-// reindexRunsWith returns every reindex run the cluster holds, with task as
-// this node sees it, or task alone when the list cannot be read. The guidance
-// may then name a rebuild, which the server refuses with a 409 naming the resubmit.
 func (p *ReindexProvider) reindexRunsWith(task *distributedtask.Task, payload *ReindexTaskPayload) []ReindexRun {
 	runs := []ReindexRun{{Task: task, Payload: *payload}}
 	if p.taskLister == nil {
@@ -2112,9 +2097,6 @@ func (p *ReindexProvider) reindexRunsWith(task *distributedtask.Task, payload *R
 	return runs
 }
 
-// logOperatorRepairGuidanceOnPartialSwap names the way forward once a semantic
-// migration stopped: a property some tenants already migrated is finished by
-// resubmitting the request; one no tenant migrated is repaired in place.
 func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *ReindexTaskPayload,
 	outcome distributedtask.TaskStatus, runs []ReindexRun,
 ) {
@@ -2160,8 +2142,6 @@ func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *
 	}
 }
 
-// ReindexResubmitCommand is the request that submits payload's migration of
-// propName again, which migrates every tenant it has not migrated yet.
 func ReindexResubmitCommand(payload *ReindexTaskPayload, propName string) string {
 	put := func(indexType, body string) string {
 		return fmt.Sprintf("PUT /v1/schema/%s/properties/%s/index/%s -d '%s'", payload.Collection, propName, indexType, body)
@@ -2334,10 +2314,8 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		// models.IndexStatus.Algorithm from the per-property
 		// SearchableBlockmax stamp written above, which lands before FINISHED.
 		//
-		// With the stamp landed the property is migrated, so a failed flip is only
-		// logged: failing the run would lock the property behind a run that
-		// cannot finish. The flag then waits, as after a deferral, for a later
-		// change-algorithm cutover or a class update with USE_INVERTED_SEARCHABLE on.
+		// The stamp landed, so a failed flip is only logged: failing the run would
+		// lock the property behind a run that cannot finish.
 		if defer_, err := p.shouldDeferBlockmaxFlip(payload, logger); err != nil {
 			logger.WithError(err).Warn("reindex provider: change-algorithm cutover: cannot check whether the class " +
 				"can use blockmax by default; a later change-algorithm cutover on this class, or a class update while " +
@@ -2362,8 +2340,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 }
 
 // stampSearchableBlockmax durably records propNames as blockmax via a masked
-// RAFT UpdateProperty. Idempotent — already-stamped properties are skipped —
-// so repeated firings and replays produce at most one commit per property.
+// RAFT UpdateProperty. Idempotent: already-stamped properties are skipped.
 func (p *ReindexProvider) stampSearchableBlockmax(ctx context.Context, run api.MigrationRun, collection string, propNames []string) error {
 	trueVal := true
 	_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, run, collection, propNames,
@@ -2384,7 +2361,6 @@ func (p *ReindexProvider) stampSearchableBlockmax(ctx context.Context, run api.M
 // counts as done despite still showing SWAPPING, avoiding self-deferral.
 func (p *ReindexProvider) shouldDeferBlockmaxFlip(payload *ReindexTaskPayload, logger logrus.FieldLogger) (bool, error) {
 	if p.schemaManager == nil {
-		// Tests may construct the provider without it; don't defer.
 		return false, nil
 	}
 	class := p.schemaManager.ReadOnlyClass(payload.Collection)

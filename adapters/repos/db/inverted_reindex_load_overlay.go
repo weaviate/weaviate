@@ -19,8 +19,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// migrationEnablesIndexType names the index a migration turns on. Until its
-// flip lands, the schema keeps that index off while migrated shards build and write it.
 func migrationEnablesIndexType(mt ReindexMigrationType) (string, bool) {
 	switch mt {
 	case ReindexTypeEnableSearchable:
@@ -35,8 +33,7 @@ func migrationEnablesIndexType(mt ReindexMigrationType) (string, bool) {
 }
 
 // migrationOverridesSchema reports whether rec, not the schema, answers for
-// what it migrated: from its flip decision until its owning task finishes or
-// leaves the task list. An unreadable task list keeps the record answering.
+// what it migrated: from its flip decision until its task finishes or leaves the list.
 func migrationOverridesSchema(rec MigrationRecord, tasks []distributedtask.TaskStatusEntry, readable bool) bool {
 	if !rec.FlipDecided() {
 		return false
@@ -48,9 +45,6 @@ func migrationOverridesSchema(rec MigrationRecord, tasks []distributedtask.TaskS
 	return found && task.Status != distributedtask.TaskStatusFinished
 }
 
-// restoreMigratedOverlays re-installs the overlay of every property this
-// shard promoted while its record still overrides the schema, so a reload
-// does not read and write those buckets under the schema's stale settings.
 func (s *Shard) restoreMigratedOverlays(class *models.Class) {
 	if s.migrationRecords == nil || class == nil {
 		return
@@ -85,8 +79,7 @@ func (s *Shard) restoreMigratedOverlays(class *models.Class) {
 			if migrationPropertySuperseded(all, subject, prop) {
 				continue
 			}
-			// This checks the promotion, not subject.Unmirrored. The load never promotes a
-			// stale copy over live data, so what it promoted is the only data there is.
+			// Checks the promotion, not subject.Unmirrored: a load never promotes a stale copy over live data.
 			if isSwapped && swapped.PromotionOf(prop) != migrationPromotionFinished {
 				continue
 			}
@@ -101,9 +94,6 @@ func (s *Shard) restoreMigratedOverlays(class *models.Class) {
 	}
 }
 
-// migratedIndexStands reports whether one of this shard's own migrations
-// turned the index on and still answers for it, so the schema's index-off
-// sweeps must leave its bucket alone.
 func (s *Shard) migratedIndexStands(propName, indexType string) bool {
 	if s.migrationRecords == nil {
 		return false
@@ -118,7 +108,6 @@ func (s *Shard) migratedIndexStands(propName, indexType string) bool {
 		if _, covers := subject.Props[propName]; !covers {
 			continue
 		}
-		// A promotion the load refused leaves an unmirrored copy stale; one it ran made it the data.
 		if swapped, isSwapped := rec.(MigrationRecordSwapped); subject.Unmirrored && isSwapped &&
 			swapped.PromotionOf(propName) != migrationPromotionFinished {
 			continue
@@ -128,9 +117,6 @@ func (s *Shard) migratedIndexStands(propName, indexType string) bool {
 	return false
 }
 
-// withMigratedIndexes returns prop with every index a restored overlay forces
-// on, so the bucket a migration enabled is opened even though the schema
-// still has it off.
 func (s *Shard) withMigratedIndexes(prop *models.Property) *models.Property {
 	o, ok := s.SnapshotPropertyOverlay([]string{prop.Name})[prop.Name]
 	if !ok || (!o.ForceFilterable && !o.ForceSearchable && !o.ForceRangeable) {

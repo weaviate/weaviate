@@ -104,7 +104,6 @@ type indexesHandlers struct {
 	// once at wiring. Reaching for appState.ClusterService inside getIndexes
 	// would put the leader-routed methods back within reach.
 	taskSource localTaskLister
-	// taskLister is the submit path's leader-routed task list; nil without a cluster service.
 	taskLister distributedtask.TaskLister
 }
 
@@ -157,16 +156,10 @@ type classReader interface {
 // never be the older of the two. A nil lister means no cluster service: the
 // caller gets the class with no tasks. classes must be non-nil.
 //
-// ClassInfo runs ahead of the task read so a collection that does not exist
-// skips it: the task read clones and sorts every task in every namespace.
-// It is not the existence check the response is built on — that stays on
-// ReadOnlyClass below, after the task read, so the order above holds for
-// every class this returns. A collection deleted between the two reads
-// leaves ReadOnlyClass answering nil against an Exists that was true.
+// ClassInfo runs first so a missing collection skips the costly task read; the
+// authoritative existence check stays on ReadOnlyClass, after the task read.
 //
-// FINISHED tasks are kept: [mergeReindexStatus] needs them so a completed
-// migration outranks an older FAILED attempt on the same property, or the
-// entry reports "failed" after the retry succeeded.
+// FINISHED tasks are kept so a completed migration outranks an older FAILED attempt.
 func readClassAndTasks(collection string, taskSource localTaskLister, classes classReader) (*models.Class, []db.ReindexRun) {
 	if !classes.ClassInfo(collection).Exists {
 		return nil, nil
@@ -182,9 +175,7 @@ func readClassAndTasks(collection string, taskSource localTaskLister, classes cl
 	return class, db.ReindexRuns(byNamespace[db.ReindexNamespace])
 }
 
-// mayReadTenants gates tenant counts as the tenant list is gated: a count of
-// tenants is tenant metadata, not collection metadata. Silent, since a status
-// poll by a role without it is not a denied request.
+// mayReadTenants is silent: a status poll is not a denied request.
 func (h *indexesHandlers) mayReadTenants(ctx context.Context, principal *models.Principal, collection string) bool {
 	return h.appState.Authorizer.AuthorizeSilent(ctx, principal, authorization.READ,
 		authorization.ShardsMetadata(collection)...) == nil
@@ -408,7 +399,6 @@ func (h *indexesHandlers) cancelNoOpResponder(collection, propertyName, indexTyp
 	})
 }
 
-// cancelTooLateResponder answers a cancel of a SWAPPING task, which finishes on its own.
 func (h *indexesHandlers) cancelTooLateResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event": "reindex_task_cancel_refused",
@@ -424,8 +414,6 @@ func (h *indexesHandlers) cancelTooLateResponder(target *distributedtask.Task, c
 			target.ID, collection, propertyName, distributedtask.TaskStatusSwapping)))
 }
 
-// cancelRefusedResponder answers a cancel DTM will not accept: a status
-// only nodes that recognize it can terminate.
 func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event": "reindex_task_cancel_refused",
@@ -778,7 +766,7 @@ func firstActiveReindexTask(
 //   - "failed":     latest matching task ended in FAILED.
 //   - "cancelled":  latest matching task ended in CANCELLED.
 //   - "partial":    latest matching task ended in FAILED or CANCELLED after
-//     some tenants' swaps were decided; those tenants are migrated.
+//     some tenants' swaps were decided.
 //
 // Property matching is uniform across all migration types: every branch
 // requires payload.Properties to be non-empty and to contain propName.
@@ -888,7 +876,6 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		if best.Status == distributedtask.TaskStatusCancelled {
 			idx.Status = models.IndexStatusStatusCancelled
 		}
-		// Per-tenant counts, not a list: a collection can hold 100k tenants.
 		if _, migrated, covered := db.ReindexPartialRun(parsedTasks, collection, propName, []string{indexType}); len(migrated) > 0 {
 			idx.Status = models.IndexStatusStatusPartial
 			idx.MigratedTenants, idx.TotalTenants = int64(len(migrated)), int64(len(covered))

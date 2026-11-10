@@ -63,14 +63,8 @@ type SchemaManager interface {
 	// UpdateProperty used by the distributed-task scheduler's reindex
 	// completion path. It sets the
 	// [api.UpdatePropertyRequest.FromInFlightMigration] flag so the
-	// schema FSM checks it with MutationGuard.CheckMigrationPropertyUpdate,
-	// which admits it only while run is SWAPPING on that property.
-	//
-	// Public REST / gRPC handlers must not call this; they go through
-	// UpdateProperty above. The separate check is needed because
-	// OnTaskCompleted (which calls flipSemanticMigrationSchema) fires
-	// while the task is still SWAPPING, and the external-mutation
-	// check would refuse the migration's own flip.
+	// schema FSM checks it with MutationGuard.CheckMigrationPropertyUpdate.
+	// Public REST / gRPC handlers must not call this.
 	UpdatePropertyFromMigration(ctx context.Context, class string, run command.MigrationRun, property *models.Property, fields ...string) (uint64, error)
 	UpdateShardStatus(ctx context.Context, class, shard, status string) (uint64, error)
 	AddTenants(ctx context.Context, class string, req *command.AddTenantsRequest) (uint64, error)

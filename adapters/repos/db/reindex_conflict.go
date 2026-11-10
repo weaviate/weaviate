@@ -203,8 +203,6 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 	return touchesFilterable
 }
 
-// MutationRemedy is the tail of a mutation refusal: what the operator can do
-// about it. It names a cancel only for a status where a cancel stops the task.
 func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) string {
 	if status.IsCancellable() {
 		return whenCancellable
@@ -229,10 +227,7 @@ func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) s
 // commits, leaving the schema at the old tokenization and the filterable
 // bucket on the new one.
 //
-// A migration's own flip, marked by
-// [api.UpdatePropertyRequest.FromInFlightMigration], is checked by
-// [ReindexDetector.CheckMigrationPropertyUpdate] instead, which admits it
-// only while the run it names is SWAPPING.
+// A migration's own flip goes through [ReindexDetector.CheckMigrationPropertyUpdate] instead.
 //
 // Must stay a pure function of (className, propertyName, existingTasks) for
 // RAFT determinism; an unparseable payload is a hard reject, same as
@@ -275,7 +270,6 @@ func (ReindexDetector) CheckPropertyUpdate(className, propertyName string, exist
 			MutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
 				"cancel it via the reindex REST API before retrying"))
 	}
-	// The apply has no caller to authorize, so it never names tenant counts.
 	if msg := ReindexPartialRunConflict(existingTasks, className, propertyName, nil, false); msg != "" {
 		return fmt.Errorf("%s", msg)
 	}

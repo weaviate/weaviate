@@ -36,7 +36,7 @@ type migrationStagedBucketCloser interface {
 }
 
 type migrationReconcileDeps struct {
-	// Shard is this shard's name; [distributedtask.Task.StatusEntryFor] maps it to the run's group, "" for an ungrouped run.
+	// Shard is this shard's name, mapped to the run's group by [distributedtask.Task.StatusEntryFor].
 	Shard string
 
 	LocalTasks func() ([]distributedtask.TaskStatusEntry, bool)
@@ -921,7 +921,6 @@ func (r *migrationReconciler) verdictForTask(task distributedtask.TaskStatusEntr
 	case distributedtask.TaskStatusFinished:
 		return migrationVerdictCommit, "owning task finished"
 	case distributedtask.TaskStatusCancelled, distributedtask.TaskStatusFailed:
-		// The swap stays owed in RAFT; the scheduler pays it and the record then says so.
 		if task.GroupDecided {
 			return migrationVerdictLeave, fmt.Sprintf("owning task (%s) decided this shard's swap, which the scheduler runs", task.Status)
 		}

@@ -207,9 +207,7 @@ func (s *Raft) RecordDistributedTaskPostCompletionAck(
 		})
 }
 
-// RecordDistributedTaskPreparationCompleteAck commits one node's PREP result
-// for one group to the FSM. The group's swap is decided once every replica of
-// the group has acked success.
+// RecordDistributedTaskPreparationCompleteAck commits one node's PREP result for one group.
 //
 // See [distributedtask.PostCompletionAckRecorder].
 func (s *Raft) RecordDistributedTaskPreparationCompleteAck(

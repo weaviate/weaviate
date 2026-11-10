@@ -96,7 +96,6 @@ var (
 
 	ErrTaskReplicasChanged = errors.New("task built against replicas that have since changed")
 
-	// ErrNothingLeftToCancel is a cancel of a SWAPPING task, which finishes regardless.
 	ErrNothingLeftToCancel = errors.New("nothing left to cancel")
 )
 

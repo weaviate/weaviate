@@ -601,8 +601,6 @@ func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.E
 	l.shard.initPropertyBuckets(ctx, eg, lazyLoadSegments, props...)
 }
 
-// An unloaded shard is left alone: its next load removes the buckets of
-// indexes the schema turned off, after reading its migration records.
 func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
 	property *models.Property, counts *migrationSweepCounts,
 ) {
