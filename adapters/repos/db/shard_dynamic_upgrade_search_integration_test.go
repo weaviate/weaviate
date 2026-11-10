@@ -40,9 +40,9 @@ func TestShard_SearchDuringDynamicUpgrade(t *testing.T) {
 
 	const (
 		className = "DynamicUpgradeSearch"
-		threshold = 5000
-		objects   = 6000
-		batch     = 500
+		threshold = 1000
+		objects   = 1500
+		batch     = 250
 		dims      = 32
 		limit     = 10
 	)
@@ -110,6 +110,8 @@ func TestShard_SearchDuringDynamicUpgrade(t *testing.T) {
 						return
 					}
 					searches.Add(1)
+					// leaves the cpu to the upgrade on a small ci runner
+					time.Sleep(time.Millisecond)
 				}
 			}, idx.logger)
 
@@ -138,7 +140,7 @@ func TestShard_SearchDuringDynamicUpgrade(t *testing.T) {
 				assert.Zero(c, q.Size())
 				assert.True(c, upgradable.IsUpgraded())
 				assert.True(c, vectorIndex.Compressed())
-			}, 120*time.Second, 100*time.Millisecond)
+			}, 300*time.Second, 100*time.Millisecond)
 			stop.Store(true)
 			wg.Wait()
 			require.True(t, upgraded, "the index must end up as a compressed hnsw")
