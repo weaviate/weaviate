@@ -64,6 +64,7 @@ type Segment interface {
 	get(key []byte) ([]byte, error)
 	exists(key []byte) error
 	getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error)
+	getBySecondaryRange(pos int, key []byte, head uint64, pick ValueRangePicker, buffer []byte) ([]byte, []byte, []byte, error)
 	getCollection(key []byte) ([]value, error)
 	getCollectionBytes(key []byte) ([][]byte, error)
 	getInvertedData() *segmentInvertedData

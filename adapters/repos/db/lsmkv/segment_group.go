@@ -1181,6 +1181,31 @@ func (sg *SegmentGroup) logSlowSegmentProbe(start time.Time, segmentPos int, act
 	entry.Debug(msg)
 }
 
+// getBySecondaryRangeWithSegmentList is getBySecondaryWithSegmentList
+// narrowed to a range of the value, for GetBySecondaryRange. The newest
+// segment that holds the key answers.
+func (sg *SegmentGroup) getBySecondaryRangeWithSegmentList(pos int, key []byte, head uint64, pick ValueRangePicker, buffer []byte,
+	segments []Segment,
+) ([]byte, []byte, []byte, int, error) {
+	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
+		return nil, nil, nil, -1, fmt.Errorf("SegmentGroup::getBySecondaryRangeWithSegmentList(): %w", err)
+	}
+
+	for i := len(segments) - 1; i >= 0; i-- {
+		k, v, allocBuf, err := segments[i].getBySecondaryRange(pos, key, head, pick, buffer)
+		if err == nil {
+			return k, v, allocBuf, i, nil
+		}
+		if errors.Is(err, lsmkv.Deleted) {
+			return nil, nil, nil, i, err
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			return nil, nil, nil, i, fmt.Errorf("SegmentGroup::getBySecondaryRangeWithSegmentList() %q: %w", segments[i].getPath(), err)
+		}
+	}
+	return nil, nil, nil, -1, lsmkv.NotFound
+}
+
 func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, error) {
 	var out []value
 

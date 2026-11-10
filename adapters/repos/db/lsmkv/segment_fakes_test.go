@@ -194,6 +194,10 @@ func (f *fakeSegment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte
 	panic("not implemented")
 }
 
+func (f *fakeSegment) getBySecondaryRange(pos int, key []byte, head uint64, pick ValueRangePicker, buffer []byte) ([]byte, []byte, []byte, error) {
+	panic("not implemented")
+}
+
 func (f *fakeSegment) getCollection(key []byte) ([]value, error) {
 	f.getCounter++
 
