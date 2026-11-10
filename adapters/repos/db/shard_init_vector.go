@@ -92,9 +92,10 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		}
 	}
 
-	// A shard has a mapping only after a load that ran the repair, so only a
-	// shard without one can hold the pre-1.30.19 layout. A failed repair fails
-	// the load before the mapping is written, and the next load retries it.
+	// Only a shard without a mapping can still hold the pre-1.30.19 layout: a
+	// failed repair fails the load before the mapping is written, so the next
+	// load retries it. 1.40 only logged a failed repair and wrote the mapping;
+	// such a shard keeps the old layout and is not repaired again (accepted).
 	if !initialized {
 		err := newCompressedVectorsMigrator(s.index.logger).do(s, records, active)
 		if err != nil {
