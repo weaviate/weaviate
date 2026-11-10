@@ -50,6 +50,7 @@ type Config struct {
 	TombstoneCallbacks           cyclemanager.CycleCallbackGroup         // Callbacks for handling tombstones
 	VectorForIDThunk             common.VectorForID[float32]             `json:"vectorForIDThunk,omitempty"`      // Function to get a vector by index ID
 	MultiVectorForIDThunk        common.VectorForID[[]float32]           `json:"multiVectorForIDThunk,omitempty"` // Function to get a multi-vector by index ID
+	TempMultiVectorForIDThunk    common.TempVectorForID[[]float32]       `json:"-"`                               // A multi-vector by index ID into the caller's container, as hnsw.Config's; optional, read by hfresh's exact scoring
 	TempVectorForIDWithViewThunk common.TempVectorForIDWithView[float32] `json:"-"`
 }
 

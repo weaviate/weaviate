@@ -115,6 +115,10 @@ type HFresh struct {
 
 	vectorForID      common.VectorForID[float32]
 	multiVectorForID common.VectorForID[[]float32]
+	// tempMultiVectorForID, when set, reads the exact scoring's candidates
+	// into a pooled container. When it is nil, multiVectorForID is used and
+	// each candidate is read into fresh memory.
+	tempMultiVectorForID common.TempVectorForID[[]float32]
 
 	tempVectorForIDThunk common.TempVectorForIDWithView[float32]
 	tempVectors          *common.TempVectorsPool
@@ -153,6 +157,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		PostingStore:         postingStore,
 		vectorForID:          cfg.VectorForIDThunk,
 		multiVectorForID:     cfg.MultiVectorForIDThunk,
+		tempMultiVectorForID: cfg.TempMultiVectorForIDThunk,
 		tempVectorForIDThunk: cfg.TempVectorForIDWithViewThunk,
 		tempVectors:          common.NewTempVectorsPool(),
 		VersionMap:           NewVersionMap(bucket),

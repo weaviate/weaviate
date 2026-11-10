@@ -813,7 +813,11 @@ func (h *HFresh) QueryMultiVectorDistancer(queryVectors [][]float32) common.Quer
 
 	queryVectors = h.normalizeMultiVec(queryVectors)
 	distFunc := func(id uint64) (float32, error) {
-		docVectors, err := h.multiVectorForID(h.ctx, id)
+		// the document is read into a pooled container, released after the
+		// scoring: the tokens are sub-slices of its memory
+		container := h.tempVectors.Get(int(atomic.LoadUint32(&h.dims)))
+		defer h.tempVectors.Put(container)
+		docVectors, err := h.readMultiVector(h.ctx, id, container)
 		if err != nil {
 			return 0, errors.Wrapf(err, "get multi-vector for id %d", id)
 		}
@@ -823,11 +827,28 @@ func (h *HFresh) QueryMultiVectorDistancer(queryVectors [][]float32) common.Quer
 	return common.QueryVectorDistancer{DistanceFunc: distFunc}
 }
 
+// readMultiVector reads a document's tokens for the exact scoring. When the
+// config has the buffered thunk, it reads into container. Otherwise it reads
+// through the plain thunk into fresh memory.
+func (h *HFresh) readMultiVector(ctx context.Context, id uint64, container *common.VectorSlice) ([][]float32, error) {
+	if h.tempMultiVectorForID != nil {
+		if len(container.Buff8) < 8 {
+			container.Buff8 = make([]byte, 8)
+		}
+		return h.tempMultiVectorForID(ctx, id, container)
+	}
+	return h.multiVectorForID(ctx, id)
+}
+
 func (h *HFresh) computeLateInteraction(ctx context.Context, queryVectors [][]float32, k int, candidateIDs []uint64) ([]uint64, []float32, error) {
 	results := NewResultSet(k)
 
+	// one pooled container for the whole candidate list, released after
+	// the last scoring: the tokens are sub-slices of its memory
+	container := h.tempVectors.Get(int(atomic.LoadUint32(&h.dims)))
+	defer h.tempVectors.Put(container)
 	for _, id := range candidateIDs {
-		docVectors, err := h.multiVectorForID(ctx, id)
+		docVectors, err := h.readMultiVector(ctx, id, container)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "get multi-vector for id %d", id)
 		}
