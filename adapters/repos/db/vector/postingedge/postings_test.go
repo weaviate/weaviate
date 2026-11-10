@@ -16,11 +16,11 @@ import (
 	"math"
 	"math/rand/v2"
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
@@ -224,54 +224,107 @@ func TestSidecarScoreReportsTheSlotThatFailed(t *testing.T) {
 	require.ErrorContains(t, err, "slot 2")
 }
 
-// BenchmarkSidecarScore scores random slots of a sidecar that does not fit
-// the CPU caches, the situation of a search on a large index: one code at a
-// time, and as a batch.
-func BenchmarkSidecarScore(b *testing.B) {
-	const dims, n, batch = 1536, 400_000, 1024
-	provider := distancer.NewCosineDistanceProvider()
-	rng := rand.New(rand.NewPCG(1, 2))
-	query := distancer.Normalize(clusteredVectors(1, dims, 1, 7)[0])
-	quantizer, err := compressionhelpers.NewCenteredBinaryRotationalQuantizer(
-		dims, compressionhelpers.DefaultFastRotationSeed, make([]float32, dims), provider)
-	require.NoError(b, err)
-
-	// Random bits behind a real header: what the estimator computes is
-	// meaningless, what it costs is not.
-	header := quantizer.Encode(query)[0]
-	side := &sidecar{codeWords: 1 + dims/64}
-	side.codes = make([]uint64, n*side.codeWords)
-	for i := range side.codes {
-		side.codes[i] = rng.Uint64()
-		if i%side.codeWords == 0 {
-			side.codes[i] = header
-		}
+// The hints of a prefetch cannot be observed, so this follows the loop of
+// asm.PrefetchN, one hint per 64 bytes of the size counting from the address,
+// and checks that the hints for a slot cover its whole code. A code that
+// starts late in a cache line ends one line further than its size says.
+func TestSidecarPrefetchCoversTheWholeCode(t *testing.T) {
+	const line = 64
+	tests := []struct {
+		name      string
+		codeWords int
+	}{
+		{name: "256 bits", codeWords: 5},
+		{name: "512 bits", codeWords: 9},
+		{name: "768 bits, or the full code of 768 dimensions", codeWords: 13},
+		{name: "the full code of 1536 dimensions", codeWords: 25},
+		{name: "one line exactly", codeWords: 8},
 	}
-	estimator := quantizer.NewDistancer(query)
-	slots := make([]uint32, batch)
-	dists := make([]float32, batch)
-
-	run := func(name string, score func()) {
-		b.Run(name, func(b *testing.B) {
-			b.StopTimer()
-			for done := 0; done < b.N; done += batch {
-				for i := range slots {
-					slots[i] = uint32(rng.IntN(n))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// enough slots for a code to start at every word of a line
+			side := &sidecar{codeWords: tt.codeWords, codes: make([]uint64, 64*tt.codeWords)}
+			for slot := range uint32(64) {
+				addr, size := side.hint(slot)
+				hinted := map[uintptr]bool{}
+				for left := size; left > 0; left -= line {
+					hinted[addr/line] = true
+					addr += line
 				}
-				b.StartTimer()
-				score()
-				b.StopTimer()
+
+				code := side.code(slot)
+				first := uintptr(unsafe.Pointer(&code[0])) / line
+				last := (uintptr(unsafe.Pointer(&code[len(code)-1])) + 7) / line
+				for l := first; l <= last; l++ {
+					assert.True(t, hinted[l], "slot %d: line %d of the code is not hinted", slot, l-first)
+				}
+				assert.Len(t, hinted, int(last-first)+1, "slot %d: hints beyond the code", slot)
 			}
 		})
 	}
-	run("one by one", func() {
-		for i, slot := range slots {
-			dists[i], _ = estimator.Distance(side.code(slot))
+}
+
+// BenchmarkSidecarScore scores random slots of a sidecar that does not fit
+// the CPU caches, the situation of a search on a large index: one code at a
+// time, and as a batch. It does so for every code width, because how many
+// cache lines a code touches depends on its size and on where it starts.
+func BenchmarkSidecarScore(b *testing.B) {
+	const dims, sidecarBytes, batch = 1536, 80 << 20, 1024
+	query := distancer.Normalize(clusteredVectors(1, dims, 1, 7)[0])
+	cfg := &Config{DistanceProvider: distancer.NewCosineDistanceProvider()}
+
+	widths := []struct {
+		name     string
+		codeBits int
+	}{
+		{name: "full code", codeBits: 0},
+		{name: "768 bits", codeBits: 768},
+		{name: "512 bits", codeBits: 512},
+		{name: "256 bits", codeBits: 256},
+	}
+	for _, width := range widths {
+		quantizer, err := trainQuantizer([][]float32{make([]float32, dims)}, dims, 1, width.codeBits, cfg)
+		require.NoError(b, err)
+
+		// Random bits behind a real header: what the estimator computes is
+		// meaningless, what it costs is not.
+		code := quantizer.Encode(query)
+		side := &sidecar{codeWords: len(code)}
+		n := sidecarBytes / (8 * side.codeWords)
+		rng := rand.New(rand.NewPCG(1, 2))
+		side.codes = make([]uint64, n*side.codeWords)
+		for i := range side.codes {
+			side.codes[i] = rng.Uint64()
+			if i%side.codeWords == 0 {
+				side.codes[i] = code[0]
+			}
 		}
-	})
-	run("batch", func() {
-		_ = side.score(estimator, slots, dists)
-	})
+		estimator := quantizer.NewEstimator(query)
+		slots := make([]uint32, batch)
+		dists := make([]float32, batch)
+
+		run := func(name string, score func()) {
+			b.Run(width.name+"/"+name, func(b *testing.B) {
+				b.StopTimer()
+				for done := 0; done < b.N; done += batch {
+					for i := range slots {
+						slots[i] = uint32(rng.IntN(n))
+					}
+					b.StartTimer()
+					score()
+					b.StopTimer()
+				}
+			})
+		}
+		run("one by one", func() {
+			for i, slot := range slots {
+				dists[i], _ = estimator.Distance(side.code(slot))
+			}
+		})
+		run("batch", func() {
+			_ = side.score(estimator, slots, dists)
+		})
+	}
 }
 
 func TestTargetPostingSize(t *testing.T) {
