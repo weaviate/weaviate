@@ -1246,7 +1246,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 		return out
 	}
 
-	allSwapped := true
+	allSwapped, newlySwapped := true, false
 
 	// Wire a per-prop hook rather than setting the overlay once up front;
 	// see [maybeWirePerPropOverlaySet] for why the latter is a correctness bug.
@@ -1271,12 +1271,17 @@ func (p *ReindexProvider) runShardSwapPhase(
 				out.Transient = true
 			}
 			allSwapped = false
+			continue
 		}
+		// A sibling's failing swap re-runs this unit every tick, so log only its first success.
+		newlySwapped = !reindexTask.swapSucceeded.Swap(true) || newlySwapped
 	}
 
 	if allSwapped {
-		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Info("reindex provider: swap complete")
+		if newlySwapped {
+			logger.WithField("unit", unitID).WithField("shard", shardName).
+				Info("reindex provider: swap complete")
+		}
 	} else {
 		p.swapFailedSampler().WithSampling(func(l logrus.FieldLogger) {
 			l.WithField("unit", unitID).WithField("shard", shardName).WithField("node", p.localNode).

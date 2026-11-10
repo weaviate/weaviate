@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -127,4 +128,43 @@ func TestFailingSwapRetryLogsSampled(t *testing.T) {
 	retries := count("RunSwapOnShard: flip already decided; running OnMigrationComplete only")
 	require.Positive(t, retries)
 	require.LessOrEqual(t, retries, maxReportedErrors)
+}
+
+// Pins that a decided swap retried every tick, because a sibling unit keeps
+// failing, logs the swapped unit's "swap complete" once.
+func TestDecidedSwapRetryLogsSwapCompleteOnce(t *testing.T) {
+	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "SwapRetry_")
+	unit := shard.migrationUnit()
+	rt, _ := newRangeableInMemoryTestTask(t, idx, className, filterableToRangeablePropName,
+		unit, &atomic.Bool{}, &atomic.Int32{})
+	require.NoError(t, rt.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, rt.RunPrepareOnShard(ctx, shard))
+	registerIndex(idx, className)
+	logger, hook := logrustest.NewNullLogger()
+	p := NewReindexProvider(idx.db, nil, nil, logger, "node1", nil, ctx)
+	p.cachePayload(lateSwapDesc, &ReindexTaskPayload{
+		Collection: className, MigrationType: ReindexTypeEnableRangeable,
+		Properties: []string{filterableToRangeablePropName},
+		// The sibling's shard does not exist, so its swap fails on every tick.
+		UnitToShard: map[string]string{unit: shard.Name(), "sibling": "missing"},
+	})
+	p.cacheReindexTasks(lateSwapDesc, unit, []*ShardReindexTaskGeneric{rt})
+	task := withUnits(&distributedtask.Task{
+		TaskDescriptor: lateSwapDesc, Status: distributedtask.TaskStatusFailed,
+		NeedsPreparationBarrier: true, SwapDecidedGroups: map[string]time.Time{"": {}},
+	}, map[string]*distributedtask.Unit{
+		unit:      {ID: unit, NodeID: "node1", Status: distributedtask.UnitStatusCompleted},
+		"sibling": {ID: "sibling", NodeID: "node1", Status: distributedtask.UnitStatusCompleted},
+	})
+
+	for range 3 * maxReportedErrors {
+		require.Error(t, p.OnSwapRequested(task, "", task.LocalGroupUnitIDs("", "node1")))
+	}
+	complete := 0
+	for _, e := range hook.AllEntries() {
+		if e.Message == "reindex provider: swap complete" {
+			complete++
+		}
+	}
+	require.Equal(t, 1, complete)
 }
