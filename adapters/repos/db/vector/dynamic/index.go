@@ -1145,7 +1145,15 @@ func (dynamic *dynamic) compressUpgraded(index *hnsw.HNSW) {
 		return
 	}
 	done := make(chan struct{})
-	if err := index.Upgrade(func() { close(done) }); err != nil {
+	// the read lock keeps a shutdown out until the compression is registered
+	dynamic.RLock()
+	if dynamic.ctx.Err() != nil {
+		dynamic.RUnlock()
+		return
+	}
+	err := index.Upgrade(func() { close(done) })
+	dynamic.RUnlock()
+	if err != nil {
 		dynamic.logger.WithField("action", "dynamic_upgrade_compress").
 			Errorf("compress upgraded index: %v", err)
 	}
@@ -1222,14 +1230,16 @@ func (dynamic *dynamic) commitUpgrade(index *hnsw.HNSW) error {
 func (dynamic *dynamic) removeCompressedBucket() error {
 	name := dynamic.getCompressedBucketName()
 	bDir, err := dynamic.bucketDir(name)
-	if err != nil {
-		if simpleErrors.Is(err, lsmkv.ErrBucketNotFound) {
-			return nil
+	switch {
+	case simpleErrors.Is(err, lsmkv.ErrBucketNotFound):
+		// an unloaded bucket can still be on disk, left by an earlier upgrade attempt
+		bDir = filepath.Join(dynamic.store.GetDir(), name)
+	case err != nil:
+		return err
+	default:
+		if err := dynamic.store.ShutdownBucket(dynamic.ctx, name); err != nil {
+			return err
 		}
-		return err
-	}
-	if err := dynamic.store.ShutdownBucket(dynamic.ctx, name); err != nil {
-		return err
 	}
 	if err := os.RemoveAll(bDir); err != nil {
 		return err

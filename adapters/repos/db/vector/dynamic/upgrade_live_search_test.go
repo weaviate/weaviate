@@ -13,6 +13,7 @@ package dynamic
 
 import (
 	"context"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
@@ -314,7 +315,10 @@ func TestUpgrade_SearchDuringQuantizedCopy(t *testing.T) {
 			upgraded := env.search(t, queries, k, "after the upgrade committed")
 			codes := env.compressedCodeLengths()
 			if env.idx.Compressed() {
-				require.Len(t, codes, len(vectors), "every vector must be persisted compressed")
+				if tc.hnswUC.VectorCacheMaxObjects >= int(env.uc.Threshold) {
+					require.Len(t, codes, len(vectors), "every vector must be persisted compressed")
+				}
+				require.NotEmpty(t, codes)
 				for _, l := range codes {
 					require.Equal(t, codes[0], l, "compressed vectors of mixed length")
 				}
@@ -522,5 +526,32 @@ func TestUpgrade_CrashBeforeCompression(t *testing.T) {
 				require.Lenf(t, ids, len(vectors), "query %d must reach every vector once compressed", i)
 			}
 		})
+	}
+}
+
+// An earlier upgrade attempt can leave a compressed bucket on disk that an
+// uncompressed flat stage never loads. The commit must remove it too, or the
+// hnsw would later load it and read its rows as its own.
+func TestUpgrade_RemovesUnloadedCompressedBucket(t *testing.T) {
+	vectors, queries := testinghelpers.RandomVecs(2*batchSize, 5, 32)
+	env := newUpgradeTestEnv(t, t.TempDir(), "", vectors, flatUncompressed(), hnswBQ())
+	env.addAll(t)
+
+	name := env.idx.getCompressedBucketName()
+	require.NoError(t, env.store.CreateOrLoadBucket(context.Background(), name,
+		lsmkv.MakeNoopBucketOptions(lsmkv.StrategyReplace)...))
+	stale := make([]byte, 8)
+	binary.BigEndian.PutUint64(stale, uint64(10*len(vectors)))
+	require.NoError(t, env.store.Bucket(name).Put(stale, []byte{1, 2, 3}))
+	require.NoError(t, env.store.ShutdownBucket(context.Background(), name))
+
+	env.upgrade(t, nil)
+	require.True(t, env.idx.IsUpgraded(), "the upgrade must complete")
+	env.search(t, queries, 10, "after the upgrade committed")
+
+	codes := env.compressedCodeLengths()
+	require.Len(t, codes, len(vectors), "only the hnsw's compressed vectors may remain")
+	for _, l := range codes {
+		require.Equal(t, codes[0], l, "compressed vectors of mixed length")
 	}
 }
