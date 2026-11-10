@@ -922,12 +922,12 @@ func TestIndexCleanStalePartialReindexStateReportsAnUnlistableMigrationsDir(t *t
 
 	sweepErr := idx.cleanStalePartialReindexState(ctx, propName, indexType, nil, nil)
 
-	require.ErrorIs(t, sweepErr, ErrCleanupShardFailed)
 	outcome, _ := ClassifyCleanupSweep(sweepErr)
-	require.Equal(t, CleanupSweepFailed, outcome)
+	require.Equal(t, CleanupSweepWithheld, outcome, "nothing was removed, so nothing is partly swept")
+	wantMsg, wantLevel := CleanupSweepSummary(sweepPhaseIndexCleanup, CleanupSweepWithheld)
 	summary := onlySweepSummary(t, hook)
-	require.Equal(t, logrus.ErrorLevel, summary.Level)
-	require.Contains(t, summary.Message, "could not be swept")
+	require.Equal(t, wantLevel, summary.Level)
+	require.True(t, strings.HasPrefix(summary.Message, wantMsg), summary.Message)
 
 	require.True(t, dirExistsAt(t, lsm, staleSidecar),
 		"the state the summary must not report as swept")
