@@ -20,6 +20,51 @@ while [[ "$#" -gt 0 ]]; do
   shift
 done
 
+# Prints the highest stable release among origin's tags and the current version, without "v".
+# Reads origin because CI checkouts have no local tags.
+function highest_stable_release() {
+  local current="${1#v}"
+  {
+    git ls-remote --tags --refs origin 'v*' \
+      | sed -En 's|.*refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$|\1|p' || return 1
+    if [ -n "$current" ]; then
+      printf '%s\n' "$current"
+    fi
+  } | sort -V | tail -n 1
+}
+
+# Warns instead of failing: the release image is already published by now.
+function point_latest_at() {
+  local image="$1"
+  for _ in 1 2 3; do
+    docker buildx imagetools create -t "${DOCKER_REPO}:latest" "$image" && return 0
+    sleep 10
+  done
+  echo "::warning::Could not point ${DOCKER_REPO}:latest at ${image}. To fix, run: docker buildx imagetools create -t ${DOCKER_REPO}:latest ${image}"
+}
+
+# Points latest at this release only if it is the highest stable release
+function update_latest() {
+  local version="$1"
+  local highest
+
+  if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Not updating latest: ${version} is not a stable release."
+    return 0
+  fi
+
+  if ! highest="$(highest_stable_release "$version")"; then
+    echo "::warning::Not updating latest: could not list release tags on origin."
+    return 0
+  fi
+  if [ "$version" != "$highest" ]; then
+    echo "Not updating latest: ${version} is not the highest stable release (${highest})."
+    return 0
+  fi
+
+  point_latest_at "${DOCKER_REPO}:${version}"
+}
+
 function release() {
   DOCKER_REPO=$DOCKER_REPO_WEAVIATE
 
@@ -34,7 +79,7 @@ function release() {
   docker buildx inspect >/dev/null 2>&1 || docker buildx create --use
 
   # nightly tag was added to be pushed on merges to main branch; latest is set
-  # by the promote-latest workflow after release builds
+  # by update_latest after the release image is pushed
   tag_exact=
   tag_preview=
   tag_preview_semver=
@@ -114,6 +159,10 @@ function release() {
   fi
 
   docker buildx build "${args[@]}" . || exit 1
+
+  if [ -n "$tag_exact" ]; then
+    update_latest "$weaviate_version"
+  fi
 
   if [ -n "$tag_preview" ]; then
     echo "PREVIEW_TAG=$tag_preview" >> "$GITHUB_OUTPUT"
