@@ -1106,6 +1106,13 @@ Then, per shard load:
        cannot be cancelled and only a status write ends a hold: the shard
        stays READONLY and the swap stays owed, the node makes it once the
        shard is set READY, and a resubmit then lands the schema change.
+       On a multi-tenant collection, a resubmit after the shard is READY
+       migrates every tenant again, since only a full run lands the
+       schema change; one sent while the swap is still owed reruns only
+       the tenants still owed, but its task waits on the held shard and
+       blocks deleting the collection, deleting or deactivating its
+       tenants and updating its properties until the shard is READY or
+       the task is cancelled.
        Another migration's repair, rebuild or iteration unit, or prepare,
        waits the same way as the own prepare. If the shard also holds an
        unreadable record, a unit fails its migration, as on any shard; a
