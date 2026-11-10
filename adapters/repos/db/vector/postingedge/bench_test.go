@@ -89,6 +89,7 @@ var (
 	benchProbe   = flag.Int("bench.probe", DefaultBuildProbe, "postingedge: build probe")
 	benchPosting = flag.Int("bench.posting", 0, "postingedge: target posting size (0 = default budget)")
 	benchSample  = flag.Int("bench.edgesample", 1000, "postingedge: vectors sampled to measure edge recall")
+	benchReach   = flag.Int("bench.reach", 0, "postingedge: queries sampled to measure what a triangle bound on the edge lengths could prune (0 = skip)")
 
 	benchMaxConn = flag.Int("bench.maxconn", enthnsw.DefaultMaxConnections, "hnsw: max connections")
 	benchEFC     = flag.Int("bench.efc", enthnsw.DefaultEFConstruction, "hnsw: ef construction")
@@ -186,6 +187,7 @@ type statsSummary struct {
 	LoadsP50      float64 `json:"loadsP50"`
 	LoadsP95      float64 `json:"loadsP95"`
 	ScannedMean   float64 `json:"scannedMean"`
+	AgainMean     float64 `json:"scannedAgainMean"`
 	EdgesMean     float64 `json:"edgesFollowedMean"`
 	InLoadedMean  float64 `json:"endpointsInLoadedMean"`
 	RepeatedMean  float64 `json:"endpointsRepeatedMean"`
@@ -379,6 +381,11 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 	settle(t, data, search, result)
 
 	result.Diagnostics = postingEdgeDiagnostics(t, index, data, build, *benchSample)
+	if *benchReach > 0 {
+		for key, value := range edgeReachDiagnostics(t, index, data, *benchReach) {
+			result.Diagnostics[key] = value
+		}
+	}
 	t.Logf("diagnostics: %v", result.Diagnostics)
 	writeBenchResult(t, result)
 
@@ -405,9 +412,9 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 						}
 						result.Points = append(result.Points, point)
 						s := point.Stats
-						t.Logf("ef=%d rescore=%d batch=%d threads=%d recall=%.4f qps=%.0f p50=%.3fms p95=%.3fms | rounds %.1f (p95 %.0f) loads %.1f/%.0f/%.0f scanned %.0f edges %.0f (in loaded %.0f, repeated %.0f) endpoints %.0f rescored %.0f | us: centroid %.0f scan %.0f expand %.0f select %.0f rescore %.0f total %.0f",
+						t.Logf("ef=%d rescore=%d batch=%d threads=%d recall=%.4f qps=%.0f p50=%.3fms p95=%.3fms | rounds %.1f (p95 %.0f) loads %.1f/%.0f/%.0f scanned %.0f (again %.0f) edges %.0f (in loaded %.0f, repeated %.0f) endpoints %.0f rescored %.0f | us: centroid %.0f scan %.0f expand %.0f select %.0f rescore %.0f total %.0f",
 							ef, rescore, loadBatch, threads, point.Recall, point.QPS, point.P50Ms, point.P95Ms,
-							s.RoundsMean, s.RoundsP95, s.LoadsMean, s.LoadsP50, s.LoadsP95, s.ScannedMean,
+							s.RoundsMean, s.RoundsP95, s.LoadsMean, s.LoadsP50, s.LoadsP95, s.ScannedMean, s.AgainMean,
 							s.EdgesMean, s.InLoadedMean, s.RepeatedMean, s.EndpointsMean, s.RescoredMean,
 							s.CentroidUs, s.ScanUs, s.ExpandUs, s.SelectUs, s.RescoreUs, s.TotalUs)
 						writeBenchResult(t, result)
@@ -672,6 +679,7 @@ func collectSearchStats(t *testing.T, index *Index, data *benchData) (*statsSumm
 		sum.RoundsMean += float64(stats.Rounds) / n
 		sum.LoadsMean += float64(stats.PostingsLoaded) / n
 		sum.ScannedMean += float64(stats.VectorsScanned) / n
+		sum.AgainMean += float64(stats.ScannedAgain) / n
 		sum.EdgesMean += float64(stats.EdgesFollowed) / n
 		sum.InLoadedMean += float64(stats.EndpointsInLoaded) / n
 		sum.RepeatedMean += float64(stats.EndpointsRepeated()) / n
@@ -788,6 +796,279 @@ func postingEdgeDiagnostics(t *testing.T, index *Index, data *benchData, build B
 	})
 	out["entryIsNearestCentroid"] = float64(exactEntry.Load()) / float64(len(data.queries))
 	return out
+}
+
+// edgeReachDiagnostics measures what pruning sources by a triangle bound on
+// their edges could save, without the index implementing it.
+//
+// The bound: an endpoint e of a source s cannot be nearer to the query than
+// angle(q, s) - angle(s, e). So if angle(q, s) minus the longest edge of s is
+// still at least the angle of the stop threshold, no edge of s can matter and
+// s can be skipped. (The angle is the tightest metric for cosine: the bound
+// is attained when the three vectors lie on one great circle.)
+//
+// The diagnostic gives the bound its best case: the exact, unquantized
+// length of the longest edge, and the lowest threshold a search can reach,
+// the ef-th best estimate over the whole corpus. It reports the share of
+// sources that could then be skipped, over the whole corpus and over the
+// postings nearest to the query, and the distributions behind it.
+//
+// It also reports what subtracting the cosine distances directly would skip.
+// That is not a bound, cosine distance does not obey the triangle
+// inequality, but it is the reading of the rule that prunes the most.
+//
+// Last, it measures what a plain cut on the distance of the source would
+// keep: expanding only the sources within a margin of the stop threshold. An
+// endpoint is useful if its estimate is inside the threshold, so that its
+// posting has to be loaded. For each margin the diagnostic reports how many
+// sources, edges and distinct endpoints the cut keeps, and how many of the
+// useful endpoints are still reached through at least one kept source. This
+// is no bound either: it shows how much there is to gain and to lose.
+func edgeReachDiagnostics(t *testing.T, index *Index, data *benchData, queries int) map[string]float64 {
+	st := index.state.Load()
+	store, side := st.postings, st.side
+	n := store.vectors()
+	provider := distancer.NewCosineDistanceProvider()
+	angle := func(dist float32) float64 { return math.Acos(max(-1, min(1, 1-float64(dist)))) }
+	toCosine := func(radians float64) float64 { return 1 - math.Cos(radians) }
+	degrees := func(radians float64) float64 { return radians * 180 / math.Pi }
+
+	// The exact length of every edge, and the longest per source.
+	reach := make([]float64, n)
+	edgeDist := make([]float64, len(store.edges))
+	parallelFor(n, func(slot int) {
+		source := data.train[store.docIDs[slot]]
+		for i := store.edgeStart[slot]; i < store.edgeStart[slot+1]; i++ {
+			dist, err := provider.SingleDist(source, data.train[store.docIDs[store.edges[i]]])
+			if err != nil {
+				panic(err)
+			}
+			edgeDist[i] = float64(dist)
+			reach[slot] = max(reach[slot], angle(dist))
+		}
+	})
+	var reaches []float64
+	for slot := 0; slot < n; slot++ {
+		if store.edgeStart[slot+1] > store.edgeStart[slot] {
+			reaches = append(reaches, reach[slot])
+		}
+	}
+	slices.Sort(reaches)
+	slices.Sort(edgeDist)
+
+	const nearPostings = 16
+	efs := []int{*benchK, 2 * *benchK}
+	margins := []float64{0, 0.02, 0.04, 0.06, 0.08, 0.10, 0.15}
+	// marginCut counts, for the cut at one margin: the sources, edges and
+	// distinct endpoints it keeps, and the useful endpoints among those.
+	type marginCut struct {
+		sources, edges, endpoints, useful float64
+	}
+	type perQuery struct {
+		threshold      [2]float64
+		corpus, near   [2]float64 // prunable share of the sources with edges
+		naiveNear      [2]float64 // the same over the near postings, subtracting cosine distances
+		nearSourceDist []float64
+		// all counts what there is without a cut, cuts what each margin keeps
+		all  [2]marginCut
+		cuts [2][]marginCut
+	}
+	queries = min(queries, len(data.queries))
+	out := make([]perQuery, queries)
+	l2 := distancer.NewL2SquaredProvider()
+	parallelFor(queries, func(qi int) {
+		query := data.queries[qi]
+		estimator := st.quantizer.NewDistancer(query)
+		dists := make([]float32, n)
+		best := make([]topK, len(efs))
+		for i, ef := range efs {
+			best[i].reset(ef)
+		}
+		for slot := 0; slot < n; slot++ {
+			dist, err := estimator.Distance(side.code(uint32(slot)))
+			if err != nil {
+				panic(err)
+			}
+			dists[slot] = dist
+			for i := range best {
+				best[i].push(uint64(slot), dist)
+			}
+		}
+
+		var nearest topK
+		nearest.reset(nearPostings)
+		for c, centroid := range st.centroids.vectors {
+			dist, err := l2.SingleDist(query, centroid)
+			if err != nil {
+				panic(err)
+			}
+			nearest.push(uint64(c), dist)
+		}
+		isNear := make([]bool, store.postings())
+		for _, e := range nearest.items {
+			isNear[e.id] = true
+		}
+
+		result := &out[qi]
+		for i := range efs {
+			threshold := best[i].worst()
+			limit := angle(threshold)
+			result.threshold[i] = float64(threshold)
+			var sources, prunable, nearSources, nearPrunable, naivePrunable float64
+			for slot := 0; slot < n; slot++ {
+				if store.edgeStart[slot+1] == store.edgeStart[slot] {
+					continue
+				}
+				skip := angle(dists[slot])-reach[slot] >= limit
+				sources++
+				if skip {
+					prunable++
+				}
+				if isNear[side.postingOf[slot]] {
+					nearSources++
+					if skip {
+						nearPrunable++
+					}
+					if float64(dists[slot])-toCosine(reach[slot]) >= float64(threshold) {
+						naivePrunable++
+					}
+					if i == 0 {
+						result.nearSourceDist = append(result.nearSourceDist, float64(dists[slot]))
+					}
+				}
+			}
+			result.corpus[i] = prunable / sources
+			result.near[i] = nearPrunable / max(nearSources, 1)
+			result.naiveNear[i] = naivePrunable / max(nearSources, 1)
+
+			// The cut on the distance of the source. nearestSource is,
+			// per endpoint outside the near postings, the distance of
+			// the nearest source that links to it.
+			nearestSource := map[uint32]float32{}
+			result.cuts[i] = make([]marginCut, len(margins))
+			for slot := 0; slot < n; slot++ {
+				edges := store.edgesOf(uint32(slot))
+				if len(edges) == 0 || !isNear[side.postingOf[slot]] {
+					continue
+				}
+				leaving := 0.0
+				for _, endpoint := range edges {
+					if isNear[side.postingOf[endpoint]] {
+						continue
+					}
+					leaving++
+					if known, ok := nearestSource[endpoint]; !ok || dists[slot] < known {
+						nearestSource[endpoint] = dists[slot]
+					}
+				}
+				result.all[i].sources++
+				result.all[i].edges += leaving
+				for j, margin := range margins {
+					if float64(dists[slot]) <= float64(threshold)+margin {
+						result.cuts[i][j].sources++
+						result.cuts[i][j].edges += leaving
+					}
+				}
+			}
+			for endpoint, sourceDist := range nearestSource {
+				useful := dists[endpoint] < threshold
+				result.all[i].endpoints++
+				if useful {
+					result.all[i].useful++
+				}
+				for j, margin := range margins {
+					if float64(sourceDist) <= float64(threshold)+margin {
+						result.cuts[i][j].endpoints++
+						if useful {
+							result.cuts[i][j].useful++
+						}
+					}
+				}
+			}
+		}
+	})
+
+	var thresholds [2][]float64
+	var corpus, near, naiveNear [2]float64
+	var nearSourceDist []float64
+	for _, q := range out {
+		for i := range efs {
+			thresholds[i] = append(thresholds[i], q.threshold[i])
+			corpus[i] += q.corpus[i] / float64(queries)
+			near[i] += q.near[i] / float64(queries)
+			naiveNear[i] += q.naiveNear[i] / float64(queries)
+		}
+		nearSourceDist = append(nearSourceDist, q.nearSourceDist...)
+	}
+	slices.Sort(nearSourceDist)
+	for i := range thresholds {
+		slices.Sort(thresholds[i])
+	}
+
+	medianReach := percentileOf(reaches, 0.50)
+	medianThreshold := percentileOf(thresholds[0], 0.50)
+	diagnostics := map[string]float64{}
+	for i, suffix := range []string{"", "2k"} {
+		var all marginCut
+		cuts := make([]marginCut, len(margins))
+		for _, q := range out {
+			all.sources += q.all[i].sources
+			all.edges += q.all[i].edges
+			all.endpoints += q.all[i].endpoints
+			all.useful += q.all[i].useful
+			for j := range margins {
+				cuts[j].sources += q.cuts[i][j].sources
+				cuts[j].edges += q.cuts[i][j].edges
+				cuts[j].endpoints += q.cuts[i][j].endpoints
+				cuts[j].useful += q.cuts[i][j].useful
+			}
+		}
+		diagnostics["cutUsefulEndpointsPerQuery"+suffix] = all.useful / float64(queries)
+		diagnostics["cutEndpointsPerQuery"+suffix] = all.endpoints / float64(queries)
+		for j, margin := range margins {
+			key := "cutMargin" + strconv.FormatFloat(margin, 'f', 2, 64) + suffix
+			diagnostics[key+"Sources"] = cuts[j].sources / all.sources
+			diagnostics[key+"Edges"] = cuts[j].edges / all.edges
+			diagnostics[key+"Endpoints"] = cuts[j].endpoints / all.endpoints
+			diagnostics[key+"Useful"] = cuts[j].useful / max(all.useful, 1)
+		}
+	}
+	for key, value := range map[string]float64{
+		"reachQueries":          float64(queries),
+		"reachDegreesP05":       degrees(percentileOf(reaches, 0.05)),
+		"reachDegreesP50":       degrees(medianReach),
+		"reachDegreesP95":       degrees(percentileOf(reaches, 0.95)),
+		"reachCosineMin":        toCosine(reaches[0]),
+		"reachCosineP01":        toCosine(percentileOf(reaches, 0.01)),
+		"reachCosineP05":        toCosine(percentileOf(reaches, 0.05)),
+		"reachCosineP25":        toCosine(percentileOf(reaches, 0.25)),
+		"reachCosineP50":        toCosine(medianReach),
+		"reachCosineP75":        toCosine(percentileOf(reaches, 0.75)),
+		"reachCosineP95":        toCosine(percentileOf(reaches, 0.95)),
+		"reachCosineP99":        toCosine(percentileOf(reaches, 0.99)),
+		"reachCosineMax":        toCosine(reaches[len(reaches)-1]),
+		"edgeCosineP05":         percentileOf(edgeDist, 0.05),
+		"edgeCosineP50":         percentileOf(edgeDist, 0.50),
+		"edgeCosineP95":         percentileOf(edgeDist, 0.95),
+		"thresholdCosineP50":    medianThreshold,
+		"thresholdCosineP95":    percentileOf(thresholds[0], 0.95),
+		"threshold2kCosineP50":  percentileOf(thresholds[1], 0.50),
+		"nearSourceCosineP05":   percentileOf(nearSourceDist, 0.05),
+		"nearSourceCosineP50":   percentileOf(nearSourceDist, 0.50),
+		"nearSourceCosineP95":   percentileOf(nearSourceDist, 0.95),
+		"nearSourceCosineP99":   percentileOf(nearSourceDist, 0.99),
+		"nearSourceCosineMax":   nearSourceDist[len(nearSourceDist)-1],
+		"prunableAtCosine":      toCosine(angle(float32(medianThreshold)) + medianReach),
+		"prunableCorpusShare":   corpus[0],
+		"prunableNearShare":     near[0],
+		"prunableCorpusShare2k": corpus[1],
+		"prunableNearShare2k":   near[1],
+		"naiveNearShare":        naiveNear[0],
+		"naiveNearShare2k":      naiveNear[1],
+	} {
+		diagnostics[key] = value
+	}
+	return diagnostics
 }
 
 func loadBenchData(t *testing.T, dir string, limit, queries, k int) *benchData {

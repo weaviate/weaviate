@@ -247,6 +247,7 @@ Lectura, como entrada para la lista de v2 (aquí no se optimizó nada más):
 ## Notas de implementación que afectan a los números
 
 - **Pasada de "touch" antes de puntuar endpoints.** Los endpoints están dispersos por los 189 MB de códigos. Antes de puntuarlos se lee una palabra por línea de caché de cada código para que los fallos de caché se solapen. En un microbenchmark con ese tamaño baja el coste por endpoint de 182 ns a 62 ns. No cambia qué se puntúa. HNSW ya hace lo equivalente con su distancer por lotes.
+- **Qué filtraba ya el run medido.** Desde el primer commit de la rama (`6a31ca8c9c`, el del run cronometrado) la expansión descarta las aristas que llevan a postings ya cargados y puntúa cada endpoint una sola vez por búsqueda (visited-set). Lo que no hay es estimación cacheada: la estimación de un endpoint solo se pliega en el rank de su posting, y si ese posting se carga después, el scan la vuelve a calcular. Le pasa al 27 % de los vectores escaneados a recall 0.95 (692 de 2 579; del 24 % a ef=10 al 47 % a ef=640), es decir, al 5 % de las distancias a código de la query.
 - **Tamaño de posting.** Se pidió posting medio ≈ HFresh (~230). Las sims corrieron con postings primarios de 38 de media, así que sus cifras de cargas no son comparables una a una con estas: aquí cada carga trae 6× más vectores.
 - **Código medido.** Los QPS de posting-edge se midieron sobre el commit `6a31ca8c9c`. Después se añadieron, sin re-medir: contadores y un temporizador que solo corren con stats activadas, y la validación de vectores y queries no finitos (un producto escalar de 1536d por query, ~70 ns sobre ~1 ms). Los QPS de HNSW se midieron con el harness ya ampliado; el código de HNSW no se tocó.
 - **Segunda pasada.** El trabajo por query, el perfil por fases y la memoria del proceso de posting-edge salen de un segundo build con el mismo seed y sin pasadas cronometradas de QPS. Reproduce el primero: mismos postings, mismas aristas, y recall y postings cargados idénticos en los 21 puntos. Las distancias por query y el grafo por nivel de HNSW salen de un segundo build de HNSW, que no es idéntico al medido (la inserción es concurrente); su recall coincide con el del build medido a ±0.002.
@@ -257,6 +258,48 @@ Lectura, como entrada para la lista de v2 (aquí no se optimizó nada más):
 - **Default de rescoreLimit.** Hoy es 512, el de RQ-1 en HNSW. En este dataset 64 da el mismo recall y ahorra 0.45 ms por query.
 - **P.** 256 por especificación. Con postings de 236 vectores cubre 5× más candidatos que en las sims y es el 66 % del build.
 - **Nombre del paquete y del tipo de índice** (`postingedge`), al abrir el PR.
+
+## Adenda v1.1: la poda triangular por source no poda (gate, 2026-11-10)
+
+La ronda v1.1 proponía saltar un source cuando `dist(q, source) − L_max(source) ≥ dist del ef-ésimo candidato`, con L_max la longitud de su arista más larga. El gate pre-registrado era parar si poda menos del 20 % de los sources. **Poda el 0.1 %**, así que la ronda está parada aquí; los cambios 3 a 5 no están empezados.
+
+No se implementó en el índice: se midió antes su mejor caso con un diagnóstico del harness (`-bench.reach`, 500 queries sobre el índice de 1M). El mejor caso es L_max exacto y sin cuantizar, y el umbral más bajo que una búsqueda puede alcanzar (la ef-ésima mejor estimación de todo el corpus). La cota se evalúa en ángulos: la distancia coseno no cumple la desigualdad triangular, el ángulo sí, y es la métrica más ajustada.
+
+| sources podables, mejor caso | ef = k | ef = 2k |
+|---|---|---|
+| en los 16 postings más cercanos a la query | 0.10 % | 0.05 % |
+| en todo el corpus | 0.49 % | 0.23 % |
+| restando distancias coseno directamente (no es una cota), 16 postings | 4.6 % | 3.0 % |
+
+Distribuciones, en distancia coseno:
+
+| | mín | p1 | p5 | p25 | p50 | p75 | p95 | p99 |
+|---|---|---|---|---|---|---|---|---|
+| L_max por source | 0.009 | 0.082 | 0.115 | 0.141 | 0.155 | 0.169 | 0.186 | 0.197 |
+| longitud de arista | | | 0.103 | | 0.150 | | 0.182 | |
+| distancia estimada query→source, 16 postings más cercanos | | | 0.176 | | 0.231 | | 0.285 | 0.306 |
+| umbral de parada (10.º mejor candidato) | | | | | 0.149 | | 0.178 | |
+
+Lectura:
+
+- **Las tres escalas coinciden.** Las aristas miden lo mismo que la distancia de la query a su décimo vecino (0.15), y los sources de los postings cargados están solo un poco más lejos (0.18–0.31). Con L_max y umbral medianos, un source es podable si está a distancia coseno ≥ 0.56 de la query; el p99 de los sources cercanos es 0.31.
+- **No son aristas largas que se puedan acortar.** Son los vecinos más cercanos fuera del posting (recall de arista 0.963). Es la concentración de distancias de 1536d, la misma que en `findings.md` it1 hacía que "todo sea frontera".
+- L_max en grados: p5 27.7°, p50 32.4°, p95 35.5°.
+
+**Lo que el mismo diagnóstico sugiere en su lugar.** Un corte simple por distancia del source, sin cota: expandir solo los sources cuya estimación queda a menos de un margen del umbral. "Útil" es un endpoint fuera de los 16 postings más cercanos cuya estimación entra bajo el umbral, es decir, uno cuyo posting hay que cargar. Son 1.0 por query a ef=k y 2.3 a ef=2k, de 13 100 endpoints distintos alcanzables.
+
+| margen sobre el umbral (coseno) | sources que se expanden | aristas seguidas | endpoints puntuados | endpoints útiles conservados, ef=k | ef=2k |
+|---|---|---|---|---|---|
+| 0.04 | 7 % | 4 % | 6 % | 90.8 % | 92.8 % |
+| 0.06 | 23 % | 17 % | 21 % | 96.7 % | 97.7 % |
+| 0.08 | 47 % | 40 % | 44 % | 99.2 % | 99.1 % |
+| 0.10 | 70 % | 64 % | 67 % | 99.8 % | 99.9 % |
+| 0.15 | 96 % | 95 % | 95 % | 100 % | 100 % |
+
+- Con margen 0.08 se puntuaría el 44 % de los endpoints conservando el 99.2 % de los útiles; con 0.10, el 67 % y el 99.8 %.
+- **Es una heurística, no una cota:** el recall puede bajar y el margen habría que calibrarlo con el sweep. El diagnóstico usa el umbral final y los 16 postings más cercanos como aproximación de los cargados; el efecto real en recall y en tiempo no está medido.
+
+Datos: `testdata/bench/dbpedia-1m-postingedge-reach.json`.
 
 ## Lo que este benchmark no cubre
 
