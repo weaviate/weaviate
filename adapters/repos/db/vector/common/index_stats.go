@@ -19,6 +19,9 @@ const (
 	IndexTypeNoop    = "noop"
 	IndexTypeDynamic = "dynamic"
 	IndexTypeHFresh  = "hfresh"
+	// IndexTypePostingEdge is the posting+edges index (provisional name, see
+	// adapters/repos/db/vector/postingedge).
+	IndexTypePostingEdge = "postingedge"
 )
 
 type IndexStats interface {
