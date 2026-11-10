@@ -662,7 +662,7 @@ func sweepConsequence(phase string, outcome db.CleanupSweepOutcome) string {
 		return "a later task may short-circuit on the stale state and report a false success — " +
 			"operator inspection recommended"
 	case outcome == db.CleanupSweepWithheld:
-		return "every submit is refused until that fault is cleared"
+		return "no submit cleans up this shard until that fault is cleared"
 	case phase == sweepPhaseSubmit:
 		return "this submit proceeds anyway, so the task it dispatches may resume against them"
 	default:
