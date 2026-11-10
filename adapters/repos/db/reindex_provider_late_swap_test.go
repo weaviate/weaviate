@@ -14,10 +14,11 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -39,7 +40,8 @@ func TestSwapRetryOfARunANewerRunSuperseded(t *testing.T) {
 			shard := shd.(*Shard)
 			defer shard.Shutdown(context.Background())
 			registerIndex(idx, className)
-			unit, logger := shard.migrationUnit(), logrus.New()
+			unit := shard.migrationUnit()
+			logger, hook := logrustest.NewNullLogger()
 			p := NewReindexProvider(idx.db, nil, nil, logger, "node1", nil, ctx)
 			payload := &ReindexTaskPayload{
 				Collection: className, MigrationType: ReindexTypeChangeTokenization, Properties: []string{"title"},
@@ -59,6 +61,16 @@ func TestSwapRetryOfARunANewerRunSuperseded(t *testing.T) {
 			got := p.resolveUnitForPhase(ctx, &distributedtask.Task{TaskDescriptor: desc}, payload, unit, idx, logger)
 			require.Equal(t, unreadable, len(got.Errs) > 0, "an unreadable record is never read as gone")
 			require.Equal(t, !unreadable, got.Skip, "a retired record leaves nothing of the run in flight")
+			for range maxReportedErrors {
+				p.resolveUnitForPhase(ctx, &distributedtask.Task{TaskDescriptor: desc}, payload, unit, idx, logger)
+			}
+			var skipLines int
+			for _, e := range hook.AllEntries() {
+				if strings.Contains(e.Message, "migration records are gone") {
+					skipLines++
+				}
+			}
+			require.LessOrEqual(t, skipLines, maxReportedErrors, "a retry per tick logs a sampled skip line")
 		})
 	}
 }

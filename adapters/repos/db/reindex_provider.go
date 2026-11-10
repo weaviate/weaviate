@@ -1106,7 +1106,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 		}
 	}
 	if cached := p.cachedReindexTasks(task.TaskDescriptor, unitID); len(cached) > 0 {
-		return p.resolveCachedUnit(resolvedShard, concreteShard, unitID, cached, logger)
+		return p.resolveCachedUnit(resolvedShard, concreteShard, unitID, cached)
 	}
 	store := concreteShard.migrationRecordStore()
 	if store == nil {
@@ -1146,18 +1146,19 @@ func (p *ReindexProvider) resolveUnitForPhase(
 }
 
 func (p *ReindexProvider) resolveCachedUnit(resolvedShard ShardLike, concreteShard *Shard,
-	unitID string, cached []*ShardReindexTaskGeneric, logger logrus.FieldLogger,
+	unitID string, cached []*ShardReindexTaskGeneric,
 ) phaseUnitResolution {
 	store := concreteShard.migrationRecordStore()
 	if store == nil || len(tasksWithRecord(cached, store)) > 0 {
 		return phaseUnitResolution{Shard: resolvedShard, UnitTasks: cached}
 	}
 	if fault := unreadableRecordFault(unitID, store); fault != "" {
-		logger.WithField("unit", unitID).Errorf("reindex provider: resolveUnitForPhase: %s", fault)
 		return phaseUnitResolution{Errs: []string{fault}}
 	}
-	logger.WithField("unit", unitID).
-		Info("reindex provider: resolveUnitForPhase: this unit's migration records are gone; skipping")
+	p.swapFailedSampler().WithSampling(func(l logrus.FieldLogger) {
+		l.WithField("unit", unitID).
+			Info("reindex provider: resolveUnitForPhase: this unit's migration records are gone; skipping")
+	})
 	return phaseUnitResolution{Skip: true}
 }
 
