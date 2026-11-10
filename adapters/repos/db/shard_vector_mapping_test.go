@@ -567,6 +567,22 @@ func TestVectorIndexMapping_QueueIDOtherThanThePhysicalID(t *testing.T) {
 	assert.Equal(t, "vectors_title", rec.queueIDOrDefault())
 }
 
+// A record without a queue ID finds its queue where its index's files are,
+// under the naming rule, and adopting the record persists that ID.
+func TestVectorIndexRecord_MissingQueueIDFollowsTheNamingRule(t *testing.T) {
+	for _, tc := range []struct{ physicalID, want string }{
+		{"main", "main"},
+		{"vectors_title", "vectors_title"},
+		{"abc-1", "vectors_abc-1"},
+	} {
+		rec := vectorIndexRecord{PhysicalID: tc.physicalID, IndexType: "hnsw", State: "ready"}
+		assert.Equal(t, tc.want, rec.queueIDOrDefault(), tc.physicalID)
+		adopted, changed := rec.adopted(nil)
+		assert.True(t, changed, tc.physicalID)
+		assert.Equal(t, tc.want, adopted.QueueID, tc.physicalID)
+	}
+}
+
 func TestVectorIndexMapping_Delete(t *testing.T) {
 	t.Run("removes one record and leaves the rest", func(t *testing.T) {
 		m, _ := newTestVectorIndexMapping(t)
