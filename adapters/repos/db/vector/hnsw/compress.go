@@ -22,6 +22,33 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+// applyCachePersistence hands Config.DeferCachePersistence on to a freshly
+// created compressor. It must run before the compressor's first Preload, with
+// compressActionLock held or before the index is shared.
+func (h *hnsw) applyCachePersistence() {
+	if h.cachePersistenceDeferred.Load() {
+		h.compressor.SetCachePersistence(false)
+	}
+}
+
+// PersistCache ends the deferral requested by Config.DeferCachePersistence: it
+// writes the compressed vectors gathered in the cache so far to the compressed
+// bucket, and every later one is written as it is added. The caller must hold
+// off concurrent deletes for the duration. Without a compressor it only ends
+// the deferral, so that a later compression persists from the start.
+func (h *hnsw) PersistCache(ctx context.Context) error {
+	// creating a compressor takes the write lock, so one is either visible here
+	// or created after the deferral ended
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
+
+	h.cachePersistenceDeferred.Store(false)
+	if h.compressor == nil {
+		return nil
+	}
+	return h.compressor.PersistCache(ctx)
+}
+
 func (h *hnsw) compress(cfg ent.UserConfig) error {
 	if !cfg.PQ.Enabled && !cfg.BQ.Enabled && !cfg.SQ.Enabled && !cfg.RQ.Enabled {
 		return nil
@@ -148,6 +175,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		h.checkAndCompress()
 		return nil
 	}
+	h.applyCachePersistence()
 	if singleVector {
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 			func(index uint64) {

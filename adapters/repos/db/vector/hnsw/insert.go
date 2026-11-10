@@ -129,6 +129,7 @@ func (h *hnsw) checkAndCompress() error {
 			if err == nil {
 				h.Lock()
 				defer h.Unlock()
+				h.applyCachePersistence()
 				h.compressed.Store(true)
 				if h.cache != nil {
 

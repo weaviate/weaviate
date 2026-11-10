@@ -17,6 +17,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"runtime"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -99,6 +100,20 @@ type VectorCompressor interface {
 	Stats() CompressionStats
 	Get(id uint64) ([]float32, error)
 	GetCompressed(id uint64) (any, error)
+
+	// SetCachePersistence controls whether the compressor uses the compressed
+	// bucket at all. While disabled, compressed vectors live in the cache only:
+	// nothing is written to, deleted from or read from the bucket, and a cache
+	// miss re-encodes the raw vector. The dynamic index disables it while it
+	// builds its HNSW stage, because until the upgrade commits the bucket still
+	// holds the flat stage's vectors, compressed by a different quantizer.
+	SetCachePersistence(enabled bool)
+	// PersistCache re-enables cache persistence and writes every cached
+	// compressed vector to the compressed bucket, creating the bucket if it does
+	// not exist. Vectors the cache no longer holds are not written; a later read
+	// re-encodes them from the raw vector. The caller must hold off concurrent
+	// deletes, which could otherwise be overwritten by a vector read just before.
+	PersistCache(ctx context.Context) error
 }
 
 type quantizedVectorsCompressor[T byte | uint64] struct {
@@ -111,6 +126,52 @@ type quantizedVectorsCompressor[T byte | uint64] struct {
 	targetVector      string
 	makeBucketOptions lsmkv.MakeBucketOptions
 	vectorForID       common.VectorForID[float32]
+	// see VectorCompressor.SetCachePersistence; the zero value persists
+	cachePersistenceDisabled atomic.Bool
+}
+
+func (compressor *quantizedVectorsCompressor[T]) SetCachePersistence(enabled bool) {
+	compressor.cachePersistenceDisabled.Store(!enabled)
+}
+
+func (compressor *quantizedVectorsCompressor[T]) PersistCache(ctx context.Context) error {
+	if err := compressor.initCompressedStore(); err != nil {
+		return err
+	}
+	// enabled before the walk, so a vector preloaded behind the walk is written
+	// by its own Preload
+	compressor.cachePersistenceDisabled.Store(false)
+	bucket := compressor.compressedBucket()
+	if bucket == nil {
+		return lsmkv.ErrAlreadyClosed
+	}
+
+	pageSize := compressor.cache.PageSize()
+	out := make([][]T, pageSize)
+	errs := make([]error, pageSize)
+	for id := uint64(0); id < uint64(compressor.cache.Len()); {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		vecs, _, start, end := compressor.cache.GetAllInCurrentLock(ctx, id, out, errs)
+		if end <= id {
+			// the cache shrank under the walk
+			break
+		}
+		for cur := start; cur < end; cur++ {
+			vec := vecs[cur-start]
+			if len(vec) == 0 {
+				continue
+			}
+			idBytes := make([]byte, 8)
+			compressor.storeId(idBytes, cur)
+			if err := bucket.Put(idBytes, compressor.quantizer.CompressedBytes(vec)); err != nil {
+				return errors.Wrapf(err, "persist compressed vector %d", cur)
+			}
+		}
+		id = end
+	}
+	return nil
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Get(id uint64) ([]float32, error) {
@@ -163,6 +224,9 @@ func (compressor *quantizedVectorsCompressor[T]) compressedBucket() *lsmkv.Bucke
 
 func (compressor *quantizedVectorsCompressor[T]) Delete(ctx context.Context, id uint64) {
 	compressor.cache.Delete(ctx, id)
+	if compressor.cachePersistenceDisabled.Load() {
+		return
+	}
 	idBytes := make([]byte, 8)
 	compressor.storeId(idBytes, id)
 	bucket := compressor.compressedBucket()
@@ -180,13 +244,15 @@ func (compressor *quantizedVectorsCompressor[T]) Delete(ctx context.Context, id 
 
 func (compressor *quantizedVectorsCompressor[T]) Preload(id uint64, vector []float32) {
 	compressedVector := compressor.quantizer.Encode(vector)
-	idBytes := make([]byte, 8)
-	compressor.storeId(idBytes, id)
-	bucket := compressor.compressedBucket()
-	if bucket == nil {
-		return
+	if !compressor.cachePersistenceDisabled.Load() {
+		idBytes := make([]byte, 8)
+		compressor.storeId(idBytes, id)
+		bucket := compressor.compressedBucket()
+		if bucket == nil {
+			return
+		}
+		bucket.Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
 	}
-	bucket.Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
 	compressor.cache.Grow(id)
 	compressor.cache.Preload(id, compressedVector)
 }
@@ -196,15 +262,21 @@ func (compressor *quantizedVectorsCompressor[T]) PreloadMulti(docID uint64, ids 
 	for i, vector := range vecs {
 		compressedVectors[i] = compressor.quantizer.Encode(vector)
 	}
-	bucket := compressor.compressedBucket()
-	if bucket == nil {
-		return
+	persist := !compressor.cachePersistenceDisabled.Load()
+	var bucket *lsmkv.Bucket
+	if persist {
+		bucket = compressor.compressedBucket()
+		if bucket == nil {
+			return
+		}
 	}
 	maxID := ids[0]
 	for i, id := range ids {
-		idBytes := make([]byte, 8)
-		compressor.storeId(idBytes, id)
-		bucket.Put(idBytes, compressor.quantizer.CompressedBytes(compressedVectors[i]))
+		if persist {
+			idBytes := make([]byte, 8)
+			compressor.storeId(idBytes, id)
+			bucket.Put(idBytes, compressor.quantizer.CompressedBytes(compressedVectors[i]))
+		}
 		if id > maxID {
 			maxID = id
 		}
@@ -215,13 +287,15 @@ func (compressor *quantizedVectorsCompressor[T]) PreloadMulti(docID uint64, ids 
 
 func (compressor *quantizedVectorsCompressor[T]) PreloadPassage(id, docID, relativeID uint64, vec []float32) {
 	compressedVector := compressor.quantizer.Encode(vec)
-	idBytes := make([]byte, 8)
-	compressor.storeId(idBytes, id)
-	bucket := compressor.compressedBucket()
-	if bucket == nil {
-		return
+	if !compressor.cachePersistenceDisabled.Load() {
+		idBytes := make([]byte, 8)
+		compressor.storeId(idBytes, id)
+		bucket := compressor.compressedBucket()
+		if bucket == nil {
+			return
+		}
+		bucket.Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
 	}
-	bucket.Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
 	compressor.cache.Grow(id)
 	compressor.cache.PreloadPassage(id, docID, relativeID, compressedVector)
 }
@@ -273,6 +347,13 @@ func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedVector
 }
 
 func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx context.Context, id uint64) ([]T, error) {
+	if compressor.cachePersistenceDisabled.Load() {
+		// the bucket is not this compressor's to read
+		if compressor.vectorForID == nil {
+			return nil, storobj.NewErrNotFoundf(id, "getCompressedVectorForID")
+		}
+		return compressor.encodeRawVector(ctx, id)
+	}
 	idBytes := make([]byte, 8)
 	compressor.storeId(idBytes, id)
 	bucket := compressor.compressedBucket()
@@ -303,14 +384,10 @@ func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx co
 func (compressor *quantizedVectorsCompressor[T]) recoverCompressedVector(
 	ctx context.Context, id uint64, idBytes []byte, bucket *lsmkv.Bucket,
 ) ([]T, error) {
-	rawVec, err := compressor.vectorForID(ctx, id)
+	compressed, err := compressor.encodeRawVector(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if len(rawVec) == 0 {
-		return nil, storobj.NewErrNotFoundf(id, "recoverCompressedVector: empty raw vector")
-	}
-	compressed := compressor.quantizer.Encode(rawVec)
 	if err := bucket.Put(idBytes, compressor.quantizer.CompressedBytes(compressed)); err != nil {
 		if stderrors.Is(err, storagestate.ErrStatusReadOnly) {
 			compressor.logger.WithFields(logrus.Fields{
@@ -323,6 +400,17 @@ func (compressor *quantizedVectorsCompressor[T]) recoverCompressedVector(
 		return nil, errors.Wrap(err, "recoverCompressedVector: persisting recovered vector")
 	}
 	return compressed, nil
+}
+
+func (compressor *quantizedVectorsCompressor[T]) encodeRawVector(ctx context.Context, id uint64) ([]T, error) {
+	rawVec, err := compressor.vectorForID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if len(rawVec) == 0 {
+		return nil, storobj.NewErrNotFoundf(id, "recoverCompressedVector: empty raw vector")
+	}
+	return compressor.quantizer.Encode(rawVec), nil
 }
 
 func (compressor *quantizedVectorsCompressor[T]) NewDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn) {
@@ -395,6 +483,9 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache(ctx context.Contex
 	maxID := uint64(0)
 	vecs := make([]VecAndID[T], 0, 10_000)
 
+	if compressor.cachePersistenceDisabled.Load() {
+		return
+	}
 	bucket := compressor.compressedBucket()
 	if bucket == nil {
 		return
@@ -453,6 +544,9 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(ctx context.C
 	maxID := uint64(0)
 	vecs := make([]VecAndID[T], 0, 10_000)
 
+	if compressor.cachePersistenceDisabled.Load() {
+		return
+	}
 	bucket := compressor.compressedBucket()
 	if bucket == nil {
 		return

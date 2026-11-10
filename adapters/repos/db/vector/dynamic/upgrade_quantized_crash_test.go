@@ -84,6 +84,11 @@ func (i *interruptingIndex) AddBatch(ctx context.Context, ids []uint64, vectors 
 // the flat compressed bucket from the intact raw vectors bucket, so searches
 // succeed with the flat stage's own codes again. The restart here goes through a
 // full store shutdown + reopen, so recovery runs against the on-disk buckets.
+//
+// Since then the in-progress HNSW keeps out of the bucket until the upgrade
+// commits, so this interruption no longer pollutes it; the marker and the
+// rollback to the flat stage are still what the restart relies on. The rebuild
+// of a polluted bucket stays covered by the tests below that fabricate one.
 func TestUpgrade_InterruptedQuantizedUpgradeCorruptsCompressedBucket(t *testing.T) {
 	rq8 := func() flatent.UserConfig {
 		fuc := flatent.UserConfig{}
@@ -231,7 +236,7 @@ func runInterruptedQuantizedUpgrade(t *testing.T, targetVector string, flatUC fl
 	}
 
 	// Interrupt the upgrade mid-copy, before the second copy batch, after the first
-	// has already written HNSW codes over the flat codes for ids 0..batchSize-1.
+	// went into the HNSW for ids 0..batchSize-1.
 	// runtime.Goexit ends the upgrade goroutine without a panic — none of
 	// doUpgrade's error/cleanup paths run, leaving exactly the on-disk residue a
 	// hard crash leaves. (A panic would depend on GoWrapper's recover, which is
@@ -762,9 +767,10 @@ func TestUpgrade_OrphanedCompressedCodeReconciledOnRecovery(t *testing.T) {
 	require.True(t, idx.Compressed())
 
 	// delete the first id of batch 1 during that batch (it was already snapshotted
-	// into the batch), so the batch's AddBatch re-writes its compressed code as an
-	// orphan; then abort before batch 2. Delete via the underlying flat index to
-	// avoid re-entering the dynamic read lock held by the copy.
+	// into the batch) and write an HNSW-format code for it, as the batch's AddBatch
+	// did before the HNSW kept out of the bucket during the copy; then abort before
+	// batch 2. Delete via the underlying flat index to avoid re-entering the
+	// dynamic read lock held by the copy.
 	var victim uint64
 	var deleted bool
 	idx.upgradeFn = func() error {
@@ -773,6 +779,9 @@ func TestUpgrade_OrphanedCompressedCodeReconciledOnRecovery(t *testing.T) {
 				if call == 1 {
 					victim = ids[0]
 					require.NoError(t, idx.index.Delete(victim))
+					key := make([]byte, 8)
+					binary.BigEndian.PutUint64(key, victim)
+					require.NoError(t, idx.store.Bucket(idx.getCompressedBucketName()).Put(key, make([]byte, 8)))
 					deleted = true
 				}
 				if call >= 2 {
