@@ -105,6 +105,7 @@ type ShardReindexTaskGeneric struct {
 	rebuildRangeableRepFn func(ctx context.Context, b *lsmkv.Bucket) error
 
 	swapAttempted atomic.Bool
+	swapPhaseRan  atomic.Bool
 	swapSucceeded atomic.Bool
 
 	rebuildFaultsLogged sync.Map

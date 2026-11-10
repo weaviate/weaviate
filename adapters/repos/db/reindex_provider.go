@@ -1232,6 +1232,9 @@ func (p *ReindexProvider) runShardSwapPhase(
 	unitTasks []*ShardReindexTaskGeneric,
 	logger logrus.FieldLogger,
 ) (out phaseResult) {
+	for _, reindexTask := range unitTasks {
+		reindexTask.swapPhaseRan.Store(true)
+	}
 	// Swapping a sibling of a refused half would leave the migration half-applied on this shard.
 	for _, reindexTask := range unitTasks {
 		rec, ok := reindexTask.migrationRecord(shard)
@@ -1366,8 +1369,8 @@ func (p *ReindexProvider) runPerUnitPhase(
 			return
 		}
 		started.Do(func() {
-			// A decided swap that keeps failing re-fires every tick, so a retry logs within the node-wide sample.
-			if !slices.ContainsFunc(res.UnitTasks, func(t *ShardReindexTaskGeneric) bool { return t.swapAttempted.Load() }) {
+			// A decided swap that keeps failing or is refused re-fires every tick, so a retry logs within the node-wide sample.
+			if !slices.ContainsFunc(res.UnitTasks, func(t *ShardReindexTaskGeneric) bool { return t.swapPhaseRan.Load() }) {
 				logger.Info(start)
 				return
 			}

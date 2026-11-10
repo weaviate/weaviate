@@ -131,49 +131,66 @@ func TestFailingSwapRetryLogsSampled(t *testing.T) {
 }
 
 // Pins that a decided swap retried every tick, because a sibling unit keeps
-// failing, logs the swapped unit's "swap complete" once, and its start line in
-// full on the first attempt and only within the node-wide sample after.
+// failing or its own swap is refused before it starts, logs the swapped unit's
+// "swap complete" once, and its start line in full on the first attempt and
+// only within the node-wide sample after.
 func TestDecidedSwapRetryLogsSwapCompleteOnce(t *testing.T) {
-	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "SwapRetry_")
-	unit := shard.migrationUnit()
-	rt, _ := newRangeableInMemoryTestTask(t, idx, className, filterableToRangeablePropName,
-		unit, &atomic.Bool{}, &atomic.Int32{})
-	require.NoError(t, rt.RunReindexOnlyOnShard(ctx, shard))
-	require.NoError(t, rt.RunPrepareOnShard(ctx, shard))
-	registerIndex(idx, className)
-	logger, hook := logrustest.NewNullLogger()
-	p := NewReindexProvider(idx.db, nil, nil, logger, "node1", nil, ctx)
-	p.cachePayload(lateSwapDesc, &ReindexTaskPayload{
-		Collection: className, MigrationType: ReindexTypeEnableRangeable,
-		Properties: []string{filterableToRangeablePropName},
-		// The sibling's shard does not exist, so its swap fails on every tick.
-		UnitToShard: map[string]string{unit: shard.Name(), "sibling": "missing"},
-	})
-	p.cacheReindexTasks(lateSwapDesc, unit, []*ShardReindexTaskGeneric{rt})
-	task := withUnits(&distributedtask.Task{
-		TaskDescriptor: lateSwapDesc, Status: distributedtask.TaskStatusFailed,
-		NeedsPreparationBarrier: true, SwapDecidedGroups: map[string]time.Time{"": {}},
-	}, map[string]*distributedtask.Unit{
-		unit:      {ID: unit, NodeID: "node1", Status: distributedtask.UnitStatusCompleted},
-		"sibling": {ID: "sibling", NodeID: "node1", Status: distributedtask.UnitStatusCompleted},
-	})
-
-	count := func(msg string) (n int) {
-		for _, e := range hook.AllEntries() {
-			if e.Message == msg {
-				n++
+	for _, tc := range []struct {
+		name         string
+		unmirrored   bool
+		wantComplete int
+	}{
+		{name: "sibling fails", wantComplete: 1},
+		{name: "refused as unmirrored", unmirrored: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "SwapRetry_")
+			unit := shard.migrationUnit()
+			rt, _ := newRangeableInMemoryTestTask(t, idx, className, filterableToRangeablePropName,
+				unit, &atomic.Bool{}, &atomic.Int32{})
+			require.NoError(t, rt.RunReindexOnlyOnShard(ctx, shard))
+			require.NoError(t, rt.RunPrepareOnShard(ctx, shard))
+			if tc.unmirrored {
+				stamped, err := stampUnmirroredRecords(shard.migrationRecords, shard.migrationRecords.Records(), nil)
+				require.NoError(t, err)
+				require.Len(t, stamped, 1)
 			}
-		}
-		return n
+			registerIndex(idx, className)
+			logger, hook := logrustest.NewNullLogger()
+			p := NewReindexProvider(idx.db, nil, nil, logger, "node1", nil, ctx)
+			p.cachePayload(lateSwapDesc, &ReindexTaskPayload{
+				Collection: className, MigrationType: ReindexTypeEnableRangeable,
+				Properties: []string{filterableToRangeablePropName},
+				// The sibling's shard does not exist, so its swap fails on every tick.
+				UnitToShard: map[string]string{unit: shard.Name(), "sibling": "missing"},
+			})
+			p.cacheReindexTasks(lateSwapDesc, unit, []*ShardReindexTaskGeneric{rt})
+			task := withUnits(&distributedtask.Task{
+				TaskDescriptor: lateSwapDesc, Status: distributedtask.TaskStatusFailed,
+				NeedsPreparationBarrier: true, SwapDecidedGroups: map[string]time.Time{"": {}},
+			}, map[string]*distributedtask.Unit{
+				unit:      {ID: unit, NodeID: "node1", Status: distributedtask.UnitStatusCompleted},
+				"sibling": {ID: "sibling", NodeID: "node1", Status: distributedtask.UnitStatusCompleted},
+			})
+
+			count := func(msg string) (n int) {
+				for _, e := range hook.AllEntries() {
+					if e.Message == msg {
+						n++
+					}
+				}
+				return n
+			}
+			const start = "reindex provider: swap-requested → starting OVERLAY+SWAP after cluster-wide PREP barrier"
+			// Use up the sample, so only a first attempt logged in full gets a start line.
+			for range maxReportedErrors {
+				p.swapRetrySampler().WithSampling(func(logrus.FieldLogger) {})
+			}
+			for range 3 * maxReportedErrors {
+				require.Error(t, p.OnSwapRequested(task, "", task.LocalGroupUnitIDs("", "node1")))
+			}
+			require.Equal(t, tc.wantComplete, count("reindex provider: swap complete"))
+			require.Equal(t, 1, count(start))
+		})
 	}
-	const start = "reindex provider: swap-requested → starting OVERLAY+SWAP after cluster-wide PREP barrier"
-	// Use up the sample, so only a first attempt logged in full gets a start line.
-	for range maxReportedErrors {
-		p.swapRetrySampler().WithSampling(func(logrus.FieldLogger) {})
-	}
-	for range 3 * maxReportedErrors {
-		require.Error(t, p.OnSwapRequested(task, "", task.LocalGroupUnitIDs("", "node1")))
-	}
-	require.Equal(t, 1, count("reindex provider: swap complete"))
-	require.Equal(t, 1, count(start))
 }
