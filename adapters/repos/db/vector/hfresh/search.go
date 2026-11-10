@@ -848,6 +848,10 @@ func (h *HFresh) computeLateInteraction(ctx context.Context, queryVectors [][]fl
 	container := h.tempVectors.Get(int(atomic.LoadUint32(&h.dims)))
 	defer h.tempVectors.Put(container)
 	for _, id := range candidateIDs {
+		// a cancelled query reads and scores no more candidates
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		docVectors, err := h.readMultiVector(ctx, id, container)
 		if err != nil {
 			// A shard removes the object before it deletes the document
