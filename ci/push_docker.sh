@@ -48,11 +48,6 @@ function update_latest() {
   local version="$1"
   local highest
 
-  if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "Not updating latest: ${version} is not a stable release."
-    return 0
-  fi
-
   if ! highest="$(highest_stable_release "$version")"; then
     echo "::warning::Not updating latest: could not list release tags on origin."
     return 0
@@ -148,7 +143,6 @@ function release() {
   if [ -n "$tag_exact" ]; then
     # exact tag on main
     args+=("-t=$tag_exact")
-    update_latest "$weaviate_version"
   fi
   if [ -n "$tag_preview" ]; then
     # preview tag on PR builds
@@ -160,6 +154,10 @@ function release() {
   fi
 
   docker buildx build "${args[@]}" . || exit 1
+
+  if [ -n "$tag_exact" ]; then
+    update_latest "$weaviate_version"
+  fi
 
   if [ -n "$tag_preview" ]; then
     echo "PREVIEW_TAG=$tag_preview" >> "$GITHUB_OUTPUT"
