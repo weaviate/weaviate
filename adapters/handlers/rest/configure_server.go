@@ -24,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/utils"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
@@ -163,20 +164,28 @@ func configureAnonymousAccess(appState *state.State) *anonymous.Client {
 }
 
 func configureAuthorizer(appState *state.State) error {
+	// configureOIDC and configureAPIKey take appState.NamespacesController
+	// earlier in boot and neither rejects a typed nil, so this is the first
+	// place it is checked.
+	if appState.ServerConfig.Config.Namespaces.Enabled && appState.NamespacesController == nil {
+		return fmt.Errorf("NAMESPACES_ENABLED=true requires a namespace controller, but it wasn't initialized")
+	}
+
+	// The store is built whether or not RBAC is enabled: the RAFT FSM applies,
+	// snapshots and restores RBAC state on every node.
+	rbacController, err := rbac.New(
+		filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir),
+		appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.Authentication,
+		appState.ServerConfig.Config.Namespaces.Enabled,
+		appState.NamespacesController,
+		appState.Logger)
+	if err != nil {
+		return fmt.Errorf("can't init casbin %w", err)
+	}
+	appState.RBAC = rbacController
+
 	if appState.ServerConfig.Config.Authorization.Rbac.Enabled {
 		// if rbac enforcer enabled, start forcing all requests using the casbin enforcer
-		rbacController, err := rbac.New(
-			filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir),
-			appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.Authentication,
-			appState.ServerConfig.Config.Namespaces.Enabled,
-			appState.NamespacesController,
-			appState.Logger)
-		if err != nil {
-			return fmt.Errorf("can't init casbin %w", err)
-		}
-
-		appState.AuthzController = rbacController
-		appState.RBAC = rbacController
 		appState.Authorizer = rbacController
 	} else if appState.ServerConfig.Config.Authorization.AdminList.Enabled {
 		appState.Authorizer = adminlist.New(appState.ServerConfig.Config.Authorization.AdminList)
@@ -184,13 +193,17 @@ func configureAuthorizer(appState *state.State) error {
 		appState.Authorizer = &authorization.DummyAuthorizer{}
 	}
 
-	if appState.ServerConfig.Config.Authorization.Rbac.Enabled && appState.RBAC == nil {
-		// this in general shall not happen, it's to catch cases were RBAC expected but we weren't able
-		// to assign it.
-		return fmt.Errorf("RBAC is expected to be enabled, but the controller wasn't initialized")
-	}
-
 	return nil
+}
+
+// roleAPIController returns the controller behind the /authz endpoints, which
+// is authz.InertController when RBAC is disabled. A mutation InertController
+// accepts does not take effect when RBAC is enabled later.
+func roleAPIController(rbacEnabled bool, raft authz.ControllerAndGetUsers) authz.ControllerAndGetUsers {
+	if rbacEnabled {
+		return raft
+	}
+	return authz.InertController{Users: raft}
 }
 
 func timeTillDeadline(ctx context.Context) string {

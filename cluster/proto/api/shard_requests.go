@@ -45,9 +45,20 @@ func (s ShardReplicationTransferType) String() string {
 }
 
 const (
-	COPY ShardReplicationTransferType = "COPY"
-	MOVE ShardReplicationTransferType = "MOVE"
+	COPY          ShardReplicationTransferType = "COPY"
+	MOVE          ShardReplicationTransferType = "MOVE"
+	SELF_RECOVERY ShardReplicationTransferType = "SELF_RECOVERY"
 )
+
+// RecoveryFolderSuffix names the in-flight SELF_RECOVERY landing dir.
+const RecoveryFolderSuffix = ".recovering"
+
+// SelfRecoveryWipeMarkerName is the data-root file that keeps a wiped node's recovery round open across restarts.
+const SelfRecoveryWipeMarkerName = ".self_recovery_wiped"
+
+func RecoveryFolderName(shardName string) string {
+	return shardName + RecoveryFolderSuffix
+}
 
 type ReplicationReplicateShardRequest struct {
 	// Version is the version with which this command was generated

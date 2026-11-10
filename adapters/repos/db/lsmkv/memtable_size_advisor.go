@@ -52,6 +52,12 @@ func (m memtableSizeAdvisor) Initial() int {
 	}
 }
 
+// Max is the size the resizer grows a memtable to. It is meaningful only while
+// the advisor is active; Initial answers for an inactive one.
+func (m memtableSizeAdvisor) Max() int {
+	return m.cfg.maxSize
+}
+
 func (m memtableSizeAdvisor) NextTarget(previousTarget int,
 	timeSinceFlush time.Duration,
 ) (int, bool) {

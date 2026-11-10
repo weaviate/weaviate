@@ -12,6 +12,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"math"
 	"os"
@@ -27,9 +28,20 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/cluster"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/license"
 )
 
 const DefaultGoroutineFactor = 1.5
+
+// wellFormedLicenseKey returns a key with the correct form for tests. It is
+// not a real license.
+func wellFormedLicenseKey() string {
+	seed := make([]byte, 32)
+	for i := range seed {
+		seed[i] = byte(i)
+	}
+	return "wv8.lic_01ARZ3NDEKTSV4RRFFQ69G5FAV." + base64.RawURLEncoding.EncodeToString(seed)
+}
 
 func TestEnvironmentImportGoroutineFactor(t *testing.T) {
 	factors := []struct {
@@ -1196,6 +1208,8 @@ func TestEnvironmentWeaviateLicense(t *testing.T) {
 		require.NoError(t, FromEnv(&conf))
 
 		require.True(t, conf.WeaviateLicense)
+		require.Equal(t, license.StatusValid, conf.License.Status)
+		require.Equal(t, "lic_01ARZ3NDEKTSV4RRFFQ69G5FAV", conf.License.LicenseID)
 	})
 
 	t.Run("malformed key disables the gate and logs a warning", func(t *testing.T) {
@@ -1207,6 +1221,8 @@ func TestEnvironmentWeaviateLicense(t *testing.T) {
 		require.NoError(t, FromEnv(&conf))
 
 		require.False(t, conf.WeaviateLicense)
+		require.Equal(t, license.StatusUnlicensed, conf.License.Status)
+		require.Empty(t, conf.License.LicenseID)
 		entry := hook.LastEntry()
 		require.NotNil(t, entry)
 		require.Equal(t, logrus.WarnLevel, entry.Level)
@@ -1227,10 +1243,23 @@ func TestEnvironmentWeaviateLicense(t *testing.T) {
 		require.NoError(t, FromEnv(&conf))
 
 		require.False(t, conf.WeaviateLicense)
+		require.Equal(t, license.StatusUnlicensed, conf.License.Status)
 		for _, entry := range hook.AllEntries() {
 			require.NotContains(t, entry.Message, "LICENSE_KEY")
 		}
 	})
+}
+
+func TestEnvironmentSelfRecoveryEnabledWithoutLicense(t *testing.T) {
+	t.Setenv("SELF_RECOVERY_ENABLED", "true")
+	t.Setenv("REPLICA_MOVEMENT_ENABLED", "true")
+	t.Setenv("LICENSE_KEY", "")
+	t.Setenv("LICENSE_KEY_FILE", "")
+	conf := Config{}
+	require.NoError(t, FromEnv(&conf))
+
+	require.True(t, conf.Replication.SelfRecoveryEnabled)
+	require.False(t, conf.WeaviateLicense)
 }
 
 func TestEnvironmentLicenseKeyFile(t *testing.T) {
@@ -1248,6 +1277,8 @@ func TestEnvironmentLicenseKeyFile(t *testing.T) {
 		require.NoError(t, FromEnv(&conf))
 
 		require.True(t, conf.WeaviateLicense)
+		require.Equal(t, license.StatusValid, conf.License.Status)
+		require.Equal(t, "lic_01ARZ3NDEKTSV4RRFFQ69G5FAV", conf.License.LicenseID)
 	})
 
 	t.Run("surrounding whitespace in the file is ignored", func(t *testing.T) {
@@ -2623,46 +2654,64 @@ func TestEnvironmentAsyncReplicationGlobalSentinels(t *testing.T) {
 	}
 }
 
-func TestNamespaceCleanupIntervalValidation(t *testing.T) {
-	tests := []struct {
-		name    string
-		env     string
-		wantErr string
-		wantGet time.Duration
+func TestNamespaceIntervalValidation(t *testing.T) {
+	// Neither knob is gated on NAMESPACES_ENABLED, so both parse with it off.
+	t.Setenv("NAMESPACES_ENABLED", "false")
+	knobs := []struct {
+		env        string
+		defaultGet time.Duration
+		interval   func(Config) *configRuntime.DynamicValue[time.Duration]
 	}{
-		{name: "a sub-second interval fails the boot", env: "500ms", wantErr: "NAMESPACE_CLEANUP_INTERVAL"},
-		{name: "unset yields the default", wantGet: DefaultNamespaceCleanupInterval},
-		// newCronsNamespaceCleanup substitutes the default; Get() keeps the 0 the
-		// operator wrote, and /debug/config omits a zero interval entirely.
-		{name: "a value at or below zero is kept as configured", env: "0"},
+		{
+			env: "NAMESPACE_CLEANUP_INTERVAL", defaultGet: DefaultNamespaceCleanupInterval,
+			interval: func(c Config) *configRuntime.DynamicValue[time.Duration] {
+				return c.Namespaces.CleanupInterval
+			},
+		},
+		{
+			env: "SUSPEND_RECONCILE_INTERVAL", defaultGet: DefaultSuspendReconcileInterval,
+			interval: func(c Config) *configRuntime.DynamicValue[time.Duration] {
+				return c.Namespaces.SuspendReconcileInterval
+			},
+		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.env != "" {
-				t.Setenv("NAMESPACE_CLEANUP_INTERVAL", tt.env)
-			}
-			var conf Config
+	for _, knob := range knobs {
+		tests := []struct {
+			name    string
+			env     string
+			wantErr bool
+			wantGet time.Duration
+		}{
+			{name: "a sub-second interval fails the boot", env: "500ms", wantErr: true},
+			{name: "unset yields the default", wantGet: knob.defaultGet},
+		}
+		for _, tt := range tests {
+			t.Run(knob.env+"/"+tt.name, func(t *testing.T) {
+				if tt.env != "" {
+					t.Setenv(knob.env, tt.env)
+				}
+				var conf Config
 
-			err := FromEnv(&conf)
+				err := FromEnv(&conf)
 
-			if tt.wantErr != "" {
-				require.ErrorContains(t, err, tt.wantErr)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantGet, conf.Namespaces.CleanupInterval.Get())
-		})
+				if tt.wantErr {
+					require.ErrorContains(t, err, knob.env)
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantGet, knob.interval(conf).Get())
+			})
+		}
 	}
+}
 
-	t.Run("a sub-second runtime push is refused and the interval stands", func(t *testing.T) {
-		t.Setenv("NAMESPACE_CLEANUP_INTERVAL", "1m")
-		var conf Config
-		require.NoError(t, FromEnv(&conf))
+func TestNamespaceSuspendedMessageFromEnv(t *testing.T) {
+	t.Setenv("NAMESPACE_SUSPENDED_MESSAGE", "  paused\n")
+	var conf Config
 
-		require.Error(t, conf.Namespaces.CleanupInterval.SetValue(500*time.Millisecond))
-		assert.Equal(t, time.Minute, conf.Namespaces.CleanupInterval.Get(),
-			"a refused push must leave the previous interval in place")
-	})
+	require.NoError(t, FromEnv(&conf))
+
+	assert.Equal(t, "paused", conf.Namespaces.SuspendedMessage)
 }
 
 func TestBatchStreamFromEnv(t *testing.T) {
@@ -3029,6 +3078,78 @@ func TestEnvironmentReindexIndexesAtStartupRejectsAllProperties(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+		})
+	}
+}
+
+func TestEnvironmentReindexVectorDimensions(t *testing.T) {
+	tests := []struct {
+		name                 string
+		env                  map[string]string
+		expectedReindex      bool
+		expectedToRoaringSet bool
+	}{
+		{name: "not given", env: nil},
+		{
+			name:            "reindex",
+			env:             map[string]string{"REINDEX_VECTOR_DIMENSIONS_AT_STARTUP": "true"},
+			expectedReindex: true,
+		},
+		{
+			name:                 "to roaring set",
+			env:                  map[string]string{"REINDEX_VECTOR_DIMENSIONS_TO_ROARINGSET_AT_STARTUP": "true"},
+			expectedToRoaringSet: true,
+		},
+		{
+			name: "to roaring set disabled",
+			env:  map[string]string{"REINDEX_VECTOR_DIMENSIONS_TO_ROARINGSET_AT_STARTUP": "false"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for name, value := range tt.env {
+				t.Setenv(name, value)
+			}
+			conf := Config{}
+			require.NoError(t, FromEnv(&conf))
+			require.Equal(t, tt.expectedReindex, conf.ReindexVectorDimensionsAtStartup)
+			require.Equal(t, tt.expectedToRoaringSet, conf.ReindexVectorDimensionsToRoaringsetAtStartup)
+		})
+	}
+}
+
+func TestEnvironmentBackupDedupeConvergenceTimeout(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		expected time.Duration
+		wantErr  bool
+	}{
+		{name: "unset uses the default", value: "", expected: DefaultBackupDedupeConvergenceTimeout},
+		{name: "valid value is parsed", value: "30s", expected: 30 * time.Second},
+		{name: "API minimum is accepted", value: "1s", expected: time.Second},
+		{name: "API maximum is accepted", value: "600s", expected: 600 * time.Second},
+		{name: "below the API minimum is rejected", value: "500ms", wantErr: true},
+		{name: "above the API maximum is rejected", value: "601s", wantErr: true},
+		{name: "zero is rejected", value: "0s", wantErr: true},
+		{name: "negative is rejected", value: "-5s", wantErr: true},
+		{name: "unitless is rejected", value: "15", wantErr: true},
+		{name: "non-duration is rejected", value: "soon", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("BACKUP_DEDUPE_CONVERGENCE_TIMEOUT", tc.value)
+
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "BACKUP_DEDUPE_CONVERGENCE_TIMEOUT")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, conf.Backup.DedupeConvergenceTimeout.Get())
 		})
 	}
 }

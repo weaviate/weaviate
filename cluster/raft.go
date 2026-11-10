@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
@@ -78,25 +79,6 @@ func (s *Raft) SetDistributedTaskSchedulerNotifier(notifier distributedtask.Sche
 	s.store.SetDistributedTaskSchedulerNotifier(notifier)
 }
 
-// SetDistributedTaskConflictDetectors installs the per-namespace
-// conflict-detection hooks on the underlying distributed task FSM
-// Manager. Called once at startup from MakeAppState, after the
-// providers are registered. See [distributedtask.ConflictDetector] for
-// the FSM-determinism contract.
-func (s *Raft) SetDistributedTaskConflictDetectors(detectors map[string]distributedtask.ConflictDetector) {
-	s.store.SetDistributedTaskConflictDetectors(detectors)
-}
-
-// SetDistributedTaskSchemaMutationDetectors installs the per-namespace
-// schema-mutation detectors consulted from the schema FSM's
-// UpdateProperty apply path. Called once at startup from MakeAppState,
-// after the providers are registered. See
-// [distributedtask.SchemaMutationDetector] for the contract and
-// motivating failure mode.
-func (s *Raft) SetDistributedTaskSchemaMutationDetectors(detectors map[string]distributedtask.SchemaMutationDetector) {
-	s.store.SetDistributedTaskSchemaMutationDetectors(detectors)
-}
-
 // LocalUnrecognizedDistributedTasks implements
 // [distributedtask.LocalTaskInspector].
 func (s *Raft) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask.Task {
@@ -112,8 +94,19 @@ func (s *Raft) LocalDistributedTasks() map[string][]*distributedtask.Task {
 	return s.store.LocalDistributedTasks()
 }
 
+// LocalTaskStatuses reads this node's FSM, which can lag behind the leader. A task the
+// leader holds may be missing here or show an older status.
+func (s *Raft) LocalTaskStatuses(namespace string) []distributedtask.TaskStatusEntry {
+	return s.store.LocalTaskStatuses(namespace)
+}
+
 func (s *Raft) Ready() bool {
 	return s.store.Ready()
+}
+
+// FSMHasCaughtUp reports only that the log held at store open was replayed.
+func (s *Raft) FSMHasCaughtUp() bool {
+	return s.store.FSMHasCaughtUp()
 }
 
 func (s *Raft) SchemaReader() schema.SchemaReader {
@@ -148,6 +141,18 @@ func (s *Raft) ReplicationAllPeersAtLeast(opID uint64, target cmd.ShardReplicati
 	return s.store.replicationManager.GetReplicationFSM().AllPeersAtLeast(opID, target, peers), nil
 }
 
+func (s *Raft) ReplicationLocalOpCancelState(opID uint64) (replicationTypes.OpCancelState, error) {
+	op, ok := s.store.replicationManager.GetReplicationFSM().GetOpById(opID)
+	if !ok {
+		return replicationTypes.OpCancelState{}, fmt.Errorf("op %d: %w", opID, replicationTypes.ErrReplicationOperationNotFound)
+	}
+	return replicationTypes.OpCancelState{
+		State:         op.Status.GetCurrentState(),
+		ShouldCancel:  op.Status.ShouldCancel,
+		UnCancellable: op.Status.UnCancellable,
+	}, nil
+}
+
 func (s *Raft) NodeSelector() cluster.NodeSelector {
 	return s.nodeSelector
 }
@@ -167,4 +172,9 @@ func (s *Raft) IsLeader() bool {
 // ClusterID returns the stable cluster identity UUIDv7, or "" if not yet committed.
 func (s *Raft) ClusterID() string {
 	return s.store.ClusterID()
+}
+
+// ForceSnapshot triggers an immediate RAFT snapshot. See Store.ForceSnapshot.
+func (s *Raft) ForceSnapshot() error {
+	return s.store.ForceSnapshot()
 }

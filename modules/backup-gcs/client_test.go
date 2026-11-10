@@ -23,7 +23,9 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -831,4 +833,24 @@ func TestWriteResumableUploadIsFinalizedOnlyOnSuccess(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetObjectAllocatesOnce(t *testing.T) {
+	const bucketName = "test-bucket"
+	payload := bytes.Repeat([]byte{'x'}, 1<<20)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/"+bucketName+"/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		w.Write(payload)
+	})
+	g := newFakeGCSClient(t, bucketName, mux)
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	got, err := g.GetObject(context.Background(), "backup-1", ubak.BackupFile, "", "")
+	runtime.ReadMemStats(&after)
+	require.NoError(t, err)
+	require.Equal(t, payload, got)
+	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(len(payload))*3/2, "bytes allocated")
 }

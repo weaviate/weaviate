@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -52,7 +53,7 @@ func (r *strictResolver) NodeHostname(name string) (string, bool) {
 }
 
 func TestExpandParticipantsForDedupe(t *testing.T) {
-	const class = "Class-A"
+	const class = "ClassA"
 
 	newCoord := func(resolved ...string) (*coordinator, *Request, []backup.ClassDescriptor) {
 		fc := newFakeCoordinator(&strictResolver{newFakeNodeResolver(resolved)})
@@ -263,7 +264,7 @@ func TestFilterClassDescriptor(t *testing.T) {
 func TestBuildFanoutPlan(t *testing.T) {
 	const (
 		backupID = "fanout-plan"
-		class    = "Class-A"
+		class    = "ClassA"
 	)
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
@@ -450,6 +451,35 @@ func TestBuildFanoutPlan(t *testing.T) {
 		requireSingleSource(t, plan, "N2", 1)
 	})
 
+	t.Run("shards without a source copy warn once per restore", func(t *testing.T) {
+		state := make(map[string][]string, 50)
+		for i := range 50 {
+			state[fmt.Sprintf("tenant-%02d", i)] = []string{"N1", "N2"}
+		}
+		backend := newFakeBackend()
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+		backend.On("GetObject", mock.Anything, backupID+"/N1", BackupFile).Return(nodeMetaWithState("N1", state), nil)
+		r := newRestorer(backend)
+		hookLogger, hook := test.NewNullLogger()
+		r.logger = hookLogger
+
+		plan, err := r.buildFanoutPlan(ctx, "N2", &Request{
+			Method: OpRestore, ID: backupID, Backend: "s3", Classes: []string{class},
+			DedupeReplicas: true, SourceNodes: []string{"N1"}, SchemaSourceNode: "N1",
+		})
+		require.NoError(t, err)
+		require.Len(t, plan.classes, 1)
+		var warns []string
+		for _, e := range hook.AllEntries() {
+			if e.Level <= logrus.WarnLevel {
+				warns = append(warns, e.Message)
+			}
+		}
+		require.Len(t, warns, 1)
+		assert.Contains(t, warns[0], "for 50 shards")
+		assert.Contains(t, warns[0], "+40 more]")
+	})
+
 	t.Run("class in no source descriptor refused", func(t *testing.T) {
 		backend := newFakeBackend()
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
@@ -561,7 +591,7 @@ func TestRestoreFanoutFetchesBaseChunksFromSourcePrefix(t *testing.T) {
 	incrSd := e.makeShardDesc("s1", nil)
 	incrSd.Node = "nodeA"
 	require.NoError(t, incrSd.FillFileInfo([]string{"s1/big-segment.db", "s1/changed.db"},
-		[]backup.ShardAndID{{ShardDesc: baseSd, BackupID: baseID}}, e.sourceDir))
+		[]backup.ShardAndID{{ShardDesc: &backup.BaseShardDescriptor{Name: baseSd.Name, BigFilesChunk: baseSd.BigFilesChunk}, BackupID: baseID}}, e.sourceDir))
 	require.Equal(t, []string{"s1/changed.db"}, incrSd.Files)
 	require.NotEmpty(t, incrSd.IncrementalBackupInfo.FilesPerBackup[baseID])
 	incrChunks := upload(incrID+"/nodeA", incrSd)
@@ -592,7 +622,7 @@ func TestRestoreOneFanoutZeroShardsResetsStaging(t *testing.T) {
 	restoreMock := modulecapabilities.NewMockBackupBackend(t)
 	restoreMock.EXPECT().SourceDataPath().Return(restoreDir)
 
-	classTempDir := filepath.Join(restoreDir, TempDirectory, "Class-A")
+	classTempDir := filepath.Join(restoreDir, TempDirectory, "ClassA")
 	require.NoError(t, os.MkdirAll(classTempDir, 0o755))
 	stale := filepath.Join(classTempDir, "stale-segment.db")
 	require.NoError(t, os.WriteFile(stale, []byte("previous attempt"), 0o644))
@@ -601,7 +631,7 @@ func TestRestoreOneFanoutZeroShardsResetsStaging(t *testing.T) {
 	r := &restorer{node: "nodeB", logger: logger, namespacesEnabled: true}
 	store := nodeStore{objectStore{backend: restoreMock, backupId: "zero/nodeB", node: "nodeB"}}
 	staged := &stagedDirs{attemptID: "attempt-2"}
-	cp := classPlan{name: "Class-A"}
+	cp := classPlan{name: "ClassA"}
 	require.NoError(t, r.restoreOneFanout(context.Background(), cp, store, backup.CompressionNone, &Request{Compression: Compression{CPUPercentage: 1}}, staged))
 
 	assert.NoFileExists(t, stale, "stale staging must be reset even when this participant stages nothing")
@@ -616,7 +646,7 @@ func TestCoordinatedRestoreFanout(t *testing.T) {
 	const (
 		backendName = "s3"
 		backupID    = "fanout-coord"
-		class       = "Class-A"
+		class       = "ClassA"
 	)
 	var (
 		any   = mock.Anything

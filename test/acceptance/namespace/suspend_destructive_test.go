@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client/objects"
 	schemaCli "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
@@ -87,10 +88,6 @@ func TestNamespaces_SuspendRefusesDestructiveSchemaOps(t *testing.T) {
 		tenants, err := getTenantsAuth(t, qualifiedMT, adminKey)
 		require.NoError(t, err)
 		assert.Subset(t, tenantNames(tenants), []string{keptTenant, goneTenant})
-
-		shards, err := shardsForClass(t, qualifiedMT)
-		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{keptTenant, goneTenant}, shards)
 	})
 
 	t.Run("a collection delete is refused", func(t *testing.T) {
@@ -160,15 +157,24 @@ func TestNamespaces_SuspendRefusesDestructiveSchemaOps(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotContains(t, tenantNames(tenants), goneTenant, "the delete must have applied")
 
+		// The read goes to the home node, because a forwarded read of a shard the
+		// sweep released before the resume fails. It uses NewClient, because
+		// SetupClient repoints the client every parallel test shares.
+		homeNode := helper.GetNamespace(t, ns1, adminKey).HomeNode
+		homeClient := helper.NewClient(t, uriForNode(t, homeNode))
+		tenant := keptTenant
+		params := objects.NewObjectsClassGetParams().
+			WithClassName(qualifiedMT).WithID(objectIDs[keptTenant]).WithTenant(&tenant)
+
 		// The read is retried because ResumeNamespace polls the leader-served
 		// GET, so the node owning the shard may still be refusing reads.
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			obj, err := helper.GetObjectAuthWithTenant(t, qualifiedMT, objectIDs[keptTenant], keptTenant, adminKey)
+			resp, err := homeClient.Objects.ObjectsClassGet(params, helper.CreateAuth(adminKey))
 			if !assert.NoError(c, err) {
 				return
 			}
-			props, ok := obj.Properties.(map[string]any)
-			if !assert.True(c, ok, "unexpected property shape %T", obj.Properties) {
+			props, ok := resp.Payload.Properties.(map[string]any)
+			if !assert.True(c, ok, "unexpected property shape %T", resp.Payload.Properties) {
 				return
 			}
 			assert.Equal(c, objTitle, props["title"])

@@ -87,12 +87,16 @@ func (t *BinarySearchTree) Get(key []byte) (BitmapLayer, error) {
 
 // FlattenInOrder creates list of ordered copies of bst nodes
 // Only Key and Value fields are populated
-func (t *BinarySearchTree) FlattenInOrder() []*BinarySearchNode {
+func (t *BinarySearchTree) FlattenInOrder() []BinarySearchNode {
 	if t.root == nil {
 		return nil
 	}
 
-	return t.root.flattenInOrder()
+	copies := make([]BinarySearchNode, 0, t.count)
+	for n := leftmost(t.root); n != nil; n = successor(n) {
+		copies = append(copies, n.shallowCopy())
+	}
+	return copies
 }
 
 // Count returns how many distinct keys the tree holds. A key inserted with only
@@ -103,6 +107,9 @@ func (t *BinarySearchTree) Count() int {
 	return t.count
 }
 
+// BinarySearchNode methods walk the tree in loops. A recursive walk allocates
+// from a different call stack on each path through the tree, and the heap
+// profile keeps a bucket per stack until the process exits.
 type BinarySearchNode struct {
 	Key         []byte
 	Value       BitmapLayer
@@ -241,80 +248,78 @@ func newBinarySearchNode(key []byte, values Insert, parent *BinarySearchNode, co
 // of which the caller totals. A nil node means the root did not move, not that
 // the key merged.
 func (n *BinarySearchNode) insert(key []byte, values Insert) (newRoot *BinarySearchNode, grownBy int, created bool) {
-	if bytes.Equal(key, n.Key) {
-		sizeBefore := n.sizeInBytes()
-
-		// Merging the new additions and deletions into the existing ones is a
-		// four-step process:
-		//
-		// 1. make sure anything that's added is not part of the deleted list, in
-		//    case it was previously deleted
-		// 2. actually add the new entries to additions
-		// 3. make sure anything that's deleted is not part of the additions list,
-		//    in case it was recently added
-		// 4. actually add the new entries to deletions (this step is vital in case
-		//    a delete points to an entry of a previous segment that's not added in
-		//    this memtable)
-
-		// Set panics on a nil bitmap, where Remove on the other side returns false.
-		if n.Value.Additions == nil && len(values.Additions) > 0 {
-			n.Value.Additions = NewBitmap()
-		}
-		for _, x := range values.Additions {
-			n.Value.Deletions.Remove(x)
-			n.Value.Additions.Set(x)
-		}
-
-		if n.Value.Deletions == nil && len(values.Deletions) > 0 {
-			n.Value.Deletions = NewBitmap()
-		}
-		for _, x := range values.Deletions {
-			n.Value.Additions.Remove(x)
-			n.Value.Deletions.Set(x)
-		}
-
-		return nil, n.sizeInBytes() - sizeBefore, false
-	}
-
-	if bytes.Compare(key, n.Key) < 0 {
-		if n.left != nil {
-			return n.left.insert(key, values)
-		} else {
-			// held in a local because Rebalance can move it out of n.left
-			inserted := newBinarySearchNode(key, values, n, true)
-			n.left = inserted
-			return BinarySearchNodeFromRB(rbtree.Rebalance(inserted)), inserted.sizeInBytes(), true
-		}
-	} else {
-		if n.right != nil {
-			return n.right.insert(key, values)
-		} else {
-			// held in a local because Rebalance can move it out of n.right
-			inserted := newBinarySearchNode(key, values, n, true)
-			n.right = inserted
-			return BinarySearchNodeFromRB(rbtree.Rebalance(inserted)), inserted.sizeInBytes(), true
+	for {
+		switch c := bytes.Compare(key, n.Key); {
+		case c == 0:
+			return nil, n.merge(values), false
+		case c < 0:
+			if n.left == nil {
+				// held in a local because Rebalance can move it out of n.left
+				inserted := newBinarySearchNode(key, values, n, true)
+				n.left = inserted
+				return BinarySearchNodeFromRB(rbtree.Rebalance(inserted)), inserted.sizeInBytes(), true
+			}
+			n = n.left
+		default:
+			if n.right == nil {
+				// held in a local because Rebalance can move it out of n.right
+				inserted := newBinarySearchNode(key, values, n, true)
+				n.right = inserted
+				return BinarySearchNodeFromRB(rbtree.Rebalance(inserted)), inserted.sizeInBytes(), true
+			}
+			n = n.right
 		}
 	}
 }
 
+// merge folds values into n's bitmaps and reports the bytes n grew by.
+func (n *BinarySearchNode) merge(values Insert) int {
+	sizeBefore := n.sizeInBytes()
+
+	// Merging the new additions and deletions into the existing ones is a
+	// four-step process:
+	//
+	// 1. make sure anything that's added is not part of the deleted list, in
+	//    case it was previously deleted
+	// 2. actually add the new entries to additions
+	// 3. make sure anything that's deleted is not part of the additions list,
+	//    in case it was recently added
+	// 4. actually add the new entries to deletions (this step is vital in case
+	//    a delete points to an entry of a previous segment that's not added in
+	//    this memtable)
+
+	// Set panics on a nil bitmap, where Remove on the other side returns false.
+	if n.Value.Additions == nil && len(values.Additions) > 0 {
+		n.Value.Additions = NewBitmap()
+	}
+	for _, x := range values.Additions {
+		n.Value.Deletions.Remove(x)
+		n.Value.Additions.Set(x)
+	}
+
+	if n.Value.Deletions == nil && len(values.Deletions) > 0 {
+		n.Value.Deletions = NewBitmap()
+	}
+	for _, x := range values.Deletions {
+		n.Value.Additions.Remove(x)
+		n.Value.Deletions.Set(x)
+	}
+
+	return n.sizeInBytes() - sizeBefore
+}
+
 func (n *BinarySearchNode) get(key []byte) (BitmapLayer, error) {
-	if bytes.Equal(n.Key, key) {
-		return n.Value.Clone(), nil
-	}
-
-	if bytes.Compare(key, n.Key) < 0 {
-		if n.left == nil {
-			return BitmapLayer{}, lsmkv.NotFound
+	for n != nil {
+		switch c := bytes.Compare(key, n.Key); {
+		case c == 0:
+			return n.Value.Clone(), nil
+		case c < 0:
+			n = n.left
+		default:
+			n = n.right
 		}
-
-		return n.left.get(key)
-	} else {
-		if n.right == nil {
-			return BitmapLayer{}, lsmkv.NotFound
-		}
-
-		return n.right.get(key)
 	}
+	return BitmapLayer{}, lsmkv.NotFound
 }
 
 func BinarySearchNodeFromRB(rbNode rbtree.Node) (bsNode *BinarySearchNode) {
@@ -326,31 +331,14 @@ func BinarySearchNodeFromRB(rbNode rbtree.Node) (bsNode *BinarySearchNode) {
 	return bsNode
 }
 
-func (n *BinarySearchNode) flattenInOrder() []*BinarySearchNode {
-	var left []*BinarySearchNode
-	var right []*BinarySearchNode
-
-	if n.left != nil {
-		left = n.left.flattenInOrder()
-	}
-
-	if n.right != nil {
-		right = n.right.flattenInOrder()
-	}
-
-	// Node's Value has to be copied, not to be mutated when BST is updated.
-	right = append([]*BinarySearchNode{n.shallowCopy()}, right...)
-	return append(left, right...)
-}
-
-func (n *BinarySearchNode) shallowCopy() *BinarySearchNode {
+func (n *BinarySearchNode) shallowCopy() BinarySearchNode {
 	// A cursor holds this copy for its whole life, and several run at once, so
 	// what it costs is resident bytes rather than file size. Reclaiming the
 	// source's container slack halves that on a memtable that has seen removals,
 	// and is also the cheaper copy: it allocates and fills what the values need
 	// instead of the buffer they grew to. BenchmarkBinarySearchTreeCopyWithSlack
 	// sweeps it against the alternatives.
-	return &BinarySearchNode{
+	return BinarySearchNode{
 		Key:   n.Key,
 		Value: n.Value.Compacted(),
 	}

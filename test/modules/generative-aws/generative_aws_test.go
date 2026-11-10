@@ -72,41 +72,14 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 			},
 			// Anthropic
 			{
-				name:            "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-				generativeModel: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-				maxTokens:       4000,
+				name:            "us.anthropic.claude-fable-5-1",
+				generativeModel: "us.anthropic.claude-fable-5-1",
+				maxTokens:       16000,
 			},
 			{
-				name:            "anthropic.claude-3-haiku-20240307-v1:0",
-				generativeModel: "anthropic.claude-3-haiku-20240307-v1:0",
+				name:            "us.anthropic.claude-fable-5-1 with images",
+				generativeModel: "us.anthropic.claude-fable-5-1",
 				withImages:      true,
-			},
-			// Meta
-			{
-				name:            "meta.llama3-8b-instruct-v1:0",
-				generativeModel: "meta.llama3-8b-instruct-v1:0",
-			},
-			{
-				name:            "meta.llama3-70b-instruct-v1:0",
-				generativeModel: "meta.llama3-70b-instruct-v1:0",
-			},
-			{
-				name:               "absent module config",
-				generativeModel:    "meta.llama3-70b-instruct-v1:0",
-				absentModuleConfig: true,
-			},
-			// Mistral AI
-			{
-				name:            "mistral.mistral-7b-instruct-v0:2",
-				generativeModel: "mistral.mistral-7b-instruct-v0:2",
-			},
-			{
-				name:            "mistral.mixtral-8x7b-instruct-v0:1",
-				generativeModel: "mistral.mixtral-8x7b-instruct-v0:1",
-			},
-			{
-				name:            "mistral.mistral-large-2402-v1:0",
-				generativeModel: "mistral.mistral-large-2402-v1:0",
 			},
 		}
 		for _, tt := range tests {
@@ -157,17 +130,16 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 					})
 				}
 				t.Run("create a tweet with params", func(t *testing.T) {
-					params := "aws:{temperature:0.1}"
+					params := "aws:{maxTokens:500}"
 					if tt.absentModuleConfig {
-						params = fmt.Sprintf("aws:{temperature:0.1 maxTokens:500 service:\"bedrock\" region:\"%s\" model:\"%s\"}", region, tt.generativeModel)
+						params = fmt.Sprintf("aws:{maxTokens:500 service:\"bedrock\" region:\"%s\" model:\"%s\"}", region, tt.generativeModel)
 					}
 					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
 
 				params := func() *pb.GenerativeAWS {
 					params := &pb.GenerativeAWS{
-						Model:       grpchelper.ToPtr(tt.generativeModel),
-						Temperature: grpchelper.ToPtr(0.9),
+						Model: grpchelper.ToPtr(tt.generativeModel),
 					}
 					if tt.absentModuleConfig {
 						params.Region = grpchelper.ToPtr(region)

@@ -82,8 +82,10 @@ type WeaviateRuntimeConfig struct {
 	DisableGraphQL                            *runtime.DynamicValue[bool]          `json:"disable_graphql" yaml:"disable_graphql"`
 
 	NamespaceCleanupInterval *runtime.DynamicValue[time.Duration] `json:"namespace_cleanup_interval" yaml:"namespace_cleanup_interval"`
+	SuspendReconcileInterval *runtime.DynamicValue[time.Duration] `json:"suspend_reconcile_interval" yaml:"suspend_reconcile_interval"`
 
 	ReplicaMovementEnabled                 *runtime.DynamicValue[bool]          `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
+	ReplicaRebalanceEnabled                *runtime.DynamicValue[bool]          `json:"replica_rebalance_enabled" yaml:"replica_rebalance_enabled"`
 	ReplicaMovementCleanupEnabled          *runtime.DynamicValue[bool]          `json:"replica_movement_cleanup_enabled" yaml:"replica_movement_cleanup_enabled"`
 	ReplicaMovementCleanupMaxAge           *runtime.DynamicValue[time.Duration] `json:"replica_movement_cleanup_max_age" yaml:"replica_movement_cleanup_max_age"`
 	ReplicaMovementCleanupInterval         *runtime.DynamicValue[time.Duration] `json:"replica_movement_cleanup_interval" yaml:"replica_movement_cleanup_interval"`
@@ -98,7 +100,8 @@ type WeaviateRuntimeConfig struct {
 	ObjectsTTLConcurrencyFactor   *runtime.DynamicValue[float64]       `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
 
 	// Backup settings
-	BackupMaxIndividualFiles *runtime.DynamicValue[int] `json:"backup_max_individual_files" yaml:"backup_max_individual_files"`
+	BackupMaxIndividualFiles       *runtime.DynamicValue[int]           `json:"backup_max_individual_files" yaml:"backup_max_individual_files"`
+	BackupDedupeConvergenceTimeout *runtime.DynamicValue[time.Duration] `json:"backup_dedupe_convergence_timeout" yaml:"backup_dedupe_convergence_timeout"`
 
 	// Export settings
 	ExportEnabled       *runtime.DynamicValue[bool]   `json:"export_enabled" yaml:"export_enabled"`
@@ -442,6 +445,7 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.AsyncReplicationRootPrefilterBatchSize = cfg.Replication.AsyncReplicationRootPrefilterBatchSize
 	registered.ReplicationGRPCEnabled = cfg.Replication.ReplicationGRPCEnabled
 	registered.ReplicaMovementEnabled = cfg.Replication.ReplicaMovementEnabled
+	registered.ReplicaRebalanceEnabled = cfg.Replication.ReplicaRebalanceEnabled
 	registered.ReplicaMovementCleanupEnabled = cfg.Replication.ReplicaMovementCleanupEnabled
 	registered.ReplicaMovementCleanupMaxAge = cfg.Replication.ReplicaMovementCleanupMaxAge
 	registered.ReplicaMovementCleanupInterval = cfg.Replication.ReplicaMovementCleanupInterval
@@ -468,6 +472,7 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.OperationalMode = cfg.OperationalMode
 	registered.DisableDimensionMetrics = cfg.DisableDimensionMetrics
 	registered.NamespaceCleanupInterval = cfg.Namespaces.CleanupInterval
+	registered.SuspendReconcileInterval = cfg.Namespaces.SuspendReconcileInterval
 	registered.ObjectsTTLDeleteSchedule = cfg.ObjectsTTLDeleteSchedule
 	registered.ObjectsTTLBatchSize = cfg.ObjectsTTLBatchSize
 	registered.ObjectsTTLPauseEveryNoBatches = cfg.ObjectsTTLPauseEveryNoBatches
@@ -480,6 +485,7 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.MCPEnabled = cfg.MCP.Enabled
 	registered.MCPWriteAccessEnabled = cfg.MCP.WriteAccessEnabled
 	registered.BackupMaxIndividualFiles = cfg.Backup.MaxIndividualFiles
+	registered.BackupDedupeConvergenceTimeout = cfg.Backup.DedupeConvergenceTimeout
 	registered.DebugEndpointsEnabled = cfg.Profiling.DebugEndpointsEnabled
 	registered.GRPCWebEnabled = cfg.GRPC.GrpcWebEnabled
 	registered.DisableGraphQL = cfg.DisableGraphQL

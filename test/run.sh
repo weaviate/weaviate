@@ -12,6 +12,7 @@ function main() {
   run_acceptance_only_fast_group_5=false
   run_acceptance_only_fast_group_6=false
   run_acceptance_distributed_tasks=false
+  run_acceptance_licensed=false
   run_acceptance_only_authz=false
   run_acceptance_only_mcp=false
   run_acceptance_only_python=false
@@ -57,6 +58,7 @@ function main() {
   run_acceptance_reindex_multinode_restart_b=false
   run_acceptance_reindex_multinode_scale=false
   run_acceptance_reindex_multinode_changetok=false
+  run_acceptance_reindex_multinode_postops=false
   run_acceptance_reindex_singlenode_a=false
   run_acceptance_reindex_singlenode_b=false
   run_acceptance_reindex_concurrent=false
@@ -74,6 +76,9 @@ function main() {
   run_acceptance_backup_dedupe_cross_version=false
   run_acceptance_backup_dedupe_incremental=false
   run_acceptance_backup_dedupe_misc=false
+  run_acceptance_self_recovery=false
+  run_acceptance_self_recovery_lazy=false
+  run_acceptance_self_recovery_intact=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -94,6 +99,7 @@ function main() {
           --acceptance-only-fast-group-5|-aof-g5) run_all_tests=false; run_acceptance_only_fast_group_5=true;;
           --acceptance-only-fast-group-6|-aof-g6) run_all_tests=false; run_acceptance_only_fast_group_6=true;;
           --acceptance-distributed-tasks) run_all_tests=false; run_acceptance_distributed_tasks=true;;
+          --acceptance-licensed|-al) run_all_tests=false; run_acceptance_licensed=true;;
           --acceptance-only-python|-aop) run_all_tests=false; run_acceptance_only_python=true;;
           --acceptance-only-python-namespaces|-aopns) run_all_tests=false; run_acceptance_only_python_namespaces=true;;
           --acceptance-go-client|-ag) run_all_tests=false; run_acceptance_go_client=true;;
@@ -131,6 +137,7 @@ function main() {
           --acceptance-reindex-multinode-restart-b|-armrb) run_all_tests=false; run_acceptance_reindex_multinode_restart_b=true;;
           --acceptance-reindex-multinode-scale|-arms) run_all_tests=false; run_acceptance_reindex_multinode_scale=true;;
           --acceptance-reindex-multinode-changetok|-armct) run_all_tests=false; run_acceptance_reindex_multinode_changetok=true;;
+          --acceptance-reindex-multinode-postops|-armpo) run_all_tests=false; run_acceptance_reindex_multinode_postops=true;;
           --acceptance-reindex-singlenode-a|-arsa) run_all_tests=false; run_acceptance_reindex_singlenode_a=true;;
           --acceptance-reindex-singlenode-b|-arsb) run_all_tests=false; run_acceptance_reindex_singlenode_b=true;;
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
@@ -148,6 +155,9 @@ function main() {
           --acceptance-backup-dedupe-cross-version|-abdcv) run_all_tests=false; run_acceptance_backup_dedupe_cross_version=true;;
           --acceptance-backup-dedupe-incremental|-abdi) run_all_tests=false; run_acceptance_backup_dedupe_incremental=true;;
           --acceptance-backup-dedupe-misc|-abdm) run_all_tests=false; run_acceptance_backup_dedupe_misc=true;;
+          --acceptance-self-recovery|-asr) run_all_tests=false; run_acceptance_self_recovery=true;;
+          --acceptance-self-recovery-lazy|-asrl) run_all_tests=false; run_acceptance_self_recovery_lazy=true;;
+          --acceptance-self-recovery-intact|-asri) run_all_tests=false; run_acceptance_self_recovery_intact=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -170,6 +180,7 @@ function main() {
               "--acceptance-only-fast-group-6 | -aof-g6"\
               "--acceptance-only-python | -aop"\
               "--acceptance-only-python-namespaces | -aopns"\
+              "--acceptance-licensed | -al"\
               "--acceptance-go-client | -ag"\
               "--acceptance-go-client-only-fast | -agof"\
               "--acceptance-go-client-only-fast-group-1 | -agof-g1"\
@@ -197,6 +208,7 @@ function main() {
               "--acceptance-reindex-multinode-restart-b | -armrb"\
               "--acceptance-reindex-multinode-scale | -arms"\
               "--acceptance-reindex-multinode-changetok | -armct"\
+              "--acceptance-reindex-multinode-postops | -armpo"\
               "--acceptance-reindex-singlenode-a | -arsa"\
               "--acceptance-reindex-singlenode-b | -arsb"\
               "--acceptance-reindex-concurrent | -arc"\
@@ -207,6 +219,9 @@ function main() {
               "--acceptance-backup-dedupe-cross-version | -abdcv"\
               "--acceptance-backup-dedupe-incremental | -abdi"\
               "--acceptance-backup-dedupe-misc | -abdm"\
+              "--acceptance-self-recovery | -asr"\
+              "--acceptance-self-recovery-lazy | -asrl"\
+              "--acceptance-self-recovery-intact | -asri"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -413,8 +428,13 @@ function main() {
     run_aof_group "distributed-tasks" test/acceptance/distributed_tasks
   fi
 
+  if $run_acceptance_licensed || $run_acceptance_tests || $run_all_tests; then
+    echo "running acceptance tests that need a license key"
+    run_acceptance_licensed
+  fi
+
   if $run_acceptance_reindex_multinode; then
-    echo "running reindex multinode acceptance tests (catch-all: everything not in -aj/-rm/-restart/-scale/-changetok sub-shards)"
+    echo "running reindex multinode acceptance tests (catch-all: everything not in -aj/-rm/-restart/-scale/-changetok/-postops sub-shards)"
     run_acceptance_reindex_multinode
   fi
 
@@ -446,6 +466,11 @@ function main() {
   if $run_acceptance_reindex_multinode_changetok; then
     echo "running reindex multinode change-tokenization acceptance tests"
     run_acceptance_reindex_multinode_changetok
+  fi
+
+  if $run_acceptance_reindex_multinode_postops; then
+    echo "running reindex multinode post-migration backup/replication acceptance tests"
+    run_acceptance_reindex_multinode_postops
   fi
 
   if $run_acceptance_reindex_singlenode_a; then
@@ -532,6 +557,21 @@ function main() {
     echo "running backup dedupe misc acceptance tests"
     run_acceptance_backup_dedupe_misc
   fi
+
+  if $run_acceptance_self_recovery || $run_acceptance_tests || $run_all_tests; then
+    echo "running self-recovery acceptance tests"
+    run_acceptance_self_recovery
+  fi
+
+  if $run_acceptance_self_recovery_lazy || $run_acceptance_tests || $run_all_tests; then
+    echo "running self-recovery lazy-loading acceptance tests"
+    run_acceptance_self_recovery_lazy
+  fi
+
+  if $run_acceptance_self_recovery_intact || $run_acceptance_tests || $run_all_tests; then
+    echo "running self-recovery intact-node acceptance tests"
+    run_acceptance_self_recovery_intact
+  fi
   echo "Done!"
 }
 
@@ -577,6 +617,13 @@ function run_unit_tests() {
     non-adapters) packages=$(echo "$packages" | grep -vE "/adapters/|$adapters_extra");;
   esac
   go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $packages | grep -v '\[no test files\]'
+
+  # Release binaries are built with -trimpath. The gse tokenizer used to find its
+  # dictionaries through runtime.Caller, which only works untrimmed, so run its tests
+  # the way the shipped binary is built.
+  if [[ "$unit_shard" != adapters ]]; then
+    go test -trimpath -count 1 -run Gse ./entities/tokenizer/
+  fi
 }
 
 function run_integration_tests() {
@@ -730,7 +777,29 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/backup_dedupe_replicas' \
     | grep -v 'test/acceptance/distributed_tasks' \
     | grep -v 'test/acceptance/drop_vector_index' \
+    | grep -v 'test/acceptance/selfrecovery' \
+    | grep -v -E "$licensed_acceptance_packages" \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
+}
+
+# Packages whose clusters need WEAVIATE_LICENSE_KEY: every namespace-enabled
+# cluster does. They run only in their own CI job, which forks and Dependabot
+# skip because they cannot read the secret.
+licensed_acceptance_packages='test/acceptance/(namespace|licensed/)'
+
+function run_acceptance_licensed() {
+  build_weaviate_test_image
+  build_mockoidc_docker_image_for_tests
+  local listed
+  if ! listed=$(go list ./... | grep -E "$licensed_acceptance_packages" | sed 's|.*/test/acceptance/|test/acceptance/|'); then
+    echo "no licensed acceptance packages found" >&2
+    return 1
+  fi
+  local -a packages=()
+  while IFS= read -r pkg; do
+    packages+=("$pkg")
+  done <<<"$listed"
+  run_aof_group "licensed" "${packages[@]}"
 }
 
 # run_aof_group runs a group of acceptance test packages with appropriate test flags.
@@ -800,7 +869,7 @@ function get_aof_group() {
     1) echo "test/acceptance/multi_node test/acceptance/actions" ;;
     2) echo "test/acceptance/schema test/acceptance/cluster_api_auth test/acceptance/batch_request_endpoints" ;;
     3) echo "test/acceptance/grpc" ;;
-    4) echo "test/acceptance/alter_schema test/acceptance/namespace test/acceptance/namespace_limits test/acceptance/vector_index_restrictions" ;;
+    4) echo "test/acceptance/alter_schema test/acceptance/vector_index_restrictions" ;;
     6) echo "test/acceptance/authn test/acceptance/aliases test/acceptance/maintenance_mode test/acceptance/vector_distances test/acceptance/backups" ;;
     *) echo "" ;;
   esac
@@ -928,7 +997,7 @@ function run_acceptance_recovery() {
 
 function run_acceptance_reindex_multinode() {
   build_weaviate_test_image
-  echo_green "acceptance — reindex-multinode (catch-all: everything not in -aj/-rm/-restart/-scale/-changetok sub-shards)"
+  echo_green "acceptance — reindex-multinode (catch-all: everything not in -aj/-rm/-restart/-scale/-changetok/-postops sub-shards)"
   # The reindex_multinode package is partitioned across 6 CI shards to
   # keep each shard's wall-clock under ~10 min for fast PR feedback.
   # This "catch-all" shard runs only tests NOT claimed by a
@@ -953,11 +1022,12 @@ function run_acceptance_reindex_multinode() {
   #                 TestMultiNode_BackToBackChangeTokenization_* +
   #                 TestLiveQueriesDuringChangeTokenization +
   #                 TestPartialResultsDuringChangeTokenization
+  #   -postops    : TestMultiNode_PostMigrationOps
   #
   # IMPORTANT: when adding a new sub-shard, also add its top-level test
   # prefixes to the SKIP regex below to prevent the catch-all from
   # double-running the same tests.
-  AOF_GROUP_SKIP='TestMultiNode_ChangeTokenization_AJ_|TestMultiNode_RestartMatrix|TestMultiNode_(Rolling|Graceful|Crash|MajorityCrash|UngracefulStop|PostRestartMigration)|TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)|TestMultiNode_ChangeTokenization_|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization' \
+  AOF_GROUP_SKIP='TestMultiNode_ChangeTokenization_AJ_|TestMultiNode_RestartMatrix|TestMultiNode_(Rolling|Graceful|Crash|MajorityCrash|UngracefulStop|PostRestartMigration)|TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)|TestMultiNode_ChangeTokenization_|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization|TestMultiNode_PostMigrationOps' \
     run_aof_group "reindex-multinode" test/acceptance/reindex_multinode
 }
 
@@ -1060,6 +1130,16 @@ function run_acceptance_reindex_multinode_changetok() {
   # (~1m45s margin under the ~10m budget).
   AOF_GROUP_RUN='TestMultiNode_ChangeTokenization_(RestartThenRoundTrip|MTRoundTrip|ConcurrentDifferentProps|RoundTrip)|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization' \
     run_aof_group "reindex-multinode-changetok" test/acceptance/reindex_multinode
+}
+
+function run_acceptance_reindex_multinode_postops() {
+  build_weaviate_test_image
+  echo_green "acceptance — reindex-multinode-postops"
+  # Backup/restore and replica MOVE/COPY right after a reindex finishes, with
+  # and without a restart in between. Its own shard: nine cases with two to
+  # three node restarts each would push any existing shard over budget.
+  AOF_GROUP_RUN='TestMultiNode_PostMigrationOps' \
+    run_aof_group "reindex-multinode-postops" test/acceptance/reindex_multinode
 }
 
 function run_acceptance_reindex_multinode_aj() {
@@ -1169,6 +1249,24 @@ function run_acceptance_reindex_backup() {
   run_aof_group "reindex-backup" \
     test/acceptance/reindex_backup
 }
+function run_acceptance_self_recovery() {
+  build_weaviate_test_image
+  AOF_GROUP_SKIP='^TestSelfRecoveryLazy|^TestSelfRecoveryIntact' \
+    run_aof_group "self-recovery" test/acceptance/selfrecovery
+}
+
+function run_acceptance_self_recovery_lazy() {
+  build_weaviate_test_image
+  AOF_GROUP_RUN='^TestSelfRecoveryLazy' AOF_GROUP_TIMEOUT=40m \
+    run_aof_group "self-recovery-lazy" test/acceptance/selfrecovery
+}
+
+function run_acceptance_self_recovery_intact() {
+  build_weaviate_test_image
+  AOF_GROUP_RUN='^TestSelfRecoveryIntact' AOF_GROUP_TIMEOUT=30m \
+    run_aof_group "self-recovery-intact" test/acceptance/selfrecovery
+}
+
 
 function run_acceptance_drop_vector_index() {
   build_weaviate_test_image
@@ -1238,7 +1336,7 @@ function run_acceptance_backup_dedupe() {
 function run_acceptance_backup_dedupe_cross_version() {
   build_weaviate_test_image
   echo_green "acceptance — backup-dedupe-cross-version"
-  AOF_GROUP_RUN='^TestBackupCrossVersionRestore$' AOF_GROUP_TIMEOUT=30m \
+  AOF_GROUP_RUN='^(TestBackupCrossVersionRestore|TestBackupDedupeRestoreWithoutLicense)$' AOF_GROUP_TIMEOUT=40m \
     run_aof_group "backup-dedupe-cross-version" test/acceptance/backup_dedupe_replicas
 }
 
@@ -1253,7 +1351,7 @@ function run_acceptance_backup_dedupe_incremental() {
 function run_acceptance_backup_dedupe_misc() {
   build_weaviate_test_image
   echo_green "acceptance — backup-dedupe-misc"
-  AOF_GROUP_SKIP='^(TestBackupDedupeReplicas|TestBackupCrossVersionRestore|TestBackupDedupeIncremental)$' \
+  AOF_GROUP_SKIP='^(TestBackupDedupeReplicas|TestBackupCrossVersionRestore|TestBackupDedupeRestoreWithoutLicense|TestBackupDedupeIncremental)$' \
     run_aof_group "backup-dedupe-misc" test/acceptance/backup_dedupe_replicas
 }
 

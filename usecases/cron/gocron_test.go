@@ -49,15 +49,17 @@ func newTestCrons(t *testing.T) (*Crons, *gocron.Cron, *test.Hook, context.Cance
 	return crons, initGoCron(ctx, gocron.DiscardLogger), hook, cancel
 }
 
-// bothJobsConfig turns on the namespace cleanup job at interval and the objects
-// ttl job at schedule, so a Crons built on it registers both.
+// bothJobsConfig turns on the namespace cleanup and suspend reconcile jobs at
+// interval and the objects ttl job at schedule, so a Crons built on it registers
+// all three.
 func bothJobsConfig(interval time.Duration, schedule string) configGetter {
 	return func() config.Config {
 		return config.Config{
 			ObjectsTTLDeleteSchedule: configRuntime.NewDynamicValue(schedule),
 			Namespaces: config.Namespaces{
-				Enabled:         true,
-				CleanupInterval: configRuntime.NewDynamicValue(interval),
+				Enabled:                  true,
+				CleanupInterval:          configRuntime.NewDynamicValue(interval),
+				SuspendReconcileInterval: configRuntime.NewDynamicValue(interval),
 			},
 		}
 	}
@@ -73,7 +75,7 @@ func TestCrons_InitJobs(t *testing.T) {
 			{
 				name: "initJobs gates the cleanup job on leadership",
 				wire: func(crons *Crons, cr *gocron.Cron, co *namespacecleanup.Coordinator) error {
-					return crons.initJobs(cr, followerService().IsLeader, &objectttl.Coordinator{}, co)
+					return crons.initJobs(cr, followerService().IsLeader, noopSweep, &objectttl.Coordinator{}, co)
 				},
 				want: 0,
 			},
@@ -137,7 +139,7 @@ func TestCrons_InitJobs(t *testing.T) {
 					cleanup = nonNilCoordinator(t, stubLister{})
 				}
 				require.ErrorContains(t,
-					crons.initJobs(cr, followerService().IsLeader, tt.ttl, cleanup), tt.wantErr)
+					crons.initJobs(cr, followerService().IsLeader, noopSweep, tt.ttl, cleanup), tt.wantErr)
 
 				requireNoGoroutine(t, crons.namespaceCleanup.cronsRegistration)
 				assert.False(t, cr.EntryByName(namespaceCleanupJobName).Valid(),
@@ -301,7 +303,7 @@ func TestCrons_InitJobs_ObjectsTTLIsGated(t *testing.T) {
 		{
 			name: "initJobs gates the ttl job on leadership",
 			wire: func(crons *Crons, cr *gocron.Cron) error {
-				return crons.initJobs(cr, followerService().IsLeader, &objectttl.Coordinator{},
+				return crons.initJobs(cr, followerService().IsLeader, noopSweep, &objectttl.Coordinator{},
 					nonNilCoordinator(t, stubLister{}))
 			},
 		},
@@ -313,7 +315,7 @@ func TestCrons_InitJobs_ObjectsTTLIsGated(t *testing.T) {
 			// coordinator's nil schema reader, and initGoCron's Recover contains it.
 			name: "a job every node runs enters the tick body",
 			wire: func(crons *Crons, cr *gocron.Cron) error {
-				return crons.initJobs(cr, cron.RunOnEveryNode, &objectttl.Coordinator{},
+				return crons.initJobs(cr, cron.RunOnEveryNode, noopSweep, &objectttl.Coordinator{},
 					nonNilCoordinator(t, stubLister{}))
 			},
 			wantRun: true,
@@ -352,11 +354,11 @@ func TestCrons_InitGatesOnClusterLeadership(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- crons.Init(followerService(), &objectttl.Coordinator{},
-			nonNilCoordinator(t, stubLister{}))
+			nonNilCoordinator(t, stubLister{}), noopSweep)
 	}()
 	require.Eventually(t, func() bool {
-		return countMessage(hook, "cron job added") == 2
-	}, 5*time.Second, 10*time.Millisecond, "both jobs should have registered")
+		return countMessage(hook, "cron job added") == 3
+	}, 5*time.Second, 10*time.Millisecond, "every job should have registered")
 
 	require.Eventually(t, func() bool {
 		return slices.Contains(messages(hook), "cron tick skipped by its gate")
@@ -404,19 +406,19 @@ func TestCrons_InitJoinsEveryRegistration(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			crons, err := NewCrons(ctx, logger, bothJobsConfig(time.Minute, "@every 1m"))
 			require.NoError(t, err)
-			require.Len(t, crons.registrations, 2, "both registrants must be joined, not one")
+			require.Len(t, crons.registrations, 3, "every registrant must be joined, not one")
 
 			done := make(chan error, 1)
 			go func() {
 				done <- crons.Init(followerService(), &objectttl.Coordinator{},
-					nonNilCoordinator(t, stubLister{}))
+					nonNilCoordinator(t, stubLister{}), noopSweep)
 			}()
-			// Init owns its cron, so wait on the two registration lines rather
-			// than on an entry: both loops must be running before the shutdown
-			// is meaningful.
+			// Init owns its cron, so wait on the registration lines rather than
+			// on an entry. Every loop must be running before the shutdown is
+			// meaningful.
 			require.Eventually(t, func() bool {
-				return countMessage(hook, "cron job added") == 2
-			}, 5*time.Second, 10*time.Millisecond, "both jobs should have registered")
+				return countMessage(hook, "cron job added") == 3
+			}, 5*time.Second, 10*time.Millisecond, "every job should have registered")
 
 			release := tt.park(crons)
 			require.Eventually(t, func() bool {
@@ -456,19 +458,19 @@ func TestCrons_InitAwaitsTheTickInFlight(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- crons.Init(followerService(), &objectttl.Coordinator{},
-			nonNilCoordinator(t, stubLister{}))
+			nonNilCoordinator(t, stubLister{}), noopSweep)
 	}()
 	require.Eventually(t, func() bool {
-		return countMessage(hook, "cron job added") == 2
-	}, 5*time.Second, 10*time.Millisecond, "both jobs should have registered")
+		return countMessage(hook, "cron job added") == 3
+	}, 5*time.Second, 10*time.Millisecond, "every job should have registered")
 
 	// Park every tick the scheduler dispatches. tickJob takes runMu before it
 	// consults the gate, so the job counts as in flight on a follower too.
 	crons.objectsttl.runMu.Lock()
 	// gocron writes "run" once it has counted the fire into the group the
 	// drain waits on, so this proves there is a tick to wait for rather than
-	// assuming one landed. Cleanup runs once a minute, so the fire is the
-	// ttl job's.
+	// assuming one landed. Cleanup and suspend reconcile run once a minute,
+	// so the fire is the ttl job's.
 	require.Eventually(t, func() bool {
 		return countMessage(hook, "run") > 0
 	}, 5*time.Second, 10*time.Millisecond, "the scheduler should have dispatched a tick")
@@ -539,19 +541,55 @@ func TestCronsObjectsTTL_RuntimeConfigHookKeyMatchesField(t *testing.T) {
 	}
 }
 
-// TestCrons_CancelOnChangePerRegistrant pins the one registration flag the two
+// TestCrons_CancelOnChangePerRegistrant pins the one registration flag the
 // registrants set differently. A schedule change must not wait out a full TTL
-// pass, and a cleanup interval change must not kill the sweep in flight.
+// pass, and an interval change must not kill a sweep in flight.
 func TestCrons_CancelOnChangePerRegistrant(t *testing.T) {
 	tests := []struct {
-		name          string
+		name string
+		// build starts one registrant's loop with tick, and returns its job name
+		// and a push that moves it from 1m to 2m.
+		build func(t *testing.T, ctx context.Context, logger logrus.FieldLogger, cr *gocron.Cron,
+			tick func(context.Context)) (string, func())
 		wantCancelled bool
 	}{
 		{
-			name:          "a re-registered ttl job ends the tick it replaces",
+			name: "a re-registered ttl job ends the tick it replaces",
+			build: func(t *testing.T, ctx context.Context, logger logrus.FieldLogger, cr *gocron.Cron,
+				tick func(context.Context),
+			) (string, func()) {
+				c, err := newCronsObjectsTTL(ctx, logger, gocron.DiscardLogger, ttlConfig("@every 1m"))
+				require.NoError(t, err)
+				_, err = c.start(cr, cron.RunOnEveryNode, tick)
+				require.NoError(t, err)
+				return objectsTTLJobName, func() { c.valueCh <- "@every 2m" }
+			},
 			wantCancelled: true,
 		},
-		{name: "a re-registered cleanup job leaves it running"},
+		{
+			name: "a re-registered cleanup job leaves it running",
+			build: func(t *testing.T, ctx context.Context, logger logrus.FieldLogger, cr *gocron.Cron,
+				tick func(context.Context),
+			) (string, func()) {
+				c, err := newCronsNamespaceCleanup(ctx, logger, gocron.DiscardLogger, intervalConfig(time.Minute))
+				require.NoError(t, err)
+				_, err = c.start(cr, cron.RunOnEveryNode, tick)
+				require.NoError(t, err)
+				return namespaceCleanupJobName, func() { c.valueCh <- 2 * time.Minute }
+			},
+		},
+		{
+			name: "a re-registered suspend reconcile job leaves it running",
+			build: func(t *testing.T, ctx context.Context, logger logrus.FieldLogger, cr *gocron.Cron,
+				tick func(context.Context),
+			) (string, func()) {
+				c, err := newCronsSuspendReconcile(ctx, logger, gocron.DiscardLogger, suspendReconcileConfig(time.Minute))
+				require.NoError(t, err)
+				_, err = c.start(cr, cron.RunOnEveryNode, tick)
+				require.NoError(t, err)
+				return suspendReconcileJobName, func() { c.valueCh <- 2 * time.Minute }
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -562,21 +600,7 @@ func TestCrons_CancelOnChangePerRegistrant(t *testing.T) {
 			var tickCtx atomic.Pointer[context.Context]
 			capture := func(c context.Context) { tickCtx.Store(&c) }
 
-			var name string
-			var push func()
-			if tt.wantCancelled {
-				c, err := newCronsObjectsTTL(ctx, logger, gocron.DiscardLogger, ttlConfig("@every 1m"))
-				require.NoError(t, err)
-				_, err = c.start(cr, cron.RunOnEveryNode, capture)
-				require.NoError(t, err)
-				name, push = objectsTTLJobName, func() { c.valueCh <- "@every 2m" }
-			} else {
-				c, err := newCronsNamespaceCleanup(ctx, logger, gocron.DiscardLogger, intervalConfig(time.Minute))
-				require.NoError(t, err)
-				_, err = c.start(cr, cron.RunOnEveryNode, capture)
-				require.NoError(t, err)
-				name, push = namespaceCleanupJobName, func() { c.valueCh <- 2 * time.Minute }
-			}
+			name, push := tt.build(t, ctx, logger, cr, capture)
 			requireRegisteredAt(t, cr, name, time.Minute)
 
 			cr.EntryByName(name).Run()

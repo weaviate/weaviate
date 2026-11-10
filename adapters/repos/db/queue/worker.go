@@ -15,18 +15,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
-
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-)
-
-const (
-	maxBackoffDuration = 30 * time.Second
 )
 
 type Worker struct {
@@ -79,97 +72,41 @@ func (w *Worker) do(batch *Batch) (err error) {
 		}
 	}()
 
-	attempts := 1
-
-	// keep track of failed tasks
-	var failed []Task
-	var errs []error
-
-	for {
-		tasks := batch.Tasks
-
-		if len(failed) > 0 {
-			tasks = failed
-			failed = nil // reset failed tasks for the next iteration
-			errs = nil
+	var discarded []error
+	for _, t := range batch.Tasks {
+		execErr := t.Execute(batch.Ctx)
+		if execErr == nil {
+			continue
 		}
 
-		for i, t := range tasks {
-			err = t.Execute(batch.Ctx)
-			// check if the full batch was canceled
-			if errors.Is(err, context.Canceled) {
-				return err
-			}
-			if errors.Is(err, common.ErrWrongDimensions) {
-				w.logger.
-					WithError(err).
-					Error("task failed due to wrong dimensions, discarding")
-				continue // skip this task
-			}
-
-			// if the task failed, add it to the failed list
-			if err != nil {
-				errs = append(errs, err)
-				failed = append(failed, tasks[i])
-			}
+		// the batch was canceled, e.g. the queue is being closed
+		if batch.Ctx.Err() != nil {
+			return execErr
 		}
 
-		if len(failed) == 0 {
-			return nil // all tasks succeeded
+		// the whole batch is replayed on the queue's next turn, so that a
+		// failing queue does not hold the worker
+		if !isPermanent(execErr) {
+			w.logger.WithField("tasks", len(batch.Tasks)).
+				Warnf("recoverable error, the batch will be retried: %v", execErr)
+			return execErr
 		}
 
-		hasPermanentErrs := hasPermanentErrors(errs)
-		if hasPermanentErrs {
-			w.logger.WithError(errors.Join(errs...)).
-				WithField("failed", len(failed)).Error("permanent errors detected, discarding batch")
-			return nil
-		}
-
-		// the remaining errors are recoverable: transient errors, or timeouts,
-		// which are deliberately excluded from the permanent classification.
-		// Retry the failed tasks with a backoff. Every failure must either
-		// discard the batch, return, or sleep before the next attempt,
-		// otherwise this loop spins at full speed.
-		retryIn := w.calculateBackoff(attempts)
-		w.logger.
-			WithError(errors.Join(errs...)).
-			WithField("failed", len(failed)).
-			WithField("attempts", attempts).
-			WithField("retry_in", retryIn).
-			Warnf("recoverable errors detected, retrying batch in %s", retryIn)
-
-		attempts++
-		retryTimer := time.NewTimer(retryIn)
-		select {
-		case <-batch.Ctx.Done():
-			if !retryTimer.Stop() {
-				<-retryTimer.C
-			}
-			return batch.Ctx.Err()
-		case <-retryTimer.C:
-			// try again
-		}
+		discarded = append(discarded, execErr)
 	}
+
+	if len(discarded) > 0 {
+		w.logger.WithField("failed", len(discarded)).
+			Errorf("permanent errors, discarding the failed tasks: %v", errors.Join(discarded...))
+	}
+
+	return nil
 }
 
-func (w *Worker) calculateBackoff(attempts int) time.Duration {
-	// Cap attempts to prevent bit-shift overflow
-	const maxAttemptsBeforeCap = 5
-
-	if attempts > maxAttemptsBeforeCap {
-		return maxBackoffDuration
-	}
-
-	return time.Second << (attempts - 1)
-}
-
-func hasPermanentErrors(errs []error) bool {
-	for _, err := range errs {
-		if !enterrors.IsTransient(err) &&
-			!errors.Is(err, context.Canceled) &&
-			!errors.Is(err, context.DeadlineExceeded) {
-			return true
-		}
-	}
-	return false
+// isPermanent reports whether a failed task must be discarded rather than
+// retried. Timeouts are deliberately retried.
+func isPermanent(err error) bool {
+	return !enterrors.IsTransient(err) &&
+		!errors.Is(err, context.Canceled) &&
+		!errors.Is(err, context.DeadlineExceeded)
 }

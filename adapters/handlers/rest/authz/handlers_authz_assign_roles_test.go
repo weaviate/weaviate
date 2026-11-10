@@ -499,6 +499,16 @@ func TestAssignRoleToGroupForbidden(t *testing.T) {
 			principal:     &models.Principal{Username: "root-user"},
 			expectedError: "assigning: cannot assign or revoke from root group root-group",
 		},
+		{
+			name: "metadata group",
+			params: authz.AssignRoleToGroupParams{
+				ID:          "metadata-group",
+				HTTPRequest: req,
+				Body:        authz.AssignRoleToGroupBody{Roles: []string{"admin"}, GroupType: models.GroupTypeOidc},
+			},
+			principal:     &models.Principal{Username: "root-user"},
+			expectedError: "assigning: cannot assign or revoke from root group metadata-group",
+		},
 	}
 
 	for _, tt := range tests {
@@ -517,6 +527,7 @@ func TestAssignRoleToGroupForbidden(t *testing.T) {
 					RootUsers:      []string{"root-user"},
 					RootGroups:     []string{"root-group"},
 					ReadOnlyGroups: []string{"viewer-root-group"},
+					MetadataGroups: []string{"metadata-group"},
 				},
 			}
 			res := h.assignRoleToGroup(tt.params, tt.principal)

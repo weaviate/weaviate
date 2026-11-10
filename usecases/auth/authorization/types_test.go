@@ -286,9 +286,11 @@ func TestBuiltInPermissions_NamespaceManageOnly(t *testing.T) {
 	assert.True(t, hasExactAction(root, ManageNamespaces), "Root must include manage_namespaces")
 	assert.False(t, hasNamespaceAction(viewer), "Viewer must not include any *_namespaces action")
 	assert.False(t, hasNamespaceAction(readOnly), "ReadOnly must not include any *_namespaces action")
-	// Regression guard for the "only R-prefixed actions survive viewer filter"
-	// convention: backups has no read-prefixed action either, so viewers get none.
-	assert.False(t, hasBackupAction(viewer), "Viewer must not include any *_backups action")
+	// Only R-prefixed actions survive the viewer filter: viewers get read_backups,
+	// which their wildcard READ policy already granted, and never manage_backups.
+	assert.True(t, hasExactAction(viewer, ReadBackups), "Viewer must include read_backups")
+	assert.False(t, hasExactAction(viewer, ManageBackups), "Viewer must not include manage_backups")
+	assert.True(t, hasBackupAction(admin), "Admin must include backups actions")
 }
 
 // TestBuiltInPermissions_NamespacesEnabled asserts the narrowed admin/viewer
@@ -342,7 +344,7 @@ func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 
 	// Cluster-only domains excluded from both narrowed roles.
 	for _, action := range []string{
-		ManageBackups, ManageNamespaces,
+		ManageBackups, ReadBackups, ManageNamespaces,
 		ReadNodes, ReadCluster,
 		AssignAndRevokeGroups, ReadGroups,
 		CreateReplicate, ReadReplicate, UpdateReplicate, DeleteReplicate,

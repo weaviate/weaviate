@@ -14,7 +14,9 @@ package schema
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -41,6 +43,7 @@ type modulesProvider interface {
 	IsMultiVector(string) bool
 	HasModule(string) bool
 	MigrateVectorizerSettings(any, any) bool
+	MutableSettings(module string, current, updated map[string]any) bool
 }
 
 type Parser struct {
@@ -282,11 +285,16 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, err
 	}
 
-	if err := validateImmutableFields(class, update, p.modules); err != nil {
+	// Raft apply must stay deterministic across versions, so the changed settings are not validated here.
+	allowed, err := mutableSettingsChanges(p.modules, class, update, func(string, string) error { return nil })
+	if err != nil {
+		return nil, err
+	}
+	if err := validateImmutableFields(class, update, p.modules, allowed); err != nil {
 		return nil, err
 	}
 
-	if err := p.validateModuleConfigsParityAndImmutables(class, update); err != nil {
+	if err := p.validateModuleConfigsParityAndImmutables(class, update, allowed[""]); err != nil {
 		return nil, err
 	}
 
@@ -469,7 +477,7 @@ func hasTargetVectors(class *models.Class) bool {
 	return len(class.VectorConfig) > 0
 }
 
-func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *models.Class) error {
+func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *models.Class, allowed []string) error {
 	if updated.ModuleConfig == nil || reflect.DeepEqual(initial.ModuleConfig, updated.ModuleConfig) {
 		return nil
 	}
@@ -488,10 +496,10 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 
 	// this part:
 	// - allow adding new modules
-	// - only allows updating generative and rerankers
+	// - allows updating generative and rerankers
 	// - only one gen/rerank module can be present. Existing ones will be replaced, updating with more than one is not
 	//   allowed
-	// - other modules will not be changed. They can be present in the update if they have EXACTLY the same settings
+	// - other modules keep EXACTLY the same settings, except changes the module allows (MutableSettings)
 	hasGenerativeUpdate := false
 	hasRerankerUpdate := false
 	for module := range updatedModConf {
@@ -519,50 +527,52 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 			continue
 		}
 
+		if slices.Contains(allowed, module) {
+			continue
+		}
+
 		// There might be module settings that need to be migrated to new names, for example
 		// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
 		// and migrate baseUrl to baseURL
-		if p.modules.MigrateVectorizerSettings(initialModConf, updatedModConf) {
+		// initialModConf is the stored schema's map, so the migration runs on a copy.
+		migratedInitialModConf := structToMap(initialModConf)
+		if p.modules.MigrateVectorizerSettings(migratedInitialModConf, updatedModConf) {
 			// Module settings have been migrated, let's recheck vectorizer settings
-			if deepEqualVectorizerSettings(initialModConf[module], updatedModConf[module]) {
+			if deepEqualVectorizerSettings(migratedInitialModConf[module], updatedModConf[module]) {
 				continue
 			}
 		}
 
-		return fmt.Errorf("can only update generative and reranker module configs. Got: %v for class: %s", module, updated.Class)
+		return fmt.Errorf("can only update generative and reranker module configs, or settings the module allows to change. Got: %v for class: %s", module, updated.Class)
 	}
 
-	if initial.ModuleConfig == nil {
-		initial.ModuleConfig = updatedModConf
+	if initialModConf == nil {
+		updated.ModuleConfig = updatedModConf
 		return nil
 	}
 
-	if _, ok := initial.ModuleConfig.(map[string]any); !ok {
-		initial.ModuleConfig = updatedModConf
-		return nil
-	}
+	// initialModConf is the stored schema's map and the caller may still reject the update, so merge into a copy.
+	mergedModConf := maps.Clone(initialModConf)
 	if hasGenerativeUpdate {
 		// clear out old generative module
-		for module := range initialModConf {
+		for module := range mergedModConf {
 			if p.modules.IsGenerative(module) {
-				delete(initialModConf, module)
+				delete(mergedModConf, module)
 			}
 		}
 	}
 
 	if hasRerankerUpdate {
 		// clear out old reranker module
-		for module := range initialModConf {
+		for module := range mergedModConf {
 			if p.modules.IsReranker(module) {
-				delete(initialModConf, module)
+				delete(mergedModConf, module)
 			}
 		}
 	}
 
-	for module := range updatedModConf {
-		initialModConf[module] = updatedModConf[module]
-	}
-	updated.ModuleConfig = initialModConf
+	maps.Copy(mergedModConf, updatedModConf)
+	updated.ModuleConfig = mergedModConf
 	return nil
 }
 

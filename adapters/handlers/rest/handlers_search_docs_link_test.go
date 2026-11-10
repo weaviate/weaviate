@@ -138,6 +138,7 @@ func TestSearchErrPayloadDocsLinkThroughHandler(t *testing.T) {
 				Traverser:    failingSearch{err: tt.err},
 				SchemaReader: searchableSchema(t, "Movie"),
 				Authorizer:   mocks.NewMockAuthorizer(),
+				Qualifier:    namespacing.Disabled,
 				DefaultLimit: 10,
 			})
 

@@ -32,11 +32,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rolevisibility"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -50,7 +50,6 @@ var validateRoleNameRegex = regexp.MustCompile(`^` + roleNameRegexCore + `$`)
 type authZHandlers struct {
 	authorizer        authorization.Authorizer
 	controller        ControllerAndGetUsers
-	schemaReader      schemaUC.SchemaGetter
 	logger            logrus.FieldLogger
 	metrics           *monitoring.PrometheusMetrics
 	apiKeysConfigs    config.StaticAPIKey
@@ -64,13 +63,74 @@ type ControllerAndGetUsers interface {
 	GetUsers(userIds ...string) (map[string]apikey.UserView, error)
 }
 
-func SetupHandlers(api *operations.WeaviateAPI, controller ControllerAndGetUsers, schemaReader schemaUC.SchemaGetter,
+// UserGetter looks up dynamic DB users.
+type UserGetter interface {
+	GetUsers(userIds ...string) (map[string]apikey.UserView, error)
+}
+
+// InertController backs the role API on a cluster with RBAC disabled: every
+// mutation returns nil without effect and every RBAC getter returns the empty
+// value. GetUsers delegates to Users, because user existence is not RBAC state.
+type InertController struct {
+	Users UserGetter
+}
+
+var _ ControllerAndGetUsers = InertController{}
+
+func (InertController) UpdateRolesPermissions(map[string][]authorization.Policy) error {
+	return nil
+}
+
+func (InertController) CreateRolesPermissions(map[string][]authorization.Policy) error {
+	return nil
+}
+
+func (InertController) DeleteRoles(...string) error {
+	return nil
+}
+
+func (InertController) AddRolesForUser(string, []string) error {
+	return nil
+}
+
+func (InertController) RevokeRolesForUser(string, ...string) error {
+	return nil
+}
+
+func (InertController) RemovePermissions(string, []*authorization.Policy) error {
+	return nil
+}
+
+func (InertController) GetRoles(...string) (map[string][]authorization.Policy, error) {
+	return nil, nil
+}
+
+func (InertController) GetRolesForUserOrGroup(string, authentication.AuthType, bool) (map[string][]authorization.Policy, error) {
+	return nil, nil
+}
+
+func (InertController) GetUsersOrGroupForRole(string, authentication.AuthType, bool) ([]string, error) {
+	return nil, nil
+}
+
+func (InertController) HasPermission(string, *authorization.Policy) (bool, error) {
+	return false, nil
+}
+
+func (InertController) GetUsersOrGroupsWithRoles(bool, authentication.AuthType) ([]string, error) {
+	return nil, nil
+}
+
+func (c InertController) GetUsers(userIds ...string) (map[string]apikey.UserView, error) {
+	return c.Users.GetUsers(userIds...)
+}
+
+func SetupHandlers(api *operations.WeaviateAPI, controller ControllerAndGetUsers,
 	apiKeysConfigs config.StaticAPIKey, oidcConfigs config.OIDC, rconfig rbacconf.Config, namespacesEnabled bool, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) {
 	h := &authZHandlers{
 		controller:        controller,
 		authorizer:        authorizer,
-		schemaReader:      schemaReader,
 		rbacconfig:        rconfig,
 		oidcConfigs:       oidcConfigs,
 		apiKeysConfigs:    apiKeysConfigs,
@@ -123,14 +183,9 @@ func (h *authZHandlers) authorizeRoleScopes(ctx context.Context, principal *mode
 
 	// Check if user can manage roles with matching permissions
 	if err = h.authorizer.Authorize(ctx, principal, authorization.VerbWithScope(originalVerb, authorization.ROLE_SCOPE_MATCH), authorization.Roles(roleName)...); err == nil {
-		// Verify user has all permissions they're trying to grant
-		var errs error
-		for _, policy := range policies {
-			if err := h.authorizer.AuthorizeSilent(ctx, principal, policy.Verb, policy.Resource); err != nil {
-				errs = errors.Join(errs, err)
-			}
-		}
-		return errs
+		// Verify user has all permissions they're trying to grant. The policies
+		// are in stored form already, so nothing is projected.
+		return rolevisibility.AuthorizePolicies(ctx, h.authorizer, principal, "", policies)
 	}
 
 	return fmt.Errorf("can only create roles with less or equal permissions as the current user: %w", err)
@@ -274,37 +329,10 @@ func (h *authZHandlers) resolveRoleForRead(ctx context.Context, principal *model
 
 // authorizeAssignRolePermissions blocks privilege escalation via role
 // assignment: the caller must already hold every permission the assigned roles
-// grant, else assign_and_revoke_users alone could be used to grant admin. For a
-// namespaced caller each permission is projected into the assignee's namespace
-// before the check, so a global template role is evaluated as it applies to the
-// assignee rather than against its raw unqualified resource strings.
+// grant, else assign_and_revoke_users alone could be used to grant admin.
 func (h *authZHandlers) authorizeAssignRolePermissions(ctx context.Context, principal *models.Principal, targetNamespace string, roles map[string][]authorization.Policy) error {
-	namespaced := rolevisibility.CallerConfined(h.namespacesEnabled, principal)
-	var errs error
-	for _, policies := range roles {
-		for _, policy := range policies {
-			// GetRoles returns this placeholder for permission-less roles; it grants nothing.
-			if policy.Resource == conv.InternalPlaceHolder {
-				continue
-			}
-			resource := policy.Resource
-			if namespaced {
-				projected, err := namespacing.ProjectResourceForNamespace(policy.Resource, targetNamespace)
-				if err != nil {
-					// A role bound elsewhere can't be granted here; deny without
-					// echoing the foreign resource back to the caller.
-					errs = errors.Join(errs, errors.New("role grants a permission you do not hold"))
-					continue
-				}
-				resource = projected
-			}
-			if err := h.authorizer.AuthorizeSilent(ctx, principal, policy.Verb, resource); err != nil {
-				errs = errors.Join(errs, err)
-			}
-		}
-	}
-	if errs != nil {
-		return fmt.Errorf("can only assign roles with less or equal permissions as the current user: %w", errs)
+	if err := rolevisibility.AuthorizeRolePermissions(ctx, h.authorizer, h.namespacesEnabled, principal, targetNamespace, roles); err != nil {
+		return fmt.Errorf("can only assign roles with less or equal permissions as the current user: %w", err)
 	}
 	return nil
 }
@@ -323,6 +351,24 @@ func hasAllScopedRolePermission(policies []authorization.Policy) bool {
 	return false
 }
 
+// logUnstorableInput names who sent a value the policy file cannot store, since
+// the handlers refuse it before Authorize writes an audit line. It cuts the value
+// to maxTargetLength bytes, so a long request cannot make a long log line.
+func (h *authZHandlers) logUnstorableInput(principal *models.Principal, action, what, value string, err error) {
+	fields := logrus.Fields{
+		"action":    action,
+		"component": authorization.ComponentName,
+	}
+	if principal != nil {
+		fields["user"] = principal.Username
+	}
+	if len(value) > maxTargetLength {
+		fields["length"] = len(value)
+		value = value[:maxTargetLength] + "..."
+	}
+	h.logger.WithFields(fields).Warnf("refused %s %q: %v", what, value, err)
+}
+
 func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
@@ -334,13 +380,18 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("role name is invalid")))
 	}
 
-	if err := validatePermissions(h.namespacesEnabled, true, params.Body.Permissions...); err != nil {
+	if err := validatePermissions(h.namespacesEnabled, checkCreate, params.Body.Permissions...); err != nil {
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("role permissions are invalid: %w", err)))
 	}
 
 	policies, err := conv.RolesToPolicies(params.Body)
 	if err != nil {
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid role: %w", err)))
+	}
+
+	if err := validateStorablePolicies(policies[*params.Body.Name]); err != nil {
+		h.logUnstorableInput(principal, "create_role", "permissions of role", *params.Body.Name, err)
+		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("role permissions are invalid: %w", err)))
 	}
 
 	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
@@ -414,7 +465,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you can not update built-in role %s", params.ID)))
 	}
 
-	if err := validatePermissions(h.namespacesEnabled, false, params.Body.Permissions...); err != nil {
+	if err := validatePermissions(h.namespacesEnabled, checkAdd, params.Body.Permissions...); err != nil {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
 	}
 
@@ -427,6 +478,10 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 	}
 
 	rolePolicies := policies[params.ID]
+	if err := validateStorablePolicies(rolePolicies); err != nil {
+		h.logUnstorableInput(principal, "add_permissions", "permissions of role", params.ID, err)
+		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions: %w", err)))
+	}
 	if err := h.validateNoQualifiedNamespaceInPolicies(principal, rolePolicies, false); err != nil {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
@@ -491,7 +546,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 	// we don't validate permissions entity existence
 	// in case of the permissions gets removed after the entity got removed
 	// delete class ABC, then remove permissions on class ABC
-	if err := validatePermissions(h.namespacesEnabled, false, params.Body.Permissions...); err != nil {
+	if err := validatePermissions(h.namespacesEnabled, checkLookup, params.Body.Permissions...); err != nil {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
 	}
 
@@ -572,7 +627,7 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("permission is required")))
 	}
 
-	if err := validatePermissions(h.namespacesEnabled, false, params.Body); err != nil {
+	if err := validatePermissions(h.namespacesEnabled, checkLookup, params.Body); err != nil {
 		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
 	}
 
@@ -635,7 +690,7 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 
 	var response []*models.Role
 	for roleName, policies := range roles {
-		if roleName == authorization.Root && !slices.Contains(h.rbacconfig.RootUsers, principal.Username) {
+		if roleName == authorization.Root && (principal == nil || !slices.Contains(h.rbacconfig.RootUsers, principal.Username)) {
 			continue
 		}
 
@@ -650,7 +705,7 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 			name = namespacing.StripOwnNamespace(principal, roleName)
 		}
 
-		perms, err := conv.PoliciesToPermission(policies...)
+		perms, err := conv.PoliciesToPermission(h.logger, policies...)
 		if err != nil {
 			return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
 		}
@@ -730,7 +785,7 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 		policies = roles[roleID]
 	}
 
-	perms, err := conv.PoliciesToPermission(policies...)
+	perms, err := conv.PoliciesToPermission(h.logger, policies...)
 	if err != nil {
 		return authz.NewGetRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
 	}
@@ -792,7 +847,10 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 
 func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	internalID := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	internalID, err := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	if err != nil {
+		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
 
 	for _, role := range params.Body.Roles {
 		if strings.TrimSpace(role) == "" {
@@ -802,6 +860,11 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		if err := validateEnvVarRoles(role); err != nil {
 			return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("assigning: %w", err)))
 		}
+	}
+
+	if err := conv.ValidateStorableValue(internalID); err != nil {
+		h.logUnstorableInput(principal, "assign_roles", "user id", internalID, err)
+		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("user id %w", err)))
 	}
 
 	if err := h.validateUserIDForNamespaces(internalID); err != nil {
@@ -882,6 +945,11 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 
 	if rolevisibility.CallerConfined(h.namespacesEnabled, principal) {
 		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("assigning roles to groups is not allowed")))
+	}
+
+	if err := conv.ValidateStorableValue(params.ID); err != nil {
+		h.logUnstorableInput(principal, "assign_roles", "group id", params.ID, err)
+		return authz.NewAssignRoleToGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("group id %w", err)))
 	}
 
 	for _, role := range params.Body.Roles {
@@ -985,7 +1053,7 @@ func (h *authZHandlers) getRolesForUserDeprecated(params authz.GetRolesForUserDe
 	var authErr error
 	for _, existing := range []map[string][]authorization.Policy{existingRolesDB, existingRolesOIDC} {
 		for roleName, policies := range existing {
-			perms, err := conv.PoliciesToPermission(policies...)
+			perms, err := conv.PoliciesToPermission(h.logger, policies...)
 			if err != nil {
 				return authz.NewGetRolesForUserDeprecatedInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
 			}
@@ -1047,7 +1115,7 @@ func (h *authZHandlers) visibleRolesForSubject(ctx context.Context, principal *m
 			continue
 		}
 
-		perms, err := conv.PoliciesToPermission(policies...)
+		perms, err := conv.PoliciesToPermission(h.logger, policies...)
 		if err != nil {
 			return nil, nil, fmt.Errorf("PoliciesToPermission: %w", err)
 		}
@@ -1070,7 +1138,10 @@ func (h *authZHandlers) visibleRolesForSubject(ctx context.Context, principal *m
 
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	internalID := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	internalID, err := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	if err != nil {
+		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
 
 	if err := h.validateUserIDForNamespaces(internalID); err != nil {
 		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
@@ -1313,7 +1384,10 @@ func (h *authZHandlers) getUsersForRoleDeprecated(params authz.GetUsersForRoleDe
 
 func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	internalID := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	internalID, err := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
+	if err != nil {
+		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
 
 	for _, role := range params.Body.Roles {
 		if strings.TrimSpace(role) == "" {
@@ -1353,6 +1427,10 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 	}
 
 	if err := h.validateLocalRoleAssignment(principal, roleNames); err != nil {
+		return authz.NewRevokeRoleFromUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	if err := h.validateNotConfiguredGrant(internalID, authentication.AuthType(params.Body.UserType), roleNames); err != nil {
 		return authz.NewRevokeRoleFromUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -1569,7 +1647,7 @@ func (h *authZHandlers) dbUserExists(user string) (bool, error) {
 
 // validateRootGroup validates that enduser do not touch the internal root group
 func (h *authZHandlers) validateRootGroup(name string) error {
-	if slices.Contains(h.rbacconfig.RootGroups, name) || slices.Contains(h.rbacconfig.ReadOnlyGroups, name) {
+	if slices.Contains(h.rbacconfig.RootGroups, name) || slices.Contains(h.rbacconfig.ReadOnlyGroups, name) || slices.Contains(h.rbacconfig.MetadataGroups, name) {
 		return fmt.Errorf("cannot assign or revoke from root group %s", name)
 	}
 	return nil
@@ -1603,6 +1681,41 @@ func (h *authZHandlers) getUserTypesAndValidateExistence(id string, userTypePara
 func validateEnvVarRoles(name string) error {
 	if slices.Contains(authorization.EnvVarRoles, name) {
 		return fmt.Errorf("modifying '%s' role or changing its assignments is not allowed", name)
+	}
+	return nil
+}
+
+// configuredGrantSettings maps each role rbac.AdminViewerGrants can return to
+// the environment variable and the config-file key that grant it.
+var configuredGrantSettings = map[string]string{
+	authorization.Admin:  "the EXPERIMENTAL_AUTHORIZATION_RBAC_ADMIN_USERS env var or the admin_users config key",
+	authorization.Viewer: "the EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_USERS env var or the viewer_users config key",
+}
+
+// validateNotConfiguredGrant refuses to revoke a role that this node's config
+// grants to internalID (see rbac.AdminViewerGrants). Every boot adds such a
+// grant back. With RBAC disabled, config grants take no effect, so this
+// refuses nothing. An empty userType checks both user types, as
+// getUserTypesAndValidateExistence does. A user with such a grant always passes
+// that existence check, so this check does not need to call the controller.
+func (h *authZHandlers) validateNotConfiguredGrant(internalID string, userType authentication.AuthType, roleNames []string) error {
+	if !h.rbacconfig.Enabled {
+		return nil
+	}
+	userTypes := []authentication.AuthType{userType}
+	if userType == "" {
+		userTypes = []authentication.AuthType{authentication.AuthTypeOIDC, authentication.AuthTypeDb}
+	}
+	grants := rbac.AdminViewerGrants(h.rbacconfig, config.Authentication{APIKey: h.apiKeysConfigs, OIDC: h.oidcConfigs})
+	for _, g := range grants {
+		if !slices.Contains(roleNames, g.Role) {
+			continue
+		}
+		for _, t := range userTypes {
+			if g.Subject == conv.UserNameWithTypeFromId(internalID, t) {
+				return fmt.Errorf("revoking: role '%s' of user '%s' is set by %s; remove the user from that setting instead", g.Role, internalID, configuredGrantSettings[g.Role])
+			}
+		}
 	}
 	return nil
 }

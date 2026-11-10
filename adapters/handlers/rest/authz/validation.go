@@ -19,6 +19,8 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
 
 // keyMatch5BraceRe mirrors casbin's KeyMatch5, which rewrites a "{...}" token to
@@ -32,9 +34,8 @@ const maxTargetLength = 256
 // validateRegexTarget rejects a permission target that would not survive being
 // stored as a casbin resource pattern: it is over-long, contains a '/' (which
 // shifts the segment boundaries used on read-back), or does not compile as a
-// regex (which panics the matcher at enforce time). It reproduces exactly what
-// the matcher compiles — the '*' wildcard expanded and KeyMatch5's "{...}"
-// rewrite applied — so constructs the rewrite would break (e.g. "\p{L}",
+// regex. It compiles the target with the '*' wildcard expanded and KeyMatch5's
+// "{...}" rewrite applied, so constructs the rewrite would break (e.g. "\p{L}",
 // "\x{263a}") are caught here, not at enforce.
 func validateRegexTarget(field, value string) error {
 	if len(value) > maxTargetLength {
@@ -50,8 +51,18 @@ func validateRegexTarget(field, value string) error {
 	return nil
 }
 
-func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*models.Permission) error {
-	if !allowEmpty && len(permissions) == 0 {
+// permissionCheck is the request a permission list comes from, which decides how
+// strictly validatePermissions checks it.
+type permissionCheck int
+
+const (
+	checkCreate permissionCheck = iota // create accepts an empty list and checks the stored form
+	checkAdd                           // add needs one or more and checks the stored form
+	checkLookup                        // remove and has-permission accept rows already stored
+)
+
+func validatePermissions(namespacesEnabled bool, check permissionCheck, permissions ...*models.Permission) error {
+	if check != checkCreate && len(permissions) == 0 {
 		return fmt.Errorf("role has to have at least 1 permission")
 	}
 
@@ -75,6 +86,18 @@ func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*mod
 		tenantName := func(name string) {
 			add(schema.ValidateTenantNameIncludesRegex(name))
 			add(validateRegexTarget("tenant", name))
+		}
+		// aliasName checks the pattern as conv stores it, uppercased, against the
+		// class-name rule. That refuses "ålias.*", which matches no alias, and
+		// "[[:alpha:]]", stored as "[[:Alpha:]]", which does not compile. checkLookup
+		// skips the rule so remove can drop such stored rows.
+		aliasName := func(name string) {
+			if check == checkLookup {
+				return
+			}
+			if validatePermissionClassName(namespacesEnabled, schema.UppercaseClassName(name)) != nil {
+				add(fmt.Errorf("'%s' is not a valid alias name", name))
+			}
 		}
 
 		if p := perm.Collections; p != nil && p.Collection != nil {
@@ -128,6 +151,7 @@ func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*mod
 			}
 			if p.Alias != nil {
 				add(validateRegexTarget("alias", *p.Alias))
+				aliasName(*p.Alias)
 			}
 		}
 		if p := perm.Namespaces; p != nil && p.Namespace != nil {
@@ -139,6 +163,24 @@ func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*mod
 		}
 	}
 
+	return nil
+}
+
+// validateStorablePolicies rejects a permission whose resource would corrupt the
+// policy file. It skips the length check because a resource joins several
+// targets, and validatePermissions already caps each one at maxTargetLength.
+// It also compiles each resource as KeyMatch5 does, since conv stores a target
+// such as "X|\Q" as "(X|\Q)", and there "\Q" quotes the closing ')'.
+func validateStorablePolicies(policies []authorization.Policy) error {
+	for _, p := range policies {
+		if err := conv.ValidateStorableCharacters(p.Resource); err != nil {
+			return fmt.Errorf("permission %q %w", p.Resource, err)
+		}
+		pattern := "^" + keyMatch5BraceRe.ReplaceAllString(strings.ReplaceAll(p.Resource, "/*", "/.*"), "[^/]+") + "$"
+		if _, err := regexp.Compile(pattern); err != nil {
+			return fmt.Errorf("permission %q is not a valid pattern: %w", p.Resource, err)
+		}
+	}
 	return nil
 }
 

@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -43,9 +44,9 @@ import (
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
@@ -107,7 +108,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		nodeResolver: nodeResolver,
 	}
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
@@ -168,12 +169,12 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 
 	backendProvider := newFakeBackupBackendProvider(localDir)
 	n.backupManager = ubak.NewHandler(
-		logger, config.Backup{}, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider, fakeRbacBackupWrapper{}, fakeDynUserBackupWrapper{},
+		logger, config.Backup{}, &fakeAuthorizer{}, n.schemaManager, n.name, n.repo, backendProvider, fakeRbacBackupWrapper{}, fakeDynUserBackupWrapper{},
 	)
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
 	n.scheduler = ubak.NewScheduler(
-		&fakeAuthorizer{}, backupClient, n.repo, n.repo, nil, nil, backendProvider, nodeResolver, n.schemaManager, nil, nil, nil, logger)
+		&fakeAuthorizer{}, backupClient, n.repo, license.FeatureOff, nil, nil, nil, backendProvider, nodeResolver, n.schemaManager, nil, nil, nil, logger)
 
 	n.migrator = db.NewMigrator(n.repo, logger, n.name)
 
@@ -237,13 +238,19 @@ func (r fakeDynUserBackupWrapper) Restore([]byte, bool) error {
 }
 
 type fakeSchemaManager struct {
+	// Left unset: only the methods defined below are expected.
+	local.VersionedReader
+	local.ClassReader
 	schema       schema.Schema
 	shardState   *sharding.State
 	nodeResolver *nodeResolver
 }
 
-func (f *fakeSchemaManager) GetSchemaSkipAuth() schema.Schema {
-	return f.schema
+func (f *fakeSchemaManager) ReadOnlySchema() models.Schema {
+	if f.schema.Objects == nil {
+		return models.Schema{}
+	}
+	return *f.schema.Objects
 }
 
 func (f *fakeSchemaManager) ReadOnlyClass(class string) *models.Class {
@@ -462,10 +469,9 @@ func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key, overri
 }
 
 func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {
-	f.Lock()
-	defer f.Unlock()
 	defer r.Close()
-	return 0, nil
+	// Closing unread fails the sender with "read/write on closed pipe".
+	return io.Copy(io.Discard, r)
 }
 
 func (f *fakeBackupBackend) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
@@ -527,7 +533,7 @@ func (f *fakeBackupBackend) successGlobalMeta() backup.DistributedBackupDescript
 		},
 		Status:        "SUCCESS",
 		Version:       ubak.Version,
-		ServerVersion: "x.x.x",
+		ServerVersion: "1.38.0",
 	}
 }
 
@@ -535,7 +541,7 @@ func (f *fakeBackupBackend) successLocalMeta() backup.BackupDescriptor {
 	return backup.BackupDescriptor{
 		ID:            f.backupID,
 		Status:        "SUCCESS",
-		ServerVersion: "x.x.x",
+		ServerVersion: "1.38.0",
 		Version:       ubak.Version,
 		StartedAt:     f.startedAt,
 		Classes: []backup.ClassDescriptor{
@@ -554,7 +560,7 @@ func (f *fakeBackupBackend) successLocalMeta() backup.BackupDescriptor {
 						PropLengthTrackerPath: ".",
 					},
 				},
-				ShardingState: []byte("sharding state!"),
+				ShardingState: []byte(`{"physical":{"123":{"name":"123","belongsToNodes":["node-0"]}}}`),
 				Schema:        []byte("schema!"),
 			},
 		},
@@ -568,6 +574,10 @@ func (f *fakeBackupBackend) reset() {
 type fakeAuthorizer struct{}
 
 func (f *fakeAuthorizer) Authorize(ctx context.Context, _ *models.Principal, _ string, _ ...string) error {
+	return nil
+}
+
+func (f *fakeAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, _ *models.Principal, _ string, _ string, _ ...string) error {
 	return nil
 }
 

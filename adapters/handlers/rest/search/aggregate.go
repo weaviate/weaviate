@@ -186,7 +186,7 @@ func (h *Handler) buildAggregateParams(class *models.Class, className string,
 		params.Limit = &limit
 	}
 
-	filter, apiErr := h.parseWhere(body.Where, class, className, h.namespacesEnabled, principal, getClass)
+	filter, apiErr := h.parseWhere(body.Where, class, className, h.qualifier, principal, getClass)
 	if apiErr != nil {
 		return nil, false, apiErr
 	}

@@ -509,7 +509,7 @@ func NewSchemaObjectsIndexUpsertConflict() *SchemaObjectsIndexUpsertConflict {
 /*
 SchemaObjectsIndexUpsertConflict describes a response with status code 409, with default header values.
 
-Conflicting in-flight reindex task; the message names the offending task ID.
+Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.
 */
 type SchemaObjectsIndexUpsertConflict struct {
 	Payload *models.ErrorResponse
@@ -781,7 +781,7 @@ func NewSchemaObjectsIndexUpsertServiceUnavailable() *SchemaObjectsIndexUpsertSe
 /*
 SchemaObjectsIndexUpsertServiceUnavailable describes a response with status code 503, with default header values.
 
-Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.
+Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.
 */
 type SchemaObjectsIndexUpsertServiceUnavailable struct {
 	Payload *models.ErrorResponse

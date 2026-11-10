@@ -23,12 +23,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -120,6 +120,7 @@ func newTestIndexForSnapshot(t *testing.T, className string) *Index {
 	t.Helper()
 	return &Index{
 		Config: IndexConfig{
+			NodeName:  "node1",
 			RootPath:  t.TempDir(),
 			ClassName: schema.ClassName(className),
 		},
@@ -230,6 +231,7 @@ func TestIsAsyncReplicationEnabledOrIrrelevant(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			idx := &Index{
 				Config: IndexConfig{
+					NodeName:          "node1",
 					ReplicationFactor: tt.replicationFactor,
 					ClassName:         schema.ClassName(className),
 				},
@@ -239,7 +241,7 @@ func TestIsAsyncReplicationEnabledOrIrrelevant(t *testing.T) {
 			// Leave readers nil at RF>1 so a regression that newly consults
 			// them surfaces as a nil-pointer panic rather than silently passing.
 			if tt.replicationFactor <= 1 {
-				sr := schemaUC.NewMockSchemaReader(t)
+				sr := local.NewMockSchemaReader(t)
 				call := sr.EXPECT().Read(className, true, mock.Anything)
 				if tt.readErr != nil {
 					call.Return(tt.readErr).Once()
@@ -276,7 +278,7 @@ func TestDBIsAsyncReplicationEnabled(t *testing.T) {
 		if idx != nil {
 			indices[indexID(schema.ClassName(className))] = idx
 		}
-		return &DB{indices: indices}
+		return &DB{localNodeName: "node1", indices: indices}
 	}
 
 	t.Run("index not found: not exportable", func(t *testing.T) {
@@ -297,7 +299,7 @@ func TestDBIsAsyncReplicationEnabled(t *testing.T) {
 			physical[name] = sharding.Physical{Name: name, BelongsToNodes: []string{"nodeA"}}
 		}
 
-		sr := schemaUC.NewMockSchemaReader(t)
+		sr := local.NewMockSchemaReader(t)
 		sr.EXPECT().Read(className, true, mock.Anything).
 			RunAndReturn(func(_ string, _ bool, r func(*models.Class, *sharding.State) error) error {
 				return r(nil, &sharding.State{Physical: physical})
@@ -311,6 +313,7 @@ func TestDBIsAsyncReplicationEnabled(t *testing.T) {
 
 		idx := &Index{
 			Config: IndexConfig{
+				NodeName:          "node1",
 				ReplicationFactor: 1,
 				ClassName:         schema.ClassName(className),
 			},
@@ -333,7 +336,7 @@ func TestDBIsAsyncReplicationEnabled(t *testing.T) {
 
 	t.Run("RF>1 not globally disabled: exportable", func(t *testing.T) {
 		db := newDB(&Index{
-			Config: IndexConfig{ReplicationFactor: 3},
+			Config: IndexConfig{NodeName: "node1", ReplicationFactor: 3},
 			globalreplicationConfig: &replication.GlobalConfig{
 				AsyncReplicationDisabled: configRuntime.NewDynamicValue(false),
 			},
@@ -343,7 +346,7 @@ func TestDBIsAsyncReplicationEnabled(t *testing.T) {
 
 	t.Run("RF>1 with async replication globally disabled: not exportable", func(t *testing.T) {
 		db := newDB(&Index{
-			Config: IndexConfig{ReplicationFactor: 3},
+			Config: IndexConfig{NodeName: "node1", ReplicationFactor: 3},
 			globalreplicationConfig: &replication.GlobalConfig{
 				AsyncReplicationDisabled: configRuntime.NewDynamicValue(true),
 			},

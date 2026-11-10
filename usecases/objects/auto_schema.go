@@ -135,12 +135,19 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			classcache.RemoveClassFromContext(ctx, object.Class)
 		} else {
 			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {
-				var err error
-				schemaClass, schemaVersion, err = m.schemaManager.AddClassProperty(ctx,
+				// AddClassProperty reads the class from this node's schema, which can
+				// lag the leader the class was fetched from or written through.
+				if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+					return 0, fmt.Errorf("auto-schema: update collection: wait for schema version %d: %w", schemaVersion, err)
+				}
+				var addedAt uint64
+				schemaClass, addedAt, err = m.schemaManager.AddClassProperty(ctx,
 					principal, namespacing.StripOwnNamespace(principal, schemaClass.Class), true, newProperties...)
 				if err != nil {
 					return 0, fmt.Errorf("auto-schema: update collection: %w", err)
 				}
+				// Never gate the batch below the version the class was fetched at.
+				schemaVersion = max(schemaVersion, addedAt)
 				classes[object.Class] = versioned.Class{Class: schemaClass, Version: schemaVersion}
 				classcache.RemoveClassFromContext(ctx, object.Class)
 			}

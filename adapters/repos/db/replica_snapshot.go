@@ -16,10 +16,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
+	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/integrity"
@@ -38,11 +42,82 @@ type replicaSnapshotState struct {
 	isSnapshot bool
 }
 
+// IncomingProbeShardData reports whether this node holds shard data, with hosted true when a usable copy answered. ErrShardRecovering means "not usable now".
+// It reads no namespace state, because it only counts the objects of a shard this node already holds and loads none.
+func (i *Index) IncomingProbeShardData(ctx context.Context, shardName string) (hasData, hosted bool, err error) {
+	s := i.shards.Load(shardName)
+	if rec, ok := s.(*RecoveringShard); ok && rec.IsRecovering() {
+		return false, false, fmt.Errorf("incoming probe shard data for shard %s: %w", shardName, enterrors.ErrShardRecovering)
+	}
+	if lazy, ok := asLazyLoadShard(s); ok && !lazy.isLoaded() {
+		return i.probeShardDataOnDisk(shardName)
+	}
+	if s == nil {
+		// A deactivated tenant is missing from the map but can still hold data on disk.
+		if hasData, onDisk, err := i.probeShardDataOnDisk(shardName); err != nil || onDisk {
+			return hasData, onDisk, err
+		}
+	}
+	shard, release, err := i.getLoadedShard(shardName)
+	if err != nil {
+		return false, false, fmt.Errorf("incoming probe shard data get shard %s: %w", shardName, err)
+	}
+	defer release()
+	if shard == nil {
+		// A shard unloaded since the map read above can still hold data on disk,
+		// which a "not found" answer would report as none.
+		if hasData, onDisk, err := i.probeShardDataOnDisk(shardName); err != nil || onDisk {
+			return hasData, onDisk, err
+		}
+		return false, false, fmt.Errorf("incoming probe shard data get shard is nil: %s", shardName)
+	}
+	count, err := shard.ObjectCount(ctx)
+	if err != nil {
+		return false, false, fmt.Errorf("incoming probe shard data object count %s: %w", shardName, err)
+	}
+	return count > 0, true, nil
+}
+
+func (i *Index) asShardBusyIfReindexInFlight(err error) error {
+	busyWithReindex := errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex) &&
+		!errors.Is(err, ErrReindexGateUnavailable)
+	if !busyWithReindex {
+		return err
+	}
+	return fmt.Errorf("%w: %w; transfer deferred until it completes",
+		enterrors.ErrShardBusyStructuralOp, err)
+}
+
+// probeShardDataOnDisk reads the shard's object counter from its folder rather
+// than loading the shard, which would create the folder. A missing folder answers
+// onDisk false, so a shard that lost its copy is not confirmed empty.
+func (i *Index) probeShardDataOnDisk(shardName string) (hasData, onDisk bool, err error) {
+	dir := shardPath(i.path(), shardName)
+	if _, err := os.Stat(dir); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, false, nil
+		}
+		return false, false, fmt.Errorf("incoming probe shard data stat %s: %w", shardName, err)
+	}
+	count, err := indexcounter.Read(dir)
+	if err != nil {
+		return false, false, fmt.Errorf("incoming probe shard data read counter %s: %w", shardName, err)
+	}
+	return count > 0, true, nil
+}
+
 func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, opID string) ([]string, error) {
 	// Target retries can land twice server-side for the same opID; without
 	// this lock they race on the staging dir.
 	i.replicaSnapshotOpLocks.Lock(opID)
 	defer i.replicaSnapshotOpLocks.Unlock(opID)
+
+	// A shard we're recovering can't be a copy source; probes must read "not usable now", not "definitively empty".
+	if s := i.shards.Load(shardName); s != nil {
+		if rec, ok := s.(*RecoveringShard); ok && rec.IsRecovering() {
+			return nil, fmt.Errorf("incoming create replica snapshot for shard %s: %w", shardName, enterrors.ErrShardRecovering)
+		}
+	}
 
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
@@ -67,7 +142,7 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 		files, err := shard.CreateReplicaSnapshot(ctx, stagingRoot)
 		if err != nil {
 			i.cleanupFailedReplicaSnapshot(stagingRoot, opID, false, nil)
-			return nil, err
+			return nil, i.asShardBusyIfReindexInFlight(err)
 		}
 		i.logger.WithField("op_id", opID).WithField("shard", shardName).
 			Debugf("created replica snapshot: %d files", len(files))
@@ -80,7 +155,7 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	// backstops a target crash so the halt can't leak forever waiting on a peer that's gone.
 	if err := shard.HaltForTransfer(ctx, false, i.Config.TransferInactivityTimeout); err != nil {
 		i.cleanupFailedReplicaSnapshot(stagingRoot, opID, false, nil)
-		return nil, fmt.Errorf("halt shard %q for transfer: %w", shardName, err)
+		return nil, i.asShardBusyIfReindexInFlight(fmt.Errorf("halt shard %q for transfer: %w", shardName, err))
 	}
 
 	files, err := shard.ListReplicaSnapshotFiles(ctx, stagingRoot)

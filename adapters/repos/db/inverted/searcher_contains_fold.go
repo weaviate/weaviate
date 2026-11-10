@@ -36,23 +36,19 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, source containsBa
 ) (docBitmap, containsFoldPlan, error) {
 	keys := pv.containsKeys
 	if keys.Len() == 0 {
-		// defensive: the folds adopt their first row as the accumulator, so zero
-		// keys yields a nil bitmap rather than an empty one
+		// callers route a leaf here only once it holds keys
 		return docBitmap{}, containsFoldPlan{}, fmt.Errorf(
 			"%w: contains fold on prop %q carries no keys, after the leaf was built",
 			entsInverted.ErrInternal, pv.prop)
 	}
 
-	planner := containsFoldPlanner{docIDCount: s.bitmapFactory.DocIDCount()}
-	// the smaller of the query's share and the machine, so the planner compares
-	// one number against the batch rather than reaching for a second
-	workerBudget := min(concurrency.BudgetFromCtx(ctx, concurrency.GOMAXPROCS),
-		concurrency.GOMAXPROCS)
-	plan, err := planner.plan(workerBudget, pv.operator, keys.Len())
+	plan, err := s.planContainsFold(ctx, pv)
 	if err != nil {
 		return docBitmap{}, containsFoldPlan{}, fmt.Errorf("%w: %w", entsInverted.ErrInternal, err)
 	}
 
+	// only a root fold resizes: a child's ctx carries a fixed share
+	restoreBudget := shrinkBudgetForContainsFold(ctx, plan)
 	isDenyList := pv.operator == filters.ContainsNone
 	fold := containsFoldRunner{
 		source:    source,
@@ -64,10 +60,21 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, source containsBa
 	}
 
 	acc, accRelease, err := fold.run(ctx)
+	restoreBudget()
 	if err != nil {
 		return docBitmap{}, plan, err
 	}
 	return docBitmap{docIDs: acc, release: accRelease, isDenyList: isDenyList}, plan, nil
+}
+
+// planContainsFold plans pv's fold under ctx's budget.
+func (s *Searcher) planContainsFold(ctx context.Context, pv *propValuePair) (containsFoldPlan, error) {
+	planner := containsFoldPlanner{docIDCount: s.bitmapFactory.DocIDCount()}
+	// the smaller of the query's share and the machine, so the planner compares
+	// one number against the batch rather than reaching for a second
+	workerBudget := min(concurrency.BudgetFromCtx(ctx, concurrency.GOMAXPROCS),
+		concurrency.GOMAXPROCS)
+	return planner.plan(workerBudget, pv.operator, pv.containsKeys.Len())
 }
 
 // containsBatchReaderSource opens a reader over part of a batch. A parallel
@@ -110,8 +117,9 @@ func (s *roaringSetBatchReaderSource) stats() (lsmkv.RoaringSetBatchReaderStats,
 // containsBatchReader reads roaringset rows for one batched Contains fold under
 // a single held view. One reader serves one goroutine.
 //
-// Next returns a row and its release, or an error and neither. Len equals the
-// key count the reader was opened with.
+// Next returns a row and its release, or an error and neither. A nil row means
+// the key has no row, and its release may be skipped. Len equals the key count
+// the reader was opened with.
 type containsBatchReader interface {
 	Len() int
 	Next(mergeConc int) (*sroar.Bitmap, func(), error)
@@ -140,6 +148,11 @@ const (
 // costs a reader and one whole-partial merge, neither of which shrinks with the
 // share, and a smaller share cannot repay them.
 const containsMinKeysPerWorker = 32
+
+// containsFoldMergeFactor is the merge goroutines each fold worker keeps when
+// Searcher.docIDs shrinks the budget, capped at SROAR_MERGE, which the merges
+// never exceed. A var so BenchmarkDocIDs_ContainsMergeFactor can sweep it.
+var containsFoldMergeFactor = min(2, concurrency.SROAR_MERGE)
 
 // containsAccumulatorMinKeysPerWorker gates the union folds: below this many
 // keys the incremental Or fold runs instead. Per WORKER, since each stages its
@@ -419,8 +432,10 @@ func (f containsFoldRunner) incremental(ctx context.Context, op filters.Operator
 			break
 		}
 	}
-	// non-nil, since the reader walks the batch it was opened with and that
-	// holds at least one key, so the first iteration adopts its fetched bitmap
+	if acc == nil {
+		// every key read had no row
+		return sroar.NewBitmap(), noopRelease, nil
+	}
 	out, outRelease := acc, accRelease
 	accRelease = nil // the caller owns it from here
 	return out, outRelease, nil
@@ -555,6 +570,10 @@ func (f containsFoldRunner) incrementalParallel(ctx context.Context, op filters.
 	if errors.Is(context.Cause(fetchCtx), errIntersectionSettled) {
 		return sroar.NewBitmap(), noopRelease, nil
 	}
+	if merged == nil {
+		// no key had a row
+		return sroar.NewBitmap(), noopRelease, nil
+	}
 
 	result, release := merged, mergedRelease
 	mergedRelease = noopRelease
@@ -685,7 +704,8 @@ func (f containsFoldRunner) merge(op filters.Operator, mergeConc int,
 // never a deny list, so the deny-list algebra mergeBitmapsAndOrWithDenyList
 // carries is not needed here.
 //
-// Direction as mergeBitmapsAndOrWithDenyList picks it.
+// Direction as mergeBitmapsAndOrWithDenyList picks it. b may be nil, for a key
+// with no row, but a may not.
 func mergeAllowlistBitmaps(op filters.Operator, maxConc int,
 	a *sroar.Bitmap, aRelease func(), b *sroar.Bitmap, bRelease func(),
 ) (*sroar.Bitmap, func(), error) {
@@ -696,7 +716,8 @@ func mergeAllowlistBitmaps(op filters.Operator, maxConc int,
 		}
 		a.OrConc(b, maxConc)
 	case filters.ContainsAll:
-		if a.NumContainers() > b.NumContainers() {
+		// swapped in, a nil b would become AndConc's receiver
+		if b != nil && a.NumContainers() > b.NumContainers() {
 			a, aRelease, b, bRelease = b, bRelease, a, aRelease
 		}
 		a.AndConc(b, maxConc)

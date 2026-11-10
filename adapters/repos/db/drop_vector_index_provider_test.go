@@ -19,10 +19,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -50,11 +52,15 @@ type fakeEditOpBucket struct {
 	pendingErr     error                          // when set, EditOpPending returns it
 	pendingFn      func(string) ([]string, error) // when set, overrides all other pending sources
 	polled         chan struct{}                  // if set, a non-blocking signal per EditOpPending call
+	registerErr    error                          // when set, RegisterEditOp returns it
 }
 
 func (f *fakeEditOpBucket) RegisterEditOp(opID string, desc lsmkv.OpDescriptor) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.registerErr != nil {
+		return f.registerErr
+	}
 	if f.registered == nil {
 		f.registered = map[string]lsmkv.OpDescriptor{}
 	}
@@ -150,7 +156,9 @@ type fakeShards struct {
 	bucket     editOpBucket
 	buckets    map[string]editOpBucket // per-shard override; takes precedence over bucket
 	bucketErr  error
-	resolveErr error // when set, the bucket resolution itself fails
+	resolveErr error                   // when set, the bucket resolution itself fails
+	loaded     map[string]editOpBucket // when non-nil, what EditOpBucketsForLoadedShards alone returns
+	loadedErr  error                   // when set, EditOpBucketsForLoadedShards alone fails
 	mu         sync.Mutex
 	removed    []removedCall
 	removeErr  map[string]error // per-shard EnsureDroppedVectorFilesRemoved error
@@ -184,6 +192,12 @@ func (f *fakeShards) EditOpBucketsForShards(ctx context.Context, collection stri
 }
 
 func (f *fakeShards) EditOpBucketsForLoadedShards(collection string, shardNames []string) (map[string]editOpBucket, error) {
+	if f.loadedErr != nil {
+		return nil, f.loadedErr
+	}
+	if f.loaded != nil {
+		return f.loaded, nil
+	}
 	return f.resolve(shardNames)
 }
 
@@ -272,16 +286,18 @@ func (r *fakeRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, na
 // `shards` (the coverage guard compares it against the task's units) and a class
 // whose VectorConfig is `vectorCfg` (the arm-time still-dropped guard reads it).
 type fakeShardingReader struct {
+	// leader.SchemaReader is left unset: only the methods below are expected.
+	leader.SchemaReader
 	shards         []string
 	vectorCfg      map[string]models.VectorConfig
 	activeTasks    []*distributedtask.Task // returned by ListDistributedTasks
 	err            error
-	readClassErrs  int // QueryReadOnlyClasses fails this many times, then succeeds
+	readClassErrs  int // ReadOnlyClassesFromLeader fails this many times, then succeeds
 	readClassCalls int
 	listTasksErr   error
 }
 
-func (f *fakeShardingReader) QueryShardingState(class string) (*sharding.State, uint64, error) {
+func (f *fakeShardingReader) ShardingStateFromLeader(class string) (*sharding.State, uint64, error) {
 	if f.err != nil {
 		return nil, 0, f.err
 	}
@@ -299,7 +315,7 @@ func (f *fakeShardingReader) ListDistributedTasks(ctx context.Context) (map[stri
 	return map[string][]*distributedtask.Task{DropVectorIndexNamespace: f.activeTasks}, nil
 }
 
-func (f *fakeShardingReader) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
+func (f *fakeShardingReader) ReadOnlyClassesFromLeader(classes ...string) (map[string]versioned.Class, error) {
 	f.readClassCalls++
 	if f.readClassErrs > 0 {
 		f.readClassErrs--
@@ -326,7 +342,8 @@ func newTestDropProvider(shards dropVectorShards, fin dropVectorSchemaFinalizer,
 func newTestDropProviderCtx(shards dropVectorShards, fin dropVectorSchemaFinalizer, rec distributedtask.TaskCompletionRecorder, serverCtx context.Context) *DropVectorIndexProvider {
 	logger, _ := test.NewNullLogger()
 	// Default sharding state: exactly the shard the default dropTask covers.
-	p := NewDropVectorIndexProvider(shards, fin, &fakeShardingReader{shards: []string{"shard1"}}, logger, "node1", serverCtx, nil)
+	reader := &fakeShardingReader{shards: []string{"shard1"}}
+	p := NewDropVectorIndexProvider(shards, fin, reader, reader, logger, "node1", serverCtx, nil)
 	p.pollInterval = time.Millisecond
 	p.verifyRetryBackoff = time.Millisecond
 	p.SetCompletionRecorder(rec)
@@ -575,6 +592,126 @@ func TestStartTask_BucketLookupFails_UnitFailed(t *testing.T) {
 	require.Empty(t, rec.completed)
 }
 
+// TestStartTask_BucketResolutionFails_FailsUnitWithReason pins that the lookup
+// error itself, not a missing-shard reason, is what GET /v1/tasks shows.
+func TestStartTask_BucketResolutionFails_FailsUnitWithReason(t *testing.T) {
+	shards := &fakeShards{resolveErr: errors.New(`index for collection "Collection" not found`)}
+	rec := newFakeRecorder()
+	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.Contains(t, rec.failed, "u1")
+	require.Contains(t, rec.failed["u1"], `index for collection "Collection" not found`)
+	require.Empty(t, rec.completed)
+}
+
+// TestStartTask_ShutdownDuringBucketResolution_LeavesUnitUnfailed pins that a
+// lookup error seen during a shutdown leaves the unit for the task's resume.
+func TestStartTask_ShutdownDuringBucketResolution_LeavesUnitUnfailed(t *testing.T) {
+	shards := &fakeShards{resolveErr: errors.New("listing failed")}
+	rec := newFakeRecorder()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	p := newTestDropProviderCtx(shards, &fakeFinalizer{}, rec, ctx)
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.Empty(t, rec.failed, "shutdown must not fail the unit")
+	require.Empty(t, rec.completed)
+}
+
+// TestStartTask_ShardUnloaded_ReasonNamesSuspend pins that a unit's failure
+// reason names a suspended namespace only when the shard no longer holds the
+// unit's bucket. A shard a resume reopened under a new bucket no longer holds it.
+func TestStartTask_ShardUnloaded_ReasonNamesSuspend(t *testing.T) {
+	registerErr := errors.New("bucket is shutting down")
+	readErr := errors.New("database not open")
+	unloaded := map[string]editOpBucket{}
+	reopened := map[string]editOpBucket{"shard1": &fakeEditOpBucket{}}
+
+	tests := []struct {
+		name         string
+		bucket       *fakeEditOpBucket
+		loaded       map[string]editOpBucket
+		loadedErr    error
+		dimsErr      error
+		wantReason   string // a substring of the unit's reason
+		namesSuspend bool
+	}{
+		{
+			name:         "before arming",
+			bucket:       &fakeEditOpBucket{registerErr: registerErr},
+			loaded:       unloaded,
+			wantReason:   "register drop edit op: bucket is shutting down",
+			namesSuspend: true,
+		},
+		{
+			name:       "register fails on a loaded shard",
+			bucket:     &fakeEditOpBucket{registerErr: registerErr},
+			wantReason: "register drop edit op: bucket is shutting down",
+		},
+		{
+			name:         "resumed mid-drain",
+			bucket:       &fakeEditOpBucket{pendingErr: readErr},
+			loaded:       reopened,
+			wantReason:   "shard no longer locally loaded",
+			namesSuspend: true,
+		},
+		{
+			name:       "loaded-shard lookup fails",
+			bucket:     &fakeEditOpBucket{pendingErr: readErr},
+			loadedErr:  errors.New("listing failed"),
+			wantReason: "consecutive errors",
+		},
+		{
+			name:         "after the drain",
+			bucket:       &fakeEditOpBucket{pendingSeq: [][]string{{}}},
+			loaded:       unloaded,
+			dimsErr:      errDimensionsShardNotLoaded,
+			wantReason:   "clear dimension rows",
+			namesSuspend: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shards := &fakeShards{bucket: tt.bucket, loaded: tt.loaded, loadedErr: tt.loadedErr}
+			if tt.dimsErr != nil {
+				shards.dimsErr = map[string]error{"shard1": tt.dimsErr}
+			}
+			rec := newFakeRecorder()
+			p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+
+			h, err := p.StartTask(dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+				"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+			}))
+			require.NoError(t, err)
+			waitDone(t, h)
+
+			require.Empty(t, rec.completed)
+			reason := rec.failed["u1"]
+			require.Contains(t, reason, tt.wantReason)
+			if tt.namesSuspend {
+				require.Contains(t, reason, "its namespace suspended")
+				require.Contains(t, reason, "on reactivation or resume")
+			} else {
+				require.NotContains(t, reason, "suspended")
+				require.NotContains(t, reason, "resume")
+			}
+		})
+	}
+}
+
 // TestStartTask_TargetNoLongerDropped_RefusesToArm pins the arm-time guard: if
 // the leader-consistent class shows the target live again (class deleted and
 // re-created in the marker->enqueue window), the unit must fail WITHOUT
@@ -584,10 +721,10 @@ func TestStartTask_TargetNoLongerDropped_RefusesToArm(t *testing.T) {
 	shards := &fakeShards{bucket: bucket}
 	rec := newFakeRecorder()
 	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
-	p.sharding = &fakeShardingReader{
+	useReader(p, &fakeShardingReader{
 		shards:    []string{"shard1"},
 		vectorCfg: map[string]models.VectorConfig{"v1": {VectorIndexType: "hnsw"}}, // live again
-	}
+	})
 
 	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
 		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
@@ -609,7 +746,7 @@ func TestStartTask_VerifyErrorPersistent_UnitsFailWithoutArming(t *testing.T) {
 	shards := &fakeShards{bucket: bucket}
 	rec := newFakeRecorder()
 	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
-	p.sharding = &fakeShardingReader{shards: []string{"shard1"}, err: errors.New("leader unreachable")}
+	useReader(p, &fakeShardingReader{shards: []string{"shard1"}, err: errors.New("leader unreachable")})
 
 	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
 		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
@@ -631,7 +768,7 @@ func TestStartTask_VerifyErrorTransient_RecoversAndArms(t *testing.T) {
 	shards := &fakeShards{bucket: bucket}
 	rec := newFakeRecorder()
 	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
-	p.sharding = &fakeShardingReader{shards: []string{"shard1"}, readClassErrs: 1}
+	useReader(p, &fakeShardingReader{shards: []string{"shard1"}, readClassErrs: 1})
 
 	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
 		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
@@ -652,7 +789,7 @@ func TestStartTask_ProcessesOnlyLocalUnits(t *testing.T) {
 	shards := &fakeShards{bucket: bucket}
 	rec := newFakeRecorder()
 	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
-	p.sharding = &fakeShardingReader{shards: []string{"shard1", "shard2"}}
+	useReader(p, &fakeShardingReader{shards: []string{"shard1", "shard2"}})
 
 	payload := &DropVectorIndexTaskPayload{
 		Collection: "Collection", Targets: []string{"v1"}, OpID: "op1",
@@ -687,7 +824,7 @@ func TestProcessUnits_PartialArm_DrainsArmedFailsMissing(t *testing.T) {
 	shards := &fakeShards{buckets: map[string]editOpBucket{"shard2": bucket2}} // shard1 absent
 	rec := newFakeRecorder()
 	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
-	p.sharding = &fakeShardingReader{shards: []string{"shard1", "shard2"}}
+	useReader(p, &fakeShardingReader{shards: []string{"shard1", "shard2"}})
 
 	payload := &DropVectorIndexTaskPayload{
 		Collection: "Collection", Targets: []string{"v1"}, OpID: "op1",
@@ -830,10 +967,10 @@ func TestOnGroupCompleted_OneFailingShardDoesNotBlockOthers(t *testing.T) {
 func TestOnGroupCompleted_ReplayAfterRecreate_SkipsFileRemoval(t *testing.T) {
 	shards := &fakeShards{}
 	p := newTestDropProvider(shards, &fakeFinalizer{}, newFakeRecorder())
-	p.sharding = &fakeShardingReader{
+	useReader(p, &fakeShardingReader{
 		shards:    []string{"shard1"},
 		vectorCfg: map[string]models.VectorConfig{"v1": {VectorIndexType: "hnsw"}}, // re-created: live again
-	}
+	})
 
 	require.NoError(t, p.OnGroupCompleted(dropTask(distributedtask.TaskStatusFinished, nil), "g", []string{"u1"}))
 	require.Empty(t, shards.removed, "a live index's files must not be touched")
@@ -844,7 +981,7 @@ func TestOnGroupCompleted_ReplayAfterRecreate_SkipsFileRemoval(t *testing.T) {
 func TestOnGroupCompleted_VerifyError_SurfacesForRetry(t *testing.T) {
 	shards := &fakeShards{}
 	p := newTestDropProvider(shards, &fakeFinalizer{}, newFakeRecorder())
-	p.sharding = &fakeShardingReader{shards: []string{"shard1"}, err: errors.New("no leader")}
+	useReader(p, &fakeShardingReader{shards: []string{"shard1"}, err: errors.New("no leader")})
 
 	require.Error(t, p.OnGroupCompleted(dropTask(distributedtask.TaskStatusFinished, nil), "g", []string{"u1"}))
 	require.Empty(t, shards.removed)
@@ -856,7 +993,7 @@ func TestOnGroupCompleted_VerifyError_SurfacesForRetry(t *testing.T) {
 func TestOnGroupCompleted_VerifyTolerantOfLeaderBlips(t *testing.T) {
 	shards := &fakeShards{}
 	p := newTestDropProvider(shards, &fakeFinalizer{}, newFakeRecorder())
-	p.sharding = &fakeShardingReader{shards: []string{"shard1"}, readClassErrs: 1}
+	useReader(p, &fakeShardingReader{shards: []string{"shard1"}, readClassErrs: 1})
 
 	require.NoError(t, p.OnGroupCompleted(dropTask(distributedtask.TaskStatusFinished, nil), "g", []string{"u1"}))
 	require.Len(t, shards.removed, 1)
@@ -873,7 +1010,7 @@ func TestOnGroupCompleted_VerifyMemoizedPerTask(t *testing.T) {
 	shards := &fakeShards{bucket: &fakeEditOpBucket{}}
 	p := newTestDropProvider(shards, &fakeFinalizer{}, newFakeRecorder())
 	reader := &fakeShardingReader{shards: []string{"shard1"}}
-	p.sharding = reader
+	useReader(p, reader)
 
 	task := dropTask(distributedtask.TaskStatusFinished, nil)
 	require.NoError(t, p.OnGroupCompleted(task, "tenant1", []string{"u1"}))
@@ -1134,7 +1271,7 @@ func TestOnTaskCompleted_Success_DeletesEditOpThenRemovesVectorConfig(t *testing
 		p := newTestDropProvider(&fakeShards{buckets: map[string]editOpBucket{
 			"shard1": own, "shardX": inherited,
 		}}, fin, newFakeRecorder())
-		p.sharding = &fakeShardingReader{shards: []string{"shard1", "shardX"}}
+		useReader(p, &fakeShardingReader{shards: []string{"shard1", "shardX"}})
 
 		task := dropTask(distributedtask.TaskStatusSwapping, nil)
 		payload := &DropVectorIndexTaskPayload{
@@ -1186,7 +1323,7 @@ func TestOnTaskCompleted_TransientFailures_ReturnErrorForRetry(t *testing.T) {
 	t.Run("coverage check failure", func(t *testing.T) {
 		fin := &fakeFinalizer{}
 		p := newTestDropProvider(&fakeShards{bucket: &fakeEditOpBucket{}}, fin, newFakeRecorder())
-		p.sharding = &fakeShardingReader{err: errors.New("no leader")}
+		useReader(p, &fakeShardingReader{err: errors.New("no leader")})
 
 		err := p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
 		require.ErrorContains(t, err, "no leader")
@@ -1196,10 +1333,10 @@ func TestOnTaskCompleted_TransientFailures_ReturnErrorForRetry(t *testing.T) {
 	t.Run("active-drop read failure", func(t *testing.T) {
 		fin := &fakeFinalizer{}
 		p := newTestDropProvider(&fakeShards{bucket: &fakeEditOpBucket{}}, fin, newFakeRecorder())
-		p.sharding = &fakeShardingReader{
+		useReader(p, &fakeShardingReader{
 			shards:       []string{"shard1"},
 			listTasksErr: errors.New("dtm unreachable"),
-		}
+		})
 
 		err := p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
 		require.ErrorContains(t, err, "dtm unreachable")
@@ -1228,7 +1365,7 @@ func TestOnTaskCompleted_ActiveOverlappingDrop_DefersFinalize(t *testing.T) {
 	fin := &fakeFinalizer{}
 	p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
 	newer := activeDropTask("t2", "Collection", "v1")
-	p.sharding = &fakeShardingReader{shards: []string{"shard1"}, activeTasks: []*distributedtask.Task{newer}}
+	useReader(p, &fakeShardingReader{shards: []string{"shard1"}, activeTasks: []*distributedtask.Task{newer}})
 
 	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
 
@@ -1259,7 +1396,7 @@ func TestProcessUnits_ArmsAllBeforeDraining(t *testing.T) {
 	shards := &fakeShards{buckets: map[string]editOpBucket{"shard1": bucket1, "shard2": bucket2}}
 	rec := newFakeRecorder()
 	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
-	p.sharding = &fakeShardingReader{shards: []string{"shard1", "shard2"}}
+	useReader(p, &fakeShardingReader{shards: []string{"shard1", "shard2"}})
 
 	payload := &DropVectorIndexTaskPayload{
 		Collection: "Collection", Targets: []string{"v1"}, OpID: "op1",
@@ -1294,7 +1431,7 @@ func TestOnTaskCompleted_UncoveredTenant_DefersFinalize(t *testing.T) {
 	bucket := &fakeEditOpBucket{}
 	fin := &fakeFinalizer{}
 	p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
-	p.sharding = &fakeShardingReader{shards: []string{"shard1", "coldTenant"}}
+	useReader(p, &fakeShardingReader{shards: []string{"shard1", "coldTenant"}})
 
 	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
 
@@ -1325,7 +1462,7 @@ func TestOnTaskCompleted_ReconcileNudge(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := newTestDropProvider(&fakeShards{bucket: &fakeEditOpBucket{}}, &fakeFinalizer{}, newFakeRecorder())
 			if tc.uncovered {
-				p.sharding = &fakeShardingReader{shards: []string{"shard1", "coldTenant"}}
+				useReader(p, &fakeShardingReader{shards: []string{"shard1", "coldTenant"}})
 			}
 			nudges := 0
 			p.reconcileNudge = func() { nudges++ }
@@ -1356,7 +1493,7 @@ func TestOnTaskCompleted_CleanedShardsVouchForColdTenant(t *testing.T) {
 	bucket := &fakeEditOpBucket{}
 	fin := &fakeFinalizer{}
 	p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
-	p.sharding = &fakeShardingReader{shards: []string{"shard1", "coldTenant"}}
+	useReader(p, &fakeShardingReader{shards: []string{"shard1", "coldTenant"}})
 
 	task := dropTask(distributedtask.TaskStatusSwapping, nil)
 	payload := &DropVectorIndexTaskPayload{
@@ -1389,7 +1526,7 @@ func TestOnTaskCompleted_CheckError_DefersFinalize(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			fin := &fakeFinalizer{}
 			p := newTestDropProvider(&fakeShards{bucket: &fakeEditOpBucket{}}, fin, newFakeRecorder())
-			p.sharding = tt.sharding
+			useReader(p, tt.sharding)
 
 			p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
 			require.False(t, fin.called)
@@ -1411,7 +1548,7 @@ func activeDropTask(id, collection string, targets ...string) *distributedtask.T
 }
 
 func TestCheckConflict(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	p := NewDropVectorIndexDetector(logrus.New())
 	newPayload, _ := (&DropVectorIndexTaskPayload{Collection: "C", Targets: []string{"v1"}, OpID: "new"}).encode()
 
 	t.Run("overlapping target same collection conflicts", func(t *testing.T) {
@@ -1494,7 +1631,7 @@ func TestCompletedUnitShards_RequiresAllReplicaUnits(t *testing.T) {
 // the dead class generation's coverage and finalizes over the new class's
 // never-cleaned "cleaned" tenants.
 func TestCheckConflict_InheritanceSourceGuard(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	p := NewDropVectorIndexDetector(logrus.New())
 
 	payload := func(epoch string, cleaned []string) []byte {
 		pl := &DropVectorIndexTaskPayload{
@@ -1640,7 +1777,7 @@ func TestCheckConflict_InheritanceSourceGuard(t *testing.T) {
 }
 
 func TestCheckClassMutation_DoesNotBlockDeleteDuringDrop(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	p := NewDropVectorIndexDetector(logrus.New())
 	// DeleteClass supersedes an in-flight drop (the whole bucket is going away);
 	// the schema FSM cascade-deletes the task, so the guard must not block it.
 	require.NoError(t, p.CheckClassMutation("C", []*distributedtask.Task{activeDropTask("t1", "C", "v1")}))
@@ -1714,7 +1851,7 @@ func deferringDropTaskCovering(id, collection string, shards, deferred []string,
 // the stale-record protection honest — full coverage alone never vouches,
 // because a finalized drop's residue also has full coverage.
 func TestCheckVectorConfigRemoval_DeletionResolvedVoucher(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	p := NewDropVectorIndexDetector(logrus.New())
 
 	t.Run("deferred tenant deleted: the recorded coverage vouches", func(t *testing.T) {
 		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
@@ -1756,7 +1893,7 @@ func TestCheckVectorConfigRemoval_DeletionResolvedVoucher(t *testing.T) {
 }
 
 func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	p := NewDropVectorIndexDetector(logrus.New())
 
 	t.Run("finished task never vouches (stale-record replay safety)", func(t *testing.T) {
 		// A FINISHED record outlives finalize by the task TTL; after a
@@ -2023,16 +2160,16 @@ func TestShouldRetainCompletedTask(t *testing.T) {
 
 	t.Run("marker gone: nothing retained", func(t *testing.T) {
 		p := fresh()
-		p.sharding = &fakeShardingReader{
+		useReader(p, &fakeShardingReader{
 			shards:    []string{"shard1"},
 			vectorCfg: map[string]models.VectorConfig{"v1": {VectorIndexType: "hnsw"}},
-		}
+		})
 		require.False(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFinished, nil), nil))
 	})
 
 	t.Run("leader unreachable: retain", func(t *testing.T) {
 		p := fresh()
-		p.sharding = &fakeShardingReader{shards: []string{"shard1"}, err: errors.New("no leader")}
+		useReader(p, &fakeShardingReader{shards: []string{"shard1"}, err: errors.New("no leader")})
 		require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFinished, nil), nil),
 			"deletion is the irreversible direction")
 	})
@@ -2045,7 +2182,7 @@ func TestShouldRetainCompletedTask(t *testing.T) {
 	t.Run("one drop's records share one marker check per window", func(t *testing.T) {
 		p := fresh()
 		reader := &fakeShardingReader{shards: []string{"shard1"}}
-		p.sharding = reader
+		useReader(p, reader)
 		require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFinished, nil), nil))
 		require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusSwapping, nil), nil))
 		require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFailed, nil), nil))
@@ -2059,14 +2196,14 @@ func TestShouldRetainCompletedTask(t *testing.T) {
 // deactivation fails that unit and the next reconcile round re-covers the
 // surviving shards; the marker (not the task) is the source of truth.
 func TestCheckTenantMutation_NeverBlocks(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	p := NewDropVectorIndexDetector(logrus.New())
 	require.NoError(t, p.CheckTenantMutation("C", []string{"tenant1"},
 		[]*distributedtask.Task{activeDropTask("t1", "C", "v1")}),
 		"deactivating a tenant must succeed even while its collection's drop is stripping")
 }
 
 func TestCheckPropertyUpdate_NeverConflicts(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	p := NewDropVectorIndexDetector(logrus.New())
 	require.NoError(t, p.CheckPropertyUpdate("C", "someProp", []*distributedtask.Task{activeDropTask("t1", "C", "v1")}))
 }
 
@@ -2101,7 +2238,7 @@ func TestDecodeDropVectorIndexPayload_Rejects(t *testing.T) {
 // TestCheckConflict_SkipsCorruptActiveTask pins the fail-open behavior: a corrupt
 // active task must not block a new drop (it can't be matched to a collection).
 func TestCheckConflict_SkipsCorruptActiveTask(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	p := NewDropVectorIndexDetector(logrus.New())
 	newPayload, _ := (&DropVectorIndexTaskPayload{Collection: "C", Targets: []string{"v1"}, OpID: "new"}).encode()
 	corrupt := &distributedtask.Task{
 		Namespace: DropVectorIndexNamespace,
@@ -2130,4 +2267,10 @@ func TestExtractDropVectorIndexTaskTargets(t *testing.T) {
 
 	_, _, ok = ExtractDropVectorIndexTaskTargets([]byte("not json"))
 	require.False(t, ok, "an unparseable payload must not match any purge")
+}
+
+// useReader points both of the provider's readers (leader-consistent schema reads and
+// the task list) at r, the way the single sharding reader used to be swapped.
+func useReader(p *DropVectorIndexProvider, r *fakeShardingReader) {
+	p.leader, p.tasks = r, r
 }

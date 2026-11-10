@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // Extract the filters from the arguments of a Local->Get or Local->Meta query.
@@ -33,10 +34,9 @@ func ExtractFilters(args map[string]interface{}, rootClass string) (*filters.Loc
 			return nil, fmt.Errorf("failed to extract filters: %w", err)
 		}
 
-		// GraphQL is disabled on namespace-enabled clusters, so the
-		// namespacesEnabled flag is hard-wired to false here and the
-		// principal isn't consulted by Parse for path qualification.
-		return filterext.Parse(filter, rootClass, false, nil)
+		// GraphQL is disabled on namespace-enabled clusters, so Parse leaves
+		// the classes on a filter's reference path unqualified.
+		return filterext.Parse(filter, rootClass, namespacing.Disabled, nil)
 	}
 }
 

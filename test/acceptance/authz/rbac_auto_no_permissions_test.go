@@ -97,11 +97,10 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/namespaces/{namespace_id}/resume",
 	}
 
-	// These leak 404 on a non-existent backup ID because the meta is read
-	// before class-aware authz runs. RBAC for them is covered in backups_test.go.
+	// Restore leaks 404 on a non-existent backup ID because the meta is read
+	// before class-aware authz runs. RBAC for restore is covered in backups_test.go.
 	ignoreEndpointMethods := map[string]map[string]bool{
-		"/backups/{backend}/{id}":         {http.MethodGet: true},
-		"/backups/{backend}/{id}/restore": {http.MethodGet: true, http.MethodPost: true},
+		"/backups/{backend}/{id}/restore": {http.MethodPost: true},
 	}
 
 	ignoreGetAll := []string{
@@ -181,6 +180,10 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 			// same for near-object (a well-formed source-object id)
 			if endpoint.path == "/search/{collection}/near-object" && endpoint.method == http.MethodPost {
 				body = []byte(`{"id":"aa44bbee-ca5f-4db7-a412-5fc6a2300001"}`)
+			}
+			// same for near-vector (a well-formed query vector)
+			if endpoint.path == "/search/{collection}/near-vector" && endpoint.method == http.MethodPost {
+				body = []byte(`{"vector":[0.1,0.2]}`)
 			}
 			// aggregate's generated body fills the reserved fields, which 422
 			// before authz; an empty body (total count) reaches authz.

@@ -26,6 +26,7 @@ import (
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -147,7 +148,7 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(principal, err))
+				WithPayload(backupCreateErrPayload(principal, err))
 		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
@@ -159,6 +160,17 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 
 	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsCreateOK().WithPayload(meta)
+}
+
+// backupCreateErrPayload renders err, pointing a license refusal at the Enterprise docs; the URL is added after the namespace strip, which would cut it for a namespace named like its scheme.
+func backupCreateErrPayload(principal *models.Principal, err error) *models.ErrorResponse {
+	payload := errPayloadFromSingleErr(principal, err)
+	if errors.Is(err, license.ErrRequired) {
+		for _, item := range payload.Error {
+			item.Message += ", see " + license.EnterpriseDocsURL
+		}
+	}
+	return payload
 }
 
 func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusParams,

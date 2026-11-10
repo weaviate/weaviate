@@ -47,6 +47,9 @@ type SchedulerNotifier interface {
 // weaviate/0-weaviate-issues#231.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
 
+// ShardReplicasExtractor lets the leader refuse a task built against a replica set that has since changed; ok=false admits the task unchecked.
+type ShardReplicasExtractor func(payload []byte) (nodesByShard map[string][]string, ok bool)
+
 // TargetVectorExtractor reads a task payload's (collection, target vectors) binding
 // for [Manager.PurgeTasksForCollectionTargetVectors]; ok=false skips the record.
 // Same determinism contract as [CollectionExtractor].
@@ -189,9 +192,9 @@ type Provider interface {
 	StartTask(task *Task) (TaskHandle, error)
 }
 
-// ConflictDetector is an optional interface providers implement so the
-// [Manager.AddTask] RAFT-apply path can reject a new task whose payload
-// conflicts with an already-running task in the same namespace.
+// ConflictDetector lets the [Manager.AddTask] RAFT-apply path reject a new
+// task whose payload conflicts with an already-running task in the same
+// namespace.
 //
 // Motivation: the REST handler holds a per-(collection, property)
 // in-memory lock and runs [checkReindexConflict] before submitting,
@@ -215,8 +218,6 @@ type Provider interface {
 // (clocks, network, schema, RNG) — different nodes applying the same
 // log entry must reach the same accept/reject decision.
 type ConflictDetector interface {
-	Provider
-
 	// CheckConflict is called under [Manager.mu] before a new task is
 	// appended to the FSM-stored task list. existingTasks is the full
 	// namespace-scoped task list at apply time. Return a non-nil error
@@ -258,39 +259,24 @@ type TerminalCleanupProvider interface {
 	TerminalCleanupDone(task *Task, localNode string) bool
 }
 
-// SchemaMutationDetector is an optional interface providers implement so
-// the schema FSM's UpdateProperty apply path can reject external schema
-// mutations that would race with one of the provider's in-flight tasks.
+// SchemaMutationDetector lets the schema FSM's UpdateProperty, DeleteClass,
+// UpdateTenants and DeleteTenants apply paths reject a schema mutation that
+// would race with one of a namespace's in-flight tasks.
 //
-// Motivating failure mode: a `change-tokenization` reindex spawns
-// separate per-shard sub-tasks for the searchable and filterable
-// indexes. A DELETE `/index/searchable` arriving mid-flight applies
-// `cleanStaleMigrationDirs("<prop>", "searchable")`, which wipes the
-// `searchable_retokenize_<prop>_<gen>/` working dir under the still-
-// running sub-task. That sub-unit FAILs; the sibling filterable
-// sub-unit keeps going and commits its local bucket swap; the
-// per-shard ack barrier sees mixed acks → task FAILED →
-// `flipSemanticMigrationSchema` skipped → schema stays at OLD
-// tokenization while the filterable bucket on disk now holds
-// NEW-tokenized data. Bucket↔schema inversion — same family as the
-// ack-barrier failure mode but triggered by an external schema
-// mutation instead of a crash.
+// Without it, a mutation landing mid-migration can let the FSM apply a
+// schema flip while the migration's own sub-task is still writing,
+// producing a bucket↔schema inversion — same family as the ack-barrier
+// failure mode, triggered externally instead of by a crash.
 //
-// Putting the check inside the schema FSM's UpdateProperty apply makes
-// it RAFT-deterministic: every node sees the same distributed-task FSM
-// snapshot at the same applyIndex and reaches the same accept/reject
-// decision. Symmetric to [ConflictDetector] (which protects in-flight
-// tasks from new conflicting tasks); this protects them from out-of-band
-// schema mutations during their flight.
+// The check runs inside the FSM apply so every node reaches the same
+// accept/reject decision from the same applyIndex. Symmetric to
+// [ConflictDetector] (protects in-flight tasks from new conflicting tasks);
+// this protects them from out-of-band schema mutations during their flight.
 //
-// FSM-determinism contract: CheckPropertyUpdate MUST be a pure function
-// of (className, propertyName, existingTasks). It must not read mutable
-// process state (clocks, network, schema, RNG) — different nodes
-// applying the same log entry must reach the same accept/reject
-// decision.
+// CheckPropertyUpdate MUST be a pure function of (className, propertyName,
+// existingTasks) — no clocks, network, schema, or RNG — so every node
+// applying the same log entry reaches the same decision.
 type SchemaMutationDetector interface {
-	Provider
-
 	// CheckPropertyUpdate is called under [Manager.mu] from the
 	// schema FSM's UpdateProperty apply path. existingTasks is the
 	// full namespace-scoped task list at apply time. Return a
@@ -550,8 +536,7 @@ func (t TaskStatus) IsTerminal() bool {
 // The exact negation of [TaskStatus.IsTerminal], so a status this build
 // does not recognize counts as in flight: reading it as done would admit
 // a second migration onto a property a newer node is still migrating, and
-// let the orphan audit and TTL sweep delete live state. See
-// docs/runtime-reindex.md §4.2.
+// let the TTL sweep delete live state. See docs/runtime-reindex.md §4.2.
 func (t TaskStatus) IsActive() bool {
 	return !t.IsTerminal()
 }
@@ -612,6 +597,15 @@ type TaskDescriptor struct {
 	Version uint64 `json:"version"`
 }
 
+type TaskStatusEntry struct {
+	TaskDescriptor
+	Status TaskStatus
+}
+
+func (t *Task) StatusEntry() TaskStatusEntry {
+	return TaskStatusEntry{TaskDescriptor: t.TaskDescriptor, Status: t.Status}
+}
+
 // Task represents a distributed task tracked across the cluster via Raft consensus.
 //
 // Completion is tracked per-unit. The task finishes when all units reach a terminal
@@ -665,6 +659,8 @@ type Task struct {
 	// Units tracks per-unit progress. Always non-nil for valid tasks.
 	Units map[string]*Unit `json:"units,omitempty"`
 
+	collection string
+
 	// PreparationCompletionAcks records per-node PREP-phase confirmations during
 	// PREPARING. The FSM gates PREPARING → SWAPPING on every expected ack
 	// landing with Success=true; any Success=false flips to FAILED. Nil
@@ -673,7 +669,7 @@ type Task struct {
 
 	// PostCompletionAcks records per-node confirmations that the node's
 	// SWAP phase (the second half of the split OnGroupCompleted —
-	// per-shard SwapBucketPointer tight loop + post-atomic tidy +
+	// per-shard SwapBucketPointer tight loop + post-atomic cleanup +
 	// per-strategy OnMigrationComplete) completed successfully. Keys are
 	// node IDs. Populated only after the task transitions to SWAPPING
 	// and only by the [Scheduler] tick firing

@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/license"
 	usagetypes "github.com/weaviate/weaviate/usecases/modulecomponents/usage/types"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -195,6 +196,8 @@ type Config struct {
 	TrackVectorDimensions            bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	TrackVectorDimensionsInterval    time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
 	ReindexVectorDimensionsAtStartup bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
+	// needs TrackVectorDimensions
+	ReindexVectorDimensionsToRoaringsetAtStartup bool `json:"reindex_vector_dimensions_to_roaringset_at_startup" yaml:"reindex_vector_dimensions_to_roaringset_at_startup"`
 	// QueryAdmissionBudget / QueryAdmissionMaxQueue size the node-level query
 	// admission limiter. 0 means auto (16x / 10x GOMAXPROCS respectively).
 	// QueryAdmissionControlDisabled is a runtime kill switch; enabled by default.
@@ -373,6 +376,11 @@ type Config struct {
 	// once at startup from the LICENSE_KEY form check and cannot be overridden
 	// at runtime.
 	WeaviateLicense bool `json:"weaviate_license" yaml:"weaviate_license"`
+
+	// License is the license state derived from LICENSE_KEY or
+	// LICENSE_KEY_FILE at startup, for observability (meta endpoint, metrics,
+	// logs).
+	License license.State `json:"license" yaml:"license"`
 }
 
 type CollectionPropsTenants struct {
@@ -849,6 +857,15 @@ const DefaultBackupSplitFileSize = 50 * 1024 * 1024 * 1024 // 50GB
 // DefaultBackupMaxIndividualFiles is the default number of files per shard targeted to get their own chunk
 const DefaultBackupMaxIndividualFiles = 100
 
+const (
+	// DefaultBackupDedupeConvergenceTimeout keeps planning, with its 10s cutoff lead and hard-stop slack, under the server's default 60s write timeout.
+	DefaultBackupDedupeConvergenceTimeout = 15 * time.Second
+	// MinBackupDedupeConvergenceTimeout mirrors the API minimum of dedupeConvergenceTimeoutSeconds.
+	MinBackupDedupeConvergenceTimeout = time.Second
+	// MaxBackupDedupeConvergenceTimeout mirrors the API maximum of dedupeConvergenceTimeoutSeconds.
+	MaxBackupDedupeConvergenceTimeout = 600 * time.Second
+)
+
 // Backup contains backup-related configuration
 type Backup struct {
 	MinChunkSize    int64 `json:"min_chunk_size" yaml:"min_chunk_size"`
@@ -862,6 +879,10 @@ type Backup struct {
 	// from its base against the number, so it applies across a backup chain.
 	// Env: BACKUP_MAX_INDIVIDUAL_FILES, runtime config: backup_max_individual_files.
 	MaxIndividualFiles *runtime.DynamicValue[int] `json:"max_individual_files" yaml:"max_individual_files"`
+
+	// DedupeConvergenceTimeout bounds a dedupeReplicas create's convergence wait when the request sets none.
+	// Env: BACKUP_DEDUPE_CONVERGENCE_TIMEOUT, runtime config: backup_dedupe_convergence_timeout.
+	DedupeConvergenceTimeout *runtime.DynamicValue[time.Duration] `json:"dedupe_convergence_timeout" yaml:"dedupe_convergence_timeout"`
 
 	// SkipAccessCheck disables the write+delete probe the backup client runs on
 	// initialize, deferring write/permission errors to backup time. Use it for
@@ -1271,6 +1292,17 @@ type Namespaces struct {
 	// below zero. No value of this field stops the sweep — a very long
 	// interval parks it, and Enabled above turns it off.
 	CleanupInterval *runtime.DynamicValue[time.Duration] `json:"cleanup_interval" yaml:"cleanup_interval"`
+
+	// SuspendedMessage, when non-empty, replaces "instance suspended" as the
+	// copy namespaces.PublicMessage returns for a suspended namespace. Every
+	// node must set NAMESPACE_SUSPENDED_MESSAGE to the same value.
+	SuspendedMessage string `json:"-" yaml:"-"`
+
+	// SuspendReconcileInterval sets how often each node closes the shards of
+	// suspended namespaces, from SUSPEND_RECONCILE_INTERVAL. The suspend reconcile
+	// job runs at DefaultSuspendReconcileInterval when Get() returns a value at or
+	// below zero.
+	SuspendReconcileInterval *runtime.DynamicValue[time.Duration] `json:"suspend_reconcile_interval" yaml:"suspend_reconcile_interval"`
 }
 
 const (

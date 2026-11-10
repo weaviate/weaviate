@@ -23,16 +23,21 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // stubSchemaManager satisfies namespacing.SchemaManager. ResolveAlias returns
 // whatever was placed in aliases, "" otherwise.
 type stubSchemaManager struct {
+	// Left unset: only the methods defined below are expected.
+	local.AliasReader
 	aliases map[string]string
 }
 
@@ -69,7 +74,7 @@ func (stubObjectsManager) Query(context.Context, *models.Principal, *objects.Que
 	return nil, nil
 }
 
-func newReader(t *testing.T, principal *models.Principal, namespacesEnabled bool, classes []*models.Class, aliases map[string]string) *WeaviateReader {
+func newReader(t *testing.T, principal *models.Principal, qualifier namespacing.Qualifier, classes []*models.Class, aliases map[string]string) *WeaviateReader {
 	t.Helper()
 	composer := func(token string, _ []string) (*models.Principal, error) {
 		return principal, nil
@@ -80,7 +85,7 @@ func newReader(t *testing.T, principal *models.Principal, namespacesEnabled bool
 		authHandler,
 		stubSchemaReader{classes: classes},
 		stubSchemaManager{aliases: aliases},
-		namespacesEnabled,
+		qualifier,
 		stubObjectsManager{},
 		logger,
 	)
@@ -115,76 +120,76 @@ func TestGetCollectionConfig_NamespaceResolution(t *testing.T) {
 	}
 
 	cases := []struct {
-		name              string
-		principal         *models.Principal
-		namespacesEnabled bool
-		args              GetCollectionConfigArgs
-		want              wantResp
+		name      string
+		principal *models.Principal
+		qualifier namespacing.Qualifier
+		args      GetCollectionConfigArgs
+		want      wantResp
 	}{
 		{
-			name:              "namespaced principal, short name resolves and response is stripped",
-			principal:         &models.Principal{Namespace: "customer1"},
-			namespacesEnabled: true,
-			args:              GetCollectionConfigArgs{CollectionName: "Movies"},
-			want:              wantResp{classes: []string{"Movies"}},
+			name:      "namespaced principal, short name resolves and response is stripped",
+			principal: &models.Principal{Namespace: "customer1"},
+			qualifier: wlnamespaces.NewPrefixing(),
+			args:      GetCollectionConfigArgs{CollectionName: "Movies"},
+			want:      wantResp{classes: []string{"Movies"}},
 		},
 		{
-			name:              "namespaced principal, own-namespace qualified is rejected",
-			principal:         &models.Principal{Namespace: "customer1"},
-			namespacesEnabled: true,
-			args:              GetCollectionConfigArgs{CollectionName: "customer1:Movies"},
-			want:              wantResp{errSubstr: "is not a valid class name"},
+			name:      "namespaced principal, own-namespace qualified is rejected",
+			principal: &models.Principal{Namespace: "customer1"},
+			qualifier: wlnamespaces.NewPrefixing(),
+			args:      GetCollectionConfigArgs{CollectionName: "customer1:Movies"},
+			want:      wantResp{errSubstr: "is not a valid class name"},
 		},
 		{
-			name:              "namespaced principal, foreign-namespace qualified is rejected",
-			principal:         &models.Principal{Namespace: "customer1"},
-			namespacesEnabled: true,
-			args:              GetCollectionConfigArgs{CollectionName: "customer2:Movies"},
-			want:              wantResp{errSubstr: "is not a valid class name"},
+			name:      "namespaced principal, foreign-namespace qualified is rejected",
+			principal: &models.Principal{Namespace: "customer1"},
+			qualifier: wlnamespaces.NewPrefixing(),
+			args:      GetCollectionConfigArgs{CollectionName: "customer2:Movies"},
+			want:      wantResp{errSubstr: "is not a valid class name"},
 		},
 		{
-			name:              "global principal, qualified name passes through",
-			principal:         &models.Principal{},
-			namespacesEnabled: true,
-			args:              GetCollectionConfigArgs{CollectionName: "customer1:Movies"},
-			want:              wantResp{classes: []string{"customer1:Movies"}},
+			name:      "global principal, qualified name passes through",
+			principal: &models.Principal{},
+			qualifier: wlnamespaces.NewPrefixing(),
+			args:      GetCollectionConfigArgs{CollectionName: "customer1:Movies"},
+			want:      wantResp{classes: []string{"customer1:Movies"}},
 		},
 		{
-			name:              "global principal, short name misses namespaced class",
-			principal:         &models.Principal{},
-			namespacesEnabled: true,
-			args:              GetCollectionConfigArgs{CollectionName: "Movies"},
-			want:              wantResp{errSubstr: "not found"},
+			name:      "global principal, short name misses namespaced class",
+			principal: &models.Principal{},
+			qualifier: wlnamespaces.NewPrefixing(),
+			args:      GetCollectionConfigArgs{CollectionName: "Movies"},
+			want:      wantResp{errSubstr: "not found"},
 		},
 		{
-			name:              "namespaced principal, alias resolves to qualified target and response is stripped",
-			principal:         &models.Principal{Namespace: "customer1"},
-			namespacesEnabled: true,
-			args:              GetCollectionConfigArgs{CollectionName: "Films"},
-			want:              wantResp{classes: []string{"Movies"}},
+			name:      "namespaced principal, alias resolves to qualified target and response is stripped",
+			principal: &models.Principal{Namespace: "customer1"},
+			qualifier: wlnamespaces.NewPrefixing(),
+			args:      GetCollectionConfigArgs{CollectionName: "Films"},
+			want:      wantResp{classes: []string{"Movies"}},
 		},
 		{
 			// Own-NS prefixes are stripped; foreign prefixes survive (RBAC would
 			// have filtered them out upstream — this test wires no RBAC, so the
 			// foreign class still appears qualified).
-			name:              "list-all branch skips resolution and strips own namespace",
-			principal:         &models.Principal{Namespace: "customer1"},
-			namespacesEnabled: true,
-			args:              GetCollectionConfigArgs{},
-			want:              wantResp{classes: []string{"Movies", "customer2:Movies", "Global"}},
+			name:      "list-all branch skips resolution and strips own namespace",
+			principal: &models.Principal{Namespace: "customer1"},
+			qualifier: wlnamespaces.NewPrefixing(),
+			args:      GetCollectionConfigArgs{},
+			want:      wantResp{classes: []string{"Movies", "customer2:Movies", "Global"}},
 		},
 		{
-			name:              "namespaces disabled, short name flows through",
-			principal:         nil,
-			namespacesEnabled: false,
-			args:              GetCollectionConfigArgs{CollectionName: "Global"},
-			want:              wantResp{classes: []string{"Global"}},
+			name:      "namespaces disabled, short name flows through",
+			principal: nil,
+			qualifier: namespacing.Disabled,
+			args:      GetCollectionConfigArgs{CollectionName: "Global"},
+			want:      wantResp{classes: []string{"Global"}},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := newReader(t, tc.principal, tc.namespacesEnabled, classes, aliases)
+			r := newReader(t, tc.principal, tc.qualifier, classes, aliases)
 			resp, err := r.GetCollectionConfig(context.Background(), bearerReq(), tc.args)
 
 			if tc.want.errSubstr != "" {

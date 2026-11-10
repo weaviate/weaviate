@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/parser"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/license"
 )
 
 const (
@@ -77,6 +78,7 @@ const (
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 
 	DefaultNamespaceCleanupInterval = 30 * time.Second
+	DefaultSuspendReconcileInterval = 30 * time.Second
 
 	DefaultReplicaMovementCleanupMaxAge   = 168 * time.Hour
 	DefaultReplicaMovementCleanupInterval = time.Hour
@@ -147,6 +149,10 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
 		config.ReindexVectorDimensionsAtStartup = true
+	}
+
+	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_TO_ROARINGSET_AT_STARTUP")) {
+		config.ReindexVectorDimensionsToRoaringsetAtStartup = true
 	}
 
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
@@ -825,6 +831,13 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := parser.ParseDynamicDurationWithValidation("BACKUP_DEDUPE_CONVERGENCE_TIMEOUT",
+		DefaultBackupDedupeConvergenceTimeout,
+		validateBackupDedupeConvergenceTimeout,
+		func(val *configRuntime.DynamicValue[time.Duration]) { config.Backup.DedupeConvergenceTimeout = val }); err != nil {
+		return err
+	}
+
 	if entcfg.Enabled(os.Getenv("BACKUP_SKIP_ACCESS_CHECK")) {
 		config.Backup.SkipAccessCheck = true
 	}
@@ -1096,11 +1109,12 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableGraphQL = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL")))
-	weaviateLicense, err := weaviateLicenseEnabled()
+	licenseState, err := resolveLicenseState()
 	if err != nil {
 		return err
 	}
-	config.WeaviateLicense = weaviateLicense
+	config.WeaviateLicense = licenseState.Status == license.StatusValid
+	config.License = licenseState
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
 	if config.Namespaces.Enabled {
@@ -1111,6 +1125,14 @@ func FromEnv(config *Config) error {
 		DefaultNamespaceCleanupInterval,
 		parser.ValidateCronInterval,
 		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.CleanupInterval = val }); err != nil {
+		return err
+	}
+	config.Namespaces.SuspendedMessage = strings.TrimSpace(os.Getenv("NAMESPACE_SUSPENDED_MESSAGE"))
+
+	if err := parser.ParseDynamicDurationWithValidation("SUSPEND_RECONCILE_INTERVAL",
+		DefaultSuspendReconcileInterval,
+		parser.ValidateCronInterval,
+		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.SuspendReconcileInterval = val }); err != nil {
 		return err
 	}
 
@@ -1141,6 +1163,7 @@ func FromEnv(config *Config) error {
 	}
 
 	config.Replication.ReplicaMovementEnabled = configRuntime.NewDynamicValue(config.ReplicaMovementEnabled)
+	config.Replication.ReplicaRebalanceEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_REBALANCE_ENABLED")))
 	config.Replication.ReplicaMovementCleanupEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_MOVEMENT_CLEANUP_ENABLED")))
 	config.Replication.ReplicaMovementCleanupIncludeCancelled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_MOVEMENT_CLEANUP_INCLUDE_CANCELLED")))
 
@@ -1160,6 +1183,37 @@ func FromEnv(config *Config) error {
 			config.Replication.ReplicaMovementCleanupInterval = val
 		}); err != nil {
 		return err
+	}
+
+	config.Replication.SelfRecoveryEnabled = entcfg.Enabled(os.Getenv("SELF_RECOVERY_ENABLED"))
+	if err := parseIntVerify(
+		"SELF_RECOVERY_CONCURRENCY",
+		DefaultSelfRecoveryConcurrency,
+		func(val int) {
+			config.Replication.SelfRecoveryConcurrency = val
+		},
+		func(val int, envName string) error {
+			if val <= 0 {
+				return fmt.Errorf("%s must be > 0, got %d", envName, val)
+			}
+			if val > MaxSelfRecoveryConcurrency {
+				return fmt.Errorf("%s must be <= %d, got %d", envName, MaxSelfRecoveryConcurrency, val)
+			}
+			return nil
+		},
+	); err != nil {
+		return err
+	}
+
+	if v := os.Getenv("SELF_RECOVERY_BARRIER_TIMEOUT"); v != "" {
+		duration, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse SELF_RECOVERY_BARRIER_TIMEOUT as time.Duration: %w", err)
+		}
+		if duration <= 0 {
+			return fmt.Errorf("SELF_RECOVERY_BARRIER_TIMEOUT must be a positive duration")
+		}
+		config.Replication.SelfRecoveryBarrierTimeout = duration
 	}
 
 	if err := parseIntVerify(
@@ -1604,6 +1658,13 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableDimensionMetrics = configRuntime.NewDynamicValue(disableDimensionMetrics)
+
+	if config.Replication.SelfRecoveryEnabled && !config.ReplicaMovementEnabled {
+		logrus.Warn("SELF_RECOVERY_ENABLED requires REPLICA_MOVEMENT_ENABLED=true; disabling " +
+			"self-recovery to avoid shards stuck in RECOVERING (the replication engine that " +
+			"processes recovery copy ops only runs when replica movement is enabled)")
+		config.Replication.SelfRecoveryEnabled = false
+	}
 
 	return nil
 }
@@ -2052,6 +2113,8 @@ const (
 	DefaultMaximumAllowedShardsPerCollection      = -1 // unlimited
 	DefaultUsageLimitsErrorMessage                = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
 	DefaultRestrictionsErrorMessage               = "" // empty → restrictions.RenderTemplate falls back to its built-in default
+	DefaultSelfRecoveryConcurrency                = 10
+	MaxSelfRecoveryConcurrency                    = 32
 )
 
 const VectorizerModuleNone = "none"
@@ -2578,6 +2641,13 @@ func (c *Config) parseBatchStreamConfig() error {
 func validateBackupGCSConnPool(val int, setting string) error {
 	if val < 1 || val > MaxBackupGCSGRPCConnPool {
 		return fmt.Errorf("%s must be an integer between 1 and %d. Got: %v", setting, MaxBackupGCSGRPCConnPool, val)
+	}
+	return nil
+}
+
+func validateBackupDedupeConvergenceTimeout(val time.Duration) error {
+	if val < MinBackupDedupeConvergenceTimeout || val > MaxBackupDedupeConvergenceTimeout {
+		return fmt.Errorf("duration between %s and %s expected, got %s", MinBackupDedupeConvergenceTimeout, MaxBackupDedupeConvergenceTimeout, val)
 	}
 	return nil
 }

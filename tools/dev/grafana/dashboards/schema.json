@@ -58,7 +58,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(schema_wait_for_version_seconds_sum[$__rate_interval]) / rate(schema_wait_for_version_seconds_count[$__rate_interval])",
+          "expr": "rate(weaviate_schema_wait_for_version_seconds_sum[$__rate_interval]) / rate(weaviate_schema_wait_for_version_seconds_count[$__rate_interval])",
           "interval": "",
           "legendFormat": "{{type}}",
           "refId": "A"
@@ -98,7 +98,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(schema_reads_leader_seconds_sum[$__rate_interval]) / rate(schema_reads_leader_seconds_count[$__rate_interval])",
+          "expr": "rate(weaviate_schema_reads_leader_seconds_sum[$__rate_interval]) / rate(weaviate_schema_reads_leader_seconds_count[$__rate_interval])",
           "interval": "",
           "legendFormat": "{{type}}",
           "refId": "A"
@@ -138,7 +138,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(schema_reads_local_seconds_sum[$__rate_interval]) / rate(schema_reads_local_seconds_count[$__rate_interval])",
+          "expr": "rate(weaviate_schema_reads_local_seconds_sum[$__rate_interval]) / rate(weaviate_schema_reads_local_seconds_count[$__rate_interval])",
           "interval": "",
           "legendFormat": "{{type}}",
           "refId": "A"
@@ -178,7 +178,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(schema_writes_seconds_sum[$__rate_interval]) / rate(schema_writes_seconds_count[$__rate_interval])",
+          "expr": "rate(weaviate_schema_writes_seconds_sum[$__rate_interval]) / rate(weaviate_schema_writes_seconds_count[$__rate_interval])",
           "interval": "",
           "legendFormat": "{{type}}",
           "refId": "A"

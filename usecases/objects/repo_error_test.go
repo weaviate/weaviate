@@ -27,6 +27,9 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/config"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 // An error the repo returns has to stay classifiable with errors.Is after the
@@ -350,15 +353,29 @@ func TestNewErrInternalKeepsEveryCause(t *testing.T) {
 	}
 }
 
-// Writing an object can extend its collection through auto-schema, which needs
-// a permission of its own. Reporting that denial as invalid input hides the
-// missing grant behind a 422, so PUT and PATCH have to keep its status.
-func TestAutoSchemaForbiddenKeepsItsStatus(t *testing.T) {
+// Writing an object can extend its collection through auto-schema, and POST can
+// create it. A denial and the collection limit have to keep their own status,
+// and anything else the schema refuses is invalid input rather than a 500.
+func TestAutoSchemaErrKeepsItsStatus(t *testing.T) {
 	const class = "Zoo"
 	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
 	principal := &models.Principal{Username: "admin"}
 	denied := authzerrs.NewForbidden(principal, authorization.UPDATE, "collections/Zoo")
 	rejected := errors.New("collection is being deleted")
+	limited := usagelimits.NewLimitExceededError("", usagelimits.LimitCollections, 1)
+
+	// requireStatus checks an error AddObject or UpdateObject returned.
+	requireStatus := func(t *testing.T, err error, wantForbidden, wantUserInput bool) {
+		switch {
+		case wantForbidden:
+			require.ErrorAs(t, err, &authzerrs.Forbidden{})
+			require.NotErrorAs(t, err, &ErrInvalidUserInput{})
+		case wantUserInput:
+			require.ErrorAs(t, err, &ErrInvalidUserInput{})
+		default:
+			require.NoError(t, err)
+		}
+	}
 
 	// "age" is absent from the Zoo schema, so writing it makes auto-schema
 	// extend the collection.
@@ -382,6 +399,22 @@ func TestAutoSchemaForbiddenKeepsItsStatus(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Run("add", func(t *testing.T) {
+				m, _, repo, mods, _ := newNSManagers(t, zooAnimalNSSchema(false), false,
+					withAutoSchema(tc.autoSchemaErr))
+				repo.On("Exists", class, id).Return(false, nil).Once()
+				if tc.autoSchemaErr == nil {
+					mods.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+						Return(nil, nil)
+					repo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+				}
+
+				_, err := m.AddObject(context.Background(), principal, updates(), nil)
+
+				requireStatus(t, err, tc.wantForbidden, tc.wantUserInput)
+				repo.AssertExpectations(t)
+			})
+
 			t.Run("update", func(t *testing.T) {
 				m, _, repo, mods, _ := newNSManagers(t, zooAnimalNSSchema(false), false,
 					withAutoSchema(tc.autoSchemaErr))
@@ -395,15 +428,7 @@ func TestAutoSchemaForbiddenKeepsItsStatus(t *testing.T) {
 
 				_, err := m.UpdateObject(context.Background(), principal, class, id, updates(), nil)
 
-				switch {
-				case tc.wantForbidden:
-					require.ErrorAs(t, err, &authzerrs.Forbidden{})
-					require.NotErrorAs(t, err, &ErrInvalidUserInput{})
-				case tc.wantUserInput:
-					require.ErrorAs(t, err, &ErrInvalidUserInput{})
-				default:
-					require.NoError(t, err)
-				}
+				requireStatus(t, err, tc.wantForbidden, tc.wantUserInput)
 				repo.AssertExpectations(t)
 			})
 
@@ -434,5 +459,195 @@ func TestAutoSchemaForbiddenKeepsItsStatus(t *testing.T) {
 				repo.AssertExpectations(t)
 			})
 		})
+	}
+
+	// Aquarium is absent from the schema, so POST makes auto-schema create it,
+	// and creating one is what counts against the collection limit.
+	createCases := []struct {
+		name          string
+		createErr     error
+		wantForbidden bool
+		wantUserInput bool
+		wantLimit     bool
+	}{
+		{name: "create denied", createErr: denied, wantForbidden: true},
+		{name: "create over the collection limit", createErr: limited, wantLimit: true},
+		{name: "create rejected", createErr: rejected, wantUserInput: true},
+	}
+	for _, tc := range createCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _, _, _, _ := newNSManagers(t, zooAnimalNSSchema(false), false, withAutoSchema(nil),
+				func(_ *config.WeaviateConfig, sm *fakeSchemaManager) { sm.AddClassErr = tc.createErr })
+
+			_, err := m.AddObject(context.Background(), principal, &models.Object{
+				Class:      "Aquarium",
+				Properties: map[string]interface{}{"age": float64(7)},
+			}, nil)
+
+			if tc.wantLimit {
+				_, ok := usagelimits.AsLimitExceeded(err)
+				require.True(t, ok, "want a usage limit, got %v", err)
+				require.NotErrorAs(t, err, &ErrInvalidUserInput{})
+				return
+			}
+			requireStatus(t, err, tc.wantForbidden, tc.wantUserInput)
+		})
+	}
+}
+
+// Validating a write checks that each cross-reference target exists, at the
+// request's consistency level. Too few reachable replicas is a server fault
+// and must reach the handlers as 500; any other outcome of that check stays
+// the client's fault and keeps its 4xx.
+func TestRefTargetReplicasErrIsInternal(t *testing.T) {
+	const class, target = "Zoo", "Animal"
+	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
+	refID := strfmt.UUID("a0b1c2d3-1e0d-42ae-bd52-ee09cb5f31cc")
+	beacon := "weaviate://localhost/" + target + "/" + string(refID)
+	found := &search.Result{ID: id, ClassName: class}
+	withRef := func() *models.Object {
+		return &models.Object{
+			Class: class, ID: id,
+			Properties: map[string]interface{}{
+				"hasAnimals": []interface{}{map[string]interface{}{"beacon": beacon}},
+			},
+		}
+	}
+
+	// The create and PUT handlers check for ErrInvalidUserInput first. An error
+	// that matches it never reaches the 500 branch.
+	requireInternal := func(t *testing.T, err error) {
+		require.ErrorAs(t, err, &ErrInternal{})
+		require.NotErrorAs(t, err, &ErrInvalidUserInput{})
+	}
+	requireUserInput := func(t *testing.T, err error) {
+		require.ErrorAs(t, err, &ErrInvalidUserInput{})
+	}
+	requireCode := func(code int) func(t *testing.T, err error) {
+		return func(t *testing.T, err error) {
+			var objErr *Error
+			require.ErrorAs(t, err, &objErr)
+			require.Equal(t, code, objErr.Code)
+		}
+	}
+	// A nil *Error must stay a nil error interface.
+	asErr := func(objErr *Error) error {
+		if objErr != nil {
+			return objErr
+		}
+		return nil
+	}
+
+	outcomes := []struct {
+		name     string
+		err      error
+		internal bool
+	}{
+		{
+			name:     "replicas unreachable",
+			err:      fmt.Errorf("exists: %w", replicaerrors.NewNotEnoughReplicasError(errors.New("2 of 3 nodes down"))),
+			internal: true,
+		},
+		{name: "other existence error", err: errors.New("shard refused")},
+		{name: "target missing"},
+	}
+
+	ops := []struct {
+		name      string
+		arrange   func(repo *fakeObjectFinder)
+		call      func(m *Manager) error
+		internal  func(t *testing.T, err error)
+		userFault func(t *testing.T, err error)
+	}{
+		{
+			name: "add object",
+			call: func(m *Manager) error {
+				obj := withRef()
+				obj.ID = ""
+				_, err := m.AddObject(context.Background(), &models.Principal{}, obj, nil)
+				return err
+			},
+			internal:  requireInternal,
+			userFault: requireUserInput,
+		},
+		{
+			name: "validate object",
+			call: func(m *Manager) error {
+				return m.ValidateObject(context.Background(), &models.Principal{}, withRef(), nil)
+			},
+			internal:  requireInternal,
+			userFault: requireUserInput,
+		},
+		{
+			name: "update object",
+			arrange: func(repo *fakeObjectFinder) {
+				repo.On("Object", class, id, mock.Anything, mock.Anything, "").Return(found, nil).Once()
+			},
+			call: func(m *Manager) error {
+				_, err := m.UpdateObject(context.Background(), &models.Principal{}, class, id, withRef(), nil)
+				return err
+			},
+			internal:  requireInternal,
+			userFault: requireUserInput,
+		},
+		{
+			name: "merge object",
+			arrange: func(repo *fakeObjectFinder) {
+				repo.On("Object", class, id, mock.Anything, mock.Anything, "").Return(found, nil).Once()
+			},
+			call: func(m *Manager) error {
+				return asErr(m.MergeObject(context.Background(), &models.Principal{}, withRef(), nil))
+			},
+			internal:  requireCode(StatusInternalServerError),
+			userFault: requireCode(StatusBadRequest),
+		},
+		{
+			name: "add reference",
+			call: func(m *Manager) error {
+				input := &AddReferenceInput{
+					Class: class, ID: id, Property: "hasAnimals",
+					Ref: models.SingleRef{Beacon: strfmt.URI(beacon)},
+				}
+				return asErr(m.AddObjectReference(context.Background(), &models.Principal{}, input, nil, ""))
+			},
+			internal:  requireCode(StatusInternalServerError),
+			userFault: requireCode(StatusBadRequest),
+		},
+		{
+			name: "replace references",
+			arrange: func(repo *fakeObjectFinder) {
+				repo.On("Object", class, id, mock.Anything, mock.Anything, "").Return(found, nil).Once()
+			},
+			call: func(m *Manager) error {
+				input := &PutReferenceInput{
+					Class: class, ID: id, Property: "hasAnimals",
+					Refs: models.MultipleRef{{Beacon: strfmt.URI(beacon)}},
+				}
+				return asErr(m.UpdateObjectReferences(context.Background(), &models.Principal{}, input, nil, ""))
+			},
+			internal:  requireCode(StatusInternalServerError),
+			userFault: requireCode(StatusBadRequest),
+		},
+	}
+
+	for _, o := range outcomes {
+		for _, op := range ops {
+			t.Run(o.name+"/"+op.name, func(t *testing.T) {
+				m, _, repo, _, _ := newNSManagers(t, zooAnimalNSSchema(false), false)
+				if op.arrange != nil {
+					op.arrange(repo)
+				}
+				repo.On("Exists", target, refID).Return(false, o.err).Once()
+
+				err := op.call(m)
+				if o.internal {
+					op.internal(t, err)
+					require.ErrorIs(t, err, replicaerrors.ErrReplicas)
+				} else {
+					op.userFault(t, err)
+				}
+				repo.AssertExpectations(t)
+			})
+		}
 	}
 }

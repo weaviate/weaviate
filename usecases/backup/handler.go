@@ -24,6 +24,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -38,7 +39,7 @@ import (
 // Classification uses errors.Is against the shared
 // [backup.ErrBackupBlockedByInFlightReindex] sentinel rather than substring
 // comparison; the storage layer's Backupable() wraps that sentinel inside
-// errors.Join when multiple shards refuse, and errors.Is walks the join.
+// errors.Join when several classes refuse, and errors.Is walks the join.
 func classifyCanCommitErr(err error) CanCommitErrorKind {
 	if err == nil {
 		return ""
@@ -67,6 +68,7 @@ var (
 	errLegacyUncompressed = legacyRestoreErr("by Weaviate older than v1.21, which stored files uncompressed")
 	errLegacyFlatFS       = legacyRestoreErr("by Weaviate older than v1.23, which stored shard files " +
 		"in a flat directory instead of one directory per shard")
+	errUnreadableServerVersion = errors.New("backup has an unreadable server version")
 )
 
 // legacyRestoreErr builds the refusal for a backup format this build no longer restores.
@@ -86,7 +88,11 @@ func checkRestorableVersion(version, serverVersion string) error {
 	if version != "" && version <= version1 {
 		return errLegacyUncompressed
 	}
-	if serverVersionOlderThan(serverVersion, 1, 23) {
+	older, err := serverVersionOlderThan(serverVersion, 1, 23)
+	if err != nil {
+		return err
+	}
+	if older {
 		return errLegacyFlatFS
 	}
 	// A structure version may omit the minor, so compare majors only.
@@ -126,16 +132,16 @@ func parseVersion(version string) (major, minor int, ok bool) {
 }
 
 // serverVersionOlderThan reports whether serverVersion, formatted "major.minor[.patch]",
-// is older than major.minor. An unparseable version is not treated as older.
-func serverVersionOlderThan(serverVersion string, major, minor int) bool {
+// is older than major.minor. It fails when serverVersion does not parse.
+func serverVersionOlderThan(serverVersion string, major, minor int) (bool, error) {
 	gotMajor, gotMinor, ok := parseVersion(serverVersion)
 	if !ok {
-		return false
+		return false, fmt.Errorf("%w %q: want major.minor[.patch]", errUnreadableServerVersion, serverVersion)
 	}
 	if gotMajor != major {
-		return gotMajor < major
+		return gotMajor < major, nil
 	}
-	return gotMinor < minor
+	return gotMinor < minor, nil
 }
 
 // TODO error handling need to be implemented properly.
@@ -149,10 +155,9 @@ type BackupBackendProvider interface {
 }
 
 type schemaManger interface {
+	local.ClassReader
 	RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool, stripNamespaces bool) error
-	NodeName() string
 	NamespacesEnabled() bool
-	ClassEqual(name string) string
 }
 
 type NodeResolver interface {
@@ -173,8 +178,8 @@ type dynUserSnapshotter interface {
 
 // RBACSnapshotter is the backup-side contract for the RBAC FSM. The variadic
 // Snapshot filters to a role subset for backups; zero args is the full snapshot.
-// It is exported so the wiring can hold one as a genuinely nil interface when
-// RBAC is off, rather than boxing a nil *rbac.Manager into a non-nil interface.
+// configure_api.go leaves it nil when RBAC is disabled. A backup then carries
+// no roles, and an includeRoles request fails.
 type RBACSnapshotter interface {
 	Snapshot(roles ...string) ([]byte, error)
 }
@@ -217,12 +222,12 @@ func NewHandler(
 	cfg config.Backup,
 	authorizer authorization.Authorizer,
 	schema schemaManger,
+	node string,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
 	rbacSourcer RBACSnapshotter,
 	dynUserSourcer dynUserSnapshotter,
 ) *Handler {
-	node := schema.NodeName()
 	m := &Handler{
 		node:       node,
 		logger:     logger,
@@ -264,14 +269,14 @@ type BackupRequest struct {
 	// The same class cannot appear in both Include and Exclude in the same request
 	Exclude []string
 
-	// Non-empty switches the backup to a filtered dynamic-user snapshot.
-	// Empty keeps the whole-cluster snapshot. Same '*'/'?' wildcards as Include.
-	// An exact name must exist; wildcards matching nothing back up no users.
+	// Nil captures the full dynamic-user store. An empty list excludes it.
+	// Selectors support '*'/'?' wildcards; exact names must exist.
+	// Wildcards matching nothing exclude the user snapshot.
 	IncludeUsers []string
 
-	// Non-empty filters the RBAC snapshot to the matching roles. Empty keeps the
-	// whole-cluster snapshot. Same '*'/'?' wildcards as Include; built-ins rejected.
-	// An exact name must exist; wildcards matching nothing back up no roles.
+	// Nil captures the full RBAC state. An empty list excludes it.
+	// Selectors support '*'/'?' wildcards and exclude built-in roles.
+	// Exact names must exist; wildcards matching nothing exclude the RBAC snapshot.
 	IncludeRoles []string
 
 	// NodeMapping is a map of node name replacement where key is the old name and value is the new name

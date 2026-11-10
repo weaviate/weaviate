@@ -45,7 +45,7 @@ func newDynUserQueryStore(t *testing.T) (*Store, string, string) {
 	const userID = "seeded-user"
 	_, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, dynUser.CreateUser(userID, hash, identifier, "", "", time.Now()))
+	require.NoError(t, dynUser.CreateUser(userID, hash, identifier, "", "", time.Now(), time.Time{}))
 
 	cfg := Config{
 		WorkDir:                t.TempDir(),
@@ -67,7 +67,7 @@ func newDynUserQueryStore(t *testing.T) (*Store, string, string) {
 		DynamicUserController:  dynUser,
 		TelemetryEnabled:       true,
 	}
-	s := NewFSM(cfg, nil, prometheus.NewPedanticRegistry())
+	s := NewFSM(cfg, prometheus.NewPedanticRegistry())
 	return &s, userID, identifier
 }
 
@@ -118,7 +118,7 @@ func TestQueryUnknownType(t *testing.T) {
 // attachFollowerRaft gives store a real raft instance that is not the leader.
 // The node is never bootstrapped, so its configuration is empty, it can never
 // win an election and Barrier always reports raft.ErrNotLeader.
-func attachFollowerRaft(t *testing.T, store *Store) {
+func attachFollowerRaft(t *testing.T, store *Store) *raft.InmemTransport {
 	t.Helper()
 	cfg := raft.DefaultConfig()
 	cfg.LocalID = raft.ServerID("node-1")
@@ -131,6 +131,7 @@ func attachFollowerRaft(t *testing.T, store *Store) {
 	t.Cleanup(func() { require.NoError(t, r.Shutdown().Error()) })
 
 	store.raft.Store(r)
+	return transport
 }
 
 func TestQueryExportUsersDispatch(t *testing.T) {

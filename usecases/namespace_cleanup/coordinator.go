@@ -42,6 +42,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -69,17 +70,16 @@ type userLister interface {
 // raftExecutor is the subset of cluster.Raft used here. The RBAC writes
 // replicate through RAFT like the rest, so a follower's store is cleaned too.
 type raftExecutor interface {
+	leader.ClassWriter
+	leader.AliasWriter
 	DeleteUsersInNamespace(ctx context.Context, name string) error
-	DeleteAlias(ctx context.Context, alias string) (uint64, error)
-	DeleteClass(ctx context.Context, name string) (uint64, error)
 	RemoveNamespaceEntity(ctx context.Context, name string) (uint64, error)
 	DeleteRoles(names ...string) error
 	RevokeRolesForUser(user string, roles ...string) error
 }
 
 // RBACLister reads the roles and role assignments that belong to a namespace.
-// Nil when RBAC is disabled (only possible on a non-namespace cluster, which has
-// nothing to clean). Reads run on the leader; the deletes go through raftExecutor.
+// Reads run on the leader; the deletes go through raftExecutor.
 type RBACLister interface {
 	NamespaceLocalRBAC(namespace string) (roles []string, subjects []rbac.NamespaceSubject, err error)
 	GetRolesForUserOrGroup(user string, authMethod authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error)
@@ -243,8 +243,7 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, namespace stri
 //
 // The assignment handler only lets a local role reach its own namespace's principals,
 // all of which are revoked above, so DeleteRoles dropping any grouping row that
-// still points at a deleted local role is a defensive backstop. No-op when RBAC
-// is disabled (see RBACLister).
+// still points at a deleted local role is a defensive backstop.
 func (c *Coordinator) cleanupNamespaceRBAC(ctx context.Context, namespace string) error {
 	if c.rbac == nil {
 		return nil

@@ -435,6 +435,9 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache(ctx context.Contex
 	for _, vec := range vecs {
 		compressor.cache.Preload(vec.Id, vec.Vec)
 	}
+	if summarizer, ok := compressor.cache.(cache.PreloadSummarizer); ok {
+		summarizer.FlushPreloadSummary()
+	}
 
 	took := time.Since(before)
 	compressor.logger.WithFields(logrus.Fields{
@@ -866,6 +869,44 @@ func RestoreHNSWSQMultiCompressor(
 	return sqVectorsCompressor, nil
 }
 
+// newRQByteCache constructs the byte-code cache for an RQ compressor,
+// honoring the process-level VECTOR_CACHE_IMPL toggle. recordSize is the
+// exact stored code length; the arena needs it at construction, the sharded
+// implementation ignores it. Falls back to sharded if the arena rejects the
+// parameters, so an experiment toggle can never fail startup.
+func newRQByteCache(vecForID common.VectorForID[byte], recordSize int, vectorCacheMaxObjects int,
+	logger logrus.FieldLogger, allocChecker memwatch.AllocChecker,
+) cache.Cache[byte] {
+	if cache.ArenaCacheSelected(logger) {
+		c, err := cache.NewArenaByteCache(vecForID, recordSize, vectorCacheMaxObjects, 1, logger, 0, allocChecker)
+		if err == nil {
+			logger.WithField("action", "vector_cache_impl").
+				Infof("using arena byte cache (record size %d)", recordSize)
+			return c
+		}
+		logger.WithField("action", "vector_cache_impl").
+			Warnf("arena cache unavailable, using sharded: %v", err)
+	}
+	return cache.NewShardedByteLockCache(vecForID, vectorCacheMaxObjects, 1, logger, 0, allocChecker)
+}
+
+// newRQUint64Cache is newRQByteCache for word-code quantizers (1-bit RQ).
+func newRQUint64Cache(vecForID common.VectorForID[uint64], recordWords int, vectorCacheMaxObjects int,
+	logger logrus.FieldLogger, allocChecker memwatch.AllocChecker,
+) cache.Cache[uint64] {
+	if cache.ArenaCacheSelected(logger) {
+		c, err := cache.NewArenaUint64Cache(vecForID, recordWords, vectorCacheMaxObjects, 1, logger, 0, allocChecker)
+		if err == nil {
+			logger.WithField("action", "vector_cache_impl").
+				Infof("using arena uint64 cache (record words %d)", recordWords)
+			return c
+		}
+		logger.WithField("action", "vector_cache_impl").
+			Warnf("arena cache unavailable, using sharded: %v", err)
+	}
+	return cache.NewShardedUInt64LockCache(vecForID, vectorCacheMaxObjects, 1, logger, 0, allocChecker)
+}
+
 func NewRQCompressor(
 	distance distancer.Provider,
 	vectorCacheMaxObjects int,
@@ -898,9 +939,10 @@ func NewRQCompressor(
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore(); err != nil {
 			return nil, err
 		}
-		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedUInt64LockCache(
-			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
-			0, allocChecker)
+		recordWords := oneBitFieldWords + int(quantizer.Data().Rotation.OutputDim)/64
+		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = newRQUint64Cache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID,
+			recordWords, vectorCacheMaxObjects, logger, allocChecker)
 	case 4:
 		quantizer := NewFourBitRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
@@ -916,9 +958,9 @@ func NewRQCompressor(
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
 			return nil, err
 		}
-		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedByteLockCache(
-			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
-			0, allocChecker)
+		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = newRQByteCache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID,
+			quantizer.rq4RecordSize(), vectorCacheMaxObjects, logger, allocChecker)
 	case 8:
 		quantizer := NewRotationalQuantizer(dim, DefaultFastRotationSeed, bits, distance)
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
@@ -934,9 +976,9 @@ func NewRQCompressor(
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
 			return nil, err
 		}
-		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedByteLockCache(
-			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
-			0, allocChecker)
+		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = newRQByteCache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID,
+			RQMetadataSize+quantizer.OutputDimension(), vectorCacheMaxObjects, logger, allocChecker)
 	default:
 		return nil, errors.New("invalid bits value, only 1, 4 and 8 bits are supported")
 	}
@@ -994,7 +1036,43 @@ func NewCenteredRQ4Compressor(
 	if err := rqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
 	}
-	rqVectorsCompressor.cache = cache.NewShardedByteLockCache(
+	rqVectorsCompressor.cache = newRQByteCache(rqVectorsCompressor.getCompressedVectorForID,
+		quantizer.rq4RecordSize(), vectorCacheMaxObjects, logger, allocChecker)
+	return rqVectorsCompressor, nil
+}
+
+// NewCenteredRQ1Compressor is the 1-bit sibling of NewCenteredRQ4Compressor:
+// same deferred-training activation, same RQData persistence, word codes.
+func NewCenteredRQ1Compressor(
+	distance distancer.Provider,
+	vectorCacheMaxObjects int,
+	logger logrus.FieldLogger,
+	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
+	makeBucketOptions lsmkv.MakeBucketOptions,
+	dim int,
+	mean []float32,
+	bucketName string,
+	vectorForID common.VectorForID[float32],
+) (VectorCompressor, error) {
+	quantizer, err := NewCenteredBinaryRotationalQuantizer(dim, DefaultFastRotationSeed, mean, distance)
+	if err != nil {
+		return nil, err
+	}
+	rqVectorsCompressor := &quantizedVectorsCompressor[uint64]{
+		quantizer:         quantizer,
+		compressedStore:   store,
+		storeId:           binary.BigEndian.PutUint64,
+		loadId:            binary.BigEndian.Uint64,
+		bucketName:        bucketName,
+		logger:            logger,
+		makeBucketOptions: makeBucketOptions,
+		vectorForID:       vectorForID,
+	}
+	if err := rqVectorsCompressor.initCompressedStore(); err != nil {
+		return nil, err
+	}
+	rqVectorsCompressor.cache = cache.NewShardedUInt64LockCache(
 		rqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 		0, allocChecker)
 	return rqVectorsCompressor, nil
@@ -1018,18 +1096,24 @@ func RestoreRQCompressor(
 	bucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
-	if mean != nil && bits != 4 {
-		return nil, errors.New("RQ centering requires bits=4")
+	if mean != nil && bits != 4 && bits != 1 {
+		return nil, errors.New("RQ centering requires bits=4 or bits=1")
 	}
 	var rqVectorsCompressor VectorCompressor
 	switch bits {
 	case 1:
-		quantizer, err := RestoreBinaryRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, rounding, distance)
+		var rq1Quantizer quantizer[uint64]
+		var err error
+		if mean != nil {
+			rq1Quantizer, err = RestoreCenteredBinaryRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, mean, distance)
+		} else {
+			rq1Quantizer, err = RestoreBinaryRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, rounding, distance)
+		}
 		if err != nil {
 			return nil, err
 		}
 		rqVectorsCompressor = &quantizedVectorsCompressor[uint64]{
-			quantizer:         quantizer,
+			quantizer:         rq1Quantizer,
 			compressedStore:   store,
 			storeId:           binary.BigEndian.PutUint64,
 			loadId:            binary.BigEndian.Uint64,
@@ -1041,9 +1125,9 @@ func RestoreRQCompressor(
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore(); err != nil {
 			return nil, err
 		}
-		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedUInt64LockCache(
-			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
-			0, allocChecker)
+		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = newRQUint64Cache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID,
+			oneBitFieldWords+outputDim/64, vectorCacheMaxObjects, logger, allocChecker)
 	case 4:
 		quantizer, err := RestoreFourBitRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, mean, distance)
 		if err != nil {
@@ -1062,9 +1146,9 @@ func RestoreRQCompressor(
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
 			return nil, err
 		}
-		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedByteLockCache(
-			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
-			0, allocChecker)
+		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = newRQByteCache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID,
+			quantizer.rq4RecordSize(), vectorCacheMaxObjects, logger, allocChecker)
 	case 8:
 		quantizer, err := RestoreRotationalQuantizer(dimensions, bits, outputDim, rounds, swaps, signs, distance)
 		if err != nil {
@@ -1083,9 +1167,9 @@ func RestoreRQCompressor(
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
 			return nil, err
 		}
-		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedByteLockCache(
-			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
-			0, allocChecker)
+		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = newRQByteCache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID,
+			RQMetadataSize+outputDim, vectorCacheMaxObjects, logger, allocChecker)
 	default:
 		return nil, errors.New("invalid bits value, only 1, 4 and 8 bits are supported")
 	}

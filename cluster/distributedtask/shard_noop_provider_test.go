@@ -42,7 +42,7 @@ type mockShardLister struct {
 	onCall func(calls int)
 }
 
-func (m *mockShardLister) GetLocalShardNames(collection string) ([]string, error) {
+func (m *mockShardLister) OpenLocalShardNames(collection string) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

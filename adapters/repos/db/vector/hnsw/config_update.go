@@ -185,12 +185,14 @@ func (h *hnsw) Upgrade(callback func()) error {
 	}
 
 	h.compressing.Store(true)
+	h.compressWg.Add(1)
 	enterrors.GoWrapper(func() { h.compressThenCallback(callback) }, h.logger)
 
 	return nil
 }
 
 func (h *hnsw) compressThenCallback(callback func()) {
+	defer h.compressWg.Done()
 	defer h.compressing.Store(false)
 	defer callback()
 

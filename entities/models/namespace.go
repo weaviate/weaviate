@@ -37,7 +37,7 @@ type Namespace struct {
 	// The unique name of the namespace.
 	Name string `json:"name,omitempty"`
 
-	// Lifecycle state. "active" namespaces accept all operations. "suspended" namespaces reject new classes, aliases, users, roles, and role assignments, and their users can no longer authenticate; everything the namespace already owns is retained. "resuming" namespaces are on their way back to "active" and are still restricted the same way. "deleting" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.
+	// Lifecycle state. "active" namespaces accept all operations. "suspended" namespaces reject new classes, aliases, users, roles, role assignments, and replica movements, and their users can no longer authenticate; everything the namespace already owns is retained. "resuming" namespaces are on their way back to "active" and are still restricted the same way, replica movements included. "deleting" namespaces are being removed: new classes, aliases, users, and replica movements can no longer be created in the namespace, and the namespace itself disappears once removal completes.
 	// Enum: [active suspended resuming deleting]
 	State string `json:"state,omitempty"`
 }

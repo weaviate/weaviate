@@ -125,6 +125,11 @@ func SearchablePropertyBlockmaxFromRAFT(classFlagBlockmax bool, collection, prop
 	return false
 }
 
+// ReindexDetector decides whether a RAFT apply refuses a new reindex task or a
+// schema mutation that overlaps an in-flight reindex. It needs no RAFT handle,
+// so MakeAppState builds it before the cluster service opens RAFT.
+type ReindexDetector struct{}
+
 // CheckConflict implements [distributedtask.ConflictDetector] for the
 // reindex namespace. Called under [Manager.mu] from the RAFT-apply
 // AddTask path BEFORE the new task is appended to FSM-stored state.
@@ -140,7 +145,7 @@ func SearchablePropertyBlockmaxFromRAFT(classFlagBlockmax bool, collection, prop
 // of the same collection conflict, regardless of which bucket type
 // they primarily write to. See [typesConflictReason] for the
 // rationale.
-func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*distributedtask.Task) error {
+func (ReindexDetector) CheckConflict(newPayload []byte, existingTasks []*distributedtask.Task) error {
 	var newP ReindexTaskPayload
 	if err := json.Unmarshal(newPayload, &newP); err != nil {
 		return fmt.Errorf("unmarshal new reindex payload: %w", err)
@@ -186,26 +191,12 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 	return nil
 }
 
-// typesConflictReason returns a non-empty reason string if two reindex
-// migrations on the same collection target overlapping properties.
+// typesConflictReason returns a non-empty reason if two reindex migrations
+// on the same collection target overlapping properties, whatever their types.
+// The UpdateProperty completing a semantic migration ([IsSemanticMigration])
+// runs updatePropertyBuckets, which deletes the working dirs of an overlapping
+// enable-* migration whose flag is still false (weaviate/weaviate#10675).
 //
-// Earlier versions allowed parallel migrations as long as they wrote
-// to different bucket types (e.g. enable-filterable + enable-rangeable
-// on the same property). That was a real Sev 1: when one of those
-// migrations completed, its OnMigrationComplete fired an
-// UpdateProperty RAFT command whose MergeProps preserved the
-// still-false sibling flag (the other migration hasn't flipped its
-// flag yet). On apply, Migrator.UpdateProperty →
-// Shard.updatePropertyBuckets ran cleanStaleMigrationDirs for every
-// index whose flag was now false, removing the in-flight migration's
-// .migrations/<dir>/ working directory and causing the next
-// markProgress to fail with "progress.mig.000000001: no such file or
-// directory" → task FAILED. https://github.com/weaviate/weaviate/issues/10675 frontend repro on
-// parallel enable-filterable + enable-rangeable hit this.
-//
-// Closing the window at submit time is correct: reject any new task
-// whose property set overlaps an in-flight task's property set, so the
-// caller gets a clean conflict error and can serialize the operations.
 // Empty props means "all properties" (reserved for a future
 // whole-collection rebuild) and overlaps with everything.
 func typesConflictReason(newType ReindexMigrationType, newProps []string,
@@ -298,40 +289,28 @@ func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) s
 	}
 }
 
-// CheckPropertyUpdate implements
-// [distributedtask.SchemaMutationDetector] for the reindex namespace.
-// Called from the schema FSM's UpdateProperty apply path under
-// [Manager.mu] to reject external property mutations while a reindex
-// migration on the same (collection, property) is in any non-terminal
-// state (via [distributedtask.TaskStatus.IsActive]).
+// CheckPropertyUpdate implements [distributedtask.SchemaMutationDetector]
+// for the reindex namespace: called from the schema FSM's UpdateProperty
+// apply path to reject external property mutations racing an in-flight
+// reindex migration on the same (collection, property).
 //
-// Motivating failure mode: a `change-tokenization` migration spawns
-// separate per-shard sub-tasks for the searchable and filterable
-// indexes. A DELETE `/index/searchable` arriving mid-flight applies
-// `cleanStaleMigrationDirs("<prop>", "searchable")`, which wipes the
-// searchable sub-task's working dir under the still-running
-// runtimeSwap → searchable sub-unit FAILs → sibling filterable
-// sub-unit commits its local swap → per-shard ack barrier sees mixed
-// acks → task FAILED → `flipSemanticMigrationSchema` skipped →
-// schema stays at OLD tokenization while the filterable bucket on
-// disk holds NEW-tokenized data. Bucket↔schema inversion — same
-// family as the ack-barrier failure mode but triggered by an external
-// schema mutation instead of a crash.
+// Without it, an external UpdateProperty such as DELETE /index/searchable
+// runs updatePropertyBuckets, which deletes the working dirs of an in-flight
+// enable-* migration whose flag is still false. Mid change-tokenization, the
+// same DELETE wipes the searchable sub-task while the filterable sub-task
+// commits, leaving the schema at the old tokenization and the filterable
+// bucket on the new one.
 //
-// Rule: blanket reject any property mutation overlapping an in-flight
-// reindex task's properties on the same collection. Migration-driven
-// schema flips bypass this guard via
-// [api.UpdatePropertyRequest.FromInFlightMigration] = true, set by
-// [Raft.UpdatePropertyFromMigration] from the scheduler's
-// OnTaskCompleted dispatch. So the guard rejects external mutations
-// without breaking the migration's own scheduled completion flip.
+// Migration-driven flips bypass the guard via
+// [api.UpdatePropertyRequest.FromInFlightMigration], set by
+// [Raft.UpdatePropertyFromMigration] from the scheduler's own completion
+// dispatch, so external mutations are blocked without blocking the
+// migration's scheduled flip.
 //
-// FSM-determinism: pure function of (className, propertyName,
-// existingTasks). Unparseable in-flight payloads are treated as a
-// hard reject (same as [ConflictDetector.CheckConflict]) — the
-// alternative (silently allow) would let a real bucket-level conflict
-// slip through and re-open the race this guard exists to close.
-func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
+// Must stay a pure function of (className, propertyName, existingTasks) for
+// RAFT determinism; an unparseable payload is a hard reject, same as
+// [ConflictDetector.CheckConflict].
+func (ReindexDetector) CheckPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		// Same in-flight semantics as CheckConflict.
 		if !task.Status.IsActive() {
@@ -387,7 +366,7 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 // Same FSM-determinism contract as CheckPropertyUpdate. Unparseable
 // in-flight payloads are treated as a hard reject (we cannot prove
 // non-conflict).
-func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*distributedtask.Task) error {
+func (ReindexDetector) CheckClassMutation(className string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		// Same in-flight semantics as CheckConflict.
 		if !task.Status.IsActive() {
@@ -442,7 +421,7 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 //
 // `tenants` is informational — the rejection error names them so
 // the caller knows which tenants would be affected.
-func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
+func (ReindexDetector) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		// Same in-flight semantics as CheckConflict.
 		if !task.Status.IsActive() {

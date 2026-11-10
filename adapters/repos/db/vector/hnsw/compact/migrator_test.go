@@ -13,9 +13,9 @@ package compact
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -58,9 +58,7 @@ func TestSnapshotReaderV1V2Rejection(t *testing.T) {
 			_, err = reader.ReadFromFile(snapshotPath)
 
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "legacy snapshot version")
-			assert.Contains(t, err.Error(), "upgrade not supported")
-			assert.Contains(t, err.Error(), "downgrade Weaviate")
+			assert.Contains(t, err.Error(), fmt.Sprintf("legacy snapshot version %d", tc.version))
 		})
 	}
 }
@@ -379,60 +377,63 @@ func TestMigrateSnapshotDirectory(t *testing.T) {
 		assert.True(t, os.IsNotExist(err), "old snapshot should be removed")
 	})
 
-	t.Run("V1 snapshot rejects with error", func(t *testing.T) {
-		baseDir := t.TempDir()
+	// Snapshots written before v1.34 (V1/V2) only duplicate commit logs that are
+	// still on disk, so they are discarded instead of failing the load.
+	for _, version := range []uint8{snapshotVersionV1, snapshotVersionV2} {
+		t.Run(fmt.Sprintf("V%d snapshot is discarded", version), func(t *testing.T) {
+			baseDir := t.TempDir()
+			snapshotDir := filepath.Join(baseDir, "main.hnsw.snapshot.d")
+			require.NoError(t, os.MkdirAll(snapshotDir, 0o755))
 
-		// Create old snapshot directory
+			oldSnapshotPath := filepath.Join(snapshotDir, "1000.snapshot")
+			require.NoError(t, os.WriteFile(oldSnapshotPath, []byte{version, 0xde, 0xad}, 0o644))
+			checkpointPath := oldSnapshotPath + ".checkpoints"
+			require.NoError(t, os.WriteFile(checkpointPath, []byte("checkpoint data"), 0o644))
+
+			commitlogDir := filepath.Join(baseDir, "main.hnsw.commitlog.d")
+			require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+			migrator := NewMigrator(commitlogDir, migratorTestLogger())
+			require.NoError(t, migrator.MigrateSnapshotDirectory())
+
+			_, err := os.Stat(oldSnapshotPath)
+			assert.True(t, os.IsNotExist(err), "legacy snapshot should be deleted")
+			_, err = os.Stat(checkpointPath)
+			assert.True(t, os.IsNotExist(err), "legacy checkpoints should be deleted")
+			_, err = os.Stat(filepath.Join(commitlogDir, "1000.snapshot"))
+			assert.True(t, os.IsNotExist(err), "legacy snapshot must not be moved")
+			_, err = os.Stat(snapshotDir)
+			assert.True(t, os.IsNotExist(err), "emptied old directory should be removed")
+
+			// Idempotent: a second run finds nothing left to do.
+			require.NoError(t, migrator.MigrateSnapshotDirectory())
+		})
+	}
+
+	t.Run("V2 snapshot discarded and V3 snapshot moved", func(t *testing.T) {
+		baseDir := t.TempDir()
 		snapshotDir := filepath.Join(baseDir, "main.hnsw.snapshot.d")
 		require.NoError(t, os.MkdirAll(snapshotDir, 0o755))
 
-		// Create V1 snapshot in old directory
-		oldSnapshotPath := filepath.Join(snapshotDir, "1000.snapshot")
-		f, err := os.Create(oldSnapshotPath)
-		require.NoError(t, err)
-		_, err = f.Write([]byte{snapshotVersionV1})
-		require.NoError(t, err)
-		f.Close()
+		legacyPath := filepath.Join(snapshotDir, "1000.snapshot")
+		require.NoError(t, os.WriteFile(legacyPath, []byte{snapshotVersionV2}, 0o644))
+		v3Path := filepath.Join(snapshotDir, "2000.snapshot")
+		createTestSnapshot(t, v3Path, 0, 0, []testNode{
+			{id: 0, level: 0, connections: [][]uint64{{}}, tombstone: false},
+		})
 
-		// Create commitlog directory
 		commitlogDir := filepath.Join(baseDir, "main.hnsw.commitlog.d")
 		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
 
 		migrator := NewMigrator(commitlogDir, migratorTestLogger())
+		require.NoError(t, migrator.MigrateSnapshotDirectory())
 
-		// Run migration - should fail
-		err = migrator.MigrateSnapshotDirectory()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "legacy snapshot version 1")
-		assert.Contains(t, err.Error(), "upgrade not supported")
-	})
-
-	t.Run("V2 snapshot rejects with error", func(t *testing.T) {
-		baseDir := t.TempDir()
-
-		// Create old snapshot directory
-		snapshotDir := filepath.Join(baseDir, "main.hnsw.snapshot.d")
-		require.NoError(t, os.MkdirAll(snapshotDir, 0o755))
-
-		// Create V2 snapshot in old directory
-		oldSnapshotPath := filepath.Join(snapshotDir, "1000.snapshot")
-		f, err := os.Create(oldSnapshotPath)
-		require.NoError(t, err)
-		_, err = f.Write([]byte{snapshotVersionV2})
-		require.NoError(t, err)
-		f.Close()
-
-		// Create commitlog directory
-		commitlogDir := filepath.Join(baseDir, "main.hnsw.commitlog.d")
-		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
-
-		migrator := NewMigrator(commitlogDir, migratorTestLogger())
-
-		// Run migration - should fail
-		err = migrator.MigrateSnapshotDirectory()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "legacy snapshot version 2")
-		assert.Contains(t, err.Error(), "upgrade not supported")
+		_, err := os.Stat(legacyPath)
+		assert.True(t, os.IsNotExist(err), "legacy snapshot should be deleted")
+		_, err = os.Stat(filepath.Join(commitlogDir, "1000.snapshot"))
+		assert.True(t, os.IsNotExist(err), "legacy snapshot must not be moved")
+		_, err = os.Stat(filepath.Join(commitlogDir, "2000.snapshot"))
+		require.NoError(t, err, "V3 snapshot should be moved")
 	})
 
 	t.Run("checkpoint files are deleted", func(t *testing.T) {
@@ -563,35 +564,52 @@ func TestLoaderIntegrationWithMigrator(t *testing.T) {
 		assert.Equal(t, uint16(2), result.State.Graph.Level)
 	})
 
-	t.Run("loader fails on V1 snapshot", func(t *testing.T) {
-		baseDir := t.TempDir()
+	// A tenant that stayed cold from v1.33 through v1.38 still has its V1/V2
+	// snapshot; the commit logs it covers must be replayed instead.
+	for _, version := range []uint8{snapshotVersionV1, snapshotVersionV2} {
+		t.Run(fmt.Sprintf("loader discards V%d snapshot and replays all commit logs", version), func(t *testing.T) {
+			baseDir := t.TempDir()
+			snapshotDir := filepath.Join(baseDir, "main.hnsw.snapshot.d")
+			require.NoError(t, os.MkdirAll(snapshotDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(snapshotDir, "1000.snapshot"),
+				[]byte{version, 0xde, 0xad}, 0o644))
 
-		// Create old snapshot directory with V1 snapshot
-		snapshotDir := filepath.Join(baseDir, "main.hnsw.snapshot.d")
-		require.NoError(t, os.MkdirAll(snapshotDir, 0o755))
+			commitlogDir := filepath.Join(baseDir, "main.hnsw.commitlog.d")
+			require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+			// Covered by the legacy snapshot.
+			createTestWALFile(t, filepath.Join(commitlogDir, "500.condensed"), func(w *WALWriter) {
+				require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
+				require.NoError(t, w.WriteAddNode(0, 0))
+			})
+			createTestWALFile(t, filepath.Join(commitlogDir, "1000"), func(w *WALWriter) {
+				require.NoError(t, w.WriteAddNode(1, 0))
+				require.NoError(t, w.WriteAddLinkAtLevel(1, 0, 0))
+			})
+			// Written after the legacy snapshot.
+			createTestWALFile(t, filepath.Join(commitlogDir, "2000"), func(w *WALWriter) {
+				require.NoError(t, w.WriteAddNode(2, 0))
+				require.NoError(t, w.WriteAddLinkAtLevel(2, 0, 1))
+			})
 
-		oldSnapshotPath := filepath.Join(snapshotDir, "1000.snapshot")
-		f, err := os.Create(oldSnapshotPath)
-		require.NoError(t, err)
-		_, err = f.Write([]byte{snapshotVersionV1})
-		require.NoError(t, err)
-		f.Close()
+			for range 2 {
+				loader := NewLoader(LoaderConfig{
+					Dir:    commitlogDir,
+					Logger: migratorTestLogger(),
+				})
+				result, err := loader.Load()
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				require.NotNil(t, result.State)
 
-		// Create commitlog directory
-		commitlogDir := filepath.Join(baseDir, "main.hnsw.commitlog.d")
-		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
-
-		// Load should fail with clear error
-		loader := NewLoader(LoaderConfig{
-			Dir:    commitlogDir,
-			Logger: migratorTestLogger(),
+				nodes := result.State.Graph.Nodes
+				require.Greater(t, len(nodes), 2)
+				require.NotNil(t, nodes[0])
+				require.NotNil(t, nodes[1])
+				require.NotNil(t, nodes[2])
+				assert.Equal(t, uint64(0), result.State.Graph.Entrypoint)
+			}
 		})
-
-		_, err = loader.Load()
-		require.Error(t, err)
-		assert.True(t, strings.Contains(err.Error(), "legacy snapshot version") ||
-			strings.Contains(err.Error(), "migrate snapshot directory"))
-	})
+	}
 }
 
 func TestMigratorContextCancellation(t *testing.T) {

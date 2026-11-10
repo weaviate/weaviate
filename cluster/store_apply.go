@@ -13,7 +13,9 @@ package cluster
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -21,10 +23,15 @@ import (
 	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
@@ -41,11 +48,30 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.tenantAddLocks.Unlock(req.Class)
 	}
 
+	// Serialize AddClass per namespace for the same reason, keyed by the
+	// namespace the collection cap counts against.
+	if req.Type == api.ApplyRequest_TYPE_ADD_CLASS && st.schemaManager.CollectionLimitEnforced() {
+		ns := namespacing.NamespaceFromQualified(req.Class)
+		st.collectionAddLocks.Lock(ns)
+		defer st.collectionAddLocks.Unlock(ns)
+	}
+
+	// taskMovementLocks is held until the apply returns, so a second submit on the same collection is checked only after the first has applied. Like tenantAddLocks and collectionAddLocks it is taken before waitLeaderFSMCaughtUp, and none of them nest.
+	collection, task, err := st.taskOrMovementCollection(req)
+	if err != nil {
+		return 0, err
+	}
+	if collection != "" {
+		st.taskMovementLocks.Lock(collection)
+		defer st.taskMovementLocks.Unlock(collection)
+	}
+
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
-	// has not drained what it inherited must not judge yet. After the tenant
-	// lock, not before: that lock is held across the apply, so a caller can wait
-	// on it long enough for leadership to turn over, and a term confirmed before
-	// the wait says nothing about the term it wakes up in.
+	// has not drained what it inherited must not judge yet. After the tenant,
+	// collection and task-movement locks, not before: each is held across the
+	// apply, so a caller can wait on it long enough for leadership to turn over,
+	// and a term confirmed before the wait says nothing about the term it wakes
+	// up in.
 	if err := st.waitLeaderFSMCaughtUp(); err != nil {
 		return 0, err
 	}
@@ -57,10 +83,14 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		return 0, fmt.Errorf("marshal command: %w", err)
 	}
 
+	if err := refuseUnknownFields(req); err != nil {
+		return 0, err
+	}
+
 	// Namespace admission runs before the schema-shape filter so a suspended
 	// namespace answers with its own state rather than a complaint about the
 	// entity the caller named.
-	if err := st.admitPropose(req); err != nil {
+	if err := st.admitPropose(req, collection, task); err != nil {
 		return 0, err
 	}
 
@@ -87,20 +117,33 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	return resp.Version, resp.Error
 }
 
+// refuseUnknownFields refuses an update carrying a field this binary does not
+// know before it is appended. Once committed, only newer nodes could apply it.
+func refuseUnknownFields(req *api.ApplyRequest) error {
+	switch req.Type {
+	case api.ApplyRequest_TYPE_UPDATE_USER:
+		if err := json.Unmarshal(req.SubCommand, &api.UpdateUserRequest{}); err != nil {
+			return fmt.Errorf("unmarshal update-user subcommand: %w", err)
+		}
+		return nil
+	default:
+		return nil
+	}
+}
+
 // admitPropose refuses a command whose namespace is not in a state that admits
-// it. It runs on the leader before the entry is appended, which is the only
-// place such a refusal can live: Apply must be a pure function of the log, so a
-// check there would have an older binary carry out what an upgraded one refuses,
-// live during a rolling update and again on every replay of that entry.
-// Refusing before the append means no node ever sees a committed entry it has to
-// reject, so the set of commands checked here can grow without becoming a
-// compatibility event.
+// it. It runs on the leader before the entry is appended. A check in Apply would
+// have an older binary carry out what an upgraded one refuses, live during a
+// rolling update and again on every replay of that entry. Refusing before the
+// append means no node ever sees a committed entry it has to reject, so the set
+// of commands checked here can grow without becoming a compatibility event.
 //
 // The check reads the leader's namespace state and the entry commits shortly
 // after, so a state flip landing in between still lets an accepted command
 // through. That is deliberate, and matches the rule that a suspend does not
 // cancel work already accepted. Every node applies the entry either way, so the
-// outcome stays the same across the cluster.
+// outcome stays the same across the cluster. A replica movement is the one
+// exception, which every node of one binary refuses once the flip has applied.
 //
 // A command that materializes a shard is checked here too. The flip it can race
 // leaves the schema entry standing with its shard still to open, which is the
@@ -108,14 +151,132 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // apply whose schema half has committed. An Apply-side check would not close
 // that window either: the DB half runs after the schema half commits, so a flip
 // landing in between produces the same state.
-func (st *Store) admitPropose(req *api.ApplyRequest) error {
+// admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. It also refuses a task whose units no longer match the current replicas of the shards they name. collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
+func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *api.AddDistributedTaskRequest) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
 	}
 	if err := st.admitCreateLike(req); err != nil {
 		return err
 	}
-	return st.admitShardStatus(req)
+	if err := st.admitShardStatus(req); err != nil {
+		return err
+	}
+	if err := st.admitReplicaMovement(req); err != nil {
+		return err
+	}
+	if err := st.admitTaskOrMovement(req.Type, collection); err != nil {
+		return err
+	}
+	return st.admitTaskReplicas(task, collection)
+}
+
+// admitTaskReplicas refuses a task whose units no longer match the current replicas of the shards they name, since a replica with no unit is never reindexed.
+// A copy that finishes between the REST handler's read and this check has already changed the sharding state read here.
+// A payload the extractor cannot parse is admitted unchecked, because the reindex conflict check in Apply parses the same payload and rejects it.
+func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collection string) error {
+	if task == nil || collection == "" {
+		return nil
+	}
+	extract := st.cfg.DistributedTaskShardReplicasExtractors[task.Namespace]
+	if extract == nil {
+		return nil
+	}
+	taskReplicas, ok := extract(task.Payload)
+	if !ok {
+		return nil
+	}
+
+	changed := false
+	if err := st.schemaManager.NewSchemaReader().Read(collection, false, func(_ *models.Class, state *sharding.State) error {
+		for shard, nodes := range taskReplicas {
+			if !sameNodes(nodes, state.Physical[shard].BelongsToNodes) {
+				changed = true
+				return nil
+			}
+		}
+		return nil
+	}); errors.Is(err, schema.ErrClassNotFound) {
+		changed = true
+	} else if err != nil {
+		return fmt.Errorf("read sharding state of collection %q: %w", collection, err)
+	}
+	if changed {
+		return distributedtask.NewReplicasChangedError(collection)
+	}
+	return nil
+}
+
+func sameNodes(a, b []string) bool {
+	// The submit path skips empty node names, so the comparison must too.
+	notEmpty := func(nodes []string) []string {
+		nodes = slices.DeleteFunc(slices.Clone(nodes), func(n string) bool { return n == "" })
+		slices.Sort(nodes)
+		return slices.Compact(nodes)
+	}
+	return slices.Equal(notEmpty(a), notEmpty(b))
+}
+
+// taskOrMovementCollection also returns the decoded task of a task add, so admitPropose need not decode it again.
+func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, *api.AddDistributedTaskRequest, error) {
+	switch req.Type {
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+		sub := &api.ReplicationReplicateShardRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return "", nil, fmt.Errorf("unmarshal replicate subcommand: %w", err)
+		}
+		return sub.SourceCollection, nil, nil
+
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
+		sub := &api.AddDistributedTaskRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return "", nil, fmt.Errorf("unmarshal add-task subcommand: %w", err)
+		}
+		return st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload), sub, nil
+
+	default:
+		return "", nil, nil
+	}
+}
+
+// admitTaskOrMovement keeps a task and a movement from running on the same collection at once, since a reindex rewrites the files a movement copies.
+func (st *Store) admitTaskOrMovement(cmdType api.ApplyRequest_Type, collection string) error {
+	switch cmdType {
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+		if !st.distributedTasksManager.HasActiveTaskForCollection(collection) {
+			return nil
+		}
+		return fmt.Errorf("%w: collection %q has a running background task; retry after it completes",
+			replicationTypes.ErrMovementBlockedByTask, collection)
+
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
+		if !st.replicationManager.GetReplicationFSM().HasActiveReplicationForCollection(collection) {
+			return nil
+		}
+		return distributedtask.NewBlockedByReplicaMovementError(collection)
+
+	default:
+		return nil
+	}
+}
+
+// admitReplicaMovement refuses a replica movement outside the active state. The
+// suspend sweep keeps the shards a movement copies out of and into loaded, so
+// one registered while suspended would hold the namespace's shards open.
+func (st *Store) admitReplicaMovement(req *api.ApplyRequest) error {
+	if req.Type != api.ApplyRequest_TYPE_REPLICATION_REPLICATE {
+		return nil
+	}
+	// The command carries no Class, so the namespace comes off the subcommand's
+	// collection.
+	sub := &api.ReplicationReplicateShardRequest{}
+	if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+		return fmt.Errorf("unmarshal replicate subcommand: %w", err)
+	}
+	if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(sub.SourceCollection)); err != nil {
+		return fmt.Errorf("replica movement of shard %q of %q: %w", sub.SourceShard, sub.SourceCollection, err)
+	}
+	return nil
 }
 
 // admitShardStatus refuses a manual shard status change outside the active
@@ -130,18 +291,49 @@ func (st *Store) admitShardStatus(req *api.ApplyRequest) error {
 	return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
 }
 
-// admitCreateLike refuses a create-like command outside the active state. The
-// alias commands write schema and no store, and the RBAC and user commands write
-// neither, so a late one leaves nothing half-built. The class and tenant commands
-// do materialize a shard, and admitPropose says why a late one is still safe.
+// admitCreateLike refuses a create-like, property or class update command
+// outside the active state, except the completions its UPDATE_PROPERTY and
+// UPDATE_CLASS arms exempt. The alias commands write schema and no store, and
+// the RBAC and user commands write neither, so a late one leaves nothing
+// half-built. admitPropose says why a check this early is enough for
+// ADD_CLASS, RESTORE_CLASS and the tenant commands, which materialize a shard.
+// It also refuses a user create whose ID prefix is not its namespace.
 func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_ADD_CLASS,
 		api.ApplyRequest_TYPE_RESTORE_CLASS,
 		api.ApplyRequest_TYPE_ADD_TENANT,
-		api.ApplyRequest_TYPE_UPDATE_TENANT:
+		api.ApplyRequest_TYPE_UPDATE_TENANT,
+		api.ApplyRequest_TYPE_ADD_PROPERTY:
 		// These name their class outright, so the namespace comes off the
 		// request rather than a subcommand.
+		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
+
+	case api.ApplyRequest_TYPE_UPDATE_PROPERTY:
+		sub := &api.UpdatePropertyRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal update-property subcommand: %w", err)
+		}
+		// A reindex's schema flip finishes work that a suspend does not cancel.
+		if sub.FromInFlightMigration {
+			return nil
+		}
+		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
+
+	case api.ApplyRequest_TYPE_UPDATE_CLASS:
+		sub := &api.UpdateClassRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal update-class subcommand: %w", err)
+		}
+		switch sub.Origin {
+		case api.ClassUpdateOriginDropVectorFinalize, api.ClassUpdateOriginBlockmaxCutover:
+			// A vector drop's cleanup and a BlockMax migration's cutover finish
+			// work that a suspend does not cancel.
+			return nil
+		case api.ClassUpdateOriginUser, api.ClassUpdateOriginUnspecified:
+			// These reach RequireActive below, as does an origin this build does
+			// not name.
+		}
 		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
 
 	case api.ApplyRequest_TYPE_CREATE_ALIAS:
@@ -179,6 +371,11 @@ func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
 			return fmt.Errorf("unmarshal add-roles-for-user subcommand: %w", err)
 		}
+		// With namespaces off, a ':' in a subject is part of the user id, as in
+		// the OIDC subject "urn:example:alice", and names no namespace.
+		if !st.cfg.NamespacesEnabled {
+			return nil
+		}
 		ns, err := subjectNamespace(sub.User)
 		if err != nil {
 			return fmt.Errorf("resolve namespace of subject %q: %w", sub.User, err)
@@ -192,6 +389,12 @@ func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 		sub := &api.CreateUsersRequest{}
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
 			return fmt.Errorf("unmarshal upsert-user subcommand: %w", err)
+		}
+		// NamespaceLocalRBAC finds a user's role assignments by its ID prefix, and
+		// DeleteUsersInNamespace finds its record by Namespace, so a mismatch
+		// splits the user across two namespaces.
+		if namespacing.NamespaceFromQualified(sub.UserId) != sub.Namespace {
+			return fmt.Errorf("user %q is not in namespace %q", sub.UserId, sub.Namespace)
 		}
 		return usecasesNamespaces.RequireActive(st.namespaceManager, sub.Namespace)
 
@@ -244,16 +447,21 @@ func (st *Store) StoreConfiguration(index uint64, _ raft.Configuration) {
 // produce the same result on all peers in the cluster.
 // The returned value is returned to the client as the ApplyFuture.Response.
 //
-// That determinism is why no arm below refuses a command for its namespace
-// state: [Store.admitPropose] does it before the entry is appended.
+// That determinism is why [Store.admitPropose] refuses a command for its
+// namespace state before the entry is appended. TYPE_REPLICATION_REPLICATE is
+// the one command an arm below refuses as well. Every node of one binary
+// answers it the same, because the namespace and replication FSMs restore from
+// one snapshot.
 func (st *Store) Apply(l *raft.Log) any {
 	ret := Response{Version: l.Index}
 
 	start := time.Now()
+	// Resolved once the command is unmarshalled below; the closure reads it then.
+	cmdType := "unknown"
 	defer func() {
 		// this defer is final one that called before returning and thus capturing the
 		// applyDuration correctly.
-		st.metrics.applyDuration.Observe(float64(time.Since(start).Seconds()))
+		st.metrics.applyDuration.WithLabelValues(cmdType).Observe(time.Since(start).Seconds())
 	}()
 
 	if l.Type != raft.LogCommand {
@@ -269,14 +477,27 @@ func (st *Store) Apply(l *raft.Log) any {
 		panic("error proto un-marshalling log data")
 	}
 
+	// Exclude the watcher's off-thread reload for this entry's whole apply; uncontended outside the wiped-joiner window.
+	if st.wipedJoinerCandidate.Load() {
+		st.wipedJoinerApplyMu.RLock()
+		defer st.wipedJoinerApplyMu.RUnlock()
+	}
+
 	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
 	// don't update the database. This can lead to data loss for example if we drop then re-add a class.
 	// If we don't have any last applied index on start, schema only is always false.
 	// we check for index !=0 to force apply of the 1st index in both db and schema
 	catchingUp := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load()
+
+	// A wiped joiner forces schemaOnly until its reload, so re-hydratable shards aren't materialised empty.
+	forceSchemaOnly := st.wipedJoinerCandidate.Load() && !st.wipedJoinerReloaded.Load()
+
 	// TODO: get rid off schema only as it causes more trouble than it's worth
 	// T-Nr: DB-306
-	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
+	schemaOnly := catchingUp || forceSchemaOnly || st.cfg.MetadataOnlyVoters
+
+	// Callback gated off during catch-up so it fires once at the reload, not per replayed entry.
+	schemaCallback := !catchingUp && !forceSchemaOnly
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
@@ -292,6 +513,16 @@ func (st *Store) Apply(l *raft.Log) any {
 				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
 			}).Info("reloading local DB as RAFT and local DB are now caught up")
 			st.reloadDBFromSchema()
+		}
+
+		// Reload on the Apply thread once applied up to the barrier; idempotent with the other paths.
+		if st.wipedJoinerCandidate.Load() &&
+			wipedJoinerBarrierReached(st.wipedJoinerReloaded.Load(), st.joinBarrier.Load(), l.Index) {
+			st.log.WithFields(logrus.Fields{
+				"log_index":    l.Index,
+				"join_barrier": st.joinBarrier.Load(),
+			}).Info("wiped joiner: caught up to join barrier; running self-recovery reload")
+			st.finishWipedJoinerReload()
 		}
 
 		// we update no mater the error status to avoid any edge cases in the DB layer for already released versions,
@@ -324,6 +555,8 @@ func (st *Store) Apply(l *raft.Log) any {
 		st.metrics.raftLastAppliedIndex.Set(float64(l.Index))
 	}()
 
+	cmdType = cmd.Type.String()
+
 	cmd.Version = l.Index
 	// Report only when not ready the progress made on applying log entries. This help users with big schema and long
 	// startup time to keep track of progress.
@@ -350,17 +583,17 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly, schemaCallback)
 		}
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly, schemaCallback)
 		}
 
 	case api.ApplyRequest_TYPE_UPDATE_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.UpdateClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.UpdateClass(&cmd, st.cfg.NodeID, schemaOnly, schemaCallback)
 		}
 
 	case api.ApplyRequest_TYPE_DELETE_CLASS:
@@ -383,16 +616,16 @@ func (st *Store) Apply(l *raft.Log) any {
 					cmd.Class = existingClass
 				}
 			}
-			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly, schemaCallback)
 		}
 
 	case api.ApplyRequest_TYPE_ADD_PROPERTY:
 		f = func() {
-			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly, schemaCallback)
 		}
 	case api.ApplyRequest_TYPE_UPDATE_PROPERTY:
 		f = func() {
-			ret.Error = st.schemaManager.UpdateProperty(&cmd, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.UpdateProperty(&cmd, schemaOnly, schemaCallback)
 		}
 	case api.ApplyRequest_TYPE_CREATE_ALIAS:
 		f = func() {
@@ -492,6 +725,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.dynUserManager.CreateUserWithKeyRequest(&cmd)
 		}
+	case api.ApplyRequest_TYPE_UPDATE_USER:
+		f = func() {
+			ret.Error = st.dynUserManager.UpdateUser(&cmd)
+		}
 
 	case api.ApplyRequest_TYPE_ADD_NAMESPACE:
 		f = func() {
@@ -516,6 +753,11 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		f = func() {
+			// The propose check can race a suspend appended ahead of this entry,
+			// and only Apply sees which of the two came first in the log.
+			if ret.Error = st.admitReplicaMovement(&cmd); ret.Error != nil {
+				return
+			}
 			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)
 		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR:
@@ -589,6 +831,22 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS:
 		f = func() {
 			ret.Error = st.replicationManager.ForceDeleteByIds(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REBALANCE_CREATE_PLAN:
+		f = func() {
+			ret.Error = st.replicationManager.CreateRebalancePlan(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REBALANCE_COMPLETE_PLANNING:
+		f = func() {
+			ret.Error = st.replicationManager.CompleteRebalancePlanning(l.Term, &cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REBALANCE_STOP:
+		f = func() {
+			ret.Error = st.replicationManager.StopRebalancePlan(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REBALANCE_DELETE:
+		f = func() {
+			ret.Error = st.replicationManager.DeleteRebalancePlan(&cmd)
 		}
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:

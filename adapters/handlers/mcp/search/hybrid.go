@@ -50,7 +50,7 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 	}
 	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 
-	resolved, _, err := namespacing.Resolve(principal, s.schemaManager, s.namespacesEnabled, args.CollectionName)
+	resolved, _, err := namespacing.Resolve(principal, s.schemaManager, s.qualifier, args.CollectionName)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 			return nil, fmt.Errorf("failed to unmarshal filters: %w", err)
 		}
 
-		localFilter, err = filterext.Parse(&whereFilter, args.CollectionName, s.namespacesEnabled, principal)
+		localFilter, err = filterext.Parse(&whereFilter, args.CollectionName, s.qualifier, principal)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse filters: %w", err)
 		}

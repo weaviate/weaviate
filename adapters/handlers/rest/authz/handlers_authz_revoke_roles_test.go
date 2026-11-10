@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
@@ -479,6 +480,113 @@ func TestRevokeRoleFromUserForbidden(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRevokeRoleFromUserConfiguredGrant(t *testing.T) {
+	principal := &models.Principal{Username: "operator"}
+	apiKeys := config.StaticAPIKey{Enabled: true, Users: []string{"alice"}}
+	tests := []struct {
+		name     string
+		userType models.UserTypeInput
+		role     string
+		oidc     bool
+		rbacConf rbacconf.Config
+		// wantErr is a substring of the refusal message. Empty means the revoke succeeds.
+		wantErr string
+	}{
+		{
+			name:     "a db admin env grant is refused",
+			userType: models.UserTypeInputDb,
+			role:     authorization.Admin,
+			rbacConf: rbacconf.Config{Enabled: true, AdminUsers: []string{"alice"}},
+			wantErr:  "EXPERIMENTAL_AUTHORIZATION_RBAC_ADMIN_USERS env var or the admin_users config key",
+		},
+		{
+			name:     "an oidc viewer env grant is refused",
+			userType: models.UserTypeInputOidc,
+			role:     authorization.Viewer,
+			oidc:     true,
+			rbacConf: rbacconf.Config{Enabled: true, ViewerUsers: []string{"alice"}},
+			wantErr:  "EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_USERS env var or the viewer_users config key",
+		},
+		{
+			name:     "an env grant is refused when the user type is omitted",
+			role:     authorization.Admin,
+			rbacConf: rbacconf.Config{Enabled: true, AdminUsers: []string{"alice"}},
+			wantErr:  "EXPERIMENTAL_AUTHORIZATION_RBAC_ADMIN_USERS env var or the admin_users config key",
+		},
+		{
+			name:     "a role the config does not grant the user is revoked",
+			userType: models.UserTypeInputDb,
+			role:     authorization.Viewer,
+			rbacConf: rbacconf.Config{Enabled: true, AdminUsers: []string{"alice"}},
+		},
+		{
+			name:     "the same user and role with the user absent from the config is revoked",
+			userType: models.UserTypeInputDb,
+			role:     authorization.Admin,
+			rbacConf: rbacconf.Config{Enabled: true, AdminUsers: []string{"bob"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := authorization.NewMockAuthorizer(t)
+			// A refused revoke sets no expectation, so any controller call fails the test.
+			controller := NewMockControllerAndGetUsers(t)
+			logger, _ := test.NewNullLogger()
+			params := authz.RevokeRoleFromUserParams{
+				ID:          "alice",
+				HTTPRequest: req,
+				Body:        authz.RevokeRoleFromUserBody{Roles: []string{tt.role}, UserType: tt.userType},
+			}
+			authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users("alice")[0]).Return(nil)
+			if tt.wantErr == "" {
+				controller.On("GetRoles", tt.role).Return(map[string][]authorization.Policy{tt.role: {}}, nil)
+				controller.On("RevokeRolesForUser", conv.UserNameWithTypeFromId("alice", authentication.AuthType(tt.userType)), tt.role).Return(nil).Once()
+			}
+
+			h := &authZHandlers{
+				authorizer:     authorizer,
+				controller:     controller,
+				logger:         logger,
+				apiKeysConfigs: apiKeys,
+				oidcConfigs:    config.OIDC{Enabled: tt.oidc},
+				rbacconfig:     tt.rbacConf,
+			}
+			res := h.revokeRoleFromUser(params, principal)
+
+			if tt.wantErr == "" {
+				assert.IsType(t, &authz.RevokeRoleFromUserOK{}, res)
+				return
+			}
+			parsed, ok := res.(*authz.RevokeRoleFromUserForbidden)
+			require.True(t, ok, "got %T", res)
+			assert.Contains(t, parsed.Payload.Error[0].Message, tt.wantErr)
+		})
+	}
+
+	t.Run("with RBAC disabled a configured grant gets the inert response", func(t *testing.T) {
+		authorizer := authorization.NewMockAuthorizer(t)
+		authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users("alice")[0]).Return(nil)
+		logger, _ := test.NewNullLogger()
+		h := &authZHandlers{
+			authorizer:     authorizer,
+			controller:     InertController{Users: NewMockControllerAndGetUsers(t)},
+			logger:         logger,
+			apiKeysConfigs: apiKeys,
+			rbacconfig:     rbacconf.Config{AdminUsers: []string{"alice"}},
+		}
+		params := authz.RevokeRoleFromUserParams{
+			ID:          "alice",
+			HTTPRequest: req,
+			Body:        authz.RevokeRoleFromUserBody{Roles: []string{authorization.Admin}, UserType: models.UserTypeInputDb},
+		}
+
+		// InertController.GetRoles lists no roles, so the inert response is the
+		// unknown-role 404, not the configured-grant 403.
+		res := h.revokeRoleFromUser(params, principal)
+		assert.IsType(t, &authz.RevokeRoleFromUserNotFound{}, res)
+	})
 }
 
 func TestRevokeRoleFromGroupForbidden(t *testing.T) {

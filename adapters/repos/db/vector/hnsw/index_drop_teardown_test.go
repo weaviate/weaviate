@@ -122,13 +122,13 @@ func newDropTeardownIndex(t *testing.T) *hnsw {
 	commitLoggerCycle := cyclemanager.NewManager("commitLogger",
 		cyclemanager.NewFixedTicker(time.Millisecond), commitLoggerCallbacks.CycleCallback, logger)
 	commitLoggerCycle.Start()
-	t.Cleanup(func() { commitLoggerCycle.StopAndWait(ctx) })
+	t.Cleanup(func() { cyclemanager.WaitForStop(ctx, commitLoggerCycle.Stop(ctx)) })
 
 	tombstoneCallbacks := cyclemanager.NewCallbackGroup("tombstoneCleanup", logger, 1)
 	tombstoneCycle := cyclemanager.NewManager("tombstoneCleanup",
 		cyclemanager.NewFixedTicker(time.Millisecond), tombstoneCallbacks.CycleCallback, logger)
 	tombstoneCycle.Start()
-	t.Cleanup(func() { tombstoneCycle.StopAndWait(ctx) })
+	t.Cleanup(func() { cyclemanager.WaitForStop(ctx, tombstoneCycle.Stop(ctx)) })
 
 	idx, err := New(Config{
 		AllocChecker:     memwatch.NewDummyMonitor(),

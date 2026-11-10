@@ -122,8 +122,16 @@ func (r *SnapshotReader) Read(reader ReadSeekReaderAt) (*ent.DeserializationResu
 	// Initialize with 0 capacity since we'll set Nodes after reading the node count from metadata
 	res := ent.NewDeserializationResult(0)
 
+	fileSize, err := reader.Seek(0, io.SeekEnd)
+	if err != nil {
+		return nil, errors.Wrap(err, "determine snapshot size")
+	}
+	if _, err := reader.Seek(0, io.SeekStart); err != nil {
+		return nil, errors.Wrap(err, "rewind snapshot")
+	}
+
 	// Read and verify metadata
-	nodeCount, err := r.readMetadata(reader, res)
+	nodeCount, err := r.readMetadata(reader, fileSize, res)
 	if err != nil {
 		return nil, errors.Wrap(err, "read metadata")
 	}
@@ -138,7 +146,7 @@ func (r *SnapshotReader) Read(reader ReadSeekReaderAt) (*ent.DeserializationResu
 
 // readMetadata reads the snapshot metadata header and returns the snapshot's
 // own node count before any replay pre-sizing is applied.
-func (r *SnapshotReader) readMetadata(reader io.Reader, res *ent.DeserializationResult) (uint32, error) {
+func (r *SnapshotReader) readMetadata(reader io.Reader, fileSize int64, res *ent.DeserializationResult) (uint32, error) {
 	// Read version
 	var version uint8
 	if err := binary.Read(reader, binary.LittleEndian, &version); err != nil {
@@ -147,9 +155,8 @@ func (r *SnapshotReader) readMetadata(reader io.Reader, res *ent.Deserialization
 
 	switch version {
 	case snapshotVersionV1, snapshotVersionV2:
-		return 0, fmt.Errorf("legacy snapshot version %d detected; upgrade not supported. "+
-			"Please downgrade Weaviate and either: (1) delete the snapshot file and let it "+
-			"regenerate, or (2) run a compaction cycle to create a V3 snapshot before upgrading", version)
+		// The migrator discards these before loading; only V3 is ever written here.
+		return 0, fmt.Errorf("legacy snapshot version %d is not supported", version)
 	case snapshotVersionV3:
 		// V3 is supported, continue with reading
 	default:
@@ -166,6 +173,13 @@ func (r *SnapshotReader) readMetadata(reader io.Reader, res *ent.Deserialization
 	var metadataSize uint32
 	if err := binary.Read(reader, binary.LittleEndian, &metadataSize); err != nil {
 		return 0, errors.Wrap(err, "read metadata size")
+	}
+
+	// The checksum covering the size is only verified after the metadata is
+	// read, so bound a corrupt size by the file before allocating for it.
+	const headerSize = 1 + 4 + 4 // version, checksum, metadata size
+	if int64(metadataSize) > fileSize-headerSize {
+		return 0, fmt.Errorf("metadata size %d exceeds snapshot size %d", metadataSize, fileSize)
 	}
 
 	// Read metadata

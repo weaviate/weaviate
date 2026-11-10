@@ -146,17 +146,20 @@ func (ic *classSettings) Validate() error {
 	if err := modulecomponents.ValidateGoogleLocation(locationProperty, ic.Location()); err != nil {
 		errorMessages = append(errorMessages, err.Error())
 	}
+	if err := modulecomponents.ValidateGoogleProjectID(ic.ProjectID()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+	if err := modulecomponents.ValidateGoogleModel(ic.Model()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
 
 	model := ic.Model()
-	if ic.ApiEndpoint() == "" {
+	if ic.ApiEndpoint() != DefaultAIStudioEndpoint {
 		// Google Vertex AI mandatory settings validation
-		location := ic.Location()
-		if location == "" {
+		if ic.Location() == "" {
 			errorMessages = append(errorMessages, "location setting needs to be present")
 		}
-
-		projectID := ic.ProjectID()
-		if projectID == "" {
+		if ic.ProjectID() == "" {
 			errorMessages = append(errorMessages, "projectId setting needs to be present")
 		}
 	}

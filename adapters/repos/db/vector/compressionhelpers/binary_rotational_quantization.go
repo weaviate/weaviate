@@ -67,11 +67,7 @@ func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer
 	// unbiased. It may produce better recall to not use randomized rounding
 	// since adding the random noise increases the quantization error. With
 	// 8-bit RQ we are not using randomized rounding.
-	rounding := make([]float32, rotation.OutputDim)
-	rng := rand.New(rand.NewPCG(seed, 0x4f8ebf70e130707f))
-	for i := range rounding {
-		rounding[i] = rng.Float32()
-	}
+	rounding := rqQueryRounding(seed, int(rotation.OutputDim))
 
 	rq := &BinaryRotationalQuantizer{
 		inputDim:    uint32(inputDim),
@@ -83,6 +79,20 @@ func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer
 		cos:         cos,
 	}
 	return rq, nil
+}
+
+// rqQueryRounding derives the randomized-rounding offsets of the 1-bit
+// quantizers' multi-bit query encoder. It is a pure function of (seed, n), so
+// a restore path holding the seed can rebuild the exact offsets the
+// constructor produced instead of persisting them. The offsets perturb only
+// transient query codes — stored data codes never depend on them.
+func rqQueryRounding(seed uint64, n int) []float32 {
+	rounding := make([]float32, n)
+	rng := rand.New(rand.NewPCG(seed, 0x4f8ebf70e130707f))
+	for i := range rounding {
+		rounding[i] = rng.Float32()
+	}
+	return rounding
 }
 
 func RestoreBinaryRotationalQuantizer(inputDim int, outputDim int, rounds int, swaps [][]compression.Swap, signs [][]float32, rounding []float32, distancer distancer.Provider) (*BinaryRotationalQuantizer, error) {

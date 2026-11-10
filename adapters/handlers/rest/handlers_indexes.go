@@ -32,7 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -59,15 +59,6 @@ func jsonResponder(status int, payload interface{}) middleware.Responder {
 			}
 		}
 	})
-}
-
-// authzResponder maps an authz error to 403 (forbidden) or 500, shared by
-// the three reindex mutation handlers.
-func authzResponder(principal *models.Principal, err error) middleware.Responder {
-	if errors.As(err, &authzerrors.Forbidden{}) {
-		return jsonResponder(http.StatusForbidden, errPayloadFromSingleErr(principal, err))
-	}
-	return jsonResponder(http.StatusInternalServerError, errPayloadFromSingleErr(principal, err))
 }
 
 // normalizeIndexTypeParam maps the {indexType} path value to its internal
@@ -135,13 +126,6 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 	return h.appState.ReindexSubmitLocks.SubmitLockFor(collection, propertyName)
 }
 
-// classReader reads a class from this node's schema. appState.SchemaManager,
-// a *usecases/schema.Manager, satisfies it.
-type classReader interface {
-	ClassInfo(name string) clusterSchema.ClassInfo
-	ReadOnlyClass(name string) *models.Class
-}
-
 // readClassAndTasks reads the task list before the class, so the class can
 // never be the older of the two. A nil lister means no cluster service: the
 // caller gets the class with no tasks. classes must be non-nil.
@@ -152,7 +136,7 @@ type classReader interface {
 // ReadOnlyClass below, after the task read, so the order above holds for
 // every class this returns. A collection deleted between the two reads
 // leaves ReadOnlyClass answering nil against an Exists that was true.
-func readClassAndTasks(collection string, taskSource distributedtask.LocalTaskLister, classes classReader) (*models.Class, []parsedReindexTask) {
+func readClassAndTasks(collection string, taskSource distributedtask.LocalTaskLister, classes local.ClassReader) (*models.Class, []parsedReindexTask) {
 	if !classes.ClassInfo(collection).Exists {
 		return nil, nil
 	}
@@ -171,8 +155,11 @@ func readClassAndTasks(collection string, taskSource distributedtask.LocalTaskLi
 func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
 	// Resolve (alias-aware) before authz so authz and the lookup use the qualified name.
 	collection, _, rErr := namespacing.Resolve(principal, h.appState.SchemaManager,
-		h.appState.ServerConfig.Config.Namespaces.Enabled, params.ClassName)
+		h.appState.NamespaceQualifier, params.ClassName)
 	if rErr != nil {
+		if errors.As(rErr, &authzerrors.Forbidden{}) {
+			return schema.NewSchemaObjectsIndexesGetForbidden().WithPayload(errPayloadFromSingleErr(principal, rErr))
+		}
 		return schema.NewSchemaObjectsIndexesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(principal, rErr))
 	}
 
@@ -335,6 +322,28 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 	return refusable, refusablePayload
 }
 
+func reindexTaskDescriptorsForProperty(tasks []*distributedtask.Task, collection, propertyName string,
+	logger logrus.FieldLogger,
+) []distributedtask.TaskDescriptor {
+	var out []distributedtask.TaskDescriptor
+	for _, task := range tasks {
+		var payload db.ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			logger.WithField("task_id", task.ID).
+				Warnf("skipping reindex task with an undecodable payload: %v", err)
+			continue
+		}
+		if !strings.EqualFold(payload.Collection, collection) {
+			continue
+		}
+		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
+			continue
+		}
+		out = append(out, task.TaskDescriptor)
+	}
+	return out
+}
+
 // cancelPreflight answers a cancel that owes no RAFT apply: there is
 // nothing to cancel, or DTM would refuse it. It reads the predicate the
 // FSM guard applies, so the two answers cannot drift.
@@ -485,11 +494,9 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 	// store. CancelDistributedTask above cancels the per-task ctx, so the
 	// worker should be exiting; the wait simply blocks until it does.
 	//
-	// Bounded wait: a stuck goroutine must not turn the cancel HTTP
-	// request into an open-ended hang. The same timeout (10s) is used by
-	// the DTM scheduler for analogous waits. If we time out, we still
-	// return 202 — the next submit's defense-in-depth cleanup will pick
-	// up the work.
+	// Bounded (same 10s timeout as the DTM scheduler) so a stuck goroutine
+	// can't hang the cancel request. On timeout we still return 202; the
+	// next submit retries the drain and returns 503 meanwhile.
 	if h.appState.ReindexProvider != nil {
 		h.appState.Logger.WithFields(logrus.Fields{
 			"taskID":     target.ID,
@@ -498,7 +505,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 			"index_type": indexType,
 		}).Info("cancel: starting drain+cleanup for cancelled reindex task")
 		drainCtx, drainCancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
-		drainErr := h.appState.ReindexProvider.WaitForLocalTaskDrain(drainCtx, target.TaskDescriptor)
+		unseal, drainErr := h.appState.ReindexProvider.SealLocalTaskDrain(drainCtx, target.TaskDescriptor)
 		drainCancel()
 		if drainErr != nil {
 			h.appState.Logger.WithFields(logrus.Fields{
@@ -514,6 +521,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 				"property":   propertyName,
 				"index_type": indexType,
 			}).Info("cancel: drain complete, running on-disk cleanup")
+			defer unseal()
 			// Goroutine has drained. Wipe the sidecars and migration
 			// directories for every indexType this migration touches —
 			// change-tokenization spawns both a searchable and a
@@ -527,7 +535,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 				indexTypesToClean = []string{indexType}
 			}
 			// One cache for the whole loop; see the submit path for why.
-			sweep := h.appState.DB.NewStalePartialReindexSweep()
+			sweep := h.appState.DB.NewStalePartialReindexSweep(targetPayload.Tenants)
 			cleanupFailures, cleanupDropped := sweepStaleReindexState(indexTypesToClean, func(it string) error {
 				return sweep(ctx, collection, propertyName, it)
 			})
@@ -674,43 +682,8 @@ func logCancelCleanupOutcome(entry *logrus.Entry, failures []staleSweepFailure, 
 // ("filterable", "searchable", "rangeable") that a migration type targets,
 // for use by submit-time pre-cleanup. Returns (nil, false) only for unknown
 // migration types — every known type returns at least one indexType.
-//
-// Most migration types target exactly one index. change-tokenization (both
-// indexes) targets TWO — it spawns one ShardReindexTaskGeneric per index
-// (searchable + filterable) via createReindexTasks, and each leaves its own
-// .migrations/<prefix>_<prop>/ sentinel directory on disk. Pre-submit
-// cleanup must wipe BOTH dirs; cleaning only one of them was the root cause
-// of the Sev 1 data-loss bug fixed alongside this change (see Journey 7 in
-// change_tok_delete_journeys_test.go): a prior filterable-only retokenize
-// left .migrations/filterable_retokenize_<prop>/tidied.mig on disk, the
-// next change-tokenization-both submit did not clean it, and its
-// FilterableRetokenize sub-task short-circuited on OnAfterLsmInit's
-// IsTidied check while OnMigrationComplete still flipped the schema's
-// Tokenization. Schema and on-disk state then disagreed.
-//
-// Callers run the sweep from db.DB.NewStalePartialReindexSweep once per
-// indexType returned. Safe when no stale state exists — missing
-// directories and unloaded buckets are silently skipped.
 func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
-	switch mt {
-	case db.ReindexTypeEnableSearchable, db.ReindexTypeChangeAlgorithm, db.ReindexTypeRebuildSearchable:
-		return []string{"searchable"}, true
-	case db.ReindexTypeEnableFilterable, db.ReindexTypeRepairFilterable:
-		return []string{"filterable"}, true
-	case db.ReindexTypeEnableRangeable, db.ReindexTypeRepairRangeable:
-		return []string{"rangeable"}, true
-	case db.ReindexTypeChangeTokenization:
-		// change-tokenization-both runs ONE task per inverted index
-		// (searchable + filterable). Each leaves its own per-property
-		// migration dir on disk. Pre-cleanup must wipe both, otherwise a
-		// stale tidied.mig from a previous single-index retokenize on the
-		// same prop short-circuits the sub-task and produces a schema /
-		// bucket state mismatch (Sev 1 silent data loss).
-		return []string{"searchable", "filterable"}, true
-	case db.ReindexTypeChangeTokenizationFilterable:
-		return []string{"filterable"}, true
-	}
-	return nil, false
+	return db.ReindexIndexTypes(mt)
 }
 
 // migrationTypeTargetsIndex returns:
@@ -718,25 +691,13 @@ func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
 //   - matches: true if the migration type writes to the named index bucket.
 //   - isKnown: true if the migration type is one this function knows about.
 //
-// A new ReindexType added to the codebase without being mapped here would
+// A new ReindexType added without being mapped in db.ReindexIndexTypes would
 // return (false, false). Callers that need to log/alert on that case can
 // check the second return; cancel-path callers can ignore it because a
 // (false, false) result still means "this task is not a cancel target".
 func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (matches, isKnown bool) {
-	switch mt {
-	case db.ReindexTypeEnableSearchable, db.ReindexTypeChangeAlgorithm, db.ReindexTypeRebuildSearchable:
-		return indexType == "searchable", true
-	case db.ReindexTypeEnableFilterable, db.ReindexTypeRepairFilterable:
-		return indexType == "filterable", true
-	case db.ReindexTypeEnableRangeable, db.ReindexTypeRepairRangeable:
-		return indexType == "rangeable", true
-	case db.ReindexTypeChangeTokenization:
-		// touches both searchable and filterable buckets
-		return indexType == "searchable" || indexType == "filterable", true
-	case db.ReindexTypeChangeTokenizationFilterable:
-		return indexType == "filterable", true
-	}
-	return false, false
+	indexTypes, known := db.ReindexIndexTypes(mt)
+	return slices.Contains(indexTypes, indexType), known
 }
 
 // decodeErrorPolicy controls how firstActiveReindexTask treats a task whose
@@ -1165,7 +1126,7 @@ func reindexCapExceededResponder(principal *models.Principal, collection string,
 }
 
 // countInFlightTasksForCollection counts in-flight reindex tasks for a
-// collection. PREPARING and SWAPPING count: they still hold tracker dirs.
+// collection. PREPARING and SWAPPING count: they still hold migration state on disk.
 func countInFlightTasksForCollection(collection string, tasks []*distributedtask.Task) int {
 	n := 0
 	for _, task := range tasks {

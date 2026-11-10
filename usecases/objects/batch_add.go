@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -32,6 +33,9 @@ import (
 
 var errEmptyObjects = NewErrInvalidUserInput("invalid param 'objects': cannot be empty, need at least one object for batching")
 
+// ErrEmptyClass fails one batch object that names no class.
+var ErrEmptyClass = errors.New("object has an empty class")
+
 // AddObjects Class Instances in batch to the connected DB
 func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
@@ -40,17 +44,26 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 
 	classesShards := make(map[string][]string)
 	for _, obj := range objects {
+		// validateAndGetVector rejects an empty class for this object alone.
+		// Resolving it would qualify it to "<namespace>:" for a namespaced caller,
+		// and authorizing it would check every collection and fail the batch.
+		if obj.Class == "" {
+			continue
+		}
 		cls, _, err := b.resolveNS(principal, obj.Class)
 		if err != nil {
-			return nil, NewErrInvalidUserInput("%v", err)
+			return nil, userInputOrForbidden(err)
 		}
 		obj.Class = cls
 		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
 	}
 	knownClasses := map[string]versioned.Class{}
 
-	// whole request fails if permissions for any collection are not present
-	for className, shards := range classesShards {
+	// The whole request fails if any collection lacks a permission. Sorted order
+	// returns the same error on every run.
+	for _, className := range slices.Sorted(maps.Keys(classesShards)) {
+		shards := classesShards[className]
+
 		// we don't leak any info that someone who inserts data does not have anyway
 		vClass, err := b.schemaManager.GetCachedClassNoAuth(ctx, className)
 		if err != nil {
@@ -61,8 +74,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
-
-		if err := b.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, shards...)...); err != nil {
+		if err := b.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.CREATE, className, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
 	}
@@ -97,6 +109,12 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 		maxSchemaVersion = max(maxSchemaVersion, vc.Version)
 	}
 
+	// Wait once here, outside the auto-schema lock, so that a node whose schema
+	// stays behind fails the batch instead of waiting again for every object.
+	if err := b.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
+	}
+
 	batchObjects, schemaVersion := b.validateAndGetVector(ctx, principal, objects, repl, fetchedClasses)
 	maxSchemaVersion = max(maxSchemaVersion, schemaVersion)
 
@@ -107,10 +125,11 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 
 	maxSchemaVersion = max(maxSchemaVersion, schemaVersion)
 
-	// ensure tenants are active when AutoTenantActivation is enabled
+	// ensure tenants are active when AutoTenantActivation is enabled. A failed
+	// entry is skipped because BatchPutObjects does not write it.
 	classTenants := make(map[string][]string)
-	for _, obj := range objects {
-		if obj.Tenant == "" {
+	for i, obj := range objects {
+		if obj.Tenant == "" || batchObjects[i].Err != nil {
 			continue
 		}
 		classTenants[obj.Class] = append(classTenants[obj.Class], obj.Tenant)
@@ -177,16 +196,20 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		objectsPerClass       = make(map[string][]*models.Object)
 		originalIndexPerClass = make(map[string][]int)
 		validator             = validation.New(b.vectorRepo.Exists, b.config, repl,
-			principal, b.config.Config.Namespaces.Enabled)
+			principal, b.qualifier)
 	)
 
 	// validate each object and sort by class (==vectorizer)
 	var maxSchemaVersion uint64
 	for i, obj := range objects {
 		batchObjects[i].OriginalIndex = i
+		// BatchPutObjects and the REST response read Object on every entry, a
+		// failed one too.
+		batchObjects[i].Object = obj
 
 		if obj.Class == "" {
-			batchObjects[i].Err = errors.New("object has an empty class")
+			batchObjects[i].UUID = obj.ID
+			batchObjects[i].Err = ErrEmptyClass
 			continue
 		}
 
@@ -216,7 +239,6 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		}
 		obj.CreationTimeUnix = now
 		obj.LastUpdateTimeUnix = now
-		batchObjects[i].Object = obj
 		batchObjects[i].UUID = obj.ID
 		if batchObjects[i].Err != nil {
 			continue

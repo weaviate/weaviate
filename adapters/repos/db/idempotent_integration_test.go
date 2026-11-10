@@ -25,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -625,7 +626,7 @@ func setupTestMigrator(t *testing.T, rootDir string, shardState *sharding.State,
 		},
 		shardState: shardState,
 	}
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).RunAndReturn(func(className string) (int, error) {
 		return len(shardState.AllPhysicalShards()), nil

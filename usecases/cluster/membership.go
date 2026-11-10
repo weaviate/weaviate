@@ -11,6 +11,8 @@
 
 package cluster
 
+import "context"
+
 // HostnameResolver resolves a node name to its host, including the internal cluster
 // API port.
 type HostnameResolver interface {
@@ -46,4 +48,17 @@ type NodeReader interface {
 // in descending order.
 type StorageCandidateLister interface {
 	StorageCandidates() []string
+}
+
+// RaftMembership changes and reports the membership of the RAFT cluster. Its
+// StorageCandidates are the storage nodes in the RAFT configuration, or memberlist's
+// when it knows of more.
+type RaftMembership interface {
+	StorageCandidateLister
+	// Join adds the node to the RAFT cluster, through the leader.
+	Join(ctx context.Context, nodeID, raftAddr string, voter bool) error
+	// Remove removes the node from the RAFT cluster, through the leader.
+	Remove(ctx context.Context, nodeID string) error
+	// Stats returns RAFT internals, for informational and debugging use only.
+	Stats() map[string]any
 }

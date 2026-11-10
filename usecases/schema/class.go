@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	vectorindexcommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
@@ -33,12 +34,14 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -70,7 +73,7 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	// NOTE: Support getting class via alias name
 	// Also we resolve before doing `Authorize` so that Authorizer will work
 	// with correct `collectionName` for permissions and errors UX
-	resolved, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, name)
+	resolved, _, err := namespacing.Resolve(principal, h.schemaReader, h.qualifier, name)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
@@ -81,7 +84,7 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	}
 
 	if consistency {
-		vclasses, err := h.schemaManager.QueryReadOnlyClasses(name)
+		vclasses, err := h.schemaManager.ReadOnlyClassesFromLeader(name)
 		return vclasses[name].Class, vclasses[name].Version, err
 	}
 	class, err := h.schemaReader.ReadOnlyClassWithVersion(ctx, name, 0)
@@ -127,7 +130,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	// caller-supplied ":" and the success of the namespaced-create flow are
 	// covered by test/acceptance/namespace/collection_alias_test.go.
 	originalClassName := cls.Class
-	qualified, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, cls.Class, "class")
+	qualified, err := namespacing.QualifyForCreate(principal, h.qualifier, cls.Class, "class")
 	if errors.Is(err, namespacing.ErrCreateRequiresNamespace) {
 		return nil, 0, authzerrors.NewNamespaceForbidden(principal)
 	}
@@ -135,7 +138,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 	cls.Class = qualified
-	if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, cls.Properties); err != nil {
+	if err := namespacing.QualifyPropertyDataTypes(principal, h.qualifier, cls.Class, cls.Properties); err != nil {
 		return nil, 0, err
 	}
 
@@ -186,9 +189,9 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	// Read the limit before the count: no cap is the default, and the count
-	// costs a round trip to the leader whose answer an uncapped cluster
-	// discards.
+	// This check fails fast on the local schema, which can lag the leader.
+	// The authoritative cap check runs in the schema FSM's PreApplyFilter
+	// before the AddClass commits.
 	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
 	if limit != config.DefaultMaximumAllowedCollectionsCount {
 		// On namespace-enabled clusters the cap is enforced per namespace.
@@ -199,12 +202,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 			countNamespace = principal.Namespace
 		}
 
-		existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount(countNamespace)
-		if err != nil {
-			h.logger.WithField("namespace", countNamespace).Errorf("could not query the collections count: %v", err)
-		}
-
-		if existingCollectionsCount >= limit {
+		if h.schemaReader.CollectionsCount(countNamespace) >= limit {
 			// Migrated from a free-text 422 to a typed 429 / RESOURCE_EXHAUSTED
 			// in the usage-limits work; see docs/usage_limits.md for the wire
 			// contract.
@@ -287,7 +285,7 @@ func rejectExplicitMultiShardOnNamespacedClass(shardingConfig any) error {
 // [namespace.home_node] so every shard pins to that one node.
 func (h *Handler) namespaceCandidates(qualifiedClass string) ([]string, error) {
 	if !h.config.Namespaces.Enabled {
-		return h.schemaManager.StorageCandidates(), nil
+		return h.membership.StorageCandidates(), nil
 	}
 	ns := namespacing.NamespaceFromQualified(qualifiedClass)
 	if ns == "" {
@@ -301,7 +299,7 @@ func (h *Handler) namespaceCandidates(qualifiedClass string) ([]string, error) {
 	if homeNode == "" {
 		return nil, fmt.Errorf("namespace %q has no home_node; refusing placement", ns)
 	}
-	candidates := h.schemaManager.StorageCandidates()
+	candidates := h.membership.StorageCandidates()
 	if !slices.Contains(candidates, homeNode) {
 		return nil, fmt.Errorf("namespace %q home_node %q is not a current storage candidate", ns, homeNode)
 	}
@@ -365,6 +363,9 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		if err != nil {
 			return fmt.Errorf("unmarshal sharding state: %w", err)
 		}
+		if err := shardingState.ValidateShardNames(); err != nil {
+			return fmt.Errorf("sharding state: %w", err)
+		}
 	}
 
 	aliases := make([]*models.Alias, 0)
@@ -385,6 +386,14 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		shardingState.IndexID = class.Class
 	}
 
+	// Refuse a cross-namespace alias before schemaManager.RestoreClass commits the
+	// class and the alias loop below deletes the live alias under overwriteAlias.
+	for _, alias := range aliases {
+		if err := namespacing.ValidateAliasTarget(alias.Alias, class.Class); err != nil {
+			return fmt.Errorf("restore class %s: %w", class.Class, err)
+		}
+	}
+
 	metric, err := monitoring.GetMetrics().BackupRestoreClassDurations.GetMetricWithLabelValues(class.Class)
 	if err == nil {
 		timer := prometheus.NewTimer(metric)
@@ -403,7 +412,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		return h.schemaReader.ReadOnlyClass(name), nil
 	}
 
-	err = h.validateClassInvariants(ctx, class, class.Class, classGetterWrapper, true)
+	err = h.validateClassInvariants(ctx, class, class.Class, classGetterWrapper, true, true)
 	if err != nil {
 		return err
 	}
@@ -453,7 +462,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 // here: deleting via an alias name must be a no-op on the underlying
 // class, otherwise an alias becomes a backdoor to drop its target.
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.qualifier, class)
 	if err != nil {
 		return err
 	}
@@ -472,7 +481,7 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
-	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	className, err := namespacing.QualifyClass(principal, h.qualifier, className)
 	if err != nil {
 		return err
 	}
@@ -481,7 +490,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	// after a GET. Qualify it and require it to match the path so a
 	// mismatch surfaces explicitly instead of being silently overwritten.
 	if updated != nil && namespacing.ConfinedNamespace(principal) != "" {
-		qualifiedBody, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, updated.Class)
+		qualifiedBody, err := namespacing.QualifyClass(principal, h.qualifier, updated.Class)
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
@@ -489,7 +498,9 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 			return fmt.Errorf("%w: class name in body %q does not match path %q", ErrValidation, updated.Class, namespacing.StripOwnNamespace(principal, className))
 		}
 		updated.Class = qualifiedBody
-		if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, updated.Properties); err != nil {
+	}
+	if updated != nil {
+		if err := namespacing.QualifyPropertyDataTypes(principal, h.qualifier, className, updated.Properties); err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
 	}
@@ -523,7 +534,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	// removal slip past the escalation. A failed leader read fails CLOSED —
 	// require the stronger scope rather than guess.
 	reference := initial.VectorConfig
-	if vclasses, err := h.schemaManager.QueryReadOnlyClasses(className); err != nil {
+	if vclasses, err := h.schemaManager.ReadOnlyClassesFromLeader(className); err != nil {
 		if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
 			return fmt.Errorf("cannot verify the update against the schema leader; the drop endpoint's scope is required: %w", err)
 		}
@@ -540,11 +551,12 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	return UpdateClassInternal(h, ctx, className, updated)
+	return UpdateClassInternal(h, ctx, className, updated, api.ClassUpdateOriginUser)
 }
 
-// bypass the auth check for internal class update requests
+// UpdateClassInternal updates a class without an authorization check.
 func UpdateClassInternal(h *Handler, ctx context.Context, className string, updated *models.Class,
+	origin api.ClassUpdateOrigin,
 ) error {
 	cur := h.schemaReader.ReadOnlyClass(className)
 
@@ -608,7 +620,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	initial := h.schemaReader.ReadOnlyClass(className)
 
 	if err := rejectVectorIndexTypeNone(initial, updated); err != nil {
-		vclasses, qErr := h.schemaManager.QueryReadOnlyClasses(className)
+		vclasses, qErr := h.schemaManager.ReadOnlyClassesFromLeader(className)
 		if qErr != nil {
 			return err
 		}
@@ -657,13 +669,19 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 			}
 		}
 
-		if err := validateImmutableFields(initial, updated, h.parser.modules); err != nil {
+		allowed, err := mutableSettingsChanges(h.parser.modules, initial, updated, func(module, targetVector string) error {
+			return h.moduleConfig.ValidateModuleConfig(ctx, updated, module, targetVector)
+		})
+		if err != nil {
+			return err
+		}
+		if err := validateImmutableFields(initial, updated, h.parser.modules, allowed); err != nil {
 			return err
 		}
 	}
 	// A nil sharding state means that the sharding state will not be updated.
 
-	_, err := h.schemaManager.UpdateClass(ctx, updated, nil)
+	_, err := h.schemaManager.UpdateClass(ctx, updated, nil, origin)
 	return err
 }
 
@@ -711,7 +729,8 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // through [SchemaManager.UpdatePropertyFromMigration], which sets the
 // [api.UpdatePropertyRequest.FromInFlightMigration] flag so the schema
 // FSM's cross-FSM MutationGuard bypasses the in-flight-reindex check
-// for this single update.
+// for this single update. The flag also lets the update through while
+// its namespace is not active.
 //
 // Used by the reindex provider's
 // [adapters/repos/db.applyPerPropertySchemaUpdate] from the scheduler's
@@ -1148,7 +1167,7 @@ func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, 
 		}
 	}
 
-	return h.validateClassInvariants(ctx, class, originalName, classGetterWithAuth, relaxCrossRefValidation)
+	return h.validateClassInvariants(ctx, class, originalName, classGetterWithAuth, relaxCrossRefValidation, false)
 }
 
 // rejectVectorIndexTypeNone rejects a client update that newly introduces the
@@ -1195,7 +1214,7 @@ func rejectVectorIndexTypeNone(prev, next *models.Class) error {
 
 func (h *Handler) validateClassInvariants(
 	ctx context.Context, class *models.Class, originalName string, classGetterWithAuth func(string) (*models.Class, error),
-	relaxCrossRefValidation bool,
+	relaxCrossRefValidation bool, restoring bool,
 ) error {
 	if _, err := schema.ValidateClassName(originalName); err != nil {
 		return err
@@ -1209,7 +1228,7 @@ func (h *Handler) validateClassInvariants(
 		existingPropertyNames[strings.ToLower(property.Name)] = true
 	}
 
-	if err := h.validateVectorSettings(class); err != nil {
+	if err := h.validateVectorSettingsFor(class, nil, restoring); err != nil {
 		return err
 	}
 
@@ -1272,10 +1291,16 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 				if !entcfg.Enabled(os.Getenv("USE_GSE")) && !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
 					return fmt.Errorf("the GSE tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE' to 'true' to enable")
 				}
+				if !tokenizer.UseGse {
+					return fmt.Errorf("the GSE tokenizer is enabled but failed to load its dictionary; see the startup log")
+				}
 				return nil
 			case models.PropertyTokenizationGseCh:
 				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE_CH")) {
 					return fmt.Errorf("the Chinese tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE_CH' to 'true' to enable")
+				}
+				if !tokenizer.UseGseCh {
+					return fmt.Errorf("the Chinese tokenizer is enabled but failed to load its dictionary; see the startup log")
 				}
 				return nil
 			case models.PropertyTokenizationKagomeKr:
@@ -1474,10 +1499,6 @@ func validateStopwordPresetsStillReferenced(properties []*models.Property,
 	return nil
 }
 
-func (h *Handler) validateVectorSettings(class *models.Class) error {
-	return h.validateVectorSettingsAgainst(class, nil)
-}
-
 // validateVectorSettingsAgainst is the AddClass / UpdateClass entry
 // point (initial == nil on add). When initial is non-nil, allow-list
 // checks for unchanged fields are skipped — operators who tighten
@@ -1485,6 +1506,15 @@ func (h *Handler) validateVectorSettings(class *models.Class) error {
 // unrelated edits. Per-type correctness (async-indexing for dynamic,
 // vectorizer compatibility, etc.) always runs.
 func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) error {
+	return h.validateVectorSettingsFor(class, initial, false)
+}
+
+// validateVectorSettingsFor is validateVectorSettingsAgainst with the
+// backup-restore case: restoring skips the create/update-only checks
+// (validateCreateUpdateOnlyBounds, validateRQDistance). A restored class
+// was accepted when it was first written and is persisted state, like a
+// class parsed at startup, so a limit added since must not refuse it.
+func (h *Handler) validateVectorSettingsFor(class, initial *models.Class, restoring bool) error {
 	if modelsext.ClassHasLegacyVectorIndex(class) {
 		typeUnchanged := initial != nil && initial.VectorIndexType == class.VectorIndexType
 		if err := h.validateVectorIndexTypeBasic(class.VectorIndexType); err != nil {
@@ -1507,10 +1537,31 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 		if parsed != nil && parsed.IsMultiVector() {
 			return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
 		}
+		if parsed != nil && !restoring {
+			var initialParsed schemaConfig.VectorIndexConfig
+			if initial != nil {
+				initialParsed, _ = h.parseLegacyVectorIndexConfig(initial)
+			}
+			if err := validateRQDistance(parsed, initialParsed); err != nil {
+				return err
+			}
+		}
 		// Grandfather: same compression set ⇒ skip the policy check.
 		if parsed != nil && !legacyCompressionUnchanged(parsed, initial, h) {
 			if err := h.validateAllowedCompression(class.VectorIndexType, parsed); err != nil {
 				return err
+			}
+		}
+		if initial == nil && !restoring {
+			forDefault := parsed
+			if forDefault == nil && class.VectorIndexType != "" {
+				forDefault = h.configCreationParses(class.VectorIndexType, class.VectorIndexConfig,
+					h.parser.modules.IsMultiVector(class.Vectorizer))
+			}
+			if forDefault != nil {
+				if err := h.validateDefaultCompressionApplies(class.VectorIndexType, forDefault); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -1548,14 +1599,38 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 			return err
 		}
 		if parsed == nil {
+			if initial == nil && !restoring {
+				isMultiVector := false
+				if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
+					for vectorizer := range vm {
+						isMultiVector = h.parser.modules.IsMultiVector(vectorizer)
+					}
+				}
+				if forDefault := h.configCreationParses(cfg.VectorIndexType, cfg.VectorIndexConfig, isMultiVector); forDefault != nil {
+					if err := h.validateDefaultCompressionApplies(cfg.VectorIndexType, forDefault); err != nil {
+						return fmt.Errorf("target vector %q: %w", name, err)
+					}
+				}
+			}
 			continue
 		}
 		// Create/update-only hard limits. They must not live in the config
-		// parser itself: that also runs on startup/restore, where a
-		// persisted out-of-range class must not prevent the node from
-		// starting.
-		if err := validateCreateUpdateOnlyBounds(parsed); err != nil {
-			return fmt.Errorf("target vector %q: %w", name, err)
+		// parser itself: that also runs on startup, where a persisted
+		// out-of-range class must not prevent the node from starting. For
+		// the same reason they are skipped on backup restore.
+		if !restoring {
+			if err := validateCreateUpdateOnlyBounds(parsed); err != nil {
+				return fmt.Errorf("target vector %q: %w", name, err)
+			}
+			var initialParsed schemaConfig.VectorIndexConfig
+			if initial != nil {
+				if initCfg, ok := initial.VectorConfig[name]; ok {
+					initialParsed, _ = h.parseNamedVectorIndexConfig(name, initCfg)
+				}
+			}
+			if err := validateRQDistance(parsed, initialParsed); err != nil {
+				return fmt.Errorf("target vector %q: %w", name, err)
+			}
 		}
 		// Grandfather: same VectorIndexType + same compressions on this
 		// named-vector entry ⇒ skip the policy check.
@@ -1565,16 +1640,67 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 		if err := h.validateAllowedCompression(cfg.VectorIndexType, parsed); err != nil {
 			return fmt.Errorf("target vector %q: %w", name, err)
 		}
+		if initial == nil && !restoring {
+			if err := h.validateDefaultCompressionApplies(cfg.VectorIndexType, parsed); err != nil {
+				return fmt.Errorf("target vector %q: %w", name, err)
+			}
+		}
 	}
 	return nil
 }
 
 // validateCreateUpdateOnlyBounds enforces limits that only apply to schema
 // writes (AddClass/UpdateClass), never to parsing persisted schemas at
-// startup or during RAFT log replay.
+// startup, during RAFT log replay, or on backup restore.
 func validateCreateUpdateOnlyBounds(parsed schemaConfig.VectorIndexConfig) error {
 	if uc, ok := parsed.(enthfresh.UserConfig); ok {
 		return enthfresh.ValidateMuveraUpperBounds(uc)
+	}
+	return nil
+}
+
+// validateRQDistance applies common.ValidateRQDistance to every RQ-capable
+// index the config describes: hnsw, flat, and both arms of a dynamic index,
+// which compress under the dynamic index's distance. It runs on create and
+// update only, never on startup parsing or backup restore. An index whose stored config already
+// has RQ enabled is grandfathered: distance and bits are immutable once set,
+// so rejecting it would only block unrelated updates.
+func validateRQDistance(parsed, initialParsed schemaConfig.VectorIndexConfig) error {
+	grandfathered := map[string]bool{}
+	for _, arm := range rqArms(initialParsed) {
+		grandfathered[arm.name] = arm.enabled
+	}
+	for _, arm := range rqArms(parsed) {
+		if grandfathered[arm.name] {
+			continue
+		}
+		if err := vectorindexcommon.ValidateRQDistance(arm.enabled, arm.distance); err != nil {
+			if arm.name != "" {
+				return fmt.Errorf("%s: %w", arm.name, err)
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+type rqArm struct {
+	name     string // "" for a plain index, "hnsw"/"flat" for a dynamic arm
+	enabled  bool
+	distance string
+}
+
+func rqArms(parsed schemaConfig.VectorIndexConfig) []rqArm {
+	switch uc := parsed.(type) {
+	case hnsw.UserConfig:
+		return []rqArm{{"", uc.RQ.Enabled, uc.Distance}}
+	case flat.UserConfig:
+		return []rqArm{{"", uc.RQ.Enabled, uc.Distance}}
+	case dynamic.UserConfig:
+		return []rqArm{
+			{"hnsw", uc.HnswUC.RQ.Enabled, uc.Distance},
+			{"flat", uc.FlatUC.RQ.Enabled, uc.Distance},
+		}
 	}
 	return nil
 }
@@ -1681,6 +1807,126 @@ func (h *Handler) validateAllowedCompression(vectorIndexType string, cfg schemaC
 		}
 	}
 	return nil
+}
+
+// validateDefaultCompressionApplies covers the gap validateAllowedCompression
+// leaves on create. An index with no compression of its own passes it,
+// because the server default (always an allowed entry under a compression
+// allow-list) fills the gap at creation. The default does not always apply:
+// an index type may not take it at all (flat takes only rq-1, rq-8 and bq),
+// and an RQ default is skipped on a distance RQ cannot compress. Either way
+// the index is created uncompressed. Rather than restate those rules, this
+// applies the default to a copy of cfg through setDefaultQuantization, the
+// path creation takes, and under an allow-list that does not admit "none"
+// rejects the class when an index (or dynamic arm) still ends up with no
+// compression, naming the restriction and the cause. Unrestricted servers
+// keep creating such indexes uncompressed.
+func (h *Handler) validateDefaultCompressionApplies(vectorIndexType string, cfg schemaConfig.VectorIndexConfig) error {
+	allow := h.allowedCompressionTypes()
+	if allow == nil || slices.Contains(allow, "none") || vectorIndexType == vectorindex.VectorIndexTypeHFresh {
+		return nil
+	}
+	if h.config.DefaultQuantization == nil {
+		return nil
+	}
+	defaultCompression := h.config.DefaultQuantization.Get()
+	if defaultCompression == "" {
+		return nil
+	}
+	if len(vectorIndexType) == 0 {
+		vectorIndexType = vectorindex.DefaultVectorIndexType
+	}
+	// The parse error is not needed here: an arm the default could not be
+	// applied to is left without compression, which is what is checked.
+	applied, _ := setDefaultQuantization(vectorIndexType, cfg, defaultCompression)
+	uncompressed := uncompressedArms(applied)
+	if len(uncompressed) == 0 {
+		return nil
+	}
+	// Tell the causes apart by the same path: if the default applies to the
+	// arm once the distance is one every quantizer supports, the distance
+	// was the cause; otherwise the index type cannot take the default.
+	onDefaultDistance, _ := setDefaultQuantization(vectorIndexType,
+		withDistance(cfg, vectorindexcommon.DefaultDistanceMetric), defaultCompression)
+	stillUncompressed := uncompressedArms(onDefaultDistance)
+
+	arm := uncompressed[0]
+	v := restrictions.NewViolationError(
+		h.restrictionsErrorMessageTemplate(),
+		restrictions.RestrictionCompression,
+		"none",
+		allow,
+	)
+	where, armType := "", vectorIndexType
+	if arm.name != "" {
+		where = " on the dynamic index's " + arm.name + " arm"
+		armType = arm.name
+	}
+	if slices.ContainsFunc(stillUncompressed, func(a rqArm) bool { return a.name == arm.name }) {
+		v.RenderedMessage += fmt.Sprintf(" No compression is configured%s, and the default compression %q "+
+			"cannot be applied to a %s index, so the index would be created uncompressed. Configure an allowed "+
+			"compression the %s index supports explicitly, or use an index type %q applies to.",
+			where, defaultCompression, armType, armType, defaultCompression)
+		return v
+	}
+	v.RenderedMessage += fmt.Sprintf(" No compression is configured%s, and the default compression %q "+
+		"cannot compress distance %q, so the index would be created uncompressed. Use a distance %q supports "+
+		"or configure an allowed compression explicitly.", where, defaultCompression, arm.distance, defaultCompression)
+	return v
+}
+
+// configCreationParses returns the config ParseClass builds, after
+// validation, for an index that carries no config of its own: the index
+// type's defaults, which the server default is then applied to. nil when
+// that parse fails; ParseClass reports the error.
+func (h *Handler) configCreationParses(vectorIndexType string, raw interface{}, isMultiVector bool) schemaConfig.VectorIndexConfig {
+	parsed, err := h.parser.parseGivenVectorIndexConfig(vectorIndexType, raw, isMultiVector, h.config.DefaultQuantization)
+	if err != nil {
+		return nil
+	}
+	return parsed
+}
+
+// uncompressedArms lists the indexes in cfg (both arms of a dynamic index,
+// under the dynamic index's distance) that have no compression and did not
+// opt out of the default with skipDefaultQuantization.
+func uncompressedArms(cfg schemaConfig.VectorIndexConfig) []rqArm {
+	var out []rqArm
+	switch c := cfg.(type) {
+	case hnsw.UserConfig:
+		if compressionFromHnsw(c) == "" {
+			out = append(out, rqArm{"", false, c.Distance})
+		}
+	case flat.UserConfig:
+		if compressionFromFlat(c) == "" {
+			out = append(out, rqArm{"", false, c.Distance})
+		}
+	case dynamic.UserConfig:
+		if compressionFromHnsw(c.HnswUC) == "" {
+			out = append(out, rqArm{"hnsw", false, c.Distance})
+		}
+		if compressionFromFlat(c.FlatUC) == "" {
+			out = append(out, rqArm{"flat", false, c.Distance})
+		}
+	}
+	return out
+}
+
+// withDistance returns a copy of cfg whose distance (the dynamic index's,
+// which both arms compress under) is distance.
+func withDistance(cfg schemaConfig.VectorIndexConfig, distance string) schemaConfig.VectorIndexConfig {
+	switch c := cfg.(type) {
+	case hnsw.UserConfig:
+		c.Distance = distance
+		return c
+	case flat.UserConfig:
+		c.Distance = distance
+		return c
+	case dynamic.UserConfig:
+		c.Distance = distance
+		return c
+	}
+	return cfg
 }
 
 // compressionsFromIndexConfig lists every user-selected compression in
@@ -1850,7 +2096,7 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 	return enabled, err
 }
 
-func validateImmutableFields(initial, updated *models.Class, modulesProvider modulesProvider) error {
+func validateImmutableFields(initial, updated *models.Class, modulesProvider modulesProvider, allowed map[string][]string) error {
 	immutableFields := []immutableText{
 		{
 			name:     "class name",
@@ -1895,12 +2141,18 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 		updated.VectorConfig[k] = v
 
 		if !deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			if _, ok := allowed[k]; ok {
+				continue
+			}
+
 			// There might be module settings that need to be migrated to new names, for example
 			// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
 			// and migrate baseUrl to baseURL
-			if modulesProvider.MigrateVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			// initial shares its maps with the stored schema, so the migration runs on a copy.
+			initialVectorizer := structToMap(initial.VectorConfig[k].Vectorizer)
+			if modulesProvider.MigrateVectorizerSettings(initialVectorizer, v.Vectorizer) {
 				// Module settings have been migrated, let's recheck vectorizer settings
-				if deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+				if deepEqualVectorizerSettings(initialVectorizer, v.Vectorizer) {
 					continue
 				}
 			}
@@ -1933,6 +2185,42 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 
 func deepEqualVectorizerSettings(initial, updated any) bool {
 	return reflect.DeepEqual(structToMap(initial), structToMap(updated))
+}
+
+// mutableSettingsChanges returns the modules whose settings changed in a way the module allows, keyed by target
+// vector ("" for the class-level moduleConfig), and stops at the first error validate returns for one of them.
+// It must run before MigrateVectorizerSettings overwrites initial.
+func mutableSettingsChanges(modulesProvider modulesProvider, initial, updated *models.Class,
+	validate func(module, targetVector string) error,
+) (map[string][]string, error) {
+	changes := map[string][]string{}
+	collect := func(targetVector string, initialConfig, updatedConfig map[string]any) error {
+		for module := range updatedConfig {
+			initialSettings, _ := initialConfig[module].(map[string]any)
+			updatedSettings, _ := updatedConfig[module].(map[string]any)
+			if initialSettings != nil && updatedSettings != nil && !reflect.DeepEqual(initialSettings, updatedSettings) &&
+				modulesProvider.MutableSettings(module, initialSettings, updatedSettings) {
+				if err := validate(module, targetVector); err != nil {
+					return err
+				}
+				changes[targetVector] = append(changes[targetVector], module)
+			}
+		}
+		return nil
+	}
+
+	if err := collect("", structToMap(initial.ModuleConfig), structToMap(updated.ModuleConfig)); err != nil {
+		return nil, err
+	}
+	for name, vectorConfig := range updated.VectorConfig {
+		initialVectorizer, updatedVectorizer := structToMap(initial.VectorConfig[name].Vectorizer), structToMap(vectorConfig.Vectorizer)
+		if len(initialVectorizer) == 1 && len(updatedVectorizer) == 1 {
+			if err := collect(name, initialVectorizer, updatedVectorizer); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return changes, nil
 }
 
 func structToMap(obj any) (objMap map[string]any) {

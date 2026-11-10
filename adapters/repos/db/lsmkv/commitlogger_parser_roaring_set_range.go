@@ -19,12 +19,12 @@ import (
 func (p *commitloggerParser) doRoaringSetRange() error {
 	prs := &commitlogParserRoaringSet{
 		parser: p,
-		consume: func(key []byte, additions, deletions []uint64) error {
+		consume: func(mt *Memtable, key []byte, additions, deletions []uint64) error {
 			if len(key) != 8 {
 				return fmt.Errorf("commitloggerParser: invalid value length %d, should be 8 bytes", len(key))
 			}
 
-			return p.memtable.roaringSetRangeAddRemove(binary.BigEndian.Uint64(key),
+			return mt.roaringSetRangeAddRemove(binary.BigEndian.Uint64(key),
 				additions, deletions)
 		},
 	}

@@ -13,15 +13,19 @@ package backups
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 
 	"github.com/weaviate/weaviate/client/backups"
+	backupent "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -59,8 +63,25 @@ func TestSelectiveRBACBackupRestore(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()
 
-	// A backup needs at least one class, so every subtest carries this one.
 	par := articles.ParagraphsClass()
+
+	readDescriptors := func(t *testing.T, backupID string) (*backupent.DistributedBackupDescriptor, *backupent.BackupDescriptor) {
+		t.Helper()
+		read := func(path string, dst any) {
+			code, output, err := compose.GetWeaviate().Container().Exec(ctx, []string{"cat", path}, tcexec.Multiplexed())
+			require.NoError(t, err)
+			require.Zero(t, code)
+			data, err := io.ReadAll(output)
+			require.NoError(t, err)
+			require.NoError(t, json.Unmarshal(data, dst))
+		}
+
+		global := &backupent.DistributedBackupDescriptor{}
+		read(fmt.Sprintf("/tmp/backups/%s/backup_config.json", backupID), global)
+		node := &backupent.BackupDescriptor{}
+		read(fmt.Sprintf("/tmp/backups/%s/%s/backup.json", backupID, global.Leader), node)
+		return global, node
+	}
 
 	t.Run("RestoreReplacesTheStore", func(t *testing.T) {
 		backupID := "selective-replace"
@@ -139,33 +160,111 @@ func TestSelectiveRBACBackupRestore(t *testing.T) {
 		assert.ElementsMatch(t, allUserNames(), dynamicUserNames(t))
 	})
 
-	t.Run("WildcardMissBacksUpNothing", func(t *testing.T) {
-		backupID := "wildcard-miss"
-		seedRBAC(t)
-		defer cleanupRBAC(t)
+	for _, tt := range []struct {
+		name, backupID string
+		roles, users   []string
+	}{
+		{name: "WildcardMissBacksUpNothing", backupID: "wildcard-miss", roles: []string{"no-such-*"}, users: []string{"no-such-*"}},
+		{name: "EmptyListsBackUpNothing", backupID: "empty-lists", roles: []string{}, users: []string{}},
+		{name: "EmptyUsersKeepAllRoles", backupID: "empty-users", users: []string{}},
+		{name: "EmptyRolesKeepAllUsers", backupID: "empty-roles", roles: []string{}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			backupID := tt.backupID
+			seedRBAC(t)
+			defer cleanupRBAC(t)
 
-		helper.CreateClassAuth(t, par, adminKey)
-		defer helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
+			helper.CreateClassAuth(t, par, adminKey)
+			defer helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
 
-		// Nothing is named "no-such-*". The backup must still succeed and carry no
-		// RBAC or user blob, so a restore with both options set changes nothing.
-		createSelectiveBackup(t, par.Class, backupID, []string{"no-such-*"}, []string{"no-such-*"})
+			createSelectiveBackup(t, par.Class, backupID, tt.roles, tt.users)
+			global, node := readDescriptors(t, backupID)
+			assert.Equal(t, tt.users != nil, global.SkipUsers)
+			assert.Equal(t, tt.roles != nil, global.SkipRoles)
+			assert.Equal(t, tt.users == nil, len(node.UserBackups) > 0)
+			assert.Equal(t, tt.roles == nil, len(node.RbacBackups) > 0)
 
-		// Deleting one pair before the restore separates the three outcomes: a
-		// whole-cluster blob would bring role 5 and user 5 back, an empty blob
-		// would wipe roles and users 1 to 4, and no blob leaves 1 to 4 alone.
-		helper.DeleteRole(t, adminKey, roleName(5))
-		helper.DeleteUser(t, userName(5), adminKey)
-		survivors := func(name func(int) string) []string {
-			return []string{name(1), name(2), name(3), name(4)}
-		}
+			// Deleting one pair before the restore separates the three outcomes: a
+			// whole-cluster blob would bring role 5 and user 5 back, an empty blob
+			// would wipe roles and users 1 to 4, and no blob leaves 1 to 4 alone.
+			helper.DeleteRole(t, adminKey, roleName(5))
+			helper.DeleteUser(t, userName(5), adminKey)
+			survivors := func(name func(int) string) []string {
+				return []string{name(1), name(2), name(3), name(4)}
+			}
 
-		helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
-		restoreAll(t, par.Class, backupID)
+			helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
+			restoreAll(t, par.Class, backupID)
 
-		assert.ElementsMatch(t, survivors(roleName), customRoleNames(t))
-		assert.ElementsMatch(t, survivors(userName), dynamicUserNames(t))
-	})
+			wantRoles, wantUsers := survivors(roleName), survivors(userName)
+			if tt.roles == nil {
+				wantRoles = allRoleNames()
+			}
+			if tt.users == nil {
+				wantUsers = allUserNames()
+			}
+			assert.ElementsMatch(t, wantRoles, customRoleNames(t))
+			assert.ElementsMatch(t, wantUsers, dynamicUserNames(t))
+		})
+	}
+
+	for _, tt := range []struct {
+		name           string
+		backupID       string
+		include        []string
+		unrelatedClass bool
+		wholeBackends  bool
+	}{
+		{name: "EmptyCluster", backupID: "classless-empty"},
+		{name: "UnmatchedInclude", backupID: "classless-unmatched", include: []string{"ns1:*"}, unrelatedClass: true},
+		{name: "EmptyClusterDefaultBackends", backupID: "classless-default", wholeBackends: true},
+		{name: "UnmatchedIncludeDefaultBackends", backupID: "classless-unmatched-default", include: []string{"ns1:*"}, unrelatedClass: true, wholeBackends: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			seedRBAC(t)
+			defer cleanupRBAC(t)
+
+			if tt.unrelatedClass {
+				helper.CreateClassAuth(t, par, adminKey)
+				defer helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
+			}
+
+			roles, users := []string{roleName(1), roleName(2)}, []string{userName(1), userName(2)}
+			wantRoles, wantUsers := roles, users
+			if tt.wholeBackends {
+				roles, users = nil, nil
+				wantRoles, wantUsers = allRoleNames(), allUserNames()
+			}
+			createSelectiveBackupForClasses(t, tt.include, tt.backupID, roles, users)
+
+			global, node := readDescriptors(t, tt.backupID)
+			assert.Empty(t, global.Classes())
+			require.Contains(t, global.Nodes, global.Leader)
+			assert.Empty(t, global.Nodes[global.Leader].Classes)
+			assert.Empty(t, node.Classes)
+			assert.NotEmpty(t, node.RbacBackups)
+			assert.NotEmpty(t, node.UserBackups)
+			assert.False(t, global.SkipUsers)
+			assert.False(t, global.SkipRoles)
+			if tt.wholeBackends {
+				assert.Empty(t, global.Users)
+				assert.Empty(t, global.Roles)
+			}
+
+			deleteAllSeeded(t)
+			require.Empty(t, customRoleNames(t))
+			require.Empty(t, dynamicUserNames(t))
+
+			restoreClassless(t, tt.backupID)
+
+			assert.ElementsMatch(t, wantRoles, customRoleNames(t))
+			assert.ElementsMatch(t, wantUsers, dynamicUserNames(t))
+			assert.Contains(t, roleNamesForUser(t, userName(1)), roleName(1))
+			if tt.unrelatedClass {
+				assert.Equal(t, par.Class, helper.GetClassAuth(t, par.Class, adminKey).Class)
+			}
+		})
+	}
 
 	t.Run("ExactMissIsRejected", func(t *testing.T) {
 		seedRBAC(t)
@@ -183,7 +282,7 @@ func TestSelectiveRBACBackupRestore(t *testing.T) {
 		}{
 			{name: "user", users: []string{"no-such-user"}, want: `user "no-such-user" in 'includeUsers' does not exist`},
 			{name: "role", roles: []string{"no-such-role"}, want: `role "no-such-role" in 'includeRoles' does not exist`},
-			{name: "class-wildcard", include: []string{"NoSuch*"}, want: "matches no class"},
+			{name: "class-wildcard", include: []string{"NoSuch*"}, roles: []string{}, users: []string{}, want: "matches no class"},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -329,12 +428,16 @@ func roleNamesForUser(t *testing.T, user string) []string {
 // createSelectiveBackup posts a backup carrying includeRoles and includeUsers, which the
 // shared helper does not expose, then waits for it to finish.
 func createSelectiveBackup(t *testing.T, className, backupID string, roles, users []string) {
+	createSelectiveBackupForClasses(t, []string{className}, backupID, roles, users)
+}
+
+func createSelectiveBackupForClasses(t *testing.T, include []string, backupID string, roles, users []string) {
 	t.Helper()
 	params := backups.NewBackupsCreateParams().
 		WithBackend(backend).
 		WithBody(&models.BackupCreateRequest{
 			ID:           backupID,
-			Include:      []string{className},
+			Include:      include,
 			IncludeRoles: roles,
 			IncludeUsers: users,
 			Config:       helper.DefaultBackupConfig(),
@@ -346,6 +449,32 @@ func createSelectiveBackup(t *testing.T, className, backupID string, roles, user
 
 	helper.ExpectBackupEventuallyCreated(t, backupID, backend, auth(),
 		helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
+}
+
+func restoreClassless(t *testing.T, backupID string) {
+	t.Helper()
+	all := "all"
+	cfg := helper.DefaultRestoreConfig()
+	cfg.RolesOptions = &all
+	cfg.UsersOptions = &all
+
+	params := backups.NewBackupsRestoreParams().
+		WithBackend(backend).
+		WithID(backupID).
+		WithBody(&models.BackupRestoreRequest{Config: cfg})
+	resp, err := helper.Client(t).Backups.BackupsRestore(params, auth())
+	require.NoError(t, err)
+	require.NotNil(t, resp.Payload)
+	require.Equal(t, "", resp.Payload.Error)
+	require.Empty(t, resp.Payload.Classes)
+
+	helper.ExpectBackupEventuallyRestored(t, backupID, backend, auth(),
+		helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
+	status, err := helper.RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", auth())
+	require.NoError(t, err)
+	require.NotNil(t, status.Payload)
+	require.NotNil(t, status.Payload.Status)
+	require.Equal(t, string(backupent.Success), *status.Payload.Status)
 }
 
 // restoreAll restores with both RBAC options set, since the API defaults both to

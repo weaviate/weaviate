@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/schema"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 func Test_HeadObject(t *testing.T) {
@@ -59,9 +60,15 @@ func Test_HeadObject(t *testing.T) {
 			wantCode:  StatusInternalServerError,
 		},
 		{
+			class:   cls,
+			authErr: errAny,
+			wantOK:  false,
+			// errAny is not a Forbidden, so forbiddenOrUnprocessable renders it 422 rather than 403.
+			wantCode: StatusUnprocessableEntity,
+		},
+		{
 			class:    cls,
-			authErr:  errAny,
-			wantOK:   false,
+			authErr:  authzerrs.NewForbidden(nil, "R", "data/collections/MyClass"),
 			wantCode: StatusForbidden,
 		},
 	}

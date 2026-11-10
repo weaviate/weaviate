@@ -66,6 +66,11 @@ func (b *deleteObjectsBatcher) delete(ctx context.Context, uuids []strfmt.UUID, 
 	b.objects = b.deleteSingleBatchInLSM(ctx, uuids, deletionTime, dryRun)
 }
 
+// errBatchSlotNotProcessed marks a batch slot no delete ever wrote to. A delete that
+// died mid-way may still have written its tombstone, so the message claims
+// only that no outcome was reported.
+var errBatchSlotNotProcessed = errors.New("no delete reported an outcome for this object")
+
 func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
 	batch []strfmt.UUID, deletionTime time.Time, dryRun bool,
 ) objects.BatchSimpleObjects {
@@ -75,10 +80,16 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
 	result := make(objects.BatchSimpleObjects, len(batch))
 	objLock := &sync.Mutex{}
 
+	// seed each slot so a goroutine that panics before writing it reads as failed,
+	// since every caller takes a nil Err for a deleted object. The uuid names the object.
+	for i := range result {
+		result[i] = objects.BatchSimpleObject{UUID: batch[i], Err: errBatchSlotNotProcessed}
+	}
+
 	// if the context is expired fail all
 	if err := ctx.Err(); err != nil {
 		for i := range result {
-			result[i] = objects.BatchSimpleObject{Err: errors.Wrap(err, "begin batch")}
+			result[i].Err = errors.Wrap(err, "begin batch")
 		}
 		return result
 	}
@@ -107,7 +118,8 @@ outer:
 		lastDeleted = i
 
 	}
-	// safe to ignore error, as the internal routines never return an error
+	// each slot carries its own outcome; the only error Wait can report is a
+	// recovered panic, whose slot still holds errBatchSlotNotProcessed
 	eg.Wait()
 
 	ctxErr := ctx.Err()
@@ -176,7 +188,8 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 // when limit is positive. The limit counts UUIDs returned, not doc ids read, so a shard
 // holding more than limit matching objects returns limit of them and which ones is
 // unspecified. A read error fails the call rather than skipping the doc id. A row that
-// carries no readable id is skipped, and the skips are logged once per call.
+// carries no readable id is skipped, and the skips are logged at most once per
+// unreadableRowLogWindow per shard.
 //
 // The filter is resolved once and without a cap, so a doc id whose object row is gone, or
 // whose row carries no readable id, cannot shorten the reply: the walk reads past it to the
@@ -230,11 +243,23 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	}
 
 	if pass.unreadable.count > 0 {
-		logger.WithField("op", "shard.find_uuids").
-			Warnf("skipped %d doc ids without a readable id, one of them: %v",
-				pass.unreadable.count, pass.unreadable.first)
+		s.warnUnreadableRows(logger, pass.unreadable)
 	}
 	return pass.uuids, nil
+}
+
+// unreadableRowLogWindow is how often one shard warns about rows with no readable id.
+const unreadableRowLogWindow = time.Minute
+
+// warnUnreadableRows reports the rows a call skipped because they carry no readable id.
+func (s *Shard) warnUnreadableRows(logger logrus.FieldLogger, unreadable unreadableRows) {
+	write := func(l logrus.FieldLogger) {
+		l.WithField("op", "shard.find_uuids").
+			Warnf("skipped %d doc ids without a readable id, one of them: %v",
+				unreadable.count, unreadable.first)
+	}
+
+	s.unreadableRowSampler.WithSampling(write)
 }
 
 // findUUIDsPass is the result of one resolve-and-walk pass: the UUIDs it produced and

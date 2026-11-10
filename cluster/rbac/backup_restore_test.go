@@ -12,14 +12,20 @@
 package rbac
 
 import (
+	"encoding/json"
+	"errors"
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -35,6 +41,13 @@ func (l listerOf) List() []cmd.Namespace {
 		out[i] = cmd.Namespace{Name: name, State: cmd.NamespaceStateActive}
 	}
 	return out
+}
+
+func (l listerOf) GetNamespace(name string) (cmd.Namespace, bool) {
+	if !slices.Contains(l, name) {
+		return cmd.Namespace{}, false
+	}
+	return cmd.Namespace{Name: name, State: cmd.NamespaceStateActive}, true
 }
 
 // snapshotOf builds a backup blob from a manager holding exactly the given
@@ -129,6 +142,65 @@ func TestRestoreFromBackupHonoursStripFlag(t *testing.T) {
 			}))
 
 			assert.Equal(t, []string{tt.want}, customRoleNames(t, m))
+		})
+	}
+}
+
+// TestRestoreFromBackupLogsTornOnlyAfterClear pins when RestoreFromBackup logs
+// rbac_restore_torn. A blob Restore refuses leaves the target's roles in place
+// and logs no torn line. A failure after Restore cleared the roles still logs it.
+func TestRestoreFromBackupLogsTornOnlyAfterClear(t *testing.T) {
+	unstorableRow, err := json.Marshal(map[string]any{
+		"grouping_policies": [][]string{{"group:a,b", "role:viewer"}},
+		"version":           rbac.SnapshotVersionLatest,
+	})
+	require.NoError(t, err)
+	// The one-field grouping row passes validation. casbin adds every row to the
+	// model and then fails building its role link, so Restore fails after the clear.
+	roleCRow := []string{"role:roleC", authorization.Cluster(), authorization.READ, authorization.ClusterDomain}
+	failsAfterClear, err := json.Marshal(map[string]any{
+		"roles_policies":    [][]string{roleCRow},
+		"grouping_policies": [][]string{{"db:malformed"}},
+		"version":           rbac.SnapshotVersionLatest,
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		blob     []byte
+		wantTorn bool
+	}{
+		{name: "undecodable blob", blob: []byte("{")},
+		{name: "row the policy file cannot store", blob: unstorableRow},
+		{name: "grouping row with one field fails after the clear", blob: failsAfterClear, wantTorn: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newTestManager(t)
+			require.NoError(t, applyCreateRole(m, "roleA"))
+			logger, hook := test.NewNullLogger()
+			m.logger = logger
+
+			err := m.RestoreFromBackup(&cmd.RestoreRolesAndUsersRequest{Roles: tt.blob})
+			require.Error(t, err)
+
+			torn := slices.ContainsFunc(hook.AllEntries(), func(e *logrus.Entry) bool {
+				return strings.HasPrefix(e.Message, "rbac_restore_torn")
+			})
+			assert.Equal(t, tt.wantTorn, torn)
+			assert.Equal(t, !tt.wantTorn, errors.Is(err, rbac.ErrRestoreRefused))
+			if !tt.wantTorn {
+				assert.ElementsMatch(t, []string{"roleA"}, customRoleNames(t, m))
+				return
+			}
+
+			// GetRoles indexes field 1 of every grouping row and panics on the
+			// one-field row, so the torn state is read through calls that do not.
+			hasRoleA, err := m.authZ.HasPermission("roleA", &authorization.Policy{
+				Resource: authorization.Cluster(), Verb: authorization.READ, Domain: authorization.ClusterDomain,
+			})
+			require.NoError(t, err)
+			assert.False(t, hasRoleA, "the clear must have removed the target's roleA")
 		})
 	}
 }

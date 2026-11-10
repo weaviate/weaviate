@@ -263,6 +263,31 @@ func isSimilarSegmentSizes(leftSize, rightSize int64) bool {
 	return lowerSize*factorDef >= higherSize
 }
 
+func segmentPathForID(dir string, id int64) string {
+	return filepath.Join(dir, fmt.Sprintf("segment-%d", id))
+}
+
+// segmentFilePrefix is what every file belonging to one segment id begins with.
+// segmentExistsWithID selects a segment by this prefix, so removeSegmentDerivedFiles
+// is correct only while it deletes by the same one.
+func segmentFilePrefix(id string) string {
+	return fmt.Sprintf("segment-%s.", id)
+}
+
+// isSegmentWALName reports whether a file is spelled the way a commit logger
+// writes a segment's write-ahead-log. A name that merely ends in .wal is
+// something else: segmentID cuts it at the first dot, naming a segment it does
+// not own.
+func isSegmentWALName(name string) bool {
+	// the comparison below formats a string and cuts the name apart, and
+	// removeSegmentsOfSurvivingWALs asks this of every file in the directory
+	if !strings.HasSuffix(name, ".wal") {
+		return false
+	}
+
+	return name == segmentFilePrefix(segmentID(name))+"wal"
+}
+
 func segmentID(path string) string {
 	filename := filepath.Base(path)
 	filename, _, _ = strings.Cut(filename, ".")

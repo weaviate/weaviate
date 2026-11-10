@@ -330,6 +330,9 @@ func (fc FinderClient) fullReadChunk(ctx context.Context,
 // AsyncCheckpointMaxShardsPerChunk bounds shards per checkpoint RPC: 512 worst-case 64-char names fit AsyncCheckpointMaxBodyBytes and the ~60 KiB sidecar header budget of the status GET query (tested).
 const AsyncCheckpointMaxShardsPerChunk = 512
 
+// AsyncCheckpointMaxLifetime clears a checkpoint nobody deleted; it must exceed the planner's worst-case planning and cleanup window.
+const AsyncCheckpointMaxLifetime = time.Hour
+
 // MaxConcurrentAsyncCheckpointRequests bounds in-flight chunks per host so wide fan-outs don't overrun the checkpoint cutoff lead.
 const MaxConcurrentAsyncCheckpointRequests = 8
 

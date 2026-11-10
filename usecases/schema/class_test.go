@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/tokenizer"
@@ -540,10 +541,10 @@ func Test_AddClassWithLimits(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
-				// An unlimited cap must not ask the leader for a count it would
-				// discard, so the expectation is only set where the cap is on.
+				// An unlimited cap skips the count, so the expectation is only
+				// set where the cap is on.
 				if tt.maxAllowed != config.DefaultMaximumAllowedCollectionsCount {
-					fakeSchemaManager.On("QueryCollectionsCount", "").Return(tt.existingCount, nil)
+					fakeSchemaManager.On("CollectionsCount", "").Return(tt.existingCount)
 				}
 
 				// Set the max collections limit in config
@@ -571,7 +572,7 @@ func Test_AddClassWithLimits(t *testing.T) {
 					require.Nil(t, err)
 				}
 				if tt.maxAllowed == config.DefaultMaximumAllowedCollectionsCount {
-					fakeSchemaManager.AssertNotCalled(t, "QueryCollectionsCount", "")
+					fakeSchemaManager.AssertNotCalled(t, "CollectionsCount", "")
 				}
 				fakeSchemaManager.AssertExpectations(t)
 			})
@@ -1522,7 +1523,7 @@ func Test_UpdateClass(t *testing.T) {
 					},
 				}
 
-				err := validateImmutableFields(initial, updated, nil)
+				err := validateImmutableFields(initial, updated, nil, nil)
 				require.NoError(t, err, "validate immutable fields")
 
 				assert.Equal(t,
@@ -2407,8 +2408,8 @@ func Test_UpdateClass(t *testing.T) {
 				store.parser = handler.parser
 
 				fakeSchemaManager.On("AddClass", test.initial, mock.Anything).Return(nil)
-				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
+				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil)
+				fakeSchemaManager.On("ReadOnlyClassesFromLeader", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 				fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				fakeSchemaManager.On("CopyShardingState", mock.Anything).Return(&sharding.State{}, nil)
 				if len(test.initial.Properties) > 0 {
@@ -2419,8 +2420,8 @@ func Test_UpdateClass(t *testing.T) {
 				assert.Nil(t, err)
 				store.AddClass(test.initial)
 
-				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
+				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil)
+				fakeSchemaManager.On("ReadOnlyClassesFromLeader", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 				err = handler.UpdateClass(ctx, nil, test.initial.Class, test.update)
 				if err == nil {
 					err = store.UpdateClass(test.update)
@@ -2507,8 +2508,8 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 			store.parser = handler.parser
 
 			fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
-			fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
-			fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
+			fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil)
+			fakeSchemaManager.On("ReadOnlyClassesFromLeader", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 			fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
 
 			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
@@ -2578,7 +2579,7 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 				store.parser = handler.parser
 
 				fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
+				fakeSchemaManager.On("ReadOnlyClassesFromLeader", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 				fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
 
 				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
@@ -2848,6 +2849,78 @@ func TestRestoreClass_StripNamespaces_StripsAlias(t *testing.T) {
 	assert.Equal(t, "MoviesAlias", createdAlias, "alias name must be stripped on graduation restore")
 	require.NotNil(t, aliasClass)
 	assert.Equal(t, "Movies", aliasClass.Class, "restored alias must target the stripped class")
+}
+
+func TestRestoreClass_CrossNamespaceAlias(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name            string
+		stripNamespaces bool
+		wantAlias       string // "" means the restore is refused before the class commits
+	}{
+		{name: "refused before the class commits", stripNamespaces: false},
+		{name: "stripping puts both in one namespace", stripNamespaces: true, wantAlias: "Films"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+			classRaw := &models.Class{Class: "ns2:Secret", Vectorizer: "none"}
+			schemaBytes, err := json.Marshal(classRaw)
+			require.NoError(t, err)
+			shardingConfig, err := shardingConfig.ParseConfig(nil, 1)
+			require.NoError(t, err)
+			nodes := mocks.NewMockNodeSelector("node1", "node2")
+			shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes.LocalName(), nodes.StorageCandidates(), 1, false)
+			require.NoError(t, err)
+			shardingBytes, err := shardingState.JSON()
+			require.NoError(t, err)
+			aliasBytes, err := json.Marshal([]*models.Alias{{Alias: "ns1:Films", Class: "ns2:Secret"}})
+			require.NoError(t, err)
+
+			fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return((*models.Class)(nil)).Maybe()
+			fakeSchemaManager.On("RestoreClass", mock.Anything, mock.Anything).Return(nil)
+			fakeSchemaManager.On("CreateAlias", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+			descriptor := backup.ClassDescriptor{
+				Name:            classRaw.Class,
+				Schema:          schemaBytes,
+				ShardingState:   shardingBytes,
+				AliasesIncluded: true,
+				Aliases:         aliasBytes,
+			}
+			err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{}, true, tt.stripNamespaces)
+			if tt.wantAlias == "" {
+				require.ErrorContains(t, err, "are in different namespaces")
+				fakeSchemaManager.AssertNotCalled(t, "RestoreClass", mock.Anything, mock.Anything)
+				fakeSchemaManager.AssertNotCalled(t, "CreateAlias", mock.Anything, mock.Anything, mock.Anything)
+				return
+			}
+			require.NoError(t, err)
+			fakeSchemaManager.AssertCalled(t, "CreateAlias", mock.Anything, tt.wantAlias, mock.Anything)
+		})
+	}
+}
+
+func TestRestoreClass_RejectsShardNameOutsideIndexDir(t *testing.T) {
+	t.Parallel()
+	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+	fakeSchemaManager.On("RestoreClass", mock.Anything, mock.Anything).Return(nil).Maybe()
+
+	schemaBytes, err := json.Marshal(&models.Class{Class: "Class_A", Vectorizer: "none"})
+	require.NoError(t, err)
+	shardingBytes, err := json.Marshal(&sharding.State{
+		Physical: map[string]sharding.Physical{
+			"../../../../bin": {Name: "../../../../bin", BelongsToNodes: []string{"node1"}},
+		},
+	})
+	require.NoError(t, err)
+
+	descriptor := backup.ClassDescriptor{Name: "Class_A", Schema: schemaBytes, ShardingState: shardingBytes}
+	err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{}, false, false)
+	require.ErrorContains(t, err, "not a valid tenant name")
+	fakeSchemaManager.AssertNotCalled(t, "RestoreClass", mock.Anything, mock.Anything)
 }
 
 func TestRestoreClass_WithNodeMapping(t *testing.T) {
@@ -4004,4 +4077,26 @@ func TestValidatePropertyProcessing_ASCIIFoldIgnoreRequiresFold(t *testing.T) {
 		err := validatePropertyProcessing(prop, pdt, nil)
 		require.NoError(t, err)
 	})
+}
+
+func TestManagerUpdateClassInternal_ProposesOrigin(t *testing.T) {
+	const origin = command.ClassUpdateOriginDropVectorFinalize
+	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+	newClass := func() *models.Class {
+		return &models.Class{
+			Class:             "C",
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+	}
+	initial := newClass()
+	fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
+	fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
+	fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything, origin).Return(nil)
+	_, _, err := handler.AddClass(context.Background(), nil, initial)
+	require.NoError(t, err)
+
+	m := &Manager{Handler: *handler}
+	require.NoError(t, m.UpdateClassInternal(context.Background(), initial.Class, newClass(), origin))
+	fakeSchemaManager.AssertExpectations(t)
 }

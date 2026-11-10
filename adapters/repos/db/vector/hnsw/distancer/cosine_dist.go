@@ -53,8 +53,10 @@ func (d CosineDistanceProvider) SingleDist(a, b []float32) (float32, error) {
 	return prod, nil
 }
 
+const CosineDistanceProviderType = "cosine-dot"
+
 func (d CosineDistanceProvider) Type() string {
-	return "cosine-dot"
+	return CosineDistanceProviderType
 }
 
 func (d CosineDistanceProvider) New(a []float32) Distancer {

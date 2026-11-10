@@ -312,6 +312,10 @@ func (m fakeModulesProvider) MigrateVectorizerSettings(any, any) bool {
 	return false
 }
 
+func (m fakeModulesProvider) MutableSettings(string, map[string]any, map[string]any) bool {
+	return false
+}
+
 func TestParserDefaultShardingCount(t *testing.T) {
 	t.Run("zero means use node count", func(t *testing.T) {
 		cs := fakes.NewFakeClusterState()

@@ -571,7 +571,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the group.",
+            "description": "The name of the group. Must not contain ',', '\"' or control characters, and must be at most 256 bytes.",
             "name": "id",
             "in": "path",
             "required": true
@@ -1417,7 +1417,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the user.",
+            "description": "The name of the user. Must not contain ',', '\"' or control characters, and must be at most 256 bytes.",
             "name": "id",
             "in": "path",
             "required": true
@@ -1866,13 +1866,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No backup with this ID exists at this backend, bucket and path. Only callers with read_backups on all collections get 404; others get 403.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2007,13 +2007,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No restore of this backup was started at this backend, bucket and path.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2633,7 +2633,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or a record sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3073,7 +3073,7 @@ func init() {
     },
     "/namespaces": {
       "get": {
-        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list rather than 403.",
         "tags": [
           "namespaces"
         ],
@@ -3088,6 +3088,12 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden: no well-formed Weaviate license key is configured on this node",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Not Found - The namespaces feature is not enabled on this cluster.",
@@ -3138,7 +3144,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3199,7 +3205,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3259,7 +3265,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3314,7 +3320,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3365,7 +3371,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3428,7 +3434,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5000,6 +5006,221 @@ func init() {
         ]
       }
     },
+    "/replication/rebalance": {
+      "get": {
+        "description": "Returns the cluster's rebalance plan, including the node measurements and baseline balance taken by its planning run.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Get the rebalance plan",
+        "operationId": "getRebalancePlan",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, the read goes through the cluster leader for read-your-writes. If false, the node serving the request answers from its local state, which can lag the leader. Default is false.",
+            "name": "consistency",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The rebalance plan.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalancePlan"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No rebalance plan exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.get"
+        ]
+      },
+      "post": {
+        "description": "Creates the cluster's rebalance plan in the ` + "`" + `PLANNING` + "`" + ` state and starts an asynchronous planning run. The run measures the listed source and target nodes and decides whether their shard replicas need rebalancing. GET /replication/rebalance reports the plan and its outcome. A new plan replaces a finished one; an unfinished plan blocks it.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Create a rebalance plan",
+        "operationId": "createRebalancePlan",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalanceRequest"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Rebalance plan created and planning started. ID of the plan is returned.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalanceCreateResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request: a node list is empty or repeats a node, or a node appears in both ` + "`" + `sourceNodes` + "`" + ` and ` + "`" + `targetNodes` + "`" + `.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "An unfinished rebalance plan exists. GET /replication/rebalance reports it.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "A listed node is not a live storage node. The ErrorResponse holds one entry per failing node.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement or replica rebalancing is disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.create"
+        ]
+      },
+      "delete": {
+        "description": "Removes the cluster's rebalance plan. Only a ` + "`" + `PROPOSED` + "`" + ` plan or a plan in an end state can be deleted; stop a ` + "`" + `PLANNING` + "`" + ` plan first. Succeeds when no plan exists.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Delete the rebalance plan",
+        "operationId": "deleteRebalancePlan",
+        "responses": {
+          "204": {
+            "description": "Successfully deleted, or no plan existed."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The plan is not in a deletable state, e.g. it is ` + "`" + `PLANNING` + "`" + `.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.delete"
+        ]
+      }
+    },
+    "/replication/rebalance/approve": {
+      "post": {
+        "description": "Approves a ` + "`" + `PROPOSED` + "`" + ` rebalance plan for execution. Approval is not implemented yet and always answers 501.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Approve the rebalance plan",
+        "operationId": "approveRebalancePlan",
+        "responses": {
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Approving a rebalance plan is not implemented.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.approve"
+        ]
+      }
+    },
+    "/replication/rebalance/stop": {
+      "post": {
+        "description": "Stops the cluster's rebalance plan while it is ` + "`" + `PLANNING` + "`" + `. The plan ends ` + "`" + `STOPPED` + "`" + ` and the result of its planning run is discarded.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Stop the rebalance plan",
+        "operationId": "stopRebalancePlan",
+        "responses": {
+          "202": {
+            "description": "Rebalance plan stopped."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No rebalance plan exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The plan is not in a stoppable state: only a ` + "`" + `PLANNING` + "`" + ` plan can be stopped.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.stop"
+        ]
+      }
+    },
     "/replication/replicate": {
       "post": {
         "description": "Begins an asynchronous operation to move or copy a specific shard replica from its current node to a designated target node. The operation involves copying data, synchronizing, and potentially decommissioning the source replica.",
@@ -5036,6 +5257,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status to callers who can read the collection.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5568,6 +5795,18 @@ func init() {
           },
           "404": {
             "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status to callers who can read the collection. None of the plan's replica removals or empty additions was applied.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. None of the plan's replica removals or empty additions was applied.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6131,7 +6370,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6155,7 +6394,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6396,7 +6635,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6420,7 +6659,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7192,7 +7431,7 @@ func init() {
             }
           },
           "400": {
-            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], negative paging, unknown property) or an unparseable request body.",
+            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], a vector that is empty, holds a non-number or a number outside the 32-bit float range, a vector with alpha 0, negative paging, unknown property) or an unparseable request body.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7222,7 +7461,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0 and no ` + "`" + `vector` + "`" + ` is supplied, the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7421,6 +7660,99 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/search/{collection}/near-vector": {
+      "post": {
+        "description": "Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query ` + "`" + `vector` + "`" + ` is searched against the vector index and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with near-vector",
+        "operationId": "search.nearVector",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The near-vector search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchNearVectorRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. a vector that is empty, holds a non-number or a number outside the 32-bit float range, negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `vector` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7652,6 +7984,12 @@ func init() {
                   "type": "string",
                   "format": "date-time"
                 },
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format at which the user's API key stops authenticating, stored in UTC with millisecond precision. It must be in the future. Setting it needs a Weaviate license key on the node, else the request answers 403. On a node with a license key, a request that also sets ` + "`" + `import` + "`" + ` to true answers 422. Absent means the key never expires.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
                 "import": {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
@@ -7678,7 +8016,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or the body sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7899,6 +8237,85 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.users.db.deactivateUser"
+        ]
+      }
+    },
+    "/users/db/{user_id}/expiration": {
+      "put": {
+        "description": "Set or clear the time at which a database user's (` + "`" + `db` + "`" + ` user type) API key stops authenticating. The body sets exactly one of ` + "`" + `expiresAt` + "`" + `, which must be in the future, and ` + "`" + `neverExpires` + "`" + `, which must be true and clears the expiry. Any other body answers 422, and so do the caller's own user, root users and static users. A node without a Weaviate license key answers 403, so an expired user can then only be deleted and re-created.",
+        "tags": [
+          "users"
+        ],
+        "summary": "Set a user's expiration",
+        "operationId": "setUserExpiration",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the user.",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Set exactly one of ` + "`" + `expiresAt` + "`" + ` and ` + "`" + `neverExpires` + "`" + `.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format, stored in UTC with millisecond precision, at which the user's API key stops authenticating. It must be in the future.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
+                "neverExpires": {
+                  "description": "True clears the user's expiry, so the API key never expires. False answers 422.",
+                  "type": "boolean",
+                  "x-nullable": true
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User expiration successfully set."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden, because the caller lacks the permission or the node has no Weaviate license key.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "User not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.setUserExpiration"
         ]
       }
     },
@@ -8226,15 +8643,15 @@ func init() {
           "type": "string"
         },
         "dedupeConvergenceTimeoutSeconds": {
-          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. When omitted, BACKUP_DEDUPE_CONVERGENCE_TIMEOUT applies (15 seconds unless configured). The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
           "type": "integer",
-          "default": 60,
+          "default": 15,
           "maximum": 600,
           "minimum": 1,
           "x-nullable": false
         },
         "dedupeReplicas": {
-          "description": "If true, shards of replicated collections that are provably in sync (via async-replication checkpoints) are archived by a single replica instead of every replica, and a restore copies them back to all replicas. Shards that cannot be proven in sync fall back to being archived by every replica. The proof is the one async replication itself uses (matching object UUIDs and update timestamps at a checkpoint), and the archived copy is the designated replica's state at archive time: it provably contains every write acknowledged at or before the per-class checkpoint cutoff taken shortly after the backup starts (persisted as dedupeCutoffsMs in the backup descriptor), while writes concurrent with the backup are included best-effort, as in any backup mode. Requires async replication on replicated collections and a cluster where every node supports this option. A backup where at least one shard was deduplicated can only be restored by versions that support this option, and its restore requires every replica node of the archived sharding state to be resolvable (or mapped via node_mapping). Restoring such a backup can block the restore request for up to two minutes while participants read all source descriptors; size client timeouts accordingly. If no shard could be deduplicated, the backup is written in the legacy format and restores like any other backup. The option must be enabled on the cluster (env BACKUP_DEDUPE_ENABLED=true); otherwise requests carrying it are rejected with 422, while restores of existing deduplicated backups always work.",
+          "description": "If true, shards of replicated collections proven in sync by async-replication checkpoints are archived by one replica instead of all, and restore copies them back to every replica; other shards are archived by every replica. Requires async replication, BACKUP_DEDUPE_ENABLED=true (else 422) and a Weaviate license key (else 403) on every node. Such backups restore only on versions that support this option; restoring needs no license.",
           "type": "boolean",
           "default": false,
           "x-nullable": false
@@ -8242,7 +8659,7 @@ func init() {
       }
     },
     "BackupCreateRequest": {
-      "description": "Request body for creating a backup for a set of collections.",
+      "description": "Request body for creating a backup. The resolved selection must contain at least one collection, dynamic user, or RBAC role.",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup creation process",
@@ -8250,7 +8667,7 @@ func init() {
           "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
-          "description": "List of collections to exclude from the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "description": "List of collections to exclude from the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. Excluding every collection is allowed when users or roles are selected, including through omitted identity selectors.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8261,21 +8678,21 @@ func init() {
           "type": "string"
         },
         "include": {
-          "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. A list made only of wildcards that match no collection is rejected.",
+          "description": "List of collections to include in the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may back up. A list that matches no collection is allowed when users or roles are selected, including through omitted identity selectors.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "includeRoles": {
-          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole RBAC state is captured as part of the cluster snapshot; when set, the RBAC blob is filtered to the matching roles. An exact role name that does not exist is rejected; wildcards that match nothing back up no roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.",
+          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole RBAC state is captured, including built-in roles and assignments. An empty list or wildcards matching nothing omit the RBAC snapshot; restoring it leaves existing roles untouched. Otherwise, only matching roles are captured. An exact role name that does not exist is rejected. Explicit selectors cannot select built-in roles: exact names are rejected and wildcards exclude them. Selected roles, including built-in roles selected by omission, permit a backup with zero collections. No per-role permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "includeUsers": {
-          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole dynamic-user store is captured as part of the cluster snapshot and no per-user permission check is applied; when set, only matching users are captured. An exact user name that does not exist is rejected; wildcards that match nothing back up no users.",
+          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole dynamic-user store is captured. An empty list or wildcards matching nothing omit the user snapshot; restoring it leaves existing users untouched. Otherwise, only matching users are captured. An exact user name that does not exist is rejected. Selected users, including those selected by omission, permit a backup with zero collections. No per-user permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8444,7 +8861,7 @@ func init() {
       }
     },
     "BackupRestoreRequest": {
-      "description": "Request body for restoring a backup for a set of collections (classes).",
+      "description": "Request body for restoring a backup. A backup with no collections can restore users or roles when the matching restore option is enabled.",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup restoration process.",
@@ -8452,14 +8869,14 @@ func init() {
           "$ref": "#/definitions/RestoreConfig"
         },
         "exclude": {
-          "description": "List of collections (classes) to exclude from the backup restoration process.",
+          "description": "List of collections (classes) to exclude from the backup restoration process. Any entry is rejected when the backup contains no collections.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "include": {
-          "description": "List of collections (classes) to include in the backup restoration process. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. A list made only of wildcards that match no collection in the backup is rejected.",
+          "description": "List of collections (classes) to include in the backup restoration process. If not set, all collections in the backup the caller may restore are included. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may restore. A list that matches no collection is rejected. Any entry is rejected when the backup contains no collections.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8646,7 +9063,7 @@ func init() {
               "x-omitempty": false
             },
             "matches": {
-              "description": "How many objects matched the filter. With a positive ` + "`" + `limit` + "`" + ` the count stops one above ` + "`" + `limit` + "`" + `: at or below ` + "`" + `limit` + "`" + ` this is the exact number of matching objects and every one of them was handled by this call, and above ` + "`" + `limit` + "`" + ` more objects match than one call deletes, so call again. With a ` + "`" + `limit` + "`" + ` of 0 or below the count is exact and uncapped.",
+              "description": "How many objects matched the filter. With a positive ` + "`" + `limit` + "`" + ` the count stops one above ` + "`" + `limit` + "`" + `: at or below ` + "`" + `limit` + "`" + ` this is the exact number of matching objects and every one of them was handled by this call, and above ` + "`" + `limit` + "`" + ` more objects match than one call deletes, so call again. With a ` + "`" + `limit` + "`" + ` of 0 or below this is the exact number of matching objects and the call deletes none of them.",
               "type": "number",
               "format": "int64",
               "x-omitempty": false
@@ -8978,6 +9395,12 @@ func init() {
           "type": "string",
           "format": "date-time"
         },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent or null means the key never expires, except that import never changes an existing user's expiry, so a record without one keeps the stored value. A new user takes the record's value, even one that has passed. A differing future value for an existing user gives that record an error result naming ` + "`" + `PUT /v1/users/db/{user_id}/expiration` + "`" + `. A differing past value gives ` + "`" + `skipped_exists` + "`" + ` for a deactivated user. For an active one it gives an error result advising to deactivate the user, or delete it and re-import, because that PUT refuses a past time. A node without a Weaviate license key refuses the whole import with 403 when any record sets a non-null ` + "`" + `expiresAt` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "namespace": {
           "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
           "type": "string"
@@ -9044,6 +9467,12 @@ func init() {
             "db_user",
             "db_env_user"
           ]
+        },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent means the key never expires. Expiry does not change ` + "`" + `active` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
         },
         "lastUsedAt": {
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
@@ -9672,12 +10101,64 @@ func init() {
           "type": "string",
           "format": "url"
         },
+        "license": {
+          "description": "License state of this Weaviate instance.",
+          "$ref": "#/definitions/MetaLicense"
+        },
         "modules": {
           "description": "Module-specific meta information.",
           "type": "object"
         },
         "version": {
           "description": "The Weaviate server version.",
+          "type": "string"
+        }
+      }
+    },
+    "MetaLicense": {
+      "description": "License state of the current Weaviate instance.",
+      "type": "object",
+      "properties": {
+        "clusterMismatch": {
+          "description": "Whether the license is used on a cluster other than the one it was issued for.",
+          "type": "boolean"
+        },
+        "documentationHref": {
+          "description": "Documentation page for the Weaviate Enterprise Edition.",
+          "type": "string"
+        },
+        "edition": {
+          "description": "The product edition: community (no license key) or enterprise (license key configured).",
+          "type": "string"
+        },
+        "enforcing": {
+          "description": "Whether license enforcement is active.",
+          "type": "boolean"
+        },
+        "expiresAt": {
+          "description": "When the license expires, if known.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "gracePeriodEndsAt": {
+          "description": "When the grace period ends, if the license is not currently valid.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "lastCheckedAt": {
+          "description": "When the license was last verified with the license service, if ever.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "licenseId": {
+          "description": "The non-secret id of the configured license, empty when unlicensed.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Current license status. Only present on Enterprise Edition; a Community Edition node has no license and therefore no license status.",
           "type": "string"
         }
       }
@@ -9722,7 +10203,7 @@ func init() {
           "type": "string"
         },
         "state": {
-          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, and role assignments, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, role assignments, and replica movements, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way, replica movements included. \"deleting\" namespaces are being removed: new classes, aliases, users, and replica movements can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
           "type": "string",
           "enum": [
             "active",
@@ -10136,6 +10617,7 @@ func init() {
           "type": "string",
           "enum": [
             "manage_backups",
+            "read_backups",
             "read_cluster",
             "create_data",
             "read_data",
@@ -10180,7 +10662,7 @@ func init() {
           "type": "object",
           "properties": {
             "alias": {
-              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases.",
+              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -10240,7 +10722,7 @@ func init() {
           "type": "object",
           "properties": {
             "group": {
-              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -10254,7 +10736,7 @@ func init() {
           "type": "object",
           "properties": {
             "namespace": {
-              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -10290,7 +10772,7 @@ func init() {
               "default": "*"
             },
             "shard": {
-              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -10301,7 +10783,7 @@ func init() {
           "type": "object",
           "properties": {
             "role": {
-              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles.",
+              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -10337,7 +10819,7 @@ func init() {
           "type": "object",
           "properties": {
             "users": {
-              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -10387,6 +10869,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "isDynamicDbUser": {
+          "description": "This is true when the API key resolved to a DB user record, which covers a dynamic DB user's own key and an imported static key. A login through the static API key list leaves it false, even when a DB user shares its name, though both carry userType db.",
+          "type": "boolean"
         },
         "isGlobalOperator": {
           "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
@@ -10758,6 +11244,177 @@ func init() {
         "factor": {
           "description": "Number of times a collection (class) is replicated (default: 1).",
           "type": "integer"
+        }
+      }
+    },
+    "ReplicationRebalanceCreateResponse": {
+      "description": "Contains the unique identifier of a newly created rebalance plan. GET /replication/rebalance reports the plan's progress.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The unique identifier (ID) of the rebalance plan.",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationRebalancePlan": {
+      "description": "The cluster's rebalance plan: the request it was created from, its current state, and the node measurements and baseline balance taken by its planning run.",
+      "type": "object",
+      "properties": {
+        "baseline": {
+          "description": "The measured load of each listed node before any move.",
+          "type": "array",
+          "items": {
+            "description": "One node's measured load.",
+            "type": "object",
+            "properties": {
+              "diskUtilisation": {
+                "description": "The node's used disk bytes divided by its disk usage warning threshold in bytes.",
+                "type": "number",
+                "x-omitempty": false
+              },
+              "node": {
+                "description": "The name of the node.",
+                "type": "string",
+                "x-omitempty": false
+              },
+              "replicaCount": {
+                "description": "The number of shard replicas the node hosts, not counting replicas of FROZEN tenants.",
+                "type": "integer",
+                "x-omitempty": false
+              }
+            }
+          }
+        },
+        "collections": {
+          "description": "The names of the collections given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAtUnixMs": {
+          "description": "The UNIX timestamp in ms when the plan was created.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "id": {
+          "description": "The unique identifier (ID) of the rebalance plan.",
+          "type": "string"
+        },
+        "measuredAtUnixMs": {
+          "description": "The UNIX timestamp in ms when the applied planning run started measuring the nodes. Zero until a planning run completes.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "nodes": {
+          "description": "The resource measurement of each listed node, taken by the applied planning run.",
+          "type": "array",
+          "items": {
+            "description": "One node's resource measurement.",
+            "type": "object",
+            "properties": {
+              "diskAvailableBytes": {
+                "description": "The free bytes on the disk holding the node's data. The count includes blocks reserved for root.",
+                "type": "integer",
+                "format": "int64",
+                "x-omitempty": false
+              },
+              "diskTotalBytes": {
+                "description": "The total size in bytes of the disk holding the node's data.",
+                "type": "integer",
+                "format": "int64",
+                "x-omitempty": false
+              },
+              "diskWarningPercentage": {
+                "description": "The node's disk usage warning threshold, as a percentage of the disk's total size.",
+                "type": "integer",
+                "format": "int64",
+                "x-omitempty": false
+              },
+              "error": {
+                "description": "Why the node could not be measured. Empty when the measurement succeeded.",
+                "type": "string"
+              },
+              "memoryLimitBytes": {
+                "description": "The node's Go runtime memory limit in bytes.",
+                "type": "integer",
+                "format": "int64",
+                "x-omitempty": false
+              },
+              "node": {
+                "description": "The name of the node.",
+                "type": "string",
+                "x-omitempty": false
+              },
+              "replicationWorkers": {
+                "description": "The number of replication engine workers configured on the node.",
+                "type": "integer",
+                "x-omitempty": false
+              }
+            }
+          }
+        },
+        "reason": {
+          "description": "A human-readable explanation of the planning outcome, e.g. why planning failed.",
+          "type": "string"
+        },
+        "sourceNodes": {
+          "description": "The names of the nodes that replicas move away from, as given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
+          "description": "The current state of the rebalance plan. A plan starts in ` + "`" + `PLANNING` + "`" + `. A planning run ends it ` + "`" + `NOT_NEEDED` + "`" + `, ` + "`" + `PROPOSED` + "`" + `, ` + "`" + `NO_ACCEPTABLE_PLAN` + "`" + ` or ` + "`" + `PLANNING_FAILED` + "`" + `, and a stop ends it ` + "`" + `STOPPED` + "`" + `.",
+          "type": "string",
+          "enum": [
+            "PLANNING",
+            "PROPOSED",
+            "NOT_NEEDED",
+            "NO_ACCEPTABLE_PLAN",
+            "PLANNING_FAILED",
+            "RUNNING",
+            "STOPPING",
+            "STOPPED",
+            "COMPLETED",
+            "FAILED"
+          ]
+        },
+        "targetNodes": {
+          "description": "The names of the nodes that replicas move to, as given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ReplicationRebalanceRequest": {
+      "description": "Specifies the nodes a rebalance plan moves shard replicas between. Replicas move from the source nodes to the target nodes.",
+      "type": "object",
+      "properties": {
+        "collections": {
+          "description": "The names of the collections the plan covers. The value is stored with the plan and does not yet affect planning.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sourceNodes": {
+          "description": "The names of the nodes that replicas move away from. The list must be non-empty, must not repeat a node, and must not share a node with ` + "`" + `targetNodes` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "targetNodes": {
+          "description": "The names of the nodes that replicas move to. The list must be non-empty, must not repeat a node, and must not share a node with ` + "`" + `sourceNodes` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -11368,7 +12025,7 @@ func init() {
       }
     },
     "SearchHybridRequest": {
-      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + `, ` + "`" + `targetVector` + "`" + ` and ` + "`" + `vector` + "`" + `.",
       "allOf": [
         {
           "$ref": "#/definitions/SearchCommon"
@@ -11380,7 +12037,7 @@ func init() {
           ],
           "properties": {
             "alpha": {
-              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + ` the query is never vectorized, so a collection without a vectorizer module is searchable.",
+              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + `, or with ` + "`" + `vector` + "`" + ` supplied, the query is never vectorized, so a collection without a vectorizer module is searchable.",
               "type": "number",
               "format": "float64",
               "x-nullable": true
@@ -11400,7 +12057,7 @@ func init() {
               "x-nullable": true
             },
             "query": {
-              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part. Must not be empty.",
+              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part, unless ` + "`" + `vector` + "`" + ` is supplied. Must not be empty.",
               "type": "string"
             },
             "queryProperties": {
@@ -11413,6 +12070,9 @@ func init() {
             "targetVector": {
               "description": "The named vector to search. Required when the collection has more than one named vector.",
               "type": "string"
+            },
+            "vector": {
+              "description": "The query vector for the vector part of the search, used instead of vectorizing ` + "`" + `query` + "`" + `. A non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. Requires ` + "`" + `alpha` + "`" + ` \u003e 0."
             }
           }
         }
@@ -11489,6 +12149,41 @@ func init() {
             "targetVector": {
               "description": "The named vector to search. Required when the collection has more than one named vector.",
               "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "SearchNearVectorRequest": {
+      "description": "Request body for the near-vector search endpoint. The caller supplies the query vector and the closest objects are returned. No query is vectorized — collections without a vectorizer module are fully searchable. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-vector-specific ` + "`" + `vector` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "vector"
+          ],
+          "properties": {
+            "certainty": {
+              "description": "Minimum normalized certainty of a match. Only for cosine-distance vector indexes. Mutually exclusive with ` + "`" + `distance` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "distance": {
+              "description": "Maximum vector distance of a match. Mutually exclusive with ` + "`" + `certainty` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "targetVector": {
+              "description": "The named vector to search (the query vector is compared against the vectors stored under this name, and must match their dimensionality). Required when the collection has more than one named vector.",
+              "type": "string"
+            },
+            "vector": {
+              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector."
             }
           }
         }
@@ -12169,6 +12864,12 @@ func init() {
         "username"
       ],
       "properties": {
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the caller's API key stops authenticating. Absent means the key never expires, the caller is not a DB user, or DB user management is disabled.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "groups": {
           "description": "The groups associated with the user.",
           "type": "array",
@@ -12559,7 +13260,7 @@ func init() {
       "name": "mcp"
     },
     {
-      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action and, on namespace-enabled clusters, a well-formed Weaviate license key on the serving node.",
       "name": "namespaces"
     }
   ],
@@ -13110,7 +13811,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the group.",
+            "description": "The name of the group. Must not contain ',', '\"' or control characters, and must be at most 256 bytes.",
             "name": "id",
             "in": "path",
             "required": true
@@ -13932,7 +14633,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the user.",
+            "description": "The name of the user. Must not contain ',', '\"' or control characters, and must be at most 256 bytes.",
             "name": "id",
             "in": "path",
             "required": true
@@ -14381,13 +15082,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No backup with this ID exists at this backend, bucket and path. Only callers with read_backups on all collections get 404; others get 403.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14522,13 +15223,13 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "404": {
-            "description": "Backup not found on the specified backend with the given ID.",
+            "description": "No restore of this backup was started at this backend, bucket and path.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15160,7 +15861,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or a record sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15600,7 +16301,7 @@ func init() {
     },
     "/namespaces": {
       "get": {
-        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list rather than 403.",
         "tags": [
           "namespaces"
         ],
@@ -15615,6 +16316,12 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden: no well-formed Weaviate license key is configured on this node",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Not Found - The namespaces feature is not enabled on this cluster.",
@@ -15665,7 +16372,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15726,7 +16433,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15786,7 +16493,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15841,7 +16548,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15892,7 +16599,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15955,7 +16662,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -17637,6 +18344,221 @@ func init() {
         ]
       }
     },
+    "/replication/rebalance": {
+      "get": {
+        "description": "Returns the cluster's rebalance plan, including the node measurements and baseline balance taken by its planning run.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Get the rebalance plan",
+        "operationId": "getRebalancePlan",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, the read goes through the cluster leader for read-your-writes. If false, the node serving the request answers from its local state, which can lag the leader. Default is false.",
+            "name": "consistency",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The rebalance plan.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalancePlan"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No rebalance plan exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.get"
+        ]
+      },
+      "post": {
+        "description": "Creates the cluster's rebalance plan in the ` + "`" + `PLANNING` + "`" + ` state and starts an asynchronous planning run. The run measures the listed source and target nodes and decides whether their shard replicas need rebalancing. GET /replication/rebalance reports the plan and its outcome. A new plan replaces a finished one; an unfinished plan blocks it.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Create a rebalance plan",
+        "operationId": "createRebalancePlan",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalanceRequest"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Rebalance plan created and planning started. ID of the plan is returned.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationRebalanceCreateResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request: a node list is empty or repeats a node, or a node appears in both ` + "`" + `sourceNodes` + "`" + ` and ` + "`" + `targetNodes` + "`" + `.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "An unfinished rebalance plan exists. GET /replication/rebalance reports it.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "A listed node is not a live storage node. The ErrorResponse holds one entry per failing node.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement or replica rebalancing is disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.create"
+        ]
+      },
+      "delete": {
+        "description": "Removes the cluster's rebalance plan. Only a ` + "`" + `PROPOSED` + "`" + ` plan or a plan in an end state can be deleted; stop a ` + "`" + `PLANNING` + "`" + ` plan first. Succeeds when no plan exists.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Delete the rebalance plan",
+        "operationId": "deleteRebalancePlan",
+        "responses": {
+          "204": {
+            "description": "Successfully deleted, or no plan existed."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The plan is not in a deletable state, e.g. it is ` + "`" + `PLANNING` + "`" + `.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.delete"
+        ]
+      }
+    },
+    "/replication/rebalance/approve": {
+      "post": {
+        "description": "Approves a ` + "`" + `PROPOSED` + "`" + ` rebalance plan for execution. Approval is not implemented yet and always answers 501.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Approve the rebalance plan",
+        "operationId": "approveRebalancePlan",
+        "responses": {
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Approving a rebalance plan is not implemented.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.approve"
+        ]
+      }
+    },
+    "/replication/rebalance/stop": {
+      "post": {
+        "description": "Stops the cluster's rebalance plan while it is ` + "`" + `PLANNING` + "`" + `. The plan ends ` + "`" + `STOPPED` + "`" + ` and the result of its planning run is discarded.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Stop the rebalance plan",
+        "operationId": "stopRebalancePlan",
+        "responses": {
+          "202": {
+            "description": "Rebalance plan stopped."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No rebalance plan exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The plan is not in a stoppable state: only a ` + "`" + `PLANNING` + "`" + ` plan can be stopped.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.rebalance.stop"
+        ]
+      }
+    },
     "/replication/replicate": {
       "post": {
         "description": "Begins an asynchronous operation to move or copy a specific shard replica from its current node to a designated target node. The operation involves copying data, synchronizing, and potentially decommissioning the source replica.",
@@ -17673,6 +18595,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status to callers who can read the collection.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18205,6 +19133,18 @@ func init() {
           },
           "404": {
             "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status to callers who can read the collection. None of the plan's replica removals or empty additions was applied.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The plan copies a replica that cannot be copied: the collection has no such shard, the source node does not hold it, or the target node already holds it. The plan also gets this response when it copies a replica and the collection's namespace is suspended or being deleted. None of the plan's replica removals or empty additions was applied.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18768,7 +19708,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18792,7 +19732,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19033,7 +19973,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "description": "Nothing was started: the collection has a conflicting in-flight reindex task, has a replica movement in flight, or had its shards or replicas change while the reindex was submitted. The message says which.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19057,7 +19997,7 @@ func init() {
             }
           },
           "503": {
-            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "description": "Cluster service unavailable; an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven; or a local worker of an earlier task on this property did not exit within 10 seconds (typically right after a cancel), so retry shortly.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19829,7 +20769,7 @@ func init() {
             }
           },
           "400": {
-            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], negative paging, unknown property) or an unparseable request body.",
+            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], a vector that is empty, holds a non-number or a number outside the 32-bit float range, a vector with alpha 0, negative paging, unknown property) or an unparseable request body.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19859,7 +20799,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0 and no ` + "`" + `vector` + "`" + ` is supplied, the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20058,6 +20998,99 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/search/{collection}/near-vector": {
+      "post": {
+        "description": "Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query ` + "`" + `vector` + "`" + ` is searched against the vector index and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with near-vector",
+        "operationId": "search.nearVector",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The near-vector search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchNearVectorRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. a vector that is empty, holds a non-number or a number outside the 32-bit float range, negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `vector` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20289,6 +21322,12 @@ func init() {
                   "type": "string",
                   "format": "date-time"
                 },
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format at which the user's API key stops authenticating, stored in UTC with millisecond precision. It must be in the future. Setting it needs a Weaviate license key on the node, else the request answers 403. On a node with a license key, a request that also sets ` + "`" + `import` + "`" + ` to true answers 422. Absent means the key never expires.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
                 "import": {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
@@ -20315,7 +21354,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or the body sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20536,6 +21575,85 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.users.db.deactivateUser"
+        ]
+      }
+    },
+    "/users/db/{user_id}/expiration": {
+      "put": {
+        "description": "Set or clear the time at which a database user's (` + "`" + `db` + "`" + ` user type) API key stops authenticating. The body sets exactly one of ` + "`" + `expiresAt` + "`" + `, which must be in the future, and ` + "`" + `neverExpires` + "`" + `, which must be true and clears the expiry. Any other body answers 422, and so do the caller's own user, root users and static users. A node without a Weaviate license key answers 403, so an expired user can then only be deleted and re-created.",
+        "tags": [
+          "users"
+        ],
+        "summary": "Set a user's expiration",
+        "operationId": "setUserExpiration",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the user.",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Set exactly one of ` + "`" + `expiresAt` + "`" + ` and ` + "`" + `neverExpires` + "`" + `.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format, stored in UTC with millisecond precision, at which the user's API key stops authenticating. It must be in the future.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
+                "neverExpires": {
+                  "description": "True clears the user's expiry, so the API key never expires. False answers 422.",
+                  "type": "boolean",
+                  "x-nullable": true
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User expiration successfully set."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden, because the caller lacks the permission or the node has no Weaviate license key.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "User not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.setUserExpiration"
         ]
       }
     },
@@ -20863,15 +21981,15 @@ func init() {
           "type": "string"
         },
         "dedupeConvergenceTimeoutSeconds": {
-          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. When omitted, BACKUP_DEDUPE_CONVERGENCE_TIMEOUT applies (15 seconds unless configured). The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
           "type": "integer",
-          "default": 60,
+          "default": 15,
           "maximum": 600,
           "minimum": 1,
           "x-nullable": false
         },
         "dedupeReplicas": {
-          "description": "If true, shards of replicated collections that are provably in sync (via async-replication checkpoints) are archived by a single replica instead of every replica, and a restore copies them back to all replicas. Shards that cannot be proven in sync fall back to being archived by every replica. The proof is the one async replication itself uses (matching object UUIDs and update timestamps at a checkpoint), and the archived copy is the designated replica's state at archive time: it provably contains every write acknowledged at or before the per-class checkpoint cutoff taken shortly after the backup starts (persisted as dedupeCutoffsMs in the backup descriptor), while writes concurrent with the backup are included best-effort, as in any backup mode. Requires async replication on replicated collections and a cluster where every node supports this option. A backup where at least one shard was deduplicated can only be restored by versions that support this option, and its restore requires every replica node of the archived sharding state to be resolvable (or mapped via node_mapping). Restoring such a backup can block the restore request for up to two minutes while participants read all source descriptors; size client timeouts accordingly. If no shard could be deduplicated, the backup is written in the legacy format and restores like any other backup. The option must be enabled on the cluster (env BACKUP_DEDUPE_ENABLED=true); otherwise requests carrying it are rejected with 422, while restores of existing deduplicated backups always work.",
+          "description": "If true, shards of replicated collections proven in sync by async-replication checkpoints are archived by one replica instead of all, and restore copies them back to every replica; other shards are archived by every replica. Requires async replication, BACKUP_DEDUPE_ENABLED=true (else 422) and a Weaviate license key (else 403) on every node. Such backups restore only on versions that support this option; restoring needs no license.",
           "type": "boolean",
           "default": false,
           "x-nullable": false
@@ -20879,7 +21997,7 @@ func init() {
       }
     },
     "BackupCreateRequest": {
-      "description": "Request body for creating a backup for a set of collections.",
+      "description": "Request body for creating a backup. The resolved selection must contain at least one collection, dynamic user, or RBAC role.",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup creation process",
@@ -20887,7 +22005,7 @@ func init() {
           "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
-          "description": "List of collections to exclude from the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "description": "List of collections to exclude from the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. Excluding every collection is allowed when users or roles are selected, including through omitted identity selectors.",
           "type": "array",
           "items": {
             "type": "string"
@@ -20898,21 +22016,21 @@ func init() {
           "type": "string"
         },
         "include": {
-          "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. A list made only of wildcards that match no collection is rejected.",
+          "description": "List of collections to include in the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may back up. A list that matches no collection is allowed when users or roles are selected, including through omitted identity selectors.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "includeRoles": {
-          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole RBAC state is captured as part of the cluster snapshot; when set, the RBAC blob is filtered to the matching roles. An exact role name that does not exist is rejected; wildcards that match nothing back up no roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.",
+          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole RBAC state is captured, including built-in roles and assignments. An empty list or wildcards matching nothing omit the RBAC snapshot; restoring it leaves existing roles untouched. Otherwise, only matching roles are captured. An exact role name that does not exist is rejected. Explicit selectors cannot select built-in roles: exact names are rejected and wildcards exclude them. Selected roles, including built-in roles selected by omission, permit a backup with zero collections. No per-role permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "includeUsers": {
-          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole dynamic-user store is captured as part of the cluster snapshot and no per-user permission check is applied; when set, only matching users are captured. An exact user name that does not exist is rejected; wildcards that match nothing back up no users.",
+          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole dynamic-user store is captured. An empty list or wildcards matching nothing omit the user snapshot; restoring it leaves existing users untouched. Otherwise, only matching users are captured. An exact user name that does not exist is rejected. Selected users, including those selected by omission, permit a backup with zero collections. No per-user permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
@@ -21084,7 +22202,7 @@ func init() {
       }
     },
     "BackupRestoreRequest": {
-      "description": "Request body for restoring a backup for a set of collections (classes).",
+      "description": "Request body for restoring a backup. A backup with no collections can restore users or roles when the matching restore option is enabled.",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup restoration process.",
@@ -21092,14 +22210,14 @@ func init() {
           "$ref": "#/definitions/RestoreConfig"
         },
         "exclude": {
-          "description": "List of collections (classes) to exclude from the backup restoration process.",
+          "description": "List of collections (classes) to exclude from the backup restoration process. Any entry is rejected when the backup contains no collections.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "include": {
-          "description": "List of collections (classes) to include in the backup restoration process. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. A list made only of wildcards that match no collection in the backup is rejected.",
+          "description": "List of collections (classes) to include in the backup restoration process. If not set, all collections in the backup the caller may restore are included. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may restore. A list that matches no collection is rejected. Any entry is rejected when the backup contains no collections.",
           "type": "array",
           "items": {
             "type": "string"
@@ -21302,7 +22420,7 @@ func init() {
               "x-omitempty": false
             },
             "matches": {
-              "description": "How many objects matched the filter. With a positive ` + "`" + `limit` + "`" + ` the count stops one above ` + "`" + `limit` + "`" + `: at or below ` + "`" + `limit` + "`" + ` this is the exact number of matching objects and every one of them was handled by this call, and above ` + "`" + `limit` + "`" + ` more objects match than one call deletes, so call again. With a ` + "`" + `limit` + "`" + ` of 0 or below the count is exact and uncapped.",
+              "description": "How many objects matched the filter. With a positive ` + "`" + `limit` + "`" + ` the count stops one above ` + "`" + `limit` + "`" + `: at or below ` + "`" + `limit` + "`" + ` this is the exact number of matching objects and every one of them was handled by this call, and above ` + "`" + `limit` + "`" + ` more objects match than one call deletes, so call again. With a ` + "`" + `limit` + "`" + ` of 0 or below this is the exact number of matching objects and the call deletes none of them.",
               "type": "number",
               "format": "int64",
               "x-omitempty": false
@@ -21356,7 +22474,7 @@ func init() {
           "x-omitempty": false
         },
         "matches": {
-          "description": "How many objects matched the filter. With a positive ` + "`" + `limit` + "`" + ` the count stops one above ` + "`" + `limit` + "`" + `: at or below ` + "`" + `limit` + "`" + ` this is the exact number of matching objects and every one of them was handled by this call, and above ` + "`" + `limit` + "`" + ` more objects match than one call deletes, so call again. With a ` + "`" + `limit` + "`" + ` of 0 or below the count is exact and uncapped.",
+          "description": "How many objects matched the filter. With a positive ` + "`" + `limit` + "`" + ` the count stops one above ` + "`" + `limit` + "`" + `: at or below ` + "`" + `limit` + "`" + ` this is the exact number of matching objects and every one of them was handled by this call, and above ` + "`" + `limit` + "`" + ` more objects match than one call deletes, so call again. With a ` + "`" + `limit` + "`" + ` of 0 or below this is the exact number of matching objects and the call deletes none of them.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
@@ -21726,6 +22844,12 @@ func init() {
           "type": "string",
           "format": "date-time"
         },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent or null means the key never expires, except that import never changes an existing user's expiry, so a record without one keeps the stored value. A new user takes the record's value, even one that has passed. A differing future value for an existing user gives that record an error result naming ` + "`" + `PUT /v1/users/db/{user_id}/expiration` + "`" + `. A differing past value gives ` + "`" + `skipped_exists` + "`" + ` for a deactivated user. For an active one it gives an error result advising to deactivate the user, or delete it and re-import, because that PUT refuses a past time. A node without a Weaviate license key refuses the whole import with 403 when any record sets a non-null ` + "`" + `expiresAt` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "namespace": {
           "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
           "type": "string"
@@ -21792,6 +22916,12 @@ func init() {
             "db_user",
             "db_env_user"
           ]
+        },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent means the key never expires. Expiry does not change ` + "`" + `active` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
         },
         "lastUsedAt": {
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
@@ -22456,12 +23586,64 @@ func init() {
           "type": "string",
           "format": "url"
         },
+        "license": {
+          "description": "License state of this Weaviate instance.",
+          "$ref": "#/definitions/MetaLicense"
+        },
         "modules": {
           "description": "Module-specific meta information.",
           "type": "object"
         },
         "version": {
           "description": "The Weaviate server version.",
+          "type": "string"
+        }
+      }
+    },
+    "MetaLicense": {
+      "description": "License state of the current Weaviate instance.",
+      "type": "object",
+      "properties": {
+        "clusterMismatch": {
+          "description": "Whether the license is used on a cluster other than the one it was issued for.",
+          "type": "boolean"
+        },
+        "documentationHref": {
+          "description": "Documentation page for the Weaviate Enterprise Edition.",
+          "type": "string"
+        },
+        "edition": {
+          "description": "The product edition: community (no license key) or enterprise (license key configured).",
+          "type": "string"
+        },
+        "enforcing": {
+          "description": "Whether license enforcement is active.",
+          "type": "boolean"
+        },
+        "expiresAt": {
+          "description": "When the license expires, if known.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "gracePeriodEndsAt": {
+          "description": "When the grace period ends, if the license is not currently valid.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "lastCheckedAt": {
+          "description": "When the license was last verified with the license service, if ever.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "licenseId": {
+          "description": "The non-secret id of the configured license, empty when unlicensed.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Current license status. Only present on Enterprise Edition; a Community Edition node has no license and therefore no license status.",
           "type": "string"
         }
       }
@@ -22506,7 +23688,7 @@ func init() {
           "type": "string"
         },
         "state": {
-          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, and role assignments, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, role assignments, and replica movements, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way, replica movements included. \"deleting\" namespaces are being removed: new classes, aliases, users, and replica movements can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
           "type": "string",
           "enum": [
             "active",
@@ -22937,6 +24119,7 @@ func init() {
           "type": "string",
           "enum": [
             "manage_backups",
+            "read_backups",
             "read_cluster",
             "create_data",
             "read_data",
@@ -22981,7 +24164,7 @@ func init() {
           "type": "object",
           "properties": {
             "alias": {
-              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases.",
+              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -23041,7 +24224,7 @@ func init() {
           "type": "object",
           "properties": {
             "group": {
-              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -23055,7 +24238,7 @@ func init() {
           "type": "object",
           "properties": {
             "namespace": {
-              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -23091,7 +24274,7 @@ func init() {
               "default": "*"
             },
             "shard": {
-              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -23102,7 +24285,7 @@ func init() {
           "type": "object",
           "properties": {
             "role": {
-              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles.",
+              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -23138,7 +24321,7 @@ func init() {
           "type": "object",
           "properties": {
             "users": {
-              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -23151,7 +24334,7 @@ func init() {
       "type": "object",
       "properties": {
         "alias": {
-          "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases.",
+          "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         },
@@ -23211,7 +24394,7 @@ func init() {
       "type": "object",
       "properties": {
         "group": {
-          "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+          "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         },
@@ -23225,7 +24408,7 @@ func init() {
       "type": "object",
       "properties": {
         "namespace": {
-          "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+          "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         }
@@ -23261,7 +24444,7 @@ func init() {
           "default": "*"
         },
         "shard": {
-          "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+          "description": "string or regex. if a specific shard name, if left empty it will be ALL or *. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         }
@@ -23272,7 +24455,7 @@ func init() {
       "type": "object",
       "properties": {
         "role": {
-          "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles.",
+          "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         },
@@ -23308,7 +24491,7 @@ func init() {
       "type": "object",
       "properties": {
         "users": {
-          "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
+          "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         }
@@ -23356,6 +24539,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "isDynamicDbUser": {
+          "description": "This is true when the API key resolved to a DB user record, which covers a dynamic DB user's own key and an imported static key. A login through the static API key list leaves it false, even when a DB user shares its name, though both carry userType db.",
+          "type": "boolean"
         },
         "isGlobalOperator": {
           "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
@@ -23727,6 +24914,183 @@ func init() {
         "factor": {
           "description": "Number of times a collection (class) is replicated (default: 1).",
           "type": "integer"
+        }
+      }
+    },
+    "ReplicationRebalanceCreateResponse": {
+      "description": "Contains the unique identifier of a newly created rebalance plan. GET /replication/rebalance reports the plan's progress.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The unique identifier (ID) of the rebalance plan.",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationRebalancePlan": {
+      "description": "The cluster's rebalance plan: the request it was created from, its current state, and the node measurements and baseline balance taken by its planning run.",
+      "type": "object",
+      "properties": {
+        "baseline": {
+          "description": "The measured load of each listed node before any move.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationRebalancePlanBaselineItems0"
+          }
+        },
+        "collections": {
+          "description": "The names of the collections given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAtUnixMs": {
+          "description": "The UNIX timestamp in ms when the plan was created.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "id": {
+          "description": "The unique identifier (ID) of the rebalance plan.",
+          "type": "string"
+        },
+        "measuredAtUnixMs": {
+          "description": "The UNIX timestamp in ms when the applied planning run started measuring the nodes. Zero until a planning run completes.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "nodes": {
+          "description": "The resource measurement of each listed node, taken by the applied planning run.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationRebalancePlanNodesItems0"
+          }
+        },
+        "reason": {
+          "description": "A human-readable explanation of the planning outcome, e.g. why planning failed.",
+          "type": "string"
+        },
+        "sourceNodes": {
+          "description": "The names of the nodes that replicas move away from, as given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
+          "description": "The current state of the rebalance plan. A plan starts in ` + "`" + `PLANNING` + "`" + `. A planning run ends it ` + "`" + `NOT_NEEDED` + "`" + `, ` + "`" + `PROPOSED` + "`" + `, ` + "`" + `NO_ACCEPTABLE_PLAN` + "`" + ` or ` + "`" + `PLANNING_FAILED` + "`" + `, and a stop ends it ` + "`" + `STOPPED` + "`" + `.",
+          "type": "string",
+          "enum": [
+            "PLANNING",
+            "PROPOSED",
+            "NOT_NEEDED",
+            "NO_ACCEPTABLE_PLAN",
+            "PLANNING_FAILED",
+            "RUNNING",
+            "STOPPING",
+            "STOPPED",
+            "COMPLETED",
+            "FAILED"
+          ]
+        },
+        "targetNodes": {
+          "description": "The names of the nodes that replicas move to, as given in the create request.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ReplicationRebalancePlanBaselineItems0": {
+      "description": "One node's measured load.",
+      "type": "object",
+      "properties": {
+        "diskUtilisation": {
+          "description": "The node's used disk bytes divided by its disk usage warning threshold in bytes.",
+          "type": "number",
+          "x-omitempty": false
+        },
+        "node": {
+          "description": "The name of the node.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "replicaCount": {
+          "description": "The number of shard replicas the node hosts, not counting replicas of FROZEN tenants.",
+          "type": "integer",
+          "x-omitempty": false
+        }
+      }
+    },
+    "ReplicationRebalancePlanNodesItems0": {
+      "description": "One node's resource measurement.",
+      "type": "object",
+      "properties": {
+        "diskAvailableBytes": {
+          "description": "The free bytes on the disk holding the node's data. The count includes blocks reserved for root.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "diskTotalBytes": {
+          "description": "The total size in bytes of the disk holding the node's data.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "diskWarningPercentage": {
+          "description": "The node's disk usage warning threshold, as a percentage of the disk's total size.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "error": {
+          "description": "Why the node could not be measured. Empty when the measurement succeeded.",
+          "type": "string"
+        },
+        "memoryLimitBytes": {
+          "description": "The node's Go runtime memory limit in bytes.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "node": {
+          "description": "The name of the node.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "replicationWorkers": {
+          "description": "The number of replication engine workers configured on the node.",
+          "type": "integer",
+          "x-omitempty": false
+        }
+      }
+    },
+    "ReplicationRebalanceRequest": {
+      "description": "Specifies the nodes a rebalance plan moves shard replicas between. Replicas move from the source nodes to the target nodes.",
+      "type": "object",
+      "properties": {
+        "collections": {
+          "description": "The names of the collections the plan covers. The value is stored with the plan and does not yet affect planning.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sourceNodes": {
+          "description": "The names of the nodes that replicas move away from. The list must be non-empty, must not repeat a node, and must not share a node with ` + "`" + `targetNodes` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "targetNodes": {
+          "description": "The names of the nodes that replicas move to. The list must be non-empty, must not repeat a node, and must not share a node with ` + "`" + `sourceNodes` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -24343,7 +25707,7 @@ func init() {
       }
     },
     "SearchHybridRequest": {
-      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusionType` + "`" + `, ` + "`" + `maxVectorDistance` + "`" + `, ` + "`" + `queryProperties` + "`" + `, ` + "`" + `targetVector` + "`" + ` and ` + "`" + `vector` + "`" + `.",
       "allOf": [
         {
           "$ref": "#/definitions/SearchCommon"
@@ -24355,7 +25719,7 @@ func init() {
           ],
           "properties": {
             "alpha": {
-              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + ` the query is never vectorized, so a collection without a vectorizer module is searchable.",
+              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + `, or with ` + "`" + `vector` + "`" + ` supplied, the query is never vectorized, so a collection without a vectorizer module is searchable.",
               "type": "number",
               "format": "float64",
               "x-nullable": true
@@ -24375,7 +25739,7 @@ func init() {
               "x-nullable": true
             },
             "query": {
-              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part. Must not be empty.",
+              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part, unless ` + "`" + `vector` + "`" + ` is supplied. Must not be empty.",
               "type": "string"
             },
             "queryProperties": {
@@ -24388,6 +25752,9 @@ func init() {
             "targetVector": {
               "description": "The named vector to search. Required when the collection has more than one named vector.",
               "type": "string"
+            },
+            "vector": {
+              "description": "The query vector for the vector part of the search, used instead of vectorizing ` + "`" + `query` + "`" + `. A non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. Requires ` + "`" + `alpha` + "`" + ` \u003e 0."
             }
           }
         }
@@ -24464,6 +25831,41 @@ func init() {
             "targetVector": {
               "description": "The named vector to search. Required when the collection has more than one named vector.",
               "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "SearchNearVectorRequest": {
+      "description": "Request body for the near-vector search endpoint. The caller supplies the query vector and the closest objects are returned. No query is vectorized — collections without a vectorizer module are fully searchable. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-vector-specific ` + "`" + `vector` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "vector"
+          ],
+          "properties": {
+            "certainty": {
+              "description": "Minimum normalized certainty of a match. Only for cosine-distance vector indexes. Mutually exclusive with ` + "`" + `distance` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "distance": {
+              "description": "Maximum vector distance of a match. Mutually exclusive with ` + "`" + `certainty` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "targetVector": {
+              "description": "The named vector to search (the query vector is compared against the vectors stored under this name, and must match their dimensionality). Required when the collection has more than one named vector.",
+              "type": "string"
+            },
+            "vector": {
+              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector."
             }
           }
         }
@@ -25147,6 +26549,12 @@ func init() {
         "username"
       ],
       "properties": {
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the caller's API key stops authenticating. Absent means the key never expires, the caller is not a DB user, or DB user management is disabled.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "groups": {
           "description": "The groups associated with the user.",
           "type": "array",
@@ -25546,7 +26954,7 @@ func init() {
       "name": "mcp"
     },
     {
-      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action and, on namespace-enabled clusters, a well-formed Weaviate license key on the serving node.",
       "name": "namespaces"
     }
   ],

@@ -25,6 +25,7 @@ import (
 	"github.com/tailor-platform/graphql/language/ast"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -43,6 +44,8 @@ const FindObjectFn = "func(context.Context, string, strfmt.UUID, " +
 	"search.SelectProperties, additional.Properties, string) (*search.Result, error)"
 
 type fakeSchemaManager struct {
+	// Left unset: only the methods defined below are expected.
+	local.SchemaReader
 	CalledWith struct {
 		fromClass string
 		property  string
@@ -56,6 +59,7 @@ type fakeSchemaManager struct {
 	AddTenantsSchemaVersion uint64
 	AutoSchemaVersion       uint64
 	ClassVersion            uint64
+	AddClassErr             error
 	AddClassPropertyErr     error
 	WaitForUpdateErr        error
 	// observed
@@ -63,6 +67,7 @@ type fakeSchemaManager struct {
 	MaxWaitedSchemaVersion uint64
 	WaitedVersions         []uint64
 	GetClassCalls          []string
+	ActivatedTenants       map[string][]string
 }
 
 func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
@@ -152,6 +157,9 @@ func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
 func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
 ) (*models.Class, uint64, error) {
+	if f.AddClassErr != nil {
+		return nil, 0, f.AddClassErr
+	}
 	if f.GetSchemaResponse.Objects == nil {
 		f.GetSchemaResponse.Objects = schema.Empty().Objects
 	}
@@ -247,6 +255,10 @@ func (f *fakeSchemaManager) ResolveAlias(alias string) string {
 }
 
 func (f *fakeSchemaManager) EnsureTenantActiveForWrite(ctx context.Context, class string, tenants ...string) (uint64, error) {
+	if f.ActivatedTenants == nil {
+		f.ActivatedTenants = map[string][]string{}
+	}
+	f.ActivatedTenants[class] = append(f.ActivatedTenants[class], tenants...)
 	return 0, nil
 }
 

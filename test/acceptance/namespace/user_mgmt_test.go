@@ -43,26 +43,9 @@ func createUserExpectErr(t *testing.T, userID, key string) error {
 func createNamespacedViewerUser(t *testing.T, userID, ns, adminKey string) string {
 	t.Helper()
 
-	var apikey string
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		resp, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(ns+":"+userID).WithBody(users.CreateUserBody{}),
-			helper.CreateAuth(adminKey),
-		)
-		if !assert.NoError(c, err) {
-			return
-		}
-		if !assert.NotNil(c, resp.Payload.Apikey) {
-			return
-		}
-		apikey = *resp.Payload.Apikey
-	}, 10*time.Second, 50*time.Millisecond, "user %q could not be created", userID)
+	apikey := helper.CreateUserWithNamespace(t, userID, ns, adminKey)
 
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		_, err := helper.Client(t).Users.GetOwnInfo(
-			users.NewGetOwnInfoParams(), helper.CreateAuth(apikey))
-		assert.NoError(c, err)
-	}, 10*time.Second, 50*time.Millisecond, "user %q apikey not recognized after create", userID)
+	helper.WaitForAPIKeyRecognized(t, apikey, userID)
 
 	helper.AssignRoleToUser(t, adminKey, authorization.Viewer, ns+":"+userID)
 	helper.WaitForOwnRole(t, apikey, authorization.Viewer)
@@ -123,7 +106,13 @@ func TestNamespacedAdminLifecycle(t *testing.T) {
 		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(bobKey))
 		assert.Error(c, err)
 	}, 10*time.Second, 50*time.Millisecond, "old apikey must be invalidated after rotate")
-	require.NotNil(t, helper.GetInfoForOwnUser(t, newBobKey))
+	// The new key needs the same wait as the old one. RotateKey returns once the
+	// leader applied it, and the follower this client talks to answers 401 until
+	// it catches up.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(newBobKey))
+		assert.NoError(c, err)
+	}, helper.DBUserKeyTimeout, 50*time.Millisecond, "new apikey must be accepted after rotate")
 
 	// Delete → admin GET 404s.
 	helper.DeleteUser(t, "bob", nsAdminKey)

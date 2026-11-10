@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 const (
@@ -62,6 +64,8 @@ type (
 		pullBackOffPreInitialInterval time.Duration
 		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long
 		deletionStrategy              string
+		// skipReachabilityCheck is passed to Pull's read plan. Only Finder.CountObjects sets it.
+		skipReachabilityCheck bool
 	}
 )
 
@@ -139,9 +143,14 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 		defer close(resChan)
 		actives := make([]Result[string], 0, level) // cache for active replicas
 		var replicaErrs []error
+		var refusals []Result[string]
 		for r := range prepare() {
 			if r.Err != nil { // connection error
-				c.log.WithField("op", "broadcast").Warn(r.Err)
+				if isLimitRefusal(r.Err) {
+					refusals = append(refusals, r)
+				} else {
+					c.log.WithField("op", "broadcast").Warn(r.Err)
+				}
 				// Attach the failing replica identifier so the resulting
 				// error remains actionable regardless of whether the
 				// per-replica op wrapped it with host context.
@@ -161,13 +170,25 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 			}
 			resChan <- r
 		}
+		c.logLimitRefusals(refusals, level <= 0)
 		if level > 0 { // abort: nothing has been sent to the caller
-			fs := logrus.Fields{"op": "broadcast", "active": len(actives), "total": len(replicas)}
-			c.log.WithFields(fs).Error("abort")
+			abort := &prepareAbortError{
+				err:       replicaerrors.NewNotEnoughReplicasErrorWithCounts(required, len(actives), errors.Join(replicaErrs...)),
+				limitOnly: len(refusals) > 0 && len(refusals) == len(replicaErrs),
+			}
+			if len(refusals) > len(replicas)-required {
+				abort.limit = limitFromRefusal(refusals[0].Err)
+			}
+			fs := logrus.Fields{"op": "broadcast", "active": len(actives), "total": len(replicas), "limit_refused": len(refusals)}
+			if abort.limitOnly {
+				c.log.WithFields(fs).Debug("abort")
+			} else {
+				c.log.WithFields(fs).Error("abort")
+			}
 			for _, node := range replicas {
 				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
 			}
-			resChan <- Result[string]{Err: replicaerrors.NewNotEnoughReplicasErrorWithCounts(required, len(actives), errors.Join(replicaErrs...))}
+			resChan <- Result[string]{Err: abort}
 		}
 	}
 	enterrors.GoWrapper(f, c.log)
@@ -179,17 +200,18 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 func (c *coordinator[T, R]) commitAll(ctx context.Context,
 	broadcastCh <-chan Result[string],
 	op commitOp[T],
-	callback func(successful int),
+	callback func(successful int, abortErr error),
 ) <-chan Result[T] {
 	replyCh := make(chan Result[T], cap(broadcastCh))
 	f := func() { // tells active replicas to commit
 		// tells active replicas to commit
 
 		var successful atomic.Int32
+		var abortErr error
 
 		defer func() {
 			if callback != nil {
-				callback(int(successful.Load()))
+				callback(int(successful.Load()), abortErr)
 			}
 		}()
 
@@ -197,6 +219,7 @@ func (c *coordinator[T, R]) commitAll(ctx context.Context,
 
 		for res := range broadcastCh {
 			if res.Err != nil {
+				abortErr = res.Err
 				replyCh <- Result[T]{Err: res.Err}
 				continue
 			}
@@ -294,17 +317,17 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 	// and returns the actual callback function.
 	// The returned function is then called by commitAll once it knows how many
 	// replicas have successfully committed
-	callback := func() func(successful int) {
+	callback := func() func(successful int, abortErr error) {
 		start := time.Now()
 
-		return func(successful int) {
+		return func(successful int, abortErr error) {
 			numReplicas := len(writeRoutingPlan.Replicas())
 
 			if numReplicas == successful {
 				c.metrics.IncWritesSucceedAll()
 			} else if successful > 0 {
 				c.metrics.IncWritesSucceedSome()
-			} else {
+			} else if !isLimitOnlyAbort(abortErr) {
 				c.metrics.IncWritesFailed()
 			}
 
@@ -316,6 +339,22 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 	commitCh := c.commitAll(context.Background(), nodeCh, com, callback)
 
 	return c.read(level, commitCh, onResult, onFlatten, batchSize), nil
+}
+
+// replicaCannotServe reports whether err is a peer's node-not-ready refusal, matched by message
+// because the read clients pass it through as text. That node is starting up and will not answer,
+// so the read fails over to another replica. Maintenance and a missing class are retried instead:
+// a replica behind the schema answers the same unprocessable as a class that does not exist, and
+// catches up in less than a retry takes. Maintenance is only ever the wire text of a 418.
+func replicaCannotServe(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrReplicaBooting) || errors.Is(err, ErrReplicaMaintenance) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, NodeNotReadyMsg) || strings.Contains(msg, LocalIndexNotReadyMsg)
 }
 
 // Pull data from replica depending on consistency level, trying to reach level successful calls
@@ -337,6 +376,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 	options := c.Router.BuildRoutingPlanOptions(c.Shard, c.Shard, cl, directCandidate)
 	// Only runs on the node serving an external request, so auto tenant activation applies.
 	options.AllowTenantActivation = true
+	options.SkipReachabilityCheck = c.skipReachabilityCheck
 	readRoutingPlan, err := c.Router.BuildReadRoutingPlan(options)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
@@ -372,6 +412,21 @@ func (c *coordinator[T, any]) pull(ctx context.Context,
 			c.metrics.ObserveReadDuration(time.Since(start))
 		}()
 
+		// A not-ready replica is starting up, so retrying it cannot help yet. Drop it and take
+		// another. Once every replica has settled, cancelling releases a worker that would
+		// otherwise wait on an empty queue.
+		candidatesCtx, noCandidatesLeft := context.WithCancel(ctx)
+		defer noCandidatesLeft()
+
+		var candidates atomic.Int32
+		candidates.Store(int32(len(hosts)))
+		// Called once per host that will not be tried again, whether it answered or was dropped.
+		hostSettled := func() {
+			if candidates.Add(-1) <= 0 {
+				noCandidatesLeft()
+			}
+		}
+
 		hostRetryQueue := make(chan hostRetry, len(hosts))
 
 		// put the "backups/fallbacks" on the retry queue
@@ -390,7 +445,7 @@ func (c *coordinator[T, any]) pull(ctx context.Context,
 			isFullReadWorker := hostIndex == 0 // first worker will perform the fullRead
 			workerFunc := func() {
 				defer wg.Done()
-				workerCtx, workerCancel := context.WithTimeout(ctx, timeout)
+				workerCtx, workerCancel := context.WithTimeout(candidatesCtx, timeout)
 				defer workerCancel()
 				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
 				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]
@@ -402,28 +457,50 @@ func (c *coordinator[T, any]) pull(ctx context.Context,
 				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
 				if err == nil {
 					successful.Add(1)
+					hostSettled()
 					replyCh <- Result[T]{resp, err}
 					return
 				}
-				// this host failed op on the first try, put it on the retry queue
-				select {
-				case <-workerCtx.Done():
-					replyCh <- Result[T]{Err: workerCtx.Err()}
-					return
-				default:
-					hostRetryQueue <- hostRetry{
-						hosts[hostIndex],
-						backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), workerCtx),
+				if replicaCannotServe(err) {
+					hostSettled()
+				} else {
+					// this host failed op on the first try, put it on the retry queue
+					select {
+					case <-workerCtx.Done():
+						replyCh <- Result[T]{Err: workerCtx.Err()}
+						return
+					default:
+						hostRetryQueue <- hostRetry{
+							hosts[hostIndex],
+							// candidatesCtx, not workerCtx: the backoff belongs to the host, which
+							// outlives this worker. Bound to the worker it dies when that worker
+							// returns, and the next one gets backoff.Stop on its first failure.
+							backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), candidatesCtx),
+						}
 					}
 				}
 
 				// let's fallback to the backups in the retry queue
-				for hr := range hostRetryQueue {
-					resp, err := op(workerCtx, hr.host, isFullReadWorker)
+				for {
+					var hr hostRetry
+					select {
+					case <-workerCtx.Done():
+						replyCh <- Result[T]{resp, err}
+						return
+					case hr = <-hostRetryQueue:
+					}
+
+					resp, err = op(workerCtx, hr.host, isFullReadWorker)
 					if err == nil {
+						hostSettled()
 						replyCh <- Result[T]{resp, err}
 						return
 					}
+					if replicaCannotServe(err) {
+						hostSettled()
+						continue
+					}
+
 					nextBackOff := hr.currentBackOff.NextBackOff()
 					if nextBackOff == backoff.Stop {
 						// this host has run out of retries, send the result and note that
@@ -471,4 +548,83 @@ func annotateReplicaErr(replica string, err error) error {
 		return err
 	}
 	return fmt.Errorf("replica %q: %w", replica, err)
+}
+
+// limitRefusalLogThrottle is shared by every coordinator, so a replica refusing
+// writes to a shard at its object cap warns once per window.
+var limitRefusalLogThrottle = NewLogThrottle(time.Minute)
+
+// prepareAbortError is the error broadcast sends when too few replicas
+// prepared. Its Unwrap returns err alone, so errors.As never finds limit.
+type prepareAbortError struct {
+	err error
+	// limit is the error Replicator.PutObject{,s} hand the client, set when the
+	// limit refusals alone made the consistency level unreachable.
+	limit *usagelimits.LimitExceededError
+	// limitOnly is set when every failed prepare was a limit refusal, so no
+	// replica failed.
+	limitOnly bool
+}
+
+func (e *prepareAbortError) Error() string { return e.err.Error() }
+
+func (e *prepareAbortError) Unwrap() error { return e.err }
+
+// isLimitOnlyAbort reports whether err is a prepare abort whose every failed
+// prepare was a limit refusal.
+func isLimitOnlyAbort(err error) bool {
+	var abort *prepareAbortError
+	return errors.As(err, &abort) && abort.limitOnly
+}
+
+// limitAbort returns the limit error of a prepare abort the limit refusals
+// alone caused, and nil for any other err.
+func limitAbort(err error) *usagelimits.LimitExceededError {
+	var abort *prepareAbortError
+	if errors.As(err, &abort) {
+		return abort.limit
+	}
+	return nil
+}
+
+// isLimitRefusal reports whether a replica refused the prepare at its object cap.
+func isLimitRefusal(err error) bool {
+	var replicaErr *replicaerrors.Error
+	return errors.As(err, &replicaErr) && replicaErr.Code == replicaerrors.StatusUsageLimitExceeded
+}
+
+// limitFromRefusal decodes the limit error a refusing replica sent as its
+// message, and returns nil where the message is no limit body.
+func limitFromRefusal(err error) *usagelimits.LimitExceededError {
+	var replicaErr *replicaerrors.Error
+	if !errors.As(err, &replicaErr) {
+		return nil
+	}
+	limit, ok := usagelimits.FromBodyJSON([]byte(replicaErr.Msg))
+	if !ok {
+		return nil
+	}
+	return limit
+}
+
+// logLimitRefusals logs each replica that refused the prepare at its object
+// cap. It warns where levelMet, because that replica falls behind the others,
+// and logs at Debug where the write aborts and the client's error carries it.
+func (c *coordinator[T, R]) logLimitRefusals(refusals []Result[string], levelMet bool) {
+	for _, r := range refusals {
+		log := c.log.WithFields(logrus.Fields{"op": "broadcast", "class": c.Class, "shard": c.Shard, "replica": r.Value})
+		if !levelMet {
+			log.Debugf("replica refused the write at its object cap: %v", r.Err)
+			continue
+		}
+		ok, suppressed := limitRefusalLogThrottle.Allow(c.Class + "\x00" + c.Shard + "\x00" + r.Value)
+		if !ok {
+			log.Debugf("replica refused a write the other replicas commit, at its object cap: %v", r.Err)
+			continue
+		}
+		if suppressed > 0 {
+			log = log.WithField("suppressed", suppressed)
+		}
+		log.Warnf("replica refused a write the other replicas commit, at its object cap: %v", r.Err)
+	}
 }

@@ -59,7 +59,7 @@ func TestAddTenants_WithUsageLimit(t *testing.T) {
 			for i := range existing {
 				existing[i] = &models.Tenant{Name: "preexisting"}
 			}
-			fakeMgr.On("QueryTenants", "MTenabled", mock.Anything).
+			fakeMgr.On("TenantsFromLeader", "MTenabled", mock.Anything).
 				Return(existing, uint64(0), nil).Maybe()
 
 			if tt.expectAddCalls {
@@ -139,7 +139,7 @@ func TestAddTenants_WithUsageLimit_DedupesExistingNames(t *testing.T) {
 			for i, name := range tt.existingNames {
 				existing[i] = &models.Tenant{Name: name}
 			}
-			fakeMgr.On("QueryTenants", "MTenabled", mock.Anything).
+			fakeMgr.On("TenantsFromLeader", "MTenabled", mock.Anything).
 				Return(existing, uint64(0), nil).Maybe()
 
 			if !tt.expectExceed {

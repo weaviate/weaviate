@@ -17,6 +17,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type (
@@ -113,9 +114,8 @@ type Metrics struct {
 	objectCount                  prometheus.Gauge
 	memtableDurations            prometheus.ObserverVec
 	memtableSize                 *prometheus.GaugeVec
-	DimensionSum                 *prometheus.GaugeVec
 	IOWrite                      *prometheus.SummaryVec
-	IORead                       *prometheus.SummaryVec
+	IORead                       *monitoring.StripedSummaryVec
 	LazySegmentUnLoad            prometheus.Gauge
 	LazySegmentLoad              prometheus.Gauge
 	LazySegmentClose             prometheus.Gauge
@@ -132,6 +132,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		className = "n/a"
 		shardName = "n/a"
 	}
+	namespace := namespacing.NamespaceFromQualified(className)
 
 	register := promMetrics.Registerer
 
@@ -712,18 +713,15 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"shard_name": shardName,
 		}),
 		objectCount: promMetrics.ObjectCount.With(prometheus.Labels{
-			"class_name": className,
-			"shard_name": shardName,
+			"class_name":           className,
+			"shard_name":           shardName,
+			"collection_namespace": namespace,
 		}),
 		memtableDurations: promMetrics.LSMMemtableDurations.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
 		}),
 		memtableSize: promMetrics.LSMMemtableSize.MustCurryWith(prometheus.Labels{
-			"class_name": className,
-			"shard_name": shardName,
-		}),
-		DimensionSum: promMetrics.VectorDimensionsSum.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
 		}),
@@ -1060,11 +1058,9 @@ func (m *Metrics) ReadObserver(op string) BytesReadObserver {
 		return noOpNsReadObserver
 	}
 
-	curried := m.IORead.With(prometheus.Labels{
-		"operation": op,
-	})
+	summary := m.IORead.WithLabelValue(op)
 
-	return func(n int64, nanoseconds int64) { curried.Observe(float64(n)) }
+	return func(n int64, nanoseconds int64) { summary.Observe(uint64(n)) }
 }
 
 func (m *Metrics) MemtableSizeSetter(path, strategy string) Setter {

@@ -23,7 +23,7 @@ import (
 
 func TestSerializeValue(t *testing.T) {
 	t.Run("with a float value", func(t *testing.T) {
-		before := Value{
+		before := &Value{
 			Value: float64(3),
 			Type:  schema.DataTypeNumber,
 		}
@@ -35,11 +35,11 @@ func TestSerializeValue(t *testing.T) {
 		err = json.Unmarshal(bytes, &after)
 		require.Nil(t, err)
 
-		assert.Equal(t, before, after)
+		assert.Equal(t, before, &after)
 	})
 
 	t.Run("with an int value", func(t *testing.T) {
-		before := Value{
+		before := &Value{
 			Value: int(3),
 			Type:  schema.DataTypeInt,
 		}
@@ -51,11 +51,11 @@ func TestSerializeValue(t *testing.T) {
 		err = json.Unmarshal(bytes, &after)
 		require.Nil(t, err)
 
-		assert.Equal(t, before, after)
+		assert.Equal(t, before, &after)
 	})
 
 	t.Run("with a geo value", func(t *testing.T) {
-		before := Value{
+		before := &Value{
 			Value: GeoRange{
 				GeoCoordinates: &models.GeoCoordinates{
 					Latitude:  ptFloat32(51.51),
@@ -73,7 +73,7 @@ func TestSerializeValue(t *testing.T) {
 		err = json.Unmarshal(bytes, &after)
 		require.Nil(t, err)
 
-		assert.Equal(t, before, after)
+		assert.Equal(t, before, &after)
 	})
 }
 

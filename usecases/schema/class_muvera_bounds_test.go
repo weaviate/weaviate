@@ -23,12 +23,19 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // newTestHandlerWithRealVectorConfigParser mirrors newTestHandler but wires
 // the production vector index config parser instead of the fake, so the
 // hfresh muvera bounds actually run against parsed configs.
 func newTestHandlerWithRealVectorConfigParser(t *testing.T) *Handler {
+	t.Helper()
+	handler, _ := newTestHandlerAndManagerWithRealVectorConfigParser(t)
+	return handler
+}
+
+func newTestHandlerAndManagerWithRealVectorConfigParser(t *testing.T) (*Handler, *fakeSchemaManager) {
 	t.Helper()
 	schemaManager := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
@@ -42,12 +49,12 @@ func newTestHandlerWithRealVectorConfigParser(t *testing.T) *Handler {
 	fakeValidator := &fakeValidator{}
 	schemaParser := NewParser(fakeClusterState, vectorindex.ParseAndValidateConfig, fakeValidator, fakeModulesProvider{}, nil, nil)
 	handler, err := NewHandler(
-		schemaManager, schemaManager, &fakeDB{}, fakeValidator, logger, mocks.NewMockAuthorizer(),
+		schemaManager, schemaManager, schemaManager, &fakeDB{}, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, vectorindex.ParseAndValidateConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil, nil)
+		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil, nil, namespacing.Disabled)
 	require.NoError(t, err)
 	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
-	return &handler
+	return &handler, schemaManager
 }
 
 func classWithMuveraParams(ksim, dprojections, repetitions int) *models.Class {

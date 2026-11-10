@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -149,6 +150,7 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 	tests := []struct {
 		name string
 		send error
+		want error
 	}{
 		{name: "ErrAlreadyExists", send: namespaces.ErrAlreadyExists},
 		{name: "ErrBadRequest", send: namespaces.ErrBadRequest},
@@ -173,12 +175,23 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 		{name: "ErrUserIdentifierExists", send: apikey.ErrUserIdentifierExists},
 		{name: "ErrUserExists", send: apikey.ErrUserExists},
 		{name: "ErrUnknownCommand", send: types.ErrUnknownCommand},
+		// The leader wraps this error's text, so fromRPCError must find the sentinel inside it or the follower answers 500.
+		{
+			name: "ErrMovementBlockedByTask",
+			send: fmt.Errorf("%w: collection %q has a running background task; retry after it completes",
+				replicationTypes.ErrMovementBlockedByTask, "Movies"),
+			want: replicationTypes.ErrMovementBlockedByTask,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			want := tc.want
+			if want == nil {
+				want = tc.send
+			}
 			wireErr := toRPCError(tc.send)
 			parsed := fromRPCError(wireErr)
-			require.ErrorIs(t, parsed, tc.send)
+			require.ErrorIs(t, parsed, want)
 		})
 	}
 }
@@ -227,8 +240,7 @@ func TestClient_Apply_ReChainsNamespaceSentinels(t *testing.T) {
 			defer conn.Close()
 
 			cl := &Client{addrResolver: fakes.NewFakeRPCAddressResolver("bufnet", nil), rpcMessageMaxSize: 1024 * 1024, logger: logrus.StandardLogger()}
-			cl.leaderRpcConn = conn
-			cl.leaderRaftAddr = "bufnet"
+			cl.leader = &leaderConn{conn: conn, raftAddr: "bufnet"}
 
 			_, err = cl.Apply(ctx, "bufnet", &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_ADD_CLASS})
 			require.Error(t, err)

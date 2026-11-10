@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // gateWithTasks builds the schema handler with just enough wiring for
@@ -35,6 +36,7 @@ import (
 // schema FSM's mutation guard.
 func gateWithTasks(tasks ...*distributedtask.Task) *schemaHandlers {
 	return &schemaHandlers{
+		qualifier:           namespacing.Disabled,
 		metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
 		// allow-all authorizer: these tests are about the conflict gate, not authz
 		authorizer: &authorization.DummyAuthorizer{},
@@ -90,7 +92,7 @@ func TestCheckReindexConflictForPropertyMutation_EndsOnTheFSMGuardsRemedy(t *tes
 		task := buildTask(t, "T1", status, payload, nil)
 		return gateWithTasks(task).
 				checkReindexConflictForPropertyMutation(context.Background(), "C", "title"),
-			(&db.ReindexProvider{}).
+			db.ReindexDetector{}.
 				CheckPropertyUpdate("C", "title", []*distributedtask.Task{task})
 	}
 
@@ -201,7 +203,7 @@ func TestCheckReindexConflictForPropertyMutation_AgreesWithTheFSMGuard(t *testin
 
 			restReason := gateWithTasks(task).
 				checkReindexConflictForPropertyMutation(context.Background(), "C", "title")
-			fsmErr := (&db.ReindexProvider{}).
+			fsmErr := db.ReindexDetector{}.
 				CheckPropertyUpdate("C", "title", []*distributedtask.Task{task})
 
 			require.Equal(t, tc.wantBlocked, restReason != "",

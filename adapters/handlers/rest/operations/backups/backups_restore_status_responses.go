@@ -98,7 +98,7 @@ func (o *BackupsRestoreStatusUnauthorized) WriteResponse(rw http.ResponseWriter,
 const BackupsRestoreStatusForbiddenCode int = 403
 
 /*
-BackupsRestoreStatusForbidden Forbidden
+BackupsRestoreStatusForbidden The caller lacks read_backups on a collection in the backup. Callers without read_backups on all collections also get 403 when no backup with this ID exists at this location, so a 403 does not confirm the backup exists.
 
 swagger:response backupsRestoreStatusForbidden
 */
@@ -143,7 +143,7 @@ func (o *BackupsRestoreStatusForbidden) WriteResponse(rw http.ResponseWriter, pr
 const BackupsRestoreStatusNotFoundCode int = 404
 
 /*
-BackupsRestoreStatusNotFound Backup not found on the specified backend with the given ID.
+BackupsRestoreStatusNotFound No restore of this backup was started at this backend, bucket and path.
 
 swagger:response backupsRestoreStatusNotFound
 */

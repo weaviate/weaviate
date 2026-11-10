@@ -98,10 +98,14 @@ func (p *uploadProbe) ReleaseBackup(_ context.Context, _, class string) error {
 
 func (p *uploadProbe) Backupable(context.Context, []string) error { return nil }
 
+func (p *uploadProbe) AdoptRestoredMigrationRecords(string, *backup.ClassDescriptor, string, string) error {
+	return nil
+}
+
 // BackupDescriptors produces one descriptor at a time from its own goroutine and
 // stops between classes once ctx is cancelled, as DB.BackupDescriptors does. A
 // test can then observe the pool while a later class has not been snapshotted yet.
-func (p *uploadProbe) BackupDescriptors(ctx context.Context, _ string, _ []string, _ []*backup.BackupDescriptor,
+func (p *uploadProbe) BackupDescriptors(ctx context.Context, _ string, _ []string, _ []*backup.BaseBackupDescriptor,
 	_ map[string]map[string]string,
 ) <-chan backup.ClassDescriptor {
 	ch := make(chan backup.ClassDescriptor, len(p.descs))

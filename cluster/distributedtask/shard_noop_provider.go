@@ -27,7 +27,7 @@ import (
 
 const ShardNoopProviderNamespace = "shard-noop"
 
-// maxListAttempts bounds the GetLocalShardNames retry. Its nine waits ramp by
+// maxListAttempts bounds the OpenLocalShardNames retry. Its nine waits ramp by
 // (attempt+1) * retryBase, and each attempt also waits out DB.GetIndex's own
 // backoff, so the default covers about 24 s of a node registering its shards.
 const maxListAttempts = 10
@@ -35,9 +35,10 @@ const maxListAttempts = 10
 // ShardLister provides local shard names for a collection, allowing the
 // [ShardNoopProvider] to determine unit ownership based on real shard
 // topology without importing the db package. It returns ([]string{}, nil) for a
-// collection this node holds no shard of, and an error only when it cannot tell.
+// collection this node holds no shard of open, such as one whose tenants are all
+// COLD, and an error only when it cannot tell.
 type ShardLister interface {
-	GetLocalShardNames(collection string) ([]string, error)
+	OpenLocalShardNames(collection string) ([]string, error)
 }
 
 // ShardNoopProviderPayload is the JSON payload for tasks created with the
@@ -91,7 +92,7 @@ type ShardNoopProvider struct {
 
 	shardLister ShardLister
 
-	// retryBase scales the backoff between GetLocalShardNames attempts.
+	// retryBase scales the backoff between OpenLocalShardNames attempts.
 	retryBase time.Duration
 
 	completedTasks   map[TaskDescriptor]bool
@@ -386,7 +387,7 @@ func (p *ShardNoopProvider) listLocalShards(taskID string, handle *shardNoopTask
 		err        error
 	)
 	for attempt := 0; attempt < maxListAttempts; attempt++ {
-		shardNames, err = p.shardLister.GetLocalShardNames(collection)
+		shardNames, err = p.shardLister.OpenLocalShardNames(collection)
 		if err == nil && len(shardNames) > 0 {
 			return shardNames, true
 		}

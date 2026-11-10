@@ -81,6 +81,12 @@ type ShardReplicationFSM struct {
 	statusById map[uint64]ShardReplicationOpStatus
 
 	opsByStateGauge *prometheus.GaugeVec
+
+	// planLock guards plan and plansByStateGauge. planLock and opsLock are never
+	// held together.
+	planLock          sync.Mutex
+	plan              *Plan
+	plansByStateGauge *prometheus.GaugeVec
 }
 
 func NewShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
@@ -102,11 +108,20 @@ func NewShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 		Help:      "Current number of replication operations in each state of the FSM lifecycle",
 	}, []string{"state"})
 
+	fsm.plansByStateGauge = promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "weaviate",
+		Name:      "replication_rebalance_plans",
+		Help:      "Rebalance plan state: 1 for the current plan's state, no series when no plan exists",
+	}, []string{"state"})
+
 	return fsm
 }
 
 type snapshot struct {
 	Ops map[ShardReplicationOp]ShardReplicationOpStatus
+	// Plan is a pointer with omitempty, so a snapshot without a plan encodes
+	// the same as one from a version that had no Plan field.
+	Plan *Plan `json:"plan,omitempty"`
 }
 
 func (s *ShardReplicationFSM) Snapshot() ([]byte, error) {
@@ -114,7 +129,7 @@ func (s *ShardReplicationFSM) Snapshot() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(&snapshot{Ops: ops})
+	return json.Marshal(&snapshot{Ops: ops, Plan: s.snapshotPlan()})
 }
 
 // snapshotOps copies the ops under the read lock so Snapshot can encode them
@@ -140,6 +155,8 @@ func (s *ShardReplicationFSM) Restore(bytes []byte) error {
 	if err := json.Unmarshal(bytes, &snap); err != nil {
 		return fmt.Errorf("unmarshal snapshot: %w", err)
 	}
+
+	s.restorePlan(snap.Plan)
 
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
@@ -269,27 +286,63 @@ func (s *ShardReplicationFSM) HasActiveReplicationForCollection(collection strin
 // node's local FSM (bounded by RAFT apply lag), not a synchronization barrier. It is
 // polled on every hashbeat cycle of every shard and must stay allocation-free.
 func (s *ShardReplicationFSM) HasActiveTargetReplicationForShard(collection, shard, targetNode string) bool {
+	return s.hasActiveOpTargetingShard(collection, shard, targetNode, "")
+}
+
+// HasActiveSelfRecoveryTargetingShard: non-terminal SELF_RECOVERY op targeting the triple; local FSM read.
+func (s *ShardReplicationFSM) HasActiveSelfRecoveryTargetingShard(collection, shard, targetNode string) bool {
+	return s.hasActiveOpTargetingShard(collection, shard, targetNode, api.SELF_RECOVERY)
+}
+
+// HasActiveMoveTargetingShard reports whether a non-terminal MOVE op targets the
+// triple, read from this node's local FSM.
+func (s *ShardReplicationFSM) HasActiveMoveTargetingShard(collection, shard, targetNode string) bool {
+	return s.hasActiveOpTargetingShard(collection, shard, targetNode, api.MOVE)
+}
+
+// hasActiveOpTargetingShard reports whether a non-terminal op of transferType
+// targets the triple. An empty transferType matches every op.
+func (s *ShardReplicationFSM) hasActiveOpTargetingShard(collection, shard, targetNode string, transferType api.ShardReplicationTransferType) bool {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 
 	// The source-keyed bucket holds exactly the ops targeting (collection, shard):
 	// both op constructors build TargetShard from the source collection/shard.
 	for _, op := range s.opsByCollectionAndShard[collection][shard] {
-		if op.TargetShard.NodeId != targetNode {
-			continue
-		}
-		status, ok := s.statusById[op.ID]
-		if !ok {
-			continue
-		}
-		switch status.GetCurrentState() {
-		case api.READY, api.CANCELLED:
-			// terminal — does not block async-repl gating
-		default:
+		if op.TargetShard.NodeId == targetNode && (transferType == "" || op.TransferType == transferType) && s.opActiveLocked(op.ID) {
 			return true
 		}
 	}
 	return false
+}
+
+// HasActiveSourceReplicationForShard reads no change-capture registration, so
+// a force-deleted op no longer holds its source shard.
+func (s *ShardReplicationFSM) HasActiveSourceReplicationForShard(collection, shard, sourceNode string) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	for _, op := range s.opsByCollectionAndShard[collection][shard] {
+		if op.SourceShard.NodeId == sourceNode && s.opActiveLocked(op.ID) {
+			return true
+		}
+	}
+	return false
+}
+
+// opActiveLocked reports whether the FSM tracks the op in a state other than
+// READY or CANCELLED. The caller holds opsLock.
+func (s *ShardReplicationFSM) opActiveLocked(id uint64) bool {
+	status, ok := s.statusById[id]
+	if !ok {
+		return false
+	}
+	switch status.GetCurrentState() {
+	case api.READY, api.CANCELLED:
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *ShardReplicationFSM) getOpsWithStatus(ops []ShardReplicationOp) []ShardReplicationOpAndStatus {

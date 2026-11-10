@@ -38,6 +38,7 @@ import (
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
@@ -52,7 +53,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -144,7 +144,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		nodeName = physical.BelongsToNodes[0]
 		break
 	}
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything, mock.Anything).
 		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
@@ -164,6 +164,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(testCtx(), nil, IndexConfig{
+		NodeName:             "node1",
 		EnableLazyLoadShards: true,
 		RootPath:             dirName,
 		ClassName:            schema.ClassName(class.Class),
@@ -222,6 +223,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	require.Nil(t, err)
 	// recreate the index
 	index, err = NewIndex(testCtx(), nil, IndexConfig{
+		NodeName:             "node1",
 		EnableLazyLoadShards: true,
 		RootPath:             dirName,
 		ClassName:            schema.ClassName(class.Class),
@@ -388,7 +390,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		nodeName = physical.BelongsToNodes[0]
 		break
 	}
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything, mock.Anything).
 		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
@@ -407,6 +409,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(ctx, nil, IndexConfig{
+		NodeName:             "node1",
 		EnableLazyLoadShards: true,
 		RootPath:             dirName,
 		ClassName:            schema.ClassName(class.Class),
@@ -490,7 +493,7 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 		Logger:  logger,
 		Workers: 1,
 	})
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything, mock.Anything).
 		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
@@ -501,6 +504,7 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(testCtx(), nil, IndexConfig{
+		NodeName:             "node1",
 		EnableLazyLoadShards: true,
 		RootPath:             dirName,
 		ClassName:            schema.ClassName(class.Class),
@@ -554,7 +558,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		nodeName = physical.BelongsToNodes[0]
 		break
 	}
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything, mock.Anything).
 		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
@@ -573,6 +577,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(testCtx(), nil, IndexConfig{
+		NodeName:             "node1",
 		EnableLazyLoadShards: true,
 		RootPath:             dirName,
 		ClassName:            schema.ClassName(class.Class),
@@ -625,7 +630,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class, shardState *sha
 		Workers: 1,
 	})
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(class.Class, mock.Anything, mock.Anything).
 		RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
@@ -636,6 +641,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class, shardState *sha
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	idx, err := NewIndex(testCtx(), nil, IndexConfig{
+		NodeName:             "node1",
 		RootPath:             rootDir,
 		ClassName:            schema.ClassName(class.Class),
 		EnableLazyLoadShards: false,
