@@ -122,6 +122,44 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		assert.False(t, pathExists(hfreshDir), "the hfresh directory must not survive the drop")
 	})
 
+	t.Run("removes the directory and buckets of a tachiomfresh index", func(t *testing.T) {
+		// tachiomfresh has four buckets of its own, uses hfresh's shared
+		// bucket for its metadata, and keeps its centroid graph and task
+		// queues in a directory of its own. A staging bucket left behind is
+		// read again by a new vector of the same name.
+		indexPath, shardName := setup(t)
+
+		const target = "tachiomfresh_vec"
+		indexID := helpers.GetVectorsBucketName(target)
+		lsm := filepath.Join(indexPath, shardName, "lsm")
+		postings := filepath.Join(lsm, helpers.TachiomFreshPostingsBucketName(indexID))
+		types := filepath.Join(lsm, helpers.TachiomFreshTypesBucketName(indexID))
+		staging := filepath.Join(lsm, helpers.TachiomFreshStagingBucketName(indexID))
+		counts := filepath.Join(lsm, helpers.TachiomFreshTokenCountsBucketName(indexID))
+		shared := filepath.Join(lsm, helpers.HFreshSharedBucketName(indexID))
+		dir := filepath.Join(indexPath, shardName, helpers.TachiomFreshDirName(indexID))
+
+		for _, d := range []string{postings, types, staging, counts, shared, dir} {
+			require.NoError(t, os.MkdirAll(d, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(d, "segment.db"), []byte("data"), 0o644))
+		}
+		// Pinned literally, as for hfresh above.
+		require.Equal(t, filepath.Join(lsm, "tachiomfresh_postings_vectors_tachiomfresh_vec"), postings)
+		require.Equal(t, filepath.Join(lsm, "tachiomfresh_types_vectors_tachiomfresh_vec"), types)
+		require.Equal(t, filepath.Join(lsm, "tachiomfresh_staging_vectors_tachiomfresh_vec"), staging)
+		require.Equal(t, filepath.Join(lsm, "tachiomfresh_tokens_vectors_tachiomfresh_vec"), counts)
+		require.Equal(t, filepath.Join(indexPath, shardName, "vectors_tachiomfresh_vec.tachiomfresh.d"), dir)
+
+		require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, target, nil))
+
+		assert.False(t, pathExists(postings), "the tachiomfresh postings bucket must not survive the drop")
+		assert.False(t, pathExists(types), "the tachiomfresh types bucket must not survive the drop")
+		assert.False(t, pathExists(staging), "the tachiomfresh staging bucket must not survive the drop")
+		assert.False(t, pathExists(counts), "the tachiomfresh token counts bucket must not survive the drop")
+		assert.False(t, pathExists(shared), "the shared metadata bucket must not survive the drop")
+		assert.False(t, pathExists(dir), "the tachiomfresh directory must not survive the drop")
+	})
+
 	t.Run("a sibling whose bucket name collides is not deleted", func(t *testing.T) {
 		// The only way this sweep can destroy live data: target vector names may
 		// legally be "<other>_muvera_vectors" or "<other>_mv_mappings", which
