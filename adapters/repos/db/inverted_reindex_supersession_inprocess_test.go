@@ -16,6 +16,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -190,29 +191,41 @@ func TestASwapLeavesADisplacedDirAnotherRecordStillNames(t *testing.T) {
 
 // A resumed swap writes no record, so only runtimeSwap's own records check
 // can save a dir another record still needs.
-func TestAResumedSwapLeavesItsDisplacedDirWhileItsRecordsAreIncomplete(t *testing.T) {
+func TestAResumedSwapWithIncompleteRecordsKeepsOnlyASidecarNamedDisplacedDir(t *testing.T) {
+	plantFault := func(t *testing.T, shard *Shard, _ *ShardReindexTaskGeneric) {
+		plantUnreadableRecord(t, shard.migrationRecords.Dir())
+		require.NoError(t, shard.migrationRecords.Load())
+	}
 	tests := []struct {
 		name string
+		// backToBack makes the displaced dir a predecessor's staged dir, not the canonical one.
+		backToBack bool
 		// breakRecords leaves the shard's records incomplete for the swap.
 		breakRecords func(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric)
-		wantWarn     string
+		wantKept     bool
+		wantWarn     []string
 		wantNotWarn  string
 	}{
 		{
-			name: "a record is not understood",
-			breakRecords: func(t *testing.T, shard *Shard, _ *ShardReindexTaskGeneric) {
-				plantUnreadableRecord(t, shard.migrationRecords.Dir())
-				require.NoError(t, shard.migrationRecords.Load())
-			},
-			wantWarn: unreadableRecordFile,
+			name:         "the canonical dir is discarded under a fault",
+			breakRecords: plantFault,
+		},
+		{
+			name:         "a predecessor's staged dir is kept under a fault",
+			backToBack:   true,
+			breakRecords: plantFault,
+			wantKept:     true,
+			wantWarn:     []string{unreadableRecordFile, "fix that fault"},
 		},
 		{
 			// Stands in for a lazy shard that fails to reload mid-swap.
-			name: "the records cannot be read at all",
+			name:       "a predecessor's staged dir is kept when the records cannot be read at all",
+			backToBack: true,
 			breakRecords: func(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric) {
 				task.onPropSwapped = func(string) { shard.migrationRecords = nil }
 			},
-			wantWarn:    "could not be read",
+			wantKept:    true,
+			wantWarn:    []string{"could not be read"},
 			wantNotWarn: "fault",
 		},
 	}
@@ -232,13 +245,23 @@ func TestAResumedSwapLeavesItsDisplacedDirWhileItsRecordsAreIncomplete(t *testin
 				require.NoError(t, shard.PutObject(ctx, obj))
 			}
 
-			task, strategy := newEnableFilterableTaskAtGeneration(t, idx, className, 1, shard.migrationUnit(), props...)
+			generation := 1
+			if tc.backToBack {
+				predecessor, _ := newEnableFilterableTaskAtGeneration(t, idx, className, generation, shard.migrationUnit(), props...)
+				require.NoError(t, predecessor.RunReindexOnlyOnShard(ctx, shard))
+				require.NoError(t, predecessor.RunPrepareOnShard(ctx, shard))
+				require.NoError(t, predecessor.RunSwapOnShard(ctx, shard))
+				generation++
+			}
+			task, strategy := newEnableFilterableTaskAtGeneration(t, idx, className, generation, shard.migrationUnit(), props...)
 			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 			require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 
 			displaced := map[string]string{}
 			for _, prop := range props {
-				displaced[prop] = filepath.Base(shard.store.Bucket(task.strategy.SourceBucketName(prop)).GetDir())
+				dir := filepath.Base(shard.store.Bucket(task.strategy.SourceBucketName(prop)).GetDir())
+				require.Equal(t, !tc.backToBack, dir == task.strategy.SourceBucketName(prop))
+				displaced[prop] = dir
 			}
 			subject, err := task.migrationSubjectNow(shard)
 			require.NoError(t, err)
@@ -249,16 +272,22 @@ func TestAResumedSwapLeavesItsDisplacedDirWhileItsRecordsAreIncomplete(t *testin
 			require.NoError(t, task.runtimeSwap(ctx, logger, shard, props))
 
 			for _, dir := range displaced {
-				require.DirExists(t, filepath.Join(shard.pathLSM(), dir))
+				require.Equal(t, tc.wantKept, dirExists(t, filepath.Join(shard.pathLSM(), dir)), dir)
 			}
 			var warned []string
 			for _, entry := range hook.AllEntries() {
-				if entry.Level == logrus.WarnLevel {
+				if entry.Level == logrus.WarnLevel && strings.Contains(entry.Message, "displaced") {
 					warned = append(warned, entry.Message)
 				}
 			}
-			require.NotEmpty(t, warned)
-			require.Contains(t, warned[0], tc.wantWarn)
+			if !tc.wantKept {
+				require.Empty(t, warned)
+			} else {
+				require.Len(t, warned, 1)
+				for _, want := range tc.wantWarn {
+					require.Contains(t, warned[0], want)
+				}
+			}
 			if tc.wantNotWarn != "" {
 				require.NotContains(t, warned[0], tc.wantNotWarn, "the warning must not name a fault that does not exist")
 			}

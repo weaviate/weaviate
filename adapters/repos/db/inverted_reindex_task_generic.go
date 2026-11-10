@@ -1187,12 +1187,13 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 			return fmt.Errorf("shutting down old main bucket for %q: %w", propName, err)
 		}
 		dir := filepath.Base(oldMainBucket.GetDir())
-		if !recordsComplete {
+		canonical := dir == t.strategy.SourceBucketName(propName)
+		if !recordsComplete && !canonical {
 			kept = append(kept, dir)
 			continue
 		}
 		if key, role, held := migrationDirHeldByAnotherRecord(
-			preserve.records, subject, dir, migrationLiveDataRoles); held {
+			preserve.records, subject, dir, migrationLiveDataRoles); held && !canonical {
 			logger.WithField("dir", dir).Warnf(
 				"leaving the displaced directory of %q in place: record %s names it as its %s, "+
 					"and its retirement has not run yet", propName, key, role)
