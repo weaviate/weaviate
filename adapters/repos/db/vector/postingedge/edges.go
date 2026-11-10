@@ -35,6 +35,52 @@ type edgeInput struct {
 	rescue    int // code-ranked candidates re-ranked exactly per vector
 }
 
+// edgeScratch is the working memory of the neighbor search of one vector.
+type edgeScratch struct {
+	candidates topK
+	nearest    topK
+}
+
+// nearestNeighbors finds the nearest neighbors of the vector in a slot among
+// the members of its probe postings: the candidates are ranked by code, the
+// best rescue of them re-ranked with exact distances, and the neighbors
+// nearest of those returned, nearest first. The result aliases the scratch.
+// ranked is the number of candidates ranked by code.
+func (in *edgeInput) nearestNeighbors(slot uint32, sc *edgeScratch) (nearest []scored, ranked int64, err error) {
+	input := in.layout.order[slot]
+	vector := in.vectors[input]
+	estimator := in.quantizer.NewEstimator(vector)
+
+	sc.candidates.reset(in.rescue)
+	for _, c := range in.assign.probesOf(int(input))[:min(in.probe, in.assign.width)] {
+		if c == noCentroid {
+			continue
+		}
+		from, to := in.layout.start[c], in.layout.start[c+1]
+		for t := from; t < to; t++ {
+			if t == slot {
+				continue
+			}
+			dist, err := estimator.Distance(in.side.code(t))
+			if err != nil {
+				return nil, 0, errors.Wrapf(err, "estimate distance from slot %d to slot %d", slot, t)
+			}
+			sc.candidates.push(uint64(t), dist)
+		}
+		ranked += int64(to - from)
+	}
+
+	sc.nearest.reset(in.neighbors)
+	for _, cand := range sc.candidates.items {
+		dist, err := in.provider.SingleDist(vector, in.vectors[in.layout.order[cand.id]])
+		if err != nil {
+			return nil, 0, errors.Wrapf(err, "distance from slot %d to slot %d", slot, cand.id)
+		}
+		sc.nearest.push(cand.id, dist)
+	}
+	return sc.nearest.sorted(), ranked, nil
+}
+
 // buildEdges links every vector to its nearest neighbors in other postings.
 //
 // For a vector, the candidates are the members of the postings of its probe
@@ -55,18 +101,11 @@ func buildEdges(ctx context.Context, logger logrus.FieldLogger, in edgeInput,
 			n, in.neighbors)
 	}
 
-	probe := min(in.probe, in.assign.width)
-
 	// Fixed-width rows first, compacted once every row is known.
 	rows := make([]uint32, n*in.neighbors)
 	edgeStart = make([]uint32, n+1)
 	var totalScored atomic.Int64
-
-	type scratch struct {
-		candidates topK
-		nearest    topK
-	}
-	scratches := make([]scratch, parallelWorkers())
+	scratches := make([]edgeScratch, parallelWorkers())
 
 	// Slot order keeps consecutive vectors in the same posting, whose probe
 	// sets overlap almost entirely, so the candidate codes stay cached.
@@ -74,42 +113,16 @@ func buildEdges(ctx context.Context, logger logrus.FieldLogger, in edgeInput,
 		sc := &scratches[worker]
 		var chunkScored int64
 		for slot := uint32(start); slot < uint32(end); slot++ {
-			input := in.layout.order[slot]
-			vector := in.vectors[input]
+			nearest, ranked, err := in.nearestNeighbors(slot, sc)
+			if err != nil {
+				return err
+			}
+			chunkScored += ranked
+
 			own := in.side.postingOf[slot]
-			estimator := in.quantizer.NewEstimator(vector)
-
-			sc.candidates.reset(in.rescue)
-			for _, c := range in.assign.probesOf(int(input))[:probe] {
-				if c == noCentroid {
-					continue
-				}
-				from, to := in.layout.start[c], in.layout.start[c+1]
-				for t := from; t < to; t++ {
-					if t == slot {
-						continue
-					}
-					dist, err := estimator.Distance(in.side.code(t))
-					if err != nil {
-						return errors.Wrapf(err, "estimate distance from slot %d to slot %d", slot, t)
-					}
-					sc.candidates.push(uint64(t), dist)
-				}
-				chunkScored += int64(to - from)
-			}
-
-			sc.nearest.reset(in.neighbors)
-			for _, cand := range sc.candidates.items {
-				dist, err := in.provider.SingleDist(vector, in.vectors[in.layout.order[cand.id]])
-				if err != nil {
-					return errors.Wrapf(err, "distance from slot %d to slot %d", slot, cand.id)
-				}
-				sc.nearest.push(cand.id, dist)
-			}
-
 			row := rows[int(slot)*in.neighbors:]
 			count := uint32(0)
-			for _, nb := range sc.nearest.sorted() {
+			for _, nb := range nearest {
 				if in.side.postingOf[nb.id] != own {
 					row[count] = uint32(nb.id)
 					count++
