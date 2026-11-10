@@ -603,15 +603,8 @@ func (p *ReindexProvider) processOneUnit(
 			p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("creating reindex tasks: %v", createErr))
 			return
 		}
-		seeded := make(map[MigrationRecordKey]struct{}, len(tasks))
-		for _, t := range tasks {
-			seeded[t.migrationRecordKey()] = struct{}{}
-		}
 		var added []string
-		for _, t := range fresh {
-			if _, ok := seeded[t.migrationRecordKey()]; ok {
-				continue
-			}
+		for _, t := range tasksMissingFrom(tasks, fresh) {
 			tasks = append(tasks, t)
 			added = append(added, string(t.strategy.StrategyCode()))
 		}
@@ -1059,10 +1052,14 @@ func (p *ReindexProvider) resolveUnitForPhase(
 			Transient: errors.Is(unwrapErr, context.Canceled),
 		}
 	}
+	store := concreteShard.migrationRecordStore()
 	if cached := p.cachedReindexTasks(task.TaskDescriptor, unitID); len(cached) > 0 {
+		if fault := p.incompleteCachedUnitFault(task.TaskDescriptor, unitID, payload, store, cached); fault != "" {
+			logger.WithField("unit", unitID).Errorf("reindex provider: resolveUnitForPhase: %s", fault)
+			return phaseUnitResolution{Errs: []string{fault}}
+		}
 		return phaseUnitResolution{Shard: resolvedShard, UnitTasks: cached}
 	}
-	store := concreteShard.migrationRecordStore()
 	if store == nil {
 		return phaseUnitResolution{
 			Errs: []string{fmt.Sprintf("unit %s: shard %q holds no migration record store", unitID, concreteShard.Name())},
@@ -1102,6 +1099,39 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	logger.WithField("unit", unitID).
 		Info("reindex provider: resolveUnitForPhase: rebuilding tasks from disk (node likely restarted); cached for subsequent phase callbacks")
 	return phaseUnitResolution{Shard: resolvedShard, UnitTasks: fresh, Rehydrate: true}
+}
+
+// Recovery caches only the halves whose records it could read, so while one is unreadable,
+// running a cached set that lacks a half could ack a unit with that half never swapped.
+func (p *ReindexProvider) incompleteCachedUnitFault(desc distributedtask.TaskDescriptor, unitID string,
+	payload *ReindexTaskPayload, store *MigrationRecordStore, cached []*ShardReindexTaskGeneric,
+) string {
+	if store == nil {
+		return ""
+	}
+	fault := unreadableRecordFault(unitID, store)
+	if fault == "" {
+		return ""
+	}
+	built, err := p.createReindexTasks(desc, unitID, payload)
+	if err != nil || len(tasksMissingFrom(cached, built)) > 0 {
+		return fault
+	}
+	return ""
+}
+
+func tasksMissingFrom(have, built []*ShardReindexTaskGeneric) []*ShardReindexTaskGeneric {
+	keys := make(map[MigrationRecordKey]struct{}, len(have))
+	for _, t := range have {
+		keys[t.migrationRecordKey()] = struct{}{}
+	}
+	var missing []*ShardReindexTaskGeneric
+	for _, t := range built {
+		if _, ok := keys[t.migrationRecordKey()]; !ok {
+			missing = append(missing, t)
+		}
+	}
+	return missing
 }
 
 // unreadableRecordFault returns why a unit must not run, or "" when every
