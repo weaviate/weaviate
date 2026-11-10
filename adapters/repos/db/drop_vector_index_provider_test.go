@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -1411,7 +1412,7 @@ func activeDropTask(id, collection string, targets ...string) *distributedtask.T
 }
 
 func TestCheckConflict(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	p := NewDropVectorIndexDetector(logrus.New())
 	newPayload, _ := (&DropVectorIndexTaskPayload{Collection: "C", Targets: []string{"v1"}, OpID: "new"}).encode()
 
 	t.Run("overlapping target same collection conflicts", func(t *testing.T) {
@@ -1494,7 +1495,7 @@ func TestCompletedUnitShards_RequiresAllReplicaUnits(t *testing.T) {
 // the dead class generation's coverage and finalizes over the new class's
 // never-cleaned "cleaned" tenants.
 func TestCheckConflict_InheritanceSourceGuard(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	p := NewDropVectorIndexDetector(logrus.New())
 
 	payload := func(epoch string, cleaned []string) []byte {
 		pl := &DropVectorIndexTaskPayload{
@@ -1640,7 +1641,7 @@ func TestCheckConflict_InheritanceSourceGuard(t *testing.T) {
 }
 
 func TestCheckClassMutation_DoesNotBlockDeleteDuringDrop(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	p := NewDropVectorIndexDetector(logrus.New())
 	// DeleteClass supersedes an in-flight drop (the whole bucket is going away);
 	// the schema FSM cascade-deletes the task, so the guard must not block it.
 	require.NoError(t, p.CheckClassMutation("C", []*distributedtask.Task{activeDropTask("t1", "C", "v1")}))
@@ -1714,7 +1715,7 @@ func deferringDropTaskCovering(id, collection string, shards, deferred []string,
 // the stale-record protection honest — full coverage alone never vouches,
 // because a finalized drop's residue also has full coverage.
 func TestCheckVectorConfigRemoval_DeletionResolvedVoucher(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	p := NewDropVectorIndexDetector(logrus.New())
 
 	t.Run("deferred tenant deleted: the recorded coverage vouches", func(t *testing.T) {
 		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
@@ -1756,7 +1757,7 @@ func TestCheckVectorConfigRemoval_DeletionResolvedVoucher(t *testing.T) {
 }
 
 func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	p := NewDropVectorIndexDetector(logrus.New())
 
 	t.Run("finished task never vouches (stale-record replay safety)", func(t *testing.T) {
 		// A FINISHED record outlives finalize by the task TTL; after a
@@ -2059,14 +2060,14 @@ func TestShouldRetainCompletedTask(t *testing.T) {
 // deactivation fails that unit and the next reconcile round re-covers the
 // surviving shards; the marker (not the task) is the source of truth.
 func TestCheckTenantMutation_NeverBlocks(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	p := NewDropVectorIndexDetector(logrus.New())
 	require.NoError(t, p.CheckTenantMutation("C", []string{"tenant1"},
 		[]*distributedtask.Task{activeDropTask("t1", "C", "v1")}),
 		"deactivating a tenant must succeed even while its collection's drop is stripping")
 }
 
 func TestCheckPropertyUpdate_NeverConflicts(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	p := NewDropVectorIndexDetector(logrus.New())
 	require.NoError(t, p.CheckPropertyUpdate("C", "someProp", []*distributedtask.Task{activeDropTask("t1", "C", "v1")}))
 }
 
@@ -2101,7 +2102,7 @@ func TestDecodeDropVectorIndexPayload_Rejects(t *testing.T) {
 // TestCheckConflict_SkipsCorruptActiveTask pins the fail-open behavior: a corrupt
 // active task must not block a new drop (it can't be matched to a collection).
 func TestCheckConflict_SkipsCorruptActiveTask(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	p := NewDropVectorIndexDetector(logrus.New())
 	newPayload, _ := (&DropVectorIndexTaskPayload{Collection: "C", Targets: []string{"v1"}, OpID: "new"}).encode()
 	corrupt := &distributedtask.Task{
 		Namespace: DropVectorIndexNamespace,
