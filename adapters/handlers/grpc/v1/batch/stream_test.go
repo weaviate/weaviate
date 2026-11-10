@@ -649,7 +649,12 @@ func TestOutOfMemoryReply(t *testing.T) {
 			{Collection: collection, Uuid: uuid.New().String()},
 		}
 		refs := []*pb.BatchReference{
-			{FromCollection: collection, FromUuid: uuid.New().String(), ToUuid: uuid.New().String(), Name: "ref"},
+			{
+				FromCollection: collection,
+				FromUuid:       uuid.New().String(),
+				ToUuid:         uuid.New().String(),
+				Name:           "ref",
+			},
 		}
 
 		checker, _ := newAdmissionChecker(t, 0, admitNone)
@@ -665,7 +670,7 @@ func TestOutOfMemoryReply(t *testing.T) {
 		got := sent.all()[oom].GetOutOfMemory()
 		require.Equal(t, []string{objs[0].GetUuid(), objs[1].GetUuid()}, got.GetUuids())
 		require.Equal(t, []string{
-			batch.BEACON_START + refs[0].GetFromCollection() + "/" + refs[0].GetFromUuid() + "/" + refs[0].GetName(),
+			batch.BEACON_START + refs[0].GetToCollection() + "/" + refs[0].GetToUuid() + "/" + refs[0].GetName(),
 		}, got.GetBeacons())
 		require.EqualValues(t, batch.OOM_WAIT_TIME, got.GetWaitTime())
 	})
@@ -1128,7 +1133,7 @@ func Test_receiver_ackForDelay(t *testing.T) {
 		got := sent.all()[acks].GetAcks()
 		require.Equal(t, []string{objs[0].GetUuid(), objs[1].GetUuid()}, got.GetUuids())
 		require.Equal(t, []string{
-			batch.BEACON_START + refs[0].GetFromCollection() + "/" + refs[0].GetFromUuid() + "/" + refs[0].GetName(),
+			batch.BEACON_START + refs[0].GetToCollection() + "/" + refs[0].GetToUuid() + "/" + refs[0].GetName(),
 		}, got.GetBeacons())
 	})
 
@@ -1438,7 +1443,7 @@ func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 			defer sentMu.Unlock()
 			require.ElementsMatch(t, []string{objs[0].GetUuid(), objs[1].GetUuid()}, reportedUuids,
 				"every object of the rejected message must be reported to the client")
-			expectedBeacon := batch.BEACON_START + refs[0].GetFromCollection() + "/" + refs[0].GetFromUuid() + "/" + refs[0].GetName()
+			expectedBeacon := batch.BEACON_START + refs[0].GetToCollection() + "/" + refs[0].GetToUuid() + "/" + refs[0].GetName()
 			require.ElementsMatch(t, []string{expectedBeacon}, reportedBeacons,
 				"every reference of the rejected message must be reported to the client")
 			require.Len(t, reportedErrors, 3, "one error per object and per reference")

@@ -284,7 +284,7 @@ func (w *worker) fanInReplies(
 }
 
 func toBeacon(ref *pb.BatchReference) string {
-	return fmt.Sprintf("%s%s/%s/%s", BEACON_START, ref.FromCollection, ref.FromUuid, ref.Name)
+	return fmt.Sprintf("%s%s/%s/%s", BEACON_START, ref.GetToCollection(), ref.GetToUuid(), ref.Name)
 }
 
 func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb.BatchReference, cl *pb.ConsistencyLevel, retries int) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
