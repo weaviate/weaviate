@@ -199,8 +199,7 @@ func TestAResumedSwapWithIncompleteRecordsKeepsOnlyASidecarNamedDisplacedDir(t *
 	tests := []struct {
 		name string
 		// backToBack makes the displaced dir a predecessor's staged dir, not the canonical one.
-		backToBack bool
-		// breakRecords leaves the shard's records incomplete for the swap.
+		backToBack   bool
 		breakRecords func(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric)
 		wantKept     bool
 		wantWarn     []string
@@ -218,7 +217,6 @@ func TestAResumedSwapWithIncompleteRecordsKeepsOnlyASidecarNamedDisplacedDir(t *
 			wantWarn:     []string{unreadableRecordFile, "fix that fault"},
 		},
 		{
-			// Stands in for a lazy shard that fails to reload mid-swap.
 			name:       "a predecessor's staged dir is kept when the records cannot be read at all",
 			backToBack: true,
 			breakRecords: func(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric) {

@@ -29,9 +29,6 @@ import (
 
 // The walk ranks its outcome by the sweep's taxonomy, so an operator alerting
 // on one level sees every cleanup that left the same thing behind.
-//
-// Rows land on both sides of the taxonomy, so a level hardcoded to either side
-// fails on the other.
 func TestTerminalCleanupRanksAWalkFailureLikeTheSweepDoes(t *testing.T) {
 	tests := []struct {
 		name string
