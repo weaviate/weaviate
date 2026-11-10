@@ -174,6 +174,49 @@ func TestNewValidatesItsConfig(t *testing.T) {
 	}
 }
 
+// The defaults are measured choices, and the default source margin follows
+// the distance: a margin is in the units of the distance, so the one
+// calibrated for cosine must not leak into an l2 index.
+func TestDefaults(t *testing.T) {
+	uc := NewDefaultUserConfig()
+	require.NoError(t, uc.Validate())
+	assert.Equal(t, 20, uc.EF)
+	assert.Equal(t, 64, uc.RescoreLimit)
+	assert.Equal(t, 256, uc.BuildProbe)
+	assert.Equal(t, float32(SourceMarginAuto), uc.SourceMargin)
+
+	vectors := clusteredVectors(10, 4, 1, 1)
+	tests := []struct {
+		name       string
+		provider   distancer.Provider
+		margin     float32
+		wantMargin float32
+	}{
+		{name: "cosine takes its calibrated margin", provider: distancer.NewCosineDistanceProvider(), margin: SourceMarginAuto, wantMargin: 0.06},
+		{name: "l2 has none", provider: distancer.NewL2SquaredProvider(), margin: SourceMarginAuto, wantMargin: 0},
+		{name: "an explicit zero switches the cut off for cosine", provider: distancer.NewCosineDistanceProvider(), margin: 0, wantMargin: 0},
+		{name: "an explicit margin is kept for cosine", provider: distancer.NewCosineDistanceProvider(), margin: 0.1, wantMargin: 0.1},
+		{name: "an explicit margin is kept for l2", provider: distancer.NewL2SquaredProvider(), margin: 2.5, wantMargin: 2.5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uc := NewDefaultUserConfig()
+			uc.SourceMargin = tt.margin
+			index, err := New(testConfig(t, vectors, 0, tt.provider), uc)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, index.Shutdown(context.Background())) })
+			assert.Equal(t, tt.wantMargin, math.Float32frombits(index.sourceMargin.Load()))
+
+			// And an update back to the default resolves the same way.
+			explicit := uc
+			explicit.SourceMargin = 0.5
+			require.NoError(t, index.UpdateUserConfig(explicit, func() {}))
+			require.NoError(t, index.UpdateUserConfig(uc, func() {}))
+			assert.Equal(t, tt.wantMargin, math.Float32frombits(index.sourceMargin.Load()))
+		})
+	}
+}
+
 func TestIndexDescribesItself(t *testing.T) {
 	uc := NewDefaultUserConfig()
 	assert.Equal(t, "postingedge", uc.IndexType())

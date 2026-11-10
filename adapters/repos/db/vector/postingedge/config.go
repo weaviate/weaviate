@@ -41,14 +41,27 @@ const (
 	DefaultEntryPostings = 1
 	// DefaultLoadBatch is the number of postings loaded per round.
 	DefaultLoadBatch = 4
-	// DefaultEF of 0 follows k: the search stops as soon as no known
-	// unloaded posting can improve the top k.
-	DefaultEF = 0
-	// DefaultSourceMargin of 0 follows the edges of every scanned vector.
-	DefaultSourceMargin = 0
-	// DefaultRescoreLimit and DefaultTrainingLimit match what HNSW uses for
-	// 1-bit RQ, so both indexes quantize and rescore alike by default.
-	DefaultRescoreLimit  = enthnsw.DefaultBRQRescoreLimit
+	// DefaultEF is the smallest ef of the benchmark sweep that reaches a
+	// recall@10 of 0.95 with the other defaults (0.9502 on dbpedia-openai
+	// 1M). At ef = k the search stops as soon as no known unloaded posting
+	// can improve the top k, which finds 0.92.
+	DefaultEF = 20
+	// SourceMarginAuto asks for the source margin calibrated for the
+	// distance of the index: DefaultCosineSourceMargin for cosine, and none
+	// for l2-squared, for which there is no calibration yet. A margin is in
+	// the units of the distance, so one calibrated for cosine means nothing
+	// for another distance.
+	SourceMarginAuto    = -1
+	DefaultSourceMargin = SourceMarginAuto
+	// DefaultCosineSourceMargin is the margin whose recall/QPS frontier was
+	// ahead of no margin everywhere on dbpedia-openai 1M: 41% to 64% more
+	// QPS at equal recall, for at most 0.003 of recall at equal ef.
+	DefaultCosineSourceMargin = 0.06
+	// DefaultRescoreLimit is far below the 512 HNSW uses for 1-bit RQ: the
+	// codes rank the top well enough that 64 measured the same recall as
+	// 512, which costs half a millisecond per query.
+	DefaultRescoreLimit = 64
+	// DefaultTrainingLimit matches what HNSW uses for centered RQ.
 	DefaultTrainingLimit = enthnsw.DefaultRQTrainingLimit
 
 	// centroidEF is the ef of the centroid graph search. Only the few
@@ -85,7 +98,7 @@ type UserConfig struct {
 	// further from the query rarely link to anything the search still
 	// needs. It is a heuristic that trades recall for work, in the units of
 	// the distance of the index. 0 follows the edges of every scanned
-	// vector.
+	// vector, SourceMarginAuto takes the margin calibrated for the distance.
 	SourceMargin float32 `json:"sourceMargin"`
 }
 
@@ -147,7 +160,7 @@ func (u UserConfig) Validate() error {
 		ec.Addf("rescoreLimit must not be negative, got %d", u.RescoreLimit)
 	}
 	// Written so that NaN fails too.
-	if !(u.SourceMargin >= 0) {
+	if !(u.SourceMargin >= 0) && u.SourceMargin != SourceMarginAuto {
 		ec.Addf("sourceMargin must not be negative, got %v", u.SourceMargin)
 	}
 

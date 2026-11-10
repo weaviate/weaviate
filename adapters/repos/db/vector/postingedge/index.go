@@ -129,7 +129,14 @@ func (ix *Index) storeSearchConfig(uc UserConfig) {
 	ix.rescoreLimit.Store(int64(uc.RescoreLimit))
 	ix.entryPostings.Store(int64(uc.EntryPostings))
 	ix.loadBatch.Store(int64(uc.LoadBatch))
-	ix.sourceMargin.Store(math.Float32bits(uc.SourceMargin))
+	margin := uc.SourceMargin
+	if margin == SourceMarginAuto {
+		margin = 0
+		if ix.cosine {
+			margin = DefaultCosineSourceMargin
+		}
+	}
+	ix.sourceMargin.Store(math.Float32bits(margin))
 }
 
 func (ix *Index) Type() common.IndexType {

@@ -31,6 +31,9 @@ func smallConfig() UserConfig {
 	uc.TargetPostingSize = 40
 	uc.BuildProbe = 16
 	uc.RescoreLimit = 100
+	// The default margin is calibrated for real embeddings. The tests that
+	// are about the margin set their own.
+	uc.SourceMargin = 0
 	return uc
 }
 
