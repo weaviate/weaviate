@@ -519,18 +519,8 @@ func TestBarrier_G2_PartialPhaseBFailure(t *testing.T) {
 	require.Equal(t, 3, h.nodes[1].provider.swapCount(taskID), "node-2 swapped until it succeeded")
 }
 
-// TestBarrier_G3_LatePrepAckArrivesInSwapping pins gap G3: a late
-// PreparationCompleteAck that arrives AFTER the FSM has transitioned
-// PREPARING → SWAPPING must be silently dropped — NOT errored, NOT
-// state-flipped, NOT cause a panic. Specifically, a duplicate ack
-// against a SWAPPING task must keep the task in SWAPPING with the
-// original ack untouched.
-//
-// Production scenario: node-1's PreparationCompleteAck applies last
-// and trips the SWAPPING transition. node-2's tick re-emits its ack
-// (the wire-side return errored, so the PREP result stayed pending
-// on node-2 and was sent again). node-2's ack now arrives in SWAPPING. The
-// drop path is at manager.go:564-567.
+// A duplicate PreparationCompleteAck arriving after PREPARING → SWAPPING (a
+// retried wire call) is dropped: the task stays SWAPPING, original ack intact.
 func TestBarrier_G3_LatePrepAckArrivesInSwapping(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -913,7 +903,7 @@ func TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode(t *testing.T) {
 
 	// Restarted node-2 ticks: fresh map allows OnGroupCompleted to fire
 	// for group-b, then PHASE A.5 emits node-2's prep-ack.
-	// group-b is now decided too → PREPARING → SWAPPING.
+	// group-b decided too → PREPARING → SWAPPING.
 	freshScheduler.tick()
 
 	task = h.getTask(t, taskID)
@@ -923,15 +913,8 @@ func TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode(t *testing.T) {
 		"FSM must lift to SWAPPING after the crashed node's group is recovered")
 }
 
-// TestBarrier_G8_SnapshotRestoreMidPreparing pins gap G8: the
-// PreparedGroups map on Task must survive a JSON snapshot/restore
-// round-trip through Manager.Snapshot / Manager.Restore — a follower
-// joining mid-PREPARING via snapshot install must see the partial ack
-// map exactly as the leader committed it.
-//
-// The existing TestTask_Clone_DeepCopiesAckMaps test covers the
-// in-memory Clone path; this test covers the JSON snapshot path used
-// by RAFT install-snapshot.
+// PreparedGroups survives a JSON snapshot/restore round-trip, so a follower
+// installing a snapshot mid-PREPARING sees the leader's partial ack map.
 func TestBarrier_G8_SnapshotRestoreMidPreparing(t *testing.T) {
 	defer leaktest.Check(t)()
 
