@@ -28,6 +28,9 @@ const (
 	VectorIndexTypeFLAT    = "flat"
 	VectorIndexTypeDYNAMIC = "dynamic"
 	VectorIndexTypeHFresh  = "hfresh"
+	// VectorIndexTypeTachiomFresh is the token-level multi-vector index.
+	// It is multi-vector only.
+	VectorIndexTypeTachiomFresh = "tachiomfresh"
 	// VectorIndexTypeNone is a sentinel value, NOT a real index type.
 	// It marks a named vector whose search index has been dropped via the
 	// DeleteClassVectorIndex API. It must never be accepted as a user-supplied
