@@ -52,6 +52,9 @@ type Object struct {
 	// The name of the tenant the object belongs to.
 	Tenant string `json:"tenant,omitempty"`
 
+	// The token id of every token of a multi-vector, by vector name, in token order, from the tokenizer of the model that produced it. The tachiomfresh vector index requires them; other index types ignore them.
+	TokenIds TokenIds `json:"tokenIds,omitempty"`
+
 	// This field returns vectors associated with the object. C11yVector, Vector or Vectors values are possible.
 	Vector C11yVector `json:"vector,omitempty"`
 
@@ -71,6 +74,10 @@ func (m *Object) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateID(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTokenIds(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -114,6 +121,25 @@ func (m *Object) validateID(formats strfmt.Registry) error {
 
 	if err := validate.FormatOf("id", "body", "uuid", m.ID.String(), formats); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (m *Object) validateTokenIds(formats strfmt.Registry) error {
+	if swag.IsZero(m.TokenIds) { // not required
+		return nil
+	}
+
+	if m.TokenIds != nil {
+		if err := m.TokenIds.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("tokenIds")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("tokenIds")
+			}
+			return err
+		}
 	}
 
 	return nil
@@ -163,6 +189,10 @@ func (m *Object) ContextValidate(ctx context.Context, formats strfmt.Registry) e
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateTokenIds(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateVector(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -184,6 +214,20 @@ func (m *Object) contextValidateAdditional(ctx context.Context, formats strfmt.R
 			return ve.ValidateName("additional")
 		} else if ce, ok := err.(*errors.CompositeError); ok {
 			return ce.ValidateName("additional")
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (m *Object) contextValidateTokenIds(ctx context.Context, formats strfmt.Registry) error {
+
+	if err := m.TokenIds.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("tokenIds")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("tokenIds")
 		}
 		return err
 	}

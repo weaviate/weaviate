@@ -369,6 +369,29 @@ func TestGRPCBatchRequest(t *testing.T) {
 			}},
 		},
 		{
+			name: "named multi vectors with token ids",
+			req: []*pb.BatchObject{{Collection: collection, Uuid: UUID4, Vectors: []*pb.Vectors{
+				{
+					Name:        "custom",
+					VectorBytes: byteVector([]float32{0.1, 0.2, 0.3}),
+				},
+				{
+					Name:        "colbert",
+					VectorBytes: byteVectorMulti([][]float32{{0.1, 0.2, 0.3}, {0.4, 0.5, 0.6}}),
+					Type:        pb.Vectors_VECTOR_TYPE_MULTI_FP32,
+					TokenIds:    []uint32{101, 7592},
+				},
+			}}},
+			out: []*models.Object{{
+				Class: collection, ID: UUID4, Properties: nilMap,
+				Vectors: map[string]models.Vector{
+					"custom":  []float32{0.1, 0.2, 0.3},
+					"colbert": [][]float32{{0.1, 0.2, 0.3}, {0.4, 0.5, 0.6}},
+				},
+				TokenIds: models.TokenIds{"colbert": {101, 7592}},
+			}},
+		},
+		{
 			name: "named multi vectors with 1 token level embedding",
 			req: []*pb.BatchObject{{Collection: collection, Uuid: UUID4, Vectors: []*pb.Vectors{
 				{

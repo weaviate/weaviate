@@ -1087,6 +1087,10 @@ type PreparedMarshal struct {
 	multiVectorsSegmentLength uint32
 	multiVectors              [][][]float32 // in multiVectorsOffsets order
 
+	// tokenIDs is the token ids section, empty when the object has none (see
+	// marshalTokenIDs)
+	tokenIDs []byte
+
 	size int
 }
 
@@ -1271,6 +1275,12 @@ func (ko *Object) prepareMarshal(addProps additional.Properties, skipClassName b
 	}
 	pm.multiVectorsSegmentLength = uint32(multiVectorsSegmentLength)
 
+	tokenIDs, err := marshalTokenIDs(ko.Object.TokenIds)
+	if err != nil {
+		return pm, err
+	}
+	pm.tokenIDs = tokenIDs
+
 	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 +
 		2 + vectorLength*4 +
 		2 + uint32(len(pm.className)) +
@@ -1281,6 +1291,9 @@ func (ko *Object) prepareMarshal(addProps additional.Properties, skipClassName b
 		4 + pm.targetVectorsSegmentLength +
 		4 + uint32(len(pm.multiVectorsOffsets)) +
 		4 + pm.multiVectorsSegmentLength
+	if len(pm.tokenIDs) > 0 {
+		totalBufferLength += 4 + uint32(len(pm.tokenIDs))
+	}
 	pm.size = int(totalBufferLength)
 
 	return pm, nil
@@ -1367,6 +1380,13 @@ func (pm *PreparedMarshal) MarshalTo(buf []byte) error {
 			rw.WriteUint16(uint16(vecLen))
 			byteops.CopySliceToBytes(rw.Buffer[rw.Position:rw.Position+uint64(vecLen)*byteops.Uint32Len], vec)
 			rw.MoveBufferPositionForward(uint64(vecLen) * byteops.Uint32Len)
+		}
+	}
+
+	if len(pm.tokenIDs) > 0 {
+		rw.WriteUint32(uint32(len(pm.tokenIDs)))
+		if err := rw.CopyBytesToBuffer(pm.tokenIDs); err != nil {
+			return errors.Wrap(err, "Could not copy tokenIDs")
 		}
 	}
 
@@ -1661,7 +1681,12 @@ func (ko *Object) unmarshalInternal(data []byte, className string, properties *P
 	}
 	ko.MultiVectors = multiVectors
 
-	return ko.parseObject(
+	tokenIDs, err := unmarshalTokenIDs(&rw)
+	if err != nil {
+		return errors.Wrap(err, "unmarshal token ids")
+	}
+
+	if err := ko.parseObject(
 		strfmt.UUID(uuidParsed.String()),
 		createTime,
 		updateTime,
@@ -1669,7 +1694,12 @@ func (ko *Object) unmarshalInternal(data []byte, className string, properties *P
 		schema,
 		meta,
 		vectorWeights, properties, uint32(schemaLength),
-	)
+	); err != nil {
+		return err
+	}
+	// parseObject replaces ko.Object
+	ko.Object.TokenIds = tokenIDs
+	return nil
 }
 
 // vectorSegment is the framing shared by the target-vector and multi-vector
@@ -2319,7 +2349,19 @@ func deepCopyObject(orig models.Object) models.Object {
 		Additional:         orig.Additional, // WARNING: not a deep copy!!
 		Properties:         deepCopyProperties(orig.Properties),
 		Vectors:            deepCopyVectors(orig.Vectors),
+		TokenIds:           deepCopyTokenIDs(orig.TokenIds),
 	}
+}
+
+func deepCopyTokenIDs(orig models.TokenIds) models.TokenIds {
+	if orig == nil {
+		return nil
+	}
+	out := make(models.TokenIds, len(orig))
+	for name, ids := range orig {
+		out[name] = append([]uint32(nil), ids...)
+	}
+	return out
 }
 
 func deepCopyProperties(orig models.PropertySchema) models.PropertySchema {
@@ -2365,4 +2407,64 @@ func deepCopyMRef(orig models.MultipleRef) models.MultipleRef {
 	}
 
 	return out
+}
+
+// The token ids section follows the multi-vector segment: a 4-byte length,
+// then the msgpack map from multi-vector name to the token id of each of its
+// tokens. It is written only when the object has token ids, so an object
+// without them keeps the bytes it had before the section existed, and a
+// reader that stops after the multi-vectors never sees it.
+func marshalTokenIDs(tokenIDs models.TokenIds) ([]byte, error) {
+	if len(tokenIDs) == 0 {
+		return nil, nil
+	}
+	out, err := msgpack.Marshal(map[string][]uint32(tokenIDs))
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal token ids")
+	}
+	return out, nil
+}
+
+// unmarshalTokenIDs reads the token ids section at the cursor, nil when the
+// value ends there.
+func unmarshalTokenIDs(rw *byteops.ReadWriter) (models.TokenIds, error) {
+	if rw.Remaining() == 0 {
+		return nil, nil
+	}
+	blob, err := rw.ReadBytesFromBufferWithUint32LengthIndicatorChecked()
+	if err != nil {
+		return nil, fmt.Errorf("token ids: %w", err)
+	}
+	var tokenIDs map[string][]uint32
+	if err := msgpack.Unmarshal(blob, &tokenIDs); err != nil {
+		return nil, fmt.Errorf("could not unmarshal token ids: %w", err)
+	}
+	return tokenIDs, nil
+}
+
+// TokenIDsFromBinary returns the token ids stored with targetVector's
+// multi-vector in an object's binary form, nil when the object holds none.
+// It walks past the vector sections without decoding them.
+func TokenIDsFromBinary(in []byte, targetVector string) ([]uint32, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	if in[0] != 1 {
+		return nil, errors.Errorf("unsupported marshaller version %d", in[0])
+	}
+	rw := byteops.NewReadWriterWithPosition(in, marshallerV1HeaderLen)
+	if err := skipToVectorSections(&rw); err != nil {
+		return nil, err
+	}
+	if err := skipVectorSegment(&rw, "target vectors"); err != nil {
+		return nil, err
+	}
+	if err := skipVectorSegment(&rw, "multi vectors"); err != nil {
+		return nil, err
+	}
+	tokenIDs, err := unmarshalTokenIDs(&rw)
+	if err != nil {
+		return nil, err
+	}
+	return tokenIDs[targetVector], nil
 }
