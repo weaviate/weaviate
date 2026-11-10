@@ -260,6 +260,38 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		assert.Equal(t, map[string]vectorIndexRecord{"foo": foo, "bar": bar}, records)
 	})
 
+	t.Run("refuses files a sibling with a generated ID names and deletes nothing", func(t *testing.T) {
+		indexPath, shardName := setup(t)
+		shardDir := filepath.Join(indexPath, shardName)
+		require.NoError(t, os.MkdirAll(shardDir, 0o755))
+
+		db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		foo := vectorIndexRecord{PhysicalID: "a-b", IndexType: "hnsw", State: "ready", QueueID: "a-b"}
+		mv := vectorIndexRecord{PhysicalID: "vectors_a-b", IndexType: "hnsw", State: "ready", QueueID: "vectors_mv"}
+		require.NoError(t, newVectorIndexMapping(db).Initialize(map[string]vectorIndexRecord{"foo": foo, "mv": mv}))
+		require.NoError(t, db.Close())
+
+		commitLog := filepath.Join(shardDir, "vectors_a-b.hnsw.commitlog.d")
+		bucket := filepath.Join(shardDir, "lsm", "vectors_a-b")
+		for _, dir := range []string{commitLog, bucket} {
+			require.NoError(t, os.MkdirAll(dir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "foo-data"), []byte("data"), 0o644))
+		}
+
+		err = h.removeVectorIndexFiles(indexPath, shardName, "mv", []string{"foo"})
+		require.ErrorContains(t, err, `vectors "foo" and "mv" both name "vectors_a-b`)
+
+		assert.True(t, pathExists(commitLog), "foo's graph stays")
+		assert.True(t, pathExists(bucket), "foo's bucket stays")
+		db, err = shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		defer db.Close()
+		records, _, err := newVectorIndexMapping(db).Load()
+		require.NoError(t, err)
+		assert.Equal(t, map[string]vectorIndexRecord{"foo": foo, "mv": mv}, records)
+	})
+
 	t.Run("leaves the record to a shard that holds the file locked", func(t *testing.T) {
 		indexPath, shardName := setup(t)
 		shardDir := filepath.Join(indexPath, shardName)
