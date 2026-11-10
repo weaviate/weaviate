@@ -45,6 +45,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entreplication "github.com/weaviate/weaviate/entities/replication"
 	entsync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
@@ -186,6 +187,10 @@ type Config struct {
 
 	NamespacesController *usecasesNamespaces.Controller
 	NamespacesEnabled    bool
+
+	// Replication bounds the home-node lists Raft.AddNamespace and
+	// Raft.UpdateNamespace propose.
+	Replication entreplication.GlobalConfig
 
 	// ReplicaCopier copies shard replicas between nodes
 	ReplicaCopier replicationTypes.ReplicaCopier

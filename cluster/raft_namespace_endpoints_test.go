@@ -14,6 +14,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -29,15 +30,18 @@ import (
 // setupRaftForNamespaceTests spins up a single-node RAFT cluster wired through
 // NewMockStore and waits until it has leadership. Tests can then exercise the
 // namespace endpoints end-to-end (from client call through Execute/Query,
-// RAFT apply, back up).
+// RAFT apply, back up). MaximumFactor is 1, so a create without HomeNodes
+// auto-picks one node.
 func setupRaftForNamespaceTests(t *testing.T) (*Raft, context.Context, func()) {
 	t.Helper()
-	return startSingleNodeRaft(t, NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort()))
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort(), func(c *Config) { c.Replication.MaximumFactor = 1 })
+	return startSingleNodeRaft(t, m)
 }
 
 // startSingleNodeRaft opens m's store as a single-node RAFT cluster and waits
-// until it has leadership.
-func startSingleNodeRaft(t *testing.T, m MockStore) (*Raft, context.Context, func()) {
+// until it has leadership. StorageCandidates returns storageNodes when there
+// are more of them than the one RAFT server.
+func startSingleNodeRaft(t *testing.T, m MockStore, storageNodes ...string) (*Raft, context.Context, func()) {
 	t.Helper()
 	ctx := context.Background()
 	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
@@ -46,7 +50,7 @@ func startSingleNodeRaft(t *testing.T, m MockStore) (*Raft, context.Context, fun
 	m.indexer.On("Close", Anything).Return(nil)
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 
-	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+	srv := NewRaft(mocks.NewMockNodeSelector(storageNodes...), m.store, nil)
 	require.NoError(t, srv.Open(ctx, m.indexer))
 	require.NoError(t, srv.store.Notify(m.cfg.NodeID, addr))
 	require.NoError(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
@@ -232,9 +236,9 @@ func TestRaftNamespaceEndpoints(t *testing.T) {
 	})
 }
 
-// TestRaftNamespaceEndpoints_HomeNode verifies that AddNamespace fills
-// HomeNode from the current storage candidates when the caller omits it,
-// and that an explicitly supplied HomeNode is persisted as-is.
+// TestRaftNamespaceEndpoints_HomeNode verifies that AddNamespace fills an
+// omitted HomeNodes from the storage candidates and persists an explicit one
+// as-is. factorRows pin the bounds the two replication factors put on the list.
 func TestRaftNamespaceEndpoints_HomeNode(t *testing.T) {
 	srv, ctx, cleanup := setupRaftForNamespaceTests(t)
 	defer cleanup()
@@ -264,93 +268,171 @@ func TestRaftNamespaceEndpoints_HomeNode(t *testing.T) {
 		require.Len(t, got, 1)
 		assert.Equal(t, hn, got[0].Primary())
 	})
-}
 
-// TestRaftNamespaceEndpoints_Update covers UpdateNamespace: it rewrites the
-// stored HomeNode for existing namespaces and returns typed errors for
-// missing ones or invalid payloads.
-func TestRaftNamespaceEndpoints_Update(t *testing.T) {
-	srv, ctx, cleanup := setupRaftForNamespaceTests(t)
-	defer cleanup()
-
-	// Seed once; the wantErr cases below don't mutate the stored namespace,
-	// so cases share the same fixture.
-	_, version, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-a"}})
-	require.NoError(t, err)
-	require.NoError(t, srv.WaitForUpdate(ctx, version))
-
-	tests := []struct {
+	factorRows := []struct {
 		name       string
-		ns         cmd.Namespace
-		wantErr    error
-		wantStored string // expected HomeNode after a successful update
+		minFactor  int
+		maxFactor  int
+		candidates []string // storage candidates; n1, n2 and n3 when nil
+		homeNodes  []string
+		wantErr    []string // substrings of the ErrBadRequest text; nil when the create is stored
+		wantLen    int
 	}{
-		{name: "update rewrites home_node", ns: cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-b"}}, wantStored: "node-b"},
-		{name: "update missing returns ErrNotFound", ns: cmd.Namespace{Name: "never-existed", HomeNodes: []string{"node-a"}}, wantErr: usecasesNamespaces.ErrNotFound},
-		{name: "update empty home_node returns ErrBadRequest", ns: cmd.Namespace{Name: "customer1"}, wantErr: usecasesNamespaces.ErrBadRequest},
+		{name: "min 2 max 2 auto-picks two of three", minFactor: 2, maxFactor: 2, wantLen: 2},
+		{name: "min 2 refuses an explicit one-entry list", minFactor: 2, homeNodes: []string{"n1"}, wantErr: []string{"home_nodes has 1 entries"}},
+		{name: "min 3 refuses an auto-pick from two candidates", minFactor: 3, maxFactor: 3, candidates: []string{"n1", "n2"}, wantErr: []string{"only 2 storage node(s)"}},
+		{name: "negative maximum refuses an empty create", maxFactor: -1, wantErr: []string{"REPLICATION_MAXIMUM_FACTOR"}},
 	}
-
-	for _, tc := range tests {
+	for _, tc := range factorRows {
 		t.Run(tc.name, func(t *testing.T) {
-			v, err := srv.UpdateNamespace(ctx, tc.ns)
+			candidates := tc.candidates
+			if candidates == nil {
+				candidates = []string{"n1", "n2", "n3"}
+			}
+			m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort(), func(c *Config) {
+				c.Replication.MinimumFactor = tc.minFactor
+				c.Replication.MaximumFactor = tc.maxFactor
+			})
+			srv, ctx, cleanup := startSingleNodeRaft(t, m, candidates...)
+			defer cleanup()
+
+			created, version, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "bounded", HomeNodes: tc.homeNodes})
 			if tc.wantErr != nil {
-				require.Error(t, err)
-				assert.ErrorIs(t, err, tc.wantErr)
+				require.ErrorIs(t, err, usecasesNamespaces.ErrBadRequest)
+				for _, text := range tc.wantErr {
+					assert.ErrorContains(t, err, text)
+				}
+				assert.Zero(t, srv.NamespaceCount(), "a refused create must propose nothing")
 				return
 			}
 			require.NoError(t, err)
-			require.NoError(t, srv.WaitForUpdate(ctx, v))
-			got, err := srv.GetNamespaces(tc.ns.Name)
+			require.NoError(t, srv.WaitForUpdate(ctx, version))
+			got, err := srv.GetNamespaces("bounded")
 			require.NoError(t, err)
 			require.Len(t, got, 1)
-			assert.Equal(t, tc.wantStored, got[0].Primary())
+			assert.Equal(t, created.HomeNodes, got[0].HomeNodes)
+			assert.Len(t, got[0].HomeNodes, tc.wantLen)
+			assert.Subset(t, candidates, got[0].HomeNodes)
 		})
 	}
 }
 
-// TestNextHomeNode_RoundRobin exercises the persisted iterator with a fixed
-// candidate list. After the (random) first pick, successive calls advance
-// by exactly one position; once the iterator reaches the end of the list
-// it wraps. The test doesn't pin which slot is picked first (that's random
-// by design), only that no slot is repeated within a full N-call rotation.
-func TestNextHomeNode_RoundRobin(t *testing.T) {
-	r := &Raft{}
-	nodes := []string{"A", "B", "C", "D"}
-
-	first, err := r.nextHomeNode(nodes)
-	require.NoError(t, err)
-	require.Contains(t, nodes, first)
-
-	seen := map[string]int{first: 1}
-	for i := 0; i < len(nodes)-1; i++ {
-		got, err := r.nextHomeNode(nodes)
-		require.NoError(t, err)
-		seen[got]++
-	}
-	for _, n := range nodes {
-		assert.Equal(t, 1, seen[n], "node %s should be picked exactly once in one rotation, got %d", n, seen[n])
-	}
-
-	wrap, err := r.nextHomeNode(nodes)
-	require.NoError(t, err)
-	assert.Equal(t, first, wrap, "after a full rotation the iterator should wrap back to the first pick")
+// TestRaftNamespaceEndpoints_AutoPickNoCandidates pins that an auto-pick with
+// no storage candidates is refused with ErrBadRequest, which the REST handler
+// maps to 422. The Raft is never opened, so StorageCandidates is empty.
+func TestRaftNamespaceEndpoints_AutoPickNoCandidates(t *testing.T) {
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort(), func(c *Config) {
+		c.Replication.MinimumFactor = 1
+		c.Replication.MaximumFactor = 1
+	})
+	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+	_, _, err := srv.AddNamespace(context.Background(), cmd.Namespace{Name: "nocand"})
+	require.ErrorIs(t, err, usecasesNamespaces.ErrBadRequest)
+	require.ErrorContains(t, err, "no storage candidates")
 }
 
-// TestNextHomeNode_RebuildsOnCandidateChange covers the membership-change
+// TestRaftNamespaceEndpoints_Update seeds each row's store with [n1 n2]. It
+// checks that UpdateNamespace rewrites the list, and that a refused update,
+// including one shorter than REPLICATION_MINIMUM_FACTOR, leaves it unchanged.
+func TestRaftNamespaceEndpoints_Update(t *testing.T) {
+	seeded := []string{"n1", "n2"}
+	tests := []struct {
+		name       string
+		minFactor  int
+		ns         cmd.Namespace
+		wantErr    error
+		wantStored []string // customer1's HomeNodes after the update
+	}{
+		{name: "update rewrites home_node", ns: cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-b"}}, wantStored: []string{"node-b"}},
+		{name: "update missing returns ErrNotFound", ns: cmd.Namespace{Name: "never-existed", HomeNodes: []string{"node-a"}}, wantErr: usecasesNamespaces.ErrNotFound, wantStored: seeded},
+		{name: "update empty home_node returns ErrBadRequest", ns: cmd.Namespace{Name: "customer1"}, wantErr: usecasesNamespaces.ErrBadRequest, wantStored: seeded},
+		{name: "update below the minimum returns ErrBadRequest", minFactor: 2, ns: cmd.Namespace{Name: "customer1", HomeNodes: []string{"n1"}}, wantErr: usecasesNamespaces.ErrBadRequest, wantStored: seeded},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort(), func(c *Config) { c.Replication.MinimumFactor = tc.minFactor })
+			srv, ctx, cleanup := startSingleNodeRaft(t, m)
+			defer cleanup()
+			_, version, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "customer1", HomeNodes: seeded})
+			require.NoError(t, err)
+			require.NoError(t, srv.WaitForUpdate(ctx, version))
+
+			v, err := srv.UpdateNamespace(ctx, tc.ns)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+				require.NoError(t, srv.WaitForUpdate(ctx, v))
+			}
+			got, err := srv.GetNamespaces("customer1")
+			require.NoError(t, err)
+			require.Len(t, got, 1)
+			assert.Equal(t, tc.wantStored, got[0].HomeNodes)
+		})
+	}
+}
+
+// TestNextHomeNodes_RoundRobin pins the picks of successive calls on one
+// candidate list, listed in call order in wantCycle. The first head is random,
+// so the test finds the first pick in wantCycle and expects the rest to follow.
+func TestNextHomeNodes_RoundRobin(t *testing.T) {
+	tests := []struct {
+		name      string
+		nodes     []string
+		n         int
+		wantCycle [][]string
+	}{
+		{
+			name: "two of three", nodes: []string{"A", "B", "C"}, n: 2,
+			wantCycle: [][]string{{"A", "B"}, {"B", "C"}, {"C", "A"}},
+		},
+		{
+			name: "three of three, unsorted input", nodes: []string{"B", "A", "C"}, n: 3,
+			wantCycle: [][]string{{"A", "B", "C"}, {"B", "C", "A"}, {"C", "A", "B"}},
+		},
+		{
+			name: "three of one", nodes: []string{"A"}, n: 3,
+			wantCycle: [][]string{{"A"}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &Raft{}
+			first, err := r.nextHomeNodes(tc.nodes, tc.n)
+			require.NoError(t, err)
+			start := slices.IndexFunc(tc.wantCycle, func(want []string) bool { return slices.Equal(want, first) })
+			require.NotEqual(t, -1, start, "first pick %v is not in the expected cycle", first)
+
+			for i := 1; i <= len(tc.wantCycle); i++ {
+				got, err := r.nextHomeNodes(tc.nodes, tc.n)
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantCycle[(start+i)%len(tc.wantCycle)], got, "call %d", i)
+			}
+		})
+	}
+}
+
+// TestNextHomeNodes_RebuildsOnCandidateChange covers the membership-change
 // case: when the candidate set differs from the one the cached iterator was
 // built with, the iterator is rebuilt so newly added nodes become eligible
 // and removed nodes drop out. Without the rebuild, callers would keep
 // rotating through the stale set indefinitely.
-func TestNextHomeNode_RebuildsOnCandidateChange(t *testing.T) {
+func TestNextHomeNodes_RebuildsOnCandidateChange(t *testing.T) {
 	r := &Raft{}
+	pick := func(nodes []string) string {
+		t.Helper()
+		got, err := r.nextHomeNodes(nodes, 1)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		return got[0]
+	}
 	initial := []string{"A", "B"}
 
 	// Burn through one full rotation on the initial set to seed the iterator.
 	seen := map[string]bool{}
 	for i := 0; i < len(initial); i++ {
-		got, err := r.nextHomeNode(initial)
-		require.NoError(t, err)
-		seen[got] = true
+		seen[pick(initial)] = true
 	}
 	assert.Equal(t, map[string]bool{"A": true, "B": true}, seen, "initial rotation should cover the initial set")
 
@@ -359,17 +441,16 @@ func TestNextHomeNode_RebuildsOnCandidateChange(t *testing.T) {
 	updated := []string{"A", "C", "D"}
 	seen = map[string]bool{}
 	for i := 0; i < len(updated); i++ {
-		got, err := r.nextHomeNode(updated)
-		require.NoError(t, err)
+		got := pick(updated)
 		assert.Contains(t, updated, got, "post-change pick must come from the updated set, never the removed node")
 		seen[got] = true
 	}
 	assert.Equal(t, map[string]bool{"A": true, "C": true, "D": true}, seen, "post-change rotation should cover the updated set exactly once")
 }
 
-// TestNextHomeNode_NoCandidates returns an error rather than picking nothing.
-func TestNextHomeNode_NoCandidates(t *testing.T) {
+// TestNextHomeNodes_NoCandidates returns an error rather than picking nothing.
+func TestNextHomeNodes_NoCandidates(t *testing.T) {
 	r := &Raft{}
-	_, err := r.nextHomeNode(nil)
+	_, err := r.nextHomeNodes(nil, 1)
 	require.Error(t, err)
 }
