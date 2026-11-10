@@ -14,6 +14,7 @@ package postingedge
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -309,6 +310,49 @@ func TestAddBatchRejectsWhatItCannotStore(t *testing.T) {
 		cancel()
 		require.ErrorIs(t, index.AddBatch(cancelled, []uint64{7}, vectors[7:8]), context.Canceled)
 		assert.False(t, index.ContainsDoc(7))
+	})
+
+	// A vector without a nearest centroid would fail the build of the whole
+	// index, so it must not get in, and must not take its batch with it.
+	nan, inf := float32(math.NaN()), float32(math.Inf(1))
+	unusable := map[string][]float32{
+		"a NaN value":               {1, 2, nan, 4, 5, 6, 7, 8},
+		"an infinite value":         {1, 2, 3, 4, inf, 6, 7, 8},
+		"a negative infinite value": {1, 2, 3, 4, 5, -inf, 7, 8},
+		"values that overflow":      {3e19, 3e19, 0, 0, 0, 0, 0, 0},
+	}
+	for name, bad := range unusable {
+		t.Run(name, func(t *testing.T) {
+			index := newIndex(t)
+			require.Error(t, index.ValidateBeforeInsert(bad))
+			require.Error(t, index.AddBatch(ctx, []uint64{7, 8}, [][]float32{vectors[7], bad}))
+			assert.False(t, index.ContainsDoc(7))
+			assert.False(t, index.ContainsDoc(8))
+
+			require.NoError(t, index.Build(ctx), "the vectors that did get in must still build")
+			ids, _, err := index.SearchByVector(ctx, vectors[0], 3, nil)
+			require.NoError(t, err)
+			assert.Len(t, ids, 3)
+		})
+	}
+
+	t.Run("large but usable values are accepted", func(t *testing.T) {
+		// The store has to hold the large vector too: the search rescores
+		// against what the thunk returns for the id.
+		large := []float32{1e18, -1e18, 1e18, 0, 0, 0, 0, 0}
+		stored := slices.Clone(vectors)
+		stored[7] = large
+		index, err := New(testConfig(t, stored, 0, provider), uc)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, index.Shutdown(ctx)) })
+
+		require.NoError(t, index.ValidateBeforeInsert(large))
+		require.NoError(t, index.AddBatch(ctx, sequentialIDs(8, 0), stored[:8]))
+		require.NoError(t, index.Build(ctx))
+		ids, dists, err := index.SearchByVector(ctx, large, 1, nil)
+		require.NoError(t, err)
+		assert.Equal(t, []uint64{7}, ids)
+		assert.Equal(t, []float32{0}, dists)
 	})
 
 	t.Run("a vector without dimensions as the first vector", func(t *testing.T) {

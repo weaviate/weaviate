@@ -13,6 +13,7 @@ package postingedge
 
 import (
 	"context"
+	"math"
 	"slices"
 	"sync"
 	"testing"
@@ -305,6 +306,18 @@ func TestSearchRejectsWhatItCannotServe(t *testing.T) {
 	t.Run("a query of the wrong length", func(t *testing.T) {
 		_, _, err := index.SearchByVector(ctx, make([]float32, 7), 5, nil)
 		require.Error(t, err)
+	})
+
+	t.Run("a query that is not finite", func(t *testing.T) {
+		for name, value := range map[string]float32{
+			"NaN": float32(math.NaN()), "infinite": float32(math.Inf(1)), "overflowing": 3e19,
+		} {
+			query := slices.Clone(vectors[0])
+			query[3], query[4] = value, value
+			ids, _, err := index.SearchByVector(ctx, query, 5, nil)
+			require.Errorf(t, err, "%s query", name)
+			require.Emptyf(t, ids, "%s query", name)
+		}
 	})
 
 	t.Run("a non-positive k", func(t *testing.T) {

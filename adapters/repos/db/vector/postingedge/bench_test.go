@@ -17,32 +17,34 @@
 // One invocation measures one arm, so that memory readings are not polluted
 // by the other index:
 //
-//	go test -tags postingedgebench -run TestBenchmark -timeout 0 -v \
+//	go test -tags postingedgebench -run 'TestBenchmark$' -timeout 0 -v \
 //	    ./adapters/repos/db/vector/postingedge/ \
 //	    -bench.dataset ~/datasets/dbpedia-openai-1000k-angular.bin \
 //	    -bench.arm postingedge -bench.out postingedge.json
 //
-// The dataset is a directory with meta.txt ("train <rows> <dims>", "test
-// <rows> <dims>", "neighbors <rows> <k>" lines) and the raw little-endian
-// train.f32, test.f32 and neighbors.i32 next to it. Both arms hold the
-// full-precision vectors in the same in-memory array and read them through
-// the same thunk, use the same quantization (centered 1-bit RQ) and the same
-// rescore limit, and run with a per-query concurrency budget of 1, so a
-// thread is a thread for both.
+// The dataset is a directory in the layout testinghelpers.ReadRawDataset
+// reads. Both arms hold the full-precision vectors in the same in-memory
+// array and read them through the same thunk, use the same quantization
+// (centered 1-bit RQ) and the same rescore limit, and run with a per-query
+// concurrency budget of 1, so a thread is a thread for both.
+//
+// The operating points come from -bench.sweep, which can be given several
+// times. With -bench.mode work the posting-edge arm skips the timed passes
+// and only reports the work of a search at each point. The HNSW counterpart
+// of that, which needs the internals of the index, is TestSearchWork of the
+// hnsw package. TestBenchmarkReport turns the result files into tables and
+// charts.
 
 package postingedge
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
-	"io"
 	"math"
 	"math/rand/v2"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"slices"
@@ -53,7 +55,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-	"unsafe"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -91,6 +92,9 @@ var (
 
 	benchMaxConn = flag.Int("bench.maxconn", enthnsw.DefaultMaxConnections, "hnsw: max connections")
 	benchEFC     = flag.Int("bench.efc", enthnsw.DefaultEFConstruction, "hnsw: ef construction")
+
+	benchMode   = flag.String("bench.mode", "full", "full: timed passes plus work stats; work: postingedge only, the work stats without the timed passes")
+	benchSettle = flag.Int("bench.settle", 1000, "queries run before the after-queries memory reading")
 
 	benchSweeps sweepFlag
 )
@@ -160,26 +164,41 @@ type benchData struct {
 	truth   [][]uint64
 }
 
+// memSnapshot is one reading of the process memory. RSS is what ps reports.
+// On macOS that includes the pages the Go runtime has already handed back as
+// reusable, so the physical footprint (what the process is charged for) is
+// read as well where the footprint tool exists.
 type memSnapshot struct {
 	HeapAllocMB float64 `json:"heapAllocMB"`
 	HeapInuseMB float64 `json:"heapInuseMB"`
 	RSSMB       float64 `json:"rssMB"`
+	FootprintMB float64 `json:"footprintMB,omitempty"`
 }
 
+// statsSummary is the work of a search at one operating point, over the
+// query set. The means are per query, the times in microseconds.
 type statsSummary struct {
 	RoundsMean    float64 `json:"roundsMean"`
 	RoundsP50     float64 `json:"roundsP50"`
 	RoundsP95     float64 `json:"roundsP95"`
 	RoundsMax     float64 `json:"roundsMax"`
 	LoadsMean     float64 `json:"loadsMean"`
+	LoadsP50      float64 `json:"loadsP50"`
 	LoadsP95      float64 `json:"loadsP95"`
 	ScannedMean   float64 `json:"scannedMean"`
+	EdgesMean     float64 `json:"edgesFollowedMean"`
+	InLoadedMean  float64 `json:"endpointsInLoadedMean"`
+	RepeatedMean  float64 `json:"endpointsRepeatedMean"`
 	EndpointsMean float64 `json:"endpointsMean"`
 	RescoredMean  float64 `json:"rescoredMean"`
 	CentroidUs    float64 `json:"centroidUs"`
 	ScanUs        float64 `json:"scanUs"`
 	ExpandUs      float64 `json:"expandUs"`
+	SelectUs      float64 `json:"selectUs"`
 	RescoreUs     float64 `json:"rescoreUs"`
+	// TotalUs is the whole search as timed from outside, so that what the
+	// phases do not cover can be told.
+	TotalUs float64 `json:"totalUs"`
 }
 
 type benchPoint struct {
@@ -211,12 +230,16 @@ type benchResult struct {
 	BuildSec   float64            `json:"buildSec"`
 	BuildStage map[string]float64 `json:"buildStageSec,omitempty"`
 
-	Baseline    memSnapshot        `json:"memBaseline"`
-	AfterBuild  memSnapshot        `json:"memAfterBuild"`
-	IndexHeapMB float64            `json:"indexHeapMB"`
-	PeakRSSMB   float64            `json:"peakRSSMB"`
-	Components  map[string]float64 `json:"componentsMB"`
-	Diagnostics map[string]float64 `json:"diagnostics,omitempty"`
+	Baseline   memSnapshot `json:"memBaseline"`
+	AfterBuild memSnapshot `json:"memAfterBuild"`
+	// AfterQueries is read after SettleQueries searches, without forcing a
+	// collection first: the process as it stands while serving.
+	AfterQueries  memSnapshot        `json:"memAfterQueries"`
+	SettleQueries int                `json:"settleQueries"`
+	IndexHeapMB   float64            `json:"indexHeapMB"`
+	PeakRSSMB     float64            `json:"peakRSSMB"`
+	Components    map[string]float64 `json:"componentsMB"`
+	Diagnostics   map[string]float64 `json:"diagnostics,omitempty"`
 
 	Points []benchPoint `json:"points"`
 }
@@ -346,15 +369,20 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 	t.Logf("memory: index heap %.1f MB, analytic %.1f MB, components %v, rss %.0f MB, peak rss %.0f MB",
 		result.IndexHeapMB, analytic, result.Components, result.AfterBuild.RSSMB, result.PeakRSSMB)
 
-	result.Diagnostics = postingEdgeDiagnostics(t, index, data, build, *benchSample)
-	t.Logf("diagnostics: %v", result.Diagnostics)
-	writeBenchResult(t, result)
-
 	search := func(ctx context.Context, query []float32) ([]uint64, error) {
 		ids, _, err := index.SearchByVector(ctx, query, *benchK, nil)
 		return ids, err
 	}
-	for _, sw := range benchSweepPlan(t) {
+	plan := benchSweepPlan(t)
+	uc.EF, uc.LoadBatch, uc.RescoreLimit = plan[0].efs[0], plan[0].batches[0], plan[0].rescores[0]
+	require.NoError(t, index.UpdateUserConfig(uc, func() {}))
+	settle(t, data, search, result)
+
+	result.Diagnostics = postingEdgeDiagnostics(t, index, data, build, *benchSample)
+	t.Logf("diagnostics: %v", result.Diagnostics)
+	writeBenchResult(t, result)
+
+	for _, sw := range plan {
 		for _, rescore := range sw.rescores {
 			for _, loadBatch := range sw.batches {
 				for _, threads := range sw.threads {
@@ -362,16 +390,30 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 						uc.EF, uc.LoadBatch, uc.RescoreLimit = ef, loadBatch, rescore
 						require.NoError(t, index.UpdateUserConfig(uc, func() {}))
 
-						point := measurePoint(t, data, search, threads, *benchRuns)
+						// The work of a search does not depend on timing or
+						// on the thread count, so the work mode skips the
+						// timed passes and reports each point once.
+						point := benchPoint{Threads: threads}
+						if *benchMode != "work" {
+							point = measurePoint(t, data, search, threads, *benchRuns)
+						}
 						point.EF, point.LoadBatch, point.RescoreLimit = ef, loadBatch, rescore
-						point.Stats = collectSearchStats(t, index, data)
+						var recall float64
+						point.Stats, recall = collectSearchStats(t, index, data)
+						if *benchMode == "work" {
+							point.Recall = recall
+						}
 						result.Points = append(result.Points, point)
 						s := point.Stats
-						t.Logf("ef=%d rescore=%d batch=%d threads=%d recall=%.4f qps=%.0f p50=%.3fms p95=%.3fms | rounds %.1f (p95 %.0f) loads %.1f scanned %.0f endpoints %.0f | us: centroid %.0f scan %.0f expand %.0f rescore %.0f",
+						t.Logf("ef=%d rescore=%d batch=%d threads=%d recall=%.4f qps=%.0f p50=%.3fms p95=%.3fms | rounds %.1f (p95 %.0f) loads %.1f/%.0f/%.0f scanned %.0f edges %.0f (in loaded %.0f, repeated %.0f) endpoints %.0f rescored %.0f | us: centroid %.0f scan %.0f expand %.0f select %.0f rescore %.0f total %.0f",
 							ef, rescore, loadBatch, threads, point.Recall, point.QPS, point.P50Ms, point.P95Ms,
-							s.RoundsMean, s.RoundsP95, s.LoadsMean, s.ScannedMean, s.EndpointsMean,
-							s.CentroidUs, s.ScanUs, s.ExpandUs, s.RescoreUs)
+							s.RoundsMean, s.RoundsP95, s.LoadsMean, s.LoadsP50, s.LoadsP95, s.ScannedMean,
+							s.EdgesMean, s.InLoadedMean, s.RepeatedMean, s.EndpointsMean, s.RescoredMean,
+							s.CentroidUs, s.ScanUs, s.ExpandUs, s.SelectUs, s.RescoreUs, s.TotalUs)
 						writeBenchResult(t, result)
+					}
+					if *benchMode == "work" {
+						break
 					}
 				}
 			}
@@ -494,12 +536,14 @@ func benchHNSW(t *testing.T, ctx context.Context, data *benchData, result *bench
 	}
 	t.Logf("memory: index heap %.1f MB, components %v, rss %.0f MB, peak rss %.0f MB",
 		result.IndexHeapMB, result.Components, result.AfterBuild.RSSMB, result.PeakRSSMB)
-	writeBenchResult(t, result)
 
 	search := func(ctx context.Context, query []float32) ([]uint64, error) {
 		ids, _, err := index.SearchByVector(ctx, query, *benchK, nil)
 		return ids, err
 	}
+	settle(t, data, search, result)
+	writeBenchResult(t, result)
+
 	for _, sw := range benchSweepPlan(t) {
 		for _, rescore := range sw.rescores {
 			for _, threads := range sw.threads {
@@ -601,36 +645,53 @@ func measurePoint(t *testing.T, data *benchData, search func(context.Context, []
 }
 
 // collectSearchStats runs the query set once more, single-threaded, with
-// the per-search stats on. It is kept out of the timed passes because
-// collecting the stats reads the clock.
-func collectSearchStats(t *testing.T, index *Index, data *benchData) *statsSummary {
+// the per-search stats on, and returns them with the recall of that pass. It
+// is kept out of the timed passes because collecting the stats reads the
+// clock and counts in passes of its own.
+func collectSearchStats(t *testing.T, index *Index, data *benchData) (*statsSummary, float64) {
 	ctx := concurrency.CtxWithBudget(context.Background(), 1)
 	n := float64(len(data.queries))
 	rounds := make([]float64, 0, len(data.queries))
 	loads := make([]float64, 0, len(data.queries))
 	var sum statsSummary
-	for _, query := range data.queries {
-		_, _, stats, err := index.SearchByVectorWithStats(ctx, query, *benchK, nil)
+	hits, total := 0, 0
+	for i, query := range data.queries {
+		begin := time.Now()
+		ids, _, stats, err := index.SearchByVectorWithStats(ctx, query, *benchK, nil)
+		took := time.Since(begin)
 		require.NoError(t, err)
+		for _, want := range data.truth[i] {
+			if slices.Contains(ids, want) {
+				hits++
+			}
+		}
+		total += len(data.truth[i])
+
 		rounds = append(rounds, float64(stats.Rounds))
 		loads = append(loads, float64(stats.PostingsLoaded))
 		sum.RoundsMean += float64(stats.Rounds) / n
 		sum.LoadsMean += float64(stats.PostingsLoaded) / n
 		sum.ScannedMean += float64(stats.VectorsScanned) / n
+		sum.EdgesMean += float64(stats.EdgesFollowed) / n
+		sum.InLoadedMean += float64(stats.EndpointsInLoaded) / n
+		sum.RepeatedMean += float64(stats.EndpointsRepeated()) / n
 		sum.EndpointsMean += float64(stats.EndpointsScored) / n
 		sum.RescoredMean += float64(stats.Rescored) / n
 		sum.CentroidUs += float64(stats.CentroidTime.Nanoseconds()) / 1e3 / n
 		sum.ScanUs += float64(stats.ScanTime.Nanoseconds()) / 1e3 / n
 		sum.ExpandUs += float64(stats.ExpandTime.Nanoseconds()) / 1e3 / n
+		sum.SelectUs += float64(stats.SelectTime.Nanoseconds()) / 1e3 / n
 		sum.RescoreUs += float64(stats.RescoreTime.Nanoseconds()) / 1e3 / n
+		sum.TotalUs += float64(took.Nanoseconds()) / 1e3 / n
 	}
 	slices.Sort(rounds)
 	slices.Sort(loads)
 	sum.RoundsP50 = percentileOf(rounds, 0.50)
 	sum.RoundsP95 = percentileOf(rounds, 0.95)
 	sum.RoundsMax = rounds[len(rounds)-1]
+	sum.LoadsP50 = percentileOf(loads, 0.50)
 	sum.LoadsP95 = percentileOf(loads, 0.95)
-	return &sum
+	return &sum, float64(hits) / float64(total)
 }
 
 // postingEdgeDiagnostics measures what the search cost depends on but no
@@ -730,38 +791,11 @@ func postingEdgeDiagnostics(t *testing.T, index *Index, data *benchData, build B
 }
 
 func loadBenchData(t *testing.T, dir string, limit, queries, k int) *benchData {
-	meta := map[string][2]int{}
-	file, err := os.Open(filepath.Join(dir, "meta.txt"))
+	raw, err := testinghelpers.ReadRawDataset(dir, limit, queries)
 	require.NoError(t, err)
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		fields := strings.Fields(scanner.Text())
-		if len(fields) != 3 {
-			continue
-		}
-		rows, errRows := strconv.Atoi(fields[1])
-		cols, errCols := strconv.Atoi(fields[2])
-		if errRows == nil && errCols == nil {
-			meta[fields[0]] = [2]int{rows, cols}
-		}
-	}
-	require.NoError(t, scanner.Err())
-	require.NoError(t, file.Close())
+	data := &benchData{name: raw.Name, dims: raw.Dims, train: raw.Train, queries: raw.Queries}
+	n, q := len(data.train), len(data.queries)
 
-	train, test, neighbors := meta["train"], meta["test"], meta["neighbors"]
-	require.NotZero(t, train[0], "meta.txt must describe the train set")
-	require.NotZero(t, test[0], "meta.txt must describe the test set")
-	dims := train[1]
-	require.Equal(t, dims, test[1])
-
-	data := &benchData{name: filepath.Base(dir), dims: dims}
-	n := train[0]
-	if limit > 0 && limit < n {
-		n = limit
-	}
-	data.train = readVectors(t, filepath.Join(dir, "train.f32"), n, dims)
-	q := min(queries, test[0])
-	data.queries = readVectors(t, filepath.Join(dir, "test.f32"), q, dims)
 	// The benchmark is a cosine benchmark. Unit vectors up front let the
 	// brute-force passes below use the distance provider directly; both
 	// indexes normalize what they are given anyway.
@@ -769,14 +803,9 @@ func loadBenchData(t *testing.T, dir string, limit, queries, k int) *benchData {
 	parallelFor(q, func(i int) { distancer.NormalizeInPlace(data.queries[i]) })
 
 	data.truth = make([][]uint64, q)
-	if n == train[0] && neighbors[0] >= q && neighbors[1] >= k {
-		raw := make([]int32, q*neighbors[1])
-		readRaw(t, filepath.Join(dir, "neighbors.i32"), unsafe.Slice((*byte)(unsafe.Pointer(&raw[0])), len(raw)*4))
+	if raw.Neighbors != nil && len(raw.Neighbors[0]) >= k {
 		for i := range data.truth {
-			data.truth[i] = make([]uint64, k)
-			for j := range data.truth[i] {
-				data.truth[i][j] = uint64(raw[i*neighbors[1]+j])
-			}
+			data.truth[i] = raw.Neighbors[i][:k]
 		}
 		return data
 	}
@@ -801,24 +830,6 @@ func loadBenchData(t *testing.T, dir string, limit, queries, k int) *benchData {
 	return data
 }
 
-func readVectors(t *testing.T, path string, rows, dims int) [][]float32 {
-	flat := make([]float32, rows*dims)
-	readRaw(t, path, unsafe.Slice((*byte)(unsafe.Pointer(&flat[0])), len(flat)*4))
-	out := make([][]float32, rows)
-	for i := range out {
-		out[i] = flat[i*dims : (i+1)*dims : (i+1)*dims]
-	}
-	return out
-}
-
-func readRaw(t *testing.T, path string, into []byte) {
-	file, err := os.Open(path)
-	require.NoError(t, err)
-	defer file.Close()
-	_, err = io.ReadFull(file, into)
-	require.NoError(t, err)
-}
-
 func writeBenchResult(t *testing.T, result *benchResult) {
 	if *benchOut == "" {
 		return
@@ -828,29 +839,67 @@ func writeBenchResult(t *testing.T, result *benchResult) {
 	require.NoError(t, os.WriteFile(*benchOut, raw, 0o644))
 }
 
-// takeMemSnapshot reads the live heap and the resident set after returning
-// everything collectable to the OS.
+// takeMemSnapshot reads the process memory after returning everything
+// collectable to the OS: what the process needs to hold.
 func takeMemSnapshot(t *testing.T) memSnapshot {
 	runtime.GC()
 	runtime.GC()
 	debug.FreeOSMemory()
+	return readProcessMemory(t)
+}
+
+// readProcessMemory reads the process memory as it stands.
+func readProcessMemory(t *testing.T) memSnapshot {
 	var stats runtime.MemStats
 	runtime.ReadMemStats(&stats)
-
 	snapshot := memSnapshot{
 		HeapAllocMB: float64(stats.HeapAlloc) / (1 << 20),
 		HeapInuseMB: float64(stats.HeapInuse) / (1 << 20),
 	}
-	out, err := exec.Command("ps", "-o", "rss=", "-p", strconv.Itoa(os.Getpid())).Output()
+
+	pid := strconv.Itoa(os.Getpid())
+	out, err := exec.Command("ps", "-o", "rss=", "-p", pid).Output()
 	if err != nil {
 		t.Logf("cannot read rss: %v", err)
-		return snapshot
-	}
-	kb, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
-	if err == nil {
+	} else if kb, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64); err == nil {
 		snapshot.RSSMB = kb / 1024
 	}
+
+	if runtime.GOOS == "darwin" {
+		// "<name> [<pid>]: 64-bit    Footprint: 6329 MB (16384 bytes per page)"
+		out, err := exec.Command("footprint", pid).Output()
+		if err != nil {
+			t.Logf("cannot read the physical footprint: %v", err)
+			return snapshot
+		}
+		_, after, found := strings.Cut(string(out), "Footprint: ")
+		fields := strings.Fields(after)
+		if found && len(fields) >= 2 {
+			value, err := strconv.ParseFloat(fields[0], 64)
+			unit := map[string]float64{"KB": 1.0 / 1024, "MB": 1, "GB": 1024}[fields[1]]
+			if err == nil && unit != 0 {
+				snapshot.FootprintMB = value * unit
+			}
+		}
+	}
 	return snapshot
+}
+
+// settle runs the first queries of the set on one thread and then reads the
+// process memory, to show what serving adds on top of the built index.
+func settle(t *testing.T, data *benchData, search func(context.Context, []float32) ([]uint64, error),
+	result *benchResult,
+) {
+	ctx := concurrency.CtxWithBudget(context.Background(), 1)
+	result.SettleQueries = *benchSettle
+	for i := 0; i < *benchSettle; i++ {
+		_, err := search(ctx, data.queries[i%len(data.queries)])
+		require.NoError(t, err)
+	}
+	result.AfterQueries = readProcessMemory(t)
+	t.Logf("memory after build: rss %.0f MB, footprint %.0f MB, heap %.0f MB; after %d queries: rss %.0f MB, footprint %.0f MB, heap %.0f MB",
+		result.AfterBuild.RSSMB, result.AfterBuild.FootprintMB, result.AfterBuild.HeapAllocMB,
+		result.SettleQueries, result.AfterQueries.RSSMB, result.AfterQueries.FootprintMB, result.AfterQueries.HeapAllocMB)
 }
 
 // peakRSSMB is the high-water mark of the resident set so far.

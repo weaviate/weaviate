@@ -68,7 +68,16 @@ type SearchStats struct {
 	PostingsLoaded int
 	// VectorsScanned is the number of posting members scored by code.
 	VectorsScanned int
-	// EndpointsScored is the number of edge endpoints scored by sidecar code.
+	// EdgesFollowed is the number of edges leaving the loaded postings. Each
+	// one either leads into a posting that is already loaded, or to an
+	// endpoint that was scored before, or is scored: see EndpointsInLoaded,
+	// EndpointsRepeated and EndpointsScored.
+	EdgesFollowed int
+	// EndpointsInLoaded is the number of followed edges whose endpoint lives
+	// in a posting that was already loaded. They cost a directory lookup.
+	EndpointsInLoaded int
+	// EndpointsScored is the number of edge endpoints scored by sidecar code:
+	// the distinct endpoints outside the loaded postings.
 	EndpointsScored int
 	// Rescored is the number of candidates compared at full precision.
 	Rescored int
@@ -76,5 +85,12 @@ type SearchStats struct {
 	CentroidTime time.Duration // finding the entry postings
 	ScanTime     time.Duration // scoring posting members
 	ExpandTime   time.Duration // scoring edge endpoints and ranking postings
+	SelectTime   time.Duration // picking the postings of each round
 	RescoreTime  time.Duration // full-precision rescoring
+}
+
+// EndpointsRepeated is the number of followed edges whose endpoint had
+// already been scored through another edge. They cost a visited-set lookup.
+func (s SearchStats) EndpointsRepeated() int {
+	return s.EdgesFollowed - s.EndpointsInLoaded - s.EndpointsScored
 }

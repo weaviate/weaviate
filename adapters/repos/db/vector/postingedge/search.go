@@ -160,6 +160,11 @@ func (ix *Index) search(ctx context.Context, vector []float32, k int, allow help
 		return nil, nil, errors.Wrapf(common.ErrWrongDimensions,
 			"query has length %d, the index holds vectors of length %d", len(vector), st.dims)
 	}
+	// Every estimate against such a query is NaN: it would come back with
+	// no results and no error.
+	if err := checkValues(vector); err != nil {
+		return nil, nil, errors.Wrap(err, "query")
+	}
 
 	query := ix.normalized(vector)
 	ef := max(int(ix.ef.Load()), k)
@@ -212,7 +217,13 @@ func (ix *Index) search(ctx context.Context, vector []float32, k int, allow help
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
+		if stats != nil {
+			clock = time.Now()
+		}
 		sc.selectBatch(batch)
+		if stats != nil {
+			stats.SelectTime += time.Since(clock)
+		}
 		// Stop once no known unloaded posting holds an endpoint closer
 		// than the ef-th candidate: nothing reachable can enter the top ef.
 		if len(sc.batch) == 0 || sc.batch[0].dist >= stop.worst() {
@@ -300,19 +311,27 @@ func (s *postingSearch) load(p uint32) error {
 		}
 	}
 
-	if s.stats != nil {
-		now := time.Now()
-		s.stats.ScanTime += now.Sub(clock)
-		s.stats.PostingsLoaded++
-		s.stats.VectorsScanned += len(post.docIDs)
-		clock = now
-	}
-
 	// Every member is a source: the endpoints of all edges leaving the
 	// posting are scored, not only those of the best candidates. An
 	// endpoint is scored once per search, and not at all if its posting is
 	// already loaded.
 	side := s.st.side
+
+	if s.stats != nil {
+		s.stats.ScanTime += time.Since(clock)
+		s.stats.PostingsLoaded++
+		s.stats.VectorsScanned += len(post.docIDs)
+		// Counted in a pass of its own, outside the timed sections, so
+		// that the loop below stays as it runs without stats.
+		s.stats.EdgesFollowed += len(post.edges)
+		for _, endpoint := range post.edges {
+			if sc.loaded[side.postingOf[endpoint]] {
+				s.stats.EndpointsInLoaded++
+			}
+		}
+		clock = time.Now()
+	}
+
 	sc.unscored = sc.unscored[:0]
 	for _, endpoint := range post.edges {
 		if sc.loaded[side.postingOf[endpoint]] || sc.endpoints.CheckAndVisit(uint64(endpoint)) {

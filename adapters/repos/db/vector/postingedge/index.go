@@ -13,6 +13,7 @@ package postingedge
 
 import (
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -177,6 +178,9 @@ func (ix *Index) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32
 			return errors.Wrapf(common.ErrWrongDimensions,
 				"vector of id %d has length %d, the index holds vectors of length %d", ids[i], len(vec), dims)
 		}
+		if err := checkValues(vec); err != nil {
+			return errors.Wrapf(err, "vector of id %d", ids[i])
+		}
 		bytes += int64(len(vec)) * 4
 	}
 	if err := ix.cfg.AllocChecker.CheckAlloc(bytes); err != nil {
@@ -228,6 +232,27 @@ func (ix *Index) ValidateBeforeInsert(vector []float32) error {
 	if dims != 0 && dims != len(vector) {
 		return errors.Wrapf(common.ErrWrongDimensions,
 			"new vector has length %d, the index holds vectors of length %d", len(vector), dims)
+	}
+	return checkValues(vector)
+}
+
+// maxSquaredNorm bounds the vectors the index accepts: below it, the squared
+// distance between any two vectors is at most four times as large and so
+// still a finite float32.
+const maxSquaredNorm = math.MaxFloat32 / 4
+
+// checkValues rejects a vector that has no place in the index: one with NaN
+// or infinite values, or one so long that distances to it overflow. Such a
+// vector has no nearest centroid. It is refused when it is added, because
+// accepted, it would fail the build of the whole index.
+func checkValues(vec []float32) error {
+	negated, err := distancer.NewDotProductProvider().SingleDist(vec, vec)
+	if err != nil {
+		return err
+	}
+	// Written so that a NaN norm fails the comparison too.
+	if squaredNorm := -negated; !(squaredNorm <= maxSquaredNorm) {
+		return errors.New("vector has non-finite values or a norm too large to compute distances with")
 	}
 	return nil
 }

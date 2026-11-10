@@ -1,0 +1,235 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "vectors": 990000,
+  "dims": 1536,
+  "queries": 5000,
+  "k": 10,
+  "config": {
+    "distance": "cosine",
+    "efConstruction": 128,
+    "maxConnections": 32,
+    "quantization": "rq bits=1 centering=true",
+    "trainingLimit": 10000
+  },
+  "levels": [
+    {
+      "level": 0,
+      "nodes": 990000,
+      "connections": 30993084
+    },
+    {
+      "level": 1,
+      "nodes": 31035,
+      "connections": 739850
+    },
+    {
+      "level": 2,
+      "nodes": 986,
+      "connections": 19619
+    },
+    {
+      "level": 3,
+      "nodes": 32,
+      "connections": 992
+    }
+  ],
+  "packedConnectionBytes": 102382922,
+  "points": [
+    {
+      "ef": 10,
+      "rescoreLimit": 512,
+      "recall": 0.71194,
+      "codeDistances": 557.4716,
+      "vectorDistances": 10
+    },
+    {
+      "ef": 16,
+      "rescoreLimit": 512,
+      "recall": 0.8425,
+      "codeDistances": 707.0912,
+      "vectorDistances": 16
+    },
+    {
+      "ef": 24,
+      "rescoreLimit": 512,
+      "recall": 0.90522,
+      "codeDistances": 898.1532,
+      "vectorDistances": 24
+    },
+    {
+      "ef": 32,
+      "rescoreLimit": 512,
+      "recall": 0.93294,
+      "codeDistances": 1078.8538,
+      "vectorDistances": 32
+    },
+    {
+      "ef": 48,
+      "rescoreLimit": 512,
+      "recall": 0.95642,
+      "codeDistances": 1426.1204,
+      "vectorDistances": 48
+    },
+    {
+      "ef": 64,
+      "rescoreLimit": 512,
+      "recall": 0.9672,
+      "codeDistances": 1757.6984,
+      "vectorDistances": 64
+    },
+    {
+      "ef": 96,
+      "rescoreLimit": 512,
+      "recall": 0.97684,
+      "codeDistances": 2388.591,
+      "vectorDistances": 96
+    },
+    {
+      "ef": 128,
+      "rescoreLimit": 512,
+      "recall": 0.98244,
+      "codeDistances": 2982.543,
+      "vectorDistances": 128
+    },
+    {
+      "ef": 192,
+      "rescoreLimit": 512,
+      "recall": 0.98796,
+      "codeDistances": 4098.5692,
+      "vectorDistances": 192
+    },
+    {
+      "ef": 256,
+      "rescoreLimit": 512,
+      "recall": 0.99062,
+      "codeDistances": 5146.2374,
+      "vectorDistances": 256
+    },
+    {
+      "ef": 384,
+      "rescoreLimit": 512,
+      "recall": 0.99342,
+      "codeDistances": 7109.3976,
+      "vectorDistances": 384
+    },
+    {
+      "ef": 512,
+      "rescoreLimit": 512,
+      "recall": 0.99496,
+      "codeDistances": 8951.9534,
+      "vectorDistances": 512
+    },
+    {
+      "ef": 768,
+      "rescoreLimit": 512,
+      "recall": 0.99644,
+      "codeDistances": 12396.5824,
+      "vectorDistances": 512
+    },
+    {
+      "ef": 1024,
+      "rescoreLimit": 512,
+      "recall": 0.99746,
+      "codeDistances": 15631.9852,
+      "vectorDistances": 512
+    },
+    {
+      "ef": 10,
+      "rescoreLimit": 64,
+      "recall": 0.71194,
+      "codeDistances": 557.4716,
+      "vectorDistances": 10
+    },
+    {
+      "ef": 16,
+      "rescoreLimit": 64,
+      "recall": 0.8425,
+      "codeDistances": 707.0912,
+      "vectorDistances": 16
+    },
+    {
+      "ef": 24,
+      "rescoreLimit": 64,
+      "recall": 0.90522,
+      "codeDistances": 898.1532,
+      "vectorDistances": 24
+    },
+    {
+      "ef": 32,
+      "rescoreLimit": 64,
+      "recall": 0.93294,
+      "codeDistances": 1078.8538,
+      "vectorDistances": 32
+    },
+    {
+      "ef": 48,
+      "rescoreLimit": 64,
+      "recall": 0.95642,
+      "codeDistances": 1426.1204,
+      "vectorDistances": 48
+    },
+    {
+      "ef": 64,
+      "rescoreLimit": 64,
+      "recall": 0.9672,
+      "codeDistances": 1757.6984,
+      "vectorDistances": 64
+    },
+    {
+      "ef": 96,
+      "rescoreLimit": 64,
+      "recall": 0.97668,
+      "codeDistances": 2388.591,
+      "vectorDistances": 64
+    },
+    {
+      "ef": 128,
+      "rescoreLimit": 64,
+      "recall": 0.9822,
+      "codeDistances": 2982.543,
+      "vectorDistances": 64
+    },
+    {
+      "ef": 192,
+      "rescoreLimit": 64,
+      "recall": 0.98764,
+      "codeDistances": 4098.5692,
+      "vectorDistances": 64
+    },
+    {
+      "ef": 256,
+      "rescoreLimit": 64,
+      "recall": 0.99028,
+      "codeDistances": 5146.2374,
+      "vectorDistances": 64
+    },
+    {
+      "ef": 384,
+      "rescoreLimit": 64,
+      "recall": 0.99306,
+      "codeDistances": 7109.3976,
+      "vectorDistances": 64
+    },
+    {
+      "ef": 512,
+      "rescoreLimit": 64,
+      "recall": 0.9946,
+      "codeDistances": 8951.9534,
+      "vectorDistances": 64
+    },
+    {
+      "ef": 768,
+      "rescoreLimit": 64,
+      "recall": 0.99606,
+      "codeDistances": 12396.5824,
+      "vectorDistances": 64
+    },
+    {
+      "ef": 1024,
+      "rescoreLimit": 64,
+      "recall": 0.99706,
+      "codeDistances": 15631.9852,
+      "vectorDistances": 64
+    }
+  ]
+}
