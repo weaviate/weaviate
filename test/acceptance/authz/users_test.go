@@ -139,6 +139,48 @@ func TestAuthzRolesForUsers(t *testing.T) {
 			require.NotNil(t, resp)
 			helper.RevokeRoleFromUser(t, adminKey, assignable, customUser)
 		})
+
+		// A manage permission is stored as a union of the verbs C, R, U and D.
+		// casbin's unanchored verb match accepts that union from a caller holding
+		// any one of them, such as the viewer role's R.
+		t.Run("holding one verb of a manage permission is not enough", func(t *testing.T) {
+			backupManager := "backup-manager"
+			helper.DeleteRole(t, adminKey, backupManager)
+			helper.CreateRole(t, adminKey, &models.Role{
+				Name: &backupManager,
+				Permissions: []*models.Permission{
+					helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithCollection("*").Permission(),
+				},
+			})
+			defer helper.DeleteRole(t, adminKey, backupManager)
+
+			t.Run("a viewer cannot assign manage_backups to itself", func(t *testing.T) {
+				helper.AssignRoleToUser(t, adminKey, authorization.Viewer, customUser)
+				defer helper.RevokeRoleFromUser(t, adminKey, authorization.Viewer, customUser)
+				helper.WaitForOwnRole(t, customKey, authorization.Viewer)
+
+				_, err := helper.Client(t).Authz.AssignRoleToUser(
+					authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(
+						authz.AssignRoleToUserBody{Roles: []string{backupManager}, UserType: models.UserTypeInputDb}),
+					helper.CreateAuth(customKey),
+				)
+				var forbidden *authz.AssignRoleToUserForbidden
+				require.True(t, errors.As(err, &forbidden), "expected 403, got %T: %v", err, err)
+				require.Contains(t, forbidden.Payload.Error[0].Message, "less or equal permissions")
+				requireDeniedOnce(t, forbidden.Payload.Error[0].Message, authorization.ManageBackups)
+			})
+
+			t.Run("a holder of manage_backups can assign it", func(t *testing.T) {
+				helper.AssignRoleToUser(t, adminKey, backupManager, customUser)
+				helper.WaitForOwnRole(t, customKey, backupManager)
+
+				target := "custom-user2"
+				helper.AssignRoleToUser(t, customKey, backupManager, target)
+				roles := helper.GetRolesForUser(t, target, adminKey, false)
+				require.Len(t, roles, 1)
+				require.Equal(t, backupManager, *roles[0].Name)
+			})
+		})
 	})
 }
 
