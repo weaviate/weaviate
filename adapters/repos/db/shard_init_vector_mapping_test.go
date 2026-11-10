@@ -302,6 +302,71 @@ func TestInitShardVectors_RefusesTwoRecordsNamingOneQueue(t *testing.T) {
 	assert.Equal(t, mv, rec)
 }
 
+// The vectors_compressed link 1.30.19 to 1.40 kept to a named vector's
+// compressed bucket is gone after a load: a vector named "compressed" writes
+// its raw vectors into a bucket of its own, not through the link.
+func TestInitShardVectors_RemovesVectorsCompressedLink(t *testing.T) {
+	ctx := testCtx()
+	// the link only exists without a legacy vector, which owns vectors_compressed
+	hnswCfg := enthnsw.NewDefaultUserConfig()
+	class := &models.Class{
+		Class:        "CompressedLink",
+		VectorConfig: map[string]models.VectorConfig{"foo": {VectorIndexType: hnswCfg.IndexType(), VectorIndexConfig: hnswCfg}},
+	}
+	shardLike, _ := testShardWithSettings(t, ctx, class, nil, false, false, func(i *Index) {
+		i.vectorIndexUserConfig = nil
+		i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"foo": hnswCfg}
+	})
+	shard := underlyingShard(t, shardLike)
+	lsmDir := shard.pathLSM()
+	link := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
+	fooCompressed := filepath.Join(lsmDir, helpers.GetCompressedBucketName("foo"))
+	fooCodes := filepath.Join(fooCompressed, "foo-codes")
+
+	flatCfg := entflat.UserConfig{}
+	flatCfg.SetDefaults()
+	class.VectorConfig["compressed"] = models.VectorConfig{VectorIndexType: flatCfg.IndexType(), VectorIndexConfig: flatCfg}
+	shard.index.vectorIndexUserConfigLock.Lock()
+	shard.index.vectorIndexUserConfigs["compressed"] = flatCfg
+	shard.index.vectorIndexUserConfigLock.Unlock()
+
+	shard = reloadAfter(t, ctx, shard, class, func() {
+		require.NoError(t, os.MkdirAll(fooCompressed, 0o755))
+		require.NoError(t, os.WriteFile(fooCodes, []byte("foo's codes"), 0o644))
+		require.NoError(t, os.Symlink(helpers.GetCompressedBucketName("foo"), link))
+	})
+	obj := &storobj.Object{
+		MarshallerVersion: 1,
+		Object:            models.Object{ID: strfmt.UUID(uuid.NewString()), Class: class.Class},
+		Vectors:           map[string][]float32{"compressed": {1, 2, 3}},
+	}
+	require.NoError(t, shard.PutObject(ctx, obj))
+	require.NoError(t, shard.Store().FlushMemtables(ctx))
+
+	fi, err := os.Lstat(link)
+	require.NoError(t, err)
+	assert.Zero(t, fi.Mode()&os.ModeSymlink, "%s is a bucket of its own", link)
+	entries, err := os.ReadDir(fooCompressed)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "nothing written into foo's compressed bucket")
+	assert.Equal(t, "foo-codes", entries[0].Name())
+}
+
+// Only a link is removed: a real vectors_compressed is the legacy vector's
+// compressed bucket.
+func TestRemoveVectorsCompressedLink_KeepsABucket(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m := newCompressedVectorsMigrator(logger)
+	lsmDir := t.TempDir()
+	require.NoError(t, m.removeVectorsCompressedLink(lsmDir), "nothing to remove")
+
+	segment := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM, "segment-1.db")
+	require.NoError(t, os.MkdirAll(filepath.Dir(segment), 0o755))
+	require.NoError(t, os.WriteFile(segment, []byte("legacy codes"), 0o644))
+	require.NoError(t, m.removeVectorsCompressedLink(lsmDir))
+	assert.FileExists(t, segment)
+}
+
 // Records with generated IDs that name one file refuse the load before a
 // dropping one is finished: finishing it would delete the live vector's files.
 func TestInitShardVectors_RefusesGeneratedRecordsNamingOneFile(t *testing.T) {
