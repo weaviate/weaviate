@@ -105,6 +105,8 @@ type ShardReindexTaskGeneric struct {
 	rebuildRangeableRepFn func(ctx context.Context, b *lsmkv.Bucket) error
 
 	swapAttempted atomic.Bool
+
+	rebuildFaultsLogged sync.Map
 }
 
 type indexClosingGuard func(shard ShardLike) error
@@ -591,6 +593,13 @@ func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Conte
 	cfg := shard.Index().Config
 	className := cfg.ClassName.String()
 	shardName := shard.Name()
+	// Nothing returns this fault, so its first report bypasses a sampled-out retry's logger.
+	faultLogger := func(propName string) logrus.FieldLogger {
+		if _, logged := t.rebuildFaultsLogged.LoadOrStore(propName, struct{}{}); logged {
+			return logger
+		}
+		return t.logger.WithFields(logrus.Fields{"collection": className, "shard": shardName})
+	}
 	for _, propName := range props {
 		if !cfg.keepRangeableInMemory(propName) {
 			continue
@@ -610,7 +619,7 @@ func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Conte
 					"serving: bucket %q not found post-swap, rebuild the index to repair it",
 				propName, bucketName,
 			)
-			logger.WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", err)
+			faultLogger(propName).WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", err)
 			monitoring.GetMetrics().IncRangeableInMemoryRebuildDegraded(className, shardName, propName)
 			continue
 		}
@@ -628,7 +637,7 @@ func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Conte
 					"activated for in-memory serving: %w, rebuild the index to repair it",
 				propName, err,
 			)
-			logger.WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", wrapped)
+			faultLogger(propName).WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", wrapped)
 			monitoring.GetMetrics().IncRangeableInMemoryRebuildDegraded(className, shardName, propName)
 			continue
 		}

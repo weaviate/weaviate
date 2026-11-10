@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -29,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -168,6 +170,38 @@ func TestRangeableFinalize_RebuildFailure_ServesDiskNotMissingIndexError(t *test
 	metric, err := monitoring.GetMetrics().RangeableInMemoryRebuildDegraded.GetMetricWithLabelValues(className, shard.Name(), propName)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, testutil.ToFloat64(metric), float64(1), "a degrade must increment the metric")
+}
+
+// Pins that swap retries the sampler drops log a failed rebuild and its remedy
+// once: nothing returns the fault, and a swapped unit re-runs while its group retries.
+func TestRangeableFinalize_RebuildFailureLoggedOnSampledOutRetry(t *testing.T) {
+	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "RangeableRebuildRetry_")
+	hookLogger, hook := test.NewNullLogger()
+	idx.logger = hookLogger
+	putRangeableTestObjects(t, ctx, shard, className, 5)
+	failing := &atomic.Bool{}
+	failing.Store(true)
+	task, _ := newRangeableInMemoryTestTask(t, idx, className, filterableToRangeablePropName,
+		shard.migrationUnit(), failing, &atomic.Int32{})
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+
+	retries := logrusext.NewSampler(hookLogger, 1, time.Hour)
+	task.swapLogger(retries)                          // the first attempt, failed before the rebuild
+	retries.WithSampling(func(logrus.FieldLogger) {}) // another retry fills the sample
+	hook.Reset()
+	for range 3 {
+		require.NoError(t, task.runSwapOnShard(ctx, shard, task.swapLogger(retries)))
+	}
+
+	var logged []string
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.ErrorLevel {
+			logged = append(logged, e.Message)
+		}
+	}
+	require.Len(t, logged, 1)
+	assert.Contains(t, logged[0], "rebuild the index to repair it")
 }
 
 // TestRangeableFinalize_RebuildCancellation_RoutesTransient pins
