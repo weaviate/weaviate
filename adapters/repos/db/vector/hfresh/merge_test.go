@@ -16,6 +16,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 // Merge a centroid that does not exist
@@ -362,5 +363,77 @@ func TestMergeSuccessfully(t *testing.T) {
 	for i := range largeVectors {
 		require.False(t, tf.Index.taskQueue.reassignList.Contains(900+uint64(i)),
 			"resident vector %d should not be enqueued for reassignment", 900+i)
+	}
+}
+
+// mergeRuns counts the merges that ran on postingID.
+func mergeRuns(tf *TestHFresh, postingID uint64) int {
+	runs := 0
+	for _, entry := range tf.Logs.AllEntries() {
+		if entry.Message == "merging posting" && entry.Data["postingID"] == postingID {
+			runs++
+		}
+	}
+	return runs
+}
+
+// A posting with no live entries is merged at most once, however many
+// searches reach its centroid: the merge leaves its size at zero, and a
+// search does not select a centroid whose posting size is zero, so it
+// enqueues no further merge.
+func TestEmptyPostingIsMergedAtMostOnce(t *testing.T) {
+	e1 := []float32{1, 0, 0, 0}
+	e2 := []float32{0, 1, 0, 0}
+	tests := []struct {
+		name string
+		// candidate adds a second centroid that a merge could use
+		candidate bool
+		// deleteEntries stores the posting with entries and deletes them;
+		// otherwise the posting is stored empty
+		deleteEntries bool
+		merges        int
+	}{
+		{name: "empty posting, no candidate", merges: 0},
+		{name: "empty posting, with candidate", candidate: true, merges: 0},
+		{name: "every entry deleted, no candidate", deleteEntries: true, merges: 1},
+		{name: "every entry deleted, with candidate", candidate: true, deleteEntries: true, merges: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tf := createHFreshIndex(t, withDistanceProvider(distancer.NewL2SquaredProvider()))
+			vectors := [][]float32{e1, e1, e1}
+			postingID, posting := createPostingWithVectors(t, &tf, vectors, 100)
+			if !tt.deleteEntries {
+				posting = Posting{}
+			}
+			registerCentroid(t, &tf, postingID, posting, e1)
+			if tt.deleteEntries {
+				for i := range vectors {
+					require.NoError(t, tf.Index.Delete(100+uint64(i)))
+				}
+			}
+			if tt.candidate {
+				// more entries than a merge can take, so that the candidate
+				// keeps its centroid whatever the merge does
+				many := make([][]float32, int(tf.Index.minPostingSize)+1)
+				for i := range many {
+					many[i] = e2
+				}
+				candidateID, candidatePosting := createPostingWithVectors(t, &tf, many, 1000)
+				registerCentroid(t, &tf, candidateID, candidatePosting, e2)
+			}
+
+			for range 3 {
+				_, _, err := tf.Index.SearchByVector(t.Context(), e1, 10, nil)
+				require.NoError(t, err)
+				tf.Index.waitForMaintenance(t)
+			}
+
+			require.Equal(t, tt.merges, mergeRuns(&tf, postingID), "merges run on the empty posting")
+			size, err := tf.Index.PostingSizes.Get(t.Context(), postingID)
+			require.NoError(t, err)
+			require.Zero(t, size)
+		})
 	}
 }
