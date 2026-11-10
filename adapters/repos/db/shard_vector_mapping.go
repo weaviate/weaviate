@@ -146,12 +146,12 @@ func validateVectorIndexID(id string) error {
 		id, vectorIndexID(""))
 }
 
-// queueIDOrDefault is the queue ID a record names, or the physical ID for a
-// record from before the field existed: the queue has always lived under
-// the index's ID.
+// queueIDOrDefault is the queue ID a record names, or the index's storage ID
+// for a record from before the field existed: the queue has always lived
+// under the index's ID.
 func (r vectorIndexRecord) queueIDOrDefault() string {
 	if r.QueueID == "" {
-		return r.PhysicalID
+		return r.storageID()
 	}
 	return r.QueueID
 }
