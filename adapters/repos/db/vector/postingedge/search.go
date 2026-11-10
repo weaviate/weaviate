@@ -53,13 +53,12 @@ type searchScratch struct {
 	// endpoints marks the edge endpoints already scored, by slot.
 	endpoints *visited.SparseSet
 	// unscored lists the endpoints of the posting being loaded that still
-	// have to be scored.
-	unscored []uint32
+	// have to be scored, and unscoredDist receives their estimates.
+	unscored     []uint32
+	unscoredDist []float32
 	// memberDist holds the estimates of the members of the posting being
 	// loaded, in posting order.
 	memberDist []float32
-	// touchDigest only keeps the reads of sidecar.touch alive.
-	touchDigest uint64
 }
 
 func newSearchScratch(postings int) *searchScratch {
@@ -377,12 +376,16 @@ func (s *postingSearch) load(p uint32) error {
 		}
 	}
 
-	sc.touchDigest ^= side.touch(sc.unscored)
-	for _, endpoint := range sc.unscored {
-		dist, err := s.estimator.Distance(side.code(endpoint))
-		if err != nil {
-			return errors.Wrapf(err, "estimate distance to slot %d", endpoint)
-		}
+	// Scored as one batch, then folded into the ranks of their postings.
+	if cap(sc.unscoredDist) < len(sc.unscored) {
+		sc.unscoredDist = make([]float32, len(sc.unscored))
+	}
+	dists := sc.unscoredDist[:len(sc.unscored)]
+	if err := side.score(s.estimator, sc.unscored, dists); err != nil {
+		return err
+	}
+	for i, endpoint := range sc.unscored {
+		dist := dists[i]
 		target := side.postingOf[endpoint]
 		if dist < sc.rank[target] {
 			if sc.rank[target] == inf32 {

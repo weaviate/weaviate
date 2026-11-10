@@ -12,10 +12,16 @@
 package postingedge
 
 import (
+	"errors"
+	"math"
+	"math/rand/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 func TestSlotLayoutGroupsVectorsByPosting(t *testing.T) {
@@ -128,44 +134,141 @@ func TestPostingStoreLoadsOnePostingAtATime(t *testing.T) {
 	assert.Equal(t, []uint32{0, 0, 2, 2, 2}, side.postingOf)
 }
 
-func TestSidecarTouchReadsEveryCacheLineOfACode(t *testing.T) {
+// Scoring a batch of slots must give, bit for bit, what scoring them one by
+// one gives: the batch only changes when the codes are fetched.
+func TestSidecarScoreMatchesScoringOneByOne(t *testing.T) {
 	tests := []struct {
-		name      string
-		codeWords int
-		wantRead  []int // words of a code that must be read
+		name     string
+		dims     int
+		provider distancer.Provider
 	}{
-		{name: "a code within one cache line", codeWords: 5, wantRead: []int{0, 4}},
-		{name: "a code of exactly one cache line", codeWords: 8, wantRead: []int{0, 7}},
-		{name: "a 1536 dimension code", codeWords: 25, wantRead: []int{0, 8, 16, 24}},
-		{name: "a single word code", codeWords: 1, wantRead: []int{0}},
+		{name: "1536 dimensions, cosine", dims: 1536, provider: distancer.NewCosineDistanceProvider()},
+		{name: "1536 dimensions, l2", dims: 1536, provider: distancer.NewL2SquaredProvider()},
+		{name: "a code of one cache line", dims: 384, provider: distancer.NewCosineDistanceProvider()},
+		{name: "dimensions padded to the minimum code", dims: 24, provider: distancer.NewL2SquaredProvider()},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			const slots = 6
-			// Every word is a distinct bit, so the digest names exactly the
-			// words that were read.
-			side := &sidecar{codeWords: tt.codeWords, codes: make([]uint64, slots*tt.codeWords)}
-			bit := func(slot uint32, word int) uint64 {
-				return 1 << (uint(int(slot)*tt.codeWords+word) % 64)
+			const n = 300
+			vectors := clusteredVectors(n+1, tt.dims, 3, 401)
+			query, vectors := vectors[n], vectors[:n]
+			if tt.provider.Type() == "cosine-dot" {
+				query, vectors = distancer.Normalize(query), normalizedCopy(vectors)
 			}
-			require.LessOrEqual(t, 2*tt.codeWords, 64, "the fixture needs one bit per word of two codes")
+			cfg := testConfig(t, vectors, 0, tt.provider)
+			quantizer, err := trainQuantizer(vectors, tt.dims, 100, &cfg)
+			require.NoError(t, err)
 
-			for _, picked := range [][]uint32{{0}, {1}, {0, 1}, {}} {
-				clear(side.codes)
-				var want uint64
-				for _, slot := range picked {
-					for word := 0; word < tt.codeWords; word++ {
-						side.codes[int(slot)*tt.codeWords+word] = bit(slot, word)
-					}
-					for _, word := range tt.wantRead {
-						want |= bit(slot, word)
-					}
+			side := &sidecar{codeWords: len(quantizer.Encode(vectors[0]))}
+			for _, vec := range vectors {
+				side.codes = append(side.codes, quantizer.Encode(vec)...)
+			}
+			estimator := quantizer.NewDistancer(query)
+
+			rng := rand.New(rand.NewPCG(5, 9))
+			random := func(count int) []uint32 {
+				slots := make([]uint32, count)
+				for i := range slots {
+					slots[i] = uint32(rng.IntN(n))
 				}
-				assert.Equalf(t, want, side.touch(picked), "slots %v", picked)
+				return slots
+			}
+			batches := map[string][]uint32{
+				"empty":                          {},
+				"a single slot":                  {7},
+				"fewer slots than the lookahead": random(scoreAhead - 1),
+				"exactly the lookahead":          random(scoreAhead),
+				"one more than the lookahead":    random(scoreAhead + 1),
+				"many slots":                     random(1000),
+				"the first and the last slot":    {0, n - 1, 0, n - 1},
+				"the same slot over and over":    {42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42},
+			}
+			for name, slots := range batches {
+				dists := make([]float32, len(slots))
+				require.NoError(t, side.score(estimator, slots, dists), name)
+				for i, slot := range slots {
+					want, err := estimator.Distance(side.code(slot))
+					require.NoError(t, err)
+					require.Equalf(t, math.Float32bits(want), math.Float32bits(dists[i]),
+						"%s: slot %d at position %d: %v != %v", name, slot, i, dists[i], want)
+				}
 			}
 		})
 	}
+}
+
+// failingEstimator fails on the code whose first word it was told to.
+type failingEstimator struct {
+	failOn uint64
+}
+
+func (f failingEstimator) Distance(code []uint64) (float32, error) {
+	if code[0] == f.failOn {
+		return 0, errors.New("broken code")
+	}
+	return float32(code[0]), nil
+}
+
+func TestSidecarScoreReportsTheSlotThatFailed(t *testing.T) {
+	side := &sidecar{codeWords: 2, codes: []uint64{10, 0, 11, 0, 12, 0, 13, 0}}
+	dists := make([]float32, 3)
+
+	require.NoError(t, side.score(failingEstimator{failOn: 99}, []uint32{3, 0, 2}, dists))
+	assert.Equal(t, []float32{13, 10, 12}, dists)
+
+	err := side.score(failingEstimator{failOn: 12}, []uint32{3, 2, 0}, dists)
+	require.ErrorContains(t, err, "slot 2")
+}
+
+// BenchmarkSidecarScore scores random slots of a sidecar that does not fit
+// the CPU caches, the situation of a search on a large index: one code at a
+// time, and as a batch.
+func BenchmarkSidecarScore(b *testing.B) {
+	const dims, n, batch = 1536, 400_000, 1024
+	provider := distancer.NewCosineDistanceProvider()
+	rng := rand.New(rand.NewPCG(1, 2))
+	query := distancer.Normalize(clusteredVectors(1, dims, 1, 7)[0])
+	quantizer, err := compressionhelpers.NewCenteredBinaryRotationalQuantizer(
+		dims, compressionhelpers.DefaultFastRotationSeed, make([]float32, dims), provider)
+	require.NoError(b, err)
+
+	// Random bits behind a real header: what the estimator computes is
+	// meaningless, what it costs is not.
+	header := quantizer.Encode(query)[0]
+	side := &sidecar{codeWords: 1 + dims/64}
+	side.codes = make([]uint64, n*side.codeWords)
+	for i := range side.codes {
+		side.codes[i] = rng.Uint64()
+		if i%side.codeWords == 0 {
+			side.codes[i] = header
+		}
+	}
+	estimator := quantizer.NewDistancer(query)
+	slots := make([]uint32, batch)
+	dists := make([]float32, batch)
+
+	run := func(name string, score func()) {
+		b.Run(name, func(b *testing.B) {
+			b.StopTimer()
+			for done := 0; done < b.N; done += batch {
+				for i := range slots {
+					slots[i] = uint32(rng.IntN(n))
+				}
+				b.StartTimer()
+				score()
+				b.StopTimer()
+			}
+		})
+	}
+	run("one by one", func() {
+		for i, slot := range slots {
+			dists[i], _ = estimator.Distance(side.code(slot))
+		}
+	})
+	run("batch", func() {
+		_ = side.score(estimator, slots, dists)
+	})
 }
 
 func TestTargetPostingSize(t *testing.T) {

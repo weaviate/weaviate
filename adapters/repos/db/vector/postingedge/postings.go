@@ -14,11 +14,14 @@ package postingedge
 import (
 	"context"
 	"math"
+	"runtime"
+	"unsafe"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
 // slotLayout orders the vectors by posting. A slot is the position of a
@@ -130,30 +133,49 @@ func (s *sidecar) code(slot uint32) []uint64 {
 	return s.codes[from : from+s.codeWords : from+s.codeWords]
 }
 
-// wordsPerCacheLine is the stride touch reads at: one word per 64 byte
-// cache line, which also covers the wider lines of other CPUs.
-const wordsPerCacheLine = 8
+// scoreAhead is how many codes ahead of the one being scored the sidecar asks
+// the CPU to fetch. It follows the batch distancer of the compressors
+// (compressionhelpers, DistancesToNodes): hints issued a few codes ahead,
+// inside the loop, rather than for the whole batch up front, which would ask
+// for more lines than a core keeps in flight. 8 measured best for 25-word
+// codes; 4 and 16 are within 15% of it.
+const scoreAhead = 8
 
-// touch reads one word of every cache line of the codes of the given slots
-// and returns a digest of what it read, which callers only keep so that the
-// reads are not optimized away.
+// codeEstimator estimates the distance from a query to a stored code.
+type codeEstimator interface {
+	Distance(code []uint64) (float32, error)
+}
+
+// score estimates the distance from the query to the vector of every given
+// slot, into dists. The values are exactly those of scoring the slots one by
+// one; what the batch buys is time.
 //
 // The endpoints a search scores are scattered over the whole sidecar, which
-// is far larger than the CPU caches. Scoring them one after the other takes
-// one cache miss at a time, each queued behind the bit counting of the code
-// before it. These cheap, independent reads let the misses overlap instead:
-// on a 1M x 1536d sidecar they cut the cost of scoring an endpoint to a third.
-func (s *sidecar) touch(slots []uint32) uint64 {
-	var digest uint64
-	last := s.codeWords - 1
-	for _, slot := range slots {
-		code := s.codes[int(slot)*s.codeWords : (int(slot)+1)*s.codeWords]
-		for w := 0; w < last; w += wordsPerCacheLine {
-			digest ^= code[w]
-		}
-		digest ^= code[last]
+// is far larger than the CPU caches. Scored one by one, each code is a cache
+// miss that waits behind the bit counting of the code before it. Fetching
+// ahead lets the misses overlap: on a 1M x 1536d sidecar it cuts the cost of
+// scoring an endpoint to less than a third.
+func (s *sidecar) score(estimator codeEstimator, slots []uint32, dists []float32) error {
+	for i := range min(scoreAhead, len(slots)) {
+		s.prefetch(slots[i])
 	}
-	return digest
+	for i, slot := range slots {
+		if next := i + scoreAhead; next < len(slots) {
+			s.prefetch(slots[next])
+		}
+		dist, err := estimator.Distance(s.code(slot))
+		if err != nil {
+			return errors.Wrapf(err, "estimate distance to slot %d", slot)
+		}
+		dists[i] = dist
+	}
+	runtime.KeepAlive(s.codes)
+	return nil
+}
+
+// prefetch hints the CPU to load the code of a slot.
+func (s *sidecar) prefetch(slot uint32) {
+	asm.PrefetchN(uintptr(unsafe.Pointer(&s.codes[int(slot)*s.codeWords])), s.codeWords*8)
 }
 
 // trainQuantizer fits the centered 1-bit quantizer: the mean is taken over an
