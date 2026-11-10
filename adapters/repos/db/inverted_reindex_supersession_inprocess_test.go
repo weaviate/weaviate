@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -218,10 +219,19 @@ func TestAResumedSwapLeavesItsDisplacedDirWhileARecordIsNotUnderstood(t *testing
 	plantUnreadableRecord(t, shard.migrationRecords.Dir())
 	require.NoError(t, shard.migrationRecords.Load())
 
-	require.NoError(t, task.runtimeSwap(ctx, task.logger, shard, props))
+	logger, hook := test.NewNullLogger()
+	require.NoError(t, task.runtimeSwap(ctx, logger, shard, props))
 
 	for _, dir := range displaced {
 		require.DirExists(t, filepath.Join(shard.pathLSM(), dir))
 	}
+	var warned []string
+	for _, entry := range hook.AllEntries() {
+		if entry.Level == logrus.WarnLevel {
+			warned = append(warned, entry.Message)
+		}
+	}
+	require.NotEmpty(t, warned)
+	require.Contains(t, warned[0], unreadableRecordFile, "the kept-dirs warning names the file to fix")
 	require.True(t, strategy.migrationCompleted, "keeping the dirs must not cut the rest of the swap short")
 }

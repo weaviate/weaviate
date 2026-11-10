@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1166,15 +1167,18 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")
 
-	if concrete, err := unwrapShard(ctx, shard); err == nil {
+	concrete, err := unwrapShard(ctx, shard)
+	if err == nil {
 		concrete.migrations().RetireSuperseded(ctx)
 	} else {
 		logger.Warnf("runtime swap: cannot retire superseded migrations: %v", err)
 	}
 	dirs := shardBucketDirs(shard.pathLSM())
-	// Records() omits unreadable entries, which may still name a displaced dir as live data.
-	recordStore := shard.migrationRecordStore()
-	recordsComplete := recordStore == nil || len(recordStore.Unreadable()) == 0
+	// A faulty record may still name a displaced dir as live data.
+	preserve, recordsComplete := migrationTrimPreserve{}, false
+	if err == nil {
+		preserve, recordsComplete = trimPreserveSetOf(concrete)
+	}
 	var kept []string
 	for _, propName := range props {
 		oldMainBucket, ok := oldMainBuckets[propName]
@@ -1190,7 +1194,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 			continue
 		}
 		if key, role, held := migrationDirHeldByAnotherRecord(
-			migrationRecordsOf(shard), subject, dir, migrationLiveDataRoles); held {
+			preserve.records, subject, dir, migrationLiveDataRoles); held {
 			logger.WithField("dir", dir).Warnf(
 				"leaving the displaced directory of %q in place: record %s names it as its %s, "+
 					"and its retirement has not run yet", propName, key, role)
@@ -1201,10 +1205,14 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		}
 	}
 	if len(kept) > 0 {
+		first := "unknown"
+		if len(preserve.faults) > 0 {
+			first = strconv.Quote(preserve.faults[0].FileName)
+		}
 		logger.WithField("dirs", strings.Join(migrationReportedNames(kept), ", ")).Warnf(
-			"leaving %d displaced directory/directories in place: a migration record on this shard "+
-				"is not understood, and it may name them. They are cleared once that record is fixed "+
-				"and the shard reloads", len(kept))
+			"leaving %d displaced directory/directories in place, because a migration record fault on "+
+				"this shard (first: %s) may name them; fix that fault and restart the node (or deactivate "+
+				"and reactivate the tenant) to clear them", len(kept), first)
 	}
 
 	logger.Debug("runtime swap: displaced dirs settled (staged→canonical rename deferred to next load)")
@@ -1267,11 +1275,15 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 
 type migrationTrimPreserve struct {
 	records []MigrationRecord
+	faults  []MigrationRecordUnreadable
 }
 
 func trimPreserveSetOf(shard *Shard) (migrationTrimPreserve, bool) {
-	if shard.migrationRecords == nil || len(shard.migrationRecords.Unreadable()) > 0 {
+	if shard.migrationRecords == nil {
 		return migrationTrimPreserve{}, false
+	}
+	if faults := shard.migrationRecords.Unreadable(); len(faults) > 0 {
+		return migrationTrimPreserve{faults: faults}, false
 	}
 	return migrationTrimPreserve{records: shard.migrationRecords.Records()}, true
 }
@@ -1368,14 +1380,6 @@ func (t *ShardReindexTaskGeneric) migrationRecord(shard ShardLike) (MigrationRec
 		return nil, false
 	}
 	return store.Get(t.migrationRecordKey())
-}
-
-func migrationRecordsOf(shard ShardLike) []MigrationRecord {
-	store := shard.migrationRecordStore()
-	if store == nil {
-		return nil
-	}
-	return store.Records()
 }
 
 func (t *ShardReindexTaskGeneric) putMigrationRecord(shard ShardLike, rec MigrationRecord) error {
