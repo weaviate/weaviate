@@ -555,3 +555,75 @@ func TestUpgrade_RemovesUnloadedCompressedBucket(t *testing.T) {
 		require.Equal(t, codes[0], l, "compressed vectors of mixed length")
 	}
 }
+
+// A compression that did not happen right after the swap is picked up by the
+// indexing queue, which asks ShouldUpgrade and then calls Upgrade.
+func TestUpgrade_QueueRetriesMissedCompression(t *testing.T) {
+	for _, tc := range upgradeQuantizerCases() {
+		if !tc.hnswUC.BQ.Enabled && !tc.hnswUC.RQ.Enabled {
+			continue
+		}
+		t.Run(tc.name, func(t *testing.T) {
+			vectors, queries := testinghelpers.RandomVecs(2*batchSize, 5, 32)
+			env := newUpgradeTestEnv(t, t.TempDir(), tc.targetVector, vectors, tc.flatUC, tc.hnswUC)
+			env.addAll(t)
+
+			idx := env.idx
+			idx.upgradeFn = func() error {
+				index, err := idx.buildUpgraded(nil)
+				if err != nil {
+					return err
+				}
+				return idx.installUpgraded(index)
+			}
+			done := make(chan struct{})
+			require.NoError(t, idx.Upgrade(func() { close(done) }))
+			<-done
+			require.True(t, idx.IsUpgraded())
+			require.False(t, idx.Compressed())
+
+			should, at := idx.ShouldUpgrade()
+			require.True(t, should, "the queue must be asked to compress")
+			require.False(t, idx.Upgraded())
+			require.Greater(t, idx.AlreadyIndexed(), uint64(at))
+
+			done = make(chan struct{})
+			require.NoError(t, idx.Upgrade(func() { close(done) }))
+			<-done
+			require.True(t, idx.Compressed())
+			env.search(t, queries, 10, "after the retried compression")
+		})
+	}
+}
+
+// A backup asks UpgradeInProgress. The answer must stay yes until the
+// compression that follows the swap is done.
+func TestUpgrade_InProgressUntilCompressed(t *testing.T) {
+	vectors, _ := testinghelpers.RandomVecs(2*batchSize, 0, 32)
+	env := newUpgradeTestEnv(t, t.TempDir(), "", vectors, flatRQ8(), hnswBQ())
+	env.addAll(t)
+
+	idx := env.idx
+	var afterInstall, afterCompress bool
+	idx.upgradeFn = func() error {
+		index, err := idx.buildUpgraded(nil)
+		if err != nil {
+			return err
+		}
+		if err := idx.installUpgraded(index); err != nil {
+			return err
+		}
+		afterInstall = idx.UpgradeInProgress()
+		idx.compressUpgraded(index)
+		afterCompress = idx.UpgradeInProgress()
+		return nil
+	}
+	done := make(chan struct{})
+	require.NoError(t, idx.Upgrade(func() { close(done) }))
+	<-done
+
+	require.True(t, afterInstall, "between the swap and the compression")
+	require.True(t, afterCompress, "until the upgrade returns")
+	require.False(t, idx.UpgradeInProgress(), "once the upgrade returned")
+	require.True(t, idx.Compressed())
+}

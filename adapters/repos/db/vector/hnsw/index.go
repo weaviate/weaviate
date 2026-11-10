@@ -117,7 +117,7 @@ type hnsw struct {
 	multiVectorForID                  common.MultiVectorForID
 	trackDimensionsOnce               sync.Once
 	trackMuveraOnce                   sync.Once
-	trackRQOnce                       sync.Once
+	trackRQOnce                       retryOnce
 	dims                              atomic.Int32
 
 	cache               cache.Cache[float32]

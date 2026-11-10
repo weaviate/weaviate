@@ -112,7 +112,8 @@ func (h *hnsw) checkAndCompress() error {
 		if !h.cachePrefilled.Load() {
 			return nil
 		}
-		h.trackRQOnce.Do(func() {
+		err = h.trackRQOnce.Do(func() error {
+			var err error
 			h.compressActionLock.Lock()
 			defer h.compressActionLock.Unlock()
 			singleVector := !h.multivector.Load() || h.muvera.Load()
@@ -158,6 +159,7 @@ func (h *hnsw) checkAndCompress() error {
 				}
 				h.compressor.PersistCompression(h.commitLog)
 			}
+			return err
 		})
 	}
 	return err

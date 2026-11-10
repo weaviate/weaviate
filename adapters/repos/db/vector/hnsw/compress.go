@@ -145,8 +145,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		h.rqActive.Store(true)
 		released = true
 		h.compressActionLock.Unlock()
-		h.checkAndCompress()
-		return nil
+		return h.checkAndCompress()
 	}
 	if singleVector {
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
