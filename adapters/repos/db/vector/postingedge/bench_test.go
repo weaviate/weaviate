@@ -98,6 +98,7 @@ var (
 	benchAutoMargins   = flag.String("bench.automargins", "0.04,0.06,0.08,0.10,0.12", "postingedge: the margins a sweep with margin=auto chooses from")
 	benchAutoTolerance = flag.Float64("bench.autotolerance", 0.002, "postingedge: the recall a margin=auto margin may cost at any ef, against no margin")
 	benchAutoEFs       = flag.String("bench.autoefs", "", "postingedge: the ef values a margin=auto margin is calibrated at (empty = those of its sweep)")
+	benchWorkThreads   = flag.Int("bench.workthreads", 1, "postingedge: threads of the passes that are not timed (calibration, timed=0 sweeps, the recall ceiling); recall and work counts do not depend on it, the phase times are kept only with 1")
 	benchCeiling       = flag.Float64("bench.ceiling", 0, "postingedge: for every timed configuration that stays below this recall, keep doubling ef in untimed passes until the recall is reached or stops growing (0 = skip)")
 	benchReach         = flag.Int("bench.reach", 0, "postingedge: queries sampled to measure what a triangle bound on the edge lengths could prune (0 = skip)")
 
@@ -369,6 +370,9 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 		"entryPostings": uc.EntryPostings,
 		"quantization":  "rq bits=1 centering=true", "distance": uc.Distance,
 	}
+	if *benchWorkThreads > 1 {
+		result.Config["workThreads"] = *benchWorkThreads
+	}
 
 	// buildIndex adds the train set to a new index and builds it.
 	buildIndex := func(uc UserConfig) (index *Index, addTime, total time.Duration) {
@@ -498,8 +502,9 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 		margin             float64
 	}
 	type work struct {
-		stats  *statsSummary
-		recall float64
+		stats    *statsSummary
+		recall   float64
+		parallel bool // collected on several threads: no phase times
 	}
 	collected := map[workKey]work{}
 	measure := func(ef, rescore, loadBatch, threads int, margin float64, untimed bool) benchPoint {
@@ -514,9 +519,15 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 		point.EF, point.LoadBatch, point.RescoreLimit = ef, loadBatch, rescore
 		point.SourceMargin = margin
 		key := workKey{ef: ef, rescore: rescore, batch: loadBatch, margin: margin}
+		// A timed point takes its phase times from a pass that ran alone.
 		w, found := collected[key]
-		if !found {
-			w.stats, w.recall = collectSearchStats(t, index, data)
+		if !found || (w.parallel && !untimed) {
+			workers := 1
+			if untimed {
+				workers = *benchWorkThreads
+			}
+			w.stats, w.recall = collectSearchStats(t, index, data, workers)
+			w.parallel = workers > 1
 			collected[key] = w
 		}
 		point.Stats = w.stats
@@ -650,7 +661,7 @@ func calibrateMargin(t *testing.T, index *Index, data *benchData, uc UserConfig,
 			uc.EF, uc.LoadBatch, uc.RescoreLimit = ef, sw.batches[0], rescore
 			uc.SourceMargin = float32(margin)
 			require.NoError(t, index.UpdateUserConfig(uc, func() {}))
-			stats, recall := collectSearchStats(t, index, data)
+			stats, recall := collectSearchStats(t, index, data, *benchWorkThreads)
 			recalls[i] = recall
 			result.Calibration = append(result.Calibration, benchPoint{
 				EF: ef, Threads: 1, RescoreLimit: uc.RescoreLimit, LoadBatch: uc.LoadBatch,
@@ -906,27 +917,62 @@ func measurePoint(t *testing.T, data *benchData, search func(context.Context, []
 	return point
 }
 
-// collectSearchStats runs the query set once more, single-threaded, with
-// the per-search stats on, and returns them with the recall of that pass. It
-// is kept out of the timed passes because collecting the stats reads the
-// clock and counts in passes of its own.
-func collectSearchStats(t *testing.T, index *Index, data *benchData) (*statsSummary, float64) {
+// collectSearchStats runs the query set once more with the statistics of
+// every search on, and returns their summary and the recall. It is kept out
+// of the timed passes because collecting the statistics reads the clock and
+// counts. The counts and the recall are those of the searches, whatever the
+// number of threads. The phase times only mean something when every query
+// runs alone, so with more than one thread they are left at zero.
+func collectSearchStats(t *testing.T, index *Index, data *benchData, threads int) (*statsSummary, float64) {
 	ctx := concurrency.CtxWithBudget(context.Background(), 1)
+	type answer struct {
+		stats SearchStats
+		took  time.Duration
+		hits  int
+	}
+	answers := make([]answer, len(data.queries))
+
+	var next atomic.Int64
+	var failed atomic.Pointer[error]
+	var wg sync.WaitGroup
+	for range max(1, threads) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				i := int(next.Add(1)) - 1
+				if i >= len(data.queries) {
+					return
+				}
+				begin := time.Now()
+				ids, _, stats, err := index.SearchByVectorWithStats(ctx, data.queries[i], *benchK, nil)
+				if err != nil {
+					failed.Store(&err)
+					return
+				}
+				a := answer{stats: stats, took: time.Since(begin)}
+				for _, want := range data.truth[i] {
+					if slices.Contains(ids, want) {
+						a.hits++
+					}
+				}
+				answers[i] = a
+			}
+		}()
+	}
+	wg.Wait()
+	if err := failed.Load(); err != nil {
+		require.NoError(t, *err)
+	}
+
 	n := float64(len(data.queries))
 	rounds := make([]float64, 0, len(data.queries))
 	loads := make([]float64, 0, len(data.queries))
 	var sum statsSummary
 	hits, total := 0, 0
-	for i, query := range data.queries {
-		begin := time.Now()
-		ids, _, stats, err := index.SearchByVectorWithStats(ctx, query, *benchK, nil)
-		took := time.Since(begin)
-		require.NoError(t, err)
-		for _, want := range data.truth[i] {
-			if slices.Contains(ids, want) {
-				hits++
-			}
-		}
+	for i, a := range answers {
+		stats := a.stats
+		hits += a.hits
 		total += len(data.truth[i])
 
 		rounds = append(rounds, float64(stats.Rounds))
@@ -942,12 +988,15 @@ func collectSearchStats(t *testing.T, index *Index, data *benchData) (*statsSumm
 		sum.RepeatedMean += float64(stats.EndpointsRepeated()) / n
 		sum.EndpointsMean += float64(stats.EndpointsScored) / n
 		sum.RescoredMean += float64(stats.Rescored) / n
+		if threads > 1 {
+			continue
+		}
 		sum.CentroidUs += float64(stats.CentroidTime.Nanoseconds()) / 1e3 / n
 		sum.ScanUs += float64(stats.ScanTime.Nanoseconds()) / 1e3 / n
 		sum.ExpandUs += float64(stats.ExpandTime.Nanoseconds()) / 1e3 / n
 		sum.SelectUs += float64(stats.SelectTime.Nanoseconds()) / 1e3 / n
 		sum.RescoreUs += float64(stats.RescoreTime.Nanoseconds()) / 1e3 / n
-		sum.TotalUs += float64(took.Nanoseconds()) / 1e3 / n
+		sum.TotalUs += float64(a.took.Nanoseconds()) / 1e3 / n
 	}
 	slices.Sort(rounds)
 	slices.Sort(loads)
