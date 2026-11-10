@@ -1174,7 +1174,6 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		logger.Warnf("runtime swap: cannot retire superseded migrations: %v", err)
 	}
 	dirs := shardBucketDirs(shard.pathLSM())
-	// A faulty record may still name a displaced dir as live data.
 	preserve, recordsComplete := migrationTrimPreserve{}, false
 	if err == nil {
 		preserve, recordsComplete = trimPreserveSetOf(concrete)

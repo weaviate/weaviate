@@ -97,7 +97,6 @@ var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: t
 // errors.Is.
 var ErrCleanupShardFailed = errors.New("partial-reindex cleanup could not sweep every shard it reached")
 
-// errCleanupShardWithheld marks a shard refused before anything was removed, so not partly swept.
 var errCleanupShardWithheld = errors.New("cleanup withheld")
 
 type cleanupWithheldError struct{ faults []MigrationRecordUnreadable }

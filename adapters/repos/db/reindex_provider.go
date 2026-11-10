@@ -1106,8 +1106,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 }
 
 // unreadableRecordFault returns why a unit must not run, or "" when every
-// migration record on its shard is readable. It omits the unit because the FSM
-// prefixes a failed unit's error and resolveUnitForPhase adds the unit itself.
+// migration record on its shard is readable.
 func unreadableRecordFault(store *MigrationRecordStore) string {
 	unreadable := store.Unreadable()
 	if len(unreadable) == 0 {
@@ -1126,8 +1125,6 @@ func unreadableRecordFault(store *MigrationRecordStore) string {
 		len(unreadable), strings.Join(names, ", "), unreadable[0].Reason)
 }
 
-// Naming every bad file lets an operator fix them in one round; the cap keeps
-// the failed unit's error, which the FSM stores and logs, bounded.
 const maxNamedUnreadableRecords = 5
 
 // runShardPrepPhase runs the disk-I/O PREP phase for one unit on one shard.
@@ -1709,9 +1706,7 @@ const (
 	// partway through one. What is on them is unknown, which is not the same as
 	// knowing state is there.
 	CleanupSweepUnknown
-	// CleanupSweepWithheld: a shard was reached and left untouched, because of a
-	// migration record fault. It ranks below Failed: both
-	// leave state for certain, but only Failed's line warns of a partly swept shard.
+	// CleanupSweepWithheld: a shard was reached and left untouched over a migration record fault.
 	CleanupSweepWithheld
 	// CleanupSweepFailed: a shard was reached and could not be swept. It can
 	// fail after already removing part of its state, so what the shard holds
@@ -1753,10 +1748,8 @@ const (
 // the caller, and everything after it is shared, so the same outcome never
 // reaches an operator as two claims at two severities.
 //
-// [CleanupSweepFailed] and [CleanupSweepWithheld] are the only Errors. Each
-// reports a shard that was reached and still holds state nothing is scheduled
-// to remove, so an operator has to act. A cancelled run can also stop a shard
-// partway through — that reaches the operator as unverified, not as confirmed.
+// [CleanupSweepFailed] and [CleanupSweepWithheld] are the only Errors: each
+// reports a shard that was reached and still holds state, so an operator has to act.
 // Everything else is either clean or merely unverified, and routine tenant
 // churn produces unverified on a healthy node.
 //

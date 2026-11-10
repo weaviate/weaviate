@@ -386,8 +386,8 @@ func TestAUnitDoesNotRunWhileAMigrationRecordIsUnreadable(t *testing.T) {
 	}
 }
 
-// An operator fixes every file the error names in one round, so the error has
-// to name more than the first, yet stay bounded however many files are bad.
+// The error names up to the cap, so an operator sees several bad files at once,
+// and it stays bounded however many files are bad.
 func TestTheUnreadableRecordGuardNamesTheBadFilesUpToACap(t *testing.T) {
 	tests := []struct {
 		name      string
