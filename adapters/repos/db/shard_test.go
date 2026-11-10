@@ -179,6 +179,66 @@ func TestShard_InvalidHFreshBatches(t *testing.T) {
 	require.Nil(t, idx.drop())
 }
 
+// HFresh analyze tasks persist posting sizes in the background. A shard that
+// stops before they run, cleanly or by crashing, must still find its vectors.
+func TestShard_HFreshSearchAfterReopenBeforeAnalyze(t *testing.T) {
+	for _, tc := range []struct{ async, crash bool }{
+		{async: false, crash: false},
+		{async: false, crash: true},
+		{async: true, crash: false},
+	} {
+		t.Run(fmt.Sprintf("async=%v crash=%v", tc.async, tc.crash), func(t *testing.T) {
+			ctx := testCtx()
+			class := &models.Class{Class: "HFreshReopen"}
+			shd, idx := testShardWithSettings(t, ctx, class, hfresh.NewDefaultUserConfig(), false, tc.async, tc.async)
+			shard := underlyingShard(t, shd)
+			pauseAnalyze := func(s *Shard) {
+				idx.scheduler.PauseQueue(fmt.Sprintf("hfresh_analyze_queue_%s_%s", s.Name(), s.vectorIndexID("")))
+			}
+			pauseAnalyze(shard)
+
+			objs := createRandomObjects(getRandomSeed(), class.Class, 50, 8)
+			for _, obj := range objs {
+				require.NoError(t, shard.PutObject(ctx, obj))
+			}
+			queue, ok := shard.GetVectorIndexQueue("")
+			require.True(t, ok)
+			require.Eventually(t, func() bool { return queue.Size() == 0 }, 10*time.Second, 10*time.Millisecond)
+
+			search := func(s *Shard) []uint64 {
+				index, ok := s.GetVectorIndex("")
+				require.True(t, ok)
+				ids, _, err := index.SearchByVector(ctx, objs[7].Vector, 5, nil)
+				require.NoError(t, err)
+				return ids
+			}
+			require.NotEmpty(t, search(shard))
+
+			dir := shard.path()
+			snapshot := t.TempDir()
+			if tc.crash {
+				// what a killed process leaves on disk
+				require.NoError(t, os.CopyFS(snapshot, os.DirFS(dir)))
+			}
+			require.NoError(t, shard.Shutdown(ctx))
+			if tc.crash {
+				require.NoError(t, os.RemoveAll(dir))
+				require.NoError(t, os.CopyFS(dir, os.DirFS(snapshot)))
+			}
+			simulateProcessRestartBucketCleanup(t, shard.pathLSM())
+
+			loaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+			require.NoError(t, err)
+			idx.shards.Store(shard.Name(), loaded)
+			shard = underlyingShard(t, loaded)
+			pauseAnalyze(shard)
+
+			require.NotEmpty(t, search(shard))
+			require.Nil(t, idx.drop())
+		})
+	}
+}
+
 func TestShard_InvalidMultiVectorBatches(t *testing.T) {
 	t.Run("regular multivector", func(t *testing.T) {
 		ctx := testCtx()
