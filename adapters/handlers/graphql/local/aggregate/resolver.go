@@ -174,8 +174,6 @@ func resolveAggregate(p graphql.ResolveParams, authorizer authorization.Authoriz
 		ModuleParams:     moduleParams,
 		Hybrid:           hybridParams,
 		Tenant:           tenant,
-		// GraphQL resolves only the fields a query selects
-		OnlyRequestedAggregations: true,
 	}
 
 	// we might support objectLimit without nearMedia filters later, e.g. with sort

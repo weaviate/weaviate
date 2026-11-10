@@ -1003,8 +1003,6 @@ func (tests testCases) AssertExtraction(t *testing.T, className string) {
 				Limit:            testCase.expectedLimit,
 				ObjectLimit:      testCase.expectedObjectLimit,
 				Hybrid:           testCase.expectedNearHybrid,
-				// GraphQL resolves only the selected fields
-				OnlyRequestedAggregations: true,
 			}
 
 			resolver.On("Aggregate", expectedParams).

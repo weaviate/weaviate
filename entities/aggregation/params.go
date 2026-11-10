@@ -41,7 +41,7 @@ type Params struct {
 	Selection        *searchparams.Selection    `json:"selection"`
 	// OnlyRequestedAggregations is set by callers that return only the
 	// aggregations a request names, so the shards can skip computing the rest.
-	// GraphQL and gRPC set it: a text property's top occurrences are computed
+	// The gRPC parser sets it: a text property's top occurrences are computed
 	// only when requested.
 	OnlyRequestedAggregations bool `json:"onlyRequestedAggregations"`
 }
