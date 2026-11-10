@@ -24,8 +24,8 @@ import (
 // InnerReader answers a circle query from one layer of a bucket: a memtable
 // or a segment. Every match is added to out and every deletion the layer
 // carries to deleted; the bucket subtracts the second from the first once all
-// layers are in. A doc ID is added once and deleted at most once after that,
-// so the order of the layers does not matter.
+// layers are in. A doc ID is added once and deleted at most once, so the order
+// of the layers does not matter.
 type InnerReader interface {
 	WithinRange(ctx context.Context, c *Circle, out, deleted *sroar.Bitmap) error
 }
@@ -147,8 +147,21 @@ func (r *SegmentReader) WithinRange(ctx context.Context, c *Circle, out, deleted
 	// loop keeps the leaf work in one frame
 	stack := make([]uint32, 0, 64)
 	stack = append(stack, 0)
-	leaves := 0
+	visited := uint32(0)
 	for len(stack) > 0 {
+		// a well-formed tree is visited at most once per node; a corrupt one
+		// whose children point back up is stopped here instead of growing the
+		// stack without end
+		visited++
+		if visited > r.hdr.nodeCount {
+			return fmt.Errorf("geopoints: tree of %d nodes does not terminate", r.hdr.nodeCount)
+		}
+		if visited%64 == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+
 		n, err := nodeAt(stack[len(stack)-1])
 		if err != nil {
 			return err
@@ -161,13 +174,6 @@ func (r *SegmentReader) WithinRange(ctx context.Context, c *Circle, out, deleted
 		if n.Kind == nodeKindInner {
 			stack = append(stack, n.A, n.B)
 			continue
-		}
-
-		leaves++
-		if leaves%64 == 0 {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
 		}
 		if err := r.collectLeaf(c, n, out); err != nil {
 			return err
@@ -212,30 +218,47 @@ func (r *SegmentReader) collectLeaf(c *Circle, n node, out *sroar.Bitmap) error 
 	return nil
 }
 
-// Points returns every point of the segment in storage order, deleted ones
-// included. It is the compaction input.
-func (r *SegmentReader) Points() ([]Point, error) {
+// pointChunk is how many points appendPoints reads at a time, so that a pread
+// source allocates at most a megabyte of scratch per chunk.
+const pointChunk = 1 << 16
+
+// appendPoints appends the segment's points to dst in storage order, leaving
+// out those drop reports, and returns the extended slice. It is the compaction
+// input; drop may be nil.
+func (r *SegmentReader) appendPoints(dst []Point, drop func(docID uint64) bool) ([]Point, error) {
 	n := r.hdr.pointCount
 	base := r.hdr.pointsOffset()
-	ids, err := r.src.read(base, n*8)
-	if err != nil {
-		return nil, err
-	}
-	lats, err := r.src.read(base+n*8, n*4)
-	if err != nil {
-		return nil, err
-	}
-	lons, err := r.src.read(base+n*12, n*4)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Point, n)
-	for i := uint64(0); i < n; i++ {
-		out[i] = Point{
-			DocID: binary.LittleEndian.Uint64(ids[i*8:]),
-			Lat:   math.Float32frombits(binary.LittleEndian.Uint32(lats[i*4:])),
-			Lon:   math.Float32frombits(binary.LittleEndian.Uint32(lons[i*4:])),
+	for start := uint64(0); start < n; start += pointChunk {
+		count := min(uint64(pointChunk), n-start)
+		ids, err := r.src.read(base+start*8, count*8)
+		if err != nil {
+			return dst, err
+		}
+		lats, err := r.src.read(base+n*8+start*4, count*4)
+		if err != nil {
+			return dst, err
+		}
+		lons, err := r.src.read(base+n*12+start*4, count*4)
+		if err != nil {
+			return dst, err
+		}
+		for i := uint64(0); i < count; i++ {
+			id := binary.LittleEndian.Uint64(ids[i*8:])
+			if drop != nil && drop(id) {
+				continue
+			}
+			dst = append(dst, Point{
+				DocID: id,
+				Lat:   math.Float32frombits(binary.LittleEndian.Uint32(lats[i*4:])),
+				Lon:   math.Float32frombits(binary.LittleEndian.Uint32(lons[i*4:])),
+			})
 		}
 	}
-	return out, nil
+	return dst, nil
+}
+
+// Points returns every point of the segment in storage order, deleted ones
+// included.
+func (r *SegmentReader) Points() ([]Point, error) {
+	return r.appendPoints(make([]Point, 0, r.hdr.pointCount), nil)
 }

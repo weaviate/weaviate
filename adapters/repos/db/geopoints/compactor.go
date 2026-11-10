@@ -24,10 +24,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// Compactor merges two segments into one tree. right is the newer segment:
-// its deletions remove points of left, and a deletion that found its point in
-// either segment is spent. Both point sets are held in memory while the tree
-// is rebuilt, which the bucket's maximum segment size bounds.
+// Compactor merges two segments into one tree. right is the newer segment.
+// The surviving points are held in memory while the tree is rebuilt, once:
+// MergeMemoryEstimate tells the caller how much that is, so it can be checked
+// against the memory available before the segments are read.
 type Compactor struct {
 	left, right  *SegmentReader
 	currentLevel uint16
@@ -80,7 +80,7 @@ func (c *Compactor) Do(ctx context.Context) error {
 		segmentindex.WithBufferedWriter(c.bufw),
 		segmentindex.WithChecksumsDisabled(!c.enableChecksumValidation),
 	)
-	if _, err := segmentFile.BodyWriter().Write(body); err != nil {
+	if _, err := body.WriteTo(segmentFile.BodyWriter()); err != nil {
 		return fmt.Errorf("write body: %w", err)
 	}
 
@@ -91,7 +91,7 @@ func (c *Compactor) Do(ctx context.Context) error {
 		}
 	}
 
-	dataEnd := segmentindex.HeaderSize + uint64(len(body))
+	dataEnd := segmentindex.HeaderSize + uint64(body.Size())
 	version := segmentindex.ChooseHeaderVersion(c.enableChecksumValidation)
 	if err := compactor.WriteHeader(c.mw, c.w, c.bufw, segmentFile, c.currentLevel, version,
 		0, dataEnd, segmentindex.StrategyGeoPoints); err != nil {
@@ -104,8 +104,23 @@ func (c *Compactor) Do(ctx context.Context) error {
 	return nil
 }
 
-// Merge computes the body of the segment replacing left and right.
-func Merge(ctx context.Context, left, right *SegmentReader, cleanupDeletions bool) ([]byte, error) {
+// MergeMemoryEstimate is the heap Merge needs for two segments: every point
+// of both, the nodes of the tree over them, the deletion bitmaps and the
+// scratch of a chunked column read. The points dominate at 16 bytes each.
+func MergeMemoryEstimate(left, right *SegmentReader) int64 {
+	points := left.hdr.pointCount + right.hdr.pointCount
+	// a median split makes at most one leaf per 256 points, two nodes per leaf
+	nodes := points/128 + 1
+	deletions := 2 * (left.hdr.deletionsLen + right.hdr.deletionsLen)
+	return int64(points*16 + nodes*nodeSize + deletions + 3*pointChunk*8)
+}
+
+// Merge computes the body of the segment replacing left and right. A point
+// deleted by either segment is dropped and its deletion spent: a doc ID is
+// added once in its lifetime, so the deletion can refer to no other point.
+// The deletion may sit in the older segment and the point in the newer one
+// when a write lost a race with the delete of its object.
+func Merge(ctx context.Context, left, right *SegmentReader, cleanupDeletions bool) (*Body, error) {
 	leftDel, err := left.Deletions()
 	if err != nil {
 		return nil, fmt.Errorf("left deletions: %w", err)
@@ -114,14 +129,36 @@ func Merge(ctx context.Context, left, right *SegmentReader, cleanupDeletions boo
 	if err != nil {
 		return nil, fmt.Errorf("right deletions: %w", err)
 	}
-	leftPoints, err := left.Points()
+	deleted := leftDel.Clone()
+	deleted.Or(rightDel)
+
+	// the deletions carried on for older segments, less those spent here
+	var carried *sroar.Bitmap
+	if !cleanupDeletions {
+		carried = deleted.Clone()
+	}
+	var drop func(docID uint64) bool
+	if !deleted.IsEmpty() {
+		drop = func(docID uint64) bool {
+			if !deleted.Contains(docID) {
+				return false
+			}
+			if carried != nil {
+				carried.Remove(docID)
+			}
+			return true
+		}
+	}
+
+	points := make([]Point, 0, left.PointCount()+right.PointCount())
+	points, err = left.appendPoints(points, drop)
 	if err != nil {
 		return nil, fmt.Errorf("left points: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	rightPoints, err := right.Points()
+	points, err = right.appendPoints(points, drop)
 	if err != nil {
 		return nil, fmt.Errorf("right points: %w", err)
 	}
@@ -129,37 +166,9 @@ func Merge(ctx context.Context, left, right *SegmentReader, cleanupDeletions boo
 		return nil, err
 	}
 
-	// the union is taken before points are dropped, so a spent deletion can be
-	// removed from it below
-	var merged *sroar.Bitmap
-	if !cleanupDeletions {
-		merged = leftDel.Clone()
-		merged.Or(rightDel)
+	body := &Body{Points: points}
+	if carried != nil && !carried.IsEmpty() {
+		body.Deletions = carried.ToBuffer()
 	}
-
-	points := make([]Point, 0, len(leftPoints)+len(rightPoints))
-	keep := func(p Point) {
-		if rightDel.Contains(p.DocID) {
-			if merged != nil {
-				merged.Remove(p.DocID)
-			}
-			return
-		}
-		points = append(points, p)
-	}
-	for _, p := range leftPoints {
-		keep(p)
-	}
-	for _, p := range rightPoints {
-		keep(p)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	var deletions []byte
-	if merged != nil && !merged.IsEmpty() {
-		deletions = merged.ToBuffer()
-	}
-	return Build(points, deletions), nil
+	return body, nil
 }

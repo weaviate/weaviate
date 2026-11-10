@@ -13,9 +13,11 @@ package db
 
 import (
 	"context"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -355,6 +357,14 @@ func TestGeoBucketLegacyIndexMigration(t *testing.T) {
 				_, err := os.Stat(filepath.Join(shardPath, dir))
 				assert.True(t, os.IsNotExist(err), "legacy dir %q must be removed", dir)
 			}
+
+			// the rebuilt points are in a segment before the legacy dirs go: a
+			// write-ahead log alone may still be in the page cache when the
+			// machine dies, and then nothing would trigger another rebuild
+			segments, err := filepath.Glob(filepath.Join(reloaded.pathLSM(),
+				helpers.BucketGeoFromPropNameLSM("location"), "segment-*.db"))
+			require.NoError(t, err)
+			assert.NotEmpty(t, segments, "the migration must flush the rebuilt bucket")
 		})
 	}
 }
@@ -490,7 +500,6 @@ func TestGeoBucketNotCreatedWithoutFilterableIndex(t *testing.T) {
 
 	assert.False(t, s.hasGeoIndexForProp("location"))
 	assert.True(t, s.hasGeoIndexForProp("home"))
-	assert.True(t, s.hasGeoIndex())
 
 	obj := geoTestObject(map[string]interface{}{"location": berlinCoords, "home": munichCoords})
 	require.NoError(t, s.PutObject(ctx, obj), "a value for the unindexed property is stored, not indexed")
@@ -542,4 +551,157 @@ func TestMainBucketForProperty(t *testing.T) {
 			assert.Equal(t, test.want, got)
 		})
 	}
+}
+
+// TestGeoBucketLateWriteAfterDelete pins that a geo write for a doc ID that
+// a delete or update has retired cannot bring it back, in the memtable or
+// after a flush. The write path does the geo write under the object's lock, so
+// an insert's write cannot run after its object's delete; the bucket letting a
+// removal stand over a later add is the backstop, exercised here by repeating
+// the insert's geo write after the delete.
+func TestGeoBucketLateWriteAfterDelete(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("after a delete", func(t *testing.T) {
+		s, idx := testGeoBucketShard(t, ctx)
+		defer removeRootPath(t, idx)
+
+		obj := geoTestObject(map[string]interface{}{"location": berlinCoords})
+		require.NoError(t, s.PutObject(ctx, obj))
+		require.NoError(t, s.DeleteObject(ctx, obj.Object.ID, time.Time{}))
+
+		// the straggling geo write of the insert
+		require.NoError(t, s.updatePropertySpecificIndices(ctx, obj, objectInsertStatus{docID: obj.DocID}))
+		assert.Empty(t, geoDocIDsWithin(t, s, "location", berlinCoords, 1000))
+		require.NoError(t, s.store.FlushMemtables(ctx))
+		assert.Empty(t, geoDocIDsWithin(t, s, "location", berlinCoords, 1000))
+	})
+
+	t.Run("after an update", func(t *testing.T) {
+		s, idx := testGeoBucketShard(t, ctx)
+		defer removeRootPath(t, idx)
+
+		obj := geoTestObject(map[string]interface{}{"location": berlinCoords})
+		require.NoError(t, s.PutObject(ctx, obj))
+		updated := geoTestObject(map[string]interface{}{"location": munichCoords})
+		updated.Object.ID = obj.Object.ID
+		require.NoError(t, s.PutObject(ctx, updated))
+		require.NotEqual(t, obj.DocID, updated.DocID)
+
+		require.NoError(t, s.updatePropertySpecificIndices(ctx, obj, objectInsertStatus{docID: obj.DocID}))
+		assert.Empty(t, geoDocIDsWithin(t, s, "location", berlinCoords, 1000))
+		assert.Equal(t, []uint64{updated.DocID}, geoDocIDsWithin(t, s, "location", munichCoords, 1000))
+		require.NoError(t, s.store.FlushMemtables(ctx))
+		assert.Empty(t, geoDocIDsWithin(t, s, "location", berlinCoords, 1000))
+	})
+}
+
+// TestGeoBucketConcurrentPutDelete hammers a few objects with concurrent puts,
+// updates and deletes and checks that the geo bucket ends up holding exactly
+// the doc IDs of the objects that survive, which only holds if every geo write
+// is ordered with the object write it belongs to.
+func TestGeoBucketConcurrentPutDelete(t *testing.T) {
+	ctx := context.Background()
+	s, idx := testGeoBucketShard(t, ctx)
+	defer removeRootPath(t, idx)
+
+	const objects, workers, rounds = 8, 8, 150
+	ids := make([]strfmt.UUID, objects)
+	for i := range ids {
+		ids[i] = strfmt.UUID(uuid.NewString())
+	}
+
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		r := rand.New(rand.NewSource(int64(w)))
+		wg.Go(func() {
+			for i := 0; i < rounds; i++ {
+				id := ids[r.Intn(objects)]
+				if r.Intn(3) == 0 {
+					require.NoError(t, s.DeleteObject(ctx, id, time.Time{}))
+					continue
+				}
+				obj := geoTestObject(map[string]interface{}{"location": geoAt(52+float32(r.Intn(3)), 13)})
+				obj.Object.ID = id
+				require.NoError(t, s.PutObject(ctx, obj))
+			}
+		})
+	}
+	wg.Wait()
+
+	want := []uint64{}
+	for _, id := range ids {
+		obj, err := s.ObjectByID(ctx, id, nil, additional.Properties{})
+		require.NoError(t, err)
+		if obj != nil {
+			want = append(want, obj.DocID)
+		}
+	}
+	sort.Slice(want, func(i, j int) bool { return want[i] < want[j] })
+	assert.Equal(t, want, geoDocIDsWithin(t, s, "location", geoAt(53, 13), 500_000),
+		"the geo bucket must hold the doc IDs of the live objects and nothing else")
+}
+
+// TestGeoBucketNameDoesNotCollide pins that the geo bucket of "location" is
+// not the filterable bucket of a property named "location_geo": a schema may
+// hold both, and a shared directory would have the geo rebuild remove the
+// other property's index.
+func TestGeoBucketNameDoesNotCollide(t *testing.T) {
+	require.NotEqual(t, helpers.BucketFromPropNameLSM("location_geo"), helpers.BucketGeoFromPropNameLSM("location"))
+
+	ctx := context.Background()
+	class := geoBucketTestClass()
+	class.Properties = append(class.Properties, &models.Property{
+		Name: "location_geo", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationField,
+	})
+	shard, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false)
+	defer removeRootPath(t, idx)
+	s := shard.(*Shard)
+
+	obj := geoTestObject(map[string]interface{}{"location": berlinCoords, "location_geo": "berlin"})
+	require.NoError(t, s.PutObject(ctx, obj))
+
+	textFilter := func() []uint64 {
+		filter := &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			On:       &filters.Path{Class: schema.ClassName(geoBucketClass), Property: "location_geo"},
+			Value:    &filters.Value{Value: "berlin", Type: schema.DataTypeText},
+		}}
+		allow, err := s.buildAllowList(ctx, filter, additional.Properties{})
+		require.NoError(t, err)
+		return allow.Slice()
+	}
+	assert.Equal(t, []uint64{obj.DocID}, textFilter())
+	assert.Equal(t, []uint64{obj.DocID}, geoDocIDsWithin(t, s, "location", berlinCoords, 1000))
+
+	// the geo rebuild replaces its own bucket only
+	require.NoError(t, s.DebugResetGeoIndex(ctx, "location"))
+	assert.Equal(t, []uint64{obj.DocID}, textFilter(), "the text property's index must survive the geo rebuild")
+	assert.Equal(t, []uint64{obj.DocID}, geoDocIDsWithin(t, s, "location", berlinCoords, 1000))
+	textBucket := s.store.Bucket(helpers.BucketFromPropNameLSM("location_geo"))
+	require.NotNil(t, textBucket)
+	assert.Equal(t, lsmkv.StrategyRoaringSet, textBucket.Strategy())
+}
+
+// TestGeoBucketRebuildAfterChurn pins that the rebuild indexes the live
+// objects after many versions of them were written and most were deleted.
+func TestGeoBucketRebuildAfterChurn(t *testing.T) {
+	ctx := context.Background()
+	s, idx := testGeoBucketShard(t, ctx)
+	defer removeRootPath(t, idx)
+
+	kept := geoTestObject(map[string]interface{}{"location": berlinCoords})
+	for i := 0; i < 50; i++ {
+		// each put is a new version and a new doc ID
+		kept.Object.Properties = map[string]interface{}{"location": geoAt(52.52, 13.405+float32(i)*0.0001)}
+		require.NoError(t, s.PutObject(ctx, kept))
+		churn := geoTestObject(map[string]interface{}{"location": munichCoords})
+		require.NoError(t, s.PutObject(ctx, churn))
+		require.NoError(t, s.DeleteObject(ctx, churn.Object.ID, time.Time{}))
+	}
+	require.NoError(t, s.store.FlushMemtables(ctx))
+
+	require.NoError(t, s.DebugResetGeoIndex(ctx, "location"))
+	assert.Equal(t, []uint64{kept.DocID}, geoDocIDsWithin(t, s, "location", berlinCoords, 1000))
+	assert.Empty(t, geoDocIDsWithin(t, s, "location", munichCoords, 1000))
 }

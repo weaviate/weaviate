@@ -1060,10 +1060,6 @@ func (l *LazyLoadShard) mutableMergeObjectLSM(ctx context.Context, merge objects
 	return l.mustLoad(context.Background()).mutableMergeObjectLSM(ctx, merge, idBytes)
 }
 
-func (l *LazyLoadShard) updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error {
-	return l.mustLoad(context.Background()).updatePropertySpecificIndices(ctx, object, status)
-}
-
 func (l *LazyLoadShard) updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32, status objectInsertStatus) error {
 	return l.mustLoad(context.Background()).updateVectorIndexIgnoreDelete(ctx, vector, status)
 }
@@ -1074,10 +1070,6 @@ func (l *LazyLoadShard) updateVectorIndexesIgnoreDelete(ctx context.Context, vec
 
 func (l *LazyLoadShard) updateMultiVectorIndexesIgnoreDelete(ctx context.Context, multiVectors map[string][][]float32, status objectInsertStatus) error {
 	return l.mustLoad(context.Background()).updateMultiVectorIndexesIgnoreDelete(ctx, multiVectors, status)
-}
-
-func (l *LazyLoadShard) hasGeoIndex() bool {
-	return l.mustLoad(context.Background()).hasGeoIndex()
 }
 
 // A cold shard reports false rather than loading: the only caller reaches this
