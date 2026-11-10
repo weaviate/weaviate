@@ -1365,7 +1365,14 @@ func (p *ReindexProvider) runPerUnitPhase(
 			}()
 			return
 		}
-		started.Do(func() { logger.Info(start) })
+		started.Do(func() {
+			// A decided swap that keeps failing re-fires every tick, so a retry logs within the node-wide sample.
+			if !slices.ContainsFunc(res.UnitTasks, func(t *ShardReindexTaskGeneric) bool { return t.swapAttempted.Load() }) {
+				logger.Info(start)
+				return
+			}
+			p.swapRetrySampler().WithSampling(func(logrus.FieldLogger) { logger.Info(start) })
+		})
 		release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
 		if !entered {
 			func() {

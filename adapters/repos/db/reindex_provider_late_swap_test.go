@@ -131,7 +131,8 @@ func TestFailingSwapRetryLogsSampled(t *testing.T) {
 }
 
 // Pins that a decided swap retried every tick, because a sibling unit keeps
-// failing, logs the swapped unit's "swap complete" once.
+// failing, logs the swapped unit's "swap complete" once, and its start line in
+// full on the first attempt and only within the node-wide sample after.
 func TestDecidedSwapRetryLogsSwapCompleteOnce(t *testing.T) {
 	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "SwapRetry_")
 	unit := shard.migrationUnit()
@@ -157,14 +158,22 @@ func TestDecidedSwapRetryLogsSwapCompleteOnce(t *testing.T) {
 		"sibling": {ID: "sibling", NodeID: "node1", Status: distributedtask.UnitStatusCompleted},
 	})
 
+	count := func(msg string) (n int) {
+		for _, e := range hook.AllEntries() {
+			if e.Message == msg {
+				n++
+			}
+		}
+		return n
+	}
+	const start = "reindex provider: swap-requested → starting OVERLAY+SWAP after cluster-wide PREP barrier"
+	// Use up the sample, so only a first attempt logged in full gets a start line.
+	for range maxReportedErrors {
+		p.swapRetrySampler().WithSampling(func(logrus.FieldLogger) {})
+	}
 	for range 3 * maxReportedErrors {
 		require.Error(t, p.OnSwapRequested(task, "", task.LocalGroupUnitIDs("", "node1")))
 	}
-	complete := 0
-	for _, e := range hook.AllEntries() {
-		if e.Message == "reindex provider: swap complete" {
-			complete++
-		}
-	}
-	require.Equal(t, 1, complete)
+	require.Equal(t, 1, count("reindex provider: swap complete"))
+	require.Equal(t, 1, count(start))
 }
