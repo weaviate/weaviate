@@ -316,6 +316,28 @@ func TestGrantedVerbs(t *testing.T) {
 	}
 }
 
+// TestRegexSegmentsToWildcard has one row per kind of regex syntax conv stores,
+// each letting a pattern match a name its text does not contain. In the last
+// row the "<ns>:" qualifier carries regex syntax, so it is dropped too.
+func TestRegexSegmentsToWildcard(t *testing.T) {
+	tests := []struct {
+		resource string
+		want     string
+	}{
+		{resource: "users/admin[eu]", want: "users/.*"},
+		{resource: "users/eu?admin", want: "users/.*"},
+		{resource: "users/e+u", want: "users/.*"},
+		{resource: "users/eu{0}admin", want: "users/.*"},
+		{resource: `users/\x61dmin`, want: "users/.*"},
+		{resource: "users/(admin|customer2:eu)", want: "users/.*"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.resource, func(t *testing.T) {
+			require.Equal(t, tt.want, regexSegmentsToWildcard(tt.resource))
+		})
+	}
+}
+
 // TestAuthorizeRolePermissionsCasbin runs the check against the real enforcer,
 // whose unanchored verb match a mocked authorizer cannot show.
 func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
@@ -325,26 +347,46 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 	require.NoError(t, err)
 
 	all := "*"
+	updateUsers := func(name, users string) *models.Role {
+		return &models.Role{Name: authorization.String(name), Permissions: []*models.Permission{{
+			Action: authorization.String(authorization.UpdateUsers), Users: &models.PermissionUsers{Users: &users},
+		}}}
+	}
+	readMoviesData := func(name, tenant string) *models.Role {
+		return &models.Role{Name: authorization.String(name), Permissions: []*models.Permission{{
+			Action: authorization.String(authorization.ReadData), Data: &models.PermissionData{Collection: authorization.String("Movies"), Tenant: &tenant},
+		}}}
+	}
 	custom, err := conv.RolesToPolicies(
 		&models.Role{Name: authorization.String("backup-manager"), Permissions: []*models.Permission{{
 			Action: authorization.String(authorization.ManageBackups), Backups: &models.PermissionBackups{Collection: &all},
 		}}},
-		&models.Role{Name: authorization.String("user-updater"), Permissions: []*models.Permission{{
-			Action: authorization.String(authorization.UpdateUsers), Users: &models.PermissionUsers{Users: &all},
-		}}},
+		updateUsers("user-updater", all),
 		&models.Role{Name: authorization.String("movies-creator"), Permissions: []*models.Permission{{
 			Action: authorization.String(authorization.CreateCollections), Collections: &models.PermissionCollections{Collection: authorization.String("Movies")},
 		}}},
+		updateUsers("eu-users", "*eu*"),
+		updateUsers("eu-or-admin-users", "eu|admin"),
+		updateUsers("customer1-eu-or-admin-users", "customer1:eu|admin"),
+		updateUsers("eu-west-users", "eu.west*"),
+		readMoviesData("movies-reader", all),
+		readMoviesData("eu-movies-reader", "*eu*"),
+		readMoviesData("eu-or-secret-movies-reader", "eu|secret"),
+		updateUsers("two-letter-users", ".."),
 	)
 	require.NoError(t, err)
 	require.NoError(t, m.CreateRolesPermissions(custom))
 
 	// A denied manage permission is reported once, under the action an admin can grant.
 	deniedManageBackups := "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to manage_backups [[Domain: backups,Collection: *]]"
+	// A pattern with regex syntax beyond '.' and '*' must pass as stored and as ".*".
+	deniedAllUsers := "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: *]]"
+	deniedAllMoviesTenants := "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to read_data [[Domain: data, Collection: Movies, Tenant: *]]"
 
 	tests := []struct {
 		name              string
 		caller            string
+		callerNamespace   string
 		callerRoles       []string
 		targetRoles       []string
 		namespacesEnabled bool
@@ -356,6 +398,12 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 		{name: "root covers the built-in admin role", caller: "root", targetRoles: []string{authorization.Admin}},
 		{name: "one role beyond the caller refuses them all", caller: "caller", callerRoles: []string{"user-updater"}, targetRoles: []string{"backup-manager", "user-updater"}, wantDenied: deniedManageBackups},
 		{name: "a global caller is checked against the stored resource", caller: "caller", callerRoles: []string{"movies-creator"}, targetRoles: []string{"movies-creator"}, namespacesEnabled: true, targetNamespace: "customer1"},
+		{name: "an alternation of users reaching past the caller's is refused", caller: "caller", callerRoles: []string{"eu-users"}, targetRoles: []string{"eu-or-admin-users"}, wantDenied: deniedAllUsers},
+		{name: "an alternation of tenants reaching past the caller's is refused", caller: "caller", callerRoles: []string{"eu-movies-reader"}, targetRoles: []string{"eu-or-secret-movies-reader"}, wantDenied: deniedAllMoviesTenants},
+		{name: "every tenant of a collection covers an alternation of its tenants", caller: "caller", callerRoles: []string{"movies-reader"}, targetRoles: []string{"eu-or-secret-movies-reader"}},
+		{name: "a confined caller with every user covers an alternation in its namespace", caller: "caller", callerNamespace: "customer1", callerRoles: []string{"user-updater"}, targetRoles: []string{"customer1-eu-or-admin-users"}, namespacesEnabled: true},
+		{name: "a dotted name with a trailing wildcard inside the caller's pattern is covered", caller: "caller", callerRoles: []string{"eu-users"}, targetRoles: []string{"eu-west-users"}},
+		{name: "a caller pattern matching the text of a wildcard is not a wildcard", caller: "caller", callerRoles: []string{"two-letter-users"}, targetRoles: []string{"eu-or-admin-users"}, wantDenied: "rbac: authorization, forbidden action: user 'caller' has insufficient permissions to update_users [[Domain: users, User: eu|admin]]"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -369,7 +417,7 @@ func TestAuthorizeRolePermissionsCasbin(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, targetRoles, len(tt.targetRoles))
 
-			principal := &models.Principal{Username: tt.caller, UserType: models.UserTypeInputDb}
+			principal := &models.Principal{Username: tt.caller, UserType: models.UserTypeInputDb, Namespace: tt.callerNamespace}
 			// targetRoles is a map, so repeat the check until every role order has run.
 			for range 100 {
 				err = AuthorizeRolePermissions(context.Background(), m, tt.namespacesEnabled, principal, tt.targetNamespace, targetRoles)
