@@ -1576,7 +1576,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 
 	ctx := p.serverCtx
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
-		"swap-requested", "reindex provider: swap-requested → starting OVERLAY+SWAP after cluster-wide PREP barrier", true,
+		"swap-requested", "reindex provider: swap-requested → starting OVERLAY+SWAP for a decided group", true,
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onSwapRequestedRunPhaseForUnit(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})

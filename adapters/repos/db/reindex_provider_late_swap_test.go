@@ -181,7 +181,7 @@ func TestDecidedSwapRetryLogsSwapCompleteOnce(t *testing.T) {
 				}
 				return n
 			}
-			const start = "reindex provider: swap-requested → starting OVERLAY+SWAP after cluster-wide PREP barrier"
+			const start = "reindex provider: swap-requested → starting OVERLAY+SWAP for a decided group"
 			// Use up the sample, so only a first attempt logged in full gets a start line.
 			for range maxReportedErrors {
 				p.swapRetrySampler().WithSampling(func(logrus.FieldLogger) {})
