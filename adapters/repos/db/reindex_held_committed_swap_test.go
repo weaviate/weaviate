@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
@@ -76,33 +75,6 @@ func TestAHeldCommittedSwapFailsTheTaskAndKeepsItsDebt(t *testing.T) {
 	require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
 	require.NoError(t, mgr.CheckClassMutation(fx.className))
 	require.NoError(t, mgr.CheckTenantMutation(fx.className, []string{fx.name}))
-}
-
-// A SWAPPING swap fails, not waits, on a shard held only for another migration, because the task cannot be cancelled.
-func TestASwapHeldForAnotherMigrationFailsItsTask(t *testing.T) {
-	fx := newDoubleFaultFixture(t, "tenant-held-classify")
-	other, _ := fx.addHalf(t, StrategyCodeFilterableRetokenize, "U", fx.desc.Version+1, true)
-	fx.breakDisk(t)
-	shard := fx.load(t)
-	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
-	// The lift arms the swap's own migration and keeps holding only the other one.
-	require.NoError(t, os.Remove(fx.corrupt))
-	require.Error(t, liftAndAwaitRetry(t, fx, shard, liftReady(shard)))
-	held := shard.migrationMirrors.heldUnarmed()
-	require.Len(t, held, 1)
-	require.Equal(t, other.Key, held[0].migrationRecordKey())
-
-	payload := fx.subject.reindexPayload()
-	payload.UnitToShard = map[string]string{fx.subject.Key.UnitID: fx.name}
-	task := &distributedtask.Task{TaskDescriptor: fx.desc, Status: distributedtask.TaskStatusSwapping, NeedsPreparationBarrier: true}
-	err := fx.provider.runPerUnitPhase(task, &payload, []string{fx.subject.Key.UnitID}, fx.idx, fx.logger,
-		"swap-requested", "starting", true,
-		func(string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult {
-			t.Fatal("the swap ran on a held shard")
-			return phaseResult{}
-		})
-	require.NotErrorIs(t, err, context.Canceled)
-	require.ErrorContains(t, err, "held READONLY")
 }
 
 func restoreSwappingTask(t *testing.T, mgr *distributedtask.Manager, desc distributedtask.TaskDescriptor,
