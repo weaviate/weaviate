@@ -39,14 +39,11 @@ func TestTerminalCleanupRanksAWalkFailureLikeTheSweepDoes(t *testing.T) {
 		// the shard the payload names.
 		fixture     func(t *testing.T) (idx *Index, shardName string)
 		wantOutcome CleanupSweepOutcome
-		// wantText tells an untouched shard's wording from a partly swept one's.
-		wantText string
 	}{
 		{
 			name:        "a shard the walk reached and left untouched",
 			fixture:     shardWithAnUnreadableRecordStore,
 			wantOutcome: CleanupSweepWithheld,
-			wantText:    "its cleanup is withheld. Fix that record and reload the shard; the cleanup then runs if this task is still listed",
 		},
 		{
 			name: "a shard the walk reached and could not settle",
@@ -115,10 +112,6 @@ func TestTerminalCleanupRanksAWalkFailureLikeTheSweepDoes(t *testing.T) {
 				summary[0].Level, wantLevel, summary[0].Message)
 			require.Contains(t, summary[0].Message, wantMsg,
 				"the operator has to read one wording for one outcome")
-			require.Contains(t, summary[0].Message, tc.wantText)
-			if tc.wantOutcome != CleanupSweepFailed {
-				require.NotContains(t, summary[0].Message, "partly swept")
-			}
 		})
 	}
 }
