@@ -50,8 +50,11 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 		endsUndecided bool
 		// An earlier load stamped the record, which already refuses the swap.
 		stampedBefore bool
+		// The task ended FAILED rather than CANCELLED before the owed swap ran.
+		failed bool
 	}{
 		{name: "the mirror fails to arm"},
+		{name: "the mirror fails to arm, and the task failed", failed: true},
 		{name: "the mirror fails to arm before RAFT has caught up", raftBehind: true},
 		{name: "the mirror fails to arm after this node acked, before the swap is decided", decidedAfterLoad: true},
 		{name: "a held lift stamps once the acked task ends undecided", decidedAfterLoad: true, endsUndecided: true},
@@ -162,7 +165,14 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 				"the owed swap reuses the instances the reload armed, even once the task has ended")
 			written := createTestObjectWithText(className, "afterhot")
 			require.NoError(t, reloaded.PutObject(ctx, written))
-			require.NoError(t, p.OnSwapRequested(cancelled, group, []string{unitID}))
+			ended := task(distributedtask.TaskStatusCancelled)
+			if tc.failed {
+				ended.Status = distributedtask.TaskStatusFailed
+			}
+			require.NoError(t, p.OnSwapRequested(ended, group, []string{unitID}))
+			for _, rec := range reloaded.migrationRecords.Records() {
+				require.True(t, rec.FlipDecided(), "the decided swap runs after the task ended")
+			}
 
 			filtered, _, err := reloaded.ObjectSearch(ctx, 10, propEqualsFilter(className, prop, "afterhot"), nil, nil, nil, additional.Properties{}, nil)
 			require.NoError(t, err)
