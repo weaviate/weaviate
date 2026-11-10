@@ -309,8 +309,7 @@ func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
 	h.dims.Store(int32(data.InputDim))
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
-		err = h.trackRQOnce.Do(func() error {
-			var err error
+		h.trackRQOnce.Do(func() {
 			h.compressor, err = compressionhelpers.RestoreRQCompressor(
 				h.distancerProvider,
 				1e12,
@@ -329,13 +328,11 @@ func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
 				h.getTargetVector(),
 				h.vectorForID,
 			)
-			return err
 		})
 	} else if len(data.Mean) > 0 {
 		return errors.New("rq centering is not supported for multivector indexes")
 	} else {
-		err = h.trackRQOnce.Do(func() error {
-			var err error
+		h.trackRQOnce.Do(func() {
 			h.compressor, err = compressionhelpers.RestoreRQMultiCompressor(
 				h.distancerProvider,
 				1e12,
@@ -353,7 +350,6 @@ func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
 				h.getTargetVector(),
 				h.multiVectorForNodeID,
 			)
-			return err
 		})
 	}
 
@@ -363,8 +359,7 @@ func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
 func (h *hnsw) restoreBinaryRotationalQuantization(data *ent.BRQData) error {
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
-		err = h.trackRQOnce.Do(func() error {
-			var err error
+		h.trackRQOnce.Do(func() {
 			h.compressor, err = compressionhelpers.RestoreRQCompressor(
 				h.distancerProvider,
 				1e12,
@@ -383,11 +378,9 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *ent.BRQData) error {
 				h.getTargetVector(),
 				h.vectorForID,
 			)
-			return err
 		})
 	} else {
-		err = h.trackRQOnce.Do(func() error {
-			var err error
+		h.trackRQOnce.Do(func() {
 			h.compressor, err = compressionhelpers.RestoreRQMultiCompressor(
 				h.distancerProvider,
 				1e12,
@@ -405,7 +398,6 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *ent.BRQData) error {
 				h.getTargetVector(),
 				h.multiVectorForNodeID,
 			)
-			return err
 		})
 	}
 	return err

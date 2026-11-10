@@ -557,7 +557,8 @@ func TestUpgrade_RemovesUnloadedCompressedBucket(t *testing.T) {
 }
 
 // A compression that did not happen right after the swap is picked up by the
-// indexing queue, which asks ShouldUpgrade and then calls Upgrade.
+// indexing queue, which asks ShouldUpgrade and then calls Upgrade. A failed
+// attempt must leave the queue alone for a while, and must not be the last.
 func TestUpgrade_QueueRetriesMissedCompression(t *testing.T) {
 	for _, tc := range upgradeQuantizerCases() {
 		if !tc.hnswUC.BQ.Enabled && !tc.hnswUC.RQ.Enabled {
@@ -576,24 +577,52 @@ func TestUpgrade_QueueRetriesMissedCompression(t *testing.T) {
 				}
 				return idx.installUpgraded(index)
 			}
-			done := make(chan struct{})
-			require.NoError(t, idx.Upgrade(func() { close(done) }))
-			<-done
+			upgrade := func() {
+				done := make(chan struct{})
+				require.NoError(t, idx.Upgrade(func() { close(done) }))
+				<-done
+			}
+			upgrade()
 			require.True(t, idx.IsUpgraded())
 			require.False(t, idx.Compressed())
 
+			// a file in place of the compressed bucket's directory fails its creation
+			blocker := filepath.Join(env.store.GetDir(), idx.getCompressedBucketName())
+			require.NoError(t, os.WriteFile(blocker, nil, 0o600))
 			should, at := idx.ShouldUpgrade()
 			require.True(t, should, "the queue must be asked to compress")
 			require.False(t, idx.Upgraded())
 			require.Greater(t, idx.AlreadyIndexed(), uint64(at))
+			upgrade()
+			require.False(t, idx.Compressed())
+			should, _ = idx.ShouldUpgrade()
+			require.False(t, should, "a failed attempt must not be repeated on every queue round")
+			env.search(t, queries, 10, "after the failed compression")
 
-			done = make(chan struct{})
-			require.NoError(t, idx.Upgrade(func() { close(done) }))
-			<-done
+			require.NoError(t, os.Remove(blocker))
+			idx.compressRetryAfter.Store(0)
+			should, _ = idx.ShouldUpgrade()
+			require.True(t, should, "the queue must be asked again after the cool-down")
+			upgrade()
 			require.True(t, idx.Compressed())
 			env.search(t, queries, 10, "after the retried compression")
 		})
 	}
+}
+
+// The config applied after the compression must be the latest one, so updates
+// have to be tracked after the upgrade as well.
+func TestUpgrade_TracksConfigUpdatesAfterUpgrade(t *testing.T) {
+	vectors, _ := testinghelpers.RandomVecs(2*batchSize, 0, 32)
+	env := newUpgradeTestEnv(t, t.TempDir(), "", vectors, flatRQ8(), hnswBQ())
+	env.addAll(t)
+	env.upgrade(t, nil)
+	require.True(t, env.idx.IsUpgraded())
+
+	updated := env.uc
+	updated.HnswUC.VectorCacheMaxObjects = 77
+	require.NoError(t, env.idx.UpdateUserConfig(updated, func() {}))
+	require.Equal(t, 77, env.idx.uc.HnswUC.VectorCacheMaxObjects)
 }
 
 // A backup asks UpgradeInProgress. The answer must stay yes until the

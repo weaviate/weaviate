@@ -49,6 +49,8 @@ const (
 	composerUpgradedKey = "upgraded"
 	batchSize           = 500
 
+	compressRetryCooldown = time.Minute
+
 	// stateDBOpenTimeout bounds the wait for the state DB's file lock. Only a
 	// loaded shard holds it, and [UpgradedOnDisk] reads unloaded ones, so waiting
 	// is a sign the caller raced a load rather than something to sit out.
@@ -218,6 +220,8 @@ type dynamic struct {
 
 	// covers the compression that follows the swap, when status is already upgraded
 	upgradeRunning atomic.Bool
+	// unix nanos before which a failed compression is not retried
+	compressRetryAfter atomic.Int64
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -765,7 +769,11 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 	dynamic.Lock()
 	defer dynamic.Unlock()
 	if dynamic.status.IsUpgraded() {
-		return dynamic.index.UpdateUserConfig(parsed.HnswUC, callback)
+		err := dynamic.index.UpdateUserConfig(parsed.HnswUC, callback)
+		if err == nil {
+			dynamic.uc = parsed
+		}
+		return err
 	}
 	dynamic.uc = parsed
 	return dynamic.index.UpdateUserConfig(parsed.FlatUC, callback)
@@ -951,8 +959,11 @@ func (dynamic *dynamic) ShouldUpgrade() (bool, int) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	index := dynamic.index.(upgradableIndexer)
-	if dynamic.uc.HnswUC.BQ.Enabled && !index.Upgraded() && !index.UpgradeInProgress() {
-		// hnsw does not ask for BQ itself, it expects it from the start
+	if compressesOnUpgrade(dynamic.uc.HnswUC) && !index.Upgraded() {
+		// hnsw never asks for BQ, and asks for RQ on every round
+		if index.UpgradeInProgress() || time.Now().UnixNano() < dynamic.compressRetryAfter.Load() {
+			return false, 0
+		}
 		return true, 1
 	}
 	return index.ShouldUpgrade()
@@ -995,7 +1006,23 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 	}
 
 	if dynamic.status.IsUpgraded() {
-		return dynamic.index.(upgradableIndexer).Upgrade(callback)
+		dynamic.RLock()
+		index, isHnsw := dynamic.index.(*hnsw.HNSW)
+		pending := isHnsw && compressesOnUpgrade(dynamic.uc.HnswUC) && !index.Compressed()
+		dynamic.RUnlock()
+		if !pending {
+			return dynamic.index.(upgradableIndexer).Upgrade(callback)
+		}
+		if !dynamic.upgradeRunning.CompareAndSwap(false, true) {
+			callback()
+			return nil
+		}
+		enterrors.GoWrapper(func() {
+			defer callback()
+			defer dynamic.upgradeRunning.Store(false)
+			dynamic.compressUpgraded(index)
+		}, dynamic.logger)
+		return nil
 	}
 
 	if !dynamic.status.TryUpgrading() {
@@ -1154,37 +1181,51 @@ func uncompressedDuringCopy(uc hnswent.UserConfig) hnswent.UserConfig {
 	return uc
 }
 
+// PQ, SQ and centered RQ train later, triggered by the indexing queue.
+func compressesOnUpgrade(uc hnswent.UserConfig) bool {
+	return uc.BQ.Enabled || (uc.RQ.Enabled && !uc.RQ.Centering)
+}
+
 func (dynamic *dynamic) compressUpgraded(index *hnsw.HNSW) {
-	uc := dynamic.uc.HnswUC
-	// PQ, SQ and centered RQ train later, triggered by the indexing queue
-	compressNow := uc.BQ.Enabled || (uc.RQ.Enabled && !uc.RQ.Centering)
-	if !compressNow {
+	if err := dynamic.startCompression(index); err != nil {
+		dynamic.compressRetryAfter.Store(time.Now().Add(compressRetryCooldown).UnixNano())
+		dynamic.logger.WithField("action", "dynamic_upgrade_compress").
+			Errorf("compress upgraded index, retrying in %s: %v", compressRetryCooldown, err)
 		return
 	}
-	done := make(chan struct{})
+
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	if dynamic.uc.HnswUC.BQ.Enabled {
+		index.SetCompressedVectorCacheMaxObjects(dynamic.uc.HnswUC.VectorCacheMaxObjects)
+	}
+}
+
+func (dynamic *dynamic) startCompression(index *hnsw.HNSW) error {
 	// the read lock keeps a shutdown out until the compression is registered
 	dynamic.RLock()
-	if dynamic.ctx.Err() != nil {
+	if dynamic.ctx.Err() != nil || !compressesOnUpgrade(dynamic.uc.HnswUC) || index.Compressed() {
 		dynamic.RUnlock()
-		return
+		return nil
 	}
-	err := index.Upgrade(func() { close(done) })
-	dynamic.RUnlock()
+	// created here because hnsw gives up on RQ for good if it cannot create the bucket
+	err := dynamic.store.CreateOrLoadBucket(dynamic.ctx, dynamic.getCompressedBucketName(),
+		dynamic.MakeBucketOptions(lsmkv.StrategyReplace)...)
 	if err != nil {
-		dynamic.logger.WithField("action", "dynamic_upgrade_compress").
-			Errorf("compress upgraded index: %v", err)
+		dynamic.RUnlock()
+		return errors.Wrap(err, "create compressed bucket")
 	}
+	done := make(chan struct{})
+	err = index.Upgrade(func() { close(done) })
+	dynamic.RUnlock()
 	<-done
+	if err != nil {
+		return err
+	}
 	if !index.Compressed() {
-		dynamic.logger.WithField("action", "dynamic_upgrade_compress").
-			Error("upgraded index is not compressed yet, the indexing queue retries")
-		return
+		return errors.New("index is still uncompressed")
 	}
-	// the compressor starts with an unlimited cache
-	if err := index.UpdateUserConfig(uc, func() {}); err != nil {
-		dynamic.logger.WithField("action", "dynamic_upgrade_compress").
-			Errorf("apply hnsw config to compressed index: %v", err)
-	}
+	return nil
 }
 
 func (dynamic *dynamic) installUpgraded(index *hnsw.HNSW) error {

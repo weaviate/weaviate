@@ -144,9 +144,6 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	h.sqConfig = parsed.SQ
 	h.bqConfig = parsed.BQ
 	h.rqConfig = parsed.RQ
-	if h.compressed.Load() {
-		h.compressor.SetCacheMaxSize(int64(parsed.VectorCacheMaxObjects))
-	}
 	h.compressActionLock.Unlock()
 	if h.asyncIndexingEnabled {
 		callback()
@@ -161,9 +158,21 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 		}
 		// the compression will fire the callback once it's complete
 		return h.Upgrade(callback)
+	} else {
+		h.compressor.SetCacheMaxSize(int64(parsed.VectorCacheMaxObjects))
+		callback()
+		return nil
 	}
-	callback()
-	return nil
+}
+
+// SetCompressedVectorCacheMaxObjects is used by the dynamic index, whose hnsw
+// stage is compressed after it was built.
+func (h *hnsw) SetCompressedVectorCacheMaxObjects(maxObjects int) {
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
+	if h.compressed.Load() {
+		h.compressor.SetCacheMaxSize(int64(maxObjects))
+	}
 }
 
 func (h *hnsw) Upgrade(callback func()) error {
