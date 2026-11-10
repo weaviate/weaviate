@@ -1886,11 +1886,13 @@ from the rest of the cluster:
 Which outcome a run gets depends on the order its acknowledgements landed, which
 an operator cannot see. Before rolling back below this version, make every node
 snapshot past its last reindex run: restart each node on this version with
-`RAFT_SNAPSHOT_THRESHOLD=1 RAFT_SNAPSHOT_INTERVAL=5`, wait until it reports
-ready (`GET /v1/.well-known/ready`) and then writes two more snapshots, then
-roll back with both variables removed. A snapshot written before the node is
-ready can stop partway through its log. Left set, the variables make the node
-snapshot every few seconds.
+`RAFT_SNAPSHOT_THRESHOLD=1 RAFT_SNAPSHOT_INTERVAL=5`. At startup it logs
+`raft node constructed` with `last_store_applied_index_on_start`, the index of
+the last command in its RAFT log. Wait until that line's `last_snapshot_index`,
+or the `index` of a later `snapshot complete up to` line, is at least that
+value, then roll back with both variables removed. Compare against that value,
+not `raft_last_index`, which a snapshot may never reach on an idle cluster.
+Left set, the variables make the node snapshot every few seconds.
 
 Do this first, before the snapshot step: no entry of
 `GET /v1/schema/{className}/indexes` may read `partial`, in any collection,
