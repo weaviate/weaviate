@@ -14,11 +14,16 @@ package roaringset
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
+	"math/rand/v2"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
+	"weak"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -69,339 +74,429 @@ func TestBufPoolFixedSync(t *testing.T) {
 	})
 }
 
-func TestBufPoolFixedInMemory(t *testing.T) {
-	metrics := &bufPoolNoopMetrics{}
+// testIdleBudget keeps every buffer the pooled-bitmap tests put back.
+const testIdleBudget = 1 << 30
 
-	t.Run("pool returns buffers of given cap", func(t *testing.T) {
-		pool123 := NewBufPoolFixedInMemory(metrics, 123, 2)
-		pool234 := NewBufPoolFixedInMemory(metrics, 234, 2)
-		pool345 := NewBufPoolFixedInMemory(metrics, 345, 2)
+var testInMemoSizes = []int{512, 1024, 2048}
 
-		t.Run("buf1", func(t *testing.T) {
-			buf1_123, put := pool123.Get()
-			defer put()
-			buf1_234, put := pool234.Get()
-			defer put()
-			buf1_345, put := pool345.Get()
-			defer put()
+type countingInMemoMetrics struct {
+	created, got, put, discarded, cleanedUp, evicted int
+}
 
-			assert.Equal(t, 0, len(buf1_123))
-			assert.Equal(t, 123, cap(buf1_123))
-			assert.Equal(t, 0, len(buf1_234))
-			assert.Equal(t, 234, cap(buf1_234))
-			assert.Equal(t, 0, len(buf1_345))
-			assert.Equal(t, 345, cap(buf1_345))
-		})
+func (m *countingInMemoMetrics) bufCreated()   { m.created++ }
+func (m *countingInMemoMetrics) bufGot()       { m.got++ }
+func (m *countingInMemoMetrics) bufPut()       { m.put++ }
+func (m *countingInMemoMetrics) bufDiscarded() { m.discarded++ }
+func (m *countingInMemoMetrics) bufCleanedUp() { m.cleanedUp++ }
+func (m *countingInMemoMetrics) bufEvicted()   { m.evicted++ }
 
-		t.Run("buf2", func(t *testing.T) {
-			buf2_123, put := pool123.Get()
-			defer put()
-			buf2_234, put := pool234.Get()
-			defer put()
-			buf2_345, put := pool345.Get()
-			defer put()
+func (m *countingInMemoMetrics) add(o *countingInMemoMetrics) {
+	m.created += o.created
+	m.got += o.got
+	m.put += o.put
+	m.discarded += o.discarded
+	m.cleanedUp += o.cleanedUp
+	m.evicted += o.evicted
+}
 
-			assert.Equal(t, 0, len(buf2_123))
-			assert.Equal(t, 123, cap(buf2_123))
-			assert.Equal(t, 0, len(buf2_234))
-			assert.Equal(t, 234, cap(buf2_234))
-			assert.Equal(t, 0, len(buf2_345))
-			assert.Equal(t, 345, cap(buf2_345))
-		})
+// newCountingInMemoBufPool gives each stack its own counting metrics, so it
+// suits single-goroutine tests only.
+func newCountingInMemoBufPool(budget int, ttl time.Duration, decayFraction float64,
+) (*inMemoBufPool, []*countingInMemoMetrics) {
+	p := newInMemoBufPool(nil, testInMemoSizes, budget, ttl, decayFraction)
+	metrics := make([]*countingInMemoMetrics, len(p.stacks))
+	for i, s := range p.stacks {
+		metrics[i] = &countingInMemoMetrics{}
+		s.metrics = metrics[i]
+	}
+	return p, metrics
+}
+
+func bufID(buf []byte) *byte { return &buf[:1][0] }
+
+func stackedBufIDs(s *idleStack) []*byte {
+	var ids []*byte
+	for _, b := range s.bufs[s.head:] {
+		ids = append(ids, bufID(b.pb.buf))
+	}
+	return ids
+}
+
+func TestInMemoBufPool(t *testing.T) {
+	newPool := func(budget int) (*inMemoBufPool, []*countingInMemoMetrics) {
+		return newCountingInMemoBufPool(budget, inMemoIdleTTL, inMemoDecayFraction)
+	}
+
+	t.Run("get returns the buffer put last", func(t *testing.T) {
+		p, _ := newPool(testIdleBudget)
+		_, putOlder := p.get(1)
+		newer, putNewer := p.get(1)
+		putOlder()
+		putNewer()
+
+		buf, put := p.get(1)
+		defer put()
+		assert.Same(t, bufID(newer), bufID(buf))
 	})
 
-	t.Run("pool reuses buffers up to given limit", func(t *testing.T) {
-		val1 := uint16(1001)
-		val2 := uint16(2002)
-		val3 := uint16(3003)
-		val4 := uint16(4004)
-		val5 := uint16(5005)
+	type step struct {
+		tick  time.Duration // used when label is empty
+		label string
+		stack int
+	}
+	tick := func(d time.Duration) step { return step{tick: d} }
+	put := func(label string, stack int) step { return step{label: label, stack: stack} }
+	expired := inMemoIdleTTL + 10*time.Second
 
-		// pool has 3 buffers. first 3 buffers got from the pool are reused
-		// (once written values stay in the buffers).
-		// following buffers are created as temporary ones and are not put back to the pool
-		limit := 3
-		pool := NewBufPoolFixedInMemory(metrics, 2, limit)
+	tests := []struct {
+		name   string
+		budget int
+		steps  []step
+		want   []string // stacked buffers, stack by stack, oldest first
+	}{
+		{
+			name:   "over budget evicts the oldest buffer across sizes",
+			budget: 512 + 1024 + 2048,
+			steps: []step{
+				tick(0), put("A", 1), tick(10 * time.Second), put("B", 2),
+				tick(20 * time.Second), put("C", 0), tick(30 * time.Second), put("D", 0),
+			},
+			want: []string{"C", "D", "B"},
+		},
+		{
+			name:   "two buffers over budget evicts the two oldest",
+			budget: 3 * 512,
+			steps: []step{
+				tick(0), put("A", 0), tick(10 * time.Second), put("B", 0),
+				tick(20 * time.Second), put("C", 0), tick(30 * time.Second), put("D", 1),
+			},
+			want: []string{"C", "D"},
+		},
+		{
+			name:   "equal stamps across sizes evict the larger buffer",
+			budget: 2048 + 4*512,
+			steps: []step{
+				tick(0), put("A", 2), put("B", 0), put("C", 0), put("D", 0), put("E", 0), put("F", 2),
+			},
+			want: []string{"B", "C", "D", "E", "F"},
+		},
+		{
+			name:   "decay drops the older half of the expired buffers",
+			budget: testIdleBudget,
+			steps: []step{
+				tick(0), put("A", 0), tick(time.Second), put("B", 0),
+				tick(2 * time.Second), put("C", 0), tick(3 * time.Second), put("D", 0),
+				tick(expired),
+			},
+			want: []string{"C", "D"},
+		},
+		{
+			name:   "decay drops a lone expired buffer",
+			budget: testIdleBudget,
+			steps:  []step{tick(0), put("A", 0), tick(expired)},
+		},
+		{
+			name:   "decay waits a TTL before dropping again",
+			budget: testIdleBudget,
+			steps: []step{
+				tick(0), put("A", 0), put("B", 0), put("C", 0), put("D", 0),
+				tick(expired), tick(expired + 10*time.Second),
+			},
+			want: []string{"C", "D"},
+		},
+		{
+			name:   "each size keeps its own decay schedule",
+			budget: testIdleBudget,
+			steps: []step{
+				tick(0), put("A", 0), tick(10 * time.Second), put("B", 1),
+				tick(70 * time.Second), tick(80 * time.Second),
+			},
+		},
+		{
+			name:   "decay keeps the survivors' stamps",
+			budget: 512 + 512 + 1024,
+			steps: []step{
+				tick(0), put("A", 0), put("B", 0), tick(50 * time.Second), put("C", 1),
+				tick(100 * time.Second), put("D", 1),
+			},
+			want: []string{"C", "D"},
+		},
+		{
+			name:   "put stamps the clock tick last stored",
+			budget: testIdleBudget,
+			steps:  []step{tick(100 * time.Second), put("A", 0), tick(150 * time.Second)},
+			want:   []string{"A"},
+		},
+		{
+			name:   "decay returns its bytes to the budget",
+			budget: 2 * 512,
+			steps:  []step{tick(0), put("A", 0), put("B", 0), tick(expired), put("C", 0)},
+			want:   []string{"B", "C"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p, _ := newPool(tc.budget)
+			// Get every buffer up front, so each is created rather than reused.
+			labels := map[*byte]string{}
+			puts := map[string]func(){}
+			for _, st := range tc.steps {
+				if st.label != "" {
+					buf, put := p.get(st.stack)
+					labels[bufID(buf)] = st.label
+					puts[st.label] = put
+				}
+			}
+			for _, st := range tc.steps {
+				if st.label == "" {
+					p.tick(st.tick)
+				} else {
+					puts[st.label]()
+				}
+			}
 
-		t.Run("get buffers and write unique values", func(t *testing.T) {
-			buf1_1, put1 := pool.Get()
-			binary.BigEndian.PutUint16(buf1_1[:2], val1)
-
-			buf2_1, put2 := pool.Get()
-			binary.BigEndian.PutUint16(buf2_1[:2], val2)
-
-			buf3_1, put3 := pool.Get()
-			binary.BigEndian.PutUint16(buf3_1[:2], val3)
-
-			buf4_1, put4 := pool.Get()
-			binary.BigEndian.PutUint16(buf4_1[:2], val4)
-
-			buf5_1, put5 := pool.Get()
-			binary.BigEndian.PutUint16(buf5_1[:2], val5)
-
-			// put in order
-			put1()
-			put2()
-			put3()
-			put4() // should be discarded
-			put5() // should be discarded
+			var got []string
+			for _, s := range p.stacks {
+				for _, id := range stackedBufIDs(s) {
+					got = append(got, labels[id])
+				}
+			}
+			assert.Equal(t, tc.want, got)
 		})
+	}
 
-		t.Run("get buffers - only 3 (limit) have values", func(t *testing.T) {
-			buf1_2, put1 := pool.Get()
-			val1_2 := binary.BigEndian.Uint16(buf1_2[:2])
+	t.Run("put with a full budget and nothing to evict drops the buffer", func(t *testing.T) {
+		p, _ := newPool(1024)
+		_, put := p.get(0)
+		p.idle.Store(p.budget)
 
-			buf2_2, put2 := pool.Get()
-			val2_2 := binary.BigEndian.Uint16(buf2_2[:2])
-
-			buf3_2, put3 := pool.Get()
-			val3_2 := binary.BigEndian.Uint16(buf3_2[:2])
-
-			buf4_2, put4 := pool.Get()
-			val4_2 := binary.BigEndian.Uint16(buf4_2[:2])
-
-			buf5_2, put5 := pool.Get()
-			val5_2 := binary.BigEndian.Uint16(buf5_2[:2])
-
-			assert.Equal(t, val1, val1_2)
-			assert.Equal(t, val2, val2_2)
-			assert.Equal(t, val3, val3_2)
-			assert.Equal(t, uint16(0), val4_2)
-			assert.Equal(t, uint16(0), val5_2)
-
-			// write again to temp buffers
-			binary.BigEndian.PutUint16(buf4_2[:2], val4)
-			binary.BigEndian.PutUint16(buf5_2[:2], val5)
-
-			// put in reverse order
-			put5()
-			put4()
-			put3()
-			put2() // should be discarded
-			put1() // should be discarded
-		})
-
-		t.Run("get buffers - only 3 (limit) have values (in reverse order)", func(t *testing.T) {
-			buf5_3, put := pool.Get()
-			val5_3 := binary.BigEndian.Uint16(buf5_3[:2])
-			defer put()
-
-			buf4_3, put := pool.Get()
-			val4_3 := binary.BigEndian.Uint16(buf4_3[:2])
-			defer put()
-
-			buf3_3, put := pool.Get()
-			val3_3 := binary.BigEndian.Uint16(buf3_3[:2])
-			defer put()
-
-			buf2_3, put := pool.Get()
-			val2_3 := binary.BigEndian.Uint16(buf2_3[:2])
-			defer put()
-
-			buf1_3, put := pool.Get()
-			val1_3 := binary.BigEndian.Uint16(buf1_3[:2])
-			defer put()
-
-			assert.Equal(t, uint16(0), val1_3)
-			assert.Equal(t, uint16(0), val2_3)
-			assert.Equal(t, val3, val3_3)
-			assert.Equal(t, val4, val4_3)
-			assert.Equal(t, val5, val5_3)
-		})
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			put()
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("put must drop the buffer, not retry eviction forever")
+		}
+		assert.Equal(t, p.budget, p.idle.Load())
+		assert.Empty(t, stackedBufIDs(p.stacks[0]))
 	})
 
-	t.Run("pool creates buffers lazily", func(t *testing.T) {
-		val1 := uint16(1001)
-		val2 := uint16(2002)
-		val3 := uint16(3003)
-		limit := 3
-
-		t.Run("1 buffer used at once, 1 buffer is created", func(t *testing.T) {
-			pool := NewBufPoolFixedInMemory(metrics, 2, limit)
-
-			buf1_1, put1 := pool.Get()
-			binary.BigEndian.PutUint16(buf1_1[:2], val1)
-			put1()
-
-			buf1_2, put := pool.Get()
-			val1_2 := binary.BigEndian.Uint16(buf1_2[:2])
-			put()
-
-			assert.Equal(t, val1, val1_2)
-		})
-
-		t.Run("2 buffers used at once, 2 buffers are created", func(t *testing.T) {
-			pool := NewBufPoolFixedInMemory(metrics, 2, limit)
-
-			buf1_3, put1 := pool.Get()
-			binary.BigEndian.PutUint16(buf1_3[:2], val1)
-			buf2_3, put2 := pool.Get()
-			binary.BigEndian.PutUint16(buf2_3[:2], val2)
-			put1()
-			put2()
-
-			buf1_4, put := pool.Get()
-			val1_4 := binary.BigEndian.Uint16(buf1_4[:2])
-			put()
-			buf2_4, put := pool.Get()
-			val2_4 := binary.BigEndian.Uint16(buf2_4[:2])
-			put()
-
-			assert.Equal(t, val1, val1_4)
-			assert.Equal(t, val2, val2_4)
-		})
-
-		t.Run("3 buffers used at once, 3 buffers are created", func(t *testing.T) {
-			pool := NewBufPoolFixedInMemory(metrics, 2, limit)
-
-			buf1_5, put1 := pool.Get()
-			binary.BigEndian.PutUint16(buf1_5[:2], val1)
-			buf2_5, put2 := pool.Get()
-			binary.BigEndian.PutUint16(buf2_5[:2], val2)
-			buf3_5, put3 := pool.Get()
-			binary.BigEndian.PutUint16(buf3_5[:2], val3)
-			put1()
-			put2()
-			put3()
-
-			buf1_6, put := pool.Get()
-			val1_6 := binary.BigEndian.Uint16(buf1_6[:2])
-			put()
-			buf2_6, put := pool.Get()
-			val2_6 := binary.BigEndian.Uint16(buf2_6[:2])
-			put()
-			buf3_6, put := pool.Get()
-			val3_6 := binary.BigEndian.Uint16(buf3_6[:2])
-			put()
-
-			assert.Equal(t, val1, val1_6)
-			assert.Equal(t, val2, val2_6)
-			assert.Equal(t, val3, val3_6)
-		})
+	t.Run("concurrent puts keep every buffer that fits", func(t *testing.T) {
+		for range 500 {
+			p := newInMemoBufPool(nil, testInMemoSizes, 4*1024, inMemoIdleTTL, inMemoDecayFraction)
+			puts := make([]func(), 16)
+			for i := range puts {
+				_, puts[i] = p.get(1)
+			}
+			start := make(chan struct{})
+			var wg sync.WaitGroup
+			for _, put := range puts {
+				wg.Go(func() {
+					<-start
+					put()
+				})
+			}
+			close(start)
+			wg.Wait()
+			require.Len(t, stackedBufIDs(p.stacks[1]), 4)
+			require.Equal(t, int64(4*1024), p.idle.Load())
+		}
 	})
 
-	t.Run("pool cleanup unused buffers", func(t *testing.T) {
-		val1 := uint16(1001)
-		val2 := uint16(2002)
-		val3 := uint16(3003)
-		limit := 3
-
-		t.Run("all buffers in use, nothing is cleaned up", func(t *testing.T) {
-			pool := NewBufPoolFixedInMemory(metrics, 2, limit)
-
-			buf1_1, put1 := pool.Get()
-			binary.BigEndian.PutUint16(buf1_1[:2], val1)
-			buf2_1, put2 := pool.Get()
-			binary.BigEndian.PutUint16(buf2_1[:2], val2)
-			buf3_1, put3 := pool.Get()
-			binary.BigEndian.PutUint16(buf3_1[:2], val3)
-
-			cleaned := pool.Cleanup(limit)
-			put1()
-			put2()
-			put3()
-
-			buf1_2, put := pool.Get()
-			val1_2 := binary.BigEndian.Uint16(buf1_2[:2])
+	t.Run("a full stack cycled past its capacity reuses its backing array", func(t *testing.T) {
+		p, _ := newPool(testIdleBudget)
+		s := p.stacks[0]
+		puts := make([]func(), 4)
+		ids := make([]*byte, len(puts))
+		for i := range puts {
+			var buf []byte
+			buf, puts[i] = p.get(0)
+			ids[i] = bufID(buf)
+		}
+		for _, put := range puts {
 			put()
-			buf2_2, put := pool.Get()
-			val2_2 := binary.BigEndian.Uint16(buf2_2[:2])
-			put()
-			buf3_2, put := pool.Get()
-			val3_2 := binary.BigEndian.Uint16(buf3_2[:2])
-			put()
+		}
+		capacity := cap(s.bufs)
+		require.Equal(t, len(s.bufs), capacity, "the stack must start full")
 
-			assert.Equal(t, 0, cleaned)
-			assert.Equal(t, val1, val1_2)
-			assert.Equal(t, val2, val2_2)
-			assert.Equal(t, val3, val3_2)
-		})
-
-		t.Run("2 buffers in use, 1 is cleaned up", func(t *testing.T) {
-			pool := NewBufPoolFixedInMemory(metrics, 2, limit)
-
-			buf1_1, put1 := pool.Get()
-			binary.BigEndian.PutUint16(buf1_1[:2], val1)
-			buf2_1, put2 := pool.Get()
-			binary.BigEndian.PutUint16(buf2_1[:2], val2)
-			buf3_1, put3 := pool.Get()
-			binary.BigEndian.PutUint16(buf3_1[:2], val3)
-
-			put1()
-			cleaned := pool.Cleanup(limit)
-			put2()
-			put3()
-
-			buf2_2, put := pool.Get()
-			val2_2 := binary.BigEndian.Uint16(buf2_2[:2])
-			put()
-			buf3_2, put := pool.Get()
-			val3_2 := binary.BigEndian.Uint16(buf3_2[:2])
-			put()
-			buf2_3, put := pool.Get()
-			val2_3 := binary.BigEndian.Uint16(buf2_3[:2])
-			put()
-			buf3_3, put := pool.Get()
-			val3_3 := binary.BigEndian.Uint16(buf3_3[:2])
-			put()
-
-			assert.Equal(t, 1, cleaned)
-			assert.Equal(t, val2, val2_2)
-			assert.Equal(t, val3, val3_2)
-			assert.Equal(t, val2, val2_3)
-			assert.Equal(t, val3, val3_3)
-		})
-
-		t.Run("1 buffer in use, 2 are cleaned up", func(t *testing.T) {
-			pool := NewBufPoolFixedInMemory(metrics, 2, limit)
-
-			buf1_1, put1 := pool.Get()
-			binary.BigEndian.PutUint16(buf1_1[:2], val1)
-			buf2_1, put2 := pool.Get()
-			binary.BigEndian.PutUint16(buf2_1[:2], val2)
-			buf3_1, put3 := pool.Get()
-			binary.BigEndian.PutUint16(buf3_1[:2], val3)
-
-			put1()
-			put2()
-			cleaned := pool.Cleanup(limit)
-			put3()
-
-			buf3_2, put := pool.Get()
-			val3_2 := binary.BigEndian.Uint16(buf3_2[:2])
-			put()
-			buf3_3, put := pool.Get()
-			val3_3 := binary.BigEndian.Uint16(buf3_3[:2])
-			put()
-
-			assert.Equal(t, 2, cleaned)
-			assert.Equal(t, val3, val3_2)
-			assert.Equal(t, val3, val3_3)
-		})
-
-		t.Run("no buffers in use, all are cleaned up", func(t *testing.T) {
-			pool := NewBufPoolFixedInMemory(metrics, 2, limit)
-
-			buf1_1, put1 := pool.Get()
-			binary.BigEndian.PutUint16(buf1_1[:2], val1)
-			buf2_1, put2 := pool.Get()
-			binary.BigEndian.PutUint16(buf2_1[:2], val2)
-			buf3_1, put3 := pool.Get()
-			binary.BigEndian.PutUint16(buf3_1[:2], val3)
-
-			put1()
-			put2()
-			put3()
-			cleaned := pool.Cleanup(limit)
-
-			buf0_2, put := pool.Get()
-			val0_2 := binary.BigEndian.Uint16(buf0_2[:2])
-			put()
-
-			assert.Equal(t, 3, cleaned)
-			assert.Equal(t, uint16(0), val0_2)
-		})
+		for range 3 * capacity {
+			s.popOldest().put()
+			ids = append(ids[1:], ids[0])
+		}
+		assert.Equal(t, ids, stackedBufIDs(s))
+		assert.Equal(t, capacity, cap(s.bufs))
 	})
+
+	t.Run("a buffer evicted after a copy-down is collectable", func(t *testing.T) {
+		p, _ := newPool(testIdleBudget)
+		// Fill stack 0, pop two so the next push copies the rest down, push,
+		// then evict the second buffer the copy moved.
+		evictAfterCopyDown := func() weak.Pointer[pooledBuf] {
+			s := p.stacks[0]
+			puts := make([]func(), 5)
+			for i := range puts {
+				_, puts[i] = p.get(0)
+			}
+			for _, put := range puts[:4] {
+				put()
+			}
+			s.popOldest()
+			s.popOldest()
+			puts[4]()
+			victim := weak.Make(s.bufs[s.head+1].pb)
+			s.popOldest()
+			s.popOldest()
+			return victim
+		}
+		victim := evictAfterCopyDown()
+		runtime.GC()
+		assert.Nil(t, victim.Value(), "a vacated slot must not keep the evicted buffer alive")
+		runtime.KeepAlive(p)
+	})
+
+	t.Run("a decayed buffer is collectable", func(t *testing.T) {
+		p, _ := newPool(testIdleBudget)
+		decay := func() weak.Pointer[pooledBuf] {
+			s := p.stacks[0]
+			p.tick(0)
+			_, putA := p.get(0)
+			_, putB := p.get(0)
+			putA()
+			putB()
+			victim := weak.Make(s.bufs[s.head].pb)
+			p.tick(inMemoIdleTTL + 10*time.Second)
+			require.Len(t, stackedBufIDs(s), 1)
+			return victim
+		}
+		victim := decay()
+		runtime.GC()
+		assert.Nil(t, victim.Value(), "a decayed slot must not keep the buffer alive")
+		runtime.KeepAlive(p)
+	})
+
+	t.Run("metrics count each outcome on the buffer's own size", func(t *testing.T) {
+		p, metrics := newPool(1024)
+		_, putA := p.get(0)
+		_, putB := p.get(0)
+		_, putC := p.get(1)
+		_, putD := p.get(2)
+		putA()
+		putB()
+		_, put := p.get(0)
+		put()
+		putC()                              // evicts A and B
+		p.tick(inMemoIdleTTL + time.Second) // decays C
+		putD()                              // larger than the budget
+
+		assert.Equal(t, []countingInMemoMetrics{
+			{created: 2, got: 1, put: 3, evicted: 2},
+			{created: 1, put: 1, cleanedUp: 1},
+			{created: 1, discarded: 1},
+		}, []countingInMemoMetrics{*metrics[0], *metrics[1], *metrics[2]})
+	})
+
+	t.Run("concurrent put, evict and decay", func(t *testing.T) {
+		p := newInMemoBufPool(nil, testInMemoSizes, 4*1024, inMemoIdleTTL, inMemoDecayFraction)
+		var wg sync.WaitGroup
+		for w := range 8 {
+			wg.Go(func() {
+				for i := range 2000 {
+					buf, put := p.get((w + i) % len(testInMemoSizes))
+					marker := uint64(w)<<32 | uint64(i)
+					buf = buf[:8]
+					binary.LittleEndian.PutUint64(buf, marker)
+					runtime.Gosched()
+					if got := binary.LittleEndian.Uint64(buf); got != marker {
+						t.Errorf("buffer handed out twice: marker %x overwritten by %x", marker, got)
+						return
+					}
+					put()
+				}
+			})
+		}
+		wg.Go(func() {
+			for i := range 2000 {
+				p.tick(time.Duration(i) * inMemoIdleTTL)
+				runtime.Gosched()
+			}
+		})
+		wg.Wait()
+
+		stacked := int64(0)
+		for _, s := range p.stacks {
+			stacked += int64(len(stackedBufIDs(s)) * s.size)
+		}
+		assert.Equal(t, stacked, p.idle.Load())
+		assert.LessOrEqual(t, p.idle.Load(), p.budget)
+	})
+}
+
+// BenchmarkInMemoBufPoolDecaySweep replays a seeded bursty trace for each TTL and
+// decay fraction. It reports the hit rate, the idle share of the budget, and the
+// buffers eviction and decay dropped.
+func BenchmarkInMemoBufPoolDecaySweep(b *testing.B) {
+	const budget = 8 * 1024
+	for _, ttl := range []time.Duration{15 * time.Second, 30 * time.Second, time.Minute, 2 * time.Minute, 5 * time.Minute} {
+		for _, fraction := range []float64{0.25, 0.5, 1.0} {
+			b.Run(fmt.Sprintf("ttl=%s/fraction=%.2f", ttl, fraction), func(b *testing.B) {
+				var total countingInMemoMetrics
+				idleShare := 0.0
+				for b.Loop() {
+					metrics, share := replayBurstyTrace(ttl, fraction, budget)
+					total.add(&metrics)
+					idleShare += share
+				}
+				b.ReportMetric(100*float64(total.got)/float64(total.got+total.created), "hit%")
+				b.ReportMetric(idleShare/float64(b.N), "idle/budget")
+				b.ReportMetric(float64(total.evicted)/float64(b.N), "evicted/op")
+				b.ReportMetric(float64(total.cleanedUp)/float64(b.N), "decayed/op")
+			})
+		}
+	}
+}
+
+// replayBurstyTrace replays an hour of virtual time. The 512 B size is busy every
+// tick, 1 KiB bursts every 45 s and 2 KiB every 150 s, each burst holding one to
+// four buffers.
+func replayBurstyTrace(ttl time.Duration, fraction float64, budget int,
+) (total countingInMemoMetrics, idleShare float64) {
+	p, metrics := newCountingInMemoBufPool(budget, ttl, fraction)
+	rng := rand.New(rand.NewPCG(1, 2))
+	bursts := []struct {
+		stack int
+		every time.Duration
+	}{{0, inMemoDecayTick}, {1, 45 * time.Second}, {2, 150 * time.Second}}
+	const step = 5 * time.Second
+
+	var held []func()
+	samples := 0
+	for now := time.Duration(0); now < time.Hour; now += step {
+		if now%inMemoDecayTick == 0 {
+			p.tick(now)
+		}
+		for _, burst := range bursts {
+			if now%burst.every != 0 {
+				continue
+			}
+			for range 1 + rng.IntN(4) {
+				_, put := p.get(burst.stack)
+				held = append(held, put)
+			}
+		}
+		for _, put := range held {
+			put()
+		}
+		held = held[:0]
+		idleShare += float64(p.idle.Load()) / float64(budget)
+		samples++
+	}
+	for _, m := range metrics {
+		total.add(m)
+	}
+	return total, idleShare / float64(samples)
 }
 
 func TestBitmapBufPoolRanged(t *testing.T) {
@@ -474,7 +569,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 
 		t.Run("sync pools return buffers of sizes", func(t *testing.T) {
 			syncMaxBufSize := 1024 // all sync pools
-			pool := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, nil, ranges...)
+			pool := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, testIdleBudget, ranges...)
 
 			for i, tc := range testCases {
 				t.Run(fmt.Sprintf("test case #%d", i), func(t *testing.T) {
@@ -489,7 +584,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 
 		t.Run("sync + inmemo pools return buffers of sizes", func(t *testing.T) {
 			syncMaxBufSize := 256 // sync pools + inmemo pools (512, 1024)
-			pool := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, nil, ranges...)
+			pool := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, testIdleBudget, ranges...)
 
 			for i, tc := range testCases {
 				t.Run(fmt.Sprintf("test case #%d", i), func(t *testing.T) {
@@ -501,169 +596,6 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 				})
 			}
 		})
-	})
-
-	t.Run("inmemo buffers are cleaned up", func(t *testing.T) {
-		syncMaxBufSize := 128
-		limits := map[int]int{256: 4, 512: 3, 1024: 2}
-		ranges := []int{32, 64, 128, 256, 512, 1024}
-		pool := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, limits, ranges...)
-
-		// get and write to 3 inmemo buffers of each size
-		buf256_1, put256_1 := pool.Get(254)
-		binary.BigEndian.PutUint16(buf256_1[:2], 10254)
-		buf256_2, put256_2 := pool.Get(255)
-		binary.BigEndian.PutUint16(buf256_2[:2], 10255)
-		buf256_3, put256_3 := pool.Get(255)
-		binary.BigEndian.PutUint16(buf256_3[:2], 10256)
-		buf512_1, put512_1 := pool.Get(512)
-		binary.BigEndian.PutUint16(buf512_1[:2], 10510)
-		buf512_2, put512_2 := pool.Get(512)
-		binary.BigEndian.PutUint16(buf512_2[:2], 10511)
-		buf512_3, put512_3 := pool.Get(512)
-		binary.BigEndian.PutUint16(buf512_3[:2], 10512)
-		buf1024_1, put1024_1 := pool.Get(1024)
-		binary.BigEndian.PutUint16(buf1024_1[:2], 11022)
-		buf1024_2, put1024_2 := pool.Get(1024)
-		binary.BigEndian.PutUint16(buf1024_2[:2], 11023)
-		buf1024_3tmp, put1024_3tmp := pool.Get(1024)
-		binary.BigEndian.PutUint16(buf1024_3tmp[:2], 11024)
-		// only 2 buffers will be returned to 1024 pool (due to limit=2)
-		put256_1()
-		put256_2()
-		put256_3()
-		put512_1()
-		put512_2()
-		put512_3()
-		put1024_1()
-		put1024_2()
-		put1024_3tmp()
-
-		// read data from buffers (buffers are not reset, previous values should still be there)
-		buf256_4, put256_4 := pool.Get(256)
-		val256_4 := binary.BigEndian.Uint16(buf256_4[:2])
-		buf256_5, put256_5 := pool.Get(256)
-		val256_5 := binary.BigEndian.Uint16(buf256_5[:2])
-		buf256_6, put256_6 := pool.Get(256)
-		val256_6 := binary.BigEndian.Uint16(buf256_6[:2])
-		buf512_4, put512_4 := pool.Get(512)
-		val512_4 := binary.BigEndian.Uint16(buf512_4[:2])
-		buf512_5, put512_5 := pool.Get(512)
-		val512_5 := binary.BigEndian.Uint16(buf512_5[:2])
-		buf512_6, put512_6 := pool.Get(512)
-		val512_6 := binary.BigEndian.Uint16(buf512_6[:2])
-		buf1024_4, put1024_4 := pool.Get(1024)
-		val1024_4 := binary.BigEndian.Uint16(buf1024_4[:2])
-		buf1024_5, put1024_5 := pool.Get(1024)
-		val1024_5 := binary.BigEndian.Uint16(buf1024_5[:2])
-		buf1024_6tmp, put1024_6tmp := pool.Get(1024)
-		val1024_6tmp := binary.BigEndian.Uint16(buf1024_6tmp[:2])
-		// return buffers to the pool
-		put256_4()
-		put256_5()
-		put256_6()
-		put512_4()
-		put512_5()
-		put512_6()
-		put1024_4()
-		put1024_5()
-		put1024_6tmp()
-
-		// 3rd 1024 buffer should be empty (newly created)
-		assert.Equal(t, uint16(10254), val256_4)
-		assert.Equal(t, uint16(10255), val256_5)
-		assert.Equal(t, uint16(10256), val256_6)
-		assert.Equal(t, uint16(10510), val512_4)
-		assert.Equal(t, uint16(10511), val512_5)
-		assert.Equal(t, uint16(10512), val512_6)
-		assert.Equal(t, uint16(11022), val1024_4)
-		assert.Equal(t, uint16(11023), val1024_5)
-		assert.Equal(t, uint16(0), val1024_6tmp)
-
-		// remove up to 3 buffers from the pool
-		cleaned := pool.cleanup(3)
-
-		// 3 of 4 256s, 3 of 3 512s, 2 of 2 1024s buffers should be cleaned
-		assert.Equal(t, map[int]int{256: 3, 512: 3, 1024: 2}, cleaned)
-
-		// take 1 buffer of each size
-		buf256_7, put := pool.Get(256)
-		val256_7 := binary.BigEndian.Uint16(buf256_7[:2])
-		put()
-		buf512_7, put := pool.Get(512)
-		val512_7 := binary.BigEndian.Uint16(buf512_7[:2])
-		put()
-		buf1024_7, put := pool.Get(1024)
-		val1024_7 := binary.BigEndian.Uint16(buf1024_7[:2])
-		put()
-
-		// all buffers should be empty (newly created)
-		assert.Equal(t, uint16(0), val256_7)
-		assert.Equal(t, uint16(0), val512_7)
-		assert.Equal(t, uint16(0), val1024_7)
-	})
-
-	t.Run("inmemo buffers are cleaned up periodically", func(t *testing.T) {
-		logger, _ := test.NewNullLogger()
-
-		syncMaxBufSize := 128
-		limits := map[int]int{256: 2, 512: 2, 1024: 2}
-		ranges := []int{32, 64, 128, 256, 512, 1024}
-		pool := NewBitmapBufPoolRanged(metrics, syncMaxBufSize, limits, ranges...)
-
-		// get and write to 1 inmemo buffer of each size
-		buf256_1, put256_1 := pool.Get(256)
-		binary.BigEndian.PutUint16(buf256_1[:2], 10256)
-		buf512_1, put512_1 := pool.Get(512)
-		binary.BigEndian.PutUint16(buf512_1[:2], 10512)
-		buf1024_1, put1024_1 := pool.Get(1024)
-		binary.BigEndian.PutUint16(buf1024_1[:2], 11024)
-		// return buffers to the pool
-		put256_1()
-		put512_1()
-		put1024_1()
-
-		// read data from buffers (buffers are not reset, previous values should still be there)
-		buf256_2, put := pool.Get(256)
-		val256_2 := binary.BigEndian.Uint16(buf256_2[:2])
-		put()
-		buf512_2, put := pool.Get(512)
-		val512_2 := binary.BigEndian.Uint16(buf512_2[:2])
-		put()
-		buf1024_2, put := pool.Get(1024)
-		val1024_2 := binary.BigEndian.Uint16(buf1024_2[:2])
-		put()
-
-		// buffers contain previous values
-		assert.Equal(t, uint16(10256), val256_2)
-		assert.Equal(t, uint16(10512), val512_2)
-		assert.Equal(t, uint16(11024), val1024_2)
-
-		// remove buffers from the pool (periodically)
-		synctest.Test(t, func(t *testing.T) {
-			stop := pool.StartPeriodicCleanup(logger, 2, time.Millisecond)
-			defer stop()
-
-			// wait for cleanup
-			time.Sleep(time.Millisecond)
-			synctest.Wait()
-		})
-
-		// read data from buffers
-		buf256_3, put := pool.Get(256)
-		val256_3 := binary.BigEndian.Uint16(buf256_3[:2])
-		put()
-		buf512_3, put := pool.Get(512)
-		val512_3 := binary.BigEndian.Uint16(buf512_3[:2])
-		put()
-		buf1024_3, put := pool.Get(1024)
-		val1024_3 := binary.BigEndian.Uint16(buf1024_3[:2])
-		put()
-
-		// all buffers should be empty (newly created)
-		assert.Equal(t, uint16(0), val256_3)
-		assert.Equal(t, uint16(0), val512_3)
-		assert.Equal(t, uint16(0), val1024_3)
 	})
 }
 
@@ -728,99 +660,59 @@ func TestCalculateSyncBufferRanges(t *testing.T) {
 	}
 }
 
-func TestCalculateInMemoBufferRangesAndLimits(t *testing.T) {
+func TestCalculateInMemoBufferRanges(t *testing.T) {
 	MiB := 1 << 20
-	GiB := 1 << 30
 
 	testCases := []struct {
-		maxSyncBufSize int
-		minRangeP2     int
-		maxBufSize     int
-		maxMemoSize    int
-		expectedRanges []int
-		expectedLimits map[int]int
+		name       string
+		maxBufSize int
+		idleBudget int
+		want       []int
 	}{
-		{
-			maxSyncBufSize: 1024,
-			minRangeP2:     11, // 2^11 = 2048
-			maxBufSize:     32768,
-			maxMemoSize:    32768,
-			expectedRanges: []int{2048, 4096, 8192, 16384},
-			expectedLimits: map[int]int{2048: 2, 4096: 1, 8192: 1, 16384: 1},
-		},
-		{
-			maxSyncBufSize: 1024,
-			minRangeP2:     11, // 2^11 = 2048
-			maxBufSize:     32768,
-			maxMemoSize:    16384,
-			expectedRanges: []int{2048, 4096, 8192},
-			expectedLimits: map[int]int{2048: 2, 4096: 1, 8192: 1},
-		},
-		{
-			maxSyncBufSize: 1024,
-			minRangeP2:     11, // 2^11 = 2048
-			maxBufSize:     32768,
-			maxMemoSize:    65536,
-			expectedRanges: []int{2048, 4096, 8192, 16384, 32768},
-			expectedLimits: map[int]int{2048: 2, 4096: 1, 8192: 1, 16384: 1, 32768: 1},
-		},
-		{
-			maxSyncBufSize: 1024,
-			minRangeP2:     11, // 2^11 = 2048
-			maxBufSize:     32768,
-			maxMemoSize:    262144,
-			expectedRanges: []int{2048, 4096, 8192, 16384, 32768},
-			expectedLimits: map[int]int{2048: 6, 4096: 5, 8192: 4, 16384: 4, 32768: 4},
-		},
-		{
-			maxSyncBufSize: 1024,
-			minRangeP2:     11, // 2^11 = 2048
-			maxBufSize:     40000,
-			maxMemoSize:    262144,
-			expectedRanges: []int{2048, 4096, 8192, 16384, 32768, 40000},
-			expectedLimits: map[int]int{2048: 6, 4096: 5, 8192: 4, 16384: 3, 32768: 2, 40000: 2},
-		},
-		{
-			maxSyncBufSize: 1024,
-			minRangeP2:     11, // 2^11 = 2048
-			maxBufSize:     65536,
-			maxMemoSize:    262144,
-			expectedRanges: []int{2048, 4096, 8192, 16384, 32768, 65536},
-			expectedLimits: map[int]int{2048: 4, 4096: 2, 8192: 2, 16384: 2, 32768: 2, 65536: 2},
-		},
-		{
-			maxSyncBufSize: 1 * MiB,
-			minRangeP2:     21, // 2^21 = 2MiB
-			maxBufSize:     128 * MiB,
-			maxMemoSize:    2 * GiB,
-			expectedRanges: []int{2 * MiB, 4 * MiB, 8 * MiB, 16 * MiB, 32 * MiB, 64 * MiB, 128 * MiB},
-			expectedLimits: map[int]int{2 * MiB: 10, 4 * MiB: 9, 8 * MiB: 9, 16 * MiB: 8, 32 * MiB: 8, 64 * MiB: 8, 128 * MiB: 8},
-		},
-		{
-			maxSyncBufSize: 1024,
-			minRangeP2:     11, // 2^11 = 2048
-			maxBufSize:     1024,
-			maxMemoSize:    32768,
-			expectedRanges: []int{},
-			expectedLimits: map[int]int{},
-		},
-		{
-			maxSyncBufSize: 1024,
-			minRangeP2:     11, // 2^11 = 2048
-			maxBufSize:     2048,
-			maxMemoSize:    32768,
-			expectedRanges: []int{2048},
-			expectedLimits: map[int]int{2048: 16},
-		},
+		{"default", 32 * MiB, 128 * MiB, []int{2 * MiB, 4 * MiB, 8 * MiB, 16 * MiB, 32 * MiB}},
+		{"max size not a power of two", 24 * MiB, 128 * MiB, []int{2 * MiB, 4 * MiB, 8 * MiB, 16 * MiB, 24 * MiB}},
+		{"max size not a power of two, over the budget", 24 * MiB, 20 * MiB, []int{2 * MiB, 4 * MiB, 8 * MiB, 16 * MiB}},
+		{"max size within the sync.Pool tier", 768 << 10, 128 * MiB, nil},
+		{"no budget", 32 * MiB, 0, nil},
+		{"budget between two sizes", 32 * MiB, 10 * MiB, []int{2 * MiB, 4 * MiB, 8 * MiB}},
+		{"budget equal to a size", 32 * MiB, 16 * MiB, []int{2 * MiB, 4 * MiB, 8 * MiB, 16 * MiB}},
 	}
 
-	for i, tc := range testCases {
-		t.Run(fmt.Sprintf("test case #%d", i), func(t *testing.T) {
-			ranges, limits := calculateInMemoBufferRangesAndLimits(tc.maxSyncBufSize, tc.minRangeP2, tc.maxBufSize, tc.maxMemoSize)
-			require.Equal(t, tc.expectedRanges, ranges)
-			require.Equal(t, tc.expectedLimits, limits)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, calculateInMemoBufferRanges(1*MiB, 21, tc.maxBufSize, tc.idleBudget))
 		})
 	}
+
+	t.Run("unlimited max size and budget", func(t *testing.T) {
+		ranges := calculateInMemoBufferRanges(1*MiB, 21, math.MaxInt64, math.MaxInt64)
+		require.Len(t, ranges, 43)
+		assert.Equal(t, []int{1 << 62, math.MaxInt64}, ranges[41:])
+	})
+}
+
+// TestNewBitmapBufPoolDefaultClose pins that the default pool's ticker decays
+// idle buffers, and that close stops it while the pool stays usable.
+func TestNewBitmapBufPoolDefaultClose(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	synctest.Test(t, func(t *testing.T) {
+		pool, closePool := NewBitmapBufPoolDefault(logger, nil, 4<<20, 8<<20)
+		first, put := pool.Get(2 << 20)
+		put()
+		kept, put := pool.Get(2 << 20)
+		put()
+		assert.Same(t, bufID(first), bufID(kept), "the budget must keep the buffer put back")
+
+		time.Sleep(inMemoIdleTTL + 2*inMemoDecayTick)
+		synctest.Wait()
+		second, put := pool.Get(2 << 20)
+		put()
+		assert.NotSame(t, bufID(first), bufID(second), "the decay ticker must drop the expired buffer")
+
+		closePool()
+		_, put = pool.Get(2 << 20)
+		put()
+	})
 }
 
 func TestValidateBufferRanges(t *testing.T) {
@@ -948,10 +840,11 @@ func TestBitmapBufPoolTrackingForTests_CloneToBuf(t *testing.T) {
 // TestPooledBitmapStructReuse pins that a struct still held is never handed out
 // again, and that put leaves nothing of a grown bitmap in it.
 func TestPooledBitmapStructReuse(t *testing.T) {
-	// syncMaxBufSize 0 puts every range on the channel-backed in-memory pools,
-	// whose buffers are reused deterministically.
+	// syncMaxBufSize 0 puts every range on the in-memory tier. Its stack returns
+	// the buffer put last, the budget keeps it, and NewBitmapBufPoolRanged starts
+	// no decay ticker, so buffers are reused deterministically.
 	newRanged := func() *bitmapBufPoolRanged {
-		return NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
+		return NewBitmapBufPoolRanged(nil, 0, testIdleBudget, 512, 1024)
 	}
 
 	src := sroar.NewBitmap()
@@ -993,9 +886,9 @@ func TestPooledBitmapStructReuse(t *testing.T) {
 			name string
 			pool BitmapBufPool
 		}{
-			{"channel-backed", NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)},
-			{"sync.Pool-backed", NewBitmapBufPoolRanged(nil, 1<<20, nil, 512, 1024)},
-			{"oversized, on the heap", NewBitmapBufPoolRanged(nil, 0, nil, 8)},
+			{"idle-stack-backed", NewBitmapBufPoolRanged(nil, 0, testIdleBudget, 512, 1024)},
+			{"sync.Pool-backed", NewBitmapBufPoolRanged(nil, 1<<20, testIdleBudget, 512, 1024)},
+			{"oversized, on the heap", NewBitmapBufPoolRanged(nil, 0, testIdleBudget, 8)},
 		}
 		for _, tc := range pools {
 			t.Run(tc.name, func(t *testing.T) {
@@ -1124,7 +1017,7 @@ func TestPooledBitmapGrowsThroughThePool(t *testing.T) {
 // grown size inside its ranges, with no heap or disposable buffer.
 func TestPooledBitmapGrowthAllocatesNothing(t *testing.T) {
 	disposable := &countingDisposableMetrics{}
-	pool := NewBitmapBufPoolRanged(nil, 0, nil, calculateSyncBufferRanges(9, 20)...)
+	pool := NewBitmapBufPoolRanged(nil, 0, testIdleBudget, calculateSyncBufferRanges(9, 20)...)
 	pool.disposableMetrics = disposable
 	src := sroar.NewBitmap()
 	src.Set(1)
@@ -1163,8 +1056,8 @@ func TestAccumulatorToBuf(t *testing.T) {
 		pool BitmapBufPool
 	}{
 		{"noop", NewBitmapBufPoolNoop()},
-		{"ranged channel-backed", NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)},
-		{"ranged sync.Pool-backed", NewBitmapBufPoolRanged(nil, 1<<20, nil, 512, 1024)},
+		{"ranged idle-stack-backed", NewBitmapBufPoolRanged(nil, 0, testIdleBudget, 512, 1024)},
+		{"ranged sync.Pool-backed", NewBitmapBufPoolRanged(nil, 1<<20, testIdleBudget, 512, 1024)},
 		{"tracking", NewBitmapBufPoolTrackingForTests()},
 	}
 	for _, tc := range pools {
@@ -1178,7 +1071,7 @@ func TestAccumulatorToBuf(t *testing.T) {
 	}
 
 	t.Run("empty accumulator yields an empty bitmap", func(t *testing.T) {
-		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
+		pool := NewBitmapBufPoolRanged(nil, 0, testIdleBudget, 512, 1024)
 		bm, put := pool.AccumulatorToBuf(sroar.NewAccumulator())
 		require.NotNil(t, put, "put must always be callable")
 		defer put()
@@ -1187,12 +1080,12 @@ func TestAccumulatorToBuf(t *testing.T) {
 	})
 
 	t.Run("nil accumulator panics, as documented", func(t *testing.T) {
-		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
+		pool := NewBitmapBufPoolRanged(nil, 0, testIdleBudget, 512, 1024)
 		require.Panics(t, func() { pool.AccumulatorToBuf(nil) })
 	})
 
 	t.Run("allocates nothing warm", func(t *testing.T) {
-		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
+		pool := NewBitmapBufPoolRanged(nil, 0, testIdleBudget, 512, 1024)
 		acc := newAcc()
 		_, put := pool.AccumulatorToBuf(acc)
 		put()
@@ -1206,7 +1099,7 @@ func TestAccumulatorToBuf(t *testing.T) {
 	})
 
 	t.Run("growth past the buffer cannot corrupt the next checkout", func(t *testing.T) {
-		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
+		pool := NewBitmapBufPoolRanged(nil, 0, testIdleBudget, 512, 1024)
 		acc := newAcc()
 		bm1, put1 := pool.AccumulatorToBuf(acc)
 		for i := uint64(0); i < 100_000; i += 7 {
@@ -1307,11 +1200,28 @@ func TestBitmapBufPoolRangedDisposableMetrics(t *testing.T) {
 	counter := newTestBitmapBuffersUsage()
 	pool := NewBitmapBufPoolRanged(&monitoring.PrometheusMetrics{
 		LSMBitmapBuffersUsage: counter,
-	}, 1024, nil, 512, 1024)
+	}, 1024, testIdleBudget, 512, 1024)
 
 	_, put := pool.Get(2048)
 	put()
 
 	require.NoError(t, testutil.CollectAndCompare(counter,
 		strings.NewReader(expectedDisposableCreated("2.0 KiB"))))
+}
+
+func TestBitmapBufPoolRangedInMemoMetrics(t *testing.T) {
+	// Both ranges are on the in-memory tier, so the 1 KiB put evicts both 512 B buffers.
+	counter := newTestBitmapBuffersUsage()
+	pool := NewBitmapBufPoolRanged(&monitoring.PrometheusMetrics{
+		LSMBitmapBuffersUsage: counter,
+	}, 256, 1024, 512, 1024)
+
+	_, putA := pool.Get(512)
+	_, putB := pool.Get(512)
+	_, putC := pool.Get(1024)
+	putA()
+	putB()
+	putC()
+
+	assert.Equal(t, 2.0, testutil.ToFloat64(counter.WithLabelValues("512 B", "inmemo_evicted")))
 }
