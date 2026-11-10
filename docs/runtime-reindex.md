@@ -1827,6 +1827,19 @@ A cluster that breaks the first assumption sees this on the affected property:
   counts every occurrence. If no object repeats a word in that property, the
   scores are the same.
 
+**Status of an old run after upgrading from v1.39.15.** A node that replays a
+v1.39.15 reindex run from its RAFT log, instead of restoring it from a
+snapshot, can label that run `failed` or `cancelled` while the other nodes
+report it finished. This happens only to a run where a node acknowledged its
+swap twice, the second time with a failure, or where a cancel arrived as
+preparation was ending. `GET /v1/schema/{className}/indexes` on that node then
+reads `failed` or `cancelled`, and if the run enabled an index that was later
+deleted, that node keeps the deleted index's files; queries, data and the
+schema are not affected. A `cancelled` label clears when the completed-task
+TTL expires; a `failed` label clears once a node that reports the run as
+finished leads the cluster after the TTL, or when a newer migration of the
+same property replaces the run.
+
 **Downgrade:** the stamp is an additive `searchableBlockmax` property field;
 an older binary ignores it and derives blockmax from the class flag / task
 list as before, so a downgrade does not corrupt data. The residual is only
