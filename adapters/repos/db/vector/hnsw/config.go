@@ -55,10 +55,8 @@ type Config struct {
 
 	AsyncIndexingEnabled bool
 
-	// DeferCachePersistence keeps the compressed vectors in the cache only,
-	// without touching the compressed bucket, until PersistCache is called. The
-	// dynamic index sets it while it builds this index next to its flat stage,
-	// which owns the bucket until the upgrade commits.
+	// DeferCachePersistence keeps compressed vectors out of the compressed
+	// bucket until PersistCache is called. Used by the dynamic index upgrade.
 	DeferCachePersistence bool
 
 	HFreshMode bool

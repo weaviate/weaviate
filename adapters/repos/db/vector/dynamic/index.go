@@ -316,13 +316,10 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 
 // recoverInterruptedUpgrade restores a consistent flat stage after an
 // interrupted flat→HNSW upgrade (the in-progress-upgrade marker present on load,
-// or an ordinary abort in doUpgrade). The upgrade's commit removes the flat
-// stage's compressed bucket just before it records the verdict, and versions
-// that let the in-progress HNSW write into that bucket left it a mix of flat-
-// and HNSW-format codes of different byte lengths, on which flat searches fail
-// with "vector lengths don't match". The raw vectors bucket is untouched and
-// complete, so every flat compressed code is re-derived from it, filling the
-// gaps and overwriting any pollution.
+// or an ordinary abort in doUpgrade). The commit removes the flat stage's
+// compressed bucket just before the verdict, and older versions let the
+// in-progress HNSW write its own codes into it. The raw vectors bucket is
+// untouched, so every flat compressed code is re-derived from it.
 //
 // The marker is cleared ONLY after a fully successful, durable rebuild: any
 // failure returns without clearing it, so the next restart retries rather than
@@ -1034,11 +1031,8 @@ func (dynamic *dynamic) doUpgrade() error {
 func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorIndex) error {
 	// Persist the in-progress-upgrade marker BEFORE building the HNSW or touching
 	// any bucket. The commit below removes the flat stage's compressed bucket
-	// before it records the verdict, so an interruption in between must be
-	// recoverable: the marker's presence on the next load (or on an ordinary
-	// abort here) drives the flat stage to rebuild that bucket from the raw
-	// vectors. The same rebuild repairs a bucket polluted by a version that let
-	// the new HNSW write into it during the copy.
+	// before the verdict; if interrupted in between, the marker drives the flat
+	// stage to rebuild that bucket from the raw vectors.
 	// See https://github.com/weaviate/0-weaviate-issues/issues/451.
 	if err := dynamic.markUpgrading(); err != nil {
 		return errors.Wrap(err, "mark dynamic upgrade in progress")
@@ -1068,9 +1062,7 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 				AllocChecker:                 dynamic.AllocChecker,
 				MakeBucketOptions:            dynamic.MakeBucketOptions,
 				AsyncIndexingEnabled:         dynamic.AsyncIndexingEnabled,
-				// The compressed bucket is shared by name and still serves the
-				// flat stage's searches, whose quantizer may differ. The new
-				// index keeps its compressed vectors in memory until the commit.
+				// the flat stage still reads the shared compressed bucket
 				DeferCachePersistence: true,
 			},
 			dynamic.uc.HnswUC,
@@ -1136,10 +1128,8 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 	}
 
 	if err := dynamic.commitUpgrade(index); err != nil {
-		// the new index is never installed, so tear it down like any other
-		// aborted upgrade, and give the flat stage its compressed bucket back.
-		// Should that fail, the in-progress marker stays put and a restart
-		// repeats the repair.
+		// the flat stage stays live and needs its compressed bucket back; on
+		// failure the marker stays and a restart repeats the repair
 		dynamic.cleanupAbortedUpgrade(index)
 		if rerr := dynamic.restoreFlatStage(); rerr != nil {
 			dynamic.logger.WithField("action", "dynamic_upgrade_abort").
@@ -1169,10 +1159,7 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 			errs = append(errs, err)
 		}
 	}
-	// Still under the exclusive lock, so no delete can slip in between the
-	// cache walk and its writes. A failure or a crash here loses no vector:
-	// whatever is missing from the bucket is compressed again from the raw
-	// vector when it is first read.
+	// best-effort: a vector missing from the bucket is re-encoded on read
 	if err := index.PersistCache(dynamic.ctx); err != nil {
 		errs = append(errs, errors.Wrap(err, "persist compressed vectors of upgraded index"))
 	}
@@ -1183,20 +1170,10 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 	return nil
 }
 
-// commitUpgrade records the flat→HNSW verdict. Everything the verdict relies
-// on is done first, so that a crash on either side of it boots into a
-// consistent stage:
-//
-//   - the HNSW commit log leaves the process buffer. The flat stage's vectors
-//     are deleted right after the commit, so a graph that only exists in memory
-//     would be lost with the process.
-//   - the compressed bucket, which holds the flat stage's vectors, is removed.
-//     A crash before the verdict finds the in-progress marker and rebuilds the
-//     bucket for the flat stage. A crash after it boots an HNSW that finds no
-//     vector compressed by another quantizer, and compresses what is missing
-//     from the raw vectors.
-//
-// The caller holds the exclusive lock.
+// commitUpgrade records the flat→HNSW verdict, under the exclusive lock. The
+// HNSW commit log is flushed and the flat stage's compressed bucket removed
+// first: a crash before the verdict rebuilds the bucket from the marker, a
+// crash after it boots an HNSW that re-encodes what the bucket is missing.
 func (dynamic *dynamic) commitUpgrade(index *hnsw.HNSW) error {
 	if err := index.Flush(); err != nil {
 		return errors.Wrap(err, "flush commit log of upgraded index")
@@ -1204,9 +1181,7 @@ func (dynamic *dynamic) commitUpgrade(index *hnsw.HNSW) error {
 	if err := dynamic.removeCompressedBucket(); err != nil {
 		return errors.Wrap(err, "remove flat compressed bucket")
 	}
-	// verdict first, marker cleared by the caller right after: a crash between
-	// the two leaves verdict {1} + a stale marker, which init reads as a
-	// committed upgrade (marker dropped as stale) rather than an interrupted one.
+	// the caller clears the marker after; init drops a stale one next to verdict {1}
 	err := dynamic.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
 		return b.Put(dynamic.dbKey(), []byte{verdictUpgraded})
@@ -1214,9 +1189,8 @@ func (dynamic *dynamic) commitUpgrade(index *hnsw.HNSW) error {
 	return errors.Wrap(err, "update dynamic")
 }
 
-// removeCompressedBucket deletes the compressed bucket from the store and from
-// disk. The directory removal is synced, so that a verdict written afterwards
-// can never outlive it.
+// removeCompressedBucket deletes the compressed bucket and syncs the removal,
+// so a verdict written afterwards cannot outlive it.
 func (dynamic *dynamic) removeCompressedBucket() error {
 	name := dynamic.getCompressedBucketName()
 	bDir, err := dynamic.bucketDir(name)
@@ -1236,15 +1210,11 @@ func (dynamic *dynamic) removeCompressedBucket() error {
 	return diskio.Fsync(filepath.Dir(bDir))
 }
 
-// compressedBucketCreator is the flat stage's way to get back a compressed
-// bucket that a failed commit removed.
 type compressedBucketCreator interface {
 	CreateOrLoadCompressedBucket(ctx context.Context) error
 }
 
-// restoreFlatStage makes the flat stage servable again after a commit that
-// failed with the compressed bucket possibly removed. The caller holds the
-// exclusive lock.
+// restoreFlatStage rebuilds the compressed bucket a failed commit removed.
 func (dynamic *dynamic) restoreFlatStage() error {
 	if creator, ok := dynamic.index.(compressedBucketCreator); ok {
 		if err := creator.CreateOrLoadCompressedBucket(dynamic.ctx); err != nil {

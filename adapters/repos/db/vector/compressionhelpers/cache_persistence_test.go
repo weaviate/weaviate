@@ -28,9 +28,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-// With cache persistence disabled the compressor must not touch the
-// compressed bucket in any way, and PersistCache must then bring the bucket
-// in line with the cache.
+// With cache persistence disabled the compressor must not touch the bucket;
+// PersistCache then brings it in line with the cache.
 func TestCompressorCachePersistence(t *testing.T) {
 	const (
 		targetVector = "name"

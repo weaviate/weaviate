@@ -85,10 +85,8 @@ func (i *interruptingIndex) AddBatch(ctx context.Context, ids []uint64, vectors 
 // succeed with the flat stage's own codes again. The restart here goes through a
 // full store shutdown + reopen, so recovery runs against the on-disk buckets.
 //
-// Since then the in-progress HNSW keeps out of the bucket until the upgrade
-// commits, so this interruption no longer pollutes it; the marker and the
-// rollback to the flat stage are still what the restart relies on. The rebuild
-// of a polluted bucket stays covered by the tests below that fabricate one.
+// The in-progress HNSW now keeps out of the bucket, so this interruption no
+// longer pollutes it; the tests below fabricate a polluted one.
 func TestUpgrade_InterruptedQuantizedUpgradeCorruptsCompressedBucket(t *testing.T) {
 	rq8 := func() flatent.UserConfig {
 		fuc := flatent.UserConfig{}
@@ -766,11 +764,10 @@ func TestUpgrade_OrphanedCompressedCodeReconciledOnRecovery(t *testing.T) {
 	}
 	require.True(t, idx.Compressed())
 
-	// delete the first id of batch 1 during that batch (it was already snapshotted
-	// into the batch) and write an HNSW-format code for it, as the batch's AddBatch
-	// did before the HNSW kept out of the bucket during the copy; then abort before
-	// batch 2. Delete via the underlying flat index to avoid re-entering the
-	// dynamic read lock held by the copy.
+	// delete the first id of batch 1 during that batch and write an HNSW-format
+	// code for it, as older versions' AddBatch did; then abort before batch 2.
+	// Delete via the underlying flat index to avoid re-entering the dynamic read
+	// lock held by the copy.
 	var victim uint64
 	var deleted bool
 	idx.upgradeFn = func() error {

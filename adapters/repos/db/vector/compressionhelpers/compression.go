@@ -101,18 +101,11 @@ type VectorCompressor interface {
 	Get(id uint64) ([]float32, error)
 	GetCompressed(id uint64) (any, error)
 
-	// SetCachePersistence controls whether the compressor uses the compressed
-	// bucket at all. While disabled, compressed vectors live in the cache only:
-	// nothing is written to, deleted from or read from the bucket, and a cache
-	// miss re-encodes the raw vector. The dynamic index disables it while it
-	// builds its HNSW stage, because until the upgrade commits the bucket still
-	// holds the flat stage's vectors, compressed by a different quantizer.
+	// SetCachePersistence(false) keeps the compressor off the compressed bucket:
+	// vectors live in the cache only and a cache miss re-encodes the raw vector.
 	SetCachePersistence(enabled bool)
-	// PersistCache re-enables cache persistence and writes every cached
-	// compressed vector to the compressed bucket, creating the bucket if it does
-	// not exist. Vectors the cache no longer holds are not written; a later read
-	// re-encodes them from the raw vector. The caller must hold off concurrent
-	// deletes, which could otherwise be overwritten by a vector read just before.
+	// PersistCache re-enables persistence and writes the cache to the bucket,
+	// creating it if needed. The caller must hold off concurrent deletes.
 	PersistCache(ctx context.Context) error
 }
 
@@ -126,7 +119,7 @@ type quantizedVectorsCompressor[T byte | uint64] struct {
 	targetVector      string
 	makeBucketOptions lsmkv.MakeBucketOptions
 	vectorForID       common.VectorForID[float32]
-	// see VectorCompressor.SetCachePersistence; the zero value persists
+	// zero value persists
 	cachePersistenceDisabled atomic.Bool
 }
 
@@ -138,8 +131,7 @@ func (compressor *quantizedVectorsCompressor[T]) PersistCache(ctx context.Contex
 	if err := compressor.initCompressedStore(); err != nil {
 		return err
 	}
-	// enabled before the walk, so a vector preloaded behind the walk is written
-	// by its own Preload
+	// before the walk, so a concurrent Preload writes its own vector
 	compressor.cachePersistenceDisabled.Store(false)
 	bucket := compressor.compressedBucket()
 	if bucket == nil {
@@ -155,7 +147,7 @@ func (compressor *quantizedVectorsCompressor[T]) PersistCache(ctx context.Contex
 		}
 		vecs, _, start, end := compressor.cache.GetAllInCurrentLock(ctx, id, out, errs)
 		if end <= id {
-			// the cache shrank under the walk
+			// cache shrank
 			break
 		}
 		for cur := start; cur < end; cur++ {
@@ -348,7 +340,7 @@ func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedVector
 
 func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx context.Context, id uint64) ([]T, error) {
 	if compressor.cachePersistenceDisabled.Load() {
-		// the bucket is not this compressor's to read
+		// the bucket is not ours to read
 		if compressor.vectorForID == nil {
 			return nil, storobj.NewErrNotFoundf(id, "getCompressedVectorForID")
 		}

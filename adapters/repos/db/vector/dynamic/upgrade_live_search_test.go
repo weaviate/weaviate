@@ -35,16 +35,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-// upgradeTestEnv is a dynamic index whose every on-disk part (LSM store, HNSW
-// commit log, state DB) lives under one root, so a test can restart it from
-// the same files or from a crash snapshot of them.
+// upgradeTestEnv keeps a dynamic index's files under one root, so a test can
+// restart it or reopen it from a crash snapshot.
 type upgradeTestEnv struct {
 	root    string
 	vectors [][]float32
 	uc      ent.UserConfig
 	target  string
-	// the id a shard gives the index: the hnsw stage derives its target vector,
-	// and with it the compressed bucket's name, from it
+	// hnsw derives its compressed bucket name from the id
 	id string
 
 	db    *bbolt.DB
@@ -137,8 +135,7 @@ func (e *upgradeTestEnv) restart(t *testing.T) {
 	e.open(t)
 }
 
-// crash returns the index as a process started on the files a crash would
-// leave: a copy of the on-disk state taken while everything is still open, so
+// crash reopens the index from a copy of its files taken while still open, so
 // whatever sits in a write buffer is lost.
 func (e *upgradeTestEnv) crash(t *testing.T) *upgradeTestEnv {
 	t.Helper()
@@ -260,8 +257,7 @@ func upgradeQuantizerCases() []upgradeQuantizerCase {
 		{name: "flat uncompressed -> hnsw RQ8", flatUC: flatUncompressed(), hnswUC: hnswRQ8()},
 		{name: "flat RQ8 -> hnsw uncompressed", flatUC: flatRQ8(), hnswUC: hnswWith(func(*hnswent.UserConfig) {})},
 		{
-			// the hnsw cache cannot hold the whole index, so vectors evicted
-			// during the copy are read back before the bucket is the hnsw's
+			// evicted vectors are read back during the copy
 			name:   "flat RQ8 -> hnsw BQ, small hnsw cache",
 			flatUC: flatRQ8(),
 			hnswUC: hnswWith(func(uc *hnswent.UserConfig) { uc.BQ.Enabled = true; uc.VectorCacheMaxObjects = 100 }),
@@ -269,11 +265,8 @@ func upgradeQuantizerCases() []upgradeQuantizerCase {
 	}
 }
 
-// The flat stage keeps serving while the upgrade copies its vectors into the
-// new HNSW. Both stages name the same compressed bucket, so the HNSW must not
-// write to it before the upgrade commits: the flat stage would read vectors
-// compressed by another quantizer and fail ("vector lengths don't match: 8 vs
-// 80"), or with equally long codes silently return wrong results.
+// The flat stage serves during the copy and shares the compressed bucket with
+// the new HNSW, which must not write to it before the upgrade commits.
 func TestUpgrade_SearchDuringQuantizedCopy(t *testing.T) {
 	for _, tc := range upgradeQuantizerCases() {
 		t.Run(tc.name, func(t *testing.T) {
@@ -285,8 +278,7 @@ func TestUpgrade_SearchDuringQuantizedCopy(t *testing.T) {
 			baseline := env.search(t, queries, k, "before the upgrade")
 			flatCodes := env.compressedCodeLengths()
 
-			// Before the second copy batch the first batch is already in the HNSW
-			// and the flat stage still serves.
+			// the first batch is in the HNSW, the flat stage still serves
 			var during [][]uint64
 			var searchErrs []error
 			var codesDuring []int
@@ -313,8 +305,7 @@ func TestUpgrade_SearchDuringQuantizedCopy(t *testing.T) {
 			assert.Equal(t, flatCodes, codesDuring,
 				"the copy must leave the flat stage's compressed bucket alone")
 
-			// After the commit the bucket holds the HNSW's compressed vectors and
-			// nothing else.
+			// after the commit the bucket holds only the HNSW's vectors
 			upgraded := env.search(t, queries, k, "after the upgrade committed")
 			codes := env.compressedCodeLengths()
 			if env.idx.Compressed() {
@@ -326,8 +317,7 @@ func TestUpgrade_SearchDuringQuantizedCopy(t *testing.T) {
 				require.Empty(t, codes, "the flat stage's compressed vectors must be gone")
 			}
 
-			// ... so a restart, which fills the HNSW cache from the bucket, serves
-			// the same results.
+			// a restart fills the HNSW cache from the bucket
 			env.restart(t)
 			require.True(t, env.idx.IsUpgraded())
 			restarted := env.search(t, queries, k, "after a restart")
@@ -338,12 +328,9 @@ func TestUpgrade_SearchDuringQuantizedCopy(t *testing.T) {
 	}
 }
 
-// A process that dies right after the upgrade committed loses whatever was
-// still buffered: the HNSW's compressed vectors on their way into the bucket,
-// and — unless the commit flushed it — the tail of the HNSW commit log. The
-// flat stage is gone by then, so the HNSW must come back complete on its own:
-// the whole graph from the commit log, and each compressed vector missing from
-// the bucket compressed again from the raw vector.
+// A crash right after the commit loses what was still buffered. The flat stage
+// is gone, so the HNSW must come back complete: the graph from its commit log,
+// missing compressed vectors re-encoded from the raw ones.
 func TestUpgrade_CrashAfterCommit(t *testing.T) {
 	for _, tc := range upgradeQuantizerCases() {
 		t.Run(tc.name, func(t *testing.T) {
@@ -352,9 +339,7 @@ func TestUpgrade_CrashAfterCommit(t *testing.T) {
 			k := len(vectors)
 			env := newUpgradeTestEnv(t, t.TempDir(), tc.targetVector, vectors, tc.flatUC, tc.hnswUC)
 			env.addAll(t)
-			// The flat stage's compressed vectors are safely on disk, in the
-			// bucket the HNSW is about to take over: none may survive the crash,
-			// or the HNSW would read them as its own.
+			// flat compressed vectors are on disk; none may survive the crash
 			env.restart(t)
 			env.upgrade(t, nil)
 			require.True(t, env.idx.IsUpgraded(), "the upgrade must complete")
@@ -371,9 +356,8 @@ func TestUpgrade_CrashAfterCommit(t *testing.T) {
 	}
 }
 
-// The commit removes the flat stage's compressed bucket before it records the
-// verdict. A crash in between boots the flat stage again, which must get its
-// compressed vectors back from the raw ones.
+// A crash between the bucket removal and the verdict boots the flat stage,
+// which must rebuild its compressed vectors from the raw ones.
 func TestUpgrade_CrashBetweenBucketRemovalAndVerdict(t *testing.T) {
 	for _, tc := range upgradeQuantizerCases() {
 		t.Run(tc.name, func(t *testing.T) {
@@ -412,9 +396,8 @@ func TestUpgrade_CrashBetweenBucketRemovalAndVerdict(t *testing.T) {
 	}
 }
 
-// A commit that fails to record the verdict has already removed the flat
-// stage's compressed bucket. The flat stage stays live, so it must get the
-// bucket back right away, not at the next restart.
+// A failed verdict write leaves the flat stage live without its compressed
+// bucket; it must get it back right away, not at the next restart.
 func TestUpgrade_FailedCommitRestoresFlatStage(t *testing.T) {
 	for _, tc := range upgradeQuantizerCases() {
 		t.Run(tc.name, func(t *testing.T) {
@@ -440,8 +423,7 @@ func TestUpgrade_FailedCommitRestoresFlatStage(t *testing.T) {
 			_, err := os.Stat(hnswCommitLogDirectory(filepath.Join(env.root, "index"), env.id))
 			assert.True(t, os.IsNotExist(err), "the aborted hnsw must not leave a commit log behind")
 
-			// The marker could not be cleared with the state DB closed, so the
-			// next start repeats the repair, and serves the same results.
+			// the marker could not be cleared, so the next start repairs again
 			env.restart(t)
 			require.False(t, env.idx.IsUpgraded())
 			restarted := env.search(t, queries, k, "after a restart")
