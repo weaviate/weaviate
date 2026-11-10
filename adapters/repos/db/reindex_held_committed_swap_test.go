@@ -78,8 +78,8 @@ func TestAHeldCommittedSwapFailsTheTaskAndKeepsItsDebt(t *testing.T) {
 	require.NoError(t, mgr.CheckTenantMutation(fx.className, []string{fx.name}))
 }
 
-// A swap waits, not fails, while the shard is held only for another migration.
-func TestASwapHeldForAnotherMigrationWaits(t *testing.T) {
+// A SWAPPING swap fails, not waits, on a shard held only for another migration, because the task cannot be cancelled.
+func TestASwapHeldForAnotherMigrationFailsItsTask(t *testing.T) {
 	fx := newDoubleFaultFixture(t, "tenant-held-classify")
 	other, _ := fx.addHalf(t, StrategyCodeFilterableRetokenize, "U", fx.desc.Version+1, true)
 	fx.breakDisk(t)
@@ -101,7 +101,8 @@ func TestASwapHeldForAnotherMigrationWaits(t *testing.T) {
 			t.Fatal("the swap ran on a held shard")
 			return phaseResult{}
 		})
-	require.ErrorIs(t, err, context.Canceled)
+	require.NotErrorIs(t, err, context.Canceled)
+	require.ErrorContains(t, err, "held READONLY")
 }
 
 func restoreSwappingTask(t *testing.T, mgr *distributedtask.Manager, desc distributedtask.TaskDescriptor,

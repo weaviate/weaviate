@@ -12,7 +12,6 @@
 package db
 
 import (
-	"slices"
 	"sync"
 
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -141,13 +140,6 @@ func (r *migrationMirrorRegistry) holding() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.held) > 0
-}
-
-// holds reports whether m is held and no retry has settled it yet.
-func (r *migrationMirrorRegistry) holds(m taskMigration) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return !r.heldSettled && slices.ContainsFunc(r.held, func(t *ShardReindexTaskGeneric) bool { return t.migration() == m })
 }
 
 var _ migrationMirrorDisarmer = (*Shard)(nil)

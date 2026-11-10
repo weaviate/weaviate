@@ -1349,15 +1349,14 @@ func (p *ReindexProvider) runPerUnitPhase(
 		}
 
 		if p.unitWaitsOnHold(res.Shard, task.ID, unitID) {
-			// A committed swap held on its own migration waits on a repair, so it fails the task; the swap stays owed.
-			ownHold := task.NeedsPreparationBarrier && task.Status == distributedtask.TaskStatusSwapping &&
-				res.Shard.migrationMirrorRegistry().holds(taskMigration{desc: task.TaskDescriptor, unitID: unitID})
+			// A SWAPPING task cannot be cancelled, so a held swap fails it; the swap stays owed.
+			failsTask := task.NeedsPreparationBarrier && task.Status == distributedtask.TaskStatusSwapping
 			func() {
 				aggMu.Lock()
 				defer aggMu.Unlock()
-				if ownHold {
-					agg.Errs = append(agg.Errs, fmt.Sprintf("unit %s: shard %q is held READONLY because this "+
-						"migration's double-write mirror cannot be armed; repair it and set the shard READY to finish the swap",
+				if failsTask {
+					agg.Errs = append(agg.Errs, fmt.Sprintf("unit %s: shard %q is held READONLY for a reindex migration's "+
+						"double-write mirror; a SWAPPING task cannot wait on it, so it fails and its swap stays owed until the shard is set READY",
 						unitID, res.Shard.Name()))
 					return
 				}
