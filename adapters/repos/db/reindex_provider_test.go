@@ -407,6 +407,13 @@ func TestClassifyCleanupSweep(t *testing.T) {
 			wantFailure: diskFull,
 		},
 		{
+			name: "a shard's cleanup was withheld and then the collection was deleted",
+			err: errors.Join(fmt.Errorf("shard %q: %w", "tenant-1", errCleanupShardWithheld),
+				classifyIncompleteWalk(errIndexDropped)),
+			wantOutcome: CleanupSweepWithheld,
+			wantFailure: errCleanupShardWithheld,
+		},
+		{
 			name:        "a shard failed and the walk was cut short",
 			err:         errors.Join(shardFailed(diskFull), classifyIncompleteWalk(errIndexShutdown)),
 			wantOutcome: CleanupSweepFailed,

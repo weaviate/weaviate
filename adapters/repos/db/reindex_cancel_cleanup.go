@@ -111,9 +111,10 @@ func (e *cleanupWithheldError) Is(target error) bool { return target == errClean
 
 // IsCleanupCollectionDropped reports whether the collection being gone is the
 // whole of what a sweep error says. Unlike a bare errors.Is check, it returns
-// false if a shard also failed before the delete landed.
+// false if a shard also failed or was withheld before the delete landed.
 func IsCleanupCollectionDropped(err error) bool {
-	return errors.Is(err, ErrCleanupCollectionDropped) && !errors.Is(err, ErrCleanupShardFailed)
+	return errors.Is(err, ErrCleanupCollectionDropped) && !errors.Is(err, ErrCleanupShardFailed) &&
+		!errors.Is(err, errCleanupShardWithheld)
 }
 
 // truncatedByCancellation re-reports a shard error that a cancelled context
@@ -189,7 +190,7 @@ func (i *Index) cleanStalePartialReindexState(
 	if _, ok := mainBucketForPropertyIndex(propName, indexType); !ok {
 		return fmt.Errorf("%w: unknown indexType %q", ErrCleanupSweepTruncated, indexType)
 	}
-	shardErrs := errorcompounder.New()
+	shardErrs, withheldShards := errorcompounder.New(), errorcompounder.New()
 	skippedShards := 0
 	// One cache serves every sweep of a request, so only the delta belongs to
 	// this one; its running total would re-report the first sweep's refusals.
@@ -237,6 +238,10 @@ func (i *Index) cleanStalePartialReindexState(
 			if truncated := truncatedByCancellation(reported); truncated != nil {
 				return truncated
 			}
+			if errors.Is(err, errCleanupShardWithheld) {
+				withheldShards.Add(reported)
+				return nil
+			}
 			shardErrs.Add(reported)
 		}
 		return nil
@@ -245,7 +250,8 @@ func (i *Index) cleanStalePartialReindexState(
 	if reported := shardErrs.ToErrorLimited(maxReportedErrors); reported != nil {
 		failedShards = fmt.Errorf("%w: %w", ErrCleanupShardFailed, reported)
 	}
-	sweepErr := errors.Join(failedShards, classifyIncompleteWalk(walkErr))
+	sweepErr := errors.Join(failedShards, withheldShards.ToErrorLimited(maxReportedErrors),
+		classifyIncompleteWalk(walkErr))
 
 	outcome, _ := ClassifyCleanupSweep(sweepErr)
 	msg, level := CleanupSweepSummary(sweepPhaseIndexCleanup, outcome)
