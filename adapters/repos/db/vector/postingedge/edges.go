@@ -19,7 +19,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
@@ -29,7 +28,7 @@ type edgeInput struct {
 	layout    slotLayout
 	assign    *assignment
 	side      *sidecar
-	quantizer *compressionhelpers.CenteredBinaryRotationalQuantizer
+	quantizer codec
 	provider  distancer.Provider
 	probe     int // nearest centroids whose postings supply the candidates, at most assign.width
 	neighbors int // nearest neighbors considered per vector
@@ -78,7 +77,7 @@ func buildEdges(ctx context.Context, logger logrus.FieldLogger, in edgeInput,
 			input := in.layout.order[slot]
 			vector := in.vectors[input]
 			own := in.side.postingOf[slot]
-			estimator := in.quantizer.NewDistancer(vector)
+			estimator := in.quantizer.NewEstimator(vector)
 
 			sc.candidates.reset(in.rescue)
 			for _, c := range in.assign.probesOf(int(input))[:probe] {

@@ -20,7 +20,6 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -191,7 +190,7 @@ func (ix *Index) search(ctx context.Context, vector []float32, k int, allow help
 	search := postingSearch{
 		st:        st,
 		sc:        sc,
-		estimator: st.quantizer.NewDistancer(query),
+		estimator: st.quantizer.NewEstimator(query),
 		stop:      stop,
 		margin:    margin,
 		stats:     stats,
@@ -286,7 +285,7 @@ func topResults(sorted []scored, k int) ([]uint64, []float32, error) {
 type postingSearch struct {
 	st        *state
 	sc        *searchScratch
-	estimator *compressionhelpers.CenteredBinaryRQDistancer
+	estimator codeEstimator
 	stop      *topK
 	margin    float32 // source margin, 0 for none
 	stats     *SearchStats

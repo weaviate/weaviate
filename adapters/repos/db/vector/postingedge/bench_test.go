@@ -867,7 +867,7 @@ func edgeReachDiagnostics(t *testing.T, index *Index, data *benchData, queries i
 	l2 := distancer.NewL2SquaredProvider()
 	parallelFor(queries, func(qi int) {
 		query := data.queries[qi]
-		estimator := st.quantizer.NewDistancer(query)
+		estimator := st.quantizer.NewEstimator(query)
 		dists := make([]float32, n)
 		best := make([]topK, len(efs))
 		for i, ef := range efs {
@@ -1162,7 +1162,7 @@ func benchProbeSweep(t *testing.T, ctx context.Context, data *benchData, result 
 	probes := parseInts(t, *benchProbes)
 	vectors, n := data.train, len(data.train)
 
-	quantizer, err := trainQuantizer(vectors, data.dims, uc.TrainingLimit, &cfg)
+	quantizer, err := trainQuantizer(vectors, data.dims, uc.TrainingLimit, uc.CodeBits, &cfg)
 	require.NoError(t, err)
 	target := targetPostingSize(uc.TargetPostingSize, 8*len(quantizer.Encode(vectors[0])))
 	stage := time.Now()

@@ -85,7 +85,7 @@ type pendingVectors struct {
 // state is a built index.
 type state struct {
 	dims      int
-	quantizer *compressionhelpers.CenteredBinaryRotationalQuantizer
+	quantizer codec
 	centroids *centroidIndex
 	postings  *postingStore
 	side      *sidecar
@@ -315,8 +315,8 @@ func (ix *Index) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callba
 		next.EntryPostings, next.LoadBatch = built.EntryPostings, built.LoadBatch
 		next.SourceMargin = built.SourceMargin
 		if next != built {
-			return errors.New("targetPostingSize, edges, buildProbe, rescueLimit and trainingLimit " +
-				"cannot change once the index is built")
+			return errors.New("targetPostingSize, codeBits, edges, buildProbe, rescueLimit and " +
+				"trainingLimit cannot change once the index is built")
 		}
 	}
 

@@ -140,12 +140,15 @@ func TestSidecarScoreMatchesScoringOneByOne(t *testing.T) {
 	tests := []struct {
 		name     string
 		dims     int
+		codeBits int
 		provider distancer.Provider
 	}{
 		{name: "1536 dimensions, cosine", dims: 1536, provider: distancer.NewCosineDistanceProvider()},
 		{name: "1536 dimensions, l2", dims: 1536, provider: distancer.NewL2SquaredProvider()},
 		{name: "a code of one cache line", dims: 384, provider: distancer.NewCosineDistanceProvider()},
 		{name: "dimensions padded to the minimum code", dims: 24, provider: distancer.NewL2SquaredProvider()},
+		{name: "codes capped to 512 bits, cosine", dims: 1536, codeBits: 512, provider: distancer.NewCosineDistanceProvider()},
+		{name: "codes capped to 256 bits, l2", dims: 1536, codeBits: 256, provider: distancer.NewL2SquaredProvider()},
 	}
 
 	for _, tt := range tests {
@@ -157,14 +160,14 @@ func TestSidecarScoreMatchesScoringOneByOne(t *testing.T) {
 				query, vectors = distancer.Normalize(query), normalizedCopy(vectors)
 			}
 			cfg := testConfig(t, vectors, 0, tt.provider)
-			quantizer, err := trainQuantizer(vectors, tt.dims, 100, &cfg)
+			quantizer, err := trainQuantizer(vectors, tt.dims, 100, tt.codeBits, &cfg)
 			require.NoError(t, err)
 
 			side := &sidecar{codeWords: len(quantizer.Encode(vectors[0]))}
 			for _, vec := range vectors {
 				side.codes = append(side.codes, quantizer.Encode(vec)...)
 			}
-			estimator := quantizer.NewDistancer(query)
+			estimator := quantizer.NewEstimator(query)
 
 			rng := rand.New(rand.NewPCG(5, 9))
 			random := func(count int) []uint32 {

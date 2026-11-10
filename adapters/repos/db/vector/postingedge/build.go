@@ -59,7 +59,7 @@ func (ix *Index) build(ctx context.Context, input *pendingVectors, uc UserConfig
 	stats := BuildStats{Vectors: n}
 
 	stage := time.Now()
-	quantizer, err := trainQuantizer(vectors, dims, uc.TrainingLimit, &ix.cfg)
+	quantizer, err := trainQuantizer(vectors, dims, uc.TrainingLimit, uc.CodeBits, &ix.cfg)
 	if err != nil {
 		return nil, err
 	}

@@ -258,7 +258,7 @@ func TestSourceMarginCutsTheSourcesBeyondTheThreshold(t *testing.T) {
 				sc.stop.reset(tt.ef)
 				var stats SearchStats
 				search := postingSearch{
-					st: st, sc: sc, estimator: st.quantizer.NewDistancer(query),
+					st: st, sc: sc, estimator: st.quantizer.NewEstimator(query),
 					stop: &sc.stop, margin: tt.margin, stats: &stats,
 				}
 				sc.markLoaded(p)
@@ -269,7 +269,7 @@ func TestSourceMarginCutsTheSourcesBeyondTheThreshold(t *testing.T) {
 				// The rule, from scratch: the threshold is the ef-th
 				// best estimate among the members, and a member is cut
 				// if its estimate is more than the margin beyond it.
-				estimator := st.quantizer.NewDistancer(query)
+				estimator := st.quantizer.NewEstimator(query)
 				estimates := make([]float32, len(post.docIDs))
 				var best topK
 				best.reset(tt.ef)

@@ -78,8 +78,13 @@ type UserConfig struct {
 	// TargetPostingSize is the mean number of vectors per posting. 0 derives
 	// it from the dimensionality and DefaultPostingBudgetKB.
 	TargetPostingSize int `json:"targetPostingSize"`
+	// CodeBits caps the sign bits kept per code, a multiple of 64. Fewer
+	// bits make the codes smaller and the distance estimates noisier, for
+	// the scan, the ranking of endpoints and the edge builder alike. 0
+	// keeps one bit per dimension, the full code.
+	CodeBits int `json:"codeBits"`
 	// Edges, BuildProbe, RescueLimit and TrainingLimit shape the build and
-	// cannot change once the index is built.
+	// cannot change once the index is built, like the two fields above.
 	Edges         int `json:"edges"`
 	BuildProbe    int `json:"buildProbe"`
 	RescueLimit   int `json:"rescueLimit"`
@@ -134,6 +139,9 @@ func (u UserConfig) Validate() error {
 
 	if u.TargetPostingSize < 0 {
 		ec.Addf("targetPostingSize must not be negative, got %d", u.TargetPostingSize)
+	}
+	if u.CodeBits < 0 || u.CodeBits%64 != 0 {
+		ec.Addf("codeBits must be 0 or a positive multiple of 64, got %d", u.CodeBits)
 	}
 	if u.Edges < 1 {
 		ec.Addf("edges must be at least 1, got %d", u.Edges)

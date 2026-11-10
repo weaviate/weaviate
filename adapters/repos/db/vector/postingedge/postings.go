@@ -179,11 +179,49 @@ func (s *sidecar) prefetch(slot uint32) {
 	asm.PrefetchN(uintptr(unsafe.Pointer(&s.codes[int(slot)*s.codeWords])), s.codeWords*8)
 }
 
+// codec turns vectors into codes, and a query into an estimator of its
+// distance to a code. One codec serves the whole index: the posting scan, the
+// ranking of edge endpoints and the edge builder all see the same codes.
+type codec interface {
+	Encode(vector []float32) []uint64
+	NewEstimator(query []float32) codeEstimator
+	Stats() compressionhelpers.CompressionStats
+}
+
+// fullCodec is the centered 1-bit quantizer as it is: one sign bit per
+// rotated dimension.
+type fullCodec struct {
+	*compressionhelpers.CenteredBinaryRotationalQuantizer
+}
+
+func (c fullCodec) NewEstimator(query []float32) codeEstimator {
+	return c.NewDistancer(query)
+}
+
+// cappedCodec keeps only the first sign bits of every code. The estimates
+// stay unbiased and get noisier; the codes get smaller.
+type cappedCodec struct {
+	capped *compressionhelpers.CappedCenteredBinaryRQ
+	stats  compressionhelpers.CompressionStats
+}
+
+func (c cappedCodec) Encode(vector []float32) []uint64 {
+	return c.capped.Encode(vector)
+}
+
+func (c cappedCodec) NewEstimator(query []float32) codeEstimator {
+	return c.capped.NewDistancer(query)
+}
+
+func (c cappedCodec) Stats() compressionhelpers.CompressionStats {
+	return c.stats
+}
+
 // trainQuantizer fits the centered 1-bit quantizer: the mean is taken over an
 // evenly spread sample of at most limit vectors, like the deferred training of
-// centered RQ in HNSW.
-func trainQuantizer(vectors [][]float32, dims, limit int, cfg *Config,
-) (*compressionhelpers.CenteredBinaryRotationalQuantizer, error) {
+// centered RQ in HNSW. codeBits caps the sign bits kept per code, 0 keeps
+// them all.
+func trainQuantizer(vectors [][]float32, dims, limit, codeBits int, cfg *Config) (codec, error) {
 	sample := vectors
 	if len(vectors) > limit {
 		sample = make([][]float32, limit)
@@ -197,12 +235,19 @@ func trainQuantizer(vectors [][]float32, dims, limit int, cfg *Config,
 	if err != nil {
 		return nil, errors.Wrap(err, "create centered rq1 quantizer")
 	}
-	return quantizer, nil
+	if codeBits == 0 {
+		return fullCodec{quantizer}, nil
+	}
+	capped, err := quantizer.Capped(codeBits)
+	if err != nil {
+		return nil, errors.Wrap(err, "cap the codes")
+	}
+	return cappedCodec{capped: capped, stats: quantizer.Stats()}, nil
 }
 
 // encode writes the code of every vector into one array ordered by slot.
 func encode(ctx context.Context, logger logrus.FieldLogger, vectors [][]float32, layout slotLayout,
-	quantizer *compressionhelpers.CenteredBinaryRotationalQuantizer,
+	quantizer codec,
 ) ([]uint64, int, error) {
 	n := len(vectors)
 	codeWords := len(quantizer.Encode(vectors[layout.order[0]]))

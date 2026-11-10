@@ -126,6 +126,18 @@ func TestNewValidatesItsConfig(t *testing.T) {
 			wantErr: "rescoreLimit",
 		},
 		{
+			name:    "code bits that are not whole words",
+			cfg:     valid,
+			uc:      func() UserConfig { u := NewDefaultUserConfig(); u.CodeBits = 100; return u },
+			wantErr: "codeBits",
+		},
+		{
+			name:    "negative code bits",
+			cfg:     valid,
+			uc:      func() UserConfig { u := NewDefaultUserConfig(); u.CodeBits = -64; return u },
+			wantErr: "codeBits",
+		},
+		{
 			name:    "a negative source margin",
 			cfg:     valid,
 			uc:      func() UserConfig { u := NewDefaultUserConfig(); u.SourceMargin = -0.1; return u },
@@ -545,6 +557,12 @@ func TestUpdateUserConfig(t *testing.T) {
 			wantEF:  12, wantLoad: int64(base.LoadBatch),
 		},
 		{
+			name:    "the code width cannot change on a built index",
+			built:   true,
+			updated: func() schemaConfig.VectorIndexConfig { u := base; u.CodeBits = 64; return u },
+			wantErr: "cannot change once the index is built",
+		},
+		{
 			name:    "the distance never changes",
 			built:   false,
 			updated: func() schemaConfig.VectorIndexConfig { u := base; u.Distance = "cosine"; return u },
@@ -691,6 +709,94 @@ func TestBuiltStateInvariants(t *testing.T) {
 	for docID, count := range seen {
 		require.Equalf(t, 1, count, "doc %d must be in exactly one posting", docID)
 	}
+}
+
+// Capped codes shrink the index and blur its estimates, nothing else: the
+// structure is the same, and with everything loaded and rescored the result
+// is still exact.
+func TestCappedCodes(t *testing.T) {
+	const dims, n, k = 512, 1500, 10
+	provider := distancer.NewCosineDistanceProvider()
+	all := clusteredVectors(n+30, dims, 1, 501)
+	vectors, queries := all[:n], all[n:]
+	truth := normalizedCopy(vectors)
+
+	tests := []struct {
+		name      string
+		codeBits  int
+		wantWords int
+	}{
+		{name: "full codes", codeBits: 0, wantWords: 9},
+		{name: "capped to 256 bits", codeBits: 256, wantWords: 5},
+		{name: "capped to 64 bits", codeBits: 64, wantWords: 2},
+		{name: "capped at the full width", codeBits: 512, wantWords: 9},
+	}
+	recalls := map[int]float64{}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uc := smallConfig()
+			uc.CodeBits = tt.codeBits
+			uc.EF = 4 * k
+			index := buildTestIndex(t, vectors, provider, uc)
+			st := index.state.Load()
+
+			require.Equal(t, tt.wantWords, st.postings.codeWords)
+			memory, ok := index.MemoryStats()
+			require.True(t, ok)
+			assert.Equal(t, int64(n*tt.wantWords*8), memory.CodeBytes)
+			for slot, docID := range st.postings.docIDs {
+				require.Equal(t, st.quantizer.Encode(truth[docID]), st.side.code(uint32(slot)))
+			}
+
+			// Through the edges, with the estimates the codes give.
+			recall := recallAt(t, index, truth, normalizedCopy(queries), k, provider)
+			t.Logf("%s: recall@%d %.3f", tt.name, k, recall)
+			recalls[tt.codeBits] = recall
+
+			// With every posting loaded and every vector rescored, the
+			// codes decide nothing.
+			exhaustive := uc
+			exhaustive.EntryPostings, exhaustive.RescoreLimit = n, n
+			require.NoError(t, index.UpdateUserConfig(exhaustive, func() {}))
+			for _, query := range queries {
+				ids, _, err := index.SearchByVector(context.Background(), query, k, nil)
+				require.NoError(t, err)
+				want := exactNearest(t, truth, distancer.Normalize(query), k, -1, provider)
+				for i, w := range want {
+					require.Equal(t, w.id, ids[i])
+				}
+			}
+		})
+	}
+
+	// Coarser codes cost recall, in order, and must not break the search:
+	// picking at random would find 0.007.
+	assert.InDelta(t, recalls[0], recalls[dims], 1e-9, "capped at the full width is the full code")
+	assert.Greater(t, recalls[0], recalls[256])
+	assert.Greater(t, recalls[256], recalls[64])
+	assert.Greater(t, recalls[64], 0.15)
+}
+
+func TestCodeBitsWiderThanTheCodeFailTheBuild(t *testing.T) {
+	ctx := context.Background()
+	// 24 dimensions are padded to the minimum code of 256 bits.
+	vectors := clusteredVectors(200, 24, 3, 511)
+	uc := smallConfig()
+	uc.Distance = "l2-squared"
+	uc.CodeBits = 512
+
+	index, err := New(testConfig(t, vectors, 0, distancer.NewL2SquaredProvider()), uc)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, index.Shutdown(ctx)) })
+	require.NoError(t, index.AddBatch(ctx, sequentialIDs(len(vectors), 0), vectors))
+	require.ErrorContains(t, index.Build(ctx), "cap the codes")
+
+	// The failed build left the vectors in place: with a width that fits,
+	// it builds.
+	uc.CodeBits = 128
+	require.NoError(t, index.UpdateUserConfig(uc, func() {}))
+	require.NoError(t, index.Build(ctx))
+	assert.Equal(t, 3, index.state.Load().postings.codeWords)
 }
 
 func TestShutdownAndDrop(t *testing.T) {

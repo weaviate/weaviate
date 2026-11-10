@@ -45,6 +45,15 @@ func newEdgeFixture(t *testing.T, vectors [][]float32, provider distancer.Provid
 	postings, probe, neighbors, rescue int,
 ) *edgeFixture {
 	t.Helper()
+	return newCappedEdgeFixture(t, vectors, provider, postings, probe, neighbors, rescue, 0)
+}
+
+// newCappedEdgeFixture is newEdgeFixture with codes capped to codeBits, 0
+// for full codes.
+func newCappedEdgeFixture(t *testing.T, vectors [][]float32, provider distancer.Provider,
+	postings, probe, neighbors, rescue, codeBits int,
+) *edgeFixture {
+	t.Helper()
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	dims := len(vectors[0])
@@ -57,7 +66,7 @@ func newEdgeFixture(t *testing.T, vectors [][]float32, provider distancer.Provid
 	centroids = dropEmpty(centroids, assigned)
 	layout := newSlotLayout(assigned.primary, len(centroids))
 
-	quantizer, err := trainQuantizer(vectors, dims, 1000, &cfg)
+	quantizer, err := trainQuantizer(vectors, dims, 1000, codeBits, &cfg)
 	require.NoError(t, err)
 	codes, codeWords, err := encode(ctx, logger, vectors, layout, quantizer)
 	require.NoError(t, err)
@@ -104,6 +113,7 @@ func TestBuildEdgesMatchesTheExactNeighborsUnderFullCoverage(t *testing.T) {
 		name     string
 		provider distancer.Provider
 		vectors  [][]float32
+		codeBits int
 	}{
 		{
 			name:     "l2",
@@ -115,13 +125,21 @@ func TestBuildEdgesMatchesTheExactNeighborsUnderFullCoverage(t *testing.T) {
 			provider: distancer.NewCosineDistanceProvider(),
 			vectors:  normalizedCopy(clusteredVectors(400, 24, 9, 32)),
 		},
+		{
+			// The codes only pick the candidates to rescue. With every
+			// candidate rescued, how coarse they are cannot matter.
+			name:     "cosine, codes capped to a quarter",
+			provider: distancer.NewCosineDistanceProvider(),
+			vectors:  normalizedCopy(clusteredVectors(400, 24, 9, 33)),
+			codeBits: 64,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			const neighbors = 8
 			n := len(tt.vectors)
-			f := newEdgeFixture(t, tt.vectors, tt.provider, 12, 1000, neighbors, n)
+			f := newCappedEdgeFixture(t, tt.vectors, tt.provider, 12, 1000, neighbors, n, tt.codeBits)
 
 			crossPosting := 0
 			for input := range tt.vectors {
