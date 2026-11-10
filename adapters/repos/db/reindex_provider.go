@@ -1089,8 +1089,6 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	shardName := payload.UnitToShard[unitID]
 	resolvedShard, err := lookupShardByName(idx, shardName)
 	if err != nil {
-		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Errorf("reindex provider: resolveUnitForPhase: shard lookup failed: %v", err)
 		return phaseUnitResolution{
 			Errs: []string{fmt.Sprintf("unit %s shard %s lookup: %v", unitID, shardName, err)},
 		}
@@ -1098,8 +1096,6 @@ func (p *ReindexProvider) resolveUnitForPhase(
 
 	concreteShard, unwrapErr := unwrapShard(ctx, resolvedShard)
 	if unwrapErr != nil {
-		logger.WithField("unit", unitID).
-			Errorf("reindex provider: resolveUnitForPhase: unwrap shard for rehydrate: %v", unwrapErr)
 		return phaseUnitResolution{
 			Errs:      []string{fmt.Sprintf("unit %s unwrap shard: %v", unitID, unwrapErr)},
 			Transient: errors.Is(unwrapErr, context.Canceled),
@@ -1121,8 +1117,6 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	}
 	built, err := p.createReindexTasks(task.TaskDescriptor, unitID, payload)
 	if err != nil {
-		logger.WithField("unit", unitID).
-			Errorf("reindex provider: resolveUnitForPhase: creating reindex tasks: %v", err)
 		return phaseUnitResolution{
 			Errs:      []string{fmt.Sprintf("unit %s create tasks: %v", unitID, err)},
 			Transient: errors.Is(err, context.Canceled),
@@ -1240,8 +1234,6 @@ func (p *ReindexProvider) runShardSwapPhase(
 		}
 	}
 	if len(out.Errs) > 0 {
-		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Errorf("reindex provider: shard swap refused for every task of the unit: %s", strings.Join(out.Errs, "; "))
 		return out
 	}
 
