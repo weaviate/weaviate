@@ -1612,6 +1612,10 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	defer cancel()
 	outcome, failures := p.discardTaskRecords(cleanupCtx, task, payload.Collection, shards)
 	msg, level := CleanupSweepSummary(sweepPhaseTerminalCleanup, outcome)
+	if outcome == CleanupSweepWithheld {
+		msg += "; the cleanup then runs if this task is still listed, and a repair or rebuild " +
+			"record whose task has left the list stays and needs a new migration on its properties"
+	}
 	summary := logger.WithField("operation", "autoCleanupAfterTerminal")
 	if failures != nil {
 		summary.Logf(level, "%s: %v", msg, failures)
@@ -1772,9 +1776,7 @@ func CleanupSweepSummary(phase string, outcome CleanupSweepOutcome) (msg string,
 			logrus.ErrorLevel
 	case CleanupSweepWithheld:
 		return phase + ": a shard has a migration record fault, so its cleanup is withheld. Fix that " +
-				"fault and restart the node (or deactivate and reactivate the tenant); the cleanup then " +
-				"runs if this task is still listed, and a repair or rebuild record whose task has left " +
-				"the list stays and needs a new migration on its properties",
+				"fault and restart the node (or deactivate and reactivate the tenant)",
 			logrus.ErrorLevel
 	default:
 		// Also the CleanupSweepUnknown arm: an outcome this build cannot name
