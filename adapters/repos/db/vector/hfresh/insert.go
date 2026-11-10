@@ -183,6 +183,11 @@ func (h *HFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSe
 		if err != nil {
 			return nil, err
 		}
+		// the id sequence reaches the disk before the centroid (see
+		// writeWALs)
+		if err = h.writeWALs(); err != nil {
+			return nil, err
+		}
 		// use the vector as the centroid and register it in the SPTAG
 		err = h.Centroids.Insert(postingID, &Centroid{
 			Uncompressed: v,

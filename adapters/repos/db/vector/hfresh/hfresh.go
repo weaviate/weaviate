@@ -331,8 +331,15 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 func (h *HFresh) Flush() error {
 	var errs []error
 
+	// the buckets' write buffers go to disk before the commit log's (see
+	// writeWALs)
+	err := h.writeWALs()
+	if err != nil {
+		errs = append(errs, err)
+	}
+
 	// flush the HNSW commit log
-	err := h.Centroids.hnsw.Flush()
+	err = h.Centroids.hnsw.Flush()
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -344,6 +351,36 @@ func (h *HFresh) Flush() error {
 	}
 
 	return stderrors.Join(errs...)
+}
+
+// writeWALs writes out the write buffers of the buckets a centroid change
+// depends on: the postings, and the shared bucket that holds the posting
+// versions, the posting map and the posting id sequence. Each bucket buffers
+// its write-ahead log until the buffer fills or WriteWAL is called, and the
+// centroid HNSW's commit log has its own buffer. Called before a centroid is
+// inserted or deleted, it makes the postings and ids that the change relies
+// on reach their log files first. A crash of the process after the change
+// then never reopens a centroid without its posting, a deleted centroid
+// whose vectors are in no posting, or a sequence below a live centroid's id.
+// WriteWAL does not fsync, so the order does not hold for a crash of the
+// machine. The postings bucket is written first, so that a posting version
+// on disk never points to a posting that is not.
+func (h *HFresh) writeWALs() error {
+	for _, name := range []string{
+		postingsBucketName(h.id),
+		sharedBucketName(h.id),
+	} {
+		bucket, release, err := newBucketRef(h.store, name).acquire()
+		if err != nil {
+			return err
+		}
+		err = bucket.WriteWAL()
+		release()
+		if err != nil {
+			return errors.Wrapf(err, "failed to write the WAL of bucket %s", name)
+		}
+	}
+	return nil
 }
 
 func (h *HFresh) PrepareForBackup(ctx context.Context) error {

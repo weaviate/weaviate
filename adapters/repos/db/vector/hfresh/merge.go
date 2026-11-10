@@ -193,16 +193,21 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 				smallPosting = candidate
 			}
 
+			// persist the merged posting first, and write it to disk before
+			// the small centroid is deleted (see writeWALs): a crash in
+			// between then never drops the small posting's vectors
+			err = h.PostingStore.Put(ctx, largeID, newPosting)
+			if err != nil {
+				return errors.Wrapf(err, "failed to put merged posting %d after merge operation", postingID)
+			}
+			if err = h.writeWALs(); err != nil {
+				return err
+			}
+
 			// mark the small posting as deleted in the SPTAG
 			err = h.Centroids.MarkAsDeleted(smallID)
 			if err != nil {
 				return errors.Wrapf(err, "failed to delete centroid for posting %d", smallID)
-			}
-
-			// persist the merged posting first
-			err = h.PostingStore.Put(ctx, largeID, newPosting)
-			if err != nil {
-				return errors.Wrapf(err, "failed to put merged posting %d after merge operation", postingID)
 			}
 
 			// set the small posting size to 0 and update the large posting size only after successful persist

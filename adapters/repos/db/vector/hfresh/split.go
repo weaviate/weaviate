@@ -149,6 +149,10 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 		if err != nil {
 			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", newPostingID)
 		}
+		// the posting reaches the disk before its centroid (see writeWALs)
+		if err = h.writeWALs(); err != nil {
+			return err
+		}
 
 		// add the new centroid to the SPTAG index
 		err = h.Centroids.Insert(newPostingID, &Centroid{
