@@ -681,13 +681,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 
 func recordSwapAck(task *Task, r *api.RecordDistributedTaskPostCompletionAckRequest) {
 	if r.Success {
-		if r.GroupId != "" {
-			task.paySwap(r.GroupId, r.NodeId)
-			return
-		}
-		for group := range task.SwapsOwed {
-			task.paySwap(group, r.NodeId)
-		}
+		task.paySwap(r.GroupId, r.NodeId)
 		return
 	}
 	if task.Status != TaskStatusSwapping {

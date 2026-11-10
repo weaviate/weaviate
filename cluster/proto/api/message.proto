@@ -356,7 +356,7 @@ message RecordDistributedTaskPostCompletionAckRequest {
   bool success = 5;
   string error = 6;
   int64 acked_at_unix_millis = 7;
-  // A barrier task's ack pays one group's swap; empty speaks for every group of the node.
+  // A barrier task's ack names the group whose swap it pays; empty is a single-tenant run's group.
   string group_id = 8;
 }
 

@@ -2245,7 +2245,7 @@ type RecordDistributedTaskPostCompletionAckRequest struct {
 	Success           bool                   `protobuf:"varint,5,opt,name=success,proto3" json:"success,omitempty"`
 	Error             string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
 	AckedAtUnixMillis int64                  `protobuf:"varint,7,opt,name=acked_at_unix_millis,json=ackedAtUnixMillis,proto3" json:"acked_at_unix_millis,omitempty"`
-	// A barrier task's ack pays one group's swap; empty speaks for every group of the node.
+	// A barrier task's ack names the group whose swap it pays; empty is a single-tenant run's group.
 	GroupId       string `protobuf:"bytes,8,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
