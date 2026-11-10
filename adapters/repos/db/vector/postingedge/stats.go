@@ -73,10 +73,16 @@ type SearchStats struct {
 	// only folded into the rank of the posting, not kept, so the scan
 	// computes it a second time.
 	ScannedAgain int
-	// EdgesFollowed is the number of edges leaving the loaded postings. Each
-	// one either leads into a posting that is already loaded, or to an
-	// endpoint that was scored before, or is scored: see EndpointsInLoaded,
-	// EndpointsRepeated and EndpointsScored.
+	// SourcesCut is the number of scanned vectors whose edges were not
+	// followed because the vector is too far from the query: beyond the
+	// source margin of the stop threshold. EdgesCut is the number of edges
+	// that left unfollowed.
+	SourcesCut int
+	EdgesCut   int
+	// EdgesFollowed is the number of edges followed out of the loaded
+	// postings. Each one either leads into a posting that is already
+	// loaded, or to an endpoint that was scored before, or is scored: see
+	// EndpointsInLoaded, EndpointsRepeated and EndpointsScored.
 	EdgesFollowed int
 	// EndpointsInLoaded is the number of followed edges whose endpoint lives
 	// in a posting that was already loaded. They cost a directory lookup.

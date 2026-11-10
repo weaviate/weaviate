@@ -126,6 +126,22 @@ func TestNewValidatesItsConfig(t *testing.T) {
 			wantErr: "rescoreLimit",
 		},
 		{
+			name:    "a negative source margin",
+			cfg:     valid,
+			uc:      func() UserConfig { u := NewDefaultUserConfig(); u.SourceMargin = -0.1; return u },
+			wantErr: "sourceMargin",
+		},
+		{
+			name: "a source margin that is not a number",
+			cfg:  valid,
+			uc: func() UserConfig {
+				u := NewDefaultUserConfig()
+				u.SourceMargin = float32(math.NaN())
+				return u
+			},
+			wantErr: "sourceMargin",
+		},
+		{
 			name:    "a negative posting size",
 			cfg:     valid,
 			uc:      func() UserConfig { u := NewDefaultUserConfig(); u.TargetPostingSize = -5; return u },
@@ -454,12 +470,13 @@ func TestUpdateUserConfig(t *testing.T) {
 	base.Distance = "l2-squared"
 
 	tests := []struct {
-		name     string
-		built    bool
-		updated  func() schemaConfig.VectorIndexConfig
-		wantErr  string
-		wantEF   int64
-		wantLoad int64
+		name       string
+		built      bool
+		updated    func() schemaConfig.VectorIndexConfig
+		wantErr    string
+		wantEF     int64
+		wantLoad   int64
+		wantMargin float32
 	}{
 		{
 			name:  "search tunables change on a built index",
@@ -467,9 +484,10 @@ func TestUpdateUserConfig(t *testing.T) {
 			updated: func() schemaConfig.VectorIndexConfig {
 				u := base
 				u.EF, u.RescoreLimit, u.EntryPostings, u.LoadBatch = 77, 33, 2, 9
+				u.SourceMargin = 0.25
 				return u
 			},
-			wantEF: 77, wantLoad: 9,
+			wantEF: 77, wantLoad: 9, wantMargin: 0.25,
 		},
 		{
 			name:    "build parameters cannot change on a built index",
@@ -527,6 +545,7 @@ func TestUpdateUserConfig(t *testing.T) {
 			require.NoError(t, updateErr)
 			assert.Equal(t, tt.wantEF, index.ef.Load())
 			assert.Equal(t, tt.wantLoad, index.loadBatch.Load())
+			assert.Equal(t, tt.wantMargin, math.Float32frombits(index.sourceMargin.Load()))
 		})
 	}
 }

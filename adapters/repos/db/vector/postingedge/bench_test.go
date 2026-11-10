@@ -85,6 +85,7 @@ var (
 	benchTraining   = flag.Int("bench.training", enthnsw.DefaultRQTrainingLimit, "quantizer training limit of both arms")
 
 	benchBatches = flag.String("bench.batches", "4", "postingedge: load batch sweep")
+	benchMargins = flag.String("bench.margins", "0", "postingedge: source margin sweep (0 = no cut)")
 	benchEntries = flag.Int("bench.entries", DefaultEntryPostings, "postingedge: entry postings")
 	benchProbe   = flag.Int("bench.probe", DefaultBuildProbe, "postingedge: build probe")
 	benchPosting = flag.Int("bench.posting", 0, "postingedge: target posting size (0 = default budget)")
@@ -101,9 +102,9 @@ var (
 )
 
 func init() {
-	flag.Var(&benchSweeps, "bench.sweep", "one set of operating points, e.g. \"ef=10,20 threads=1,8 rescore=512 batch=4\"; "+
+	flag.Var(&benchSweeps, "bench.sweep", "one set of operating points, e.g. \"ef=10,20 threads=1,8 rescore=512 batch=4 margin=0,0.08\"; "+
 		"repeatable, measured in order on the same index; keys left out take -bench.efs, -bench.threads, "+
-		"-bench.rescores and -bench.batches")
+		"-bench.rescores, -bench.batches and -bench.margins")
 }
 
 // sweepFlag collects the -bench.sweep values.
@@ -119,6 +120,7 @@ func (s *sweepFlag) Set(value string) error {
 // sweep is one set of operating points: the cross product of its lists.
 type sweep struct {
 	efs, threads, rescores, batches []int
+	margins                         []float64
 }
 
 // benchSweepPlan resolves the -bench.sweep flags, or a single sweep of the
@@ -135,6 +137,7 @@ func benchSweepPlan(t *testing.T) []sweep {
 			threads:  parseInts(t, *benchThreads),
 			rescores: parseInts(t, *benchRescores),
 			batches:  parseInts(t, *benchBatches),
+			margins:  parseFloats(t, *benchMargins),
 		}
 		for _, field := range strings.Fields(spec) {
 			key, list, found := strings.Cut(field, "=")
@@ -148,6 +151,8 @@ func benchSweepPlan(t *testing.T) []sweep {
 				sw.rescores = parseInts(t, list)
 			case "batch":
 				sw.batches = parseInts(t, list)
+			case "margin":
+				sw.margins = parseFloats(t, list)
 			default:
 				t.Fatalf("unknown sweep key %q", key)
 			}
@@ -188,6 +193,8 @@ type statsSummary struct {
 	LoadsP95      float64 `json:"loadsP95"`
 	ScannedMean   float64 `json:"scannedMean"`
 	AgainMean     float64 `json:"scannedAgainMean"`
+	SourcesCut    float64 `json:"sourcesCutMean"`
+	EdgesCut      float64 `json:"edgesCutMean"`
 	EdgesMean     float64 `json:"edgesFollowedMean"`
 	InLoadedMean  float64 `json:"endpointsInLoadedMean"`
 	RepeatedMean  float64 `json:"endpointsRepeatedMean"`
@@ -208,6 +215,7 @@ type benchPoint struct {
 	Threads      int           `json:"threads"`
 	RescoreLimit int           `json:"rescoreLimit"`
 	LoadBatch    int           `json:"loadBatch,omitempty"`
+	SourceMargin float64       `json:"sourceMargin,omitempty"`
 	Recall       float64       `json:"recall"`
 	QPS          float64       `json:"qps"`
 	QPSRuns      []float64     `json:"qpsRuns"`
@@ -377,6 +385,7 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 	}
 	plan := benchSweepPlan(t)
 	uc.EF, uc.LoadBatch, uc.RescoreLimit = plan[0].efs[0], plan[0].batches[0], plan[0].rescores[0]
+	uc.SourceMargin = float32(plan[0].margins[0])
 	require.NoError(t, index.UpdateUserConfig(uc, func() {}))
 	settle(t, data, search, result)
 
@@ -390,37 +399,41 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 	writeBenchResult(t, result)
 
 	for _, sw := range plan {
-		for _, rescore := range sw.rescores {
-			for _, loadBatch := range sw.batches {
-				for _, threads := range sw.threads {
-					for _, ef := range sw.efs {
-						uc.EF, uc.LoadBatch, uc.RescoreLimit = ef, loadBatch, rescore
-						require.NoError(t, index.UpdateUserConfig(uc, func() {}))
+		for _, margin := range sw.margins {
+			for _, rescore := range sw.rescores {
+				for _, loadBatch := range sw.batches {
+					for _, threads := range sw.threads {
+						for _, ef := range sw.efs {
+							uc.EF, uc.LoadBatch, uc.RescoreLimit = ef, loadBatch, rescore
+							uc.SourceMargin = float32(margin)
+							require.NoError(t, index.UpdateUserConfig(uc, func() {}))
 
-						// The work of a search does not depend on timing or
-						// on the thread count, so the work mode skips the
-						// timed passes and reports each point once.
-						point := benchPoint{Threads: threads}
-						if *benchMode != "work" {
-							point = measurePoint(t, data, search, threads, *benchRuns)
+							// The work of a search does not depend on timing
+							// or on the thread count, so the work mode skips
+							// the timed passes and reports each point once.
+							point := benchPoint{Threads: threads}
+							if *benchMode != "work" {
+								point = measurePoint(t, data, search, threads, *benchRuns)
+							}
+							point.EF, point.LoadBatch, point.RescoreLimit = ef, loadBatch, rescore
+							point.SourceMargin = margin
+							var recall float64
+							point.Stats, recall = collectSearchStats(t, index, data)
+							if *benchMode == "work" {
+								point.Recall = recall
+							}
+							result.Points = append(result.Points, point)
+							s := point.Stats
+							t.Logf("ef=%d rescore=%d batch=%d margin=%.2f threads=%d recall=%.4f qps=%.0f p50=%.3fms p95=%.3fms | rounds %.1f (p95 %.0f) loads %.1f/%.0f/%.0f scanned %.0f (again %.0f, sources cut %.0f) edges %.0f (in loaded %.0f, repeated %.0f) endpoints %.0f rescored %.0f | us: centroid %.0f scan %.0f expand %.0f select %.0f rescore %.0f total %.0f",
+								ef, rescore, loadBatch, margin, threads, point.Recall, point.QPS, point.P50Ms, point.P95Ms,
+								s.RoundsMean, s.RoundsP95, s.LoadsMean, s.LoadsP50, s.LoadsP95, s.ScannedMean, s.AgainMean, s.SourcesCut,
+								s.EdgesMean, s.InLoadedMean, s.RepeatedMean, s.EndpointsMean, s.RescoredMean,
+								s.CentroidUs, s.ScanUs, s.ExpandUs, s.SelectUs, s.RescoreUs, s.TotalUs)
+							writeBenchResult(t, result)
 						}
-						point.EF, point.LoadBatch, point.RescoreLimit = ef, loadBatch, rescore
-						var recall float64
-						point.Stats, recall = collectSearchStats(t, index, data)
 						if *benchMode == "work" {
-							point.Recall = recall
+							break
 						}
-						result.Points = append(result.Points, point)
-						s := point.Stats
-						t.Logf("ef=%d rescore=%d batch=%d threads=%d recall=%.4f qps=%.0f p50=%.3fms p95=%.3fms | rounds %.1f (p95 %.0f) loads %.1f/%.0f/%.0f scanned %.0f (again %.0f) edges %.0f (in loaded %.0f, repeated %.0f) endpoints %.0f rescored %.0f | us: centroid %.0f scan %.0f expand %.0f select %.0f rescore %.0f total %.0f",
-							ef, rescore, loadBatch, threads, point.Recall, point.QPS, point.P50Ms, point.P95Ms,
-							s.RoundsMean, s.RoundsP95, s.LoadsMean, s.LoadsP50, s.LoadsP95, s.ScannedMean, s.AgainMean,
-							s.EdgesMean, s.InLoadedMean, s.RepeatedMean, s.EndpointsMean, s.RescoredMean,
-							s.CentroidUs, s.ScanUs, s.ExpandUs, s.SelectUs, s.RescoreUs, s.TotalUs)
-						writeBenchResult(t, result)
-					}
-					if *benchMode == "work" {
-						break
 					}
 				}
 			}
@@ -680,6 +693,8 @@ func collectSearchStats(t *testing.T, index *Index, data *benchData) (*statsSumm
 		sum.LoadsMean += float64(stats.PostingsLoaded) / n
 		sum.ScannedMean += float64(stats.VectorsScanned) / n
 		sum.AgainMean += float64(stats.ScannedAgain) / n
+		sum.SourcesCut += float64(stats.SourcesCut) / n
+		sum.EdgesCut += float64(stats.EdgesCut) / n
 		sum.EdgesMean += float64(stats.EdgesFollowed) / n
 		sum.InLoadedMean += float64(stats.EndpointsInLoaded) / n
 		sum.RepeatedMean += float64(stats.EndpointsRepeated()) / n
@@ -1212,6 +1227,16 @@ func parallelFor(n int, fn func(i int)) {
 		}()
 	}
 	wg.Wait()
+}
+
+func parseFloats(t *testing.T, list string) []float64 {
+	var out []float64
+	for _, field := range strings.Split(list, ",") {
+		value, err := strconv.ParseFloat(strings.TrimSpace(field), 64)
+		require.NoErrorf(t, err, "not a list of numbers: %q", list)
+		out = append(out, value)
+	}
+	return out
 }
 
 func parseInts(t *testing.T, list string) []int {

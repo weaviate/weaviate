@@ -58,6 +58,7 @@ type Index struct {
 	rescoreLimit  atomic.Int64
 	entryPostings atomic.Int64
 	loadBatch     atomic.Int64
+	sourceMargin  atomic.Uint32 // the bits of a float32
 
 	dims atomic.Int32
 
@@ -128,6 +129,7 @@ func (ix *Index) storeSearchConfig(uc UserConfig) {
 	ix.rescoreLimit.Store(int64(uc.RescoreLimit))
 	ix.entryPostings.Store(int64(uc.EntryPostings))
 	ix.loadBatch.Store(int64(uc.LoadBatch))
+	ix.sourceMargin.Store(math.Float32bits(uc.SourceMargin))
 }
 
 func (ix *Index) Type() common.IndexType {
@@ -304,6 +306,7 @@ func (ix *Index) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callba
 		built, next := ix.uc, parsed
 		next.EF, next.RescoreLimit = built.EF, built.RescoreLimit
 		next.EntryPostings, next.LoadBatch = built.EntryPostings, built.LoadBatch
+		next.SourceMargin = built.SourceMargin
 		if next != built {
 			return errors.New("targetPostingSize, edges, buildProbe, rescueLimit and trainingLimit " +
 				"cannot change once the index is built")

@@ -44,6 +44,8 @@ const (
 	// DefaultEF of 0 follows k: the search stops as soon as no known
 	// unloaded posting can improve the top k.
 	DefaultEF = 0
+	// DefaultSourceMargin of 0 follows the edges of every scanned vector.
+	DefaultSourceMargin = 0
 	// DefaultRescoreLimit and DefaultTrainingLimit match what HNSW uses for
 	// 1-bit RQ, so both indexes quantize and rescore alike by default.
 	DefaultRescoreLimit  = enthnsw.DefaultBRQRescoreLimit
@@ -78,6 +80,13 @@ type UserConfig struct {
 	// raised to k.
 	EF           int `json:"ef"`
 	RescoreLimit int `json:"rescoreLimit"`
+	// SourceMargin cuts the expansion: only the edges of the scanned vectors
+	// within this distance of the stop threshold are followed. Vectors
+	// further from the query rarely link to anything the search still
+	// needs. It is a heuristic that trades recall for work, in the units of
+	// the distance of the index. 0 follows the edges of every scanned
+	// vector.
+	SourceMargin float32 `json:"sourceMargin"`
 }
 
 func NewDefaultUserConfig() UserConfig {
@@ -91,6 +100,7 @@ func NewDefaultUserConfig() UserConfig {
 		LoadBatch:     DefaultLoadBatch,
 		EF:            DefaultEF,
 		RescoreLimit:  DefaultRescoreLimit,
+		SourceMargin:  DefaultSourceMargin,
 	}
 }
 
@@ -135,6 +145,10 @@ func (u UserConfig) Validate() error {
 	}
 	if u.RescoreLimit < 0 {
 		ec.Addf("rescoreLimit must not be negative, got %d", u.RescoreLimit)
+	}
+	// Written so that NaN fails too.
+	if !(u.SourceMargin >= 0) {
+		ec.Addf("sourceMargin must not be negative, got %v", u.SourceMargin)
 	}
 
 	return ec.ToError()

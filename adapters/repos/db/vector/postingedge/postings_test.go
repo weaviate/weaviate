@@ -113,6 +113,14 @@ func TestPostingStoreLoadsOnePostingAtATime(t *testing.T) {
 	assert.Equal(t, []uint32{3, 4}, store.edgesOf(1))
 	assert.Empty(t, store.edgesOf(2))
 
+	// A loaded posting hands out the edges of each of its members, wherever
+	// the posting sits in the store.
+	assert.Equal(t, []uint32{2}, first.edgesOf(0))
+	assert.Equal(t, []uint32{3, 4}, first.edgesOf(1))
+	assert.Empty(t, last.edgesOf(0))
+	assert.Equal(t, []uint32{0}, last.edgesOf(1))
+	assert.Equal(t, []uint32{0, 1}, last.edgesOf(2))
+
 	// The sidecar serves the very same codes by slot, and cannot be
 	// appended through into the next code.
 	assert.Equal(t, []uint64{130, 131}, side.code(3))

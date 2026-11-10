@@ -55,6 +55,9 @@ type searchScratch struct {
 	// unscored lists the endpoints of the posting being loaded that still
 	// have to be scored.
 	unscored []uint32
+	// memberDist holds the estimates of the members of the posting being
+	// loaded, in posting order.
+	memberDist []float32
 	// touchDigest only keeps the reads of sidecar.touch alive.
 	touchDigest uint64
 }
@@ -171,6 +174,7 @@ func (ix *Index) search(ctx context.Context, vector []float32, k int, allow help
 	rescoreLimit := int(ix.rescoreLimit.Load())
 	entries := int(ix.entryPostings.Load())
 	batch := int(ix.loadBatch.Load())
+	margin := math.Float32frombits(ix.sourceMargin.Load())
 
 	sc := st.borrowScratch()
 	defer st.returnScratch(sc)
@@ -190,6 +194,7 @@ func (ix *Index) search(ctx context.Context, vector []float32, k int, allow help
 		sc:        sc,
 		estimator: st.quantizer.NewDistancer(query),
 		stop:      stop,
+		margin:    margin,
 		stats:     stats,
 	}
 
@@ -284,7 +289,19 @@ type postingSearch struct {
 	sc        *searchScratch
 	estimator *compressionhelpers.CenteredBinaryRQDistancer
 	stop      *topK
+	margin    float32 // source margin, 0 for none
 	stats     *SearchStats
+}
+
+// sourceCut is the estimate beyond which a scanned vector is too far from
+// the query for its edges to be followed: the source margin past the stop
+// threshold. There is no cut without a margin, or while the search has not
+// found ef candidates yet.
+func (s *postingSearch) sourceCut() float32 {
+	if s.margin <= 0 {
+		return inf32
+	}
+	return s.stop.worst() + s.margin
 }
 
 // load scans a posting into the candidate set and ranks the postings its
@@ -300,49 +317,64 @@ func (s *postingSearch) load(p uint32) error {
 	}
 
 	separateStop := s.stop != &sc.pool
+	sc.memberDist = sc.memberDist[:0]
 	for i, docID := range post.docIDs {
 		dist, err := s.estimator.Distance(post.codes[i*words : (i+1)*words])
 		if err != nil {
 			return errors.Wrapf(err, "estimate distance to doc %d", docID)
 		}
+		sc.memberDist = append(sc.memberDist, dist)
 		sc.pool.push(docID, dist)
 		if separateStop {
 			sc.stop.push(docID, dist)
 		}
 	}
 
-	// Every member is a source: the endpoints of all edges leaving the
-	// posting are scored, not only those of the best candidates. An
+	// Every member within the source cut is a source: the endpoints of all
+	// its edges are scored, not only those of the best candidates. The cut
+	// is taken after the scan, which may have tightened the threshold. An
 	// endpoint is scored once per search, and not at all if its posting is
 	// already loaded.
 	side := s.st.side
+	cut := s.sourceCut()
 
 	if s.stats != nil {
 		s.stats.ScanTime += time.Since(clock)
 		s.stats.PostingsLoaded++
 		s.stats.VectorsScanned += len(post.docIDs)
+		// Counted in a pass of its own, outside the timed sections, so
+		// that the loop below stays as it runs without stats.
 		for i := range post.docIDs {
 			if sc.endpoints.Visited(uint64(post.first) + uint64(i)) {
 				s.stats.ScannedAgain++
 			}
-		}
-		// Counted in a pass of its own, outside the timed sections, so
-		// that the loop below stays as it runs without stats.
-		s.stats.EdgesFollowed += len(post.edges)
-		for _, endpoint := range post.edges {
-			if sc.loaded[side.postingOf[endpoint]] {
-				s.stats.EndpointsInLoaded++
+			edges := post.edgesOf(i)
+			if sc.memberDist[i] > cut {
+				s.stats.SourcesCut++
+				s.stats.EdgesCut += len(edges)
+				continue
+			}
+			s.stats.EdgesFollowed += len(edges)
+			for _, endpoint := range edges {
+				if sc.loaded[side.postingOf[endpoint]] {
+					s.stats.EndpointsInLoaded++
+				}
 			}
 		}
 		clock = time.Now()
 	}
 
 	sc.unscored = sc.unscored[:0]
-	for _, endpoint := range post.edges {
-		if sc.loaded[side.postingOf[endpoint]] || sc.endpoints.CheckAndVisit(uint64(endpoint)) {
+	for i, dist := range sc.memberDist {
+		if dist > cut {
 			continue
 		}
-		sc.unscored = append(sc.unscored, endpoint)
+		for _, endpoint := range post.edgesOf(i) {
+			if sc.loaded[side.postingOf[endpoint]] || sc.endpoints.CheckAndVisit(uint64(endpoint)) {
+				continue
+			}
+			sc.unscored = append(sc.unscored, endpoint)
+		}
 	}
 
 	sc.touchDigest ^= side.touch(sc.unscored)

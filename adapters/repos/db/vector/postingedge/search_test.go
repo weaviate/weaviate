@@ -218,6 +218,147 @@ func TestSearchStatsAccountForTheWork(t *testing.T) {
 	}
 }
 
+// The source margin is a cut on the scanned vectors: a vector further than
+// the margin past the stop threshold keeps its place among the candidates but
+// its edges are not followed. This drives one posting load by hand and checks
+// the cut against the rule, member by member.
+func TestSourceMarginCutsTheSourcesBeyondTheThreshold(t *testing.T) {
+	provider := distancer.NewL2SquaredProvider()
+	all := clusteredVectors(3010, 24, 1, 301)
+	vectors, queries := all[:3000], all[3000:]
+	uc := smallConfig()
+	uc.Distance = "l2-squared"
+	index := buildTestIndex(t, vectors, provider, uc)
+	st := index.state.Load()
+
+	tests := []struct {
+		name   string
+		ef     int
+		margin float32
+	}{
+		{name: "no margin follows every edge", ef: 10, margin: 0},
+		{name: "a tight margin", ef: 10, margin: 0.2},
+		{name: "a wider margin", ef: 10, margin: 1},
+		{name: "a margin that reaches every member", ef: 10, margin: 1e6},
+		{name: "no cut while the search still lacks ef candidates", ef: 100000, margin: 0.2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cutSomething := false
+			for qi, query := range queries {
+				p := uint32(qi * 7 % st.postings.postings())
+				post := st.postings.load(p)
+
+				sc := st.borrowScratch()
+				sc.pool.reset(uc.RescoreLimit)
+				sc.stop.reset(tt.ef)
+				var stats SearchStats
+				search := postingSearch{
+					st: st, sc: sc, estimator: st.quantizer.NewDistancer(query),
+					stop: &sc.stop, margin: tt.margin, stats: &stats,
+				}
+				sc.markLoaded(p)
+				require.NoError(t, search.load(p))
+				scored := len(sc.unscored)
+				st.returnScratch(sc)
+
+				// The rule, from scratch: the threshold is the ef-th
+				// best estimate among the members, and a member is cut
+				// if its estimate is more than the margin beyond it.
+				estimator := st.quantizer.NewDistancer(query)
+				estimates := make([]float32, len(post.docIDs))
+				var best topK
+				best.reset(tt.ef)
+				for i := range post.docIDs {
+					dist, err := estimator.Distance(post.codes[i*st.postings.codeWords : (i+1)*st.postings.codeWords])
+					require.NoError(t, err)
+					estimates[i] = dist
+					best.push(uint64(i), dist)
+				}
+				wantCut, wantEdgesCut, wantFollowed := 0, 0, 0
+				for i, dist := range estimates {
+					if tt.margin > 0 && dist > best.worst()+tt.margin {
+						wantCut++
+						wantEdgesCut += len(post.edgesOf(i))
+					} else {
+						wantFollowed += len(post.edgesOf(i))
+					}
+				}
+
+				require.Equal(t, wantCut, stats.SourcesCut)
+				require.Equal(t, wantEdgesCut, stats.EdgesCut)
+				require.Equal(t, wantFollowed, stats.EdgesFollowed)
+				require.Equal(t, len(post.edges), stats.EdgesCut+stats.EdgesFollowed, "every edge is cut or followed")
+				require.Equal(t, scored, stats.EndpointsScored)
+				cutSomething = cutSomething || wantCut > 0
+			}
+
+			switch tt.name {
+			case "a tight margin", "a wider margin":
+				assert.True(t, cutSomething, "the margin must cut some sources in this fixture")
+			default:
+				assert.False(t, cutSomething)
+			}
+		})
+	}
+}
+
+// A margin trades work for recall. Wide enough it changes nothing; tighter,
+// it must save endpoint scoring, and what it costs in recall must stay small
+// as long as it is not absurdly tight.
+func TestSourceMarginSavesWork(t *testing.T) {
+	const k = 10
+	provider := distancer.NewCosineDistanceProvider()
+	all := clusteredVectors(8200, 32, 1, 71)
+	vectors, queries := all[:8000], all[8000:]
+	truth := normalizedCopy(vectors)
+	normalizedQueries := normalizedCopy(queries)
+
+	base := smallConfig()
+	base.EF = 4 * k
+	index := buildTestIndex(t, vectors, provider, base)
+
+	type outcome struct {
+		results   [][]uint64
+		endpoints int
+		cut       int
+		recall    float64
+	}
+	run := func(margin float32) outcome {
+		uc := base
+		uc.SourceMargin = margin
+		require.NoError(t, index.UpdateUserConfig(uc, func() {}))
+		var out outcome
+		for _, query := range queries {
+			ids, _, stats, err := index.SearchByVectorWithStats(context.Background(), query, k, nil)
+			require.NoError(t, err)
+			out.results = append(out.results, ids)
+			out.endpoints += stats.EndpointsScored
+			out.cut += stats.SourcesCut
+			require.Equal(t, stats.EdgesFollowed,
+				stats.EndpointsInLoaded+stats.EndpointsRepeated()+stats.EndpointsScored)
+		}
+		out.recall = recallAt(t, index, truth, normalizedQueries, k, provider)
+		return out
+	}
+
+	none := run(0)
+	wide := run(10)
+	tight := run(0.02)
+	t.Logf("endpoints scored: no margin %d, margin 0.02 %d (%d sources cut); recall %.3f vs %.3f",
+		none.endpoints, tight.endpoints, tight.cut, none.recall, tight.recall)
+
+	assert.Zero(t, none.cut)
+	assert.Zero(t, wide.cut, "a margin wider than any distance cuts nothing")
+	assert.Equal(t, none.results, wide.results)
+	assert.Equal(t, none.endpoints, wide.endpoints)
+
+	assert.Positive(t, tight.cut)
+	assert.Less(t, tight.endpoints, none.endpoints*3/4, "the cut must save a good part of the scoring")
+	assert.Greater(t, tight.recall, none.recall-0.05, "and must not wreck the recall")
+}
+
 func TestSearchWithoutRescoringReturnsEstimates(t *testing.T) {
 	const k = 10
 	provider := distancer.NewL2SquaredProvider()

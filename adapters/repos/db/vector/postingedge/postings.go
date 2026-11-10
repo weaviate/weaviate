@@ -72,7 +72,18 @@ type posting struct {
 	first  uint32 // slot of the first member, the others follow
 	docIDs []uint64
 	codes  []uint64 // len(docIDs) * codeWords
-	edges  []uint32 // endpoint slots of every edge leaving the posting
+	// edges holds the endpoint slots of every edge leaving the posting,
+	// member after member. edgeStart has one offset per member and a last
+	// one: the edges of member i are edges[edgeStart[i]-edgeStart[0] :
+	// edgeStart[i+1]-edgeStart[0]].
+	edges     []uint32
+	edgeStart []uint32
+}
+
+// edgesOf returns the endpoint slots of the edges leaving member i.
+func (p *posting) edgesOf(i int) []uint32 {
+	base := p.edgeStart[0]
+	return p.edges[p.edgeStart[i]-base : p.edgeStart[i+1]-base]
 }
 
 func (s *postingStore) postings() int {
@@ -90,6 +101,8 @@ func (s *postingStore) load(p uint32) posting {
 		docIDs: s.docIDs[from:to],
 		codes:  s.codes[int(from)*s.codeWords : int(to)*s.codeWords],
 		edges:  s.edges[s.edgeStart[from]:s.edgeStart[to]],
+		// the offsets of the members and the one that closes the last
+		edgeStart: s.edgeStart[from : to+1],
 	}
 }
 
