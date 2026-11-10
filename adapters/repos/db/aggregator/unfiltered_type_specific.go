@@ -62,10 +62,10 @@ func (ua unfilteredAggregator) boolProperty(ctx context.Context,
 	return &out, nil
 }
 
-func (ua unfilteredAggregator) boolArrayScan(prop aggregation.ParamProperty) *objectScan {
+func (ua unfilteredAggregator) boolArrayScan(prop aggregation.ParamProperty) objectScan {
 	agg := newBoolAggregator()
 
-	return &objectScan{
+	return objectScan{
 		name: prop.Name,
 		add: func(v []byte) error {
 			return ua.parseAndAddBoolArrayRow(agg, v, prop.Name)
@@ -277,10 +277,10 @@ func (ua unfilteredAggregator) parseAndAddDateRowRoaringSet(agg *dateAggregator,
 	return nil
 }
 
-func (ua unfilteredAggregator) dateArrayScan(prop aggregation.ParamProperty) *objectScan {
+func (ua unfilteredAggregator) dateArrayScan(prop aggregation.ParamProperty) objectScan {
 	agg := newDateAggregator()
 
-	return &objectScan{
+	return objectScan{
 		name: prop.Name,
 		add: func(v []byte) error {
 			return ua.parseAndAddDateArrayRow(agg, v, prop.Name)
@@ -407,10 +407,10 @@ func (ua unfilteredAggregator) parseAndAddNumberArrayRow(agg *numericalAggregato
 	return nil
 }
 
-func (ua unfilteredAggregator) textScan(prop aggregation.ParamProperty) *objectScan {
+func (ua unfilteredAggregator) textScan(prop aggregation.ParamProperty) objectScan {
 	agg := newTextAggregator(extractLimitFromTopOccs(prop.Aggregators))
 
-	return &objectScan{
+	return objectScan{
 		name: prop.Name,
 		add: func(v []byte) error {
 			return ua.parseAndAddTextRow(agg, v, prop.Name)
@@ -424,10 +424,10 @@ func (ua unfilteredAggregator) textScan(prop aggregation.ParamProperty) *objectS
 	}
 }
 
-func (ua unfilteredAggregator) numberArrayScan(prop aggregation.ParamProperty) *objectScan {
+func (ua unfilteredAggregator) numberArrayScan(prop aggregation.ParamProperty) objectScan {
 	agg := newNumericalAggregator()
 
-	return &objectScan{
+	return objectScan{
 		name: prop.Name,
 		add: func(v []byte) error {
 			return ua.parseAndAddNumberArrayRow(agg, v, prop.Name)

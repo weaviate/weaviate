@@ -86,19 +86,19 @@ func (ua unfilteredAggregator) properties(
 	}
 
 	out := map[string]aggregation.Property{}
-	var scans []*objectScan
+	var scans []objectScan
 
 	for _, prop := range ua.params.Properties {
 		if err := ctx.Err(); err != nil {
 			return nil, errors.Wrapf(err, "start property %s", prop.Name)
 		}
 
-		analyzed, scan, err := ua.property(ctx, prop)
+		analyzed, scan, needsScan, err := ua.property(ctx, prop)
 		if err != nil {
 			return nil, errors.Wrapf(err, "property %s", prop.Name)
 		}
 
-		if scan != nil {
+		if needsScan {
 			scans = append(scans, scan)
 			continue
 		}
@@ -121,49 +121,49 @@ func (ua unfilteredAggregator) properties(
 }
 
 // property aggregates a property that has an index to read, or returns the
-// scan to run over the objects bucket for one that has none.
+// scan to run over the objects bucket for one that has none, with needsScan
+// set.
 func (ua unfilteredAggregator) property(ctx context.Context,
 	prop aggregation.ParamProperty,
-) (*aggregation.Property, *objectScan, error) {
+) (analyzed *aggregation.Property, scan objectScan, needsScan bool, err error) {
 	aggType, dt, err := ua.aggTypeOfProperty(prop.Name)
 	if err != nil {
-		return nil, nil, err
+		return nil, objectScan{}, false, err
 	}
 
-	var analyzed *aggregation.Property
 	switch aggType {
 	case aggregation.PropertyTypeNumerical:
 		switch dt {
 		case schema.DataTypeNumber:
 			analyzed, err = ua.floatProperty(ctx, prop)
 		case schema.DataTypeNumberArray, schema.DataTypeIntArray:
-			return nil, ua.numberArrayScan(prop), nil
+			return nil, ua.numberArrayScan(prop), true, nil
 		default:
 			analyzed, err = ua.intProperty(ctx, prop)
 		}
 	case aggregation.PropertyTypeBoolean:
 		switch dt {
 		case schema.DataTypeBooleanArray:
-			return nil, ua.boolArrayScan(prop), nil
+			return nil, ua.boolArrayScan(prop), true, nil
 		default:
 			analyzed, err = ua.boolProperty(ctx, prop)
 		}
 	case aggregation.PropertyTypeText:
-		return nil, ua.textScan(prop), nil
+		return nil, ua.textScan(prop), true, nil
 	case aggregation.PropertyTypeDate:
 		switch dt {
 		case schema.DataTypeDateArray:
-			return nil, ua.dateArrayScan(prop), nil
+			return nil, ua.dateArrayScan(prop), true, nil
 		default:
 			analyzed, err = ua.dateProperty(ctx, prop)
 		}
 	case aggregation.PropertyTypeReference:
 		// ignore, as this is handled outside the repo in the uc
-		return nil, nil, nil
+		return nil, objectScan{}, false, nil
 	default:
-		return nil, nil, fmt.Errorf("aggreation type %s not supported yet", aggType)
+		return nil, objectScan{}, false, fmt.Errorf("aggreation type %s not supported yet", aggType)
 	}
-	return analyzed, nil, err
+	return analyzed, objectScan{}, false, err
 }
 
 // objectScan aggregates one property that is read from the stored objects.
@@ -178,7 +178,7 @@ type objectScan struct {
 // scanObjects reads the objects bucket once and feeds every object to all
 // scans, so the cost of a query does not grow with the number of properties
 // that have to be read from the objects.
-func (ua unfilteredAggregator) scanObjects(ctx context.Context, scans []*objectScan) error {
+func (ua unfilteredAggregator) scanObjects(ctx context.Context, scans []objectScan) error {
 	if len(scans) == 0 {
 		return nil
 	}
