@@ -67,6 +67,11 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	targets := s.index.getTargetVectorIndexConfigs()
 	active, skipped := vectorIndexConfigsByStorage(legacy, targets)
 
+	err := newCompressedVectorsMigrator(s.index.logger).removeVectorsCompressedLink(s.store.GetDir())
+	if err != nil {
+		return fmt.Errorf("shard %q: %w", s.ID(), err)
+	}
+
 	// The mapping decides the physical ID of each index. A shard without one
 	// creates everything under the naming rule; a shard with one checks its
 	// records against the schema and the disk first.

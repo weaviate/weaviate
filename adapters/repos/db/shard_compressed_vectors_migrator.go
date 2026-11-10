@@ -12,8 +12,10 @@
 package db
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -34,6 +36,33 @@ type compressedVectorsMigrator struct {
 
 func newCompressedVectorsMigrator(logger logrus.FieldLogger) compressedVectorsMigrator {
 	return compressedVectorsMigrator{logger: logger.WithField("action", "compressed_vector_migration")}
+}
+
+// removeVectorsCompressedLink removes the vectors_compressed link that 1.30.19
+// to 1.40 kept to a named vector's compressed bucket for downgrades to 1.30.18:
+// a vector named "compressed" would write its raw vectors through it.
+func (m compressedVectorsMigrator) removeVectorsCompressedLink(lsmDir string) error {
+	path := filepath.Join(lsmDir, helpers.VectorsCompressedBucketLSM)
+	fi, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", path, err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+	target, err := os.Readlink(path)
+	if err != nil {
+		return fmt.Errorf("read link %s: %w", path, err)
+	}
+	err = os.Remove(path)
+	if err != nil {
+		return fmt.Errorf("remove link %s: %w", path, err)
+	}
+	m.logger.Infof("removed the %s link to %s", helpers.VectorsCompressedBucketLSM, target)
+	return nil
 }
 
 // do runs the compressed-vectors layout migration. records say where each
