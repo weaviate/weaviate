@@ -3367,6 +3367,13 @@ func Test_SetClassDefaults_DefaultVectorIndexType(t *testing.T) {
 			expectedVectorizer: "none",
 		},
 		{
+			name:               "env set to hfresh, class explicitly tachiomfresh => tachiomfresh preserved",
+			defaultIndexType:   vectorindex.VectorIndexTypeHFresh,
+			classIndexType:     vectorindex.VectorIndexTypeTachiomFresh,
+			expectedIndexType:  vectorindex.VectorIndexTypeTachiomFresh,
+			expectedVectorizer: config.VectorizerModuleNone,
+		},
+		{
 			name:               "env set to hfresh, vectorizer set, no class type => hfresh",
 			defaultIndexType:   vectorindex.VectorIndexTypeHFresh,
 			classVectorizer:    "none",
@@ -3437,6 +3444,12 @@ func Test_SetClassDefaults_DefaultVectorIndexType_NamedVectors(t *testing.T) {
 			defaultIndexType:  vectorindex.VectorIndexTypeFLAT,
 			vectorIndexType:   "",
 			expectedIndexType: vectorindex.VectorIndexTypeFLAT,
+		},
+		{
+			name:              "env set to hfresh, vector explicitly tachiomfresh => tachiomfresh preserved",
+			defaultIndexType:  vectorindex.VectorIndexTypeHFresh,
+			vectorIndexType:   vectorindex.VectorIndexTypeTachiomFresh,
+			expectedIndexType: vectorindex.VectorIndexTypeTachiomFresh,
 		},
 		{
 			name:              "env set to flat, vector explicitly hnsw => hnsw preserved",

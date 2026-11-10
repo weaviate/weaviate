@@ -141,8 +141,45 @@ func HFreshSharedBucketName(indexID string) string {
 	return fmt.Sprintf("hfresh_shared_%s", indexID)
 }
 
+// TachiomFreshDirName is the tachiomfresh index's own directory under the
+// shard. It holds the centroid HNSW's commit log and the task queues, as
+// hfresh's directory does.
+func TachiomFreshDirName(indexID string) string {
+	return fmt.Sprintf("%s.tachiomfresh.d", indexID)
+}
+
+// TachiomFreshPostingsBucketName is the LSM bucket holding tachiomfresh's
+// posting lists. The index has a posting store of its own; tachiomfresh's
+// store.go says why.
+func TachiomFreshPostingsBucketName(indexID string) string {
+	return fmt.Sprintf("tachiomfresh_postings_%s", indexID)
+}
+
+// TachiomFreshTypesBucketName is the LSM bucket holding tachiomfresh's
+// posting types, their spread sums, the centering mean, the build phase and
+// the posting format.
+func TachiomFreshTypesBucketName(indexID string) string {
+	return fmt.Sprintf("tachiomfresh_types_%s", indexID)
+}
+
+// TachiomFreshTokenCountsBucketName is the LSM bucket holding the token count
+// of each document tachiomfresh indexes, which restore checks a document
+// against.
+func TachiomFreshTokenCountsBucketName(indexID string) string {
+	return fmt.Sprintf("tachiomfresh_tokens_%s", indexID)
+}
+
+// TachiomFreshStagingBucketName is the LSM bucket holding the documents
+// tachiomfresh stages before it builds its postings.
+func TachiomFreshStagingBucketName(indexID string) string {
+	return fmt.Sprintf("tachiomfresh_staging_%s", indexID)
+}
+
 // CentroidsID is the physical ID of the hnsw graph hfresh keeps its centroids
 // in; hnsw names that graph's commit log and compressed bucket from it.
+// tachiomfresh's centroid graph has the same id. The two types cannot share
+// an index id, because a change of vector index type is refused
+// (Migrator.ValidateVectorIndexConfigUpdate).
 func CentroidsID(indexID string) string {
 	return indexID + "_centroids"
 }
@@ -179,12 +216,16 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 	indexID := GetVectorsBucketName(targetVector)
 	return VectorIndexArtifacts{
 		LSMBuckets: []string{
-			indexID,                               // raw vectors
-			GetCompressedBucketName(targetVector), // BQ/PQ/SQ/RQ
-			MuveraBucketName(indexID),             // multivector + muvera
-			MVMappingsBucketName(indexID),         // multivector without muvera
-			HFreshPostingsBucketName(indexID),     // hfresh
-			HFreshSharedBucketName(indexID),       // hfresh
+			indexID,                                    // raw vectors
+			GetCompressedBucketName(targetVector),      // BQ/PQ/SQ/RQ
+			MuveraBucketName(indexID),                  // multivector + muvera
+			MVMappingsBucketName(indexID),              // multivector without muvera
+			HFreshPostingsBucketName(indexID),          // hfresh
+			HFreshSharedBucketName(indexID),            // hfresh, and tachiomfresh's metadata (it reuses hfresh's shared bucket)
+			TachiomFreshPostingsBucketName(indexID),    // tachiomfresh
+			TachiomFreshTypesBucketName(indexID),       // tachiomfresh
+			TachiomFreshStagingBucketName(indexID),     // tachiomfresh
+			TachiomFreshTokenCountsBucketName(indexID), // tachiomfresh
 			// hfresh runs a nested centroids HNSW whose id is
 			// "<indexID>_centroids"; hnsw derives its compressed bucket from
 			// that id with the "vectors_" prefix stripped, so it lands in the
@@ -197,6 +238,7 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 			GetHNSWCommitLogDirName(targetVector),
 			GetHNSWSnapshotDirName(targetVector),
 			HFreshDirName(indexID),
+			TachiomFreshDirName(indexID),
 			// The async-indexing queue. The live drop closes it via queue.Drop,
 			// but every files-only path (cold lazy shard, inactive tenant, crash
 			// before the live drop) leaves it — and DiskQueue.Init replays stale
@@ -224,12 +266,17 @@ func VectorIndexArtifactNamesForID(physicalID string) VectorIndexArtifacts {
 			MVMappingsBucketName(physicalID),
 			HFreshPostingsBucketName(physicalID),
 			HFreshSharedBucketName(physicalID),
+			TachiomFreshPostingsBucketName(physicalID),
+			TachiomFreshTypesBucketName(physicalID),
+			TachiomFreshStagingBucketName(physicalID),
+			TachiomFreshTokenCountsBucketName(physicalID),
 			CompressedBucketNameForID(CentroidsID(physicalID)),
 		},
 		ShardDirs: []string{
 			HNSWCommitLogDirNameForID(physicalID),
 			physicalID + ".hnsw.snapshot.d",
 			HFreshDirName(physicalID),
+			TachiomFreshDirName(physicalID),
 			FlatMetadataFileNameForID(physicalID),
 		},
 	}
@@ -299,7 +346,7 @@ func VectorIndexArtifactsFor(targetVector string, otherTargetVectors []string) V
 	}
 
 	// Only LSM buckets can collide. Every ShardDirs entry ends in a dotted
-	// suffix (".hnsw.commitlog.d", ".hfresh.d", ".queue.d") and
+	// suffix (".hnsw.commitlog.d", ".hfresh.d", ".tachiomfresh.d", ".queue.d") and
 	// TargetVectorNameRegex forbids dots in vector names, so no sibling's
 	// artifact can ever equal one — filtering them would be unreachable code.
 	// A future shard directory WITHOUT a dotted suffix would break that and

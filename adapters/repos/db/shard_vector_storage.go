@@ -38,6 +38,8 @@ func vectorIndexStorageDirs(shardDir string, state dynamic.StateOps, indexType, 
 		return []string{flatDir}, nil
 	case vectorindex.VectorIndexTypeHFresh:
 		return []string{filepath.Join(shardDir, helpers.HFreshDirName(physicalID))}, nil
+	case vectorindex.VectorIndexTypeTachiomFresh:
+		return []string{filepath.Join(shardDir, helpers.TachiomFreshDirName(physicalID))}, nil
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		upgraded, err := dynamic.UpgradedInState(state, shardDir, physicalID)
 		if err != nil {

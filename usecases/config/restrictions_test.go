@@ -157,6 +157,26 @@ func TestValidateRestrictions(t *testing.T) {
 			wantErrContains:  "hfresh has no compression",
 		},
 		{
+			name:             "tachiomfresh-only + compression set — error",
+			allowVector:      []string{"tachiomfresh"},
+			allowCompression: []string{"rq-8"},
+			wantErrContains:  "neither has tachiomfresh",
+		},
+		{
+			name:             "hfresh+tachiomfresh + compression set — error",
+			allowVector:      []string{"hfresh", "tachiomfresh"},
+			defaultVector:    "hfresh",
+			allowCompression: []string{"rq-8"},
+			wantErrContains:  "hfresh has no compression",
+		},
+		{
+			name:             "tachiomfresh+hnsw + compression set — OK (compression applies to hnsw)",
+			allowVector:      []string{"tachiomfresh", "hnsw"},
+			defaultVector:    "hnsw",
+			allowCompression: []string{"rq-8"},
+			wantDefaultQuant: "rq-8",
+		},
+		{
 			name:             "hfresh+hnsw + compression set — OK (compression applies to hnsw)",
 			allowVector:      []string{"hfresh", "hnsw"},
 			defaultVector:    "hfresh",
@@ -217,6 +237,26 @@ func TestValidateRestrictions_EmptyAllowList_NoRestriction(t *testing.T) {
 	// Defaults are left untouched (no seeding when allow-list is empty).
 	assert.Equal(t, "", c.DefaultVectorIndexType.Get())
 	assert.Equal(t, "", c.DefaultQuantization.Get())
+}
+
+// TestValidateRestrictions_OnlyTachiomFreshAllowed_DefaultStaysUnset pins that
+// an allow-list of tachiomfresh alone is accepted and does not seed the
+// default, with the validator FromEnv attaches: the type stays one a class
+// must choose explicitly.
+func TestValidateRestrictions_OnlyTachiomFreshAllowed_DefaultStaysUnset(t *testing.T) {
+	defaultVector, err := runtime.NewDynamicValueWithValidation("", NewDefaultVectorIndexValidator())
+	require.NoError(t, err)
+	c := &Config{
+		DefaultVectorIndexType: defaultVector,
+		DefaultQuantization:    runtime.NewDynamicValue(""),
+		Restrictions: RestrictionsConfig{
+			AllowedVectorIndexTypes: runtime.NewDynamicValue([]string{"tachiomfresh"}),
+			AllowedCompressionTypes: runtime.NewDynamicValue[[]string](nil),
+		},
+	}
+	require.NoError(t, c.validateRestrictions())
+	assert.Equal(t, "", c.DefaultVectorIndexType.Get())
+	assert.Equal(t, []string{"tachiomfresh"}, c.Restrictions.AllowedVectorIndexTypes.Get())
 }
 
 // TestRestrictionListValidator covers the per-value DynamicValue

@@ -28,6 +28,7 @@ import (
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	tachiomfreshent "github.com/weaviate/weaviate/entities/vectorindex/tachiomfresh"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -198,6 +199,11 @@ func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig, dynamicUpgraded bo
 		return getDynamicCompression(config, dynamicUpgraded)
 	case hfreshent.UserConfig:
 		return DimensionInfo{category: DimensionCategoryAuto}
+	case tachiomfreshent.UserConfig:
+		// the index keeps float32 tokens in the objects bucket and has no
+		// codes of its own, so it counts as uncompressed, like hnsw without
+		// a quantizer
+		return DimensionInfo{category: DimensionCategoryStandard}
 	default:
 		return DimensionInfo{category: DimensionCategoryStandard}
 	}

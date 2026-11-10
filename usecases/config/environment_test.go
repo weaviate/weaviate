@@ -2420,6 +2420,8 @@ func TestEnvironmentDefaultVectorIndex(t *testing.T) {
 		{"uppercase FLAT", "FLAT", "flat", ""},
 		{"mixed case Hnsw", "Hnsw", "hnsw", ""},
 		{"invalid value", "invalid", "", `invalid DEFAULT_VECTOR_INDEX "invalid"`},
+		{"tachiomfresh rejected", "tachiomfresh", "", `invalid DEFAULT_VECTOR_INDEX "tachiomfresh"`},
+		{"mixed-case tachiomfresh rejected", " TachiomFresh ", "", `invalid DEFAULT_VECTOR_INDEX "tachiomfresh"`},
 		{"none sentinel rejected", "none", "", `invalid DEFAULT_VECTOR_INDEX "none"`},
 		{"noop sentinel rejected", "noop", "", `invalid DEFAULT_VECTOR_INDEX "noop"`},
 	}

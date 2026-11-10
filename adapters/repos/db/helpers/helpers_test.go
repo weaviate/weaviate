@@ -219,17 +219,21 @@ func TestVectorIndexArtifactNamesForID(t *testing.T) {
 			id: "main",
 			buckets: []string{
 				"vectors", "vectors_compressed", "main_muvera_vectors", "main_mv_mappings",
-				"hfresh_postings_main", "hfresh_shared_main", "vectors_compressed",
+				"hfresh_postings_main", "hfresh_shared_main",
+				"tachiomfresh_postings_main", "tachiomfresh_types_main", "tachiomfresh_staging_main", "tachiomfresh_tokens_main",
+				"vectors_compressed",
 			},
-			dirs: []string{"main.hnsw.commitlog.d", "main.hnsw.snapshot.d", "main.hfresh.d", "meta.db"},
+			dirs: []string{"main.hnsw.commitlog.d", "main.hnsw.snapshot.d", "main.hfresh.d", "main.tachiomfresh.d", "meta.db"},
 		},
 		{
 			id: "vectors_title",
 			buckets: []string{
 				"vectors_title", "vectors_compressed_title", "vectors_title_muvera_vectors", "vectors_title_mv_mappings",
-				"hfresh_postings_vectors_title", "hfresh_shared_vectors_title", "vectors_compressed_title_centroids",
+				"hfresh_postings_vectors_title", "hfresh_shared_vectors_title",
+				"tachiomfresh_postings_vectors_title", "tachiomfresh_types_vectors_title", "tachiomfresh_staging_vectors_title", "tachiomfresh_tokens_vectors_title",
+				"vectors_compressed_title_centroids",
 			},
-			dirs: []string{"vectors_title.hnsw.commitlog.d", "vectors_title.hnsw.snapshot.d", "vectors_title.hfresh.d", "meta_title.db"},
+			dirs: []string{"vectors_title.hnsw.commitlog.d", "vectors_title.hnsw.snapshot.d", "vectors_title.hfresh.d", "vectors_title.tachiomfresh.d", "meta_title.db"},
 		},
 	}
 	for _, tc := range tests {

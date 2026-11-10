@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/tachiomfresh"
 )
 
 const (
@@ -54,8 +55,10 @@ func ParseAndValidateConfig(input interface{}, vectorIndexType string, isMultiVe
 		return dynamic.ParseAndValidateConfig(input, isMultiVector)
 	case VectorIndexTypeHFresh:
 		return hfresh.ParseAndValidateConfig(input, isMultiVector)
+	case VectorIndexTypeTachiomFresh:
+		return tachiomfresh.ParseAndValidateConfig(input, isMultiVector)
 	default:
-		return nil, fmt.Errorf("invalid vector index %q. Supported types are hnsw and flat", vectorIndexType)
+		return nil, fmt.Errorf("invalid vector index %q. Supported types are hnsw, flat, dynamic, hfresh and tachiomfresh", vectorIndexType)
 	}
 }
 
@@ -75,6 +78,9 @@ func UnmarshalConfig(indexType string, data []byte) (schemaConfig.VectorIndexCon
 		return cfg, json.Unmarshal(data, &cfg)
 	case VectorIndexTypeHFresh:
 		var cfg hfresh.UserConfig
+		return cfg, json.Unmarshal(data, &cfg)
+	case VectorIndexTypeTachiomFresh:
+		var cfg tachiomfresh.UserConfig
 		return cfg, json.Unmarshal(data, &cfg)
 	default:
 		return nil, fmt.Errorf("unknown vector index type %q", indexType)

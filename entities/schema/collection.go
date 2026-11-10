@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/tachiomfresh"
 	sharding "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
@@ -68,20 +69,23 @@ const (
 	VectorIndexTypeHNSW
 	VectorIndexTypeFlat
 	VectorIndexTypeHFresh
+	VectorIndexTypeTachiomFresh
 )
 
 var (
 	vectorIndexTypeToString = map[VectorIndexType]string{
-		VectorIndexTypeHNSW:   vIndex.VectorIndexTypeHNSW,
-		VectorIndexTypeFlat:   vIndex.VectorIndexTypeFLAT,
-		VectorIndexTypeHFresh: vIndex.VectorIndexTypeHFresh,
-		VectorIndexTypeEmpty:  "",
+		VectorIndexTypeHNSW:         vIndex.VectorIndexTypeHNSW,
+		VectorIndexTypeFlat:         vIndex.VectorIndexTypeFLAT,
+		VectorIndexTypeHFresh:       vIndex.VectorIndexTypeHFresh,
+		VectorIndexTypeTachiomFresh: vIndex.VectorIndexTypeTachiomFresh,
+		VectorIndexTypeEmpty:        "",
 	}
 	stringToVectorIndexType = map[string]VectorIndexType{
-		vIndex.VectorIndexTypeHNSW:   VectorIndexTypeHNSW,
-		vIndex.VectorIndexTypeFLAT:   VectorIndexTypeFlat,
-		vIndex.VectorIndexTypeHFresh: VectorIndexTypeHFresh,
-		"":                           VectorIndexTypeEmpty,
+		vIndex.VectorIndexTypeHNSW:         VectorIndexTypeHNSW,
+		vIndex.VectorIndexTypeFLAT:         VectorIndexTypeFlat,
+		vIndex.VectorIndexTypeHFresh:       VectorIndexTypeHFresh,
+		vIndex.VectorIndexTypeTachiomFresh: VectorIndexTypeTachiomFresh,
+		"":                                 VectorIndexTypeEmpty,
 	}
 )
 
@@ -420,6 +424,8 @@ func CollectionFromClass(m models.Class) (Collection, error) {
 		c.VectorIndexConfig = m.VectorIndexConfig.(flat.UserConfig)
 	case VectorIndexTypeHFresh:
 		c.VectorIndexConfig = m.VectorIndexConfig.(hfresh.UserConfig)
+	case VectorIndexTypeTachiomFresh:
+		c.VectorIndexConfig = m.VectorIndexConfig.(tachiomfresh.UserConfig)
 	default:
 	}
 

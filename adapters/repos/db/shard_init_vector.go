@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/tachiomfresh"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex"
@@ -39,6 +40,7 @@ import (
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	tachiomfreshent "github.com/weaviate/weaviate/entities/vectorindex/tachiomfresh"
 )
 
 // vectorFromObjectForTarget reads targetVector's vector straight out of an
@@ -354,9 +356,92 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Wrapf(err, "init shard %q: hfresh index", s.ID())
 		}
 		vectorIndex = vi
+	case vectorindex.VectorIndexTypeTachiomFresh:
+		// hfresh's wiring, with the same hfresh.Config and centroid HNSW,
+		// plus two readers only this index has: one token by document and
+		// position, and the token ids stored with a document's object. It
+		// also reads a document into the caller's container, as hfresh's
+		// exact scoring does. The token thunk takes the index's own
+		// dimension. The token read takes its key and node buffers from a
+		// pool and returns the token in new memory (tokenByIndexID).
+		userConfig, ok := vectorIndexUserConfig.(tachiomfreshent.UserConfig)
+		if !ok {
+			return nil, errors.Errorf("tachiomfresh vector index: config is not tachiomfresh.UserConfig: %T",
+				vectorIndexUserConfig)
+		}
+
+		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
+
+		configID := physicalID
+		centroidsID := helpers.CentroidsID(configID)
+		rootPath := filepath.Join(s.path(), helpers.TachiomFreshDirName(configID))
+
+		tachiomConfig := &hfresh.Config{
+			Logger:            logger,
+			Scheduler:         s.index.scheduler,
+			DistanceProvider:  distProv,
+			RootPath:          rootPath,
+			ID:                configID,
+			ShardName:         s.name,
+			ClassName:         s.index.Config.ClassName.String(),
+			PrometheusMetrics: s.promMetrics,
+			Store: hfresh.StoreConfig{
+				MakeBucketOptions: makeBucketOptions,
+			},
+			VectorForIDThunk:      hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+			MultiVectorForIDThunk: hnsw.NewVectorForIDThunk(targetVector, s.multiVectorByIndexID),
+			TokenForIDThunk:       hnsw.NewTokenForIDThunk(targetVector, s.tokenByIndexID),
+			TokenIDsForIDThunk: vcommon.TargetTokenIDsForID{
+				TargetVector:       targetVector,
+				TokenIDsForIDThunk: s.tokenIDsByIndexID,
+			}.TokenIDsForID,
+			TempMultiVectorForIDThunk:    hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
+			TempVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
+			TombstoneCallbacks:           s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+			Centroids: hfresh.CentroidConfig{
+				HNSWConfig: &hnsw.Config{
+					Logger:                            logger,
+					RootPath:                          rootPath,
+					ID:                                centroidsID,
+					ShardName:                         s.name,
+					ClassName:                         s.index.Config.ClassName.String(),
+					PrometheusMetrics:                 s.promMetrics,
+					HFreshMode:                        true,
+					TempMultiVectorForIDThunk:         hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
+					GetViewThunk:                      func() vcommon.BucketView { return s.GetObjectsBucketView() },
+					TempVectorForIDWithViewThunk:      hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
+					TempMultiVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readMultiVectorByIndexIDIntoSliceWithView),
+					DistanceProvider:                  distProv,
+					MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+						// Prepend our default options, caller's opts take precedence
+						allOpts := append([]hnsw.CommitlogOption{
+							// consistent with previous logic where the individual limit is 1/5 of the combined limit
+							hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
+						}, opts...)
+						return hnsw.NewCommitLogger(rootPath, centroidsID,
+							logger.WithField("index_id", centroidsID), s.cycleCallbacks.vectorCommitLoggerCallbacks,
+							allOpts...,
+						)
+					},
+					AllocChecker:           s.index.allocChecker,
+					WaitForCachePrefill:    s.index.Config.HNSWWaitForCachePrefill,
+					FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
+					AcornFilterRatio:       s.index.Config.HNSWAcornFilterRatio,
+					VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
+					MakeBucketOptions:      makeBucketOptions,
+				},
+			},
+		}
+
+		vi, err := tachiomfresh.New(tachiomConfig, userConfig, s.store)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: tachiomfresh index", s.ID())
+		}
+		vectorIndex = vi
 	default:
-		return nil, fmt.Errorf("unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\", \"%s\"]",
-			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC, vectorindex.VectorIndexTypeHFresh)
+		return nil, fmt.Errorf("unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\", \"%s\", \"%s\"]",
+			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC, vectorindex.VectorIndexTypeHFresh, vectorindex.VectorIndexTypeTachiomFresh)
 	}
 	defer vectorIndex.PostStartup(s.shutCtx)
 	return vectorIndex, nil

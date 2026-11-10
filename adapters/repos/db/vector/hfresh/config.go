@@ -50,7 +50,9 @@ type Config struct {
 	TombstoneCallbacks           cyclemanager.CycleCallbackGroup         // Callbacks for handling tombstones
 	VectorForIDThunk             common.VectorForID[float32]             `json:"vectorForIDThunk,omitempty"`      // Function to get a vector by index ID
 	MultiVectorForIDThunk        common.VectorForID[[]float32]           `json:"multiVectorForIDThunk,omitempty"` // Function to get a multi-vector by index ID
-	TempMultiVectorForIDThunk    common.TempVectorForID[[]float32]       `json:"-"`                               // A multi-vector by index ID into the caller's container, as hnsw.Config's; optional, read by hfresh's exact scoring
+	TokenForIDThunk              common.TokenForID                       `json:"-"`                               // One token of a multi-vector by index ID and position; optional, read by tachiomfresh only
+	TempMultiVectorForIDThunk    common.TempVectorForID[[]float32]       `json:"-"`                               // A multi-vector by index ID into the caller's container, as hnsw.Config's; optional, read by hfresh's exact scoring and by tachiomfresh
+	TokenIDsForIDThunk           common.TokenIDsForID                    `json:"-"`                               // The token ids of a multi-vector, stored with its object; read by tachiomfresh only
 	TempVectorForIDWithViewThunk common.TempVectorForIDWithView[float32] `json:"-"`
 }
 

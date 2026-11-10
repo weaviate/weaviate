@@ -14,11 +14,12 @@ package common
 type IndexType string
 
 const (
-	IndexTypeHNSW    = "hnsw"
-	IndexTypeFlat    = "flat"
-	IndexTypeNoop    = "noop"
-	IndexTypeDynamic = "dynamic"
-	IndexTypeHFresh  = "hfresh"
+	IndexTypeHNSW         = "hnsw"
+	IndexTypeFlat         = "flat"
+	IndexTypeNoop         = "noop"
+	IndexTypeDynamic      = "dynamic"
+	IndexTypeHFresh       = "hfresh"
+	IndexTypeTachiomFresh = "tachiomfresh"
 )
 
 type IndexStats interface {

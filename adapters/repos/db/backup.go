@@ -975,7 +975,8 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 
 	// List vector index files, walking every shard subdirectory outside
 	// nonVectorShardDirs. Expected: <id>.hnsw.commitlog.d/, <id>.hnsw.snapshot.d/,
-	// <id>.queue.d/ and <id>.hfresh.d/ for a vector index id. Flat and dynamic
+	// <id>.queue.d/, <id>.hfresh.d/ and <id>.tachiomfresh.d/ for a vector index
+	// id. Flat and dynamic
 	// state is not a directory; the loop above lists it.
 	// Walking whatever remains is safe here because INACTIVE shards are fully
 	// quiesced — Shutdown has flushed and closed all stores, so there are no

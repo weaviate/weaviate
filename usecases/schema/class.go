@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	enttachiomfresh "github.com/weaviate/weaviate/entities/vectorindex/tachiomfresh"
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -1535,7 +1536,7 @@ func (h *Handler) validateVectorSettingsFor(class, initial *models.Class, restor
 			return err
 		}
 		if parsed != nil && parsed.IsMultiVector() {
-			return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
+			return fmt.Errorf("class.VectorIndexConfig multi vector type index type is only configurable using named vectors: vector index type %q", parsed.IndexType())
 		}
 		if parsed != nil && !restoring {
 			var initialParsed schemaConfig.VectorIndexConfig
@@ -1655,6 +1656,9 @@ func (h *Handler) validateVectorSettingsFor(class, initial *models.Class, restor
 func validateCreateUpdateOnlyBounds(parsed schemaConfig.VectorIndexConfig) error {
 	if uc, ok := parsed.(enthfresh.UserConfig); ok {
 		return enthfresh.ValidateMuveraUpperBounds(uc)
+	}
+	if uc, ok := parsed.(enttachiomfresh.UserConfig); ok {
+		return enttachiomfresh.ValidateUpperBounds(uc)
 	}
 	return nil
 }
@@ -1784,15 +1788,15 @@ func namedCompressionUnchanged(updated schemaConfig.VectorIndexConfig, name stri
 }
 
 // validateAllowedCompression rejects a class whose explicit compression
-// is outside ALLOWED_COMPRESSION_TYPES. hfresh is skipped (no compression
-// knobs); the DEFAULT_QUANTIZATION applied later in AddClass is itself
-// allow-list-validated at startup.
+// is outside ALLOWED_COMPRESSION_TYPES. hfresh and tachiomfresh are skipped
+// (no compression settings); the DEFAULT_QUANTIZATION applied later in
+// AddClass is itself allow-list-validated at startup.
 func (h *Handler) validateAllowedCompression(vectorIndexType string, cfg schemaConfig.VectorIndexConfig) error {
 	allow := h.allowedCompressionTypes()
 	if allow == nil {
 		return nil
 	}
-	if vectorIndexType == vectorindex.VectorIndexTypeHFresh {
+	if vectorIndexType == vectorindex.VectorIndexTypeHFresh || vectorIndexType == vectorindex.VectorIndexTypeTachiomFresh {
 		return nil
 	}
 	// Dynamic configures HnswUC + FlatUC independently — both must match.
@@ -2030,7 +2034,7 @@ func (h *Handler) validateVectorIndexTypeBasic(vectorIndexType string) error {
 			return fmt.Errorf("the dynamic index can only be created when async indexing is enabled")
 		}
 		return nil
-	case vectorindex.VectorIndexTypeHFresh:
+	case vectorindex.VectorIndexTypeHFresh, vectorindex.VectorIndexTypeTachiomFresh:
 		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",

@@ -179,7 +179,7 @@ func (p *Parser) parseVectorIndexConfig(class *models.Class) error {
 			return err
 		}
 		if parsed.IsMultiVector() {
-			return fmt.Errorf("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
+			return fmt.Errorf("class.VectorIndexConfig multi vector type index type is only configurable using named vectors: vector index type %q", parsed.IndexType())
 		}
 		class.VectorIndexConfig = parsed
 	}
@@ -256,7 +256,7 @@ func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 				"it is an internal sentinel for dropped indexes", vectorIndexType)
 	}
 
-	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC && vectorIndexType != vectorindex.VectorIndexTypeHFresh {
+	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC && vectorIndexType != vectorindex.VectorIndexTypeHFresh && vectorIndexType != vectorindex.VectorIndexTypeTachiomFresh {
 		return nil, errors.Errorf(
 			"parse vector index config: unsupported vector index type: %q",
 			vectorIndexType)
