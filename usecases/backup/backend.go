@@ -788,30 +788,6 @@ func (u *uploader) compress(ctx context.Context,
 		errors.Join(labelErr("producer", producerErr), labelErr("consumer", consumerErr))
 }
 
-// calculateShardPreCompressionSize calculates the total size of a shard before compression
-// Since shards are paused and memtables are flushed during backup, we only need to calculate
-// the size of files on disk, not in-memory data.
-func (u *uploader) calculateShardPreCompressionSize(shard *backup.ShardDescriptor) int64 {
-	var totalSize int64
-	sourceDataPath := u.backend.SourceDataPath()
-	// Add size of files on disk (in-memory data is flushed to disk during backup preparation)
-	for _, filePath := range shard.Files {
-		fullPath := filepath.Join(sourceDataPath, filePath)
-		if info, err := os.Stat(fullPath); err == nil {
-			totalSize += info.Size()
-		}
-	}
-
-	u.log.WithFields(logrus.Fields{
-		"shard":          shard.Name,
-		"filesCount":     len(shard.Files),
-		"totalSize":      totalSize,
-		"sourceDataPath": sourceDataPath,
-	}).Debug("calculated pre-compression size for shard")
-
-	return totalSize
-}
-
 // createFileList creates a FileList from a ShardDescriptor with Files copied,
 // FileSizes map populated, and BigFilesThreshold calculated.
 // This allows file sizes to be collected once at the start of processing rather than repeatedly during compression.
