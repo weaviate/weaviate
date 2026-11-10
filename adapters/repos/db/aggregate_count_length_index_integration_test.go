@@ -135,3 +135,51 @@ func TestAggregateCountOfArraysWithLengthIndex(t *testing.T) {
 		})
 	}
 }
+
+// TestAggregateCountOfArraysAfterDroppingLastInvertedIndex pins that a
+// count-only aggregation reads the objects once the property's last inverted
+// index is dropped: the length index stays loaded, but writes no longer update
+// it, so it keeps the lengths from before the drop.
+func TestAggregateCountOfArraysAfterDroppingLastInvertedIndex(t *testing.T) {
+	ctx := context.Background()
+	const className = aggLengthIndexClass + "Dropped"
+	class := &models.Class{Class: className, InvertedIndexConfig: invertedConfig()}
+	class.Properties = []*models.Property{{Name: "ints", DataType: schema.DataTypeIntArray.PropString()}}
+	shardLike, _ := testShardWithSettings(t, ctx, class,
+		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false, false)
+	s := concreteShard(t, shardLike)
+
+	id := strfmt.UUID(uuid.NewString())
+	put := func(ints []float64) {
+		require.NoError(t, s.PutObject(ctx, &storobj.Object{
+			MarshallerVersion: 1,
+			Object:            models.Object{ID: id, Class: className, Properties: map[string]interface{}{"ints": ints}},
+			Vector:            []float32{1, 2, 3},
+		}))
+	}
+	count := func() float64 {
+		res, err := s.Aggregate(ctx, aggregation.Params{
+			ClassName: className,
+			Properties: []aggregation.ParamProperty{{
+				Name:        "ints",
+				Aggregators: []aggregation.Aggregator{aggregation.CountAggregator},
+			}},
+			OnlyRequestedAggregations: true,
+		}, nil)
+		require.NoError(t, err)
+		return res.Groups[0].Properties["ints"].NumericalAggregations["count"].(float64)
+	}
+
+	put([]float64{1})
+	require.Equal(t, float64(1), count())
+
+	off := false
+	prop := class.Properties[0]
+	prop.IndexFilterable, prop.IndexSearchable, prop.IndexRangeFilters = &off, &off, &off
+	require.NoError(t, s.index.updateProperty(ctx, prop))
+	require.NotNil(t, s.store.Bucket(helpers.BucketFromPropNameLengthLSM("ints")),
+		"precondition: the length index outlives the drop")
+
+	put([]float64{1, 2, 3})
+	require.Equal(t, float64(3), count())
+}

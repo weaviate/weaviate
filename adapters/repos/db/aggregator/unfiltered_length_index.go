@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	entinverted "github.com/weaviate/weaviate/entities/inverted"
@@ -30,8 +31,10 @@ import (
 // It reports false, and the property is read from the objects instead, unless
 // the request asks for nothing but the count and the index holds every object
 // exactly once: objects written before the property was added, or before it
-// had an inverted index, have no entry. A text[] count also needs a caller
-// that reads only what it requests, as the index gives no top occurrences; see
+// had an inverted index, have no entry. Writes stop updating the index once
+// the property has no inverted index left, so it also reports false then. A
+// text[] count also needs a caller that reads only what it requests, as the
+// index gives no top occurrences; see
 // [aggregation.Params.OnlyRequestedAggregations].
 func (ua unfilteredAggregator) countFromLengthIndex(ctx context.Context,
 	prop aggregation.ParamProperty, dt schema.DataType,
@@ -44,6 +47,10 @@ func (ua unfilteredAggregator) countFromLengthIndex(ctx context.Context,
 	}
 	class := ua.getSchema.ReadOnlyClass(ua.params.ClassName.String())
 	if class == nil || class.InvertedIndexConfig == nil || !class.InvertedIndexConfig.IndexPropertyLength {
+		return 0, false, nil
+	}
+	schemaProp, err := schema.GetPropertyByName(class, prop.Name.String())
+	if err != nil || !inverted.HasAnyInvertedIndex(schemaProp) {
 		return 0, false, nil
 	}
 	lengths := ua.store.Bucket(helpers.BucketFromPropNameLengthLSM(prop.Name.String()))
