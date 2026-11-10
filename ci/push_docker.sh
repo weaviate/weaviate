@@ -33,31 +33,19 @@ function highest_stable_release() {
   } | sort -V | tail -n 1
 }
 
-# Warns instead of failing: the release image is already published by now.
-function point_latest_at() {
-  local image="$1"
-  for _ in 1 2 3; do
-    docker buildx imagetools create -t "${DOCKER_REPO}:latest" "$image" && return 0
-    sleep 10
-  done
-  echo "::warning::Could not point ${DOCKER_REPO}:latest at ${image}. To fix, run: docker buildx imagetools create -t ${DOCKER_REPO}:latest ${image}"
-}
-
-# Points latest at this release only if it is the highest stable release
-function update_latest() {
+# Succeeds if the version is stable and no higher stable tag exists on origin.
+function should_tag_latest() {
   local version="$1"
   local highest
 
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+
   if ! highest="$(highest_stable_release "$version")"; then
-    echo "::warning::Not updating latest: could not list release tags on origin."
-    return 0
-  fi
-  if [ "$version" != "$highest" ]; then
-    echo "Not updating latest: ${version} is not the highest stable release (${highest})."
-    return 0
+    echo "::warning::Not tagging latest: could not list release tags on origin." >&2
+    return 1
   fi
 
-  point_latest_at "${DOCKER_REPO}:${version}"
+  [[ "$version" == "$highest" ]]
 }
 
 function release() {
@@ -73,8 +61,8 @@ function release() {
   # the scanned image, and the amd64 image reuses its `apk upgrade` layer.
   docker buildx inspect >/dev/null 2>&1 || docker buildx create --use
 
-  # nightly tag was added to be pushed on merges to main branch; latest is set
-  # by update_latest after the release image is pushed
+  # Main branch builds include nightly; eligible stable releases include latest.
+  # Check latest eligibility before building, then push all selected tags together.
   tag_exact=
   tag_preview=
   tag_preview_semver=
@@ -143,6 +131,9 @@ function release() {
   if [ -n "$tag_exact" ]; then
     # exact tag on main
     args+=("-t=$tag_exact")
+    if should_tag_latest "$weaviate_version"; then
+      args+=("-t=${DOCKER_REPO}:latest")
+    fi
   fi
   if [ -n "$tag_preview" ]; then
     # preview tag on PR builds
@@ -154,10 +145,6 @@ function release() {
   fi
 
   docker buildx build "${args[@]}" . || exit 1
-
-  if [ -n "$tag_exact" ]; then
-    update_latest "$weaviate_version"
-  fi
 
   if [ -n "$tag_preview" ]; then
     echo "PREVIEW_TAG=$tag_preview" >> "$GITHUB_OUTPUT"
