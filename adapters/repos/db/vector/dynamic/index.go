@@ -39,6 +39,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -1062,15 +1063,21 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 				AllocChecker:                 dynamic.AllocChecker,
 				MakeBucketOptions:            dynamic.MakeBucketOptions,
 				AsyncIndexingEnabled:         dynamic.AsyncIndexingEnabled,
-				DeferCachePersistence:        true,
 			},
-			dynamic.uc.HnswUC,
+			uncompressedDuringCopy(dynamic.uc.HnswUC),
 			dynamic.tombstoneCallbacks,
 			dynamic.store,
 		)
 		if err != nil {
 			return nil, err
 		}
+		// also on panic: an in-process retry must not replay this attempt's commit log
+		built := false
+		defer func() {
+			if !built {
+				dynamic.cleanupAbortedUpgrade(index)
+			}
+		}()
 
 		// The copy destination may be wrapped (tests only) to interrupt AddBatch;
 		// the real index is still what PostStartup + the swap below use.
@@ -1079,7 +1086,6 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 			copyTarget = wrapCopyTarget(index)
 		}
 		if err := dynamic.copyToVectorIndex(copyTarget); err != nil {
-			dynamic.cleanupAbortedUpgrade(index)
 			return nil, err
 		}
 
@@ -1087,6 +1093,7 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 		// is a no-op because cachePrefilled was already set during init (fresh
 		// index with no commit-log state) and the cache is populated by AddBatch.
 		index.PostStartup(dynamic.ctx)
+		built = true
 		return index, nil
 	}()
 	if err != nil {
@@ -1115,6 +1122,37 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 		return err
 	}
 
+	if err := dynamic.installUpgraded(index); err != nil {
+		return err
+	}
+	dynamic.compressUpgraded(index)
+	return nil
+}
+
+// The flat stage reads the shared compressed bucket until the swap, so BQ and
+// RQ, which would write to it on insert, are only switched on afterwards.
+func uncompressedDuringCopy(uc hnswent.UserConfig) hnswent.UserConfig {
+	uc.BQ.Enabled = false
+	uc.RQ.Enabled = false
+	return uc
+}
+
+func (dynamic *dynamic) compressUpgraded(index *hnsw.HNSW) {
+	uc := dynamic.uc.HnswUC
+	// PQ, SQ and centered RQ train later, triggered by the indexing queue
+	compressNow := uc.BQ.Enabled || (uc.RQ.Enabled && !uc.RQ.Centering)
+	if !compressNow {
+		return
+	}
+	done := make(chan struct{})
+	if err := index.Upgrade(func() { close(done) }); err != nil {
+		dynamic.logger.WithField("action", "dynamic_upgrade_compress").
+			Errorf("compress upgraded index: %v", err)
+	}
+	<-done
+}
+
+func (dynamic *dynamic) installUpgraded(index *hnsw.HNSW) error {
 	// Lock the index for writing but check if it was already
 	// closed in the meantime
 	dynamic.Lock()
@@ -1156,8 +1194,8 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 			errs = append(errs, err)
 		}
 	}
-	if err := index.PersistCache(dynamic.ctx); err != nil {
-		errs = append(errs, errors.Wrap(err, "persist compressed vectors of upgraded index"))
+	if err := index.UpdateUserConfig(dynamic.uc.HnswUC, func() {}); err != nil {
+		errs = append(errs, errors.Wrap(err, "apply hnsw config to upgraded index"))
 	}
 	if len(errs) > 0 {
 		dynamic.logger.Warn(simpleErrors.Join(errs...))

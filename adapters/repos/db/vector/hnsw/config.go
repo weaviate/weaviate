@@ -55,8 +55,6 @@ type Config struct {
 
 	AsyncIndexingEnabled bool
 
-	DeferCachePersistence bool
-
 	HFreshMode bool
 }
 

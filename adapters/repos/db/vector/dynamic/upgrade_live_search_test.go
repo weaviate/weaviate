@@ -139,9 +139,14 @@ func (e *upgradeTestEnv) restart(t *testing.T) {
 // whatever sits in a write buffer is lost.
 func (e *upgradeTestEnv) crash(t *testing.T) *upgradeTestEnv {
 	t.Helper()
+	return e.crashWithConfig(t, e.uc)
+}
+
+func (e *upgradeTestEnv) crashWithConfig(t *testing.T, uc ent.UserConfig) *upgradeTestEnv {
+	t.Helper()
 	snap := t.TempDir()
 	require.NoError(t, snapshotTree(e.root, snap))
-	crashed := &upgradeTestEnv{root: snap, vectors: e.vectors, uc: e.uc, target: e.target, id: e.id}
+	crashed := &upgradeTestEnv{root: snap, vectors: e.vectors, uc: uc, target: e.target, id: e.id}
 	crashed.open(t)
 	return crashed
 }
@@ -429,6 +434,92 @@ func TestUpgrade_FailedCommitRestoresFlatStage(t *testing.T) {
 			restarted := env.search(t, queries, k, "after a restart")
 			for i := range queries {
 				assert.ElementsMatchf(t, baseline[i], restarted[i], "query %d after a restart", i)
+			}
+		})
+	}
+}
+
+// A copy that panics is retried in the same process. The retry must start from
+// nothing: an HNSW restored from the first attempt's commit log would bring a
+// compressor that writes into the bucket the flat stage still reads.
+func TestUpgrade_RetryAfterPanickedCopy(t *testing.T) {
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+	for _, tc := range upgradeQuantizerCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			const k = 10
+			vectors, queries := testinghelpers.RandomVecs(2*batchSize, 5, 32)
+			env := newUpgradeTestEnv(t, t.TempDir(), tc.targetVector, vectors, tc.flatUC, tc.hnswUC)
+			env.addAll(t)
+			baseline := env.search(t, queries, k, "before the upgrade")
+
+			env.upgrade(t, func(call int, ids []uint64) error {
+				if call == 2 {
+					panic("copy failed")
+				}
+				return nil
+			})
+			require.False(t, env.idx.IsUpgraded(), "the panicked upgrade must not commit")
+			_, err := os.Stat(hnswCommitLogDirectory(filepath.Join(env.root, "index"), env.id))
+			assert.True(t, os.IsNotExist(err), "the panicked copy must not leave a commit log behind")
+
+			var during [][]uint64
+			env.upgrade(t, func(call int, ids []uint64) error {
+				if call == 2 {
+					during = env.search(t, queries, k, "during the retried copy")
+				}
+				return nil
+			})
+			require.True(t, env.idx.IsUpgraded(), "the retried upgrade must complete")
+			require.Len(t, during, len(queries))
+			for i := range queries {
+				assert.ElementsMatchf(t, baseline[i], during[i], "query %d during the retried copy", i)
+			}
+
+			upgraded := env.search(t, queries, k, "after the retried upgrade")
+			env.restart(t)
+			restarted := env.search(t, queries, k, "after a restart")
+			for i := range queries {
+				assert.ElementsMatchf(t, upgraded[i], restarted[i], "query %d after a restart", i)
+			}
+		})
+	}
+}
+
+// The HNSW is built uncompressed and compressed once it is live. A crash in
+// between leaves a committed upgrade whose config asks for a quantizer that
+// has written nothing yet.
+func TestUpgrade_CrashBeforeCompression(t *testing.T) {
+	for _, tc := range upgradeQuantizerCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			vectors, queries := testinghelpers.RandomVecs(16, 5, 32)
+			k := len(vectors)
+			// what is on disk at that point is what an upgrade to an uncompressed
+			// hnsw leaves behind
+			env := newUpgradeTestEnv(t, t.TempDir(), tc.targetVector, vectors, tc.flatUC,
+				uncompressedDuringCopy(tc.hnswUC))
+			env.addAll(t)
+			env.restart(t)
+			env.upgrade(t, nil)
+			require.True(t, env.idx.IsUpgraded(), "the upgrade must complete")
+
+			uc := env.uc
+			uc.HnswUC = tc.hnswUC
+			crashed := env.crashWithConfig(t, uc)
+			require.True(t, crashed.idx.IsUpgraded(), "the committed upgrade must survive the crash")
+			for i, ids := range crashed.search(t, queries, k, "after the crash") {
+				require.Lenf(t, ids, len(vectors), "query %d must reach every vector after the crash", i)
+			}
+
+			// the indexing queue triggers the compression that never ran
+			if should, _ := crashed.idx.ShouldUpgrade(); should && !crashed.idx.Upgraded() {
+				done := make(chan struct{})
+				require.NoError(t, crashed.idx.Upgrade(func() { close(done) }))
+				<-done
+			}
+			wantCompressed := tc.hnswUC.BQ.Enabled || tc.hnswUC.RQ.Enabled
+			require.Equal(t, wantCompressed, crashed.idx.Compressed())
+			for i, ids := range crashed.search(t, queries, k, "after compressing") {
+				require.Lenf(t, ids, len(vectors), "query %d must reach every vector once compressed", i)
 			}
 		})
 	}

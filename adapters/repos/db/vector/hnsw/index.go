@@ -227,8 +227,6 @@ type hnsw struct {
 	maxDocID          uint64
 	makeBucketOptions lsmkv.MakeBucketOptions
 
-	cachePersistenceDeferred atomic.Bool
-
 	fs common.FS
 }
 
@@ -426,7 +424,6 @@ func New(cfg Config, uc ent.UserConfig,
 		"targetVector": index.getTargetVector(),
 	})
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
-	index.cachePersistenceDeferred.Store(cfg.DeferCachePersistence)
 
 	index.multivector.Store(uc.Multivector.Enabled)
 	index.muvera.Store(uc.Multivector.MuveraEnabled())
@@ -454,7 +451,6 @@ func New(cfg Config, uc ent.UserConfig,
 		if err != nil {
 			return nil, err
 		}
-		index.applyCachePersistence()
 		index.compressed.Store(true)
 		index.cache.Drop()
 		index.cache = nil

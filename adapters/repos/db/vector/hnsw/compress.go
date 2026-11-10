@@ -22,23 +22,6 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func (h *hnsw) applyCachePersistence() {
-	if h.cachePersistenceDeferred.Load() {
-		h.compressor.SetCachePersistence(false)
-	}
-}
-
-func (h *hnsw) PersistCache(ctx context.Context) error {
-	h.compressActionLock.RLock()
-	defer h.compressActionLock.RUnlock()
-
-	h.cachePersistenceDeferred.Store(false)
-	if h.compressor == nil {
-		return nil
-	}
-	return h.compressor.PersistCache(ctx)
-}
-
 func (h *hnsw) compress(cfg ent.UserConfig) error {
 	if !cfg.PQ.Enabled && !cfg.BQ.Enabled && !cfg.SQ.Enabled && !cfg.RQ.Enabled {
 		return nil
@@ -165,7 +148,6 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		h.checkAndCompress()
 		return nil
 	}
-	h.applyCachePersistence()
 	if singleVector {
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 			func(index uint64) {
