@@ -850,6 +850,13 @@ func (h *HFresh) computeLateInteraction(ctx context.Context, queryVectors [][]fl
 	for _, id := range candidateIDs {
 		docVectors, err := h.readMultiVector(ctx, id, container)
 		if err != nil {
+			// A shard removes the object before it deletes the document
+			// from the index. A candidate read in between is left out, as
+			// the hnsw search treats a missing object as deleted.
+			var notFound storobj.ErrNotFound
+			if errors.As(err, &notFound) {
+				continue
+			}
 			return nil, nil, errors.Wrapf(err, "get multi-vector for id %d", id)
 		}
 		score, err := h.maxSimScore(queryVectors, docVectors)
