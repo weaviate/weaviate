@@ -1120,9 +1120,9 @@ func unreadableRecordFault(store *MigrationRecordStore) string {
 	if more := len(unreadable) - maxNamedUnreadableRecords; more > 0 {
 		names = append(names, fmt.Sprintf("(and %d more)", more))
 	}
-	return fmt.Sprintf("%d migration record(s) on this shard are not understood (%s), so whether "+
-		"this unit is still in flight is unknown and it is refused. Fix them and reload the shard "+
-		"before migrating it again; first reason: %s",
+	return fmt.Sprintf("%d migration record fault(s) on this shard (%s), so whether this unit is "+
+		"still in flight is unknown and it is refused. Fix them and restart the node (or deactivate "+
+		"and reactivate the tenant) before migrating it again; first reason: %s",
 		len(unreadable), strings.Join(names, ", "), unreadable[0].Reason)
 }
 
@@ -1709,8 +1709,8 @@ const (
 	// partway through one. What is on them is unknown, which is not the same as
 	// knowing state is there.
 	CleanupSweepUnknown
-	// CleanupSweepWithheld: a shard was reached and left untouched, because a
-	// migration record on it is not understood. It ranks below Failed: both
+	// CleanupSweepWithheld: a shard was reached and left untouched, because of a
+	// migration record fault. It ranks below Failed: both
 	// leave state for certain, but only Failed's line warns of a partly swept shard.
 	CleanupSweepWithheld
 	// CleanupSweepFailed: a shard was reached and could not be swept. It can
@@ -1778,10 +1778,10 @@ func CleanupSweepSummary(phase string, outcome CleanupSweepOutcome) (msg string,
 				"scheduled to finish it",
 			logrus.ErrorLevel
 	case CleanupSweepWithheld:
-		return phase + ": a shard holds a migration record that is not understood, so its cleanup " +
-				"is withheld. Fix that record and reload the shard; the cleanup then runs if this task " +
-				"is still listed, and a repair or rebuild record whose task has left the list stays " +
-				"and needs a new migration on its properties",
+		return phase + ": a shard has a migration record fault, so its cleanup is withheld. Fix that " +
+				"fault and restart the node (or deactivate and reactivate the tenant); the cleanup then " +
+				"runs if this task is still listed, and a repair or rebuild record whose task has left " +
+				"the list stays and needs a new migration on its properties",
 			logrus.ErrorLevel
 	default:
 		// Also the CleanupSweepUnknown arm: an outcome this build cannot name

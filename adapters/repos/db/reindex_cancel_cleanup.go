@@ -97,10 +97,17 @@ var ErrCleanupCollectionDropped = errors.New("partial-reindex cleanup skipped: t
 // errors.Is.
 var ErrCleanupShardFailed = errors.New("partial-reindex cleanup could not sweep every shard it reached")
 
-// errCleanupShardWithheld is what DiscardTask returns when it refuses before
-// removing anything, because an unreadable record may name the dirs it would
-// remove. Unlike [ErrCleanupShardFailed], it means no partial sweep happened.
-var errCleanupShardWithheld = errors.New("a migration record on this shard is not understood, so no record is discarded")
+// errCleanupShardWithheld marks a shard refused before anything was removed, so not partly swept.
+var errCleanupShardWithheld = errors.New("cleanup withheld")
+
+type cleanupWithheldError struct{ faults []MigrationRecordUnreadable }
+
+func (e *cleanupWithheldError) Error() string {
+	return fmt.Sprintf("%d migration record fault(s), first %q: %s",
+		len(e.faults), e.faults[0].FileName, e.faults[0].Reason)
+}
+
+func (e *cleanupWithheldError) Is(target error) bool { return target == errCleanupShardWithheld }
 
 // IsCleanupCollectionDropped reports whether the collection being gone is the
 // whole of what a sweep error says. Unlike a bare errors.Is check, it returns

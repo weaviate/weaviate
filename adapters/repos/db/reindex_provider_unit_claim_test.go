@@ -397,6 +397,7 @@ func TestTheUnreadableRecordGuardNamesTheBadFilesUpToACap(t *testing.T) {
 	}{
 		{name: "one bad file", bad: 1, wantNamed: 1},
 		{name: "every bad file fits the cap", bad: maxNamedUnreadableRecords, wantNamed: maxNamedUnreadableRecords},
+		{name: "one past the cap", bad: maxNamedUnreadableRecords + 1, wantNamed: maxNamedUnreadableRecords, wantMore: "(and 1 more)"},
 		{name: "more bad files than the cap", bad: maxNamedUnreadableRecords + 3, wantNamed: maxNamedUnreadableRecords, wantMore: "(and 3 more)"},
 	}
 	for _, tc := range tests {
@@ -413,6 +414,7 @@ func TestTheUnreadableRecordGuardNamesTheBadFilesUpToACap(t *testing.T) {
 			require.NoError(t, store.Load())
 
 			fault := unreadableRecordFault(store)
+			require.True(t, strings.HasPrefix(fault, fmt.Sprintf("%d migration record fault(s)", tc.bad)), fault)
 			for i, name := range files {
 				require.Equal(t, i < tc.wantNamed, strings.Contains(fault, `"`+name+`"`), fault)
 			}

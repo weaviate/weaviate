@@ -324,7 +324,7 @@ func TestCleanupSweepSummary(t *testing.T) {
 			name:      "a shard's cleanup was withheld",
 			outcome:   CleanupSweepWithheld,
 			wantLevel: logrus.ErrorLevel,
-			wantTail:  ": a shard holds a migration record that is not understood, so its cleanup is withheld. Fix that record and reload the shard; the cleanup then runs if this task is still listed, and a repair or rebuild record whose task has left the list stays and needs a new migration on its properties",
+			wantTail:  ": a shard has a migration record fault, so its cleanup is withheld. Fix that fault and restart the node (or deactivate and reactivate the tenant); the cleanup then runs if this task is still listed, and a repair or rebuild record whose task has left the list stays and needs a new migration on its properties",
 		},
 		{
 			// A new outcome nobody wired in here arrives through the max fold,

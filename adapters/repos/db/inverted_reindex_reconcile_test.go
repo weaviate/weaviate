@@ -879,6 +879,10 @@ func TestReconcileNotUnderstoodNamesTheDirectoryWhenItIsUnreadable(t *testing.T)
 	require.NotContains(t, notice.Message, "not understood", "no record was read, so none can be miscounted")
 	require.NotContains(t, notice.Message, "downgrade", "no older build reads a file that is not there")
 	require.NotContains(t, notice.Message, "remove the files", "there is no file to remove")
+
+	withheld := r.DiscardTask(context.Background(), testTask("T", 1, distributedtask.TaskStatusCancelled))
+	require.ErrorIs(t, withheld, errCleanupShardWithheld)
+	require.Contains(t, withheld.Error(), "not a directory", "terminal cleanup names the fault it withheld for")
 }
 
 // A pass that renamed nothing must not write a Promoted record, and must not
