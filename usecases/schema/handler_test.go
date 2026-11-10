@@ -574,7 +574,7 @@ func TestListingsKeepOnlyCallerNamespace(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
 			handler.config.Authorization.Rbac.Enabled = true
 			fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{Classes: classes})
-			fakeSchemaManager.On("GetAliases", ctx, "", (*models.Class)(nil)).Return(aliases, nil)
+			fakeSchemaManager.On("AliasesFromLeader", ctx, "", (*models.Class)(nil)).Return(aliases, nil)
 
 			gotSchema, err := handler.GetConsistentSchema(ctx, tt.principal, false)
 			require.NoError(t, err)
