@@ -110,7 +110,7 @@ func (e *cleanupWithheldError) Is(target error) bool { return target == errClean
 
 // IsCleanupCollectionDropped reports whether the collection being gone is the
 // whole of what a sweep error says. Unlike a bare errors.Is check, it returns
-// false if a shard also failed or was withheld before the delete landed.
+// false if a shard also failed before the delete landed.
 func IsCleanupCollectionDropped(err error) bool {
 	return errors.Is(err, ErrCleanupCollectionDropped) && !errors.Is(err, ErrCleanupShardFailed) &&
 		!errors.Is(err, errCleanupShardWithheld)

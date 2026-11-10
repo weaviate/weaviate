@@ -263,8 +263,8 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		"operation":   "CleanStalePartialReindexState",
 	})
 
-	// Only an unlistable dir withholds this shard's cleanup. Any other unreadable
-	// record set preserves every sidecar, and the sweep summary's count reports it.
+	// Only an unlistable dir withholds this shard's cleanup: any other unreadable record set
+	// preserves every sidecar, and the sweep summary's count reports it.
 	records, faults, err := migrationRecordsAt(s.pathLSM(), s.index.logger)
 	dirs.chargeUnreadableRecordSet(s.pathLSM(), faults, err)
 	if err != nil {

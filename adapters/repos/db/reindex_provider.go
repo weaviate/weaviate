@@ -1752,8 +1752,10 @@ const (
 // the caller, and everything after it is shared, so the same outcome never
 // reaches an operator as two claims at two severities.
 //
-// [CleanupSweepFailed] and [CleanupSweepWithheld] are the only Errors: each
-// reports a shard an operator has to act on, left partly swept or never swept.
+// [CleanupSweepFailed] and [CleanupSweepWithheld] are Errors. Failed reports a shard that was reached
+// and could not be swept, and was left partly swept with nothing scheduled to
+// finish it, so an operator has to act. A cancelled run can also stop a shard
+// partway through — that reaches the operator as unverified, not as confirmed.
 // Everything else is either clean or merely unverified, and routine tenant
 // churn produces unverified on a healthy node.
 //
