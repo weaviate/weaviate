@@ -95,7 +95,9 @@ var (
 	benchMaxConn = flag.Int("bench.maxconn", enthnsw.DefaultMaxConnections, "hnsw: max connections")
 	benchEFC     = flag.Int("bench.efc", enthnsw.DefaultEFConstruction, "hnsw: ef construction")
 
-	benchMode   = flag.String("bench.mode", "full", "full: timed passes plus work stats; work: postingedge only, the work stats without the timed passes")
+	benchMode = flag.String("bench.mode", "full", "full: timed passes plus work stats; work: postingedge only, the work stats without the timed passes; "+
+		"probes: postingedge only, the edge builder at each width of -bench.probes, no index")
+	benchProbes = flag.String("bench.probes", "32,64,128,256", "postingedge: build probe widths of the probes mode")
 	benchSettle = flag.Int("bench.settle", 1000, "queries run before the after-queries memory reading")
 
 	benchSweeps sweepFlag
@@ -251,7 +253,8 @@ type benchResult struct {
 	Components    map[string]float64 `json:"componentsMB"`
 	Diagnostics   map[string]float64 `json:"diagnostics,omitempty"`
 
-	Points []benchPoint `json:"points"`
+	Points     []benchPoint `json:"points"`
+	ProbeSweep []probePoint `json:"probeSweep,omitempty"`
 }
 
 func TestBenchmark(t *testing.T) {
@@ -278,6 +281,10 @@ func TestBenchmark(t *testing.T) {
 
 	switch *benchArm {
 	case "postingedge":
+		if *benchMode == "probes" {
+			benchProbeSweep(t, ctx, data, result)
+			return
+		}
 		benchPostingEdge(t, ctx, data, result)
 	case "hnsw":
 		benchHNSW(t, ctx, data, result)
@@ -748,42 +755,9 @@ func postingEdgeDiagnostics(t *testing.T, index *Index, data *benchData, build B
 	for slot, docID := range store.docIDs {
 		slotOf[docID] = uint32(slot)
 	}
-	provider := distancer.NewCosineDistanceProvider()
-	rng := rand.New(rand.NewPCG(7, 7))
-	sampled := make([]int, min(sample, n))
-	for i := range sampled {
-		sampled[i] = rng.IntN(n)
-	}
-	var captured, wanted, sameCell atomic.Int64
-	parallelFor(len(sampled), func(i int) {
-		doc := sampled[i]
-		source := data.train[doc]
-		var nearest topK
-		nearest.reset(index.uc.Edges)
-		for other, vec := range data.train {
-			if other == doc {
-				continue
-			}
-			dist, err := provider.SingleDist(source, vec)
-			if err != nil {
-				panic(err)
-			}
-			nearest.push(uint64(other), dist)
-		}
-		edges := store.edgesOf(slotOf[doc])
-		for _, nb := range nearest.items {
-			if side.postingOf[slotOf[nb.id]] == side.postingOf[slotOf[doc]] {
-				sameCell.Add(1)
-				continue
-			}
-			wanted.Add(1)
-			if slices.Contains(edges, slotOf[nb.id]) {
-				captured.Add(1)
-			}
-		}
-	})
-	out["edgeRecall"] = float64(captured.Load()) / float64(wanted.Load())
-	out["neighborsInOwnPosting"] = float64(sameCell.Load()) / float64(sameCell.Load()+wanted.Load())
+	truth := sampleEdgeTruth(data, sample, index.uc.Edges, slotOf, side.postingOf)
+	out["edgeRecall"] = truth.recall(store.edgesOf)
+	out["neighborsInOwnPosting"] = truth.ownPosting
 
 	// Entry accuracy: how often the centroid graph returns the exact
 	// nearest centroid of a query.
@@ -1084,6 +1058,162 @@ func edgeReachDiagnostics(t *testing.T, index *Index, data *benchData, queries i
 		diagnostics[key] = value
 	}
 	return diagnostics
+}
+
+// edgeTruth is what the edges of a sample of vectors should be: for each
+// sampled slot, the slots of its exact nearest neighbors that live in another
+// posting.
+type edgeTruth struct {
+	slots  []uint32
+	wanted [][]uint32
+	// ownPosting is the share of the exact nearest neighbors of the sample
+	// that live in the vector's own posting and so need no edge.
+	ownPosting float64
+}
+
+// sampleEdgeTruth brute-forces the exact nearest neighbors of a random
+// sample of vectors. The train position of a vector is its doc id.
+func sampleEdgeTruth(data *benchData, sample, neighbors int, slotOf, postingOf []uint32) *edgeTruth {
+	n := len(data.train)
+	provider := distancer.NewCosineDistanceProvider()
+	rng := rand.New(rand.NewPCG(7, 7))
+	truth := &edgeTruth{
+		slots:  make([]uint32, min(sample, n)),
+		wanted: make([][]uint32, min(sample, n)),
+	}
+	docs := make([]int, len(truth.slots))
+	for i := range docs {
+		docs[i] = rng.IntN(n)
+		truth.slots[i] = slotOf[docs[i]]
+	}
+
+	var same, other atomic.Int64
+	parallelFor(len(docs), func(i int) {
+		doc := docs[i]
+		var nearest topK
+		nearest.reset(neighbors)
+		for candidate, vec := range data.train {
+			if candidate == doc {
+				continue
+			}
+			dist, err := provider.SingleDist(data.train[doc], vec)
+			if err != nil {
+				panic(err)
+			}
+			nearest.push(uint64(candidate), dist)
+		}
+		for _, nb := range nearest.items {
+			if postingOf[slotOf[nb.id]] == postingOf[slotOf[doc]] {
+				same.Add(1)
+				continue
+			}
+			other.Add(1)
+			truth.wanted[i] = append(truth.wanted[i], slotOf[nb.id])
+		}
+	})
+	truth.ownPosting = float64(same.Load()) / float64(same.Load()+other.Load())
+	return truth
+}
+
+// recall is the share of the wanted edges that the given edges hold.
+func (e *edgeTruth) recall(edgesOf func(slot uint32) []uint32) float64 {
+	captured, wanted := 0, 0
+	for i, slot := range e.slots {
+		edges := edgesOf(slot)
+		for _, want := range e.wanted[i] {
+			wanted++
+			if slices.Contains(edges, want) {
+				captured++
+			}
+		}
+	}
+	return float64(captured) / float64(max(wanted, 1))
+}
+
+// probePoint is the edge builder at one probe width.
+type probePoint struct {
+	Probe               int     `json:"probe"`
+	EdgeSec             float64 `json:"edgeSec"`
+	CandidatesPerVector float64 `json:"candidatesPerVector"`
+	EdgesPerVector      float64 `json:"edgesPerVector"`
+	EdgeRecall          float64 `json:"edgeRecall"`
+}
+
+// benchProbeSweep runs the edge builder at several probe widths over one
+// partition of the corpus: the stages of Index.build up to the edges, once,
+// and then the edges once per width. It reports what each width costs and
+// how many of the true edges it finds.
+func benchProbeSweep(t *testing.T, ctx context.Context, data *benchData, result *benchResult) {
+	logger := logrus.New()
+	_, tempVectorForID := benchThunks(data)
+	cfg := Config{
+		ID:                           "bench",
+		RootPath:                     t.TempDir(),
+		Logger:                       logger,
+		DistanceProvider:             distancer.NewCosineDistanceProvider(),
+		TempVectorForIDWithViewThunk: tempVectorForID,
+		GetViewThunk:                 func() common.BucketView { return noopBucketView{} },
+		Seed:                         1,
+	}
+	require.NoError(t, cfg.validate())
+	uc := NewDefaultUserConfig()
+	uc.TargetPostingSize = *benchPosting
+	uc.TrainingLimit = *benchTraining
+	probes := parseInts(t, *benchProbes)
+	vectors, n := data.train, len(data.train)
+
+	quantizer, err := trainQuantizer(vectors, data.dims, uc.TrainingLimit, &cfg)
+	require.NoError(t, err)
+	target := targetPostingSize(uc.TargetPostingSize, 8*len(quantizer.Encode(vectors[0])))
+	stage := time.Now()
+	centroids, err := partition(ctx, logger, vectors, data.dims, int(math.Ceil(float64(n)/float64(target))), cfg.Seed)
+	require.NoError(t, err)
+	partitionTime := time.Since(stage)
+	stage = time.Now()
+	assigned, err := assign(ctx, logger, vectors, centroids, slices.Max(probes))
+	require.NoError(t, err)
+	centroids = dropEmpty(centroids, assigned)
+	layout := newSlotLayout(assigned.primary, len(centroids))
+	assignTime := time.Since(stage)
+	codes, codeWords, err := encode(ctx, logger, vectors, layout, quantizer)
+	require.NoError(t, err)
+	side := &sidecar{codeWords: codeWords, codes: codes, postingOf: postingOfSlots(layout.start)}
+	result.BuildStage = map[string]float64{"partition": partitionTime.Seconds(), "assign": assignTime.Seconds()}
+	result.Config = map[string]any{
+		"targetPostingSize": target, "edges": uc.Edges, "rescueLimit": uc.RescueLimit,
+		"probes": probes, "postings": len(centroids),
+	}
+	t.Logf("partition %.1fs, assign %.1fs, %d postings", partitionTime.Seconds(), assignTime.Seconds(), len(centroids))
+
+	truth := sampleEdgeTruth(data, *benchSample, uc.Edges, layout.slotOf, side.postingOf)
+	for _, probe := range probes {
+		begin := time.Now()
+		edgeStart, edges, scored, err := buildEdges(ctx, logger, edgeInput{
+			vectors:   vectors,
+			layout:    layout,
+			assign:    assigned,
+			side:      side,
+			quantizer: quantizer,
+			provider:  cfg.DistanceProvider,
+			probe:     probe,
+			neighbors: uc.Edges,
+			rescue:    uc.RescueLimit,
+		})
+		require.NoError(t, err)
+		point := probePoint{
+			Probe:               probe,
+			EdgeSec:             time.Since(begin).Seconds(),
+			CandidatesPerVector: float64(scored) / float64(n),
+			EdgesPerVector:      float64(len(edges)) / float64(n),
+			EdgeRecall: truth.recall(func(slot uint32) []uint32 {
+				return edges[edgeStart[slot]:edgeStart[slot+1]]
+			}),
+		}
+		result.ProbeSweep = append(result.ProbeSweep, point)
+		t.Logf("probe=%d edges %.1fs, %.0f candidates and %.2f edges per vector, edge recall %.4f",
+			probe, point.EdgeSec, point.CandidatesPerVector, point.EdgesPerVector, point.EdgeRecall)
+		writeBenchResult(t, result)
+	}
 }
 
 func loadBenchData(t *testing.T, dir string, limit, queries, k int) *benchData {

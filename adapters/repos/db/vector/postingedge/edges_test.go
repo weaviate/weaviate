@@ -15,6 +15,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,6 +31,7 @@ type edgeFixture struct {
 	assign    *assignment
 	layout    slotLayout
 	side      *sidecar
+	input     edgeInput
 	edgeStart []uint32
 	edges     []uint32
 	scored    int64
@@ -61,21 +63,23 @@ func newEdgeFixture(t *testing.T, vectors [][]float32, provider distancer.Provid
 	require.NoError(t, err)
 	side := &sidecar{codeWords: codeWords, codes: codes, postingOf: postingOfSlots(layout.start)}
 
-	edgeStart, edges, scored, err := buildEdges(ctx, logger, edgeInput{
+	input := edgeInput{
 		vectors:   vectors,
 		layout:    layout,
 		assign:    assigned,
 		side:      side,
 		quantizer: quantizer,
 		provider:  provider,
+		probe:     probe,
 		neighbors: neighbors,
 		rescue:    rescue,
-	})
+	}
+	edgeStart, edges, scored, err := buildEdges(ctx, logger, input)
 	require.NoError(t, err)
 
 	return &edgeFixture{
 		vectors: vectors, provider: provider, assign: assigned, layout: layout, side: side,
-		edgeStart: edgeStart, edges: edges, scored: scored,
+		input: input, edgeStart: edgeStart, edges: edges, scored: scored,
 	}
 }
 
@@ -185,6 +189,43 @@ func TestBuildEdgesInvariants(t *testing.T) {
 	assert.Greaterf(t, recall, 0.85, "edge recall %.3f", recall)
 	assert.Less(t, f.scored, int64(len(vectors))*int64(len(vectors))/2,
 		"a narrow probe must rank far fewer candidates than brute force")
+}
+
+// The edge builder may use fewer probes than the assignment recorded. It must
+// then build exactly what an assignment of that width would have given: the
+// probes of a vector are stored nearest first for that.
+func TestBuildEdgesWithANarrowerProbeUsesTheNearestCentroids(t *testing.T) {
+	const neighbors, rescue = 8, 24
+	provider := distancer.NewL2SquaredProvider()
+	vectors := clusteredVectors(1500, 24, 25, 43)
+	wide := newEdgeFixture(t, vectors, provider, 30, 20, neighbors, rescue)
+
+	for _, probe := range []int{1, 4, 12, 20} {
+		narrow := newEdgeFixture(t, vectors, provider, 30, probe, neighbors, rescue)
+
+		input := wide.input
+		input.probe = probe
+		edgeStart, edges, scored, err := buildEdges(context.Background(), logrus.New(), input)
+		require.NoError(t, err)
+		require.Equalf(t, narrow.edgeStart, edgeStart, "probe %d", probe)
+		require.Equalf(t, narrow.edges, edges, "probe %d", probe)
+		require.Equalf(t, narrow.scored, scored, "probe %d", probe)
+	}
+	// Fewer probes reach fewer candidates.
+	fewer := wide.input
+	fewer.probe = 4
+	_, _, scored, err := buildEdges(context.Background(), logrus.New(), fewer)
+	require.NoError(t, err)
+	require.Less(t, scored, wide.scored)
+
+	// A probe wider than what the assignment recorded uses all there is.
+	beyond := wide.input
+	beyond.probe = 500
+	edgeStart, edges, scored, err := buildEdges(context.Background(), logrus.New(), beyond)
+	require.NoError(t, err)
+	require.Equal(t, wide.edgeStart, edgeStart)
+	require.Equal(t, wide.edges, edges)
+	require.Equal(t, wide.scored, scored)
 }
 
 func TestBuildEdgesWithASinglePostingHasNoEdges(t *testing.T) {

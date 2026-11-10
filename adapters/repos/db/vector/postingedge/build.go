@@ -107,6 +107,7 @@ func (ix *Index) build(ctx context.Context, input *pendingVectors, uc UserConfig
 		side:      side,
 		quantizer: quantizer,
 		provider:  ix.provider,
+		probe:     uc.BuildProbe,
 		neighbors: uc.Edges,
 		rescue:    uc.RescueLimit,
 	})

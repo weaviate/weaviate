@@ -29,7 +29,7 @@ const noCentroid = math.MaxUint32
 // candidates from.
 type assignment struct {
 	primary []uint32
-	probes  []uint32 // len(primary) * width entries, in no particular order per vector
+	probes  []uint32 // len(primary) * width entries, nearest centroid first per vector
 	width   int
 }
 
@@ -84,7 +84,9 @@ func assign(ctx context.Context, logger logrus.FieldLogger, vectors, centroids [
 			for j := range probes {
 				probes[j] = noCentroid
 			}
-			for j, e := range nearest.items {
+			// Nearest first, so that any prefix of the probes of a vector
+			// is its nearest centroids too.
+			for j, e := range nearest.sorted() {
 				probes[j] = uint32(e.id)
 			}
 		}

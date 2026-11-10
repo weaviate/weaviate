@@ -31,6 +31,7 @@ type edgeInput struct {
 	side      *sidecar
 	quantizer *compressionhelpers.CenteredBinaryRotationalQuantizer
 	provider  distancer.Provider
+	probe     int // nearest centroids whose postings supply the candidates, at most assign.width
 	neighbors int // nearest neighbors considered per vector
 	rescue    int // code-ranked candidates re-ranked exactly per vector
 }
@@ -55,6 +56,8 @@ func buildEdges(ctx context.Context, logger logrus.FieldLogger, in edgeInput,
 			n, in.neighbors)
 	}
 
+	probe := min(in.probe, in.assign.width)
+
 	// Fixed-width rows first, compacted once every row is known.
 	rows := make([]uint32, n*in.neighbors)
 	edgeStart = make([]uint32, n+1)
@@ -78,7 +81,7 @@ func buildEdges(ctx context.Context, logger logrus.FieldLogger, in edgeInput,
 			estimator := in.quantizer.NewDistancer(vector)
 
 			sc.candidates.reset(in.rescue)
-			for _, c := range in.assign.probesOf(int(input)) {
+			for _, c := range in.assign.probesOf(int(input))[:probe] {
 				if c == noCentroid {
 					continue
 				}

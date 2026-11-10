@@ -57,15 +57,14 @@ func TestAssignIsExact(t *testing.T) {
 				want := exactNearest(t, centroids, vec, tt.wantWidth, -1, l2)
 				require.Equalf(t, want[0].id, uint64(a.primary[i]), "primary of vector %d", i)
 
+				// Nearest first: a prefix of the probes is the nearest
+				// centroids too, and the first probe is the primary.
 				wantIDs := make([]uint32, len(want))
 				for j, w := range want {
 					wantIDs[j] = uint32(w.id)
 				}
-				got := slices.Clone(a.probesOf(i))
-				slices.Sort(got)
-				slices.Sort(wantIDs)
-				require.Equalf(t, wantIDs, got, "probes of vector %d", i)
-				require.Containsf(t, got, a.primary[i], "the primary is always a probe (vector %d)", i)
+				require.Equalf(t, wantIDs, slices.Clone(a.probesOf(i)), "probes of vector %d", i)
+				require.Equalf(t, a.primary[i], a.probesOf(i)[0], "the primary is the first probe (vector %d)", i)
 			}
 		})
 	}
