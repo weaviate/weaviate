@@ -33,6 +33,8 @@ type Metrics struct {
 	splitsPending    prometheus.Gauge
 	split            prometheus.Observer
 	splitCount       prometheus.Gauge
+	cleanup          prometheus.Observer
+	cleanupCount     prometheus.Gauge
 	mergesPending    prometheus.Gauge
 	merge            prometheus.Observer
 	mergeCount       prometheus.Gauge
@@ -43,6 +45,7 @@ type Metrics struct {
 	storeGet         prometheus.Observer
 	storeAppend      prometheus.Observer
 	storePut         prometheus.Observer
+	storeRemove      prometheus.Observer
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics,
@@ -93,6 +96,9 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 	split := prom.VectorIndexBackgroundOperationsDurations.With(opLabels("split"))
 	splitCount := prom.VectorIndexBackgroundOperationsCount.With(opLabels("split"))
 
+	cleanup := prom.VectorIndexBackgroundOperationsDurations.With(opLabels("cleanup"))
+	cleanupCount := prom.VectorIndexBackgroundOperationsCount.With(opLabels("cleanup"))
+
 	mergesPending := prom.VectorIndexPendingBackgroundOperations.With(opLabels("merge"))
 	merge := prom.VectorIndexBackgroundOperationsDurations.With(opLabels("merge"))
 	mergeCount := prom.VectorIndexBackgroundOperationsCount.With(opLabels("merge"))
@@ -106,6 +112,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 	storeGet := prom.VectorIndexStoreOperationsDurations.With(opLabels("get"))
 	storeAppend := prom.VectorIndexStoreOperationsDurations.With(opLabels("append"))
 	storePut := prom.VectorIndexStoreOperationsDurations.With(opLabels("put"))
+	storeRemove := prom.VectorIndexStoreOperationsDurations.With(opLabels("remove"))
 
 	return &Metrics{
 		enabled:          true,
@@ -122,6 +129,8 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		splitsPending:    splitsPending,
 		split:            split,
 		splitCount:       splitCount,
+		cleanup:          cleanup,
+		cleanupCount:     cleanupCount,
 		mergesPending:    mergesPending,
 		merge:            merge,
 		mergeCount:       mergeCount,
@@ -132,6 +141,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		storeGet:         storeGet,
 		storeAppend:      storeAppend,
 		storePut:         storePut,
+		storeRemove:      storeRemove,
 	}
 }
 
@@ -199,6 +209,22 @@ func (m *Metrics) SetPendingAnalyzeTasks(count int64) {
 	}
 
 	m.analyzePending.Set(float64(count))
+}
+
+func (m *Metrics) CleanupDuration(start time.Time) {
+	if !m.enabled {
+		return
+	}
+
+	m.cleanup.Observe(float64(time.Since(start).Milliseconds()))
+}
+
+func (m *Metrics) IncCleanupCount() {
+	if !m.enabled {
+		return
+	}
+
+	m.cleanupCount.Inc()
 }
 
 func (m *Metrics) SplitDuration(start time.Time) {
@@ -303,4 +329,12 @@ func (m *Metrics) StorePutDuration(start time.Time) {
 	}
 
 	m.storePut.Observe(float64(time.Since(start).Milliseconds()))
+}
+
+func (m *Metrics) StoreRemoveDuration(start time.Time) {
+	if !m.enabled {
+		return
+	}
+
+	m.storeRemove.Observe(float64(time.Since(start).Milliseconds()))
 }
