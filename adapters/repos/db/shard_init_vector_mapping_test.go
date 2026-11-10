@@ -1307,3 +1307,256 @@ func TestInitShardVectors_CompressedRepairOnlyWithoutMapping(t *testing.T) {
 	assert.True(t, initialized)
 	assert.Len(t, records, 3)
 }
+
+const generatedIDsClassName = "GeneratedIDs"
+
+// generatedIDsVectors is one vector of every index type. The names carry a
+// token no other file name has, so a file named after a vector is found.
+func generatedIDsVectors() (legacy schemaConfig.VectorIndexConfig, named map[string]schemaConfig.VectorIndexConfig) {
+	bq := enthnsw.NewDefaultUserConfig()
+	bq.BQ.Enabled = true
+	rq := enthnsw.NewDefaultUserConfig()
+	rq.RQ.Enabled = true
+	flatBQ := entflat.UserConfig{}
+	flatBQ.SetDefaults()
+	flatBQ.BQ.Enabled = true
+	// 8-dimension binary codes tie often; rescore every doc so search is exact
+	flatBQ.BQ.RescoreLimit = 100
+	flatCfg := entflat.UserConfig{}
+	flatCfg.SetDefaults()
+	dynamicCfg := func(threshold uint64) entdynamic.UserConfig {
+		return entdynamic.UserConfig{
+			Threshold: threshold,
+			Distance:  flatCfg.Distance,
+			HnswUC:    enthnsw.NewDefaultUserConfig(),
+			FlatUC:    flatCfg,
+		}
+	}
+	muvera := enthnsw.NewDefaultMultiVectorUserConfig()
+	muvera.Multivector.MuveraConfig = enthnsw.MuveraConfig{
+		Enabled:      true,
+		KSim:         enthnsw.DefaultMultivectorKSim,
+		DProjections: enthnsw.DefaultMultivectorDProjections,
+		Repetitions:  enthnsw.DefaultMultivectorRepetitions,
+	}
+
+	return bq, map[string]schemaConfig.VectorIndexConfig{
+		"zebrahnsw":    rq,
+		"zebraflat":    flatBQ,
+		"zebradyn":     dynamicCfg(10),
+		"zebradynflat": dynamicCfg(1_000_000),
+		"zebrafresh":   enthfresh.NewDefaultUserConfig(),
+		"zebramuvera":  muvera,
+		"zebramulti":   enthnsw.NewDefaultMultiVectorUserConfig(),
+	}
+}
+
+func generatedIDsObject(i int, named map[string]schemaConfig.VectorIndexConfig) *storobj.Object {
+	vec := func(seed int) []float32 {
+		v := make([]float32, 8)
+		for d := range v {
+			v[d] = float32((seed*31+d*17)%97) - 48
+		}
+		return v
+	}
+	obj := &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:    strfmt.UUID(uuid.NewString()),
+			Class: generatedIDsClassName,
+		},
+		Vector:       vec(i),
+		Vectors:      map[string][]float32{},
+		MultiVectors: map[string][][]float32{},
+	}
+	for name, cfg := range named {
+		if hnswCfg, ok := cfg.(enthnsw.UserConfig); ok && hnswCfg.Multivector.Enabled {
+			obj.MultiVectors[name] = [][]float32{vec(i), vec(i + 1000)}
+			continue
+		}
+		obj.Vectors[name] = vec(i)
+	}
+	return obj
+}
+
+// TestShardWithGeneratedVectorIndexIDs pins that a shard finds every vector
+// index and queue only through its mapping: every index type is built under a
+// generated ID, as a rebuild names it, and the shard searches, writes,
+// restarts, backs up and restores, and drops, without a file named after a
+// vector or after the ID the naming rule would give it.
+func TestShardWithGeneratedVectorIndexIDs(t *testing.T) {
+	ctx := testCtx()
+	legacy, named := generatedIDsVectors()
+	class := &models.Class{Class: generatedIDsClassName, VectorConfig: map[string]models.VectorConfig{}}
+	for name, cfg := range named {
+		class.VectorConfig[name] = models.VectorConfig{VectorIndexType: cfg.IndexType(), VectorIndexConfig: cfg}
+	}
+	all := map[string]schemaConfig.VectorIndexConfig{"": legacy}
+	for name, cfg := range named {
+		all[name] = cfg
+	}
+
+	var seeded map[string]vectorIndexRecord
+	shardLike, idx := testShardWithSettings(t, ctx, class, legacy, false, true, func(i *Index) {
+		i.vectorIndexUserConfigs = named
+		shardName := i.getSchema.(*fakeSchemaGetter).shardState.AllPhysicalShards()[0]
+		seeded = seedGeneratedVectorIndexRecords(t, shardPath(i.path(), shardName), all)
+	})
+	shard := underlyingShard(t, shardLike)
+
+	docs := 0
+	put := func(t *testing.T, shard *Shard, n int) {
+		for range n {
+			require.NoError(t, shard.PutObject(ctx, generatedIDsObject(docs, named)))
+			docs++
+		}
+		for name := range all {
+			waitForQueueToDrain(t, shard, name)
+		}
+	}
+	works := func(t *testing.T, shard *Shard) {
+		t.Helper()
+		for name, cfg := range all {
+			found, err := shard.WithVectorIndex(name, func(index VectorIndex) error {
+				for docID := range uint64(docs) {
+					require.True(t, index.ContainsDoc(docID), "vector %q holds doc %d", name, docID)
+				}
+				probe := generatedIDsObject(docs-1, named)
+				search := func() ([]uint64, error) {
+					if hnswCfg, ok := cfg.(enthnsw.UserConfig); ok && hnswCfg.Multivector.Enabled {
+						multi, ok := index.(VectorIndexMulti)
+						require.True(t, ok, "vector %q", name)
+						ids, _, err := multi.SearchByMultiVector(ctx, probe.MultiVectors[name], 1, nil)
+						return ids, err
+					}
+					vec := probe.Vectors[name]
+					if name == "" {
+						vec = probe.Vector
+					}
+					ids, _, err := index.SearchByVector(ctx, vec, 1, nil)
+					return ids, err
+				}
+				want := []uint64{uint64(docs - 1)}
+				if _, ok := cfg.(enthfresh.UserConfig); ok {
+					// after a restart, HFresh skips postings until its background
+					// analyze tasks have persisted their sizes
+					require.EventuallyWithT(t, func(c *assert.CollectT) {
+						ids, err := search()
+						assert.NoError(c, err)
+						assert.Equal(c, want, ids)
+					}, 30*time.Second, 50*time.Millisecond, "vector %q finds the last doc", name)
+					return nil
+				}
+				ids, err := search()
+				require.NoError(t, err)
+				require.Equal(t, want, ids, "vector %q finds the last doc", name)
+				return nil
+			})
+			require.NoError(t, err)
+			require.True(t, found, "vector %q", name)
+		}
+	}
+	// no file of the shard is named after a vector or a naming-rule ID
+	noNameDerivedFiles := func(t *testing.T, shard *Shard) {
+		t.Helper()
+		for _, dir := range []string{shard.path(), shard.pathLSM()} {
+			entries, err := os.ReadDir(dir)
+			require.NoError(t, err)
+			for _, e := range entries {
+				n := e.Name()
+				assert.NotContains(t, n, "zebra", "%s is named after a vector", filepath.Join(dir, n))
+				assert.False(t, n == "vectors" || n == "vectors_compressed" || strings.HasPrefix(n, "main.") || strings.HasPrefix(n, "main_"),
+					"%s is named after the legacy vector", filepath.Join(dir, n))
+			}
+		}
+	}
+	recordsAreSeeded := func(t *testing.T, shard *Shard) {
+		t.Helper()
+		records, _, err := shard.mapping.Load()
+		require.NoError(t, err)
+		require.Len(t, records, len(seeded))
+		for name, want := range seeded {
+			got := records[name]
+			assert.Equal(t, want.recordedID(), got.recordedID(), "vector %q", name)
+			assert.Equal(t, want.QueueID, got.QueueID, "vector %q", name)
+			assert.Equal(t, vectorIndexStateReady, got.State, "vector %q", name)
+			assert.NotEmpty(t, entriesWithID(t, shard, want.storageID()), "vector %q has files at its ID", name)
+		}
+	}
+
+	put(t, shard, 40)
+	require.Eventually(t, func() bool {
+		upgraded, err := dynamic.UpgradedInState(shard.metadataDB.Namespace(dynamic.StateNamespace), shard.path(), seeded["zebradyn"].storageID())
+		require.NoError(t, err)
+		return upgraded
+	}, 30*time.Second, 50*time.Millisecond, "precondition: the dynamic index went past its threshold")
+	recordsAreSeeded(t, shard)
+	works(t, shard)
+	noNameDerivedFiles(t, shard)
+
+	t.Run("restart and write", func(t *testing.T) {
+		shard = reload(t, ctx, shard, class)
+		recordsAreSeeded(t, shard)
+		works(t, shard)
+		put(t, shard, 5)
+		works(t, shard)
+		noNameDerivedFiles(t, shard)
+	})
+
+	t.Run("backup and restore", func(t *testing.T) {
+		shard = backupAndRestoreInPlace(t, ctx, shard, idx, class)
+		recordsAreSeeded(t, shard)
+		works(t, shard)
+		noNameDerivedFiles(t, shard)
+	})
+
+	t.Run("drop", func(t *testing.T) {
+		dropFromSchema := func(name string) {
+			markDropped(class, name)
+			shard.index.vectorIndexUserConfigLock.Lock()
+			delete(shard.index.vectorIndexUserConfigs, name)
+			shard.index.vectorIndexUserConfigLock.Unlock()
+		}
+
+		// loaded
+		dropFromSchema("zebrahnsw")
+		require.NoError(t, shard.DropVectorIndex(ctx, "zebrahnsw"))
+		assert.Empty(t, entriesWithID(t, shard, seeded["zebrahnsw"].storageID()))
+		assert.Empty(t, entriesWithID(t, shard, seeded["zebrahnsw"].QueueID))
+
+		// interrupted: the next load finishes it
+		dropFromSchema("zebrafresh")
+		dropping := seeded["zebrafresh"]
+		dropping.State = vectorIndexStateDropping
+		shard = reloadAfter(t, ctx, shard, class, func() {
+			withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+				require.NoError(t, m.Put("zebrafresh", dropping))
+			})
+		})
+		assert.Empty(t, entriesWithID(t, shard, seeded["zebrafresh"].storageID()))
+		assert.Empty(t, entriesWithID(t, shard, seeded["zebrafresh"].QueueID))
+
+		// cold
+		dropFromSchema("zebradyn")
+		require.NoError(t, shard.Shutdown(ctx))
+		h := newVectorDropIndexHelper()
+		require.NoError(t, h.removeVectorIndexFiles(shard.index.path(), shard.name, "zebradyn", otherTargetVectors(class, "zebradyn")))
+		assert.Empty(t, entriesWithID(t, shard, seeded["zebradyn"].storageID()))
+		assert.Empty(t, entriesWithID(t, shard, seeded["zebradyn"].QueueID))
+		upgraded, err := dynamic.UpgradedOnDisk(shard.path(), seeded["zebradyn"].storageID())
+		require.NoError(t, err)
+		assert.False(t, upgraded, "the dynamic state key went with it")
+
+		// the siblings are untouched
+		shard = openShardFromDisk(t, ctx, shard.index, class, shard.Name())
+		delete(all, "zebrahnsw")
+		delete(all, "zebrafresh")
+		delete(all, "zebradyn")
+		for _, name := range []string{"zebrahnsw", "zebrafresh", "zebradyn"} {
+			delete(seeded, name)
+		}
+		recordsAreSeeded(t, shard)
+		works(t, shard)
+		noNameDerivedFiles(t, shard)
+	})
+}
