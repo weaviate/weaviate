@@ -101,9 +101,9 @@ func (m *countingInMemoMetrics) add(o *countingInMemoMetrics) {
 
 // newCountingInMemoBufPool gives each stack its own counting metrics, so it
 // suits single-goroutine tests only.
-func newCountingInMemoBufPool(budget int, ttl time.Duration, decayFraction float64,
+func newCountingInMemoBufPool(sizes []int, budget int, ttl time.Duration, decayFraction float64,
 ) (*inMemoBufPool, []*countingInMemoMetrics) {
-	p := newInMemoBufPool(nil, testInMemoSizes, budget, ttl, decayFraction)
+	p := newInMemoBufPool(nil, sizes, budget, ttl, decayFraction)
 	metrics := make([]*countingInMemoMetrics, len(p.stacks))
 	for i, s := range p.stacks {
 		metrics[i] = &countingInMemoMetrics{}
@@ -124,7 +124,7 @@ func stackedBufIDs(s *idleStack) []*byte {
 
 func TestInMemoBufPool(t *testing.T) {
 	newPool := func(budget int) (*inMemoBufPool, []*countingInMemoMetrics) {
-		return newCountingInMemoBufPool(budget, inMemoIdleTTL, inMemoDecayFraction)
+		return newCountingInMemoBufPool(testInMemoSizes, budget, inMemoIdleTTL, inMemoDecayFraction)
 	}
 
 	t.Run("get returns the buffer put last", func(t *testing.T) {
@@ -398,6 +398,72 @@ func TestInMemoBufPool(t *testing.T) {
 		}, []countingInMemoMetrics{*metrics[0], *metrics[1], *metrics[2]})
 	})
 
+	borrowTests := []struct {
+		name     string
+		sizes    []int
+		idle     []int // stacks holding one idle buffer each
+		wantFrom int   // stack whose idle buffer get(0) returns, -1 when it creates one
+	}{
+		{name: "borrows from twice the size", sizes: testInMemoSizes, idle: []int{1}, wantFrom: 1},
+		{name: "does not borrow past twice the size", sizes: testInMemoSizes, idle: []int{2}, wantFrom: -1},
+		{name: "borrows a size less than twice apart", sizes: []int{16 << 10, 24 << 10}, idle: []int{1}, wantFrom: 1},
+		{name: "own size before a larger one", sizes: testInMemoSizes, idle: []int{0, 1}, wantFrom: 0},
+	}
+	for _, tc := range borrowTests {
+		t.Run(tc.name, func(t *testing.T) {
+			p, metrics := newCountingInMemoBufPool(tc.sizes, testIdleBudget, inMemoIdleTTL, inMemoDecayFraction)
+			idleIDs := map[int]*byte{}
+			for _, i := range tc.idle {
+				buf, put := p.get(i)
+				idleIDs[i] = bufID(buf)
+				put()
+			}
+			for _, m := range metrics {
+				*m = countingInMemoMetrics{}
+			}
+
+			buf, put := p.get(0)
+			defer put()
+
+			want := make([]countingInMemoMetrics, len(metrics))
+			if tc.wantFrom < 0 {
+				want[0].created = 1
+			} else {
+				want[0].got = 1
+				assert.Same(t, idleIDs[tc.wantFrom], bufID(buf))
+			}
+			got := make([]countingInMemoMetrics, len(metrics))
+			for i, m := range metrics {
+				got[i] = *m
+			}
+			assert.Equal(t, want, got, "a borrow counts as a hit on the requested size")
+		})
+	}
+
+	t.Run("a borrowed buffer returns to its own size", func(t *testing.T) {
+		p, _ := newPool(testIdleBudget)
+		_, putIdle := p.get(1)
+		putIdle()
+
+		buf, put := p.get(0)
+		put()
+		assert.Empty(t, stackedBufIDs(p.stacks[0]))
+		assert.Equal(t, []*byte{bufID(buf)}, stackedBufIDs(p.stacks[1]))
+	})
+
+	t.Run("a warm borrow allocates nothing", func(t *testing.T) {
+		p, _ := newPool(testIdleBudget)
+		_, putIdle := p.get(1)
+		putIdle()
+
+		allocs := testing.AllocsPerRun(100, func() {
+			_, put := p.get(0)
+			put()
+		})
+		assert.Zero(t, allocs)
+		assert.Empty(t, stackedBufIDs(p.stacks[0]), "every get must borrow")
+	})
+
 	t.Run("concurrent put, evict and decay", func(t *testing.T) {
 		p := newInMemoBufPool(nil, testInMemoSizes, 4*1024, inMemoIdleTTL, inMemoDecayFraction)
 		var wg sync.WaitGroup
@@ -463,7 +529,7 @@ func BenchmarkInMemoBufPoolDecaySweep(b *testing.B) {
 // four buffers.
 func replayBurstyTrace(ttl time.Duration, fraction float64, budget int,
 ) (total countingInMemoMetrics, idleShare float64) {
-	p, metrics := newCountingInMemoBufPool(budget, ttl, fraction)
+	p, metrics := newCountingInMemoBufPool(testInMemoSizes, budget, ttl, fraction)
 	rng := rand.New(rand.NewPCG(1, 2))
 	bursts := []struct {
 		stack int

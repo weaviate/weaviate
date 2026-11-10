@@ -361,11 +361,18 @@ func newInMemoBufPool(metrics *monitoring.PrometheusMetrics, sizes []int, budget
 	return p
 }
 
+// get takes the newest idle buffer of size i, else borrows one of a larger size
+// up to twice size i. A borrowed buffer returns to its own size on put.
 func (p *inMemoBufPool) get(i int) (buf []byte, put func()) {
 	s := p.stacks[i]
-	if pb := s.popNewest(); pb != nil {
-		s.metrics.bufGot()
-		return pb.buf, pb.put
+	for _, lender := range p.stacks[i:] {
+		if lender.size > 2*s.size {
+			break
+		}
+		if pb := lender.popNewest(); pb != nil {
+			s.metrics.bufGot()
+			return pb.buf, pb.put
+		}
 	}
 	pb := &pooledBuf{buf: make([]byte, 0, s.size)}
 	pb.put = func() { p.put(pb, i) }
