@@ -69,6 +69,7 @@ type postingStore struct {
 
 // posting is one loaded posting.
 type posting struct {
+	first  uint32 // slot of the first member, the others follow
 	docIDs []uint64
 	codes  []uint64 // len(docIDs) * codeWords
 	edges  []uint32 // endpoint slots of every edge leaving the posting
@@ -85,6 +86,7 @@ func (s *postingStore) vectors() int {
 func (s *postingStore) load(p uint32) posting {
 	from, to := s.start[p], s.start[p+1]
 	return posting{
+		first:  from,
 		docIDs: s.docIDs[from:to],
 		codes:  s.codes[int(from)*s.codeWords : int(to)*s.codeWords],
 		edges:  s.edges[s.edgeStart[from]:s.edgeStart[to]],

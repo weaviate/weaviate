@@ -321,6 +321,11 @@ func (s *postingSearch) load(p uint32) error {
 		s.stats.ScanTime += time.Since(clock)
 		s.stats.PostingsLoaded++
 		s.stats.VectorsScanned += len(post.docIDs)
+		for i := range post.docIDs {
+			if sc.endpoints.Visited(uint64(post.first) + uint64(i)) {
+				s.stats.ScannedAgain++
+			}
+		}
 		// Counted in a pass of its own, outside the timed sections, so
 		// that the loop below stays as it runs without stats.
 		s.stats.EdgesFollowed += len(post.edges)

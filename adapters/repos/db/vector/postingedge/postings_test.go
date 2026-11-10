@@ -94,6 +94,7 @@ func TestPostingStoreLoadsOnePostingAtATime(t *testing.T) {
 	require.Equal(t, 5, store.vectors())
 
 	first := store.load(0)
+	assert.Equal(t, uint32(0), first.first)
 	assert.Equal(t, []uint64{10, 11}, first.docIDs)
 	assert.Equal(t, []uint64{100, 101, 110, 111}, first.codes)
 	assert.Equal(t, []uint32{2, 3, 4}, first.edges)
@@ -104,6 +105,7 @@ func TestPostingStoreLoadsOnePostingAtATime(t *testing.T) {
 	assert.Empty(t, empty.edges)
 
 	last := store.load(2)
+	assert.Equal(t, uint32(2), last.first)
 	assert.Equal(t, []uint64{12, 13, 14}, last.docIDs)
 	assert.Equal(t, []uint64{120, 121, 130, 131, 140, 141}, last.codes)
 	assert.Equal(t, []uint32{0, 0, 1}, last.edges)

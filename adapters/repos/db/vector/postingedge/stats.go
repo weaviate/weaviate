@@ -68,6 +68,11 @@ type SearchStats struct {
 	PostingsLoaded int
 	// VectorsScanned is the number of posting members scored by code.
 	VectorsScanned int
+	// ScannedAgain is the number of those that had already been scored as an
+	// edge endpoint before their posting was loaded. Such an estimate is
+	// only folded into the rank of the posting, not kept, so the scan
+	// computes it a second time.
+	ScannedAgain int
 	// EdgesFollowed is the number of edges leaving the loaded postings. Each
 	// one either leads into a posting that is already loaded, or to an
 	// endpoint that was scored before, or is scored: see EndpointsInLoaded,

@@ -199,6 +199,18 @@ func TestSearchStatsAccountForTheWork(t *testing.T) {
 				}
 				require.Positive(t, stats.VectorsScanned)
 				require.Equal(t, min(uc.RescoreLimit, stats.VectorsScanned), stats.Rescored)
+
+				// A posting is loaded by a round because one of its
+				// members was scored as an endpoint: the scan meets at
+				// least that member a second time. The entry postings
+				// are loaded before any endpoint is scored.
+				require.GreaterOrEqual(t, stats.ScannedAgain, stats.PostingsLoaded-tt.entries)
+				require.Less(t, stats.ScannedAgain, stats.VectorsScanned)
+
+				// Every followed edge is accounted for exactly once.
+				require.GreaterOrEqual(t, stats.EndpointsRepeated(), 0)
+				require.Equal(t, stats.EdgesFollowed,
+					stats.EndpointsInLoaded+stats.EndpointsRepeated()+stats.EndpointsScored)
 				rounds += stats.Rounds
 			}
 			require.Positive(t, rounds, "the searches must leave their entry postings")
