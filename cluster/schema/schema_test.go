@@ -1220,6 +1220,25 @@ func TestAliasNamespacePrefixPreserved(t *testing.T) {
 	require.Equal(t, "delhappy:Movies", sc.ResolveAlias("delhappy:Films"))
 }
 
+func TestSchema_ClassFactorsInNamespace(t *testing.T) {
+	sc := NewSchema(t.Name(), prometheus.NewPedanticRegistry())
+	for i, c := range []struct {
+		class  string
+		factor int64
+	}{
+		{"alpha:A", 3},
+		{"alphabet:B", 2},
+		{"C", 2},
+	} {
+		require.NoError(t, sc.addClass(&models.Class{
+			Class:             c.class,
+			ReplicationConfig: &models.ReplicationConfig{Factor: c.factor},
+		}, &sharding.State{Physical: make(map[string]sharding.Physical)}, uint64(i+1)))
+	}
+
+	assert.Equal(t, map[string]int64{"alpha:A": 3}, sc.ClassFactorsInNamespace("alpha"))
+}
+
 func TestCollectionsCount_Namespaced(t *testing.T) {
 	newState := func() *sharding.State {
 		return &sharding.State{Physical: make(map[string]sharding.Physical)}
@@ -1491,6 +1510,7 @@ func TestCollectionsCount_ConcurrentAccess(t *testing.T) {
 		for i := 0; i < 2000; i++ {
 			sc.CollectionsCount("customer1")
 			sc.CollectionsCount("")
+			sc.ClassFactorsInNamespace("customer1")
 		}
 	}()
 	go func() {

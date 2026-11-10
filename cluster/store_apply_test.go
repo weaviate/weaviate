@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -835,17 +836,25 @@ func TestStore_Apply_DeleteClass_CascadesOnSchemaOnlyReplay(t *testing.T) {
 }
 
 // TestStore_Apply_NamespaceFactorBound pins the apply-time bound of a class's
-// factor by its namespace's HomeNodes count. Each row requires every entry
-// before its last to apply, then checks the last entry's outcome.
+// factor by its namespace's HomeNodes count, on a class change and on a
+// home-node shrink.
 func TestStore_Apply_NamespaceFactorBound(t *testing.T) {
 	const (
 		qualified   = "alpha:Foo"
 		unqualified = "Foo"
 	)
-	addNamespace := cmdAsBytes("", api.ApplyRequest_TYPE_ADD_NAMESPACE, api.AddNamespaceRequest{
-		Namespace: api.Namespace{Name: "alpha", HomeNodes: []string{"Node-1"}},
-		Version:   api.NamespaceLatestCommandPolicyVersion,
-	}, nil)
+	addNamespace := func(homeNodes ...string) []byte {
+		return cmdAsBytes("", api.ApplyRequest_TYPE_ADD_NAMESPACE, api.AddNamespaceRequest{
+			Namespace: api.Namespace{Name: "alpha", HomeNodes: homeNodes},
+			Version:   api.NamespaceLatestCommandPolicyVersion,
+		}, nil)
+	}
+	updateNamespace := func(homeNodes ...string) []byte {
+		return cmdAsBytes("", api.ApplyRequest_TYPE_UPDATE_NAMESPACE, api.UpdateNamespaceRequest{
+			Namespace: api.Namespace{Name: "alpha", HomeNodes: homeNodes},
+			Version:   api.NamespaceLatestCommandPolicyVersion,
+		}, nil)
+	}
 	addClass := func(class string, factor int64, owners ...string) []byte {
 		cls := &models.Class{Class: class, ReplicationConfig: &models.ReplicationConfig{Factor: factor}}
 		state := &sharding.State{ReplicationFactor: factor, Physical: map[string]sharding.Physical{}}
@@ -873,38 +882,51 @@ func TestStore_Apply_NamespaceFactorBound(t *testing.T) {
 		// wantFactor is class's stored factor after the last entry, 0 where
 		// the class does not exist.
 		wantFactor int64
+		wantErrIs  error
 		wantErr    string
+		// wantHomeNodes, where set, is alpha's stored HomeNodes after the last
+		// entry.
+		wantHomeNodes []string
 	}{
 		{
-			name:    "class add above the home-node count is refused",
-			entries: [][]byte{addNamespace, addClass(qualified, 3, "Node-1", "Node-2", "Node-3")},
-			class:   qualified,
-			wantErr: refusal,
+			name:      "class add above the home-node count is refused",
+			entries:   [][]byte{addNamespace("Node-1"), addClass(qualified, 3, "Node-1", "Node-2", "Node-3")},
+			class:     qualified,
+			wantErrIs: clusterschema.ErrBadRequest,
+			wantErr:   refusal,
 		},
 		{
 			name:       "factor raise of an MT class with no tenants above the home-node count is refused",
-			entries:    [][]byte{addNamespace, addClass(qualified, 1), raiseFactor(qualified, 3)},
+			entries:    [][]byte{addNamespace("Node-1"), addClass(qualified, 1), raiseFactor(qualified, 3)},
 			class:      qualified,
 			wantFactor: 1,
+			wantErrIs:  clusterschema.ErrBadRequest,
 			wantErr:    refusal,
 		},
 		{
 			name:       "factor raise of an unqualified MT class applies",
-			entries:    [][]byte{addNamespace, addClass(unqualified, 1), raiseFactor(unqualified, 3)},
+			entries:    [][]byte{addNamespace("Node-1"), addClass(unqualified, 1), raiseFactor(unqualified, 3)},
 			class:      unqualified,
 			wantFactor: 3,
-		},
-		{
-			name:       "class add within the home-node count applies",
-			entries:    [][]byte{addNamespace, addClass(qualified, 1, "Node-1")},
-			class:      qualified,
-			wantFactor: 1,
 		},
 		{
 			name:       "class add for a namespace never added applies",
 			entries:    [][]byte{addClass(qualified, 3, "Node-1", "Node-2", "Node-3")},
 			class:      qualified,
 			wantFactor: 3,
+		},
+		{
+			name: "home-node shrink below a class's factor is refused",
+			entries: [][]byte{
+				addNamespace("Node-1", "Node-2", "Node-3"),
+				addClass(qualified, 3, "Node-1", "Node-2", "Node-3"),
+				updateNamespace("Node-1", "Node-2"),
+			},
+			class:         qualified,
+			wantFactor:    3,
+			wantErrIs:     namespaces.ErrBadRequest,
+			wantErr:       "home_nodes has 2 entries, fewer than the replication factor of collection(s) alpha:Foo",
+			wantHomeNodes: []string{"Node-1", "Node-2", "Node-3"},
 		},
 	}
 
@@ -928,8 +950,13 @@ func TestStore_Apply_NamespaceFactorBound(t *testing.T) {
 			if tt.wantErr == "" {
 				require.NoError(t, resp.Error)
 			} else {
-				require.ErrorIs(t, resp.Error, clusterschema.ErrBadRequest)
+				require.ErrorIs(t, resp.Error, tt.wantErrIs)
 				assert.ErrorContains(t, resp.Error, tt.wantErr)
+			}
+			if tt.wantHomeNodes != nil {
+				ns, ok := ms.store.namespaceManager.GetNamespace("alpha")
+				require.True(t, ok)
+				assert.Equal(t, tt.wantHomeNodes, ns.HomeNodes)
 			}
 
 			cls := ms.store.SchemaReader().ReadOnlyClass(tt.class)

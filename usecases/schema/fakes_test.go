@@ -157,6 +157,11 @@ func (f *fakeSchemaManager) CollectionsCount(namespace string) int {
 	return args.Int(0)
 }
 
+func (f *fakeSchemaManager) ClassFactorsInNamespace(namespace string) map[string]int64 {
+	args := f.Called(namespace)
+	return args.Get(0).(map[string]int64)
+}
+
 func (f *fakeSchemaManager) ReadOnlyClassesFromLeader(classes ...string) (map[string]versioned.Class, error) {
 	args := f.Called(classes)
 

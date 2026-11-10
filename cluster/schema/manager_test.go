@@ -1363,6 +1363,27 @@ func TestSchemaManager_PreApplyFilterRestoreClassCollision(t *testing.T) {
 	}
 }
 
+// TestPreApplyFilter_UpdateNamespaceShrink builds its request as
+// Raft.UpdateNamespace does, with no Class and the namespace only in the
+// subcommand.
+func TestPreApplyFilter_UpdateNamespaceShrink(t *testing.T) {
+	sm := NewSchemaManager("n1", nil, nil, nil, prometheus.NewPedanticRegistry(), logrus.New())
+	require.NoError(t, sm.schema.addClass(&models.Class{
+		Class:             "alpha:Docs",
+		ReplicationConfig: &models.ReplicationConfig{Factor: 3},
+	}, &sharding.State{Physical: make(map[string]sharding.Physical)}, 1))
+	sub, err := json.Marshal(cmd.UpdateNamespaceRequest{
+		Namespace: cmd.Namespace{Name: "alpha", HomeNodes: []string{"n1", "n2"}},
+		Version:   cmd.NamespaceLatestCommandPolicyVersion,
+	})
+	require.NoError(t, err)
+
+	err = sm.PreApplyFilter(&cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_UPDATE_NAMESPACE, SubCommand: sub})
+	require.ErrorIs(t, err, usecasesNamespaces.ErrBadRequest)
+	assert.NotErrorIs(t, err, ErrBadRequest)
+	assert.ErrorContains(t, err, "alpha:Docs")
+}
+
 // propertyRecordingIndexer captures the property the store half applies.
 type propertyRecordingIndexer struct {
 	Indexer

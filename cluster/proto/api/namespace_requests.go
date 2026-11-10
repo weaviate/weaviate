@@ -14,6 +14,7 @@ package api
 import (
 	"fmt"
 	"slices"
+	"strings"
 )
 
 const (
@@ -61,6 +62,27 @@ func (n Namespace) CheckReplicationFactor(factor int64) error {
 			"an administrator must add home nodes", factor, len(n.HomeNodes))
 	}
 	return nil
+}
+
+// CheckClassFactors refuses HomeNodes shorter than the largest value of
+// factors, which maps each class of the namespace onto its replication factor.
+// The error names the classes above the bound, so the caller knows which to lower.
+func (n Namespace) CheckClassFactors(factors map[string]int64) error {
+	var above []string
+	var largest int64
+	for class, factor := range factors {
+		if factor > int64(len(n.HomeNodes)) {
+			above = append(above, class)
+			largest = max(largest, factor)
+		}
+	}
+	if len(above) == 0 {
+		return nil
+	}
+	slices.Sort(above)
+	return fmt.Errorf("home_nodes has %d entries, fewer than the replication factor of collection(s) %s "+
+		"in namespace %q (largest %d); lower their replication factor or keep at least %d home nodes",
+		len(n.HomeNodes), strings.Join(above, ", "), n.Name, largest, largest)
 }
 
 // NamespaceState is the lifecycle state of a Namespace entity.

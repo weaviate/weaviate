@@ -473,6 +473,24 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 		}
 	}
 
+	if req.Type == command.ApplyRequest_TYPE_UPDATE_NAMESPACE {
+		return s.checkHomeNodesAgainstClassFactors(req)
+	}
+
+	return nil
+}
+
+// checkHomeNodesAgainstClassFactors refuses an UpdateNamespace whose HomeNodes
+// are fewer than the largest factor among the namespace's classes.
+func (s *SchemaManager) checkHomeNodesAgainstClassFactors(req *command.ApplyRequest) error {
+	sub := command.UpdateNamespaceRequest{}
+	if err := json.Unmarshal(req.SubCommand, &sub); err != nil {
+		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
+	}
+	factors := s.schema.ClassFactorsInNamespace(sub.Namespace.Name)
+	if err := sub.Namespace.CheckClassFactors(factors); err != nil {
+		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
+	}
 	return nil
 }
 

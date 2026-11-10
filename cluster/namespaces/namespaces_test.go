@@ -73,9 +73,9 @@ func addCmd(t *testing.T, name string) *cmd.ApplyRequest {
 	return &cmd.ApplyRequest{SubCommand: payload, Version: createIndex}
 }
 
-func updateCmd(t *testing.T, name, homeNode string) *cmd.ApplyRequest {
+func updateCmd(t *testing.T, name string, homeNodes []string) *cmd.ApplyRequest {
 	t.Helper()
-	payload, err := json.Marshal(cmd.UpdateNamespaceRequest{Namespace: cmd.Namespace{Name: name, HomeNodes: []string{homeNode}}})
+	payload, err := json.Marshal(cmd.UpdateNamespaceRequest{Namespace: cmd.Namespace{Name: name, HomeNodes: homeNodes}})
 	require.NoError(t, err)
 	return &cmd.ApplyRequest{SubCommand: payload}
 }
@@ -258,16 +258,22 @@ func TestManager_RemoveEntity(t *testing.T) {
 	})
 }
 
-// stubLeftovers is a leftovers reader stub.
+// stubLeftovers is a leftovers reader stub. factors maps a namespace onto the
+// factor of each of its classes.
 type stubLeftovers struct {
 	classes []string
 	aliases []string
 	users   []string
+	factors map[string]map[string]int64
 }
 
 func (s stubLeftovers) ClassesInNamespace(string) ([]string, error) { return s.classes, nil }
 func (s stubLeftovers) AliasesInNamespace(string) []string          { return s.aliases }
 func (s stubLeftovers) UsersInNamespace(string) []string            { return s.users }
+
+func (s stubLeftovers) ClassFactorsInNamespace(namespace string) map[string]int64 {
+	return s.factors[namespace]
+}
 
 // stubRBACRows reports a fixed count of surviving RBAC rows (or an error).
 type stubRBACRows struct {
@@ -337,35 +343,101 @@ func TestManager_RejectsMalformedApplyRequest(t *testing.T) {
 }
 
 func TestManager_Update(t *testing.T) {
+	seeded := []string{"node-1"}
 	tests := []struct {
 		name       string
+		seedState  cmd.NamespaceState
+		schema     stubLeftovers
 		updateName string
-		homeNode   string
+		homeNodes  []string
 		wantErr    error
-		// wantHomeNode is checked on success to confirm the controller
-		// actually stored the new HomeNode (i.e. dispatch worked).
-		wantHomeNode string
+		// wantErrText must appear in a refusal's text, and wantNotErrText must not.
+		wantErrText    string
+		wantNotErrText string
+		// wantStored is customer1's HomeNodes after the update.
+		wantStored []string
 	}{
-		{name: "happy path dispatches to controller", updateName: "customer1", homeNode: "node-2", wantHomeNode: "node-2"},
-		{name: "update missing returns ErrNotFound", updateName: "never-existed", homeNode: "node-2", wantErr: usecasesNamespaces.ErrNotFound},
-		{name: "update empty home_node returns ErrBadRequest", updateName: "customer1", homeNode: "", wantErr: usecasesNamespaces.ErrBadRequest},
+		{name: "happy path dispatches to controller", seedState: cmd.NamespaceStateActive, updateName: "customer1", homeNodes: []string{"node-2"}, wantStored: []string{"node-2"}},
+		{name: "update missing returns ErrNotFound", seedState: cmd.NamespaceStateActive, updateName: "never-existed", homeNodes: []string{"node-2"}, wantErr: usecasesNamespaces.ErrNotFound, wantStored: seeded},
+		{name: "update empty home_node returns ErrBadRequest", seedState: cmd.NamespaceStateActive, updateName: "customer1", homeNodes: []string{""}, wantErr: usecasesNamespaces.ErrBadRequest, wantStored: seeded},
+		{
+			name:      "a list shorter than a class's factor is refused, naming only the classes above it",
+			seedState: cmd.NamespaceStateActive,
+			schema: stubLeftovers{factors: map[string]map[string]int64{
+				"customer1": {"customer1:Single": 1, "customer1:Triple": 3},
+			}},
+			updateName:     "customer1",
+			homeNodes:      []string{"n1", "n2"},
+			wantErr:        usecasesNamespaces.ErrBadRequest,
+			wantErrText:    "customer1:Triple",
+			wantNotErrText: "customer1:Single",
+			wantStored:     seeded,
+		},
+		{
+			name:      "two classes above the list are both named, in sorted order",
+			seedState: cmd.NamespaceStateActive,
+			schema: stubLeftovers{factors: map[string]map[string]int64{
+				"customer1": {"customer1:B": 3, "customer1:A": 2},
+			}},
+			updateName:  "customer1",
+			homeNodes:   []string{"n1"},
+			wantErr:     usecasesNamespaces.ErrBadRequest,
+			wantErrText: "customer1:A, customer1:B",
+			wantStored:  seeded,
+		},
+		{
+			name:      "a list as long as the namespace's largest factor is stored, another namespace's classes ignored",
+			seedState: cmd.NamespaceStateActive,
+			schema: stubLeftovers{factors: map[string]map[string]int64{
+				"customer1": {"customer1:Double": 2},
+				"customer2": {"customer2:Triple": 3},
+			}},
+			updateName: "customer1",
+			homeNodes:  []string{"n1", "n2"},
+			wantStored: []string{"n1", "n2"},
+		},
+		{
+			name:      "a suspended namespace still refuses a list shorter than a class's factor",
+			seedState: cmd.NamespaceStateSuspended,
+			schema: stubLeftovers{factors: map[string]map[string]int64{
+				"customer1": {"customer1:Triple": 3},
+			}},
+			updateName: "customer1",
+			homeNodes:  []string{"n1", "n2"},
+			wantErr:    usecasesNamespaces.ErrBadRequest,
+			wantStored: seeded,
+		},
+		{
+			name:      "a deleting namespace answers ErrNamespaceDeleting ahead of the factor check",
+			seedState: cmd.NamespaceStateDeleting,
+			schema: stubLeftovers{factors: map[string]map[string]int64{
+				"customer1": {"customer1:Triple": 3},
+			}},
+			updateName: "customer1",
+			homeNodes:  []string{"n1", "n2"},
+			wantErr:    usecasesNamespaces.ErrNamespaceDeleting,
+			wantStored: seeded,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newTestManager(t)
-			require.NoError(t, m.Add(addCmd(t, "customer1")))
+			m := newTestManagerWithLeftovers(t, tc.schema, nil, nil, nil)
+			seedNamespace(t, m, "customer1", tc.seedState)
 
-			err := m.Update(updateCmd(t, tc.updateName, tc.homeNode))
+			err := m.Update(updateCmd(t, tc.updateName, tc.homeNodes))
 			if tc.wantErr != nil {
-				require.Error(t, err)
-				assert.ErrorIs(t, err, tc.wantErr)
-				return
+				require.ErrorIs(t, err, tc.wantErr)
+				assert.ErrorContains(t, err, tc.wantErrText)
+				if tc.wantNotErrText != "" {
+					assert.NotContains(t, err.Error(), tc.wantNotErrText)
+				}
+			} else {
+				require.NoError(t, err)
 			}
-			require.NoError(t, err)
-			got := m.controller.Get(tc.updateName)
+			got := m.controller.Get("customer1")
 			require.Len(t, got, 1)
-			assert.Equal(t, tc.wantHomeNode, got[0].Primary())
+			assert.Equal(t, tc.wantStored, got[0].HomeNodes)
 		})
 	}
 }

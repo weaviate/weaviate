@@ -130,6 +130,54 @@ func (_c *MockSchemaReader_ClassEqual_Call) RunAndReturn(run func(string) string
 	return _c
 }
 
+// ClassFactorsInNamespace provides a mock function with given fields: namespace
+func (_m *MockSchemaReader) ClassFactorsInNamespace(namespace string) map[string]int64 {
+	ret := _m.Called(namespace)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ClassFactorsInNamespace")
+	}
+
+	var r0 map[string]int64
+	if rf, ok := ret.Get(0).(func(string) map[string]int64); ok {
+		r0 = rf(namespace)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]int64)
+		}
+	}
+
+	return r0
+}
+
+// MockSchemaReader_ClassFactorsInNamespace_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ClassFactorsInNamespace'
+type MockSchemaReader_ClassFactorsInNamespace_Call struct {
+	*mock.Call
+}
+
+// ClassFactorsInNamespace is a helper method to define mock.On call
+//   - namespace string
+func (_e *MockSchemaReader_Expecter) ClassFactorsInNamespace(namespace interface{}) *MockSchemaReader_ClassFactorsInNamespace_Call {
+	return &MockSchemaReader_ClassFactorsInNamespace_Call{Call: _e.mock.On("ClassFactorsInNamespace", namespace)}
+}
+
+func (_c *MockSchemaReader_ClassFactorsInNamespace_Call) Run(run func(namespace string)) *MockSchemaReader_ClassFactorsInNamespace_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockSchemaReader_ClassFactorsInNamespace_Call) Return(_a0 map[string]int64) *MockSchemaReader_ClassFactorsInNamespace_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSchemaReader_ClassFactorsInNamespace_Call) RunAndReturn(run func(string) map[string]int64) *MockSchemaReader_ClassFactorsInNamespace_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ClassInfo provides a mock function with given fields: class
 func (_m *MockSchemaReader) ClassInfo(class string) ClassInfo {
 	ret := _m.Called(class)
@@ -1412,7 +1460,8 @@ func (_c *MockSchemaReader_WaitForUpdate_Call) RunAndReturn(run func(context.Con
 func NewMockSchemaReader(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockSchemaReader {
+},
+) *MockSchemaReader {
 	mock := &MockSchemaReader{}
 	mock.Mock.Test(t)
 

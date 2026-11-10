@@ -162,6 +162,9 @@ func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *ap
 	if err := st.admitShardStatus(req); err != nil {
 		return err
 	}
+	if err := st.admitNamespaceUpdate(req); err != nil {
+		return err
+	}
 	if err := st.admitReplicaMovement(req); err != nil {
 		return err
 	}
@@ -289,6 +292,20 @@ func (st *Store) admitShardStatus(req *api.ApplyRequest) error {
 	// The command names its class outright, and Handler.UpdateShardStatus
 	// qualifies it before the propose.
 	return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
+}
+
+// admitNamespaceUpdate runs AdmitNamespaceUpdate before PreApplyFilter can
+// refuse the update for its class factors. The command carries no Class, so
+// the name comes off the subcommand.
+func (st *Store) admitNamespaceUpdate(req *api.ApplyRequest) error {
+	if req.Type != api.ApplyRequest_TYPE_UPDATE_NAMESPACE {
+		return nil
+	}
+	sub := &api.UpdateNamespaceRequest{}
+	if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+		return fmt.Errorf("%w: unmarshal update-namespace subcommand: %w", usecasesNamespaces.ErrBadRequest, err)
+	}
+	return usecasesNamespaces.AdmitNamespaceUpdate(st.namespaceManager, sub.Namespace.Name)
 }
 
 // admitCreateLike refuses a create-like, property or class update command

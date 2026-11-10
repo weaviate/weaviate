@@ -274,6 +274,15 @@ func (rs SchemaReader) CollectionsCount(namespace string) int {
 	return rs.schema.CollectionsCount(namespace)
 }
 
+// ClassFactorsInNamespace maps each locally stored class of the namespace onto
+// its replication factor.
+func (rs SchemaReader) ClassFactorsInNamespace(namespace string) map[string]int64 {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ClassFactorsInNamespace"))
+	defer t.ObserveDuration()
+
+	return rs.schema.ClassFactorsInNamespace(namespace)
+}
+
 func (rs SchemaReader) retry(f func(*schema) error) error {
 	return backoff.Retry(func() error {
 		return f(rs.schema)
