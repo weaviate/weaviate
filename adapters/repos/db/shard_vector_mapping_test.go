@@ -583,6 +583,37 @@ func TestVectorIndexRecord_MissingQueueIDFollowsTheNamingRule(t *testing.T) {
 	}
 }
 
+// Records that name one file refuse the load when either has a generated ID;
+// collisions between name-derived IDs predate the check and still load.
+func TestRefuseGeneratedVectorIndexCollisions(t *testing.T) {
+	rec := func(id string) vectorIndexRecord {
+		return vectorIndexRecord{PhysicalID: id, IndexType: "hnsw", State: "ready", QueueID: id}
+	}
+	tests := []struct {
+		name    string
+		a, b    string
+		wantErr string
+	}{
+		{"one storage ID", "a-b", "vectors_a-b", `both name "vectors_a-b"`},
+		{"centroids of one, compressed of the other", "x-1", "x-1_centroids", `both name "vectors_compressed_x-1_centroids"`},
+		{"compressed of one, vectors of the other", "a-b", "compressed_a-b", `both name "vectors_compressed_a-b"`},
+		{"distinct generated IDs", "a-b", "c-d", ""},
+		{"generated and name-derived", "a-b", "vectors_title", ""},
+		{"name-derived only", "main", "vectors_compressed", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := refuseGeneratedVectorIndexCollisions(map[string]vectorIndexRecord{"a": rec(tc.a), "b": rec(tc.b)})
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.wantErr)
+			require.ErrorContains(t, err, `vectors "a" and "b"`)
+		})
+	}
+}
+
 func TestVectorIndexMapping_Delete(t *testing.T) {
 	t.Run("removes one record and leaves the rest", func(t *testing.T) {
 		m, _ := newTestVectorIndexMapping(t)

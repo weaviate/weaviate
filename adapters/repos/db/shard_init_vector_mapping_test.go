@@ -302,6 +302,45 @@ func TestInitShardVectors_RefusesTwoRecordsNamingOneQueue(t *testing.T) {
 	assert.Equal(t, mv, rec)
 }
 
+// Records with generated IDs that name one file refuse the load before a
+// dropping one is finished: finishing it would delete the live vector's files.
+func TestInitShardVectors_RefusesGeneratedRecordsNamingOneFile(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	shardDir := shard.path()
+	foo := recorded(shard, "foo", "vectors_foo", "ready")
+	mv := recorded(shard, "mv", "vectors_mv", "ready")
+	live := foo
+	live.PhysicalID = "a-b"
+	dropping := mv
+	dropping.PhysicalID = "vectors_a-b"
+	dropping.State = vectorIndexStateDropping
+	commitLog := filepath.Join(shardDir, helpers.HNSWCommitLogDirNameForID("vectors_a-b"), "1")
+
+	reloadExpectingError(t, ctx, shard, class, `vectors "foo" and "mv" both name "vectors_a-b`, func() {
+		require.NoError(t, os.MkdirAll(filepath.Dir(commitLog), 0o755))
+		require.NoError(t, os.WriteFile(commitLog, []byte("foo's graph"), 0o644))
+		withOfflineMapping(t, shardDir, func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+			require.NoError(t, m.Put("foo", live))
+			require.NoError(t, m.Put("mv", dropping))
+		})
+	})
+	assert.FileExists(t, commitLog, "the refusal deletes nothing")
+	withOfflineMapping(t, shardDir, func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+		records, _, err := m.Load()
+		require.NoError(t, err)
+		assert.Equal(t, live, records["foo"])
+		assert.Equal(t, dropping, records["mv"])
+		require.NoError(t, m.Put("foo", foo))
+		require.NoError(t, m.Put("mv", mv))
+	})
+	require.NoError(t, os.RemoveAll(filepath.Dir(commitLog)))
+	shard = reload(t, ctx, shard, class)
+	rec, _, err := shard.mapping.Get("mv")
+	require.NoError(t, err)
+	assert.Equal(t, mv, rec)
+}
+
 // A dropping record sharing a queue with a live one refuses the load before
 // the drop is finished: finishing it would delete the live vector's queue.
 func TestInitShardVectors_RefusesADroppingRecordSharingAQueue(t *testing.T) {
