@@ -448,12 +448,16 @@ type unloadedVectorState struct {
 // whose files are named by indexID. Whether quantized vectors exist is taken from
 // the vector metrics rather than read again, as the walk that produced them already
 // sized the compressed bucket. cacheable is false when a load held the shard's
-// metadata and the state could not be read.
-func (i *Index) unloadedVectorState(shardName, targetVector, indexID string,
+// metadata and the state could not be read. metadataLocked skips reads of the
+// metadata a load is known to hold, which would each wait for the lock timeout.
+func (i *Index) unloadedVectorState(shardName, targetVector, indexID string, metadataLocked bool,
 	vectorConfig models.VectorConfig, vectorMetrics shardusage.VectorsMetrics,
 ) (state unloadedVectorState, cacheable bool) {
 	state = unloadedVectorState{
 		quantizedVectorsExist: vectorMetrics.QuantizedVectorsExist(indexID),
+	}
+	if metadataLocked {
+		return state, false
 	}
 	cacheable = true
 	if vectorConfig.VectorIndexType == common.IndexTypeDynamic {
@@ -596,7 +600,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		// under-counts multi-vectors with varying token counts
 		uncompressedVectorSize += uint64(scan.Raw.Count) * uint64(scan.Raw.Dimensions) * 4
 
-		state, stateCacheable := i.unloadedVectorState(shardName, targetVector, indexIDs[targetVector], vectorConfig, vectorMetrics)
+		state, stateCacheable := i.unloadedVectorState(shardName, targetVector, indexIDs[targetVector], locked, vectorConfig, vectorMetrics)
 		cacheable = cacheable && stateCacheable
 		vectorUsage, err := unloadedVectorUsage(targetVector, vectorConfig, scan.Reported, state)
 		if err != nil {
