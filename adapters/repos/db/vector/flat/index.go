@@ -321,8 +321,6 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 	return nil
 }
 
-// CreateOrLoadCompressedBucket is also used by the dynamic index to restore the
-// bucket after a failed upgrade commit removed it.
 func (index *flat) CreateOrLoadCompressedBucket(ctx context.Context) error {
 	if index.compressionType == CompressionNone {
 		return nil

@@ -101,25 +101,20 @@ type VectorCompressor interface {
 	Get(id uint64) ([]float32, error)
 	GetCompressed(id uint64) (any, error)
 
-	// SetCachePersistence(false) keeps the compressor off the compressed bucket:
-	// vectors live in the cache only and a cache miss re-encodes the raw vector.
 	SetCachePersistence(enabled bool)
-	// PersistCache re-enables persistence and writes the cache to the bucket,
-	// creating it if needed. The caller must hold off concurrent deletes.
 	PersistCache(ctx context.Context) error
 }
 
 type quantizedVectorsCompressor[T byte | uint64] struct {
-	cache             cache.Cache[T]
-	compressedStore   *lsmkv.Store
-	quantizer         quantizer[T]
-	storeId           func([]byte, uint64)
-	loadId            func([]byte) uint64
-	logger            logrus.FieldLogger
-	targetVector      string
-	makeBucketOptions lsmkv.MakeBucketOptions
-	vectorForID       common.VectorForID[float32]
-	// zero value persists
+	cache                    cache.Cache[T]
+	compressedStore          *lsmkv.Store
+	quantizer                quantizer[T]
+	storeId                  func([]byte, uint64)
+	loadId                   func([]byte) uint64
+	logger                   logrus.FieldLogger
+	targetVector             string
+	makeBucketOptions        lsmkv.MakeBucketOptions
+	vectorForID              common.VectorForID[float32]
 	cachePersistenceDisabled atomic.Bool
 }
 
@@ -131,7 +126,6 @@ func (compressor *quantizedVectorsCompressor[T]) PersistCache(ctx context.Contex
 	if err := compressor.initCompressedStore(); err != nil {
 		return err
 	}
-	// before the walk, so a concurrent Preload writes its own vector
 	compressor.cachePersistenceDisabled.Store(false)
 	bucket := compressor.compressedBucket()
 	if bucket == nil {
@@ -147,7 +141,6 @@ func (compressor *quantizedVectorsCompressor[T]) PersistCache(ctx context.Contex
 		}
 		vecs, _, start, end := compressor.cache.GetAllInCurrentLock(ctx, id, out, errs)
 		if end <= id {
-			// cache shrank
 			break
 		}
 		for cur := start; cur < end; cur++ {
@@ -340,7 +333,6 @@ func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedVector
 
 func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx context.Context, id uint64) ([]T, error) {
 	if compressor.cachePersistenceDisabled.Load() {
-		// the bucket is not ours to read
 		if compressor.vectorForID == nil {
 			return nil, storobj.NewErrNotFoundf(id, "getCompressedVectorForID")
 		}

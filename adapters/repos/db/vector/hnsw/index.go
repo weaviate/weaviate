@@ -227,7 +227,6 @@ type hnsw struct {
 	maxDocID          uint64
 	makeBucketOptions lsmkv.MakeBucketOptions
 
-	// cleared by PersistCache
 	cachePersistenceDeferred atomic.Bool
 
 	fs common.FS

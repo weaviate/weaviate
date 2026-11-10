@@ -55,8 +55,6 @@ type Config struct {
 
 	AsyncIndexingEnabled bool
 
-	// DeferCachePersistence keeps compressed vectors out of the compressed
-	// bucket until PersistCache is called. Used by the dynamic index upgrade.
 	DeferCachePersistence bool
 
 	HFreshMode bool

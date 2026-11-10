@@ -1062,8 +1062,7 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 				AllocChecker:                 dynamic.AllocChecker,
 				MakeBucketOptions:            dynamic.MakeBucketOptions,
 				AsyncIndexingEnabled:         dynamic.AsyncIndexingEnabled,
-				// the flat stage still reads the shared compressed bucket
-				DeferCachePersistence: true,
+				DeferCachePersistence:        true,
 			},
 			dynamic.uc.HnswUC,
 			dynamic.tombstoneCallbacks,
@@ -1128,8 +1127,6 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 	}
 
 	if err := dynamic.commitUpgrade(index); err != nil {
-		// the flat stage stays live and needs its compressed bucket back; on
-		// failure the marker stays and a restart repeats the repair
 		dynamic.cleanupAbortedUpgrade(index)
 		if rerr := dynamic.restoreFlatStage(); rerr != nil {
 			dynamic.logger.WithField("action", "dynamic_upgrade_abort").
@@ -1159,7 +1156,6 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 			errs = append(errs, err)
 		}
 	}
-	// best-effort: a vector missing from the bucket is re-encoded on read
 	if err := index.PersistCache(dynamic.ctx); err != nil {
 		errs = append(errs, errors.Wrap(err, "persist compressed vectors of upgraded index"))
 	}
@@ -1170,10 +1166,7 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 	return nil
 }
 
-// commitUpgrade records the flat→HNSW verdict, under the exclusive lock. The
-// HNSW commit log is flushed and the flat stage's compressed bucket removed
-// first: a crash before the verdict rebuilds the bucket from the marker, a
-// crash after it boots an HNSW that re-encodes what the bucket is missing.
+// Order matters for crash safety: flush, remove the flat compressed bucket, then verdict.
 func (dynamic *dynamic) commitUpgrade(index *hnsw.HNSW) error {
 	if err := index.Flush(); err != nil {
 		return errors.Wrap(err, "flush commit log of upgraded index")
@@ -1181,7 +1174,6 @@ func (dynamic *dynamic) commitUpgrade(index *hnsw.HNSW) error {
 	if err := dynamic.removeCompressedBucket(); err != nil {
 		return errors.Wrap(err, "remove flat compressed bucket")
 	}
-	// the caller clears the marker after; init drops a stale one next to verdict {1}
 	err := dynamic.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
 		return b.Put(dynamic.dbKey(), []byte{verdictUpgraded})
@@ -1189,14 +1181,11 @@ func (dynamic *dynamic) commitUpgrade(index *hnsw.HNSW) error {
 	return errors.Wrap(err, "update dynamic")
 }
 
-// removeCompressedBucket deletes the compressed bucket and syncs the removal,
-// so a verdict written afterwards cannot outlive it.
 func (dynamic *dynamic) removeCompressedBucket() error {
 	name := dynamic.getCompressedBucketName()
 	bDir, err := dynamic.bucketDir(name)
 	if err != nil {
 		if simpleErrors.Is(err, lsmkv.ErrBucketNotFound) {
-			// neither stage compresses
 			return nil
 		}
 		return err
@@ -1214,7 +1203,6 @@ type compressedBucketCreator interface {
 	CreateOrLoadCompressedBucket(ctx context.Context) error
 }
 
-// restoreFlatStage rebuilds the compressed bucket a failed commit removed.
 func (dynamic *dynamic) restoreFlatStage() error {
 	if creator, ok := dynamic.index.(compressedBucketCreator); ok {
 		if err := creator.CreateOrLoadCompressedBucket(dynamic.ctx); err != nil {
