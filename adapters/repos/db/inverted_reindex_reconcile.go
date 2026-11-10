@@ -714,6 +714,29 @@ func (r *migrationReconciler) reconcilePromoted(ctx context.Context, rec Migrati
 	})
 }
 
+// RedecideOverrides runs the load's decision again for each promoted record a
+// load kept without reading the task list, and returns the records it released.
+func (r *migrationReconciler) RedecideOverrides(ctx context.Context) []MigrationSubject {
+	if _, readable := r.localTasks(); !readable || !r.store.overridesUnsure.Swap(false) {
+		return nil
+	}
+	var released []MigrationSubject
+	for _, rec := range r.store.Records() {
+		promoted, ok := rec.(MigrationRecordPromoted)
+		if !ok || r.overridesSchema(rec) {
+			continue
+		}
+		key := rec.Subject().Key
+		if err := r.reconcilePromoted(ctx, promoted, len(r.store.Unreadable()) > 0); err != nil {
+			r.logger.WithField("record", key.String()).Errorf("release a migration the schema answers for: %v", err)
+		}
+		if _, kept := r.store.Get(key); !kept {
+			released = append(released, rec.Subject())
+		}
+	}
+	return released
+}
+
 func (r *migrationReconciler) reconcilePromotedSealed(ctx context.Context, rec MigrationRecordPromoted) error {
 	subject := rec.Subject()
 	all := r.store.Records()

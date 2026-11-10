@@ -197,3 +197,66 @@ func TestReloadKeepsAnIndexATenantEnabledAheadOfTheSchema(t *testing.T) {
 		})
 	}
 }
+
+// Pins that a boot load, which cannot read the task list yet, keeps an enabled
+// index only until the list is readable: then a finished run hands it to the
+// schema, so the next boot load sweeps it, while a retained failed run keeps it.
+func TestBootLoadReDecidesAnEnabledIndexOnceTheTaskListIsReadable(t *testing.T) {
+	const propName = "title"
+	for _, tc := range []struct {
+		name   string
+		status distributedtask.TaskStatus
+		stands bool
+	}{
+		{name: "a finished run hands it to the schema", status: distributedtask.TaskStatusFinished},
+		{name: "a retained failed run keeps it", status: distributedtask.TaskStatusFailed, stands: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "BootEnable_" + uuid.NewString()[:8]
+			class := newEnableSearchableTestClass(className, []string{propName})
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			task, _ := newEnableSearchableTask(t, idx, className, propName, models.PropertyTokenizationWord, shard.migrationUnit())
+			payload := &ReindexTaskPayload{
+				Collection: className, MigrationType: ReindexTypeEnableSearchable, Properties: []string{propName},
+				TargetTokenization: models.PropertyTokenizationWord,
+			}
+			desc := distributedtask.TaskDescriptor{ID: "TBoot", Version: 1}
+			task.setMigrationIdentity(desc, shard.migrationUnit(), payload)
+			maybeWirePerPropOverlaySet(shard, payload, []*ShardReindexTaskGeneric{task})
+			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+			require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+			require.NoError(t, task.RunSwapOnShard(ctx, shard))
+			idx.db.indices[indexID(idx.Config.ClassName)] = idx
+			idx.shardReindexer = &noRecoveryTaskReindexer{}
+			bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+
+			bootLoad := func(s *Shard) *Shard {
+				idx.db.migrationCluster.mu.Lock()
+				idx.db.migrationCluster.local = nil
+				idx.db.migrationCluster.mu.Unlock()
+				require.NoError(t, s.Shutdown(ctx))
+				loaded, err := idx.initShard(ctx, s.Name(), class, nil, true, true)
+				require.NoError(t, err)
+				idx.shards.Store(s.Name(), loaded)
+				return loaded.(*Shard)
+			}
+			forced := func(s *Shard) bool {
+				return s.SnapshotPropertyOverlay([]string{propName})[propName].ForceSearchable
+			}
+
+			booted := bootLoad(shard)
+			require.True(t, forced(booted), "an unreadable task list keeps the index on")
+			installTestMigrationTaskSources(ctx, idx.db, nil,
+				&distributedtask.Task{Namespace: ReindexNamespace, TaskDescriptor: desc, Status: tc.status})
+			_, kept := task.migrationRecord(booted)
+			require.Equal(t, tc.stands, kept, "the record once the task list is readable")
+			require.Equal(t, tc.stands, forced(booted), "the overlay once the task list is readable")
+
+			rebooted := bootLoad(booted)
+			defer rebooted.Shutdown(ctx)
+			require.Equal(t, tc.stands, rebooted.store.Bucket(bucketName) != nil, "the bucket after the next boot load")
+		})
+	}
+}

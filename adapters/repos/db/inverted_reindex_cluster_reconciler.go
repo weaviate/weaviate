@@ -35,7 +35,8 @@ type MigrationLocalTaskSource func(shard string) ([]distributedtask.TaskStatusEn
 type MigrationClusterTaskSource func(context.Context) ([]*distributedtask.Task, error)
 
 // migrationClusterReconciler decides this node's undecided migration records
-// against the leader's reindex task list.
+// against the leader's reindex task list, and the overrides a load decided
+// without the local one.
 type migrationClusterReconciler struct {
 	db *DB
 
@@ -175,7 +176,7 @@ func (r *migrationClusterReconciler) shardsWithUndecidedRecords() []migrationUnd
 			if store == nil || len(store.Unreadable()) > 0 {
 				return nil
 			}
-			if store.HasUndecided() {
+			if store.HasUndecided() || store.overridesUnsure.Load() {
 				names = append(names, name)
 			}
 			return nil

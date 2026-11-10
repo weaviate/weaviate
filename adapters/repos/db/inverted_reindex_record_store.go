@@ -22,6 +22,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
 
@@ -114,6 +115,9 @@ type MigrationRecordStore struct {
 	wedged map[MigrationRecordKey]bool
 	// Caches what a pass deferred, since the schema may flip before the load hook serves it.
 	deferredPromotions map[MigrationRecordKey][]string
+	// Set by a load that let flip-decided records override the schema without
+	// reading the task list; the periodic pass decides them again once it can.
+	overridesUnsure atomic.Bool
 }
 
 // The store names no unit, so every record it loads reads as local. Callers

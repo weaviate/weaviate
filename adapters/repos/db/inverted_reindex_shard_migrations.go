@@ -29,7 +29,13 @@ func (m shardMigrations) ReconcileWithClusterTasks(ctx context.Context, tasks []
 	if m.shard.migrationRecords == nil {
 		return
 	}
-	m.liveReconciler().ReconcileWithClusterTasks(ctx, tasks)
+	reconciler := m.liveReconciler()
+	reconciler.ReconcileWithClusterTasks(ctx, tasks)
+	if released := reconciler.RedecideOverrides(ctx); len(released) > 0 {
+		if class := reconciler.deps.Class(); class != nil {
+			m.shard.retireReleasedOverlays(released, class)
+		}
+	}
 }
 
 func (m shardMigrations) DiscardTask(ctx context.Context, task *distributedtask.Task) error {

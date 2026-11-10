@@ -57,6 +57,9 @@ func (s *Shard) restoreMigratedOverlays(class *models.Class) {
 		if !migrationOverridesSchema(rec, tasks, readable) {
 			continue
 		}
+		if !readable {
+			s.migrationRecords.overridesUnsure.Store(true)
+		}
 		payload := subject.reindexPayload()
 		built, err := buildMigrationTasks(s.index.logger, nil, subject.Key.TaskVersion, &payload,
 			func(string, string) bool { return true })
@@ -97,7 +100,13 @@ func (s *Shard) migratedIndexStands(propName, indexType string) bool {
 		return false
 	}
 	tasks, readable := s.migrations().LocalTasks()
-	for _, rec := range s.migrationRecords.Records() {
+	return migratedIndexStandsIn(s.migrationRecords.Records(), tasks, readable, propName, indexType)
+}
+
+func migratedIndexStandsIn(records []MigrationRecord, tasks []distributedtask.TaskStatusEntry, readable bool,
+	propName, indexType string,
+) bool {
+	for _, rec := range records {
 		subject := rec.Subject()
 		enabled, ok := migrationEnablesIndexType(subject.MigrationType)
 		if !ok || enabled != indexType || !migrationOverridesSchema(rec, tasks, readable) {
@@ -113,6 +122,28 @@ func (s *Shard) migratedIndexStands(propName, indexType string) bool {
 		return true
 	}
 	return false
+}
+
+// Reads no task list, so every flip-decided record stands: a newer run records
+// its flip before it sets its overlay, so under this lock either its record is
+// seen or its overlay lands after.
+func (s *Shard) retireReleasedOverlays(released []MigrationSubject, class *models.Class) {
+	s.propertyOverlayMu.Lock()
+	defer s.propertyOverlayMu.Unlock()
+	records := s.migrationRecords.Records()
+	for _, prop := range class.Properties {
+		if prop == nil || !slices.ContainsFunc(released, func(subject MigrationSubject) bool {
+			_, covers := subject.Props[prop.Name]
+			return covers
+		}) {
+			continue
+		}
+		for _, indexType := range disabledIndexTypes(prop) {
+			if !migratedIndexStandsIn(records, nil, false, prop.Name, indexType) {
+				s.retirePropertyOverlayLocked(prop.Name, indexType)
+			}
+		}
+	}
 }
 
 func (s *Shard) withMigratedIndexes(prop *models.Property) *models.Property {
