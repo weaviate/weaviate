@@ -652,6 +652,7 @@ func TestOutOfMemoryReply(t *testing.T) {
 			{
 				FromCollection: collection,
 				FromUuid:       uuid.New().String(),
+				ToCollection:   new("TargetCollection"),
 				ToUuid:         uuid.New().String(),
 				Name:           "ref",
 			},
@@ -1115,7 +1116,13 @@ func Test_receiver_ackForDelay(t *testing.T) {
 			{Collection: collection, Uuid: uuid.New().String()},
 		}
 		refs := []*pb.BatchReference{
-			{FromCollection: collection, FromUuid: uuid.New().String(), ToUuid: uuid.New().String(), Name: "ref"},
+			{
+				FromCollection: collection,
+				FromUuid:       uuid.New().String(),
+				ToCollection:   new("TargetCollection"),
+				ToUuid:         uuid.New().String(),
+				Name:           "ref",
+			},
 		}
 
 		cfg := config.NewBatchStream(new(0.9), new(0.5), new(400*time.Millisecond), nil, nil)
@@ -1382,7 +1389,12 @@ func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 				{Collection: tc.collection, Uuid: uuid.New().String()},
 			}
 			refs := []*pb.BatchReference{
-				{FromCollection: tc.collection, FromUuid: uuid.New().String(), ToUuid: uuid.New().String(), Name: "ref"},
+				{
+					FromCollection: tc.collection,
+					FromUuid:       uuid.New().String(),
+					ToCollection:   new("TargetCollection"),
+					ToUuid:         uuid.New().String(), Name: "ref",
+				},
 			}
 
 			mockBatcher := mocks.NewMockBatcher(t)
