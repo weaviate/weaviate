@@ -47,6 +47,10 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 	if err != nil {
 		return nil, err
 	}
+	err = refuseGeneratedVectorIndexCollisions(records)
+	if err != nil {
+		return nil, err
+	}
 
 	for name, rec := range records {
 		if rec.State != vectorIndexStateDropping {
@@ -121,6 +125,37 @@ func refuseSharedVectorIndexQueues(records map[string]vectorIndexRecord) error {
 		queues[queueID] = name
 	}
 	return nil
+}
+
+// refuseGeneratedVectorIndexCollisions fails when two records name one file
+// and either has a generated ID: both would write into it, and a drop of one
+// deletes the other's. Name-derived collisions predate it and still load.
+func refuseGeneratedVectorIndexCollisions(records map[string]vectorIndexRecord) error {
+	fileOwners := make(map[string]string)
+	for _, name := range slices.Sorted(maps.Keys(records)) {
+		rec := records[name]
+		for _, file := range ownerOf(rec).names() {
+			other, ok := fileOwners[file]
+			if !ok {
+				fileOwners[file] = name
+				continue
+			}
+			if other == name {
+				continue
+			}
+			if isGeneratedVectorIndexID(rec.storageID()) || isGeneratedVectorIndexID(rec.queueIDOrDefault()) ||
+				isGeneratedVectorIndexID(records[other].storageID()) || isGeneratedVectorIndexID(records[other].queueIDOrDefault()) {
+				return fmt.Errorf("vectors %q and %q both name %q", other, name, file)
+			}
+		}
+	}
+	return nil
+}
+
+// isGeneratedVectorIndexID reports whether id was generated rather than
+// derived from a vector name, which never contains a "-".
+func isGeneratedVectorIndexID(id string) bool {
+	return strings.Contains(id, "-")
 }
 
 // readyVectorIndexNeedsRebuild probes a ready record's storage. Present:
