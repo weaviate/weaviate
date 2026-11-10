@@ -105,6 +105,57 @@ func TestVectorizer_Object(t *testing.T) {
 				expectedResult: nil,
 			},
 			{
+				name: "default named vector",
+				objectSearchResults: []objectSearchResult{
+					{res: &search.Result{Vectors: models.Vectors{"default": []float32{2, 4, 6}}}},
+					{res: &search.Result{Vectors: models.Vectors{"default": []float32{4, 6, 8}}}},
+				},
+				expectedResult: []float32{3, 5, 7},
+			},
+			{
+				name: "mix of legacy and default named vectors",
+				objectSearchResults: []objectSearchResult{
+					{res: &search.Result{Vector: []float32{2, 4, 6}}},
+					{res: &search.Result{Vectors: models.Vectors{"default": []float32{4, 6, 8}}}},
+				},
+				expectedResult: []float32{3, 5, 7},
+			},
+			{
+				name: "default named vector wins over legacy vector",
+				objectSearchResults: []objectSearchResult{
+					{res: &search.Result{
+						Vector:  []float32{100, 100, 100},
+						Vectors: models.Vectors{"default": []float32{2, 4, 6}},
+					}},
+				},
+				expectedResult: []float32{2, 4, 6},
+			},
+			{
+				name: "legacy vector used when default named vector is empty",
+				objectSearchResults: []objectSearchResult{
+					{res: &search.Result{
+						Vector:  []float32{2, 4, 6},
+						Vectors: models.Vectors{"default": []float32{}},
+					}},
+				},
+				expectedResult: []float32{2, 4, 6},
+			},
+			{
+				name: "other named vectors are ignored",
+				objectSearchResults: []objectSearchResult{
+					{res: &search.Result{Vectors: models.Vectors{"other": []float32{2, 4, 6}}}},
+					{res: &search.Result{Vectors: models.Vectors{"default": []float32{4, 6, 8}}}},
+				},
+				expectedResult: []float32{4, 6, 8},
+			},
+			{
+				name: "multi-vector default is ignored",
+				objectSearchResults: []objectSearchResult{
+					{res: &search.Result{Vectors: models.Vectors{"default": [][]float32{{2, 4, 6}}}}},
+				},
+				expectedResult: nil,
+			},
+			{
 				name: "expected error - mismatched vector dimensions",
 				objectSearchResults: []objectSearchResult{
 					{res: &search.Result{Vector: []float32{1, 2, 3, 4, 5, 6, 7, 8, 9}}},
