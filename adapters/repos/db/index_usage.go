@@ -574,16 +574,18 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		return nil, err
 	}
 
+	// one shard's unreadable mapping must not fail the whole collection's report
 	indexIDs, locked, err := unloadedVectorIndexStorageIDs(shardPath(i.path(), shardName), slices.Collect(maps.Keys(vectorConfigs)))
-	if err != nil {
-		return nil, fmt.Errorf("shard %s: %w", shardName, err)
-	}
-	cacheable := !locked
-	if locked {
+	cacheable := !locked && err == nil
+	if !cacheable {
+		reason := "a load holds the vector index mapping"
+		if err != nil {
+			reason = err.Error()
+		}
 		i.logger.WithFields(logrus.Fields{
 			"class": i.Config.ClassName.String(),
 			"shard": shardName,
-		}).Warn("a load holds the vector index mapping, reporting vector state by the naming rule and not caching it")
+		}).Warnf("reporting vector state by the naming rule and not caching it: %s", reason)
 	}
 
 	var namedVectors types.VectorsUsage

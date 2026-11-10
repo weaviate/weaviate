@@ -420,13 +420,17 @@ func readVectorIndexRecordOffline(shardDir, name string) (rec vectorIndexRecord,
 
 // unloadedVectorIndexStorageIDs maps each of names, vectors of a shard that is
 // not loaded, to the ID its files are named by: its record's, or the naming
-// rule's for a vector without one. locked reports that a load holds the
-// mapping; the IDs are then the naming rule's and may be wrong.
+// rule's for a vector without one. When a load holds the mapping (locked) or
+// it cannot be read (err), the IDs are the naming rule's and may be wrong.
 func unloadedVectorIndexStorageIDs(shardDir string, names []string) (ids map[string]string, locked bool, err error) {
-	ids = make(map[string]string, len(names))
-	for _, name := range names {
-		ids[name] = vectorIndexID(name)
+	namingRule := func() map[string]string {
+		ids := make(map[string]string, len(names))
+		for _, name := range names {
+			ids[name] = vectorIndexID(name)
+		}
+		return ids
 	}
+	ids = namingRule()
 	keys := make([][]byte, 0, len(names)+1)
 	keys = append(keys, []byte(vectorIndexMappingFormatVersionKey))
 	for _, name := range names {
@@ -437,14 +441,14 @@ func unloadedVectorIndexStorageIDs(shardDir string, names []string) (ids map[str
 		return ids, true, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("read vector index mapping: %w", err)
+		return namingRule(), false, fmt.Errorf("read vector index mapping: %w", err)
 	}
 	if vals == nil || vals[0] == nil {
 		// no mapping yet: the naming rule is what its first load records
 		return ids, false, nil
 	}
 	if string(vals[0]) != vectorIndexMappingFormatVersion {
-		return nil, false, fmt.Errorf("read vector index mapping: unsupported format version %q, this binary reads %q",
+		return namingRule(), false, fmt.Errorf("read vector index mapping: unsupported format version %q, this binary reads %q",
 			vals[0], vectorIndexMappingFormatVersion)
 	}
 	for i, name := range names {
@@ -458,7 +462,7 @@ func unloadedVectorIndexStorageIDs(shardDir string, names []string) (ids map[str
 			err = rec.validate()
 		}
 		if err != nil {
-			return nil, false, fmt.Errorf("read vector index mapping: record %q: %w", name, err)
+			return namingRule(), false, fmt.Errorf("read vector index mapping: record %q: %w", name, err)
 		}
 		ids[name] = rec.storageID()
 	}
