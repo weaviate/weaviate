@@ -95,6 +95,8 @@ var (
 	benchMinEdgeRecall = flag.Float64("bench.minedgerecall", 0, "postingedge: fail before the sweeps if the edge recall of the build is below this")
 	benchAutoMargins   = flag.String("bench.automargins", "0.04,0.06,0.08,0.10,0.12", "postingedge: the margins a sweep with margin=auto chooses from")
 	benchAutoTolerance = flag.Float64("bench.autotolerance", 0.002, "postingedge: the recall a margin=auto margin may cost at any ef, against no margin")
+	benchAutoEFs       = flag.String("bench.autoefs", "", "postingedge: the ef values a margin=auto margin is calibrated at (empty = those of its sweep)")
+	benchCeiling       = flag.Float64("bench.ceiling", 0, "postingedge: for every timed configuration that stays below this recall, keep doubling ef in untimed passes until the recall is reached or stops growing (0 = skip)")
 	benchReach         = flag.Int("bench.reach", 0, "postingedge: queries sampled to measure what a triangle bound on the edge lengths could prune (0 = skip)")
 
 	benchMaxConn = flag.Int("bench.maxconn", enthnsw.DefaultMaxConnections, "hnsw: max connections")
@@ -114,7 +116,7 @@ var (
 func init() {
 	flag.Var(&benchSweeps, "bench.sweep", "one set of operating points, e.g. \"ef=10,20 threads=1,8 rescore=512 batch=4 margin=0,0.08\"; "+
 		"repeatable, measured in order on the same index; keys left out take -bench.efs, -bench.threads, "+
-		"-bench.rescores, -bench.batches and -bench.margins")
+		"-bench.rescores, -bench.batches and -bench.margins; timed=0 measures recall and work only")
 }
 
 // sweepFlag collects the -bench.sweep values.
@@ -135,6 +137,7 @@ const autoMargin = -1
 type sweep struct {
 	efs, threads, rescores, batches []int
 	margins                         []float64
+	untimed                         bool // recall and work only, no timed passes
 }
 
 // benchSweepPlan resolves the -bench.sweep flags, or a single sweep of the
@@ -171,6 +174,8 @@ func benchSweepPlan(t *testing.T) []sweep {
 				} else {
 					sw.margins = parseFloats(t, list)
 				}
+			case "timed":
+				sw.untimed = list == "0"
 			default:
 				t.Fatalf("unknown sweep key %q", key)
 			}
@@ -242,6 +247,8 @@ type benchPoint struct {
 	P95Ms        float64       `json:"p95Ms"`
 	P99Ms        float64       `json:"p99Ms"`
 	Stats        *statsSummary `json:"stats,omitempty"`
+	// Untimed points carry recall and work but no QPS or latencies.
+	Untimed bool `json:"untimed,omitempty"`
 }
 
 type benchResult struct {
@@ -272,10 +279,13 @@ type benchResult struct {
 	Points     []benchPoint      `json:"points"`
 	ProbeSweep []probePoint      `json:"probeSweep,omitempty"`
 	EdgeRecall []edgeRecallPoint `json:"edgeRecall,omitempty"`
-	// Calibration holds the untimed points the source margin of margin=auto
-	// sweeps was chosen from, and AutoMargin what was chosen.
-	Calibration []benchPoint `json:"calibration,omitempty"`
-	AutoMargin  *float64     `json:"autoMargin,omitempty"`
+	// Calibration holds the untimed points the source margins of margin=auto
+	// sweeps were chosen from, and AutoMargins what was chosen for each
+	// rescore limit. AutoMargin is what result files written before the
+	// margin was calibrated per rescore limit hold: one margin for all.
+	Calibration []benchPoint    `json:"calibration,omitempty"`
+	AutoMargins map[int]float64 `json:"autoMargins,omitempty"`
+	AutoMargin  *float64        `json:"autoMargin,omitempty"`
 }
 
 func TestBenchmark(t *testing.T) {
@@ -435,55 +445,78 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 		t.Fatalf("edge recall %.4f is below the required %.4f, not running the sweeps", recall, *benchMinEdgeRecall)
 	}
 
-	needsAuto := false
+	// margin=auto is calibrated once per rescore limit: how much recall a
+	// margin costs depends on how many of the candidates it thins out reach
+	// the final rescore.
+	auto := map[int]float64{}
 	for _, sw := range plan {
-		needsAuto = needsAuto || slices.Contains(sw.margins, autoMargin)
-	}
-	if needsAuto {
-		chosen := calibrateMargin(t, index, data, uc, plan[0], result)
-		for i := range plan {
-			for j, margin := range plan[i].margins {
-				if margin == autoMargin {
-					plan[i].margins[j] = chosen
-				}
+		if !slices.Contains(sw.margins, autoMargin) {
+			continue
+		}
+		for _, rescore := range sw.rescores {
+			if _, done := auto[rescore]; !done {
+				auto[rescore] = calibrateMargin(t, index, data, uc, sw, rescore, result)
 			}
 		}
 	}
 
+	// The work of a search does not depend on timing or on the thread count,
+	// so it is collected once per configuration.
+	type workKey struct {
+		ef, rescore, batch int
+		margin             float64
+	}
+	type work struct {
+		stats  *statsSummary
+		recall float64
+	}
+	collected := map[workKey]work{}
+	measure := func(ef, rescore, loadBatch, threads int, margin float64, untimed bool) benchPoint {
+		uc.EF, uc.LoadBatch, uc.RescoreLimit = ef, loadBatch, rescore
+		uc.SourceMargin = float32(margin)
+		require.NoError(t, index.UpdateUserConfig(uc, func() {}))
+
+		point := benchPoint{Threads: threads, Untimed: untimed}
+		if !untimed {
+			point = measurePoint(t, data, search, threads, *benchRuns)
+		}
+		point.EF, point.LoadBatch, point.RescoreLimit = ef, loadBatch, rescore
+		point.SourceMargin = margin
+		key := workKey{ef: ef, rescore: rescore, batch: loadBatch, margin: margin}
+		w, found := collected[key]
+		if !found {
+			w.stats, w.recall = collectSearchStats(t, index, data)
+			collected[key] = w
+		}
+		point.Stats = w.stats
+		if untimed {
+			point.Recall = w.recall
+		}
+		result.Points = append(result.Points, point)
+		s := point.Stats
+		t.Logf("ef=%d rescore=%d batch=%d margin=%.2f threads=%d recall=%.4f qps=%.0f p50=%.3fms p95=%.3fms | rounds %.1f (p95 %.0f) loads %.1f/%.0f/%.0f scanned %.0f (again %.0f, sources cut %.0f) edges %.0f (in loaded %.0f, repeated %.0f) endpoints %.0f rescored %.0f | us: centroid %.0f scan %.0f expand %.0f select %.0f rescore %.0f total %.0f",
+			ef, rescore, loadBatch, margin, threads, point.Recall, point.QPS, point.P50Ms, point.P95Ms,
+			s.RoundsMean, s.RoundsP95, s.LoadsMean, s.LoadsP50, s.LoadsP95, s.ScannedMean, s.AgainMean, s.SourcesCut,
+			s.EdgesMean, s.InLoadedMean, s.RepeatedMean, s.EndpointsMean, s.RescoredMean,
+			s.CentroidUs, s.ScanUs, s.ExpandUs, s.SelectUs, s.RescoreUs, s.TotalUs)
+		writeBenchResult(t, result)
+		return point
+	}
+
 	for _, sw := range plan {
+		untimed := sw.untimed || *benchMode == "work"
 		for _, margin := range sw.margins {
 			for _, rescore := range sw.rescores {
 				for _, loadBatch := range sw.batches {
 					for _, threads := range sw.threads {
 						for _, ef := range sw.efs {
-							uc.EF, uc.LoadBatch, uc.RescoreLimit = ef, loadBatch, rescore
-							uc.SourceMargin = float32(margin)
-							require.NoError(t, index.UpdateUserConfig(uc, func() {}))
-
-							// The work of a search does not depend on timing
-							// or on the thread count, so the work mode skips
-							// the timed passes and reports each point once.
-							point := benchPoint{Threads: threads}
-							if *benchMode != "work" {
-								point = measurePoint(t, data, search, threads, *benchRuns)
+							if margin == autoMargin {
+								measure(ef, rescore, loadBatch, threads, auto[rescore], untimed)
+								continue
 							}
-							point.EF, point.LoadBatch, point.RescoreLimit = ef, loadBatch, rescore
-							point.SourceMargin = margin
-							var recall float64
-							point.Stats, recall = collectSearchStats(t, index, data)
-							if *benchMode == "work" {
-								point.Recall = recall
-							}
-							result.Points = append(result.Points, point)
-							s := point.Stats
-							t.Logf("ef=%d rescore=%d batch=%d margin=%.2f threads=%d recall=%.4f qps=%.0f p50=%.3fms p95=%.3fms | rounds %.1f (p95 %.0f) loads %.1f/%.0f/%.0f scanned %.0f (again %.0f, sources cut %.0f) edges %.0f (in loaded %.0f, repeated %.0f) endpoints %.0f rescored %.0f | us: centroid %.0f scan %.0f expand %.0f select %.0f rescore %.0f total %.0f",
-								ef, rescore, loadBatch, margin, threads, point.Recall, point.QPS, point.P50Ms, point.P95Ms,
-								s.RoundsMean, s.RoundsP95, s.LoadsMean, s.LoadsP50, s.LoadsP95, s.ScannedMean, s.AgainMean, s.SourcesCut,
-								s.EdgesMean, s.InLoadedMean, s.RepeatedMean, s.EndpointsMean, s.RescoredMean,
-								s.CentroidUs, s.ScanUs, s.ExpandUs, s.SelectUs, s.RescoreUs, s.TotalUs)
-							writeBenchResult(t, result)
+							measure(ef, rescore, loadBatch, threads, margin, untimed)
 						}
-						if *benchMode == "work" {
+						if untimed {
 							break
 						}
 					}
@@ -491,26 +524,106 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 			}
 		}
 	}
+
+	if *benchCeiling > 0 {
+		findCeilings(t, result, *benchCeiling, func(ef, rescore, loadBatch int, margin float64) float64 {
+			return measure(ef, rescore, loadBatch, 1, margin, true).Recall
+		})
+	}
 }
 
-// calibrateMargin picks the source margin of margin=auto sweeps: the smallest
-// margin of -bench.automargins that costs at most -bench.autotolerance of
-// recall at every ef of the first sweep, against no margin at the same ef. It
-// runs untimed passes, which is enough for recall, and falls back to no
-// margin if none qualifies.
-func calibrateMargin(t *testing.T, index *Index, data *benchData, uc UserConfig, sw sweep, result *benchResult,
+// ceilingMaxEF is where the search for the recall ceiling of a configuration
+// gives up, and ceilingMinGain the recall a doubling of ef has to add for the
+// search to go on.
+const (
+	ceilingMaxEF   = 8192
+	ceilingMinGain = 0.0005
+)
+
+// findCeilings looks for the recall every timed configuration can reach by
+// raising ef alone. A configuration that stays below the target over its ef
+// sweep gets untimed passes at twice its largest ef, then twice that, until it
+// reaches the target, a doubling adds less than ceilingMinGain, or ef passes
+// ceilingMaxEF. Where it stops it is measured once more without source margin,
+// which tells whether the margin is what holds the recall down.
+func findCeilings(t *testing.T, result *benchResult, target float64,
+	recallAt func(ef, rescore, loadBatch int, margin float64) float64,
+) {
+	type config struct {
+		rescore, batch int
+		margin         float64
+	}
+	type reach struct {
+		ef     int
+		recall float64 // at the largest ef
+		best   float64
+	}
+	var order []config
+	reached := map[config]*reach{}
+	for _, point := range result.Points {
+		if point.Untimed {
+			continue
+		}
+		key := config{rescore: point.RescoreLimit, batch: point.LoadBatch, margin: point.SourceMargin}
+		r, found := reached[key]
+		if !found {
+			r = &reach{}
+			reached[key] = r
+			order = append(order, key)
+		}
+		if point.EF > r.ef {
+			r.ef, r.recall = point.EF, point.Recall
+		}
+		r.best = max(r.best, point.Recall)
+	}
+
+	for _, key := range order {
+		r := reached[key]
+		if r.best >= target {
+			continue
+		}
+		ef, recall := r.ef, r.recall
+		for ef*2 <= ceilingMaxEF {
+			next := recallAt(ef*2, key.rescore, key.batch, key.margin)
+			gain := next - recall
+			ef, recall = ef*2, next
+			if recall >= target || gain < ceilingMinGain {
+				break
+			}
+		}
+		t.Logf("ceiling: rescore=%d batch=%d margin=%.2f reaches recall %.4f at ef=%d (target %.2f)",
+			key.rescore, key.batch, key.margin, recall, ef, target)
+		if key.margin != 0 {
+			without := recallAt(ef, key.rescore, key.batch, 0)
+			t.Logf("ceiling: rescore=%d batch=%d without margin reaches recall %.4f at ef=%d",
+				key.rescore, key.batch, without, ef)
+		}
+	}
+}
+
+// calibrateMargin picks the source margin of a margin=auto sweep at one
+// rescore limit: the smallest margin of -bench.automargins that costs at most
+// -bench.autotolerance of recall at every ef of -bench.autoefs, or of the
+// sweep, against no margin at the same ef. It runs untimed passes, which is
+// enough for recall, and falls back to no margin if none qualifies.
+func calibrateMargin(t *testing.T, index *Index, data *benchData, uc UserConfig, sw sweep, rescore int,
+	result *benchResult,
 ) float64 {
+	efs := sw.efs
+	if *benchAutoEFs != "" {
+		efs = parseInts(t, *benchAutoEFs)
+	}
 	measure := func(margin float64) []float64 {
-		recalls := make([]float64, len(sw.efs))
-		for i, ef := range sw.efs {
-			uc.EF, uc.LoadBatch, uc.RescoreLimit = ef, sw.batches[0], sw.rescores[0]
+		recalls := make([]float64, len(efs))
+		for i, ef := range efs {
+			uc.EF, uc.LoadBatch, uc.RescoreLimit = ef, sw.batches[0], rescore
 			uc.SourceMargin = float32(margin)
 			require.NoError(t, index.UpdateUserConfig(uc, func() {}))
 			stats, recall := collectSearchStats(t, index, data)
 			recalls[i] = recall
 			result.Calibration = append(result.Calibration, benchPoint{
 				EF: ef, Threads: 1, RescoreLimit: uc.RescoreLimit, LoadBatch: uc.LoadBatch,
-				SourceMargin: margin, Recall: recall, Stats: stats,
+				SourceMargin: margin, Recall: recall, Stats: stats, Untimed: true,
 			})
 		}
 		writeBenchResult(t, result)
@@ -524,14 +637,17 @@ func calibrateMargin(t *testing.T, index *Index, data *benchData, uc UserConfig,
 		for i, recall := range measure(margin) {
 			worst = min(worst, recall-baseline[i])
 		}
-		t.Logf("calibration: margin %.2f costs at most %.4f of recall", margin, -worst)
+		t.Logf("calibration: rescore=%d margin %.2f costs at most %.4f of recall", rescore, margin, -worst)
 		if -worst <= *benchAutoTolerance {
 			chosen = margin
 			break
 		}
 	}
-	t.Logf("calibration: margin=auto is %.2f", chosen)
-	result.AutoMargin = &chosen
+	t.Logf("calibration: rescore=%d margin=auto is %.2f", rescore, chosen)
+	if result.AutoMargins == nil {
+		result.AutoMargins = map[int]float64{}
+	}
+	result.AutoMargins[rescore] = chosen
 	writeBenchResult(t, result)
 	return chosen
 }
@@ -1249,7 +1365,7 @@ func benchProbeSweep(t *testing.T, ctx context.Context, data *benchData, result 
 	uc.CodeBits = *benchCodeBits
 	uc.TrainingLimit = *benchTraining
 	probes := parseInts(t, *benchProbes)
-	vectors, n := data.train, len(data.train)
+	vectors, n := asTheIndexStoresThem(data), len(data.train)
 
 	quantizer, err := trainQuantizer(vectors, data.dims, uc.TrainingLimit, uc.CodeBits, &cfg)
 	require.NoError(t, err)
@@ -1340,7 +1456,7 @@ func benchEdgeRecallGrid(t *testing.T, ctx context.Context, data *benchData, res
 	uc := NewDefaultUserConfig()
 	uc.TrainingLimit = *benchTraining
 	probes, rescues := parseInts(t, *benchProbes), parseInts(t, *benchRescues)
-	vectors, n := data.train, len(data.train)
+	vectors, n := asTheIndexStoresThem(data), len(data.train)
 
 	// The posting size is taken as given, or from the full code: it must
 	// not move with the code width, or the grid would compare partitions.
@@ -1415,6 +1531,17 @@ func benchEdgeRecallGrid(t *testing.T, ctx context.Context, data *benchData, res
 			}
 		}
 	}
+}
+
+// asTheIndexStoresThem returns the train vectors bit for bit as an index
+// holds them while it builds. The index normalizes what it is given, and
+// normalizing a vector that is already of unit length still moves its last
+// bits, which is enough for the partition to come out different. The modes
+// that run the build stages by hand use this so that their partition is the
+// one an index builds. It normalizes the train set in place.
+func asTheIndexStoresThem(data *benchData) [][]float32 {
+	parallelFor(len(data.train), func(i int) { distancer.NormalizeInPlace(data.train[i]) })
+	return data.train
 }
 
 func loadBenchData(t *testing.T, dir string, limit, queries, k int) *benchData {
