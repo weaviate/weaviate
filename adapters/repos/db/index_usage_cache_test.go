@@ -280,3 +280,29 @@ func TestUnloadedShardUsageNotSavedWhileMappingLocked(t *testing.T) {
 	require.Len(t, usage.Shards, 1)
 	assert.True(t, shardusage.ComputedUsageDataExists(index.path(), tenantName))
 }
+
+// TestUnloadedShardUsageReportedWhenMappingUnreadable pins that a cold tenant
+// whose mapping cannot be read is reported by the naming rule, not saved, and
+// does not fail the report of the other tenants of the collection.
+func TestUnloadedShardUsageReportedWhenMappingUnreadable(t *testing.T) {
+	ctx := context.Background()
+	tenantName := "test-tenant"
+	hnswCfg := enthnsw.NewDefaultUserConfig()
+	index, vectorConfigs := setupPopulatedLazyIndex(ctx, t, usageIndexParams{
+		namedVectors: map[string]models.VectorConfig{
+			"title": {VectorIndexType: hnswCfg.IndexType(), VectorIndexConfig: hnswCfg},
+		},
+	})
+	t.Cleanup(func() { _ = index.Shutdown(ctx) })
+
+	metadata, err := shardmeta.Open(shardPath(index.path(), tenantName), entlsmkv.BoltFlockTimeout)
+	require.NoError(t, err)
+	require.NoError(t, metadata.Namespace(vectorIndexMappingNamespace).Put([]byte(vectorIndexMappingFormatVersionKey), []byte("99")))
+	require.NoError(t, metadata.Close())
+
+	usage, err := index.usageForCollection(ctx, semaphore.NewWeighted(1), true, vectorConfigs)
+	require.NoError(t, err)
+	require.Len(t, usage.Shards, 1)
+	assert.Len(t, usage.Shards[0].NamedVectors, 2)
+	assert.False(t, shardusage.ComputedUsageDataExists(index.path(), tenantName))
+}

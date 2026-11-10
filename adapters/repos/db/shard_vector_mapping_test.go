@@ -667,15 +667,20 @@ func TestUnloadedVectorIndexStorageIDs(t *testing.T) {
 	t.Run("unsupported format version", func(t *testing.T) {
 		dir := t.TempDir()
 		writeMapping(t, dir, "2", nil)
-		_, _, err := unloadedVectorIndexStorageIDs(dir, names)
+		ids, _, err := unloadedVectorIndexStorageIDs(dir, names)
 		require.ErrorContains(t, err, "format version")
+		assert.Equal(t, defaults, ids)
 	})
 
 	t.Run("invalid record", func(t *testing.T) {
 		dir := t.TempDir()
-		writeMapping(t, dir, "1", map[string]string{"title": `{"physical_id":"title","index_type":"hnsw","state":"ready"}`})
-		_, _, err := unloadedVectorIndexStorageIDs(dir, names)
-		require.ErrorContains(t, err, `record "title": physical id`)
+		writeMapping(t, dir, "1", map[string]string{
+			"":     `{"physical_id":"` + generated + `","index_type":"hnsw","state":"ready"}`,
+			"body": `{"physical_id":"title","index_type":"hnsw","state":"ready"}`,
+		})
+		ids, _, err := unloadedVectorIndexStorageIDs(dir, names)
+		require.ErrorContains(t, err, `record "body": physical id`)
+		assert.Equal(t, defaults, ids, "no ID read before the invalid record is kept")
 	})
 }
 
