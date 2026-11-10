@@ -126,6 +126,29 @@ func (h *Handler) tenantClusterNodes(qualifiedClass string) ([]string, error) {
 	return candidates, nil
 }
 
+// updateTenantsClusterNodes returns tenantClusterNodes for a tenant update. For a
+// namespaced class it returns nil without the home-node check unless a tenant
+// whose local status is FROZEN or FREEZING requests any status but FROZEN.
+func (h *Handler) updateTenantsClusterNodes(ctx context.Context, qualifiedClass string,
+	tenants []*models.Tenant, names []string,
+) ([]string, error) {
+	if namespacing.NamespaceFromQualified(qualifiedClass) == "" {
+		return h.tenantClusterNodes(qualifiedClass)
+	}
+	current, err := h.schemaReader.TenantsShardsStatusWithVersion(ctx, 0, qualifiedClass, names...)
+	if err != nil {
+		return nil, err
+	}
+	for _, tenant := range tenants {
+		status := current[tenant.Name]
+		frozen := status == models.TenantActivityStatusFROZEN || status == models.TenantActivityStatusFREEZING
+		if frozen && tenant.ActivityStatus != models.TenantActivityStatusFROZEN {
+			return h.tenantClusterNodes(qualifiedClass)
+		}
+	}
+	return nil, nil
+}
+
 func validateTenants(tenants []*models.Tenant, allowOverHundred bool) (validated []*models.Tenant, err error) {
 	if !allowOverHundred && len(tenants) > 100 {
 		err = uco.NewErrInvalidUserInput(ErrMsgMaxAllowedTenants)
@@ -227,9 +250,9 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 		return nil, err
 	}
 
-	// ClusterNodes is read only on unfreeze. A namespaced unfreeze takes its
-	// nodes from HomeNodes at apply.
-	nodes, err := h.tenantClusterNodes(class)
+	// ClusterNodes is read only on unfreeze, so only an unfreeze checks the home
+	// nodes. A home node outside the storage candidates blocks no other update.
+	nodes, err := h.updateTenantsClusterNodes(ctx, class, tenants, shardNames)
 	if err != nil {
 		return nil, err
 	}

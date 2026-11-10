@@ -26,7 +26,9 @@ import (
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/versioned"
+	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -652,21 +654,43 @@ func TestAddTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 	}
 }
 
+// offloadModuleConfig enables offload-s3, which a FROZEN tenant update requires.
+type offloadModuleConfig struct{ fakeModuleConfig }
+
+func (*offloadModuleConfig) GetByName(name string) modulecapabilities.Module {
+	if name == modsloads3.Name {
+		return &modsloads3.Module{}
+	}
+	return nil
+}
+
 // TestUpdateTenants_PinsShardsToNamespaceHomeNode checks that a tenant update
 // sends nil ClusterNodes on NS-enabled clusters, for SchemaManager.UpdateTenants
-// to fill from HomeNodes at apply, and every storage candidate on NS-disabled clusters.
+// to fill from HomeNodes at apply, and that only an unfreeze runs the home-node check.
 func TestUpdateTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 	t.Parallel()
 
+	const (
+		hot      = models.TenantActivityStatusHOT
+		cold     = models.TenantActivityStatusCOLD
+		frozen   = models.TenantActivityStatusFROZEN
+		freezing = models.TenantActivityStatusFREEZING
+	)
 	allCandidates := []string{"node-1", "node-2", "node-3"}
+	offCandidates := homeNodes("node-1", "node-9")
+	missingHomeNode := "1 home node(s) of the namespace are not storage candidates"
 
+	type tenantUpdate struct{ name, current, requested string }
 	tests := []struct {
-		name      string
-		enabled   bool
-		principal *models.Principal
-		exister   fakeNamespacesExister
-		class     string
-		wantNodes []string
+		name         string
+		enabled      bool
+		principal    *models.Principal
+		exister      fakeNamespacesExister
+		moduleConfig ModuleConfig
+		class        string
+		tenants      []tenantUpdate
+		wantNodes    []string
+		wantErr      string
 	}{
 		{
 			name:      "NS enabled: ClusterNodes left for apply to fill",
@@ -674,6 +698,7 @@ func TestUpdateTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 			principal: namespacedPrincipal("customer1"),
 			exister:   homeNodes("node-2"),
 			class:     "Movies",
+			tenants:   []tenantUpdate{{"T1", frozen, hot}},
 		},
 		{
 			name:      "NS disabled: ClusterNodes is the full candidate set",
@@ -681,7 +706,85 @@ func TestUpdateTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 			principal: globalPrincipal(),
 			exister:   fakeNamespacesExister{},
 			class:     "Movies",
+			tenants:   []tenantUpdate{{"T1", hot, hot}},
 			wantNodes: allCandidates,
+		},
+		{
+			name:      "NS enabled: an unqualified class runs the home-node check on every update",
+			enabled:   true,
+			principal: globalPrincipal(),
+			exister:   offCandidates,
+			class:     "Movies",
+			tenants:   []tenantUpdate{{"T1", hot, cold}},
+			wantErr:   "expected namespace-qualified class name",
+		},
+		{
+			name:      "NS enabled: one unfreeze among HOT->COLD changes is refused",
+			enabled:   true,
+			principal: namespacedPrincipal("customer1"),
+			exister:   offCandidates,
+			class:     "Movies",
+			tenants:   []tenantUpdate{{"T1", hot, cold}, {"T2", frozen, hot}, {"T3", hot, cold}},
+			wantErr:   missingHomeNode,
+		},
+		{
+			name:      "NS enabled: FROZEN->COLD is refused",
+			enabled:   true,
+			principal: namespacedPrincipal("customer1"),
+			exister:   offCandidates,
+			class:     "Movies",
+			tenants:   []tenantUpdate{{"T1", frozen, cold}},
+			wantErr:   missingHomeNode,
+		},
+		{
+			name:      "NS enabled: FREEZING->HOT is refused",
+			enabled:   true,
+			principal: namespacedPrincipal("customer1"),
+			exister:   offCandidates,
+			class:     "Movies",
+			tenants:   []tenantUpdate{{"T1", freezing, hot}},
+			wantErr:   missingHomeNode,
+		},
+		{
+			name:      "NS enabled: HOT->COLD skips the home-node check",
+			enabled:   true,
+			principal: namespacedPrincipal("customer1"),
+			exister:   offCandidates,
+			class:     "Movies",
+			tenants:   []tenantUpdate{{"T1", hot, cold}},
+		},
+		{
+			name:      "NS enabled: COLD->HOT skips the home-node check",
+			enabled:   true,
+			principal: namespacedPrincipal("customer1"),
+			exister:   offCandidates,
+			class:     "Movies",
+			tenants:   []tenantUpdate{{"T1", cold, hot}},
+		},
+		{
+			name:         "NS enabled: a re-sent freeze of a FREEZING tenant skips the home-node check",
+			enabled:      true,
+			principal:    namespacedPrincipal("customer1"),
+			exister:      offCandidates,
+			moduleConfig: &offloadModuleConfig{},
+			class:        "Movies",
+			tenants:      []tenantUpdate{{"T1", freezing, frozen}},
+		},
+		{
+			name:      "NS enabled: COLD of a tenant this node holds no status for skips the home-node check",
+			enabled:   true,
+			principal: namespacedPrincipal("customer1"),
+			exister:   offCandidates,
+			class:     "Movies",
+			tenants:   []tenantUpdate{{"T1", "", cold}},
+		},
+		{
+			name:      "NS enabled: a re-sent HOT of an UNFREEZING tenant skips the home-node check",
+			enabled:   true,
+			principal: namespacedPrincipal("customer1"),
+			exister:   offCandidates,
+			class:     "Movies",
+			tenants:   []tenantUpdate{{"T1", models.TenantActivityStatusUNFREEZING, hot}},
 		},
 	}
 
@@ -691,17 +794,36 @@ func TestUpdateTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
 			sm.storageCandidates = allCandidates
 			handler.namespacesExister = tt.exister
+			if tt.moduleConfig != nil {
+				handler.moduleConfig = tt.moduleConfig
+			}
+
+			current := make(map[string]string, len(tt.tenants))
+			names := make([]string, len(tt.tenants))
+			requested := make([]*models.Tenant, len(tt.tenants))
+			for i, tenant := range tt.tenants {
+				if tenant.current != "" {
+					current[tenant.name] = tenant.current
+				}
+				names[i] = tenant.name
+				requested[i] = &models.Tenant{Name: tenant.name, ActivityStatus: tenant.requested}
+			}
 
 			var captured *cmd.UpdateTenantsRequest
 			sm.On("UpdateTenants", mock.Anything, mock.MatchedBy(func(req *cmd.UpdateTenantsRequest) bool {
 				captured = req
 				return true
 			})).Return(nil)
-			sm.On("TenantsShardsStatusWithVersion", mock.Anything, uint64(0), mock.Anything, mock.Anything).
-				Return(map[string]string{"T1": models.TenantActivityStatusHOT}, nil)
+			sm.On("TenantsShardsStatusWithVersion", mock.Anything, uint64(0), mock.Anything, names).
+				Return(current, nil)
 
-			_, err := handler.UpdateTenants(context.Background(), tt.principal, tt.class,
-				[]*models.Tenant{{Name: "T1", ActivityStatus: models.TenantActivityStatusHOT}})
+			_, err := handler.UpdateTenants(context.Background(), tt.principal, tt.class, requested)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assertErrorOmits(t, err, "customer1", "node-9")
+				assert.Nil(t, captured, "nothing may be proposed")
+				return
+			}
 			require.NoError(t, err)
 			require.NotNil(t, captured, "expected UpdateTenants to be called")
 			assert.Equal(t, tt.wantNodes, captured.ClusterNodes)
