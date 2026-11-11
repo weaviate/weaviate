@@ -42,10 +42,12 @@ func (s *Shard) initGeoProp(ctx context.Context, prop *models.Property,
 	return s.migrateLegacyGeoIndex(ctx, prop.Name, makeBucketOptions)
 }
 
-// legacyGeoIndexDirs: the geo HNSW's commit log and, with async indexing, its queue.
+// legacyGeoIndexDirs: the geo HNSW's commit log, the snapshot directory of
+// versions before the two were unified, and, with async indexing, its queue.
 func legacyGeoIndexDirs(shardPath, propName string) []string {
 	return []string{
 		filepath.Join(shardPath, fmt.Sprintf("geo.%s.hnsw.commitlog.d", propName)),
+		filepath.Join(shardPath, fmt.Sprintf("geo.%s.hnsw.snapshot.d", propName)),
 		filepath.Join(shardPath, fmt.Sprintf("geo.%s.queue.d", propName)),
 	}
 }
@@ -112,12 +114,15 @@ func (s *Shard) rebuildGeoBucketFromObjects(ctx context.Context, propName string
 	}
 
 	// on disk before the caller removes what the rebuild replaces: a written
-	// but unsynced WAL is only in the page cache
+	// but unsynced WAL is only in the page cache, and the bucket directory
+	// itself was just recreated, so its entry in the parent needs syncing too
 	if err := bucket.FlushAndSwitch(); err != nil {
 		return fmt.Errorf("flush geo bucket: %w", err)
 	}
-	if err := fsyncDir(bucket.GetDir()); err != nil {
-		return fmt.Errorf("fsync geo bucket dir: %w", err)
+	for _, dir := range []string{bucket.GetDir(), filepath.Dir(bucket.GetDir())} {
+		if err := fsyncDir(dir); err != nil {
+			return fmt.Errorf("fsync %q: %w", dir, err)
+		}
 	}
 
 	s.index.logger.

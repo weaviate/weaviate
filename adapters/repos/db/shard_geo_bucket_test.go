@@ -311,6 +311,11 @@ func TestGeoBucketLegacyIndexMigration(t *testing.T) {
 			legacyDirs:  []string{"geo.location.queue.d"},
 			wreckBucket: func(*testing.T, *Shard) {},
 		},
+		{
+			name:        "snapshot dir of an older hnsw layout",
+			legacyDirs:  []string{"geo.location.hnsw.commitlog.d", "geo.location.hnsw.snapshot.d"},
+			wreckBucket: func(*testing.T, *Shard) {},
+		},
 	}
 
 	for _, test := range tests {

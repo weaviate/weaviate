@@ -140,9 +140,9 @@ func TestShardShutdownReleasesHnswCommitLogs(t *testing.T) {
 	seen := map[fileIdentity]struct{}{}
 	for cycle := range cycles {
 		current := map[fileIdentity]struct{}{}
-		require.Equal(t, 3, collectCommitLogFiles(t, shardPath, current),
-			"cycle %d: expected one commit log per named vector and one for the geo property", cycle)
-		require.Equal(t, 3, descriptorsOnFiles(t, current),
+		require.Equal(t, 2, collectCommitLogFiles(t, shardPath, current),
+			"cycle %d: expected one commit log per named vector and none for the geo property, which is an lsmkv bucket", cycle)
+		require.Equal(t, 2, descriptorsOnFiles(t, current),
 			"cycle %d: a loaded shard keeps one commit log open per hnsw index", cycle)
 		for file := range current {
 			seen[file] = struct{}{}
