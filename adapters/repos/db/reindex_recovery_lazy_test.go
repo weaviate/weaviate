@@ -50,7 +50,7 @@ func TestAShardLoadArmsAndCachesItsMigration(t *testing.T) {
 	ctx := testCtx()
 	className := "LazyRecovery_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{"title"})
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false)
 	defer shd.Shutdown(context.Background())
 
 	logger, _ := test.NewNullLogger()
@@ -69,7 +69,7 @@ func TestAShardLoadArmsAndCachesItsMigration(t *testing.T) {
 	require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordIterated(subject)))
 
 	lazy := NewLazyLoadShard(ctx, nil, name, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 		false, idx.bitmapBufPool)
 	idx.shards.Store(name, lazy)
 	t.Cleanup(func() { require.NoError(t, lazy.Shutdown(context.Background())) })
@@ -96,7 +96,7 @@ func TestShardLoadStampsAnUnarmableFlipBeforeTheReconcilerPromotesIt(t *testing.
 	ctx := testCtx()
 	className := "LazyRecoveryStamp_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{"title"})
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false)
 	defer shd.Shutdown(context.Background())
 
 	logger, _ := test.NewNullLogger()
@@ -141,7 +141,7 @@ func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) 
 			ctx := testCtx()
 			className := "LazyRecoveryArm_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{"title"})
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false)
 			defer shd.Shutdown(context.Background())
 
 			logger, _ := test.NewNullLogger()
@@ -931,6 +931,11 @@ func (o *heldStepOutcome) RecordDistributedTaskUnitFailure(_ context.Context, _,
 	return nil
 }
 
+func (o *heldStepOutcome) RecordDistributedTaskRetryableUnitFailure(_ context.Context, _, _ string, _ uint64, _, _, msg string) error {
+	o.verdict(false, msg)
+	return nil
+}
+
 func (o *heldStepOutcome) RecordDistributedTaskUnitCompletion(context.Context, string, string, uint64, string, string) error {
 	o.verdict(true, "")
 	return nil
@@ -1008,7 +1013,7 @@ func TestACancelledShardLoadStillArmsTheMirror(t *testing.T) {
 	fx.idx.logger.(*logrus.Logger).AddHook(cancelOnLog{prefix: "Completed loading shard", cancel: cancel})
 
 	shard, err := NewShard(ctx, nil, fx.name, fx.idx, fx.class, fx.idx.centralJobQueue, fx.idx.scheduler,
-		fx.idx.indexCheckpoints, fx.idx.shardReindexer, false, fx.idx.bitmapBufPool, monitoring.ShardRegistrationEager)
+		fx.idx.shardReindexer, false, fx.idx.bitmapBufPool, monitoring.ShardRegistrationEager)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
 	require.Error(t, ctx.Err())
@@ -1055,7 +1060,7 @@ func newDoubleFaultFixture(t *testing.T, name string) *doubleFaultFixture {
 	ctx := testCtx()
 	className := "LazyRecoveryDoubleFault_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{"title"})
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false)
 	t.Cleanup(func() { _ = shd.Shutdown(context.Background()) })
 
 	logger, _ := test.NewNullLogger()

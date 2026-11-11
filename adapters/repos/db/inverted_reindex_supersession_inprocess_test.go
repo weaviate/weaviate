@@ -235,7 +235,7 @@ func TestAResumedSwapWithIncompleteRecordsKeepsOnlyASidecarNamedDisplacedDir(t *
 			class := newEnableFilterableTestClass(className, props...)
 
 			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(context.Background())
 

@@ -77,7 +77,7 @@ func TestShard_SearchDuringDynamicUpgrade(t *testing.T) {
 			tt.configure(&cfg)
 
 			class := &models.Class{Class: className}
-			shd, idx := testShardWithSettings(t, ctx, class, cfg, false, true, true)
+			shd, idx := testShardWithSettings(t, ctx, class, cfg, false, true)
 			t.Cleanup(func() { shd.Shutdown(context.Background()) })
 
 			r := rand.New(rand.NewSource(1))
@@ -129,9 +129,9 @@ func TestShard_SearchDuringDynamicUpgrade(t *testing.T) {
 				}
 			}
 
-			q, ok := shd.GetVectorIndexQueue("")
+			q, releaseQueue, ok := shd.AcquireVectorIndexQueue("")
 			require.True(t, ok)
-			vectorIndex, ok := shd.GetVectorIndex("")
+			vectorIndex, releaseIndex, ok := shd.AcquireVectorIndex("")
 			require.True(t, ok)
 			upgradable, ok := vectorIndex.(interface{ IsUpgraded() bool })
 			require.True(t, ok)
@@ -143,6 +143,8 @@ func TestShard_SearchDuringDynamicUpgrade(t *testing.T) {
 			}, 300*time.Second, 100*time.Millisecond)
 			stop.Store(true)
 			wg.Wait()
+			releaseIndex()
+			releaseQueue()
 			require.True(t, upgraded, "the index must end up as a compressed hnsw")
 
 			if err := searchErr.Load(); err != nil {
