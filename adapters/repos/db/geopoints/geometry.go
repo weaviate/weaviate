@@ -113,6 +113,9 @@ type Circle struct {
 	boxes         []Box
 	innerDistance float32 // see ContainsBox
 	cosLat        float64 // precomputed as Distance computes it, so Contains matches it bit for bit
+	// the haversine term of the radius, with a band around it inside which
+	// only the full formula decides; see Contains
+	aBelow, aAbove float64
 }
 
 func NewCircle(lat, lon, distance float32) (*Circle, error) {
@@ -126,7 +129,22 @@ func NewCircle(lat, lon, distance float32) (*Circle, error) {
 	c := &Circle{Lat: lat, Lon: lon, Distance: distance}
 	c.cosLat = math.Cos(float64(lat * math.Pi / 180))
 	c.boxes, c.innerDistance = c.bounds()
+	c.aBelow, c.aAbove = c.haversineBand()
 	return c, nil
+}
+
+// haversineBand brackets the haversine term sin²(r/2) of the radius: a point
+// whose term is below the band is inside, above it outside, and only in
+// between does the rounding of the full formula decide. The band is a relative
+// 2^-16, far wider than the float32 roundings of Distance.
+func (c *Circle) haversineBand() (float64, float64) {
+	r := float64(c.Distance) / earthRadiusMeters
+	if math.IsInf(r, 1) || r >= math.Pi {
+		return 2, 2 // everything is inside
+	}
+	a := math.Pow(math.Sin(r/2), 2)
+	const band = 1.0 / (1 << 16)
+	return a * (1 - band), a * (1 + band)
 }
 
 // Contains rounds its inputs to float32, so the boxes must be wider than the
@@ -264,18 +282,34 @@ func (c *Circle) ContainsBox(b Box) bool {
 		c.distance(b.MaxLat, b.MaxLon) <= c.innerDistance
 }
 
-// Contains is Distance with the center's terms precomputed.
+// Contains decides as Distance would, bit for bit, but compares the haversine
+// term against the radius' first and finishes the formula only for points
+// within the band around the boundary.
 func (c *Circle) Contains(lat, lon float32) bool {
-	return c.distance(lat, lon) <= c.Distance
+	a := c.haversine(lat, lon)
+	if a < c.aBelow {
+		return true
+	}
+	if a > c.aAbove {
+		return false
+	}
+	return c.finish(a) <= c.Distance
 }
 
 func (c *Circle) distance(lat, lon float32) float32 {
+	return c.finish(c.haversine(lat, lon))
+}
+
+// haversine and finish are Distance split in two.
+func (c *Circle) haversine(lat, lon float32) float64 {
 	latBRadian := float64(lat * math.Pi / 180)
 	deltaLatRadian := float64(lat-c.Lat) * math.Pi / 180
 	deltaLonRadian := float64(lon-c.Lon) * math.Pi / 180
 
-	a := math.Sin(deltaLatRadian/2)*math.Sin(deltaLatRadian/2) +
+	return math.Sin(deltaLatRadian/2)*math.Sin(deltaLatRadian/2) +
 		c.cosLat*math.Cos(latBRadian)*math.Sin(deltaLonRadian/2)*math.Sin(deltaLonRadian/2)
+}
 
+func (c *Circle) finish(a float64) float32 {
 	return float32(earthRadiusMeters * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a)))
 }

@@ -13,11 +13,13 @@ package geopoints
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
+	"slices"
 )
 
 // MaxPointsPerLeaf is Lucene's BKD default: a leaf is read whole, so it trades
@@ -239,6 +241,9 @@ func (b *builder) split(lo, hi int) uint32 {
 	b.nodes = append(b.nodes, node{Box: boundingBox(b.points[lo:hi])})
 
 	if hi-lo <= MaxPointsPerLeaf {
+		// a leaf's doc IDs are stored sorted so a query can build its result
+		// from sorted runs instead of setting bits one at a time
+		slices.SortFunc(b.points[lo:hi], func(a, b Point) int { return cmp.Compare(a.DocID, b.DocID) })
 		b.nodes[idx].Kind = nodeKindLeaf
 		b.nodes[idx].A = uint32(lo)
 		b.nodes[idx].B = uint32(hi - lo)

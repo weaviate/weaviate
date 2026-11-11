@@ -13,11 +13,13 @@ package geopoints
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"math/rand"
+	"slices"
 	"sort"
 	"testing"
 
@@ -805,4 +807,63 @@ func TestBodyWriteToMatchesBuild(t *testing.T) {
 	body := &Body{Points: genPoints(rand.New(rand.NewSource(1)), 70_000)}
 	_, err := body.WriteTo(ctx, &bytes.Buffer{})
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+// TestLeavesSortedByDocID pins the layout collectLeaf relies on for its sorted
+// runs.
+func TestLeavesSortedByDocID(t *testing.T) {
+	points := genPoints(rand.New(rand.NewSource(13)), 60_000)
+	reader := mustReader(t, Build(points, nil))
+	stored, err := reader.Points()
+	require.NoError(t, err)
+	nodes, err := reader.src.read(reader.hdr.nodesOffset(), uint64(reader.hdr.nodeCount)*nodeSize)
+	require.NoError(t, err)
+
+	leaves := 0
+	for i := uint32(0); i < reader.hdr.nodeCount; i++ {
+		n := unmarshalNode(nodes[uint64(i)*nodeSize:])
+		if n.Kind != nodeKindLeaf {
+			continue
+		}
+		leaves++
+		leaf := stored[n.A : n.A+n.B]
+		require.True(t, slices.IsSortedFunc(leaf, func(a, b Point) int { return cmp.Compare(a.DocID, b.DocID) }),
+			"leaf %d is not sorted by doc ID", i)
+	}
+	require.Greater(t, leaves, 100)
+}
+
+// BenchmarkWithinRange queries one segment of a million clustered points.
+func BenchmarkWithinRange(b *testing.B) {
+	r := rand.New(rand.NewSource(1))
+	centers := make([][2]float32, 200)
+	for i := range centers {
+		centers[i] = [2]float32{float32(r.Float64()*140 - 70), float32(r.Float64()*360 - 180)}
+	}
+	points := make([]Point, 1_000_000)
+	for i := range points {
+		var lat, lon float32
+		if r.Intn(5) == 0 {
+			lat, lon = float32(r.Float64()*180-90), float32(r.Float64()*360-180)
+		} else {
+			c := centers[r.Intn(len(centers))]
+			lat, lon = c[0]+float32(r.NormFloat64()*0.5), c[1]+float32(r.NormFloat64()*0.5)
+		}
+		lat, lon = Canonical(lat, lon)
+		points[i] = Point{DocID: uint64(i), Lat: lat, Lon: lon}
+	}
+	reader, err := NewSegmentReader(Build(points, nil))
+	require.NoError(b, err)
+
+	for _, radius := range []float32{500, 5_000, 50_000, 500_000} {
+		b.Run(fmt.Sprintf("%vm", radius), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				c := centers[i%len(centers)]
+				circle, _ := NewCircle(c[0], c[1], radius)
+				if err := reader.WithinRange(context.Background(), circle, sroar.NewBitmap(), sroar.NewBitmap()); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
 }
