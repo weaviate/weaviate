@@ -114,6 +114,10 @@ func cleanupLegacyReassignBucket(bucket *lsmkv.Bucket) error {
 // IndexMetadataStore manages metadata for the index, such as dimensions and quantization data.
 type IndexMetadataStore struct {
 	bucket bucketRef
+
+	// centroidsBuilt caches the built flag once it is known to be set: the
+	// insert path checks it on every append.
+	centroidsBuilt atomic.Bool
 }
 
 func NewIndexMetadataStore(bucket bucketRef) *IndexMetadataStore {
@@ -257,10 +261,19 @@ func (i *IndexMetadataStore) SetCentroidsBuilt() error {
 	}
 	defer release()
 
-	return bucket.Put(i.key(centroidsBuiltKey), []byte{1})
+	err = bucket.Put(i.key(centroidsBuiltKey), []byte{1})
+	if err != nil {
+		return err
+	}
+	i.centroidsBuilt.Store(true)
+	return nil
 }
 
 func (i *IndexMetadataStore) CentroidsBuilt() (bool, error) {
+	if i.centroidsBuilt.Load() {
+		return true, nil
+	}
+
 	bucket, release, err := i.bucket.acquire()
 	if err != nil {
 		return false, err
@@ -271,7 +284,11 @@ func (i *IndexMetadataStore) CentroidsBuilt() (bool, error) {
 	if err != nil {
 		return false, errors.Wrap(err, "get centroids built flag")
 	}
-	return len(data) == 1 && data[0] == 1, nil
+	built := len(data) == 1 && data[0] == 1
+	if built {
+		i.centroidsBuilt.Store(true)
+	}
+	return built, nil
 }
 
 func (i *IndexMetadataStore) SetMuveraData(data *compression.MuveraData) error {
@@ -404,31 +421,32 @@ func (h *HFresh) recoverSinglePosting() (uint64, []float32, error) {
 // id and centroid are restored and its size counter, which only lives in
 // memory before the first split, is recounted from the posting on disk.
 func (h *HFresh) restoreCentroids() error {
-	built := h.Centroids.Built()
-	if !built {
-		flag, err := h.IndexMetadata.CentroidsBuilt()
+	built, err := h.IndexMetadata.CentroidsBuilt()
+	if err != nil {
+		return err
+	}
+	id, centroid, err := h.IndexMetadata.GetSinglePosting()
+	if err != nil {
+		return err
+	}
+	if !built && id == 0 && h.centroidCommitLogExists() {
+		// written by a version that always builds the graph
+		err = h.IndexMetadata.SetCentroidsBuilt()
 		if err != nil {
-			return err
+			return errors.Wrap(err, "persist centroid index built flag")
 		}
-		built = flag
+		built = true
 	}
 
-	var (
-		id       uint64
-		centroid []float32
-		err      error
-	)
-	if !built {
-		id, centroid, err = h.IndexMetadata.GetSinglePosting()
+	if built {
+		err = h.Centroids.Build()
 		if err != nil {
 			return err
 		}
-		// written before the single posting was recorded: a commit log means
-		// the graph was built
-		built = id == 0 && h.centroidCommitLogExists()
-	}
-	if built {
-		return h.Centroids.Build()
+		if id == 0 {
+			return nil
+		}
+		return h.repairSinglePostingTransition(id, centroid)
 	}
 
 	if id == 0 {
@@ -447,6 +465,27 @@ func (h *HFresh) restoreCentroids() error {
 		return errors.Wrapf(err, "read single posting %d", id)
 	}
 	return h.setPostingVectorIDs(h.ctx, id, posting)
+}
+
+// repairSinglePostingTransition finishes a transition a crash cut short. The
+// built flag lives in the store, which reaches disk before the commit log, so
+// the graph can lack the seed centroid and the posting map its entry.
+func (h *HFresh) repairSinglePostingTransition(id uint64, centroid []float32) error {
+	if !h.Centroids.Exists(id) {
+		posting, err := h.PostingStore.Get(h.ctx, id)
+		if err != nil {
+			return errors.Wrapf(err, "read single posting %d", id)
+		}
+		if len(posting) == 0 {
+			return nil
+		}
+		err = h.Centroids.Insert(id, &Centroid{Uncompressed: centroid})
+		if err != nil {
+			return errors.Wrapf(err, "restore seed centroid %d", id)
+		}
+	}
+
+	return h.doAnalyze(h.ctx, id)
 }
 
 // restoreDimensions restores dimension-dependent components from persisted

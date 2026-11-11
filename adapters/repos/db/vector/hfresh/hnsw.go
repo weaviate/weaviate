@@ -93,10 +93,9 @@ type CentroidIndex struct {
 	buildMu sync.Mutex
 }
 
-// NewCentroidIndex prepares the centroid index. With build set the graph is
-// created right away; otherwise Build creates it once the single posting
-// crosses the bootstrap threshold.
-func NewCentroidIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, build bool) (*CentroidIndex, error) {
+// NewCentroidIndex prepares the centroid index in single-posting mode; Build
+// switches it to the graph.
+func NewCentroidIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config) (*CentroidIndex, error) {
 	index := CentroidIndex{
 		metrics: metrics,
 		store:   store,
@@ -109,13 +108,6 @@ func NewCentroidIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, build b
 	}
 	cfg.Centroids.HNSWConfig.WaitForCachePrefill = true
 	cfg.Centroids.HNSWConfig.AcornFilterRatio = math.MaxFloat64
-
-	if build {
-		err := index.Build()
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	return &index, nil
 }

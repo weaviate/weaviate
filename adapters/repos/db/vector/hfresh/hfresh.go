@@ -198,7 +198,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		}
 	}
 
-	h.Centroids, err = NewCentroidIndex(metrics, store, cfg, cfg.BootstrapThreshold == 0)
+	h.Centroids, err = NewCentroidIndex(metrics, store, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -217,6 +217,14 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 
 	if err = h.restoreMetadata(); err != nil {
 		return nil, errors.Wrapf(err, "unable to restore metadata from previous run")
+	}
+	// after the restore, so a single posting written under another threshold
+	// moves into the graph instead of being shadowed by an empty one
+	if h.bootstrapThreshold == 0 {
+		err = h.leaveSinglePostingMode(h.ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	h.taskQueue.Register()
