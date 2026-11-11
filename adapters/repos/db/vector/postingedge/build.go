@@ -63,11 +63,22 @@ func (ix *Index) build(ctx context.Context, input *pendingVectors, uc UserConfig
 	if err != nil {
 		return nil, err
 	}
+	// The postings hold the codes the scan reads: those of the sidecar, or
+	// shorter ones of their own over the same quantizer.
+	var scanQuantizer codec
+	inPostings := quantizer
+	if uc.ScanCodeBits != 0 {
+		scanQuantizer, err = quantizer.withBits(uc.ScanCodeBits)
+		if err != nil {
+			return nil, errors.Wrap(err, "scan codes")
+		}
+		inPostings = scanQuantizer
+	}
 	trainTime := time.Since(stage)
 
 	// The posting size is a byte budget, so the number of postings follows
-	// from the code size.
-	codeBytes := 8 * len(quantizer.Encode(vectors[0]))
+	// from the size of the codes the postings hold.
+	codeBytes := 8 * len(inPostings.Encode(vectors[0]))
 	target := targetPostingSize(uc.TargetPostingSize, codeBytes)
 	postings := int(math.Ceil(float64(n) / float64(target)))
 
@@ -96,6 +107,13 @@ func (ix *Index) build(ctx context.Context, input *pendingVectors, uc UserConfig
 		return nil, errors.Wrap(err, "encode vectors")
 	}
 	side := &sidecar{codeWords: codeWords, codes: codes, postingOf: postingOfSlots(layout.start)}
+	scanCodes, scanWords := codes, codeWords
+	if scanQuantizer != nil {
+		scanCodes, scanWords, err = encode(ctx, ix.logger, vectors, layout, scanQuantizer)
+		if err != nil {
+			return nil, errors.Wrap(err, "encode vectors for the scan")
+		}
+	}
 	stats.EncodeTime = trainTime + time.Since(stage)
 	ix.logStage("encode", stats.EncodeTime, nil)
 
@@ -134,14 +152,15 @@ func (ix *Index) build(ctx context.Context, input *pendingVectors, uc UserConfig
 	ix.logStage("centroid_graph", stats.CentroidGraphTime, nil)
 
 	st := &state{
-		dims:      dims,
-		quantizer: quantizer,
-		centroids: graph,
+		dims:          dims,
+		quantizer:     quantizer,
+		scanQuantizer: scanQuantizer,
+		centroids:     graph,
 		postings: &postingStore{
-			codeWords: codeWords,
+			codeWords: scanWords,
 			start:     layout.start,
 			docIDs:    docIDs,
-			codes:     codes,
+			codes:     scanCodes,
 			edgeStart: edgeStart,
 			edges:     edges,
 		},

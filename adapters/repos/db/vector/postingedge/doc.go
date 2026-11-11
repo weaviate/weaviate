@@ -48,4 +48,8 @@
 // error rather than silently doing nothing. The posting store and the sidecar
 // are separate types over one shared code array so that a disk-resident
 // version can keep the postings on disk and only the sidecar in memory.
+// UserConfig.ScanCodeBits splits that array in two, a short code in the
+// postings for the scan and the code of CodeBits in the sidecar: the layout
+// such a version would have, here at the price of two codes per vector in
+// memory.
 package postingedge

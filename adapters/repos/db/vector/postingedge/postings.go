@@ -65,7 +65,10 @@ type postingStore struct {
 	codeWords int
 	start     []uint32 // posting p owns the slots [start[p], start[p+1])
 	docIDs    []uint64 // by slot
-	codes     []uint64 // by slot, codeWords each; the same array the sidecar serves
+	// codes holds the codes the scan reads, by slot, codeWords each. It is
+	// the array the sidecar serves, unless the postings have codes of their
+	// own (UserConfig.ScanCodeBits).
+	codes     []uint64
 	edgeStart []uint32 // the edges of slot s are edges[edgeStart[s]:edgeStart[s+1]]
 	edges     []uint32 // endpoint slots, nearest first per source
 }
@@ -119,9 +122,10 @@ func (s *postingStore) edgesOf(slot uint32) []uint32 {
 // the endpoint of an edge, and know which posting to load for it, without
 // touching the endpoint's posting.
 //
-// In this version the sidecar and the posting store share one code array. A
-// disk-resident version stores the codes twice: inline in the postings on
-// disk and here in memory.
+// In this version the sidecar and the posting store share one code array,
+// unless UserConfig.ScanCodeBits gives the postings shorter codes of their
+// own. A disk-resident version stores the codes twice: inline in the postings
+// on disk and here in memory.
 type sidecar struct {
 	codeWords int
 	codes     []uint64 // by slot, codeWords each
@@ -192,11 +196,17 @@ func (s *sidecar) hint(slot uint32) (addr uintptr, size int) {
 
 // codec turns vectors into codes, and a query into an estimator of its
 // distance to a code. One codec serves the whole index: the posting scan, the
-// ranking of edge endpoints and the edge builder all see the same codes.
+// ranking of edge endpoints and the edge builder all see the same codes. The
+// exception is an index whose postings have codes of their own
+// (UserConfig.ScanCodeBits): a second codec over the same quantizer then
+// serves the scan.
 type codec interface {
 	Encode(vector []float32) []uint64
 	NewEstimator(query []float32) codeEstimator
 	Stats() compressionhelpers.CompressionStats
+	// withBits returns the codec over the same quantizer whose codes keep
+	// only the first bits sign bits.
+	withBits(bits int) (codec, error)
 }
 
 // fullCodec is the centered 1-bit quantizer as it is: one sign bit per
@@ -209,11 +219,23 @@ func (c fullCodec) NewEstimator(query []float32) codeEstimator {
 	return c.NewDistancer(query)
 }
 
+func (c fullCodec) withBits(bits int) (codec, error) {
+	return newCappedCodec(c.CenteredBinaryRotationalQuantizer, bits)
+}
+
 // cappedCodec keeps only the first sign bits of every code. The estimates
 // stay unbiased and get noisier; the codes get smaller.
 type cappedCodec struct {
-	capped *compressionhelpers.CappedCenteredBinaryRQ
-	stats  compressionhelpers.CompressionStats
+	quantizer *compressionhelpers.CenteredBinaryRotationalQuantizer
+	capped    *compressionhelpers.CappedCenteredBinaryRQ
+}
+
+func newCappedCodec(quantizer *compressionhelpers.CenteredBinaryRotationalQuantizer, bits int) (codec, error) {
+	capped, err := quantizer.Capped(bits)
+	if err != nil {
+		return nil, errors.Wrap(err, "cap the codes")
+	}
+	return cappedCodec{quantizer: quantizer, capped: capped}, nil
 }
 
 func (c cappedCodec) Encode(vector []float32) []uint64 {
@@ -225,7 +247,11 @@ func (c cappedCodec) NewEstimator(query []float32) codeEstimator {
 }
 
 func (c cappedCodec) Stats() compressionhelpers.CompressionStats {
-	return c.stats
+	return c.quantizer.Stats()
+}
+
+func (c cappedCodec) withBits(bits int) (codec, error) {
+	return newCappedCodec(c.quantizer, bits)
 }
 
 // trainQuantizer fits the centered 1-bit quantizer: the mean is taken over an
@@ -249,11 +275,7 @@ func trainQuantizer(vectors [][]float32, dims, limit, codeBits int, cfg *Config)
 	if codeBits == 0 {
 		return fullCodec{quantizer}, nil
 	}
-	capped, err := quantizer.Capped(codeBits)
-	if err != nil {
-		return nil, errors.Wrap(err, "cap the codes")
-	}
-	return cappedCodec{capped: capped, stats: quantizer.Stats()}, nil
+	return newCappedCodec(quantizer, codeBits)
 }
 
 // encode writes the code of every vector into one array ordered by slot.

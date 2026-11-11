@@ -138,6 +138,52 @@ func TestNewValidatesItsConfig(t *testing.T) {
 			wantErr: "codeBits",
 		},
 		{
+			name: "scan codes shorter than full codes",
+			cfg:  valid,
+			uc:   func() UserConfig { u := NewDefaultUserConfig(); u.ScanCodeBits = 64; return u },
+		},
+		{
+			name: "scan codes shorter than capped codes",
+			cfg:  valid,
+			uc: func() UserConfig {
+				u := NewDefaultUserConfig()
+				u.CodeBits, u.ScanCodeBits = 192, 128
+				return u
+			},
+		},
+		{
+			name:    "scan code bits that are not whole words",
+			cfg:     valid,
+			uc:      func() UserConfig { u := NewDefaultUserConfig(); u.ScanCodeBits = 100; return u },
+			wantErr: "scanCodeBits",
+		},
+		{
+			name:    "negative scan code bits",
+			cfg:     valid,
+			uc:      func() UserConfig { u := NewDefaultUserConfig(); u.ScanCodeBits = -64; return u },
+			wantErr: "scanCodeBits",
+		},
+		{
+			name: "scan codes as wide as the capped codes",
+			cfg:  valid,
+			uc: func() UserConfig {
+				u := NewDefaultUserConfig()
+				u.CodeBits, u.ScanCodeBits = 128, 128
+				return u
+			},
+			wantErr: "scanCodeBits (128) must be smaller than codeBits (128)",
+		},
+		{
+			name: "scan codes wider than the capped codes",
+			cfg:  valid,
+			uc: func() UserConfig {
+				u := NewDefaultUserConfig()
+				u.CodeBits, u.ScanCodeBits = 128, 256
+				return u
+			},
+			wantErr: "scanCodeBits (256) must be smaller than codeBits (128)",
+		},
+		{
 			name:    "a negative source margin",
 			cfg:     valid,
 			uc:      func() UserConfig { u := NewDefaultUserConfig(); u.SourceMargin = -0.1; return u },
@@ -563,6 +609,18 @@ func TestUpdateUserConfig(t *testing.T) {
 			wantErr: "cannot change once the index is built",
 		},
 		{
+			name:    "the scan code width cannot change on a built index",
+			built:   true,
+			updated: func() schemaConfig.VectorIndexConfig { u := base; u.ScanCodeBits = 64; return u },
+			wantErr: "cannot change once the index is built",
+		},
+		{
+			name:    "the scan code width can change before the build",
+			built:   false,
+			updated: func() schemaConfig.VectorIndexConfig { u := base; u.ScanCodeBits = 64; return u },
+			wantEF:  int64(base.EF), wantLoad: int64(base.LoadBatch),
+		},
+		{
 			name:    "the distance never changes",
 			built:   false,
 			updated: func() schemaConfig.VectorIndexConfig { u := base; u.Distance = "cosine"; return u },
@@ -668,6 +726,7 @@ func TestMemoryStatsAddUp(t *testing.T) {
 	// 64 dimensions are padded to the 256 bit minimum: 4 words of bits and
 	// one of header.
 	assert.Equal(t, int64(2000*5*8), memory.CodeBytes)
+	assert.Zero(t, memory.ScanCodeBytes, "the scan reads the codes of the sidecar")
 	assert.Equal(t, int64(2000*8+(memory.Postings+1)*4+2000*4), memory.PostingBytes)
 	assert.Equal(t, int64(memory.Edges*4+2001*4), memory.EdgeBytes)
 	assert.Equal(t, int64(memory.Postings*64*4), memory.CentroidVectorBytes)
@@ -778,25 +837,128 @@ func TestCappedCodes(t *testing.T) {
 }
 
 func TestCodeBitsWiderThanTheCodeFailTheBuild(t *testing.T) {
-	ctx := context.Background()
 	// 24 dimensions are padded to the minimum code of 256 bits.
 	vectors := clusteredVectors(200, 24, 3, 511)
-	uc := smallConfig()
-	uc.Distance = "l2-squared"
-	uc.CodeBits = 512
 
-	index, err := New(testConfig(t, vectors, 0, distancer.NewL2SquaredProvider()), uc)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, index.Shutdown(ctx)) })
-	require.NoError(t, index.AddBatch(ctx, sequentialIDs(len(vectors), 0), vectors))
-	require.ErrorContains(t, index.Build(ctx), "cap the codes")
+	tests := []struct {
+		name          string
+		tooWide       func(*UserConfig)
+		fits          func(*UserConfig)
+		wantErr       string
+		wantScanWords int
+		wantSideWords int
+	}{
+		{
+			name:          "the codes of the index",
+			tooWide:       func(u *UserConfig) { u.CodeBits = 512 },
+			fits:          func(u *UserConfig) { u.CodeBits = 128 },
+			wantErr:       "cap the codes",
+			wantScanWords: 3, wantSideWords: 3,
+		},
+		{
+			name:          "the scan codes",
+			tooWide:       func(u *UserConfig) { u.ScanCodeBits = 512 },
+			fits:          func(u *UserConfig) { u.ScanCodeBits = 64 },
+			wantErr:       "scan codes: cap the codes",
+			wantScanWords: 2, wantSideWords: 5,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			uc := smallConfig()
+			uc.Distance = "l2-squared"
+			tt.tooWide(&uc)
 
-	// The failed build left the vectors in place: with a width that fits,
-	// it builds.
-	uc.CodeBits = 128
-	require.NoError(t, index.UpdateUserConfig(uc, func() {}))
-	require.NoError(t, index.Build(ctx))
-	assert.Equal(t, 3, index.state.Load().postings.codeWords)
+			index, err := New(testConfig(t, vectors, 0, distancer.NewL2SquaredProvider()), uc)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, index.Shutdown(ctx)) })
+			require.NoError(t, index.AddBatch(ctx, sequentialIDs(len(vectors), 0), vectors))
+			require.ErrorContains(t, index.Build(ctx), tt.wantErr)
+
+			// The failed build left the vectors in place: with a width that
+			// fits, it builds.
+			tt.fits(&uc)
+			require.NoError(t, index.UpdateUserConfig(uc, func() {}))
+			require.NoError(t, index.Build(ctx))
+			st := index.state.Load()
+			assert.Equal(t, tt.wantScanWords, st.postings.codeWords)
+			assert.Equal(t, tt.wantSideWords, st.side.codeWords)
+		})
+	}
+}
+
+// Scan codes of their own split the code array in two: short codes in the
+// postings, the codes of CodeBits in the sidecar, each from its own codec over
+// one quantizer. Nothing else about the structure changes, and with
+// everything loaded and rescored the result is still exact.
+func TestScanCodes(t *testing.T) {
+	const dims, n, k = 512, 1500, 10
+	provider := distancer.NewCosineDistanceProvider()
+	all := clusteredVectors(n+30, dims, 1, 501)
+	vectors, queries := all[:n], all[n:]
+	truth := normalizedCopy(vectors)
+
+	tests := []struct {
+		name          string
+		codeBits      int
+		scanCodeBits  int
+		wantScanWords int
+		wantSideWords int
+	}{
+		{name: "short scan codes, full sidecar codes", scanCodeBits: 128, wantScanWords: 3, wantSideWords: 9},
+		{name: "short scan codes, capped sidecar codes", codeBits: 256, scanCodeBits: 64, wantScanWords: 2, wantSideWords: 5},
+		{name: "scan codes at the full width", scanCodeBits: dims, wantScanWords: 9, wantSideWords: 9},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uc := smallConfig()
+			uc.CodeBits, uc.ScanCodeBits = tt.codeBits, tt.scanCodeBits
+			uc.EF = 4 * k
+			index := buildTestIndex(t, vectors, provider, uc)
+			st := index.state.Load()
+			store, side := st.postings, st.side
+
+			require.Equal(t, tt.wantScanWords, store.codeWords)
+			require.Equal(t, tt.wantSideWords, side.codeWords)
+			require.Len(t, store.codes, n*tt.wantScanWords)
+			require.Len(t, side.codes, n*tt.wantSideWords)
+			require.NotSame(t, &store.codes[0], &side.codes[0], "the postings have a code array of their own")
+
+			memory, ok := index.MemoryStats()
+			require.True(t, ok)
+			assert.Equal(t, int64(n*tt.wantSideWords*8), memory.CodeBytes)
+			assert.Equal(t, int64(n*tt.wantScanWords*8), memory.ScanCodeBytes)
+			assert.Equal(t, memory.PostingBytes+memory.CodeBytes+memory.ScanCodeBytes+memory.EdgeBytes+
+				memory.CentroidVectorBytes, memory.Total())
+
+			for slot, docID := range store.docIDs {
+				require.Equal(t, st.quantizer.Encode(truth[docID]), side.code(uint32(slot)))
+				require.Equal(t, st.scanQuantizer.Encode(truth[docID]),
+					store.codes[slot*store.codeWords:(slot+1)*store.codeWords])
+			}
+
+			// Through the edges, scanning with one code and ranking the
+			// endpoints with the other: picking at random would find 0.007.
+			recall := recallAt(t, index, truth, normalizedCopy(queries), k, provider)
+			t.Logf("%s: recall@%d %.3f", tt.name, k, recall)
+			assert.Greater(t, recall, 0.15)
+
+			// With every posting loaded and every vector rescored, the
+			// codes decide nothing.
+			exhaustive := uc
+			exhaustive.EntryPostings, exhaustive.RescoreLimit = n, n
+			require.NoError(t, index.UpdateUserConfig(exhaustive, func() {}))
+			for _, query := range queries {
+				ids, _, err := index.SearchByVector(context.Background(), query, k, nil)
+				require.NoError(t, err)
+				want := exactNearest(t, truth, distancer.Normalize(query), k, -1, provider)
+				for i, w := range want {
+					require.Equal(t, w.id, ids[i])
+				}
+			}
+		})
+	}
 }
 
 func TestShutdownAndDrop(t *testing.T) {

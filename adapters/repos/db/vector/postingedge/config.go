@@ -83,8 +83,21 @@ type UserConfig struct {
 	// the scan, the ranking of endpoints and the edge builder alike. 0
 	// keeps one bit per dimension, the full code.
 	CodeBits int `json:"codeBits"`
+	// ScanCodeBits gives the postings codes of their own for the scan, capped
+	// to this many sign bits, a multiple of 64. The ranking of endpoints and
+	// the edge builder keep the codes of CodeBits, which then live in the
+	// sidecar only: the index holds two codes per vector, so this buys
+	// shorter scans and not memory. It is the layout of a disk-resident
+	// version, where the postings are what is read from disk. 0 scans the
+	// codes of CodeBits, held once.
+	//
+	// EF does not mean the same with scan codes: the stop threshold is the
+	// EF-th best scan estimate, and scan estimates are noisier than the
+	// sidecar estimates the postings are ranked by. The search stops earlier
+	// at the same EF, so the same work takes a larger one.
+	ScanCodeBits int `json:"scanCodeBits"`
 	// Edges, BuildProbe, RescueLimit and TrainingLimit shape the build and
-	// cannot change once the index is built, like the two fields above.
+	// cannot change once the index is built, like the three fields above.
 	Edges         int `json:"edges"`
 	BuildProbe    int `json:"buildProbe"`
 	RescueLimit   int `json:"rescueLimit"`
@@ -142,6 +155,14 @@ func (u UserConfig) Validate() error {
 	}
 	if u.CodeBits < 0 || u.CodeBits%64 != 0 {
 		ec.Addf("codeBits must be 0 or a positive multiple of 64, got %d", u.CodeBits)
+	}
+	if u.ScanCodeBits < 0 || u.ScanCodeBits%64 != 0 {
+		ec.Addf("scanCodeBits must be 0 or a positive multiple of 64, got %d", u.ScanCodeBits)
+	}
+	// Against full codes the width is only known at build time, which then
+	// rejects scan codes wider than the code.
+	if u.CodeBits > 0 && u.ScanCodeBits >= u.CodeBits {
+		ec.Addf("scanCodeBits (%d) must be smaller than codeBits (%d)", u.ScanCodeBits, u.CodeBits)
 	}
 	if u.Edges < 1 {
 		ec.Addf("edges must be at least 1, got %d", u.Edges)

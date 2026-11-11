@@ -84,14 +84,19 @@ type pendingVectors struct {
 
 // state is a built index.
 type state struct {
-	dims      int
+	dims int
+	// quantizer is the codec of the sidecar codes, which the edge builder
+	// used too.
 	quantizer codec
-	centroids *centroidIndex
-	postings  *postingStore
-	side      *sidecar
-	visited   *visited.Pool
-	scratch   sync.Pool
-	build     BuildStats
+	// scanQuantizer is the codec of the codes in the postings when they have
+	// codes of their own, nil when they share those of the sidecar.
+	scanQuantizer codec
+	centroids     *centroidIndex
+	postings      *postingStore
+	side          *sidecar
+	visited       *visited.Pool
+	scratch       sync.Pool
+	build         BuildStats
 }
 
 // New creates an empty index.
@@ -315,8 +320,8 @@ func (ix *Index) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callba
 		next.EntryPostings, next.LoadBatch = built.EntryPostings, built.LoadBatch
 		next.SourceMargin = built.SourceMargin
 		if next != built {
-			return errors.New("targetPostingSize, codeBits, edges, buildProbe, rescueLimit and " +
-				"trainingLimit cannot change once the index is built")
+			return errors.New("targetPostingSize, codeBits, scanCodeBits, edges, buildProbe, " +
+				"rescueLimit and trainingLimit cannot change once the index is built")
 		}
 	}
 
@@ -462,13 +467,17 @@ func (st *state) memoryStats() MemoryStats {
 	for _, vec := range st.centroids.vectors {
 		centroidBytes += int64(len(vec)) * 4
 	}
-	return MemoryStats{
+	stats := MemoryStats{
 		Vectors:             p.vectors(),
 		Postings:            p.postings(),
 		Edges:               len(p.edges),
 		PostingBytes:        int64(len(p.docIDs))*8 + int64(len(p.start))*4 + int64(len(st.side.postingOf))*4,
-		CodeBytes:           int64(len(p.codes)) * 8,
+		CodeBytes:           int64(len(st.side.codes)) * 8,
 		EdgeBytes:           int64(len(p.edges))*4 + int64(len(p.edgeStart))*4,
 		CentroidVectorBytes: centroidBytes,
 	}
+	if st.scanQuantizer != nil {
+		stats.ScanCodeBytes = int64(len(p.codes)) * 8
+	}
+	return stats
 }

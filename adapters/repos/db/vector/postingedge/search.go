@@ -187,14 +187,7 @@ func (ix *Index) search(ctx context.Context, vector []float32, k int, allow help
 		sc.stop.reset(ef)
 		stop = &sc.stop
 	}
-	search := postingSearch{
-		st:        st,
-		sc:        sc,
-		estimator: st.quantizer.NewEstimator(query),
-		stop:      stop,
-		margin:    margin,
-		stats:     stats,
-	}
+	search := st.newPostingSearch(sc, query, stop, margin, stats)
 
 	var clock time.Time
 	if stats != nil {
@@ -283,12 +276,37 @@ func topResults(sorted []scored, k int) ([]uint64, []float32, error) {
 
 // postingSearch is the state of one search while it loads postings.
 type postingSearch struct {
-	st        *state
-	sc        *searchScratch
+	st *state
+	sc *searchScratch
+	// scan estimates the distance to the members of a posting from the codes
+	// in the posting, estimator the distance to edge endpoints from their
+	// sidecar codes. They are one and the same unless the postings have
+	// codes of their own.
+	scan      codeEstimator
 	estimator codeEstimator
 	stop      *topK
 	margin    float32 // source margin, 0 for none
 	stats     *SearchStats
+}
+
+// newPostingSearch prepares the search of one query. With codes of their own
+// in the postings the query is encoded twice, once per codec.
+func (st *state) newPostingSearch(sc *searchScratch, query []float32, stop *topK, margin float32,
+	stats *SearchStats,
+) postingSearch {
+	search := postingSearch{
+		st:        st,
+		sc:        sc,
+		estimator: st.quantizer.NewEstimator(query),
+		stop:      stop,
+		margin:    margin,
+		stats:     stats,
+	}
+	search.scan = search.estimator
+	if st.scanQuantizer != nil {
+		search.scan = st.scanQuantizer.NewEstimator(query)
+	}
+	return search
 }
 
 // sourceCut is the estimate beyond which a scanned vector is too far from
@@ -317,7 +335,7 @@ func (s *postingSearch) load(p uint32) error {
 	separateStop := s.stop != &sc.pool
 	sc.memberDist = sc.memberDist[:0]
 	for i, docID := range post.docIDs {
-		dist, err := s.estimator.Distance(post.codes[i*words : (i+1)*words])
+		dist, err := s.scan.Distance(post.codes[i*words : (i+1)*words])
 		if err != nil {
 			return errors.Wrapf(err, "estimate distance to doc %d", docID)
 		}

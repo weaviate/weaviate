@@ -44,9 +44,14 @@ type MemoryStats struct {
 	// PostingBytes covers the doc ids of the posting members, the posting
 	// offsets and the slot -> posting directory.
 	PostingBytes int64
-	// CodeBytes covers the centered 1-bit RQ codes, held once and served to
-	// both the posting scans and the sidecar lookups.
+	// CodeBytes covers the centered 1-bit RQ codes of the sidecar. They are
+	// held once and served to the posting scans too, unless ScanCodeBytes
+	// says the postings have their own.
 	CodeBytes int64
+	// ScanCodeBytes covers the codes the postings hold for the scan when
+	// they have shorter ones of their own (UserConfig.ScanCodeBits), on top
+	// of CodeBytes. It is 0 when the scan reads the codes of the sidecar.
+	ScanCodeBytes int64
 	// EdgeBytes covers the edge endpoints and the per-vector edge offsets.
 	EdgeBytes int64
 	// CentroidVectorBytes covers the full-precision centroid vectors.
@@ -55,7 +60,7 @@ type MemoryStats struct {
 
 // Total is the sum of all components.
 func (m MemoryStats) Total() int64 {
-	return m.PostingBytes + m.CodeBytes + m.EdgeBytes + m.CentroidVectorBytes
+	return m.PostingBytes + m.CodeBytes + m.ScanCodeBytes + m.EdgeBytes + m.CentroidVectorBytes
 }
 
 // SearchStats describes the work of one search.
