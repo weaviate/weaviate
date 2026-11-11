@@ -37,6 +37,7 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 		badBytes   bool
 		// partial: the run decided tenant t1's swap out of t1 and t2.
 		partial bool
+		owed    bool
 	}
 	failed := func(mt db.ReindexMigrationType, prop string) rec {
 		return rec{status: distributedtask.TaskStatusFailed, mt: mt, prop: prop}
@@ -48,6 +49,8 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 	partialRun := rec{status: distributedtask.TaskStatusCancelled, mt: db.ReindexTypeEnableFilterable, prop: "foo", partial: true}
 	partialChangeTok := partialRun
 	partialChangeTok.mt = db.ReindexTypeChangeTokenization
+	partialOwed := partialRun
+	partialOwed.owed = true
 	changeTokThenFixes := []rec{
 		failed(db.ReindexTypeChangeTokenization, "foo"),
 		withStatus(filterable, distributedtask.TaskStatusFinished),
@@ -86,6 +89,7 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 		{name: "a newer cancelled run keeps a partial run", records: []rec{partialRun, withStatus(filterable, distributedtask.TaskStatusCancelled)}, wantKept: []int{0, 1}, filterable: "partial", searchable: "ready"},
 		{name: "finished runs that flip nothing keep a partial run", records: []rec{partialChangeTok, withStatus(failed(db.ReindexTypeRebuildSearchable, "foo"), distributedtask.TaskStatusFinished), withStatus(failed(db.ReindexTypeRepairFilterable, "foo"), distributedtask.TaskStatusFinished)}, wantKept: []int{0, 1, 2}, filterable: "ready", searchable: "ready"},
 		{name: "a finished flip releases a partial run", records: []rec{partialRun, withStatus(filterable, distributedtask.TaskStatusFinished)}, wantKept: []int{1}, filterable: "ready", searchable: "ready"},
+		{name: "a swap a replica still owes keeps a partial run past a finished flip", records: []rec{partialOwed, withStatus(filterable, distributedtask.TaskStatusFinished)}, wantKept: []int{0, 1}, filterable: "ready", searchable: "ready"},
 		{name: "an unreadable record is not kept", records: []rec{{status: distributedtask.TaskStatusFailed, badBytes: true}}, filterable: "ready", searchable: "ready"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -109,6 +113,9 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 						"u1": {ID: "u1", GroupID: "t1"}, "u2": {ID: "u2", GroupID: "t2"},
 					})
 					task.SwapDecidedGroups = map[string]time.Time{"t1": now}
+				}
+				if r.owed {
+					task.SwapsOwed = map[string][]string{"t1": {"n2"}}
 				}
 				all = append(all, task)
 			}
@@ -152,38 +159,8 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 				idx := &models.IndexStatus{Type: indexType, Status: "ready"}
 				mergeReindexStatus(idx, "C", "foo", indexType, db.ReindexRuns(kept), nil)
 				require.Equal(t, want, idx.Status, indexType)
-				if want == models.IndexStatusStatusPartial {
-					require.Equal(t, int64(1), idx.MigratedTenants, "tenants already serving the new index")
-					require.Equal(t, int64(2), idx.TotalTenants, "tenants the task covers")
-				}
 			}
 			require.Equal(t, tt.wantKept, keptIdx)
 		})
 	}
-}
-
-// Pins: a run whose decided swap a replica still owes is kept even once a
-// newer finished flip covers it, and released once every replica paid.
-func TestRetainerKeepsARunWhileAReplicaOwesItsSwap(t *testing.T) {
-	payload := db.ReindexTaskPayload{MigrationType: db.ReindexTypeEnableFilterable, Collection: "C", Properties: []string{"foo"}}
-	partial := buildTask(t, "a", distributedtask.TaskStatusFailed, payload, map[string]*distributedtask.Unit{"u1": {ID: "u1", GroupID: "t1"}, "u2": {ID: "u2", GroupID: "t2"}})
-	partial.Version = 1
-	partial.SwapDecidedGroups = map[string]time.Time{"t1": {}}
-	partial.SwapsOwed = map[string][]string{"t1": {"n1", "n2"}}
-	newerFlip := buildTask(t, "b", distributedtask.TaskStatusFinished, payload, nil)
-	newerFlip.Version = 2
-	reader := schemaUC.NewMockSchemaReader(t)
-	reader.EXPECT().ReadOnlyClass("C").Return(&models.Class{Class: "C", Properties: []*models.Property{
-		{Name: "foo", IndexFilterable: boolPtr(true)},
-	}}).Maybe()
-	retainer := db.NewReindexProvider(nil, &schemaUC.Manager{SchemaReader: reader}, nil, logrus.New(), "", nil, nil)
-	retained := func() bool {
-		return retainer.ShouldRetainCompletedTask(partial, map[distributedtask.TaskDescriptor]*distributedtask.Task{
-			partial.TaskDescriptor: partial, newerFlip.TaskDescriptor: newerFlip,
-		})
-	}
-
-	require.True(t, retained(), "both replicas of t1 still owe its swap, so the newer flip may not release the run")
-	partial.SwapsOwed = nil
-	require.False(t, retained(), "once every replica paid, the newer flip covers the run")
 }

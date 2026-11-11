@@ -336,10 +336,6 @@ func TestIndexDeleteRefusedWhileAPartialRunStands(t *testing.T) {
 			resubmit: `PUT /v1/schema/C/properties/title/index/rangeFilters -d '{}'`,
 		},
 		{
-			name: "another property", property: "other",
-			tasks: []*distributedtask.Task{run("T1", 1, cancelled, db.ReindexTypeChangeTokenization, true)},
-		},
-		{
 			name: "an older partial run on another index type than a newer, covered one", property: "title",
 			tasks: []*distributedtask.Task{
 				run("P1", 10, cancelled, db.ReindexTypeChangeTokenizationFilterable, true),

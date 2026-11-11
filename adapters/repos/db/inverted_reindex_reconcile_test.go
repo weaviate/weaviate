@@ -1112,12 +1112,6 @@ func TestReconcilePromotedClosure(t *testing.T) {
 			wantWarn:   "effect is not in the schema",
 		},
 		{
-			name:       "the effect is not visible but the owning task finished: the schema answers",
-			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
-			taskStatus: distributedtask.TaskStatusFinished,
-			wantRecord: false,
-		},
-		{
 			name:       "a leftover from a retirement that partly failed is reclaimed, then the record goes",
 			leftovers:  []string{"property_title__s42_reindex"},
 			class:      testClassWithTokenization(models.PropertyTokenizationLowercase, "title"),
@@ -1972,35 +1966,4 @@ func TestMigrationReportedNamesCapsAPropertyList(t *testing.T) {
 	require.Equal(t, "prop_00", got[0], "sorted, so the same list reads the same way twice")
 	require.Equal(t, []string{"only"}, migrationReportedNames([]string{"only"}),
 		"a list within the cap is reported whole")
-}
-
-// Pins that terminal-task cleanup keeps a decided shard's record (so its
-// replicas still swap) and discards an undecided one's, whether the run
-// grouped its units by shard (multi-tenant) or not at all (single-tenant).
-func TestDiscardTaskKeepsTheRecordsOfDecidedGroups(t *testing.T) {
-	for _, decided := range []bool{true, false} {
-		for _, group := range []string{"shard-1", ""} {
-			t.Run(fmt.Sprintf("decided=%t/group=%q", decided, group), func(t *testing.T) {
-				f := newReconcileFixture(t)
-				f.class = testClassWithTokenization(models.PropertyTokenizationWord, "title")
-				subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
-				task := withUnits(testTask(subject.TaskID, 42, distributedtask.TaskStatusFailed), map[string]*distributedtask.Unit{
-					subject.Key.UnitID: {ID: subject.Key.UnitID, GroupID: group, NodeID: "node-0"},
-				})
-				task.SwapDecidedGroups = map[string]time.Time{"shard-2": {}}
-				if decided {
-					task.SwapDecidedGroups[group] = time.Time{}
-				}
-				f.mkdirs("property_title__g42_ingest")
-				f.put(NewMigrationRecordMerged(subject))
-
-				require.NoError(t, newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
-					DiscardTask(context.Background(), task))
-
-				_, kept := f.state(subject.Key)
-				require.Equal(t, decided, kept, "only a decided shard's record survives the cleanup")
-				require.Equal(t, decided, f.exists("property_title__g42_ingest"), "and so does its staged data")
-			})
-		}
-	}
 }

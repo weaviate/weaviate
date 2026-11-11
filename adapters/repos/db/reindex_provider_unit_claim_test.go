@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -424,4 +426,189 @@ func TestTheUnreadableRecordGuardNamesTheBadFilesUpToACap(t *testing.T) {
 			}
 		})
 	}
+}
+
+var lateSwapDesc = distributedtask.TaskDescriptor{ID: "R1", Version: 1}
+
+type lateSwapFixture struct {
+	p       *ReindexProvider
+	shard   *Shard
+	idx     *Index
+	unit    string
+	payload *ReindexTaskPayload
+	hook    *logrustest.Hook
+}
+
+func newLateSwapFixture(t *testing.T, ctx context.Context) lateSwapFixture {
+	className := "LateSwap_" + uuid.NewString()[:8]
+	shd, idx := testShardWithSettings(t, ctx, newTestClassWithProps(className, []string{"title"}),
+		enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
+	registerIndex(idx, className)
+	unit := shard.migrationUnit()
+	logger, hook := logrustest.NewNullLogger()
+	return lateSwapFixture{
+		p: NewReindexProvider(idx.db, nil, nil, logger, "node1", nil, ctx), shard: shard, idx: idx, unit: unit, hook: hook,
+		payload: &ReindexTaskPayload{
+			Collection: className, MigrationType: ReindexTypeChangeTokenization, Properties: []string{"title"},
+			TargetTokenization: models.PropertyTokenizationField, BucketStrategy: lsmkv.StrategyMapCollection,
+			UnitToShard: map[string]string{unit: shard.Name()},
+		},
+	}
+}
+
+func (f lateSwapFixture) resolve(ctx context.Context) phaseUnitResolution {
+	return f.p.resolveUnitForPhase(ctx, &distributedtask.Task{TaskDescriptor: lateSwapDesc}, f.payload, f.unit, f.idx, f.p.logger)
+}
+
+// Pins that a stopped run's cached swap retry pays its debt once a newer run
+// of the same migration retired its record, and that an unreadable record still fails it.
+func TestSwapRetryOfARunANewerRunSuperseded(t *testing.T) {
+	for _, unreadable := range []bool{false, true} {
+		t.Run(fmt.Sprintf("unreadable=%t", unreadable), func(t *testing.T) {
+			ctx := testCtx()
+			f := newLateSwapFixture(t, ctx)
+			// Never run, so no record: as after the newer run retired it.
+			tasks, err := f.p.createReindexTasks(lateSwapDesc, f.unit, f.payload)
+			require.NoError(t, err)
+			f.p.cacheReindexTasks(lateSwapDesc, f.unit, tasks)
+			if unreadable {
+				plantUnreadableRecord(t, f.shard.migrationRecords.Dir())
+				require.NoError(t, f.shard.migrationRecords.Load())
+			}
+
+			got := f.resolve(ctx)
+			require.Equal(t, unreadable, len(got.Errs) > 0, "an unreadable record is never read as gone")
+			require.Equal(t, !unreadable, got.Skip, "a retired record leaves nothing of the run in flight")
+			for range maxReportedErrors {
+				f.resolve(ctx)
+			}
+			require.LessOrEqual(t, len(f.hook.AllEntries()), maxReportedErrors, "a retry per tick logs only sampled lines")
+		})
+	}
+}
+
+// Pins that a decided swap retried every tick logs each task's first attempt
+// in full and its retries only within the node-wide sample.
+func TestFailingSwapRetryLogsSampled(t *testing.T) {
+	ctx := testCtx()
+	f := newLateSwapFixture(t, ctx)
+	tasks, err := f.p.createReindexTasks(lateSwapDesc, f.unit, f.payload)
+	require.NoError(t, err)
+	for _, task := range tasks {
+		subject := task.migrationSubject(f.shard, f.payload.Properties, time.Now())
+		require.NoError(t, f.shard.migrationRecords.Put(NewMigrationRecordMerged(subject)))
+	}
+	// Leave one sampled slot, so a first attempt that waited for one would go unlogged.
+	for range maxReportedErrors - 1 {
+		f.p.swapRetrySampler().WithSampling(func(logrus.FieldLogger) {})
+	}
+	// No staged bucket is open, so every attempt fails.
+	for range 3 * maxReportedErrors {
+		require.NotEmpty(t, f.p.runShardSwapPhase(ctx, f.payload, f.unit, f.shard.Name(), f.shard, tasks, f.p.logger).Errs)
+	}
+
+	count := func(msg string) (n int) {
+		for _, e := range f.hook.AllEntries() {
+			if e.Message == msg {
+				n++
+			}
+		}
+		return n
+	}
+	require.Equal(t, len(tasks), count("RunSwapOnShard: resuming from merged state, in-memory atomic swap"))
+	retries := count("RunSwapOnShard: flip already decided; running OnMigrationComplete only")
+	require.Positive(t, retries)
+	require.LessOrEqual(t, retries, maxReportedErrors)
+}
+
+// Pins that a decided swap retried every tick, because a sibling unit keeps
+// failing or its own swap is refused before it starts, logs the swapped unit's
+// "swap complete" once, and its start line in full on the first attempt and
+// only within the node-wide sample after.
+func TestDecidedSwapRetryLogsSwapCompleteOnce(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		unmirrored   bool
+		wantComplete int
+	}{
+		{name: "sibling fails", wantComplete: 1},
+		{name: "refused as unmirrored", unmirrored: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "SwapRetry_")
+			unit := shard.migrationUnit()
+			rt, _ := newRangeableInMemoryTestTask(t, idx, className, filterableToRangeablePropName,
+				unit, &atomic.Bool{}, &atomic.Int32{})
+			require.NoError(t, rt.RunReindexOnlyOnShard(ctx, shard))
+			require.NoError(t, rt.RunPrepareOnShard(ctx, shard))
+			if tc.unmirrored {
+				stamped, err := stampUnmirroredRecords(shard.migrationRecords, shard.migrationRecords.Records(), nil)
+				require.NoError(t, err)
+				require.Len(t, stamped, 1)
+			}
+			registerIndex(idx, className)
+			logger, hook := logrustest.NewNullLogger()
+			p := NewReindexProvider(idx.db, nil, nil, logger, "node1", nil, ctx)
+			p.cachePayload(lateSwapDesc, &ReindexTaskPayload{
+				Collection: className, MigrationType: ReindexTypeEnableRangeable,
+				Properties: []string{filterableToRangeablePropName},
+				// The sibling's shard does not exist, so its swap fails on every tick.
+				UnitToShard: map[string]string{unit: shard.Name(), "sibling": "missing"},
+			})
+			p.cacheReindexTasks(lateSwapDesc, unit, []*ShardReindexTaskGeneric{rt})
+			task := withUnits(&distributedtask.Task{
+				TaskDescriptor: lateSwapDesc, Status: distributedtask.TaskStatusFailed,
+				NeedsPreparationBarrier: true, SwapDecidedGroups: map[string]time.Time{"": {}},
+			}, map[string]*distributedtask.Unit{
+				unit:      {ID: unit, NodeID: "node1", Status: distributedtask.UnitStatusCompleted},
+				"sibling": {ID: "sibling", NodeID: "node1", Status: distributedtask.UnitStatusCompleted},
+			})
+
+			count := func(msg string) (n int) {
+				for _, e := range hook.AllEntries() {
+					if e.Message == msg {
+						n++
+					}
+				}
+				return n
+			}
+			const start = "reindex provider: swap-requested → starting OVERLAY+SWAP for a decided group"
+			// Use up the sample, so only a first attempt logged in full gets a start line.
+			for range maxReportedErrors {
+				p.swapRetrySampler().WithSampling(func(logrus.FieldLogger) {})
+			}
+			for range 3 * maxReportedErrors {
+				require.Error(t, p.OnSwapRequested(task, "", task.LocalGroupUnitIDs("", "node1")))
+			}
+			require.Equal(t, tc.wantComplete, count("reindex provider: swap complete"))
+			require.Equal(t, 1, count(start))
+		})
+	}
+}
+
+// Pins that a decided swap retried after OnTaskCompleted decodes the payload
+// once, and that the decoded copy is freed once the task leaves the list.
+func TestLoadPayloadIsKeptUntilTheTaskLeavesTheList(t *testing.T) {
+	p := NewReindexProvider(nil, nil, nil, logrus.New(), "node-0", nil, nil)
+	raw, err := json.Marshal(ReindexTaskPayload{Collection: "Docs", MigrationType: ReindexTypeChangeTokenization})
+	require.NoError(t, err)
+	task := &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
+		Status:         distributedtask.TaskStatusFailed, Payload: raw,
+	}
+
+	first, err := p.loadPayload(task)
+	require.NoError(t, err)
+	again, err := p.loadPayload(task)
+	require.NoError(t, err)
+	require.Same(t, first, again, "a retry reuses the decoded payload")
+	require.Equal(t, []distributedtask.TaskDescriptor{task.TaskDescriptor}, p.GetLocalTasks())
+
+	require.NoError(t, p.CleanupTask(task.TaskDescriptor))
+	require.Empty(t, p.GetLocalTasks())
+	fresh, err := p.loadPayload(task)
+	require.NoError(t, err)
+	require.NotSame(t, first, fresh, "a cleaned-up task decodes again")
 }

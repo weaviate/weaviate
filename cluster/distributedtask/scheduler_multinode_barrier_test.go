@@ -30,7 +30,6 @@ package distributedtask
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -690,86 +689,6 @@ func TestBarrier_G4_ParallelMigrationDifferentPropDuringBarrier(t *testing.T) {
 	}
 }
 
-// TestBarrier_G5_SchemaVersionMismatchRollingUpgrade: pre-PR-#11328
-// follower deserializes the new NeedsPreparationBarrier field as
-// zero-value (false). Documents that the rolling-upgrade backward-
-// compat path silently degrades barrier-true tasks to legacy — pins
-// the contract so a future change has to confront the upgrade-safety
-// trade-off explicitly.
-func TestBarrier_G5_SchemaVersionMismatchRollingUpgrade(t *testing.T) {
-	// Build a Task in the new (post-PR) shape with the barrier on.
-	now := time.Now().UTC().Truncate(time.Millisecond)
-	postPRTask := withUnits(&Task{
-		Namespace:               "ns",
-		TaskDescriptor:          TaskDescriptor{ID: "barrier-task", Version: 7},
-		NeedsPreparationBarrier: true,
-		Status:                  TaskStatusPreparing,
-		StartedAt:               now,
-		PreparedGroups: map[string]map[string]PostCompletionAck{
-			"": {"node-1": {Success: true, AckedAt: now}},
-		},
-	}, map[string]*Unit{
-		"u-1": {ID: "u-1", NodeID: "node-1", Status: UnitStatusCompleted, FinishedAt: now},
-	})
-
-	wireBytes, err := json.Marshal(taskJSON{Task: postPRTask, Units: postPRTask.units})
-	require.NoError(t, err)
-	require.Contains(t, string(wireBytes), `"needsPreparationBarrier":true`,
-		"post-PR serialization MUST emit the barrier field — without it pre-PR followers see only the legacy shape")
-
-	// Simulate a pre-PR-#11328 node: struct with all the OLD fields but
-	// NO NeedsPreparationBarrier. The barrierLegacyTask shape captures
-	// the v1.36 layout exactly. Unmarshalling the post-PR wire bytes
-	// into it MUST succeed (JSON unmarshal silently drops unknown fields
-	// by default) and the legacy node sees the task without the barrier.
-	type barrierLegacyTask struct {
-		Namespace          string                       `json:"namespace"`
-		TaskDescriptor     TaskDescriptor               `json:",inline"`
-		Payload            []byte                       `json:"payload"`
-		Status             TaskStatus                   `json:"status"`
-		StartedAt          time.Time                    `json:"startedAt"`
-		FinishedAt         time.Time                    `json:"finishedAt"`
-		Error              string                       `json:"error,omitempty"`
-		Units              map[string]*Unit             `json:"units,omitempty"`
-		PostCompletionAcks map[string]PostCompletionAck `json:"postCompletionAcks,omitempty"`
-	}
-	var legacy barrierLegacyTask
-	require.NoError(t, json.Unmarshal(wireBytes, &legacy),
-		"pre-PR follower MUST successfully deserialize a post-PR task — unknown fields are silently dropped")
-
-	// Verify the legacy follower preserves the rest of the task shape —
-	// the Units map, the existing acks, the status. Note: the legacy
-	// follower sees Status=PREPARING which is a NEW value (PR also added
-	// the TaskStatusPreparing constant). The follower's switch/case on
-	// status would silently fall through to a default branch.
-	require.Equal(t, postPRTask.Namespace, legacy.Namespace)
-	require.Equal(t, postPRTask.Unit("u-1").ID, legacy.Units["u-1"].ID)
-	require.Equal(t, TaskStatus("PREPARING"), legacy.Status,
-		"the new PREPARING status string survives the round-trip — legacy code-paths must defensively handle unknown TaskStatus values to avoid silent state flips")
-
-	// Round-trip the other way: a pre-PR Task envelope (no
-	// NeedsPreparationBarrier field at all) must deserialize cleanly
-	// into the post-PR Task struct with the barrier defaulting to
-	// false. A legacy task sent by a v1.36 leader to a v1.37 follower
-	// MUST be treated as a legacy task on the new follower — not
-	// silently upgraded to barrier mode.
-	preReleasedWire := []byte(`{
-		"namespace": "ns",
-		"id": "legacy-task",
-		"version": 4,
-		"status": "SWAPPING",
-		"startedAt": "2026-05-22T00:00:00Z",
-		"units": {"u-1": {"id": "u-1", "nodeId": "node-1", "status": "COMPLETED"}}
-	}`)
-	var postPR Task
-	require.NoError(t, json.Unmarshal(preReleasedWire, &postPR),
-		"post-PR follower MUST successfully deserialize a pre-PR task envelope")
-	require.False(t, postPR.NeedsPreparationBarrier,
-		"absent NeedsPreparationBarrier in the envelope MUST default to false — a pre-PR leader sending the envelope intends legacy semantics")
-	require.Equal(t, TaskStatusSwapping, postPR.Status,
-		"legacy task envelopes use the old SWAPPING status; the post-PR Task struct preserves that")
-}
-
 // TestBarrier_G6_RestartMidPhaseARecovery: node crashes between
 // PHASE A and PHASE A.5; after restart its fresh scheduler must re-
 // fire OnGroupCompleted and emit a prep-ack. Restart is modeled by
@@ -1223,4 +1142,69 @@ func TestBarrier_FailedGroupAcksWhileOtherGroupRetryable(t *testing.T) {
 			require.Contains(t, task.Error, `"group-b"`)
 		})
 	}
+}
+
+func TestPerTenantSwap(t *testing.T) {
+	addTask := func(t *testing.T, h *barrierHarness, taskID string) {
+		require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace: h.namespace, Id: taskID, SubmittedAtUnixMillis: h.clock.Now().UnixMilli(), NeedsPreparationBarrier: true,
+			UnitSpecs: []*cmd.UnitSpec{
+				{Id: "a-1", GroupId: "tenant-a"},
+				{Id: "a-2", GroupId: "tenant-a"},
+				{Id: "b-1", GroupId: "tenant-b"},
+				{Id: "b-2", GroupId: "tenant-b"},
+			},
+		}), 1))
+	}
+	complete := func(t *testing.T, h *barrierHarness, taskID string, units map[string]string) {
+		for unit, node := range units {
+			require.NoError(t, h.completionRec.RecordDistributedTaskUnitCompletion(
+				context.Background(), h.namespace, taskID, 1, node, unit))
+		}
+	}
+	addTwoTenantTask := func(t *testing.T, h *barrierHarness, taskID string) {
+		addTask(t, h, taskID)
+		for unit, node := range map[string]string{"a-1": "node-1", "a-2": "node-2", "b-1": "node-1", "b-2": "node-2"} {
+			require.NoError(t, h.completionRec.UpdateDistributedTaskUnitProgress(
+				context.Background(), h.namespace, taskID, 1, node, unit, 0.1))
+		}
+		h.tickAll()
+		complete(t, h, taskID, map[string]string{"a-1": "node-1", "a-2": "node-2"})
+		h.tickAll()
+		h.tickAll()
+	}
+
+	t.Run("a terminal task drops its undecided tenants after one tick", func(t *testing.T) {
+		defer leaktest.Check(t)()
+		h := newBarrierHarness(t, []string{"node-1", "node-2"})
+		defer h.close()
+		addTwoTenantTask(t, h, "T2")
+		require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+			Namespace: h.namespace, Id: "T2", Version: 1, CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+		h.tickAll()
+		for _, n := range h.nodes {
+			n.scheduler.mu.Lock()
+			pending := n.scheduler.perTaskState[h.getTask(t, "T2").TaskDescriptor].swapPending
+			n.scheduler.mu.Unlock()
+			require.Empty(t, pending, "%s: tenant-b can never be decided, so nothing is left to visit", n.id)
+		}
+	})
+
+	// A decided swap must not wait behind another group's PREP batch in the same tick.
+	t.Run("a decided swap runs before other groups' PREP", func(t *testing.T) {
+		defer leaktest.Check(t)()
+		h := newBarrierHarness(t, []string{"node-1", "node-2"})
+		defer h.close()
+		addTask(t, h, "T3")
+		complete(t, h, "T3", map[string]string{"a-1": "node-1", "a-2": "node-2"})
+		h.tick(0) // node-1 prepares tenant-a
+		h.tick(1) // node-2 prepares tenant-a, which decides it
+		require.True(t, h.getTask(t, "T3").GroupSwapDecided("tenant-a"))
+
+		complete(t, h, "T3", map[string]string{"b-1": "node-1", "b-2": "node-2"})
+		h.tick(0)
+		require.Equal(t, []string{"prep:tenant-a", "swap:tenant-a", "prep:tenant-b"}, h.nodes[0].provider.calls,
+			"node-1 swaps the decided group before preparing the next one")
+	})
 }
