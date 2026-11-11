@@ -199,7 +199,9 @@ func TestWipedJoinerFSMCaughtUp(t *testing.T) {
 			st := &Store{logCache: cache}
 			st.lastAppliedIndex.Store(tt.applied)
 
-			require.Equal(t, tt.want, st.wipedJoinerFSMCaughtUp(103))
+			got, err := st.wipedJoinerFSMCaughtUp(103)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }

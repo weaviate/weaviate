@@ -205,11 +205,13 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			st.setClusterID(snap.ClusterID)
 		}
 
+		snapIndex := lastSnapshotIndex(st.snapshotStore)
+		st.restoredIndex.Store(snapIndex)
+
 		if st.cfg.MetadataOnlyVoters {
 			return nil
 		}
 
-		snapIndex := lastSnapshotIndex(st.snapshotStore)
 		if st.wipedJoinerCandidate.Load() {
 			// Caught up via InstallSnapshot; a snapshot below the join barrier defers to the barrier path.
 			st.wipedJoinerRestoreReload(snapIndex)
