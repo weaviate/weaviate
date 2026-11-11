@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/file"
 )
 
 func (h *replicationHandler) replicate(params replication.ReplicateParams, principal *models.Principal) middleware.Responder {
@@ -42,6 +43,16 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 
 	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Replications(collection, *params.Body.Shard)); err != nil {
 		return replication.NewReplicateForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	// Only this node's filesystem is probed. Clusters whose nodes mix filesystems are unsupported.
+	supported, err := file.ProbeHardlinkSupport(h.dataPath)
+	if err != nil {
+		return replication.NewReplicateInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("probe hardlink support: %w", err)))
+	}
+	if !supported {
+		return replication.NewReplicateNotImplemented().WithPayload(cerrors.ErrPayloadFromSingleErr(principal,
+			errors.New("replica movement requires a filesystem that supports hard links; the data directory of this node does not")))
 	}
 
 	id, err := uuid.NewRandom()
@@ -581,6 +592,27 @@ func (h *replicationHandler) applyReplicationScalePlan(params replication.ApplyR
 		return replication.NewApplyReplicationScalePlanForbidden().WithPayload(
 			cerrors.ErrPayloadFromSingleErr(principal, err),
 		)
+	}
+
+	// Only plans that add replicas create COPY ops, and COPY ops use hard links.
+	// Remove-only plans skip the probe.
+	addsReplicas := false
+	for _, actions := range modelsScalePlan.ShardScaleActions {
+		if len(actions.AddNodes) > 0 {
+			addsReplicas = true
+			break
+		}
+	}
+	if addsReplicas {
+		// Only this node's filesystem is probed. Clusters whose nodes mix filesystems are unsupported.
+		supported, err := file.ProbeHardlinkSupport(h.dataPath)
+		if err != nil {
+			return replication.NewApplyReplicationScalePlanInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("probe hardlink support: %w", err)))
+		}
+		if !supported {
+			return replication.NewApplyReplicationScalePlanNotImplemented().WithPayload(cerrors.ErrPayloadFromSingleErr(principal,
+				errors.New("adding replicas requires a filesystem that supports hard links; the data directory of this node does not")))
+		}
 	}
 
 	scalePlan := api.ReplicationScalePlan{

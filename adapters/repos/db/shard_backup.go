@@ -18,7 +18,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -32,24 +31,33 @@ func (s *Shard) haltedForTransfer() bool {
 }
 
 // HaltForTransfer stops compaction, and flushing memtable and commit log to begin with backup or cloud offload.
-// This method could be called multiple times with different inactivity timeouts,
-// a zeroed `inactivityTimeout` implies no timeout.
-// If inactivity timeout is reached it will resume maintenance cycle independently on how many halt request has been made.
-// The preparation work (pausing compaction, flushing memtables, readying vector indexes and queues)
-// is additionally bounded by `HaltForTransferTimeout`, independent of `inactivityTimeout`;
-// a zeroed `HaltForTransferTimeout` implies no bound.
-func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
-	return s.haltForTransfer(ctx, offloading, inactivityTimeout, newReindexGate(s.index.db, reindexGateMaxAge))
+// `HaltForTransferTimeout` bounds the preparation work (pausing compaction, flushing memtables,
+// readying vector indexes and queues). A zero `HaltForTransferTimeout` means no bound.
+func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool) error {
+	return s.haltForTransfer(ctx, offloading, newReindexGate(s.index.db, reindexGateMaxAge))
 }
 
 // haltForTransfer lets a backup share one gate, and so its task-list fetch, across all its shards.
-func (s *Shard) haltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration, gate reindexGate) (err error) {
+func (s *Shard) haltForTransfer(ctx context.Context, offloading bool, gate reindexGate) (err error) {
 	innerCtx := ctx
 	if timeout := s.index.Config.HaltForTransferTimeout; timeout > 0 {
 		var cancel context.CancelFunc
 		innerCtx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
+
+	// Defers run last-in, first-out. This one is registered before the unlock
+	// defer, so it runs after haltForTransferMux is released. The re-apply must
+	// not run under haltForTransferMux. Only the error rollback below sets
+	// rolledBackToResumed.
+	var rolledBackToResumed bool
+	defer func() {
+		if rolledBackToResumed {
+			// The caller's ctx can already be cancelled. The skipped enable must
+			// still be applied, so use a fresh context.
+			s.reapplyAsyncReplicationAfterResume(context.Background())
+		}
+	}()
 
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
@@ -69,17 +77,6 @@ func (s *Shard) haltForTransfer(ctx context.Context, offloading bool, inactivity
 
 	s.haltForTransferCount.Add(1)
 
-	defer func() {
-		if err != nil {
-			return
-		}
-		if inactivityTimeout > 0 {
-			s.mayUpdateInactivityTimeout(inactivityTimeout)
-			s.mayInitInactivityMonitoring()
-		}
-		s.mayResetInactivityDeadline()
-	}()
-
 	if offloading {
 		// TODO: tenant offloading is calling HaltForTransfer but
 		// if Shutdown is called this step is not needed.
@@ -87,17 +84,20 @@ func (s *Shard) haltForTransfer(ctx context.Context, offloading bool, inactivity
 		s.mayStopAsyncReplication(false)
 	}
 
-	// Placed before the pause branch so it also covers count>1 callers: on error
-	// mayForceResumeMaintenanceCycles(ctx, false) decrements our own increment and
-	// only truly resumes at count==0, so a failed count>1 caller rolls back 2→1
-	// without unhalting the shard the first op still holds.
+	// Registered before the pause branch so it also runs when the count is above 1.
+	// On error, mayForceResumeMaintenanceCycles undoes this call's increment and
+	// resumes only when the count reaches 0. So a failed caller at count 2 drops it
+	// to 1 and leaves the shard halted for the op that halted it first.
 	defer func() {
 		if err != nil {
 			// each preparation step below wraps its own error; only append
 			// the outcome of the cleanup attempt here
-			if err2 := s.mayForceResumeMaintenanceCycles(ctx, false); err2 != nil {
+			if err2 := s.mayForceResumeMaintenanceCycles(ctx); err2 != nil {
 				err = fmt.Errorf("%w: resume maintenance: %w", err, err2)
 			}
+			// Same gate as resumeMaintenanceCycles: re-apply an enable skipped
+			// while halted only once the shard is fully resumed.
+			rolledBackToResumed = s.haltForTransferCount.Load() == 0 && !s.resumeIncomplete.Load()
 		}
 	}()
 
@@ -179,14 +179,6 @@ func (s *Shard) haltForTransfer(ctx context.Context, offloading bool, inactivity
 	return nil
 }
 
-// MayResetTransferInactivityTimer counts an in-flight transfer RPC as
-// activity so the halt watchdog doesn't force-resume mid-stream.
-func (s *Shard) MayResetTransferInactivityTimer() {
-	s.haltForTransferMux.Lock()
-	defer s.haltForTransferMux.Unlock()
-	s.mayResetInactivityDeadline()
-}
-
 // structuralVectorOpInFlight reports whether any vector index is mid-restructure
 // (HNSW compression or dynamic flat→HNSW upgrade) — a snapshot taken now would
 // be structurally inconsistent. reason names the first offending index.
@@ -201,106 +193,22 @@ func (s *Shard) structuralVectorOpInFlight() (busy bool, reason string) {
 	return
 }
 
-func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
-	if s.haltForTransferInactivityTimeout != 0 && s.haltForTransferInactivityTimeout <= inactivityTimeout {
-		// no need to update current inactivity timeout
-		return
-	}
-
-	s.haltForTransferInactivityTimeout = inactivityTimeout
-
-	// restart any running monitor so the shorter timeout takes effect; the immediately-following
-	// mayInitInactivityMonitoring respawns it. cancelling only stops the goroutine, not maintenance.
-	s.mayStopInactivityMonitoring()
-}
-
-// mayStopInactivityMonitoring cancels the running inactivity monitor and clears the sentinel.
-// Caller must hold haltForTransferMux; must not lock here (callers hold it across a wider section).
-func (s *Shard) mayStopInactivityMonitoring() {
-	if s.haltForTransferCtxCancel != nil {
-		s.haltForTransferCtxCancel()
-		s.haltForTransferCtxCancel = nil
-	}
-}
-
-// mayResetInactivityDeadline records file activity by pushing the inactivity deadline forward.
-// The monitor re-arms against this deadline, so a reset can never race a fire into a spurious resume.
-func (s *Shard) mayResetInactivityDeadline() {
-	if s.haltForTransferInactivityTimeout <= 0 {
-		return
-	}
-	s.haltForTransferInactivityDeadline = time.Now().Add(s.haltForTransferInactivityTimeout)
-}
-
-func (s *Shard) mayInitInactivityMonitoring() {
-	if s.haltForTransferCtxCancel != nil {
-		return
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	s.haltForTransferCtxCancel = cancel
-
-	s.haltForTransferInactivityDeadline = time.Now().Add(s.haltForTransferInactivityTimeout)
-
-	timer := time.NewTimer(s.haltForTransferInactivityTimeout)
-
-	enterrors.GoWrapper(func() {
-		// supersession and teardown cancel this ctx before any successor, so a stale fire is dropped.
-		defer timer.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-timer.C:
-				if !s.handleInactivityFire(ctx, timer) {
-					return
-				}
-			}
-		}
-	}, s.index.logger)
-}
-
-// handleInactivityFire resolves an inactivity-timer fire, returning true to keep watching
-// (activity re-armed the timer) or false to stop (ctx cancelled, or the shard was resumed).
-func (s *Shard) handleInactivityFire(ctx context.Context, timer *time.Timer) (keepWatching bool) {
-	forceResumed := false
-	// Registered before the unlock defer so it runs after the mux is released.
-	defer func() {
-		if forceResumed {
-			s.reapplyAsyncReplicationAfterResume(context.Background())
-		}
-	}()
-	s.haltForTransferMux.Lock()
-	defer s.haltForTransferMux.Unlock()
-
-	if ctx.Err() != nil {
-		// superseded or torn down while this fire waited on the mux; stop without resuming.
-		return false
-	}
-	if remaining := time.Until(s.haltForTransferInactivityDeadline); remaining > 0 {
-		// activity pushed the deadline forward; re-arm and keep watching.
-		timer.Reset(remaining)
-		return true
-	}
-	if err := s.mayForceResumeMaintenanceCycles(context.Background(), true); err != nil {
-		s.index.logger.Error(err)
-	}
-	forceResumed = true
-	return false
-}
-
 // CreateBackupSnapshot halts compaction, lists backup files, hardlinks them into
 // a staging directory, then immediately resumes compaction. This minimizes the
 // compaction pause to just the time needed for enumeration and hardlink creation
 // (typically 2-5s), rather than blocking for the entire upload duration.
-func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate reindexGate) ([]string, error) {
-	if err := s.haltForTransfer(ctx, false, 0, gate); err != nil {
+func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate reindexGate) (files []string, err error) {
+	if err := s.haltForTransfer(ctx, false, gate); err != nil {
 		return nil, fmt.Errorf("halt for snapshot: %w", err)
 	}
-	defer s.resumeMaintenanceCycles(ctx)
+	// The caller's ctx can already be cancelled, and the resume must still run.
+	defer func() {
+		if rerr := s.resumeMaintenanceCycles(context.Background()); rerr != nil && err == nil {
+			err = fmt.Errorf("resume maintenance after backup snapshot: %w", rerr)
+		}
+	}()
 
-	files, err := s.ListBackupFiles(ctx, sd)
+	files, err = s.ListBackupFiles(ctx, sd)
 	if err != nil {
 		return nil, fmt.Errorf("list backup files: %w", err)
 	}
@@ -366,8 +274,6 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 		return nil, fmt.Errorf("can not list files: illegal state: shard %q is not paused for transfer", s.name)
 	}
 
-	s.mayResetInactivityDeadline()
-
 	if err := s.readBackupMetadata(ret); err != nil {
 		return nil, err
 	}
@@ -428,11 +334,36 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 
 func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	s.haltForTransferMux.Lock()
-	err := s.mayForceResumeMaintenanceCycles(ctx, false)
-	fullyResumed := s.haltForTransferCount.Load() == 0
+	err := s.mayForceResumeMaintenanceCycles(ctx)
+	fullyResumed := s.haltForTransferCount.Load() == 0 && !s.resumeIncomplete.Load()
 	s.haltForTransferMux.Unlock()
 
 	// Enables skipped while halted have no other re-derive path for plain halts.
+	// A failed resume defers the re-apply to the retry that completes it.
+	if fullyResumed {
+		s.reapplyAsyncReplicationAfterResume(ctx)
+	}
+	return err
+}
+
+// retryIncompleteResume retries a failed resume that left the halt count at 0.
+// It never decrements the count. At count > 0 another operation holds the halt,
+// so it does nothing. The check and the retry both run under haltForTransferMux,
+// so no new halt can start between them.
+func (s *Shard) retryIncompleteResume(ctx context.Context) (err error) {
+	var fullyResumed bool
+	func() {
+		s.haltForTransferMux.Lock()
+		defer s.haltForTransferMux.Unlock()
+		if s.haltForTransferCount.Load() > 0 || !s.resumeIncomplete.Load() {
+			return
+		}
+		err = s.mayForceResumeMaintenanceCycles(ctx)
+		fullyResumed = s.haltForTransferCount.Load() == 0 && !s.resumeIncomplete.Load()
+	}()
+
+	// The failed resume skipped this re-apply. As in resumeMaintenanceCycles, it
+	// runs only once the shard is fully resumed.
 	if fullyResumed {
 		s.reapplyAsyncReplicationAfterResume(ctx)
 	}
@@ -465,21 +396,14 @@ func (s *Shard) reapplyAsyncReplicationAfterResume(ctx context.Context) {
 	}
 }
 
-func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool) error {
+// mayForceResumeMaintenanceCycles must be called with haltForTransferMux held.
+func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context) error {
 	if s.haltForTransferCount.Load() == 0 {
-		// noop, maintenance cycles not halted
-		return nil
-	}
-
-	if forced {
-		s.haltForTransferCount.Store(0)
-		// Non-zero in steady state means a transfer was force-resumed
-		// mid-stream — i.e. the read-path timer reset isn't reaching us.
-		if s.promMetrics != nil && s.promMetrics.ShardHaltForTransferForceResume != nil {
-			s.promMetrics.ShardHaltForTransferForceResume.
-				WithLabelValues().
-				Inc()
+		if !s.resumeIncomplete.Load() {
+			// noop, maintenance cycles not halted
+			return nil
 		}
+		// a previous resume failed after dropping the count to 0; retry its work
 	} else {
 		s.haltForTransferCount.Add(-1)
 
@@ -488,14 +412,6 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 			return nil
 		}
 	}
-
-	// terminate the inactivity monitor synchronously under the mux, so a subsequent
-	// HaltForTransfer reliably starts a new monitor.
-	s.mayStopInactivityMonitoring()
-
-	// fully resumed: reset so the next halt cycle uses its own timeout, not the shortest ever seen.
-	s.haltForTransferInactivityTimeout = 0
-	s.haltForTransferInactivityDeadline = time.Time{}
 
 	g := enterrors.NewErrorGroupWrapper(s.index.logger)
 
@@ -544,9 +460,11 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 	})
 
 	if err := g.Wait(); err != nil {
+		s.resumeIncomplete.Store(true)
 		return fmt.Errorf("failed to resume maintenance cycles for shard '%s': %w", s.name, err)
 	}
 
+	s.resumeIncomplete.Store(false)
 	return nil
 }
 
@@ -591,8 +509,6 @@ func (s *Shard) GetFileMetadata(ctx context.Context, relativeFilePath string) (f
 			relativeFilePath, s.name)
 	}
 
-	s.mayResetInactivityDeadline()
-
 	finalPath, err := s.sanitizeFilePath(relativeFilePath)
 	if err != nil {
 		return file.FileMetadata{}, fmt.Errorf("sanitize file path %q: %w", relativeFilePath, err)
@@ -608,8 +524,6 @@ func (s *Shard) GetFile(ctx context.Context, relativeFilePath string) (io.ReadCl
 		return nil, fmt.Errorf("can not open file %q for reading: illegal state: shard %q is not paused for transfer",
 			relativeFilePath, s.name)
 	}
-
-	s.mayResetInactivityDeadline()
 
 	finalPath, err := s.sanitizeFilePath(relativeFilePath)
 	if err != nil {
