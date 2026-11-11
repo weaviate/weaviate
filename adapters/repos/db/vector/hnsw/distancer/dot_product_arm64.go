@@ -17,11 +17,15 @@ import (
 )
 
 func init() {
+	// The SVE dot kernel pays off only with 256-bit vectors (Neoverse V1,
+	// Graviton3). With 128-bit SVE (Neoverse V2: Axion, Graviton4) it is 2.3x
+	// slower than the NEON kernel at 1536 dims, so the vector length decides.
+	// L2 (l2_arm64.go) keeps SVE whenever present: there the SVE kernel is
+	// faster than the NEON one on both cores.
 	if cpu.ARM64.HasASIMD {
-		if cpu.ARM64.HasSVE {
+		dotProductImplementation = asm.Dot_Neon
+		if cpu.ARM64.HasSVE && asm.SVEVectorLengthBytes() >= 32 {
 			dotProductImplementation = asm.Dot_SVE
-		} else {
-			dotProductImplementation = asm.Dot_Neon
 		}
 	}
 }

@@ -572,6 +572,9 @@ type testHarness struct {
 	testProviders         []*testTaskProvider
 	localTaskInspector    LocalTaskInspector
 
+	conflictDetectors       map[string]ConflictDetector
+	schemaMutationDetectors map[string]SchemaMutationDetector
+
 	manager   *Manager
 	scheduler *Scheduler
 
@@ -619,9 +622,11 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 	}
 
 	h.manager = NewManager(ManagerParameters{
-		Clock:            h.clock,
-		CompletedTaskTTL: h.completedTaskTTL,
-		Logger:           h.logger,
+		Clock:                   h.clock,
+		CompletedTaskTTL:        h.completedTaskTTL,
+		Logger:                  h.logger,
+		ConflictDetectors:       h.conflictDetectors,
+		SchemaMutationDetectors: h.schemaMutationDetectors,
 	})
 
 	h.scheduler = NewScheduler(SchedulerParams{

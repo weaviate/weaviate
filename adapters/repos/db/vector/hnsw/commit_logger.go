@@ -27,10 +27,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 const defaultCommitLogSize = 500 * 1024 * 1024
+
+// ErrCommitLogClosed is returned by every write once Shutdown or Drop closed the commit log.
+var ErrCommitLogClosed = errors.New("hnsw commit log is closed")
 
 type hnswCommitLogger struct {
 	// protect against concurrent attempts to write in the underlying file or
@@ -47,6 +51,8 @@ type hnswCommitLogger struct {
 	currentFileName string
 	currentWriter   *bufio.Writer
 	walWriter       *compact.WALWriter
+	closed          bool
+	closeErr        error // first flush/close result, returned by every later close
 
 	// Compaction (replaces condensor + combiner)
 	compactor *compact.Compactor
@@ -347,6 +353,9 @@ func (l *hnswCommitLogger) AddPQCompression(data compression.PQData) error {
 	l.Lock()
 	defer l.Unlock()
 
+	if l.closed {
+		return ErrCommitLogClosed
+	}
 	return l.walWriter.WriteAddPQ(&data)
 }
 
@@ -354,6 +363,9 @@ func (l *hnswCommitLogger) AddSQCompression(data compression.SQData) error {
 	l.Lock()
 	defer l.Unlock()
 
+	if l.closed {
+		return ErrCommitLogClosed
+	}
 	return l.walWriter.WriteAddSQ(&data)
 }
 
@@ -361,6 +373,9 @@ func (l *hnswCommitLogger) AddRQCompression(data compression.RQData) error {
 	l.Lock()
 	defer l.Unlock()
 
+	if l.closed {
+		return ErrCommitLogClosed
+	}
 	return l.walWriter.WriteAddRQ(&data)
 }
 
@@ -368,6 +383,9 @@ func (l *hnswCommitLogger) AddMuvera(data multivector.MuveraData) error {
 	l.Lock()
 	defer l.Unlock()
 
+	if l.closed {
+		return ErrCommitLogClosed
+	}
 	return l.walWriter.WriteAddMuvera(&data)
 }
 
@@ -375,6 +393,9 @@ func (l *hnswCommitLogger) AddBRQCompression(data compression.BRQData) error {
 	l.Lock()
 	defer l.Unlock()
 
+	if l.closed {
+		return ErrCommitLogClosed
+	}
 	return l.walWriter.WriteAddBRQ(&data)
 }
 
@@ -383,6 +404,9 @@ func (l *hnswCommitLogger) AddNode(id uint64, level uint16) error {
 	l.Lock()
 	defer l.Unlock()
 
+	if l.closed {
+		return ErrCommitLogClosed
+	}
 	return l.walWriter.WriteAddNode(id, level)
 }
 
@@ -390,6 +414,9 @@ func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error
 	l.Lock()
 	defer l.Unlock()
 
+	if l.closed {
+		return ErrCommitLogClosed
+	}
 	return l.walWriter.WriteSetEntryPointMaxLevel(id, uint16(level))
 }
 
@@ -397,6 +424,9 @@ func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets
 	l.Lock()
 	defer l.Unlock()
 
+	if l.closed {
+		return ErrCommitLogClosed
+	}
 	return l.walWriter.WriteReplaceLinksAtLevel(nodeid, uint16(level), targets)
 }
 
@@ -404,6 +434,9 @@ func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int, target uint6
 	l.Lock()
 	defer l.Unlock()
 
+	if l.closed {
+		return ErrCommitLogClosed
+	}
 	return l.walWriter.WriteAddLinkAtLevel(nodeid, uint16(level), target)
 }
 
@@ -411,6 +444,9 @@ func (l *hnswCommitLogger) AddTombstone(nodeid uint64) error {
 	l.Lock()
 	defer l.Unlock()
 
+	if l.closed {
+		return ErrCommitLogClosed
+	}
 	return l.walWriter.WriteAddTombstone(nodeid)
 }
 
@@ -418,6 +454,9 @@ func (l *hnswCommitLogger) RemoveTombstone(nodeid uint64) error {
 	l.Lock()
 	defer l.Unlock()
 
+	if l.closed {
+		return ErrCommitLogClosed
+	}
 	return l.walWriter.WriteRemoveTombstone(nodeid)
 }
 
@@ -425,6 +464,9 @@ func (l *hnswCommitLogger) ClearLinks(nodeid uint64) error {
 	l.Lock()
 	defer l.Unlock()
 
+	if l.closed {
+		return ErrCommitLogClosed
+	}
 	return l.walWriter.WriteClearLinks(nodeid)
 }
 
@@ -432,6 +474,9 @@ func (l *hnswCommitLogger) ClearLinksAtLevel(nodeid uint64, level uint16) error 
 	l.Lock()
 	defer l.Unlock()
 
+	if l.closed {
+		return ErrCommitLogClosed
+	}
 	return l.walWriter.WriteClearLinksAtLevel(nodeid, level)
 }
 
@@ -439,6 +484,9 @@ func (l *hnswCommitLogger) DeleteNode(nodeid uint64) error {
 	l.Lock()
 	defer l.Unlock()
 
+	if l.closed {
+		return ErrCommitLogClosed
+	}
 	return l.walWriter.WriteDeleteNode(nodeid)
 }
 
@@ -446,13 +494,25 @@ func (l *hnswCommitLogger) Reset() error {
 	l.Lock()
 	defer l.Unlock()
 
+	if l.closed {
+		return ErrCommitLogClosed
+	}
 	return l.walWriter.WriteResetIndex()
 }
 
-// Shutdown waits for ongoing maintenance processes to stop, then cancels their
-// scheduling. The caller can be sure that state on disk is immutable after
-// calling Shutdown().
+// Shutdown stops the maintenance cycles, then flushes and closes the active file once (every later call reports that result); later writes fail with ErrCommitLogClosed.
 func (l *hnswCommitLogger) Shutdown(ctx context.Context) error {
+	// drain before locking (an in-flight switchCommitLogs takes l.Mutex), and close even if the drain failed
+	unregisterErr := l.unregisterMaintenance(ctx)
+	closeErr := l.close()
+
+	ec := errorcompounder.New()
+	ec.Add(unregisterErr)
+	ec.Add(closeErr)
+	return ec.ToError()
+}
+
+func (l *hnswCommitLogger) unregisterMaintenance(ctx context.Context) error {
 	if l.switchLogsCallbackCtrl != nil {
 		if err := l.switchLogsCallbackCtrl.Unregister(ctx); err != nil {
 			return errors.Wrap(err, "failed to unregister commitlog switch from maintenance cycle")
@@ -464,6 +524,24 @@ func (l *hnswCommitLogger) Shutdown(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// close flushes and closes the active file once; no fsync, matching Flush's durability.
+func (l *hnswCommitLogger) close() error {
+	l.Lock()
+	defer l.Unlock()
+
+	// a failed bufio flush is sticky, so a retry could never succeed either; report the first result instead
+	if l.closed {
+		return l.closeErr
+	}
+	l.closed = true
+
+	ec := errorcompounder.New()
+	ec.AddWrapf(l.currentWriter.Flush(), "flush hnsw commit log")
+	ec.AddWrapf(l.currentFile.Close(), "close hnsw commit log")
+	l.closeErr = ec.ToError()
+	return l.closeErr
 }
 
 func (l *hnswCommitLogger) RootPath() string {
@@ -488,7 +566,7 @@ func (l *hnswCommitLogger) ActiveFilePath() string {
 
 func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	executed, err := l.switchCommitLogs(false)
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrCommitLogClosed) {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_switch").
 			WithField("file", l.rootPath).
@@ -538,6 +616,10 @@ func (l *hnswCommitLogger) ResumeAfterBackup(ctx context.Context) error {
 func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 	l.Lock()
 	defer l.Unlock()
+
+	if l.closed {
+		return false, ErrCommitLogClosed
+	}
 
 	// Get current file size
 	info, err := l.currentFile.Stat()
@@ -652,29 +734,16 @@ func nextCommitLogFileName(current string) (ts int64, derived bool) {
 }
 
 func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
-	// Drain before locking: Shutdown waits for an in-flight switchCommitLogs,
-	// which starts by taking l.Mutex. Holding it here deadlocks both until ctx
-	// expires. Report the drain error only after the fd is closed, or a timed-out
-	// drain leaks it.
-	shutdownErr := l.Shutdown(ctx)
-
-	l.Lock()
-	defer l.Unlock()
-
-	if err := l.currentWriter.Flush(); err != nil {
-		return errors.Wrap(err, "flush hnsw commit logger prior to delete")
-	}
-	if err := l.currentFile.Close(); err != nil {
-		return errors.Wrap(err, "close hnsw commit logger prior to delete")
-	}
-
-	if shutdownErr != nil {
-		return errors.Wrap(shutdownErr, "drop commitlog")
+	if err := l.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "drop commitlog")
 	}
 
 	if keepFiles {
 		return nil
 	}
+
+	l.Lock()
+	defer l.Unlock()
 
 	// remove commit log directory if exists
 	dir := commitLogDirectory(l.rootPath, l.id)
@@ -698,5 +767,8 @@ func (l *hnswCommitLogger) Flush() error {
 	// (file rotation) and on backup/snapshot paths. Per-batch fsync was the
 	// dominant contributor to the ~15-30% import time regression on slow
 	// disks observed in weaviate/0-weaviate-issues#199.
+	if l.closed {
+		return ErrCommitLogClosed
+	}
 	return l.currentWriter.Flush()
 }

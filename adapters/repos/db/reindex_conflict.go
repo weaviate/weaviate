@@ -125,6 +125,11 @@ func SearchablePropertyBlockmaxFromRAFT(classFlagBlockmax bool, collection, prop
 	return false
 }
 
+// ReindexDetector decides whether a RAFT apply refuses a new reindex task or a
+// schema mutation that overlaps an in-flight reindex. It needs no RAFT handle,
+// so MakeAppState builds it before the cluster service opens RAFT.
+type ReindexDetector struct{}
+
 // CheckConflict implements [distributedtask.ConflictDetector] for the
 // reindex namespace. Called under [Manager.mu] from the RAFT-apply
 // AddTask path BEFORE the new task is appended to FSM-stored state.
@@ -140,7 +145,7 @@ func SearchablePropertyBlockmaxFromRAFT(classFlagBlockmax bool, collection, prop
 // of the same collection conflict, regardless of which bucket type
 // they primarily write to. See [typesConflictReason] for the
 // rationale.
-func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*distributedtask.Task) error {
+func (ReindexDetector) CheckConflict(newPayload []byte, existingTasks []*distributedtask.Task) error {
 	var newP ReindexTaskPayload
 	if err := json.Unmarshal(newPayload, &newP); err != nil {
 		return fmt.Errorf("unmarshal new reindex payload: %w", err)
@@ -186,11 +191,11 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 	return nil
 }
 
-// typesConflictReason returns a non-empty reason string if two reindex
-// migrations on the same collection target overlapping properties — even
-// across different migration types, since one's completion can flip a
-// schema flag the other's on-disk state still assumes is false
-// (weaviate/weaviate#10675).
+// typesConflictReason returns a non-empty reason if two reindex migrations
+// on the same collection target overlapping properties, whatever their types.
+// The UpdateProperty completing a semantic migration ([IsSemanticMigration])
+// runs updatePropertyBuckets, which deletes the working dirs of an overlapping
+// enable-* migration whose flag is still false (weaviate/weaviate#10675).
 //
 // Empty props means "all properties" (reserved for a future
 // whole-collection rebuild) and overlaps with everything.
@@ -289,11 +294,12 @@ func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) s
 // apply path to reject external property mutations racing an in-flight
 // reindex migration on the same (collection, property).
 //
-// Without it, a DELETE arriving mid-migration can land while MergeProps
-// still carries the migration's own still-false flag, wiping the running
-// sub-task's working copy and producing a bucket↔schema inversion — same
-// family as the ack-barrier failure mode, triggered externally instead of
-// by a crash.
+// Without it, an external UpdateProperty such as DELETE /index/searchable
+// runs updatePropertyBuckets, which deletes the working dirs of an in-flight
+// enable-* migration whose flag is still false. Mid change-tokenization, the
+// same DELETE wipes the searchable sub-task while the filterable sub-task
+// commits, leaving the schema at the old tokenization and the filterable
+// bucket on the new one.
 //
 // Migration-driven flips bypass the guard via
 // [api.UpdatePropertyRequest.FromInFlightMigration], set by
@@ -304,7 +310,7 @@ func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) s
 // Must stay a pure function of (className, propertyName, existingTasks) for
 // RAFT determinism; an unparseable payload is a hard reject, same as
 // [ConflictDetector.CheckConflict].
-func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
+func (ReindexDetector) CheckPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		// Same in-flight semantics as CheckConflict.
 		if !task.Status.IsActive() {
@@ -360,7 +366,7 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 // Same FSM-determinism contract as CheckPropertyUpdate. Unparseable
 // in-flight payloads are treated as a hard reject (we cannot prove
 // non-conflict).
-func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*distributedtask.Task) error {
+func (ReindexDetector) CheckClassMutation(className string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		// Same in-flight semantics as CheckConflict.
 		if !task.Status.IsActive() {
@@ -415,7 +421,7 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 //
 // `tenants` is informational — the rejection error names them so
 // the caller knows which tenants would be affected.
-func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
+func (ReindexDetector) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		// Same in-flight semantics as CheckConflict.
 		if !task.Status.IsActive() {

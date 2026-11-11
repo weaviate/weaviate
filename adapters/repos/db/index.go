@@ -46,6 +46,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/executor"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
@@ -580,7 +581,6 @@ func NewIndex(
 func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	promMetrics *monitoring.PrometheusMetrics,
 ) error {
-	var openLocalShards, coldLocalShards []string
 	className := i.Config.ClassName.String()
 
 	state, err := i.namespaceState()
@@ -593,33 +593,21 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		// This logs at Info because suspended and deleting close shards on purpose.
 		i.logger.WithFields(logrus.Fields{
 			"class": className, "namespace": i.namespace, "state": state,
-		}).Info("registering no shards: this namespace keeps none open")
+		}).Info("opening no shards: this namespace keeps none open")
+		if state == api.NamespaceStateSuspended {
+			if err := i.recoverMissingShardsWhileSuspended(ctx, class, promMetrics); err != nil {
+				return err
+			}
+		}
 		// Nothing loads, and leaving the flag false suppresses the node-wide
 		// object count for every index on this node.
 		i.allShardsReady.Store(true)
 		return nil
 	}
 
-	err = i.schemaReader.Read(className, true, func(_ *models.Class, shardingState *sharding.State) error {
-		if shardingState == nil {
-			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
-		}
-
-		shardingState.ForEachLocalOpenPhysical(func(name string) {
-			openLocalShards = append(openLocalShards, name)
-		})
-		// a frozen tenant has no dir, it is prepared when it loads after unfreezing
-		for name, physical := range shardingState.Physical {
-			if shardingState.IsLocalPhysical(physical) &&
-				physical.ActivityStatus() == models.TenantActivityStatusCOLD {
-				coldLocalShards = append(coldLocalShards, name)
-			}
-		}
-
-		return nil
-	})
+	openLocalShards, coldLocalShards, err := i.readLocalShards(className)
 	if err != nil {
-		return fmt.Errorf("failed to read sharding state: %w", err)
+		return err
 	}
 
 	// db.indices does not receive this Index until every one of its shards has
@@ -939,6 +927,52 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 	return monitoring.WarmupLoaded, nil
 }
 
+// readLocalShards returns the class's shards on this node. open holds the ones
+// ForEachLocalOpenPhysical walks, and cold the COLD tenants.
+func (i *Index) readLocalShards(className string) (open, cold []string, err error) {
+	err = i.schemaReader.Read(className, true, func(_ *models.Class, shardingState *sharding.State) error {
+		if shardingState == nil {
+			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
+		}
+
+		shardingState.ForEachLocalOpenPhysical(func(name string) {
+			open = append(open, name)
+		})
+		// a frozen tenant has no dir, it is prepared when it loads after unfreezing
+		for name, physical := range shardingState.Physical {
+			if shardingState.IsLocalPhysical(physical) &&
+				physical.ActivityStatus() == models.TenantActivityStatusCOLD {
+				cold = append(cold, name)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read sharding state: %w", err)
+	}
+	return open, cold, nil
+}
+
+// recoverMissingShardsWhileSuspended runs recoverShardFromPeerIfNeeded on each
+// open shard, so one missing its directory waits RECOVERING for the resume. One
+// it declines stays unregistered, because initialising it would create it empty.
+func (i *Index) recoverMissingShardsWhileSuspended(ctx context.Context, class *models.Class,
+	promMetrics *monitoring.PrometheusMetrics,
+) error {
+	if !i.recoversShardsAtStartup(ctx) {
+		return nil
+	}
+	open, _, err := i.readLocalShards(i.Config.ClassName.String())
+	if err != nil {
+		return err
+	}
+	for _, shardName := range open {
+		i.recoverShardFromPeerIfNeeded(ctx, class, shardName, promMetrics)
+	}
+	return nil
+}
+
 // recoverShardFromPeerIfNeeded installs a load-blocking RecoveringShard when the live dir is missing at startup; true = skip normal init.
 func (i *Index) recoverShardFromPeerIfNeeded(ctx context.Context, class *models.Class,
 	shardName string, promMetrics *monitoring.PrometheusMetrics,
@@ -1034,14 +1068,16 @@ func (i *Index) installRecoveringShard(ctx context.Context, class *models.Class,
 	i.shards.Store(shardName, rec)
 }
 
-// shouldRecoverShardFromPeer is the eligibility preamble; the caller classifies in-flight ops and installs.
-func (i *Index) shouldRecoverShardFromPeer(ctx context.Context, shardName string) bool {
+// recoversShardsAtStartup reports whether ctx is the startup load and self-recovery may take a missing shard.
+func (i *Index) recoversShardsAtStartup(ctx context.Context) bool {
 	orch := i.Config.SelfRecoveryOrchestrator
 	// Enabled deliberately ignores the license so the resume branch still runs for in-flight ops.
-	if orch == nil || !orch.Enabled() {
-		return false
-	}
-	if !enterrors.IsStartupDBLoad(ctx) {
+	return orch != nil && orch.Enabled() && enterrors.IsStartupDBLoad(ctx)
+}
+
+// shouldRecoverShardFromPeer is the eligibility preamble. The caller classifies in-flight ops and installs.
+func (i *Index) shouldRecoverShardFromPeer(ctx context.Context, shardName string) bool {
+	if !i.recoversShardsAtStartup(ctx) {
 		return false
 	}
 	dir := shardPath(i.path(), shardName)
@@ -3784,9 +3820,10 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) (ShardUn
 	return i.unloadLocalShard(ctx, shardName, false)
 }
 
-// unloadLocalShard with keepRecovering returns recovering for a self-recovery
-// placeholder, checked under the create lock that promotion takes.
-func (i *Index) unloadLocalShard(ctx context.Context, shardName string, keepRecovering bool) (ShardUnloadOutcome, error) {
+// unloadLocalShard with forSweep, which DB.UnloadShard passes for the suspend
+// sweep, keeps a self-recovery placeholder and a shard heldForMovement names,
+// both checked under the create lock that promotion takes.
+func (i *Index) unloadLocalShard(ctx context.Context, shardName string, forSweep bool) (ShardUnloadOutcome, error) {
 	// enterRead refuses only after beginClose, so a refusal means the index is closing.
 	if err := i.enterRead(); err != nil {
 		return ShardUnloadOutcomeIndexClosing, fmt.Errorf("%w: %w", ErrIndexClosing, err)
@@ -3796,8 +3833,14 @@ func (i *Index) unloadLocalShard(ctx context.Context, shardName string, keepReco
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
 
-	if rec, ok := i.shards.Load(shardName).(*RecoveringShard); ok && keepRecovering && rec.IsRecovering() {
+	loaded := i.shards.Load(shardName)
+	if rec, ok := loaded.(*RecoveringShard); ok && forSweep && rec.IsRecovering() {
 		return ShardUnloadOutcomeRecovering, fmt.Errorf("shard %q: %w", shardName, enterrors.ErrShardRecovering)
+	}
+	if forSweep && loaded != nil {
+		if outcome, held := i.heldForMovement(shardName); held {
+			return outcome, nil
+		}
 	}
 
 	shardLike, ok := i.shards.LoadAndDelete(shardName)
@@ -3837,6 +3880,24 @@ func (i *Index) unloadLocalShard(ctx context.Context, shardName string, keepReco
 	}
 
 	return outcome, nil
+}
+
+// heldForMovement reports whether a non-terminal replication op copies out of or
+// into this node's replica of the shard, and the outcome unloadLocalShard returns
+// for it.
+func (i *Index) heldForMovement(shardName string) (ShardUnloadOutcome, bool) {
+	fsm := i.getReplicationFSMReader()
+	if fsm == nil {
+		return "", false
+	}
+	className, node := i.Config.ClassName.String(), i.Config.NodeName
+	if fsm.HasActiveSourceReplicationForShard(className, shardName, node) {
+		return ShardUnloadOutcomeMovementSource, true
+	}
+	if fsm.HasActiveTargetReplicationForShard(className, shardName, node) {
+		return ShardUnloadOutcomeMovementTarget, true
+	}
+	return "", false
 }
 
 func (i *Index) GetShard(ctx context.Context, shardName string) (

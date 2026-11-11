@@ -343,6 +343,15 @@ func NewDefaultMultiVectorUserConfig() UserConfig {
 }
 
 func ParseDefaultQuantization(vectorIndexConfig config.VectorIndexConfig, compression string) (config.VectorIndexConfig, error) {
+	return ParseDefaultQuantizationForDistance(vectorIndexConfig, compression, vectorIndexConfig.(UserConfig).Distance)
+}
+
+// ParseDefaultQuantizationForDistance applies the server's default
+// quantization unless the user configured one. distance is the distance the
+// index compresses under; the hnsw arm of a dynamic index takes the dynamic
+// index's. An RQ default is skipped on a distance RQ cannot compress, leaving
+// the index uncompressed: the user never asked for RQ, so this is not an error.
+func ParseDefaultQuantizationForDistance(vectorIndexConfig config.VectorIndexConfig, compression, distance string) (config.VectorIndexConfig, error) {
 	hnswConfig := vectorIndexConfig.(UserConfig)
 	pqEnabled := hnswConfig.PQ.Enabled
 	sqEnabled := hnswConfig.SQ.Enabled
@@ -351,6 +360,9 @@ func ParseDefaultQuantization(vectorIndexConfig config.VectorIndexConfig, compre
 	skipDefaultQuantization := hnswConfig.SkipDefaultQuantization
 	hnswConfig.TrackDefaultQuantization = false
 	if pqEnabled || sqEnabled || rqEnabled || bqEnabled || skipDefaultQuantization {
+		return hnswConfig, nil
+	}
+	if strings.HasPrefix(compression, "rq-") && !vectorIndexCommon.RQSupportsDistance(distance) {
 		return hnswConfig, nil
 	}
 	switch compression {

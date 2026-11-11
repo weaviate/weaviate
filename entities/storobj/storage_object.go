@@ -2017,7 +2017,7 @@ func MultiVectorFromBinary(in []byte, targetVector string) ([][]float32, error) 
 
 	out, ok := multiVectors[targetVector]
 	if !ok {
-		return nil, errors.Errorf("vector not found for target vector: %s", targetVector)
+		return nil, ErrTargetVectorNotFound{TargetVector: targetVector}
 	}
 	return out, nil
 }

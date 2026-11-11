@@ -123,6 +123,8 @@ type PrometheusMetrics struct {
 	VectorDimensionsSum                 *prometheus.GaugeVec
 	VectorSegmentsSum                   *prometheus.GaugeVec
 	VectorIndexMemoryAllocationRejected prometheus.Counter
+	VectorCacheArenaSlabBytes           prometheus.Gauge
+	VectorCacheArenaLiveVectors         prometheus.Gauge
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
@@ -756,6 +758,14 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		VectorIndexMemoryAllocationRejected: promauto.NewCounter(prometheus.CounterOpts{
 			Name: "weaviate_vector_index_memory_allocation_rejected_total",
 			Help: "Total number of batch operations rejected per node due to insufficient memory",
+		}),
+		VectorCacheArenaSlabBytes: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "weaviate_vector_cache_arena_slab_bytes",
+			Help: "Bytes held by arena vector cache chunks per node (VECTOR_CACHE_IMPL=arena only). Compare with live_vectors times the record size: chunks are not reclaimed on delete",
+		}),
+		VectorCacheArenaLiveVectors: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "weaviate_vector_cache_arena_live_vectors",
+			Help: "Live records held by arena vector caches per node (VECTOR_CACHE_IMPL=arena only)",
 		}),
 
 		// Startup metrics

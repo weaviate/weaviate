@@ -2399,3 +2399,27 @@ func TestStorageObjectRemoveTargetVectorRoundTrip(t *testing.T) {
 	assert.False(t, after.RemoveTargetVector("drop"))
 	assert.False(t, after.RemoveTargetVector("mvdrop"))
 }
+
+func TestMultiVectorFromBinary_MissingVector(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		vectors      map[string][]float32
+		multiVectors map[string][][]float32
+	}{
+		{name: "other multi vectors", multiVectors: map[string][][]float32{"other": {{1, 2}}}},
+		{name: "only single vectors", vectors: map[string][]float32{"title": {1, 2}}},
+		{name: "no vectors"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			obj := FromObject(&models.Object{Class: "C", ID: strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247")},
+				nil, tc.vectors, tc.multiVectors)
+			data, err := obj.MarshalBinary()
+			require.NoError(t, err)
+
+			_, err = MultiVectorFromBinary(data, "colbert")
+			var notFound ErrTargetVectorNotFound
+			require.ErrorAs(t, err, &notFound)
+			require.Equal(t, "colbert", notFound.TargetVector)
+		})
+	}
+}
