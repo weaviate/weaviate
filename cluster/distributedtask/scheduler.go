@@ -856,11 +856,7 @@ func (s *Scheduler) runPreparationPhase(
 		groupErrors[i] = suProvider.OnGroupCompleted(task, w.groupID, w.localIDs)
 	}
 
-	type prepAck struct {
-		groupID string
-		err     error
-	}
-	acks := func() []prepAck {
+	acks := func() []groupAck {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		state := s.perTaskStateLocked(desc)
@@ -884,26 +880,39 @@ func (s *Scheduler) runPreparationPhase(
 		if s.ackRecorder == nil {
 			return nil
 		}
-		var pending []prepAck
+		var pending []groupAck
 		for _, groupID := range slices.Sorted(maps.Keys(state.preparationCompletionGroupErrors)) {
-			pending = append(pending, prepAck{groupID: groupID, err: state.preparationCompletionGroupErrors[groupID]})
+			pending = append(pending, groupAck{groupID: groupID, err: state.preparationCompletionGroupErrors[groupID]})
 		}
 		return pending
 	}()
 
+	s.sendGroupAcks(namespace, desc, "prep-complete", acks,
+		func(groupID string, success bool, errMsg string) error {
+			return s.ackRecorder.RecordDistributedTaskPreparationCompleteAck(
+				context.Background(), namespace, task.ID, task.Version, groupID, s.localNode, success, errMsg)
+		},
+		func(state *taskSchedulerState) map[string]error { return state.preparationCompletionGroupErrors })
+}
+
+type groupAck struct {
+	groupID string
+	err     error
+}
+
+func (s *Scheduler) sendGroupAcks(namespace string, desc TaskDescriptor, kind string, acks []groupAck,
+	record func(groupID string, success bool, errMsg string) error,
+	pendingOf func(*taskSchedulerState) map[string]error,
+) {
 	for i, ack := range acks {
 		var errMsg string
 		if ack.err != nil {
 			errMsg = ack.err.Error()
 		}
-		ackErr := s.ackRecorder.RecordDistributedTaskPreparationCompleteAck(
-			context.Background(), namespace, task.ID, task.Version,
-			ack.groupID, s.localNode, ack.err == nil, errMsg,
-		)
-		if ackErr != nil {
+		if ackErr := record(ack.groupID, ack.err == nil, errMsg); ackErr != nil {
 			s.postCompletionAckLogger.WithSampling(func(l logrus.FieldLogger) {
 				s.loggerWithTask(namespace, desc).WithField("pending_group_count", len(acks)-i).
-					Warnf("failed to record distributed task prep-complete acks; will retry on next tick or wake: %v", ackErr)
+					Warnf("failed to record distributed task %s acks; will retry on next tick or wake: %v", kind, ackErr)
 			})
 			return
 		}
@@ -911,7 +920,7 @@ func (s *Scheduler) runPreparationPhase(
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			if state := s.perTaskStateLocked(desc); state != nil {
-				delete(state.preparationCompletionGroupErrors, ack.groupID)
+				delete(pendingOf(state), ack.groupID)
 			}
 		}()
 	}
@@ -1073,11 +1082,7 @@ func (s *Scheduler) runDecidedSwapPhase(
 		groupErrors[i] = suProvider.OnSwapRequested(task, w.groupID, w.localIDs)
 	}
 
-	type swapAck struct {
-		groupID string
-		err     error
-	}
-	acks := func() []swapAck {
+	acks := func() []groupAck {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		state := s.perTaskStateLocked(desc)
@@ -1109,37 +1114,19 @@ func (s *Scheduler) runDecidedSwapPhase(
 		if s.ackRecorder == nil {
 			return nil
 		}
-		pending := make([]swapAck, 0, len(state.swapAcksPending))
+		pending := make([]groupAck, 0, len(state.swapAcksPending))
 		for _, groupID := range slices.Sorted(maps.Keys(state.swapAcksPending)) {
-			pending = append(pending, swapAck{groupID: groupID, err: state.swapAcksPending[groupID]})
+			pending = append(pending, groupAck{groupID: groupID, err: state.swapAcksPending[groupID]})
 		}
 		return pending
 	}()
 
-	for i, ack := range acks {
-		var errMsg string
-		if ack.err != nil {
-			errMsg = ack.err.Error()
-		}
-		ackErr := s.ackRecorder.RecordDistributedTaskPostCompletionAck(
-			context.Background(), namespace, task.ID, task.Version,
-			ack.groupID, s.localNode, ack.err == nil, errMsg,
-		)
-		if ackErr != nil {
-			s.postCompletionAckLogger.WithSampling(func(l logrus.FieldLogger) {
-				s.loggerWithTask(namespace, desc).WithField("pending_group_count", len(acks)-i).
-					Warnf("failed to record distributed task swap acks; will retry on next tick or wake: %v", ackErr)
-			})
-			return
-		}
-		func() {
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			if state := s.perTaskStateLocked(desc); state != nil {
-				delete(state.swapAcksPending, ack.groupID)
-			}
-		}()
-	}
+	s.sendGroupAcks(namespace, desc, "swap", acks,
+		func(groupID string, success bool, errMsg string) error {
+			return s.ackRecorder.RecordDistributedTaskPostCompletionAck(
+				context.Background(), namespace, task.ID, task.Version, groupID, s.localNode, success, errMsg)
+		},
+		func(state *taskSchedulerState) map[string]error { return state.swapAcksPending })
 }
 
 // runCompletedCallbackPhase fires OnTaskCompleted for a single task in
