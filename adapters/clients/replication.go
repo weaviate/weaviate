@@ -463,6 +463,9 @@ func (c *replicationClient) CountObjects(ctx context.Context, host string, index
 	// CountObjects is used as a best-effort consistency check during aggregation, so we don't want to retry on error
 	// We just accept the error and return it so it can be ignored in the reconciliation logic
 	err = c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, nil, &resp, 0)
+	if he, ok := AsHTTPError(err); ok && he.Code == http.StatusTeapot {
+		return resp, fmt.Errorf("%w: %s", replica.ErrReplicaMaintenance, he.Body)
+	}
 	return resp, err
 }
 
@@ -907,7 +910,7 @@ func (c *replicationClient) doRetry(req *http.Request, body []byte, resp interfa
 
 		if code := res.StatusCode; code != http.StatusOK {
 			b, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
+			return shouldRetry(code), &HTTPError{Code: code, Body: b}
 		}
 		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
 			return false, fmt.Errorf("decode response: %w", err)
