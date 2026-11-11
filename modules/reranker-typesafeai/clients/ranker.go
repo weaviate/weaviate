@@ -120,7 +120,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	owner := make(map[string]int, len(documents))
 	var pending []int
 	for i, document := range documents {
-		if document.Value == "" {
+		if strings.TrimSpace(document.Value) == "" {
 			continue
 		}
 		if _, ok := owner[document.Value]; ok {
@@ -154,7 +154,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 			for j, index := range batch {
 				batchDocuments[j] = documents[index]
 			}
-			probabilities, usage, err := c.judge(ctx, request, batchDocuments)
+			probabilities, usage, err := c.judge(ctx, request, batchDocuments, false)
 			if err != nil {
 				return err
 			}
@@ -246,16 +246,19 @@ type judgeRequest struct {
 
 // judge returns the probability of every document, in order. A request the
 // API rejects for its size is sent again as two halves, down to one document.
-// A 400 to a request of one document names its object.
-func (c *client) judge(ctx context.Context, r judgeRequest, documents []ent.Document) ([]float64, typesafeaiUsage, error) {
+// A 400 to a request of one document names its object when the 400 says the
+// document is too large or a split isolated the document; any other 400 to a
+// page of one document can be about the request, such as an unknown model.
+func (c *client) judge(ctx context.Context, r judgeRequest, documents []ent.Document, split bool,
+) ([]float64, typesafeaiUsage, error) {
 	response, tooLarge, err := c.post(ctx, r, documents)
 	if tooLarge && len(documents) > 1 {
 		half := len(documents) / 2
-		first, firstUsage, err := c.judge(ctx, r, documents[:half])
+		first, firstUsage, err := c.judge(ctx, r, documents[:half], true)
 		if err != nil {
 			return nil, typesafeaiUsage{}, err
 		}
-		second, secondUsage, err := c.judge(ctx, r, documents[half:])
+		second, secondUsage, err := c.judge(ctx, r, documents[half:], true)
 		if err != nil {
 			return nil, typesafeaiUsage{}, err
 		}
@@ -263,7 +266,7 @@ func (c *client) judge(ctx context.Context, r judgeRequest, documents []ent.Docu
 	}
 	if err != nil {
 		var rejected apiError
-		if len(documents) == 1 && errors.As(err, &rejected) && rejected.status == http.StatusBadRequest {
+		if len(documents) == 1 && (tooLarge || split) && errors.As(err, &rejected) && rejected.status == http.StatusBadRequest {
 			return nil, typesafeaiUsage{}, fmt.Errorf("object %s: %w", documents[0].ID, err)
 		}
 		return nil, typesafeaiUsage{}, err
@@ -411,13 +414,14 @@ func (c *client) endpoint(ctx context.Context, classBaseURL string,
 			return "", "", false, fmt.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
 				baseURLHeader, apiKeyHeader)
 		}
-		if err := config.CheckBaseURL(headerBaseURL); err != nil {
+		normalized, err := config.NormalizeBaseURL(headerBaseURL)
+		if err != nil {
 			return "", "", false, fmt.Errorf("%s header %w", baseURLHeader, err)
 		}
-		if err := modulecomponents.ValidateBaseURL(headerBaseURL); err != nil {
+		if err := modulecomponents.ValidateBaseURL(normalized); err != nil {
 			return "", "", false, err
 		}
-		baseURL = headerBaseURL
+		baseURL = normalized
 		hostFromHeader = true
 	}
 	if apiKey == "" {

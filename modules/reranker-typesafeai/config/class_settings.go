@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -79,11 +80,21 @@ func (cs *classSettings) CheckSettings() error {
 // host. A URL with a port and no host, such as https://:443, dials the local
 // host.
 func CheckBaseURL(raw string) error {
+	_, err := NormalizeBaseURL(raw)
+	return err
+}
+
+// NormalizeBaseURL drops a trailing slash and a trailing /v1, which SDKs
+// write into the base URL; the client appends /v1 itself.
+func NormalizeBaseURL(raw string) (string, error) {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
-		return fmt.Errorf("must be an absolute http or https URL, got %q", raw)
+		return "", fmt.Errorf("must be an absolute http or https URL, got %q", raw)
 	}
-	return nil
+	p := strings.TrimSuffix(strings.TrimSuffix(u.EscapedPath(), "/"), "/v1")
+	u.RawPath = p
+	u.Path, _ = url.PathUnescape(p)
+	return u.String(), nil
 }
 
 // rawSettings mirrors the lookup of the property helper's getters, which the
@@ -95,8 +106,14 @@ func (cs *classSettings) rawSettings() map[string]any {
 	return cs.cfg.Class()
 }
 
+// A value that does not normalize is returned unchanged; Validate rejects it
+// at class create and CheckSettings at query time.
 func (cs *classSettings) BaseURL() string {
-	return cs.getStringProperty("baseURL", DefaultBaseURL)
+	raw := cs.getStringProperty("baseURL", DefaultBaseURL)
+	if normalized, err := NormalizeBaseURL(raw); err == nil {
+		return normalized
+	}
+	return raw
 }
 
 func (cs *classSettings) Model() string {
