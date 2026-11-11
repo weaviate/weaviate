@@ -1356,7 +1356,6 @@ func TestPreMarkTerminalCallbacksLocked_OnlyTerminalsAreMarked(t *testing.T) {
 	startedDesc := TaskDescriptor{ID: "started", Version: 4}
 
 	mkTask := func(d TaskDescriptor, status TaskStatus, groups ...string) *Task {
-		// One unit per group so Task.Groups() yields each group.
 		return withUnits(&Task{TaskDescriptor: d, Status: status}, unitPerGroup(groups))
 	}
 
@@ -1381,7 +1380,6 @@ func TestPreMarkTerminalCallbacksLocked_OnlyTerminalsAreMarked(t *testing.T) {
 	require.True(t, s.perTaskState[cancelledDesc].completedCallbackFired,
 		"Cancelled task must be pre-marked as completed-callback-fired")
 
-	// Terminal tasks: no group left to act on.
 	for _, desc := range []TaskDescriptor{finishedDesc, failedDesc, cancelledDesc} {
 		require.Equal(t, map[string]struct{}{}, s.perTaskState[desc].swapPending, desc.ID)
 	}

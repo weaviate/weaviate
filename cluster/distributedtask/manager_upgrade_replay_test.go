@@ -48,7 +48,6 @@ func TestReplayOfReleasedBinaryLogs(t *testing.T) {
 			Namespace: ns, Id: id, Version: 1, FinalizedAtUnixMillis: at.UnixMilli(),
 		})))
 	}
-	// Two tenants on two nodes.
 	groups := map[string]string{"u1": "t1", "u2": "t1", "u3": "t2", "u4": "t2"}
 	node := map[string]string{"u1": "n1", "u2": "n2", "u3": "n1", "u4": "n2"}
 

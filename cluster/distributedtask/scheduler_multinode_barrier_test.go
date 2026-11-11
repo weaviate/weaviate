@@ -483,8 +483,6 @@ func TestBarrier_G2_PartialPhaseBFailure(t *testing.T) {
 	task := h.getTask(t, taskID)
 	require.Equal(t, TaskStatusSwapping, task.Status)
 
-	// node-2's swap fails: its failure ack fails the SWAPPING task, and the
-	// swap it owes stays owed.
 	h.tick(1)
 	task = h.getTask(t, taskID)
 	require.Equal(t, TaskStatusFailed, task.Status,
@@ -494,8 +492,6 @@ func TestBarrier_G2_PartialPhaseBFailure(t *testing.T) {
 	require.True(t, task.SwapOwedBy("", "node-2"), "a failed swap is not paid")
 	require.False(t, task.SwapOwedBy("", "node-1"), "node-1 paid its swap")
 
-	// Every node's next tick sees FAILED: OnTaskCompleted fires once for
-	// cleanup, node-3 pays its swap, and node-2 retries its own.
 	h.tick(0)
 	h.tick(1)
 	h.tick(2)
@@ -884,7 +880,6 @@ func TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode(t *testing.T) {
 	require.True(t, task.GroupSwapDecided("group-a"),
 		"node-1 alone owns group-a, so its prep-ack decides it")
 
-	// node-3 ticks: NO local units in either group → no PHASE A fire and no ack.
 	h.tick(2)
 	require.Equal(t, 0, h.nodes[2].provider.groupCount(taskID),
 		"node-3: OnGroupCompleted MUST NOT fire — no local units in any group")
@@ -903,7 +898,6 @@ func TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode(t *testing.T) {
 
 	// Restarted node-2 ticks: fresh map allows OnGroupCompleted to fire
 	// for group-b, then PHASE A.5 emits node-2's prep-ack.
-	// group-b decided too → PREPARING → SWAPPING.
 	freshScheduler.tick()
 
 	task = h.getTask(t, taskID)
