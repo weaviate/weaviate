@@ -69,9 +69,10 @@ type client struct {
 func New(apiKey, organization string, timeout time.Duration, maxConcurrentRequests int, logger logrus.FieldLogger) *client {
 	slots := max(maxConcurrentRequests, 1)
 	return &client{
-		apiKey:             apiKey,
-		organization:       organization,
-		httpClient:         modulecomponents.NewBaseHttpClient(timeout),
+		apiKey:       apiKey,
+		organization: organization,
+		// Each slot keeps its connection between queries.
+		httpClient:         modulecomponents.NewBaseHttpClientWithIdleConns(timeout, slots),
 		inFlight:           make(chan struct{}, slots),
 		inFlightHeaderHost: make(chan struct{}, slots),
 		logger:             logger,
