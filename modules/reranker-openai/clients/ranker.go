@@ -52,8 +52,6 @@ const (
 	maxQueryBytes        = 100_000
 )
 
-var errRefused = errors.New("refusal")
-
 type client struct {
 	apiKey       string
 	organization string
@@ -207,9 +205,6 @@ func (c *client) judge(ctx context.Context, r judgeRequest, document ent.Documen
 		return 0, 0, err
 	}
 	score, err := response.score(questionName)
-	if errors.Is(err, errRefused) {
-		err = fmt.Errorf("OpenAI refused to judge the condition %q", truncate(r.query))
-	}
 	if err != nil {
 		return 0, 0, fmt.Errorf("object %s: %w", document.ID, err)
 	}
@@ -455,7 +450,9 @@ func (r decisionResponse) score(name string) (float64, error) {
 	}
 	switch answer.Type {
 	case refusalType:
-		return 0, errRefused
+		// OpenAI refuses a document whose content has no evidence for the
+		// condition, so the condition does not hold for it.
+		return 0, nil
 	case predicateType:
 		if answer.Probability == nil {
 			return 0, errors.New("OpenAI answer has no probability")
