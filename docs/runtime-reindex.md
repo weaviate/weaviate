@@ -1127,8 +1127,8 @@ Then, per shard load:
        Here that does not mean the cluster state diverged.
      - The way out depends on what stopped the arm, which the hold log and
        the refusal name. For a migration not yet swapped in, clearing what
-       blocks the stamp also ends the hold: the stamp lands, the shard goes
-       writable, and the migration must be resubmitted. That exit does not
+       blocks the stamp also ends the hold: the stamp lands, and the
+       migration must be resubmitted. That exit does not
        apply when a migration already swapped in is held on the same shard:
        the hold covers the whole shard, so the migration not yet swapped in
        is not stamped and does not fail, and both wait until the shard is
