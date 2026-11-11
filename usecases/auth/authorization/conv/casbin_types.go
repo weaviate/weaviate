@@ -146,13 +146,35 @@ func CasbinBackups(class string) string {
 // "roles/admin". Wrapping to "users/(z|.*)" confines it. Only '|' and the line
 // anchors can break out, so literals and in-segment wildcards pass through bare; a
 // leading '<ns>:' qualifier stays outside the group, where the matcher reads it.
+//
+// The group only confines a body whose own parentheses balance: "x)|(.*" would
+// wrap to "(x)|(.*)", closing the group early and leaving a second top-level
+// branch. The authz API refuses such a target before it gets here, but this
+// function must not depend on that, so a body with parentheses that does not
+// compile on its own is stored as a quoted literal instead.
 func casbinSegment(name string) string {
 	prefix, body := namespaceQualifier(name)
+	if strings.ContainsAny(body, "()") && !compilesAlone(body) {
+		return prefix + regexp.QuoteMeta(body)
+	}
 	body = strings.ReplaceAll(body, "*", ".*")
 	if !strings.ContainsAny(body, "|^$") {
 		return prefix + body
 	}
 	return prefix + "(" + body + ")"
+}
+
+// keyMatch5BraceRe mirrors casbin's KeyMatch5, which rewrites a "{...}" token to
+// "[^/]+" on the stored pattern before compiling it.
+var keyMatch5BraceRe = regexp.MustCompile(`\{[^/]+\}`)
+
+// compilesAlone reports whether a segment body is a valid regex by itself, in
+// the form the matcher compiles it: '*' expanded and KeyMatch5's brace rewrite
+// applied.
+func compilesAlone(body string) bool {
+	expanded := keyMatch5BraceRe.ReplaceAllString(strings.ReplaceAll(body, "*", ".*"), "[^/]+")
+	_, err := regexp.Compile(expanded)
+	return err == nil
 }
 
 // unwrapCasbinSegment reverses casbinSegment for read-back: it strips the
