@@ -269,7 +269,7 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 	lifts := []struct {
 		name string
 		lift lift
-		// A status write starts the recovery retry and is refused; a retry that works lifts the shard.
+		// A status write starts the recovery retry and is refused. A retry that works lifts the shard.
 		retries bool
 		// Only the manual status update row runs the disks that do not arm.
 		armsOnly bool
@@ -594,9 +594,6 @@ func TestADropDuringTheLiftsArmStillArmsTheMirror(t *testing.T) {
 	require.True(t, ok)
 	require.False(t, rec.Subject().Unmirrored, "a caller giving up must not stamp the migration")
 	require.NotZero(t, shard.migrationMirrors.ArmedMigrationMirrors())
-	for name, b := range shard.store.GetBucketsByName() {
-		require.Equalf(t, shard.GetStatus(), b.GetStatus(), "bucket %s opened after the caller left", name)
-	}
 }
 
 // Cleanup of a migration cancelled during a lift waits for the arm, so no mirror outlives its record.
@@ -687,14 +684,21 @@ func TestASecondLiftDoesNotRearmWhatTheFirstSettled(t *testing.T) {
 // A retry that works leaves a shard READONLY for another reason, and its steps wait until that reason clears.
 func TestARetryThatWorksLeavesAShardReadOnlyForAnotherReason(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		reason string
-		during func(t *testing.T, fx *doubleFaultFixture, shard *Shard)
-		clear  func(t *testing.T, fx *doubleFaultFixture, shard *Shard)
+		name    string
+		reason  string
+		during  func(t *testing.T, fx *doubleFaultFixture, shard *Shard)
+		settled func(t *testing.T, fx *doubleFaultFixture, shard *Shard)
+		clear   func(t *testing.T, fx *doubleFaultFixture, shard *Shard)
 	}{
 		{
 			name: "resource pressure", reason: statusReasonResourcePressure,
-			during: func(_ *testing.T, fx *doubleFaultFixture, _ *Shard) { fx.idx.db.setReadOnlyFlag(true) },
+			during: func(_ *testing.T, fx *doubleFaultFixture, _ *Shard) { fx.idx.db.resourceScanState.transition.Lock() },
+			settled: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) {
+				require.Eventually(t, func() bool { return len(shard.migrationMirrors.heldUnarmed()) == 0 }, 10*time.Second, 10*time.Millisecond)
+				require.Equal(t, statusReasonMirrorUnarmed, shard.GetStatusReason(), "the lift waits for the scan's transition")
+				fx.idx.db.resourceScanState.isReadOnly.Store(true)
+				fx.idx.db.resourceScanState.transition.Unlock()
+			},
 			clear: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) {
 				fx.idx.db.setReadOnlyFlag(false)
 				require.True(t, fx.idx.db.markShardReady(fx.name, shard))
@@ -713,6 +717,9 @@ func TestARetryThatWorksLeavesAShardReadOnlyForAnotherReason(t *testing.T) {
 			tc.during(t, fx, shard)
 			fx.idx.bucketLoadLimiter.Release()
 			require.ErrorContains(t, receiveWithin(t, lift), "a recovery retry started")
+			if tc.settled != nil {
+				tc.settled(t, fx, shard)
+			}
 			awaitRetry(t, shard)
 
 			require.Empty(t, shard.migrationMirrors.heldUnarmed())

@@ -252,6 +252,6 @@ func (s *Shard) rearmHeld() error {
 }
 
 func (s *Shard) heldReadOnlyErr(cause error) error {
-	return fmt.Errorf("shard %q stays %s: a reindex migration's double-write mirror is not armed and "+
-		"cannot be stamped Unmirrored: %w", s.name, storagestate.StatusReadOnly, cause)
+	return fmt.Errorf("shard %q: a reindex migration's double-write mirror is not armed and "+
+		"cannot be stamped Unmirrored: %w", s.name, cause)
 }

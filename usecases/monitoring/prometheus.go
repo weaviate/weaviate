@@ -649,7 +649,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}),
 		ReindexHeldShards: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "reindex_held_shards",
-			Help: "Shards on this node held READONLY because a reindex migration's double-write mirror could not arm and its Unmirrored stamp could not be written. Each needs its cause cleared, then a manual READY or a restart; the node's Error log line names the shard and the cause.",
+			Help: "Shards on this node held READONLY because a reindex migration's double-write mirror could not arm and its Unmirrored stamp could not be written. Each needs its cause cleared; the node's Error log line names the shard and the cause.",
 		}),
 		MigrationRecordsNotUnderstood: promauto.NewCounter(prometheus.CounterOpts{
 			Name: "migration_records_not_understood_total",

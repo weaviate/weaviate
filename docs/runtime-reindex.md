@@ -1118,11 +1118,11 @@ Then, per shard load:
      - A lift never waits for the disk: it starts a retry of the arm in the
        background and is refused at once. If the mirror arms, the retry makes the
        shard writable once disk and memory pressure clears, and the migration continues; if only the stamp lands,
-       it turns writable and the migration must be
+       the migration must be
        resubmitted; otherwise any bucket the retry opened is set back to
        READONLY, the owning node logs the cause at Error level, and the
-       next lift starts another retry. Since it is refused,
-       every lift shows up on each replica where the shard is held as an `apply
+       next lift starts another retry. Every refused
+       lift shows up on each replica where the shard is held as an `apply
        command` Error and in `weaviate_cluster_store_fsm_apply_failures_total`.
        Here that does not mean the cluster state diverged.
      - The way out depends on what stopped the arm, which the hold log and
