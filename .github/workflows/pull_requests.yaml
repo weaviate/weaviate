@@ -78,7 +78,7 @@ jobs:
 
       - name: Upload SARIF file
         if: always() && steps.vuln-scan.outputs.exit_code != 1
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           sarif_file: results/image.sarif
 
@@ -221,7 +221,7 @@ jobs:
 
       - name: Upload SARIF file
         if: always() && steps.vuln-scan.outputs.exit_code != 1
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           sarif_file: results/image.sarif
 
@@ -841,6 +841,8 @@ jobs:
             test: "--acceptance-reindex-multinode-scale"
           - name: "multinode-changetok"
             test: "--acceptance-reindex-multinode-changetok"
+          - name: "multinode-postops"
+            test: "--acceptance-reindex-multinode-postops"
           - name: "singlenode-a"
             test: "--acceptance-reindex-singlenode-a"
           - name: "singlenode-b"
@@ -1028,7 +1030,7 @@ jobs:
       - name: Set up Go
         uses: ./.github/actions/setup-go
       - name: Install GoReleaser
-        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7
         with:
           install-only: true
       - name: goreleaser

@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"sync"
 	"testing"
 	"time"
 
@@ -346,46 +345,6 @@ func TestLazyShardBackgroundWarmupSkipsSpendNoTick(t *testing.T) {
 		require.Equal(t, tenant == bigTenant, lazy.isLoaded(),
 			"only the tenant above the threshold should be warmed, checked %q", tenant)
 	}
-}
-
-// refusingAllocChecker refuses the load attempts listed in refuse, counted from
-// one, and allows the rest. LazyLoadShard.loadIfCold asks it before it builds the shard,
-// so this fails a load without having to damage anything on disk.
-type refusingAllocChecker struct {
-	mu     sync.Mutex
-	refuse map[int]bool
-	calls  int
-}
-
-func newRefusingAllocChecker(refuse []int) *refusingAllocChecker {
-	refused := make(map[int]bool, len(refuse))
-	for _, call := range refuse {
-		refused[call] = true
-	}
-	return &refusingAllocChecker{refuse: refused}
-}
-
-func (c *refusingAllocChecker) CheckAlloc(int64) error { return nil }
-
-func (c *refusingAllocChecker) CheckMappingAndReserve(int64, int) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.calls++
-	if c.refuse[c.calls] {
-		return fmt.Errorf("no mappings left for load attempt %d", c.calls)
-	}
-	return nil
-}
-
-func (c *refusingAllocChecker) Refresh(bool) {}
-
-// attempts reports how many shards the sweep tried to load.
-func (c *refusingAllocChecker) attempts() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	return c.calls
 }
 
 // TestLazyShardBackgroundWarmupContinuesAfterFailedLoad pins that a shard failing

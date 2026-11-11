@@ -485,7 +485,6 @@ type Config struct {
 	LazyLoadShardSizeThresholdGB        float64
 	LazyLoadShardWarmupMinObjects       int64
 	ForceFullReplicasSearch             bool
-	TransferInactivityTimeout           time.Duration
 	HaltForTransferTimeout              time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	LSMSkipWriteClassNameEnabled        bool
@@ -754,9 +753,10 @@ func (db *DB) GetIndexForIncomingSharding(ctx context.Context, className schema.
 }
 
 // droppingIndex returns an index whose drop is still in flight, or nil. Only
-// db.ReleaseBackup may use it: drop() parks on backupLock, which nothing but
-// idx.ReleaseBackup releases. Everything else wants GetIndex, which reports a
-// deleted class as gone.
+// db.ReleaseBackup may use it. A drop registers the index here before it
+// removes it from db.indices, so a release always finds the index in one of
+// the two and can reset its backup state. Everything else wants GetIndex,
+// which reports a deleted class as gone.
 func (db *DB) droppingIndex(id string) *Index {
 	if idx, ok := db.dropping.Load(id); ok {
 		return idx.(*Index)

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -48,6 +49,7 @@ func createReplicationHandlerWithMocks(t *testing.T, logger *logrus.Logger) (*re
 		replicationManager: mockReplicationManager,
 		logger:             logger,
 		enabled:            runtime.NewDynamicValue(true),
+		dataPath:           t.TempDir(),
 	}
 
 	return handler, mockAuthorizer, mockReplicationManager
@@ -878,4 +880,131 @@ func TestReplicaMovementGate(t *testing.T) {
 			assert.NotEqual(t, reflect.TypeOf(tt.disabled), reflect.TypeOf(tt.call()))
 		})
 	}
+}
+
+func TestReplicateHardlinkPreflight(t *testing.T) {
+	newParams := func() replication.ReplicateParams {
+		collection, shard, sourceNode, targetNode := "Collection", "shard", "node-0", "node-1"
+		return replication.ReplicateParams{
+			HTTPRequest: &http.Request{},
+			Body: &models.ReplicationReplicateReplicaRequest{
+				Collection: &collection,
+				Shard:      &shard,
+				SourceNode: &sourceNode,
+				TargetNode: &targetNode,
+			},
+		}
+	}
+
+	t.Run("a filesystem without hard links refuses registration", func(t *testing.T) {
+		t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+		// The manager mock has no expectations, so a registration attempt fails the test.
+		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+		response := handler.replicate(newParams(), &models.Principal{})
+
+		require.IsType(t, &replication.ReplicateNotImplemented{}, response)
+		payload := response.(*replication.ReplicateNotImplemented).Payload
+		require.Len(t, payload.Error, 1)
+		assert.Contains(t, payload.Error[0].Message, "replica movement requires a filesystem that supports hard links")
+	})
+
+	t.Run("a probe error refuses without claiming hard links are unsupported", func(t *testing.T) {
+		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		handler.dataPath = filepath.Join(t.TempDir(), "missing")
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+		response := handler.replicate(newParams(), &models.Principal{})
+
+		require.IsType(t, &replication.ReplicateInternalServerError{}, response)
+		payload := response.(*replication.ReplicateInternalServerError).Payload
+		require.Len(t, payload.Error, 1)
+		assert.Contains(t, payload.Error[0].Message, "probe hardlink support")
+		assert.NotContains(t, payload.Error[0].Message, "supports hard links")
+	})
+}
+
+func TestApplyReplicationScalePlanHardlinkPreflight(t *testing.T) {
+	newParams := func(actions models.ReplicationScalePlanShardScaleActionsAnon) replication.ApplyReplicationScalePlanParams {
+		return replication.ApplyReplicationScalePlanParams{
+			HTTPRequest: &http.Request{},
+			Body: &models.ReplicationScalePlan{
+				PlanID:            "plan-123",
+				Collection:        "TestCollection",
+				ShardScaleActions: map[string]models.ReplicationScalePlanShardScaleActionsAnon{"shard": actions},
+			},
+		}
+	}
+
+	t.Run("a plan that adds a replica is refused", func(t *testing.T) {
+		t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+		response := handler.applyReplicationScalePlan(newParams(models.ReplicationScalePlanShardScaleActionsAnon{
+			AddNodes: map[string]string{"node-1": "node-0"},
+		}), &models.Principal{})
+
+		require.IsType(t, &replication.ApplyReplicationScalePlanNotImplemented{}, response)
+		payload := response.(*replication.ApplyReplicationScalePlanNotImplemented).Payload
+		require.Len(t, payload.Error, 1)
+		assert.Contains(t, payload.Error[0].Message, "requires a filesystem that supports hard links")
+		mockReplicationManager.AssertNotCalled(t, "ApplyReplicationScalePlan", mock.Anything, mock.Anything)
+	})
+
+	t.Run("a remove-only plan proceeds", func(t *testing.T) {
+		t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockReplicationManager.EXPECT().ApplyReplicationScalePlan(
+			mock.Anything,
+			mock.MatchedBy(func(plan api.ReplicationScalePlan) bool {
+				_, removed := plan.ShardReplicationScaleActions["shard"].RemoveNodes["node-1"]
+				return removed
+			}),
+		).Return([]strfmt.UUID{}, nil)
+
+		response := handler.applyReplicationScalePlan(newParams(models.ReplicationScalePlanShardScaleActionsAnon{
+			RemoveNodes: []string{"node-1"},
+		}), &models.Principal{})
+
+		assert.IsType(t, &replication.ApplyReplicationScalePlanOK{}, response)
+		mockReplicationManager.AssertExpectations(t)
+	})
+
+	t.Run("an add plan proceeds on a supported filesystem", func(t *testing.T) {
+		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockReplicationManager.EXPECT().ApplyReplicationScalePlan(
+			mock.Anything,
+			mock.MatchedBy(func(plan api.ReplicationScalePlan) bool {
+				return plan.ShardReplicationScaleActions["shard"].AddNodes["node-1"] == "node-0"
+			}),
+		).Return([]strfmt.UUID{}, nil)
+
+		response := handler.applyReplicationScalePlan(newParams(models.ReplicationScalePlanShardScaleActionsAnon{
+			AddNodes: map[string]string{"node-1": "node-0"},
+		}), &models.Principal{})
+
+		assert.IsType(t, &replication.ApplyReplicationScalePlanOK{}, response)
+		mockReplicationManager.AssertExpectations(t)
+	})
+
+	t.Run("a probe error refuses without claiming hard links are unsupported", func(t *testing.T) {
+		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		handler.dataPath = filepath.Join(t.TempDir(), "missing")
+		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+		response := handler.applyReplicationScalePlan(newParams(models.ReplicationScalePlanShardScaleActionsAnon{
+			AddNodes: map[string]string{"node-1": "node-0"},
+		}), &models.Principal{})
+
+		require.IsType(t, &replication.ApplyReplicationScalePlanInternalServerError{}, response)
+		payload := response.(*replication.ApplyReplicationScalePlanInternalServerError).Payload
+		require.Len(t, payload.Error, 1)
+		assert.Contains(t, payload.Error[0].Message, "probe hardlink support")
+		assert.NotContains(t, payload.Error[0].Message, "supports hard links")
+		mockReplicationManager.AssertNotCalled(t, "ApplyReplicationScalePlan", mock.Anything, mock.Anything)
+	})
 }

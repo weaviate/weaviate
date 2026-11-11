@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"io"
 	"math/rand"
 	"os"
@@ -54,12 +55,9 @@ import (
 // consumer's flush lived only in the active memtable/WAL — excluded from
 // ListBackupFiles — so the second consumer's snapshot silently dropped it.
 //
-// Both replica modes are covered: hardlink (segments staged) and fallback
-// halt-for-duration (segments served from the live shard root). The two
-// overlapping ops prove the re-seal is repeatable, not one-shot. In fallback
-// mode each op's halt outlives its call, so obj2 halts at count 1->2 and obj3 at
-// 2->3. In hardlink mode CreateReplicaSnapshot self-resumes after collecting
-// files, so obj2 and obj3 each drive an independent 1->2 shared-halt transition.
+// The two overlapping ops prove the re-seal repeats, not just fires once.
+// CreateReplicaSnapshot resumes the shard after collecting files, so obj2 and
+// obj3 each take the shared halt count from 1 to 2 on their own.
 func TestReplicaSnapshotSharedHaltSealsLateWrites(t *testing.T) {
 	const (
 		obj1 = strfmt.UUID("40d3be3e-2ecc-49c8-b37c-d8983164848b")
@@ -70,17 +68,11 @@ func TestReplicaSnapshotSharedHaltSealsLateWrites(t *testing.T) {
 	)
 
 	for _, tc := range []struct {
-		name            string
-		forceNoHardlink bool
+		name string
 	}{
-		{name: "hardlink mode", forceNoHardlink: false},
-		{name: "fallback halt-for-duration mode", forceNoHardlink: true},
+		{name: "hardlink mode"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.forceNoHardlink {
-				t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
-			}
-
 			index, shard := newSharedHaltTestShard(t)
 			ctx := context.Background()
 
@@ -88,7 +80,7 @@ func TestReplicaSnapshotSharedHaltSealsLateWrites(t *testing.T) {
 			putSharedHaltObject(t, index, obj1, 0)
 
 			// op A: first halt, never resumed — count stays 1, holds the shard.
-			require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+			require.NoError(t, shard.HaltForTransfer(ctx, false))
 			defer func() { _ = shard.resumeMaintenanceCycles(ctx) }()
 
 			var openOps []string
@@ -120,9 +112,6 @@ func TestReplicaSnapshotSharedHaltSealsLateWrites(t *testing.T) {
 				// file list — this is what the target receives over the wire.
 				sourceRoot := replicaStagingDir(index.Config.RootPath, ov.opID,
 					schema.ClassName(index.Config.ClassName))
-				if tc.forceNoHardlink {
-					sourceRoot = shard.path()
-				}
 				require.Truef(t, snapshotHasObject(t, sourceRoot, files, ov.objID),
 					"write %s applied before op %s's halt is missing from its snapshot — "+
 						"the shared halt skipped the re-seal", ov.objID, ov.opID)
@@ -138,14 +127,14 @@ func TestHaltForTransferSharedHaltPrepErrorKeepsShardHalted(t *testing.T) {
 	ctx := context.Background()
 
 	// op A holds the shard.
-	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, shard.HaltForTransfer(ctx, false))
 
 	// op B's second halt seals with an already-cancelled context; at count>1 the
 	// pause steps are gated out, so only the seal steps run and FlushMemtables
 	// (cyclemanager Deactivate) returns ctx.Err() deterministically.
 	cancelledCtx, cancel := context.WithCancel(ctx)
 	cancel()
-	require.Error(t, shard.HaltForTransfer(cancelledCtx, false, 0))
+	require.Error(t, shard.HaltForTransfer(cancelledCtx, false))
 
 	shard.haltForTransferMux.Lock()
 	require.EqualValues(t, 1, shard.haltForTransferCount.Load(),
@@ -159,22 +148,133 @@ func TestHaltForTransferSharedHaltPrepErrorKeepsShardHalted(t *testing.T) {
 	shard.haltForTransferMux.Unlock()
 }
 
-// Documents current behaviour, not the behaviour we want. mayForceResumeMaintenanceCycles
-// clears the halt count and stops the inactivity monitor before the errgroup that can
-// fail, and restores neither, so a failed resume leaves a zero count while the cycles it
-// could not restart stay paused — and every later resume returns early on that count.
-func TestResumeMaintenanceCyclesFailureClearsHalt(t *testing.T) {
-	_, shard := newSharedHaltTestShard(t)
+// A resume drops the halt count to 0 before it restarts the cycles. If the
+// restart fails, the count stays 0 and the cycles stay paused. resumeIncomplete
+// lets a later resume at count 0 retry the restart.
+func TestResumeMaintenanceCyclesRetry(t *testing.T) {
 	ctx := context.Background()
 
-	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	t.Run("a failed resume is retried by a later resume at count 0", func(t *testing.T) {
+		_, shard := newSharedHaltTestShard(t)
+		require.NoError(t, shard.HaltForTransfer(ctx, false))
 
-	// Unregistering makes the resume's Activate fail with ErrorCallbackNotFound.
-	require.NoError(t, shard.cycleCallbacks.vectorCombinedCallbacksCtrl.Unregister(ctx))
-	require.Error(t, shard.resumeMaintenanceCycles(ctx))
+		// Unregistering makes the resume's Activate fail with ErrorCallbackNotFound.
+		cc := shard.cycleCallbacks
+		require.NoError(t, cc.vectorCombinedCallbacksCtrl.Unregister(ctx))
+		require.Error(t, shard.resumeMaintenanceCycles(ctx))
+		require.Zero(t, shard.haltForTransferCount.Load())
+		require.True(t, shard.resumeIncomplete.Load())
 
-	require.Zero(t, shard.haltForTransferCount.Load(),
-		"the halt count is cleared ahead of the resume work, so a failed resume drops it")
+		reregisterVectorCallbacks(shard)
+
+		require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+		require.Zero(t, shard.haltForTransferCount.Load())
+		require.False(t, shard.resumeIncomplete.Load())
+		require.True(t, cc.vectorCombinedCallbacksCtrl.IsActive(), "the retry re-ran the resume work")
+	})
+
+	t.Run("a resume at count 0 after a clean cycle does nothing", func(t *testing.T) {
+		_, shard := newSharedHaltTestShard(t)
+		require.NoError(t, shard.HaltForTransfer(ctx, false))
+		require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+		require.False(t, shard.resumeIncomplete.Load())
+
+		ctrl := shard.cycleCallbacks.vectorCombinedCallbacksCtrl
+		require.NoError(t, ctrl.Deactivate(ctx))
+		require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+		require.False(t, ctrl.IsActive(), "a count-0 resume with no failed resume behind it must not run resume work")
+		require.NoError(t, ctrl.Activate())
+	})
+}
+
+// prepFailingIndex runs onPrepare and then fails PrepareForBackup. onPrepare
+// runs while the shard is halted and haltForTransferMux is held.
+type prepFailingIndex struct {
+	VectorIndex
+	onPrepare func()
+}
+
+func (i *prepFailingIndex) PrepareForBackup(context.Context) error {
+	i.onPrepare()
+	return errors.New("forced prepare failure")
+}
+
+func TestHaltForTransferRollback(t *testing.T) {
+	ctx := context.Background()
+
+	// newRollbackShard returns a shard whose vector index preparation adds a
+	// target-node override (an async-replication enable) and then fails.
+	newRollbackShard := func(t *testing.T, alsoInPrepare func(s *Shard)) (s *Shard, overrideErr *error, skipped *bool) {
+		index, shard := newSharedHaltTestShard(t)
+		// A single replica at factor 1: the override alone enables async replication.
+		index.schemaReader.(*local.MockSchemaReader).EXPECT().ShardReplicas(mock.Anything, mock.Anything).
+			Return([]string{"node1"}, nil).Maybe()
+		index.asyncReplicationScheduler = newSchedulerForUnitTest(t)
+		index.replicationConfigLock.Lock()
+		index.Config.AsyncReplicationConfig = minAsyncReplicationConfig()
+		index.replicationConfigLock.Unlock()
+
+		overrideErr, skipped = new(error), new(bool)
+		var names []string
+		var inner VectorIndex
+		require.NoError(t, shard.ForEachVectorIndex(func(name string, vi VectorIndex) error {
+			names, inner = append(names, name), vi
+			return nil
+		}))
+		require.Len(t, names, 1)
+		shard.setVectorIndex(names[0], &prepFailingIndex{VectorIndex: inner, onPrepare: func() {
+			*overrideErr = shard.addTargetNodeOverride(ctx, additional.AsyncReplicationTargetNodeOverride{
+				CollectionID:   index.Config.ClassName.String(),
+				ShardID:        shard.name,
+				SourceNode:     "nodeA",
+				TargetNode:     "nodeB",
+				UpperTimeBound: time.Now().Add(time.Hour).UnixMilli(),
+			})
+			*skipped = !asyncReplicationInstalled(shard)
+			if alsoInPrepare != nil {
+				alsoInPrepare(shard)
+			}
+		}})
+		return shard, overrideErr, skipped
+	}
+
+	t.Run("a rollback that fully resumes re-applies the skipped enable", func(t *testing.T) {
+		s, overrideErr, skipped := newRollbackShard(t, nil)
+
+		require.Error(t, s.HaltForTransfer(ctx, false))
+		require.NoError(t, *overrideErr)
+		require.True(t, *skipped, "the enable must be skipped while halted mid-preparation")
+		require.Zero(t, s.haltForTransferCount.Load())
+		require.False(t, s.resumeIncomplete.Load())
+		require.True(t, asyncReplicationInstalled(s), "the rollback must re-apply the skipped enable")
+	})
+
+	t.Run("a rollback whose resume fails defers the re-apply to the completing retry", func(t *testing.T) {
+		// The pause step has already deactivated the callbacks. Unregistering
+		// them now makes the rollback's Activate fail with ErrorCallbackNotFound.
+		s, overrideErr, skipped := newRollbackShard(t, func(s *Shard) {
+			require.NoError(t, s.cycleCallbacks.vectorCombinedCallbacksCtrl.Unregister(ctx))
+		})
+
+		require.Error(t, s.HaltForTransfer(ctx, false))
+		require.NoError(t, *overrideErr)
+		require.True(t, *skipped, "the enable must be skipped while halted mid-preparation")
+		require.Zero(t, s.haltForTransferCount.Load())
+		require.True(t, s.resumeIncomplete.Load())
+		require.False(t, asyncReplicationInstalled(s), "a rollback whose resume failed must not re-apply")
+
+		reregisterVectorCallbacks(s)
+
+		require.NoError(t, s.resumeMaintenanceCycles(ctx))
+		require.False(t, s.resumeIncomplete.Load())
+		require.True(t, asyncReplicationInstalled(s), "the completing retry must re-apply the skipped enable")
+	})
+}
+
+func asyncReplicationInstalled(s *Shard) bool {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+	return s.hashtree != nil
 }
 
 // snapshotHasObject reconstructs the snapshot's objects bucket from the wire
@@ -287,23 +387,18 @@ func newSharedHaltTestShard(t *testing.T) (*Index, *Shard) {
 }
 
 // A replica transfer delivers the files the snapshot lists, and index.db was
-// not among them in either mode. The target of a moved legacy dynamic index
+// not among them. The target of a moved legacy dynamic index
 // that had upgraded to hnsw then reads no verdict, treats the index as flat,
 // deletes the hnsw commit log it just received, and has no flat stage left
 // to fall back to. Pins that the verdict, and the graph, travel with the
 // replica.
 func TestReplicaTransferCarriesTheDynamicUpgrade(t *testing.T) {
 	for _, tc := range []struct {
-		name            string
-		forceNoHardlink bool
+		name string
 	}{
 		{name: "hardlink mode"},
-		{name: "fallback halt-for-duration mode", forceNoHardlink: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.forceNoHardlink {
-				t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
-			}
 			ctx := context.Background()
 			const className = "TransferDynamicLegacy"
 			duc := dynamicent.UserConfig{}
