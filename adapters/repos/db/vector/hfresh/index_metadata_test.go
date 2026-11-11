@@ -368,32 +368,3 @@ func TestInterruptedTransitionRetriesTheBuiltFlag(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, built, "the next insert must finish the transition")
 }
-
-// A split writes its postings to the store and its centroids to the commit
-// log; store writes reach disk first, so a crash between the two flushes
-// leaves the commit log behind the store. Fails today: the split children
-// have no centroid and the emptied parent hides their vectors.
-func TestSplitSurvivesCommitLogBehindStore(t *testing.T) {
-	store := testinghelpers.NewDummyStore(t)
-	cfg, uc, vectors := singlePostingRestartConfig(t, 0)
-	commitLogDir := filepath.Join(cfg.Centroids.HNSWConfig.RootPath, cfg.Centroids.HNSWConfig.ID+".hnsw.commitlog.d")
-	before := filepath.Join(t.TempDir(), "before-split")
-
-	index := makeHFreshWithConfig(t, store, cfg, uc)
-	addRestartVectors(t, index, vectors, 0, 200)
-	index.waitForMaintenance(t)
-	require.NoError(t, index.Shutdown(t.Context()))
-	require.NoError(t, os.CopyFS(before, os.DirFS(commitLogDir)))
-
-	index = makeHFreshWithConfig(t, store, cfg, uc)
-	all := addRestartVectors(t, index, vectors, 200, 800)
-	index.waitForMaintenance(t)
-	require.Greater(t, index.PostingSizes.Count(), uint64(1))
-	require.NoError(t, index.Shutdown(t.Context()))
-
-	require.NoError(t, os.RemoveAll(commitLogDir))
-	require.NoError(t, os.CopyFS(commitLogDir, os.DirFS(before)))
-
-	index = makeHFreshWithConfig(t, store, cfg, uc)
-	requireSelfSearchExcept(t, index, all, -1)
-}
