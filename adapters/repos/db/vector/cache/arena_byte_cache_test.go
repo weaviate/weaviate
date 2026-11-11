@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -257,10 +258,60 @@ func TestArenaByteCacheRecordSizeEnforced(t *testing.T) {
 	assert.Equal(t, int64(0), c.CountVectors())
 }
 
+// badRecordWarnings classifies hook's warn entries, in log order, into the
+// number of detailed first-refusal lines and the per-flush summary counts.
+// Any other warning fails the test: the rate limit's contract is that a
+// refused record either is the one detailed line or joins a summary count,
+// never a line of its own. A summary line for an empty flush also fails.
+// Must be called from the test goroutine (it can FailNow).
+func badRecordWarnings(t *testing.T, hook *test.Hook) (details int, skips []int64) {
+	t.Helper()
+	for _, e := range hook.AllEntries() {
+		if e.Level != logrus.WarnLevel {
+			continue
+		}
+		if strings.Contains(e.Message, "further size mismatches") {
+			details++
+			continue
+		}
+		var n, size int64
+		_, err := fmt.Sscanf(e.Message, "skipped %d more records whose size is not %d bytes", &n, &size)
+		require.NoErrorf(t, err, "warning is neither the detailed first refusal nor a summary: %q", e.Message)
+		require.Positive(t, n, "a flush with nothing pending must stay quiet")
+		skips = append(skips, n)
+	}
+	return details, skips
+}
+
+// summarizedSkips is the total refusal count the summary lines account for
+// so far, tolerant of every other entry so that an Eventually condition can
+// poll it from its own goroutine without failing the test.
+func summarizedSkips(hook *test.Hook) int64 {
+	var total int64
+	for _, e := range hook.AllEntries() {
+		if e.Level != logrus.WarnLevel {
+			continue
+		}
+		var n, size int64
+		if _, err := fmt.Sscanf(e.Message, "skipped %d more records whose size is not %d bytes", &n, &size); err == nil {
+			total += n
+		}
+	}
+	return total
+}
+
+func sumInt64(vals []int64) int64 {
+	var total int64
+	for _, v := range vals {
+		total += v
+	}
+	return total
+}
+
 // TestArenaByteCacheBadRecordLogRateLimited: a systematic size mismatch
 // refuses every record of a prefill. Only the first refusal is logged in
-// full; the rest come out as one summary line with the count, on the
-// deletion ticker or on Drop, instead of one line per record.
+// full; the rest are counted and come out as summary lines with the counts,
+// on the deletion ticker or on Drop, instead of one line per record.
 func TestArenaByteCacheBadRecordLogRateLimited(t *testing.T) {
 	warnings := func(hook *test.Hook) []string {
 		var out []string
@@ -301,12 +352,50 @@ func TestArenaByteCacheBadRecordLogRateLimited(t *testing.T) {
 		for id := uint64(0); id < 500; id++ {
 			ac.Preload(id, bad)
 		}
-		require.Eventually(t, func() bool { return len(warnings(hook)) == 2 }, 5*time.Second, 5*time.Millisecond)
-		assert.Contains(t, warnings(hook)[1], "skipped 499 more records")
 
-		// nothing new refused: later ticks stay quiet
+		// The ticker races the preload loop: a tick that fires mid-loop
+		// splits the 499 counted refusals over several summary lines, and on
+		// a slow runner it does. The schedule is not the contract, so assert
+		// the invariants instead: the summaries eventually account for every
+		// refusal past the first, in exactly one detailed line plus one line
+		// per flush that had anything to report.
+		require.Eventually(t, func() bool { return summarizedSkips(hook) == 499 },
+			5*time.Second, 5*time.Millisecond)
+
+		got := warnings(hook)
+		require.NotEmpty(t, got)
+		assert.Contains(t, got[0], "further size mismatches",
+			"the detailed first refusal precedes every summary")
+		details, skips := badRecordWarnings(t, hook)
+		assert.Equal(t, 1, details, "exactly one detailed line, however many flushes ran")
+		assert.EqualValues(t, 499, sumInt64(skips))
+
+		// nothing left to flush: later ticks stay quiet
 		time.Sleep(50 * time.Millisecond)
-		assert.Len(t, warnings(hook), 2)
+		assert.Len(t, warnings(hook), len(got))
+	})
+
+	t.Run("split summaries account for every refusal", func(t *testing.T) {
+		// the mid-loop flush of the tick subtest, pinned deterministically:
+		// no ticker (interval 0), the flush is driven by the test
+		logger, hook := test.NewNullLogger()
+		ac, err := NewArenaByteCache(nil, testRecordSize, 1e12, 1, logger, 0, nil)
+		require.NoError(t, err)
+		t.Cleanup(ac.Drop)
+		c := ac.(*arenaByteCache)
+		for id := uint64(0); id < 300; id++ {
+			c.Preload(id, bad)
+		}
+		c.flushBadRecords()
+		c.flushBadRecords() // empty flush: must log nothing
+		for id := uint64(300); id < 500; id++ {
+			c.Preload(id, bad)
+		}
+		c.flushBadRecords()
+
+		details, skips := badRecordWarnings(t, hook)
+		assert.Equal(t, 1, details)
+		assert.Equal(t, []int64{299, 200}, skips)
 	})
 }
 
