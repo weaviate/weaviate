@@ -115,6 +115,10 @@ var (
 	benchSettle   = flag.Int("bench.settle", 1000, "queries run before the after-queries memory reading")
 	benchSelf     = flag.Int("bench.selfsample", 10_000, "postingedge: vectors searched for with themselves as the query, to tell that none is lost to the search")
 
+	benchRepeat = flag.Bool("bench.repeat", false, "time every timed point a second time once the whole plan is done, in the order of the first, "+
+		"and write the second round next to -bench.out as <name>-repeat.json: a stretch of points taken while the machine was slow shows "+
+		"when the two rounds are set against each other (TestCellReport -bench.report.cells.repeats), and not in the passes of a point")
+
 	benchStreamTrain = flag.Bool("bench.streamtrain", false, "postingedge, full mode: hand the train set to the index straight from the dataset files "+
 		"and load the copy the benchmark reads from once the index is built. An index holds a copy of every vector while it builds, "+
 		"and a large train set does not fit in memory twice")
@@ -237,11 +241,18 @@ type statsSummary struct {
 	RepeatedMean  float64 `json:"endpointsRepeatedMean"`
 	EndpointsMean float64 `json:"endpointsMean"`
 	RescoredMean  float64 `json:"rescoredMean"`
-	CentroidUs    float64 `json:"centroidUs"`
-	ScanUs        float64 `json:"scanUs"`
-	ExpandUs      float64 `json:"expandUs"`
-	SelectUs      float64 `json:"selectUs"`
-	RescoreUs     float64 `json:"rescoreUs"`
+	// Where the rescored candidates live: the loaded postings that hold at
+	// least one of them, and the candidates that are in no loaded posting
+	// (none, as long as candidates only come from scans).
+	RescoredPostingsMean  float64 `json:"rescoredPostingsMean"`
+	RescoredPostingsP95   float64 `json:"rescoredPostingsP95"`
+	RescoredElsewhereMean float64 `json:"rescoredElsewhereMean"`
+	RescoredElsewhereMax  float64 `json:"rescoredElsewhereMax"`
+	CentroidUs            float64 `json:"centroidUs"`
+	ScanUs                float64 `json:"scanUs"`
+	ExpandUs              float64 `json:"expandUs"`
+	SelectUs              float64 `json:"selectUs"`
+	RescoreUs             float64 `json:"rescoreUs"`
 	// TotalUs is the whole search as timed from outside, so that what the
 	// phases do not cover can be told.
 	TotalUs float64 `json:"totalUs"`
@@ -609,10 +620,11 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 		}
 		result.Points = append(result.Points, point)
 		s := point.Stats
-		t.Logf("ef=%d rescore=%d batch=%d margin=%.2f threads=%d recall=%.4f qps=%.0f p50=%.3fms p95=%.3fms | rounds %.1f (p95 %.0f) loads %.1f/%.0f/%.0f scanned %.0f (again %.0f, sources cut %.0f) edges %.0f (in loaded %.0f, repeated %.0f) endpoints %.0f rescored %.0f | us: centroid %.0f scan %.0f expand %.0f select %.0f rescore %.0f total %.0f",
+		t.Logf("ef=%d rescore=%d batch=%d margin=%.2f threads=%d recall=%.4f qps=%.0f p50=%.3fms p95=%.3fms | rounds %.1f (p95 %.0f) loads %.1f/%.0f/%.0f scanned %.0f (again %.0f, sources cut %.0f) edges %.0f (in loaded %.0f, repeated %.0f) endpoints %.0f rescored %.0f (in %.1f postings, p95 %.0f, elsewhere %.0f) | us: centroid %.0f scan %.0f expand %.0f select %.0f rescore %.0f total %.0f",
 			ef, rescore, loadBatch, margin, threads, point.Recall, point.QPS, point.P50Ms, point.P95Ms,
 			s.RoundsMean, s.RoundsP95, s.LoadsMean, s.LoadsP50, s.LoadsP95, s.ScannedMean, s.AgainMean, s.SourcesCut,
 			s.EdgesMean, s.InLoadedMean, s.RepeatedMean, s.EndpointsMean, s.RescoredMean,
+			s.RescoredPostingsMean, s.RescoredPostingsP95, s.RescoredElsewhereMax,
 			s.CentroidUs, s.ScanUs, s.ExpandUs, s.SelectUs, s.RescoreUs, s.TotalUs)
 		writeBenchResult(t, result)
 		return point
@@ -660,6 +672,41 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 		findCeilings(t, result, *benchCeiling, func(ef, rescore, loadBatch int, margin float64) float64 {
 			return measure(ef, rescore, loadBatch, 1, margin, true).Recall
 		})
+	}
+
+	repeatTimedPoints(t, result, func(first benchPoint) benchPoint {
+		uc.EF, uc.LoadBatch, uc.RescoreLimit = first.EF, first.LoadBatch, first.RescoreLimit
+		uc.SourceMargin = float32(first.SourceMargin)
+		require.NoError(t, index.UpdateUserConfig(uc, func() {}))
+		return measurePoint(t, data, search, first.Threads, *benchRuns)
+	})
+}
+
+// repeatTimedPoints times every timed point of the result once more, in the
+// order they were first taken, and writes the second round to a result file
+// of its own. again measures a point with the settings of the given one. It
+// does nothing without -bench.repeat.
+func repeatTimedPoints(t *testing.T, result *benchResult, again func(first benchPoint) benchPoint) {
+	if !*benchRepeat || *benchOut == "" {
+		return
+	}
+	second := *result
+	second.Points = nil
+	path := strings.TrimSuffix(*benchOut, ".json") + "-repeat.json"
+	for _, first := range result.Points {
+		if first.Untimed {
+			continue
+		}
+		point := again(first)
+		point.EF, point.LoadBatch, point.RescoreLimit = first.EF, first.LoadBatch, first.RescoreLimit
+		point.SourceMargin, point.Stats = first.SourceMargin, first.Stats
+		second.Points = append(second.Points, point)
+		t.Logf("again ef=%d rescore=%d batch=%d margin=%.2f threads=%d recall=%.4f qps=%.0f, %+.1f%% against the first round",
+			point.EF, point.RescoreLimit, point.LoadBatch, point.SourceMargin, point.Threads, point.Recall, point.QPS,
+			100*(point.QPS/first.QPS-1))
+		raw, err := json.MarshalIndent(&second, "", "  ")
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(path, raw, 0o644))
 	}
 }
 
@@ -925,6 +972,14 @@ func benchHNSW(t *testing.T, ctx context.Context, data *benchData, result *bench
 			}
 		}
 	}
+
+	repeatTimedPoints(t, result, func(first benchPoint) benchPoint {
+		uc.EF, uc.RQ.RescoreLimit = first.EF, first.RescoreLimit
+		updated := make(chan struct{})
+		require.NoError(t, index.UpdateUserConfig(uc, func() { close(updated) }))
+		<-updated
+		return measurePoint(t, data, search, first.Threads, *benchRuns)
+	})
 }
 
 // measurePoint runs the query set once to warm up and then runs times more,
@@ -1057,6 +1112,7 @@ func collectSearchStats(t *testing.T, index *Index, data *benchData, threads int
 	n := float64(len(data.queries))
 	rounds := make([]float64, 0, len(data.queries))
 	loads := make([]float64, 0, len(data.queries))
+	rescoredPostings := make([]float64, 0, len(data.queries))
 	var sum statsSummary
 	hits, total := 0, 0
 	for i, a := range answers {
@@ -1077,6 +1133,10 @@ func collectSearchStats(t *testing.T, index *Index, data *benchData, threads int
 		sum.RepeatedMean += float64(stats.EndpointsRepeated()) / n
 		sum.EndpointsMean += float64(stats.EndpointsScored) / n
 		sum.RescoredMean += float64(stats.Rescored) / n
+		rescoredPostings = append(rescoredPostings, float64(stats.RescoredPostings))
+		sum.RescoredPostingsMean += float64(stats.RescoredPostings) / n
+		sum.RescoredElsewhereMean += float64(stats.RescoredElsewhere) / n
+		sum.RescoredElsewhereMax = max(sum.RescoredElsewhereMax, float64(stats.RescoredElsewhere))
 		if threads > 1 {
 			continue
 		}
@@ -1085,7 +1145,7 @@ func collectSearchStats(t *testing.T, index *Index, data *benchData, threads int
 		sum.ExpandUs += float64(stats.ExpandTime.Nanoseconds()) / 1e3 / n
 		sum.SelectUs += float64(stats.SelectTime.Nanoseconds()) / 1e3 / n
 		sum.RescoreUs += float64(stats.RescoreTime.Nanoseconds()) / 1e3 / n
-		sum.TotalUs += float64(a.took.Nanoseconds()) / 1e3 / n
+		sum.TotalUs += float64((a.took - stats.SpreadTime).Nanoseconds()) / 1e3 / n
 	}
 	slices.Sort(rounds)
 	slices.Sort(loads)
@@ -1094,6 +1154,8 @@ func collectSearchStats(t *testing.T, index *Index, data *benchData, threads int
 	sum.RoundsMax = rounds[len(rounds)-1]
 	sum.LoadsP50 = percentileOf(loads, 0.50)
 	sum.LoadsP95 = percentileOf(loads, 0.95)
+	slices.Sort(rescoredPostings)
+	sum.RescoredPostingsP95 = percentileOf(rescoredPostings, 0.95)
 	return &sum, float64(hits) / float64(total)
 }
 

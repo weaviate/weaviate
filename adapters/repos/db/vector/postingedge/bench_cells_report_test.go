@@ -92,6 +92,7 @@ func TestCellReport(t *testing.T) {
 	writeCellFrontiers(&md, cells, theirs, levels)
 	writeCellReach(&md, cells)
 	writeCellWork(&md, cells, levels)
+	writeCellDiskProjection(&md, cells, levels)
 	writeCellUntimedWork(&md, cells)
 	writeCellCalibration(&md, cells)
 	writeCellNoise(&md, cells)
@@ -729,6 +730,79 @@ func writeCellWork(md *strings.Builder, cells []cell, levels []float64) {
 					against = fmt.Sprintf("%.2fx", own/base)
 				}
 				fmt.Fprintf(md, " %s |\n", against)
+			}
+		}
+		fmt.Fprintf(md, "\n")
+	}
+}
+
+// writeCellDiskProjection counts, at each recall level, what a search would
+// read if the postings were on disk: the postings it loads and the rounds it
+// loads them in, which are its reads and its serial depth, and where the
+// candidates of the final rescore live. A count of work, not a timing.
+func writeCellDiskProjection(md *strings.Builder, cells []cell, levels []float64) {
+	stats := []struct {
+		name string
+		stat func(benchPoint) float64
+	}{
+		{"postings loaded", func(p benchPoint) float64 { return p.Stats.LoadsMean }},
+		{"p95", func(p benchPoint) float64 { return p.Stats.LoadsP95 }},
+		{"rounds", func(p benchPoint) float64 { return p.Stats.RoundsMean }},
+		{"p95", func(p benchPoint) float64 { return p.Stats.RoundsP95 }},
+		{"vectors scanned", func(p benchPoint) float64 { return p.Stats.ScannedMean }},
+		{"rescored", func(p benchPoint) float64 { return p.Stats.RescoredMean }},
+		{"loaded postings that hold them", func(p benchPoint) float64 { return p.Stats.RescoredPostingsMean }},
+		{"p95", func(p benchPoint) float64 { return p.Stats.RescoredPostingsP95 }},
+		{"rescored outside the loaded postings, most in a query", func(p benchPoint) float64 { return p.Stats.RescoredElsewhereMax }},
+	}
+	loads := stats[0].stat
+	// Result files from before the rescored candidates were located have
+	// nothing in the last three columns.
+	located := func(curve []benchPoint) bool {
+		return slices.ContainsFunc(curve, func(p benchPoint) bool { return p.Stats.RescoredPostingsMean > 0 })
+	}
+
+	fmt.Fprintf(md, "## Disk projection\n\n")
+	fmt.Fprintf(md, "What a query would read with the postings on disk, counted in memory and read along the ef curve of each "+
+		"configuration like the QPS, the 95th percentiles too. A posting loaded is a read, a round is a batch of reads issued "+
+		"together, so rounds plus one is the serial depth. The candidates of the final rescore are located among the loaded "+
+		"postings: every one of them is a scanned member of a posting the query has read, so the rescore needs no posting of "+
+		"its own, and the full-precision vectors come from as many places as the postings counted here if they are stored by "+
+		"posting.\n\n")
+	for _, target := range levels {
+		fmt.Fprintf(md, "### Recall %s\n\n", recallLabel(target))
+		fmt.Fprintf(md, "| cell | rescore | batch | margin | recall |")
+		for _, s := range stats {
+			fmt.Fprintf(md, " %s |", s.name)
+		}
+		fmt.Fprintf(md, "\n|---|---|---|---|---|")
+		for range stats {
+			fmt.Fprintf(md, "---|")
+		}
+		fmt.Fprintf(md, "\n")
+		for _, c := range cells {
+			for _, config := range timedConfigs(c.result) {
+				curve := timedCurve(c.result, 1, config)
+				if len(curve) == 0 {
+					continue
+				}
+				if _, ok := statAtRecall(curve, target, loads); !ok {
+					continue
+				}
+				read := recallLabel(target)
+				if curve[0].Recall-target >= floorRecallGap {
+					read = fmt.Sprintf("%.4f", curve[0].Recall)
+				}
+				fmt.Fprintf(md, "| %s | %d | %d | %s | %s |", c.label, config.rescore, config.batch, marginLabel(config.margin), read)
+				for i, s := range stats {
+					if i >= len(stats)-3 && !located(curve) {
+						fmt.Fprintf(md, " — |")
+						continue
+					}
+					value, _ := statAtRecall(curve, target, s.stat)
+					fmt.Fprintf(md, " %.1f |", value)
+				}
+				fmt.Fprintf(md, "\n")
 			}
 		}
 		fmt.Fprintf(md, "\n")
