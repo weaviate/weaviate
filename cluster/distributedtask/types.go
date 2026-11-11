@@ -674,15 +674,10 @@ func (t *Task) Clone() *Task {
 			clone.PostCompletionAcks[k] = v
 		}
 	}
-	if t.PreparedGroups != nil {
-		clone.PreparedGroups = make(map[string]map[string]PostCompletionAck, len(t.PreparedGroups))
-		for group, acks := range t.PreparedGroups {
-			clone.PreparedGroups[group] = maps.Clone(acks)
-		}
-	}
 	clone.SwapDecidedGroups = maps.Clone(t.SwapDecidedGroups)
-	// Shallow: paySwap replaces a slice, never edits it.
+	// Shallow: paySwap and RecordPreparationCompleteAck replace values, never edit them.
 	clone.SwapsOwed = maps.Clone(t.SwapsOwed)
+	clone.PreparedGroups = maps.Clone(t.PreparedGroups)
 	clone.NodePreparationAcks = maps.Clone(t.NodePreparationAcks)
 	return &clone
 }

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -776,14 +777,16 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 		return nil
 	}
 
+	if task.PreparedGroups == nil {
+		task.PreparedGroups = map[string]map[string]PostCompletionAck{}
+	}
+	// Clones share inner maps and encode them without the lock, so replace, never edit.
+	acks = maps.Clone(acks)
 	if acks == nil {
 		acks = map[string]PostCompletionAck{}
-		if task.PreparedGroups == nil {
-			task.PreparedGroups = map[string]map[string]PostCompletionAck{}
-		}
-		task.PreparedGroups[group] = acks
 	}
 	acks[r.NodeId] = PostCompletionAck{Success: true, AckedAt: ackedAt}
+	task.PreparedGroups[group] = acks
 	if len(acks) == len(expected) {
 		task.decideSwap(group, ackedAt)
 		if task.Status == TaskStatusPreparing && task.AllGroupsSwapDecided() {

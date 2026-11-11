@@ -19,6 +19,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -2027,15 +2028,43 @@ func TestManager_RecordPreparationCompleteAck_Success(t *testing.T) {
 	// First two acks: task must stay PREPARING — the barrier hasn't
 	// lifted yet (load-bearing property; the third node must NOT see
 	// SWAPPING and prematurely fire its OnSwapRequested).
+	// Each listed copy is encoded, as the list query does, while later acks land.
+	var listed []*Task
+	stop := make(chan struct{})
+	var encoders sync.WaitGroup
 	for _, n := range nodes[:2] {
 		ackPrep(t, h, "ns", "task1", version, n, true)
 		tasks, _ := h.manager.ListDistributedTasks(context.Background())
 		require.Equal(t, TaskStatusPreparing, tasks["ns"][0].Status,
 			"PREPARING → SWAPPING must NOT fire until EVERY expected node has acked")
+		listed = append(listed, tasks["ns"][0])
+		encoding := make(chan struct{})
+		encoders.Add(1)
+		go func(task *Task) {
+			defer encoders.Done()
+			for first := true; ; first = false {
+				_, err := json.Marshal(task)
+				assert.NoError(t, err)
+				if first {
+					close(encoding)
+				}
+				select {
+				case <-stop:
+					return
+				default:
+				}
+			}
+		}(tasks["ns"][0])
+		<-encoding
 	}
 
 	// Third ack lifts the barrier.
 	ackPrep(t, h, "ns", "task1", version, "node-3", true)
+	close(stop)
+	encoders.Wait()
+	for i, task := range listed {
+		require.Len(t, task.PreparedGroups[""], i+1, "a listed copy must not see later acks")
+	}
 
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
 	task := tasks["ns"][0]

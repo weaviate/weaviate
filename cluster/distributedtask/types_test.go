@@ -51,8 +51,8 @@ func TestTaskStatus_IsTerminal(t *testing.T) {
 	}
 }
 
-// TestTask_Clone_DeepCopiesAckMaps pins that Clone() deep-copies every
-// map field on Task.
+// TestTask_Clone_DeepCopiesAckMaps pins that Clone() copies every map
+// field on Task. PreparedGroups' inner maps are shared: writers replace them.
 // Regression guard: the scheduler tick mutates the local clone's ack
 // maps to reflect FSM transitions in the same tick (see scheduler.go
 // PHASE A.5 / Phase 1.5); if Clone aliased the map, those writes would
@@ -79,7 +79,7 @@ func TestTask_Clone_DeepCopiesAckMaps(t *testing.T) {
 	clone.Units["u-1"].Status = UnitStatusFailed
 	clone.PostCompletionAcks["node-1"] = PostCompletionAck{Success: false, Error: "swap"}
 	clone.PostCompletionAcks["node-2"] = PostCompletionAck{Success: true}
-	clone.PreparedGroups["g1"]["node-1"] = PostCompletionAck{Success: false, Error: "prep"}
+	clone.PreparedGroups["g1"] = map[string]PostCompletionAck{"node-1": {Success: false, Error: "prep"}}
 	clone.PreparedGroups["g2"] = map[string]PostCompletionAck{"node-2": {Success: true}}
 	clone.SwapDecidedGroups["g1"] = now
 	clone.SwapsOwed["g1"] = []string{"node-2"}
