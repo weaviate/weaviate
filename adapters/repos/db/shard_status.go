@@ -198,7 +198,7 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 }
 
 // retryHeldMigrations starts the arm and refuses at once: a status change can run inside a RAFT apply,
-// which must never wait on the disk. The next lift reads the outcome from the held set.
+// which must never wait on the disk.
 // A shutdown waits for the arm's shard reference, and a drop waits about 30 s for it.
 func (s *Shard) retryHeldMigrations(in string) error {
 	target, err := storagestate.ValidateStatus(strings.ToUpper(in))
@@ -222,7 +222,7 @@ func (s *Shard) retryHeldMigrations(in string) error {
 			s.index.logger.WithField("shard", s.name).Errorf("recovery retry of a held shard failed: %v", err)
 		}
 	}, s.index.logger)
-	return s.heldReadOnlyErr(errors.New("a recovery retry started; set the status again once it ends, and this node's log names a failure"))
+	return s.heldReadOnlyErr(errors.New("a recovery retry started; this node's log names a failure"))
 }
 
 // rearmHeld reads the held set under liftRetry, because an earlier lift's arm may have armed or stamped it since.
@@ -246,6 +246,7 @@ func (s *Shard) rearmHeld() error {
 		s.migrationMirrors.holdUnarmed(append(unarmed, skipped...))
 	} else {
 		s.migrationMirrors.markHeldSettled()
+		ec.Add(s.index.db.liftHeldShard(s))
 	}
 	return ec.ToError()
 }

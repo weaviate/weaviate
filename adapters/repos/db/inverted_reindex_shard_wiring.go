@@ -87,11 +87,10 @@ func (s *Shard) hasStampedHalf(tasks []*ShardReindexTaskGeneric) bool {
 func (s *Shard) holdReadOnlyForUnarmed(unarmed []*ShardReindexTaskGeneric, cause error) {
 	s.migrationMirrors.holdUnarmed(unarmed)
 	s.index.logger.WithField("shard", s.ID()).Errorf("shard is %s and its reindex migrations wait: "+
-		"%v. Clear that cause, then set the shard to %s twice (the first write starts a retry) or restart the node (a repaired unreadable record needs the restart); if a staged bucket cannot "+
+		"%v. Clear that cause, then set the shard to %s or restart the node (a repaired unreadable record needs the restart); if a staged bucket cannot "+
 		"open because a segment file is damaged, repair that file in place first. A migration not yet "+
 		"swapped in also leaves the hold at that retry once its Unmirrored stamp can be written, unless a migration already swapped in is "+
-		"held on the same shard; then both wait until the shard is repaired and set READY. "+
-		"A manual READY also overrides disk or memory pressure, so free space first",
+		"held on the same shard; then both wait until the shard is repaired and set READY",
 		storagestate.StatusReadOnly, cause, storagestate.StatusReady)
 	if err := s.SetStatusReadonly(statusReasonMirrorUnarmed); err != nil {
 		s.index.logger.WithField("shard", s.ID()).Errorf("mark shard %s: %v", storagestate.StatusReadOnly, err)
