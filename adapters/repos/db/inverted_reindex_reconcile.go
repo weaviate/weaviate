@@ -948,8 +948,8 @@ func (r *migrationReconciler) discard(ctx context.Context, subject MigrationSubj
 
 // Unlike the passes, returns what it could not discard: terminal cleanup reports it.
 func (r *migrationReconciler) DiscardTask(ctx context.Context, task *distributedtask.Task) error {
-	if len(r.store.Unreadable()) > 0 {
-		return errors.New("a migration record on this shard cannot be read, so no record is discarded")
+	if unreadable := r.store.Unreadable(); len(unreadable) > 0 {
+		return &cleanupWithheldError{faults: unreadable}
 	}
 	verdict, why := migrationVerdictForTask(task.StatusEntry())
 	if verdict != migrationVerdictDiscard {
