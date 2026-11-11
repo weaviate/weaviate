@@ -16,8 +16,7 @@ import (
 	"fmt"
 )
 
-// doGeoPoints replays a geopoints log, whose records are roaringset nodes as
-// memtable_geo_points.go writes them.
+// doGeoPoints replays the roaringset-encoded records memtable_geo_points.go writes.
 func (p *commitloggerParser) doGeoPoints() error {
 	prs := &commitlogParserRoaringSet{
 		parser: p,

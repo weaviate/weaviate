@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -21,10 +22,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
-// The geopoints write-ahead log reuses the roaringset node encoding so that no
-// new record format is needed: the key is the big-endian doc ID, an addition
-// carries the coordinates packed into one value, a removal carries one
-// deletion value. commitlogger_parser_geo_points.go decodes it.
+// The geopoints WAL reuses the roaringset node encoding: the key is the
+// big-endian doc ID, an addition carries the packed coordinates as its one
+// value, a removal one deletion value.
 
 func packCoordinates(lat, lon float32) uint64 {
 	return uint64(math.Float32bits(lat))<<32 | uint64(math.Float32bits(lon))
@@ -41,7 +41,6 @@ func (m *Memtable) geoPointsAdd(docID uint64, lat, lon float32) error {
 	if err := geopoints.ValidateCoordinates(lat, lon); err != nil {
 		return err
 	}
-	// the tree prunes by canonical ranges, so (0, 360) is stored as (0, 0)
 	lat, lon = geopoints.Canonical(lat, lon)
 
 	m.Lock()
@@ -92,15 +91,12 @@ func (m *Memtable) geoPointsAddCommitLog(docID uint64, additions, deletions []ui
 	return nil
 }
 
-// newGeoPointsReader hands out the memtable itself: it locks its own reads
-// against the writers the lsmkv memtable lock serializes.
 func (m *Memtable) newGeoPointsReader() geopoints.InnerReader {
 	return m.geoPoints
 }
 
 // flushDataGeoPoints writes the tree as the whole data section and leaves the
-// index section empty, like roaringsetrange. The body is streamed, so the
-// flush holds the points once.
+// index section empty, like roaringsetrange.
 func (m *Memtable) flushDataGeoPoints(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	body := m.geoPoints.Body()
 
@@ -114,7 +110,7 @@ func (m *Memtable) flushDataGeoPoints(f *segmentindex.SegmentFile) ([]segmentind
 	if _, err := f.WriteHeader(header); err != nil {
 		return nil, err
 	}
-	if _, err := body.WriteTo(f.BodyWriter()); err != nil {
+	if _, err := body.WriteTo(context.Background(), f.BodyWriter()); err != nil {
 		return nil, fmt.Errorf("write geopoints body: %w", err)
 	}
 	return make([]segmentindex.Key, 0), nil

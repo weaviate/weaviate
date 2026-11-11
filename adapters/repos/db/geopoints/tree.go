@@ -13,15 +13,15 @@ package geopoints
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
 )
 
-// MaxPointsPerLeaf is the leaf size, Lucene's BKD default. A leaf is read as
-// a whole, so it trades tree depth against wasted distance checks on the
-// circle's boundary.
+// MaxPointsPerLeaf is Lucene's BKD default: a leaf is read whole, so it trades
+// tree depth against wasted distance checks on the boundary.
 const MaxPointsPerLeaf = 512
 
 // Segment body layout, little-endian. It follows the lsmkv segment header and
@@ -50,8 +50,8 @@ const (
 	nodeKindLeaf  = uint32(1)
 )
 
-// node is one tree node as laid out on disk. An inner node's A and B are its
-// children's indices, a leaf's are its first point and its point count.
+// node: an inner node's A and B are its children, a leaf's its first point
+// and its point count.
 type node struct {
 	Box  Box
 	A, B uint32
@@ -83,15 +83,11 @@ func unmarshalNode(src []byte) node {
 	}
 }
 
-// BodySize is the serialized size of a tree over n points with the given
-// deletions buffer, so a flush can place the header's index start.
 func BodySize(n int, deletionsLen int) int {
 	return bodyHeaderSize + deletionsLen + nodeCount(n)*nodeSize + n*16
 }
 
-// nodeCount is the number of nodes build creates for n points: the split is
-// always at the middle, so the tree over a range is complete down to its
-// leaves and every split adds two nodes.
+// nodeCount: the split is always at the middle, so every split adds two nodes.
 func nodeCount(n int) int {
 	if n == 0 {
 		return 0
@@ -107,39 +103,34 @@ func leafCount(n int) int {
 	return leafCount(mid) + leafCount(n-mid)
 }
 
-// Body is a segment's content before serialization: its live points and the
-// deletions it carries for older segments. WriteTo lays the tree out in the
-// format above, reordering the points in place, so that neither a flush nor a
-// compaction holds a second copy of the points.
+// Body is a segment's content before serialization. WriteTo lays the tree out
+// in the format above, reordering the points in place, so neither a flush nor
+// a compaction holds a second copy of them.
 type Body struct {
 	Points    []Point
 	Deletions []byte
 }
 
-// Size is the number of bytes WriteTo writes.
 func (b *Body) Size() int {
 	return BodySize(len(b.Points), len(b.Deletions))
 }
 
-// Bytes is WriteTo into memory.
 func (b *Body) Bytes() []byte {
 	buf := bytes.NewBuffer(make([]byte, 0, b.Size()))
-	if _, err := b.WriteTo(buf); err != nil {
-		// a bytes.Buffer only fails by running out of memory, which panics
-		panic(err)
+	if _, err := b.WriteTo(context.Background(), buf); err != nil {
+		panic(err) // a bytes.Buffer does not fail
 	}
 	return buf.Bytes()
 }
 
-// WriteTo implements io.WriterTo. It writes exactly Size bytes.
-func (b *Body) WriteTo(w io.Writer) (int64, error) {
+// WriteTo writes exactly Size bytes, checking ctx along the way.
+func (b *Body) WriteTo(ctx context.Context, w io.Writer) (int64, error) {
 	cw := &countingWriter{w: w}
-	err := b.write(cw)
+	err := b.write(ctx, cw)
 	return cw.n, err
 }
 
-// Build serializes a BKD tree over points, reordering the slice in place, and
-// deletions, which may be nil. The result is the segment body described above.
+// Build is the body over points, reordered in place, and deletions (may be nil).
 func Build(points []Point, deletions []byte) []byte {
 	return (&Body{Points: points, Deletions: deletions}).Bytes()
 }
@@ -155,11 +146,9 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// scratchSize is the write buffer for the nodes and the point columns: 64 KiB
-// holds 2048 nodes, 8192 doc IDs or 16384 coordinates at a time.
 const scratchSize = 64 << 10
 
-func (b *Body) write(w io.Writer) error {
+func (b *Body) write(ctx context.Context, w io.Writer) error {
 	var hdr [bodyHeaderSize]byte
 	binary.LittleEndian.PutUint16(hdr[0:], bodyVersion)
 	binary.LittleEndian.PutUint16(hdr[2:], 0)
@@ -168,8 +157,11 @@ func (b *Body) write(w io.Writer) error {
 
 	var nodes []node
 	if len(b.Points) > 0 {
-		bd := builder{points: b.Points, nodes: make([]node, 0, nodeCount(len(b.Points)))}
+		bd := builder{ctx: ctx, points: b.Points, nodes: make([]node, 0, nodeCount(len(b.Points)))}
 		bd.split(0, len(b.Points))
+		if bd.err != nil {
+			return bd.err
+		}
 		nodes = bd.nodes
 	}
 	binary.LittleEndian.PutUint32(hdr[4:], uint32(len(nodes)))
@@ -183,6 +175,9 @@ func (b *Body) write(w io.Writer) error {
 
 	scratch := make([]byte, scratchSize)
 	for lo := 0; lo < len(nodes); lo += scratchSize / nodeSize {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		hi := min(lo+scratchSize/nodeSize, len(nodes))
 		for i := lo; i < hi; i++ {
 			nodes[i].marshal(scratch[(i-lo)*nodeSize:])
@@ -194,6 +189,9 @@ func (b *Body) write(w io.Writer) error {
 
 	points := b.Points
 	for lo := 0; lo < len(points); lo += scratchSize / 8 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		hi := min(lo+scratchSize/8, len(points))
 		for i := lo; i < hi; i++ {
 			binary.LittleEndian.PutUint64(scratch[(i-lo)*8:], points[i].DocID)
@@ -224,21 +222,29 @@ func (b *Body) write(w io.Writer) error {
 }
 
 type builder struct {
+	ctx    context.Context
 	points []Point
 	nodes  []node
+	err    error
 }
 
-// split builds the subtree over points[lo:hi] and returns its node index. The
-// split dimension is the wider one, with the longitude extent scaled by the
-// cosine of the mid latitude so the leaves stay square-ish on the ground.
+// split builds the subtree over points[lo:hi] and returns its node index. It
+// splits the wider dimension, longitude scaled by the cosine of the mid
+// latitude so leaves stay square-ish on the ground.
 func (b *builder) split(lo, hi int) uint32 {
 	idx := uint32(len(b.nodes))
+	if b.err != nil {
+		return idx
+	}
 	b.nodes = append(b.nodes, node{Box: boundingBox(b.points[lo:hi])})
 
 	if hi-lo <= MaxPointsPerLeaf {
 		b.nodes[idx].Kind = nodeKindLeaf
 		b.nodes[idx].A = uint32(lo)
 		b.nodes[idx].B = uint32(hi - lo)
+		if idx%64 == 0 {
+			b.err = b.ctx.Err()
+		}
 		return idx
 	}
 
@@ -247,8 +253,7 @@ func (b *builder) split(lo, hi int) uint32 {
 	lonExtent := float64(box.MaxLon-box.MinLon) * math.Abs(math.Cos(midLat*math.Pi/180))
 	byLat := float64(box.MaxLat-box.MinLat) >= lonExtent
 
-	// a full sort per level would cost n log² n over the build; the median
-	// partition keeps it at n log n
+	// a median partition instead of a sort per level: n log n, not n log² n
 	mid := lo + (hi-lo)/2
 	selectNth(b.points[lo:hi], mid-lo, byLat)
 	left := b.split(lo, mid)
@@ -259,8 +264,7 @@ func (b *builder) split(lo, hi int) uint32 {
 	return idx
 }
 
-// lessPoint orders by the split coordinate, then doc ID so the split is
-// deterministic whatever the input order.
+// lessPoint orders by the split coordinate, then doc ID for determinism.
 func lessPoint(a, b *Point, byLat bool) bool {
 	var ca, cb float32
 	if byLat {
@@ -274,10 +278,9 @@ func lessPoint(a, b *Point, byLat bool) bool {
 	return a.DocID < b.DocID
 }
 
-// selectNth reorders points so that points[k] is the element that a sort would
-// put there, everything before it orders no later and everything after it no
-// earlier. Quickselect with a median-of-three pivot: linear on average, and
-// the doc ID tie-break keeps duplicate coordinates from degrading it.
+// selectNth puts the element a sort would place at k there, with everything
+// before it ordering no later and everything after it no earlier. Quickselect,
+// median-of-three pivot; the doc ID tie-break keeps duplicates from degrading it.
 func selectNth(points []Point, k int, byLat bool) {
 	lo, hi := 0, len(points)-1
 	for hi > lo {
@@ -343,7 +346,6 @@ func boundingBox(points []Point) Box {
 	return box
 }
 
-// bodyHeader is the parsed fixed prefix of a segment body.
 type bodyHeader struct {
 	nodeCount    uint32
 	pointCount   uint64

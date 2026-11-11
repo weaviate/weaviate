@@ -10,11 +10,9 @@
 //
 
 // Package geopoints is the lsmkv strategy behind a geoCoordinates property's
-// filterable index. Every segment holds an immutable BKD tree over its points,
-// built at flush and rebuilt at compaction, so a withinGeoRange filter is an
-// exact bounding-box descent followed by a haversine check on the leaves it
-// reaches. Deletions are a per-segment bitmap of doc IDs that newer segments
-// use to mask points of older ones.
+// filterable index: an immutable BKD tree per segment, built at flush and
+// rebuilt at compaction, plus a per-segment bitmap of deleted doc IDs. See
+// docs/geo-index.md.
 package geopoints
 
 import (
@@ -22,19 +20,17 @@ import (
 	"math"
 )
 
-// earthRadiusMeters is the sphere the haversine distance is computed on. It is
-// the radius the geo HNSW used, so distances are unchanged.
+// earthRadiusMeters is the radius the geo HNSW used, so distances are unchanged.
 const earthRadiusMeters = 6371e3
 
-// Point is one indexed coordinate pair, canonical (see Canonical).
 type Point struct {
 	DocID uint64
 	Lat   float32
 	Lon   float32
 }
 
-// ValidateCoordinates rejects values the tree cannot order. NaN breaks the
-// bounding boxes and sorts, and an infinite coordinate has no distance.
+// ValidateCoordinates rejects NaN and infinite values, which have no place in
+// a bounding box.
 func ValidateCoordinates(lat, lon float32) error {
 	if math.IsNaN(float64(lat)) || math.IsInf(float64(lat), 0) {
 		return fmt.Errorf("latitude %v is not a finite number", lat)
@@ -45,12 +41,11 @@ func ValidateCoordinates(lat, lon float32) error {
 	return nil
 }
 
-// Canonical maps a coordinate pair to the representation of the same point on
-// the sphere with the latitude in [-90, 90] and the longitude in [-180, 180].
-// Coordinates are not range-checked on write, and the haversine formula is the
-// great-circle distance for any real pair, so (0, 360) is the point (0, 0) and
-// (100, 0) the point (80, 180). The bounding boxes only hold for canonical
-// pairs, so every stored point and every query center goes through here.
+// Canonical maps a coordinate pair to the same point on the sphere with the
+// latitude in [-90, 90] and the longitude in [-180, 180]: (0, 360) is (0, 0),
+// (100, 0) is (80, 180). Coordinates are not range-checked on write and the
+// haversine formula is the great-circle distance for any real pair, but the
+// bounding boxes only hold for canonical ones.
 func Canonical(lat, lon float32) (float32, float32) {
 	if lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 {
 		return lat, lon
@@ -78,9 +73,8 @@ func Canonical(lat, lon float32) (float32, float32) {
 	return float32(la), float32(lo)
 }
 
-// Distance is the haversine distance in meters between two points. It is the
-// exact arithmetic of the former geo HNSW distancer so that a filter keeps
-// returning the same objects at its boundary.
+// Distance is the haversine distance in meters, with the exact arithmetic of
+// the former geo HNSW distancer so a filter's boundary has not moved.
 func Distance(latA, lonA, latB, lonB float32) float32 {
 	latARadian := float64(latA * math.Pi / 180)
 	latBRadian := float64(latB * math.Pi / 180)
@@ -100,36 +94,27 @@ type Box struct {
 	MinLat, MaxLat, MinLon, MaxLon float32
 }
 
-// Intersects reports whether the two rectangles share at least one point.
 func (b Box) Intersects(o Box) bool {
 	return b.MinLat <= o.MaxLat && b.MaxLat >= o.MinLat &&
 		b.MinLon <= o.MaxLon && b.MaxLon >= o.MinLon
 }
 
-// Contains reports whether the rectangle holds the point.
 func (b Box) Contains(lat, lon float32) bool {
 	return lat >= b.MinLat && lat <= b.MaxLat && lon >= b.MinLon && lon <= b.MaxLon
 }
 
-// Circle is a withinGeoRange query: a center and a radius in meters. Its
-// bounding boxes prune the tree; Contains decides on the leaf points.
+// Circle is a withinGeoRange query. Its bounding boxes prune the tree, split
+// in two across the antimeridian or widened to every longitude over a pole;
+// Contains decides on the leaf points.
 type Circle struct {
-	// Lat and Lon are the canonical center.
-	Lat, Lon float32
+	Lat, Lon float32 // canonical
 	Distance float32
-	// boxes is the circle's bounding rectangle, split in two where it crosses
-	// the antimeridian, or widened to every longitude where it covers a pole.
-	boxes []Box
-	// innerDistance is the radius a leaf's corners must be within for the
-	// whole leaf to be collected without per-point checks; see ContainsBox.
-	innerDistance float32
-	// the center's terms of the haversine formula, computed once; the values
-	// are exactly those Distance derives, so Contains matches it bit for bit
-	latRadian float64
-	cosLat    float64
+
+	boxes         []Box
+	innerDistance float32 // see ContainsBox
+	cosLat        float64 // precomputed as Distance computes it, so Contains matches it bit for bit
 }
 
-// NewCircle validates the center and precomputes the bounding boxes.
 func NewCircle(lat, lon, distance float32) (*Circle, error) {
 	if err := ValidateCoordinates(lat, lon); err != nil {
 		return nil, err
@@ -139,25 +124,17 @@ func NewCircle(lat, lon, distance float32) (*Circle, error) {
 	}
 	lat, lon = Canonical(lat, lon)
 	c := &Circle{Lat: lat, Lon: lon, Distance: distance}
-	c.latRadian = float64(lat * math.Pi / 180)
-	c.cosLat = math.Cos(c.latRadian)
+	c.cosLat = math.Cos(float64(lat * math.Pi / 180))
 	c.boxes, c.innerDistance = c.bounds()
 	return c, nil
 }
 
-// The bounding boxes must hold every point Contains accepts, and Contains is
-// not the ideal spherical cap: it rounds its inputs to float32. The slack
-// below covers those roundings for canonical coordinates.
-//
-//   - Each coordinate difference is one float32 subtraction of values within
-//     360 degrees of each other, so it is off by at most 2^-24 of a value up
-//     to 360 (longitude) or 180 (latitude): latPad and lonPad are twice that.
-//   - The distance it compares to the radius is rounded to float32 once, a
-//     relative 2^-24, covered many times over by relSlack on the radius.
-//   - A latitude in radians is computed in float32, in three roundings, so a
-//     cosine of the formula is off by up to latRadianErr * tan(lat) relative.
-//     That scales the longitude term of the formula; cosineSlack converts the
-//     worst case over the circle's latitude band into a wider radius.
+// Contains rounds its inputs to float32, so the boxes must be wider than the
+// ideal cap by the roundings' worst case: a coordinate difference is one
+// float32 subtraction of values up to 360 apart (latPad, lonPad are twice
+// 2^-24 of that), the distance is rounded once (relSlack on the radius), and a
+// latitude in radians is computed in float32, which puts the cosines off by
+// latRadianErr * tan(lat) relative (cosineSlack widens the radius for that).
 const (
 	relSlack      = 1.0 / (1 << 20)
 	latPad        = 180.0 / (1 << 23)
@@ -166,31 +143,24 @@ const (
 	paddingMeters = 8.0 // latPad and lonPad on the ground, with room to spare
 )
 
-// cosineSlack is the relative amount the haversine term the cosines scale can
-// be off by for latitudes up to maxAbsLat degrees, both the point's and the
-// center's.
 func cosineSlack(maxAbsLat float64) float64 {
 	return 2 * latRadianErr * math.Tan(maxAbsLat*math.Pi/180)
 }
 
-// bounds computes the rectangles covering the circle and the inner radius for
-// ContainsBox. The latitude extent of a cap is its angular radius; the
-// longitude extent of one that reaches neither pole is asin(sin(r)/cos(lat)).
-// A cap reaching a pole covers every longitude. One crossing the antimeridian
-// is split in two. Every edge is widened by the slack described above.
+// bounds computes the boxes and the inner radius for ContainsBox. The latitude
+// extent of a cap is its angular radius; the longitude extent of one that
+// reaches neither pole is asin(sin(r)/cos(lat)).
 func (c *Circle) bounds() ([]Box, float32) {
 	if math.IsInf(float64(c.Distance), 1) {
 		return []Box{{MinLat: -90, MaxLat: 90, MinLon: -180, MaxLon: 180}}, 0
 	}
 
-	// the angular radius in radians and degrees, with the relative slack
 	r := float64(c.Distance) / earthRadiusMeters * (1 + relSlack)
 	rDeg := r*180/math.Pi + latPad
 	cLat, cLon := float64(c.Lat), float64(c.Lon)
 	minLat, maxLat := cLat-rDeg, cLat+rDeg
 
 	if minLat <= -90 || maxLat >= 90 || r >= math.Pi/2 {
-		// the cap covers a pole: every longitude is inside the latitude band
 		return []Box{{
 			MinLat: max(nextDown32(minLat), -90), MaxLat: min(nextUp32(maxLat), 90),
 			MinLon: -180, MaxLon: 180,
@@ -198,9 +168,8 @@ func (c *Circle) bounds() ([]Box, float32) {
 	}
 	latBand := Box{MinLat: nextDown32(minLat), MaxLat: nextUp32(maxLat), MinLon: -180, MaxLon: 180}
 
-	// the longitude extent, with the cosines' slack folded into the radius:
-	// a point the formula accepts is within the cap whose haversine term is
-	// the radius' divided by what the cosines may be off by
+	// the cosines' slack folded into the radius: a point the formula accepts is
+	// within the cap whose haversine term is the radius' divided by (1 - slack)
 	slack := cosineSlack(math.Max(math.Abs(minLat), math.Abs(maxLat)))
 	if slack >= 1 {
 		return []Box{latBand}, 0
@@ -210,6 +179,11 @@ func (c *Circle) bounds() ([]Box, float32) {
 		return []Box{latBand}, 0
 	}
 	rEff := 2 * math.Asin(math.Sqrt(a))
+	// the widened cap may reach a pole where the original did not; past that
+	// point sin(rEff) shrinks again and the formula below would narrow the box
+	if math.Abs(cLat)*math.Pi/180+rEff >= math.Pi/2 {
+		return []Box{latBand}, 0
+	}
 	ratio := math.Sin(rEff) / math.Cos(cLat*math.Pi/180)
 	if ratio >= 1 {
 		return []Box{latBand}, 0
@@ -217,8 +191,8 @@ func (c *Circle) bounds() ([]Box, float32) {
 	dLon := math.Asin(ratio)*180/math.Pi*(1+relSlack) + lonPad
 	minLon, maxLon := cLon-dLon, cLon+dLon
 
-	// the inner radius: a point the formula places within it is within the
-	// radius however the roundings fall, twice over, which ContainsBox needs
+	// a point the formula places within the inner radius is within the radius
+	// however the roundings fall, twice over, which ContainsBox needs
 	inner := float64(c.Distance)*(1-2*slack-2*relSlack) - 2*paddingMeters
 	if inner < 0 {
 		inner = 0
@@ -235,8 +209,7 @@ func (c *Circle) bounds() ([]Box, float32) {
 		}}, innerDistance
 	}
 
-	// wraps around the antimeridian: [minLon, 180] and [-180, maxLon] with the
-	// overflow moved by one turn, in float64 so the turn adds no rounding
+	// wraps around the antimeridian; the turn is applied before the float32 rounding
 	if minLon < -180 {
 		return []Box{
 			{MinLat: latBand.MinLat, MaxLat: latBand.MaxLat, MinLon: -180, MaxLon: nextUp32(maxLon)},
@@ -249,8 +222,6 @@ func (c *Circle) bounds() ([]Box, float32) {
 	}, innerDistance
 }
 
-// nextUp32 rounds f to a float32 no smaller than it; nextDown32 to one no
-// larger.
 func nextUp32(f float64) float32 {
 	return math.Nextafter32(float32(f), math.MaxFloat32)
 }
@@ -259,8 +230,7 @@ func nextDown32(f float64) float32 {
 	return math.Nextafter32(float32(f), -math.MaxFloat32)
 }
 
-// IntersectsBox reports whether the circle's bounding rectangle reaches the
-// box. It is a necessary condition for any point of the box to be inside.
+// IntersectsBox is a necessary condition for any point of the box to be inside.
 func (c *Circle) IntersectsBox(b Box) bool {
 	for i := range c.boxes {
 		if c.boxes[i].Intersects(b) {
@@ -270,17 +240,13 @@ func (c *Circle) IntersectsBox(b Box) bool {
 	return false
 }
 
-// ContainsBox reports whether every point of the box is inside the circle,
-// in which case a leaf can be collected without per-point distances. Along a
-// meridian the distance to the center has a single minimum, so over a
-// latitude interval it peaks at an end; along a parallel it grows with the
-// longitude offset while that stays under a half turn. The farthest point of
-// a rectangle is therefore one of its corners, provided the rectangle lies in
-// the circle's own bounding box, which keeps every offset under a half turn.
-// A circle reaching a pole or the antimeridian has no such box and is left to
-// the per-point check. The corners are held to the inner radius so that the
-// float32 roundings of Contains cannot make it reject a point of a box whose
-// corners pass.
+// ContainsBox reports whether every point of the box is inside the circle, so
+// a leaf can be collected without per-point distances. The farthest point of a
+// rectangle from the center is a corner as long as every longitude offset
+// stays under a half turn, which holds for a rectangle inside the circle's own
+// bounding box when that box reaches neither a pole nor the antimeridian. The
+// corners are held to the inner radius so the float32 roundings of Contains
+// cannot reject a point of a box whose corners pass.
 func (c *Circle) ContainsBox(b Box) bool {
 	if len(c.boxes) != 1 || c.innerDistance <= 0 {
 		return false
@@ -298,8 +264,7 @@ func (c *Circle) ContainsBox(b Box) bool {
 		c.distance(b.MaxLat, b.MaxLon) <= c.innerDistance
 }
 
-// Contains is the exact test: haversine distance within the radius. It is
-// Distance with the center's terms precomputed.
+// Contains is Distance with the center's terms precomputed.
 func (c *Circle) Contains(lat, lon float32) bool {
 	return c.distance(lat, lon) <= c.Distance
 }
