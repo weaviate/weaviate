@@ -292,6 +292,34 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		assert.Equal(t, map[string]vectorIndexRecord{"foo": foo, "mv": mv}, records)
 	})
 
+	t.Run("refuses records without a format version and deletes nothing", func(t *testing.T) {
+		indexPath, shardName := setup(t)
+		shardDir := filepath.Join(indexPath, shardName)
+		require.NoError(t, os.MkdirAll(shardDir, 0o755))
+
+		db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		record := []byte(`{"physical_id":"a-b","index_type":"hnsw","state":"ready"}`)
+		require.NoError(t, db.Namespace(vectorIndexMappingNamespace).Put([]byte(vectorIndexMappingKey("foo")), record))
+		require.NoError(t, db.Close())
+
+		named := filepath.Join(shardDir, "lsm", "vectors_foo")
+		generated := filepath.Join(shardDir, "lsm", "vectors_a-b")
+		for _, dir := range []string{named, generated} {
+			require.NoError(t, os.MkdirAll(dir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "segment.db"), []byte("data"), 0o644))
+		}
+
+		err = h.removeVectorIndexFiles(indexPath, shardName, "foo", nil)
+		require.ErrorContains(t, err, "records without a format version")
+
+		assert.True(t, pathExists(named))
+		assert.True(t, pathExists(generated))
+		v, _, err := shardmeta.GetOffline(shardDir, vectorIndexMappingNamespace, []byte(vectorIndexMappingKey("foo")))
+		require.NoError(t, err)
+		assert.Equal(t, record, v, "the record stays for the retry")
+	})
+
 	t.Run("leaves the record to a shard that holds the file locked", func(t *testing.T) {
 		indexPath, shardName := setup(t)
 		shardDir := filepath.Join(indexPath, shardName)
