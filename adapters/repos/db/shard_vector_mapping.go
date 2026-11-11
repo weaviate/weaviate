@@ -396,12 +396,18 @@ func readVectorIndexRecordOffline(shardDir, name string) (rec vectorIndexRecord,
 	// one open for both keys; an absent key is a nil value
 	vals, _, err := shardmeta.GetOfflineMulti(shardDir, vectorIndexMappingNamespace,
 		[]byte(vectorIndexMappingFormatVersionKey), []byte(vectorIndexMappingKey(name)))
-	if err != nil || vals == nil || vals[0] == nil {
+	if err != nil || vals == nil {
 		return vectorIndexRecord{}, false, false, err
 	}
 	version, v := vals[0], vals[1]
 	// the same refusals as Load: a deletion must not act on a record this
 	// binary cannot read
+	if version == nil {
+		if v != nil {
+			return vectorIndexRecord{}, false, false, errors.New("records without a format version")
+		}
+		return vectorIndexRecord{}, false, false, nil
+	}
 	if string(version) != vectorIndexMappingFormatVersion {
 		return vectorIndexRecord{}, false, true, fmt.Errorf("unsupported format version %q, this binary reads %q",
 			version, vectorIndexMappingFormatVersion)
