@@ -91,6 +91,44 @@ func TestRankOneRequestPerDocument(t *testing.T) {
 	}
 }
 
+func TestRankScoresARefusedDocumentZero(t *testing.T) {
+	tests := []struct {
+		name       string
+		refusals   map[string]bool
+		wantScores []float64
+	}{
+		{
+			name:       "one refused document among three",
+			refusals:   map[string]bool{chargedTwice: true},
+			wantScores: []float64{0.91, 0, 0.03},
+		},
+		{
+			name:       "every document refused",
+			refusals:   map[string]bool{noRefund: true, chargedTwice: true, changeEmail: true},
+			wantScores: []float64{0, 0, 0},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFake(t)
+			f.probabilities = map[string]float64{noRefund: 0.91, chargedTwice: 0.64, changeEmail: 0.03}
+			f.refusals = tt.refusals
+			documents := []string{noRefund, chargedTwice, changeEmail}
+
+			res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+				documentsOf(documents...), classConfig(f.url(), nil))
+
+			require.NoError(t, err)
+			scores := make([]float64, len(res.DocumentScores))
+			for i, s := range res.DocumentScores {
+				scores[i] = s.Score
+			}
+			assert.Equal(t, tt.wantScores, scores)
+			assert.Len(t, f.received(), len(documents))
+		})
+	}
+}
+
 func TestRankSkipsEmptyAndDuplicateDocuments(t *testing.T) {
 	f := newFake(t)
 	f.probabilities = map[string]float64{"a": 0.8, "b": 0.2}
@@ -837,23 +875,6 @@ func TestRankCutsLongErrorText(t *testing.T) {
 			assert.LessOrEqual(t, len(err.Error()), 1200)
 		})
 	}
-
-	t.Run("a refused query of 50,000 bytes", func(t *testing.T) {
-		f := newFake(t)
-		f.replies = map[int]fakeReply{0: {
-			status: http.StatusOK,
-			body:   `{"answers":[{"type":"refusal","name":"condition"}]}`,
-		}}
-		query := strings.Repeat("a", 512) + strings.Repeat("b", 49_488)
-
-		_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), query, "text", documentsOf(noRefund),
-			classConfig(f.url(), nil))
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), strings.Repeat("a", 512))
-		assert.NotContains(t, err.Error(), "bbbb")
-		assert.LessOrEqual(t, len(err.Error()), 700)
-	})
 }
 
 func TestRankReturnsADeadlineErrorAndFreesTheSlots(t *testing.T) {
@@ -1235,10 +1256,10 @@ func TestRankChecksTheAnswers(t *testing.T) {
 			wantScore: 1,
 		},
 		{
-			// A refused condition must fail the call, not score 0 everywhere.
-			name:    "a refusal",
-			body:    `{"answers":[{"type":"refusal","name":"condition"}]}`,
-			wantErr: "object " + secondID + `: OpenAI refused to judge the condition "The customer is about to churn"`,
+			// OpenAI refuses a document whose content has no evidence for the condition.
+			name:      "a refusal",
+			body:      `{"answers":[{"type":"refusal","name":"condition"}]}`,
+			wantScore: 0,
 		},
 		{
 			name:    "not JSON",
@@ -1448,11 +1469,13 @@ type fakeReply struct {
 	body   string
 }
 
-// fakeOpenAI answers with the probability of the input, 0.5 when unknown.
+// fakeOpenAI answers with the probability of the input, 0.5 when unknown, or
+// with a refusal for an input in refusals.
 type fakeOpenAI struct {
 	t             *testing.T
 	server        *httptest.Server
 	probabilities map[string]float64
+	refusals      map[string]bool
 	// replies overrides the answer to the n-th request, from 0.
 	replies  map[int]fakeReply
 	delay    time.Duration
@@ -1534,16 +1557,18 @@ func (f *fakeOpenAI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, reply.body)
 		return
 	}
-	probability, ok := f.probabilities[received.input()]
-	if !ok {
-		probability = 0.5
+	answer := map[string]any{"type": "refusal", "name": body.Questions[0].Name}
+	if !f.refusals[received.input()] {
+		probability, ok := f.probabilities[received.input()]
+		if !ok {
+			probability = 0.5
+		}
+		answer = map[string]any{"type": "predicate", "name": body.Questions[0].Name, "probability": probability}
 	}
 	json.NewEncoder(w).Encode(map[string]any{
-		"model": body.Model,
-		"answers": []map[string]any{
-			{"type": "predicate", "name": body.Questions[0].Name, "probability": probability},
-		},
-		"usage": map[string]int{"input_tokens": 100, "output_tokens": 0},
+		"model":   body.Model,
+		"answers": []map[string]any{answer},
+		"usage":   map[string]int{"input_tokens": 100, "output_tokens": 0},
 	})
 }
 
