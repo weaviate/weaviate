@@ -6,7 +6,7 @@
 
 ## v1.4: 10M en wiki-dpr e5 (768d), en curso (2026-11-11)
 
-**Estado: medidos los dos brazos a 10M y a 1M. Pendiente: la repetición nocturna del brazo HNSW, cuya segunda ronda marcó deriva, y la celda de 512 bits a 10M.** El pre-registro y el protocolo de abajo se escribieron antes de ver ningún dato de 10M; los resultados van en "Resultados a 10M".
+**Estado: medidos los dos brazos a 10M y a 1M, y la celda de 512 bits en las dos escalas. Pendiente: la repetición nocturna (12 de noviembre) del brazo HNSW y de la curva de 8 threads con rescoreLimit 400 de la celda de 512 bits, que marcaron deriva en su segunda ronda.** El pre-registro y el protocolo de abajo se escribieron antes de ver ningún dato de 10M; los resultados van en "Resultados a 10M".
 
 La pregunta central: si el ~2x contra HNSW que se midió a 1M se mantiene plano a 10M, como las cargas de posting en las simulaciones.
 
@@ -166,8 +166,51 @@ Con cuatro candidatos por posting cargado no compensa leer los vectores de un po
 - **Posting-edge repite en las dos escalas;** ningún punto tiene pasadas con ruido.
 - **HNSW a 10M no repite.** Su segunda ronda (20:00 a 20:05) va entre un 6 y un 22 % más lenta en todos los puntos de 8 threads con rescoreLimit 512, y con 1 thread oscila hasta un 25 % en los dos sentidos. Es el mismo build medido dos veces, así que es la máquina, no el grafo. Yo no ejecutaba nada en esa ventana.
 - **HNSW a 1M repite con rescoreLimit 512;** su curva de 64 con 1 thread va entre un 5 y un 8 % lenta en seis puntos.
-- **Repetición de noche en cola,** desde las 00:30: el brazo HNSW de 10M entero (hay que reconstruirlo para volver a cronometrarlo), el de 1M, y la celda de posting-edge de 1M como ancla entre las dos sesiones. Si el ancla repite la tarde, los tiempos de posting-edge de 10M de esta tarde se leen junto al HNSW de la noche.
+- **Repetición de noche en cola,** desde las 00:30: el brazo HNSW de 10M entero (hay que reconstruirlo para volver a cronometrarlo), el de 1M, y la celda de posting-edge de 1M como ancla entre las dos sesiones. Si el ancla repite la tarde, los tiempos de posting-edge de 10M de esta tarde se leen junto al HNSW de la noche. Detrás van las dos curvas de 512 bits que no repitieron (ver "El código de 512 bits a 10M") y la curva de 8 threads del control de dbpedia (Fase C, "Ruido").
 - **El veredicto del pre-registro no depende de la ronda:** el ratio a 0.95 queda entre 1.78x y 2.24x, por debajo de 2.5x con las dos.
+
+### El código de 512 bits a 10M
+
+Es el único código capado que llegó a 0.99 a 1M, así que es el que subió a 10M. Va sobre el mismo build que el código completo (P=320, con la asignación de la caché) y con R=2048, el menor R de la malla que iguala su recall de arista: 0.9497 frente a 0.9470. Se cronometró con rescoreLimit 400 y 800, a 10M de 20:26 a 22:23 y a 1M (R=256) de 22:23 a 22:38, a continuación de los dos brazos. **Cobertura completa en las dos escalas:** 10 000 000 y 1 000 000 vectores en postings, 0 perdidos, 0 repetidos.
+
+QPS en la mejor configuración de cada celda: rescoreLimit 200 para el código completo, y 400 a 0.95 y 800 a 0.99 para el de 512 bits. Entre paréntesis, contra el código completo a la misma escala.
+
+| | 1M, completo | 1M, 512 bits | 10M, completo | 10M, 512 bits |
+|---|---|---|---|---|
+| heap del índice, MB | 165.1 | 134.5 (−19 %) | 1 712.4 | 1 407.2 (−18 %) |
+| contra HNSW | 0.49x | 0.40x | 0.50x | 0.41x |
+| R y recall de arista | 64, 0.9461 | 256, 0.9593 | 256, 0.9470 | 2 048, 0.9497 |
+| etapa de aristas | 279 s | 288 s | 3 668 s | 5 711 s (1.56x) |
+| primer ef con 0.99 | 160 (con 200) | 640 (con 400), 320 (con 800) | 160 (con 200) | 320 (con 400 y con 800) |
+| QPS@0.95, 1 thread | 1 112 | 778 (0.70x) | 870 | 654 (0.75x) |
+| QPS@0.99, 1 thread | 412 | 278 (0.67x) | 261 | 182 (0.70x) |
+| QPS@0.95, 8 threads | 7 778 | 5 914 (0.76x)\* | 5 968 | 4 185 (0.70x)\* |
+| QPS@0.99, 8 threads | 2 974 | 1 997 (0.67x) | 1 770 | 1 271 (0.72x) |
+| HNSW / celda @0.95, 1 y 8 threads | 1.53x y 1.26x | 2.19x y 1.66x | 2.14x y 2.20x | 2.84x y 3.14x |
+| HNSW / celda @0.99, 1 y 8 threads | 0.77x y 0.62x | 1.13x y 0.93x | 1.72x y 1.82x | 2.46x y 2.54x |
+| cargas @0.95 | 13.4 | 19.1 | 12.6 | 17.7 |
+| cargas @0.99 | 43.7 | 66.6 | 51.3 | 79.3 |
+| rondas @0.99 | 10.7 | 16.4 | 12.6 | 19.6 |
+
+\* De la curva de 8 threads con rescoreLimit 400, que no repitió (abajo).
+
+Lo que dice:
+
+- **Llega a 0.99 a 10M, pero solo con rescoreLimit 400 o más:** 0.9909 a ef=320 con 400, y 0.9922 con 800. Con 200 se queda en 0.9892 a ef=1024. Pide el doble de ef que el código completo.
+- **Ahorra un 18 % de índice a 10M (305 MB), lo mismo que a 1M.** Solo cambian los códigos, de 104 a 72 B por vector; aristas, centroides y postings son los mismos.
+- **Lo paga en QPS, y el coste no cambia con N:** entre 0.70x y 0.76x a recall 0.95 y entre 0.67x y 0.72x a 0.99, a 1M y a 10M. Contra HNSW queda a 2.84x y 3.14x a 0.95 a 10M. Supera el 2.5x pre-registrado, aunque ese umbral era para el default y no para esta celda.
+- **Carga más postings:** 1.40x a 0.95 y 1.55x a 0.99, y hace 19.6 rondas a 0.99 frente a 12.6. Para disco es lo que más pesa. Los candidatos del rescore siguen estando todos en postings cargados (máximo 0 en las mil queries), unos 10 por posting cargado con rescoreLimit 800.
+- **La etapa de aristas cuesta 1.56x la del código completo,** por el R=2048. A 768d el código de 512 bits ordena peor los candidatos de arista, y hay que rescatar más para el mismo recall.
+- **Como modo memoria es peor trato que el de 1536d.** Allí el código de 768 bits ahorraba un 34 % de índice a 0.74x y 0.90x a 0.95 y 0.99. Aquí ahorra la mitad y cuesta más a 0.99. Encaja con lo decidido en la Fase B: 512 bits queda como valor válido y documentado, sin recomendación. A 768d no hay modo memoria que recomendar.
+
+**Deriva.** La curva de 8 threads con rescoreLimit 400 no repitió en ninguna de las dos celdas:
+
+- **A 10M** su segunda ronda fue entre un 6 y un 16 % más rápida en los ocho puntos. Además, en la primera ronda fue más lenta que la curva de rescoreLimit 800, que hace más trabajo, en ef=320, 640 y 1024 (el criterio de "outworked").
+- **A 1M** su segunda ronda fue entre un 8 y un 11 % más lenta.
+- **Las otras tres curvas de cada celda repitieron:** con medianas dentro de ±2 % y ningún punto más allá de un 6 %.
+- **No es mío:** de 21:50 a 00:19 no ejecuté nada.
+
+Las dos curvas se vuelven a medir esta noche, detrás de HNSW, con la curva de 8 threads de 800 como ancla.
 
 ### Recall de arista a 10M: con P=256 no se llega a 0.94
 
@@ -240,6 +283,61 @@ En negrita, el R con que se construyó cada celda. En dbpedia el default de 64 d
 | 384 bits | 28 % | 0.9547 | 0.8436 | 0.9411 | 0.9706 | 0.9863 | no, ni con 800 |
 
 Los techos son el recall a ef=1024, salvo el de rescoreLimit 64 del código completo, que se siguió hasta ef=4096. El código de 512 bits ahorra un 19 % de índice y pide rescoreLimit 800 para un 0.99 cómodo; el de 384 no llega. Lo que cuenta son los bits del código, no la fracción de la dimensión: el presupuesto de 768 bits que a 1536d era el modo memoria es a 768d el código completo.
+
+### Datos y reproducción
+
+Resultados en `testdata/bench/v1.4/`:
+
+- **Brazos cronometrados de la tarde:** `wikidpr-10m-{full,hnsw}.json` y `wikidpr-1m-{full,hnsw}-timed.json`. Cada uno tiene al lado su segunda ronda, en `-repeat.json`.
+- **Celda de 512 bits:** `wikidpr-{10m,1m}-code-512{,-timed}.json`, también con su `-repeat.json`.
+- **Corridas de día a 1M, sin tiempos válidos:** `wikidpr-1m-{full,hnsw,code-512,code-384}.json`.
+- **Mallas de recall de arista:** `wikidpr-{1m,10m}-edge-recall-grid*.json` y `wikidpr-{1m,10m}-edge-recall-wide-probes.json`.
+- **Salida completa de las tablas:** `cells-10m.md` y `cells-1m.md`, cada una contra el HNSW de su escala.
+
+El dataset se exportó del HDF5 de wiki-dpr-10m-e5b-filtered al formato crudo que lee `testinghelpers.RawDataset`: `train.f32`, `test.f32`, `neighbors.i32` (el GT sin filtro) y `meta.txt`. El de 1M es su primer millón de filas, con su propio GT exacto.
+
+```bash
+# las tablas (aquí las de 10M; las de 1M igual, contra wikidpr-1m-hnsw-timed.json)
+go test -tags postingedgebench -run 'TestCellReport$' ./adapters/repos/db/vector/postingedge/ \
+  -bench.report.cells "10M=$B/v1.4/wikidpr-10m-full.json,10M-512=$B/v1.4/wikidpr-10m-code-512.json" \
+  -bench.report.cells.repeats "10M=$B/v1.4/wikidpr-10m-full-repeat.json,10M-512=$B/v1.4/wikidpr-10m-code-512-repeat.json" \
+  -bench.report.cells.recalls 0.92,0.93,0.94,0.96,0.97,0.98 \
+  -bench.report.hnsw $B/v1.4/wikidpr-10m-hnsw.json -bench.report.cells.out cells-10m.md
+
+# la malla de recall de arista a 10M, con la asignación calculada (y guardada) al P más ancho
+go test -tags postingedgebench -run 'TestBenchmark$' -timeout 0 -v ./adapters/repos/db/vector/postingedge/ \
+  -bench.dataset $D10M -bench.arm postingedge -bench.mode edgerecall -bench.queries 1000 \
+  -bench.posting 236 -bench.codebitslist 0,512 -bench.probes 320,384 -bench.rescues 128,256,512 \
+  -bench.buildcache $CACHE -bench.out $B/v1.4/wikidpr-10m-edge-recall-grid-p384.json
+
+# el brazo posting-edge a 10M: P=320 sobre la asignación de P=384 de la caché, con el train por streaming
+go test -tags postingedgebench -run 'TestBenchmark$' -timeout 0 -v ./adapters/repos/db/vector/postingedge/ \
+  -bench.dataset $D10M -bench.arm postingedge -bench.queries 1000 -bench.runs 3 -bench.repeat \
+  -bench.posting 236 -bench.probe 320 -bench.cacheprobe 384 -bench.codebits 0 -bench.rescue 256 \
+  -bench.minedgerecall 0.94 -bench.workthreads 8 -bench.ceiling 0.99 \
+  -bench.streamtrain -bench.buildcache $CACHE \
+  -bench.sweep "ef=10,20,40,80,160,320,640,1024 threads=1,8 rescore=200,400 batch=4 margin=0.06" \
+  -bench.sweep "ef=10,20,40,80,160,320,640,1024 threads=1 rescore=64 batch=4 margin=0.06 timed=0" \
+  -bench.sweep "ef=10,20,40,80,160 threads=1 rescore=200 batch=4 margin=0 timed=0" \
+  -bench.out $B/v1.4/wikidpr-10m-full.json
+# la celda de 512 bits: -bench.codebits 512 -bench.rescue 2048 -bench.minedgerecall 0, rescore=400,800,
+# y "ef=... threads=1 rescore=200 batch=4 margin=0.06 timed=0" sin cronometrar
+
+# la malla de P mayores que el de la asignación, solo para una muestra de vectores
+go test -tags postingedgebench -run 'TestBenchmark$' -timeout 0 -v ./adapters/repos/db/vector/postingedge/ \
+  -bench.dataset $D10M -bench.arm postingedge -bench.mode edgerecall -bench.queries 1000 \
+  -bench.posting 236 -bench.codebitslist 0 -bench.probes 256 -bench.sampleprobes 320,384,448,512 \
+  -bench.rescues 64,128,256,512,1024 -bench.buildcache $CACHE \
+  -bench.out $B/v1.4/wikidpr-10m-edge-recall-wide-probes.json
+
+# el brazo HNSW
+go test -tags postingedgebench -run 'TestBenchmark$' -timeout 0 -v ./adapters/repos/db/vector/postingedge/ \
+  -bench.dataset $D10M -bench.arm hnsw -bench.queries 1000 -bench.runs 3 -bench.repeat \
+  -bench.efs 10,16,24,32,48,64,96,128,192,256,384,512,768,1024 \
+  -bench.sweep "rescore=512 threads=1,8" \
+  -bench.sweep "rescore=64 threads=1,8 ef=96,128,192,256,384,512,768,1024" \
+  -bench.out $B/v1.4/wikidpr-10m-hnsw.json
+```
 
 ## v1.2, Fase C: tamaño de posting (2026-11-11)
 
@@ -440,41 +538,47 @@ El modo disco tiene que re-derivar S con su presupuesto de I/O, y estos datos no
 
 El lote de 4 postings por ronda se fijó con S=236, donde una ronda escanea 944 vectores. Con S=512 la misma ronda escanea 2 048, y su búsqueda más barata, 2 560. La pregunta era si parte de lo que S=512 pierde en el extremo rápido es el tamaño de la ronda y no el del posting. Está fuera de la matriz registrada, donde los lotes iban fijos.
 
-**Respuesta: en parte, y no cambia el veredicto.** Las rondas cortas le dan a S=512 puntos más baratos, que no tenía, y con ellos empata con el control a recall 0.90. Entre 0.92 y 0.95 el control sigue por delante, y de 0.95 en adelante las rondas de 4 son las buenas para los dos tamaños.
+**Respuesta: en parte, y no cambia el veredicto.** Las rondas cortas le dan a S=512 puntos más baratos, que no tenía. Pero también se los dan al control, que con ellas sigue por delante a recall 0.90. Entre 0.92 y 0.95 el control sigue por delante con sus rondas de 4, y de 0.92 en adelante las rondas de 4 son las buenas para los dos tamaños.
 
 QPS a igual recall con 1 thread, rescoreLimit 64 y margen 0.06. Entre paréntesis, el recall del punto más barato de la curva donde el nivel queda por debajo de él:
 
 | recall | S=236, rondas de 4 | S=236, de 2 | S=236, de 1 | S=512, rondas de 4 | S=512, de 2 | S=512, de 1 |
 |---|---|---|---|---|---|---|
-| 0.88 | 1572 (0.9221) | 1564 (0.8955) | 1617 | 1306 (0.9408) | 1512 (0.9170) | 1604 (0.9015) |
-| 0.90 | 1572 (0.9221) | 1522 | 1465 | 1306 (0.9408) | 1512 (0.9170) | 1604 (0.9015) |
-| 0.92 | 1572 (0.9221) | 1352 | 1328 | 1306 (0.9408) | 1475 | 1409 |
-| 0.93 | 1469 | 1274 | 1264 | 1306 (0.9408) | 1356 | 1313 |
-| 0.95 | 1238 | 1036 | 998 | 1171 | 1147 | 1118 |
-| 0.97 | 828 | 711 | 684 | 835 | 796 | 758 |
-| 0.99 | 301 | 268 | 258 | 299 | 278 | 272 |
+| 0.88 | 1572 (0.9221) | 1766 (0.8955) | 1843 | 1306 (0.9408) | 1512 (0.9170) | 1604 (0.9015) |
+| 0.90 | 1572 (0.9221) | 1716 | 1614 | 1306 (0.9408) | 1512 (0.9170) | 1604 (0.9015) |
+| 0.92 | 1572 (0.9221) | 1512 | 1413 | 1306 (0.9408) | 1475 | 1409 |
+| 0.93 | 1469 | 1420 | 1322 | 1306 (0.9408) | 1356 | 1313 |
+| 0.95 | 1238 | 1151 | 1067 | 1171 | 1147 | 1118 |
+| 0.97 | 828 | 785 | 742 | 835 | 796 | 758 |
+| 0.99 | 301 | 290 | 282 | 299 | 278 | 272 |
 
-Las columnas no son todas de la misma hora. S=236 con rondas de 4 es el control de la noche (01:35). S=512 es de 09:31 a 09:59, con la máquina libre. S=236 con rondas de 2 y de 1 es de 10:27 a 10:41, con la máquina ya en uso: sus cifras van del orden de un 4 % lentas, que es lo que perdió con 1 thread la curva de rondas de 4 medida justo antes (ver "Ruido"). Esas dos columnas son provisionales hasta la repetición de noche que está en cola.
+Las columnas no son todas de la misma corrida:
+
+- **S=236 con rondas de 4** es el control de la noche (01:35).
+- **S=512** es de 09:31 a 09:59, con la máquina libre.
+- **S=236 con rondas de 2 y de 1** es de la repetición de noche del 11 de noviembre (22:47 a 00:19). Su curva de rondas de 4 con 1 thread, medida en la misma corrida, repite la de 01:35: 7 de 8 puntos dentro de ±2 % y mediana de −0.1 %.
+
+La primera medida de esas dos columnas, de día (10:27 a 10:41), iba entre un 8 y un 10 % lenta con 1 thread, y no el 4 % que se había estimado (ver "Ruido").
 
 La búsqueda más barata de cada configuración (ef=10), que es lo que define el extremo rápido:
 
 | S | ronda | postings cargados | vectores escaneados | recall | QPS |
 |---|---|---|---|---|---|
 | 236 | 4 | 7.5 | 1 920 | 0.9221 | 1572 |
-| 236 | 2 | 5.3 | 1 371 | 0.8955 | 1564 |
-| 236 | 1 | 4.5 | 1 176 | 0.8776 | 1636 |
+| 236 | 2 | 5.3 | 1 371 | 0.8955 | 1766 |
+| 236 | 1 | 4.5 | 1 176 | 0.8776 | 1873 |
 | 512 | 4 | 6.7 | 3 698 | 0.9408 | 1306 |
 | 512 | 2 | 4.7 | 2 615 | 0.9170 | 1512 |
 | 512 | 1 | 4.0 | 2 240 | 0.9015 | 1604 |
 
 Lo que dice:
 
-- **A S=512 le faltaban puntos baratos, y la ronda corta se los da.** Con rondas de 4 no tenía nada por debajo de recall 0.94. Con rondas de 1 llega a 1604 QPS a recall 0.9015: su mejor QPS a recall 0.90 pasa de 0.83x a 1.02x del control.
-- **El control no gana nada equivalente.** Sus rondas de 2 y de 1 dan puntos más baratos con menos recall (0.896 y 0.878), pero a recall 0.90 no superan a su punto de rondas de 4, ni corrigiendo el 4 % de la hora.
-- **Entre 0.92 y 0.95 el control sigue por delante:** 0.94x, 0.92x y 0.95x para el mejor lote de S=512 en cada nivel.
+- **A S=512 le faltaban puntos baratos, y la ronda corta se los da.** Con rondas de 4 no tenía nada por debajo de recall 0.94. Con rondas de 1 llega a 1604 QPS a recall 0.9015, y su mejor QPS a recall 0.90 pasa de 0.76x a 0.93x del mejor del control.
+- **Al control la ronda corta también le da puntos más baratos.** Con rondas de 2 da 1716 QPS a recall 0.90, un 9 % más que su punto de rondas de 4 (1572 a 0.9221). Con las cifras de día parecía que no ganaba nada, y que S=512 empataba con él a 0.90: era la hora.
+- **Entre 0.92 y 0.95 el control sigue por delante con rondas de 4:** 0.94x, 0.92x y 0.95x para el mejor lote de S=512 en cada nivel.
 - **Lo que queda de diferencia sí es el tamaño del posting.** A igual trabajo, postings mayores dan menos recall: S=512 con rondas de 2 escanea 2 615 vectores para un recall de 0.917, y el control escanea 1 920 para 0.922.
-- **De 0.95 en adelante, rondas de 4.** A S=512 las rondas de 1 cuestan entre un 4 y un 9 % de QPS. Al control le cuestan más, entre un 14 y un 19 % en estas cifras, de las que unos 4 puntos son la hora.
-- **El default de `LoadBatch` no se toca.** Para el modo disco este dato sí importa: la ronda es la profundidad serial de I/O, y a recall 0.99 S=512 hace 8 rondas de 4 postings donde el control hace 13.
+- **De 0.92 en adelante, rondas de 4, con los dos tamaños.** Para el control, de 0.95 a 0.99, las rondas de 2 cuestan entre un 4 y un 7 % de QPS, y las de 1 entre un 6 y un 14 %. A S=512 las rondas de 1 cuestan entre un 4 y un 9 %.
+- **El default de `LoadBatch` no se toca:** el tramo de operación empieza en 0.95, donde ganan las rondas de 4. Por debajo de 0.92 las rondas cortas dan más: un 9 % a recall 0.90 con rondas de 2, y un 17 % a 0.88 con rondas de 1. Para el modo disco este dato sí importa: la ronda es la profundidad serial de I/O, y a recall 0.99 S=512 hace 8 rondas de 4 postings donde el control hace 13.
 
 ### Ruido
 
@@ -500,11 +604,22 @@ Es un sesgo parejo en toda la curva, sin picos, y por eso no salía en la disper
 - **Con 8 threads sí, y es un fallo mío.** Esa curva coincidió con los primeros comandos con que atendí un mensaje nuevo (búsquedas en disco y en el transcript de la sesión, de unos segundos cada una), lanzados sin prioridad de fondo en plena ventana cronometrada. No puedo separar su efecto del uso del escritorio.
 - **El criterio de pasadas marcó tres de esos ocho puntos de 8 threads.** Los otros cinco iban igual de lentos con las pasadas de acuerdo entre sí.
 
-Lo que deja. El punto dudoso del control con 8 threads (ef=40) sigue sin contraste, y las columnas de S=236 con rondas de 2 y de 1 de la tabla de arriba son de esa misma corrida, tomadas después (10:27 a 10:41) con el escritorio en uso y con lecturas y ediciones mías de ficheros de por medio; su escalado de 1 a 8 threads es el normal (6.2x), pero no son una medida limpia. La corrida entera se repite de noche. Y cualquier cronometraje de día en esta máquina necesita una repetición de noche antes de publicarse, sobre todo con 8 threads.
+**El control, repetido otra vez de noche (22:38 a 00:19), sin nada mío corriendo,** con el mismo binario y las rondas de 1, 2 y 4:
+
+| threads | puntos dentro de ±2 % | cambio de la corrida de 01:35 contra la repetición |
+|---|---|---|
+| 1 | 7 de 8 | mediana −0.1 %, el peor +2.4 % |
+| 8 | 1 de 8 | de −6.4 a +17.3 %, mediana +3.3 % |
+
+- **Con 1 thread repite:** la curva de 01:35 queda confirmada, y con ella las columnas de 1 thread de las Fases B y C.
+- **Con 8 threads no, y esta vez el ruido es de la repetición.** Tres de sus ocho puntos tienen pasadas a más de un 10 % de su mediana (6757, 9288 y 10025 QPS a ef=10), y los cambios van en los dos sentidos. No es una deriva sostenida de la curva de 01:35, pero tampoco la confirma.
+- **Las rondas de 1 y de 2 de día iban lentas:** contra la noche, entre un 8 y un 10 % con 1 thread y entre un 18 y un 21 % con 8. La tabla de "El tamaño de la ronda" lleva ya las cifras de la noche.
+
+Lo que deja. La curva de 8 threads del control, en la que se apoyan los ratios de 8 threads de las Fases B y C, sigue sin una repetición limpia. Se vuelve a medir al final de la sesión nocturna del 12 de noviembre, con la de 1 thread como ancla. Y cualquier cronometraje de día en esta máquina necesita una repetición de noche antes de publicarse, sobre todo con 8 threads.
 
 ### Datos y reproducción
 
-Resultados en `testdata/bench/v1.2/`: `dbpedia-1m-posting-{512,1024,2048}.json` (el control es `dbpedia-1m-code-full.json`), `dbpedia-1m-posting-{236,512}-batches.json` (rondas de 1, 2 y 4, con la repetición de la curva registrada de cada una) y `edge-recall-posting-{512,1024,2048}{,-fine}.json` (la malla de P de cada S y su afinado). Las tablas salen de `TestCellReport`, con `-bench.report.cells.recalls` para los niveles de recall de más y `-bench.report.cells.repeats` para comparar dos corridas de una celda. La salida completa está en `testdata/bench/v1.2/cells-posting-size.md`.
+Resultados en `testdata/bench/v1.2/`: `dbpedia-1m-posting-{512,1024,2048}.json` (el control es `dbpedia-1m-code-full.json`), `dbpedia-1m-posting-{236,512}-batches.json` (rondas de 1, 2 y 4, con la repetición de la curva registrada de cada una), `dbpedia-1m-posting-236-batches-repeat.json` (la repetición de noche del control, con sus rondas de 1, 2 y 4) y `edge-recall-posting-{512,1024,2048}{,-fine}.json` (la malla de P de cada S y su afinado). Las tablas salen de `TestCellReport`, con `-bench.report.cells.recalls` para los niveles de recall de más y `-bench.report.cells.repeats` para comparar dos corridas de una celda. La salida completa está en `testdata/bench/v1.2/cells-posting-size.md`.
 
 ```bash
 # las tablas
