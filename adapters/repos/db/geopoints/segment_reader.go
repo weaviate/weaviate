@@ -17,7 +17,9 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/bits"
 	"slices"
+	"sync"
 
 	"github.com/weaviate/sroar"
 )
@@ -151,7 +153,8 @@ func (r *SegmentReader) WithinRange(ctx context.Context, c *Circle, out, deleted
 	stack := make([]uint32, 0, 64)
 	stack = append(stack, 0)
 	visited := uint32(0)
-	buf := make([]uint64, 0, MaxPointsPerLeaf)
+	matches := collectorPool.Get().(*collector)
+	defer matches.release()
 	for len(stack) > 0 {
 		// a corrupt tree whose children point back up must not loop
 		visited++
@@ -170,24 +173,24 @@ func (r *SegmentReader) WithinRange(ctx context.Context, c *Circle, out, deleted
 		}
 		stack = stack[:len(stack)-1]
 
-		if !c.IntersectsBox(n.Box) {
+		if !c.IntersectsBox(n.Box) || c.rejectsBox(n.Box) {
 			continue
 		}
 		if n.Kind == nodeKindInner {
 			stack = append(stack, n.A, n.B)
 			continue
 		}
-		if err := r.collectLeaf(c, n, out, buf); err != nil {
+		if err := r.collectLeaf(c, n, matches); err != nil {
 			return err
 		}
 	}
+	matches.flush(out)
 	return nil
 }
 
-// collectLeaf adds the leaf's matches to out. A leaf's doc IDs are sorted, so
-// they go in as one sorted run, which is several times cheaper than a bit at
-// a time.
-func (r *SegmentReader) collectLeaf(c *Circle, n node, out *sroar.Bitmap, buf []uint64) error {
+// collectLeaf adds the leaf's matches to the collector. A leaf's doc IDs are
+// sorted, so they form one sorted run.
+func (r *SegmentReader) collectLeaf(c *Circle, n node, matches *collector) error {
 	start, count := uint64(n.A), uint64(n.B)
 	if start+count > r.hdr.pointCount {
 		return fmt.Errorf("geopoints: leaf [%d, %d) past %d points", start, start+count, r.hdr.pointCount)
@@ -198,10 +201,9 @@ func (r *SegmentReader) collectLeaf(c *Circle, n node, out *sroar.Bitmap, buf []
 		return err
 	}
 
-	buf = buf[:0]
 	if c.ContainsBox(n.Box) {
 		for i := uint64(0); i < count; i++ {
-			buf = append(buf, binary.LittleEndian.Uint64(ids[i*8:]))
+			matches.add(binary.LittleEndian.Uint64(ids[i*8:]))
 		}
 	} else {
 		lats, err := r.src.read(base+r.hdr.pointCount*8+start*4, count*4)
@@ -215,13 +217,94 @@ func (r *SegmentReader) collectLeaf(c *Circle, n node, out *sroar.Bitmap, buf []
 		for i := uint64(0); i < count; i++ {
 			lat := math.Float32frombits(binary.LittleEndian.Uint32(lats[i*4:]))
 			lon := math.Float32frombits(binary.LittleEndian.Uint32(lons[i*4:]))
-			if c.Contains(lat, lon) {
-				buf = append(buf, binary.LittleEndian.Uint64(ids[i*8:]))
+			if c.containsFast(lat, lon) {
+				matches.add(binary.LittleEndian.Uint64(ids[i*8:]))
 			}
 		}
 	}
-	addSorted(out, buf)
+	matches.endRun()
 	return nil
+}
+
+// collector gathers a layer's matches as sorted runs, one per leaf, and turns
+// them into a bitmap once. A few runs are or'ed in one by one; many are set in
+// a dense bitset over the doc ID range first, since or'ing a run into an
+// already dense bitmap walks the whole bitmap every time.
+type collector struct {
+	ids      []uint64
+	runEnds  []int
+	dense    []uint64
+	min, max uint64
+}
+
+// collectorPool keeps the buffers of recent queries: a broad one fills a
+// megabyte or more, which would otherwise be garbage on every query.
+var collectorPool = sync.Pool{New: func() any { return &collector{} }}
+
+func (c *collector) release() {
+	const keep = 1 << 20 // entries; larger buffers are left to the garbage collector
+	if cap(c.ids) > keep || cap(c.dense) > keep {
+		return
+	}
+	c.ids, c.runEnds, c.dense = c.ids[:0], c.runEnds[:0], c.dense[:0]
+	collectorPool.Put(c)
+}
+
+func (c *collector) add(id uint64) {
+	if len(c.ids) == 0 {
+		c.min, c.max = id, id
+	} else {
+		c.min, c.max = min(c.min, id), max(c.max, id)
+	}
+	c.ids = append(c.ids, id)
+}
+
+func (c *collector) endRun() {
+	if n := len(c.ids); len(c.runEnds) == 0 || c.runEnds[len(c.runEnds)-1] < n {
+		c.runEnds = append(c.runEnds, n)
+	}
+}
+
+func (c *collector) flush(out *sroar.Bitmap) {
+	if len(c.ids) == 0 {
+		return
+	}
+	const fewRuns = 16
+	if len(c.runEnds) <= fewRuns {
+		start := 0
+		for _, end := range c.runEnds {
+			addSorted(out, c.ids[start:end])
+			start = end
+		}
+		return
+	}
+
+	// a dense bitset, unless the doc IDs are so spread out that it would dwarf
+	// the matches; 8 words per match is 64 bytes against their 8
+	words := (c.max-c.min)/64 + 1
+	if words > uint64(len(c.ids))*8 {
+		slices.Sort(c.ids)
+		out.Or(sroar.FromSortedList(c.ids))
+		return
+	}
+	if uint64(cap(c.dense)) < words {
+		c.dense = make([]uint64, words)
+	}
+	dense := c.dense[:words]
+	clear(dense)
+	for _, id := range c.ids {
+		d := id - c.min
+		dense[d>>6] |= 1 << (d & 63)
+	}
+	// the bitset enumerates in order, back into the slice it was built from
+	sorted := c.ids[:0]
+	for w, word := range dense {
+		for word != 0 {
+			sorted = append(sorted, c.min+uint64(w)*64+uint64(bits.TrailingZeros64(word)))
+			word &= word - 1
+		}
+	}
+	out.Or(sroar.FromSortedList(sorted))
 }
 
 // addSorted ors ids into out as a sorted run, sorting first if they are not.
