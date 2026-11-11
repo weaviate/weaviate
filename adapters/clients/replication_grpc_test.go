@@ -86,7 +86,6 @@ type fakeGRPCReplicationServer struct {
 	lastCompareDigestsReq atomic.Pointer[pb.CompareDigestsRequest]
 	lastDigestsInRangeReq atomic.Pointer[pb.DigestObjectsInRangeRequest]
 
-	// countObjectsErr, when set, is returned by CountObjects.
 	countObjectsErr error
 
 	compareRootsMultiErr     error
