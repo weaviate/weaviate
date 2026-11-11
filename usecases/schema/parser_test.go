@@ -305,7 +305,8 @@ func (m fakeModulesProvider) IsMultiVector(name string) bool {
 }
 
 func (m fakeModulesProvider) HasModule(name string) bool {
-	return name == "none" || strings.Contains(name, "colbert") || strings.Contains(name, "text2vec") || strings.Contains(name, "multi2vec")
+	return name == "none" || strings.Contains(name, "colbert") || strings.Contains(name, "text2vec") || strings.Contains(name, "multi2vec") ||
+		m.IsGenerative(name) || m.IsReranker(name) || strings.HasPrefix(name, "my-module")
 }
 
 func (m fakeModulesProvider) MigrateVectorizerSettings(any, any) bool {
