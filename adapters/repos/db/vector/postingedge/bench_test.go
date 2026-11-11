@@ -92,6 +92,7 @@ var (
 	benchPosting       = flag.Int("bench.posting", 0, "postingedge: target posting size (0 = default budget)")
 	benchSample        = flag.Int("bench.edgesample", 1000, "postingedge: vectors sampled to measure edge recall")
 	benchCodeBits      = flag.Int("bench.codebits", 0, "postingedge: sign bits kept per code (0 = the full code)")
+	benchScanCodeBits  = flag.Int("bench.scancodebits", 0, "postingedge: give the postings codes of their own for the scan, of this many sign bits, next to the codes of -bench.codebits in the sidecar (0 = the scan reads the codes of the sidecar)")
 	benchEdgeCodeBits  = flag.Int("bench.edgecodebits", -1, "postingedge: build the edges with codes of this width instead of the codes of the index, 0 for full codes (-1 = the codes of the index); a diagnostic that tells what a search loses to its edges from what it loses to its codes")
 	benchEdgeRescue    = flag.Int("bench.edgerescue", DefaultRescueLimit, "postingedge: the rescue limit that goes with -bench.edgecodebits")
 	benchMinEdgeRecall = flag.Float64("bench.minedgerecall", 0, "postingedge: fail before the sweeps if the edge recall of the build is below this")
@@ -360,6 +361,7 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 	uc := NewDefaultUserConfig()
 	uc.TargetPostingSize = *benchPosting
 	uc.CodeBits = *benchCodeBits
+	uc.ScanCodeBits = *benchScanCodeBits
 	uc.BuildProbe = *benchProbe
 	uc.RescueLimit = *benchRescue
 	uc.TrainingLimit = *benchTraining
@@ -369,6 +371,9 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 		"buildProbe": uc.BuildProbe, "rescueLimit": uc.RescueLimit, "trainingLimit": uc.TrainingLimit,
 		"entryPostings": uc.EntryPostings,
 		"quantization":  "rq bits=1 centering=true", "distance": uc.Distance,
+	}
+	if uc.ScanCodeBits != 0 {
+		result.Config["scanCodeBits"] = uc.ScanCodeBits
 	}
 	if *benchWorkThreads > 1 {
 		result.Config["workThreads"] = *benchWorkThreads
@@ -454,6 +459,10 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 		// the graph over the centroids, the presence bitmap, pools
 		"otherMeasured": result.IndexHeapMB - analytic,
 		"f32":           float64(len(data.train)) * float64(data.dims) * 4 / (1 << 20),
+	}
+	if memory.ScanCodeBytes != 0 {
+		// on top of "codes", which are then those of the sidecar alone
+		result.Components["scanCodes"] = float64(memory.ScanCodeBytes) / (1 << 20)
 	}
 	t.Logf("memory: index heap %.1f MB, analytic %.1f MB, components %v, rss %.0f MB, peak rss %.0f MB",
 		result.IndexHeapMB, analytic, result.Components, result.AfterBuild.RSSMB, result.PeakRSSMB)
