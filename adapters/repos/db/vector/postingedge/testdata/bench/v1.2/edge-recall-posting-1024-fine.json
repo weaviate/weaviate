@@ -1,0 +1,73 @@
+{
+  "arm": "postingedge",
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "vectors": 990000,
+  "dims": 1536,
+  "queries": 2000,
+  "k": 10,
+  "goVersion": "go1.27.0",
+  "goarch": "arm64",
+  "gomaxprocs": 10,
+  "config": {
+    "edges": 16,
+    "postings": 967,
+    "probes": [
+      104,
+      112,
+      120
+    ],
+    "rescues": [
+      64
+    ],
+    "sample": 1000,
+    "targetPostingSize": 1024
+  },
+  "buildSec": 0,
+  "memBaseline": {
+    "heapAllocMB": 5842.310127258301,
+    "heapInuseMB": 5844.5,
+    "rssMB": 5884.59375,
+    "footprintMB": 5870
+  },
+  "memAfterBuild": {
+    "heapAllocMB": 0,
+    "heapInuseMB": 0,
+    "rssMB": 0
+  },
+  "memAfterQueries": {
+    "heapAllocMB": 0,
+    "heapInuseMB": 0,
+    "rssMB": 0
+  },
+  "settleQueries": 0,
+  "indexHeapMB": 0,
+  "peakRSSMB": 0,
+  "componentsMB": null,
+  "points": null,
+  "edgeRecall": [
+    {
+      "codeBits": 0,
+      "probe": 104,
+      "rescue": 64,
+      "candidatesPerVector": 96645.829,
+      "microsPerVector": 6160.919377,
+      "edgeRecall": 0.9611493322541481
+    },
+    {
+      "codeBits": 0,
+      "probe": 112,
+      "rescue": 64,
+      "candidatesPerVector": 104186.636,
+      "microsPerVector": 6665.664538,
+      "edgeRecall": 0.9643868878996358
+    },
+    {
+      "codeBits": 0,
+      "probe": 120,
+      "rescue": 64,
+      "candidatesPerVector": 111785.29,
+      "microsPerVector": 7054.320627,
+      "edgeRecall": 0.9676244435451234
+    }
+  ]
+}

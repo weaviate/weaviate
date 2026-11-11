@@ -1,0 +1,180 @@
+{
+  "arm": "hnsw",
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "vectors": 990000,
+  "dims": 1536,
+  "queries": 5000,
+  "k": 10,
+  "goVersion": "go1.27.0",
+  "goarch": "arm64",
+  "gomaxprocs": 10,
+  "config": {
+    "distance": "cosine",
+    "efConstruction": 128,
+    "maxConnections": 32,
+    "quantization": "rq bits=1 centering=true",
+    "trainingLimit": 10000
+  },
+  "buildSec": 113.044337542,
+  "buildStageSec": {
+    "insertCompressed": 111.454749083,
+    "insertUncompressed": 1.509799584,
+    "upgrade": 0.080768209
+  },
+  "memBaseline": {
+    "heapAllocMB": 5862.592529296875,
+    "heapInuseMB": 5864.53125,
+    "rssMB": 5905.984375,
+    "footprintMB": 5885
+  },
+  "memAfterBuild": {
+    "heapAllocMB": 6282.7425537109375,
+    "heapInuseMB": 6849.0546875,
+    "rssMB": 13216.125,
+    "footprintMB": 7760
+  },
+  "memAfterQueries": {
+    "heapAllocMB": 6304.919677734375,
+    "heapInuseMB": 6869.9453125,
+    "rssMB": 13216.1875,
+    "footprintMB": 7776
+  },
+  "settleQueries": 1000,
+  "indexHeapMB": 420.1500244140625,
+  "peakRSSMB": 12997.09375,
+  "componentsMB": {
+    "codes": 188.8275146484375,
+    "f32": 5800.78125,
+    "graphMeasured": 231.322509765625
+  },
+  "points": [
+    {
+      "ef": 16,
+      "threads": 1,
+      "rescoreLimit": 512,
+      "recall": 0.84086,
+      "qps": 4508.524947101341,
+      "qpsRuns": [
+        4684.454006976558,
+        4299.607698977985,
+        4508.524947101341
+      ],
+      "meanMs": 0.2216962242,
+      "p50Ms": 0.205917,
+      "p95Ms": 0.300084,
+      "p99Ms": 0.389333
+    },
+    {
+      "ef": 32,
+      "threads": 1,
+      "rescoreLimit": 512,
+      "recall": 0.93222,
+      "qps": 3084.112142326841,
+      "qpsRuns": [
+        3052.711630236582,
+        3104.3547487332594,
+        3084.112142326841
+      ],
+      "meanMs": 0.3241529132,
+      "p50Ms": 0.318459,
+      "p95Ms": 0.436708,
+      "p99Ms": 0.505875
+    },
+    {
+      "ef": 64,
+      "threads": 1,
+      "rescoreLimit": 512,
+      "recall": 0.9668,
+      "qps": 1817.865950421568,
+      "qpsRuns": [
+        1799.608981176523,
+        1817.865950421568,
+        1863.3199533259074
+      ],
+      "meanMs": 0.5499986214,
+      "p50Ms": 0.543833,
+      "p95Ms": 0.7325,
+      "p99Ms": 0.8055
+    },
+    {
+      "ef": 256,
+      "threads": 1,
+      "rescoreLimit": 512,
+      "recall": 0.99074,
+      "qps": 594.2342137843544,
+      "qpsRuns": [
+        590.5665177893202,
+        594.2342137843544,
+        597.2254577226596
+      ],
+      "meanMs": 1.6827018886000003,
+      "p50Ms": 1.659833,
+      "p95Ms": 2.312083,
+      "p99Ms": 2.5115
+    },
+    {
+      "ef": 16,
+      "threads": 8,
+      "rescoreLimit": 512,
+      "recall": 0.84086,
+      "qps": 30961.222165265273,
+      "qpsRuns": [
+        30961.222165265273,
+        30553.670767502954,
+        31883.239394257223
+      ],
+      "meanMs": 0.2578488196,
+      "p50Ms": 0.243959,
+      "p95Ms": 0.363459,
+      "p99Ms": 0.576667
+    },
+    {
+      "ef": 32,
+      "threads": 8,
+      "rescoreLimit": 512,
+      "recall": 0.93222,
+      "qps": 20627.059217370344,
+      "qpsRuns": [
+        20627.059217370344,
+        20599.836334300326,
+        20732.30292073947
+      ],
+      "meanMs": 0.387213661,
+      "p50Ms": 0.379334,
+      "p95Ms": 0.524708,
+      "p99Ms": 0.616417
+    },
+    {
+      "ef": 64,
+      "threads": 8,
+      "rescoreLimit": 512,
+      "recall": 0.9668,
+      "qps": 12513.442816214174,
+      "qpsRuns": [
+        12493.55020470682,
+        12513.442816214174,
+        12518.302822782649
+      ],
+      "meanMs": 0.638338802,
+      "p50Ms": 0.629334,
+      "p95Ms": 0.853583,
+      "p99Ms": 0.963417
+    },
+    {
+      "ef": 256,
+      "threads": 8,
+      "rescoreLimit": 512,
+      "recall": 0.99074,
+      "qps": 4014.4109323650036,
+      "qpsRuns": [
+        4014.4109323650036,
+        4030.9006164740895,
+        4009.8330473290507
+      ],
+      "meanMs": 1.990513865,
+      "p50Ms": 1.962875,
+      "p95Ms": 2.747666,
+      "p99Ms": 2.990625
+    }
+  ]
+}

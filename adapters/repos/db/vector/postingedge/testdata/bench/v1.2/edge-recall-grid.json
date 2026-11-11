@@ -29,10 +29,10 @@
   },
   "buildSec": 0,
   "memBaseline": {
-    "heapAllocMB": 5829.45955657959,
-    "heapInuseMB": 5831.734375,
-    "rssMB": 5868.546875,
-    "footprintMB": 5852
+    "heapAllocMB": 5829.467727661133,
+    "heapInuseMB": 5831.3515625,
+    "rssMB": 5868.53125,
+    "footprintMB": 5853
   },
   "memAfterBuild": {
     "heapAllocMB": 0,
@@ -54,449 +54,449 @@
       "codeBits": 0,
       "probe": 128,
       "rescue": 64,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 1640.398432,
-      "edgeRecall": 0.927405119152692
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 1796.497924,
+      "edgeRecall": 0.9287752414398596
     },
     {
       "codeBits": 0,
       "probe": 128,
       "rescue": 128,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 1791.699661,
-      "edgeRecall": 0.9297219770520742
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 2012.57282,
+      "edgeRecall": 0.9309701492537313
     },
     {
       "codeBits": 0,
       "probe": 128,
       "rescue": 256,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 1916.100396,
-      "edgeRecall": 0.9298323036187114
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 1986.506081,
+      "edgeRecall": 0.931079894644425
     },
     {
       "codeBits": 0,
       "probe": 128,
       "rescue": 512,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 2173.660593,
-      "edgeRecall": 0.9298323036187114
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 2262.7615440000004,
+      "edgeRecall": 0.931079894644425
     },
     {
       "codeBits": 0,
       "probe": 128,
       "rescue": 1024,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 2705.898373,
-      "edgeRecall": 0.9298323036187114
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 2851.083994,
+      "edgeRecall": 0.931079894644425
     },
     {
       "codeBits": 0,
       "probe": 128,
       "rescue": 2048,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 4175.8955989999995,
-      "edgeRecall": 0.9298323036187114
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 4188.263811,
+      "edgeRecall": 0.931079894644425
     },
     {
       "codeBits": 0,
       "probe": 128,
       "rescue": 4096,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 6733.443837000001,
-      "edgeRecall": 0.9298323036187114
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 6474.2977949999995,
+      "edgeRecall": 0.931079894644425
     },
     {
       "codeBits": 0,
       "probe": 256,
       "rescue": 64,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 3327.387997,
-      "edgeRecall": 0.9609443954104149
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 3307.618642,
+      "edgeRecall": 0.9627963125548727
     },
     {
       "codeBits": 0,
       "probe": 256,
       "rescue": 128,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 3493.652752,
-      "edgeRecall": 0.9634819064430715
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 3560.2177930000003,
+      "edgeRecall": 0.9652107111501317
     },
     {
       "codeBits": 0,
       "probe": 256,
       "rescue": 256,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 3628.5975780000003,
-      "edgeRecall": 0.9635922330097088
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 3727.864865,
+      "edgeRecall": 0.9653204565408253
     },
     {
       "codeBits": 0,
       "probe": 256,
       "rescue": 512,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 3878.591054,
-      "edgeRecall": 0.9635922330097088
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 4087.442138,
+      "edgeRecall": 0.9653204565408253
     },
     {
       "codeBits": 0,
       "probe": 256,
       "rescue": 1024,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 4311.570544,
-      "edgeRecall": 0.9635922330097088
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 4543.087108,
+      "edgeRecall": 0.9653204565408253
     },
     {
       "codeBits": 0,
       "probe": 256,
       "rescue": 2048,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 5563.574987,
-      "edgeRecall": 0.9635922330097088
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 5629.174867,
+      "edgeRecall": 0.9653204565408253
     },
     {
       "codeBits": 0,
       "probe": 256,
       "rescue": 4096,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 8130.672618,
-      "edgeRecall": 0.9635922330097088
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 8082.995601,
+      "edgeRecall": 0.9653204565408253
     },
     {
       "codeBits": 768,
       "probe": 128,
       "rescue": 64,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 1364.208308,
-      "edgeRecall": 0.8799646954986761
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 1432.9410859999998,
+      "edgeRecall": 0.8824626865671642
     },
     {
       "codeBits": 768,
       "probe": 128,
       "rescue": 128,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 1482.180422,
-      "edgeRecall": 0.9162621359223301
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 1750.225338,
+      "edgeRecall": 0.918459174714662
     },
     {
       "codeBits": 768,
       "probe": 128,
       "rescue": 256,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 1643.7303700000002,
-      "edgeRecall": 0.9268534863195057
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 1706.534361,
+      "edgeRecall": 0.9282265144863916
     },
     {
       "codeBits": 768,
       "probe": 128,
       "rescue": 512,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 2219.8524350000002,
-      "edgeRecall": 0.9290600176522507
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 1972.380709,
+      "edgeRecall": 0.9303116769095698
     },
     {
       "codeBits": 768,
       "probe": 128,
       "rescue": 1024,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 2614.4700040000002,
-      "edgeRecall": 0.9297219770520742
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 2638.60052,
+      "edgeRecall": 0.9309701492537313
     },
     {
       "codeBits": 768,
       "probe": 128,
       "rescue": 2048,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 3826.1175780000003,
-      "edgeRecall": 0.9297219770520742
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 3890.922622,
+      "edgeRecall": 0.9309701492537313
     },
     {
       "codeBits": 768,
       "probe": 128,
       "rescue": 4096,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 6590.0999170000005,
-      "edgeRecall": 0.9298323036187114
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 6304.794387,
+      "edgeRecall": 0.931079894644425
     },
     {
       "codeBits": 768,
       "probe": 256,
       "rescue": 64,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 2717.907122,
-      "edgeRecall": 0.9069947043248014
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 2781.116784,
+      "edgeRecall": 0.9096795434591747
     },
     {
       "codeBits": 768,
       "probe": 256,
       "rescue": 128,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 2890.463758,
-      "edgeRecall": 0.9478155339805825
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 2967.3150060000003,
+      "edgeRecall": 0.9502853380158033
     },
     {
       "codeBits": 768,
       "probe": 256,
       "rescue": 256,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 3031.933919,
-      "edgeRecall": 0.9596204766107679
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 3323.745592,
+      "edgeRecall": 0.9615891132572432
     },
     {
       "codeBits": 768,
       "probe": 256,
       "rescue": 512,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 3215.09712,
-      "edgeRecall": 0.962819947043248
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 3463.8919130000004,
+      "edgeRecall": 0.9645522388059702
     },
     {
       "codeBits": 768,
       "probe": 256,
       "rescue": 1024,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 3765.846284,
-      "edgeRecall": 0.9634819064430715
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 3887.11663,
+      "edgeRecall": 0.9652107111501317
     },
     {
       "codeBits": 768,
       "probe": 256,
       "rescue": 2048,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 5181.578458,
-      "edgeRecall": 0.9634819064430715
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 5199.43616,
+      "edgeRecall": 0.9652107111501317
     },
     {
       "codeBits": 768,
       "probe": 256,
       "rescue": 4096,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 7676.433659,
-      "edgeRecall": 0.9635922330097088
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 7417.401122,
+      "edgeRecall": 0.9653204565408253
     },
     {
       "codeBits": 512,
       "probe": 128,
       "rescue": 64,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 1191.576906,
-      "edgeRecall": 0.815864960282436
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 1219.217498,
+      "edgeRecall": 0.8179323968393327
     },
     {
       "codeBits": 512,
       "probe": 128,
       "rescue": 128,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 1345.431658,
-      "edgeRecall": 0.8794130626654898
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 1353.6435789999998,
+      "edgeRecall": 0.8809262510974539
     },
     {
       "codeBits": 512,
       "probe": 128,
       "rescue": 256,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 1444.805021,
-      "edgeRecall": 0.9110767872903796
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 1502.662011,
+      "edgeRecall": 0.9122036874451273
     },
     {
       "codeBits": 512,
       "probe": 128,
       "rescue": 512,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 1713.966973,
-      "edgeRecall": 0.9244263018534863
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 1774.405335,
+      "edgeRecall": 0.9254828797190519
     },
     {
       "codeBits": 512,
       "probe": 128,
       "rescue": 1024,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 2321.338073,
-      "edgeRecall": 0.9291703442188879
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 2370.752432,
+      "edgeRecall": 0.9302019315188762
     },
     {
       "codeBits": 512,
       "probe": 128,
       "rescue": 2048,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 3819.445708,
-      "edgeRecall": 0.9296116504854369
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 3630.485946,
+      "edgeRecall": 0.9308604038630377
     },
     {
       "codeBits": 512,
       "probe": 128,
       "rescue": 4096,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 6459.912946,
-      "edgeRecall": 0.9298323036187114
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 6154.375124,
+      "edgeRecall": 0.931079894644425
     },
     {
       "codeBits": 512,
       "probe": 256,
       "rescue": 64,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 2346.649828,
-      "edgeRecall": 0.8374889673433362
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 2347.249278,
+      "edgeRecall": 0.8408691834942933
     },
     {
       "codeBits": 512,
       "probe": 256,
       "rescue": 128,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 2571.6073939999997,
-      "edgeRecall": 0.9074360105913504
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 2576.3816030000003,
+      "edgeRecall": 0.9094600526777875
     },
     {
       "codeBits": 512,
       "probe": 256,
       "rescue": 256,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 2635.299167,
-      "edgeRecall": 0.9410856134157105
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 2727.66537,
+      "edgeRecall": 0.9431518876207199
     },
     {
       "codeBits": 512,
       "probe": 256,
       "rescue": 512,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 2927.9250669999997,
-      "edgeRecall": 0.9563106796116505
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 2993.808822,
+      "edgeRecall": 0.9577480245829675
     },
     {
       "codeBits": 512,
       "probe": 256,
       "rescue": 1024,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 3415.162942,
-      "edgeRecall": 0.9622683142100618
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 3539.34591,
+      "edgeRecall": 0.9638937664618086
     },
     {
       "codeBits": 512,
       "probe": 256,
       "rescue": 2048,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 4614.967994,
-      "edgeRecall": 0.9633715798764343
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 4812.934166,
+      "edgeRecall": 0.9651009657594382
     },
     {
       "codeBits": 512,
       "probe": 256,
       "rescue": 4096,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 7460.992286000001,
-      "edgeRecall": 0.9634819064430715
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 7222.085795,
+      "edgeRecall": 0.9652107111501317
     },
     {
       "codeBits": 256,
       "probe": 128,
       "rescue": 64,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 711.882671,
-      "edgeRecall": 0.64022506619594
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 727.347665,
+      "edgeRecall": 0.6416812993854258
     },
     {
       "codeBits": 256,
       "probe": 128,
       "rescue": 128,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 823.154647,
-      "edgeRecall": 0.7424977934686673
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 912.394171,
+      "edgeRecall": 0.7426470588235294
     },
     {
       "codeBits": 256,
       "probe": 128,
       "rescue": 256,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 962.136784,
-      "edgeRecall": 0.8273389232127096
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 1122.9791710000002,
+      "edgeRecall": 0.8270412642669008
     },
     {
       "codeBits": 256,
       "probe": 128,
       "rescue": 512,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 1293.246135,
-      "edgeRecall": 0.8767652250661959
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 1316.5187509999998,
+      "edgeRecall": 0.8765364354697103
     },
     {
       "codeBits": 256,
       "probe": 128,
       "rescue": 1024,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 1914.11949,
-      "edgeRecall": 0.9097528684907326
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 1951.951196,
+      "edgeRecall": 0.9115452151009658
     },
     {
       "codeBits": 256,
       "probe": 128,
       "rescue": 2048,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 3167.243569,
-      "edgeRecall": 0.9236540158870256
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 3277.3852370000004,
+      "edgeRecall": 0.9252633889376646
     },
     {
       "codeBits": 256,
       "probe": 128,
       "rescue": 4096,
-      "candidatesPerVector": 25739.41,
-      "microsPerVector": 5859.100529,
-      "edgeRecall": 0.928729037952339
+      "candidatesPerVector": 25806.477,
+      "microsPerVector": 5966.04093,
+      "edgeRecall": 0.9298726953467954
     },
     {
       "codeBits": 256,
       "probe": 256,
       "rescue": 64,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 1312.229341,
-      "edgeRecall": 0.6497131509267432
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 1482.7782479999998,
+      "edgeRecall": 0.6525460930640913
     },
     {
       "codeBits": 256,
       "probe": 256,
       "rescue": 128,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 1456.327304,
-      "edgeRecall": 0.7577228596646073
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 1486.254291,
+      "edgeRecall": 0.7582309043020193
     },
     {
       "codeBits": 256,
       "probe": 256,
       "rescue": 256,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 1589.000944,
-      "edgeRecall": 0.8453221535745807
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 1602.251293,
+      "edgeRecall": 0.8455882352941176
     },
     {
       "codeBits": 256,
       "probe": 256,
       "rescue": 512,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 1881.280802,
-      "edgeRecall": 0.8992718446601942
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 1888.0234010000001,
+      "edgeRecall": 0.9005706760316067
     },
     {
       "codeBits": 256,
       "probe": 256,
       "rescue": 1024,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 2539.803658,
-      "edgeRecall": 0.9361209179170344
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 2568.696379,
+      "edgeRecall": 0.9375548726953468
     },
     {
       "codeBits": 256,
       "probe": 256,
       "rescue": 2048,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 3897.8215440000004,
-      "edgeRecall": 0.9532215357458076
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 4096.020953,
+      "edgeRecall": 0.9552238805970149
     },
     {
       "codeBits": 256,
       "probe": 256,
       "rescue": 4096,
-      "candidatesPerVector": 51222.127,
-      "microsPerVector": 6654.316033,
-      "edgeRecall": 0.9607237422771403
+      "candidatesPerVector": 51501.964,
+      "microsPerVector": 6633.336433,
+      "edgeRecall": 0.9623573309920983
     }
   ]
 }

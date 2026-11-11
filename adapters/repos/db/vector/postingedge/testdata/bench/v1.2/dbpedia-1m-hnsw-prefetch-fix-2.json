@@ -1,0 +1,100 @@
+{
+  "arm": "hnsw",
+  "dataset": "dbpedia-openai-1000k-angular.bin",
+  "vectors": 990000,
+  "dims": 1536,
+  "queries": 5000,
+  "k": 10,
+  "goVersion": "go1.27.0",
+  "goarch": "arm64",
+  "gomaxprocs": 10,
+  "config": {
+    "distance": "cosine",
+    "efConstruction": 128,
+    "maxConnections": 32,
+    "quantization": "rq bits=1 centering=true",
+    "trainingLimit": 10000
+  },
+  "buildSec": 112.563549583,
+  "buildStageSec": {
+    "insertCompressed": 110.971374291,
+    "insertUncompressed": 1.5111724579999999,
+    "upgrade": 0.081312458
+  },
+  "memBaseline": {
+    "heapAllocMB": 5862.59211730957,
+    "heapInuseMB": 5864.8125,
+    "rssMB": 5906.40625,
+    "footprintMB": 5885
+  },
+  "memAfterBuild": {
+    "heapAllocMB": 6282.727645874023,
+    "heapInuseMB": 6849.4453125,
+    "rssMB": 13199.65625,
+    "footprintMB": 7755
+  },
+  "memAfterQueries": {
+    "heapAllocMB": 6304.58332824707,
+    "heapInuseMB": 6869.8046875,
+    "rssMB": 13199.703125,
+    "footprintMB": 7770
+  },
+  "settleQueries": 1000,
+  "indexHeapMB": 420.1355285644531,
+  "peakRSSMB": 12980.59375,
+  "componentsMB": {
+    "codes": 188.8275146484375,
+    "f32": 5800.78125,
+    "graphMeasured": 231.30801391601562
+  },
+  "points": [
+    {
+      "ef": 32,
+      "threads": 1,
+      "rescoreLimit": 512,
+      "recall": 0.93212,
+      "qps": 3014.7357261529155,
+      "qpsRuns": [
+        3014.7357261529155,
+        3013.9817110613244,
+        3032.0626979966883
+      ],
+      "meanMs": 0.3316199294,
+      "p50Ms": 0.326708,
+      "p95Ms": 0.446416,
+      "p99Ms": 0.515334
+    },
+    {
+      "ef": 48,
+      "threads": 1,
+      "rescoreLimit": 512,
+      "recall": 0.9556,
+      "qps": 2258.34163650275,
+      "qpsRuns": [
+        2250.2783172351233,
+        2258.34163650275,
+        2281.333343523289
+      ],
+      "meanMs": 0.44271491679999997,
+      "p50Ms": 0.437083,
+      "p95Ms": 0.591833,
+      "p99Ms": 0.663834
+    },
+    {
+      "ef": 64,
+      "threads": 1,
+      "rescoreLimit": 512,
+      "recall": 0.96688,
+      "qps": 1789.4640116866315,
+      "qpsRuns": [
+        1789.4640116866315,
+        1771.2877009177175,
+        1799.3930732814931
+      ],
+      "meanMs": 0.5587301716,
+      "p50Ms": 0.552917,
+      "p95Ms": 0.74875,
+      "p99Ms": 0.824291
+    }
+  ]
+}
