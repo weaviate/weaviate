@@ -270,16 +270,15 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 	lifts := []struct {
 		name string
 		lift lift
-		// A status write starts the recovery retry and is refused; only the next one can lift.
+		// A status write starts the recovery retry and is refused. A retry that works lifts the shard.
 		retries bool
 		// Only the manual status update row runs the disks that do not arm.
 		armsOnly bool
-		want     storagestate.Status
 	}{
 		{name: "manual status update", retries: true, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
 			return shard, fx.idx.IncomingUpdateShardStatus(fx.ctx, fx.name, storagestate.StatusReady.String(), 0)
 		}},
-		{name: "manual shutdown status", retries: true, armsOnly: true, want: storagestate.StatusShutdown, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
+		{name: "manual shutdown status", retries: true, armsOnly: true, lift: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) (*Shard, error) {
 			return shard, fx.idx.IncomingUpdateShardStatus(fx.ctx, fx.name, storagestate.StatusShutdown.String(), 0)
 		}},
 		// The only row that asserts a held shard's Shutdown returns no error; the other rows discard it in cleanup.
@@ -322,28 +321,23 @@ func TestLiftingADoubleFaultReadOnlyShardRetriesRecovery(t *testing.T) {
 				var err error
 				if l.retries {
 					err = liftAndAwaitRetry(t, fx, shard, lift)
-				}
-				if err == nil {
+				} else {
 					err = lift()
 				}
 				t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
 
 				rec, ok := shard.migrationRecords.Get(fx.subject.Key)
 				require.True(t, ok)
-				want := l.want
-				if want == "" {
-					want = storagestate.StatusReady
-				}
 				switch d.recovers {
 				case "armed":
 					require.NoError(t, err)
-					require.Equal(t, want, shard.GetStatus())
+					require.Equal(t, storagestate.StatusReady, shard.GetStatus())
 					require.False(t, rec.Subject().Unmirrored)
 					require.NotZero(t, shard.migrationMirrors.ArmedMigrationMirrors())
 					fx.requireSwapProceeds(t, shard)
 				case "stamped":
 					require.NoError(t, err)
-					require.Equal(t, want, shard.GetStatus())
+					require.Equal(t, storagestate.StatusReady, shard.GetStatus())
 					require.True(t, rec.Subject().Unmirrored)
 					fx.requirePhasesRefused(t, shard, "no double-write mirror armed")
 				default:
@@ -459,7 +453,7 @@ func TestAnUncachedStepFailsOnAHeldShardWithAnUnreadableRecord(t *testing.T) {
 	err := fx.provider.runPerUnitPhase(&distributedtask.Task{TaskDescriptor: fx.desc}, &payload,
 		[]string{fx.subject.Key.UnitID}, fx.idx, fx.logger, "group-completion", "starting", false,
 		func(string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult { return phaseResult{} })
-	require.ErrorContains(t, err, "could not be read")
+	require.ErrorContains(t, err, "migration record fault(s) on this shard")
 	require.NotErrorIs(t, err, context.Canceled, "the step fails instead of waiting")
 }
 
@@ -502,7 +496,6 @@ func TestAMigrationWithAStampedHalfIsNeverRearmed(t *testing.T) {
 				require.NoError(t, os.Remove(segment))
 			}
 			require.NoError(t, liftAndAwaitRetry(t, fx, shard, liftReady(shard)))
-			require.NoError(t, liftReady(shard)())
 			require.Equal(t, storagestate.StatusReady, shard.GetStatus())
 			require.Empty(t, shard.migrationMirrors.heldUnarmed())
 			require.Zero(t, shard.migrationMirrors.ArmedMigrationMirrors())
@@ -602,9 +595,6 @@ func TestADropDuringTheLiftsArmStillArmsTheMirror(t *testing.T) {
 	require.True(t, ok)
 	require.False(t, rec.Subject().Unmirrored, "a caller giving up must not stamp the migration")
 	require.NotZero(t, shard.migrationMirrors.ArmedMigrationMirrors())
-	for name, b := range shard.store.GetBucketsByName() {
-		require.Equalf(t, storagestate.StatusReadOnly, b.GetStatus(), "bucket %s opened after the caller left", name)
-	}
 }
 
 // Cleanup of a migration cancelled during a lift waits for the arm, so no mirror outlives its record.
@@ -692,25 +682,57 @@ func TestASecondLiftDoesNotRearmWhatTheFirstSettled(t *testing.T) {
 	require.Len(t, fx.provider.cachedReindexTasks(fx.desc, fx.subject.Key.UnitID), 1)
 }
 
-// An arm that ends keeps the steps waiting until the next lift writes the status:
-// the shard is still READONLY until then.
-func TestAHeldStepWaitsUntilTheLiftWritesTheStatus(t *testing.T) {
-	fx := newDoubleFaultFixture(t, "tenant-lift-late-arm")
-	lsm := shardPathLSM(fx.idx.path(), fx.name)
-	require.NoError(t, NewMigrationRecordStore(lsm, fx.logger).Put(NewMigrationRecordIterated(fx.subject)))
-	fx.breakDisk(t)
-	shard := fx.load(t)
-	t.Cleanup(func() { _ = shard.Shutdown(context.Background()) })
-	fx.healRecords(t)
-	require.NoError(t, os.Remove(fx.corrupt))
+// A retry that works leaves a shard READONLY for another reason, and its steps wait until that reason clears.
+func TestARetryThatWorksLeavesAShardReadOnlyForAnotherReason(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		reason  string
+		during  func(t *testing.T, fx *doubleFaultFixture, shard *Shard)
+		settled func(t *testing.T, fx *doubleFaultFixture, shard *Shard)
+		clear   func(t *testing.T, fx *doubleFaultFixture, shard *Shard)
+	}{
+		{
+			name: "resource pressure", reason: statusReasonResourcePressure,
+			during: func(_ *testing.T, fx *doubleFaultFixture, _ *Shard) { fx.idx.db.resourceScanState.transition.Lock() },
+			settled: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) {
+				require.Eventually(t, func() bool { return len(shard.migrationMirrors.heldUnarmed()) == 0 }, 10*time.Second, 10*time.Millisecond)
+				require.Equal(t, statusReasonMirrorUnarmed, shard.GetStatusReason(), "the lift waits for the scan's transition")
+				fx.idx.db.resourceScanState.isReadOnly.Store(true)
+				fx.idx.db.resourceScanState.transition.Unlock()
+			},
+			clear: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) {
+				fx.idx.db.setReadOnlyFlag(false)
+				require.True(t, fx.idx.db.markShardReady(fx.name, shard))
+			},
+		},
+		{
+			name: "manual READONLY during the retry", reason: statusReasonManualUpdate,
+			during: func(t *testing.T, _ *doubleFaultFixture, shard *Shard) {
+				require.NoError(t, shard.SetStatusReadonly(statusReasonManualUpdate))
+			},
+			clear: func(t *testing.T, _ *doubleFaultFixture, shard *Shard) { require.NoError(t, liftReady(shard)()) },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fx, shard, lift := newParkedLift(t, "tenant-lift-other-reason")
+			tc.during(t, fx, shard)
+			fx.idx.bucketLoadLimiter.Release()
+			require.ErrorContains(t, receiveWithin(t, lift), "a recovery retry started")
+			if tc.settled != nil {
+				tc.settled(t, fx, shard)
+			}
+			awaitRetry(t, shard)
 
-	require.NoError(t, liftAndAwaitRetry(t, fx, shard, liftReady(shard)))
-	require.Empty(t, shard.migrationMirrors.heldUnarmed())
-	fx.requireStepsWait(t)
+			require.Empty(t, shard.migrationMirrors.heldUnarmed())
+			require.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+			require.Equal(t, tc.reason, shard.GetStatusReason())
+			fx.requireStepsWait(t)
 
-	require.NoError(t, liftReady(shard)())
-	require.Equal(t, storagestate.StatusReady, shard.GetStatus())
-	fx.requireSwapProceeds(t, shard)
+			tc.clear(t, fx, shard)
+			require.Equal(t, storagestate.StatusReady, shard.GetStatus())
+			fx.requireSwapProceeds(t, shard)
+		})
+	}
 }
 
 func TestTheHeldShardGaugeCountsAShardUntilItsHoldEnds(t *testing.T) {
@@ -720,12 +742,9 @@ func TestTheHeldShardGaugeCountsAShardUntilItsHoldEnds(t *testing.T) {
 		end  func(t *testing.T, fx *doubleFaultFixture, shard *Shard)
 	}{
 		{name: "lift", end: func(t *testing.T, fx *doubleFaultFixture, shard *Shard) {
-			holding := held()
 			fx.healRecords(t)
 			require.NoError(t, os.Remove(fx.corrupt))
 			require.NoError(t, liftAndAwaitRetry(t, fx, shard, liftReady(shard)))
-			require.Equal(t, holding, held(), "the steps still wait until the next lift")
-			require.NoError(t, liftReady(shard)())
 		}},
 		{name: "shutdown", end: func(t *testing.T, _ *doubleFaultFixture, shard *Shard) {
 			require.NoError(t, shard.Shutdown(context.Background()))
@@ -875,7 +894,6 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 			fx.healRecords(t)
 			require.NoError(t, os.Remove(fx.corrupt))
 			require.NoError(t, liftAndAwaitRetry(t, fx, shard, liftReady(shard)))
-			require.NoError(t, liftReady(shard)())
 			require.Equal(t, "succeeded", receiveWithin(t, outcome.done))
 		})
 	}

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/weaviateembed"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer/batchclip"
 
 	"github.com/pkg/errors"
@@ -62,6 +63,8 @@ func (m *Module) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
+	weaviateembed.WarnInvalidAllowedBaseURLs(m.logger)
+
 	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}

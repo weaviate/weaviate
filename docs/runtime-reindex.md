@@ -1136,28 +1136,23 @@ Then, per shard load:
        about a teardown holding a unit: at most 10 a minute per node.
      - A refused write names the hold's status reason; a refused lift
        names the cause, or that a recovery retry started.
-     - Of the status writers, only a manual status update lifts the hold, and a restart retries too (below). A vector-index config
+     - Of the status writers, only a manual status update starts a lift, and a restart retries too (below). A vector-index config
        change is refused while the shard is READONLY, and disk-pressure
-       recovery lifts only its own reason. Like any manual READY, the lift
-       overrides disk and memory pressure: the node does not set the shard
-       back READONLY while usage stays high, so bring disk and memory below
-       the read-only thresholds first.
+       recovery lifts only its own reason.
      - A lift never waits for the disk: it starts a retry of the arm in the
-       background and is refused at once, so lifting takes two status
-       writes, and every "set READY" below means: set it, wait for the
-       retry, set it again. If the mirror arms, the next lift makes the
-       shard writable and the migration continues; if only the stamp lands,
-       the next lift makes it writable and the migration must be
+       background and is refused at once. If the mirror arms, the retry makes the
+       shard writable once disk and memory pressure clears, and the migration continues; if only the stamp lands,
+       the migration must be
        resubmitted; otherwise any bucket the retry opened is set back to
        READONLY, the owning node logs the cause at Error level, and the
-       next lift starts another retry. Since its first write is refused,
-       every lift shows up on each replica where the shard is held as an `apply
+       next lift starts another retry. Every refused
+       lift shows up on each replica where the shard is held as an `apply
        command` Error and in `weaviate_cluster_store_fsm_apply_failures_total`.
        Here that does not mean the cluster state diverged.
      - The way out depends on what stopped the arm, which the hold log and
        the refusal name. For a migration whose swap is not committed,
        clearing what blocks the stamp also ends the hold: the stamp lands,
-       the shard goes writable, and the migration must be resubmitted. A
+       and the migration must be resubmitted. A
        migration whose swap is committed has no such exit, because giving
        up its swap on this node would leave this replica out of step with
        the others; its mirror has to arm. While a migration with a committed
@@ -1180,7 +1175,7 @@ Then, per shard load:
        therefore never waits on the disk. The shard's shutdown waits for a
        running retry: a migration is stamped only because its arm failed,
        never because the shard shut down. The migration's steps wait until
-       the next lift writes the status. A cancel or
+       the shard is writable. A cancel or
        failure that ends the migration while the retry runs waits up to
        10 s for it; past that, cleanup on this node is skipped with a
        Warn, and the next reconciliation pass (within a minute of the
@@ -1189,7 +1184,7 @@ Then, per shard load:
        cleanup leaves that migration held and is refused; set the status
        again once the cleanup ends.
      - On a multi-node cluster the status PUT can answer 200 while the
-       owning node refused the lift. Confirm that the shard is still
+       owning node refused the lift. Confirm whether the shard is still
        READONLY with `GET /v1/schema/<class>/shards`, and read the cause in
        the owning node's log.
      - A restart retries too. An unreadable record stays unreadable until
