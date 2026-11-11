@@ -17,14 +17,15 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	bbolt "go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -46,7 +47,7 @@ type upgradeTestEnv struct {
 	// hnsw derives its compressed bucket name from the id
 	id string
 
-	db    *bbolt.DB
+	db    *shardmeta.DB
 	store *lsmkv.Store
 	idx   *dynamic
 }
@@ -81,7 +82,7 @@ func (e *upgradeTestEnv) open(t *testing.T) {
 		require.NoError(t, os.MkdirAll(d, 0o777))
 	}
 
-	db, err := bbolt.Open(filepath.Join(e.root, "index.db"), 0o666, nil)
+	db, err := shardmeta.Open(e.root, time.Second)
 	require.NoError(t, err)
 	store := testinghelpers.NewDummyStoreFromFolder(storeDir, t)
 
@@ -89,7 +90,6 @@ func (e *upgradeTestEnv) open(t *testing.T) {
 		AllocChecker:     memwatch.NewDummyMonitor(),
 		RootPath:         rootPath,
 		ID:               e.id,
-		TargetVector:     e.target,
 		Logger:           logger,
 		DistanceProvider: distancer.NewL2SquaredProvider(),
 		MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
@@ -105,7 +105,7 @@ func (e *upgradeTestEnv) open(t *testing.T) {
 		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(e.vectors),
 		TombstoneCallbacks:           cyclemanager.NewCallbackGroupNoop(),
-		SharedDB:                     db,
+		State:                        db.Namespace(StateNamespace),
 		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 		HNSWWaitForCachePrefill:      true,
 		AsyncIndexingEnabled:         true,
