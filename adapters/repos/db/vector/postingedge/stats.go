@@ -97,12 +97,27 @@ type SearchStats struct {
 	EndpointsScored int
 	// Rescored is the number of candidates compared at full precision.
 	Rescored int
+	// RescoredPostings is the number of loaded postings those candidates
+	// live in. A candidate is always a scanned member of a loaded posting,
+	// so a disk-resident version has read the posting of every vector it
+	// rescores: what a rescore reads on top depends only on where the
+	// full-precision vectors are kept, and with vectors stored by posting
+	// this is the number of places they come from.
+	RescoredPostings int
+	// RescoredElsewhere is the number of those candidates found in no loaded
+	// posting. It is zero as long as candidates only come from scans, and is
+	// counted so that a change to that shows.
+	RescoredElsewhere int
 
 	CentroidTime time.Duration // finding the entry postings
 	ScanTime     time.Duration // scoring posting members
 	ExpandTime   time.Duration // scoring edge endpoints and ranking postings
 	SelectTime   time.Duration // picking the postings of each round
 	RescoreTime  time.Duration // full-precision rescoring
+	// SpreadTime is what counting RescoredPostings took. A search without
+	// stats does not spend it, so whoever times a search with stats from
+	// outside takes it off.
+	SpreadTime time.Duration
 }
 
 // EndpointsRepeated is the number of followed edges whose endpoint had

@@ -203,6 +203,13 @@ func TestSearchStatsAccountForTheWork(t *testing.T) {
 				require.Positive(t, stats.VectorsScanned)
 				require.Equal(t, min(uc.RescoreLimit, stats.VectorsScanned), stats.Rescored)
 
+				// Every candidate that is rescored was scanned in a loaded
+				// posting, and they cannot be spread over more postings
+				// than were loaded or than there are candidates.
+				require.Zero(t, stats.RescoredElsewhere)
+				require.Positive(t, stats.RescoredPostings)
+				require.LessOrEqual(t, stats.RescoredPostings, min(stats.PostingsLoaded, stats.Rescored))
+
 				// A posting is loaded by a round because one of its
 				// members was scored as an endpoint: the scan meets at
 				// least that member a second time. The entry postings
@@ -757,7 +764,7 @@ func TestShortScanCodesRouteLikeFullCodes(t *testing.T) {
 // readings.
 func withoutTimes(stats SearchStats) SearchStats {
 	stats.CentroidTime, stats.ScanTime, stats.ExpandTime = 0, 0, 0
-	stats.SelectTime, stats.RescoreTime = 0, 0
+	stats.SelectTime, stats.RescoreTime, stats.SpreadTime = 0, 0, 0
 	return stats
 }
 
@@ -817,6 +824,45 @@ func TestScanCodesAtTheFullWidthSearchLikeSharedCodes(t *testing.T) {
 				loads += stats.PostingsLoaded
 			}
 			require.Greater(t, loads, len(queries), "the searches must go beyond their entry posting")
+		})
+	}
+}
+
+// The rescored candidates are counted by the loaded postings they live in.
+func TestRescoreSpread(t *testing.T) {
+	// three postings over the slots [0,3), [3,5) and [5,9), doc id 10+slot
+	store := &postingStore{
+		start:     []uint32{0, 3, 5, 9},
+		docIDs:    []uint64{10, 11, 12, 13, 14, 15, 16, 17, 18},
+		edgeStart: make([]uint32, 10),
+	}
+	st := &state{postings: store}
+
+	tests := []struct {
+		name          string
+		loaded        []uint32
+		candidates    []uint64
+		wantPostings  int
+		wantElsewhere int
+	}{
+		{name: "all in one of the loaded postings", loaded: []uint32{0, 2}, candidates: []uint64{10, 12}, wantPostings: 1},
+		{name: "spread over every loaded posting", loaded: []uint32{2, 0, 1}, candidates: []uint64{11, 13, 18}, wantPostings: 3},
+		{name: "a loaded posting that holds none", loaded: []uint32{0, 1}, candidates: []uint64{10, 11, 12}, wantPostings: 1},
+		{
+			name: "a candidate from a posting that was not loaded", loaded: []uint32{0}, candidates: []uint64{10, 14},
+			wantPostings: 1, wantElsewhere: 1,
+		},
+		{name: "no candidates", loaded: []uint32{0, 1, 2}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			candidates := make([]scored, len(tt.candidates))
+			for i, id := range tt.candidates {
+				candidates[i] = scored{id: id}
+			}
+			postings, elsewhere := st.rescoreSpread(&searchScratch{touched: tt.loaded}, candidates)
+			require.Equal(t, tt.wantPostings, postings)
+			require.Equal(t, tt.wantElsewhere, elsewhere)
 		})
 	}
 }

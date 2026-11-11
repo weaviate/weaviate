@@ -246,8 +246,11 @@ func (ix *Index) search(ctx context.Context, vector []float32, k int, allow help
 	}
 
 	if stats != nil {
-		clock = time.Now()
 		stats.Rescored = len(candidates)
+		clock = time.Now()
+		stats.RescoredPostings, stats.RescoredElsewhere = st.rescoreSpread(sc, candidates)
+		stats.SpreadTime = time.Since(clock)
+		clock = time.Now()
 	}
 	if err := ix.rescore(ctx, query, candidates); err != nil {
 		return nil, nil, err
@@ -417,6 +420,30 @@ func (s *postingSearch) load(p uint32) error {
 		s.stats.EndpointsScored += len(sc.unscored)
 	}
 	return nil
+}
+
+// rescoreSpread tells where the candidates of the final rescore live: in how
+// many of the loaded postings, and how many of them in none. It walks the
+// loaded postings, so it is only for searches that collect stats.
+func (st *state) rescoreSpread(sc *searchScratch, candidates []scored) (postings, elsewhere int) {
+	wanted := make(map[uint64]struct{}, len(candidates))
+	for _, cand := range candidates {
+		wanted[cand.id] = struct{}{}
+	}
+	found := 0
+	for _, p := range sc.touched {
+		holds := false
+		for _, docID := range st.postings.load(p).docIDs {
+			if _, ok := wanted[docID]; ok {
+				found++
+				holds = true
+			}
+		}
+		if holds {
+			postings++
+		}
+	}
+	return postings, len(candidates) - found
 }
 
 // rescore replaces the estimated distance of every candidate with the exact
