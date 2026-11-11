@@ -1731,8 +1731,9 @@ replays such a run from its RAFT log, instead of restoring it from a
 snapshot, can label it `failed` or `cancelled` on the indexes endpoint
 while the other nodes report it finished, and keeps the files of an index
 the run enabled if that index was deleted since. Queries, data and the
-schema are not affected. The label clears with the completed-task TTL or
-when a newer migration of the same property replaces the run.
+schema are not affected. The label clears with the completed-task TTL (a
+`failed` one only once a node that reports the run as finished leads the
+cluster) or when a newer migration of the same property replaces the run.
 
 **Downgrade:** the stamp is an additive `searchableBlockmax` property field;
 an older binary ignores it and derives blockmax from the class flag / task
