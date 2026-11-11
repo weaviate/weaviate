@@ -212,20 +212,14 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	candidates, err := h.namespaceCandidates(cls.Class)
+	candidates, err := h.namespaceCandidates(cls.Class, cls.ReplicationConfig.Factor)
 	if err != nil {
 		return nil, 0, err
-	}
-	if h.config.Namespaces.Enabled {
-		ns := api.Namespace{Name: namespacing.NamespaceFromQualified(cls.Class), HomeNodes: candidates}
-		if err := h.checkNamespaceFactor(ns, cls.ReplicationConfig.Factor); err != nil {
-			return nil, 0, err
-		}
 	}
 	shardingCfg := cls.ShardingConfig.(shardingcfg.Config)
 	if h.config.Namespaces.Enabled && !schema.MultiTenancyEnabled(cls) {
 		// A namespaced class has one shard, and InitState puts its replicas on
-		// the first RF entries of HomeNodes.
+		// the nodes namespaceCandidates returned.
 		shardingCfg.DesiredCount = 1
 		shardingCfg.DesiredVirtualCount = shardingCfg.DesiredCount * shardingCfg.VirtualPerPhysical
 		shardingCfg.ActualCount = shardingCfg.DesiredCount
@@ -285,13 +279,14 @@ func rejectExplicitMultiShardOnNamespacedClass(shardingConfig any) error {
 	return nil
 }
 
-// namespaceCandidates returns the namespace's HomeNodes, or every storage
-// candidate on NS-disabled clusters. Classes and tenants take the first RF
-// entries, so the first home node carries the most load.
-func (h *Handler) namespaceCandidates(qualifiedClass string) ([]string, error) {
+// namespaceCandidates returns the first factor HomeNodes entries that are storage
+// candidates, or every storage candidate on NS-disabled clusters. It warns when it
+// skips one of the first factor entries, and refuses when fewer than factor remain.
+func (h *Handler) namespaceCandidates(qualifiedClass string, factor int64) ([]string, error) {
 	if !h.config.Namespaces.Enabled {
 		return h.membership.StorageCandidates(), nil
 	}
+	factor = max(factor, 1)
 	ns := namespacing.NamespaceFromQualified(qualifiedClass)
 	if ns == "" {
 		return nil, fmt.Errorf("expected namespace-qualified class name, got %q", qualifiedClass)
@@ -305,15 +300,27 @@ func (h *Handler) namespaceCandidates(qualifiedClass string) ([]string, error) {
 	if !ok {
 		return refuse(logger, errors.New("namespace not found"))
 	}
-	if len(got.HomeNodes) == 0 {
-		return refuse(logger, errors.New("the namespace has no home_nodes; refusing placement"))
+	if err := h.checkNamespaceFactor(got, factor); err != nil {
+		return nil, err
 	}
-	if missing := got.MissingHomeNodes(h.membership.StorageCandidates()); len(missing) > 0 {
+	missing := got.MissingHomeNodes(h.membership.StorageCandidates())
+	present := slices.DeleteFunc(slices.Clone(got.HomeNodes), func(node string) bool {
+		return slices.Contains(missing, node)
+	})
+	if int64(len(present)) < factor {
 		return refuse(logger.WithField("home_nodes", missing), fmt.Errorf(
-			"%d home node(s) of the namespace are not storage candidates; "+
-				"an administrator must replace them in its home_nodes", len(missing)))
+			"only %d of the namespace's %d home node(s) are storage candidates, fewer than "+
+				"replication factor %d; placement resumes when the others rejoin, or an administrator must "+
+				"replace them in its home_nodes",
+			len(present), len(got.HomeNodes), factor))
 	}
-	return got.HomeNodes, nil
+	placed := present[:factor]
+	if !slices.Equal(placed, got.HomeNodes[:factor]) {
+		logger.WithField("home_nodes", missing).Warnf(
+			"placing shards on the other home nodes: %d home node(s) of the namespace are not storage candidates",
+			len(missing))
+	}
+	return placed, nil
 }
 
 // checkNamespaceFactor refuses a factor above the HomeNodes count of ns.

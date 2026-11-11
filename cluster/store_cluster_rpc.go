@@ -53,9 +53,9 @@ func (st *Store) Remove(id string) error {
 	if rn == nil || rn.State() != raft.Leader {
 		return types.ErrNotLeader
 	}
-	// Losing any of a namespace's home nodes blocks placement in that namespace
-	// until its home_nodes change. Checked here, not in Raft.Remove: a forwarded
-	// request reaches the configuration change only here.
+	// A removed home node stays in home_nodes, where placement skips it and node
+	// removal adds no replacement replica. Checked here, not in Raft.Remove: a
+	// forwarded request reaches the configuration change only here.
 	if pinned := st.namespacesWithHomeNode(id); len(pinned) > 0 {
 		shown := pinned[:min(len(pinned), maxNamespacesInRemoveError)]
 		names := strings.Join(shown, ", ")

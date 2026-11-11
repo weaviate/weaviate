@@ -1384,6 +1384,88 @@ func TestPreApplyFilter_UpdateNamespaceShrink(t *testing.T) {
 	assert.ErrorContains(t, err, "alpha:Docs")
 }
 
+// TestPreApplyFilter_TenantNodesAreHomeNodes pins the leader's refusal of a
+// tenant add or explicit unfreeze whose nodes are not HomeNodes entries of n1,
+// n2, n3 in list order.
+func TestPreApplyFilter_TenantNodesAreHomeNodes(t *testing.T) {
+	const (
+		hot      = models.TenantActivityStatusHOT
+		cold     = models.TenantActivityStatusCOLD
+		frozen   = models.TenantActivityStatusFROZEN
+		freezing = models.TenantActivityStatusFREEZING
+	)
+	tests := []struct {
+		name      string
+		class     string // alpha:Foo when empty
+		held      string // t1's status in the schema; a tenant add when empty
+		requested string
+		implicit  bool
+		coldFirst bool // a HOT t0 moving to COLD goes ahead of t1 in the update
+		sent      []string
+		wantErr   bool
+	}{
+		{name: "add: an empty list is left for apply to fill"},
+		{name: "add: the first entries are admitted", sent: []string{"n1", "n2"}},
+		{name: "add: entries in list order with one skipped are admitted", sent: []string{"n1", "n3"}},
+		{name: "add: entries out of list order are refused", sent: []string{"n2", "n1"}, wantErr: true},
+		{name: "add: a node that is not a home node is refused", sent: []string{"n4"}, wantErr: true},
+		{name: "add: an unqualified class is not checked", class: "Foo", sent: []string{"n4"}},
+		{name: "unfreeze: a stale list is refused", held: frozen, requested: hot, sent: []string{"n4"}, wantErr: true},
+		{name: "unfreeze: a stale list is refused when the tenant goes to COLD", held: frozen, requested: cold, sent: []string{"n4"}, wantErr: true},
+		{name: "unfreeze: entries in list order are admitted", held: frozen, requested: hot, sent: []string{"n2"}},
+		{name: "unfreeze: an empty list is left for apply to fill", held: frozen, requested: hot},
+		{
+			name: "unfreeze: an implicit activation with every storage node is admitted",
+			held: frozen, requested: hot, implicit: true, sent: []string{"n4", "n1", "n2", "n3"},
+		},
+		{name: "unfreeze: a FREEZING tenant with a stale list is refused", held: freezing, requested: hot, sent: []string{"n4"}, wantErr: true},
+		{
+			name: "unfreeze: a stale list is refused when another tenant in the update does not unfreeze",
+			held: frozen, requested: hot, coldFirst: true, sent: []string{"n4"}, wantErr: true,
+		},
+		{name: "update: a freeze with a stale list is admitted", held: hot, requested: frozen, sent: []string{"n4"}},
+		{name: "update: a freeze re-sent for a FROZEN tenant with a stale list is admitted", held: frozen, requested: frozen, sent: []string{"n4"}},
+		{name: "update: a change to COLD with a stale list is admitted", held: hot, requested: cold, sent: []string{"n4"}},
+		{name: "update: an activation of a COLD tenant with a stale list is admitted", held: cold, requested: hot, sent: []string{"n4"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var (
+				physical map[string]sharding.Physical
+				req      *cmd.ApplyRequest
+			)
+			if tt.held == "" {
+				req = tenantApplyRequest(t, cmd.ApplyRequest_TYPE_ADD_TENANT,
+					&cmd.AddTenantsRequest{ClusterNodes: tt.sent, Tenants: []*cmd.Tenant{{Name: "t1"}}})
+			} else {
+				physical = map[string]sharding.Physical{"t1": {Name: "t1", Status: tt.held, BelongsToNodes: []string{"n1"}}}
+				tenants := []*cmd.Tenant{{Name: "t1", Status: tt.requested}}
+				if tt.coldFirst {
+					physical["t0"] = sharding.Physical{Name: "t0", Status: hot, BelongsToNodes: []string{"n1"}}
+					tenants = append([]*cmd.Tenant{{Name: "t0", Status: cold}}, tenants...)
+				}
+				req = tenantApplyRequest(t, cmd.ApplyRequest_TYPE_UPDATE_TENANT, &cmd.UpdateTenantsRequest{
+					ClusterNodes:          tt.sent,
+					Tenants:               tenants,
+					ImplicitUpdateRequest: tt.implicit,
+				})
+			}
+			sm := newManagerWithNamespacedClass(t, 1, []string{"n1", "n2", "n3"}, physical)
+			if tt.class != "" {
+				req.Class = tt.class
+			}
+
+			err := sm.PreApplyFilter(req)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, ErrBadRequest)
+			assert.ErrorContains(t, err, "the node that received this request has not yet applied the namespace's current home nodes")
+		})
+	}
+}
+
 // propertyRecordingIndexer captures the property the store half applies.
 type propertyRecordingIndexer struct {
 	Indexer

@@ -361,8 +361,7 @@ func (s *schema) hasFrozenTenant(class string) bool {
 		return false
 	}
 	for _, t := range tenants {
-		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
-			t.ActivityStatus == models.TenantActivityStatusFREEZING {
+		if entSchema.TenantIsFrozenOrFreezing(t.ActivityStatus) {
 			return true
 		}
 	}

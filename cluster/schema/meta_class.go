@@ -509,7 +509,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			continue
 		}
 
-		existedSharedFrozen := oldTenant.ActivityStatus() == models.TenantActivityStatusFROZEN || oldTenant.ActivityStatus() == models.TenantActivityStatusFREEZING
+		existedSharedFrozen := entSchema.TenantIsFrozenOrFreezing(oldTenant.ActivityStatus())
 		requestedToFrozen := requestTenant.Status == models.TenantActivityStatusFROZEN
 
 		// COLD shuts the shard down, freeze offloads it, unfreeze reassigns its nodes — each

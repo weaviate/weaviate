@@ -219,8 +219,7 @@ func (s *SchemaManager) HasFrozenTenants(class string) bool {
 		return false
 	}
 	for _, t := range tenants {
-		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
-			t.ActivityStatus == models.TenantActivityStatusFREEZING {
+		if entSchema.TenantIsFrozenOrFreezing(t.ActivityStatus) {
 			return true
 		}
 	}
@@ -473,6 +472,12 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 		}
 	}
 
+	if req.Type == command.ApplyRequest_TYPE_ADD_TENANT || req.Type == command.ApplyRequest_TYPE_UPDATE_TENANT {
+		if err := s.checkTenantNodesAreHomeNodes(req); err != nil {
+			return err
+		}
+	}
+
 	if req.Type == command.ApplyRequest_TYPE_UPDATE_NAMESPACE {
 		return s.checkHomeNodesAgainstClassFactors(req)
 	}
@@ -480,8 +485,67 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 	return nil
 }
 
-// checkHomeNodesAgainstClassFactors refuses an UpdateNamespace whose HomeNodes
-// are fewer than the largest factor among the namespace's classes.
+// checkTenantNodesAreHomeNodes refuses a namespaced tenant add or explicit unfreeze
+// whose ClusterNodes are not HomeNodes entries in list order.
+// Handler.AddTenants and Handler.UpdateTenants read ClusterNodes from the receiving
+// node's copy of the namespace, which can lag the leader's.
+// TODO(v1.43): remove once no peer older than v1.42 sends ClusterNodes.
+func (s *SchemaManager) checkTenantNodesAreHomeNodes(req *command.ApplyRequest) error {
+	ns, ok := s.classNamespace(req.Class)
+	if !ok {
+		return nil
+	}
+	nodes, err := s.placedTenantNodes(req)
+	if err != nil {
+		return err
+	}
+	next := 0
+	for _, node := range ns.HomeNodes {
+		if next < len(nodes) && nodes[next] == node {
+			next++
+		}
+	}
+	if next < len(nodes) {
+		return fmt.Errorf("%w: the node that received this request has not yet applied the namespace's current home nodes", ErrBadRequest)
+	}
+	return nil
+}
+
+// placedTenantNodes returns the ClusterNodes of a tenant add, or of an explicit
+// update that moves a tenant the schema has FROZEN or FREEZING to another status.
+// Apply reads an update's list only to unfreeze, and a FREEZING tenant can be FROZEN
+// by the time apply runs. An implicit activation is not checked, so its list of
+// every storage node can unfreeze a tenant outside the home nodes.
+func (s *SchemaManager) placedTenantNodes(req *command.ApplyRequest) ([]string, error) {
+	if req.Type == command.ApplyRequest_TYPE_ADD_TENANT {
+		atr := &command.AddTenantsRequest{}
+		if err := gproto.Unmarshal(req.SubCommand, atr); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
+		return atr.ClusterNodes, nil
+	}
+	utr := &command.UpdateTenantsRequest{}
+	if err := gproto.Unmarshal(req.SubCommand, utr); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if utr.ImplicitUpdateRequest {
+		return nil, nil
+	}
+	wouldUnfreeze := make([]string, 0, len(utr.Tenants))
+	for _, t := range utr.Tenants {
+		if t != nil && t.Status != models.TenantActivityStatusFROZEN {
+			wouldUnfreeze = append(wouldUnfreeze, t.Name)
+		}
+	}
+	held, _ := s.schema.TenantsShardsStatus(req.Class, wouldUnfreeze...)
+	for _, status := range held {
+		if entSchema.TenantIsFrozenOrFreezing(status) {
+			return utr.ClusterNodes, nil
+		}
+	}
+	return nil, nil
+}
+
 func (s *SchemaManager) checkHomeNodesAgainstClassFactors(req *command.ApplyRequest) error {
 	sub := command.UpdateNamespaceRequest{}
 	if err := json.Unmarshal(req.SubCommand, &sub); err != nil {

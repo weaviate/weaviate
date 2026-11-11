@@ -115,34 +115,35 @@ func (h *Handler) AddTenants(ctx context.Context,
 	return h.schemaManager.AddTenants(ctx, class, &request)
 }
 
-// tenantClusterNodes returns the ClusterNodes of a tenant add or update of
-// qualifiedClass. On NS-enabled clusters it is nil after namespaceCandidates
-// checks the HomeNodes, and SchemaManager fills it from them at apply.
+// tenantClusterNodes returns namespaceCandidates at the replication factor of
+// qualifiedClass.
 func (h *Handler) tenantClusterNodes(qualifiedClass string) ([]string, error) {
-	candidates, err := h.namespaceCandidates(qualifiedClass)
-	if err != nil || h.config.Namespaces.Enabled {
-		return nil, err
+	if !h.config.Namespaces.Enabled {
+		return h.membership.StorageCandidates(), nil
 	}
-	return candidates, nil
+	// TODO(v1.42): send nil for SchemaManager to fill from HomeNodes at apply.
+	// v1.38 to v1.40 nodes refuse a tenant with no nodes. The fill cannot skip
+	// home nodes that are not storage candidates, so nil gives up that skip.
+	factor := h.schemaReader.ClassInfo(qualifiedClass).ReplicationFactor
+	return h.namespaceCandidates(qualifiedClass, int64(factor))
 }
 
 // updateTenantsClusterNodes returns tenantClusterNodes for a tenant update. For a
-// namespaced class it returns nil without the home-node check unless a tenant
-// whose local status is FROZEN or FREEZING requests any status but FROZEN.
-func (h *Handler) updateTenantsClusterNodes(ctx context.Context, qualifiedClass string,
+// namespaced class it returns them only when a tenant the leader holds FROZEN or
+// FREEZING requests another status, and nil otherwise. It asks the leader because
+// a node that lags a freeze reads the tenant as HOT.
+func (h *Handler) updateTenantsClusterNodes(qualifiedClass string,
 	tenants []*models.Tenant, names []string,
 ) ([]string, error) {
 	if namespacing.NamespaceFromQualified(qualifiedClass) == "" {
 		return h.tenantClusterNodes(qualifiedClass)
 	}
-	current, err := h.schemaReader.TenantsShardsStatusWithVersion(ctx, 0, qualifiedClass, names...)
+	held, _, err := h.schemaManager.TenantsShardsFromLeader(qualifiedClass, names...)
 	if err != nil {
 		return nil, err
 	}
 	for _, tenant := range tenants {
-		status := current[tenant.Name]
-		frozen := status == models.TenantActivityStatusFROZEN || status == models.TenantActivityStatusFREEZING
-		if frozen && tenant.ActivityStatus != models.TenantActivityStatusFROZEN {
+		if schema.TenantIsFrozenOrFreezing(held[tenant.Name]) && tenant.ActivityStatus != models.TenantActivityStatusFROZEN {
 			return h.tenantClusterNodes(qualifiedClass)
 		}
 	}
@@ -251,8 +252,8 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	}
 
 	// ClusterNodes is read only on unfreeze, so only an unfreeze checks the home
-	// nodes. A home node outside the storage candidates blocks no other update.
-	nodes, err := h.updateTenantsClusterNodes(ctx, class, tenants, shardNames)
+	// nodes.
+	nodes, err := h.updateTenantsClusterNodes(class, tenants, shardNames)
 	if err != nil {
 		return nil, err
 	}
