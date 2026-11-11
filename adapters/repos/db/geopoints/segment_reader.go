@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 
 	"github.com/weaviate/sroar"
 )
@@ -150,6 +151,7 @@ func (r *SegmentReader) WithinRange(ctx context.Context, c *Circle, out, deleted
 	stack := make([]uint32, 0, 64)
 	stack = append(stack, 0)
 	visited := uint32(0)
+	buf := make([]uint64, 0, MaxPointsPerLeaf)
 	for len(stack) > 0 {
 		// a corrupt tree whose children point back up must not loop
 		visited++
@@ -175,14 +177,17 @@ func (r *SegmentReader) WithinRange(ctx context.Context, c *Circle, out, deleted
 			stack = append(stack, n.A, n.B)
 			continue
 		}
-		if err := r.collectLeaf(c, n, out); err != nil {
+		if err := r.collectLeaf(c, n, out, buf); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *SegmentReader) collectLeaf(c *Circle, n node, out *sroar.Bitmap) error {
+// collectLeaf adds the leaf's matches to out. A leaf's doc IDs are sorted, so
+// they go in as one sorted run, which is several times cheaper than a bit at
+// a time.
+func (r *SegmentReader) collectLeaf(c *Circle, n node, out *sroar.Bitmap, buf []uint64) error {
 	start, count := uint64(n.A), uint64(n.B)
 	if start+count > r.hdr.pointCount {
 		return fmt.Errorf("geopoints: leaf [%d, %d) past %d points", start, start+count, r.hdr.pointCount)
@@ -193,29 +198,41 @@ func (r *SegmentReader) collectLeaf(c *Circle, n node, out *sroar.Bitmap) error 
 		return err
 	}
 
+	buf = buf[:0]
 	if c.ContainsBox(n.Box) {
 		for i := uint64(0); i < count; i++ {
-			out.Set(binary.LittleEndian.Uint64(ids[i*8:]))
+			buf = append(buf, binary.LittleEndian.Uint64(ids[i*8:]))
 		}
-		return nil
-	}
-
-	lats, err := r.src.read(base+r.hdr.pointCount*8+start*4, count*4)
-	if err != nil {
-		return err
-	}
-	lons, err := r.src.read(base+r.hdr.pointCount*12+start*4, count*4)
-	if err != nil {
-		return err
-	}
-	for i := uint64(0); i < count; i++ {
-		lat := math.Float32frombits(binary.LittleEndian.Uint32(lats[i*4:]))
-		lon := math.Float32frombits(binary.LittleEndian.Uint32(lons[i*4:]))
-		if c.Contains(lat, lon) {
-			out.Set(binary.LittleEndian.Uint64(ids[i*8:]))
+	} else {
+		lats, err := r.src.read(base+r.hdr.pointCount*8+start*4, count*4)
+		if err != nil {
+			return err
+		}
+		lons, err := r.src.read(base+r.hdr.pointCount*12+start*4, count*4)
+		if err != nil {
+			return err
+		}
+		for i := uint64(0); i < count; i++ {
+			lat := math.Float32frombits(binary.LittleEndian.Uint32(lats[i*4:]))
+			lon := math.Float32frombits(binary.LittleEndian.Uint32(lons[i*4:]))
+			if c.Contains(lat, lon) {
+				buf = append(buf, binary.LittleEndian.Uint64(ids[i*8:]))
+			}
 		}
 	}
+	addSorted(out, buf)
 	return nil
+}
+
+// addSorted ors ids into out as a sorted run, sorting first if they are not.
+func addSorted(out *sroar.Bitmap, ids []uint64) {
+	if len(ids) == 0 {
+		return
+	}
+	if !slices.IsSorted(ids) {
+		slices.Sort(ids)
+	}
+	out.Or(sroar.FromSortedList(ids))
 }
 
 // pointChunk bounds the scratch a pread source allocates per read to a megabyte.

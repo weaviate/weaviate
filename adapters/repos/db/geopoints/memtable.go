@@ -64,6 +64,7 @@ func (m *Memtable) WithinRange(ctx context.Context, c *Circle, out, deleted *sro
 	defer m.lock.RUnlock()
 
 	deleted.Or(m.deleted)
+	var matches []uint64 // in arrival order, which is nearly doc ID order
 	for i := range m.points {
 		if i%4096 == 4095 {
 			if err := ctx.Err(); err != nil {
@@ -72,9 +73,10 @@ func (m *Memtable) WithinRange(ctx context.Context, c *Circle, out, deleted *sro
 		}
 		p := &m.points[i]
 		if c.Contains(p.Lat, p.Lon) {
-			out.Set(p.DocID)
+			matches = append(matches, p.DocID)
 		}
 	}
+	addSorted(out, matches)
 	return nil
 }
 
