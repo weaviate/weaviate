@@ -112,6 +112,17 @@ func NewTempMultiVectorForIDThunk(targetVector string, fn func(ctx context.Conte
 	return t.TempVectorForID
 }
 
+// NewTokenForIDThunk wraps a shard's token reader for one target vector, as
+// NewTempMultiVectorForIDThunk wraps its document reader. tachiomfresh reads
+// single tokens through it.
+func NewTokenForIDThunk(targetVector string, fn func(ctx context.Context, id uint64, pos int, targetVector string, dims int) ([]float32, error)) common.TokenForID {
+	t := common.TargetTokenForID{
+		TargetVector:    targetVector,
+		TokenForIDThunk: fn,
+	}
+	return t.TokenForID
+}
+
 func NewTempVectorForIDWithViewThunk[T float32 | []float32](targetVector string, fn func(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([]T, error)) common.TempVectorForIDWithView[T] {
 	t := common.TargetTempVectorForIDWithView[T]{
 		TargetVector:                 targetVector,

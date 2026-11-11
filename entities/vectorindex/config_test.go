@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/tachiomfresh"
 )
 
 // Every index type's config survives a trip through its JSON, which is how
@@ -44,8 +45,11 @@ func TestUnmarshalConfig(t *testing.T) {
 	hfreshCfg := hfresh.NewDefaultUserConfig()
 	hfreshCfg.SearchProbe = 7
 	hfreshCfg.RQ.RescoreLimit = 99
+	tachiomfreshCfg := tachiomfresh.NewDefaultUserConfig()
+	tachiomfreshCfg.KCentroids = 64
+	tachiomfreshCfg.KDocsToScore = 1000
 
-	for _, cfg := range []schemaConfig.VectorIndexConfig{hnswCfg, flatCfg, dynamicCfg, hfreshCfg} {
+	for _, cfg := range []schemaConfig.VectorIndexConfig{hnswCfg, flatCfg, dynamicCfg, hfreshCfg, tachiomfreshCfg} {
 		t.Run(cfg.IndexType(), func(t *testing.T) {
 			data, err := json.Marshal(cfg)
 			require.NoError(t, err)
@@ -70,4 +74,30 @@ func TestUnmarshalConfig(t *testing.T) {
 		_, err := UnmarshalConfig(VectorIndexTypeFLAT, []byte(`{"vectorCacheMaxObjects":"ten"}`))
 		require.Error(t, err)
 	})
+}
+
+// TestParseAndValidateConfig_UnknownTypeListsEverySupportedType pins the
+// error for an unknown type against the types the switch dispatches: each
+// one the error names must parse, and the error must name each one.
+func TestParseAndValidateConfig_UnknownTypeListsEverySupportedType(t *testing.T) {
+	_, err := ParseAndValidateConfig(nil, "bogus", false)
+	require.EqualError(t, err, `invalid vector index "bogus". Supported types are hnsw, flat, dynamic, hfresh and tachiomfresh`)
+
+	for _, typ := range []string{
+		VectorIndexTypeHNSW, VectorIndexTypeFLAT, VectorIndexTypeDYNAMIC,
+		VectorIndexTypeHFresh, VectorIndexTypeTachiomFresh,
+	} {
+		t.Run(typ, func(t *testing.T) {
+			require.Contains(t, err.Error(), typ)
+			_, parseErr := ParseAndValidateConfig(nil, typ, false)
+			require.NotContains(t, errString(parseErr), "invalid vector index")
+		})
+	}
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }

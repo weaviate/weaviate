@@ -127,7 +127,40 @@ type (
 	MultipleVectorForID[T float32 | uint64 | byte]                func(ctx context.Context, id uint64, relativeID uint64) ([]T, error)
 	TempVectorForID[T []float32 | float32]                        func(ctx context.Context, id uint64, container *VectorSlice) ([]T, error)
 	MultiVectorForID                                              func(ctx context.Context, ids []uint64) ([][]float32, []error)
+	// TokenForID returns token pos of the multi-vector of document id. With
+	// it, a store serves one token without decoding the document. dims is
+	// the token's dimension: the index knows it, and the store needs it to
+	// locate the token in the stored object (storobj.MultiVectorTokenRange).
+	// A token of another dimension is an error. The returned slice belongs
+	// to the caller.
+	TokenForID func(ctx context.Context, id uint64, pos int, dims int) ([]float32, error)
+	// TokenIDsForID returns the token id of every token of the multi-vector of
+	// document id, stored with its object, in token order; nil when the
+	// object holds none.
+	TokenIDsForID func(ctx context.Context, id uint64) ([]uint32, error)
 )
+
+// TargetTokenForID wraps a shard's token reader with a target vector name,
+// as TargetVectorForID wraps the document readers.
+type TargetTokenForID struct {
+	TargetVector    string
+	TokenForIDThunk func(ctx context.Context, id uint64, pos int, targetVector string, dims int) ([]float32, error)
+}
+
+func (t TargetTokenForID) TokenForID(ctx context.Context, id uint64, pos int, dims int) ([]float32, error) {
+	return t.TokenForIDThunk(ctx, id, pos, t.TargetVector, dims)
+}
+
+// TargetTokenIDsForID wraps a shard's token id reader with a target vector
+// name, as TargetTokenForID wraps the token reader.
+type TargetTokenIDsForID struct {
+	TargetVector       string
+	TokenIDsForIDThunk func(ctx context.Context, id uint64, targetVector string) ([]uint32, error)
+}
+
+func (t TargetTokenIDsForID) TokenIDsForID(ctx context.Context, id uint64) ([]uint32, error) {
+	return t.TokenIDsForIDThunk(ctx, id, t.TargetVector)
+}
 
 // BucketView represents a consistent view of an LSM bucket that can be used
 // for multiple reads without acquiring locks for each read. The caller must

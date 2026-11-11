@@ -17,6 +17,7 @@ import (
 	"encoding/binary"
 	stderrors "errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -553,6 +554,93 @@ func multiVectorFromObjectInto(bytes []byte, container *common.VectorSlice, inde
 	}
 	container.Mem, container.Slice = buffer, buffer
 	return vecs, nil
+}
+
+// tokenIDsByIndexID returns the token ids stored with the multi-vector
+// targetVector of the object with index id indexID, nil when it has none. It
+// is the tachiomfresh index's token id reader (shard_init_vector.go).
+func (s *Shard) tokenIDsByIndexID(ctx context.Context, indexID uint64, targetVector string) ([]uint32, error) {
+	key := make([]byte, 8)
+	binary.LittleEndian.PutUint64(key, indexID)
+
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	bytes, err := bucket.GetBySecondary(ctx, 0, key)
+	if err != nil {
+		return nil, err
+	}
+	if bytes == nil {
+		return nil, storobj.NewErrNotFoundf(indexID,
+			"no object for doc id, it could have been deleted")
+	}
+	return storobj.TokenIDsFromBinary(bytes, targetVector)
+}
+
+// tokenReadBuffers holds the key and node buffers of tokenByIndexID. The token
+// itself is not pooled: the index keeps the slice it gets without a copy.
+var tokenReadBuffers = sync.Pool{
+	New: func() any { return &common.VectorSlice{Buff8: make([]byte, 8)} },
+}
+
+// tokenByIndexID reads one token into fresh memory, with a pooled key and node
+// buffer. It is the tachiomfresh index's token thunk (shard_init_vector.go).
+func (s *Shard) tokenByIndexID(ctx context.Context, indexID uint64, pos int, targetVector string, dims int) ([]float32, error) {
+	container := tokenReadBuffers.Get().(*common.VectorSlice)
+	defer func() {
+		container.Slice = nil
+		tokenReadBuffers.Put(container)
+	}()
+	container.Slice = nil
+	return s.readTokenByIndexID(ctx, indexID, pos, targetVector, dims, container)
+}
+
+// readTokenByIndexID reads token pos of the multi-vector targetVector of
+// the object with index id indexID, with dims dimensions. The objects
+// bucket locates the token from the object's first bytes and serves its
+// bytes from a range of the stored object (lsmkv.Bucket.GetBySecondaryRange,
+// storobj.MultiVectorTokenRange). The object is neither copied nor decoded;
+// GetBySecondaryRange says why that matters. The read is wired through
+// tokenByIndexID. A token of another dimension is an error.
+// container.Buff8 carries the key; container.Buff and container.Slice are
+// reused when they have the capacity.
+func (s *Shard) readTokenByIndexID(ctx context.Context, indexID uint64, pos int, targetVector string, dims int, container *common.VectorSlice) ([]float32, error) {
+	binary.LittleEndian.PutUint64(container.Buff8, indexID)
+
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	pick := func(head []byte) (uint64, uint64, uint64, error) {
+		return storobj.MultiVectorTokenRange(head, targetVector, pos, dims)
+	}
+	bytes, newBuff, err := bucket.GetBySecondaryRange(ctx, 0, container.Buff8, storobj.MultiVectorLocatorHead, pick, container.Buff)
+	if err != nil {
+		// as the document readers do (multiVectorFromObjectInto)
+		var eTV storobj.ErrTargetVectorNotFound
+		if stderrors.As(err, &eTV) {
+			return nil, storobj.NewErrNotFoundf(indexID, "target vector %q not found", targetVector)
+		}
+		return nil, err
+	}
+
+	if bytes == nil {
+		return nil, storobj.NewErrNotFoundf(indexID,
+			"no object for doc id, it could have been deleted")
+	}
+
+	container.Buff = newBuff
+	token, err := storobj.TokenFromBytes(bytes, dims, container.Slice)
+	if err != nil {
+		return nil, err
+	}
+	container.Slice = token
+	return token, nil
 }
 
 func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([][]float32, error) {

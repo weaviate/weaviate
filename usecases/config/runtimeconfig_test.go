@@ -996,6 +996,7 @@ func TestUpdateRuntimeConfig_DefaultVectorIndex(t *testing.T) {
 		{"dynamic", "dynamic", "dynamic", ""},
 		{"hfresh", "hfresh", "hfresh", ""},
 		{"invalid value rejected", "invalid", initial, `invalid DEFAULT_VECTOR_INDEX "invalid"`},
+		{"tachiomfresh rejected", "tachiomfresh", initial, `invalid DEFAULT_VECTOR_INDEX "tachiomfresh"`},
 		{"none sentinel rejected", "none", initial, `invalid DEFAULT_VECTOR_INDEX "none"`},
 		{"noop sentinel rejected", "noop", initial, `invalid DEFAULT_VECTOR_INDEX "noop"`},
 		// Strict validator: runtime YAML must already be lowercase + trimmed.

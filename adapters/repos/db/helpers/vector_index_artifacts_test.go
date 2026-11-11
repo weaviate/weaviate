@@ -29,19 +29,24 @@ func TestVectorIndexArtifactsFor_CoversEveryArtifact(t *testing.T) {
 	got := VectorIndexArtifactsFor("vec", nil)
 
 	assert.ElementsMatch(t, []string{
-		"vectors_vec",                      // raw vectors
-		"vectors_compressed_vec",           // BQ/PQ/SQ/RQ
-		"vectors_vec_muvera_vectors",       // multivector + muvera (hnsw.New)
-		"vectors_vec_mv_mappings",          // multivector without muvera (hnsw.New)
-		"hfresh_postings_vectors_vec",      // hfresh postings
-		"hfresh_shared_vectors_vec",        // hfresh shared metadata
-		"vectors_compressed_vec_centroids", // hfresh's nested centroids HNSW
+		"vectors_vec",                       // raw vectors
+		"vectors_compressed_vec",            // BQ/PQ/SQ/RQ
+		"vectors_vec_muvera_vectors",        // multivector + muvera (hnsw.New)
+		"vectors_vec_mv_mappings",           // multivector without muvera (hnsw.New)
+		"hfresh_postings_vectors_vec",       // hfresh postings
+		"hfresh_shared_vectors_vec",         // hfresh shared metadata
+		"tachiomfresh_postings_vectors_vec", // tachiomfresh postings
+		"tachiomfresh_types_vectors_vec",    // tachiomfresh types and metadata
+		"tachiomfresh_staging_vectors_vec",  // tachiomfresh staged documents
+		"tachiomfresh_tokens_vectors_vec",   // tachiomfresh token counts
+		"vectors_compressed_vec_centroids",  // hfresh's nested centroids HNSW
 	}, got.LSMBuckets)
 
 	assert.ElementsMatch(t, []string{
 		"vectors_vec.hnsw.commitlog.d",
 		"vectors_vec.hnsw.snapshot.d",
 		"vectors_vec.hfresh.d",
+		"vectors_vec.tachiomfresh.d",
 		"vectors_vec.queue.d", // async-indexing queue
 		"meta_vec.db",         // flat quantisation metadata (a FILE)
 	}, got.ShardDirs)

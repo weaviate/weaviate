@@ -302,7 +302,8 @@ type Config struct {
 	DefaultQuantization *runtime.DynamicValue[string] `json:"default_quantization" yaml:"default_quantization"`
 
 	// New classes will be created with this vector index type instead of HNSW.
-	// Valid values: "hnsw", "flat", "dynamic", "hfresh".
+	// Valid values: "hnsw", "flat", "dynamic", "hfresh". "tachiomfresh" holds
+	// only multi-vectors, so it can only be chosen explicitly.
 	DefaultVectorIndexType *runtime.DynamicValue[string] `json:"default_vector_index" yaml:"default_vector_index"`
 
 	// New classes will be created with this shard count instead of the cluster node count.
@@ -539,7 +540,27 @@ func (c *Config) validateReplicationFactorBounds() error {
 
 // Mirrors entities/vectorindex/config.go; duplicated as plain strings to
 // avoid an import cycle. VectorIndexTypeNone is an internal sentinel.
-var validRestrictionVectorIndexTypes = []string{"hnsw", "flat", "dynamic", "hfresh"}
+var validRestrictionVectorIndexTypes = []string{"hnsw", "flat", "dynamic", "hfresh", "tachiomfresh"}
+
+// uncompressedIndexTypes are the index types with no compression settings.
+// When the allow-list holds only these types, ALLOWED_COMPRESSION_TYPES has
+// nothing to apply to. hfresh codes its postings on its own; tachiomfresh
+// keeps float32 tokens in the objects bucket.
+var uncompressedIndexTypes = []string{"hfresh", "tachiomfresh"}
+
+// onlyUncompressedIndexTypes reports whether every allowed index type is
+// one without compression settings.
+func onlyUncompressedIndexTypes(allowVector []string) bool {
+	if len(allowVector) == 0 {
+		return false
+	}
+	for _, v := range allowVector {
+		if !slices.Contains(uncompressedIndexTypes, v) {
+			return false
+		}
+	}
+	return true
+}
 
 // Matches DEFAULT_QUANTIZATION values so operators can copy them across.
 // "none" means "uncompressed"; omitting it from the allow-list makes
@@ -586,7 +607,11 @@ func NewRestrictionCompressionTypeListValidator() func([]string) error {
 // DefaultVectorIndexType. Empty means "unset", which the defaults path falls
 // back from. The "none" sentinel is reserved for indexes dropped via
 // DeleteClassVectorIndex and must never appear as a class-creation default —
-// both env-time and runtime-override paths share this rule.
+// both env-time and runtime-override paths share this rule. "tachiomfresh"
+// is refused too: it holds only multi-vectors, so with it as the default a
+// class with a single-vector vectorizer, or none, could not be created. It
+// stays a type a class can choose explicitly and a value of
+// ALLOWED_VECTOR_INDEX_TYPES.
 //
 // The check is strict (exact match, no lowercase/trim) because
 // DynamicValue.SetValue stores the value verbatim and downstream parsers
@@ -601,6 +626,9 @@ func NewDefaultVectorIndexValidator() func(string) error {
 		if !slices.Contains(validRestrictionVectorIndexTypes, val) {
 			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v",
 				val, validRestrictionVectorIndexTypes)
+		}
+		if val == "tachiomfresh" {
+			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q: it holds only multi-vectors, set it explicitly on each vector that uses it", val)
 		}
 		return nil
 	}
@@ -621,8 +649,8 @@ func (c *Config) ValidateRestrictionsRuntime(log logrus.FieldLogger) error {
 	if cErr != nil {
 		problems = append(problems, cErr.Error())
 	}
-	if len(allowVector) == 1 && allowVector[0] == "hfresh" && len(allowCompression) > 0 {
-		problems = append(problems, "ALLOWED_COMPRESSION_TYPES cannot be set when ALLOWED_VECTOR_INDEX_TYPES is exclusively 'hfresh': hfresh has no compression configuration")
+	if onlyUncompressedIndexTypes(allowVector) && len(allowCompression) > 0 {
+		problems = append(problems, "ALLOWED_COMPRESSION_TYPES cannot be set when ALLOWED_VECTOR_INDEX_TYPES holds only 'hfresh' or 'tachiomfresh': hfresh has no compression configuration, and neither has tachiomfresh")
 	}
 
 	problems = append(problems, runtimeMismatchProblems(
@@ -667,8 +695,8 @@ func (c *Config) validateRestrictions() error {
 		return err
 	}
 
-	if len(allowVector) == 1 && allowVector[0] == "hfresh" && len(allowCompression) > 0 {
-		return fmt.Errorf("ALLOWED_COMPRESSION_TYPES cannot be set when ALLOWED_VECTOR_INDEX_TYPES is exclusively 'hfresh': hfresh has no compression configuration")
+	if onlyUncompressedIndexTypes(allowVector) && len(allowCompression) > 0 {
+		return fmt.Errorf("ALLOWED_COMPRESSION_TYPES cannot be set when ALLOWED_VECTOR_INDEX_TYPES holds only 'hfresh' or 'tachiomfresh': hfresh has no compression configuration, and neither has tachiomfresh")
 	}
 
 	if err := reconcileAllowListWithDefault(

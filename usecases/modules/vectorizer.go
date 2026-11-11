@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/tachiomfresh"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -515,7 +516,8 @@ func (p *Provider) getVectorIndexConfig(class *models.Class, targetVector string
 	_, okFlat := vectorIndexConfig.(flat.UserConfig)
 	_, okDynamic := vectorIndexConfig.(dynamic.UserConfig)
 	_, okHFresh := vectorIndexConfig.(hfresh.UserConfig)
-	if !(okHnsw || okFlat || okDynamic || okHFresh) {
+	_, okTachiomFresh := vectorIndexConfig.(tachiomfresh.UserConfig)
+	if !(okHnsw || okFlat || okDynamic || okHFresh || okTachiomFresh) {
 		return hnsw.UserConfig{}, fmt.Errorf(errorVectorIndexType, vectorIndexConfig)
 	}
 	return hnswConfig, nil

@@ -529,7 +529,7 @@ func nonLSMStorage(shardPath string, files map[string]int64, dirs []string) (uin
 
 		totalSize := sumSizes(filesSubFolder)
 
-		if strings.HasSuffix(dir, ".hfresh.d") {
+		if strings.HasSuffix(dir, ".hfresh.d") || strings.HasSuffix(dir, ".tachiomfresh.d") {
 			for _, subDir := range subDirs {
 				subFiles, _, err := listDir(filepath.Join(fullPath, subDir))
 				if err != nil {

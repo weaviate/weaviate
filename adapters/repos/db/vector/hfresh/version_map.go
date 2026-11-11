@@ -171,6 +171,30 @@ func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVer
 	return newVersion, nil
 }
 
+// Reinsert increments the vector's version and clears its tombstone bit, in
+// one step, and returns the new version. It is for an index that indexes an
+// id again: its entries written before become older than the map's version,
+// whether the id was live or deleted. Increment refuses a deleted vector, so
+// a re-insert after a delete cannot use it. The new version is above every
+// old entry's, because MarkDeleted keeps the counter.
+func (v *VersionMap) Reinsert(ctx context.Context, vectorID uint64) (VectorVersion, error) {
+	// ensure the entry is loaded so the update below never touches the store
+	if _, err := v.Get(ctx, vectorID); err != nil {
+		return 0, err
+	}
+
+	page, slot := v.data.GetPageFor(vectorID)
+	v.locks.Lock(vectorID)
+	newVersion := VectorVersion(uint8(page[slot]) & counterMask).Increment()
+	page[slot] = newVersion
+	v.locks.Unlock(vectorID)
+
+	if err := v.persist(ctx, vectorID, page, slot); err != nil {
+		return newVersion, err
+	}
+	return newVersion, nil
+}
+
 // MarkDeleted sets the tombstone bit for the vector. It always persists, even
 // when the vector is already deleted in memory, so a retry after a failed
 // persist heals a store that missed the tombstone.
