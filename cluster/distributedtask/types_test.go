@@ -51,10 +51,7 @@ func TestTaskStatus_IsTerminal(t *testing.T) {
 	}
 }
 
-// TestTask_Clone_WritesToCloneDoNotReachOriginal pins that adding or replacing
-// an entry in any of a clone's maps leaves the original untouched. The scheduler
-// does this each tick, and it must not change the FSM-stored Task. PreparedGroups'
-// inner maps are shared, so writers replace an inner map instead of mutating it.
+// TestTask_Clone_WritesToCloneDoNotReachOriginal pins that writes to a clone's maps leave the FSM-stored Task untouched.
 func TestTask_Clone_WritesToCloneDoNotReachOriginal(t *testing.T) {
 	now := time.UnixMilli(1_700_000_000_000)
 	orig := withUnits(&Task{
@@ -73,7 +70,6 @@ func TestTask_Clone_WritesToCloneDoNotReachOriginal(t *testing.T) {
 
 	clone := orig.Clone()
 
-	// Write to every map on the clone.
 	clone.Units["u-1"].Status = UnitStatusFailed
 	clone.PostCompletionAcks["node-1"] = PostCompletionAck{Success: false, Error: "swap"}
 	clone.PostCompletionAcks["node-2"] = PostCompletionAck{Success: true}
@@ -94,8 +90,7 @@ func TestTask_Clone_WritesToCloneDoNotReachOriginal(t *testing.T) {
 	assert.NotContains(t, orig.NodePreparationAcks, "node-2", "NodePreparationAcks must not alias clone")
 }
 
-// Pins that every copy of a task answers per-group questions, and that a
-// decode of the leader's list builds no index for a run this node holds.
+// Pins that every copy of a task answers per-group questions.
 func TestTask_GroupIndexSurvivesEveryCopy(t *testing.T) {
 	newTask := func() *Task {
 		return withUnits(&Task{
@@ -146,8 +141,7 @@ func TestTask_GroupIndexSurvivesEveryCopy(t *testing.T) {
 	}
 }
 
-// Pins that a tenant delete costs the tenant, not the run: it removes the
-// tenant's units in place and leaves the index every copy shares untouched.
+// Pins that a tenant delete removes only the tenant's units and leaves the shared index untouched.
 func TestTask_ForgetGroupsKeepsTheSharedIndex(t *testing.T) {
 	task := withUnits(&Task{SwapDecidedGroups: map[string]time.Time{"g2": {}, "g3": {}}}, map[string]*Unit{
 		"a": {ID: "a", GroupID: "g1", NodeID: "n1"},

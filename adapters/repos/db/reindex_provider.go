@@ -93,10 +93,8 @@ type ReindexProvider struct {
 	// A load after a task ended in this process does not cache it again. A restart empties it. Guarded by [mu].
 	endedTasks map[distributedtask.TaskDescriptor]struct{}
 
-	// activeWorkers tracks units that currently have a per-unit goroutine
-	// inside processOneUnit's iteration body. The re-entry guard reads
-	// this, not the reindexTasks cache, so a shard load's seeding of that cache
-	// does not short-circuit the resumed unit. Guarded by [mu].
+	// activeWorkers tracks units with a live worker goroutine. The re-entry guard
+	// reads this, not the reindexTasks cache, which a shard load seeds. Guarded by [mu].
 	activeWorkers map[distributedtask.TaskDescriptor]map[string]bool
 
 	// liveUnits counts this node's workers per (task, unit), guarded by [mu]. A count, not a flag: two can hold one unit.
@@ -607,17 +605,8 @@ func (p *ReindexProvider) processOneUnit(
 	// For format-only migrations, RunOnShard runs the full lifecycle per shard.
 	semantic := IsSemanticMigration(payload.MigrationType)
 
-	// Re-entry guard. The DTM scheduler can relaunch our task handle a
-	// few tens of ms after the previous handle's per-unit goroutines
-	// finished — wg.Wait() returns once recordUnitCompletion is called
-	// from the worker, but the RAFT apply that flips the unit to
-	// Completed (and lets the scheduler skip the relaunch) races the
-	// next scheduler tick. We've observed the two "starting unit" logs
-	// ~70ms apart on the same unit in CI (acceptance large
-	// reindex-multinode-aj, MultiRoundRobin round 1).
-	//
-	// Guard on `activeWorkers`, not the `reindexTasks` cache: a shard load's
-	// recovery seeds that cache, so guarding on it would trap the resumed unit.
+	// Re-entry guard: the scheduler can relaunch a unit before the RAFT apply
+	// marking it Completed lands.
 	if semantic {
 		if !p.claimActiveWorker(task.TaskDescriptor, unitID) {
 			logger.Info("reindex provider: skipping re-entered unit (concurrent worker)")
@@ -626,8 +615,6 @@ func (p *ReindexProvider) processOneUnit(
 		defer p.releaseActiveWorker(task.TaskDescriptor, unitID)
 	}
 
-	// Cached instances (from [SeedReindexTaskCache] or FSM-lag re-entry) keep
-	// their registered double-write callbacks.
 	var (
 		tasks  []*ShardReindexTaskGeneric
 		cached bool
@@ -694,7 +681,6 @@ func (p *ReindexProvider) processOneUnit(
 
 	// Cache task instances for semantic migrations so OnGroupCompleted can
 	// call RunSwapOnShard on the same instances (with callbacks registered).
-	// Cached instances are already in the map; write only for fresh ones.
 	if semantic && !cached {
 		p.cacheReindexTasks(task.TaskDescriptor, unitID, tasks)
 	}
@@ -1272,7 +1258,6 @@ func (p *ReindexProvider) runShardSwapPhase(
 			allSwapped = false
 			continue
 		}
-		// A sibling's failing swap re-runs this unit every tick, so log only its first success.
 		newlySwapped = !reindexTask.swapSucceeded.Swap(true) || newlySwapped
 	}
 

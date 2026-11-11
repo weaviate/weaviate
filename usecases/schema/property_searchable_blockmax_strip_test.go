@@ -22,8 +22,7 @@ import (
 )
 
 // TestCreatePaths_StripClientSetSearchableBlockmax pins that a client-set
-// SearchableBlockmax is nilled on every create path (only a migration cutover
-// writes it) — asserted on the property that reaches schemaManager, not the
+// SearchableBlockmax is nilled on every create path, asserted on the property that reaches schemaManager, not the
 // returned class.
 func TestCreatePaths_StripClientSetSearchableBlockmax(t *testing.T) {
 	ctx := context.Background()

@@ -21,8 +21,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
-// Pins that the durable stamp lets the second of two siblings completing in
-// one tick flip the class flag, instead of both deferring forever.
+// Pins that the durable stamp lets the second of two siblings completing in one tick flip the class flag.
 func TestShouldDeferBlockmaxFlip_StampBreaksWedge(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	tr := true

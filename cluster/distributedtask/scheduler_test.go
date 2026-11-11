@@ -420,8 +420,7 @@ func TestRemoveCleanedUpTaskLocalStateOnStartup(t *testing.T) {
 	}
 }
 
-// Startup keeps the local state of every listed task, not only running ones:
-// a finished barrier task can still owe swaps.
+// Startup keeps the local state of every listed task: a finished barrier task can still owe swaps.
 func TestKeepLocalStateOfListedTasksOnStartup(t *testing.T) {
 	desc := TaskDescriptor{ID: "1", Version: 7}
 	provider := newTestTaskProvider(t, []TaskDescriptor{desc})
@@ -1541,8 +1540,7 @@ func TestPreMarkTerminalCallbacksLocked_NonRecoveryAwareProviderUnchanged(t *tes
 // pre-mark filter (status == FINISHED || FAILED || CANCELLED) is what
 // keeps them out of the pre-mark; this test pins that filter.
 //
-// Non-terminal barrier tasks get no state at all, so the next tick fills
-// their pending sets with every group.
+// Non-terminal barrier tasks get no state, so the next tick fills their pending sets.
 func TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked(t *testing.T) {
 	preparingDesc := TaskDescriptor{ID: "preparing-task", Version: 1}
 	swappingDesc := TaskDescriptor{ID: "swapping-task", Version: 2}

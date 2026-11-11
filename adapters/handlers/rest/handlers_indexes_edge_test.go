@@ -750,8 +750,7 @@ func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
 const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
 
 // Pins the wire response of every cancel arm: the apply is reached for
-// every in-flight status, 409 for a status this build cannot name, 202
-// NO_OP when nothing matches. Each arm's audit line is pinned with it.
+// every in-flight status, 409 for an unnamed status, 202 NO_OP when nothing matches.
 func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeEnableFilterable,

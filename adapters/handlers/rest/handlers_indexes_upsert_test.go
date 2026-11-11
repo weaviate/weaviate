@@ -108,7 +108,6 @@ func activeReindexTask(id, collection string, mt db.ReindexMigrationType, target
 	}
 }
 
-// partlyMigratedRun builds a cancelled run on C.prop whose first group swapped.
 func partlyMigratedRun(t *testing.T, prop string, mt db.ReindexMigrationType, tok string, groups ...string) *distributedtask.Task {
 	units := map[string]*distributedtask.Unit{}
 	for _, g := range groups {
@@ -625,7 +624,6 @@ func TestResolveRebuildPlan(t *testing.T) {
 			prop:      &models.Property{Name: "n", DataType: []string{"int"}, IndexRangeFilters: boolPtr(false)},
 			wantErr:   "does not have a rangeable index",
 		},
-		// A partial run refuses a rebuild of any index of its property.
 		{
 			name:      "partial filterable run, rebuild searchable -> refused with the resubmit",
 			indexType: "searchable",
@@ -801,8 +799,7 @@ func TestSubmitReindexTask_RefusesNonHotTenants(t *testing.T) {
 	}
 }
 
-// Pins that the resubmit skip and the partial status agree on which tenants
-// already serve the target, across every run since the last flip.
+// Pins that the resubmit skip and the partial status agree on which tenants already serve the target.
 func TestMigratedTenantsAcrossRuns(t *testing.T) {
 	ownership := map[string][]string{"n1": {"a", "b", "c"}, "n2": {"a", "b", "c"}}
 	plan := upsertPlan{
@@ -810,7 +807,6 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 		bucketStrategy: "mapcollection",
 	}
 	start := time.Now()
-	// run builds a task holding tenants held, of which decided swapped.
 	run := func(version uint64, status distributedtask.TaskStatus, mt db.ReindexMigrationType, tok string, held string, decided ...string) *distributedtask.Task {
 		task := buildTask(t, "T", status, db.ReindexTaskPayload{
 			Collection: "C", Properties: []string{"title"}, MigrationType: mt,
@@ -837,10 +833,9 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 	only := func(tenants ...string) map[string][]string { return map[string][]string{"n1": tenants, "n2": tenants} }
 
 	for _, tc := range []struct {
-		name  string
-		tasks []*distributedtask.Task
-		want  map[string][]string
-		// status of the filterable entry; migrated and total apply to partial.
+		name            string
+		tasks           []*distributedtask.Task
+		want            map[string][]string
 		status          string
 		migrated, total int64
 	}{
@@ -891,10 +886,8 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 	}
 }
 
-// Pins that while a partial run stands, a PUT is refused with the resubmit
-// unless it is that resubmit, so no second target can hide the partial run.
-// "summary" pins that a run on one index type refuses a PUT on the
-// other: searchable and filterable share the property's tokenization.
+// Pins that while a partial run stands, a PUT is refused unless it is the resubmit.
+// Searchable and filterable share the property's tokenization, so each blocks the other.
 func TestUpsertRefusedOnPartlyMigratedIndex(t *testing.T) {
 	word := models.PropertyTokenizationWord
 	title := &models.Property{
@@ -961,9 +954,7 @@ func TestUpsertRefusedOnPartlyMigratedIndex(t *testing.T) {
 	}
 }
 
-// A run whose cutover write landed while its proposer saw an error, with a
-// swap still owed: dropping and re-adding its index must lock nothing, and the
-// re-add must rebuild every tenant.
+// A run whose cutover landed despite a proposer error, swap still owed: drop and re-add must lock nothing and rebuild every tenant.
 func TestDropAndReAddAfterALandedRun(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -1011,8 +1002,7 @@ func TestDropAndReAddAfterALandedRun(t *testing.T) {
 	}
 }
 
-// Pins that each refusal of a partly migrated property tells only a caller who
-// may read the collection's tenants how many of them migrated.
+// Pins that only a caller who may read the tenants is told how many migrated.
 func TestPartialRunRefusalsCountTenantsOnlyForTenantReaders(t *testing.T) {
 	partial := partlyMigratedRun(t, "title", db.ReindexTypeChangeTokenization, models.PropertyTokenizationField, "a", "b")
 	tasks := map[string][]*distributedtask.Task{db.ReindexNamespace: {partial}}

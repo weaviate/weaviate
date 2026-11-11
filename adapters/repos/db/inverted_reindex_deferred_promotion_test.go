@@ -203,14 +203,11 @@ func TestRestartBeforeTheSchemaFlipServesTheMigratedData(t *testing.T) {
 	}
 }
 
-// A reload keeps the record of a swap a failed run decided, and a swapped
-// tenant keeps serving its migrated tokenization while the schema lags.
+// A reload keeps a failed run's decided-swap record, and the tenant keeps serving the migrated tokenization.
 func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 	const propName = "title"
 	for _, tc := range []struct {
-		name string
-		// swap runs the live swap before the reload; otherwise the reload
-		// stands in for a crash before the swap began.
+		name       string
 		swap       bool
 		wantRecord MigrationState
 	}{
@@ -283,10 +280,7 @@ func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 	}
 }
 
-// Pins that an index a tenant's migration turned on stands while its owning
-// task may still flip the schema: the bucket survives a reload and the
-// index-off sweeps, and takes writes. Once the task finished or is gone, the
-// flip landed, so the schema's "off" is a drop and the bucket goes.
+// Pins that an index a migration turned on survives reloads and index-off sweeps while its task may still flip the schema.
 func TestReloadKeepsAnIndexATenantEnabledAheadOfTheSchema(t *testing.T) {
 	const propName = "title"
 	for _, tc := range []struct {
@@ -350,7 +344,6 @@ func TestReloadKeepsAnIndexATenantEnabledAheadOfTheSchema(t *testing.T) {
 				require.True(t, indexed, "a write after the reload reaches the migrated index")
 			}
 
-			// The same update reaching the shard unloaded, its data now at the canonical name.
 			require.NoError(t, re.Shutdown(ctx))
 			lazy := NewLazyLoadShard(ctx, nil, name, idx, class, idx.centralJobQueue, idx.indexCheckpoints,
 				idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer, false, idx.bitmapBufPool)
@@ -369,9 +362,7 @@ func TestReloadKeepsAnIndexATenantEnabledAheadOfTheSchema(t *testing.T) {
 	}
 }
 
-// Pins that a boot load, which cannot read the task list yet, keeps an enabled
-// index only until the list is readable: then a finished run hands it to the
-// schema, so the next boot load sweeps it, while a retained failed run keeps it.
+// Pins that a boot load, which cannot read the task list yet, keeps an enabled index only until the list is readable.
 func TestBootLoadReDecidesAnEnabledIndexOnceTheTaskListIsReadable(t *testing.T) {
 	const propName = "title"
 	for _, tc := range []struct {

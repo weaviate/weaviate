@@ -300,8 +300,7 @@ func TestGetIndexes_AForeignCollectionsTaskReachesNoEntry(t *testing.T) {
 	}
 }
 
-// Pins: with the schema flag off, an entry a reindex task drives is shown,
-// partial included, and a task-free entry is hidden.
+// Pins that with the schema flag off, only entries a reindex task drives are shown.
 func TestGetIndexes_FlagOffShowsEveryTaskDrivenEntry(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
@@ -324,7 +323,6 @@ func TestGetIndexes_FlagOffShowsEveryTaskDrivenEntry(t *testing.T) {
 	}
 }
 
-// readerOfC answers for collection C holding text property p with both index flags set to flag.
 func readerOfC(t *testing.T, flag bool) *schemaUC.MockSchemaReader {
 	reader := schemaUC.NewMockSchemaReader(t)
 	reader.EXPECT().ResolveAlias("C").Return("")
@@ -359,7 +357,6 @@ func getIndexesOfC(t *testing.T, reader *schemaUC.MockSchemaReader, task *distri
 	return body
 }
 
-// collectionsOnly may read collection metadata but no tenant.
 type collectionsOnly struct{ authorization.DummyAuthorizer }
 
 func (*collectionsOnly) AuthorizeSilent(_ context.Context, _ *models.Principal, _ string, resources ...string) error {
@@ -371,8 +368,7 @@ func (*collectionsOnly) AuthorizeSilent(_ context.Context, _ *models.Principal, 
 	return nil
 }
 
-// Pins that a partial run's tenant counts reach only a caller who may read the
-// collection's tenants, while its partial status reaches every collection reader.
+// Pins that tenant counts reach only callers who may read tenants; the partial status reaches every reader.
 func TestGetIndexes_TenantCountsNeedTenantRead(t *testing.T) {
 	for _, tt := range []struct {
 		name                    string

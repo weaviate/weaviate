@@ -34,11 +34,9 @@ package reindex_multinode
 // 1M-object scale: ~1s window observed, 248ms within-window mixed-state
 // captured between probe samples 722 and 723).
 //
-// Post-barrier (this branch): OnGroupCompleted runs PREP only; every
-// node's PreparationCompleteAck must land via RAFT before the FSM transitions
-// PREPARING -> SWAPPING and OnSwapRequested fires. The cross-node SWAP
-// window then grows with the preparation work and swaps in flight on each
-// node, not with the slowest node's PREP of this shard.
+// Post-barrier: every node's PreparationCompleteAck must land via RAFT before
+// PREPARING -> SWAPPING, so the cross-node SWAP window no longer tracks the
+// slowest node's PREP.
 //
 // What this test asserts (end-to-end, in CI):
 //
@@ -377,12 +375,10 @@ func collectTaskStatusTransitions(t *testing.T, restURI, taskID string, timeout 
 	}
 }
 
-// The large tenant has to outlast the small one's prepare and swap by a wide
-// margin, so the small tenant's swap is observable while the task still runs.
+// Large enough to outlast the small tenant's swap.
 const perTenantLargeObjects = 60_000
 
-// perTenantSwapFixture builds a small and large tenant whose objects are
-// two-word phrases, so only a field-tokenized query matches them whole.
+// perTenantSwapFixture builds a small and a large tenant of two-word phrases.
 func perTenantSwapFixture(t *testing.T, compose *docker.DockerCompose, className string) {
 	t.Helper()
 	restURI := compose.GetWeaviate().URI()
@@ -410,9 +406,7 @@ func perTenantSwapFixture(t *testing.T, compose *docker.DockerCompose, className
 	}
 }
 
-// smallTenantMigratedOnEveryNode reports whether every node answers the small
-// tenant with field tokenization: the whole phrase matches, a single word of
-// it does not.
+// smallTenantMigratedOnEveryNode reports whether every node matches the small tenant's whole phrase but not a single word.
 func smallTenantMigratedOnEveryNode(t *testing.T, compose *docker.DockerCompose, className string) bool {
 	for i := 1; i <= 3; i++ {
 		uri := compose.GetWeaviateNode(i).URI()
@@ -443,9 +437,7 @@ func reindexTaskStatus(restURI, taskID string) string {
 	return ""
 }
 
-// Pins that a tenant swaps once its own replicas are ready: the small tenant
-// serves the new tokenization while the large one reindexes and after a node
-// restart, and the schema flips once the large tenant finishes.
+// Pins that a tenant swaps once its own replicas are ready, while the large one still reindexes.
 func TestMultiNode_PerTenantSwap_SmallTenantServesBeforeLargeFinishes(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
@@ -475,9 +467,7 @@ func TestMultiNode_PerTenantSwap_SmallTenantServesBeforeLargeFinishes(t *testing
 	require.True(t, smallTenantMigratedOnEveryNode(t, compose, className))
 }
 
-// Pins the cancel and status rulings: cancelling while the large tenant
-// still runs keeps the small tenant's swap, reports partial with tenant
-// counts, and a resubmit skips the small tenant and finishes the rest.
+// Pins that a cancel keeps the small tenant's swap, reports partial, and a resubmit finishes the rest.
 func TestMultiNode_PerTenantSwap_CancelLeavesPartialThenResubmitFinishes(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)

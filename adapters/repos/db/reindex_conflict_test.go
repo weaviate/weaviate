@@ -464,9 +464,7 @@ func TestCheckPropertyUpdate_NoInFlightTasksAllows(t *testing.T) {
 	}
 }
 
-// A cutover write lands only while the run it names is SWAPPING: a peer's
-// flip arriving after its run was failed or cancelled is refused, even while
-// another run on the same property is SWAPPING.
+// A cutover write lands only while the run it names is SWAPPING, even if another run on the property is.
 func TestCheckMigrationPropertyUpdate(t *testing.T) {
 	payload, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: ReindexTypeChangeTokenization, Properties: []string{"name"}})
 	require.NoError(t, err)
@@ -875,8 +873,7 @@ var blockingStatuses = []distributedtask.TaskStatus{
 	unknownFutureStatus,
 }
 
-// Pins: a mutation refusal names a cancel only for a status the cancel API
-// accepts — otherwise it would dead-end the operator.
+// Pins that a mutation refusal names a cancel only for a status the cancel API accepts.
 //
 // The expectations are spelled out per status rather than derived from
 // IsCancellable, so re-keying the helper onto a different predicate

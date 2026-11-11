@@ -108,8 +108,7 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_MultipleProperties(t *
 	require.ElementsMatch(t, []string{"a", "b", "c"}, gotProps)
 }
 
-// Pins that a property some tenants migrated is finished by a resubmit, never
-// repaired by a rebuild.
+// Pins that a partly migrated property is finished by a resubmit, never a rebuild.
 func TestLogOperatorRepairGuidanceOnPartialSwap_MigratedTenantsGetResubmit(t *testing.T) {
 	payload := &ReindexTaskPayload{
 		Collection: "Products", MigrationType: ReindexTypeChangeTokenization,

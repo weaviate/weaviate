@@ -177,7 +177,6 @@ func readClassAndTasks(collection string, taskSource localTaskLister, classes cl
 	return class, db.ReindexRuns(byNamespace[db.ReindexNamespace])
 }
 
-// mayReadTenants is silent: a status poll is not a denied request.
 func (h *indexesHandlers) mayReadTenants(ctx context.Context, principal *models.Principal, collection string) bool {
 	return h.appState.Authorizer.AuthorizeSilent(ctx, principal, authorization.READ,
 		authorization.ShardsMetadata(collection)...) == nil
@@ -803,9 +802,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// Pick the most useful one to surface rather than the first in the list:
 	//   STARTED > FAILED ≈ CANCELLED ≈ FINISHED   (in-flight beats terminal)
 	//   newer StartedAt > older StartedAt          (within the same priority)
-	// FINISHED tasks stay in the loop for the tiebreak below; see
-	// [taskStatusPriority] for why. FINISHED itself surfaces nothing (see
-	// its case).
+	// FINISHED tasks stay in the loop for the tiebreak; see [taskStatusPriority].
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload
 	for _, pt := range parsedTasks {

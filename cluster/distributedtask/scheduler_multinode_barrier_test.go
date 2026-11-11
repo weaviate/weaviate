@@ -76,8 +76,7 @@ type barrierRecordingProvider struct {
 	swapStatuses []TaskStatus
 	taskStatuses []TaskStatus
 	swapGroups   []string
-	// taskDecided is the decided groups each OnTaskCompleted was handed.
-	taskDecided [][]string
+	taskDecided  [][]string
 	// calls orders PREP and swap fires: "prep:<group>" or "swap:<group>".
 	calls []string
 }
@@ -240,8 +239,7 @@ func (h *barrierHarness) tick(nodeIdx int) {
 	h.nodes[nodeIdx].scheduler.tick()
 }
 
-// restart replaces a node's scheduler with a fresh one, as after a process
-// restart; the provider stands for on-disk state and survives.
+// restart swaps in a fresh scheduler; the provider (on-disk state) survives.
 func (h *barrierHarness) restart(nodeIdx int) *Scheduler {
 	return h.restartWith(nodeIdx, h.nodes[nodeIdx].provider)
 }
@@ -503,7 +501,6 @@ func TestBarrier_G2_PartialPhaseBFailure(t *testing.T) {
 		"task must remain FAILED — MarkTaskFinalized must not promote past FAILED")
 	require.Equal(t, map[string][]string{"": {"node-2"}}, task.SwapsOwed, "only node-2 still owes its swap")
 
-	// The owed swap survives node-2's restart and is paid on a FAILED task.
 	h.nodes[1].provider.SetSwapRequestedError(nil)
 	h.restart(1)
 	h.tick(1)
@@ -514,8 +511,7 @@ func TestBarrier_G2_PartialPhaseBFailure(t *testing.T) {
 	require.Equal(t, 3, h.nodes[1].provider.swapCount(taskID), "node-2 swapped until it succeeded")
 }
 
-// A duplicate PreparationCompleteAck arriving after PREPARING → SWAPPING (a
-// retried wire call) is dropped: the task stays SWAPPING, original ack intact.
+// A duplicate PreparationCompleteAck after PREPARING → SWAPPING is dropped.
 func TestBarrier_G3_LatePrepAckArrivesInSwapping(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -531,7 +527,6 @@ func TestBarrier_G3_LatePrepAckArrivesInSwapping(t *testing.T) {
 	decidedAt, decided := task.SwapDecidedGroups[""]
 	require.True(t, decided, "prerequisite: both nodes' prep acks decided the group by SWAPPING")
 
-	// A retried wire call's duplicate failed PREP ack must be dropped.
 	h.clock.Advance(time.Minute)
 	require.NoError(t, h.ackRecorder.RecordDistributedTaskPreparationCompleteAck(
 		context.Background(), h.namespace, taskID, 1, "", "node-2", false, "late duplicate prep ack with synthesized failure",
@@ -711,14 +706,11 @@ func TestBarrier_G6_RestartMidPhaseARecovery(t *testing.T) {
 	require.Equal(t, TaskStatusPreparing, tasks[0].Status)
 	require.Len(t, tasks[0].PreparedGroups[""], 1)
 
-	// Restart node-2: fresh scheduler state, same provider (stands for on-disk state).
 	freshScheduler := h.restart(1)
 
 	// node-3 also restarted; rebuild it the same way for completeness.
 	freshScheduler3 := h.restart(2)
 
-	// Fresh schedulers start with every group pending, so they re-fire
-	// OnGroupCompleted; a duplicate re-ack is harmless.
 	freshScheduler.tick()
 	freshScheduler3.tick()
 
@@ -738,10 +730,7 @@ func TestBarrier_G6_RestartMidPhaseARecovery(t *testing.T) {
 		"FSM must lift to SWAPPING after the restarted nodes re-emit their prep-acks")
 }
 
-// TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode: group-a is owned
-// only by node-1, group-b only by node-2, which crashes pre-prep-ack.
-// group-a decides on its own; group-b stays undecided until node-2
-// recovers.
+// group-a (node-1 only) decides alone; group-b (node-2 only, crashed pre-ack) waits for node-2.
 func TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -815,8 +804,7 @@ func TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode(t *testing.T) {
 		"FSM must lift to SWAPPING after the crashed node's group is recovered")
 }
 
-// PreparedGroups survives a JSON snapshot/restore round-trip, so a follower
-// installing a snapshot mid-PREPARING sees the leader's partial ack map.
+// PreparedGroups survives a JSON snapshot/restore round-trip.
 func TestBarrier_G8_SnapshotRestoreMidPreparing(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -889,8 +877,7 @@ func TestBarrier_G8_SnapshotRestoreMidPreparing(t *testing.T) {
 		"after the restored Manager records node-3's prep-ack, the barrier must lift to SWAPPING — proving the restore preserved enough state for the FSM transition to fire correctly")
 }
 
-// Pins: a cancel once every group's swap is decided has nothing left to
-// cancel, so the migration still swaps on every replica, finishes and flips.
+// Pins that a cancel after every group's swap is decided leaves the migration to finish and flip.
 func TestBarrier_G9_CancelAfterDecisionStillSwapsEveryReplica(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -980,7 +967,6 @@ func TestBarrier_FailedPhaseHandsCallbacksFailedStatus(t *testing.T) {
 				"node-2's failed ack must fail the task")
 			require.Equal(t, tt.swapStatuses, failing.swapStatuses,
 				"node-2 must not run a swap the barrier did not lift")
-			// A failed PREP ack reaches the callbacks through RAFT, on the next tick.
 			h.tick(1)
 			require.Equal(t, []TaskStatus{TaskStatusFailed}, failing.taskStatuses,
 				"node-2 must run FAILED cleanup, never the SWAPPING schema flip")
@@ -995,9 +981,7 @@ func TestBarrier_FailedPhaseHandsCallbacksFailedStatus(t *testing.T) {
 	}
 }
 
-// Pins that FAILED cleanup reads the status RAFT committed, never one a node
-// assumed from its own failed PREP ack: RAFT may hold a decision the tick's
-// copy has not seen, or may have dropped the ack altogether.
+// Pins that FAILED cleanup reads the status RAFT committed, never one a node assumed from its own failed PREP ack.
 func TestBarrier_FailedPrepAckLeavesStatusToRaft(t *testing.T) {
 	addTask := func(t *testing.T, h *barrierHarness, units map[string]string) {
 		specs := []*cmd.UnitSpec{}
@@ -1023,8 +1007,7 @@ func TestBarrier_FailedPrepAckLeavesStatusToRaft(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		run  func(t *testing.T, h *barrierHarness)
-		// wantDecided is what node-2's FAILED cleanup must see decided; nil
-		// means the task never failed and no cleanup may run.
+		// wantDecided is what node-2's FAILED cleanup must see; nil means no cleanup runs.
 		wantDecided []string
 	}{
 		{

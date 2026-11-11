@@ -955,10 +955,8 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 	return nil
 }
 
-// CancelTask transitions a STARTED or PREPARING task to CANCELLED and refuses every other status,
-// including one this build cannot name (see [TaskStatus.IsCancellable]). In-flight units
-// are not waited for — the [Scheduler] will terminate their local handles on the next tick.
-// Decided groups keep their swap; SWAPPING answers [ErrNothingLeftToCancel].
+// CancelTask moves a STARTED or PREPARING task to CANCELLED and refuses every other status
+// (see [TaskStatus.IsCancellable]). Decided groups keep their swap; SWAPPING answers [ErrNothingLeftToCancel].
 func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	var r api.CancelDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {

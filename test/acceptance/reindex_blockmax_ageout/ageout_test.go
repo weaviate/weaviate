@@ -321,9 +321,7 @@ func dumpLogs(ctx context.Context, t *testing.T, c testcontainers.Container) {
 
 const stoppedRunLargeObjects = 100_000
 
-// A stopped change-algorithm run on a class with the blockmax flag off leaves
-// the small tenant on blockmax and the large one on WAND. After a restart, the
-// resubmit the refusals name must migrate the large tenant.
+// After a restart, the resubmit named by a partial run's refusals must migrate the remaining tenant.
 func TestBlockmaxStoppedChangeAlgorithmResubmitAfterRestart(t *testing.T) {
 	ctx := context.Background()
 	compose, err := reindexhelpers.SingleNodeCompose().Start(ctx)

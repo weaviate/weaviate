@@ -337,22 +337,14 @@ func (s *Scheduler) bootstrapProviders(tasksByNamespace map[string]map[TaskDescr
 			Set(float64(len(startedTasks)))
 	}
 
-	// Pre-mark already-terminal tasks so the tick skips their callbacks. This MUST
-	// happen for every provider's tasks, not just the providers we have
-	// registered locally — a task in a namespace we don't host can still
-	// appear in tasksByNamespace via RAFT replication.
+	// Pre-mark already-terminal tasks so the tick skips their callbacks, for
+	// every namespace, including ones this node hosts no provider for.
 	s.preMarkTerminalCallbacksLocked(tasksByNamespace)
 	s.bootstrapped = true
 }
 
-// preMarkTerminalCallbacksLocked marks terminal tasks fired. The per-task state is empty on every fresh
-// scheduler, and without this pre-mark the tick loop would re-fire
-// OnGroupCompleted + OnTaskCompleted for every task still in the FSM
-// (including tasks whose callbacks already fired before the restart).
-// For semantic migrations that produce a cluster-wide schema flip
-// (change-tokenization, enable-searchable), an older task replaying
-// after a newer one has already committed its flip silently reverts
-// the schema cluster-wide.
+// preMarkTerminalCallbacksLocked marks terminal tasks fired so a restart does not replay their callbacks:
+// an older task replaying after a newer one's flip would silently revert the schema cluster-wide.
 //
 // Caller MUST hold s.mu.
 func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]map[TaskDescriptor]*Task) {

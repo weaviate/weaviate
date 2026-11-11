@@ -427,8 +427,7 @@ func TestTheUnreadableRecordGuardNamesTheBadFilesUpToACap(t *testing.T) {
 	}
 }
 
-// Pins that a stopped run's cached swap retry pays its debt once a newer run
-// of the same migration retired its record, and that an unreadable record still fails it.
+// Pins that a stopped run's cached swap retry pays its debt once a newer run retired its record.
 func TestSwapRetryOfARunANewerRunSuperseded(t *testing.T) {
 	for _, unreadable := range []bool{false, true} {
 		t.Run(fmt.Sprintf("unreadable=%t", unreadable), func(t *testing.T) {
@@ -448,7 +447,6 @@ func TestSwapRetryOfARunANewerRunSuperseded(t *testing.T) {
 				UnitToShard: map[string]string{unit: shard.Name()},
 			}
 			desc := distributedtask.TaskDescriptor{ID: "R1", Version: 1}
-			// Never run, so no record: as after the newer run retired it.
 			tasks, err := p.createReindexTasks(desc, unit, payload)
 			require.NoError(t, err)
 			p.cacheReindexTasks(desc, unit, tasks)
@@ -471,8 +469,7 @@ func TestSwapRetryOfARunANewerRunSuperseded(t *testing.T) {
 	}
 }
 
-// Pins that a decided swap retried after OnTaskCompleted decodes the payload
-// once, and that the decoded copy is freed once the task leaves the list.
+// Pins that a swap retried after OnTaskCompleted decodes the payload once and frees it when the task leaves.
 func TestLoadPayloadIsKeptUntilTheTaskLeavesTheList(t *testing.T) {
 	p := NewReindexProvider(nil, nil, nil, logrus.New(), "node-0", nil, nil)
 	raw, err := json.Marshal(ReindexTaskPayload{Collection: "Docs", MigrationType: ReindexTypeChangeTokenization})

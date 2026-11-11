@@ -308,10 +308,7 @@ func TestCheckReindexConflictForPropertyMutation_DifferentPropertyAllows(t *test
 	require.Empty(t, h.checkReindexConflictForPropertyMutation(context.Background(), "C", "title", true))
 }
 
-// Pins that an index DELETE is refused while a partial run stands on the
-// property, by the REST pre-flight and the apply guard alike, naming the
-// resubmit; another property is not held, nor is a run a newer flip covered.
-// Only a caller who may read the tenants is told how many migrated.
+// Pins that an index DELETE is refused, naming the resubmit, while a partial run stands on the property.
 func TestIndexDeleteRefusedWhileAPartialRunStands(t *testing.T) {
 	run := func(id string, version uint64, status distributedtask.TaskStatus, mt db.ReindexMigrationType, decided bool) *distributedtask.Task {
 		task := buildTask(t, id, status, db.ReindexTaskPayload{

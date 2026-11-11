@@ -1051,8 +1051,7 @@ type doubleFaultFixture struct {
 	recordsDir string
 }
 
-// installCaughtUpTaskList makes the node's applied task list readable and decide no swap, so an
-// unarmable record may be stamped; an unreachable leader keeps the cluster pass from acting.
+// installCaughtUpTaskList makes the applied task list readable with no swap decided.
 func installCaughtUpTaskList(ctx context.Context, database *DB) {
 	database.SetMigrationTaskSources(ctx,
 		func(string) ([]distributedtask.TaskStatusEntry, bool) { return nil, true },
@@ -1202,23 +1201,15 @@ func (fx *doubleFaultFixture) requireSwapProceeds(t *testing.T, shard *Shard) {
 	require.True(t, rec.FlipDecided())
 }
 
-// Pins that a tenant set COLD while its swap is owed loses no write taken
-// after it is reactivated. A mirror that fails to arm at the reload holds the
-// shard READONLY rather than stamping the record, since a stamp would refuse
-// the owed swap for good; once lifted, the late swap holds the write.
+// Pins that a tenant set COLD while its swap is owed loses no write taken after reactivation.
 func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		// The load runs before this node's RAFT has caught up, so no task list is readable yet.
-		raftBehind bool
-		// This node acked its PREP, and the swap is decided only after the load.
+		name             string
+		raftBehind       bool // load runs before RAFT catches up: no task list yet
 		decidedAfterLoad bool
-		// The task then ends with the swap still undecided, so nothing is owed.
-		endsUndecided bool
-		// An earlier load stamped the record, which already refuses the swap.
-		stampedBefore bool
-		// The task ended FAILED rather than CANCELLED before the owed swap ran.
-		failed bool
+		endsUndecided    bool // nothing is owed
+		stampedBefore    bool // an earlier load stamped the record
+		failed           bool // FAILED rather than CANCELLED
 	}{
 		{name: "the mirror fails to arm"},
 		{name: "the mirror fails to arm, and the task failed", failed: true},
@@ -1311,7 +1302,6 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 			}
 			require.Equal(t, storagestate.StatusReadOnly, reloaded.GetStatus())
 			if tc.endsUndecided {
-				// In place, so the lift runs before the periodic cluster pass discards the ended run.
 				atLoad.Status = distributedtask.TaskStatusCancelled
 				require.ErrorContains(t, liftReady(reloaded)(), "a recovery retry started")
 				awaitRetry(t, reloaded)
@@ -1354,8 +1344,7 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 	}
 }
 
-// corruptIngestSegments puts an unreadable segment in every staged bucket, so
-// the next load cannot arm the mirror, and returns what puts them back.
+// corruptIngestSegments breaks every staged bucket so the next load cannot arm the mirror; the result restores them.
 func corruptIngestSegments(t *testing.T, lsm string) func() {
 	t.Helper()
 	entries, err := os.ReadDir(lsm)
@@ -1386,9 +1375,7 @@ func corruptIngestSegments(t *testing.T, lsm string) func() {
 	}
 }
 
-// A committed swap whose shard is held on its own migration fails the task
-// instead of keeping it SWAPPING, so the collection can be deleted; the swap
-// stays owed.
+// A committed swap whose shard is held fails the task rather than keeping it SWAPPING; the swap stays owed.
 func TestAHeldCommittedSwapFailsTheTaskAndKeepsItsDebt(t *testing.T) {
 	fx := newDoubleFaultFixture(t, "tenant-held-commit")
 	node, unitID := fx.idx.getSchema.NodeName(), fx.subject.Key.UnitID
@@ -1399,7 +1386,6 @@ func TestAHeldCommittedSwapFailsTheTaskAndKeepsItsDebt(t *testing.T) {
 	payload := fx.subject.reindexPayload()
 	payload.UnitToShard, payload.UnitToNode = map[string]string{unitID: fx.name}, map[string]string{unitID: node}
 	restoreSwappingTask(t, mgr, fx.desc, payload, unitID, fx.name, node)
-	// The node's applied task list decides the swap, so the unarmable record cannot be stamped.
 	fx.idx.db.SetMigrationTaskSources(fx.ctx,
 		func(shard string) ([]distributedtask.TaskStatusEntry, bool) {
 			return mgr.LocalTaskStatuses(ReindexNamespace, shard), true
@@ -1460,7 +1446,6 @@ func restoreSwappingTask(t *testing.T, mgr *distributedtask.Manager, desc distri
 	require.NoError(t, mgr.Restore(snapshot))
 }
 
-// managerAckRecorder applies the scheduler's acks to the FSM, as a RAFT apply would.
 type managerAckRecorder struct{ mgr *distributedtask.Manager }
 
 func (r managerAckRecorder) RecordDistributedTaskPostCompletionAck(_ context.Context, namespace, taskID string,

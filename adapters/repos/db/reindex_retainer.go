@@ -149,7 +149,6 @@ func ReindexRuns(tasks []*distributedtask.Task) []ReindexRun {
 	return runs
 }
 
-// A run claims its whole property: searchable and filterable share one tokenization.
 func ReindexPartialRunConflict(tasks []*distributedtask.Task, collection, property string,
 	accepts func(*ReindexRun) bool, tenantCounts bool,
 ) string {
@@ -187,8 +186,7 @@ func ReindexPartialRun(runs []ReindexRun, collection, property string, indexType
 	return partial, migrated, covered
 }
 
-// ShouldRetainCompletedTask keeps a task while a replica owes a decided swap, and
-// a FAILED or partial task until a newer run covers it. Assumes one property per payload.
+// ShouldRetainCompletedTask keeps a task while a replica owes a swap, or while it is FAILED or partial and uncovered.
 func (p *ReindexProvider) ShouldRetainCompletedTask(task *distributedtask.Task,
 	namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task,
 ) bool {

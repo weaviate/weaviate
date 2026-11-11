@@ -420,17 +420,14 @@ const (
 	// ([UnitStatusCompleted] or [UnitStatusFailed]).
 	TaskStatusStarted TaskStatus = "STARTED"
 
-	// TaskStatusPreparing means every unit terminal AND the task uses the
-	// PREP barrier (semantic migrations), but some groups' swaps are not decided yet. The
-	// task transitions to SWAPPING only after every node's PreparationCompleteAck
-	// lands successfully — any failure flips the task to FAILED. Non-barrier
-	// tasks skip this status entirely.
+	// TaskStatusPreparing means every unit is terminal on a PREP-barrier task but
+	// some swaps are undecided. It becomes SWAPPING once every node's
+	// PreparationCompleteAck lands; any failure makes it FAILED. Non-barrier tasks skip it.
 	TaskStatusPreparing TaskStatus = "PREPARING"
 
-	// TaskStatusSwapping means every node is firing its per-shard atomic
-	// swap; a tenant's replicas can serve different results meanwhile. The task
-	// transitions to FINISHED only after every node's PostCompletionAck
-	// lands successfully.
+	// TaskStatusSwapping means every node is firing its per-shard swap; a tenant's
+	// replicas can serve different results meanwhile. FINISHED follows once every
+	// node's PostCompletionAck lands.
 	TaskStatusSwapping TaskStatus = "SWAPPING"
 
 	// TaskStatusFinished means the task succeeded on every node AND every
@@ -581,7 +578,6 @@ type Task struct {
 	// Whoever replaces it calls [Task.IndexGroups], or group lookups go stale.
 	Units map[string]*Unit `json:"units,omitempty"`
 
-	// groups maps each group to its initial unit IDs; shared, never mutated.
 	groups map[string][]string
 
 	groupCount int
@@ -622,7 +618,7 @@ type PostCompletionAck struct {
 	AckedAt time.Time `json:"ackedAt"`
 }
 
-// IndexGroups rebuilds the group index; call it after assigning Units directly.
+// IndexGroups rebuilds the group index.
 func (t *Task) IndexGroups() {
 	groups := map[string][]string{}
 	for id, u := range t.Units {
