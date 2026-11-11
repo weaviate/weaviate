@@ -266,9 +266,12 @@ func (di DimensionInfo) compressionRatio(dimensions int, quantizedVectorsExist b
 	case DimensionCategorySQ:
 		stats = compressionhelpers.SQStats{}
 	case DimensionCategoryRQ:
-		if di.bits == 1 {
+		switch di.bits {
+		case 1:
 			stats = compressionhelpers.BinaryRQStats{}
-		} else {
+		case 4:
+			stats = compressionhelpers.RQ4Stats{Bits: 4}
+		default:
 			stats = compressionhelpers.RQStats{Bits: uint32(di.bits)}
 		}
 	case DimensionCategoryAuto:

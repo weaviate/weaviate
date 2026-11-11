@@ -105,6 +105,13 @@ func TestDimensionInfoCompressionRatio(t *testing.T) {
 			wantRatio:             3.2,
 		},
 		{
+			name:                  "rq with 4 bits",
+			quantizedVectorsExist: true,
+			dimInfo:               DimensionInfo{category: DimensionCategoryRQ, bits: 4},
+			dimensions:            64,
+			wantRatio:             16.0 / 3, // 64 * 4 bytes / (16 metadata + 32 packed bytes)
+		},
+		{
 			name:                  "rq with 1 bit",
 			quantizedVectorsExist: true,
 			dimInfo:               DimensionInfo{category: DimensionCategoryRQ, bits: 1},

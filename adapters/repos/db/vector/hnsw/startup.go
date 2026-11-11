@@ -158,8 +158,12 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 
 	if state.Compressed() {
 		h.compressed.Store(true)
-		h.cache.Drop()
-		h.cache = nil
+		// already dropped when the config enables BQ, whatever quantizer the
+		// persisted data turns out to be for
+		if h.cache != nil {
+			h.cache.Drop()
+			h.cache = nil
+		}
 
 		if pqData := state.CompressionPQData(); pqData != nil {
 			h.dims.Store(int32(pqData.Dimensions))

@@ -84,6 +84,12 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 
+	// Not every quantizer notices a query of the wrong length; some drop
+	// each candidate while rescoring and return no hits.
+	if dims := int(h.dims.Load()); dims > 0 && len(vector) != dims && !h.multivector.Load() {
+		return nil, nil, errors.Wrapf(distancer.ErrVectorLength, "%d vs %d", len(vector), dims)
+	}
+
 	vector = h.normalizeVec(vector)
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {

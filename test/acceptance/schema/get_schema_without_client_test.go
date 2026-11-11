@@ -70,9 +70,10 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						"trainingLimit": float64(100000),
 						"rescoreLimit":  float64(20),
 					},
+					// the server's built-in DEFAULT_QUANTIZATION
 					"rq": map[string]interface{}{
-						"enabled":       false,
-						"bits":          float64(8),
+						"enabled":       true,
+						"bits":          float64(4),
 						"rescoreLimit":  float64(20),
 						"centering":     false,
 						"trainingLimit": float64(10000),
@@ -89,7 +90,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						},
 					},
 					"skipDefaultQuantization":  false,
-					"trackDefaultQuantization": false,
+					"trackDefaultQuantization": true,
 				},
 				"shardingConfig": map[string]interface{}{
 					"actualCount":         float64(1),
