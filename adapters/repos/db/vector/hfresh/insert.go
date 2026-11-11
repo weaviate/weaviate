@@ -209,9 +209,11 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 		h.postingLocks.Unlock(centroidID)
 		return false, err
 	}
-	count := h.PostingSizes.FastIncrement(centroidID)
-
+	count, err := h.PostingSizes.FastIncrement(ctx, centroidID)
 	h.postingLocks.Unlock(centroidID)
+	if err != nil {
+		return false, err
+	}
 
 	if !reassigned {
 		if count > h.maxPostingSize*5 {

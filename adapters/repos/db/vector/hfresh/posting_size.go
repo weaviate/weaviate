@@ -38,8 +38,8 @@ func NewPostingSizes(bucket bucketRef, metrics *Metrics) *PostingSizes {
 }
 
 // FastIncrement increases the size of the posting in memory and returns the new size.
-// The store is updated asynchronously by an analyze, split, or merge operation.
-func (p *PostingSizes) FastIncrement(postingID uint64) uint32 {
+// The exact size is persisted later by an analyze, split, or merge operation.
+func (p *PostingSizes) FastIncrement(ctx context.Context, postingID uint64) (uint32, error) {
 	page, slot := p.data.EnsurePageFor(postingID)
 	newSize := atomic.AddUint32(&page[slot], 1)
 
@@ -53,7 +53,16 @@ func (p *PostingSizes) FastIncrement(postingID uint64) uint32 {
 	p.metrics.SetPostings(int(p.count.Load()))
 	p.metrics.SetSize(int(p.totalSize.Load()))
 
-	return newSize
+	// Search skips postings whose size is 0, so a posting without a persisted
+	// size would be invisible after a restart until its analyze task ran.
+	if newSize == 1 {
+		err := p.store.Set(ctx, postingID, 1)
+		if err != nil {
+			return newSize, errors.Wrapf(err, "persist size of posting %d", postingID)
+		}
+	}
+
+	return newSize, nil
 }
 
 // Get returns the size of the posting with the given ID. If the posting does not exist, it returns 0.
