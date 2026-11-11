@@ -39,6 +39,34 @@
 // found so far. The best RescoreLimit candidates are then rescored against the
 // full-precision vectors.
 //
+// # Code budget
+//
+// UserConfig.CodeBits keeps only the first sign bits of every code. The
+// default is the full code, one bit per dimension. What a shorter code costs
+// was measured on dbpedia-openai 1M at 1536 dimensions (bench-report.md, v1.2
+// phase B), against the full code:
+//
+//   - 768 bits is the memory mode: 34% less index heap, a recall@10 of 0.99
+//     within reach, 0.74x of the QPS at a recall of 0.95 and 0.90x at 0.99.
+//   - 512 bits is valid and not recommended: 46% less heap, 0.67x and 0.75x,
+//     and its 0.99 takes a RescoreLimit of 800.
+//   - 256 bits is not recommended in memory: 57% less heap, 0.28x at a recall
+//     of 0.95, and no recall above 0.97 with a RescoreLimit of 800.
+//
+// CodeBits alone does not give those numbers. A capped code is noisier, and
+// three other settings have defaults made for the full code:
+//
+//   - RescueLimit 512 (1024 at 512 bits, 4096 at 256). With the default of
+//     64 the edge builder loses neighbors: its edge recall falls from 0.963
+//     to 0.910 at 768 bits.
+//   - TargetPostingSize 236, what the full code gets out of the posting
+//     budget at 1536 dimensions, and the size the capped codes were measured
+//     at. Left at 0, shorter codes make the budget hold more vectors (438 at
+//     768 bits); with the full code, postings of 512 were slower below a
+//     recall of 0.95 (phase C).
+//   - RescoreLimit 200, or 400 where the target is a recall of 0.99. With the
+//     default of 64 the recall tops out at 0.975.
+//
 // # Scope of this version
 //
 // This is the in-memory version: it is built once from the vectors added

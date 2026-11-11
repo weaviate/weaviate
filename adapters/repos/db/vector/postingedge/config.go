@@ -76,12 +76,17 @@ const (
 type UserConfig struct {
 	Distance string `json:"distance"`
 	// TargetPostingSize is the mean number of vectors per posting. 0 derives
-	// it from the dimensionality and DefaultPostingBudgetKB.
+	// it from DefaultPostingBudgetKB and the size of the codes in the
+	// postings, so it grows where CodeBits or ScanCodeBits shorten them.
 	TargetPostingSize int `json:"targetPostingSize"`
 	// CodeBits caps the sign bits kept per code, a multiple of 64. Fewer
 	// bits make the codes smaller and the distance estimates noisier, for
 	// the scan, the ranking of endpoints and the edge builder alike. 0
-	// keeps one bit per dimension, the full code.
+	// keeps one bit per dimension, the full code, and is the default.
+	//
+	// Half of the bits is the memory mode: 768 at 1536 dimensions. It takes
+	// more than this field to get what was measured for it, see "Code
+	// budget" in the package documentation.
 	CodeBits int `json:"codeBits"`
 	// ScanCodeBits gives the postings codes of their own for the scan, capped
 	// to this many sign bits, a multiple of 64. The ranking of endpoints and
