@@ -941,6 +941,14 @@ func (i *Index) maintenanceModeEnabled() bool {
 	return i.Config.MaintenanceModeEnabled != nil && i.Config.MaintenanceModeEnabled()
 }
 
+// asyncReplicationBlockedByMaintenance reports whether maintenance mode pauses async replication on this node.
+func (i *Index) asyncReplicationBlockedByMaintenance() bool {
+	if !i.maintenanceModeEnabled() {
+		return false
+	}
+	return i.globalreplicationConfig == nil || !i.globalreplicationConfig.AsyncReplicationInMaintenanceEnabled.Get()
+}
+
 // cancelOnCloseRequested derives a context cancelled on close request, so a teardown
 // does not wait behind a lock the caller holds. Call the returned func when done.
 // The derived context is cancelled with the same cause, so a caller can tell a

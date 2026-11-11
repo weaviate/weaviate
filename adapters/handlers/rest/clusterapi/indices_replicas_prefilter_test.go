@@ -44,6 +44,7 @@ func newPrefilterTestServer(t *testing.T, replicator replicaTypes.Replicator) (p
 		replicator,
 		clusterapi.NewNoopAuthHandler(),
 		func() bool { return false },
+		func() bool { return false },
 		logger,
 		func() bool { return true },
 	)
