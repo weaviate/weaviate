@@ -126,6 +126,10 @@ func (r *MigrationRecoveryReindexer) ClaimUnits(tasks []*ShardReindexTaskGeneric
 	}
 }
 
+func (r *MigrationRecoveryReindexer) UnbuildableFaults() *logrusext.Sampler {
+	return r.unbuildableFaults
+}
+
 // evictUnits drops whole units, because a cached sibling alone would swap half a migration.
 func (r *MigrationRecoveryReindexer) evictUnits(unarmed []*ShardReindexTaskGeneric) {
 	for _, t := range unarmed {

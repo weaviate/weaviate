@@ -720,6 +720,7 @@ func (r *migrationReconciler) RedecideOverrides(ctx context.Context) []Migration
 		return nil
 	}
 	var released []MigrationSubject
+	failed := errorcompounder.New()
 	for _, rec := range r.store.Records() {
 		promoted, ok := rec.(MigrationRecordPromoted)
 		if !ok || r.overridesSchema(rec) {
@@ -727,11 +728,15 @@ func (r *migrationReconciler) RedecideOverrides(ctx context.Context) []Migration
 		}
 		key := rec.Subject().Key
 		if err := r.reconcilePromoted(ctx, promoted, len(r.store.Unreadable()) > 0); err != nil {
-			r.logger.WithField("record", key.String()).Errorf("release a migration the schema answers for: %v", err)
+			failed.AddWrapf(err, "%s", key)
 		}
 		if _, kept := r.store.Get(key); !kept {
 			released = append(released, rec.Subject())
 		}
+	}
+	if err := failed.ToErrorLimited(maxReportedErrors); err != nil {
+		r.logger.WithField("migrations", failed.Len()).
+			Errorf("release %d migration(s) the schema answers for: %v", failed.Len(), err)
 	}
 	return released
 }

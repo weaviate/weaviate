@@ -158,7 +158,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// opened at a name it is about to move would serve the wrong data.
 	s.finalizeLegacyMigrations(class)
 	recovered := s.reconcileMigrationRecords(ctx, class)
-	s.restoreMigratedOverlays(class)
+	s.restoreMigratedOverlays(class, reindexer.UnbuildableFaults())
 
 	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(
 		index.path(), shardName, class, s.migratedIndexStands); err != nil {

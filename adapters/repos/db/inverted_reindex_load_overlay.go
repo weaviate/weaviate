@@ -15,8 +15,12 @@ import (
 	"cmp"
 	"slices"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 )
 
 func migrationEnablesIndexType(mt ReindexMigrationType) (string, bool) {
@@ -43,7 +47,7 @@ func migrationOverridesSchema(rec MigrationRecord, tasks []distributedtask.TaskS
 	return found && task.Status != distributedtask.TaskStatusFinished
 }
 
-func (s *Shard) restoreMigratedOverlays(class *models.Class) {
+func (s *Shard) restoreMigratedOverlays(class *models.Class, unbuildableFaults *logrusext.Sampler) {
 	if s.migrationRecords == nil || class == nil {
 		return
 	}
@@ -52,6 +56,8 @@ func (s *Shard) restoreMigratedOverlays(class *models.Class) {
 	records := slices.SortedFunc(slices.Values(all), func(a, b MigrationRecord) int {
 		return cmp.Compare(a.Subject().Key.TaskVersion, b.Subject().Key.TaskVersion)
 	})
+	unbuildable := errorcompounder.New()
+	defer s.reportUnbuildableOverlays(unbuildableFaults, unbuildable)
 	for _, rec := range records {
 		subject := rec.Subject()
 		if !migrationOverridesSchema(rec, tasks, readable) {
@@ -64,8 +70,7 @@ func (s *Shard) restoreMigratedOverlays(class *models.Class) {
 		built, err := buildMigrationTasks(s.index.logger, nil, subject.Key.TaskVersion, &payload,
 			func(string, string) bool { return true })
 		if err != nil {
-			s.index.logger.WithField("record", subject.Key.String()).
-				Errorf("cannot rebuild the index settings this shard migrated to: %v", err)
+			unbuildable.AddWrapf(err, "%s", subject.Key)
 			continue
 		}
 		built = slices.DeleteFunc(built, func(t *ShardReindexTaskGeneric) bool {
@@ -93,6 +98,23 @@ func (s *Shard) restoreMigratedOverlays(class *models.Class) {
 			s.SetPropertyOverlay(prop, views[0][prop].BeyondLiveSchema(live))
 		}
 	}
+}
+
+func (s *Shard) reportUnbuildableOverlays(faults *logrusext.Sampler, unbuildable errorcompounder.ErrorCompounder) {
+	reported := unbuildable.ToErrorLimited(maxReportedErrors)
+	if reported == nil {
+		return
+	}
+	report := func(logrus.FieldLogger) {
+		s.index.logger.WithField("shard", s.name).WithField("migrations", unbuildable.Len()).
+			Errorf("cannot rebuild the index settings %d migration(s) of this shard migrated to: %v",
+				unbuildable.Len(), reported)
+	}
+	if faults == nil {
+		report(nil)
+		return
+	}
+	faults.WithSampling(report)
 }
 
 func (s *Shard) migratedIndexStands(propName, indexType string) bool {
