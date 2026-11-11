@@ -32,9 +32,7 @@ import (
 // If there is any action that needs to be performed beside files/dirs being removed
 // from shard directory, it needs to be reflected as well in LazyLoadShard::drop()
 // method to keep drop behaviour consistent.
-// If keepFiles==true, all files on disk are kept, only in-memory structures are removed. This is used to allow backups
-// to complete before the files are deleted.
-func (s *Shard) drop(keepFiles bool) (err error) {
+func (s *Shard) drop() (err error) {
 	// The shard is out of the shard map before drop runs, so it stops being
 	// counted even when the teardown below fails partway. Claiming the count
 	// under shutdownLock keeps it outside performShutdown's gauge transition.
@@ -148,7 +146,7 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	}
 
 	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		if err = index.Drop(ctx, keepFiles); err != nil {
+		if err = index.Drop(ctx); err != nil {
 			return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), err)
 		}
 		return nil
@@ -175,46 +173,44 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		return errors.Wrap(err, "stop lsmkv store")
 	}
 
-	if _, err = os.Stat(s.pathLSM()); err == nil && !keepFiles {
+	if _, err = os.Stat(s.pathLSM()); err == nil {
 		err := os.RemoveAll(s.pathLSM())
 		if err != nil {
 			return errors.Wrapf(err, "remove lsm store at %s", s.pathLSM())
 		}
 	}
 	// delete indexcount
-	err = s.counter.Drop(keepFiles)
+	err = s.counter.Drop()
 	if err != nil {
 		return errors.Wrapf(err, "remove indexcount at %s", s.path())
 	}
 
 	// delete version
-	err = s.versioner.Drop(keepFiles)
+	err = s.versioner.Drop()
 	if err != nil {
 		return errors.Wrapf(err, "remove version at %s", s.path())
 	}
 
 	// delete property length tracker
-	err = s.GetPropertyLengthTracker().Drop(keepFiles)
+	err = s.GetPropertyLengthTracker().Drop()
 	if err != nil {
 		return errors.Wrapf(err, "remove prop length tracker at %s", s.path())
 	}
 
 	s.propertyIndicesLock.Lock()
-	err = s.propertyIndices.DropAll(ctx, keepFiles)
+	err = s.propertyIndices.DropAll(ctx)
 	s.propertyIndicesLock.Unlock()
 	if err != nil {
 		return errors.Wrapf(err, "remove property specific indices at %s", s.path())
 	}
 
 	// rename sync (must complete even if ctx is expired); RemoveAll async
-	if !keepFiles {
-		deleted, err := renameForAsyncDelete(s.path(), s.index.logger)
-		if err != nil {
-			return fmt.Errorf("rename shard for async delete: %w", err)
-		}
-		if deleted != "" {
-			spawnAsyncDelete(deleted, s.index.logger)
-		}
+	deleted, err := renameForAsyncDelete(s.path(), s.index.logger)
+	if err != nil {
+		return fmt.Errorf("rename shard for async delete: %w", err)
+	}
+	if deleted != "" {
+		spawnAsyncDelete(deleted, s.index.logger)
 	}
 
 	s.index.logger.WithFields(logrus.Fields{

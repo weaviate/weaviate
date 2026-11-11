@@ -733,13 +733,9 @@ func nextCommitLogFileName(current string) (ts int64, derived bool) {
 	return max(now, currentTS+1), true
 }
 
-func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
+func (l *hnswCommitLogger) Drop(ctx context.Context) error {
 	if err := l.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "drop commitlog")
-	}
-
-	if keepFiles {
-		return nil
 	}
 
 	l.Lock()

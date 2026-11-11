@@ -79,7 +79,7 @@ func TestShardDrop_StoreShutdownReachedOnPreShutdownFailure(t *testing.T) {
 
 	boom := injectPreShutdownFailure(t, shard)
 
-	err := shard.drop(false)
+	err := shard.drop()
 	require.Error(t, err, "shard.drop must surface the pre-shutdown failure")
 	require.ErrorContains(t, err, boom.Error())
 

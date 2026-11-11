@@ -32,7 +32,7 @@ type VectorIndex interface {
 	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error
-	Drop(ctx context.Context, keepFiles bool) error
+	Drop(ctx context.Context) error
 	Shutdown(ctx context.Context) error
 	Flush() error
 	PrepareForBackup(ctx context.Context) error

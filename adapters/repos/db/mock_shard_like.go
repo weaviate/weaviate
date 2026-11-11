@@ -4163,17 +4163,17 @@ func (_c *MockShardLike_commitReplication_Call) RunAndReturn(run func(context.Co
 	return _c
 }
 
-// drop provides a mock function with given fields: keepFiles
-func (_m *MockShardLike) drop(keepFiles bool) error {
-	ret := _m.Called(keepFiles)
+// drop provides a mock function with no fields
+func (_m *MockShardLike) drop() error {
+	ret := _m.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for drop")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(bool) error); ok {
-		r0 = rf(keepFiles)
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -4187,14 +4187,13 @@ type MockShardLike_drop_Call struct {
 }
 
 // drop is a helper method to define mock.On call
-//   - keepFiles bool
-func (_e *MockShardLike_Expecter) drop(keepFiles interface{}) *MockShardLike_drop_Call {
-	return &MockShardLike_drop_Call{Call: _e.mock.On("drop", keepFiles)}
+func (_e *MockShardLike_Expecter) drop() *MockShardLike_drop_Call {
+	return &MockShardLike_drop_Call{Call: _e.mock.On("drop")}
 }
 
-func (_c *MockShardLike_drop_Call) Run(run func(keepFiles bool)) *MockShardLike_drop_Call {
+func (_c *MockShardLike_drop_Call) Run(run func()) *MockShardLike_drop_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(bool))
+		run()
 	})
 	return _c
 }
@@ -4204,7 +4203,7 @@ func (_c *MockShardLike_drop_Call) Return(_a0 error) *MockShardLike_drop_Call {
 	return _c
 }
 
-func (_c *MockShardLike_drop_Call) RunAndReturn(run func(bool) error) *MockShardLike_drop_Call {
+func (_c *MockShardLike_drop_Call) RunAndReturn(run func() error) *MockShardLike_drop_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -5219,7 +5218,8 @@ func (_c *MockShardLike_updateVectorIndexesIgnoreDelete_Call) RunAndReturn(run f
 func NewMockShardLike(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockShardLike {
+},
+) *MockShardLike {
 	mock := &MockShardLike{}
 	mock.Mock.Test(t)
 

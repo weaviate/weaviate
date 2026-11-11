@@ -174,35 +174,15 @@ func TestCommitLoggerShutdownReleasesFile(t *testing.T) {
 }
 
 func TestCommitLoggerDropAfterShutdown(t *testing.T) {
-	tests := []struct {
-		name      string
-		keepFiles bool
-	}{
-		{name: "remove files", keepFiles: false},
-		{name: "keep files", keepFiles: true},
-	}
+	root := t.TempDir()
+	cl := newShutdownTestCommitLogger(t, root)
+	require.NoError(t, cl.AddTombstone(5))
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			disableGC(t)
-			root := t.TempDir()
-			cl := newShutdownTestCommitLogger(t, root)
-			filePath := cl.ActiveFilePath()
-			require.NoError(t, cl.AddTombstone(5))
+	require.NoError(t, cl.Shutdown(context.Background()))
+	require.NoError(t, cl.Drop(context.Background()))
 
-			require.NoError(t, cl.Shutdown(context.Background()))
-			require.NoError(t, cl.Drop(context.Background(), tt.keepFiles))
-
-			_, err := os.Stat(commitLogDirectory(root, "shutdown"))
-			if tt.keepFiles {
-				require.NoError(t, err)
-				require.Zero(t, openDescriptorCount(t, filePath))
-				require.True(t, hasTombstoneCommit(readCommits(t, filePath), 5))
-				return
-			}
-			require.ErrorIs(t, err, os.ErrNotExist)
-		})
-	}
+	_, err := os.Stat(commitLogDirectory(root, "shutdown"))
+	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestCommitLoggerWritesAfterShutdownFail(t *testing.T) {
@@ -346,7 +326,7 @@ func TestIndexShutdownReleasesCommitLog(t *testing.T) {
 			require.ErrorContains(t, idx.Flush(), "commit log is closed")
 
 			if tt.dropAfterward {
-				require.NoError(t, idx.Drop(ctx, false))
+				require.NoError(t, idx.Drop(ctx))
 				_, err := os.Stat(dir)
 				require.ErrorIs(t, err, os.ErrNotExist)
 				return
@@ -510,7 +490,7 @@ func TestCommitLoggerShutdownFailures(t *testing.T) {
 			require.ErrorIs(t, cl.AddTombstone(2), ErrCommitLogClosed)
 
 			retryErr := cl.Shutdown(ctx)
-			dropErr := cl.Drop(ctx, false)
+			dropErr := cl.Drop(ctx)
 			_, statErr := os.Stat(commitLogDirectory(root, "shutdown"))
 			if len(closeErrs) == 0 {
 				require.NoError(t, retryErr)

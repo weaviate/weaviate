@@ -159,7 +159,7 @@ func (r *propertyLengthsRecounter) end(walkErr error) error {
 		err = r.tracker.Close()
 	}
 	if err != nil {
-		r.tracker.Drop(false)
+		r.tracker.Drop()
 		return err
 	}
 	return nil

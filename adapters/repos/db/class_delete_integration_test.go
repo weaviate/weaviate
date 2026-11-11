@@ -130,19 +130,26 @@ func TestClassLifecycle(t *testing.T) {
 }
 
 // TestDeleteClassDuringBackup deletes a class while a backup of it is open.
-// The backup has already staged its files, so the delete does not wait on it.
-// It renames the class directory to a delete marker that keeps the files for
-// the backup.
+// The backup has already staged its files, so the delete does not wait on it
+// and removes the class directory. The staged files stay for the backup.
 func TestDeleteClassDuringBackup(t *testing.T) {
 	ctx := context.Background()
 	repo, migrator, sg := newTestRepo(t, true,
 		makeTestClass(deleteTestClass), makeTestClass(deleteTestOtherClass))
 
+	addObject(t, ctx, repo, deleteTestClass, "backed up")
 	addObject(t, ctx, repo, deleteTestOtherClass, "bystander")
 
+	var staged []string
 	for d := range repo.BackupDescriptors(ctx, deleteTestBackupID, []string{deleteTestClass}, nil, nil) {
 		require.NoError(t, d.Error)
+		for _, shard := range d.Shards {
+			for _, f := range shard.Files {
+				staged = append(staged, filepath.Join(d.StagingDir, f))
+			}
+		}
 	}
+	require.NotEmpty(t, staged)
 
 	var dropErr error
 	requireNoHang(t, "delete of a class with an open backup", func() {
@@ -170,14 +177,38 @@ func TestDeleteClassDuringBackup(t *testing.T) {
 	assert.Len(t, bystander, 1)
 	assert.NoError(t, writeErr)
 
-	marker := filepath.Join(repo.config.RootPath, backup.DeleteMarkerAdd(indexID(schema.ClassName(deleteTestClass))))
-	staging := backupStagingDir(repo.config.RootPath, deleteTestBackupID, schema.ClassName(deleteTestClass))
-	require.DirExists(t, marker, "the delete must keep the files of a class with an open backup")
-	require.DirExists(t, staging)
+	id := indexID(schema.ClassName(deleteTestClass))
+	assert.NoDirExists(t, filepath.Join(repo.config.RootPath, id))
+	assert.NoDirExists(t, filepath.Join(repo.config.RootPath, backup.DeleteMarker+id))
+	for _, f := range staged {
+		assert.FileExists(t, f, "the delete must leave the backup's staged files")
+	}
 
+	staging := backupStagingDir(repo.config.RootPath, deleteTestBackupID, schema.ClassName(deleteTestClass))
 	require.NoError(t, repo.ReleaseBackup(ctx, deleteTestBackupID, deleteTestClass))
-	assert.NoDirExists(t, marker, "releasing the backup must remove the delete marker")
 	assert.NoDirExists(t, staging, "releasing the backup must remove the staging dir")
+}
+
+// TestDeleteRecreatedClassDuringBackup deletes a class during a backup and
+// recreates it before the release, twice. A directory the first delete leaves
+// behind breaks only the second, so the class recreated last must start empty.
+func TestDeleteRecreatedClassDuringBackup(t *testing.T) {
+	ctx := context.Background()
+	repo, migrator, sg := newTestRepo(t, false, makeTestClass(deleteTestClass))
+
+	for _, backupID := range []string{"first-backup", "second-backup"} {
+		addObject(t, ctx, repo, deleteTestClass, backupID)
+		for d := range repo.BackupDescriptors(ctx, backupID, []string{deleteTestClass}, nil, nil) {
+			require.NoError(t, d.Error)
+		}
+		deleteClass(t, ctx, migrator, sg, deleteTestClass)
+		createClass(t, ctx, migrator, sg, deleteTestClass)
+		require.NoError(t, repo.ReleaseBackup(ctx, backupID, deleteTestClass))
+	}
+
+	res, objErr := queryClass(ctx, repo, deleteTestClass)
+	require.Nil(t, objErr)
+	assert.Empty(t, res, "the recreated class must not serve objects of a deleted one")
 }
 
 // requireNoHang fails instead of stalling when fn blocks. fn runs on its own

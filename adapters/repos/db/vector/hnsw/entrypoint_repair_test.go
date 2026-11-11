@@ -75,7 +75,7 @@ func newEntrypointRepairIndex(t *testing.T, commitLogger MakeCommitLogger, gone 
 		VectorCacheMaxObjects: 100000,
 	}, cyclemanager.NewCallbackGroupNoop(), store)
 	require.NoError(t, err)
-	t.Cleanup(func() { index.Drop(ctx, false) })
+	t.Cleanup(func() { index.Drop(ctx) })
 	// all on level 0, so the descent cannot hop past the broken entrypoint
 	index.randFunc = func() float64 { return 0.5 }
 
@@ -207,7 +207,7 @@ func TestEntrypointRepair_ConcurrentRepairAlreadyChanged(t *testing.T) {
 		VectorCacheMaxObjects: 100000,
 	}, cyclemanager.NewCallbackGroupNoop(), store)
 	require.NoError(t, err)
-	defer index.Drop(ctx, false)
+	defer index.Drop(ctx)
 
 	// Insert initial nodes
 	for i := 0; i < len(vectors); i++ {

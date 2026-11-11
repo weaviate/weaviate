@@ -205,32 +205,14 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error
 	}()
 
 	idx := db.GetIndex(schema.ClassName(class))
-	if idx == nil {
-		// a class whose drop is still running is unpublished but registered in
-		// droppingIndex. The release finds it there and resets its backup state.
-		idx = db.droppingIndex(indexID(schema.ClassName(class)))
-	}
-
 	if idx != nil {
 		return idx.ReleaseBackup(ctx, bakID)
-	} else {
-		// index has been deleted in the meantime. Cleanup files that were kept to complete backup
-		path := filepath.Join(db.config.RootPath, backup.DeleteMarkerAdd(indexID(schema.ClassName(class))))
-		exists, err := diskio.DirExists(path)
-		if err != nil {
-			return err
-		}
-		if exists {
-			if err := os.RemoveAll(path); err != nil {
-				return err
-			}
-		}
+	}
 
-		// Clean up staging directory that may have been created by CreateBackupSnapshot
-		stagingDir := backupStagingDir(db.config.RootPath, bakID, schema.ClassName(class))
-		if err := os.RemoveAll(stagingDir); err != nil {
-			db.logger.WithField("staging_dir", stagingDir).WithError(err).Warn("failed to remove backup staging dir")
-		}
+	// the class was deleted during the backup, which leaves only its staging dir
+	stagingDir := backupStagingDir(db.config.RootPath, bakID, schema.ClassName(class))
+	if err := os.RemoveAll(stagingDir); err != nil {
+		db.logger.WithField("staging_dir", stagingDir).Warnf("failed to remove backup staging dir: %v", err)
 	}
 	return nil
 }
@@ -598,7 +580,7 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	// Clean up staging directory (idempotent — RemoveAll on non-existent dir is no-op)
 	stagingDir := backupStagingDir(i.Config.RootPath, id, i.Config.ClassName)
 	if err := os.RemoveAll(stagingDir); err != nil {
-		i.logger.WithField("staging_dir", stagingDir).WithError(err).Warn("failed to remove backup staging dir")
+		i.logger.WithField("staging_dir", stagingDir).Warnf("failed to remove backup staging dir: %v", err)
 	}
 
 	_ = i.withEachLoadedShard(func(name string, shard ShardLike) error {

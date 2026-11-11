@@ -2821,49 +2821,28 @@ func TestEnableAsyncReplicationShutObservedUnderLock(t *testing.T) {
 	t.Fatal("enable never reached the in-lock check across attempts")
 }
 
-// TestEnableAsyncReplicationSkipsDroppedShard: enable on a dropped shard is a no-op — no snapshot consumed, no tree, no registration, nothing resurrected.
+// TestEnableAsyncReplicationSkipsDroppedShard: enable on a dropped shard is a no-op — no tree, no registration, nothing resurrected.
 func TestEnableAsyncReplicationSkipsDroppedShard(t *testing.T) {
 	ctx := context.Background()
+	sl, _ := testShard(t, ctx, "EnableSkipsDroppedShard", withAsyncScheduler(t))
+	s := concreteShard(t, sl)
 
-	t.Run("keepFiles drop leaves planted snapshot", func(t *testing.T) {
-		sl, _ := testShard(t, ctx, "EnableSkipsDroppedShardKeep", withAsyncScheduler(t))
-		s := concreteShard(t, sl)
+	require.NoError(t, s.drop())
 
-		dir := s.pathHashTree()
-		require.NoError(t, os.MkdirAll(dir, os.ModePerm))
-		stray := filepath.Join(dir, "hashtree-00000000000000aa.ht")
-		require.NoError(t, os.WriteFile(stray, []byte("snapshot"), 0o600))
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+	s.asyncReplicationRWMux.RLock()
+	require.Nil(t, s.hashtree)
+	s.asyncReplicationRWMux.RUnlock()
+	_, err := os.Stat(s.path())
+	require.True(t, os.IsNotExist(err), "enable must not resurrect the dropped shard directory")
 
-		require.NoError(t, s.drop(true))
-
-		require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
-		s.asyncReplicationRWMux.RLock()
-		require.Nil(t, s.hashtree)
-		s.asyncReplicationRWMux.RUnlock()
-		require.Len(t, htFilesInDir(t, dir), 1, "skip must not consume the snapshot")
-
-		sched := s.index.asyncReplicationScheduler
-		require.Never(t, func() bool {
-			sched.mu.Lock()
-			defer sched.mu.Unlock()
-			_, registered := sched.entries[s]
-			return registered
-		}, 300*time.Millisecond, 25*time.Millisecond, "a dropped shard must never register with the scheduler")
-	})
-
-	t.Run("full drop resurrects nothing", func(t *testing.T) {
-		sl, _ := testShard(t, ctx, "EnableSkipsDroppedShardFull", withAsyncScheduler(t))
-		s := concreteShard(t, sl)
-
-		require.NoError(t, s.drop(false))
-
-		require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
-		s.asyncReplicationRWMux.RLock()
-		require.Nil(t, s.hashtree)
-		s.asyncReplicationRWMux.RUnlock()
-		_, err := os.Stat(s.path())
-		require.True(t, os.IsNotExist(err), "enable must not resurrect the dropped shard directory")
-	})
+	sched := s.index.asyncReplicationScheduler
+	require.Never(t, func() bool {
+		sched.mu.Lock()
+		defer sched.mu.Unlock()
+		_, registered := sched.entries[s]
+		return registered
+	}, 300*time.Millisecond, 25*time.Millisecond, "a dropped shard must never register with the scheduler")
 }
 
 // TestRebuildFromScratchSkipsDroppedShard: a rebuild racing a tenant delete must install nothing and resurrect nothing.
@@ -2873,7 +2852,7 @@ func TestRebuildFromScratchSkipsDroppedShard(t *testing.T) {
 	s := concreteShard(t, sl)
 	enableAndAwaitAsync(t, ctx, s)
 
-	require.NoError(t, s.drop(false))
+	require.NoError(t, s.drop())
 
 	require.NoError(t, s.rebuildAsyncReplicationFromScratch(ctx, true, minAsyncReplicationConfig()))
 	s.asyncReplicationRWMux.RLock()
@@ -2890,7 +2869,7 @@ func TestDisableAsyncReplicationSkipsDroppedShard(t *testing.T) {
 	s := concreteShard(t, sl)
 	enableAndAwaitAsync(t, ctx, s)
 
-	require.NoError(t, s.drop(false))
+	require.NoError(t, s.drop())
 
 	require.NoError(t, s.disableAsyncReplication(ctx))
 	_, err := os.Stat(s.path())

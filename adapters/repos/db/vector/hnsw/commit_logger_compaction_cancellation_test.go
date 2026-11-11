@@ -107,7 +107,7 @@ func TestCommitLoggerCancelableCompaction(t *testing.T) {
 		{
 			name: "Drop",
 			invoke: func(cl *hnswCommitLogger, ctx context.Context) error {
-				return cl.Drop(ctx, false)
+				return cl.Drop(ctx)
 			},
 			assertCleanState: func(t *testing.T, commitDir string) {
 				_, statErr := os.Stat(commitDir)

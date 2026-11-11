@@ -30,7 +30,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/backup"
 )
@@ -879,130 +878,6 @@ func TestWriteShard(t *testing.T) {
 			} else {
 				require.Nil(t, splitFile, "did not expect a SplitFile")
 			}
-		})
-	}
-}
-
-// TestRenamingDuringBackup tests that the backup process can handle files being renamed concurrently
-func TestRenamingDuringBackup(t *testing.T) {
-	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, ZstdBestCompression, NoCompression} {
-		t.Run(fmt.Sprintf("compressionLevel=%v", compressionLevel), func(t *testing.T) {
-			dir := filepath.Join(t.TempDir(), "source")
-			dir2 := filepath.Join(t.TempDir(), "dest")
-			ctx := context.Background()
-			require.NoError(t, os.MkdirAll(dir, os.ModePerm))
-			require.NoError(t, os.MkdirAll(dir2, os.ModePerm))
-
-			sd := backup.ShardDescriptor{
-				Name: "shard1",
-				Node: "node1",
-			}
-
-			rng := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
-
-			// create files with random data and one important byte at the end to make sure that the complete file is read
-			// There will be concurrent renaming and reading of the files
-			writeDir := filepath.Join(dir, "collection")
-			writeDirRename := filepath.Join(dir, backup.DeleteMarkerAdd("collection"))
-
-			require.NoError(t, os.MkdirAll(writeDir, os.ModePerm))
-			counter := 0
-			for i := range 100 {
-				f, err := os.Create(filepath.Join(writeDir, strconv.Itoa(i)+".tmp"))
-				require.NoError(t, err)
-				size := rng.Intn(4096)
-				buf := make([]byte, size)
-				n, err := rng.Read(buf)
-				require.NoError(t, err)
-				require.Equal(t, size, n)
-				_, err = f.Write(buf)
-				require.NoError(t, err)
-				_, err = f.Write([]byte{byte(i)})
-				require.NoError(t, err)
-				counter += size + i
-
-				require.NoError(t, f.Close())
-				sd.Files = append(sd.Files, filepath.Join("collection", strconv.Itoa(i)+".tmp"))
-			}
-
-			f, err := os.Create(filepath.Join(writeDir, "indexcount.tmp"))
-			require.NoError(t, err)
-			_, err = f.Write([]byte("12345"))
-			require.NoError(t, err)
-			require.NoError(t, f.Close())
-			sd.DocIDCounterPath = filepath.Join("collection", "indexcount.tmp")
-			sd.DocIDCounter = []byte("12345")
-
-			f, err = os.Create(filepath.Join(writeDir, "version.tmp"))
-			require.NoError(t, err)
-			_, err = f.Write([]byte("12345"))
-			require.NoError(t, err)
-			require.NoError(t, f.Close())
-			sd.ShardVersionPath = filepath.Join("collection", "version.tmp")
-			sd.Version = []byte("12345")
-
-			f, err = os.Create(filepath.Join(writeDir, "propLength.tmp"))
-			require.NoError(t, err)
-			_, err = f.Write([]byte("12345"))
-			require.NoError(t, err)
-			require.NoError(t, f.Close())
-			sd.PropLengthTrackerPath = filepath.Join("collection", "propLength.tmp")
-			sd.PropLengthTracker = []byte("12345")
-
-			// start backup process
-			z, rc, err := NewZip(dir, int(compressionLevel), 0, 0, 0)
-			require.NoError(t, err)
-			fileList := newFileList(t, dir, sd.Files)
-			// Use assert (not require) in goroutines: require calls t.FailNow() which
-			// invokes runtime.Goexit(), terminating the goroutine without running
-			// deferred cleanup (z.Close). That would leave the pipe writer open and
-			// deadlock the main goroutine on io.Copy.
-			go func() {
-				defer func() { assert.NoError(t, z.Close()) }()
-				_, _, err := z.WriteShard(ctx, &sd, fileList, true, &atomic.Int64{}, "chunk")
-				assert.NoError(t, err)
-			}()
-
-			// rename files concurrently
-			wg := sync.WaitGroup{}
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				require.NoError(t, os.Rename(writeDir, writeDirRename))
-			}()
-
-			compressBuf := bytes.NewBuffer(make([]byte, 0, 1000_000))
-			_, err = io.Copy(compressBuf, rc)
-			require.NoError(t, err)
-			require.NoError(t, rc.Close())
-
-			require.NoError(t, os.RemoveAll(dir))
-
-			compressionType, err := CompressionTypeFromLevel(compressionLevel)
-			require.NoError(t, err)
-
-			uz, wc := NewUnzip(dir2, compressionType)
-			go func() {
-				defer func() { assert.NoError(t, wc.Close()) }()
-				_, err := io.Copy(wc, compressBuf)
-				assert.NoError(t, err)
-			}()
-			_, err = uz.ReadChunk()
-			require.NoError(t, err)
-			require.NoError(t, uz.Close())
-
-			wg.Wait()
-
-			// check restored backup
-			readDir := filepath.Join(dir2, "collection")
-			counter2 := 0
-			for i := range 100 {
-				buf, err := os.ReadFile(filepath.Join(readDir, strconv.Itoa(i)+".tmp"))
-				require.NoError(t, err)
-				// files have a random length AND their last byte is the index
-				counter2 += len(buf) - 1 + int(buf[len(buf)-1])
-			}
-			require.Equal(t, counter, counter2)
 		})
 	}
 }

@@ -791,7 +791,7 @@ func (u *uploader) compress(ctx context.Context,
 // createFileList creates a FileList from a ShardDescriptor with Files copied,
 // FileSizes map populated, and BigFilesThreshold calculated.
 // This allows file sizes to be collected once at the start of processing rather than repeatedly during compression.
-// Returns an error if any file in the shard doesn't exist at either the normal path or delete marker path.
+// Returns an error if any file in the shard doesn't exist.
 func (u *uploader) createFileList(shard *backup.ShardDescriptor, sourcePath string) (*backup.FileList, error) {
 	sourceDataPath := sourcePath
 	files := shard.Files
@@ -799,19 +799,11 @@ func (u *uploader) createFileList(shard *backup.ShardDescriptor, sourcePath stri
 
 	for _, relPath := range files {
 		fullPath := filepath.Join(sourceDataPath, relPath)
-		if info, err := os.Stat(fullPath); err == nil {
-			fileSizes[relPath] = info.Size()
-		} else if os.IsNotExist(err) {
-			// Check if the file exists with the delete marker prefix
-			deletedPath := filepath.Join(sourceDataPath, backup.DeleteMarkerAdd(relPath))
-			if info, err := os.Stat(deletedPath); err == nil {
-				fileSizes[relPath] = info.Size()
-			} else {
-				return nil, fmt.Errorf("file %q not found at %q or %q: %w", relPath, fullPath, deletedPath, err)
-			}
-		} else {
+		info, err := os.Stat(fullPath)
+		if err != nil {
 			return nil, fmt.Errorf("failed to stat file %q: %w", fullPath, err)
 		}
+		fileSizes[relPath] = info.Size()
 	}
 
 	// Copy files slice

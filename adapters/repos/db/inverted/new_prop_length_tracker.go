@@ -424,8 +424,8 @@ func (t *JsonShardMetaData) Close() error {
 	return nil
 }
 
-// Drop closes the tracker and, unless keepFiles, removes its file.
-func (t *JsonShardMetaData) Drop(keepFiles bool) error {
+// Drop closes the tracker and removes its file.
+func (t *JsonShardMetaData) Drop() error {
 	if t == nil {
 		return nil
 	}
@@ -433,18 +433,11 @@ func (t *JsonShardMetaData) Drop(keepFiles bool) error {
 	t.Lock()
 	defer t.Unlock()
 
-	// Files kept for a running backup are deleted once it finishes, so they
-	// need no fsync.
-	if keepFiles && !t.closed {
-		t.lockFreeFlush()
-	}
 	clear(t.data.BucketedData)
 	t.closed = true
 
-	if !keepFiles {
-		os.Remove(t.path)
-		os.Remove(t.path + ".bak")
-	}
+	os.Remove(t.path)
+	os.Remove(t.path + ".bak")
 
 	return nil
 }

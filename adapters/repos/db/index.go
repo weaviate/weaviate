@@ -54,7 +54,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
-	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -4231,11 +4230,6 @@ func (i *Index) drop() error {
 	i.Config.DimensionsReindex.forget(i.ID())
 	i.Config.PropertyLengthsRecount.forget(i.ID())
 
-	// Check if a backup is in progress. Dont delete files in this case so the backup process can complete successfully
-	// The files will be deleted after the backup is completed and in case of a crash on next startup.
-	lastBackup := i.lastBackup.Load()
-	keepFiles := lastBackup != nil
-
 	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
@@ -4251,7 +4245,7 @@ func (i *Index) drop() error {
 			if !ok {
 				return nil // shard already does not exist
 			}
-			if err := shard.drop(keepFiles); err != nil {
+			if err := shard.drop(); err != nil {
 				ec.Add(err)
 				i.logger.WithField("action", "drop_shard").
 					WithField("shard", shard.ID()).Error(err)
@@ -4286,26 +4280,14 @@ func (i *Index) drop() error {
 		}
 	}
 
-	if keepFiles {
-		// backup framework expects the DeleteMarkerAdd-prefixed rename
-		marker := filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID()))
-		if err := os.Rename(i.path(), marker); err != nil {
-			ec.Add(fmt.Errorf("rename index for delete marker: %w", err))
-		} else if i.lastBackup.Load() == nil {
-			// A release ran between the lastBackup read above and this rename. It
-			// found the index through droppingIndex, and idx.ReleaseBackup cleared
-			// lastBackup without looking for the marker. Nothing else removes the
-			// marker, so the drop does.
-			ec.Add(os.RemoveAll(marker))
-		}
-	} else {
-		// rename sync (must complete even if ctx is expired); RemoveAll async
-		deleted, err := renameForAsyncDelete(i.path(), i.logger)
-		if err != nil {
-			ec.Add(fmt.Errorf("rename index for async delete: %w", err))
-		} else if deleted != "" {
-			spawnAsyncDelete(deleted, i.logger)
-		}
+	// A backup in flight reads its staging copy, not these files. The rename
+	// must complete even after ctx expires, so it runs synchronously and only
+	// the RemoveAll runs async.
+	deleted, err := renameForAsyncDelete(i.path(), i.logger)
+	if err != nil {
+		ec.Add(fmt.Errorf("rename index for async delete: %w", err))
+	} else if deleted != "" {
+		spawnAsyncDelete(deleted, i.logger)
 	}
 	return ec.ToErrorLimited(maxReportedErrors)
 }
@@ -4374,7 +4356,7 @@ func (i *Index) dropShards(names []string) error {
 				unloadedMu.Unlock()
 			} else {
 				// If shard is loaded use the native primitive to drop it
-				if err := shard.drop(false); err != nil {
+				if err := shard.drop(); err != nil {
 					ec.Add(err)
 					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
 				}

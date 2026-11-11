@@ -426,8 +426,8 @@ func dataDirEntries(ctx context.Context, node int) ([]string, error) {
 }
 
 // requireClassDirsReclaimed waits until no ./data entry on any node contains a
-// lowercased class name. A drop first appends ".deleteme" or prepends
-// "__DELETE_ME_AFTER_BACKUP__", so equality and prefix tests both miss it.
+// lowercased class name. A drop first renames the dir to
+// "<name>.<ts>.<hex>.deleteme", so an equality test misses it.
 func requireClassDirsReclaimed(t *testing.T, ctx context.Context, qualifiedClasses ...string) {
 	t.Helper()
 	require.NotEmpty(t, qualifiedClasses, "nothing to assert the absence of")

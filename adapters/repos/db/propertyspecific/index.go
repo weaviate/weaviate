@@ -53,7 +53,7 @@ func (i Indices) ShutdownGeoIndices(ctx context.Context) error {
 	return ec.ToError()
 }
 
-func (i Indices) DropAll(ctx context.Context, keepFiles bool) error {
+func (i Indices) DropAll(ctx context.Context) error {
 	// one failing property must not skip the teardown of the remaining ones
 	ec := errorcompounder.New()
 	for propName, index := range i {
@@ -63,7 +63,7 @@ func (i Indices) DropAll(ctx context.Context, keepFiles bool) error {
 			continue
 		}
 
-		if err := index.GeoIndex.Drop(ctx, keepFiles); err != nil {
+		if err := index.GeoIndex.Drop(ctx); err != nil {
 			ec.AddWrapf(err, "drop property %s", propName)
 			continue
 		}

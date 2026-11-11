@@ -284,7 +284,7 @@ func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
 func TestCleanupSweepSummary(t *testing.T) {
 	const (
 		unchecked = ": the sweep did not reach every shard, so what is on the ones it missed or did not finish is unverified"
-		dropped   = ": the collection is not on this node, so whatever is left here is removed with the collection directory, unless a backup in flight is keeping those files"
+		dropped   = ": the collection is not on this node, so whatever is left here is removed with the collection directory"
 	)
 
 	tests := []struct {
@@ -301,8 +301,7 @@ func TestCleanupSweepSummary(t *testing.T) {
 			wantTail:  ": sweep finished, unloaded shards with nothing to sweep left unloaded",
 		},
 		{
-			// Not a warning, but not a promise the disk is clean either: a
-			// backup in flight makes the delete keep the files.
+			// Not a warning: deleting the collection removes its directory.
 			name:      "the collection is not on this node",
 			outcome:   CleanupSweepDropped,
 			wantLevel: logrus.InfoLevel,

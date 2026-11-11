@@ -157,7 +157,7 @@ func TestDropAll(t *testing.T) {
 			for i := 0; i < max(test.repeat, 1); i++ {
 				indices := newIndices(t, test.geoProps, test.otherProp)
 
-				err := indices.DropAll(testContext(t, test.cancelled), false)
+				err := indices.DropAll(testContext(t, test.cancelled))
 
 				if len(test.wantErrs) == 0 {
 					require.NoError(t, err)

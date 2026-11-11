@@ -67,33 +67,7 @@ func TestCreateFileList(t *testing.T) {
 		assert.Equal(t, int64(200), fileList.FileSizes["file2.db"])
 	})
 
-	t.Run("success with delete marker file", func(t *testing.T) {
-		t.Parallel()
-		tempDir := t.TempDir()
-
-		// Create a file with delete marker prefix
-		deletedFile := "deleted.db"
-		deletedFilePath := filepath.Join(tempDir, backup.DeleteMarkerAdd(deletedFile))
-		err := os.WriteFile(deletedFilePath, make([]byte, 150), 0o644)
-		require.NoError(t, err)
-
-		shard := &backup.ShardDescriptor{
-			Name:  "test-shard",
-			Node:  "test-node",
-			Files: []string{deletedFile},
-		}
-
-		u := &uploader{
-			log: logrus.New(),
-		}
-
-		fileList, err := u.createFileList(shard, tempDir)
-		require.NoError(t, err)
-		require.NotNil(t, fileList)
-		assert.Equal(t, int64(150), fileList.FileSizes[deletedFile])
-	})
-
-	t.Run("error when file not found at either path", func(t *testing.T) {
+	t.Run("error when a file is missing", func(t *testing.T) {
 		t.Parallel()
 		tempDir := t.TempDir()
 
@@ -117,8 +91,8 @@ func TestCreateFileList(t *testing.T) {
 		fileList, err := u.createFileList(shard, tempDir)
 		require.Error(t, err)
 		require.Nil(t, fileList)
+		require.ErrorIs(t, err, os.ErrNotExist)
 		assert.Contains(t, err.Error(), "missing.db")
-		assert.Contains(t, err.Error(), "not found")
 	})
 
 	// Three files sized 100/200/300 with MinChunkSize=0, so BigFilesThreshold is the n-th

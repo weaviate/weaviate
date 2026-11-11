@@ -115,7 +115,7 @@ type ShardLike interface {
 	ObjectDigestsInRange(ctx context.Context, initialUUID, finalUUID strfmt.UUID, limit int) (objs []types.RepairDigest, err error)
 	CompareDigests(ctx context.Context, sourceDigests []types.RepairDigest) ([]types.RepairDigest, error)
 	ID() string // Get the shard id
-	drop(keepFiles bool) error
+	drop() error
 	HaltForTransfer(ctx context.Context, offloading bool) error
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
 	// counts must be non-nil; the sweep cost accrues there instead of being logged per call.

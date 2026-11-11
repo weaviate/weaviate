@@ -1685,7 +1685,7 @@ const (
 	// up to the staleness [dirNamesCache] names.
 	CleanupSweepClean CleanupSweepOutcome = iota
 	// CleanupSweepDropped: the collection is not on this node — though shards
-	// may have been swept first, and [Index.drop]'s keepFiles can leave state.
+	// may have been swept first.
 	CleanupSweepDropped
 	// CleanupSweepUnknown: the walk left shards unvisited, or ran out of time
 	// partway through one. What is on them is unknown, which is not the same as
@@ -1747,7 +1747,7 @@ func CleanupSweepSummary(phase string, outcome CleanupSweepOutcome) (msg string,
 			logrus.InfoLevel
 	case CleanupSweepDropped:
 		return phase + ": the collection is not on this node, so whatever is left here is removed " +
-				"with the collection directory, unless a backup in flight is keeping those files",
+				"with the collection directory",
 			logrus.InfoLevel
 	case CleanupSweepFailed:
 		return phase + ": a shard could not be swept, so it is left partly swept with nothing " +
