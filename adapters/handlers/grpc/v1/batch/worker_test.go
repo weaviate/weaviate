@@ -109,7 +109,7 @@ func TestWorkerLoop(t *testing.T) {
 		require.NotNil(t, report.Stats, "Expected stats to be returned")
 		require.Len(t, report.Successes, 1, "Expected one result to be returned")
 
-		require.Equal(t, toBeacon(ref1), report.Successes[0].GetBeacon(), "Expected second result's beacon to match")
+		require.Equal(t, ReferenceUUID(ref1), report.Successes[0].GetBeacon(), "Expected second result's beacon to match")
 
 		require.Empty(t, rq, "Expected reporting queue to be empty after reading all messages")
 		close(processingQueue) // Allow the draining logic to exit naturally
@@ -207,12 +207,12 @@ func TestWorkerLoop(t *testing.T) {
 
 		require.Equal(t, UUID0, report.Successes[0].GetUuid(), "Expected first success' UUID to match")
 		require.Equal(t, UUID2, report.Successes[1].GetUuid(), "Expected second success' UUID to match")
-		require.Equal(t, toBeacon(ref2), report.Successes[2].GetBeacon(), "Expected third success' beacon to match")
+		require.Equal(t, ReferenceUUID(ref2), report.Successes[2].GetBeacon(), "Expected third success' beacon to match")
 
 		require.Equal(t, "objs error", report.Errors[0].GetError(), "Expected first error to be first non-retriable object error")
 		require.Equal(t, UUID1, report.Errors[0].GetUuid(), "Expected first error's UUID to match")
 		require.Equal(t, "refs error", report.Errors[1].GetError(), "Expected second error to be first non-retriable reference error")
-		require.Equal(t, toBeacon(ref1), report.Errors[1].GetBeacon(), "Expected second error's beacon to match")
+		require.Equal(t, ReferenceUUID(ref1), report.Errors[1].GetBeacon(), "Expected second error's beacon to match")
 
 		require.Empty(t, rq, "Expected reporting queue to be empty after reading all messages")
 		close(processingQueue) // Allow the draining logic to exit naturally
@@ -575,7 +575,7 @@ func TestSendReferencesReplyIndexGuards(t *testing.T) {
 	beaconsOf := func(idxs ...int) []string {
 		out := make([]string, 0, len(idxs))
 		for _, i := range idxs {
-			out = append(out, toBeacon(refs[i]))
+			out = append(out, ReferenceUUID(refs[i]))
 		}
 		return out
 	}

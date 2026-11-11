@@ -670,9 +670,7 @@ func TestOutOfMemoryReply(t *testing.T) {
 		require.NotEqual(t, -1, oom, "a rejected message must produce an OutOfMemory message")
 		got := sent.all()[oom].GetOutOfMemory()
 		require.Equal(t, []string{objs[0].GetUuid(), objs[1].GetUuid()}, got.GetUuids())
-		require.Equal(t, []string{
-			batch.BEACON_START + refs[0].GetToCollection() + "/" + refs[0].GetToUuid() + "/" + refs[0].GetName(),
-		}, got.GetBeacons())
+		require.Equal(t, []string{batch.ReferenceUUID(refs[0])}, got.GetBeacons())
 		require.EqualValues(t, batch.OOM_WAIT_TIME, got.GetWaitTime())
 	})
 }
@@ -1139,9 +1137,7 @@ func Test_receiver_ackForDelay(t *testing.T) {
 		require.NotEqual(t, -1, acks)
 		got := sent.all()[acks].GetAcks()
 		require.Equal(t, []string{objs[0].GetUuid(), objs[1].GetUuid()}, got.GetUuids())
-		require.Equal(t, []string{
-			batch.BEACON_START + refs[0].GetToCollection() + "/" + refs[0].GetToUuid() + "/" + refs[0].GetName(),
-		}, got.GetBeacons())
+		require.Equal(t, []string{batch.ReferenceUUID(refs[0])}, got.GetBeacons())
 	})
 
 	t.Run("no delay at or below the engage ratio", func(t *testing.T) {
@@ -1455,8 +1451,7 @@ func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 			defer sentMu.Unlock()
 			require.ElementsMatch(t, []string{objs[0].GetUuid(), objs[1].GetUuid()}, reportedUuids,
 				"every object of the rejected message must be reported to the client")
-			expectedBeacon := batch.BEACON_START + refs[0].GetToCollection() + "/" + refs[0].GetToUuid() + "/" + refs[0].GetName()
-			require.ElementsMatch(t, []string{expectedBeacon}, reportedBeacons,
+			require.ElementsMatch(t, []string{batch.ReferenceUUID(refs[0])}, reportedBeacons,
 				"every reference of the rejected message must be reported to the client")
 			require.Len(t, reportedErrors, 3, "one error per object and per reference")
 			for _, e := range reportedErrors {
