@@ -1,0 +1,245 @@
+{
+  "arm": "postingedge",
+  "dataset": "wikidpr-10m-e5.bin",
+  "vectors": 10000000,
+  "dims": 768,
+  "queries": 1000,
+  "k": 10,
+  "goVersion": "go1.27.0",
+  "goarch": "arm64",
+  "gomaxprocs": 10,
+  "config": {
+    "edges": 16,
+    "postings": 42373,
+    "probes": [
+      320,
+      384
+    ],
+    "rescues": [
+      64,
+      128,
+      256,
+      512,
+      1024,
+      2048
+    ],
+    "sample": 1000,
+    "targetPostingSize": 236
+  },
+  "buildSec": 0,
+  "memBaseline": {
+    "heapAllocMB": 29534.938438415527,
+    "heapInuseMB": 29536.984375,
+    "rssMB": 29598.46875,
+    "footprintMB": 29696
+  },
+  "memAfterBuild": {
+    "heapAllocMB": 0,
+    "heapInuseMB": 0,
+    "rssMB": 0
+  },
+  "memAfterQueries": {
+    "heapAllocMB": 0,
+    "heapInuseMB": 0,
+    "rssMB": 0
+  },
+  "settleQueries": 0,
+  "indexHeapMB": 0,
+  "peakRSSMB": 0,
+  "componentsMB": null,
+  "points": null,
+  "edgeRecall": [
+    {
+      "codeBits": 0,
+      "probe": 320,
+      "rescue": 64,
+      "candidatesPerVector": 65858.656,
+      "microsPerVector": 3124.196255,
+      "edgeRecall": 0.8977530047030134
+    },
+    {
+      "codeBits": 0,
+      "probe": 320,
+      "rescue": 128,
+      "candidatesPerVector": 65858.656,
+      "microsPerVector": 3260.412994,
+      "edgeRecall": 0.9349416477965511
+    },
+    {
+      "codeBits": 0,
+      "probe": 320,
+      "rescue": 256,
+      "candidatesPerVector": 65858.656,
+      "microsPerVector": 3441.125759,
+      "edgeRecall": 0.9470475526911688
+    },
+    {
+      "codeBits": 0,
+      "probe": 320,
+      "rescue": 512,
+      "candidatesPerVector": 65858.656,
+      "microsPerVector": 3574.000207,
+      "edgeRecall": 0.9502699878070022
+    },
+    {
+      "codeBits": 0,
+      "probe": 320,
+      "rescue": 1024,
+      "candidatesPerVector": 65858.656,
+      "microsPerVector": 4009.8463939999997,
+      "edgeRecall": 0.9508796376937816
+    },
+    {
+      "codeBits": 0,
+      "probe": 320,
+      "rescue": 2048,
+      "candidatesPerVector": 65858.656,
+      "microsPerVector": 4874.532234,
+      "edgeRecall": 0.9508796376937816
+    },
+    {
+      "codeBits": 0,
+      "probe": 384,
+      "rescue": 64,
+      "candidatesPerVector": 78682.226,
+      "microsPerVector": 3801.736512,
+      "edgeRecall": 0.9042849677756488
+    },
+    {
+      "codeBits": 0,
+      "probe": 384,
+      "rescue": 128,
+      "candidatesPerVector": 78682.226,
+      "microsPerVector": 4069.3163489999997,
+      "edgeRecall": 0.9422574464379028
+    },
+    {
+      "codeBits": 0,
+      "probe": 384,
+      "rescue": 256,
+      "candidatesPerVector": 78682.226,
+      "microsPerVector": 4024.956656,
+      "edgeRecall": 0.9547988155373628
+    },
+    {
+      "codeBits": 0,
+      "probe": 384,
+      "rescue": 512,
+      "candidatesPerVector": 78682.226,
+      "microsPerVector": 4290.250548999999,
+      "edgeRecall": 0.9581083434941647
+    },
+    {
+      "codeBits": 0,
+      "probe": 384,
+      "rescue": 1024,
+      "candidatesPerVector": 78682.226,
+      "microsPerVector": 4759.501853,
+      "edgeRecall": 0.958892179062881
+    },
+    {
+      "codeBits": 0,
+      "probe": 384,
+      "rescue": 2048,
+      "candidatesPerVector": 78682.226,
+      "microsPerVector": 5523.486604000001,
+      "edgeRecall": 0.958892179062881
+    },
+    {
+      "codeBits": 512,
+      "probe": 320,
+      "rescue": 64,
+      "candidatesPerVector": 65858.656,
+      "microsPerVector": 2920.291168,
+      "edgeRecall": 0.7808744121233234
+    },
+    {
+      "codeBits": 512,
+      "probe": 320,
+      "rescue": 128,
+      "candidatesPerVector": 65858.656,
+      "microsPerVector": 3066.9820040000004,
+      "edgeRecall": 0.8556871625152412
+    },
+    {
+      "codeBits": 512,
+      "probe": 320,
+      "rescue": 256,
+      "candidatesPerVector": 65858.656,
+      "microsPerVector": 3659.136382,
+      "edgeRecall": 0.906723567322766
+    },
+    {
+      "codeBits": 512,
+      "probe": 320,
+      "rescue": 512,
+      "candidatesPerVector": 65858.656,
+      "microsPerVector": 4314.571955,
+      "edgeRecall": 0.9327643267723393
+    },
+    {
+      "codeBits": 512,
+      "probe": 320,
+      "rescue": 1024,
+      "candidatesPerVector": 65858.656,
+      "microsPerVector": 4528.882576999999,
+      "edgeRecall": 0.94469604598502
+    },
+    {
+      "codeBits": 512,
+      "probe": 320,
+      "rescue": 2048,
+      "candidatesPerVector": 65858.656,
+      "microsPerVector": 5556.266758000001,
+      "edgeRecall": 0.9497474307611914
+    },
+    {
+      "codeBits": 512,
+      "probe": 384,
+      "rescue": 64,
+      "candidatesPerVector": 78682.226,
+      "microsPerVector": 3480.881658,
+      "edgeRecall": 0.7851419613307786
+    },
+    {
+      "codeBits": 512,
+      "probe": 384,
+      "rescue": 128,
+      "candidatesPerVector": 78682.226,
+      "microsPerVector": 3520.5401469999997,
+      "edgeRecall": 0.8610869186552865
+    },
+    {
+      "codeBits": 512,
+      "probe": 384,
+      "rescue": 256,
+      "candidatesPerVector": 78682.226,
+      "microsPerVector": 3700.4449360000003,
+      "edgeRecall": 0.9127329733495907
+    },
+    {
+      "codeBits": 512,
+      "probe": 384,
+      "rescue": 512,
+      "candidatesPerVector": 78682.226,
+      "microsPerVector": 3835.285101,
+      "edgeRecall": 0.9397317540498171
+    },
+    {
+      "codeBits": 512,
+      "probe": 384,
+      "rescue": 1024,
+      "candidatesPerVector": 78682.226,
+      "microsPerVector": 4318.413157,
+      "edgeRecall": 0.9520118446263717
+    },
+    {
+      "codeBits": 512,
+      "probe": 384,
+      "rescue": 2048,
+      "candidatesPerVector": 78682.226,
+      "microsPerVector": 5261.833043,
+      "edgeRecall": 0.9573245079254485
+    }
+  ]
+}
