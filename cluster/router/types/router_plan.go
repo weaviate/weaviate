@@ -156,6 +156,24 @@ func (p ReadRoutingPlan) Replicas() []Replica {
 	return p.ReplicaSet.Replicas
 }
 
+// LocalShardCount returns how many of p's shards ExecuteForEachShard reads on
+// this node. As there, a shard's first replica decides where it is read.
+func (p ReadRoutingPlan) LocalShardCount() int {
+	seen := make(map[string]struct{}, len(p.ReplicaSet.Replicas))
+	count := 0
+	for _, replica := range p.ReplicaSet.Replicas {
+		if _, ok := seen[replica.ShardName]; ok {
+			continue
+		}
+		seen[replica.ShardName] = struct{}{}
+
+		if p.LocalHostname == replica.NodeName {
+			count++
+		}
+	}
+	return count
+}
+
 // ShardPlans splits p into one plan per shard, so a caller holding a
 // collection-wide plan need not have the router resolve every shard again.
 // p must hold every read replica of each shard it covers: cl resolves against

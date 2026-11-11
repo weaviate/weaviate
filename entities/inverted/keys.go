@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"iter"
 	"math"
+	"sync"
 )
 
 // SortedKeys is an ascending, immutable list of encoded index keys, held as
@@ -23,9 +24,9 @@ import (
 // size — rather than a [][]byte, whose 24-byte headers would outweigh the
 // 8-to-16-byte keys they describe.
 //
-// Only a builder's Build and [SortedKeys.Sub] return one, so the order and the
-// absence of duplicates need no re-checking; dropping duplicates means a list
-// can be shorter than what was appended.
+// Only a builder's Build, [SortedKeys.Sub] and [SortedKeys.WithHashes] return
+// one, so the order and the absence of duplicates need no re-checking. Dropping
+// duplicates means a list can be shorter than what was appended.
 //
 // The zero value is a valid empty list.
 type SortedKeys struct {
@@ -35,6 +36,42 @@ type SortedKeys struct {
 	offs []uint32
 	// w is the shared key width, read only when offs is nil.
 	w int
+	// hashes returns the table of key hashes, computing it on the first call,
+	// and is nil until [SortedKeys.WithHashes] sets it.
+	hashes func() []BloomHash
+	// hashFrom is where this list's key 0 sits in that table, which every list
+	// made by [SortedKeys.Sub] shares.
+	hashFrom int
+}
+
+// BloomHash is a key's hash, from which a bloom filter derives its bit
+// locations. [SortedKeys.WithHashes] arranges for sum to hash each key at most
+// once, so every reader sharing the list skips hashing it.
+type BloomHash [4]uint64
+
+// WithHashes returns the list with sum attached, without calling it. The first
+// [SortedKeys.HashAt] on the returned list, or on any list [SortedKeys.Sub]
+// makes from it, hashes every key of the returned list.
+func (k SortedKeys) WithHashes(sum func(key []byte) BloomHash) SortedKeys {
+	root := k
+	k.hashFrom = 0
+	k.hashes = sync.OnceValue(func() []BloomHash {
+		hashes := make([]BloomHash, root.Len())
+		for i, key := range root.All() {
+			hashes[i] = sum(key)
+		}
+		return hashes
+	})
+	return k
+}
+
+// HashAt returns key i's hash, and false when none are attached. The first
+// call hashes the whole table, and concurrent callers wait for it.
+func (k SortedKeys) HashAt(i int) (BloomHash, bool) {
+	if k.hashes == nil {
+		return BloomHash{}, false
+	}
+	return k.hashes()[k.hashFrom+i], true
 }
 
 // Len returns the number of keys.
@@ -132,9 +169,9 @@ func (k SortedKeys) Sub(from, to int) SortedKeys {
 	// Len treats offs without a terminator as empty, so route that shape to the
 	// width arm, which yields an empty list.
 	if len(k.offs) == 0 {
-		return SortedKeys{slab: k.slab[from*k.w : to*k.w : to*k.w], w: k.w}
+		return SortedKeys{slab: k.slab[from*k.w : to*k.w : to*k.w], w: k.w, hashes: k.hashes, hashFrom: k.hashFrom + from}
 	}
-	return SortedKeys{slab: k.slab, offs: k.offs[from : to+1 : to+1]}
+	return SortedKeys{slab: k.slab, offs: k.offs[from : to+1 : to+1], hashes: k.hashes, hashFrom: k.hashFrom + from}
 }
 
 // FirstAtOrAfter returns the first position in [from, to) whose key is at or

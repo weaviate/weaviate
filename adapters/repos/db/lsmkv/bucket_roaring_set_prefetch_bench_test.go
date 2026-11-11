@@ -13,17 +13,21 @@ package lsmkv
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"runtime"
 	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -97,20 +101,7 @@ func benchWindowDocs(key, docsPerRow, stride int) []uint64 {
 // decide what each clone costs (see benchWindowDocs).
 func benchWindowFixture(tb testing.TB, diskHitPct, docsPerRow, docsStride int) (*Bucket, inverted.SortedKeys, []string) {
 	tb.Helper()
-	ctx := context.Background()
-
-	// The pooled buffers the server wires in, so the disk read costs what it
-	// costs in production rather than allocating per row.
-	pool, closePool := roaringset.NewBitmapBufPoolDefault(nullLogger(), nil,
-		config.DefaultQueryBitmapBufsMaxBufSize, config.DefaultQueryBitmapBufsMaxMemory)
-	tb.Cleanup(closePool)
-
-	b, err := NewBucketCreator().NewBucket(ctx, tb.TempDir(), "", nullLogger(), nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyRoaringSet), WithBitmapBufPool(pool))
-	require.NoError(tb, err)
-	tb.Cleanup(func() { require.NoError(tb, b.Shutdown(context.Background())) })
-	b.SetMemtableThreshold(1e9) // no auto-flush; the split is the fixture
+	b := benchWindowBucket(tb)
 
 	names := make([]string, benchWindowBatch)
 	for i := range names {
@@ -131,6 +122,25 @@ func benchWindowFixture(tb testing.TB, diskHitPct, docsPerRow, docsStride int) (
 		}
 	}
 	return b, sortedKeysOf(tb, names), memKeys
+}
+
+// benchWindowBucket opens an empty roaring-set bucket that flushes only when told.
+func benchWindowBucket(tb testing.TB) *Bucket {
+	tb.Helper()
+
+	// The pooled buffers the server wires in, so the disk read costs what it
+	// costs in production rather than allocating per row.
+	pool, closePool := roaringset.NewBitmapBufPoolDefault(nullLogger(), nil,
+		config.DefaultQueryBitmapBufsMaxBufSize, config.DefaultQueryBitmapBufsMaxMemory)
+	tb.Cleanup(closePool)
+
+	b, err := NewBucketCreator().NewBucket(context.Background(), tb.TempDir(), "", nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyRoaringSet), WithBitmapBufPool(pool))
+	require.NoError(tb, err)
+	tb.Cleanup(func() { require.NoError(tb, b.Shutdown(context.Background())) })
+	b.SetMemtableThreshold(1e9) // no auto-flush; the split is the fixture
+	return b
 }
 
 // benchWindowSplitAcrossMemtables leaves the fixture with a flush in flight, so
@@ -398,6 +408,110 @@ func BenchmarkRoaringSetWindowUnderWrite(b *testing.B) {
 					// samples the ring retained, which w-samples reports.
 					b.ReportMetric(float64(writeTotal)/elapsed.Seconds(), "writes/s")
 					b.ReportMetric(float64(len(writeLat)), "w-samples")
+				})
+			}
+		}
+	}
+}
+
+const (
+	benchHashingKeys        = 100_000
+	benchHashingWorkers     = 4
+	benchHashingSegments    = 4
+	benchHashingSegmentRows = 25_000
+)
+
+// benchHashingFixture builds one multi-segment bucket per shard and a filter's
+// uuid keys, hitPct% of which each land on one shard and segment. Rows outside
+// the filter pad every segment, so the bloom filters keep their size at any hitPct.
+func benchHashingFixture(tb testing.TB, shards, hitPct int) ([]*Bucket, inverted.SortedKeys) {
+	tb.Helper()
+	rng := rand.New(rand.NewPCG(1, 2))
+	newUUID := func(dst []byte) {
+		binary.BigEndian.PutUint64(dst, rng.Uint64())
+		binary.BigEndian.PutUint64(dst[8:], rng.Uint64())
+	}
+
+	builder := inverted.NewFixedKeyBuilder(benchHashingKeys, 16)
+	for range benchHashingKeys {
+		newUUID(builder.AppendBuf())
+	}
+	keys, err := builder.Build()
+	require.NoError(tb, err)
+	require.Equal(tb, benchHashingKeys, keys.Len())
+
+	buckets := make([]*Bucket, shards)
+	filler := make([]byte, 16)
+	for shard := range buckets {
+		b := benchWindowBucket(tb)
+		for segment := range benchHashingSegments {
+			written := 0
+			for i := shard + segment*shards; i < keys.Len(); i += shards * benchHashingSegments {
+				if rng.IntN(100) < hitPct {
+					require.NoError(tb, b.RoaringSetAddList(keys.At(i), []uint64{uint64(i)}))
+					written++
+				}
+			}
+			for ; written < benchHashingSegmentRows; written++ {
+				newUUID(filler)
+				require.NoError(tb, b.RoaringSetAddList(slices.Clone(filler), []uint64{uint64(written)}))
+			}
+			require.NoError(tb, b.FlushAndSwitch())
+		}
+		view := b.GetConsistentView()
+		require.Len(tb, view.Disk, benchHashingSegments)
+		view.ReleaseView()
+		buckets[shard] = b
+	}
+	return buckets, keys
+}
+
+// benchProcessCPU is the user and system time this process has used so far.
+func benchProcessCPU(tb testing.TB) time.Duration {
+	var usage syscall.Rusage
+	require.NoError(tb, syscall.Getrusage(syscall.RUSAGE_SELF, &usage))
+	return time.Duration(usage.Utime.Nano() + usage.Stime.Nano())
+}
+
+// BenchmarkRoaringSetBatchHashing compares hashing a filter's keys per shard in
+// RoaringSetBatchReader.Next with one WithHashes table shared by a query's shards.
+// cpu-ms spans the whole process, so it includes the table's GC work. The folds
+// skip the accumulator merge and memtable reads, so a percentage saving is an upper bound.
+//
+//	go test -run '^$' -bench BenchmarkRoaringSetBatchHashing -benchtime 500x -count 6 \
+//	    ./adapters/repos/db/lsmkv/
+func BenchmarkRoaringSetBatchHashing(b *testing.B) {
+	for _, shards := range []int{1, 6} {
+		for _, hitPct := range []int{1, 100} {
+			buckets, keys := benchHashingFixture(b, shards, hitPct)
+			for _, shared := range []bool{false, true} {
+				b.Run(fmt.Sprintf("shards=%d/hits=%d%%/shared=%t", shards, hitPct, shared), func(b *testing.B) {
+					b.ReportAllocs()
+					b.ResetTimer()
+					cpuStart := benchProcessCPU(b)
+					start := time.Now()
+					for n := 0; n < b.N; n++ {
+						queryKeys := keys
+						if shared {
+							queryKeys = keys.WithHashes(bloomhash.Sum)
+						}
+						var folds sync.WaitGroup
+						for _, bucket := range buckets {
+							for w := range benchHashingWorkers {
+								from := keys.Len() * w / benchHashingWorkers
+								to := keys.Len() * (w + 1) / benchHashingWorkers
+								folds.Go(func() {
+									benchWindowFold(b, bucket, queryKeys.Sub(from, to), BatchReaderWindowKeys)
+								})
+							}
+						}
+						folds.Wait()
+					}
+					elapsed := time.Since(start)
+					cpu := benchProcessCPU(b) - cpuStart
+					b.StopTimer()
+					b.ReportMetric(cpu.Seconds()*1e3/float64(b.N), "cpu-ms/op")
+					b.ReportMetric(elapsed.Seconds()*1e3/float64(b.N), "wall-ms/op")
 				})
 			}
 		}

@@ -27,6 +27,7 @@ import (
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -1307,7 +1308,17 @@ func (s *Searcher) extractContains(ctx context.Context,
 	}
 
 	keys, err := value.ContainsKeys(func() (inverted.SortedKeys, error) {
-		return s.buildContainsKeys(batchType, value.Value, property, class)
+		keys, err := s.buildContainsKeys(batchType, value.Value, property, class)
+		if err != nil {
+			return inverted.SortedKeys{}, err
+		}
+		// Inside the build, so every shard reading this value shares one table.
+		// ContainsAll takes none, because its fold can stop after a few keys and
+		// the first HashAt hashes them all.
+		if operator != filters.ContainsAll && value.ContainsHashesShared() {
+			return keys.WithHashes(bloomhash.Sum), nil
+		}
+		return keys, nil
 	})
 	if err != nil {
 		return nil, err
