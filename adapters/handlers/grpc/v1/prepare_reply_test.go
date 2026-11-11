@@ -416,6 +416,41 @@ func TestGRPCReply(t *testing.T) {
 			},
 		},
 		{
+			// Values a module loads come back from storage as []interface{} for
+			// object arrays and empty arrays; they are not references.
+			name: "array properties loaded for a module only",
+			res: []interface{}{
+				map[string]interface{}{
+					"age":    float64(26), // ints are encoded as float64 in json
+					"nested": []interface{}{map[string]interface{}{"text": "loaded for the module"}},
+					"nums":   []interface{}{},
+				},
+			},
+			searchParams: dto.GetParams{
+				ClassName: className,
+				Properties: search.SelectProperties{
+					{Name: "age", IsPrimitive: true},
+					{Name: "nested", IsPrimitive: false},
+					{Name: "nums", IsPrimitive: false},
+				},
+			},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: className,
+						NonRefProps: &pb.Properties{
+							Fields: map[string]*pb.Value{
+								"age": {Kind: &pb.Value_IntValue{IntValue: 26}},
+							},
+						},
+						RefProps:          []*pb.RefPropertiesResult{},
+						RefPropsRequested: false,
+					},
+				},
+			},
+		},
+		{
 			name: "array properties",
 			res: []interface{}{
 				map[string]interface{}{"nums": []float64{1, 2, 3}}, // ints are encoded as float64 in json
