@@ -148,6 +148,23 @@ func TestRankSkipsEmptyAndDuplicateDocuments(t *testing.T) {
 	assert.Equal(t, logrus.Fields{"documents": 4, "judged": 2, "input_tokens": int64(200)}, rankLogFields(t, hook))
 }
 
+func TestRankScoresAWhitespaceOnlyDocumentZeroWithoutSendingIt(t *testing.T) {
+	f := newFake(t)
+	f.probabilities = map[string]float64{"a": 0.8, "b": 0.2}
+
+	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+		documentsOf(" ", "a", "\t\n ", "b"), classConfig(f.url(), nil))
+
+	require.NoError(t, err)
+	assert.Equal(t, []ent.DocumentScore{
+		{Document: " ", Score: 0},
+		{Document: "a", Score: 0.8},
+		{Document: "\t\n ", Score: 0},
+		{Document: "b", Score: 0.2},
+	}, res.DocumentScores)
+	assert.ElementsMatch(t, []string{"a", "b"}, inputs(f.received()))
+}
+
 func TestRankWithEveryDocumentEmpty(t *testing.T) {
 	f := newFake(t)
 

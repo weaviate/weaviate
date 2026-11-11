@@ -105,7 +105,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	owner := make(map[string]int, len(documents))
 	var pending []int
 	for i, document := range documents {
-		if document.Value == "" {
+		if strings.TrimSpace(document.Value) == "" {
 			continue
 		}
 		if _, ok := owner[document.Value]; ok {
