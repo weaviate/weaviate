@@ -298,6 +298,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 	defaultPagination := &filters.Pagination{Limit: 10}
 	quorum := pb.ConsistencyLevel_CONSISTENCY_LEVEL_QUORUM
 	someString1 := "a word"
+	rerankName := "name"
 	someString2 := "other"
 
 	tests := []struct {
@@ -2059,7 +2060,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: append(defaultTestClassProps, []search.SelectProperty{{Name: "one", IsPrimitive: true}, {Name: "two", IsPrimitive: true}}...),
+				Properties: append(defaultTestClassProps, []search.SelectProperty{{Name: "one", IsPrimitive: false}, {Name: "two", IsPrimitive: false}}...),
 				AdditionalProperties: additional.Properties{
 					Vector:  true,
 					NoProps: false,
@@ -2078,7 +2079,14 @@ func TestGRPCSearchRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: defaultTestClassProps,
+				// Loaded for the grouped task; the request asked for no properties.
+				Properties: search.SelectProperties{
+					{Name: "name", IsPrimitive: false},
+					{Name: "int", IsPrimitive: false},
+					{Name: "number", IsPrimitive: false},
+					{Name: "floats", IsPrimitive: false},
+					{Name: "uuid", IsPrimitive: false},
+				},
 				AdditionalProperties: additional.Properties{
 					Vector:  true,
 					NoProps: false,
@@ -2318,7 +2326,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: append(defaultTestClassProps, search.SelectProperty{Name: someString1, IsPrimitive: true}),
+				Properties: append(defaultTestClassProps, search.SelectProperty{Name: someString1, IsPrimitive: false}),
 				AdditionalProperties: additional.Properties{
 					NoProps:      false,
 					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &someString1}},
@@ -2334,10 +2342,48 @@ func TestGRPCSearchRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: append(defaultTestClassProps, search.SelectProperty{Name: someString1, IsPrimitive: true}),
+				Properties: append(defaultTestClassProps, search.SelectProperty{Name: someString1, IsPrimitive: false}),
 				AdditionalProperties: additional.Properties{
 					NoProps:      false,
 					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &someString1, Query: &someString2}},
+				},
+			},
+			error: false,
+		},
+		{
+			// The reranked property is loaded for the reranker and is not returned.
+			name: "Rerank on a property the request does not return",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Properties: &pb.PropertiesRequest{NonRefProperties: []string{"int"}},
+				Rerank:     &pb.Rerank{Property: "name", Query: &someString2},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: search.SelectProperties{
+					{Name: "int", IsPrimitive: true},
+					{Name: "name", IsPrimitive: false},
+				},
+				AdditionalProperties: additional.Properties{
+					NoProps:      false,
+					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &rerankName, Query: &someString2}},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Rerank on a property the request returns",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Properties: &pb.PropertiesRequest{NonRefProperties: []string{"name"}},
+				Rerank:     &pb.Rerank{Property: "name", Query: &someString2},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}},
+				AdditionalProperties: additional.Properties{
+					NoProps:      false,
+					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &rerankName, Query: &someString2}},
 				},
 			},
 			error: false,
