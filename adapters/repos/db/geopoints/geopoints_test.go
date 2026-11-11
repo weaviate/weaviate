@@ -867,3 +867,116 @@ func BenchmarkWithinRange(b *testing.B) {
 		})
 	}
 }
+
+// TestContainsFastMatchesContains pins that the row table decides exactly as
+// Contains does, on points at the boundary and at the latitude where the
+// circle is widest, where the table's offsets peak.
+func TestContainsFastMatchesContains(t *testing.T) {
+	r := rand.New(rand.NewSource(14))
+	decidedByTable := 0
+	for i := 0; i < 1500; i++ {
+		lat := float32(r.Float64()*180 - 90)
+		lon := float32(r.Float64()*360 - 180)
+		dist := float32(math.Exp(r.Float64()*15 + 2)) // ~7 m .. ~24,000 km
+		switch i % 3 {
+		case 1: // hugging the antimeridian
+			lon = float32(math.Copysign(180-math.Exp(r.Float64()*6-6), r.Float64()-0.5))
+		case 2: // hugging a pole
+			lat = float32(math.Copysign(90-math.Exp(r.Float64()*8-6), r.Float64()-0.5))
+		}
+		c, err := NewCircle(lat, lon, dist)
+		require.NoError(t, err)
+		if c.buildRows() == nil {
+			continue
+		}
+		fast, err := NewCircle(lat, lon, dist)
+		require.NoError(t, err)
+		fast.checks = rowBuildAfter // the table is in use from the first check
+
+		check := func(plat, plon float32) {
+			exact := c.Contains(plat, plon)
+			require.Equal(t, exact, fast.containsFast(plat, plon),
+				"circle (%v,%v,%v) point (%v,%v)", lat, lon, dist, plat, plon)
+			d := math.Abs(float64(plon - fast.Lon))
+			if d > 180 {
+				d = 360 - d
+			}
+			row := int((float64(plat) - fast.rows.minLat) * fast.rows.invRowHeight)
+			if row >= 0 && row < rowCount && (d <= fast.rows.inner[row] || d >= fast.rows.outer[row]) {
+				decidedByTable++
+			}
+		}
+		for j := 0; j < 200; j++ {
+			bearing := r.Float64() * 2 * math.Pi
+			d := float64(dist) / earthRadiusMeters * (1 + (r.Float64()-0.5)*4e-6)
+			plat, plon := destination(float64(c.Lat), float64(c.Lon), bearing, d)
+			base := Point{Lat: float32(plat), Lon: float32(plon)}
+			for dlat := -1; dlat <= 1; dlat++ {
+				for dlon := -1; dlon <= 1; dlon++ {
+					check(stepFloat32(base.Lat, dlat), stepFloat32(base.Lon, dlon))
+				}
+			}
+			// random points in and around the box
+			bb := c.boxes[r.Intn(len(c.boxes))]
+			plat2, plon2 := Canonical(bb.MinLat+float32(r.Float64())*(bb.MaxLat-bb.MinLat), bb.MinLon+float32(r.Float64())*(bb.MaxLon-bb.MinLon))
+			check(plat2, plon2)
+		}
+		// on the widest (or narrowest) parallel, at the table's offsets
+		axis, _ := c.axisLat(c.aAbove)
+		if axis > float64(c.boxes[0].MinLat) && axis < float64(c.boxes[0].MaxLat) {
+			row := int((axis - c.rows.minLat) * c.rows.invRowHeight)
+			for _, off := range []float64{c.rows.inner[row], c.rows.outer[row]} {
+				for dlon := -2; dlon <= 2; dlon++ {
+					check(float32(axis), stepFloat32(float32(float64(c.Lon)+off), dlon))
+					check(float32(axis), stepFloat32(float32(float64(c.Lon)-off), dlon))
+				}
+			}
+		}
+	}
+	require.Greater(t, decidedByTable, 100_000, "the table decided too few points to have been tested")
+}
+
+// TestRejectsBoxIsSound pins that a box the row table rejects holds no point
+// Contains accepts.
+func TestRejectsBoxIsSound(t *testing.T) {
+	r := rand.New(rand.NewSource(15))
+	rejected := 0
+	for i := 0; i < 3000; i++ {
+		lat := float32(r.Float64()*180 - 90)
+		lon := float32(r.Float64()*360 - 180)
+		dist := float32(math.Exp(r.Float64()*12 + 5)) // ~150 m .. ~24,000 km
+		c, err := NewCircle(lat, lon, dist)
+		require.NoError(t, err)
+		if c.buildRows() == nil {
+			continue
+		}
+		rDeg := float32(float64(dist) / earthRadiusMeters * 180 / math.Pi)
+		for j := 0; j < 30; j++ {
+			// boxes around the boundary, some crossing the antimeridian
+			box := Box{
+				MinLat: lat + float32(r.NormFloat64())*rDeg,
+				MinLon: lon + float32(r.NormFloat64())*rDeg*2,
+			}
+			box.MaxLat = box.MinLat + float32(r.Float64())*rDeg/4
+			box.MaxLon = box.MinLon + float32(r.Float64())*rDeg/4
+			box.MinLat, box.MaxLat = max(box.MinLat, -90), min(box.MaxLat, 90)
+			if box.MinLon < -180 || box.MaxLon > 180 || box.MinLat > box.MaxLat {
+				continue
+			}
+			if !c.rejectsBox(box) {
+				continue
+			}
+			rejected++
+			for k := 0; k < 20; k++ {
+				plat := box.MinLat + float32(r.Float64())*(box.MaxLat-box.MinLat)
+				plon := box.MinLon + float32(r.Float64())*(box.MaxLon-box.MinLon)
+				if k < 4 { // the corners
+					plat, plon = []float32{box.MinLat, box.MinLat, box.MaxLat, box.MaxLat}[k], []float32{box.MinLon, box.MaxLon, box.MinLon, box.MaxLon}[k]
+				}
+				require.False(t, c.Contains(plat, plon),
+					"circle (%v,%v,%v) rejects box %v but contains (%v,%v)", lat, lon, dist, box, plat, plon)
+			}
+		}
+	}
+	require.Greater(t, rejected, 1000, "too few boxes were rejected to prove anything")
+}

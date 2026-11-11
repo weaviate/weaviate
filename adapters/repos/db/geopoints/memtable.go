@@ -72,7 +72,7 @@ func (m *Memtable) WithinRange(ctx context.Context, c *Circle, out, deleted *sro
 			}
 		}
 		p := &m.points[i]
-		if c.Contains(p.Lat, p.Lon) {
+		if c.containsFast(p.Lat, p.Lon) {
 			matches = append(matches, p.DocID)
 		}
 	}

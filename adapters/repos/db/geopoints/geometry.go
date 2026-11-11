@@ -116,6 +116,12 @@ type Circle struct {
 	// the haversine term of the radius, with a band around it inside which
 	// only the full formula decides; see Contains
 	aBelow, aAbove float64
+
+	// rows is built once a query has checked enough points to pay for it; see
+	// rowTable. A Circle serves one query on one goroutine.
+	rows       *rowTable
+	rowsFailed bool
+	checks     int
 }
 
 func NewCircle(lat, lon, distance float32) (*Circle, error) {
@@ -280,6 +286,193 @@ func (c *Circle) ContainsBox(b Box) bool {
 		c.distance(b.MinLat, b.MaxLon) <= c.innerDistance &&
 		c.distance(b.MaxLat, b.MinLon) <= c.innerDistance &&
 		c.distance(b.MaxLat, b.MaxLon) <= c.innerDistance
+}
+
+// rowTable answers most point checks of a broad query without trigonometry.
+// The circle's latitude band is cut into rows; for each, inner is a longitude
+// offset within which every point of the row is inside, outer one beyond which
+// every point is outside, both in degrees and measured the short way around.
+// The offsets come from the haversine formula solved for longitude at the
+// row's edges and at the latitude where the circle is widest, with the slack
+// Contains' band uses, so a point the table decides is decided as Contains
+// would. Only points between the two offsets run the formula. An inner of -1
+// decides nothing inside, an outer of 180 nothing outside.
+type rowTable struct {
+	minLat, invRowHeight float64
+	inner, outer         [rowCount]float64
+}
+
+const (
+	rowCount = 64
+	// rowBuildAfter is how many point checks a query makes before the table is
+	// worth its few hundred trigonometric calls
+	rowBuildAfter = 1024
+)
+
+// containsFast is Contains with the row table in front of it.
+func (c *Circle) containsFast(lat, lon float32) bool {
+	t := c.rows
+	if t == nil {
+		if c.rowsFailed {
+			return c.Contains(lat, lon)
+		}
+		c.checks++
+		if c.checks < rowBuildAfter {
+			return c.Contains(lat, lon)
+		}
+		if t = c.buildRows(); t == nil {
+			return c.Contains(lat, lon)
+		}
+	}
+	row := (float64(lat) - t.minLat) * t.invRowHeight
+	if row < 0 || row >= rowCount {
+		return c.Contains(lat, lon)
+	}
+	i := int(row)
+	// the subtraction Contains makes; the formula is periodic in it, so an
+	// offset past a half turn is the same as the one the other way around
+	d := math.Abs(float64(lon - c.Lon))
+	if d > 180 {
+		d = 360 - d
+	}
+	if d <= t.inner[i] {
+		return true
+	}
+	if d > t.outer[i] {
+		return false
+	}
+	return c.Contains(lat, lon)
+}
+
+// rejectsBox reports whether the row table places every point of the box
+// outside the circle: on each row the box spans, its nearest longitude is
+// beyond the row's outer offset. It prunes the leaves in the corners of the
+// bounding box that the box test alone lets through. False without a table.
+func (c *Circle) rejectsBox(b Box) bool {
+	t := c.rows
+	if t == nil {
+		return false
+	}
+	// the box's nearest longitude offset to the center, the short way around:
+	// an arc that does not hold the center is nearest at one of its ends
+	cLon := float64(c.Lon)
+	if float64(b.MinLon) <= cLon && cLon <= float64(b.MaxLon) {
+		return false
+	}
+	d := math.Min(wrapOffset(float64(b.MinLon)-cLon), wrapOffset(float64(b.MaxLon)-cLon))
+	// a point's offset is a float32 subtraction, within lonPad of d
+	d -= lonPad
+
+	// a box past the band in latitude falls to its nearest row, which is as
+	// sound as any row since the box test already placed it inside the band
+	lo := clampRow((float64(b.MinLat) - t.minLat) * t.invRowHeight)
+	hi := clampRow((float64(b.MaxLat) - t.minLat) * t.invRowHeight)
+	for i := lo; i <= hi; i++ {
+		if d <= t.outer[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func clampRow(row float64) int {
+	return min(max(int(row), 0), rowCount-1)
+}
+
+// wrapOffset is the size of a longitude difference the short way around.
+func wrapOffset(d float64) float64 {
+	d = math.Abs(d)
+	if d > 180 {
+		d = 360 - d
+	}
+	return d
+}
+
+// buildRows fills the table. The cosines of Contains are off by up to
+// cosineSlack of the latitudes involved, so each row folds its own slack into
+// the thresholds; rows near a pole, where that slack is large, decide nothing.
+func (c *Circle) buildRows() *rowTable {
+	if c.aBelow >= 1 {
+		c.rowsFailed = true
+		return nil
+	}
+	bb := c.boxes[0]
+	t := &rowTable{minLat: float64(bb.MinLat)}
+	height := (float64(bb.MaxLat) - t.minLat) / rowCount
+	if height <= 0 {
+		c.rowsFailed = true
+		return nil
+	}
+	t.invRowHeight = 1 / height
+	tanCenter := math.Tan(math.Abs(float64(c.Lat)) * math.Pi / 180)
+	for i := range rowCount {
+		lo := t.minLat + float64(i)*height
+		hi := lo + height
+		maxAbsLat := math.Max(math.Abs(lo), math.Abs(hi))
+		slack := latRadianErr*(tanCenter+math.Tan(maxAbsLat*math.Pi/180)) + relSlack
+		if slack >= 1.0/(1<<8) {
+			t.inner[i], t.outer[i] = -1, 180
+			continue
+		}
+		aIn := c.aBelow * (1 - slack)
+		aOut := c.aAbove * (1 + slack)
+		// the offset is unimodal in latitude: a cap under a hemisphere peaks at
+		// its axis latitude, a larger one is narrowest at the axis of the cap
+		// it leaves out. So one extreme over a row is at an edge, the other at
+		// the clamped axis.
+		t.inner[i] = math.Min(c.lonOffset(lo, aIn), c.lonOffset(hi, aIn))
+		if axis, trough := c.axisLat(aIn); trough && axis >= lo && axis <= hi {
+			t.inner[i] = math.Min(t.inner[i], c.lonOffset(axis, aIn))
+		}
+		t.outer[i] = math.Max(c.lonOffset(lo, aOut), c.lonOffset(hi, aOut))
+		if axis, trough := c.axisLat(aOut); !trough && axis >= lo && axis <= hi {
+			t.outer[i] = math.Max(t.outer[i], c.lonOffset(axis, aOut))
+		}
+	}
+	c.rows = t
+	return t
+}
+
+// lonOffset is the longitude offset in degrees within which a point at
+// latitude lat has a haversine term of at most a: the circle's half-width on
+// that parallel. -1 when no offset does, 180 when every offset does.
+func (c *Circle) lonOffset(lat, a float64) float64 {
+	cLat := float64(c.Lat)
+	dLat := (lat - cLat) * math.Pi / 180
+	s1 := math.Sin(dLat / 2)
+	s1 *= s1
+	denom := math.Cos(cLat*math.Pi/180) * math.Cos(lat*math.Pi/180)
+	if denom <= 0 {
+		// at a pole every longitude is the same point
+		if s1 <= a {
+			return 180
+		}
+		return -1
+	}
+	x := (a - s1) / denom
+	if x < 0 {
+		return -1
+	}
+	if x >= 1 {
+		return 180
+	}
+	return 2 * math.Asin(math.Sqrt(x)) * 180 / math.Pi
+}
+
+// axisLat is the latitude at which the cap with haversine term a is widest in
+// longitude, asin(sin(lat) / cos(r)). For a cap over a hemisphere it is the
+// latitude where it is narrowest instead, the axis of the cap it leaves out,
+// which trough reports.
+func (c *Circle) axisLat(a float64) (lat float64, trough bool) {
+	r := 2 * math.Asin(math.Sqrt(a))
+	if r > math.Pi/2 {
+		r = math.Pi - r
+		return -math.Asin(math.Sin(float64(c.Lat)*math.Pi/180)/math.Cos(r)) * 180 / math.Pi, true
+	}
+	if r == math.Pi/2 {
+		return float64(c.Lat), false
+	}
+	return math.Asin(math.Sin(float64(c.Lat)*math.Pi/180)/math.Cos(r)) * 180 / math.Pi, false
 }
 
 // Contains decides as Distance would, bit for bit, but compares the haversine
