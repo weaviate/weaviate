@@ -19,6 +19,9 @@
 //	    ./adapters/repos/db/vector/postingedge/ \
 //	    -bench.report.cells full=full.json,768=768.json,512=512.json \
 //	    -bench.report.hnsw hnsw.json -bench.report.cells.out cells.md
+//
+// -bench.report.cells.recalls reads the cells at more recall levels than the
+// three of the comparison with HNSW.
 
 package postingedge
 
@@ -29,6 +32,7 @@ import (
 	"math"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -38,12 +42,19 @@ import (
 var (
 	reportCells = flag.String("bench.report.cells", "", "posting-edge result files of TestBenchmark to compare cell by cell, "+
 		"as label=path pairs separated by commas; the first is the control")
-	reportCellsOut = flag.String("bench.report.cells.out", "", "file to write the cell tables to")
+	reportCellsOut     = flag.String("bench.report.cells.out", "", "file to write the cell tables to")
+	reportCellsRecalls = flag.String("bench.report.cells.recalls", "", "recall levels to read the QPS and the work of the cells at, "+
+		"separated by commas, on top of 0.90, 0.95 and 0.99")
 )
 
 // reachRecall is the recall every default configuration has to reach by
 // raising ef alone.
 const reachRecall = 0.99
+
+// floorRecallGap is how far below the fastest point of a curve a recall level
+// has to be for what is read there to be told apart as that point: the curve
+// has nothing cheaper, and the point has more recall than was asked for.
+const floorRecallGap = 0.0005
 
 type cell struct {
 	label  string
@@ -68,17 +79,51 @@ func TestCellReport(t *testing.T) {
 		readJSON(t, *reportHNSW, theirs)
 	}
 
+	levels := cellRecalls(t)
+
 	var md strings.Builder
 	writeCellSummary(&md, cells, theirs)
+	if len(levels) > len(isoRecallTargets) {
+		writeCellLevels(&md, cells, theirs, levels)
+	}
 	writeCellBuilds(&md, cells)
-	writeCellFrontiers(&md, cells, theirs)
+	writeCellFrontiers(&md, cells, theirs, levels)
 	writeCellReach(&md, cells)
-	writeCellWork(&md, cells)
+	writeCellWork(&md, cells, levels)
 	writeCellUntimedWork(&md, cells)
 	writeCellCalibration(&md, cells)
 	writeCellNoise(&md, cells)
 	writeCellPoints(&md, cells)
 	require.NoError(t, os.WriteFile(*reportCellsOut, []byte(md.String()), 0o644))
+}
+
+// cellRecalls are the recall levels the cells are read at: those of the
+// comparison with HNSW and the ones of -bench.report.cells.recalls, ascending.
+func cellRecalls(t *testing.T) []float64 {
+	levels := slices.Clone(isoRecallTargets)
+	for _, field := range strings.Split(*reportCellsRecalls, ",") {
+		if field = strings.TrimSpace(field); field == "" {
+			continue
+		}
+		level, err := strconv.ParseFloat(field, 64)
+		require.NoErrorf(t, err, "-bench.report.cells.recalls: %q is not a number", field)
+		require.Truef(t, level > 0 && level <= 1, "-bench.report.cells.recalls: %v is not a recall", level)
+		if !slices.Contains(levels, level) {
+			levels = append(levels, level)
+		}
+	}
+	slices.Sort(levels)
+	return levels
+}
+
+// recallLabel writes a recall level with the digits it was given with, and at
+// least two decimals.
+func recallLabel(level float64) string {
+	label := strconv.FormatFloat(level, 'f', -1, 64)
+	if len(label) < len("0.00") {
+		return fmt.Sprintf("%.2f", level)
+	}
+	return label
 }
 
 // configNumber reads a number of the build configuration of a result.
@@ -117,12 +162,35 @@ func cellMargins(result *benchResult) string {
 	return strings.Join(labels, " / ")
 }
 
-// timedCurve returns the timed points of one configuration of a cell, by
-// ascending ef.
-func timedCurve(result *benchResult, threads, rescore int, margin float64) []benchPoint {
-	points := pick(result, threads, func(p benchPoint) bool {
-		return !p.Untimed && p.RescoreLimit == rescore && p.SourceMargin == margin
-	})
+// cellConfig is one configuration of a cell, an ef curve: points that differ
+// in nothing but ef.
+type cellConfig struct {
+	rescore int
+	batch   int
+	margin  float64
+}
+
+func configOf(p benchPoint) cellConfig {
+	return cellConfig{rescore: p.RescoreLimit, batch: p.LoadBatch, margin: p.SourceMargin}
+}
+
+func compareConfigs(a, b cellConfig) int {
+	return cmp.Or(cmp.Compare(a.rescore, b.rescore), cmp.Compare(a.batch, b.batch), cmp.Compare(a.margin, b.margin))
+}
+
+// label names a configuration next to a number read off its curve: rescore
+// limit and source margin, and the load batch where it is not the default.
+func (c cellConfig) label() string {
+	if c.batch != DefaultLoadBatch {
+		return fmt.Sprintf("%d, %s, batch %d", c.rescore, marginLabel(c.margin), c.batch)
+	}
+	return fmt.Sprintf("%d, %s", c.rescore, marginLabel(c.margin))
+}
+
+// timedCurve returns the timed points of one configuration of a cell at a
+// thread count, by ascending ef.
+func timedCurve(result *benchResult, threads int, config cellConfig) []benchPoint {
+	points := pick(result, threads, func(p benchPoint) bool { return !p.Untimed && configOf(p) == config })
 	slices.SortFunc(points, func(a, b benchPoint) int { return a.EF - b.EF })
 	return points
 }
@@ -132,35 +200,19 @@ func timedPoints(result *benchResult, threads int) []benchPoint {
 	return pick(result, threads, func(p benchPoint) bool { return !p.Untimed })
 }
 
-// timedMargins lists the source margins a cell was timed with at a rescore
-// limit, in ascending order. A cell has more than one where the margin its
-// calibration took is set against others on the frontier.
-func timedMargins(result *benchResult, rescore int) []float64 {
-	var out []float64
-	for _, point := range result.Points {
-		if !point.Untimed && point.RescoreLimit == rescore && !slices.Contains(out, point.SourceMargin) {
-			out = append(out, point.SourceMargin)
-		}
-	}
-	slices.Sort(out)
-	return out
-}
-
-// cellConfig is one timed configuration of a cell: an ef curve.
-type cellConfig struct {
-	rescore int
-	margin  float64
-}
-
-// timedConfigs lists the timed configurations of a cell, by rescore limit and
-// then by source margin.
+// timedConfigs lists the timed configurations of a cell, by rescore limit,
+// load batch and source margin. A cell has more than one margin at a rescore
+// limit where the one its calibration took is set against others on the
+// frontier, and more than one load batch where the size of a round is what is
+// being measured.
 func timedConfigs(result *benchResult) []cellConfig {
 	var out []cellConfig
-	for _, rescore := range timedRescoreLimits(result) {
-		for _, margin := range timedMargins(result, rescore) {
-			out = append(out, cellConfig{rescore: rescore, margin: margin})
+	for _, point := range result.Points {
+		if config := configOf(point); !point.Untimed && !slices.Contains(out, config) {
+			out = append(out, config)
 		}
 	}
+	slices.SortFunc(out, compareConfigs)
 	return out
 }
 
@@ -220,7 +272,7 @@ func writeCellBuilds(md *strings.Builder, cells []cell) {
 func timedCurveConfigs(result *benchResult, threads int) []cellConfig {
 	var out []cellConfig
 	for _, config := range timedConfigs(result) {
-		if len(timedCurve(result, threads, config.rescore, config.margin)) > 0 {
+		if len(timedCurve(result, threads, config)) > 0 {
 			out = append(out, config)
 		}
 	}
@@ -232,7 +284,7 @@ func timedCurveConfigs(result *benchResult, threads int) []cellConfig {
 // none of them reaches the level.
 func bestConfigAtRecall(result *benchResult, threads int, target float64) (qps float64, best cellConfig, ok bool) {
 	for _, config := range timedConfigs(result) {
-		curve := timedCurve(result, threads, config.rescore, config.margin)
+		curve := timedCurve(result, threads, config)
 		if read, reached := qpsAtRecall(frontier(curve), target); reached && read > qps {
 			qps, best, ok = read, config, true
 		}
@@ -247,8 +299,8 @@ func writeCellSummary(md *strings.Builder, cells []cell, theirs *benchResult) {
 	control := cells[0]
 	fmt.Fprintf(md, "## Cells at their best configuration\n\n")
 	fmt.Fprintf(md, "Each cell at the timed configuration that gives it the most QPS at each recall, read off its ef curve "+
-		"as in the next table and given with its rescore limit and source margin. The ratios compare with the control (%s) "+
-		"and with HNSW, each at its own best.\n\n", control.label)
+		"as in the frontier table and given with its rescore limit and source margin, and with its load batch where that "+
+		"is not the default. The ratios compare with the control (%s) and with HNSW, each at its own best.\n\n", control.label)
 	fmt.Fprintf(md, "| threads | cell | code B/vector | index heap MB |")
 	for _, target := range isoRecallTargets {
 		fmt.Fprintf(md, " QPS@%.2f |", target)
@@ -289,7 +341,7 @@ func writeCellSummary(md *strings.Builder, cells []cell, theirs *benchResult) {
 					fmt.Fprintf(&hnsw, " — |")
 					continue
 				}
-				fmt.Fprintf(&own, " %.0f (%d, %s) |", qps, config.rescore, marginLabel(config.margin))
+				fmt.Fprintf(&own, " %.0f (%s) |", qps, config.label())
 				if q, _, found := bestConfigAtRecall(control.result, threads, target); found {
 					fmt.Fprintf(&base, " %.2fx |", qps/q)
 				} else {
@@ -318,10 +370,77 @@ func writeCellSummary(md *strings.Builder, cells []cell, theirs *benchResult) {
 	fmt.Fprintf(md, "\n")
 }
 
-// writeCellFrontiers reads the frontier of every cell and rescore limit at
-// the recall levels, and compares it with the control and with HNSW, each of
-// those on its best measured points.
-func writeCellFrontiers(md *strings.Builder, cells []cell, theirs *benchResult) {
+// writeCellLevels reads every cell at each recall level, at the timed
+// configuration that gives it the most QPS there, against the control: the
+// summary over more levels, which shows where two cells meet and where they
+// part.
+func writeCellLevels(md *strings.Builder, cells []cell, theirs *benchResult, levels []float64) {
+	control := cells[0]
+	fmt.Fprintf(md, "## QPS at each recall level\n\n")
+	fmt.Fprintf(md, "Each cell at the timed configuration that gives it the most QPS at the level, read off its ef curve, "+
+		"with its ratio to the control (%s). A QPS given with a recall is that of the fastest point of the curve, which has "+
+		"that recall and not the one of the level: the cell has no cheaper configuration.\n\n", control.label)
+
+	results := make([]*benchResult, len(cells))
+	for i, c := range cells {
+		results[i] = c.result
+	}
+	for _, threads := range threadCounts(results...) {
+		var theirsPoints []benchPoint
+		if theirs != nil {
+			theirsPoints = pick(theirs, threads, nil)
+		}
+		fmt.Fprintf(md, "Threads: %d\n\n| recall |", threads)
+		for _, c := range cells {
+			fmt.Fprintf(md, " %s |", c.label)
+		}
+		if theirs != nil {
+			fmt.Fprintf(md, " HNSW |")
+		}
+		fmt.Fprintf(md, "\n|---|")
+		for range cells {
+			fmt.Fprintf(md, "---|")
+		}
+		if theirs != nil {
+			fmt.Fprintf(md, "---|")
+		}
+		fmt.Fprintf(md, "\n")
+		for _, level := range levels {
+			base, _, baseOK := bestConfigAtRecall(control.result, threads, level)
+			fmt.Fprintf(md, "| %s |", recallLabel(level))
+			for i, c := range cells {
+				if len(timedCurveConfigs(c.result, threads)) == 0 {
+					fmt.Fprintf(md, " — |")
+					continue
+				}
+				qps, config, ok := bestConfigAtRecall(c.result, threads, level)
+				if !ok {
+					fmt.Fprintf(md, " not reached |")
+					continue
+				}
+				fmt.Fprintf(md, " %.0f", qps)
+				if fastest := frontier(timedCurve(c.result, threads, config))[0]; fastest.Recall-level >= floorRecallGap {
+					fmt.Fprintf(md, " at %.4f", fastest.Recall)
+				}
+				if i > 0 && baseOK {
+					fmt.Fprintf(md, " (%.2fx)", qps/base)
+				}
+				fmt.Fprintf(md, " |")
+			}
+			if theirs != nil {
+				q, ok := bestQPSAtRecall(theirsPoints, level)
+				fmt.Fprintf(md, " %s |", qpsCell(q, ok))
+			}
+			fmt.Fprintf(md, "\n")
+		}
+		fmt.Fprintf(md, "\n")
+	}
+}
+
+// writeCellFrontiers reads the frontier of every configuration of each cell
+// at the recall levels, and compares it with the control and with HNSW, each
+// of those on its best measured points.
+func writeCellFrontiers(md *strings.Builder, cells []cell, theirs *benchResult, levels []float64) {
 	control := cells[0]
 	ratio := func(x float64, xOK bool, y float64, yOK bool) string {
 		if !xOK || !yOK {
@@ -334,8 +453,24 @@ func writeCellFrontiers(md *strings.Builder, cells []cell, theirs *benchResult) 
 	fmt.Fprintf(md, "Read off the ef curve of each cell and rescore limit, interpolated linearly in recall and log QPS. ")
 	fmt.Fprintf(md, "The fast end is the best QPS of a measured point with recall of at least %.2f. ", fastEndRecall)
 	fmt.Fprintf(md, "The ratios compare with the best configuration of the control (%s) and of HNSW at the same recall.\n\n", control.label)
-	fmt.Fprintf(md, "| threads | cell | rescore | margin | QPS@0.90 | QPS@0.95 | QPS@0.99 | fast end | cell / control @0.95 | cell / control @0.99 | HNSW / cell @0.95 | HNSW / cell @0.99 |\n")
-	fmt.Fprintf(md, "|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+	// the ratios stay at the two levels the verdicts are given at
+	ratioLevels := []float64{0.95, 0.99}
+	fmt.Fprintf(md, "| threads | cell | rescore | batch | margin |")
+	for _, level := range levels {
+		fmt.Fprintf(md, " QPS@%s |", recallLabel(level))
+	}
+	fmt.Fprintf(md, " fast end |")
+	for _, level := range ratioLevels {
+		fmt.Fprintf(md, " cell / control @%s |", recallLabel(level))
+	}
+	for _, level := range ratioLevels {
+		fmt.Fprintf(md, " HNSW / cell @%s |", recallLabel(level))
+	}
+	fmt.Fprintf(md, "\n|---|---|---|---|---|---|")
+	for range len(levels) + 2*len(ratioLevels) {
+		fmt.Fprintf(md, "---|")
+	}
+	fmt.Fprintf(md, "\n")
 	results := make([]*benchResult, len(cells))
 	for i, c := range cells {
 		results[i] = c.result
@@ -348,17 +483,15 @@ func writeCellFrontiers(md *strings.Builder, cells []cell, theirs *benchResult) 
 		}
 		for _, c := range cells {
 			for _, config := range timedConfigs(c.result) {
-				curve := timedCurve(c.result, threads, config.rescore, config.margin)
+				curve := timedCurve(c.result, threads, config)
 				if len(curve) == 0 {
 					continue
 				}
 				front := frontier(curve)
-				fmt.Fprintf(md, "| %d | %s | %d | %s |", threads, c.label, config.rescore, marginLabel(config.margin))
-				var at [3]float64
-				var ok [3]bool
-				for i, target := range isoRecallTargets {
-					at[i], ok[i] = qpsAtRecall(front, target)
-					fmt.Fprintf(md, " %s |", qpsCell(at[i], ok[i]))
+				fmt.Fprintf(md, "| %d | %s | %d | %d | %s |", threads, c.label, config.rescore, config.batch, marginLabel(config.margin))
+				for _, level := range levels {
+					qps, ok := qpsAtRecall(front, level)
+					fmt.Fprintf(md, " %s |", qpsCell(qps, ok))
 				}
 				fast, fastOK := 0.0, false
 				for _, p := range curve {
@@ -367,25 +500,27 @@ func writeCellFrontiers(md *strings.Builder, cells []cell, theirs *benchResult) 
 					}
 				}
 				fmt.Fprintf(md, " %s |", qpsCell(fast, fastOK))
-				for _, i := range []int{1, 2} {
-					q, qOK := bestQPSAtRecall(controlPoints, isoRecallTargets[i])
-					fmt.Fprintf(md, " %s |", ratio(at[i], ok[i], q, qOK))
+				for _, level := range ratioLevels {
+					own, ok := qpsAtRecall(front, level)
+					q, qOK := bestQPSAtRecall(controlPoints, level)
+					fmt.Fprintf(md, " %s |", ratio(own, ok, q, qOK))
 				}
-				for _, i := range []int{1, 2} {
-					q, qOK := bestQPSAtRecall(theirsPoints, isoRecallTargets[i])
-					fmt.Fprintf(md, " %s |", ratio(q, qOK, at[i], ok[i]))
+				for _, level := range ratioLevels {
+					own, ok := qpsAtRecall(front, level)
+					q, qOK := bestQPSAtRecall(theirsPoints, level)
+					fmt.Fprintf(md, " %s |", ratio(q, qOK, own, ok))
 				}
 				fmt.Fprintf(md, "\n")
 			}
 		}
 		if theirs != nil {
 			// HNSW itself, at the best of its measured points at each recall.
-			fmt.Fprintf(md, "| %d | HNSW | best | — |", threads)
-			for _, target := range isoRecallTargets {
-				q, ok := bestQPSAtRecall(theirsPoints, target)
+			fmt.Fprintf(md, "| %d | HNSW | best | — | — |", threads)
+			for _, level := range levels {
+				q, ok := bestQPSAtRecall(theirsPoints, level)
 				fmt.Fprintf(md, " %s |", qpsCell(q, ok))
 			}
-			fmt.Fprintf(md, " — | — | — | — | — |\n")
+			fmt.Fprintf(md, "%s\n", strings.Repeat(" — |", 1+2*len(ratioLevels)))
 		}
 	}
 	fmt.Fprintf(md, "\n")
@@ -399,29 +534,27 @@ func writeCellReach(md *strings.Builder, cells []cell) {
 		"that keep doubling ef until it gets there or a doubling adds less than %.4f. The ceiling is the best recall measured, "+
 		"and it saturates at the smallest ef within %.4f of it. Without margin is the recall at the largest ef measured, "+
 		"with no source margin.\n\n", reachRecall, ceilingMinGain, ceilingMinGain)
-	fmt.Fprintf(md, "| cell | rescore | margin | first ef with recall ≥ %.2f | recall there | ceiling | saturates at ef | largest ef | recall there | without margin |\n", reachRecall)
-	fmt.Fprintf(md, "|---|---|---|---|---|---|---|---|---|---|\n")
+	fmt.Fprintf(md, "| cell | rescore | batch | margin | first ef with recall ≥ %.2f | recall there | ceiling | saturates at ef | largest ef | recall there | without margin |\n", reachRecall)
+	fmt.Fprintf(md, "|---|---|---|---|---|---|---|---|---|---|---|\n")
 	for _, c := range cells {
 		for _, config := range timedConfigs(c.result) {
-			rescore, margin := config.rescore, config.margin
 			// timed and untimed points alike, one recall per ef
-			recallAt := func(m float64) map[int]float64 {
+			recallAt := func(margin float64) map[int]float64 {
+				at := cellConfig{rescore: config.rescore, batch: config.batch, margin: margin}
 				out := map[int]float64{}
 				for _, p := range c.result.Points {
-					if p.RescoreLimit == rescore && p.SourceMargin == m && p.LoadBatch == DefaultLoadBatch {
+					if configOf(p) == at {
 						out[p.EF] = p.Recall
 					}
 				}
 				for _, p := range c.result.Calibration {
-					if p.RescoreLimit == rescore && p.SourceMargin == m && p.LoadBatch == DefaultLoadBatch {
-						if _, found := out[p.EF]; !found {
-							out[p.EF] = p.Recall
-						}
+					if _, found := out[p.EF]; !found && configOf(p) == at {
+						out[p.EF] = p.Recall
 					}
 				}
 				return out
 			}
-			with, without := recallAt(margin), recallAt(0)
+			with, without := recallAt(config.margin), recallAt(0)
 			efs := make([]int, 0, len(with))
 			for ef := range with {
 				efs = append(efs, ef)
@@ -452,8 +585,9 @@ func writeCellReach(md *strings.Builder, cells []cell) {
 			if recall, found := without[last]; found {
 				bare = fmt.Sprintf("%.4f", recall)
 			}
-			fmt.Fprintf(md, "| %s | %d | %s | %s | %s | %.4f | %d | %d | %.4f | %s |\n",
-				c.label, rescore, marginLabel(margin), first, firstRecall, ceiling, saturates, last, with[last], bare)
+			fmt.Fprintf(md, "| %s | %d | %d | %s | %s | %s | %.4f | %d | %d | %.4f | %s |\n",
+				c.label, config.rescore, config.batch, marginLabel(config.margin), first, firstRecall, ceiling, saturates,
+				last, with[last], bare)
 		}
 	}
 	fmt.Fprintf(md, "\n")
@@ -483,10 +617,10 @@ func statAtRecall(curve []benchPoint, target float64, stat func(benchPoint) floa
 	return 0, false
 }
 
-// controlCurve is the ef curve of the control, with one thread and the margin
-// of its calibration, that a cell at a rescore limit is set against: the one
-// at that limit, or at the largest limit of the control if it was not timed
-// there.
+// controlCurve is the ef curve of the control, with one thread, the default
+// load batch and the margin of its calibration, that a cell at a rescore limit
+// is set against: the one at that limit, or at the largest limit of the
+// control if it was not timed there.
 func controlCurve(control *benchResult, rescore int) []benchPoint {
 	limits := timedRescoreLimits(control)
 	if len(limits) == 0 {
@@ -495,12 +629,12 @@ func controlCurve(control *benchResult, rescore int) []benchPoint {
 	if !slices.Contains(limits, rescore) {
 		rescore = limits[len(limits)-1]
 	}
-	return timedCurve(control, 1, rescore, cellMargin(control, rescore))
+	return timedCurve(control, 1, cellConfig{rescore: rescore, batch: DefaultLoadBatch, margin: cellMargin(control, rescore)})
 }
 
 // writeCellWork breaks down what a search does and where its time goes at
-// equal recall, per cell and rescore limit, with one thread.
-func writeCellWork(md *strings.Builder, cells []cell) {
+// equal recall, per configuration of each cell, with one thread.
+func writeCellWork(md *strings.Builder, cells []cell, levels []float64) {
 	stats := []struct {
 		name string
 		stat func(benchPoint) float64
@@ -509,50 +643,66 @@ func writeCellWork(md *strings.Builder, cells []cell) {
 		{"postings loaded", func(p benchPoint) float64 { return p.Stats.LoadsMean }},
 		{"rounds", func(p benchPoint) float64 { return p.Stats.RoundsMean }},
 		{"vectors scanned", func(p benchPoint) float64 { return p.Stats.ScannedMean }},
+		{"sources expanded", func(p benchPoint) float64 { return p.Stats.ScannedMean - p.Stats.SourcesCut }},
+		{"edges followed", func(p benchPoint) float64 { return p.Stats.EdgesMean }},
 		{"endpoints scored", func(p benchPoint) float64 { return p.Stats.EndpointsMean }},
 		{"centroid µs", func(p benchPoint) float64 { return p.Stats.CentroidUs }},
 		{"scan µs", func(p benchPoint) float64 { return p.Stats.ScanUs }},
 		{"endpoints µs", func(p benchPoint) float64 { return p.Stats.ExpandUs }},
 		{"select µs", func(p benchPoint) float64 { return p.Stats.SelectUs }},
 		{"rescore µs", func(p benchPoint) float64 { return p.Stats.RescoreUs }},
+		{"rest µs", func(p benchPoint) float64 {
+			s := p.Stats
+			return s.TotalUs - s.CentroidUs - s.ScanUs - s.ExpandUs - s.SelectUs - s.RescoreUs
+		}},
 		{"total µs", func(p benchPoint) float64 { return p.Stats.TotalUs }},
 	}
 	loads := stats[1].stat
 
 	fmt.Fprintf(md, "## Work and time per query at equal recall\n\n")
-	fmt.Fprintf(md, "One thread, read along the ef curve of each cell and rescore limit like the QPS. The times come from the "+
-		"instrumented pass, which is slower than the timed ones. Postings loaded are also given against the control at "+
-		"the same rescore limit, or at its largest one where the control was not timed at that limit.\n\n")
-	for _, target := range isoRecallTargets {
-		fmt.Fprintf(md, "### Recall %.2f\n\n", target)
-		fmt.Fprintf(md, "| cell | rescore | margin |")
+	fmt.Fprintf(md, "One thread, read along the ef curve of each configuration like the QPS. The recall column is the level, "+
+		"or the recall of the first point of the curve where the level is below it: the row is then that point, the cheapest "+
+		"search of the configuration. Sources expanded are the scanned vectors within the source margin, the ones whose "+
+		"edges are followed. The times come from the instrumented pass, which is slower than the timed ones, and the rest "+
+		"is the time no phase accounts for. Postings loaded are also given against the control at the same rescore limit, "+
+		"or at its largest one where the control was not timed at that limit.\n\n")
+	for _, target := range levels {
+		fmt.Fprintf(md, "### Recall %s\n\n", recallLabel(target))
+		fmt.Fprintf(md, "| cell | rescore | batch | margin | recall |")
 		for _, s := range stats {
 			fmt.Fprintf(md, " %s |", s.name)
 		}
-		fmt.Fprintf(md, " loads / control |\n|---|---|---|")
+		fmt.Fprintf(md, " loads / control |\n|---|---|---|---|---|")
 		for range stats {
 			fmt.Fprintf(md, "---|")
 		}
 		fmt.Fprintf(md, "---|\n")
 		for _, c := range cells {
 			for _, config := range timedConfigs(c.result) {
-				rescore := config.rescore
-				curve := timedCurve(c.result, 1, rescore, config.margin)
+				curve := timedCurve(c.result, 1, config)
+				if len(curve) == 0 {
+					continue
+				}
+				fmt.Fprintf(md, "| %s | %d | %d | %s |", c.label, config.rescore, config.batch, marginLabel(config.margin))
 				if _, ok := statAtRecall(curve, target, loads); !ok {
-					fmt.Fprintf(md, "| %s | %d | %s | not reached |", c.label, rescore, marginLabel(config.margin))
-					for range len(stats) - 1 {
+					fmt.Fprintf(md, " not reached |")
+					for range stats {
 						fmt.Fprintf(md, " — |")
 					}
 					fmt.Fprintf(md, " — |\n")
 					continue
 				}
-				fmt.Fprintf(md, "| %s | %d | %s |", c.label, rescore, marginLabel(config.margin))
+				read := recallLabel(target)
+				if curve[0].Recall-target >= floorRecallGap {
+					read = fmt.Sprintf("%.4f", curve[0].Recall)
+				}
+				fmt.Fprintf(md, " %s |", read)
 				for _, s := range stats {
 					value, _ := statAtRecall(curve, target, s.stat)
 					fmt.Fprintf(md, " %.0f |", value)
 				}
 				against := "—"
-				if base, ok := statAtRecall(controlCurve(cells[0].result, rescore), target, loads); ok {
+				if base, ok := statAtRecall(controlCurve(cells[0].result, config.rescore), target, loads); ok {
 					own, _ := statAtRecall(curve, target, loads)
 					against = fmt.Sprintf("%.2fx", own/base)
 				}
@@ -569,10 +719,10 @@ const minUntimedCurve = 3
 
 // untimedCurve returns the untimed points of one configuration of a cell, by
 // ascending ef, whatever the thread count of the sweep that asked for them.
-func untimedCurve(result *benchResult, rescore int, margin float64) []benchPoint {
+func untimedCurve(result *benchResult, config cellConfig) []benchPoint {
 	var points []benchPoint
 	for _, p := range result.Points {
-		if p.Untimed && p.RescoreLimit == rescore && p.SourceMargin == margin && p.LoadBatch == DefaultLoadBatch &&
+		if p.Untimed && configOf(p) == config &&
 			!slices.ContainsFunc(points, func(q benchPoint) bool { return q.EF == p.EF }) {
 			points = append(points, p)
 		}
@@ -595,18 +745,16 @@ func untimedConfigs(result *benchResult) []cellConfig {
 	}
 	var out []cellConfig
 	for _, p := range result.Points {
-		config := cellConfig{rescore: p.RescoreLimit, margin: p.SourceMargin}
+		config := configOf(p)
 		if !p.Untimed || slices.Contains(timed, config) || slices.Contains(out, config) {
 			continue
 		}
-		curve := untimedCurve(result, config.rescore, config.margin)
+		curve := untimedCurve(result, config)
 		if len(curve) >= minUntimedCurve && curve[0].EF == lowest {
 			out = append(out, config)
 		}
 	}
-	slices.SortFunc(out, func(a, b cellConfig) int {
-		return cmp.Or(cmp.Compare(a.rescore, b.rescore), cmp.Compare(a.margin, b.margin))
-	})
+	slices.SortFunc(out, compareConfigs)
 	return out
 }
 
@@ -623,19 +771,19 @@ func writeCellUntimedWork(md *strings.Builder, cells []cell) {
 	fmt.Fprintf(md, "Configurations measured over a sweep of ef without timing: recall and work at each ef, no QPS. "+
 		"Read along the ef curve like the timed ones, and set against the control the same way. "+
 		"The last columns are the largest ef measured and the recall there.\n\n")
-	fmt.Fprintf(md, "| cell | rescore | margin |")
+	fmt.Fprintf(md, "| cell | rescore | batch | margin |")
 	for _, target := range isoRecallTargets {
 		fmt.Fprintf(md, " loads @%.2f | loads / control @%.2f |", target, target)
 	}
-	fmt.Fprintf(md, " largest ef | recall there |\n|---|---|---|")
+	fmt.Fprintf(md, " largest ef | recall there |\n|---|---|---|---|")
 	for range isoRecallTargets {
 		fmt.Fprintf(md, "---|---|")
 	}
 	fmt.Fprintf(md, "---|---|\n")
 	for _, c := range cells {
 		for _, config := range untimedConfigs(c.result) {
-			curve := untimedCurve(c.result, config.rescore, config.margin)
-			fmt.Fprintf(md, "| %s | %d | %s |", c.label, config.rescore, marginLabel(config.margin))
+			curve := untimedCurve(c.result, config)
+			fmt.Fprintf(md, "| %s | %d | %d | %s |", c.label, config.rescore, config.batch, marginLabel(config.margin))
 			for _, target := range isoRecallTargets {
 				own, ok := statAtRecall(curve, target, loads)
 				if !ok {
@@ -709,7 +857,7 @@ const noisySpread = 0.10
 func writeCellNoise(md *strings.Builder, cells []cell) {
 	fmt.Fprintf(md, "## Noise\n\n")
 	fmt.Fprintf(md, "Timed points whose passes are more than %.0f%% of their median apart.\n\n", 100*noisySpread)
-	fmt.Fprintf(md, "| cell | timed points | noisy | which (threads, rescore, margin, ef: QPS of each pass) |\n|---|---|---|---|\n")
+	fmt.Fprintf(md, "| cell | timed points | noisy | which (threads, rescore, batch, margin, ef: QPS of each pass) |\n|---|---|---|---|\n")
 	for _, c := range cells {
 		var timed int
 		var noisy []string
@@ -719,8 +867,8 @@ func writeCellNoise(md *strings.Builder, cells []cell) {
 			}
 			timed++
 			if (slices.Max(p.QPSRuns)-slices.Min(p.QPSRuns))/p.QPS > noisySpread {
-				noisy = append(noisy, fmt.Sprintf("%d threads, rescore %d, margin %s, ef %d: %s",
-					p.Threads, p.RescoreLimit, marginLabel(p.SourceMargin), p.EF, runList(p.QPSRuns)))
+				noisy = append(noisy, fmt.Sprintf("%d threads, rescore %d, batch %d, margin %s, ef %d: %s",
+					p.Threads, p.RescoreLimit, p.LoadBatch, marginLabel(p.SourceMargin), p.EF, runList(p.QPSRuns)))
 			}
 		}
 		which := "—"
@@ -734,16 +882,16 @@ func writeCellNoise(md *strings.Builder, cells []cell) {
 
 func writeCellPoints(md *strings.Builder, cells []cell) {
 	fmt.Fprintf(md, "## Operating points\n\n")
-	fmt.Fprintf(md, "| cell | ef | rescore | margin | threads | recall@10 | QPS | p50 ms | p95 ms | postings loaded | rounds |\n")
-	fmt.Fprintf(md, "|---|---|---|---|---|---|---|---|---|---|---|\n")
+	fmt.Fprintf(md, "| cell | ef | rescore | batch | margin | threads | recall@10 | QPS | p50 ms | p95 ms | postings loaded | rounds |\n")
+	fmt.Fprintf(md, "|---|---|---|---|---|---|---|---|---|---|---|---|\n")
 	for _, c := range cells {
 		for _, p := range c.result.Points {
 			qps, p50, p95 := "untimed", "—", "—"
 			if !p.Untimed {
 				qps, p50, p95 = fmt.Sprintf("%.0f", p.QPS), fmt.Sprintf("%.2f", p.P50Ms), fmt.Sprintf("%.2f", p.P95Ms)
 			}
-			fmt.Fprintf(md, "| %s | %d | %d | %s | %d | %.4f | %s | %s | %s | %.1f | %.1f |\n",
-				c.label, p.EF, p.RescoreLimit, marginLabel(p.SourceMargin), p.Threads, p.Recall, qps, p50, p95,
+			fmt.Fprintf(md, "| %s | %d | %d | %d | %s | %d | %.4f | %s | %s | %s | %.1f | %.1f |\n",
+				c.label, p.EF, p.RescoreLimit, p.LoadBatch, marginLabel(p.SourceMargin), p.Threads, p.Recall, qps, p50, p95,
 				p.Stats.LoadsMean, p.Stats.RoundsMean)
 		}
 	}
