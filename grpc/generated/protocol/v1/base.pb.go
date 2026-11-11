@@ -1373,9 +1373,13 @@ type Vectors struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// Deprecated: Marked as deprecated in v1/base.proto.
-	Index         uint64             `protobuf:"varint,2,opt,name=index,proto3" json:"index,omitempty"` // for multi-vec
-	VectorBytes   []byte             `protobuf:"bytes,3,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"`
-	Type          Vectors_VectorType `protobuf:"varint,4,opt,name=type,proto3,enum=weaviate.v1.Vectors_VectorType" json:"type,omitempty"`
+	Index       uint64             `protobuf:"varint,2,opt,name=index,proto3" json:"index,omitempty"` // for multi-vec
+	VectorBytes []byte             `protobuf:"bytes,3,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"`
+	Type        Vectors_VectorType `protobuf:"varint,4,opt,name=type,proto3,enum=weaviate.v1.Vectors_VectorType" json:"type,omitempty"`
+	// The token id of every token of a multi-vector, in token order, from the
+	// tokenizer of the model that produced it. The tachiomfresh vector index
+	// requires them; other index types ignore them.
+	TokenIds      []uint32 `protobuf:"varint,5,rep,packed,name=token_ids,json=tokenIds,proto3" json:"token_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1437,6 +1441,13 @@ func (x *Vectors) GetType() Vectors_VectorType {
 		return x.Type
 	}
 	return Vectors_VECTOR_TYPE_UNSPECIFIED
+}
+
+func (x *Vectors) GetTokenIds() []uint32 {
+	if x != nil {
+		return x.TokenIds
+	}
+	return nil
 }
 
 var File_v1_base_proto protoreflect.FileDescriptor
@@ -1535,12 +1546,13 @@ const file_v1_base_proto_rawDesc = "" +
 	"\x14GeoCoordinatesFilter\x12\x1a\n" +
 	"\blatitude\x18\x01 \x01(\x02R\blatitude\x12\x1c\n" +
 	"\tlongitude\x18\x02 \x01(\x02R\tlongitude\x12\x1a\n" +
-	"\bdistance\x18\x03 \x01(\x02R\bdistance\"\xf3\x01\n" +
+	"\bdistance\x18\x03 \x01(\x02R\bdistance\"\x90\x02\n" +
 	"\aVectors\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\x05index\x18\x02 \x01(\x04B\x02\x18\x01R\x05index\x12!\n" +
 	"\fvector_bytes\x18\x03 \x01(\fR\vvectorBytes\x123\n" +
-	"\x04type\x18\x04 \x01(\x0e2\x1f.weaviate.v1.Vectors.VectorTypeR\x04type\"b\n" +
+	"\x04type\x18\x04 \x01(\x0e2\x1f.weaviate.v1.Vectors.VectorTypeR\x04type\x12\x1b\n" +
+	"\ttoken_ids\x18\x05 \x03(\rR\btokenIds\"b\n" +
 	"\n" +
 	"VectorType\x12\x1b\n" +
 	"\x17VECTOR_TYPE_UNSPECIFIED\x10\x00\x12\x1b\n" +

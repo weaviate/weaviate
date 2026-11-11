@@ -218,6 +218,11 @@ func (s *lazySegment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte
 	return s.segment.getBySecondary(pos, key, buffer)
 }
 
+func (s *lazySegment) getBySecondaryRange(pos int, key []byte, head uint64, pick ValueRangePicker, buffer []byte) ([]byte, []byte, []byte, error) {
+	s.mustLoad()
+	return s.segment.getBySecondaryRange(pos, key, head, pick, buffer)
+}
+
 func (s *lazySegment) getCollection(key []byte) ([]value, error) {
 	s.mustLoad()
 	return s.segment.getCollection(key)

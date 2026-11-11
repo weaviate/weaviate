@@ -14,6 +14,7 @@ package storobj
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math"
 	"slices"
@@ -37,6 +38,7 @@ type ExportFields struct {
 	Properties   []byte // raw JSON bytes as originally stored, nil if no properties
 	NamedVectors []byte // JSON-encoded named vectors, nil if none
 	MultiVectors []byte // JSON-encoded multi-vectors, nil if none
+	TokenIDs     []byte // JSON-encoded token ids of the multi-vectors, nil if none
 }
 
 // ExportFieldsFromBinary extracts export-ready fields directly from the binary
@@ -146,6 +148,19 @@ func ExportFieldsFromBinary(data []byte) (ExportFields, error) {
 		return ExportFields{}, fmt.Errorf("export multi vectors: %w", err)
 	}
 
+	// Token ids: the section after the multi-vectors, absent when the object
+	// has none (marshalTokenIDs)
+	var tokenIDs []byte
+	ids, err := unmarshalTokenIDs(&rw)
+	if err != nil {
+		return ExportFields{}, fmt.Errorf("export token ids: %w", err)
+	}
+	if ids != nil {
+		if tokenIDs, err = json.Marshal(ids); err != nil {
+			return ExportFields{}, fmt.Errorf("export token ids: %w", err)
+		}
+	}
+
 	return ExportFields{
 		ID:           uuidObj.String(),
 		CreateTime:   createTime,
@@ -154,6 +169,7 @@ func ExportFieldsFromBinary(data []byte) (ExportFields, error) {
 		Properties:   properties,
 		NamedVectors: namedVectors,
 		MultiVectors: multiVectors,
+		TokenIDs:     tokenIDs,
 	}, nil
 }
 

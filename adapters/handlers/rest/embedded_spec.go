@@ -10481,6 +10481,10 @@ func init() {
           "description": "The name of the tenant the object belongs to.",
           "type": "string"
         },
+        "tokenIds": {
+          "description": "The token id of every token of a multi-vector, by vector name, in token order, from the tokenizer of the model that produced it. The tachiomfresh vector index requires them; other index types ignore them.",
+          "$ref": "#/definitions/TokenIds"
+        },
         "vector": {
           "description": "This field returns vectors associated with the object. C11yVector, Vector or Vectors values are possible.",
           "$ref": "#/definitions/C11yVector"
@@ -12637,6 +12641,17 @@ func init() {
         }
       },
       "x-omitempty": true
+    },
+    "TokenIds": {
+      "description": "A map of named multi-vectors to the token id of each of their tokens.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "format": "uint32"
+        }
+      }
     },
     "TokenizeRequest": {
       "description": "Request body for the generic tokenize endpoint.",
@@ -23966,6 +23981,10 @@ func init() {
           "description": "The name of the tenant the object belongs to.",
           "type": "string"
         },
+        "tokenIds": {
+          "description": "The token id of every token of a multi-vector, by vector name, in token order, from the tokenizer of the model that produced it. The tachiomfresh vector index requires them; other index types ignore them.",
+          "$ref": "#/definitions/TokenIds"
+        },
         "vector": {
           "description": "This field returns vectors associated with the object. C11yVector, Vector or Vectors values are possible.",
           "$ref": "#/definitions/C11yVector"
@@ -26319,6 +26338,17 @@ func init() {
         }
       },
       "x-omitempty": true
+    },
+    "TokenIds": {
+      "description": "A map of named multi-vectors to the token id of each of their tokens.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "format": "uint32"
+        }
+      }
     },
     "TokenizeRequest": {
       "description": "Request body for the generic tokenize endpoint.",

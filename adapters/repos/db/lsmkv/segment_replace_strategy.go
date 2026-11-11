@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"encoding/binary"
 	"fmt"
+	"slices"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -110,6 +111,182 @@ func (s *segment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []
 	}
 
 	return primaryKey, currContent, buffer, err
+}
+
+// replaceNodePrefixLen is the tombstone byte and the value length that
+// open a replace node (see replaceStratParseData).
+const replaceNodePrefixLen = 1 + 8
+
+const rangeNodeOp = "copyNodeRange"
+
+// getBySecondaryRange is getBySecondary narrowed to a range of the value,
+// for Bucket.GetBySecondaryRange. The node's prefix and the value's head
+// come in one positioned read, the range in a second, and the node's tail,
+// the primary key and the secondary keys, in a third (the caller's recheck
+// in newer segments needs the primary key). The node is read whole only when
+// the head covers the whole value, or for a tombstone. An in-memory segment slices its contents. The lookup is
+// the same as in getBySecondary. The range is copied into buffer, as
+// getBySecondary copies the node, because the segment may be compacted away
+// once the read returns.
+func (s *segment) getBySecondaryRange(pos int, key []byte, head uint64, pick ValueRangePicker, buffer []byte) ([]byte, []byte, []byte, error) {
+	if s.strategy != segmentindex.StrategyReplace {
+		return nil, nil, nil, fmt.Errorf("get only possible for strategy %q", StrategyReplace)
+	}
+
+	if pos >= len(s.secondaryIndices) || s.secondaryIndices[pos] == nil {
+		return nil, nil, nil, fmt.Errorf("no secondary index at pos %d", pos)
+	}
+
+	if s.useBloomFilter && !s.secondaryBloomFilters[pos].Test(key) {
+		return nil, nil, nil, lsmkv.NotFound
+	}
+
+	start, end, err := s.secondaryIndices[pos].GetOffsets(key)
+	if err != nil {
+		return nil, nil, nil, s.reportIndexErr(fmt.Errorf("secondary index %d: %w", pos, err))
+	}
+
+	if s.readFromMemory {
+		node := s.contents[start:end]
+		if len(node) == 0 || node[0] == 0x01 {
+			if err := checkTombstoneLength(node, start); err != nil {
+				return nil, nil, nil, err
+			}
+			_, _, err := s.replaceStratParseData(node)
+			return nil, nil, nil, err
+		}
+		if uint64(len(node)) < replaceNodePrefixLen {
+			return nil, nil, nil, fmt.Errorf("replace node of %d bytes at %d: shorter than its prefix", len(node), start)
+		}
+		valueLength := binary.LittleEndian.Uint64(node[1:replaceNodePrefixLen])
+		if err := checkValueLength(uint64(len(node)), valueLength, start); err != nil {
+			return nil, nil, nil, err
+		}
+		tailStart := replaceNodePrefixLen + valueLength
+		primaryKey, err := s.primaryKeyOfNodeTail(node[tailStart:], start)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		out, buffer, err := rangeOfValue(node[replaceNodePrefixLen:tailStart], head, pick, buffer)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return slices.Clone(primaryKey), out, buffer, nil
+	}
+
+	nodeSize := end - start
+	prefixLen := replaceNodePrefixLen + head
+	if nodeSize < prefixLen {
+		prefixLen = nodeSize
+	}
+	prefix := make([]byte, prefixLen)
+	if err := s.preadInto(prefix, start, rangeNodeOp); err != nil {
+		return nil, nil, nil, err
+	}
+	if len(prefix) == 0 {
+		return nil, nil, nil, fmt.Errorf("empty replace node at %d", start)
+	}
+	if prefix[0] == 0x01 {
+		// a tombstone: a small node, parsed whole as getBySecondary parses it
+		node := make([]byte, nodeSize)
+		if err := s.preadInto(node, start, rangeNodeOp); err != nil {
+			return nil, nil, nil, err
+		}
+		if err := checkTombstoneLength(node, start); err != nil {
+			return nil, nil, nil, err
+		}
+		_, _, err := s.replaceStratParseData(node)
+		return nil, nil, nil, err
+	}
+	if len(prefix) < replaceNodePrefixLen {
+		return nil, nil, nil, fmt.Errorf("replace node of %d bytes at %d: shorter than its prefix", nodeSize, start)
+	}
+	valueLength := binary.LittleEndian.Uint64(prefix[1:replaceNodePrefixLen])
+	if err := checkValueLength(nodeSize, valueLength, start); err != nil {
+		return nil, nil, nil, err
+	}
+
+	readHead := func(n uint64) ([]byte, error) {
+		if n <= uint64(len(prefix))-replaceNodePrefixLen {
+			return prefix[replaceNodePrefixLen : replaceNodePrefixLen+n], nil
+		}
+		h := make([]byte, n)
+		return h, s.preadInto(h, start+replaceNodePrefixLen, rangeNodeOp)
+	}
+	offset, length, err := pickRange(valueLength, head, pick, readHead)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if buffer == nil || uint64(cap(buffer)) < length { // nil means absent
+		buffer = make([]byte, length)
+	}
+	out := buffer[:length:length]
+	if length > 0 {
+		if err := s.preadInto(out, start+replaceNodePrefixLen+offset, rangeNodeOp); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+
+	tail := make([]byte, nodeSize-replaceNodePrefixLen-valueLength)
+	if err := s.preadInto(tail, start+replaceNodePrefixLen+valueLength, rangeNodeOp); err != nil {
+		return nil, nil, nil, err
+	}
+	primaryKey, err := s.primaryKeyOfNodeTail(tail, start)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return primaryKey, out, buffer, nil
+}
+
+// checkValueLength checks a node's declared value length against the node's
+// size, by subtraction: a corrupt length near 2^64 would wrap a sum. The
+// primary key's 4-byte length follows the value.
+func checkValueLength(nodeSize, valueLength, start uint64) error {
+	if nodeSize < replaceNodePrefixLen+4 || valueLength > nodeSize-replaceNodePrefixLen-4 {
+		return fmt.Errorf("replace node of %d bytes at %d declares a value of %d bytes", nodeSize, start, valueLength)
+	}
+	return nil
+}
+
+// checkTombstoneLength checks a tombstone's declared value length against the
+// node's size, so that a corrupt one is an error here rather than a slice
+// bounds panic in replaceStratParseData, which the other readers keep.
+func checkTombstoneLength(node []byte, start uint64) error {
+	if uint64(len(node)) < replaceNodePrefixLen {
+		return nil // parsed as a short tombstone
+	}
+	if valueLength := binary.LittleEndian.Uint64(node[1:replaceNodePrefixLen]); valueLength > uint64(len(node))-replaceNodePrefixLen {
+		return fmt.Errorf("tombstone node of %d bytes at %d declares a value of %d bytes", len(node), start, valueLength)
+	}
+	return nil
+}
+
+// primaryKeyOfNodeTail returns the primary key from what follows a node's
+// value: the primary key and the secondary keys, each with a 4-byte length.
+// These must fill the tail exactly, so a value length that is wrong but fits
+// the node is an error too.
+func (s *segment) primaryKeyOfNodeTail(tail []byte, start uint64) ([]byte, error) {
+	var primaryKey []byte
+	rest := tail
+	for i := range 1 + int(s.secondaryIndexCount) {
+		if len(rest) < 4 {
+			return nil, fmt.Errorf("replace node at %d: key %d has no length", start, i)
+		}
+		n := uint64(binary.LittleEndian.Uint32(rest))
+		rest = rest[4:]
+		if n > uint64(len(rest)) {
+			return nil, fmt.Errorf("replace node at %d declares a key of %d bytes, %d are left", start, n, len(rest))
+		}
+		if i == 0 {
+			primaryKey = rest[:n]
+		}
+		rest = rest[n:]
+	}
+	if len(rest) != 0 {
+		return nil, fmt.Errorf("replace node at %d has %d bytes after its keys", start, len(rest))
+	}
+	return primaryKey, nil
 }
 
 func (s *segment) replaceStratParseData(in []byte) ([]byte, []byte, error) {

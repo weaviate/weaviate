@@ -105,6 +105,7 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 		}
 
 		var vectors models.Vectors = nil
+		var tokenIDs models.TokenIds
 		if len(obj.Vectors) > 0 {
 			parsedVectors := make(map[string][]float32)
 			parsedMultiVectors := make(map[string][][]float32)
@@ -119,6 +120,12 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 						continue
 					}
 					parsedMultiVectors[vec.Name] = out
+					if len(vec.TokenIds) > 0 {
+						if tokenIDs == nil {
+							tokenIDs = models.TokenIds{}
+						}
+						tokenIDs[vec.Name] = vec.TokenIds
+					}
 				default:
 					// do nothing
 				}
@@ -140,6 +147,7 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 			Properties: props,
 			ID:         strfmt.UUID(obj.Uuid),
 			Vectors:    vectors,
+			TokenIds:   tokenIDs,
 		})
 		insertCounter += 1
 	}

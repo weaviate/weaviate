@@ -26,6 +26,7 @@ type ParquetRow struct {
 	Vector       []byte `parquet:"vector,optional"`
 	NamedVectors []byte `parquet:"named_vectors,optional"`
 	MultiVectors []byte `parquet:"multi_vectors,optional"`
+	TokenIDs     []byte `parquet:"token_ids,optional"`
 	Properties   []byte `parquet:"properties,optional"`
 }
 

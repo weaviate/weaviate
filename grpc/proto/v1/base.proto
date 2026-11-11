@@ -153,4 +153,8 @@ message Vectors {
   uint64 index = 2 [deprecated = true];  // for multi-vec
   bytes vector_bytes = 3;
   VectorType type = 4;
+  // The token id of every token of a multi-vector, in token order, from the
+  // tokenizer of the model that produced it. The tachiomfresh vector index
+  // requires them; other index types ignore them.
+  repeated uint32 token_ids = 5;
 }

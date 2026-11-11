@@ -745,7 +745,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}, []string{"operation", "class_name", "shard_name"}),
 		VectorIndexStoreOperationsDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "vector_index_store_operations_durations_ms",
-			Help: "Duration of store operations (put, append, get)",
+			Help: "Duration of store operations (put, append, get, remove)",
 		}, []string{"operation", "class_name", "shard_name"}),
 		VectorDimensionsSum: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_dimensions_sum",

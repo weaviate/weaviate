@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"reflect"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -721,6 +722,11 @@ func compareObjsForInsertStatus(prevObj, nextObj *storobj.Object) (preserve, ski
 	if !targetMultiVectorsEqual(prevObj.MultiVectors, nextObj.MultiVectors) {
 		return false, false
 	}
+	// the token ids go with the multi-vectors: an index that places tokens
+	// by their id must place them again
+	if !tokenIDsEqual(prevObj.Object.TokenIds, nextObj.Object.TokenIds) {
+		return false, false
+	}
 	if !addPropsEqual(prevObj.Object.Additional, nextObj.Object.Additional) {
 		return true, false
 	}
@@ -728,6 +734,21 @@ func compareObjsForInsertStatus(prevObj, nextObj *storobj.Object) (preserve, ski
 		return true, false
 	}
 	return false, true
+}
+
+// tokenIDsEqual reports whether two objects hold the same token ids for
+// every target; nil and empty are the same.
+func tokenIDsEqual(prev, next models.TokenIds) bool {
+	if len(prev) != len(next) {
+		return false
+	}
+	for target, prevIDs := range prev {
+		nextIDs, ok := next[target]
+		if !ok || !slices.Equal(prevIDs, nextIDs) {
+			return false
+		}
+	}
+	return true
 }
 
 func geoPropsEqual(prevProps, nextProps map[string]interface{}) bool {

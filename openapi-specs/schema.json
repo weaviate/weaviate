@@ -590,6 +590,17 @@
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
       "type": "object"
     },
+    "TokenIds": {
+      "description": "A map of named multi-vectors to the token id of each of their tokens.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "format": "uint32"
+        }
+      }
+    },
     "Vectors": {
       "description": "A map of named vectors for multi-vector representations.",
       "type": "object",
@@ -3475,6 +3486,10 @@
         "vectors": {
           "description": "This field returns vectors associated with the object.",
           "$ref": "#/definitions/Vectors"
+        },
+        "tokenIds": {
+          "description": "The token id of every token of a multi-vector, by vector name, in token order, from the tokenizer of the model that produced it. The tachiomfresh vector index requires them; other index types ignore them.",
+          "$ref": "#/definitions/TokenIds"
         },
         "tenant": {
           "description": "The name of the tenant the object belongs to.",

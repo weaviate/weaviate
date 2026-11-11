@@ -29,6 +29,7 @@ import (
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/objects/validation"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
@@ -39,6 +40,7 @@ type MergeDocument struct {
 	References           BatchReferences             `json:"references"`
 	Vector               []float32                   `json:"vector"`
 	Vectors              models.Vectors              `json:"vectors"`
+	TokenIds             models.TokenIds             `json:"tokenIds"`
 	UpdateTime           int64                       `json:"updateTime"`
 	AdditionalProperties models.AdditionalProperties `json:"additionalProperties"`
 	PropertiesToDelete   []string                    `json:"propertiesToDelete"`
@@ -186,6 +188,14 @@ func (m *Manager) patchObject(ctx context.Context, prevObj, updates *models.Obje
 	if !namedVectorsEqual(prevObj.Vectors, objWithVec.Vectors) {
 		mergeVectors = objWithVec.Vectors
 	}
+	// the token ids go with the multi-vectors they belong to, and a patch
+	// may bring new ids for a multi-vector it leaves as it was: they are
+	// passed on whether the vectors changed or not, and checked against
+	// the multi-vectors the merged object holds
+	mergeTokenIDs := updates.TokenIds
+	if err := validation.TokenIDsMatchTokens(class, mergeTokenIDs, objWithVec.Vectors); err != nil {
+		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
+	}
 
 	mergeDoc := MergeDocument{
 		Class:              cls,
@@ -194,6 +204,7 @@ func (m *Manager) patchObject(ctx context.Context, prevObj, updates *models.Obje
 		References:         refs,
 		Vector:             mergeVector,
 		Vectors:            mergeVectors,
+		TokenIds:           mergeTokenIDs,
 		UpdateTime:         m.timeSource.Now(),
 		PropertiesToDelete: propertiesToDelete,
 	}

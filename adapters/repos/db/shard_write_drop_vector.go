@@ -58,6 +58,23 @@ func stripDroppedVectors(class *models.Class, obj *storobj.Object) {
 		}
 		obj.MultiVectors = kept
 	}
+	// the token ids of a dropped multi-vector go with it
+	hasDropped = false
+	for targetVector := range obj.Object.TokenIds {
+		if isDroppedVectorIndex(class, targetVector) {
+			hasDropped = true
+			break
+		}
+	}
+	if hasDropped {
+		kept := make(models.TokenIds, len(obj.Object.TokenIds))
+		for targetVector, ids := range obj.Object.TokenIds {
+			if !isDroppedVectorIndex(class, targetVector) {
+				kept[targetVector] = ids
+			}
+		}
+		obj.Object.TokenIds = kept
+	}
 }
 
 // isDroppedVectorIndex reports whether the named vector's index has been
