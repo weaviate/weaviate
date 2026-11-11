@@ -17,8 +17,10 @@ import (
 	simpleErrors "errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -1237,10 +1239,7 @@ func (dynamic *dynamic) commitUpgrade(index *hnsw.HNSW) error {
 	if err := dynamic.removeCompressedBucket(); err != nil {
 		return errors.Wrap(err, "remove flat compressed bucket")
 	}
-	err := dynamic.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(dynamicBucket)
-		return b.Put(dynamic.dbKey(), []byte{verdictUpgraded})
-	})
+	err := dynamic.state.Put(dynamic.dbKey(), []byte{verdictUpgraded})
 	return errors.Wrap(err, "update dynamic")
 }
 
