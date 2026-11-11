@@ -28,26 +28,46 @@ import (
 // client and baseURL source (config, headers, redirects).
 func NewBaseHttpClient(timeout time.Duration) *http.Client {
 	transport := http.DefaultTransport
-
 	if BaseURLValidationEnabled() {
-		// DefaultTransport's dialer settings plus a Control hook that runs
-		// after DNS resolution with the concrete IP about to be dialed.
-		dialer := &net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-			Control:   ssrfDialGuard,
-		}
-		guarded := http.DefaultTransport.(*http.Transport).Clone()
-		guarded.DialContext = dialer.DialContext
-		transport = guarded
+		transport = guardDial(http.DefaultTransport.(*http.Transport).Clone())
 	}
+	return newBaseHttpClient(timeout, transport)
+}
 
+// NewBaseHttpClientWithIdleConns is NewBaseHttpClient on a transport of its own
+// that keeps up to idlePerHost idle connections per host, and twice that over
+// all hosts. The shared default keeps two per host, so a client that sends
+// more requests at once to one host opens most of its connections, and TLS
+// handshakes, anew for every batch of requests.
+func NewBaseHttpClientWithIdleConns(timeout time.Duration, idlePerHost int) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConnsPerHost = idlePerHost
+	transport.MaxIdleConns = 2 * idlePerHost
+	if BaseURLValidationEnabled() {
+		transport = guardDial(transport)
+	}
+	return newBaseHttpClient(timeout, transport)
+}
+
+func newBaseHttpClient(timeout time.Duration, transport http.RoundTripper) *http.Client {
 	return &http.Client{
 		Transport: &retryTransport{base: transport, timeout: timeout},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
+}
+
+// guardDial keeps DefaultTransport's dialer settings and adds a Control hook
+// that runs after DNS resolution with the concrete IP about to be dialed.
+func guardDial(transport *http.Transport) *http.Transport {
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control:   ssrfDialGuard,
+	}
+	transport.DialContext = dialer.DialContext
+	return transport
 }
 
 // ssrfDialGuard blocks connections to internal addresses. address is the

@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -774,6 +775,30 @@ func requireCanceledWithinASecond(t *testing.T, result <-chan error) {
 	}
 }
 
+// The shared default transport keeps two idle connections per host, so a
+// query sending more requests at once opened most of its connections anew.
+func TestRankReusesConnectionsAcrossQueries(t *testing.T) {
+	f := newFake(t)
+	f.delay = 50 * time.Millisecond
+	documents := make([]string, 20)
+	for i := range documents {
+		// Two of these fill a request, so the page needs ten at once.
+		documents[i] = fmt.Sprintf("%d %s", i, strings.Repeat("a", 40_000))
+	}
+	c := newTestClient(defaultFakeKey)
+	rank := func() {
+		_, err := c.RankProperty(context.Background(), churn, "text", documentsOf(documents...), classConfig(f.url(), nil))
+		require.NoError(t, err)
+	}
+
+	rank()
+	opened := f.opened.Load()
+	require.Greater(t, opened, int64(2), "the first query must send requests at once")
+	rank()
+
+	assert.Equal(t, opened, f.opened.Load(), "the second query opened new connections")
+}
+
 func TestNewRaisesACapBelowOneToOne(t *testing.T) {
 	tests := []struct {
 		name                  string
@@ -1206,6 +1231,9 @@ type fakeTypeSafeAI struct {
 	release  chan struct{}
 	handlers sync.WaitGroup
 
+	// opened counts the connections the server accepted.
+	opened atomic.Int64
+
 	lock     sync.Mutex
 	requests []fakeRequest
 	inFlight int
@@ -1214,7 +1242,13 @@ type fakeTypeSafeAI struct {
 
 func newFake(t *testing.T) *fakeTypeSafeAI {
 	f := &fakeTypeSafeAI{t: t}
-	f.server = httptest.NewServer(f)
+	f.server = httptest.NewUnstartedServer(f)
+	f.server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			f.opened.Add(1)
+		}
+	}
+	f.server.Start()
 	t.Cleanup(f.server.Close)
 	return f
 }

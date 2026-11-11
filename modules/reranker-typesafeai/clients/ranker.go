@@ -81,11 +81,13 @@ type client struct {
 // once to the class or default host, and as many to hosts the request header
 // names.
 func New(apiKey string, timeout time.Duration, maxConcurrentRequests int, logger logrus.FieldLogger) *client {
+	slots := max(maxConcurrentRequests, 1)
 	return &client{
-		apiKey:             apiKey,
-		httpClient:         modulecomponents.NewBaseHttpClient(timeout),
-		inFlight:           make(chan struct{}, max(maxConcurrentRequests, 1)),
-		inFlightHeaderHost: make(chan struct{}, max(maxConcurrentRequests, 1)),
+		apiKey: apiKey,
+		// Each slot keeps its connection between queries.
+		httpClient:         modulecomponents.NewBaseHttpClientWithIdleConns(timeout, slots),
+		inFlight:           make(chan struct{}, slots),
+		inFlightHeaderHost: make(chan struct{}, slots),
 		logger:             logger,
 	}
 }
