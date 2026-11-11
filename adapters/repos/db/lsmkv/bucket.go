@@ -787,6 +787,12 @@ func (nv NarrowedConsistentView) memtablesOldestFirst() ([2]memtable, int) {
 	return [2]memtable{}, 0
 }
 
+// MemtableCount is how many memtables this view holds.
+func (nv NarrowedConsistentView) MemtableCount() int {
+	_, count := nv.memtablesOldestFirst()
+	return count
+}
+
 // GetConsistentView returns a consistent view of the bucket that can be used
 // for multiple reads without acquiring locks for each read. The caller must
 // call ReleaseView() on the returned view when done to avoid blocking compactions.

@@ -231,7 +231,7 @@ func BenchmarkDocIDs_ContainsAllBigRows(b *testing.B) {
 	f := newBigRowsFixture(b)
 	ctx := context.Background()
 
-	planner := containsFoldPlanner{docIDCount: bigRowsDocs}
+	planner := containsFoldPlanner{docIDCount: bigRowsDocs, memtableCount: 1}
 	b.Logf("corpus: %d keys x %d docs/row, %d doc IDs; clamp affords %d workers, GOMAXPROCS %d",
 		bigRowsKeys, bigRowsRowSize, bigRowsDocs,
 		planner.clampWorkers(concurrency.GOMAXPROCS), concurrency.GOMAXPROCS)
