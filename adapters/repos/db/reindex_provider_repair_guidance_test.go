@@ -56,37 +56,11 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_ChangeTokenizationBoth
 	require.Equal(t, logrus.ErrorLevel, entry.Level)
 	require.Equal(t, "name", entry.Data["property"])
 	require.Equal(t, ReindexTypeChangeTokenization, entry.Data["migration_type"])
-	// change-tokenization can tear either inverted index; guidance must
-	// instruct the operator to rebuild both via the GA rebuild route.
-	require.Equal(t,
-		`POST /v1/schema/Products/properties/name/index/filterable/rebuild && POST /v1/schema/Products/properties/name/index/searchable/rebuild`,
-		entry.Data["repair_command"])
 	require.Contains(t, entry.Message, "FAILED")
 	require.Contains(t, entry.Message, "bucket")
-	// The repair_command costs a cluster-wide rebuild. Where the tear sits on
-	// a tenant nobody has read since, loading it is what clears it.
+	// The repair_command re-runs the migration on every replica.
 	require.Contains(t, entry.Message,
-		"before the repair_command's cluster-wide rebuild")
-}
-
-func TestLogOperatorRepairGuidanceOnTornSemanticMigration_ChangeTokenizationFilterableOnly(t *testing.T) {
-	logger, hook := logrustest.NewNullLogger()
-
-	payload := &ReindexTaskPayload{
-		Collection:         "Products",
-		MigrationType:      ReindexTypeChangeTokenizationFilterable,
-		Properties:         []string{"category"},
-		TargetTokenization: "field",
-	}
-	logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T2"), payload, distributedtask.TaskStatusFailed)
-
-	require.Len(t, hook.Entries, 1)
-	entry := hook.Entries[0]
-	// change-tokenization-filterable touches ONLY the filterable bucket;
-	// guidance must scope to that.
-	require.Equal(t,
-		`POST /v1/schema/Products/properties/category/index/filterable/rebuild`,
-		entry.Data["repair_command"])
+		"before the repair_command's cluster-wide re-run")
 }
 
 func TestLogOperatorRepairGuidanceOnTornSemanticMigration_MultipleProperties(t *testing.T) {
@@ -143,15 +117,31 @@ func TestGroupHandlersLogUnitCountNotUnitIDs(t *testing.T) {
 	}
 }
 
-// TestRepairCommandsForFailedMigration_EnableAndAlgorithmUsePut pins that
-// enable-*/change-algorithm emit the re-run PUT (a /rebuild would 400: no
-// index, or still WAND). Retokenize migrations keep /rebuild.
-func TestRepairCommandsForFailedMigration_EnableAndAlgorithmUsePut(t *testing.T) {
+// TestRepairCommandsForFailedMigration_RerunsTheOriginalPut pins that every
+// semantic migration's repair_command is the PUT that started it. A cancelled
+// task gets none, since that PUT would redo the cancelled change.
+func TestRepairCommandsForFailedMigration_RerunsTheOriginalPut(t *testing.T) {
 	cases := []struct {
 		name        string
 		payload     *ReindexTaskPayload
 		wantCommand string
 	}{
+		{
+			name: "change-tokenization -> PUT searchable with target tokenization",
+			payload: &ReindexTaskPayload{
+				Collection: "Products", MigrationType: ReindexTypeChangeTokenization,
+				Properties: []string{"name"}, TargetTokenization: "field",
+			},
+			wantCommand: `PUT /v1/schema/Products/properties/name/index/searchable -d '{"tokenization":"field"}'`,
+		},
+		{
+			name: "change-tokenization-filterable -> PUT filterable with target tokenization",
+			payload: &ReindexTaskPayload{
+				Collection: "Products", MigrationType: ReindexTypeChangeTokenizationFilterable,
+				Properties: []string{"category"}, TargetTokenization: "field",
+			},
+			wantCommand: `PUT /v1/schema/Products/properties/category/index/filterable -d '{"tokenization":"field"}'`,
+		},
 		{
 			name: "enable-searchable -> PUT re-enable with target tokenization",
 			payload: &ReindexTaskPayload{
@@ -187,13 +177,21 @@ func TestRepairCommandsForFailedMigration_EnableAndAlgorithmUsePut(t *testing.T)
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			logger, hook := logrustest.NewNullLogger()
-			logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T"), tc.payload, distributedtask.TaskStatusFailed)
-			require.Len(t, hook.Entries, 1)
-			got := hook.Entries[0].Data["repair_command"].(string)
-			require.Equal(t, tc.wantCommand, got)
-			require.NotContains(t, got, "/rebuild",
-				"enable-*/change-algorithm recovery must not use /rebuild (it 400s on the reverted flag)")
+			for _, status := range []distributedtask.TaskStatus{
+				distributedtask.TaskStatusFailed, distributedtask.TaskStatusCancelled,
+			} {
+				logger, hook := logrustest.NewNullLogger()
+				logOperatorRepairGuidanceOnPartialSwap(logger.WithField("taskID", "T"), tc.payload, status)
+				require.Len(t, hook.Entries, 1)
+				entry := hook.Entries[0]
+				if status == distributedtask.TaskStatusFailed {
+					require.Equal(t, tc.wantCommand, entry.Data["repair_command"])
+					continue
+				}
+				require.NotContains(t, entry.Data, "repair_command")
+				require.NotContains(t, entry.Message, "repair_command")
+				require.Contains(t, entry.Message, repairWarningText)
+			}
 		})
 	}
 }
@@ -234,10 +232,10 @@ func TestLogOperatorRepairGuidanceOnTornSemanticMigration_EmptyPropertiesEmitsGe
 	require.Contains(t, hook.Entries[0].Message, "empty Properties")
 }
 
-// Pins: repair guidance on a CANCELLED task follows the evidence that a
+// Pins: the repair warning on a CANCELLED task follows the evidence that a
 // node got past its units — either ack map, since PREP acks land in a
 // different one from post-swap acks.
-func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.T) {
+func TestOnTaskCompleted_CancelledLogsRepairWarningOnlyWhenASwapRan(t *testing.T) {
 	payload, err := json.Marshal(ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
 		Collection:    "C",
@@ -248,14 +246,14 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 	acked := map[string]distributedtask.PostCompletionAck{"n1": {Success: true}}
 
 	for _, tc := range []struct {
-		name         string
-		postAcks     map[string]distributedtask.PostCompletionAck
-		prepAcks     map[string]distributedtask.PostCompletionAck
-		wantGuidance bool
+		name        string
+		postAcks    map[string]distributedtask.PostCompletionAck
+		prepAcks    map[string]distributedtask.PostCompletionAck
+		wantWarning bool
 	}{
-		{name: "no node acked anything", wantGuidance: false},
-		{name: "one node acked a swap", postAcks: acked, wantGuidance: true},
-		{name: "one node acked PREP only", prepAcks: acked, wantGuidance: true},
+		{name: "no node acked anything", wantWarning: false},
+		{name: "one node acked a swap", postAcks: acked, wantWarning: true},
+		{name: "one node acked PREP only", prepAcks: acked, wantWarning: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
@@ -276,22 +274,22 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 				PreparationCompletionAcks: tc.prepAcks,
 			}))
 
-			var guided bool
-			var guidance string
+			var warned bool
+			var warning string
 			for _, e := range hook.AllEntries() {
-				if _, ok := e.Data["repair_command"]; ok {
-					guided = true
-					guidance = e.Message
+				if strings.Contains(e.Message, repairWarningText) {
+					warned = true
+					warning = e.Message
 				}
 			}
-			require.Equal(t, tc.wantGuidance, guided,
-				"repair guidance on a CANCELLED task must follow the swap evidence")
-			if tc.wantGuidance {
-				// The guidance is written so the operator can match it to
+			require.Equal(t, tc.wantWarning, warned,
+				"the repair warning on a CANCELLED task must follow the swap evidence")
+			if tc.wantWarning {
+				// The warning is written so the operator can match it to
 				// the task, which only works if it names the status the
 				// task actually ended in.
-				require.Contains(t, guidance, string(distributedtask.TaskStatusCancelled))
-				require.NotContains(t, guidance, string(distributedtask.TaskStatusFailed))
+				require.Contains(t, warning, string(distributedtask.TaskStatusCancelled))
+				require.NotContains(t, warning, string(distributedtask.TaskStatusFailed))
 			}
 		})
 	}
@@ -411,7 +409,7 @@ func TestHasLocalPostMergeState_GivesUpOnAFinishedContext(t *testing.T) {
 // Pins the wiring the ack maps cannot cover: a cancel that lands while
 // the task is still STARTED leaves both maps empty, so the only thing
 // that can raise the alarm is this node's own disk.
-func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.T) {
+func TestOnTaskCompleted_CancelledLogsRepairWarningFromDiskEvidence(t *testing.T) {
 	ctx := context.Background()
 	shard, idx := testShard(t, ctx, "C")
 	concrete, err := unwrapShard(ctx, shard)
@@ -444,15 +442,14 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 	}))
 
 	require.Empty(t, concrete.migrationRecords.Records(), "fixture: the cleanup has to remove the evidence")
-	require.True(t, loggedRepairGuidance(hook),
+	require.True(t, loggedRepairWarning(hook),
 		"a committed migration on this node is the only evidence of the tear; the "+
-			"guidance has to fire off it")
+			"warning has to fire off it")
 }
 
 // Pins where the post-merge probe sits relative to the drain: a drain that
-// does not finish skips the cleanup, but the tear it leaves behind is still
-// the operator's to repair, so the guidance has to fire anyway.
-func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *testing.T) {
+// does not finish skips the cleanup, but the warning has to fire anyway.
+func TestOnTaskCompleted_CancelledLogsRepairWarningWhenTheDrainTimesOut(t *testing.T) {
 	className := "DrainTimeout_" + uuid.NewString()[:8]
 	shard, idx := testShard(t, testCtx(), className)
 	concrete, err := unwrapShard(testCtx(), shard)
@@ -499,8 +496,8 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 	}
 	require.True(t, drainTimedOut,
 		"the fixture has to reach the drain-timeout arm for the rest to mean anything")
-	require.True(t, loggedRepairGuidance(hook),
-		"the cleanup is skipped on this arm, but the tear is still one only an operator can repair")
+	require.True(t, loggedRepairWarning(hook),
+		"the cleanup is skipped on this arm, but the warning still has to fire")
 }
 
 func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
@@ -631,11 +628,13 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 	}
 }
 
-// loggedRepairGuidance reports whether any entry carries the operator's
-// copy-pasteable repair command.
-func loggedRepairGuidance(hook *logrustest.Hook) bool {
+// repairWarningText is in the repair warning whatever the task's outcome; only
+// a FAILED task's also carries a repair_command.
+const repairWarningText = "may have left the canonical inverted bucket"
+
+func loggedRepairWarning(hook *logrustest.Hook) bool {
 	for _, e := range hook.AllEntries() {
-		if _, ok := e.Data["repair_command"]; ok {
+		if strings.Contains(e.Message, repairWarningText) {
 			return true
 		}
 	}
