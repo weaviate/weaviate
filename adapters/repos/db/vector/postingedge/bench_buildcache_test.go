@@ -33,8 +33,12 @@ import (
 	"github.com/pkg/errors"
 )
 
-var benchBuildCache = flag.String("bench.buildcache", "", "postingedge: directory to keep the partition and the assignment of a build in. "+
-	"A later build of the same train set, posting size and build probe takes them from there instead of computing them")
+var (
+	benchBuildCache = flag.String("bench.buildcache", "", "postingedge: directory to keep the partition and the assignment of a build in. "+
+		"A later build of the same train set, posting size and build probe takes them from there instead of computing them")
+	benchCacheProbe = flag.Int("bench.cacheprobe", 0, "postingedge: take the cached partition and assignment of this build probe, wider than "+
+		"-bench.probe: the probes of a wider build serve a narrower one. The edge recall grid is what computes them (0 = the build probe)")
+)
 
 // buildCacheMeta describes a cached partition and assignment: the shape of
 // the build they were computed for and the train set they were computed over.

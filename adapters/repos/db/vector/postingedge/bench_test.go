@@ -109,11 +109,13 @@ var (
 	benchMode = flag.String("bench.mode", "full", "full: timed passes plus work stats; work: postingedge only, the work stats without the timed passes; "+
 		"probes: postingedge only, the edge builder at each width of -bench.probes, no index; "+
 		"edgerecall: postingedge only, the edge recall of a sample over -bench.codebitslist x -bench.probes x -bench.rescues, no index")
-	benchProbes   = flag.String("bench.probes", "32,64,128,256", "postingedge: build probe widths of the probes and edgerecall modes")
-	benchRescues  = flag.String("bench.rescues", strconv.Itoa(DefaultRescueLimit), "postingedge: rescue limits of the edgerecall mode")
-	benchCodeList = flag.String("bench.codebitslist", "0", "postingedge: code widths of the edgerecall mode (0 = the full code)")
-	benchSettle   = flag.Int("bench.settle", 1000, "queries run before the after-queries memory reading")
-	benchSelf     = flag.Int("bench.selfsample", 10_000, "postingedge: vectors searched for with themselves as the query, to tell that none is lost to the search")
+	benchProbes       = flag.String("bench.probes", "32,64,128,256", "postingedge: build probe widths of the probes and edgerecall modes")
+	benchRescues      = flag.String("bench.rescues", strconv.Itoa(DefaultRescueLimit), "postingedge: rescue limits of the edgerecall mode")
+	benchCodeList     = flag.String("bench.codebitslist", "0", "postingedge: code widths of the edgerecall mode (0 = the full code)")
+	benchSampleProbes = flag.String("bench.sampleprobes", "", "postingedge, edgerecall mode: probe widths beyond those of -bench.probes, measured with the "+
+		"nearest centroids of the sampled vectors alone. What a wider build probe would find, without the assignment of the whole train set at that width")
+	benchSettle = flag.Int("bench.settle", 1000, "queries run before the after-queries memory reading")
+	benchSelf   = flag.Int("bench.selfsample", 10_000, "postingedge: vectors searched for with themselves as the query, to tell that none is lost to the search")
 
 	benchRepeat = flag.Bool("bench.repeat", false, "time every timed point a second time once the whole plan is done, in the order of the first, "+
 		"and write the second round next to -bench.out as <name>-repeat.json: a stretch of points taken while the machine was slow shows "+
@@ -422,11 +424,16 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 		var share *buildShare
 		var cacheDir, train string
 		if *benchBuildCache != "" {
-			cacheDir = buildCacheDir(data, uc.TargetPostingSize, uc.BuildProbe)
+			cacheProbe := max(*benchCacheProbe, uc.BuildProbe)
+			cacheDir = buildCacheDir(data, uc.TargetPostingSize, cacheProbe)
 			train, err = trainFingerprint(data.dir)
 			require.NoError(t, err)
 			share, err = loadBuildShare(cacheDir, train)
 			require.NoError(t, err)
+			// A build computes probes as wide as its own and no wider.
+			require.Truef(t, share.filled() || cacheProbe == uc.BuildProbe,
+				"%s holds no assignment: the edge recall grid with -bench.probes %d computes it", cacheDir, cacheProbe)
+			result.Config["cacheProbe"] = cacheProbe
 			index.shared = share
 		}
 		taken := share != nil && share.filled()
@@ -1805,6 +1812,27 @@ func benchEdgeRecallGrid(t *testing.T, ctx context.Context, data *benchData, res
 	t.Logf("%d postings of %d vectors on average", len(centroids), target)
 
 	truth := sampleEdgeTruth(data, *benchSample, uc.Edges, layout.slotOf, postingOf)
+
+	// Probe widths the assignment does not have, for the sample alone: the
+	// neighbor search of a vector reads its own probes and nothing else of
+	// the assignment but the primary postings.
+	type probeWidth struct {
+		probe  int
+		assign *assignment
+	}
+	var widths []probeWidth
+	for _, probe := range probes {
+		widths = append(widths, probeWidth{probe: probe, assign: assigned})
+	}
+	if *benchSampleProbes != "" {
+		wider := parseInts(t, *benchSampleProbes)
+		wide := sampleAssignment(t, ctx, logger, vectors, centroids, assigned, layout, truth.slots, slices.Max(wider))
+		for _, probe := range wider {
+			widths = append(widths, probeWidth{probe: probe, assign: wide})
+		}
+		result.Config["sampleProbes"] = wider
+	}
+
 	for _, codeBits := range parseInts(t, *benchCodeList) {
 		quantizer, err := trainQuantizer(vectors, data.dims, uc.TrainingLimit, codeBits, &cfg)
 		require.NoError(t, err)
@@ -1812,12 +1840,13 @@ func benchEdgeRecallGrid(t *testing.T, ctx context.Context, data *benchData, res
 		require.NoError(t, err)
 		side := &sidecar{codeWords: codeWords, codes: codes, postingOf: postingOf}
 
-		for _, probe := range probes {
+		for _, width := range widths {
+			probe := width.probe
 			for _, rescue := range rescues {
 				in := edgeInput{
 					vectors:   vectors,
 					layout:    layout,
-					assign:    assigned,
+					assign:    width.assign,
 					side:      side,
 					quantizer: quantizer,
 					provider:  cfg.DistanceProvider,
@@ -1859,6 +1888,39 @@ func benchEdgeRecallGrid(t *testing.T, ctx context.Context, data *benchData, res
 			}
 		}
 	}
+}
+
+// sampleAssignment is an assignment with probes of the given width for the
+// vectors in the sampled slots and for no other: the exact nearest centroids
+// of each, computed as a build computes them. The probes of the whole train
+// set at that width would take the full assignment again, hours of it at ten
+// million vectors, and as much memory as the width is wide.
+//
+// The probes array still spans the train set, since a vector is found in it
+// by its position. Only the rows of the sample are written, and memory that
+// is never touched is never resident.
+func sampleAssignment(t *testing.T, ctx context.Context, logger logrus.FieldLogger, vectors, centroids [][]float32,
+	assigned *assignment, layout slotLayout, slots []uint32, probe int,
+) *assignment {
+	sample := make([][]float32, len(slots))
+	for i, slot := range slots {
+		sample[i] = vectors[layout.order[slot]]
+	}
+	own, err := assign(ctx, logger, sample, centroids, probe)
+	require.NoError(t, err)
+
+	wide := &assignment{primary: assigned.primary, probes: make([]uint32, len(vectors)*own.width), width: own.width}
+	shared := min(assigned.width, own.width)
+	for i, slot := range slots {
+		input := int(layout.order[slot])
+		require.Equalf(t, assigned.primary[input], own.primary[i], "vector %d: the sample and the build disagree on its posting", input)
+		// The probes of a vector are its nearest centroids, nearest first,
+		// so the narrower list is the head of the wider one.
+		require.Equalf(t, assigned.probesOf(input)[:shared], own.probesOf(i)[:shared],
+			"vector %d: the probes computed for the sample are not those of the build", input)
+		copy(wide.probesOf(input), own.probesOf(i))
+	}
+	return wide
 }
 
 // asTheIndexStoresThem returns the train vectors bit for bit as an index
