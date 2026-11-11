@@ -60,7 +60,36 @@ type Config struct {
 // releaser can hand over a grant under the limiter mutex without blocking.
 type waiter struct {
 	want  int64
+	group *shardGroup
 	ready chan int64
+}
+
+// shardGroup marks the local shard searches of one query, so the limiter can
+// grant them evenly instead of each sibling taking a quarter of what the
+// previous one left. Its fields are guarded by Limiter.mu.
+type shardGroup struct {
+	n     int64
+	share int64 // grant of a sibling admitted without queueing, 0 until the first one is
+	// grants of the siblings woken in the running wakeLocked pass, 0 outside it
+	passSum   int64
+	passCount int64
+}
+
+type shardGroupKey struct{}
+
+// WithShardGroup returns a ctx under which Admit grants a query's sibling
+// shard searches even shares, sized for n running at once. Admit every
+// sibling under that ctx with the same want. For n < 2 it returns ctx as is.
+func WithShardGroup(ctx context.Context, n int) context.Context {
+	if n < 2 {
+		return ctx
+	}
+	return context.WithValue(ctx, shardGroupKey{}, &shardGroup{n: int64(n)})
+}
+
+func shardGroupFromCtx(ctx context.Context) *shardGroup {
+	sg, _ := ctx.Value(shardGroupKey{}).(*shardGroup)
+	return sg
 }
 
 // Limiter is a node-level query admission controller, safe for concurrent use.
@@ -175,8 +204,9 @@ func (l *Limiter) Admit(ctx context.Context, want int) (context.Context, func(),
 		w64 = 1
 	}
 
+	sg := shardGroupFromCtx(ctx)
 	l.mu.Lock()
-	if g := l.grantLocked(w64); g > 0 {
+	if g := l.grantLocked(w64, sg); g > 0 {
 		l.used += g
 		l.inflight++
 		l.observeGrantLocked(g)
@@ -192,7 +222,7 @@ func (l *Limiter) Admit(ctx context.Context, want int) (context.Context, func(),
 		return ctx, func() {}, ErrOverloaded
 	}
 
-	w := &waiter{want: w64, ready: make(chan int64, 1)}
+	w := &waiter{want: w64, group: sg, ready: make(chan int64, 1)}
 	elem := l.waiters.PushBack(w)
 	l.updateGaugesLocked()
 	l.mu.Unlock()
@@ -226,22 +256,40 @@ func (l *Limiter) cancelWaiter(w *waiter, elem *list.Element) {
 	l.updateGaugesLocked()
 }
 
-// grantLocked hands out min(want, max(remaining/4, 1)): a degrade-first curve
-// so early queries get a generous share while later ones taper off, with a
-// floor of 1 (while capacity remains) guaranteeing progress. 0 means saturated.
-func (l *Limiter) grantLocked(want int64) int64 {
+// grantLocked returns the curve grant, or for a sibling of sg the even share
+// fixed by the first sibling granted without queueing, capped at what
+// remains. 0 means saturated.
+func (l *Limiter) grantLocked(want int64, sg *shardGroup) int64 {
 	remaining := l.capacity - l.used
 	if remaining <= 0 {
 		return 0
 	}
-	g := remaining / 4
-	if g < 1 {
-		g = 1
+	if sg == nil {
+		return curveGrant(remaining, want)
 	}
-	if g > want {
-		g = want
+	if sg.share == 0 {
+		sg.share = evenShare(remaining, want, sg.n)
 	}
-	return g
+	return min(sg.share, remaining)
+}
+
+// curveGrant is the degrade-first curve min(want, max(remaining/4, 1)). Early
+// queries get a generous share and later ones taper off, while the floor of 1
+// guarantees progress as long as capacity remains.
+func curveGrant(remaining, want int64) int64 {
+	return min(want, max(remaining/4, 1))
+}
+
+// evenShare is what the curve grants n queries admitted back to back from
+// remaining, averaged and floored at 1.
+func evenShare(remaining, want, n int64) int64 {
+	var sum int64
+	for i := int64(0); i < n && remaining > 0; i++ {
+		g := curveGrant(remaining, want)
+		sum += g
+		remaining -= g
+	}
+	return max(sum/n, 1)
 }
 
 // releaseLocked returns a released or abandoned grant's g units to the pool, then wakes waiters.
@@ -252,21 +300,48 @@ func (l *Limiter) releaseLocked(g int64) {
 }
 
 // wakeLocked wakes waiters FIFO, granting each the current curve amount until
-// capacity is exhausted or the queue empties.
+// capacity is exhausted or the queue empties. Siblings woken together then
+// split their grants evenly, so the pass hands out the same total.
 func (l *Limiter) wakeLocked() {
+	if l.waiters.Len() == 0 {
+		return
+	}
+	// buf covers the usual pass without a heap allocation.
+	var buf [16]wokenWaiter
+	woken := buf[:0]
 	for l.waiters.Len() > 0 {
 		front := l.waiters.Front()
 		w := front.Value.(*waiter)
-		gg := l.grantLocked(w.want)
-		if gg == 0 {
+		g := l.grantLocked(w.want, nil)
+		if g == 0 {
 			break
 		}
-		l.used += gg
+		l.used += g
 		l.inflight++
 		l.waiters.Remove(front)
-		l.observeGrantLocked(gg)
-		w.ready <- gg // buffered cap 1: never blocks under the mutex
+		if sg := w.group; sg != nil {
+			sg.passSum += g
+			sg.passCount++
+		}
+		woken = append(woken, wokenWaiter{w: w, grant: g})
 	}
+
+	for _, ww := range woken {
+		if sg := ww.w.group; sg != nil {
+			// the last sibling takes exactly the rest, leaving both counters at 0
+			ww.grant = (sg.passSum + sg.passCount - 1) / sg.passCount
+			sg.passSum -= ww.grant
+			sg.passCount--
+		}
+		l.observeGrantLocked(ww.grant)
+		ww.w.ready <- ww.grant // buffered cap 1: never blocks under the mutex
+	}
+}
+
+// wokenWaiter is a waiter woken by one wakeLocked pass and its grant so far.
+type wokenWaiter struct {
+	w     *waiter
+	grant int64
 }
 
 // budgetPool is the Limiter as an admitted grant's concurrency.Pool. Unexported,

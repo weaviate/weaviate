@@ -102,6 +102,11 @@ import (
 // NumCPU anyway, so we're not any worse off.
 var _NUMCPU = runtime.GOMAXPROCS(0)
 
+// shardSearchLanes is how many shard searches one query runs at once. It is at
+// least 3 even when _NUMCPU is 1, so single-tenant rf=3 queries, the common cloud
+// setup, are not serialized.
+var shardSearchLanes = _NUMCPU*2 + 1
+
 // maxReportedErrors bounds how many failures a shard-wide or index-wide operation
 // reports, so a node with many tenants cannot produce a multi-megabyte message.
 const maxReportedErrors = 10
@@ -2721,6 +2726,12 @@ func (i *Index) withSlowQueryDetails(ctx context.Context, queryProfile bool) con
 	return helpers.InitSlowQueryDetails(ctx)
 }
 
+// admissionSiblings counts plan's local shard searches, capped at
+// shardSearchLanes because only that many hold admission grants at once.
+func admissionSiblings(plan routerTypes.ReadRoutingPlan) int {
+	return min(executor.CountLocalShards(plan), shardSearchLanes)
+}
+
 func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, tenant string, readPlan routerTypes.ReadRoutingPlan, properties []string,
@@ -2728,12 +2739,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	resultObjects, resultScores := objectSearchPreallocate(limit, readPlan.Shards())
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
-	// When running in fractional CPU environments, _NUMCPU will be 1
-	// Most cloud deployments of Weaviate are in HA clusters with rf=3
-	// Therefore, we should set the maximum amount of concurrency to at least 3
-	// so that single-tenant rf=3 queries are not serialized. For any higher value of
-	// _NUMCPU, e.g. 8, the extra goroutine will not be a significant overhead (16 -> 17)
-	eg.SetLimit(_NUMCPU*2 + 1)
+	eg.SetLimit(shardSearchLanes)
 	shardResultLock := sync.Mutex{}
 
 	remoteSearch := func(shardName string) error {
@@ -2799,6 +2805,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				return remoteSearch(shardName)
 			})
 	}
+	ctx = queryadmission.WithShardGroup(ctx, admissionSiblings(readPlan))
 	err := executor.ExecuteForEachShard(readPlan,
 		// Local Shard Search
 		func(replica routerTypes.Replica) error {
@@ -3028,12 +3035,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
-	// When running in fractional CPU environments, _NUMCPU will be 1
-	// Most cloud deployments of Weaviate are in HA clusters with rf=3
-	// Therefore, we should set the maximum amount of concurrency to at least 3
-	// so that single-tenant rf=3 queries are not serialized. For any higher value of
-	// _NUMCPU, e.g. 8, the extra goroutine will not be a significant overhead (16 -> 17)
-	eg.SetLimit(_NUMCPU*2 + 1)
+	eg.SetLimit(shardSearchLanes)
 	m := &sync.Mutex{}
 
 	out := make([]*storobj.Object, 0, shardCap)
@@ -3083,6 +3085,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		return nil
 	}
 
+	ctx = queryadmission.WithShardGroup(ctx, admissionSiblings(readPlan))
 	err = executor.ExecuteForEachShard(readPlan,
 		// Local Shard Search
 		func(replica routerTypes.Replica) error {
