@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -443,8 +444,15 @@ func unloadedVectorIndexStorageIDs(shardDir string, names []string) (ids map[str
 	if err != nil {
 		return namingRule(), false, fmt.Errorf("read vector index mapping: %w", err)
 	}
-	if vals == nil || vals[0] == nil {
-		// no mapping yet: the naming rule is what its first load records
+	if vals == nil {
+		return ids, false, nil
+	}
+	if vals[0] == nil {
+		// a load refuses records without a version; with none, the naming
+		// rule is what the first load records
+		if slices.ContainsFunc(vals[1:], func(v []byte) bool { return v != nil }) {
+			return namingRule(), false, errors.New("read vector index mapping: records without a format version")
+		}
 		return ids, false, nil
 	}
 	if string(vals[0]) != vectorIndexMappingFormatVersion {
