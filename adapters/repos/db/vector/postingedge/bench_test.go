@@ -1816,10 +1816,16 @@ func percentileOf[T any](sorted []T, q float64) T {
 	return sorted[max(0, min(len(sorted)-1, int(math.Ceil(q*float64(len(sorted))))-1))]
 }
 
+// median is the value in the middle, and the mean of the two in the middle
+// where the count is even.
 func median(values []float64) float64 {
 	sorted := slices.Clone(values)
 	slices.Sort(sorted)
-	return sorted[len(sorted)/2]
+	middle := len(sorted) / 2
+	if len(sorted)%2 == 0 {
+		return (sorted[middle-1] + sorted[middle]) / 2
+	}
+	return sorted[middle]
 }
 
 func ms(d time.Duration) float64 {

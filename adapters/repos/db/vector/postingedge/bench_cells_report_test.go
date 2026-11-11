@@ -21,7 +21,9 @@
 //	    -bench.report.hnsw hnsw.json -bench.report.cells.out cells.md
 //
 // -bench.report.cells.recalls reads the cells at more recall levels than the
-// three of the comparison with HNSW.
+// three of the comparison with HNSW. -bench.report.cells.repeats takes other
+// runs of some of the cells and sets the timed points the two runs share
+// against each other.
 
 package postingedge
 
@@ -45,6 +47,8 @@ var (
 	reportCellsOut     = flag.String("bench.report.cells.out", "", "file to write the cell tables to")
 	reportCellsRecalls = flag.String("bench.report.cells.recalls", "", "recall levels to read the QPS and the work of the cells at, "+
 		"separated by commas, on top of 0.90, 0.95 and 0.99")
+	reportCellsRepeats = flag.String("bench.report.cells.repeats", "", "other runs of cells of -bench.report.cells, as label=path pairs "+
+		"separated by commas with the label of the cell, to set the timed points of the two runs against each other")
 )
 
 // reachRecall is the recall every default configuration has to reach by
@@ -65,13 +69,11 @@ func TestCellReport(t *testing.T) {
 	if *reportCells == "" || *reportCellsOut == "" {
 		t.Skip("needs -bench.report.cells and -bench.report.cells.out")
 	}
-	var cells []cell
-	for _, pair := range strings.Split(*reportCells, ",") {
-		label, path, found := strings.Cut(pair, "=")
-		require.Truef(t, found, "-bench.report.cells entry %q is not label=path", pair)
-		result := &benchResult{}
-		readJSON(t, path, result)
-		cells = append(cells, cell{label: label, result: result})
+	cells := readCells(t, "-bench.report.cells", *reportCells)
+	repeats := readCells(t, "-bench.report.cells.repeats", *reportCellsRepeats)
+	for _, repeat := range repeats {
+		require.Truef(t, slices.ContainsFunc(cells, func(c cell) bool { return c.label == repeat.label }),
+			"-bench.report.cells.repeats entry %q is not a cell of -bench.report.cells", repeat.label)
 	}
 	var theirs *benchResult
 	if *reportHNSW != "" {
@@ -93,8 +95,28 @@ func TestCellReport(t *testing.T) {
 	writeCellUntimedWork(&md, cells)
 	writeCellCalibration(&md, cells)
 	writeCellNoise(&md, cells)
+	if len(repeats) > 0 {
+		writeCellRepeats(&md, cells, repeats)
+	}
 	writeCellPoints(&md, cells)
 	require.NoError(t, os.WriteFile(*reportCellsOut, []byte(md.String()), 0o644))
+}
+
+// readCells reads the result files of a flag that takes label=path pairs
+// separated by commas.
+func readCells(t *testing.T, name, pairs string) []cell {
+	if pairs == "" {
+		return nil
+	}
+	var cells []cell
+	for _, pair := range strings.Split(pairs, ",") {
+		label, path, found := strings.Cut(pair, "=")
+		require.Truef(t, found, "%s entry %q is not label=path", name, pair)
+		result := &benchResult{}
+		readJSON(t, path, result)
+		cells = append(cells, cell{label: label, result: result})
+	}
+	return cells
 }
 
 // cellRecalls are the recall levels the cells are read at: those of the
@@ -852,12 +874,60 @@ func writeCellCalibration(md *strings.Builder, cells []cell) {
 // as a share of their median, before the point is listed as noisy.
 const noisySpread = 0.10
 
-// writeCellNoise lists the timed points whose measured passes disagree, the
-// sign that something else ran on the machine while they were taken.
+// outworkedGap is how much less QPS a timed point may give than a point that
+// does more work than it before it is listed as slow.
+const outworkedGap = 0.02
+
+// repeatBand is how far the QPS of a timed point may be from that of the same
+// point of another run of the cell and still count as repeated.
+const repeatBand = 0.02
+
+// outworkedPoint is a timed point next to one that does more work than it and
+// still gives more QPS.
+type outworkedPoint struct {
+	slow, busier benchPoint
+}
+
+// outworked returns the timed points that give less QPS than a point that
+// does more work than them: one with the same threads, load batch, source
+// margin and ef and a larger rescore limit, which loads the same postings and
+// rescores more vectors. Each comes with the fastest of those points.
+func outworked(points []benchPoint, gap float64) []outworkedPoint {
+	var out []outworkedPoint
+	for _, slow := range points {
+		if slow.Untimed {
+			continue
+		}
+		busier, found := benchPoint{}, false
+		for _, p := range points {
+			sameSearch := !p.Untimed && p.Threads == slow.Threads && p.LoadBatch == slow.LoadBatch &&
+				p.SourceMargin == slow.SourceMargin && p.EF == slow.EF
+			if sameSearch && p.RescoreLimit > slow.RescoreLimit && (!found || p.QPS > busier.QPS) {
+				busier, found = p, true
+			}
+		}
+		if found && busier.QPS > slow.QPS*(1+gap) {
+			out = append(out, outworkedPoint{slow: slow, busier: busier})
+		}
+	}
+	return out
+}
+
+// writeCellNoise lists the timed points that something else running on the
+// machine may have slowed down: those whose measured passes disagree, and
+// those slower than a point that does more work than them. The passes of a
+// point agree when the machine is slow for longer than the point takes, so
+// the first does not see a slow stretch and the second only the part of it
+// that falls behind another curve.
 func writeCellNoise(md *strings.Builder, cells []cell) {
 	fmt.Fprintf(md, "## Noise\n\n")
-	fmt.Fprintf(md, "Timed points whose passes are more than %.0f%% of their median apart.\n\n", 100*noisySpread)
-	fmt.Fprintf(md, "| cell | timed points | noisy | which (threads, rescore, batch, margin, ef: QPS of each pass) |\n|---|---|---|---|\n")
+	fmt.Fprintf(md, "Noisy are the timed points whose passes are more than %.0f%% of their median apart. "+
+		"Outworked are the ones that give at least %.0f%% less QPS than a point that does more work than them: "+
+		"the same threads, load batch, source margin and ef with a larger rescore limit. "+
+		"A stretch of points taken while the machine was slow shows in neither unless it falls behind another curve; "+
+		"a repeat of the cell is what shows it.\n\n", 100*noisySpread, 100*outworkedGap)
+	fmt.Fprintf(md, "| cell | timed points | noisy | which (threads, rescore, batch, margin, ef: QPS of each pass) | outworked | "+
+		"which (threads, batch, margin, ef: rescore and QPS of the point, of the busier one) |\n|---|---|---|---|---|---|\n")
 	for _, c := range cells {
 		var timed int
 		var noisy []string
@@ -871,11 +941,81 @@ func writeCellNoise(md *strings.Builder, cells []cell) {
 					p.Threads, p.RescoreLimit, p.LoadBatch, marginLabel(p.SourceMargin), p.EF, runList(p.QPSRuns)))
 			}
 		}
-		which := "—"
-		if len(noisy) > 0 {
-			which = strings.Join(noisy, "; ")
+		var slow []string
+		for _, o := range outworked(c.result.Points, outworkedGap) {
+			slow = append(slow, fmt.Sprintf("%d threads, batch %d, margin %s, ef %d: rescore %d %.0f, rescore %d %.0f",
+				o.slow.Threads, o.slow.LoadBatch, marginLabel(o.slow.SourceMargin), o.slow.EF,
+				o.slow.RescoreLimit, o.slow.QPS, o.busier.RescoreLimit, o.busier.QPS))
 		}
-		fmt.Fprintf(md, "| %s | %d | %d | %s |\n", c.label, timed, len(noisy), which)
+		fmt.Fprintf(md, "| %s | %d | %d | %s | %d | %s |\n", c.label, timed, len(noisy), listOrDash(noisy), len(slow), listOrDash(slow))
+	}
+	fmt.Fprintf(md, "\n")
+}
+
+func listOrDash(items []string) string {
+	if len(items) == 0 {
+		return "—"
+	}
+	return strings.Join(items, "; ")
+}
+
+// repeatedPoint is a timed point of a cell next to the same point of another
+// run of the cell.
+type repeatedPoint struct {
+	point, other benchPoint
+}
+
+// change is the QPS of the point against that of the other run.
+func (r repeatedPoint) change() float64 {
+	return r.point.QPS/r.other.QPS - 1
+}
+
+// repeatedPoints pairs the points of a timed curve with those of the same
+// curve of another run, by ef. A point only one of the runs has is left out.
+func repeatedPoints(curve, other []benchPoint) []repeatedPoint {
+	var out []repeatedPoint
+	for _, p := range curve {
+		if at := slices.IndexFunc(other, func(o benchPoint) bool { return o.EF == p.EF }); at >= 0 {
+			out = append(out, repeatedPoint{point: p, other: other[at]})
+		}
+	}
+	return out
+}
+
+// writeCellRepeats sets the timed points of a cell against those of another
+// run of it, one row per ef curve the two runs share. It is the check that
+// sees a stretch of points taken while the machine was slow, in either run:
+// the passes of each of those points agree, so they are not noisy.
+func writeCellRepeats(md *strings.Builder, cells, repeats []cell) {
+	fmt.Fprintf(md, "## Repeats\n\n")
+	fmt.Fprintf(md, "The timed points of a cell against the same points of another run of it, one row per ef curve. "+
+		"The change is the QPS of the cell over that of the other run. Repeated are the points within %.0f%% of the other run; "+
+		"the others are listed by ef. The recall difference is the largest of the curve.\n\n", 100*repeatBand)
+	fmt.Fprintf(md, "| cell | threads | rescore | batch | margin | points | repeated | median change | the others (ef: change) | recall difference |\n")
+	fmt.Fprintf(md, "|---|---|---|---|---|---|---|---|---|---|\n")
+	for _, repeat := range repeats {
+		c := cells[slices.IndexFunc(cells, func(c cell) bool { return c.label == repeat.label })]
+		for _, threads := range threadCounts(c.result, repeat.result) {
+			for _, config := range timedConfigs(c.result) {
+				pairs := repeatedPoints(timedCurve(c.result, threads, config), timedCurve(repeat.result, threads, config))
+				if len(pairs) == 0 {
+					continue
+				}
+				var changes []float64
+				var others []string
+				var recallDiff float64
+				for _, pair := range pairs {
+					changes = append(changes, pair.change())
+					if math.Abs(pair.change()) > repeatBand {
+						others = append(others, fmt.Sprintf("%d: %+.1f%%", pair.point.EF, 100*pair.change()))
+					}
+					recallDiff = math.Max(recallDiff, math.Abs(pair.point.Recall-pair.other.Recall))
+				}
+				fmt.Fprintf(md, "| %s | %d | %d | %d | %s | %d | %d | %+.1f%% | %s | %.4f |\n",
+					c.label, threads, config.rescore, config.batch, marginLabel(config.margin),
+					len(pairs), len(pairs)-len(others), 100*median(changes), listOrDash(others), recallDiff)
+			}
+		}
 	}
 	fmt.Fprintf(md, "\n")
 }
