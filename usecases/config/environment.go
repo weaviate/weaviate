@@ -730,14 +730,6 @@ func FromEnv(config *Config) error {
 	}
 	config.BM25FilterTombMergeGateRatio = bm25GateDV
 
-	if err := parseInt(
-		"HNSW_GEO_INDEX_EF",
-		func(val int) { config.HNSWGeoIndexEF = val },
-		0,
-	); err != nil {
-		return err
-	}
-
 	clusterCfg, err := parseClusterConfig()
 	if err != nil {
 		return err

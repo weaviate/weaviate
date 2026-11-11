@@ -215,7 +215,7 @@ func TestShard_HaltForTransferZeroPreparationTimeout(t *testing.T) {
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
 
-func TestShard_HaltForTransferTimeoutBoundsGeoQueuePreparation(t *testing.T) {
+func TestShard_HaltForTransferTimeoutBoundsQueuePreparation(t *testing.T) {
 	ctx := testCtx()
 	className := "TestClass"
 
@@ -249,9 +249,12 @@ func TestShard_HaltForTransferTimeoutBoundsGeoQueuePreparation(t *testing.T) {
 	require.NoError(t, q.Init())
 	scheduler.RegisterQueue(q)
 
-	s.propertyIndicesLock.Lock()
-	s.geoQueues["location"] = &VectorIndexQueue{DiskQueue: q}
-	s.propertyIndicesLock.Unlock()
+	// published as a second vector queue next to the shard's own, sharing the
+	// index so every index-level hook still has something to call
+	index, releaseIndex, ok := s.AcquireVectorIndex("")
+	require.True(t, ok)
+	releaseIndex()
+	require.NoError(t, s.vectors.Publish("blocking", index, &VectorIndexQueue{DiskQueue: q}))
 
 	require.NoError(t, q.Push([]byte{1}))
 	require.NoError(t, q.Flush())
@@ -271,7 +274,7 @@ func TestShard_HaltForTransferTimeoutBoundsGeoQueuePreparation(t *testing.T) {
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 	case <-time.After(100 * time.Millisecond):
 		cancel()
-		require.FailNow(t, "HaltForTransfer did not respect HaltForTransferTimeout for geo queue preparation")
+		require.FailNow(t, "HaltForTransfer did not respect HaltForTransferTimeout for queue preparation")
 	}
 
 	require.Nil(t, idx.drop())
@@ -395,19 +398,11 @@ func (s *Shard) haltForTransferForTest(ctx context.Context, inject func() error,
 	if err := s.cycleCallbacks.vectorCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause vector maintenance: %w", err)
 	}
-	if err := s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
-		return fmt.Errorf("pause geo props maintenance: %w", err)
-	}
 
 	if err := s.ForEachVectorQueue(func(targetVector string, q *VectorIndexQueue) error {
 		return q.PrepareForBackup(ctx)
 	}); err != nil {
 		return fmt.Errorf("prepare vector queues: %w", err)
-	}
-	if err := s.ForEachGeoQueue(func(_ string, q *VectorIndexQueue) error {
-		return q.PrepareForBackup(ctx)
-	}); err != nil {
-		return fmt.Errorf("prepare geo queues: %w", err)
 	}
 	if err := s.ForEachVectorIndex(func(_ string, index VectorIndex) error {
 		return index.PrepareForBackup(ctx)

@@ -29,10 +29,6 @@ type shardCycleCallbacks struct {
 	vectorCommitLoggerCallbacks     cyclemanager.CycleCallbackGroup
 	vectorTombstoneCleanupCallbacks cyclemanager.CycleCallbackGroup
 	vectorCombinedCallbacksCtrl     cyclemanager.CycleCallbackCtrl
-
-	geoPropsCommitLoggerCallbacks     cyclemanager.CycleCallbackGroup
-	geoPropsTombstoneCleanupCallbacks cyclemanager.CycleCallbackGroup
-	geoPropsCombinedCallbacksCtrl     cyclemanager.CycleCallbackCtrl
 }
 
 func (s *Shard) initCycleCallbacks() {
@@ -98,21 +94,6 @@ func (s *Shard) initCycleCallbacks() {
 	vectorCombinedCallbacksCtrl := cyclemanager.NewCombinedCallbackCtrl(2, s.index.logger,
 		vectorCommitLoggerCallbacksCtrl, vectorTombstoneCleanupCallbacksCtrl)
 
-	geoPropsCommitLoggerId := id("geo_props", "commit_logger")
-	geoPropsCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(geoPropsCommitLoggerId, s.index.logger, 1)
-	geoPropsCommitLoggerCallbacksCtrl := s.index.cycleCallbacks.geoPropsCommitLoggerCallbacks.Register(
-		geoPropsCommitLoggerId, geoPropsCommitLoggerCallbacks.CycleCallback,
-		withIntervals(cyclemanager.GeoCommitLoggerCycleIntervals()))
-
-	geoPropsTombstoneCleanupId := id("geoProps", "tombstone_cleanup")
-	geoPropsTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup(geoPropsTombstoneCleanupId, s.index.logger, 1)
-	// fixed interval on class level, no need to specify separate on shard level
-	geoPropsTombstoneCleanupCallbacksCtrl := s.index.cycleCallbacks.geoPropsTombstoneCleanupCallbacks.Register(
-		geoPropsTombstoneCleanupId, geoPropsTombstoneCleanupCallbacks.CycleCallback)
-
-	geoPropsCombinedCallbacksCtrl := cyclemanager.NewCombinedCallbackCtrl(2, s.index.logger,
-		geoPropsCommitLoggerCallbacksCtrl, geoPropsTombstoneCleanupCallbacksCtrl)
-
 	s.cycleCallbacks = &shardCycleCallbacks{
 		compactionCallbacks:        compactionCallbacks,
 		compactionCallbacksCtrl:    compactionCallbacksCtrl,
@@ -125,9 +106,5 @@ func (s *Shard) initCycleCallbacks() {
 		vectorCommitLoggerCallbacks:     vectorCommitLoggerCallbacks,
 		vectorTombstoneCleanupCallbacks: vectorTombstoneCleanupCallbacks,
 		vectorCombinedCallbacksCtrl:     vectorCombinedCallbacksCtrl,
-
-		geoPropsCommitLoggerCallbacks:     geoPropsCommitLoggerCallbacks,
-		geoPropsTombstoneCleanupCallbacks: geoPropsTombstoneCleanupCallbacks,
-		geoPropsCombinedCallbacksCtrl:     geoPropsCombinedCallbacksCtrl,
 	}
 }

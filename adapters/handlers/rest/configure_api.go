@@ -578,7 +578,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		QueryAdmissionBudget:          appState.ServerConfig.Config.QueryAdmissionBudget,
 		QueryAdmissionMaxQueue:        appState.ServerConfig.Config.QueryAdmissionMaxQueue,
 		QueryAdmissionControlDisabled: appState.ServerConfig.Config.QueryAdmissionControlDisabled,
-		HNSWGeoIndexEF:                appState.ServerConfig.Config.HNSWGeoIndexEF,
 		VisitedListPoolMaxSize:        appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
 		TenantActivityReadLogLevel:    appState.ServerConfig.Config.TenantActivityReadLogLevel,
 		TenantActivityWriteLogLevel:   appState.ServerConfig.Config.TenantActivityWriteLogLevel,

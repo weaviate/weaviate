@@ -113,7 +113,7 @@ func newNestedTestSearcher(t *testing.T, bucketNames ...string) (*Searcher, *lsm
 
 	class := correlationTestClass()
 	searcher := NewSearcher(logger, store, func(string) *models.Class { return class },
-		nil, nil, stopwords.NewProvider(fakeStopwordDetector{}, nil), 2,
+		nil, stopwords.NewProvider(fakeStopwordDetector{}, nil), 2,
 		func() bool { return false }, nil, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
 		WithBatchedContainsEnabled(runtime.NewDynamicValue(true))
@@ -2805,7 +2805,7 @@ func newSearcherForClass(t *testing.T, class *models.Class, bucketNames ...strin
 	bitmapFactory := roaringset.NewBitmapFactory(
 		newTrackingPool(t), func() uint64 { return 1_000_000 })
 	searcher := NewSearcher(logger, store, func(string) *models.Class { return class },
-		nil, nil, stopwords.NewProvider(fakeStopwordDetector{}, nil), 2,
+		nil, stopwords.NewProvider(fakeStopwordDetector{}, nil), 2,
 		func() bool { return false }, nil, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
 		WithBatchedContainsEnabled(runtime.NewDynamicValue(true))
@@ -4985,7 +4985,7 @@ func newIsNullCorrelationSearcher(t *testing.T, prop string) (*Searcher, *lsmkv.
 	logger, _ := test.NewNullLogger()
 	bitmapFactory := roaringset.NewBitmapFactory(newTrackingPool(t), func() uint64 { return 1_000_000 })
 	*searcher = *NewSearcher(logger, store, func(string) *models.Class { return class },
-		nil, nil, stopwords.NewProvider(fakeStopwordDetector{}, nil), 2,
+		nil, stopwords.NewProvider(fakeStopwordDetector{}, nil), 2,
 		func() bool { return false }, nil, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
 		WithBatchedContainsEnabled(runtime.NewDynamicValue(true))

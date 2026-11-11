@@ -382,6 +382,13 @@ func BucketRangeableFromPropNameLSM(propName string) string {
 	return BucketFromPropNameLSM(propName + schema.InternalRangeableSuffix)
 }
 
+// BucketGeoFromPropNameLSM names the geopoints bucket of a geoCoordinates
+// property. Under "property." like the nested buckets, so it cannot collide
+// with the bucket of a property named "<name>_geo".
+func BucketGeoFromPropNameLSM(propName string) string {
+	return "property.geo_" + propName
+}
+
 // propertyBucketGenSuffix returns the suffix appended to a property bucket
 // name to disambiguate generations created by semantic runtime-reindex
 // migrations. Generation 0 (the default for never-migrated properties)

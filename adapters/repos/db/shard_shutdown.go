@@ -375,7 +375,6 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		s.cycleCallbacks.compactionAuxCallbacksCtrl,
 		s.cycleCallbacks.flushCallbacksCtrl,
 		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
-		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
 	).Unregister(ctx)
 	ec.Add(err)
 
@@ -392,23 +391,6 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 
 		return nil
 	})
-
-	_ = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
-		if err = queue.Flush(); err != nil {
-			ec.Add(fmt.Errorf("flush geo index queue commitlog of prop %q: %w", propName, err))
-		}
-
-		if err = queue.Close(ctx); err != nil {
-			ec.Add(fmt.Errorf("shut down geo index queue of prop %q: %w", propName, err))
-		}
-
-		return nil
-	})
-
-	s.propertyIndicesLock.RLock()
-	err = s.propertyIndices.ShutdownGeoIndices(ctx)
-	s.propertyIndicesLock.RUnlock()
-	ec.AddWrapf(err, "shutdown geo property indices")
 
 	_ = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// to ensure that all commitlog entries are written to disk.

@@ -142,16 +142,6 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		return err
 	}
 
-	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
-		if err = queue.Drop(ctx); err != nil {
-			return fmt.Errorf("close geo queue of prop %q at %s: %w", propName, s.path(), err)
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
 	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		if err = index.Drop(ctx, keepFiles); err != nil {
 			return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), err)
@@ -168,7 +158,6 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		s.cycleCallbacks.compactionAuxCallbacksCtrl,
 		s.cycleCallbacks.flushCallbacksCtrl,
 		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
-		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
 	).Unregister(ctx); err != nil {
 		return err
 	}
@@ -202,13 +191,6 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	err = s.GetPropertyLengthTracker().Drop(keepFiles)
 	if err != nil {
 		return errors.Wrapf(err, "remove prop length tracker at %s", s.path())
-	}
-
-	s.propertyIndicesLock.Lock()
-	err = s.propertyIndices.DropAll(ctx, keepFiles)
-	s.propertyIndicesLock.Unlock()
-	if err != nil {
-		return errors.Wrapf(err, "remove property specific indices at %s", s.path())
 	}
 
 	// rename sync (must complete even if ctx is expired); RemoveAll async

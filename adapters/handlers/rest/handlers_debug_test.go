@@ -388,6 +388,7 @@ func TestRebuildVectorIndexHandler(t *testing.T) {
 		{name: "accepted", query: "collection=C&shard=s", async: true, wantStatus: http.StatusAccepted, wantCalled: "vector="},
 		{name: "named vector accepted", query: "collection=C&shard=s&vector=v", async: true, wantStatus: http.StatusAccepted, wantCalled: "vector=v"},
 		{name: "geo accepted", query: "collection=C&shard=s&geo=location", async: true, wantStatus: http.StatusAccepted, wantCalled: "geo=location"},
+		{name: "geo needs no async indexing", query: "collection=C&shard=s&geo=location", wantStatus: http.StatusAccepted, wantCalled: "geo=location"},
 		{name: "unknown geo prop", query: "collection=C&shard=s&geo=location", async: true, resetErr: errors.New(`geo index "location" not found`), wantStatus: http.StatusNotFound, wantBody: "shard or geo index not found\n"},
 		{name: "vector and geo", query: "collection=C&shard=s&vector=v&geo=location", async: true, wantStatus: http.StatusBadRequest, wantBody: "vector and geo cannot both be set\n"},
 	}

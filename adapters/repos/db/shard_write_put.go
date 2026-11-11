@@ -81,10 +81,6 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		}
 	}
 
-	if err := s.updatePropertySpecificIndices(ctx, object, status); err != nil {
-		return errors.Wrap(err, "update property-specific indices")
-	}
-
 	if err := s.store.WriteWALs(); err != nil {
 		return errors.Wrap(err, "flush all buffered WALs")
 	}
@@ -399,6 +395,12 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return errors.Wrap(err, "object creation in hashtree")
 		}
 
+		// under the lock: a delete or update of this object running in between
+		// would retire the doc ID this write is about to index
+		if err := s.updatePropertySpecificIndices(ctx, obj, status); err != nil {
+			return errors.Wrap(err, "update property-specific indices")
+		}
+
 		return nil
 	}(); err != nil {
 		return objectInsertStatus{}, err
@@ -523,9 +525,8 @@ func (s *Shard) determineInsertStatus(prevObj, nextObj *storobj.Object) (objectI
 	// update objects and inverted indexes, skip update of vector index.
 	// https://github.com/weaviate/weaviate/issues/3948
 	//
-	// Due to geo index's (using HNSW vector index) requirement new docID for delete+insert
-	// (delete initially adds tombstone, which "overwrite" following insert of the same docID)
-	// any update of geo property needs new docID for updating geo index.
+	// A geo index entry is removed by doc ID and never rewritten under the same
+	// one, so any update of a geo property needs a new docID as well.
 	if preserve, skip := compareObjsForInsertStatus(prevObj, nextObj); preserve || skip {
 		out.docID = prevObj.DocID
 		// Content unchanged, but if the update time advanced, take the docID-preserved

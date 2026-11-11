@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -365,10 +364,10 @@ func logLevels(hook *test.Hook) []logrus.Level {
 	return levels
 }
 
-// TestShardLoadDropsNodeIDBeyondDocIDCounter pins that the vector index and each
-// geo property index of a shard are bounded by its document-ID counter, so a
-// commit log naming a node far beyond it is truncated on load instead of sizing
-// the node index to it (weaviate/0-weaviate-issues#649). HFresh's centroid index
+// TestShardLoadDropsNodeIDBeyondDocIDCounter pins that the vector index of a
+// shard is bounded by its document-ID counter, so a commit log naming a node far
+// beyond it is truncated on load instead of sizing the node index to it
+// (weaviate/0-weaviate-issues#649). HFresh's centroid index
 // numbers its nodes by posting ID and must keep no limit; it gets none only
 // because it lives in HFresh's directory, where there is no counter.
 func TestShardLoadDropsNodeIDBeyondDocIDCounter(t *testing.T) {
@@ -376,8 +375,6 @@ func TestShardLoadDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 		indexPath     func(s *Shard) string // relative to the shard directory
 		wantTruncated bool
 	}
-	geoLog := commitLog{indexPath: func(*Shard) string { return geoPropID("location") }, wantTruncated: true}
-
 	tests := []struct {
 		name              string
 		vectorIndexConfig schemaConfig.VectorIndexConfig
@@ -388,7 +385,6 @@ func TestShardLoadDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 			vectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			logs: []commitLog{
 				{indexPath: func(s *Shard) string { return s.vectorIndexID("") }, wantTruncated: true},
-				geoLog,
 			},
 		},
 		{
@@ -399,7 +395,6 @@ func TestShardLoadDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 					id := s.vectorIndexID("")
 					return path.Join(helpers.HFreshDirName(id), helpers.CentroidsID(id))
 				}},
-				geoLog,
 			},
 		},
 	}
@@ -408,12 +403,7 @@ func TestShardLoadDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			className := "NodeIDLimit"
-			class := &models.Class{
-				Class: className,
-				Properties: []*models.Property{
-					{Name: "location", DataType: schema.DataTypeGeoCoordinates.PropString()},
-				},
-			}
+			class := &models.Class{Class: className}
 			shard, index := testShardWithSettings(t, ctx, class, tc.vectorIndexConfig, false, false)
 			s, ok := shard.(*Shard)
 			require.True(t, ok)
@@ -422,7 +412,6 @@ func TestShardLoadDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 			for i := range objects {
 				obj := testObject(className)
 				obj.Vector = []float32{float32(i), 1, 2, 3}
-				obj.Object.Properties = map[string]interface{}{"location": geoCoordinates(float32(i), 1)}
 				require.NoError(t, s.PutObject(ctx, obj))
 			}
 			shardPath := s.path()

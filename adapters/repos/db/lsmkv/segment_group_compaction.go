@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/geopoints"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -543,6 +544,37 @@ func (sg *SegmentGroup) compactOnceAbortable(ctx context.Context,
 			return false, nil
 		}
 
+	case segmentindex.StrategyGeoPoints:
+		leftReader, err := left.newGeoPointsReader()
+		if err != nil {
+			return false, fmt.Errorf("open left segment: %w", err)
+		}
+		rightReader, err := right.newGeoPointsReader()
+		if err != nil {
+			return false, fmt.Errorf("open right segment: %w", err)
+		}
+		// the merge holds every point of both segments, which the general
+		// check above does not size
+		if sg.allocChecker != nil {
+			if err := sg.allocChecker.CheckAlloc(geopoints.MergeMemoryEstimate(leftReader, rightReader)); err != nil {
+				sg.logger.WithFields(logrus.Fields{
+					"action": "lsm_compaction",
+					"event":  "compaction_skipped_oom",
+					"path":   sg.dir,
+				}).Warnf("skipping geopoints compaction due to memory pressure: %v", err)
+				return false, nil
+			}
+		}
+		c := geopoints.NewCompactor(f, leftReader, rightReader,
+			level, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize)
+
+		aborted, err := runCompactor(c.Do)
+		if err != nil {
+			return false, err
+		}
+		if aborted {
+			return false, nil
+		}
 	case segmentindex.StrategyRoaringSetRange:
 		c := roaringsetrange.NewCompactor(f, left.newRoaringSetRangeCursor(), right.newRoaringSetRangeCursor(),
 			level, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize)

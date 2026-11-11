@@ -140,10 +140,6 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 		}
 	}
 
-	if err := s.updatePropertySpecificIndices(ctx, obj, status); err != nil {
-		return errors.Wrap(err, "update property-specific indices")
-	}
-
 	if err := s.store.WriteWALs(); err != nil {
 		return errors.Wrap(err, "flush all buffered WALs")
 	}
@@ -230,6 +226,11 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 
 		if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
 			return errors.Wrap(err, "object merge in hashtree")
+		}
+
+		// under the lock, for the reason given in putObjectLSM
+		if err := s.updatePropertySpecificIndices(ctx, obj, status); err != nil {
+			return errors.Wrap(err, "update property-specific indices")
 		}
 
 		return nil

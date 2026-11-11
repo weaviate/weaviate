@@ -678,7 +678,7 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 		// tenant's migration and sidecar dirs outlive the property delete.
 		// That is a gap, not a property of unloaded shards.
 		for _, indexType := range disabledIndexTypes(prop) {
-			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
+			mainBucket, ok := mainBucketForProperty(prop, indexType)
 			if !ok {
 				return fmt.Errorf("cannot remove unloaded %s index for %s property: no main bucket for this index type", indexType, prop.Name)
 			}
@@ -905,10 +905,6 @@ func (l *LazyLoadShard) ForEachVectorQueue(f func(targetVector string, queue *Ve
 	return l.mustLoad(context.Background()).ForEachVectorQueue(f)
 }
 
-func (l *LazyLoadShard) ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error {
-	return l.mustLoad(context.Background()).ForEachGeoQueue(f)
-}
-
 func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error) {
 	shard, _, err := l.loadIfCold(ctx)
 	if err != nil {
@@ -1110,10 +1106,6 @@ func (l *LazyLoadShard) mutableMergeObjectLSM(ctx context.Context, merge objects
 	return l.mustLoad(context.Background()).mutableMergeObjectLSM(ctx, merge, idBytes)
 }
 
-func (l *LazyLoadShard) updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error {
-	return l.mustLoad(context.Background()).updatePropertySpecificIndices(ctx, object, status)
-}
-
 func (l *LazyLoadShard) updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32, status objectInsertStatus) error {
 	return l.mustLoad(context.Background()).updateVectorIndexIgnoreDelete(ctx, vector, status)
 }
@@ -1124,10 +1116,6 @@ func (l *LazyLoadShard) updateVectorIndexesIgnoreDelete(ctx context.Context, vec
 
 func (l *LazyLoadShard) updateMultiVectorIndexesIgnoreDelete(ctx context.Context, multiVectors map[string][][]float32, status objectInsertStatus) error {
 	return l.mustLoad(context.Background()).updateMultiVectorIndexesIgnoreDelete(ctx, multiVectors, status)
-}
-
-func (l *LazyLoadShard) hasGeoIndex() bool {
-	return l.mustLoad(context.Background()).hasGeoIndex()
 }
 
 // A cold shard reports false rather than loading: the only caller reaches this

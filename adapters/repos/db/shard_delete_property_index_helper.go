@@ -39,8 +39,10 @@ func (p *propertyDeleteIndexHelper) ensureBucketsAreRemovedForNonExistentPropert
 	indexPath, shardName string, class *models.Class,
 ) error {
 	for _, prop := range class.Properties {
-		if propertyIndexRemoved(prop.IndexFilterable) && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketFromPropNameLSM(prop.Name)) {
-			if err := p.removePropertyIndexBucketFromDisk(indexPath, shardName, helpers.BucketFromPropNameLSM(prop.Name)); err != nil {
+		// a geoCoordinates property's filterable index is its geo bucket
+		filterableBucket, _ := mainBucketForProperty(prop, "filterable")
+		if propertyIndexRemoved(prop.IndexFilterable) && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, filterableBucket) {
+			if err := p.removePropertyIndexBucketFromDisk(indexPath, shardName, filterableBucket); err != nil {
 				return fmt.Errorf("failed to remove unused bucket for filterable index: class %s property %s: %w", class.Class, prop.Name, err)
 			}
 		}

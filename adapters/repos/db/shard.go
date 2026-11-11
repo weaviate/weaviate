@@ -29,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
@@ -152,7 +151,6 @@ type ShardLike interface {
 	AcquireVectorIndexQueue(targetVector string) (queue *VectorIndexQueue, release func(), ok bool)
 	ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error
 	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
-	ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
@@ -177,11 +175,9 @@ type ShardLike interface {
 	batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error
 	putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
 	mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
-	updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32, status objectInsertStatus) error
 	updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error
 	updateMultiVectorIndexesIgnoreDelete(ctx context.Context, multiVectors map[string][][]float32, status objectInsertStatus) error
-	hasGeoIndex() bool
 	hasGeoIndexForProp(propName string) bool
 	// addTargetNodeOverride adds a target node override to the shard.
 	addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
@@ -251,15 +247,12 @@ type Shard struct {
 	metrics           *Metrics
 	promMetrics       *monitoring.PrometheusMetrics
 	slowQueryReporter helpers.SlowQueryReporter
-	propertyIndices   propertyspecific.Indices
 	propLenTracker    *inverted.JsonShardMetaData
 	versioner         *shardVersioner
 
 	// vectors owns the vector indexes and their queues, one slot per logical
 	// vector; see shard_vector_slots.go
 	vectors vectorIndexSlots
-
-	geoQueues map[string]*VectorIndexQueue
 
 	// async replication
 	asyncReplicationRWMux  sync.RWMutex
@@ -348,12 +341,8 @@ type Shard struct {
 	// countedStatus is the weaviate_index_shards_total bucket this shard is in, ""
 	// if uncounted. Separate from status.Status so a failed update cannot make
 	// release decrement a bucket never entered. Guarded by statusLock.
-	countedStatus       string
-	statusLock          sync.RWMutex
-	propertyIndicesLock sync.RWMutex
-	// geoInitLock serializes initGeoProp so a prop never has two indexes under
-	// construction at once, see initGeoProp.
-	geoInitLock sync.Mutex
+	countedStatus string
+	statusLock    sync.RWMutex
 
 	centralJobQueue chan job // reference to queue used by all shards
 

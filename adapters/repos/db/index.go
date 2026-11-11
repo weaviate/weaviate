@@ -1785,7 +1785,6 @@ type IndexConfig struct {
 	HNSWWaitForCachePrefill      bool
 	HNSWFlatSearchConcurrency    int
 	HNSWAcornFilterRatio         float64
-	HNSWGeoIndexEF               int
 	VisitedListPoolMaxSize       int
 	BM25FilterTombMergeGateRatio *configRuntime.DynamicValue[float64]
 
@@ -4542,8 +4541,6 @@ func (i *Index) requestCycleStops() []cycleStop {
 		{"flush", i.cycleCallbacks.flushCycle},
 		{"vector commit logger", i.cycleCallbacks.vectorCommitLoggerCycle},
 		{"vector tombstone cleanup", i.cycleCallbacks.vectorTombstoneCleanupCycle},
-		{"geo props commit logger", i.cycleCallbacks.geoPropsCommitLoggerCycle},
-		{"geo props tombstone cleanup", i.cycleCallbacks.geoPropsTombstoneCleanupCycle},
 	}
 
 	stops := make([]cycleStop, len(cycles))
@@ -4643,15 +4640,11 @@ func (i *Index) unloadedLazyShard(shardName string) (*LazyLoadShard, error) {
 	return lazy, nil
 }
 
-// shardQueueSize sums the vector and geo queues GetStatus looks at, so a shard
-// is INDEXING exactly when its queue size is above 0.
+// shardQueueSize sums the vector queues GetStatus looks at, so a shard is
+// INDEXING exactly when its queue size is above 0.
 func shardQueueSize(shard ShardLike) int64 {
 	var size int64
 	_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
-		size += queue.Size()
-		return nil
-	})
-	_ = shard.ForEachGeoQueue(func(_ string, queue *VectorIndexQueue) error {
 		size += queue.Size()
 		return nil
 	})
@@ -5105,8 +5098,8 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 	return nil
 }
 
-// DebugResetGeoIndex is DebugResetVectorIndex for propName's geo index. It is
-// for debugging only, under the same assumptions.
+// DebugResetGeoIndex rebuilds propName's geo bucket on shardName from the
+// stored objects. It is for debugging only, see Shard.DebugResetGeoIndex.
 func (i *Index) DebugResetGeoIndex(ctx context.Context, shardName, propName string) error {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
@@ -5117,7 +5110,6 @@ func (i *Index) DebugResetGeoIndex(ctx context.Context, shardName, propName stri
 		return errors.New("shard not found")
 	}
 
-	// the shard refills it in the background
 	err = shard.DebugResetGeoIndex(ctx, propName)
 	if err != nil {
 		return errors.Wrap(err, "failed to reset geo index")

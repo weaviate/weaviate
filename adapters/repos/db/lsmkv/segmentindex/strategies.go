@@ -26,6 +26,7 @@ const (
 	StrategyRoaringSet
 	StrategyRoaringSetRange
 	StrategyInverted
+	StrategyGeoPoints
 )
 
 // consistent labels with adapters/repos/db/lsmkv/strategies.go
@@ -43,6 +44,8 @@ func (s Strategy) String() string {
 		return "roaringsetrange"
 	case StrategyInverted:
 		return "inverted"
+	case StrategyGeoPoints:
+		return "geopoints"
 	default:
 		return "n/a"
 	}
@@ -55,6 +58,7 @@ var allStrategies = []Strategy{
 	StrategyRoaringSet,
 	StrategyRoaringSetRange,
 	StrategyInverted,
+	StrategyGeoPoints,
 }
 
 func IsExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) bool {

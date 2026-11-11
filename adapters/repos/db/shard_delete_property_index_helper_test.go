@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func boolPtr(b bool) *bool {
@@ -140,6 +141,31 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 
 		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
 		require.NoError(t, err)
+	})
+
+	t.Run("geo property with filterable index removed - geo bucket removed", func(t *testing.T) {
+		h := newPropertyDeleteIndexHelper()
+		indexPath, shardName := setup(t)
+
+		propName := "location"
+		geoBucket := helpers.BucketGeoFromPropNameLSM(propName)
+		keptGeoBucket := helpers.BucketGeoFromPropNameLSM("home")
+		createBucket(t, indexPath, shardName, geoBucket)
+		createBucket(t, indexPath, shardName, keptGeoBucket)
+
+		class := &models.Class{
+			Class: "TestClass",
+			Properties: []*models.Property{
+				{Name: propName, DataType: schema.DataTypeGeoCoordinates.PropString(), IndexFilterable: boolPtr(false)},
+				{Name: "home", DataType: schema.DataTypeGeoCoordinates.PropString()},
+			},
+		}
+
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		require.NoError(t, err)
+
+		assert.False(t, bucketExists(indexPath, shardName, geoBucket))
+		assert.True(t, bucketExists(indexPath, shardName, keptGeoBucket))
 	})
 
 	t.Run("all indexes enabled - buckets kept", func(t *testing.T) {
