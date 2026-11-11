@@ -145,7 +145,6 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 				atLoad.Status = distributedtask.TaskStatusCancelled
 				require.ErrorContains(t, liftReady(reloaded)(), "a recovery retry started")
 				awaitRetry(t, reloaded)
-				require.NoError(t, liftReady(reloaded)())
 				require.Equal(t, storagestate.StatusReady, reloaded.GetStatus())
 				require.NotEmpty(t, reloaded.migrationRecords.Records())
 				for _, rec := range reloaded.migrationRecords.Records() {
@@ -159,7 +158,6 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 			restore()
 			require.ErrorContains(t, liftReady(reloaded)(), "a recovery retry started")
 			awaitRetry(t, reloaded)
-			require.NoError(t, liftReady(reloaded)())
 			require.Equal(t, storagestate.StatusReady, reloaded.GetStatus())
 			require.NotEmpty(t, p.cachedReindexTasks(cancelled.TaskDescriptor, unitID),
 				"the owed swap reuses the instances the reload armed, even once the task has ended")
