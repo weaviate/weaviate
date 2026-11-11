@@ -247,26 +247,13 @@ func TestRaftNamespaceEndpoints_HomeNode(t *testing.T) {
 		created, version, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "autohome"})
 		require.NoError(t, err)
 		require.NoError(t, srv.WaitForUpdate(ctx, version))
-		assert.NotEmpty(t, created.Primary(), "home_node should be populated by AddNamespace")
-		assert.Contains(t, srv.StorageCandidates(), created.Primary())
+		require.Len(t, created.HomeNodes, 1, "AddNamespace should return the home node it picked")
+		assert.Contains(t, srv.StorageCandidates(), created.HomeNodes[0])
 
 		got, err := srv.GetNamespaces("autohome")
 		require.NoError(t, err)
 		require.Len(t, got, 1)
-		assert.Equal(t, created.Primary(), got[0].Primary())
-	})
-
-	t.Run("explicit home_node is persisted as-is", func(t *testing.T) {
-		hn := srv.StorageCandidates()[0]
-		created, version, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "explicithome", HomeNodes: []string{hn}})
-		require.NoError(t, err)
-		require.NoError(t, srv.WaitForUpdate(ctx, version))
-		assert.Equal(t, hn, created.Primary())
-
-		got, err := srv.GetNamespaces("explicithome")
-		require.NoError(t, err)
-		require.Len(t, got, 1)
-		assert.Equal(t, hn, got[0].Primary())
+		assert.Equal(t, created.HomeNodes, got[0].HomeNodes)
 	})
 
 	factorRows := []struct {

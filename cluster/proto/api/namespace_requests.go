@@ -34,14 +34,6 @@ type Namespace struct {
 	StateChangeIndex uint64
 }
 
-// Primary returns the namespace's home node, or "" if unset.
-func (n Namespace) Primary() string {
-	if len(n.HomeNodes) == 0 {
-		return ""
-	}
-	return n.HomeNodes[0]
-}
-
 // MissingHomeNodes returns the HomeNodes entries not in candidates, in stored
 // order.
 func (n Namespace) MissingHomeNodes(candidates []string) []string {
