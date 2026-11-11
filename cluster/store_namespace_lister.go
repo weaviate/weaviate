@@ -45,10 +45,6 @@ func (a *SchemaNamespaceLister) ClassesInNamespace(namespace string) ([]string, 
 	return out, nil
 }
 
-func (a *SchemaNamespaceLister) ClassFactorsInNamespace(namespace string) map[string]int64 {
-	return a.src.ClassFactorsInNamespace(namespace)
-}
-
 func (a *SchemaNamespaceLister) AliasesInNamespace(namespace string) []string {
 	if namespace == "" {
 		return nil

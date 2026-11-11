@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -835,137 +834,38 @@ func TestStore_Apply_DeleteClass_CascadesOnSchemaOnlyReplay(t *testing.T) {
 	}
 }
 
-// TestStore_Apply_NamespaceFactorBound pins the apply-time bound of a class's
-// factor by its namespace's HomeNodes count, on a class change and on a
-// home-node shrink.
-func TestStore_Apply_NamespaceFactorBound(t *testing.T) {
-	const (
-		qualified   = "alpha:Foo"
-		unqualified = "Foo"
-	)
-	addNamespace := func(homeNodes ...string) []byte {
-		return cmdAsBytes("", api.ApplyRequest_TYPE_ADD_NAMESPACE, api.AddNamespaceRequest{
-			Namespace: api.Namespace{Name: "alpha", HomeNodes: homeNodes},
+// TestStore_Apply_NamespaceFactorNotCheckedAtApply pins that a home-node shrink
+// past the leader's factor bound still applies. A binary without that bound
+// applies it too.
+func TestStore_Apply_NamespaceFactorNotCheckedAtApply(t *testing.T) {
+	const class = "alpha:Foo"
+	cls := &models.Class{Class: class, ReplicationConfig: &models.ReplicationConfig{Factor: 3}}
+	state := &sharding.State{ReplicationFactor: 3, Physical: map[string]sharding.Physical{
+		"S1": {Name: "S1", BelongsToNodes: []string{"Node-1", "Node-2", "Node-3"}},
+	}}
+	entries := [][]byte{
+		cmdAsBytes("", api.ApplyRequest_TYPE_ADD_NAMESPACE, api.AddNamespaceRequest{
+			Namespace: api.Namespace{Name: "alpha", HomeNodes: []string{"Node-1", "Node-2", "Node-3"}},
 			Version:   api.NamespaceLatestCommandPolicyVersion,
-		}, nil)
-	}
-	updateNamespace := func(homeNodes ...string) []byte {
-		return cmdAsBytes("", api.ApplyRequest_TYPE_UPDATE_NAMESPACE, api.UpdateNamespaceRequest{
-			Namespace: api.Namespace{Name: "alpha", HomeNodes: homeNodes},
+		}, nil),
+		cmdAsBytes(class, api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{Class: cls, State: state}, nil),
+		cmdAsBytes("", api.ApplyRequest_TYPE_UPDATE_NAMESPACE, api.UpdateNamespaceRequest{
+			Namespace: api.Namespace{Name: "alpha", HomeNodes: []string{"Node-1", "Node-2"}},
 			Version:   api.NamespaceLatestCommandPolicyVersion,
-		}, nil)
-	}
-	addClass := func(class string, factor int64, owners ...string) []byte {
-		cls := &models.Class{Class: class, ReplicationConfig: &models.ReplicationConfig{Factor: factor}}
-		state := &sharding.State{ReplicationFactor: factor, Physical: map[string]sharding.Physical{}}
-		if len(owners) == 0 {
-			cls.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
-			state.PartitioningEnabled = true
-		} else {
-			state.Physical["S1"] = sharding.Physical{Name: "S1", BelongsToNodes: owners}
-		}
-		return cmdAsBytes(class, api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{Class: cls, State: state}, nil)
-	}
-	raiseFactor := func(class string, factor int64) []byte {
-		return cmdAsBytes(class, api.ApplyRequest_TYPE_UPDATE_CLASS, api.UpdateClassRequest{Class: &models.Class{
-			Class:              class,
-			ReplicationConfig:  &models.ReplicationConfig{Factor: factor},
-			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-		}}, nil)
-	}
-	const refusal = "replication factor 3 exceeds the 1 home node(s) of the namespace"
-
-	tests := []struct {
-		name    string
-		entries [][]byte
-		class   string
-		// wantFactor is class's stored factor after the last entry, 0 where
-		// the class does not exist.
-		wantFactor int64
-		wantErrIs  error
-		wantErr    string
-		// wantHomeNodes, where set, is alpha's stored HomeNodes after the last
-		// entry.
-		wantHomeNodes []string
-	}{
-		{
-			name:      "class add above the home-node count is refused",
-			entries:   [][]byte{addNamespace("Node-1"), addClass(qualified, 3, "Node-1", "Node-2", "Node-3")},
-			class:     qualified,
-			wantErrIs: clusterschema.ErrBadRequest,
-			wantErr:   refusal,
-		},
-		{
-			name:       "factor raise of an MT class with no tenants above the home-node count is refused",
-			entries:    [][]byte{addNamespace("Node-1"), addClass(qualified, 1), raiseFactor(qualified, 3)},
-			class:      qualified,
-			wantFactor: 1,
-			wantErrIs:  clusterschema.ErrBadRequest,
-			wantErr:    refusal,
-		},
-		{
-			name:       "factor raise of an unqualified MT class applies",
-			entries:    [][]byte{addNamespace("Node-1"), addClass(unqualified, 1), raiseFactor(unqualified, 3)},
-			class:      unqualified,
-			wantFactor: 3,
-		},
-		{
-			name:       "class add for a namespace never added applies",
-			entries:    [][]byte{addClass(qualified, 3, "Node-1", "Node-2", "Node-3")},
-			class:      qualified,
-			wantFactor: 3,
-		},
-		{
-			name: "home-node shrink below a class's factor is refused",
-			entries: [][]byte{
-				addNamespace("Node-1", "Node-2", "Node-3"),
-				addClass(qualified, 3, "Node-1", "Node-2", "Node-3"),
-				updateNamespace("Node-1", "Node-2"),
-			},
-			class:         qualified,
-			wantFactor:    3,
-			wantErrIs:     namespaces.ErrBadRequest,
-			wantErr:       "home_nodes has 2 entries, fewer than the replication factor of collection(s) alpha:Foo",
-			wantHomeNodes: []string{"Node-1", "Node-2", "Node-3"},
-		},
+		}, nil),
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ms := newClassApplyTestStore(t)
-			ms.indexer.On("UpdateClass", mock.Anything).Return(nil).Maybe()
-			ms.parser.On("ParseClassUpdate", mock.Anything).Return(nil, nil).Maybe()
-			ms.replicationFSM.On("HasActiveReplicationForCollection", mock.Anything).Return(false).Maybe()
-
-			var resp Response
-			for i, data := range tt.entries {
-				if i > 0 {
-					require.NoError(t, resp.Error, "entry %d", i-1)
-				}
-				var ok bool
-				resp, ok = ms.store.Apply(&raft.Log{Index: uint64(i + 1), Type: raft.LogCommand, Data: data}).(Response)
-				require.True(t, ok)
-			}
-
-			if tt.wantErr == "" {
-				require.NoError(t, resp.Error)
-			} else {
-				require.ErrorIs(t, resp.Error, tt.wantErrIs)
-				assert.ErrorContains(t, resp.Error, tt.wantErr)
-			}
-			if tt.wantHomeNodes != nil {
-				ns, ok := ms.store.namespaceManager.GetNamespace("alpha")
-				require.True(t, ok)
-				assert.Equal(t, tt.wantHomeNodes, ns.HomeNodes)
-			}
-
-			cls := ms.store.SchemaReader().ReadOnlyClass(tt.class)
-			if tt.wantFactor == 0 {
-				require.Nil(t, cls)
-				return
-			}
-			require.NotNil(t, cls)
-			assert.Equal(t, tt.wantFactor, cls.ReplicationConfig.Factor)
-		})
+	ms := newClassApplyTestStore(t)
+	for i, data := range entries {
+		resp, ok := ms.store.Apply(&raft.Log{Index: uint64(i + 1), Type: raft.LogCommand, Data: data}).(Response)
+		require.True(t, ok)
+		require.NoError(t, resp.Error, "entry %d", i)
 	}
+
+	ns, ok := ms.store.namespaceManager.GetNamespace("alpha")
+	require.True(t, ok)
+	assert.Equal(t, []string{"Node-1", "Node-2"}, ns.HomeNodes)
+	got := ms.store.SchemaReader().ReadOnlyClass(class)
+	require.NotNil(t, got)
+	assert.Equal(t, int64(3), got.ReplicationConfig.Factor)
 }

@@ -25,11 +25,10 @@ import (
 )
 
 // SchemaNamespaceLister returns the classes and aliases that belong to a
-// namespace, and the replication factor of each of its classes.
+// namespace.
 type SchemaNamespaceLister interface {
 	ClassesInNamespace(namespace string) ([]string, error)
 	AliasesInNamespace(namespace string) []string
-	ClassFactorsInNamespace(namespace string) map[string]int64
 }
 
 // DynusersNamespaceLister returns the dynamic DB users that belong to a
@@ -112,21 +111,12 @@ func (m *Manager) Add(c *cmd.ApplyRequest) error {
 
 // Update applies an UpdateNamespace RAFT command, rewriting the stored
 // HomeNodes of an existing namespace. It returns
-// [usecasesNamespaces.ErrBadRequest] for a malformed payload or for HomeNodes
-// shorter than the largest factor among the namespace's classes, and otherwise
+// [usecasesNamespaces.ErrBadRequest] for a malformed payload, and otherwise
 // what [usecasesNamespaces.Controller.Update] returns.
 func (m *Manager) Update(c *cmd.ApplyRequest) error {
 	req := &cmd.UpdateNamespaceRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
-	}
-	// Update skips the check for a missing or deleting namespace, which
-	// Controller.Update refuses with its own error.
-	if existing, ok := m.GetNamespace(req.Namespace.Name); ok && existing.State != cmd.NamespaceStateDeleting {
-		factors := m.schema.ClassFactorsInNamespace(req.Namespace.Name)
-		if err := req.Namespace.CheckClassFactors(factors); err != nil {
-			return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
-		}
 	}
 	return m.controller.Update(req.Namespace)
 }

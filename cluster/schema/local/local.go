@@ -60,9 +60,6 @@ type ClassReader interface {
 	// CollectionsCount counts the locally stored classes. An empty namespace counts
 	// the whole cluster; a non-empty one restricts the count to that namespace.
 	CollectionsCount(namespace string) int
-	// ClassFactorsInNamespace maps each locally stored class of the namespace
-	// onto its replication factor. An empty namespace has none, so it returns nil.
-	ClassFactorsInNamespace(namespace string) map[string]int64
 }
 
 // AliasReader reads collection aliases.

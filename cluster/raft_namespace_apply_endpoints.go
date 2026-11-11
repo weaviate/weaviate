@@ -63,9 +63,9 @@ func (s *Raft) AddNamespace(ctx context.Context, ns cmd.Namespace) (cmd.Namespac
 // UpdateNamespace proposes an UpdateNamespace RAFT command and returns the
 // apply version. Only HomeNodes is mutable; existing live shards are not
 // moved. Before propose it refuses a list shorter than MinimumFactor with
-// [namespaces.ErrBadRequest]. The apply side refuses one shorter than the
-// largest factor among the namespace's classes, and otherwise returns the
-// errors of [usecasesNamespaces.Controller.Update].
+// [namespaces.ErrBadRequest]. The leader's PreApplyFilter refuses one shorter
+// than the largest factor among the namespace's classes, and the apply returns
+// the errors of [usecasesNamespaces.Controller.Update].
 func (s *Raft) UpdateNamespace(ctx context.Context, ns cmd.Namespace) (uint64, error) {
 	if err := s.checkHomeNodesMinimum(ns.HomeNodes); err != nil {
 		return 0, err
