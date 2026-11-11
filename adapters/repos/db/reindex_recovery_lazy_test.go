@@ -458,7 +458,7 @@ func TestAnUncachedStepFailsOnAHeldShardWithAnUnreadableRecord(t *testing.T) {
 	err := fx.provider.runPerUnitPhase(&distributedtask.Task{TaskDescriptor: fx.desc}, &payload,
 		[]string{fx.subject.Key.UnitID}, fx.idx, fx.logger, "group-completion", "starting", false,
 		func(string, ShardLike, []*ShardReindexTaskGeneric, bool) phaseResult { return phaseResult{} })
-	require.ErrorContains(t, err, "could not be read")
+	require.ErrorContains(t, err, "migration record fault(s) on this shard")
 	require.NotErrorIs(t, err, context.Canceled, "the step fails instead of waiting")
 }
 
