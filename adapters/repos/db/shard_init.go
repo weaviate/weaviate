@@ -196,7 +196,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(start))
 	}
 
-	// A caller giving up must not stamp a healthy migration for good.
+	// This ignores ctx's cancellation because a lazy load's client can disconnect mid-load.
+	// Otherwise OnAfterLsmInit fails on the cancelled ctx, and AbandonUnarmed marks the
+	// migration Unmirrored, so it is never swapped in and has to be resubmitted.
 	if unarmed, err := s.armRecoveredMigrations(context.WithoutCancel(ctx), recovered); err != nil {
 		s.holdReadOnlyForUnarmed(unarmed, err)
 	}
