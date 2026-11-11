@@ -545,17 +545,33 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 		return point
 	}
 
+	// A point that two sweeps share is measured once: margin=auto may come
+	// out as a margin that another sweep names.
+	type pointKey struct {
+		work    workKey
+		threads int
+		untimed bool
+	}
+	measured := map[pointKey]bool{}
 	for _, sw := range plan {
 		untimed := sw.untimed || *benchMode == "work"
-		for _, margin := range sw.margins {
+		for _, named := range sw.margins {
 			for _, rescore := range sw.rescores {
+				margin := named
+				if named == autoMargin {
+					margin = auto[rescore]
+				}
 				for _, loadBatch := range sw.batches {
 					for _, threads := range sw.threads {
 						for _, ef := range sw.efs {
-							if margin == autoMargin {
-								measure(ef, rescore, loadBatch, threads, auto[rescore], untimed)
+							key := pointKey{
+								work:    workKey{ef: ef, rescore: rescore, batch: loadBatch, margin: margin},
+								threads: threads, untimed: untimed,
+							}
+							if measured[key] {
 								continue
 							}
+							measured[key] = true
 							measure(ef, rescore, loadBatch, threads, margin, untimed)
 						}
 						if untimed {
