@@ -167,7 +167,12 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 				}
 			}
 
-			if err := m.cloud.Upload(ctx, class, name, m.nodeId); err != nil {
+			// s5cmd cp keeps what an earlier freeze left here, and a download would mix the two
+			err = m.cloud.Delete(ctx, class, name, m.nodeId)
+			if err == nil {
+				err = m.cloud.Upload(ctx, class, name, m.nodeId)
+			}
+			if err != nil {
 				m.logger.WithFields(logrus.Fields{
 					"action": "upload_tenant_to_cloud",
 					"error":  err,
@@ -316,7 +321,10 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 					},
 					Op: command.TenantsProcess_OP_DONE,
 				}
-				tenantsToBeDeletedFromCloud.Store(name, nodeID)
+				// another node's copy is left for that node: this one cannot see its newer freezes
+				if nodeID == m.nodeId {
+					tenantsToBeDeletedFromCloud.Store(name, nodeID)
+				}
 			}
 
 			return nil
@@ -354,6 +362,14 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 			ec.Add(fmt.Errorf("UpdateTenantsProcess error: %w", err))
 			return
 		}
+		pending := map[string]string{}
+		tenantsToBeDeletedFromCloud.Range(func(name, nodeID any) bool {
+			pending[name.(string)] = nodeID.(string)
+			return true
+		})
+		if len(pending) == 0 {
+			return
+		}
 		if err := idx.schemaReader.WaitForUpdate(ctx, version); err != nil {
 			m.logger.WithFields(logrus.Fields{
 				"action": "deleting_tenant_from_cloud",
@@ -362,11 +378,6 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 			return
 		}
 
-		pending := map[string]string{}
-		tenantsToBeDeletedFromCloud.Range(func(name, nodeID any) bool {
-			pending[name.(string)] = nodeID.(string)
-			return true
-		})
 		deadline := time.Now().Add(m.unfreezeSourceMaxWait)
 		recheck := time.NewTicker(m.unfreezeSourceRecheck)
 		defer recheck.Stop()
