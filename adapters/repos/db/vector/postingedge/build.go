@@ -82,24 +82,37 @@ func (ix *Index) build(ctx context.Context, input *pendingVectors, uc UserConfig
 	target := targetPostingSize(uc.TargetPostingSize, codeBytes)
 	postings := int(math.Ceil(float64(n) / float64(target)))
 
-	stage = time.Now()
-	centroids, err := partition(ctx, ix.logger, vectors, dims, postings, ix.cfg.Seed)
-	if err != nil {
-		return nil, errors.Wrap(err, "partition vectors")
-	}
-	stats.PartitionTime = time.Since(stage)
-	ix.logStage("partition", stats.PartitionTime, logrus.Fields{"postings": len(centroids)})
+	var centroids [][]float32
+	var assigned *assignment
+	if shared := ix.shared; shared != nil && shared.filled() {
+		if err := shared.fits(n, postings, uc.BuildProbe); err != nil {
+			return nil, errors.Wrap(err, "shared partition and assignment")
+		}
+		centroids, assigned = shared.centroids, shared.assigned
+		ix.logStage("partition and assign taken from another build", 0, logrus.Fields{"postings": len(centroids)})
+	} else {
+		stage = time.Now()
+		centroids, err = partition(ctx, ix.logger, vectors, dims, postings, ix.cfg.Seed)
+		if err != nil {
+			return nil, errors.Wrap(err, "partition vectors")
+		}
+		stats.PartitionTime = time.Since(stage)
+		ix.logStage("partition", stats.PartitionTime, logrus.Fields{"postings": len(centroids)})
 
-	stage = time.Now()
-	assigned, err := assign(ctx, ix.logger, vectors, centroids, uc.BuildProbe)
-	if err != nil {
-		return nil, errors.Wrap(err, "assign vectors to centroids")
+		stage = time.Now()
+		assigned, err = assign(ctx, ix.logger, vectors, centroids, uc.BuildProbe)
+		if err != nil {
+			return nil, errors.Wrap(err, "assign vectors to centroids")
+		}
+		centroids = dropEmpty(centroids, assigned)
+		stats.AssignTime = time.Since(stage)
+		ix.logStage("assign", stats.AssignTime, logrus.Fields{"postings": len(centroids)})
+		if ix.shared != nil {
+			*ix.shared = buildShare{vectors: n, postings: postings, probe: uc.BuildProbe, centroids: centroids, assigned: assigned}
+		}
 	}
-	centroids = dropEmpty(centroids, assigned)
 	layout := newSlotLayout(assigned.primary, len(centroids))
-	stats.AssignTime = time.Since(stage)
 	stats.Postings = len(centroids)
-	ix.logStage("assign", stats.AssignTime, logrus.Fields{"postings": len(centroids)})
 
 	stage = time.Now()
 	codes, codeWords, err := encode(ctx, ix.logger, vectors, layout, quantizer)
@@ -178,6 +191,41 @@ func (ix *Index) build(ctx context.Context, input *pendingVectors, uc UserConfig
 		"took":     stats.TotalTime.String(),
 	}).Info("posting-edge index built")
 	return st, nil
+}
+
+// buildShare hands the partition and the assignment of one build to another.
+// They follow from the vectors, the number of postings and the probe width
+// alone, and at ten million vectors they take hours: a benchmark that builds
+// several indexes over one corpus, apart in their codes only, computes them
+// once. A build that finds them filled in takes them as they are, one that
+// finds them empty fills them in. Neither build changes them afterwards.
+type buildShare struct {
+	// what the partition and the assignment were computed for
+	vectors, postings, probe int
+	centroids                [][]float32 // without the empty ones
+	assigned                 *assignment // numbered accordingly
+}
+
+func (s *buildShare) filled() bool {
+	return s.assigned != nil
+}
+
+// fits tells whether what is shared comes from a build like this one. Whether
+// its vectors were the same ones it cannot tell: that is on whoever shares.
+func (s *buildShare) fits(vectors, postings, probe int) error {
+	if s.vectors != vectors || s.postings != postings || s.probe != probe {
+		return errors.Errorf("computed for %d vectors in %d postings with a build probe of %d, "+
+			"this build has %d vectors in %d postings with a build probe of %d",
+			s.vectors, s.postings, s.probe, vectors, postings, probe)
+	}
+	a := s.assigned
+	// The width is the probe, or the number of centroids there were where
+	// that is smaller.
+	if len(a.primary) != vectors || a.width < 1 || a.width > probe || len(a.probes) != vectors*a.width {
+		return errors.Errorf("assignment of %d vectors with %d probe entries of width %d does not hold together",
+			len(a.primary), len(a.probes), a.width)
+	}
+	return nil
 }
 
 func (ix *Index) logStage(name string, took time.Duration, fields logrus.Fields) {

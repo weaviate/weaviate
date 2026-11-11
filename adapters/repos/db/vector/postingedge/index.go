@@ -68,6 +68,9 @@ type Index struct {
 	uc      UserConfig
 	pending *pendingVectors // nil once built
 	closed  bool
+	// shared carries the partition and the assignment from one build to
+	// another, see buildShare. Nil outside benchmarks.
+	shared *buildShare
 
 	presentMu sync.RWMutex
 	present   *sroar.Bitmap // ids of every vector added
