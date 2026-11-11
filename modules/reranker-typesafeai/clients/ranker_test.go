@@ -239,6 +239,38 @@ func TestRankHalvesARequestTheAPIRejectsForItsSize(t *testing.T) {
 	}
 }
 
+func TestRankNamesTheObjectOfA400ToADocumentASplitIsolated(t *testing.T) {
+	f := newFake(t)
+	f.tooLarge = func(documents int) bool { return documents > 1 }
+	f.replies = map[int]fakeReply{1: {status: http.StatusBadRequest, body: `{"error":"unsupported content"}`}}
+
+	_, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+		documentsOf(noRefund, chargedTwice), classConfig(f.url(), nil))
+
+	require.EqualError(t, err, "object 00000000-0000-0000-0000-000000000000: "+
+		`connection to TypeSafe AI API failed with status 400: {"error":"unsupported content"}`)
+	assert.Equal(t, []int{1, 2}, sizes(f.received()))
+}
+
+func TestRankScoresAWhitespaceOnlyDocumentZeroWithoutSendingIt(t *testing.T) {
+	f := newFake(t)
+	f.probabilities = map[string]float64{"a": 0.8, "b": 0.2}
+
+	res, err := newTestClient(defaultFakeKey).RankProperty(context.Background(), churn, "text",
+		documentsOf(" ", "a", "\t\n ", "b"), classConfig(f.url(), nil))
+
+	require.NoError(t, err)
+	assert.Equal(t, []ent.DocumentScore{
+		{Document: " ", Score: 0},
+		{Document: "a", Score: 0.8},
+		{Document: "\t\n ", Score: 0},
+		{Document: "b", Score: 0.2},
+	}, res.DocumentScores)
+	requests := f.received()
+	require.Len(t, requests, 1)
+	assert.Equal(t, map[string]any{"document_0": "a", "document_1": "b"}, requests[0].body.State)
+}
+
 func TestRankSkipsEmptyAndDuplicateDocuments(t *testing.T) {
 	f := newFake(t)
 	f.probabilities = map[string]float64{"a": 0.8, "b": 0.2}
@@ -356,12 +388,13 @@ func TestRankFailsAtOnceOnProviderErrors(t *testing.T) {
 			wantErr:   `connection to TypeSafe AI API failed with status 500: {"error":"internal error"}`,
 		},
 		{
-			name:      "400 to a single document names its object",
+			// The request holds the whole page, so the 400 can be about the
+			// request, such as an unknown model, and names no object.
+			name:      "400 to a page of one document",
 			documents: []string{noRefund},
 			status:    http.StatusBadRequest,
 			body:      `{"error":"unsupported content"}`,
-			wantErr: "object 00000000-0000-0000-0000-000000000000: " +
-				`connection to TypeSafe AI API failed with status 400: {"error":"unsupported content"}`,
+			wantErr:   `connection to TypeSafe AI API failed with status 400: {"error":"unsupported content"}`,
 		},
 		{
 			name:      "400 to two documents",
@@ -533,13 +566,13 @@ func TestRankQuotesNoBodyOfAHostTheRequestNames(t *testing.T) {
 		{
 			name:    "a 400 from the class base URL",
 			reply:   fakeReply{status: http.StatusBadRequest, body: banner},
-			wantErr: `object 00000000-0000-0000-0000-000000000000: connection to TypeSafe AI API failed with status 400: {"error":"internal banner"}`,
+			wantErr: `connection to TypeSafe AI API failed with status 400: {"error":"internal banner"}`,
 		},
 		{
 			name:       "a 400 from the header base URL",
 			reply:      fakeReply{status: http.StatusBadRequest, body: banner},
 			fromHeader: true,
-			wantErr:    "object 00000000-0000-0000-0000-000000000000: connection to TypeSafe AI API failed with status 400",
+			wantErr:    "connection to TypeSafe AI API failed with status 400",
 		},
 		{
 			name:    "a 200 without answers from the class base URL",
@@ -596,6 +629,47 @@ func TestRankKeepsTheBaseURLPath(t *testing.T) {
 	requests := f.received()
 	require.Len(t, requests, 1)
 	assert.Equal(t, "/typesafe/v1/systemone", requests[0].path)
+}
+
+// SDKs write the base URL with a /v1 suffix, which the client adds itself.
+func TestRankNormalizesTheBaseURL(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		fromHeader bool
+		wantPath   string
+	}{
+		{name: "class base URL without a path", path: "", wantPath: "/v1/systemone"},
+		{name: "class base URL ending in /v1", path: "/v1", wantPath: "/v1/systemone"},
+		{name: "class base URL ending in /v1/", path: "/v1/", wantPath: "/v1/systemone"},
+		{name: "class base URL with a gateway path ending in /v1", path: "/gateway/v1", wantPath: "/gateway/v1/systemone"},
+		{name: "class base URL ending in /v1/v1", path: "/v1/v1", wantPath: "/v1/v1/systemone"},
+		{name: "header base URL ending in /v1", path: "/v1", fromHeader: true, wantPath: "/v1/systemone"},
+		{name: "header base URL with a gateway path ending in /v1/", path: "/gateway/v1/", fromHeader: true, wantPath: "/gateway/v1/systemone"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			classServer, headerServer := newFake(t), newFake(t)
+			classBaseURL := classServer.url() + tt.path
+			used, unused := classServer, headerServer
+			ctx := context.Background()
+			if tt.fromHeader {
+				classBaseURL = classServer.url()
+				used, unused = headerServer, classServer
+				ctx = context.WithValue(ctx, "X-Typesafeai-Api-Key", []string{"headerKey"})
+				ctx = context.WithValue(ctx, "X-Typesafeai-Baseurl", []string{headerServer.url() + tt.path})
+			}
+
+			_, err := newTestClient(defaultFakeKey).RankProperty(ctx, churn, "text",
+				documentsOf(noRefund), classConfig(classBaseURL, nil))
+
+			require.NoError(t, err)
+			assert.Empty(t, unused.received())
+			requests := used.received()
+			require.Len(t, requests, 1)
+			assert.Equal(t, tt.wantPath, requests[0].path)
+		})
+	}
 }
 
 func TestRankCapsRequestsInFlight(t *testing.T) {
