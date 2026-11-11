@@ -13,6 +13,7 @@ package postingedge
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -67,12 +68,23 @@ func TestBuildTakesThePartitionOfAnotherBuild(t *testing.T) {
 
 	cappedAlone := buildTestIndex(t, vectors, distancer.NewCosineDistanceProvider(), capped)
 
+	// A third one probes far fewer centroids: it reads the head of the
+	// probes that were computed for the wider build.
+	narrow := uc
+	narrow.BuildProbe = 2
+	third := sharingIndex(t, vectors, narrow, share)
+	require.NoError(t, third.Build(ctx))
+	narrowAlone := buildTestIndex(t, vectors, distancer.NewCosineDistanceProvider(), narrow)
+	require.False(t, slices.Equal(alone.state.Load().postings.edges, narrowAlone.state.Load().postings.edges),
+		"the fixture must tell the two build probes apart")
+
 	tests := []struct {
 		name          string
 		alone, shared *Index
 	}{
 		{name: "the build that left its partition", alone: alone, shared: first},
 		{name: "the build that took it", alone: cappedAlone, shared: second},
+		{name: "a build with a narrower probe", alone: narrowAlone, shared: third},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -88,8 +100,9 @@ func TestBuildTakesThePartitionOfAnotherBuild(t *testing.T) {
 	}
 }
 
-// What is shared is of one corpus size, one number of postings and one probe
-// width. A build of another shape must fail rather than build on it.
+// What is shared is of one corpus size and one number of postings, and has
+// probes of one width. A build of another shape, or one that probes wider,
+// must fail rather than build on it.
 func TestBuildRejectsAPartitionOfAnotherShape(t *testing.T) {
 	ctx := context.Background()
 	vectors := clusteredVectors(1200, 64, 12, 78)
@@ -106,7 +119,7 @@ func TestBuildRejectsAPartitionOfAnotherShape(t *testing.T) {
 	}{
 		{name: "fewer vectors", vectors: vectors[:1100]},
 		{name: "another posting size", vectors: vectors, change: func(uc *UserConfig) { uc.TargetPostingSize = 60 }},
-		{name: "another build probe", vectors: vectors, change: func(uc *UserConfig) { uc.BuildProbe = 8 }},
+		{name: "a wider build probe", vectors: vectors, change: func(uc *UserConfig) { uc.BuildProbe = 2 * uc.BuildProbe }},
 		{
 			name: "an assignment cut short", vectors: vectors,
 			spoil: func(share *buildShare) {

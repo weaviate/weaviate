@@ -199,6 +199,10 @@ func (ix *Index) build(ctx context.Context, input *pendingVectors, uc UserConfig
 // several indexes over one corpus, apart in their codes only, computes them
 // once. A build that finds them filled in takes them as they are, one that
 // finds them empty fills them in. Neither build changes them afterwards.
+//
+// What was computed with a wider build probe serves a narrower build: the
+// probes of a vector are its nearest centroids, nearest first, and the edge
+// builder reads the head of the list.
 type buildShare struct {
 	// what the partition and the assignment were computed for
 	vectors, postings, probe int
@@ -210,18 +214,19 @@ func (s *buildShare) filled() bool {
 	return s.assigned != nil
 }
 
-// fits tells whether what is shared comes from a build like this one. Whether
-// its vectors were the same ones it cannot tell: that is on whoever shares.
+// fits tells whether what is shared comes from a build like this one, or from
+// one that differs in a wider build probe. Whether its vectors were the same
+// ones it cannot tell: that is on whoever shares.
 func (s *buildShare) fits(vectors, postings, probe int) error {
-	if s.vectors != vectors || s.postings != postings || s.probe != probe {
+	if s.vectors != vectors || s.postings != postings || s.probe < probe {
 		return errors.Errorf("computed for %d vectors in %d postings with a build probe of %d, "+
 			"this build has %d vectors in %d postings with a build probe of %d",
 			s.vectors, s.postings, s.probe, vectors, postings, probe)
 	}
 	a := s.assigned
-	// The width is the probe, or the number of centroids there were where
-	// that is smaller.
-	if len(a.primary) != vectors || a.width < 1 || a.width > probe || len(a.probes) != vectors*a.width {
+	// The width is the probe it was computed with, or the number of
+	// centroids there were where that is smaller.
+	if len(a.primary) != vectors || a.width < 1 || a.width > s.probe || len(a.probes) != vectors*a.width {
 		return errors.Errorf("assignment of %d vectors with %d probe entries of width %d does not hold together",
 			len(a.primary), len(a.probes), a.width)
 	}
