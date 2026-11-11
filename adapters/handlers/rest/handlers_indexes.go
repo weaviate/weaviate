@@ -462,7 +462,6 @@ func cancelRefusalReason(status distributedtask.TaskStatus) string {
 }
 
 // cancelReindexTask finds the in-flight reindex task targeting
-// cancelReindexTask finds the in-flight reindex task targeting
 // (collection, propertyName, indexType) and asks DTM to cancel it.
 //
 // Idempotent cancel: by the time this runs the caller's (collection,
