@@ -30,14 +30,8 @@ import (
 )
 
 // A geoCoordinates property with a filterable index is served by a geopoints
-// bucket, helpers.BucketGeoFromPropNameLSM, that holds a BKD tree per segment.
-// It is an lsmkv bucket like every other property index, so flushing,
-// compaction, backups and crash recovery need nothing geo-specific. Until
-// v1.40 the index was an HNSW graph beside the shard; initGeoProp rebuilds
-// such a graph's bucket from the objects and removes its directories.
-
-// initGeoProp opens propName's geo bucket, building it from the objects when
-// the shard still holds the geo HNSW of an earlier version.
+// bucket (docs/geo-index.md). Until v1.40 it was an HNSW graph beside the
+// shard; initGeoProp rebuilds such a graph's bucket from the objects.
 func (s *Shard) initGeoProp(ctx context.Context, prop *models.Property,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 ) error {
@@ -48,9 +42,7 @@ func (s *Shard) initGeoProp(ctx context.Context, prop *models.Property,
 	return s.migrateLegacyGeoIndex(ctx, prop.Name, makeBucketOptions)
 }
 
-// legacyGeoIndexDirs are the directories the geo HNSW of versions before 1.40
-// kept beside the shard's lsm directory: its commit log and, with async
-// indexing, its queue.
+// legacyGeoIndexDirs: the geo HNSW's commit log and, with async indexing, its queue.
 func legacyGeoIndexDirs(shardPath, propName string) []string {
 	return []string{
 		filepath.Join(shardPath, fmt.Sprintf("geo.%s.hnsw.commitlog.d", propName)),
@@ -59,10 +51,8 @@ func legacyGeoIndexDirs(shardPath, propName string) []string {
 }
 
 // migrateLegacyGeoIndex rebuilds propName's bucket from the objects when a geo
-// HNSW directory is present, then removes the directories. The directories go
-// last, and only once the rebuilt bucket is on disk, so a crash at any point
-// repeats the rebuild on the next start rather than leaving a partial bucket
-// behind with nothing to trigger its repair.
+// HNSW directory is present, then removes the directories. They go last, once
+// the bucket is on disk, so a crash at any point repeats the rebuild.
 func (s *Shard) migrateLegacyGeoIndex(ctx context.Context, propName string,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 ) error {
@@ -96,17 +86,14 @@ func (s *Shard) migrateLegacyGeoIndex(ctx context.Context, propName string,
 }
 
 // rebuildGeoBucketFromObjects replaces propName's geo bucket with one built
-// from every stored object and flushed to a segment. The bucket is gone for
-// the duration, so writes and geo filters on the property fail while it runs;
-// the startup migration runs before the shard serves, the debug endpoint is
-// for a node without traffic.
+// from the stored objects and flushed to a segment. The bucket is gone for the
+// duration, so writes and geo filters on the property fail while it runs.
 func (s *Shard) rebuildGeoBucketFromObjects(ctx context.Context, propName string,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 ) error {
 	start := time.Now()
 	bucketName := helpers.BucketGeoFromPropNameLSM(propName)
 
-	// an earlier attempt may have left a partial bucket
 	if err := s.removeBucket(ctx, bucketName); err != nil {
 		return fmt.Errorf("remove geo bucket: %w", err)
 	}
@@ -124,10 +111,8 @@ func (s *Shard) rebuildGeoBucketFromObjects(ctx context.Context, propName string
 		return errors.Wrap(err, "index stored objects")
 	}
 
-	// The points go to a segment, fsynced like every flush, and the directory
-	// entry naming it is synced too. A caller that then removes what the
-	// rebuild replaces can rely on the bucket being on disk; the write-ahead
-	// log alone is only in the page cache until the kernel writes it.
+	// on disk before the caller removes what the rebuild replaces: a written
+	// but unsynced WAL is only in the page cache
 	if err := bucket.FlushAndSwitch(); err != nil {
 		return fmt.Errorf("flush geo bucket: %w", err)
 	}
@@ -145,9 +130,8 @@ func (s *Shard) rebuildGeoBucketFromObjects(ctx context.Context, propName string
 }
 
 // indexGeoPointsFromObjects adds the coordinates of every live object to the
-// bucket and returns how many it added. It scans the objects bucket in storage
-// order: the doc ID counter counts every version ever written, so walking its
-// range by doc ID would cost as much as the shard's history, not its size.
+// bucket, scanning the objects bucket rather than probing every doc ID ever
+// written, and returns how many it added.
 func (s *Shard) indexGeoPointsFromObjects(ctx context.Context, bucket *lsmkv.Bucket,
 	propName string,
 ) (int, error) {
@@ -160,7 +144,6 @@ func (s *Shard) indexGeoPointsFromObjects(ctx context.Context, bucket *lsmkv.Buc
 	if err != nil {
 		return 0, fmt.Errorf("getting bucket class name: %w", err)
 	}
-	// read-only once built, so every object can share it
 	propExtraction := storobj.NewPropExtraction().Add(propName)
 
 	cursor := objects.CursorReplaceReusable()
@@ -193,7 +176,6 @@ func (s *Shard) indexGeoPointsFromObjects(ctx context.Context, bucket *lsmkv.Buc
 	return count, nil
 }
 
-// geoProps lists the class properties served by a geo bucket.
 func geoProps(class *models.Class) []*models.Property {
 	var out []*models.Property
 	for _, prop := range class.Properties {
@@ -204,8 +186,8 @@ func geoProps(class *models.Class) []*models.Property {
 	return out
 }
 
-// geoBucket returns propName's geo bucket, or an error when the shard has none:
-// an object with coordinates that go unindexed would be a silent gap.
+// geoBucket errors when the shard has none: an unindexed coordinate would be a
+// silent gap.
 func (s *Shard) geoBucket(propName string) (*lsmkv.Bucket, error) {
 	bucket := s.store.Bucket(helpers.BucketGeoFromPropNameLSM(propName))
 	if bucket == nil {
@@ -214,9 +196,8 @@ func (s *Shard) geoBucket(propName string) (*lsmkv.Bucket, error) {
 	return bucket, nil
 }
 
-// geoCoordinatesOfProp returns propName's coordinates, or nil if the object
-// carries no such property. A value arriving as a map, as a merge produces, is
-// accepted alongside the model type.
+// geoCoordinatesOfProp returns propName's coordinates, or nil if the object has
+// none. A merge produces the value as a map rather than the model type.
 func geoCoordinatesOfProp(obj *storobj.Object, propName string) (*models.GeoCoordinates, error) {
 	props, ok := obj.Properties().(map[string]interface{})
 	if !ok {
@@ -256,12 +237,10 @@ func geoCoordinatesOfProp(obj *storobj.Object, propName string) (*models.GeoCoor
 	return coordinates, nil
 }
 
-// updatePropertySpecificIndices writes object's geo coordinates to every geo
-// bucket of its class, after removing the doc ID the object had before. It
-// removes from every geo bucket, not only those the object has a value for,
-// since the update may have dropped the property. The caller holds the
-// object's doc ID lock: a delete or update of the same object that ran between
-// the object write and this one would remove a doc ID this add then writes.
+// updatePropertySpecificIndices writes the object's coordinates to every geo
+// bucket of its class, after removing its previous doc ID from each (the
+// update may have dropped the property). The caller holds the doc ID lock, so
+// a delete of the same object cannot retire the doc ID this adds in between.
 func (s *Shard) updatePropertySpecificIndices(ctx context.Context, object *storobj.Object,
 	status objectInsertStatus,
 ) error {
@@ -305,8 +284,6 @@ func (s *Shard) updatePropertySpecificIndices(ctx context.Context, object *storo
 	return nil
 }
 
-// deleteFromGeoIndexes removes docID from the geo bucket of every property the
-// deleted object carried a coordinate for.
 func (s *Shard) deleteFromGeoIndexes(previous *storobj.Object, docID uint64) error {
 	class := s.index.getSchema.ReadOnlyClass(previous.Class().String())
 	if class == nil {
@@ -332,13 +309,11 @@ func (s *Shard) deleteFromGeoIndexes(previous *storobj.Object, docID uint64) err
 	return nil
 }
 
-// hasGeoIndexForProp reports whether propName's geo bucket is open on this shard.
 func (s *Shard) hasGeoIndexForProp(propName string) bool {
 	return s.store.Bucket(helpers.BucketGeoFromPropNameLSM(propName)) != nil
 }
 
-// createsGeoIndex reports whether createPropertyValueIndex builds a geo bucket
-// for prop rather than inverted buckets.
+// createsGeoIndex: prop gets a geo bucket rather than inverted buckets.
 func createsGeoIndex(prop *models.Property) bool {
 	if !inverted.HasFilterableIndex(prop) {
 		return false

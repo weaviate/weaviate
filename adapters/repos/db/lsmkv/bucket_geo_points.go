@@ -19,8 +19,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/geopoints"
 )
 
-// GeoPointsAdd indexes docID at the coordinates. A doc ID is added once in its
-// lifetime: an object update gets a new doc ID, and the old one is removed.
+// GeoPointsAdd indexes docID at the coordinates. A doc ID is added once: an
+// object update gets a new doc ID and the old one is removed.
 func (b *Bucket) GeoPointsAdd(docID uint64, lat, lon float32) error {
 	if err := CheckStrategyGeoPoints(b.strategy); err != nil {
 		return err
@@ -35,7 +35,6 @@ func (b *Bucket) GeoPointsAdd(docID uint64, lat, lon float32) error {
 	return active.geoPointsAdd(docID, lat, lon)
 }
 
-// GeoPointsRemove drops docID's point, in whichever layer it sits.
 func (b *Bucket) GeoPointsRemove(docID uint64) error {
 	if err := CheckStrategyGeoPoints(b.strategy); err != nil {
 		return err
@@ -50,10 +49,10 @@ func (b *Bucket) GeoPointsRemove(docID uint64) error {
 	return active.geoPointsRemove(docID)
 }
 
-// GeoPointsWithinRange returns the doc IDs whose point is at most distance
-// meters from (lat, lon). Every layer contributes its matches and its
-// deletions; the deletions are subtracted at the end, which is exact because a
-// doc ID is added once and removed at most once afterwards.
+// GeoPointsWithinRange returns the doc IDs within distance meters of (lat,
+// lon). Every layer adds its matches and its deletions, and the deletions are
+// subtracted at the end, which is exact because a doc ID is added once and
+// removed at most once.
 func (b *Bucket) GeoPointsWithinRange(ctx context.Context, lat, lon, distance float32) (*sroar.Bitmap, error) {
 	if err := CheckStrategyGeoPoints(b.strategy); err != nil {
 		return nil, err
@@ -68,6 +67,9 @@ func (b *Bucket) GeoPointsWithinRange(ctx context.Context, lat, lon, distance fl
 
 	out, deleted := sroar.NewBitmap(), sroar.NewBitmap()
 	for _, seg := range view.Disk {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		reader, err := seg.newGeoPointsReader()
 		if err != nil {
 			return nil, fmt.Errorf("segment %q: %w", seg.getPath(), err)

@@ -24,16 +24,12 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// Compactor merges two segments into one tree. right is the newer segment.
-// The surviving points are held in memory while the tree is rebuilt, once:
-// MergeMemoryEstimate tells the caller how much that is, so it can be checked
-// against the memory available before the segments are read.
+// Compactor merges two segments into one tree, holding the surviving points in
+// memory once; MergeMemoryEstimate sizes that for the caller.
 type Compactor struct {
-	left, right  *SegmentReader
-	currentLevel uint16
-	// cleanupDeletions is set when left is the oldest segment: no older segment
-	// can hold a point the deletions refer to, so none is kept.
-	cleanupDeletions         bool
+	left, right              *SegmentReader // right is the newer one
+	currentLevel             uint16
+	cleanupDeletions         bool // left is the oldest segment, so no deletion is kept
 	enableChecksumValidation bool
 
 	w    io.WriteSeeker
@@ -66,7 +62,7 @@ func NewCompactor(w io.WriteSeeker, left, right *SegmentReader,
 }
 
 func (c *Compactor) Do(ctx context.Context) error {
-	// a placeholder header: the real one is written once the body size is known
+	// placeholder header, rewritten once the body size is known
 	if _, err := c.bufw.Write(make([]byte, segmentindex.HeaderSize)); err != nil {
 		return fmt.Errorf("write empty header: %w", err)
 	}
@@ -80,7 +76,7 @@ func (c *Compactor) Do(ctx context.Context) error {
 		segmentindex.WithBufferedWriter(c.bufw),
 		segmentindex.WithChecksumsDisabled(!c.enableChecksumValidation),
 	)
-	if _, err := body.WriteTo(segmentFile.BodyWriter()); err != nil {
+	if _, err := body.WriteTo(ctx, segmentFile.BodyWriter()); err != nil {
 		return fmt.Errorf("write body: %w", err)
 	}
 
@@ -104,22 +100,19 @@ func (c *Compactor) Do(ctx context.Context) error {
 	return nil
 }
 
-// MergeMemoryEstimate is the heap Merge needs for two segments: every point
-// of both, the nodes of the tree over them, the deletion bitmaps and the
-// scratch of a chunked column read. The points dominate at 16 bytes each.
+// MergeMemoryEstimate is the heap Merge needs: the points at 16 bytes each,
+// the nodes over them, the deletion bitmaps and the read scratch.
 func MergeMemoryEstimate(left, right *SegmentReader) int64 {
 	points := left.hdr.pointCount + right.hdr.pointCount
-	// a median split makes at most one leaf per 256 points, two nodes per leaf
-	nodes := points/128 + 1
+	nodes := points/128 + 1 // at most one leaf per 256 points, two nodes per leaf
 	deletions := 2 * (left.hdr.deletionsLen + right.hdr.deletionsLen)
 	return int64(points*16 + nodes*nodeSize + deletions + 3*pointChunk*8)
 }
 
 // Merge computes the body of the segment replacing left and right. A point
-// deleted by either segment is dropped and its deletion spent: a doc ID is
-// added once in its lifetime, so the deletion can refer to no other point.
-// The deletion may sit in the older segment and the point in the newer one
-// when a write lost a race with the delete of its object.
+// deleted by either segment is dropped and its deletion spent, since a doc ID
+// is added once; the deletion sits in the older segment when a stale write
+// added the point after it.
 func Merge(ctx context.Context, left, right *SegmentReader, cleanupDeletions bool) (*Body, error) {
 	leftDel, err := left.Deletions()
 	if err != nil {
@@ -132,8 +125,7 @@ func Merge(ctx context.Context, left, right *SegmentReader, cleanupDeletions boo
 	deleted := leftDel.Clone()
 	deleted.Or(rightDel)
 
-	// the deletions carried on for older segments, less those spent here
-	var carried *sroar.Bitmap
+	var carried *sroar.Bitmap // kept for older segments, less those spent here
 	if !cleanupDeletions {
 		carried = deleted.Clone()
 	}

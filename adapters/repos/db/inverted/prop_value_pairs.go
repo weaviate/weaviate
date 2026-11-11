@@ -497,8 +497,6 @@ func (pv *propValuePair) getBucketName() string {
 		return ""
 	}
 
-	// a geo range is served by the property's geopoints bucket, which the
-	// filterable index of a geoCoordinates property is
 	if pv.operator == filters.OperatorWithinGeoRange {
 		if pv.hasFilterableIndex {
 			return helpers.BucketGeoFromPropNameLSM(pv.prop)

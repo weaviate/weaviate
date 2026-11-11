@@ -193,8 +193,6 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 	return out, nil
 }
 
-// docBitmapGeo serves a withinGeoRange filter from the property's geopoints
-// bucket, which answers it exactly.
 func (s *Searcher) docBitmapGeo(ctx context.Context, b *lsmkv.Bucket, pv *propValuePair) (docBitmap, error) {
 	if pv.operator != filters.OperatorWithinGeoRange || pv.valueGeoRange == nil {
 		return docBitmap{}, fmt.Errorf("operator %s is not supported on geo prop %q", pv.operator.Name(), pv.prop)
@@ -209,7 +207,6 @@ func (s *Searcher) docBitmapGeo(ctx context.Context, b *lsmkv.Bucket, pv *propVa
 		return docBitmap{}, fmt.Errorf("geo index range search on prop %q: %w", pv.prop, err)
 	}
 
-	// the bitmap is freshly built, nothing to release
 	out := newUninitializedDocBitmap()
 	out.docIDs = res
 	out.release = func() {}

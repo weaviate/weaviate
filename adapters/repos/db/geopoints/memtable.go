@@ -18,26 +18,22 @@ import (
 	"github.com/weaviate/sroar"
 )
 
-// Memtable is the in-memory layer of a bucket: points in arrival order and
-// the doc IDs removed since the last flush. A query scans it, which is cheap
-// because the flush threshold bounds it. The lock guards reads against
-// concurrent writes; the lsmkv memtable serializes writers itself.
+// Memtable is the in-memory layer of a bucket: points in arrival order and the
+// doc IDs removed since the last flush. A query scans it. The lock guards reads
+// against writes; the lsmkv memtable serializes the writers.
 type Memtable struct {
-	lock    sync.RWMutex
-	points  []Point
-	deleted *sroar.Bitmap
-	// deletedCount tracks removals for Size, which GetCardinality would
-	// recompute on every write
-	deletedCount int
+	lock         sync.RWMutex
+	points       []Point
+	deleted      *sroar.Bitmap
+	deletedCount int // GetCardinality would recompute it on every write
 }
 
 func NewMemtable() *Memtable {
 	return &Memtable{deleted: sroar.NewBitmap()}
 }
 
-// Add records a point. A removal of the same doc ID recorded earlier stands:
-// doc IDs are never reused, so such an add belongs to a write that lost a race
-// with the delete of its object, and the point it carries is already gone.
+// Add records a point. An earlier removal of the same doc ID stands: doc IDs
+// are never reused, so such an add is a stale write for a point that is gone.
 func (m *Memtable) Add(docID uint64, lat, lon float32) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -45,7 +41,6 @@ func (m *Memtable) Add(docID uint64, lat, lon float32) {
 	m.points = append(m.points, Point{DocID: docID, Lat: lat, Lon: lon})
 }
 
-// Remove records that docID's point, wherever it is, is gone.
 func (m *Memtable) Remove(docID uint64) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -55,9 +50,8 @@ func (m *Memtable) Remove(docID uint64) {
 	}
 }
 
-// Size estimates the memory held, in bytes. It drives the flush decision and
-// must be positive once anything was written, or the write-ahead log is
-// discarded as empty.
+// Size drives the flush decision and must be positive once anything was
+// written, or the write-ahead log is discarded as empty.
 func (m *Memtable) Size() int {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
@@ -65,7 +59,6 @@ func (m *Memtable) Size() int {
 	return len(m.points)*16 + m.deletedCount*8
 }
 
-// WithinRange implements InnerReader.
 func (m *Memtable) WithinRange(ctx context.Context, c *Circle, out, deleted *sroar.Bitmap) error {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
@@ -85,10 +78,9 @@ func (m *Memtable) WithinRange(ctx context.Context, c *Circle, out, deleted *sro
 	return nil
 }
 
-// Body returns the segment content for a flush. A point whose doc ID this
-// memtable also removes is dropped along with the removal: a doc ID is added
-// once, so that removal can refer to nothing else. Every point of the doc ID
-// goes, should a stale write have added it twice.
+// Body is the segment content for a flush. A point this memtable also removes
+// is dropped along with the removal, which can refer to nothing else since a
+// doc ID is added once.
 func (m *Memtable) Body() *Body {
 	m.lock.RLock()
 	defer m.lock.RUnlock()

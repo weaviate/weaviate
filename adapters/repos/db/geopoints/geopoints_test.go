@@ -724,6 +724,10 @@ func TestCircleBoxesCoverBoundary(t *testing.T) {
 			lat = float32(math.Copysign(90-math.Exp(r.Float64()*8-6), r.Float64()-0.5))
 		}
 		dist := float32(math.Exp(r.Float64() * 17)) // 1 m .. ~24,000 km
+		if i%5 == 0 {
+			// a hemisphere, give or take: the widened cap reaches a pole
+			dist = float32(math.Pi / 2 * earthRadiusMeters * (1 + (r.Float64()-0.5)*0.01))
+		}
 		c, err := NewCircle(lat, lon, dist)
 		require.NoError(t, err)
 
@@ -747,6 +751,13 @@ func TestCircleBoxesCoverBoundary(t *testing.T) {
 		}
 	}
 	require.Greater(t, checked, 1_000_000, "the sampling found too few boundary points")
+
+	t.Run("just under a hemisphere", func(t *testing.T) {
+		c, err := NewCircle(0, 0, 10_006_432)
+		require.NoError(t, err)
+		require.True(t, c.Contains(0, 89.9))
+		assert.True(t, c.IntersectsBox(Box{0, 0, 89.9, 89.9}), "boxes %v", c.boxes)
+	})
 
 	t.Run("a point across the antimeridian the formula accepts", func(t *testing.T) {
 		c, err := NewCircle(10.43258285522461, 179.2627410888672, 178805.828125)
@@ -783,9 +794,15 @@ func TestBodyWriteToMatchesBuild(t *testing.T) {
 		body := &Body{Points: append([]Point(nil), points...), Deletions: del.ToBuffer()}
 
 		var buf bytes.Buffer
-		written, err := body.WriteTo(&buf)
+		written, err := body.WriteTo(context.Background(), &buf)
 		require.NoError(t, err)
 		assert.Equal(t, int64(body.Size()), written)
 		assert.Equal(t, Build(points, del.ToBuffer()), buf.Bytes())
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	body := &Body{Points: genPoints(rand.New(rand.NewSource(1)), 70_000)}
+	_, err := body.WriteTo(ctx, &bytes.Buffer{})
+	require.ErrorIs(t, err, context.Canceled)
 }
