@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 )
 
 // testMigrationStrategy wraps MapToBlockmaxStrategy but replaces
@@ -479,4 +480,13 @@ func TestBothChangeTokenizationHalvesRecordTheBucketStrategy(t *testing.T) {
 		subject := task.migrationSubject(nil, payload.Properties, time.Time{})
 		require.Equal(t, lsmkv.StrategyMapCollection, subject.BucketStrategy, subject.Key.StrategyCode)
 	}
+}
+
+func TestSwapLoggerSamplesRetries(t *testing.T) {
+	logger := logrus.New()
+	task := &ShardReindexTaskGeneric{logger: logger}
+	retries := logrusext.NewSampler(logger, 1, time.Hour)
+	require.Same(t, logger, task.swapLogger(retries), "the first attempt logs in full")
+	require.Same(t, logger, task.swapLogger(retries), "a retry within the sample logs")
+	require.Same(t, discardLogger, task.swapLogger(retries), "a retry past the sample does not")
 }
