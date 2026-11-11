@@ -242,10 +242,12 @@ func TestReloadKeepsATenantMigratedAheadOfTheSchema(t *testing.T) {
 				require.NoError(t, task.RunSwapOnShard(ctx, shard))
 			}
 
-			failed := withUnits(&distributedtask.Task{
+			failed := &distributedtask.Task{
 				Namespace: ReindexNamespace, TaskDescriptor: desc, Status: distributedtask.TaskStatusFailed,
 				SwapDecidedGroups: map[string]time.Time{shard.Name(): {}},
-			}, map[string]*distributedtask.Unit{shard.migrationUnit(): {ID: shard.migrationUnit(), GroupID: shard.Name()}})
+				Units:             map[string]*distributedtask.Unit{shard.migrationUnit(): {ID: shard.migrationUnit(), GroupID: shard.Name()}},
+			}
+			failed.IndexGroups()
 			idx.db.indices[indexID(idx.Config.ClassName)] = idx
 			installTestMigrationTaskSources(ctx, idx.db, nil, failed)
 

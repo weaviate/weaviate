@@ -578,7 +578,7 @@ type Task struct {
 	Error string `json:"error,omitempty"`
 
 	// Units tracks per-unit progress. Always non-nil for valid tasks.
-	// Whoever replaces it calls indexGroups, or group lookups go stale.
+	// Whoever replaces it calls [Task.IndexGroups], or group lookups go stale.
 	Units map[string]*Unit `json:"units,omitempty"`
 
 	// groups maps each group to its initial unit IDs; shared, never mutated.
@@ -622,7 +622,8 @@ type PostCompletionAck struct {
 	AckedAt time.Time `json:"ackedAt"`
 }
 
-func (t *Task) indexGroups() {
+// IndexGroups rebuilds the group index; call it after assigning Units directly.
+func (t *Task) IndexGroups() {
 	groups := map[string][]string{}
 	for id, u := range t.Units {
 		groups[u.GroupID] = append(groups[u.GroupID], id)
@@ -633,7 +634,7 @@ func (t *Task) indexGroups() {
 // shareGroups reuses held's index when it has as many units (units are only removed).
 func (t *Task) shareGroups(held *Task) {
 	if held == nil || held.Version != t.Version || len(held.Units) != len(t.Units) {
-		t.indexGroups()
+		t.IndexGroups()
 		return
 	}
 	t.groups, t.groupCount = held.groups, held.groupCount

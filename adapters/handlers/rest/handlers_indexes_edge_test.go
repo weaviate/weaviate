@@ -43,7 +43,7 @@ func buildTask(t *testing.T, id string, status distributedtask.TaskStatus,
 	t.Helper()
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	return withUnits(t, &distributedtask.Task{
+	task := &distributedtask.Task{
 		Namespace: db.ReindexNamespace,
 		TaskDescriptor: distributedtask.TaskDescriptor{
 			ID:      id,
@@ -52,20 +52,10 @@ func buildTask(t *testing.T, id string, status distributedtask.TaskStatus,
 		Payload:   raw,
 		Status:    status,
 		StartedAt: time.Now(),
-	}, units)
-}
-
-// withUnits decodes the task the way a node receives it, which builds its group index.
-func withUnits(t *testing.T, task *distributedtask.Task, units map[string]*distributedtask.Unit) *distributedtask.Task {
-	t.Helper()
-	task.Units = units
-	raw, err := json.Marshal(distributedtask.ListDistributedTasksResponse{
-		Tasks: map[string][]*distributedtask.Task{task.Namespace: {task}},
-	})
-	require.NoError(t, err)
-	tasks, err := distributedtask.NewManager(distributedtask.ManagerParameters{}).DecodeTaskList(raw)
-	require.NoError(t, err)
-	return tasks[task.Namespace][0]
+		Units:     units,
+	}
+	task.IndexGroups()
+	return task
 }
 
 func tasksMap(tasks ...*distributedtask.Task) []db.ReindexRun {

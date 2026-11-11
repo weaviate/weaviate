@@ -174,7 +174,7 @@ func TestTask_ForgetGroupsKeepsTheSharedIndex(t *testing.T) {
 
 func withUnits(task *Task, units map[string]*Unit) *Task {
 	task.Units = units
-	task.indexGroups()
+	task.IndexGroups()
 	return task
 }
 

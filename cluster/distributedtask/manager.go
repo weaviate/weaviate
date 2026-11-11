@@ -499,7 +499,7 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	} else {
 		return fmt.Errorf("task %s/%s must have at least one unit", r.Namespace, r.Id)
 	}
-	newTask.indexGroups()
+	newTask.IndexGroups()
 
 	m.cacheCollectionWithLock(newTask)
 	m.setTaskWithLock(newTask)
@@ -1235,7 +1235,7 @@ func (m *Manager) Restore(bytes []byte) error {
 				task.FinishedAt = time.Time{}
 			}
 
-			task.indexGroups()
+			task.IndexGroups()
 			m.cacheCollectionWithLock(task)
 			m.tasks[namespace][task.ID] = task
 		}

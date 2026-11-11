@@ -109,9 +109,10 @@ func TestIndexStatusAfterTaskTTL(t *testing.T) {
 					task.Payload = []byte("{")
 				}
 				if r.partial {
-					task = withUnits(t, task, map[string]*distributedtask.Unit{
+					task.Units = map[string]*distributedtask.Unit{
 						"u1": {ID: "u1", GroupID: "t1"}, "u2": {ID: "u2", GroupID: "t2"},
-					})
+					}
+					task.IndexGroups()
 					task.SwapDecidedGroups = map[string]time.Time{"t1": now}
 				}
 				if r.owed {

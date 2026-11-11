@@ -855,12 +855,14 @@ func TestAHeldShardsMigrationResumesOnALaterTickAfterTheLift(t *testing.T) {
 			payload.UnitToShard, payload.UnitToNode = map[string]string{unitID: fx.name}, map[string]string{unitID: node}
 			raw, err := json.Marshal(payload)
 			require.NoError(t, err)
-			task := withUnits(&distributedtask.Task{
+			task := &distributedtask.Task{
 				Namespace: ReindexNamespace, TaskDescriptor: fx.desc, Payload: raw, Status: tc.status,
 				NeedsPreparationBarrier: true,
-			}, map[string]*distributedtask.Unit{unitID: {
-				ID: unitID, GroupID: fx.name, NodeID: node, Status: tc.unit,
-			}})
+				Units: map[string]*distributedtask.Unit{unitID: {
+					ID: unitID, GroupID: fx.name, NodeID: node, Status: tc.unit,
+				}},
+			}
+			task.IndexGroups()
 			outcome := &heldStepOutcome{task: task, done: make(chan string, 4)}
 			fx.logger.(*logrus.Logger).SetLevel(logrus.DebugLevel)
 			logs := test.NewLocal(fx.logger.(*logrus.Logger))
@@ -1250,11 +1252,14 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 			raw, err := json.Marshal(payload)
 			require.NoError(t, err)
 			task := func(status distributedtask.TaskStatus) *distributedtask.Task {
-				return withUnits(&distributedtask.Task{
+				task := &distributedtask.Task{
 					Namespace: ReindexNamespace, TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
 					Status: status, Payload: raw, NeedsPreparationBarrier: true,
 					SwapDecidedGroups: map[string]time.Time{group: time.Now()}, SwapsOwed: map[string][]string{group: {node}},
-				}, map[string]*distributedtask.Unit{unitID: {ID: unitID, GroupID: group, NodeID: node}})
+					Units: map[string]*distributedtask.Unit{unitID: {ID: unitID, GroupID: group, NodeID: node}},
+				}
+				task.IndexGroups()
+				return task
 			}
 			p.processOneUnit(ctx, task(distributedtask.TaskStatusStarted), &payload, idx, unitID, newFakeRecorder())
 			require.NoError(t, p.OnGroupCompleted(task(distributedtask.TaskStatusPreparing), group, []string{unitID}))
@@ -1473,20 +1478,4 @@ func (r managerAckRecorder) RecordDistributedTaskPostCompletionAck(_ context.Con
 
 func (r managerAckRecorder) RecordDistributedTaskPreparationCompleteAck(context.Context, string, string, uint64, string, string, bool, string) error {
 	return errors.New("no PREP ack expected")
-}
-
-// withUnits decodes the task the way a node receives it, which builds its group index.
-func withUnits(task *distributedtask.Task, units map[string]*distributedtask.Unit) *distributedtask.Task {
-	task.Units = units
-	raw, err := json.Marshal(distributedtask.ListDistributedTasksResponse{
-		Tasks: map[string][]*distributedtask.Task{task.Namespace: {task}},
-	})
-	if err != nil {
-		panic(err)
-	}
-	tasks, err := distributedtask.NewManager(distributedtask.ManagerParameters{}).DecodeTaskList(raw)
-	if err != nil {
-		panic(err)
-	}
-	return tasks[task.Namespace][0]
 }

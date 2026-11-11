@@ -115,10 +115,12 @@ func TestLogOperatorRepairGuidanceOnPartialSwap_MigratedTenantsGetResubmit(t *te
 		Collection: "Products", MigrationType: ReindexTypeChangeTokenization,
 		Properties: []string{"name"}, TargetTokenization: "field",
 	}
-	task := withUnits(&distributedtask.Task{
+	task := &distributedtask.Task{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1}, Status: distributedtask.TaskStatusCancelled,
 		SwapDecidedGroups: map[string]time.Time{"a": {}},
-	}, map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}})
+		Units:             map[string]*distributedtask.Unit{"a": {ID: "a", GroupID: "a"}, "b": {ID: "b", GroupID: "b"}},
+	}
+	task.IndexGroups()
 	logger, hook := logrustest.NewNullLogger()
 	logOperatorRepairGuidanceOnPartialSwap(logger, payload, distributedtask.TaskStatusCancelled,
 		[]ReindexRun{{Task: task, Payload: *payload}})
