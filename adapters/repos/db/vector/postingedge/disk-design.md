@@ -102,12 +102,13 @@ Los bytes y las lecturas de arriba son cuentas. Esto otro es qué entra en el ca
 |---|---|---|---|---|---|
 | 1536d, recall 0.95 | 64 | 10.1 | 6.3 | 2 563 | 2.5 % |
 | 1536d, recall 0.99 | 64 | 53 | 1.2 | 13 235 | 0.5 % |
-| 768d (wiki-dpr 1M), recall 0.99 | 200 | 44.8 | 4.5 | 10 958 | 1.8 % |
+| 768d (wiki-dpr 1M), recall 0.99 | 200 | 43.7 | 4.6 | 10 697 | 1.9 % |
+| 768d (wiki-dpr 10M), recall 0.99 | 200 | 51.3 | 3.9 | 13 081 | 1.5 % |
 
 - **Con estas cifras (b) lee entre 40 y 200 vectores exactos por cada uno que usa.** A 1536d y recall 0.99 son 84 MB secuenciales para ahorrarse 64 lecturas de 6 KB.
 - **(b) solo compensa si los candidatos se concentran:** muchos por posting cargado, en pocos postings.
 - **Para (b'), entre 1 y 6 candidatos por posting cargado es poco para leer postings enteros de vectores** (236 vectores por rango para usar esos pocos). Con estas medias, lo suyo son lecturas sueltas a offset fijo.
-- **El conteo fino sale de la proyección a disco del v1.4:** por query, media y p95, cuántos candidatos del rescore hay y en cuántos de los postings cargados viven. Las filas de arriba son medias de candidatos entre medias de cargas; ese conteo dirá además si están repartidos o agrupados. Queda por añadir aquí con los datos de 10M.
+- **El conteo por query a 10M (wiki-dpr, 768d, recall 0.99, rescoreLimit 200) lo confirma:** los 200 candidatos viven en postings que la query ya cargó (ninguno fuera, en ninguna de las mil queries), y están repartidos por 51.2 de los 51.3 postings cargados de media (p95 100.7). Son 3.9 candidatos por posting cargado, o 7.8 con rescoreLimit 400. En ese punto (b) leería 40 MB por query (13 081 vectores de 3 KB) para usar el 1.5 %, y (a) y (b') harían 200 lecturas sueltas de 3 KB, al bucket o a un fichero propio.
 
 Lo que no cambia con el layout: en todos, ningún candidato del rescore necesita cargar un posting propio. Los candidatos solo salen de los scans de postings cargados; los endpoints de las aristas ordenan postings y nunca entran como candidatos.
 
