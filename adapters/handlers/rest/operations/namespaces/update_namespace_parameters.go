@@ -46,7 +46,7 @@ type UpdateNamespaceParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Required body. `home_node` is the new placement target.
+	/*Required body. `home_nodes` replaces the namespace's list.
 	  Required: true
 	  In: body
 	*/

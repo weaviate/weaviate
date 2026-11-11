@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 
 	"github.com/go-openapi/runtime/middleware"
 
@@ -81,24 +80,25 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 		return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	homeNode := ""
+	var body models.NamespaceCreateRequest
 	if params.Body != nil {
-		homeNode = params.Body.HomeNode
+		body = *params.Body
 	}
-	if homeNode != "" && !slices.Contains(h.raft.StorageCandidates(), homeNode) {
-		return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("home_node %q is not a current storage candidate", homeNode)))
+	homeNodes, err := requestHomeNodes(body.HomeNode, body.HomeNodes) //nolint:staticcheck // deprecated on the wire but still read and filled for old clients
+	if err != nil {
+		return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	// A request with neither field leaves homeNodes nil, and AddNamespace then
+	// auto-picks MaximumFactor nodes, or refuses when no maximum is set.
+	if len(homeNodes) > 0 {
+		if err := h.checkHomeNodes(homeNodes); err != nil {
+			return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
 	}
 
 	// No pre-check for existence — the RAFT apply layer owns uniqueness, so
 	// we translate its sentinels directly. A pre-check would TOCTOU under
-	// concurrent creates and surface a misleading 500 on the loser. Leave
-	// HomeNodes nil when no home_node was supplied; AddNamespace fills it
-	// from storage candidates.
-	var homeNodes []string
-	if homeNode != "" {
-		homeNodes = []string{homeNode}
-	}
+	// concurrent creates and surface a misleading 500 on the loser.
 	created, _, err := h.raft.AddNamespace(ctx, cmd.Namespace{Name: name, HomeNodes: homeNodes})
 	if err != nil {
 		switch {
@@ -120,11 +120,8 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating namespace: %w", err)))
 	}
 
-	return nsops.NewCreateNamespaceCreated().WithPayload(&models.Namespace{
-		Name:     name,
-		HomeNode: created.Primary(),
-		State:    string(cmd.NamespaceStateActive),
-	})
+	created.State = cmd.NamespaceStateActive
+	return nsops.NewCreateNamespaceCreated().WithPayload(namespaceModel(created))
 }
 
 func (h *namespaceHandler) updateNamespace(params nsops.UpdateNamespaceParams, principal *models.Principal) middleware.Responder {
@@ -139,20 +136,27 @@ func (h *namespaceHandler) updateNamespace(params nsops.UpdateNamespaceParams, p
 		return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	homeNode := ""
-	if params.Body != nil && params.Body.HomeNode != nil {
-		homeNode = *params.Body.HomeNode
+	var body models.NamespaceUpdateRequest
+	if params.Body != nil {
+		body = *params.Body
 	}
-	if homeNode == "" {
-		return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("home_node is required")))
+	var homeNode string
+	if hn := body.HomeNode; hn != nil { //nolint:staticcheck // deprecated on the wire but still read and filled for old clients
+		homeNode = *hn
 	}
-	if !slices.Contains(h.raft.StorageCandidates(), homeNode) {
+	homeNodes, err := requestHomeNodes(homeNode, body.HomeNodes)
+	if err != nil {
+		return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	if len(homeNodes) == 0 {
 		return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("home_node %q is not a current storage candidate", homeNode)))
+			cerrors.ErrPayloadFromSingleErr(principal, errors.New("home_nodes is required")))
+	}
+	if err := h.checkHomeNodes(homeNodes); err != nil {
+		return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	if _, err := h.raft.UpdateNamespace(ctx, cmd.Namespace{Name: name, HomeNodes: []string{homeNode}}); err != nil {
+	if _, err := h.raft.UpdateNamespace(ctx, cmd.Namespace{Name: name, HomeNodes: homeNodes}); err != nil {
 		switch {
 		case errors.Is(err, usecasesNamespaces.ErrNotFound):
 			return nsops.NewUpdateNamespaceNotFound().WithPayload(
@@ -162,7 +166,7 @@ func (h *namespaceHandler) updateNamespace(params nsops.UpdateNamespaceParams, p
 			// no later retry of this update can succeed. Cased explicitly for
 			// the tailored message; the status matches the family's 422.
 			return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(
-				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q is being deleted; home_node cannot be updated", name)))
+				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q is being deleted; home_nodes cannot be updated", name)))
 		case errors.Is(err, usecasesNamespaces.ErrBadRequest):
 			return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
@@ -176,15 +180,49 @@ func (h *namespaceHandler) updateNamespace(params nsops.UpdateNamespaceParams, p
 	// Read State from the controller rather than hardcoding active so the
 	// response stays correct if Update later returns into other states.
 	// Empty on read failure / concurrent delete.
-	var state string
+	updated := cmd.Namespace{Name: name, HomeNodes: homeNodes}
 	if got, err := h.raft.GetNamespaces(name); err == nil && len(got) == 1 {
-		state = string(got[0].State)
+		updated.State = got[0].State
 	}
-	return nsops.NewUpdateNamespaceOK().WithPayload(&models.Namespace{
-		Name:     name,
-		HomeNode: homeNode,
-		State:    state,
-	})
+	return nsops.NewUpdateNamespaceOK().WithPayload(namespaceModel(updated))
+}
+
+// requestHomeNodes resolves a create or update body's home-node list. An empty
+// homeNode or homeNodes counts as unset, and a set homeNode is a one-entry list.
+func requestHomeNodes(homeNode string, homeNodes []string) ([]string, error) {
+	switch {
+	case homeNode != "" && len(homeNodes) > 0:
+		return nil, errors.New("home_node and home_nodes are both set; send only home_nodes")
+	case homeNode != "":
+		return []string{homeNode}, nil
+	case len(homeNodes) == 0:
+		return nil, nil
+	default:
+		return homeNodes, nil
+	}
+}
+
+// checkHomeNodes refuses a list with an empty or repeated entry, or with an
+// entry that is not a current storage candidate.
+func (h *namespaceHandler) checkHomeNodes(homeNodes []string) error {
+	if err := usecasesNamespaces.ValidateHomeNodes(homeNodes); err != nil {
+		return err
+	}
+	ns := cmd.Namespace{HomeNodes: homeNodes}
+	if missing := ns.MissingHomeNodes(h.raft.StorageCandidates()); len(missing) > 0 {
+		return fmt.Errorf("home_nodes entries %q are not current storage candidates", missing)
+	}
+	return nil
+}
+
+// namespaceModel builds the REST view of ns. home_node carries the first
+// HomeNodes entry for clients that predate home_nodes.
+func namespaceModel(ns cmd.Namespace) *models.Namespace {
+	out := &models.Namespace{Name: ns.Name, HomeNodes: ns.HomeNodes, State: string(ns.State)}
+	if len(ns.HomeNodes) > 0 {
+		out.HomeNode = ns.HomeNodes[0] //nolint:staticcheck // deprecated on the wire but still read and filled for old clients
+	}
+	return out
 }
 
 func (h *namespaceHandler) getNamespace(params nsops.GetNamespaceParams, principal *models.Principal) middleware.Responder {
@@ -209,11 +247,7 @@ func (h *namespaceHandler) getNamespace(params nsops.GetNamespaceParams, princip
 			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q not found", name)))
 	}
 
-	return nsops.NewGetNamespaceOK().WithPayload(&models.Namespace{
-		Name:     got[0].Name,
-		HomeNode: got[0].Primary(),
-		State:    string(got[0].State),
-	})
+	return nsops.NewGetNamespaceOK().WithPayload(namespaceModel(got[0]))
 }
 
 func (h *namespaceHandler) deleteNamespace(params nsops.DeleteNamespaceParams, principal *models.Principal) middleware.Responder {
@@ -365,7 +399,7 @@ func (h *namespaceHandler) listNamespaces(params nsops.ListNamespacesParams, pri
 	out := make([]*models.Namespace, 0, len(allowed))
 	for _, ns := range all {
 		if _, ok := allowedSet[authorization.Namespaces(ns.Name)[0]]; ok {
-			out = append(out, &models.Namespace{Name: ns.Name, HomeNode: ns.Primary(), State: string(ns.State)})
+			out = append(out, namespaceModel(ns))
 		}
 	}
 	return nsops.NewListNamespacesOK().WithPayload(out)

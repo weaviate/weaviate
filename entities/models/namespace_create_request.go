@@ -19,21 +19,50 @@ package models
 import (
 	"context"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
-// NamespaceCreateRequest Optional body for namespace creation. When `home_node` is omitted, the cluster picks one automatically.
+// NamespaceCreateRequest Optional body for namespace creation. When neither `home_nodes` nor `home_node` is set, the cluster picks the home nodes.
 //
 // swagger:model NamespaceCreateRequest
 type NamespaceCreateRequest struct {
 
-	// Optional. Cluster node to place this namespace's shards on. Must be a current storage candidate. When omitted, the cluster picks one.
+	// Deprecated: use home_nodes. A value is taken as a one-entry `home_nodes`. Sending it with a non-empty `home_nodes` is a 422, even when it equals the first entry.
 	HomeNode string `json:"home_node,omitempty"`
+
+	// Optional cluster nodes to place this namespace's shards on. Entries must be distinct current storage candidates, at least `REPLICATION_MINIMUM_FACTOR` of them. When this and `home_node` are both omitted or empty, the cluster picks `REPLICATION_MAXIMUM_FACTOR` nodes, or every storage node when there are fewer. It refuses that create when `REPLICATION_MAXIMUM_FACTOR` is unset or 0 or below, or when there are fewer storage nodes than `REPLICATION_MINIMUM_FACTOR`.
+	// Max Items: 64
+	HomeNodes []string `json:"home_nodes"`
 }
 
 // Validate validates this namespace create request
 func (m *NamespaceCreateRequest) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateHomeNodes(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *NamespaceCreateRequest) validateHomeNodes(formats strfmt.Registry) error {
+	if swag.IsZero(m.HomeNodes) { // not required
+		return nil
+	}
+
+	iHomeNodesSize := int64(len(m.HomeNodes))
+
+	if err := validate.MaxItems("home_nodes", "body", iHomeNodesSize, 64); err != nil {
+		return err
+	}
+
 	return nil
 }
 
