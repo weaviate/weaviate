@@ -48,7 +48,7 @@ type Manager struct {
 	submitNodeReached            func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error
 	inflightDrainer              func(ctx context.Context, class, shard string) error
 	inflightDrainFailuresCounter prometheus.Counter
-	planCreated                  func()
+	planChanged                  func()
 
 	// ctx is cancelled by Close to stop in-flight broadcast/drain retry loops on
 	// shutdown (the drain otherwise retries until the op is drained or terminal).
@@ -96,10 +96,18 @@ func (m *Manager) SetInflightDrainer(fn func(ctx context.Context, class, shard s
 	m.inflightDrainer = fn
 }
 
-// CreateRebalancePlan calls fn only after it stores a new plan, never after a refused create.
-// fn runs inside the FSM apply, so it must not block.
-func (m *Manager) SetPlanCreated(fn func()) {
-	m.planCreated = fn
+// SetPlanChanged installs fn. CreateRebalancePlan, StopRebalancePlan and
+// DeleteRebalancePlan call fn after the FSM accepts their change. They never
+// call it for a refused or malformed command. fn runs inside the FSM apply, so
+// it must not block.
+func (m *Manager) SetPlanChanged(fn func()) {
+	m.planChanged = fn
+}
+
+func (m *Manager) notifyPlanChanged() {
+	if m.planChanged != nil {
+		m.planChanged()
+	}
 }
 
 // broadcastNodeReachedState submits a node-reached-state command async so
@@ -298,9 +306,7 @@ func (m *Manager) CreateRebalancePlan(c *cmd.ApplyRequest) error {
 	if err := m.replicationFSM.CreatePlan(req); err != nil {
 		return err
 	}
-	if m.planCreated != nil {
-		m.planCreated()
-	}
+	m.notifyPlanChanged()
 	return nil
 }
 
@@ -319,7 +325,11 @@ func (m *Manager) StopRebalancePlan(c *cmd.ApplyRequest) error {
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-	return m.replicationFSM.StopPlan(req)
+	if err := m.replicationFSM.StopPlan(req); err != nil {
+		return err
+	}
+	m.notifyPlanChanged()
+	return nil
 }
 
 func (m *Manager) DeleteRebalancePlan(c *cmd.ApplyRequest) error {
@@ -327,7 +337,11 @@ func (m *Manager) DeleteRebalancePlan(c *cmd.ApplyRequest) error {
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-	return m.replicationFSM.DeletePlan(req)
+	if err := m.replicationFSM.DeletePlan(req); err != nil {
+		return err
+	}
+	m.notifyPlanChanged()
+	return nil
 }
 
 // GetRebalancePlan returns the stored plan as JSON. The request carries no sub-command.

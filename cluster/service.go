@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/bootstrap"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	"github.com/weaviate/weaviate/cluster/resolver"
@@ -208,10 +209,10 @@ func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 		cfg.Logger.Errorf("could not construct the rebalance planner: %v", err)
 	}
 	if rebalancePlanner != nil {
-		// Every node wakes its own planner when a plan create is applied. Only
-		// the leader runs a planning pass, and only when it is ready and both
-		// flags are on.
-		fsm.replicationManager.SetPlanCreated(rebalancePlanner.Wake)
+		// Every node wakes its own planner when a plan create, stop or delete
+		// is applied. Only the leader runs a planning pass, and only when it is
+		// ready and both flags are on.
+		fsm.replicationManager.SetPlanChanged(rebalancePlanner.Wake)
 	}
 
 	return &Service{
@@ -380,6 +381,35 @@ func (c *Service) Close(ctx context.Context) error {
 	c.logger.Info("closing raft-rpc server ...")
 	c.rpcServer.Close()
 	return nil
+}
+
+// SetDistributedTaskSchedulerNotifier shadows the method on the embedded Raft.
+// When a planner exists and notifier is non-nil, each wake from the
+// distributed task FSM goes to both notifier and the planner. The planner is
+// thereby woken by every distributed task apply that wakes the scheduler, in
+// every namespace. A nil notifier is not wrapped, so it disables wakes as it
+// does on Raft.
+func (c *Service) SetDistributedTaskSchedulerNotifier(notifier distributedtask.SchedulerNotifier) {
+	if c.rebalancePlanner == nil || notifier == nil {
+		c.Raft.SetDistributedTaskSchedulerNotifier(notifier)
+		return
+	}
+	c.Raft.SetDistributedTaskSchedulerNotifier(plannerWakingNotifier{
+		scheduler: notifier,
+		planner:   c.rebalancePlanner,
+	})
+}
+
+// plannerWakingNotifier's Wake never blocks: both targets drop a wake while
+// one is already pending.
+type plannerWakingNotifier struct {
+	scheduler distributedtask.SchedulerNotifier
+	planner   *replication.RebalancePlanner
+}
+
+func (n plannerWakingNotifier) Wake() {
+	n.scheduler.Wake()
+	n.planner.Wake()
 }
 
 // Ready returns or not whether the node is ready to accept requests.
