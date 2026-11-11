@@ -112,7 +112,7 @@ func TestPromotionRefusesToReplaceALiveCanonicalDirAfterAnUnmirroredBoot(t *test
 
 // Nothing else arms the mirror for a migration awaiting its flip, so the stamp
 // is the only thing carrying that across the restart to the promotion.
-func TestRecoveryWalkStampsAMigrationItCouldNotArm(t *testing.T) {
+func TestRecoveryStampsAMigrationItCouldNotArm(t *testing.T) {
 	// The writer accepts this record; recovery cannot build a task from it.
 	noTokenization := func(s MigrationSubject) MigrationSubject {
 		s.MigrationType = ReindexTypeEnableSearchable
@@ -126,7 +126,7 @@ func TestRecoveryWalkStampsAMigrationItCouldNotArm(t *testing.T) {
 		wantUnmirrored bool
 	}{
 		{
-			name: "merged, record builds a task: the walk arms the mirror itself",
+			name: "merged, record builds a task, so recovery leaves it unstamped",
 			rec:  func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
 		},
 		{
@@ -172,8 +172,7 @@ func TestRecoveryWalkStampsAMigrationItCouldNotArm(t *testing.T) {
 			require.NoError(t, store.Load())
 			require.NoError(t, store.Put(tt.rec(subject)))
 
-			_, err := DiscoverInFlightReindexTasks(root, true, logger, nil)
-			require.NoError(t, err)
+			NewMigrationRecoveryReindexer(logger, nil, nil).recoverFromStore(store, "shard-1")
 
 			reread := NewMigrationRecordStore(lsm, logger)
 			require.NoError(t, reread.Load())

@@ -92,6 +92,8 @@ type ReindexProvider struct {
 	// the double-write callbacks registered via OnAfterLsmInit. Creating new
 	// task instances in OnGroupCompleted would lose those callbacks.
 	reindexTasks map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric
+	// A load after a task ended in this process does not cache it again. A restart empties it. Guarded by [mu].
+	endedTasks map[distributedtask.TaskDescriptor]struct{}
 
 	// activeWorkers tracks units that currently have a per-unit goroutine
 	// inside processOneUnit's iteration body. The re-entry guard reads
@@ -209,6 +211,7 @@ func NewReindexProvider(
 		runningHandles:    make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
 		payloads:          make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		reindexTasks:      make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
+		endedTasks:        make(map[distributedtask.TaskDescriptor]struct{}),
 		activeWorkers:     make(map[distributedtask.TaskDescriptor]map[string]bool),
 		cleanupInProgress: make(map[reindexCleanupKey]int),
 	}
@@ -218,19 +221,9 @@ func (p *ReindexProvider) SetCompletionRecorder(recorder distributedtask.TaskCom
 	p.recorder = recorder
 }
 
-// SeedReindexTaskCache pre-populates the per-descriptor task cache with
-// instances reconstructed during startup recovery (see
-// [DiscoverInFlightReindexTasks] and [RegisterRecoveredReindexes]). The
-// purpose is to make OnGroupCompleted reuse the recovered instances —
-// whose double-write callbacks were re-registered during shard init —
-// rather than fall through to the rehydrate branch and call
-// OnAfterLsmInit a second time (which would attempt to load already
-// loaded ingest buckets).
-//
-// Safe to call concurrently with StartTask: StartTask only writes
-// entries for tasks it is starting, while seeding fills entries that
-// would otherwise be missing because the scheduler isn't (re)starting
-// the task post-restart.
+// SeedReindexTaskCache caches the tasks a shard load recovered, so OnGroupCompleted and OnSwapRequested
+// reuse their armed instances instead of rehydrating new ones. It fills only a unit with no cached tasks
+// and skips a task in endedTasks.
 func (p *ReindexProvider) SeedReindexTaskCache(
 	cache map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric,
 ) {
@@ -240,6 +233,9 @@ func (p *ReindexProvider) SeedReindexTaskCache(
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for desc, byUnit := range cache {
+		if _, ended := p.endedTasks[desc]; ended {
+			continue
+		}
 		if p.reindexTasks[desc] == nil {
 			p.reindexTasks[desc] = map[string][]*ShardReindexTaskGeneric{}
 		}
@@ -300,11 +296,18 @@ func (p *ReindexProvider) cacheReindexTasks(desc distributedtask.TaskDescriptor,
 	p.reindexTasks[desc][unitID] = tasks
 }
 
+func (p *ReindexProvider) evictReindexTasks(desc distributedtask.TaskDescriptor, unitID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.reindexTasks[desc], unitID)
+}
+
 func (p *ReindexProvider) clearTaskCaches(desc distributedtask.TaskDescriptor) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	delete(p.payloads, desc)
 	delete(p.reindexTasks, desc)
+	p.endedTasks[desc] = struct{}{}
 }
 
 // claimActiveWorker reserves the (desc, unitID) slot in activeWorkers.
@@ -387,6 +390,20 @@ func (p *ReindexProvider) ReindexUnitSealBuilder() ReindexUnitSealBuilder {
 	return func() ReindexUnitSeal {
 		return p.SealLocalUnit
 	}
+}
+
+// unitWaitsOnHold reports whether the unit's shard is held READONLY, so the unit must not be entered.
+// The wait is logged because a migration submitted after the hold began has no other line naming it.
+func (p *ReindexProvider) unitWaitsOnHold(shard ShardLike, taskID, unitID string) bool {
+	if registry := shard.migrationMirrorRegistry(); registry == nil || !registry.holding() {
+		return false
+	}
+	p.teardownHeldSampler().WithSampling(func(l logrus.FieldLogger) {
+		l.WithField("taskID", taskID).WithField("unit", unitID).WithField("shard", shard.Name()).
+			Warn("reindex provider: this unit waits because its shard is held READONLY for a reindex " +
+				"migration's double-write mirror; the shard's hold line names the cause and the way out")
+	})
+	return true
 }
 
 func (p *ReindexProvider) teardownHeldSampler() *logrusext.Sampler {
@@ -532,6 +549,10 @@ func (p *ReindexProvider) processOneUnit(
 			p.failUnit(ctx, task, unitID, recorder, fault)
 			return
 		}
+	}
+	// A held shard's unit is not failed, so the scheduler relaunches the task once its other local units end.
+	if p.unitWaitsOnHold(concreteShard, task.ID, unitID) {
+		return
 	}
 
 	release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
@@ -1172,6 +1193,22 @@ func (p *ReindexProvider) runShardSwapPhase(
 	unitTasks []*ShardReindexTaskGeneric,
 	logger logrus.FieldLogger,
 ) (out phaseResult) {
+	// Swapping a sibling of a refused half would leave the migration half-applied on this shard.
+	for _, reindexTask := range unitTasks {
+		rec, ok := reindexTask.migrationRecord(shard)
+		if !ok {
+			continue
+		}
+		if err := reindexTask.refuseUnmirrored(rec.Subject()); err != nil {
+			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s swap: %v", unitID, reindexTask.Name(), err))
+		}
+	}
+	if len(out.Errs) > 0 {
+		logger.WithField("unit", unitID).WithField("shard", shardName).
+			Errorf("reindex provider: shard swap refused for every task of the unit: %s", strings.Join(out.Errs, "; "))
+		return out
+	}
+
 	allSwapped := true
 
 	// Wire a per-prop hook rather than setting the overlay once up front;
@@ -1236,6 +1273,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 	idx *Index,
 	logger logrus.FieldLogger,
 	callbackName string,
+	start string,
 	parallel bool,
 	runPhase func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult,
 ) error {
@@ -1243,6 +1281,8 @@ func (p *ReindexProvider) runPerUnitPhase(
 	var agg phaseResult
 	var aggMu sync.Mutex
 	refused := map[string]struct{}{}
+	// started logs start once a unit passes the hold check, so a group that only waits on a hold logs no start line per tick.
+	var started sync.Once
 
 	runOne := func(unitID string) {
 		res := p.resolveUnitForPhase(ctx, task, payload, unitID, idx, logger)
@@ -1261,6 +1301,18 @@ func (p *ReindexProvider) runPerUnitPhase(
 			return
 		}
 
+		if p.unitWaitsOnHold(res.Shard, task.ID, unitID) {
+			func() {
+				aggMu.Lock()
+				defer aggMu.Unlock()
+				agg.Errs = append(agg.Errs, fmt.Sprintf("unit %s: shard %q is held READONLY for a reindex "+
+					"migration's double-write mirror; the step waits until a status update makes it writable",
+					unitID, res.Shard.Name()))
+				agg.Transient = true
+			}()
+			return
+		}
+		started.Do(func() { logger.Info(start) })
 		release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
 		if !entered {
 			func() {
@@ -1368,10 +1420,9 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		return nil
 	}
 
-	if task.NeedsPreparationBarrier {
-		logger.Info("reindex provider: group-completion → starting PREP phase (barrier mode)")
-	} else {
-		logger.Info("reindex provider: group-completion → starting swap phase (no-barrier path)")
+	start := "reindex provider: group-completion → starting PREP phase (barrier mode)"
+	if !task.NeedsPreparationBarrier {
+		start = "reindex provider: group-completion → starting swap phase (no-barrier path)"
 	}
 
 	className := entschema.ClassName(payload.Collection)
@@ -1386,7 +1437,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		// Sequential: prep is heavy disk work on every shard (flush, bucket
 		// shutdown, segment prepend), and until its swap a shard's queries
 		// still read its old buckets.
-		"group-completion", false,
+		"group-completion", start, false,
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onGroupCompletedRunPhaseForUnit(ctx, task, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})
@@ -1457,8 +1508,6 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 		return nil
 	}
 
-	logger.Info("reindex provider: swap-requested → starting OVERLAY+SWAP after cluster-wide PREP barrier")
-
 	className := entschema.ClassName(payload.Collection)
 	idx := p.db.GetIndex(className)
 	if idx == nil {
@@ -1468,7 +1517,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 
 	ctx := p.serverCtx
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
-		"swap-requested", true,
+		"swap-requested", "reindex provider: swap-requested → starting OVERLAY+SWAP after cluster-wide PREP barrier", true,
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onSwapRequestedRunPhaseForUnit(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})
