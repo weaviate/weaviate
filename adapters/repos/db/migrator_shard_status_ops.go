@@ -368,6 +368,8 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 			return true
 		})
 		deadline := time.Now().Add(m.unfreezeSourceMaxWait)
+		recheck := time.NewTicker(m.unfreezeSourceRecheck)
+		defer recheck.Stop()
 		for {
 			for name, nodeID := range pending {
 				if m.deleteUnfreezeSource(ctx, idx, class, name, nodeID) {
@@ -388,7 +390,7 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(m.unfreezeSourceRecheck):
+			case <-recheck.C:
 			}
 		}
 	}, idx.logger)
