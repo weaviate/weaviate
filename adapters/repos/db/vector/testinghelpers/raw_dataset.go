@@ -32,10 +32,13 @@ import (
 // line per file ("train 990000 1536", "test 10000 1536", "neighbors 10000
 // 100").
 type RawDataset struct {
-	Name    string
-	Dims    int
-	Train   [][]float32
-	Queries [][]float32
+	Name string
+	Dims int
+	// TrainRows is the size of the train set of the dataset, whatever part
+	// of it was read.
+	TrainRows int
+	Train     [][]float32
+	Queries   [][]float32
 	// Neighbors holds the shipped ground truth of every query. It is nil
 	// when the train set was truncated, which invalidates it.
 	Neighbors [][]uint64
@@ -45,6 +48,17 @@ type RawDataset struct {
 // limit is not positive) and the first queryLimit test rows of the dataset in
 // dir.
 func ReadRawDataset(dir string, trainLimit, queryLimit int) (*RawDataset, error) {
+	return readRawDataset(dir, trainLimit, queryLimit, true)
+}
+
+// ReadRawQueries reads the dataset in dir without its train vectors: the
+// first queryLimit test rows, their ground truth and the shape of the train
+// set. Train is left nil, for ReadRawTrainChunks to read.
+func ReadRawQueries(dir string, queryLimit int) (*RawDataset, error) {
+	return readRawDataset(dir, 0, queryLimit, false)
+}
+
+func readRawDataset(dir string, trainLimit, queryLimit int, withTrain bool) (*RawDataset, error) {
 	shapes, err := readRawShapes(filepath.Join(dir, "meta.txt"))
 	if err != nil {
 		return nil, err
@@ -57,13 +71,15 @@ func ReadRawDataset(dir string, trainLimit, queryLimit int) (*RawDataset, error)
 		return nil, errors.Errorf("%s: train has %d dimensions, test has %d", dir, train[1], test[1])
 	}
 
-	data := &RawDataset{Name: filepath.Base(dir), Dims: train[1]}
+	data := &RawDataset{Name: filepath.Base(dir), Dims: train[1], TrainRows: train[0]}
 	rows := train[0]
 	if trainLimit > 0 && trainLimit < rows {
 		rows = trainLimit
 	}
-	if data.Train, err = readRawVectors(filepath.Join(dir, "train.f32"), rows, data.Dims); err != nil {
-		return nil, err
+	if withTrain {
+		if data.Train, err = readRawVectors(filepath.Join(dir, "train.f32"), rows, data.Dims); err != nil {
+			return nil, err
+		}
 	}
 	queries := min(queryLimit, test[0])
 	if data.Queries, err = readRawVectors(filepath.Join(dir, "test.f32"), queries, data.Dims); err != nil {
@@ -142,6 +158,52 @@ func readRawVectors(path string, rows, dims int) ([][]float32, error) {
 		vectors[i] = flat[i*dims : (i+1)*dims : (i+1)*dims]
 	}
 	return vectors, nil
+}
+
+// ReadRawTrainChunks hands the train vectors of the dataset in dir to fn in
+// order, chunkRows at a time and fewer in the last chunk: first is the
+// position of the first vector of the chunk. Every chunk has a backing array
+// of its own, so fn may keep it, and dropping it frees it.
+//
+// It is for a train set that does not fit in memory twice: an index that
+// copies what it is given can be fed this way without the caller holding the
+// whole set next to it.
+func ReadRawTrainChunks(dir string, chunkRows int, fn func(first int, chunk [][]float32) error) error {
+	shapes, err := readRawShapes(filepath.Join(dir, "meta.txt"))
+	if err != nil {
+		return err
+	}
+	rows, dims := shapes["train"][0], shapes["train"][1]
+	path := filepath.Join(dir, "train.f32")
+	if rows == 0 || dims == 0 {
+		return errors.Errorf("%s: nothing to read (%d rows of %d dimensions)", path, rows, dims)
+	}
+	if chunkRows < 1 {
+		return errors.Errorf("%s: cannot read in chunks of %d rows", path, chunkRows)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	raw := make([]byte, 4*dims*min(rows, chunkRows))
+	for first := 0; first < rows; first += chunkRows {
+		n := min(chunkRows, rows-first)
+		if _, err := io.ReadFull(file, raw[:4*dims*n]); err != nil {
+			return errors.Wrapf(err, "read %s", path)
+		}
+		flat := make([]float32, n*dims)
+		byteops.CopyBytesToSlice(flat, raw[:4*dims*n])
+		chunk := make([][]float32, n)
+		for i := range chunk {
+			chunk[i] = flat[i*dims : (i+1)*dims : (i+1)*dims]
+		}
+		if err := fn(first, chunk); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func readRawInto(path string, into []byte) error {

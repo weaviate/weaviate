@@ -13,6 +13,7 @@ package testinghelpers
 
 import (
 	"encoding/binary"
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
@@ -78,6 +79,7 @@ func TestReadRawDataset(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, filepath.Base(dir), data.Name)
 			assert.Equal(t, 3, data.Dims)
+			assert.Equal(t, 6, data.TrainRows, "the size of the train set, not of what was read of it")
 			require.Len(t, data.Train, tt.wantTrain)
 			require.Len(t, data.Queries, tt.wantQueries)
 
@@ -169,4 +171,128 @@ func TestReadRawVectorsAcrossChunks(t *testing.T) {
 			require.Equalf(t, float32((r*dims+c)%9973), vec[c], "row %d column %d", r, c)
 		}
 	}
+}
+
+func TestReadRawQueries(t *testing.T) {
+	dir := t.TempDir()
+	writeRawDataset(t, dir, 6, 4, "distances 4 2\nneighbors 4 2\ntest 4 3\ntrain 6 3\n")
+
+	data, err := ReadRawQueries(dir, 3)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Base(dir), data.Name)
+	assert.Equal(t, 3, data.Dims)
+	assert.Equal(t, 6, data.TrainRows)
+	assert.Nil(t, data.Train)
+	require.Len(t, data.Queries, 3)
+	for i, vec := range data.Queries {
+		assert.Equal(t, []float32{float32(i), float32(i) + 0.5, -float32(i)}, vec)
+	}
+	// nothing of the train set was left out, so the ground truth holds
+	require.Len(t, data.Neighbors, 3)
+	for i, ids := range data.Neighbors {
+		assert.Equal(t, []uint64{uint64(i), uint64(i + 1)}, ids)
+	}
+}
+
+func TestReadRawTrainChunks(t *testing.T) {
+	const rows = 7
+
+	tests := []struct {
+		name      string
+		chunkRows int
+		wantSizes []int
+	}{
+		{name: "one row at a time", chunkRows: 1, wantSizes: []int{1, 1, 1, 1, 1, 1, 1}},
+		{name: "a last chunk that is not full", chunkRows: 3, wantSizes: []int{3, 3, 1}},
+		{name: "one chunk of exactly the set", chunkRows: rows, wantSizes: []int{rows}},
+		{name: "a chunk larger than the set", chunkRows: 100, wantSizes: []int{rows}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeRawDataset(t, dir, rows, 4, "neighbors 4 2\ntest 4 3\ntrain 7 3\n")
+
+			var firsts, sizes []int
+			var kept [][]float32
+			err := ReadRawTrainChunks(dir, tt.chunkRows, func(first int, chunk [][]float32) error {
+				firsts, sizes = append(firsts, first), append(sizes, len(chunk))
+				kept = append(kept, chunk...)
+				return nil
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantSizes, sizes)
+
+			next := 0
+			for i, size := range sizes {
+				assert.Equalf(t, next, firsts[i], "first row of chunk %d", i)
+				next += size
+			}
+			// Checked after the last chunk was read: a reader that decoded
+			// every chunk into the same array would have overwritten the
+			// earlier ones.
+			require.Len(t, kept, rows)
+			for i, vec := range kept {
+				assert.Equal(t, []float32{float32(i), float32(i) + 0.5, -float32(i)}, vec)
+				assert.Equal(t, 3, cap(vec), "a vector must not be appendable into the next one")
+			}
+		})
+	}
+}
+
+func TestReadRawTrainChunksFails(t *testing.T) {
+	stop := errors.New("stop")
+
+	tests := []struct {
+		name      string
+		meta      string
+		chunkRows int
+		fn        func(first int, chunk [][]float32) error
+		wantErr   error
+		wantCalls int
+	}{
+		{name: "no train set in meta.txt", meta: "test 4 3\nneighbors 4 2\n", chunkRows: 2},
+		{name: "chunks of no rows", meta: "train 6 3\ntest 4 3\n", chunkRows: 0},
+		{
+			// the two chunks that are in the file are handed over before the read fails
+			name: "a train file shorter than meta.txt says", meta: "train 60 3\ntest 4 3\n", chunkRows: 3,
+			wantCalls: 2,
+		},
+		{
+			name: "an error of the callback ends the read", meta: "train 6 3\ntest 4 3\n", chunkRows: 2,
+			fn: func(first int, _ [][]float32) error {
+				if first == 2 {
+					return stop
+				}
+				return nil
+			},
+			wantErr: stop, wantCalls: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeRawDataset(t, dir, 6, 4, tt.meta)
+
+			calls := 0
+			err := ReadRawTrainChunks(dir, tt.chunkRows, func(first int, chunk [][]float32) error {
+				calls++
+				if tt.fn != nil {
+					return tt.fn(first, chunk)
+				}
+				return nil
+			})
+			require.Error(t, err)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			}
+			assert.Equal(t, tt.wantCalls, calls)
+		})
+	}
+
+	t.Run("no meta.txt", func(t *testing.T) {
+		err := ReadRawTrainChunks(t.TempDir(), 2, func(int, [][]float32) error { return nil })
+		require.Error(t, err)
+	})
 }
