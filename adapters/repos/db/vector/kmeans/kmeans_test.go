@@ -159,6 +159,26 @@ func TestGraphPruningAssignment(t *testing.T) {
 	}
 }
 
+// Graph pruning computes at least the distance to the previous center for
+// every point and at most the distance to every center, on top of the pairwise
+// center distances. On low-dimensional data it has to skip most of them.
+func TestGraphPruningCountsComputations(t *testing.T) {
+	n, d, k := 10_000, 4, 64
+	data := generateData(n, d, normal, seed)
+	pruning := newDeterministicKMeans(k, d, KMeansVariant{Initialization: RandomInitialization, Assignment: GraphPruning})
+	brute := newDeterministicKMeans(k, d, KMeansVariant{Initialization: RandomInitialization, Assignment: BruteForce})
+	assert.NoError(t, pruning.Fit(data))
+	assert.NoError(t, brute.Fit(data))
+
+	assert.Greater(t, len(pruning.Metrics.Computations), 1)
+	for i := 1; i < len(pruning.Metrics.Computations); i++ {
+		assert.GreaterOrEqual(t, pruning.Metrics.Computations[i], n+k*k/2, "iteration %d", i)
+		assert.LessOrEqual(t, pruning.Metrics.Computations[i], n*k+k*k/2, "iteration %d", i)
+		assert.Equal(t, n*k, brute.Metrics.Computations[i], "iteration %d", i)
+	}
+	assert.Less(t, pruning.Metrics.TotalComputations(), brute.Metrics.TotalComputations()/2)
+}
+
 func contains(data [][]float32, q []float32) bool {
 	const eps = 1e-12
 	l2 := distancer.NewL2SquaredProvider()
@@ -634,7 +654,7 @@ func TestBalancedAssignment(t *testing.T) {
 			n := len(tc.deltas)
 			labels := make([]uint32, n)
 			offsets := make([]int, n)
-			balancedAssignment(tc.deltas, tc.minCount, offsets, labels)
+			BalancedAssignment(tc.deltas, tc.minCount, offsets, labels)
 			assert.Equal(t, tc.expected, labels)
 		})
 	}

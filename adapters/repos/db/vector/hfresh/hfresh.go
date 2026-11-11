@@ -118,6 +118,7 @@ type HFresh struct {
 
 	tempVectorForIDThunk common.TempVectorForIDWithView[float32]
 	tempVectors          *common.TempVectorsPool
+	clusterSplit         splitClusterer
 
 	rootPath string
 }
@@ -155,6 +156,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		multiVectorForID:     cfg.MultiVectorForIDThunk,
 		tempVectorForIDThunk: cfg.TempVectorForIDWithViewThunk,
 		tempVectors:          common.NewTempVectorsPool(),
+		clusterSplit:         kmeansSplitClusterer,
 		VersionMap:           NewVersionMap(bucket),
 		PostingMap:           NewPostingMap(bucket),
 		PostingSizes:         NewPostingSizes(bucket, metrics),

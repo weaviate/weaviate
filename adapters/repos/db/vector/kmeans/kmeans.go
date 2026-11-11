@@ -357,11 +357,12 @@ func (m *KMeans) nearestWithPruning(point []float32, prevCenterIdx uint32) Neare
 	centerDist := float32(math.Sqrt(float64(minDist)))
 	idx := prevCenterIdx
 	neighbors := m.tmp.centerNeighbors[prevCenterIdx]
-	var computations int
+	computations := 1
 	for _, v := range neighbors {
 		if v.distance >= 2*centerDist {
 			break // Remaining centers can be skipped.
 		}
+		computations++
 		if dist := m.l2squared(m.seg(point), m.Centers[v.index]); dist < minDist {
 			minDist = dist
 			idx = v.index
@@ -503,7 +504,7 @@ func (m *KMeans) Fit(data [][]float32) error {
 // It runs Lloyd's algorithm with a size-constrained assignment step: whenever
 // plain nearest-centroid assignment already satisfies the floor, it is used
 // unchanged; otherwise the points with the smallest relative preference are
-// moved across the boundary (see balancedAssignment). Because the constraint
+// moved across the boundary (see BalancedAssignment). Because the constraint
 // lives inside the loop, centroids are recomputed from the constrained
 // membership and adapt to it. For the squared-L2 objective, each constrained
 // assignment minimizes WCSS for fixed centers under the size constraint and
@@ -554,7 +555,7 @@ func (m *KMeans) FitBalanced(data [][]float32) ([]uint32, error) {
 		}
 		metrics.computations += 2 * n
 
-		balancedAssignment(deltas, minCount, offsets, result)
+		BalancedAssignment(deltas, minCount, offsets, result)
 
 		for i := range data {
 			if result[i] != m.tmp.assignment[i] {
@@ -579,7 +580,7 @@ func (m *KMeans) FitBalanced(data [][]float32) ([]uint32, error) {
 	return result, nil
 }
 
-// balancedAssignment assigns each point to the closer of two centers, subject
+// BalancedAssignment assigns each point to the closer of two centers, subject
 // to each side holding at least minCount points. deltas[i] is the point's
 // distance to the left center minus its distance to the right center. When
 // plain nearest-centroid assignment (delta < 0 goes left) already satisfies
@@ -590,7 +591,7 @@ func (m *KMeans) FitBalanced(data [][]float32) ([]uint32, error) {
 // Ties keep input order via the stable sort, which makes degenerate inputs
 // (all deltas equal) deterministic. offsets and labels are caller-provided
 // buffers of length len(deltas).
-func balancedAssignment(deltas []float32, minCount int, offsets []int, labels []uint32) {
+func BalancedAssignment(deltas []float32, minCount int, offsets []int, labels []uint32) {
 	n := len(deltas)
 
 	naturalLeft := 0

@@ -202,8 +202,6 @@ func (h *HFresh) splitPosting(ctx context.Context, posting Posting) ([]SplitResu
 		return nil, errors.New("split called on uninitialized index")
 	}
 
-	enc := compressionhelpers.NewKMeansEncoder(2, int(dims), 0)
-
 	// Cluster on the full-precision vectors rather than their 1-bit
 	// reconstructions: the centroids this split produces become the new
 	// postings' routing representatives, and sign-only reconstructions bound
@@ -248,18 +246,18 @@ func (h *HFresh) splitPosting(ctx context.Context, posting Posting) ([]SplitResu
 		data[i] = vec
 	}
 
-	idsAssignments, err := enc.FitBalanced(data)
+	centers, idsAssignments, err := h.clusterSplit(data, int(dims))
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to fit KMeans encoder for split operation")
+		return nil, errors.Wrap(err, "failed to cluster vectors for split operation")
 	}
 
 	results := make([]SplitResult, 2)
 	for i := range results {
 		results[i] = SplitResult{
-			Uncompressed: enc.Centroid(byte(i)),
+			Uncompressed: centers[i],
 		}
 
-		results[i].Centroid = quantizer.CompressedBytes(quantizer.Encode(enc.Centroid(byte(i))))
+		results[i].Centroid = quantizer.CompressedBytes(quantizer.Encode(centers[i]))
 	}
 
 	for i, v := range idsAssignments {
@@ -267,6 +265,20 @@ func (h *HFresh) splitPosting(ctx context.Context, posting Posting) ([]SplitResu
 	}
 
 	return results, nil
+}
+
+// splitClusterer clusters a posting's vectors into two groups that each hold
+// at least a quarter of them. It returns the two centers and the group of
+// every vector.
+type splitClusterer func(data [][]float32, dims int) ([][]float32, []uint32, error)
+
+func kmeansSplitClusterer(data [][]float32, dims int) ([][]float32, []uint32, error) {
+	enc := compressionhelpers.NewKMeansEncoder(2, dims, 0)
+	assignments, err := enc.FitBalanced(data)
+	if err != nil {
+		return nil, nil, err
+	}
+	return [][]float32{enc.Centroid(0), enc.Centroid(1)}, assignments, nil
 }
 
 // clusteringVector returns an owned full-precision vector for id. A muvera
