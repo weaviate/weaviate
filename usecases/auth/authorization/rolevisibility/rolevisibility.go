@@ -97,8 +97,9 @@ func AuthorizeRolePermissions(ctx context.Context, authorizer authorization.Auth
 }
 
 // AuthorizePolicies returns an error unless the caller holds every permission
-// the policies grant, with each resource projected into namespace first. An
-// empty namespace checks the resources as stored.
+// the policies grant, projecting each resource into a non-empty namespace first.
+// A segment with regex syntax beyond '.' and '*' must pass as stored and as ".*".
+// A wildcard passes both, and so can a pattern that excludes names, such as "[^a]*".
 func AuthorizePolicies(ctx context.Context, authorizer authorization.Authorizer, principal *models.Principal, namespace string, policies []authorization.Policy) error {
 	var errs error
 	for _, policy := range policies {
@@ -113,9 +114,43 @@ func AuthorizePolicies(ctx context.Context, authorizer authorization.Authorizer,
 			errs = errors.Join(errs, errors.New("role grants a permission you do not hold"))
 			continue
 		}
-		errs = errors.Join(errs, authorizePolicy(ctx, authorizer, principal, policy.Verb, resource))
+		wildcard := regexSegmentsToWildcard(resource)
+		// A caller pattern such as ".." matches the text ".*" without holding
+		// every name, so the stored text must pass as well.
+		if wildcard != resource {
+			if err := authorizePolicy(ctx, authorizer, principal, policy.Verb, resource); err != nil {
+				errs = errors.Join(errs, err)
+				continue
+			}
+		}
+		errs = errors.Join(errs, authorizePolicy(ctx, authorizer, principal, policy.Verb, wildcard))
 	}
 	return errs
+}
+
+// regexSyntax lists the regex characters a stored pattern can carry besides
+// '.' and the ".*" conv writes for '*'.
+const regexSyntax = `\+?()[]{}|^$`
+
+// regexSegmentsToWildcard replaces each segment using regexSyntax with ".*",
+// keeping its "<ns>:" qualifier. casbin treats the request as literal text, so
+// "(eu|admin)" would pass for a caller holding "*eu*" and reach admin.
+func regexSegmentsToWildcard(resource string) string {
+	if !strings.ContainsAny(resource, regexSyntax) {
+		return resource
+	}
+	segments := strings.Split(resource, "/")
+	for i, segment := range segments {
+		if !strings.ContainsAny(segment, regexSyntax) {
+			continue
+		}
+		ns := namespacing.NamespaceFromQualified(segment)
+		if strings.ContainsAny(ns, regexSyntax) {
+			ns = ""
+		}
+		segments[i] = namespacing.QualifiedName(ns, ".*")
+	}
+	return strings.Join(segments, "/")
 }
 
 // authorizePolicy checks each verb of the policy on its own. A denied verb of a

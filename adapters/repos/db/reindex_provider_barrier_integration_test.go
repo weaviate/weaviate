@@ -251,8 +251,8 @@ func TestReindexProviderBarrierIntegration_IteratedRecordDurabilityBarrier(t *te
 		"reindex bucket dir must persist across shutdown (FlushAndSwitch barrier ⇒ segments are on disk)")
 	require.True(t, statPost.IsDir())
 
-	recovered, someRecordsUnreadable, _ := migrationRecordsAt(shard.pathLSM(), idx.logger)
-	require.False(t, someRecordsUnreadable)
+	recovered, unreadable, _ := migrationRecordsAt(shard.pathLSM(), idx.logger)
+	require.Empty(t, unreadable)
 	require.Len(t, recovered, 1)
 	assert.Equal(t, MigrationStateIterated, recovered[0].State(),
 		"the recovered record must still say Iterated: the barrier means the state never outruns its data")

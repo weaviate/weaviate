@@ -293,8 +293,11 @@ func (st *Store) admitShardStatus(req *api.ApplyRequest) error {
 
 // admitCreateLike refuses a create-like, property or class update command
 // outside the active state, except the completions its UPDATE_PROPERTY and
-// UPDATE_CLASS arms exempt. admitPropose says why a check this early is enough
-// for ADD_CLASS, RESTORE_CLASS and the tenant commands, which materialize a shard.
+// UPDATE_CLASS arms exempt. The alias commands write schema and no store, and
+// the RBAC and user commands write neither, so a late one leaves nothing
+// half-built. admitPropose says why a check this early is enough for
+// ADD_CLASS, RESTORE_CLASS and the tenant commands, which materialize a shard.
+// It also refuses a user create whose ID prefix is not its namespace.
 func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_ADD_CLASS,
@@ -386,6 +389,12 @@ func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 		sub := &api.CreateUsersRequest{}
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
 			return fmt.Errorf("unmarshal upsert-user subcommand: %w", err)
+		}
+		// NamespaceLocalRBAC finds a user's role assignments by its ID prefix, and
+		// DeleteUsersInNamespace finds its record by Namespace, so a mismatch
+		// splits the user across two namespaces.
+		if namespacing.NamespaceFromQualified(sub.UserId) != sub.Namespace {
+			return fmt.Errorf("user %q is not in namespace %q", sub.UserId, sub.Namespace)
 		}
 		return usecasesNamespaces.RequireActive(st.namespaceManager, sub.Namespace)
 

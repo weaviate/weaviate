@@ -114,3 +114,10 @@ type ReindexTaskPayload struct {
 	// UnitToShard maps unit IDs to shard names.
 	UnitToShard map[string]string `json:"unitToShard"`
 }
+
+// ReindexTaskVisiblePayloadFields are the payload fields GET /v1/tasks shows a
+// caller without tenant read. Any other field could name tenants, shards or
+// nodes, so it stays hidden until it is listed here.
+var ReindexTaskVisiblePayloadFields = []string{
+	"migrationType", "collection", "targetTokenization", "originalTokenization", "bucketStrategy",
+}

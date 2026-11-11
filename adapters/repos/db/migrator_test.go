@@ -445,8 +445,8 @@ func TestUpdateIndexShards(t *testing.T) {
 		expectedShards []string
 		mustLoad       bool
 		lazyLoading    bool
-		// protectedShards are held by a backup, so their load fails.
-		protectedShards []string
+		// refusedShards are refused by the alloc checker, so their load fails.
+		refusedShards []string
 		// wantErrFor is a substring of the error the reconcile must return.
 		wantErrFor string
 	}{
@@ -525,12 +525,12 @@ func TestUpdateIndexShards(t *testing.T) {
 		{
 			// The requested shards are loaded in sorted order, so shard3 only gets
 			// loaded if the failure on shard2 did not end the loop.
-			name:            "a shard a backup holds does not skip the shards after it",
-			initialShards:   []string{"shard1"},
-			newShards:       []string{"shard1", "shard2", "shard3"},
-			expectedShards:  []string{"shard1", "shard3"},
-			protectedShards: []string{"shard2"},
-			wantErrFor:      "add missing shard shard2",
+			name:           "a refused load does not skip the shards after it",
+			initialShards:  []string{"shard1"},
+			newShards:      []string{"shard1", "shard2", "shard3"},
+			expectedShards: []string{"shard1", "shard3"},
+			refusedShards:  []string{"shard2"},
+			wantErrFor:     "add missing shard shard2",
 		},
 	}
 
@@ -628,9 +628,13 @@ func TestUpdateIndexShards(t *testing.T) {
 			}
 			newState.SetLocalName("node1")
 
-			for _, shardName := range tt.protectedShards {
-				index.backupProtectedShards.Store(shardName, struct{}{})
+			// Shards load in sorted order, so the refused shards make the first
+			// len(refusedShards) load attempts.
+			refused := make([]int, len(tt.refusedShards))
+			for i := range refused {
+				refused[i] = i + 1
 			}
+			index.allocChecker = newRefusingAllocChecker(refused)
 
 			// Update shards
 			err = migrator.updateIndexShards(ctx, index, newState)
@@ -665,9 +669,9 @@ func TestUpdateIndexShards(t *testing.T) {
 				}
 			}
 
-			for _, protectedShard := range tt.protectedShards {
-				shard := index.shards.Load(protectedShard)
-				require.Nil(t, shard, "shard %s is held by a backup", protectedShard)
+			for _, refusedShard := range tt.refusedShards {
+				shard := index.shards.Load(refusedShard)
+				require.Nil(t, shard, "shard %s was refused", refusedShard)
 			}
 
 			mockSchemaGetter.AssertExpectations(t)
@@ -679,7 +683,7 @@ func TestUpdateIndexShards(t *testing.T) {
 // and must not be reported as a success.
 //
 // A per-shard failure is driven either by a loaded shard whose shutdown fails,
-// for the unload branch, or by a backup holding the shard, for the load branch.
+// for the unload branch, or by a refused load, for the load branch.
 func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 	shutdownRefused := errors.New("shutdown refused")
 
@@ -694,8 +698,8 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 		// alreadyShutShutdown are shards already in the index whose shutdown
 		// reports them already shut — the outcome the unload asked for.
 		alreadyShutShutdown []string
-		// backupProtected are shards a backup holds, so their load fails.
-		backupProtected []string
+		// refusedLoads are shards the alloc checker refuses, so their load fails.
+		refusedLoads []string
 		// closed shuts the index, which fails every shard for the same reason.
 		closed bool
 		// cancelCtx hands the reconcile an already cancelled context.
@@ -730,7 +734,7 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 		{
 			name:             "a failing unload still runs the loads",
 			incoming:         []string{"new1"},
-			backupProtected:  []string{"new1"},
+			refusedLoads:     []string{"new1"},
 			refusingShutdown: []string{"gone1"},
 			wantErrFor: []string{
 				"shutdown shard gone1",
@@ -738,15 +742,15 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 			},
 		},
 		{
-			name:            "a failing load is reported",
-			incoming:        []string{"new1"},
-			backupProtected: []string{"new1"},
-			wantErrFor:      []string{"add missing shard new1"},
+			name:         "a failing load is reported",
+			incoming:     []string{"new1"},
+			refusedLoads: []string{"new1"},
+			wantErrFor:   []string{"add missing shard new1"},
 		},
 		{
-			name:            "every failing load is reported, not just the first",
-			incoming:        []string{"new1", "new2", "new3"},
-			backupProtected: []string{"new1", "new2", "new3"},
+			name:         "every failing load is reported, not just the first",
+			incoming:     []string{"new1", "new2", "new3"},
+			refusedLoads: []string{"new1", "new2", "new3"},
 			wantErrFor: []string{
 				"add missing shard new1",
 				"add missing shard new2",
@@ -768,7 +772,7 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 		{
 			name:             "a cancelled context still attempts every shard",
 			incoming:         []string{"new1"},
-			backupProtected:  []string{"new1"},
+			refusedLoads:     []string{"new1"},
 			refusingShutdown: []string{"gone1"},
 			cancelCtx:        true,
 			wantErrFor: []string{
@@ -837,9 +841,11 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 			for _, name := range tt.alreadyShutShutdown {
 				storeShard(name, errAlreadyShutdown)
 			}
-			for _, name := range tt.backupProtected {
-				idx.backupProtectedShards.Store(name, struct{}{})
+			refused := make([]int, len(tt.refusedLoads))
+			for i := range refused {
+				refused[i] = i + 1
 			}
+			idx.allocChecker = newRefusingAllocChecker(refused)
 			idx.closed = tt.closed
 
 			err := m.updateIndexShards(ctx, idx, localShardingState(tt.incoming))
@@ -878,8 +884,8 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 				require.NotNil(t, idx.shards.Load(name),
 					"a shard whose shutdown failed is restored to the sharding state, %q", name)
 			}
-			for _, name := range tt.backupProtected {
-				require.Nil(t, idx.shards.Load(name), "shard %q is held by a backup", name)
+			for _, name := range tt.refusedLoads {
+				require.Nil(t, idx.shards.Load(name), "shard %q was refused", name)
 			}
 		})
 	}

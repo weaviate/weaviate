@@ -220,7 +220,7 @@ func (i *Index) cleanStalePartialReindexState(
 			}
 			shard = unwrapped
 		}
-		if err := shard.CleanStalePartialReindexState(ctx, propName, indexType); err != nil {
+		if err := shard.CleanStalePartialReindexState(ctx, propName, indexType, dirs); err != nil {
 			reported := fmt.Errorf("shard %q: %w", name, err)
 			if truncated := truncatedByCancellation(reported); truncated != nil {
 				return truncated
@@ -323,16 +323,32 @@ type dirNamesCache struct {
 	unreadableErrs    errorcompounder.ErrorCompounder
 }
 
-func (c *dirNamesCache) chargeUnreadableRecordSet(lsmPath string, err error) {
-	if err == nil {
+// Records of several units leave the set unreadable without failing Load. A
+// path is charged once, so a shard reads as one fault whichever path reads it.
+func (c *dirNamesCache) chargeUnreadableRecordSet(lsmPath string,
+	faults []MigrationRecordUnreadable, recordSetErr error,
+) {
+	if c == nil {
 		return
+	}
+	if _, charged := c.unreadableRecords[lsmPath]; charged {
+		return
+	}
+	if recordSetErr == nil {
+		i := slices.IndexFunc(faults, func(fault MigrationRecordUnreadable) bool {
+			return fault.Scope == MigrationRecordFaultStore
+		})
+		if i < 0 {
+			return
+		}
+		recordSetErr = errors.New(faults[i].Reason)
 	}
 	if c.unreadableRecords == nil {
 		c.unreadableRecords = map[string]struct{}{}
 		c.unreadableErrs = errorcompounder.New()
 	}
 	c.unreadableRecords[lsmPath] = struct{}{}
-	c.unreadableErrs.AddWrapf(err, "%s", lsmPath)
+	c.unreadableErrs.AddWrapf(recordSetErr, "%s", lsmPath)
 }
 
 func (c *dirNamesCache) unreadableRecordSets() (int, error) {
@@ -352,8 +368,9 @@ func (c *dirNamesCache) committedMigrations(lsmPath string,
 	if state, ok := c.committed[lsmPath]; ok {
 		return state
 	}
-	state, recordSetErr := migrationPreservedStateAt(lsmPath, logger)
-	c.chargeUnreadableRecordSet(lsmPath, recordSetErr)
+	records, faults, recordSetErr := migrationRecordsAt(lsmPath, logger)
+	state := migrationPreservedStateFromRecords(records, faults)
+	c.chargeUnreadableRecordSet(lsmPath, faults, recordSetErr)
 	if c.committed == nil {
 		c.committed = map[string]migrationPreservedState{}
 	}

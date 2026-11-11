@@ -91,13 +91,13 @@ func DiscoverInFlightReindexTasks(
 			shardKey := indexEntry.Name() + "/" + shardName
 			lsmPath := filepath.Join(indexPath, shardName, "lsm")
 			recordReads++
-			store, someRecordsUnreadable, recordSetErr := migrationRecordStoreAt(lsmPath, logger)
+			store, faults, recordSetErr := migrationRecordStoreAt(lsmPath, logger)
 			if recordSetErr != nil {
 				unreadable[shardKey] = struct{}{}
 				unreadErrs.AddWrapf(recordSetErr, "%s", shardKey)
 				continue
 			}
-			if someRecordsUnreadable {
+			if len(faults) > 0 {
 				partlyUnread[shardKey] = struct{}{}
 			}
 			records := store.Records()
@@ -126,7 +126,7 @@ func DiscoverInFlightReindexTasks(
 					Tasks:      tasks,
 				})
 			}
-			if someRecordsUnreadable {
+			if len(faults) > 0 {
 				// An unreadable record freezes the store and the reconciler, so nothing the stamp guards can run.
 				continue
 			}

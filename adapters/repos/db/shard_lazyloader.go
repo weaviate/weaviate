@@ -759,22 +759,12 @@ func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
 		l.shardOpts.index.path(), l.shardOpts.name)
 }
 
-func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
+func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool) error {
 	shard, _, err := l.loadIfCold(ctx)
 	if err != nil {
 		return err
 	}
-	return shard.HaltForTransfer(ctx, offloading, inactivityTimeout)
-}
-
-// MayResetTransferInactivityTimer never loads the shard. A cold shard has no
-// timer to reset, since it was never halted or its shutdown stopped the timer.
-func (l *LazyLoadShard) MayResetTransferInactivityTimer() {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-	if shard := l.currentShard(); shard != nil {
-		shard.MayResetTransferInactivityTimer()
-	}
+	return shard.HaltForTransfer(ctx, offloading)
 }
 
 func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error) {
@@ -799,14 +789,6 @@ func (l *LazyLoadShard) CreateReplicaSnapshot(ctx context.Context, stagingRoot s
 		return nil, err
 	}
 	return shard.CreateReplicaSnapshot(ctx, stagingRoot)
-}
-
-func (l *LazyLoadShard) ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error) {
-	shard, _, err := l.loadIfCold(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return shard.ListReplicaSnapshotFiles(ctx, stagingRoot)
 }
 
 func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context) error {

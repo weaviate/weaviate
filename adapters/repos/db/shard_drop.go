@@ -81,11 +81,6 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	// persistHashtree=false: shard is being destroyed.
 	s.mayStopAsyncReplication(false)
 
-	s.haltForTransferMux.Lock()
-	// also drops an already-fired monitor waiting on the mux, so it can't resume mid-teardown.
-	s.mayStopInactivityMonitoring()
-	s.haltForTransferMux.Unlock()
-
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
 

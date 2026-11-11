@@ -377,6 +377,24 @@ func TestSnapshotShardsForExport_EmptyShardNames(t *testing.T) {
 	}
 }
 
+func TestSnapshotShardsForExport_HardlinksUnsupported(t *testing.T) {
+	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+	idx := newTestIndexForSnapshot(t, "TestClass")
+	shardName := "shard-0"
+	shard := NewMockShardLike(t)
+	idx.shards.Store(shardName, shard)
+
+	res, err := idx.snapshotShardsForExport(context.Background(), []string{shardName}, "export-id")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "supports hard links")
+	assert.Nil(t, res)
+
+	assert.NoDirExists(t, idx.snapshotsPath())
+	assert.Empty(t, shard.Calls, "the refusal must not touch a shard")
+	require.True(t, idx.shardCreateLocks.TryRLock(shardName), "the refusal must not hold the shard's create lock")
+	idx.shardCreateLocks.RUnlock(shardName)
+}
+
 // TestSnapshotShardsForExport_CancelUnblocksLockedShard asserts that a
 // write-locked shard doesn't prevent context cancellation from unblocking
 // snapshotShardsForExport. The worker polls TryRLock with a select on

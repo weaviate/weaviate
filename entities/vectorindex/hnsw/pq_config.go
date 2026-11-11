@@ -32,6 +32,12 @@ const (
 	DefaultPQEncoderDistribution = PQEncoderDistributionLogNormal
 	DefaultPQCentroids           = 256
 	DefaultPQTrainingLimit       = 100000
+	// DefaultPQRescoreLimit is what RescoreLimitAuto resolves to. PQ's default
+	// segmentation stores one to two bits per dimension, so it needs a
+	// rescore depth closer to binary quantization than to 8-bit codes.
+	DefaultPQRescoreLimit = 256
+	// DefaultPQRescoreFactor is what RescoreFactorAuto resolves to.
+	DefaultPQRescoreFactor = 2.0
 )
 
 // Product Quantization encoder configuration
@@ -47,6 +53,8 @@ type PQConfig struct {
 	Segments       int       `json:"segments"`
 	Centroids      int       `json:"centroids"`
 	TrainingLimit  int       `json:"trainingLimit"`
+	RescoreLimit   int       `json:"rescoreLimit"`
+	RescoreFactor  float64   `json:"rescoreFactor"`
 	Encoder        PQEncoder `json:"encoder"`
 }
 
@@ -171,6 +179,18 @@ func parsePQMap(in map[string]interface{}, pq *PQConfig) error {
 
 	if err := common.OptionalIntFromMap(pqConfigMap, "trainingLimit", func(v int) {
 		pq.TrainingLimit = v
+	}); err != nil {
+		return err
+	}
+
+	if err := parseRescoreLimit(pqConfigMap, "pq", func(v int) {
+		pq.RescoreLimit = v
+	}); err != nil {
+		return err
+	}
+
+	if err := common.ParseRescoreFactor(pqConfigMap, "pq", func(v float64) {
+		pq.RescoreFactor = v
 	}); err != nil {
 		return err
 	}

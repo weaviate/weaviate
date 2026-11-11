@@ -188,7 +188,7 @@ func (o *ReplicateForbidden) WriteResponse(rw http.ResponseWriter, producer runt
 const ReplicateConflictCode int = 409
 
 /*
-ReplicateConflict The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status.
+ReplicateConflict The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status to callers who can read the collection.
 
 swagger:response replicateConflict
 */

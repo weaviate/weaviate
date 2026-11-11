@@ -116,16 +116,12 @@ type ShardLike interface {
 	CompareDigests(ctx context.Context, sourceDigests []types.RepairDigest) ([]types.RepairDigest, error)
 	ID() string // Get the shard id
 	drop(keepFiles bool) error
-	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
-	// MayResetTransferInactivityTimer counts external transfer activity
-	// against the halt watchdog. No-op on unhalted shards.
-	MayResetTransferInactivityTimer()
+	HaltForTransfer(ctx context.Context, offloading bool) error
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
 	// counts must be non-nil; the sweep cost accrues there instead of being logged per call.
 	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property, counts *migrationSweepCounts)
 	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string, gate reindexGate) ([]string, error)
 	CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error)
-	ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error)
 	resumeMaintenanceCycles(ctx context.Context) error
 	GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error)
@@ -337,12 +333,13 @@ type Shard struct {
 	// Lock ordering when both are needed: asyncReplicationRWMux before asyncReplicationStatsMux.
 	asyncReplicationStatsMux sync.RWMutex
 
-	haltForTransferMux                sync.Mutex
-	haltForTransferInactivityTimeout  time.Duration
-	haltForTransferInactivityDeadline time.Time
+	haltForTransferMux sync.Mutex
 	// Mutations under haltForTransferMux; atomic so halt probes read lock-free.
-	haltForTransferCount     atomic.Int64
-	haltForTransferCtxCancel context.CancelFunc
+	haltForTransferCount atomic.Int64
+	// resumeIncomplete is true when a resume brought the halt count to 0 but
+	// failed to restart the maintenance cycles. The next resume at count 0
+	// retries the restart. Mutations under haltForTransferMux.
+	resumeIncomplete atomic.Bool
 
 	status ShardStatus
 	// countedStatus is the weaviate_index_shards_total bucket this shard is in, ""
