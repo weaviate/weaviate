@@ -80,6 +80,7 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -1211,6 +1212,18 @@ func initReindexAndDistributedTasks(
 		},
 	)
 	providers[db.DropVectorIndexNamespace] = dropVectorProvider
+
+	// Registered even when the rebalance flag is off. With the flag off,
+	// nothing creates tasks in this namespace.
+	providers[replicationTypes.RebalanceDraftNamespace] = db.NewRebalanceDraftProvider(
+		repo,
+		func() []*models.Class { return appState.SchemaManager.ReadOnlySchema().Classes },
+		appState.ServerConfig.Config.Persistence.DataPath,
+		appState.Cluster.LocalName(),
+		appState.Logger,
+		serverShutdownCtx,
+	)
+
 	// Startup reconciliation: enqueue cleanup for any "none" marker whose task
 	// is missing (crash, upgrade, or restore).
 	enterrors.GoWrapper(func() {

@@ -11,6 +11,17 @@
 
 package types
 
+// RebalanceDraftNamespace is the distributed-task namespace for rebalance
+// drafts. Each listed node sizes its own shards and saves them as a draft.
+const RebalanceDraftNamespace = "replication_rebalance_draft"
+
+// RebalanceShardSize is the on-disk size of one local shard replica.
+type RebalanceShardSize struct {
+	Collection string `json:"collection"`
+	Shard      string `json:"shard"`
+	Bytes      int64  `json:"bytes"`
+}
+
 // RebalanceNodeMeasurement is one node's resource measurement taken by a
 // rebalance planning run.
 type RebalanceNodeMeasurement struct {
@@ -23,6 +34,9 @@ type RebalanceNodeMeasurement struct {
 	DiskWarningPercentage int64 `json:"diskWarningPercentage"`
 	MemoryLimitBytes      int64 `json:"memoryLimitBytes"`
 	ReplicationWorkers    int   `json:"replicationWorkers"`
+	// Shards holds the node's drafted shard sizes. It is empty unless the
+	// measurement was taken for a draft.
+	Shards []RebalanceShardSize `json:"shards,omitempty"`
 	// Error is set when the node could not be measured.
 	Error string `json:"error,omitempty"`
 }
