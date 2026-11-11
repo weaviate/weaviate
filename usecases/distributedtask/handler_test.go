@@ -79,17 +79,18 @@ func TestHandler_ListTasks(t *testing.T) {
 		},
 		{
 			name: "task mid-coordination omits finishedAt, and so does its unfinished unit",
-			task: withUnits(&distributedtask.Task{
+			task: &distributedtask.Task{
 				Namespace:      namespace,
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "test-task-2", Version: 11},
 				Payload:        []byte(`{}`),
 				Status:         distributedtask.TaskStatusSwapping,
 				StartedAt:      anHourGo,
-			}, map[string]*distributedtask.Unit{
-				"u-done": {ID: "u-done", NodeID: "n1", Status: distributedtask.UnitStatusCompleted, Progress: 1, UpdatedAt: now, FinishedAt: now},
-				"u-live": {ID: "u-live", NodeID: "n2", Status: distributedtask.UnitStatusInProgress, Progress: 0.5, UpdatedAt: now},
-				"u-idle": {ID: "u-idle", NodeID: "n3", Status: distributedtask.UnitStatusPending},
-			}),
+				Units: map[string]*distributedtask.Unit{
+					"u-done": {ID: "u-done", NodeID: "n1", Status: distributedtask.UnitStatusCompleted, Progress: 1, UpdatedAt: now, FinishedAt: now},
+					"u-live": {ID: "u-live", NodeID: "n2", Status: distributedtask.UnitStatusInProgress, Progress: 0.5, UpdatedAt: now},
+					"u-idle": {ID: "u-idle", NodeID: "n3", Status: distributedtask.UnitStatusPending},
+				},
+			},
 			want: models.DistributedTask{
 				ID:        "test-task-2",
 				Version:   11,
@@ -157,15 +158,16 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 		failed                = `shard "tenant1" failed`
 	)
 	taskOn := func(collection string) *distributedtask.Task {
-		return withUnits(&distributedtask.Task{
+		return &distributedtask.Task{
 			Namespace:      boundNamespace,
 			TaskDescriptor: distributedtask.TaskDescriptor{ID: collection},
 			Payload: []byte(`{"collection":"` + collection + `","migrationType":"repair-filterable","note":"tenant1",` +
 				`"tenants":["tenant1"],"unitToShard":{"tenant1__node1":"tenant1"}}`),
 			Error: failed,
-		}, map[string]*distributedtask.Unit{
-			"tenant1__node1": {ID: "tenant1__node1", Error: failed},
-		})
+			Units: map[string]*distributedtask.Unit{
+				"tenant1__node1": {ID: "tenant1__node1", Error: failed},
+			},
+		}
 	}
 	fullPayload := func(collection string) map[string]interface{} {
 		return map[string]interface{}{
@@ -256,10 +258,11 @@ func TestHandler_ListTasksFiltersByCollectionPermissions(t *testing.T) {
 				items: map[string][]*distributedtask.Task{
 					boundNamespace:   bound,
 					unboundNamespace: {unbound},
-					noCollectionNamespace: {withUnits(&distributedtask.Task{
+					noCollectionNamespace: {{
 						Namespace: noCollectionNamespace,
 						Payload:   []byte(`{"collection":"","migrationType":"repair-filterable","tenants":["tenant1"]}`),
-					}, map[string]*distributedtask.Unit{"tenant1__node1": {ID: "tenant1__node1"}})},
+						Units:     map[string]*distributedtask.Unit{"tenant1__node1": {ID: "tenant1__node1"}},
+					}},
 				},
 			}, map[string]distributedtask.CollectionExtractor{
 				boundNamespace:        extractCollection,
@@ -293,9 +296,4 @@ type taskListerStub struct {
 
 func (t taskListerStub) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	return t.items, nil
-}
-
-func withUnits(task *distributedtask.Task, units map[string]*distributedtask.Unit) *distributedtask.Task {
-	task.SetUnits(units)
-	return task
 }

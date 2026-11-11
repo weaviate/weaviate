@@ -517,10 +517,9 @@ func assertTask(t *testing.T, expected, actual *Task) {
 	assert.Equal(t, expected.StartedAt.UTC(), actual.StartedAt.UTC())
 	assert.Equal(t, expected.FinishedAt.UTC(), actual.FinishedAt.UTC())
 	assert.Equal(t, expected.Error, actual.Error)
-	assert.Equal(t, expected.UnitCount(), actual.UnitCount())
-	for id, expectedSU := range expected.Units() {
-		actualSU := actual.Unit(id)
-		ok := actualSU != nil
+	assert.Equal(t, len(expected.Units), len(actual.Units))
+	for id, expectedSU := range expected.Units {
+		actualSU, ok := actual.Units[id]
 		assert.True(t, ok, "unit %s should exist", id)
 		if ok {
 			assert.Equal(t, expectedSU.Status, actualSU.Status)
@@ -603,10 +602,11 @@ func TestManager_AddTask_WithUnits(t *testing.T) {
 	require.NoError(t, err)
 
 	task := tasks["ns"][0]
-	require.Equal(t, 3, task.UnitCount())
+	require.NotNil(t, task.Units)
+	require.Len(t, task.Units, 3)
 	for _, id := range []string{"su-1", "su-2", "su-3"} {
-		u := task.Unit(id)
-		require.NotNil(t, u, "unit %s should exist", id)
+		u, ok := task.Units[id]
+		require.True(t, ok, "unit %s should exist", id)
 		assert.Equal(t, UnitStatusPending, u.Status)
 		assert.Equal(t, id, u.ID)
 	}
@@ -623,9 +623,9 @@ func TestManager_RecordUnitCompletion_Success(t *testing.T) {
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
 	task := tasks["ns"][0]
 	assert.Equal(t, TaskStatusStarted, task.Status)
-	assert.Equal(t, UnitStatusCompleted, task.Unit("su-1").Status)
-	assert.Equal(t, float32(1.0), task.Unit("su-1").Progress)
-	assert.Equal(t, UnitStatusPending, task.Unit("su-2").Status)
+	assert.Equal(t, UnitStatusCompleted, task.Units["su-1"].Status)
+	assert.Equal(t, float32(1.0), task.Units["su-1"].Progress)
+	assert.Equal(t, UnitStatusPending, task.Units["su-2"].Status)
 
 	// Complete second unit → task should transition to FINALIZING.
 	// FINISHED only after [Manager.MarkTaskFinalized], which the
@@ -648,15 +648,15 @@ func TestManager_RecordUnitCompletion_SetsNodeIDOnEmpty(t *testing.T) {
 	addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1", "su-2"})
 
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
-	require.Equal(t, "", tasks["ns"][0].Unit("su-1").NodeID,
+	require.Equal(t, "", tasks["ns"][0].Units["su-1"].NodeID,
 		"precondition: unit is unclaimed")
 
 	completeUnit(t, h, "ns", "task1", version, "node-1", "su-1")
 
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
 	task := tasks["ns"][0]
-	assert.Equal(t, UnitStatusCompleted, task.Unit("su-1").Status)
-	assert.Equal(t, "node-1", task.Unit("su-1").NodeID)
+	assert.Equal(t, UnitStatusCompleted, task.Units["su-1"].Status)
+	assert.Equal(t, "node-1", task.Units["su-1"].NodeID)
 	assert.Contains(t, task.LocalGroupUnitIDs("", "node-1"), "su-1",
 		"LocalGroupUnitIDs must include the just-completed unit for its recording node")
 }
@@ -678,7 +678,7 @@ func TestManager_RecordUnitCompletion_RespectsExistingNodeID(t *testing.T) {
 	require.NoError(t, err)
 
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
-	require.Equal(t, "node-1", tasks["ns"][0].Unit("su-1").NodeID)
+	require.Equal(t, "node-1", tasks["ns"][0].Units["su-1"].NodeID)
 
 	err = h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
 		Namespace: "ns", Id: "task1", Version: version,
@@ -688,8 +688,8 @@ func TestManager_RecordUnitCompletion_RespectsExistingNodeID(t *testing.T) {
 	require.ErrorContains(t, err, "belongs to node node-1, not node-2")
 
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
-	assert.Equal(t, "node-1", tasks["ns"][0].Unit("su-1").NodeID)
-	assert.Equal(t, UnitStatusInProgress, tasks["ns"][0].Unit("su-1").Status)
+	assert.Equal(t, "node-1", tasks["ns"][0].Units["su-1"].NodeID)
+	assert.Equal(t, UnitStatusInProgress, tasks["ns"][0].Units["su-1"].Status)
 }
 
 func TestManager_RecordUnitCompletion_WithError(t *testing.T) {
@@ -704,7 +704,7 @@ func TestManager_RecordUnitCompletion_WithError(t *testing.T) {
 	task := tasks["ns"][0]
 	assert.Equal(t, TaskStatusFailed, task.Status)
 	assert.Contains(t, task.Error, "disk full")
-	assert.Equal(t, UnitStatusFailed, task.Unit("su-1").Status)
+	assert.Equal(t, UnitStatusFailed, task.Units["su-1"].Status)
 }
 
 func TestManager_RecordUnitCompletion_Failures(t *testing.T) {
@@ -752,7 +752,7 @@ func TestManager_UpdateUnitProgress(t *testing.T) {
 	updateProgress(t, h, "ns", "task1", version, "node-1", "su-1", 0.5)
 
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
-	u := tasks["ns"][0].Unit("su-1")
+	u := tasks["ns"][0].Units["su-1"]
 	assert.Equal(t, UnitStatusInProgress, u.Status)
 	assert.Equal(t, float32(0.5), u.Progress)
 	assert.Equal(t, "node-1", u.NodeID)
@@ -829,8 +829,9 @@ func TestManager_UpdateUnitProgress_MonotonicityGuard(t *testing.T) {
 		require.Contains(t, tasks, ns)
 		require.NotEmpty(t, tasks[ns])
 		task := tasks[ns][0]
-		u := task.Unit(unitID)
-		require.NotNil(t, u, "unit %s should exist", unitID)
+		require.NotNil(t, task.Units)
+		u, ok := task.Units[unitID]
+		require.True(t, ok, "unit %s should exist", unitID)
 		return u
 	}
 
@@ -982,10 +983,11 @@ func TestManager_SnapshotRestore_WithUnits(t *testing.T) {
 	require.NoError(t, err)
 
 	task := tasks["ns"][0]
-	require.Equal(t, 2, task.UnitCount())
-	assert.Equal(t, UnitStatusInProgress, task.Unit("su-1").Status)
-	assert.Equal(t, float32(0.7), task.Unit("su-1").Progress)
-	assert.Equal(t, UnitStatusPending, task.Unit("su-2").Status)
+	require.NotNil(t, task.Units)
+	require.Len(t, task.Units, 2)
+	assert.Equal(t, UnitStatusInProgress, task.Units["su-1"].Status)
+	assert.Equal(t, float32(0.7), task.Units["su-1"].Progress)
+	assert.Equal(t, UnitStatusPending, task.Units["su-2"].Status)
 }
 
 func TestManager_AddTask_WithUnitSpecs(t *testing.T) {
@@ -1009,11 +1011,12 @@ func TestManager_AddTask_WithUnitSpecs(t *testing.T) {
 	require.NoError(t, err)
 
 	task := tasks["ns"][0]
-	require.Equal(t, 3, task.UnitCount())
+	require.NotNil(t, task.Units)
+	require.Len(t, task.Units, 3)
 
-	assert.Equal(t, "groupA", task.Unit("su-1").GroupID)
-	assert.Equal(t, "groupA", task.Unit("su-2").GroupID)
-	assert.Equal(t, "groupB", task.Unit("su-3").GroupID)
+	assert.Equal(t, "groupA", task.Units["su-1"].GroupID)
+	assert.Equal(t, "groupA", task.Units["su-2"].GroupID)
+	assert.Equal(t, "groupB", task.Units["su-3"].GroupID)
 
 	// Test helper methods
 	groups := task.Groups()
@@ -1043,9 +1046,9 @@ func TestManager_UnitSpecs_TakesPrecedenceOverUnitIds(t *testing.T) {
 
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
 	task := tasks["ns"][0]
-	require.Equal(t, 1, task.UnitCount())
-	assert.NotNil(t, task.Unit("new-1"))
-	assert.Equal(t, "g1", task.Unit("new-1").GroupID)
+	require.Len(t, task.Units, 1)
+	assert.Contains(t, task.Units, "new-1")
+	assert.Equal(t, "g1", task.Units["new-1"].GroupID)
 }
 
 func TestManager_SnapshotRestore_WithGroups(t *testing.T) {
@@ -1072,8 +1075,9 @@ func TestManager_SnapshotRestore_WithGroups(t *testing.T) {
 	require.NoError(t, err)
 
 	task := tasks["ns"][0]
-	assert.Equal(t, "g1", task.Unit("su-1").GroupID)
-	assert.Equal(t, "g2", task.Unit("su-2").GroupID)
+	require.NotNil(t, task.Units)
+	assert.Equal(t, "g1", task.Units["su-1"].GroupID)
+	assert.Equal(t, "g2", task.Units["su-2"].GroupID)
 }
 
 // TestManager_RecordPostCompletionAck_Success pins the happy path of
@@ -2463,15 +2467,15 @@ func TestManager_LocalUnrecognizedDistributedTasks(t *testing.T) {
 			for namespace, tasks := range got {
 				for _, task := range tasks {
 					task.Status = TaskStatusCancelled
-					for _, unit := range task.Units() {
+					for _, unit := range task.Units {
 						unit.Status = UnitStatusFailed
 					}
 
 					stored := h.manager.tasks[namespace][task.ID]
 					require.Equal(t, unknownFutureStatus, stored.Status,
 						"writing to a returned task must not change %s/%s", namespace, task.ID)
-					require.NotZero(t, stored.UnitCount())
-					for unitID, unit := range stored.Units() {
+					require.NotEmpty(t, stored.Units)
+					for unitID, unit := range stored.Units {
 						require.Equal(t, UnitStatusPending, unit.Status,
 							"writing to a returned unit must not change %s/%s/%s",
 							namespace, task.ID, unitID)
@@ -2637,7 +2641,7 @@ func TestRestoreOfAReleasedBinarysSnapshot(t *testing.T) {
 		statuses[task.ID] = task.Status
 		require.Empty(t, task.SwapsOwed, task.ID)
 		require.NotEmpty(t, task.NodePreparationAcks, "%s: the old per-node PREP acks decode into their old name", task.ID)
-		require.Equal(t, 2, task.UnitCount(), task.ID)
+		require.Len(t, task.Units, 2, task.ID)
 	}
 	require.Equal(t, map[string]TaskStatus{"failed-mid-swap": TaskStatusFailed}, statuses)
 }

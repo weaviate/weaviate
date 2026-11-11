@@ -12,6 +12,7 @@
 package distributedtask
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -107,7 +108,7 @@ func TestManager_Restore_ClearsFinishedAtOnNonTerminalTasks(t *testing.T) {
 		t.Run(string(status), func(t *testing.T) {
 			h := newTestHarness(t).init(t)
 
-			bytes, err := h.manager.encodeTasks(map[string][]*Task{
+			bytes, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{
 				ns: {{
 					Namespace:      ns,
 					TaskDescriptor: TaskDescriptor{ID: id, Version: version},
@@ -115,7 +116,7 @@ func TestManager_Restore_ClearsFinishedAtOnNonTerminalTasks(t *testing.T) {
 					StartedAt:      startedAt,
 					FinishedAt:     stamped,
 				}},
-			})
+			}})
 			require.NoError(t, err)
 			require.NoError(t, h.manager.Restore(bytes))
 
@@ -181,7 +182,7 @@ func TestManager_UnitUpdatedAtIncludesTheTerminalTransition(t *testing.T) {
 				updateProgress(t, h, ns, id, version, node, unitID, 0.5)
 			}
 
-			before := h.manager.tasks[ns][id].Unit(unitID)
+			before := h.manager.tasks[ns][id].Units[unitID]
 			require.Equal(t, tt.reportsProgress, !before.UpdatedAt.IsZero(),
 				"before going terminal a unit carries an update time iff it reported progress")
 
@@ -189,7 +190,7 @@ func TestManager_UnitUpdatedAtIncludesTheTerminalTransition(t *testing.T) {
 			wantUpdatedAt := h.clock.Now()
 			tt.terminal(t, h)
 
-			got := h.manager.tasks[ns][id].Unit(unitID)
+			got := h.manager.tasks[ns][id].Units[unitID]
 			require.Equal(t, tt.wantStatus, got.Status)
 			require.False(t, got.UpdatedAt.IsZero(),
 				"a terminal unit must report when it was last touched")

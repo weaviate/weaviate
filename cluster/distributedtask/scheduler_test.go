@@ -430,8 +430,8 @@ func TestKeepLocalStateOfListedTasksOnStartup(t *testing.T) {
 	h = h.init(t)
 	defer h.Close()
 
-	task := &Task{Namespace: h.tasksNamespace, TaskDescriptor: desc, Status: TaskStatusFinished}
-	task.SetUnits(map[string]*Unit{"su-1": {ID: "su-1", NodeID: h.localNodeID, Status: UnitStatusCompleted}})
+	task := withUnits(&Task{Namespace: h.tasksNamespace, TaskDescriptor: desc, Status: TaskStatusFinished},
+		map[string]*Unit{"su-1": {ID: "su-1", NodeID: h.localNodeID, Status: UnitStatusCompleted}})
 	h.scheduler.bootstrapProviders(map[string]map[TaskDescriptor]*Task{h.tasksNamespace: {desc: task}})
 
 	require.Len(t, provider.cleanedUpCh, 0)

@@ -1474,3 +1474,19 @@ func (r managerAckRecorder) RecordDistributedTaskPostCompletionAck(_ context.Con
 func (r managerAckRecorder) RecordDistributedTaskPreparationCompleteAck(context.Context, string, string, uint64, string, string, bool, string) error {
 	return errors.New("no PREP ack expected")
 }
+
+// withUnits decodes the task the way a node receives it, which builds its group index.
+func withUnits(task *distributedtask.Task, units map[string]*distributedtask.Unit) *distributedtask.Task {
+	task.Units = units
+	raw, err := json.Marshal(distributedtask.ListDistributedTasksResponse{
+		Tasks: map[string][]*distributedtask.Task{task.Namespace: {task}},
+	})
+	if err != nil {
+		panic(err)
+	}
+	tasks, err := distributedtask.NewManager(distributedtask.ManagerParameters{}).DecodeTaskList(raw)
+	if err != nil {
+		panic(err)
+	}
+	return tasks[task.Namespace][0]
+}

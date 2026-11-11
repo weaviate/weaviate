@@ -13,7 +13,6 @@ package distributedtask
 
 import (
 	"context"
-	"iter"
 	"maps"
 	"slices"
 	"time"
@@ -578,7 +577,9 @@ type Task struct {
 	// Error is an optional field to store the error which moved the task to FAILED status.
 	Error string `json:"error,omitempty"`
 
-	units map[string]*Unit
+	// Units tracks per-unit progress. Always non-nil for valid tasks.
+	// Whoever replaces it calls indexGroups, or group lookups go stale.
+	Units map[string]*Unit `json:"units,omitempty"`
 
 	// groups maps each group to its initial unit IDs; shared, never mutated.
 	groups map[string][]string
@@ -621,24 +622,9 @@ type PostCompletionAck struct {
 	AckedAt time.Time `json:"ackedAt"`
 }
 
-// taskJSON is Task's wire form: JSON methods on Task would double the per-tick list cost (encoding/json rescans).
-type taskJSON struct {
-	*Task
-	Units map[string]*Unit `json:"units,omitempty"`
-}
-
-type taskListJSON struct {
-	Tasks map[string][]taskJSON `json:"tasks,omitempty"`
-}
-
-func (t *Task) SetUnits(units map[string]*Unit) {
-	t.units = units
-	t.indexGroups()
-}
-
 func (t *Task) indexGroups() {
 	groups := map[string][]string{}
-	for id, u := range t.units {
+	for id, u := range t.Units {
 		groups[u.GroupID] = append(groups[u.GroupID], id)
 	}
 	t.groups, t.groupCount = groups, len(groups)
@@ -646,7 +632,7 @@ func (t *Task) indexGroups() {
 
 // shareGroups reuses held's index when it has as many units (units are only removed).
 func (t *Task) shareGroups(held *Task) {
-	if held == nil || held.Version != t.Version || len(held.units) != len(t.units) {
+	if held == nil || held.Version != t.Version || len(held.Units) != len(t.Units) {
 		t.indexGroups()
 		return
 	}
@@ -659,7 +645,7 @@ func (t *Task) forgetGroups(groups []string) {
 			continue
 		}
 		for _, id := range t.groups[group] {
-			delete(t.units, id)
+			delete(t.Units, id)
 		}
 		t.groupCount--
 		delete(t.SwapsOwed, group)
@@ -669,23 +655,17 @@ func (t *Task) forgetGroups(groups []string) {
 }
 
 func (t *Task) hasGroup(group string) bool {
-	return slices.ContainsFunc(t.groups[group], func(id string) bool { return t.units[id] != nil })
+	return slices.ContainsFunc(t.groups[group], func(id string) bool { return t.Units[id] != nil })
 }
-
-func (t *Task) Units() iter.Seq2[string, *Unit] { return maps.All(t.units) }
-
-func (t *Task) Unit(id string) *Unit { return t.units[id] }
-
-func (t *Task) UnitCount() int { return len(t.units) }
 
 func (t *Task) Clone() *Task {
 	clone := *t
-	if t.units != nil {
-		copies := make([]Unit, 0, len(t.units))
-		clone.units = make(map[string]*Unit, len(t.units))
-		for k, v := range t.units {
+	if t.Units != nil {
+		copies := make([]Unit, 0, len(t.Units))
+		clone.Units = make(map[string]*Unit, len(t.Units))
+		for k, v := range t.Units {
 			copies = append(copies, *v)
-			clone.units[k] = &copies[len(copies)-1]
+			clone.Units[k] = &copies[len(copies)-1]
 		}
 	}
 	if t.PostCompletionAcks != nil {
@@ -767,7 +747,7 @@ func (t *Task) markTerminal(status TaskStatus, at time.Time) {
 
 // AllUnitsTerminal returns true if all units are in a terminal state (COMPLETED or FAILED).
 func (t *Task) AllUnitsTerminal() bool {
-	for _, u := range t.units {
+	for _, u := range t.Units {
 		if u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
 			return false
 		}
@@ -777,7 +757,7 @@ func (t *Task) AllUnitsTerminal() bool {
 
 // AnyUnitFailed returns true if any unit has FAILED status.
 func (t *Task) AnyUnitFailed() bool {
-	for _, u := range t.units {
+	for _, u := range t.Units {
 		if u.Status == UnitStatusFailed {
 			return true
 		}
@@ -800,7 +780,7 @@ func (t *Task) Groups() []string {
 // AllGroupUnitsTerminal returns true if all units in the given group are terminal.
 func (t *Task) AllGroupUnitsTerminal(groupID string) bool {
 	for _, id := range t.groups[groupID] {
-		if u := t.units[id]; u != nil && u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
+		if u := t.Units[id]; u != nil && u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
 			return false
 		}
 	}
@@ -810,7 +790,7 @@ func (t *Task) AllGroupUnitsTerminal(groupID string) bool {
 func (t *Task) groupNodes(groupID string) []string {
 	nodes := make([]string, 0, len(t.groups[groupID]))
 	for _, id := range t.groups[groupID] {
-		if u := t.units[id]; u != nil && u.NodeID != "" && !slices.Contains(nodes, u.NodeID) {
+		if u := t.Units[id]; u != nil && u.NodeID != "" && !slices.Contains(nodes, u.NodeID) {
 			nodes = append(nodes, u.NodeID)
 		}
 	}
@@ -827,14 +807,14 @@ func (t *Task) groupSet() map[string]struct{} {
 }
 
 func (t *Task) groupHasUnitOn(groupID, nodeID string) bool {
-	return slices.ContainsFunc(t.groups[groupID], func(id string) bool { u := t.units[id]; return u != nil && u.NodeID == nodeID })
+	return slices.ContainsFunc(t.groups[groupID], func(id string) bool { u := t.Units[id]; return u != nil && u.NodeID == nodeID })
 }
 
 // LocalGroupUnitIDs returns the IDs of units in the given group assigned to the given node.
 func (t *Task) LocalGroupUnitIDs(groupID, nodeID string) []string {
 	var ids []string
 	for _, id := range t.groups[groupID] {
-		if u := t.units[id]; u != nil && u.NodeID == nodeID {
+		if u := t.Units[id]; u != nil && u.NodeID == nodeID {
 			ids = append(ids, id)
 		}
 	}
@@ -844,7 +824,7 @@ func (t *Task) LocalGroupUnitIDs(groupID, nodeID string) []string {
 // NodeHasNonTerminalUnits returns true if the given node has units that are not yet terminal.
 // Unassigned units (empty NodeID) are considered as belonging to any node.
 func (t *Task) NodeHasNonTerminalUnits(nodeID string) bool {
-	for _, u := range t.units {
+	for _, u := range t.Units {
 		if u.Status == UnitStatusCompleted || u.Status == UnitStatusFailed {
 			continue
 		}
@@ -866,7 +846,7 @@ func (t *Task) NodeHasNonTerminalUnits(nodeID string) bool {
 // it themselves.
 func (t *Task) NodesWithLocalUnits() []string {
 	seen := map[string]struct{}{}
-	for _, u := range t.units {
+	for _, u := range t.Units {
 		if u.NodeID == "" {
 			continue
 		}
@@ -898,4 +878,8 @@ func (t *Task) MissingPostCompletionAckNodes() []string {
 		}
 	}
 	return missing
+}
+
+type ListDistributedTasksResponse struct {
+	Tasks map[string][]*Task `json:"tasks"`
 }

@@ -474,7 +474,7 @@ func TestShardNoopProvider_TaskLifecycle(t *testing.T) {
 	assert.Empty(t, f.provider.GetLocalTasks())
 
 	task := f.newTask(nil)
-	task.SetUnits(nil)
+	task.Units = nil
 
 	handle, err := f.provider.StartTask(task)
 	require.NoError(t, err)

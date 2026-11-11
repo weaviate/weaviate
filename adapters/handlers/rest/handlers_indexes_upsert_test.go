@@ -821,7 +821,7 @@ func TestMigratedTenantsAcrossRuns(t *testing.T) {
 		for _, g := range held {
 			units[string(g)] = &distributedtask.Unit{ID: string(g), GroupID: string(g)}
 		}
-		task.SetUnits(units)
+		task = withUnits(t, task, units)
 		for _, g := range decided {
 			if task.SwapDecidedGroups == nil {
 				task.SwapDecidedGroups = map[string]time.Time{}

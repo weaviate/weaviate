@@ -76,7 +76,7 @@ func TestTask_Clone_DeepCopiesAckMaps(t *testing.T) {
 	clone := orig.Clone()
 
 	// Mutate every map on the clone.
-	clone.Unit("u-1").Status = UnitStatusFailed
+	clone.Units["u-1"].Status = UnitStatusFailed
 	clone.PostCompletionAcks["node-1"] = PostCompletionAck{Success: false, Error: "swap"}
 	clone.PostCompletionAcks["node-2"] = PostCompletionAck{Success: true}
 	clone.PreparedGroups["g1"]["node-1"] = PostCompletionAck{Success: false, Error: "prep"}
@@ -86,7 +86,7 @@ func TestTask_Clone_DeepCopiesAckMaps(t *testing.T) {
 	clone.NodePreparationAcks["node-2"] = PostCompletionAck{Success: true}
 
 	// Original must be untouched on EVERY map.
-	assert.Equal(t, UnitStatusCompleted, orig.Unit("u-1").Status, "Units value-level deep copy")
+	assert.Equal(t, UnitStatusCompleted, orig.Units["u-1"].Status, "Units value-level deep copy")
 	assert.True(t, orig.PostCompletionAcks["node-1"].Success, "PostCompletionAcks must not alias clone")
 	assert.NotContains(t, orig.PostCompletionAcks, "node-2", "PostCompletionAcks must not alias clone")
 	assert.True(t, orig.PreparedGroups["g1"]["node-1"].Success, "PreparedGroups must not alias clone")
@@ -175,7 +175,8 @@ func TestTask_ForgetGroupsKeepsTheSharedIndex(t *testing.T) {
 }
 
 func withUnits(task *Task, units map[string]*Unit) *Task {
-	task.SetUnits(units)
+	task.Units = units
+	task.indexGroups()
 	return task
 }
 

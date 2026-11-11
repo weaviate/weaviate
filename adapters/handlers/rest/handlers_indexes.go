@@ -966,21 +966,21 @@ func taskStatusPriority(task *distributedtask.Task) int {
 // aggregateProgress averages Unit.Progress across all units in the task.
 // Returns 0 when there are no units.
 func aggregateProgress(task *distributedtask.Task) float32 {
-	if task.UnitCount() == 0 {
+	if len(task.Units) == 0 {
 		return 0
 	}
 	var total float32
-	for _, u := range task.Units() {
+	for _, u := range task.Units {
 		total += u.Progress
 	}
-	return total / float32(task.UnitCount())
+	return total / float32(len(task.Units))
 }
 
 // anyUnitWorking returns true if at least one unit has transitioned out
 // of PENDING — i.e. some shard is actively iterating, has finished, or
 // failed.
 func anyUnitWorking(task *distributedtask.Task) bool {
-	for _, u := range task.Units() {
+	for _, u := range task.Units {
 		if u.Status != distributedtask.UnitStatusPending {
 			return true
 		}

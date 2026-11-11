@@ -525,7 +525,7 @@ func (p *ReindexProvider) processUnits(
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	for _, unitID := range localUnits {
-		unit := task.Unit(unitID)
+		unit := task.Units[unitID]
 		if unit != nil && (unit.Status == distributedtask.UnitStatusCompleted || unit.Status == distributedtask.UnitStatusFailed) {
 			continue
 		}
@@ -1090,7 +1090,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	idx *Index,
 	logger logrus.FieldLogger,
 ) phaseUnitResolution {
-	unit := task.Unit(unitID)
+	unit := task.Units[unitID]
 	if unit != nil && unit.Status == distributedtask.UnitStatusFailed {
 		logger.WithField("unit", unitID).Warn("reindex provider: skipping failed unit")
 		return phaseUnitResolution{Skip: true}

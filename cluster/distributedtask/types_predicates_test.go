@@ -293,8 +293,8 @@ func TestTask_AllGroupUnitsTerminal(t *testing.T) {
 	assert.False(t, task.AllGroupUnitsTerminal("g2"))
 
 	// Mark g2 units terminal — should flip to true.
-	task.Unit("u-3-g2-n1-pending").Status = UnitStatusCompleted
-	task.Unit("u-4-g2-n2-prog").Status = UnitStatusFailed
+	task.Units["u-3-g2-n1-pending"].Status = UnitStatusCompleted
+	task.Units["u-4-g2-n2-prog"].Status = UnitStatusFailed
 	assert.True(t, task.AllGroupUnitsTerminal("g2"))
 
 	// Ungrouped (empty groupID) — only u-5 (COMPLETED) qualifies.
@@ -336,16 +336,16 @@ func TestTask_NodeHasNonTerminalUnits(t *testing.T) {
 	assert.True(t, task.NodeHasNonTerminalUnits("n-3"))
 
 	// Mark u-6 terminal — n-3 should now have only terminal work.
-	task.Unit("u-6-g1-unassigned").Status = UnitStatusCompleted
+	task.Units["u-6-g1-unassigned"].Status = UnitStatusCompleted
 	assert.False(t, task.NodeHasNonTerminalUnits("n-3"))
 
 	// Unknown node with unassigned units present: still true because
 	// unassigned counts toward any node.
-	task.Unit("u-6-g1-unassigned").Status = UnitStatusPending
+	task.Units["u-6-g1-unassigned"].Status = UnitStatusPending
 	assert.True(t, task.NodeHasNonTerminalUnits("never-existed"))
 
 	// All terminal AND no unassigned: false.
-	for _, u := range task.Units() {
+	for _, u := range task.Units {
 		u.Status = UnitStatusCompleted
 	}
 	assert.False(t, task.NodeHasNonTerminalUnits("never-existed"))
