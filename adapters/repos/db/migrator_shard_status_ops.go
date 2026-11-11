@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -361,43 +362,77 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 			return
 		}
 
+		pending := map[string]string{}
 		tenantsToBeDeletedFromCloud.Range(func(name, nodeID any) bool {
-			logger := m.logger.WithFields(logrus.Fields{
-				"action":      "deleting_tenant_from_cloud",
-				"name":        class,
-				"node":        nodeID,
-				"currentNode": m.nodeId,
-				"tenant":      name,
-			})
-
-			// the read side excludes a freeze uploading to this path, not lookups
-			idx.shardCreateLocks.RLock(name.(string))
-			defer idx.shardCreateLocks.RUnlock(name.(string))
-
-			frozenAgain := false
-			if err := idx.schemaReader.Read(class, false, func(_ *models.Class, state *sharding.State) error {
-				if state == nil {
-					return nil
-				}
-				if phys, ok := state.Physical[name.(string)]; ok {
-					status := phys.ActivityStatus()
-					frozenAgain = status == models.TenantActivityStatusFREEZING || status == models.TenantActivityStatusFROZEN
-				}
-				return nil
-			}); err != nil {
-				logger.Errorf("keeping the source cloud copy: read tenant status: %v", err)
-				return true
-			}
-			if frozenAgain {
-				logger.Warn("keeping the source cloud copy: tenant is frozen again")
-				return true
-			}
-
-			logger.Debug()
-			if err := m.cloud.Delete(ctx, class, name.(string), nodeID.(string)); err != nil {
-				logger.Errorf("deleting: %v", err)
-			}
+			pending[name.(string)] = nodeID.(string)
 			return true
 		})
+		deadline := time.Now().Add(m.unfreezeSourceMaxWait)
+		for {
+			for name, nodeID := range pending {
+				if m.deleteUnfreezeSource(ctx, idx, class, name, nodeID) {
+					delete(pending, name)
+				}
+			}
+			if len(pending) == 0 {
+				return
+			}
+			if time.Now().After(deadline) {
+				m.logger.WithFields(logrus.Fields{
+					"action":       "deleting_tenant_from_cloud",
+					"name":         class,
+					"tenant_count": len(pending),
+				}).Warnf("keeping %d source cloud copies: their unfreeze did not end within %s", len(pending), m.unfreezeSourceMaxWait)
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(m.unfreezeSourceRecheck):
+			}
+		}
 	}, idx.logger)
+}
+
+// deleteUnfreezeSource reports false while the tenant is UNFREEZING: that may
+// be a later unfreeze whose downloads still read this copy.
+func (m *Migrator) deleteUnfreezeSource(ctx context.Context, idx *Index, class, name, nodeID string) bool {
+	logger := m.logger.WithFields(logrus.Fields{
+		"action":      "deleting_tenant_from_cloud",
+		"name":        class,
+		"node":        nodeID,
+		"currentNode": m.nodeId,
+		"tenant":      name,
+	})
+
+	// the read side excludes a freeze uploading to this path, not lookups
+	idx.shardCreateLocks.RLock(name)
+	defer idx.shardCreateLocks.RUnlock(name)
+
+	status := ""
+	if err := idx.schemaReader.Read(class, false, func(_ *models.Class, state *sharding.State) error {
+		if state != nil {
+			if phys, ok := state.Physical[name]; ok {
+				status = phys.ActivityStatus()
+			}
+		}
+		return nil
+	}); err != nil {
+		logger.Errorf("keeping the source cloud copy: read tenant status: %v", err)
+		return true
+	}
+	switch status {
+	case models.TenantActivityStatusUNFREEZING:
+		return false
+	case models.TenantActivityStatusFREEZING, models.TenantActivityStatusFROZEN:
+		logger.Warn("keeping the source cloud copy: tenant is frozen again")
+		return true
+	default:
+	}
+
+	logger.Debug()
+	if err := m.cloud.Delete(ctx, class, name, nodeID); err != nil {
+		logger.Errorf("deleting: %v", err)
+	}
+	return true
 }

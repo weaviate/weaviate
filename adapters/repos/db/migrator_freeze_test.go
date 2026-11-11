@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -144,10 +145,16 @@ func TestFreezeAbortReportsPreFreezeStatus(t *testing.T) {
 type downloadingOffloadCloud struct {
 	failingOffloadCloud
 	download func(shardName, nodeName string) error
+	deleted  chan struct{}
 }
 
 func (c *downloadingOffloadCloud) Download(_ context.Context, _, shardName, nodeName string) error {
 	return c.download(shardName, nodeName)
+}
+
+func (c *downloadingOffloadCloud) Delete(context.Context, string, string, string) error {
+	close(c.deleted)
+	return nil
 }
 
 // Unfreezing onto a different node must adopt the freezing node's records,
@@ -155,10 +162,19 @@ func (c *downloadingOffloadCloud) Download(_ context.Context, _, shardName, node
 func TestUnfreezeOntoAnotherNodeAdoptsTheFreezingNodesRecords(t *testing.T) {
 	const class, tenant, frozenOn, node = "UnfreezeAdopt", "t1", "node9", "node1"
 	logger, _ := test.NewNullLogger()
+	reader := local.NewMockSchemaReader(t)
+	reader.EXPECT().WaitForUpdate(mock.Anything, uint64(0)).Return(nil)
+	reader.EXPECT().Read(class, false, mock.Anything).RunAndReturn(
+		func(_ string, _ bool, read func(*models.Class, *sharding.State) error) error {
+			return read(nil, &sharding.State{Physical: map[string]sharding.Physical{
+				tenant: {Name: tenant, Status: models.TenantActivityStatusHOT},
+			}})
+		})
 	idx := &Index{
 		logger:           logger,
 		backupLock:       esync.NewKeyRWLocker(),
 		shardCreateLocks: esync.NewKeyRWLocker(),
+		schemaReader:     reader,
 		Config:           IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName(class)},
 	}
 	lsmPath := shardPathLSM(idx.path(), tenant)
@@ -168,17 +184,23 @@ func TestUnfreezeOntoAnotherNodeAdoptsTheFreezingNodesRecords(t *testing.T) {
 	m := NewMigrator(nil, logger, node)
 	m.SetNode(node)
 	m.SetCluster(&recordingProcessor{})
-	m.cloud = &downloadingOffloadCloud{download: func(shardName, nodeName string) error {
+	cloud := &downloadingOffloadCloud{deleted: make(chan struct{}), download: func(shardName, nodeName string) error {
 		require.Equal(t, frozenOn, nodeName, "fixture: the download reads the freezing node's copy")
 		if err := os.MkdirAll(lsmPath, 0o777); err != nil {
 			return err
 		}
 		return NewMigrationRecordStore(lsmPath, logger).Put(newMigrationRecordAt(t, subject, MigrationStateSwapped))
 	}}
+	m.cloud = cloud
 
 	ec := errorcompounder.NewSafe()
 	m.unfreeze(context.Background(), idx, class, []string{tenant + "#" + frozenOn}, ec)
 	require.NoError(t, ec.ToError())
+	select {
+	case <-cloud.deleted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the source copy was never deleted")
+	}
 
 	local := NewMigrationRecordStoreForUnit(lsmPath, MigrationUnitID(tenant, node), logger)
 	require.NoError(t, local.Load())
@@ -189,13 +211,28 @@ func TestUnfreezeOntoAnotherNodeAdoptsTheFreezingNodesRecords(t *testing.T) {
 type deleteRecordingCloud struct {
 	mu      sync.Mutex
 	deletes []string
+	copies  map[string]bool
 	entered chan struct{}
 	block   chan struct{}
 }
 
 func (c *deleteRecordingCloud) VerifyBucket(context.Context) error { return nil }
 
-func (c *deleteRecordingCloud) Upload(context.Context, string, string, string) error { return nil }
+func (c *deleteRecordingCloud) Upload(_ context.Context, class, tenant, node string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.copies == nil {
+		c.copies = map[string]bool{}
+	}
+	c.copies[class+"/"+tenant+"/"+node] = true
+	return nil
+}
+
+func (c *deleteRecordingCloud) has(path string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.copies[path]
+}
 
 func (c *deleteRecordingCloud) Download(context.Context, string, string, string) error { return nil }
 
@@ -207,6 +244,7 @@ func (c *deleteRecordingCloud) Delete(_ context.Context, class, tenant, node str
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.deletes = append(c.deletes, class+"/"+tenant+"/"+node)
+	delete(c.copies, class+"/"+tenant+"/"+node)
 	return nil
 }
 
@@ -277,6 +315,7 @@ func newUnfreezeMigrator(t *testing.T, schema *unfreezeSchema, proc processor, c
 	m.SetNode("node1")
 	m.SetCluster(proc)
 	m.cloud = cloud
+	m.unfreezeSourceRecheck = 10 * time.Millisecond
 	return m, idx
 }
 
@@ -291,7 +330,6 @@ func TestUnfreezeDeletesSourceOnlyAfterDoneCommits(t *testing.T) {
 	}{
 		{name: "deleted once DONE commits", status: models.TenantActivityStatusHOT, wantDelete: true},
 		{name: "deleted for a COLD target", status: models.TenantActivityStatusCOLD, wantDelete: true},
-		{name: "deleted after a DONE that was not the last report", status: models.TenantActivityStatusUNFREEZING, wantDelete: true},
 		{name: "deleted when the tenant is gone", status: "", wantDelete: true},
 		{name: "kept when DONE fails to commit", status: models.TenantActivityStatusHOT, commitErr: fmt.Errorf("leader lost")},
 		{name: "kept when DONE does not apply locally", status: models.TenantActivityStatusHOT, waitErr: fmt.Errorf("timed out")},
@@ -385,4 +423,85 @@ func TestUnfreezeSourceDeleteHoldsOffFreezeNotLookups(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("freeze did not proceed after the delete")
 	}
+}
+
+// An UNFREEZING read may be a later unfreeze whose downloads still need the copy.
+func TestUnfreezeSourceDeleteWaitsForTheUnfreezeToEnd(t *testing.T) {
+	cases := []struct {
+		name       string
+		end        string
+		wantDelete bool
+	}{
+		{name: "deleted once it ends HOT", end: models.TenantActivityStatusHOT, wantDelete: true},
+		{name: "deleted once it ends COLD", end: models.TenantActivityStatusCOLD, wantDelete: true},
+		{name: "deleted once the tenant is gone", end: "", wantDelete: true},
+		{name: "kept when it ends FROZEN", end: models.TenantActivityStatusFROZEN},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			schema := newUnfreezeSchema(models.TenantActivityStatusUNFREEZING)
+			proc := &gatedProcessor{release: make(chan struct{}), called: make(chan struct{})}
+			close(proc.release)
+			cloud := &deleteRecordingCloud{}
+			m, idx := newUnfreezeMigrator(t, schema, proc, cloud)
+
+			m.unfreeze(context.Background(), idx, "C", []string{"t1#oldnode"}, errorcompounder.NewSafe())
+			require.Never(t, func() bool { return len(cloud.deleted()) > 0 },
+				200*time.Millisecond, 10*time.Millisecond, "deleted while the tenant was unfreezing")
+
+			schema.status.Store(tc.end)
+			if !tc.wantDelete {
+				require.Never(t, func() bool { return len(cloud.deleted()) > 0 },
+					200*time.Millisecond, 10*time.Millisecond, "source must be kept")
+				return
+			}
+			require.Eventually(t, func() bool { return len(cloud.deleted()) == 1 },
+				5*time.Second, 10*time.Millisecond)
+			require.Equal(t, []string{"C/t1/oldnode"}, cloud.deleted())
+		})
+	}
+}
+
+// Red until cloud copies get per-attempt paths: this node cannot see the
+// source node's newer freeze, so it deletes that upload.
+func TestUnfreezeSourceDeleteSparesTheSourceNodesNewerUpload(t *testing.T) {
+	schema := newUnfreezeSchema(models.TenantActivityStatusHOT)
+	proc := &gatedProcessor{release: make(chan struct{}), called: make(chan struct{})}
+	cloud := &deleteRecordingCloud{}
+	m, idx := newUnfreezeMigrator(t, schema, proc, cloud)
+
+	m.unfreeze(context.Background(), idx, "C", []string{"t1#oldnode"}, errorcompounder.NewSafe())
+	select {
+	case <-proc.called:
+	case <-time.After(5 * time.Second):
+		t.Fatal("unfreeze did not report DONE")
+	}
+	require.NoError(t, cloud.Upload(context.Background(), "C", "t1", "oldnode"))
+	close(proc.release)
+
+	require.Never(t, func() bool { return !cloud.has("C/t1/oldnode") },
+		300*time.Millisecond, 10*time.Millisecond, "deleted the source node's newer upload")
+}
+
+func TestUnfreezeSourceDeleteGivesUpOnAnUnfreezeThatNeverEnds(t *testing.T) {
+	schema := newUnfreezeSchema(models.TenantActivityStatusUNFREEZING)
+	proc := &gatedProcessor{release: make(chan struct{}), called: make(chan struct{})}
+	close(proc.release)
+	cloud := &deleteRecordingCloud{}
+	m, idx := newUnfreezeMigrator(t, schema, proc, cloud)
+	logger, hook := test.NewNullLogger()
+	m.logger = logger
+	m.unfreezeSourceMaxWait = 50 * time.Millisecond
+
+	m.unfreeze(context.Background(), idx, "C", []string{"t1#oldnode"}, errorcompounder.NewSafe())
+
+	require.Eventually(t, func() bool {
+		for _, e := range hook.AllEntries() {
+			if strings.Contains(e.Message, "did not end within") {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond, "the cleanup must stop waiting")
+	require.Empty(t, cloud.deleted())
 }
