@@ -276,7 +276,7 @@ func (s *schema) CollectionsCount(namespace string) int {
 }
 
 // ClassFactorsInNamespace maps each class qualified by namespace onto its
-// replication factor. An empty namespace has no classes.
+// replication factor. An empty namespace returns nil, not every class of the cluster.
 func (s *schema) ClassFactorsInNamespace(namespace string) map[string]int64 {
 	if namespace == "" {
 		return nil

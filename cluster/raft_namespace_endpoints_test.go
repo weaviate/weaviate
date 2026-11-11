@@ -236,26 +236,9 @@ func TestRaftNamespaceEndpoints(t *testing.T) {
 	})
 }
 
-// TestRaftNamespaceEndpoints_HomeNode verifies that AddNamespace fills an
-// omitted HomeNodes from the storage candidates and persists an explicit one
-// as-is. factorRows pin the bounds the two replication factors put on the list.
+// TestRaftNamespaceEndpoints_HomeNode pins the bounds the two replication
+// factors put on the HomeNodes that AddNamespace auto-picks or is sent.
 func TestRaftNamespaceEndpoints_HomeNode(t *testing.T) {
-	srv, ctx, cleanup := setupRaftForNamespaceTests(t)
-	defer cleanup()
-
-	t.Run("empty home_node is filled from storage candidates", func(t *testing.T) {
-		created, version, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "autohome"})
-		require.NoError(t, err)
-		require.NoError(t, srv.WaitForUpdate(ctx, version))
-		require.Len(t, created.HomeNodes, 1, "AddNamespace should return the home node it picked")
-		assert.Contains(t, srv.StorageCandidates(), created.HomeNodes[0])
-
-		got, err := srv.GetNamespaces("autohome")
-		require.NoError(t, err)
-		require.Len(t, got, 1)
-		assert.Equal(t, created.HomeNodes, got[0].HomeNodes)
-	})
-
 	factorRows := []struct {
 		name       string
 		minFactor  int

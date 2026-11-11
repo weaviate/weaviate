@@ -23,8 +23,8 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestNamespaces_HomeNodesList checks that get and list return every home_nodes
-// entry in order. Create and update still read the deprecated home_node.
+// TestNamespaces_HomeNodesList checks that get returns every home_nodes entry
+// in order. Create and update also accept the deprecated home_node.
 func TestNamespaces_HomeNodesList(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS()

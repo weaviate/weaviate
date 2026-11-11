@@ -84,7 +84,7 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 	if params.Body != nil {
 		body = *params.Body
 	}
-	homeNodes, err := requestHomeNodes(body.HomeNode, body.HomeNodes) //nolint:staticcheck // deprecated on the wire but still read and filled for old clients
+	homeNodes, err := requestHomeNodes(body.HomeNode, body.HomeNodes) //nolint:staticcheck // home_node is deprecated; clients that send only home_node rely on this read
 	if err != nil {
 		return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
@@ -141,7 +141,7 @@ func (h *namespaceHandler) updateNamespace(params nsops.UpdateNamespaceParams, p
 		body = *params.Body
 	}
 	var homeNode string
-	if hn := body.HomeNode; hn != nil { //nolint:staticcheck // deprecated on the wire but still read and filled for old clients
+	if hn := body.HomeNode; hn != nil { //nolint:staticcheck // home_node is deprecated; clients that send only home_node rely on this read
 		homeNode = *hn
 	}
 	homeNodes, err := requestHomeNodes(homeNode, body.HomeNodes)
@@ -216,11 +216,11 @@ func (h *namespaceHandler) checkHomeNodes(homeNodes []string) error {
 }
 
 // namespaceModel builds the REST view of ns. home_node carries the first
-// HomeNodes entry for clients that predate home_nodes.
+// HomeNodes entry for clients that read only home_node.
 func namespaceModel(ns cmd.Namespace) *models.Namespace {
 	out := &models.Namespace{Name: ns.Name, HomeNodes: ns.HomeNodes, State: string(ns.State)}
 	if len(ns.HomeNodes) > 0 {
-		out.HomeNode = ns.HomeNodes[0] //nolint:staticcheck // deprecated on the wire but still read and filled for old clients
+		out.HomeNode = ns.HomeNodes[0] //nolint:staticcheck // home_node is deprecated; clients that read only home_node rely on it
 	}
 	return out
 }

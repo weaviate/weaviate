@@ -4042,7 +4042,7 @@
           "type": "string"
         },
         "home_nodes": {
-          "description": "The cluster nodes where this namespace's shards are placed. The list is set at create time and can be updated later. An update applies to future placement decisions only, and existing live shards are not moved. A collection or tenant with replication factor N below the list length is placed on the list's first N entries.",
+          "description": "The cluster nodes where this namespace's shards are placed. The list is set at create time and can be updated later. An update applies to future placement decisions only, and existing live shards are not moved. A collection or tenant with replication factor N below the list length is placed on the first N entries that are storage nodes.",
           "type": "array",
           "maxItems": 64,
           "items": {
@@ -4071,7 +4071,7 @@
       "description": "Optional body for namespace creation. When neither `home_nodes` nor `home_node` is set, the cluster picks the home nodes.",
       "properties": {
         "home_nodes": {
-          "description": "Optional cluster nodes to place this namespace's shards on. Entries must be distinct current storage candidates, at least `REPLICATION_MINIMUM_FACTOR` of them. When this and `home_node` are both omitted or empty, the cluster picks `REPLICATION_MAXIMUM_FACTOR` nodes, or every storage node when there are fewer. It refuses that create when `REPLICATION_MAXIMUM_FACTOR` is unset or 0 or below, or when there are fewer storage nodes than `REPLICATION_MINIMUM_FACTOR`.",
+          "description": "Optional cluster nodes to place this namespace's shards on. Entries must be distinct current storage candidates, at least `REPLICATION_MINIMUM_FACTOR` of them. When this and `home_node` are both omitted or empty, the cluster picks `REPLICATION_MAXIMUM_FACTOR` nodes, or every storage node when there are fewer. It refuses that create when `REPLICATION_MAXIMUM_FACTOR` is unset or 0 or below, or when there are fewer storage nodes than `REPLICATION_MINIMUM_FACTOR`. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes ignore home_nodes on create and pick a home node themselves.",
           "type": "array",
           "maxItems": 64,
           "items": {
@@ -4090,7 +4090,7 @@
       "description": "Update payload for an existing namespace.",
       "properties": {
         "home_nodes": {
-          "description": "Cluster nodes to place this namespace's shards on. The list replaces the namespace's home nodes for placements made after the update, and existing shards stay on their nodes. Entries must be distinct current storage candidates, at least `REPLICATION_MINIMUM_FACTOR` of them, and at least the largest replication factor among the namespace's collections. Unlike on create, an empty list does not auto-pick, so a body with neither this nor `home_node` is a 422.",
+          "description": "Cluster nodes to place this namespace's shards on. The list replaces the namespace's home nodes for placements made after the update, and existing shards stay on their nodes. Entries must be distinct current storage candidates, at least `REPLICATION_MINIMUM_FACTOR` of them, and at least the largest replication factor among the namespace's collections. Unlike on create, an empty list does not auto-pick, so a body with neither this nor `home_node` is a 422. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes refuse an update without it.",
           "type": "array",
           "maxItems": 64,
           "items": {

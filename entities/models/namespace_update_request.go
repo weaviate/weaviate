@@ -33,7 +33,7 @@ type NamespaceUpdateRequest struct {
 	// Deprecated: use home_nodes. A value is taken as a one-entry `home_nodes`. Sending it with a non-empty `home_nodes` is a 422, even when it equals the first entry.
 	HomeNode *string `json:"home_node,omitempty"`
 
-	// Cluster nodes to place this namespace's shards on. The list replaces the namespace's home nodes for placements made after the update, and existing shards stay on their nodes. Entries must be distinct current storage candidates, at least `REPLICATION_MINIMUM_FACTOR` of them, and at least the largest replication factor among the namespace's collections. Unlike on create, an empty list does not auto-pick, so a body with neither this nor `home_node` is a 422.
+	// Cluster nodes to place this namespace's shards on. The list replaces the namespace's home nodes for placements made after the update, and existing shards stay on their nodes. Entries must be distinct current storage candidates, at least `REPLICATION_MINIMUM_FACTOR` of them, and at least the largest replication factor among the namespace's collections. Unlike on create, an empty list does not auto-pick, so a body with neither this nor `home_node` is a 422. List order decides placement. A collection or tenant with replication factor N goes on the first N entries that are storage nodes, so the first of those receives every factor-1 placement. Until every node runs this release, send only home_node: older nodes refuse an update without it.
 	// Max Items: 64
 	HomeNodes []string `json:"home_nodes"`
 }

@@ -1305,8 +1305,10 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 	case enabled && !lsmSkipWriteClassNameEnabled:
 		return fmt.Errorf("internal invariant violated: NAMESPACES_ENABLED=true but LSMSkipWriteClassNameEnabled=false; env-var wiring in usecases/config/environment.go is broken")
 	case enabled && maxReplicationFactor != 1:
-		// Each namespace's shards are pinned to a single home_node; RF>1
-		// would either leave replicas off-namespace or contradict the pin.
+		// The leader does not yet check a namespaced class's factor or a
+		// tenant's nodes against its own home_nodes, so above factor 1 a node
+		// that lags a home_nodes or factor change can propose placements those
+		// home_nodes no longer allow.
 		return fmt.Errorf("NAMESPACES_ENABLED=true requires REPLICATION_MAXIMUM_FACTOR=1; got %d", maxReplicationFactor)
 	case enabled && nonNamespacedCount > 0:
 		return fmt.Errorf("NAMESPACES_ENABLED=true but cluster has %d non-namespaced collection(s) (e.g. %q); namespaces can only be enabled on newly bootstrapped clusters or on clusters whose collections are all already namespace-qualified", nonNamespacedCount, nonNamespacedExample)
