@@ -573,6 +573,7 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					Segments:       5,
 					Centroids:      255,
 					TrainingLimit:  threshold - 1,
+					RescoreLimit:   hnswent.DefaultPQRescoreLimit,
 					Encoder: hnswent.PQEncoder{
 						Type:         hnswent.PQEncoderTypeKMeans,
 						Distribution: hnswent.PQEncoderDistributionLogNormal,
@@ -614,6 +615,7 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					Segments:       5,
 					Centroids:      255,
 					TrainingLimit:  threshold - 1,
+					RescoreLimit:   hnswent.DefaultPQRescoreLimit,
 					Encoder: hnswent.PQEncoder{
 						Type:         hnswent.PQEncoderTypeKMeans,
 						Distribution: hnswent.PQEncoderDistributionLogNormal,
@@ -650,7 +652,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 			},
 			setupHNSWConfig: func(hnswuc *hnswent.UserConfig, threshold int) {
 				hnswuc.BQ = hnswent.BQConfig{
-					Enabled: true,
+					Enabled:      true,
+					RescoreLimit: hnswent.DefaultBQRescoreLimit,
 				}
 			},
 			compressed:      true,
