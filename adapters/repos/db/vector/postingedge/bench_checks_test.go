@@ -14,6 +14,8 @@
 package postingedge
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -138,6 +140,121 @@ func TestRepeatedPoints(t *testing.T) {
 				require.Equal(t, tt.wantEFs[i], pair.other.EF)
 				require.InDelta(t, tt.wantChanges[i], pair.change(), 1e-9)
 			}
+		})
+	}
+}
+
+func TestCoverageOf(t *testing.T) {
+	tests := []struct {
+		name     string
+		start    []uint32
+		docIDs   []uint64
+		added    int
+		want     coverage
+		complete bool
+	}{
+		{
+			name:  "every vector in one posting, one of the postings empty",
+			start: []uint32{0, 2, 2, 5}, docIDs: []uint64{3, 0, 4, 1, 2}, added: 5,
+			want: coverage{inPostings: 5}, complete: true,
+		},
+		{
+			name:  "a vector that was added and is in no posting",
+			start: []uint32{0, 2, 4}, docIDs: []uint64{0, 1, 2, 4}, added: 5,
+			want: coverage{inPostings: 4, missing: 1},
+		},
+		{
+			name:  "a slot that no posting owns",
+			start: []uint32{0, 2, 3}, docIDs: []uint64{0, 1, 2, 3}, added: 4,
+			want: coverage{inPostings: 3, missing: 1},
+		},
+		{
+			name:  "a vector in two postings",
+			start: []uint32{0, 2, 5}, docIDs: []uint64{0, 1, 2, 3, 1}, added: 4,
+			want: coverage{inPostings: 5, repeated: 1},
+		},
+		{
+			name:  "an id that was never added",
+			start: []uint32{0, 3}, docIDs: []uint64{0, 1, 9}, added: 3,
+			want: coverage{inPostings: 3, missing: 1, unknown: 1},
+		},
+		{
+			// the sizes add up, so only the ids tell
+			name:  "a repeat in the place of a missing vector",
+			start: []uint32{0, 3}, docIDs: []uint64{0, 0, 1}, added: 3,
+			want: coverage{inPostings: 3, missing: 1, repeated: 1},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := coverageOf(&postingStore{start: tt.start, docIDs: tt.docIDs}, tt.added)
+			require.Equal(t, tt.want, got)
+			require.Equal(t, tt.complete, got.complete(tt.added))
+		})
+	}
+}
+
+func TestBuildShareSurvivesTheCache(t *testing.T) {
+	share := &buildShare{
+		vectors: 5, postings: 3, probe: 2,
+		centroids: [][]float32{{0.5, -1, 2}, {3, 4.25, -0}},
+		assigned: &assignment{
+			primary: []uint32{0, 1, 1, 0, 1},
+			probes:  []uint32{0, 1, 1, 0, 1, 0, 0, 1, 1, noCentroid},
+			width:   2,
+		},
+	}
+
+	t.Run("an empty directory gives a share to fill in", func(t *testing.T) {
+		got, err := loadBuildShare(t.TempDir(), "train A")
+		require.NoError(t, err)
+		require.False(t, got.filled())
+	})
+
+	t.Run("what was saved is what is loaded", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "nested", "cache")
+		require.NoError(t, saveBuildShare(dir, "train A", share))
+		got, err := loadBuildShare(dir, "train A")
+		require.NoError(t, err)
+		require.Equal(t, share, got)
+		require.NoError(t, got.fits(5, 3, 2))
+	})
+
+	broken := []struct {
+		name  string
+		train string
+		spoil func(t *testing.T, dir string)
+	}{
+		{name: "computed over another train set", train: "train B"},
+		{
+			name: "a probes file cut short", train: "train A",
+			spoil: func(t *testing.T, dir string) {
+				require.NoError(t, os.Truncate(filepath.Join(dir, "probes.u32"), 36))
+			},
+		},
+		{
+			name: "a missing centroid file", train: "train A",
+			spoil: func(t *testing.T, dir string) {
+				require.NoError(t, os.Remove(filepath.Join(dir, "centroids.f32")))
+			},
+		},
+		{
+			name: "a vector assigned to a centroid that is not there", train: "train A",
+			spoil: func(t *testing.T, dir string) {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "primary.u32"),
+					[]byte{0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0}, 0o644))
+			},
+		},
+	}
+	for _, tt := range broken {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, saveBuildShare(dir, "train A", share))
+			if tt.spoil != nil {
+				tt.spoil(t, dir)
+			}
+			_, err := loadBuildShare(dir, tt.train)
+			require.Error(t, err)
 		})
 	}
 }

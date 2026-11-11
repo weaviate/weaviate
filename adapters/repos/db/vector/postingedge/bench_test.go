@@ -113,6 +113,11 @@ var (
 	benchRescues  = flag.String("bench.rescues", strconv.Itoa(DefaultRescueLimit), "postingedge: rescue limits of the edgerecall mode")
 	benchCodeList = flag.String("bench.codebitslist", "0", "postingedge: code widths of the edgerecall mode (0 = the full code)")
 	benchSettle   = flag.Int("bench.settle", 1000, "queries run before the after-queries memory reading")
+	benchSelf     = flag.Int("bench.selfsample", 10_000, "postingedge: vectors searched for with themselves as the query, to tell that none is lost to the search")
+
+	benchStreamTrain = flag.Bool("bench.streamtrain", false, "postingedge, full mode: hand the train set to the index straight from the dataset files "+
+		"and load the copy the benchmark reads from once the index is built. An index holds a copy of every vector while it builds, "+
+		"and a large train set does not fit in memory twice")
 
 	benchSweeps sweepFlag
 )
@@ -190,8 +195,13 @@ func benchSweepPlan(t *testing.T) []sweep {
 }
 
 type benchData struct {
-	name    string
-	dims    int
+	name string
+	dims int
+	// dir is where the dataset was read from and rows the size of its train
+	// set. With -bench.streamtrain the train set itself is not in memory
+	// until the index is built.
+	dir     string
+	rows    int
 	train   [][]float32
 	queries [][]float32
 	truth   [][]uint64
@@ -297,12 +307,16 @@ func TestBenchmark(t *testing.T) {
 		t.Skip("no -bench.dataset given")
 	}
 	ctx := context.Background()
-	data := loadBenchData(t, *benchDatasetDir, *benchLimit, *benchQueries, *benchK)
+	stream := *benchStreamTrain && *benchArm == "postingedge" && *benchMode == "full"
+	if stream {
+		require.Zero(t, *benchLimit, "-bench.streamtrain reads the whole train set")
+	}
+	data := loadBenchData(t, *benchDatasetDir, *benchLimit, *benchQueries, *benchK, stream)
 
 	result := &benchResult{
 		Arm:        *benchArm,
 		Dataset:    data.name,
-		Vectors:    len(data.train),
+		Vectors:    data.rows,
 		Dims:       data.dims,
 		Queries:    len(data.queries),
 		K:          *benchK,
@@ -312,7 +326,7 @@ func TestBenchmark(t *testing.T) {
 		Baseline:   takeMemSnapshot(t),
 	}
 	t.Logf("dataset %s: %d x %d, %d queries, baseline heap %.0f MB",
-		data.name, len(data.train), data.dims, len(data.queries), result.Baseline.HeapAllocMB)
+		data.name, data.rows, data.dims, len(data.queries), result.Baseline.HeapAllocMB)
 
 	switch *benchArm {
 	case "postingedge":
@@ -392,19 +406,65 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 		}, uc)
 		require.NoError(t, err)
 
-		begin := time.Now()
+		// With -bench.buildcache the partition and the assignment come from
+		// an earlier build of this train set, or are left for the next one.
+		var share *buildShare
+		var cacheDir, train string
+		if *benchBuildCache != "" {
+			cacheDir = buildCacheDir(data, uc.TargetPostingSize, uc.BuildProbe)
+			train, err = trainFingerprint(data.dir)
+			require.NoError(t, err)
+			share, err = loadBuildShare(cacheDir, train)
+			require.NoError(t, err)
+			index.shared = share
+		}
+		taken := share != nil && share.filled()
+
+		// Only the time inside the index counts: with -bench.streamtrain the
+		// batches come from the dataset files as they are added.
 		const batch = 10_000
 		ids := make([]uint64, batch)
-		for start := 0; start < len(data.train); start += batch {
-			end := min(start+batch, len(data.train))
-			for i := start; i < end; i++ {
-				ids[i-start] = uint64(i)
+		add := func(first int, vectors [][]float32) error {
+			for i := range vectors {
+				ids[i] = uint64(first + i)
 			}
-			require.NoError(t, index.AddBatch(ctx, ids[:end-start], data.train[start:end]))
+			begin := time.Now()
+			err := index.AddBatch(ctx, ids[:len(vectors)], vectors)
+			addTime += time.Since(begin)
+			return err
 		}
-		addTime = time.Since(begin)
+		if data.train != nil {
+			for start := 0; start < len(data.train); start += batch {
+				require.NoError(t, add(start, data.train[start:min(start+batch, len(data.train))]))
+			}
+		} else {
+			// The index copies what it is given, so a batch is garbage as
+			// soon as it is added. Unit length first, as loadBenchData
+			// leaves the train set: the index then holds the same bits
+			// either way.
+			require.NoError(t, testinghelpers.ReadRawTrainChunks(data.dir, batch, func(first int, chunk [][]float32) error {
+				for _, vec := range chunk {
+					distancer.NormalizeInPlace(vec)
+				}
+				return add(first, chunk)
+			}))
+		}
+		begin := time.Now()
 		require.NoError(t, index.Build(ctx))
-		return index, addTime, time.Since(begin)
+		total = addTime + time.Since(begin)
+		if share != nil {
+			result.Config["partitionFromCache"] = taken
+			if !taken {
+				require.NoError(t, saveBuildShare(cacheDir, train, share))
+				t.Logf("partition and assignment kept in %s", cacheDir)
+			}
+			// The index is built: nothing reads what was shared any more,
+			// and it must be gone before the memory of the index is read.
+			index.mu.Lock()
+			index.shared = nil
+			index.mu.Unlock()
+		}
+		return index, addTime, total
 	}
 
 	// The edges of another code width: an index built with those codes over
@@ -448,6 +508,10 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 
 	result.AfterBuild = takeMemSnapshot(t)
 	result.IndexHeapMB = result.AfterBuild.HeapAllocMB - result.Baseline.HeapAllocMB
+	if data.train == nil {
+		// Now that the index has let go of its copy: -bench.streamtrain.
+		data.loadTrain(t)
+	}
 	memory, _ := index.MemoryStats()
 	analytic := float64(memory.Total()) / (1 << 20)
 	result.Components = map[string]float64{
@@ -458,7 +522,7 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 		// what the heap holds beyond the arrays the index accounts for:
 		// the graph over the centroids, the presence bitmap, pools
 		"otherMeasured": result.IndexHeapMB - analytic,
-		"f32":           float64(len(data.train)) * float64(data.dims) * 4 / (1 << 20),
+		"f32":           float64(data.rows) * float64(data.dims) * 4 / (1 << 20),
 	}
 	if memory.ScanCodeBytes != 0 {
 		// on top of "codes", which are then those of the sidecar alone
@@ -1058,6 +1122,18 @@ func postingEdgeDiagnostics(t *testing.T, index *Index, data *benchData, build B
 		"candidatesPerVector": float64(build.CandidatesScored) / float64(n),
 	}
 
+	// Coverage: every vector that was added is in exactly one posting. The
+	// assignment is exact and nothing is replicated, so a vector that is in
+	// no posting, or in two, is a bug of the build and not a number to report
+	// next to the others.
+	cover := coverageOf(store, data.rows)
+	out["vectorsAdded"], out["vectorsInPostings"] = float64(data.rows), float64(cover.inPostings)
+	out["vectorsMissing"], out["vectorsRepeated"] = float64(cover.missing), float64(cover.repeated)
+	out["vectorsNeverAdded"] = float64(cover.unknown)
+	t.Logf("coverage: %d vectors added, %d in postings: %d missing, %d repeated, %d that were never added",
+		data.rows, cover.inPostings, cover.missing, cover.repeated, cover.unknown)
+	require.Truef(t, cover.complete(data.rows), "the postings do not hold every added vector exactly once: %+v", cover)
+
 	// Edge recall: of the true nearest neighbors of a vector that live in
 	// another posting, how many is it linked to.
 	slotOf := make([]uint32, n)
@@ -1093,7 +1169,68 @@ func postingEdgeDiagnostics(t *testing.T, index *Index, data *benchData, build B
 		}
 	})
 	out["entryIsNearestCentroid"] = float64(exactEntry.Load()) / float64(len(data.queries))
+
+	// Self-retrieval: a vector searched for with itself as the query has to
+	// come back. It is in the posting of its nearest centroid, so it is
+	// found whenever the centroid graph enters there, and through an edge
+	// otherwise: this is the coverage above as a search sees it, with the
+	// search settings the index has now.
+	if selfSample := min(*benchSelf, n); selfSample > 0 {
+		var found atomic.Int64
+		parallelFor(selfSample, func(i int) {
+			docID := uint64(i) * uint64(n) / uint64(selfSample)
+			ids, _, err := index.SearchByVector(context.Background(), data.train[docID], *benchK, nil)
+			if err != nil {
+				panic(err)
+			}
+			if slices.Contains(ids, docID) {
+				found.Add(1)
+			}
+		})
+		out["selfSample"] = float64(selfSample)
+		out["selfFound"] = float64(found.Load()) / float64(selfSample)
+	}
 	return out
+}
+
+// coverage counts how the vectors added to an index under the ids 0 to
+// added-1 show up in its postings.
+type coverage struct {
+	inPostings int // slots the postings own: what their sizes add up to
+	missing    int // added vectors that are in no posting
+	repeated   int // slots holding a vector that an earlier slot holds too
+	unknown    int // slots holding an id that was never added
+}
+
+// complete is every added vector in exactly one posting, and nothing else.
+func (c coverage) complete(added int) bool {
+	return c.inPostings == added && c.missing == 0 && c.repeated == 0 && c.unknown == 0
+}
+
+// coverageOf walks the postings the way a search that loaded all of them
+// would, posting by posting over the slots each one owns.
+func coverageOf(store *postingStore, added int) coverage {
+	var c coverage
+	seen := make([]bool, added)
+	for p := 0; p < store.postings(); p++ {
+		for slot := store.start[p]; slot < store.start[p+1]; slot++ {
+			c.inPostings++
+			switch docID := store.docIDs[slot]; {
+			case docID >= uint64(added):
+				c.unknown++
+			case seen[docID]:
+				c.repeated++
+			default:
+				seen[docID] = true
+			}
+		}
+	}
+	for _, in := range seen {
+		if !in {
+			c.missing++
+		}
+	}
+	return c
 }
 
 // edgeReachDiagnostics measures what pruning sources by a triangle bound on
@@ -1568,11 +1705,35 @@ func benchEdgeRecallGrid(t *testing.T, ctx context.Context, data *benchData, res
 	full, err := trainQuantizer(vectors, data.dims, uc.TrainingLimit, 0, &cfg)
 	require.NoError(t, err)
 	target := targetPostingSize(*benchPosting, 8*len(full.Encode(vectors[0])))
-	centroids, err := partition(ctx, logger, vectors, data.dims, int(math.Ceil(float64(n)/float64(target))), cfg.Seed)
-	require.NoError(t, err)
-	assigned, err := assign(ctx, logger, vectors, centroids, slices.Max(probes))
-	require.NoError(t, err)
-	centroids = dropEmpty(centroids, assigned)
+	postings, widest := int(math.Ceil(float64(n)/float64(target))), slices.Max(probes)
+
+	// The partition and the assignment of an index built with the widest
+	// probe of the grid, taken from -bench.buildcache where a build left
+	// them there.
+	share := &buildShare{}
+	var cacheDir, train string
+	if *benchBuildCache != "" {
+		cacheDir = buildCacheDir(data, *benchPosting, widest)
+		train, err = trainFingerprint(data.dir)
+		require.NoError(t, err)
+		share, err = loadBuildShare(cacheDir, train)
+		require.NoError(t, err)
+	}
+	if share.filled() {
+		require.NoError(t, share.fits(n, postings, widest))
+		t.Logf("partition and assignment taken from %s", cacheDir)
+	} else {
+		centroids, err := partition(ctx, logger, vectors, data.dims, postings, cfg.Seed)
+		require.NoError(t, err)
+		assigned, err := assign(ctx, logger, vectors, centroids, widest)
+		require.NoError(t, err)
+		*share = buildShare{vectors: n, postings: postings, probe: widest, centroids: dropEmpty(centroids, assigned), assigned: assigned}
+		if cacheDir != "" {
+			require.NoError(t, saveBuildShare(cacheDir, train, share))
+			t.Logf("partition and assignment kept in %s", cacheDir)
+		}
+	}
+	centroids, assigned := share.centroids, share.assigned
 	layout := newSlotLayout(assigned.primary, len(centroids))
 	postingOf := postingOfSlots(layout.start)
 	result.Config = map[string]any{
@@ -1649,10 +1810,21 @@ func asTheIndexStoresThem(data *benchData) [][]float32 {
 	return data.train
 }
 
-func loadBenchData(t *testing.T, dir string, limit, queries, k int) *benchData {
-	raw, err := testinghelpers.ReadRawDataset(dir, limit, queries)
+// loadBenchData reads the dataset in dir. With deferTrain it leaves the train
+// set in its file, for the build to stream and loadTrain to read afterwards.
+func loadBenchData(t *testing.T, dir string, limit, queries, k int, deferTrain bool) *benchData {
+	var raw *testinghelpers.RawDataset
+	var err error
+	if deferTrain {
+		raw, err = testinghelpers.ReadRawQueries(dir, queries)
+	} else {
+		raw, err = testinghelpers.ReadRawDataset(dir, limit, queries)
+	}
 	require.NoError(t, err)
-	data := &benchData{name: raw.Name, dims: raw.Dims, train: raw.Train, queries: raw.Queries}
+	data := &benchData{name: raw.Name, dims: raw.Dims, dir: dir, rows: raw.TrainRows, train: raw.Train, queries: raw.Queries}
+	if !deferTrain {
+		data.rows = len(data.train)
+	}
 	n, q := len(data.train), len(data.queries)
 
 	// The benchmark is a cosine benchmark. Unit vectors up front let the
@@ -1670,6 +1842,7 @@ func loadBenchData(t *testing.T, dir string, limit, queries, k int) *benchData {
 	}
 
 	// A truncated corpus invalidates the shipped ground truth.
+	require.False(t, deferTrain, "the dataset ships no ground truth for %d neighbors, and the train set is not in memory to compute it", k)
 	t.Logf("brute-forcing the ground truth over %d vectors", n)
 	provider := distancer.NewCosineDistanceProvider()
 	parallelFor(q, func(i int) {
@@ -1687,6 +1860,16 @@ func loadBenchData(t *testing.T, dir string, limit, queries, k int) *benchData {
 		}
 	})
 	return data
+}
+
+// loadTrain reads the train set that loadBenchData left in its file, and
+// leaves it as loadBenchData would have.
+func (d *benchData) loadTrain(t *testing.T) {
+	raw, err := testinghelpers.ReadRawDataset(d.dir, 0, 1)
+	require.NoError(t, err)
+	d.train = raw.Train
+	parallelFor(len(d.train), func(i int) { distancer.NormalizeInPlace(d.train[i]) })
+	t.Logf("train set loaded after the build: %d vectors", len(d.train))
 }
 
 func writeBenchResult(t *testing.T, result *benchResult) {
