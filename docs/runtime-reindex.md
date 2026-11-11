@@ -53,12 +53,9 @@ typical journeys it unlocks:
   `repair-rangeable`.
 - Upgrade a searchable index from the deprecated WAND format to
   BlockMax: `change-algorithm`.
-- Cancel a migration at any point while it runs. Every tenant whose swap
-  is not decided yet stops and is cleaned up; a tenant past that point
-  keeps its swap, which can leave the collection partly migrated (§6.3, §12).
-  Once every tenant is decided (`SWAPPING`) the migration can no longer be
-  cancelled: the cancel answers `409` and the migration finishes, schema
-  flip included.
+- Cancel a migration until every tenant's swap is decided (`SWAPPING`).
+  Tenants already decided keep their swap, which can leave the collection
+  partly migrated (§8, §12).
 
 The whole feature is built on top of three substrates:
 
@@ -142,15 +139,13 @@ rejected — migrate to Blockmax first via `PUT {"algorithm":"blockmax"}`.
 ### `POST /v1/schema/{className}/properties/{propertyName}/index/{indexType}/cancel`
 
 Cancel the in-flight task on `(class, property, indexType)`. No request
-body. Idempotent: `202` + `Status: CANCELLED` (with `taskId`) when an in-flight
-task is cancelled, `202` + `Status: NO_OP` (no `taskId`) when nothing
-matches (already finished, never submitted, or already cancelled). `409`
-when the task has reached `SWAPPING` (it finishes on its own), when its status is one this build does not recognize, or when
-it left the cancellable state between the read and the cancel. While the
-reindex is `STARTED` or `PREPARING` a cancel is never refused, because the
-reindex itself may be the incident.
-Tenants whose swap is already decided (§6.3) keep it; every other tenant
-stops. See §12. Never `404` for "nothing to cancel".
+body. Idempotent: `202` + `Status: CANCELLED` (with `taskId`) when a
+`STARTED` or `PREPARING` task is cancelled; tenants whose swap is already
+decided (§6.3) keep it, every other tenant stops. `202` + `Status: NO_OP`
+(no `taskId`) when nothing matches (already finished, never submitted, or
+already cancelled). `409` for a `SWAPPING` task (it finishes on its own)
+and for a status this build does not recognize. See §12. Never `404` for
+"nothing to cancel".
 
 Query parameters (PUT and rebuild):
 
@@ -175,8 +170,7 @@ Response shapes (PUT / rebuild / cancel):
   `STARTED` asserts that the task is running, not that this call created it:
   a PUT converging on an already-running migration joins it and receives that
   task's ID. Cancel answers `CANCELLED` + `taskId` when it cancelled a
-  cancellable task, or `NO_OP` (no `taskId`) when nothing matched, and `409`
-  for a `SWAPPING` task, which can no longer be cancelled; it is
+  cancellable task, or `NO_OP` (no `taskId`) when nothing matched; it is
   idempotent and never returns 404 for "no task to cancel".
 - `400 Bad Request` — validation failure with an actionable hint (e.g.
   "property X has no searchable index; PUT
@@ -529,25 +523,9 @@ mechanisms:
    No task status clears it: only the schema-update sweep that removes a
    disabled index's bucket retires an entry's fields, and otherwise the
    entry lives until the shard unloads. See §10.
-2. **Two-phase ack barrier (the cross-node handshake).** A semantic
-   migration decides each group's swap once every node owning it acked
-   PREP, and finishes once every replica reported its swaps (§6.3). A
-   failed PREP ack, or a failed swap ack while `SWAPPING`, fails the
-   task, which makes `OnTaskCompleted` skip the cluster-wide schema
-   flip. Format-only migrations skip the PREP barrier and gate
-   `SWAPPING → FINISHED` on every node's PostCompletionAck.
-
-### Why PREP is per group
-
-A group prepares as soon as its own units are COMPLETED: PREP
-(`PrependSegmentsFromBucket(reindex → ingest)`) needs the group's full
-reindex bucket on disk, and nothing else. Its swap is decided once every
-node owning one of its units acked PREP success. Its replicas then swap
-on their own nodes' ticks, so they can serve different results for a
-window that grows with the preparation work and other swaps in flight on
-those nodes, and with retries of a failing swap (see "Cross-replica
-window" in §6.3); no data is lost. Tenants are not
-coupled: one slow tenant does not hold the others. §6.3 has the protocol.
+2. **Two-phase ack barrier (the cross-node handshake).** See §6.3. A
+   failed PREP ack, or a failed swap ack while `SWAPPING`, fails the task,
+   so `OnTaskCompleted` skips the cluster-wide schema flip.
 
 ## 4. Architecture by layer
 
@@ -627,10 +605,8 @@ Key types & contracts:
   SWAPPING in essentially zero time.
   These states close the schema-flip-lag race where a task would
   otherwise be FINISHED at the FSM layer before every node's
-  post-completion callback had committed its bucket-pointer flip. A
-  tenant's replicas can still serve different results for a window that
-  grows with in-flight preparation work and swaps, and with retries of a
-  failing swap, which can reach minutes at scale.
+  post-completion callback had committed its bucket-pointer flip. For what
+  a tenant's replicas serve meanwhile, see "Cross-replica window" in §6.3.
 - **Two-phase ack barrier** — `RecordPreparationCompleteAck` (semantic only)
   + `RecordPostCompletionAck` (all paths). Every node's scheduler
   records its phase outcome (success or error) on the task before the
@@ -1054,67 +1030,34 @@ Then, per shard load:
    does not use the request's context, so a client that gives up on a
    lazy load cannot fail it. The outcomes:
    - **The mirror arms.** The migration continues.
-   - **The mirror fails to arm and the stamp lands.** This happens only
-     when the migration's swap is not committed (see below). The shard
-     loads writable. `AbandonUnarmed` stamps the record `Unmirrored` and
-     drops the unit's tasks from the provider's cache. `RunPrepareOnShard`
-     refuses an `Unmirrored` record. For a semantic migration this node has
-     not acked its prepare (an ack would have committed the swap), so its
-     ack fails and the task goes `FAILED` before any replica or sibling half
-     swaps. For a format-only migration (no prepare barrier), the unit
-     fails, and other replicas may already have swapped. Either way it has
-     to be resubmitted. A task can already be past its prepare, as when the
-     node restarts mid-swap, so the swap phase checks every task of the unit
-     first and swaps none of them if any record is `Unmirrored`.
+   - **The mirror fails to arm and the stamp lands.** Only possible while
+     the migration's swap is not committed (below). The shard loads
+     writable. `AbandonUnarmed` stamps the record `Unmirrored` and drops
+     the unit's tasks from the provider's cache. `RunPrepareOnShard`
+     refuses an `Unmirrored` record, and the swap phase swaps no task of a
+     unit that has one. A semantic migration fails at this node's prepare
+     ack, before any replica or sibling half swaps; a format-only one
+     fails its unit, and other replicas may already have swapped. Either
+     way it has to be resubmitted.
    - **The mirror fails to arm and no stamp can be written.** This covers a
      failing disk, an unreadable record on the shard (the store then
      refuses every write), and a migration whose swap is committed. The
      shard loads `READONLY` with its own status reason: it serves reads
      and takes no writes, so the staged copy stays current.
-     - **Why a committed swap holds instead of stamping.** A stamp is
-       permanent: nothing clears `Unmirrored`, and the swap phase refuses a
-       stamped unit for good. That is safe only while no replica will make
-       the swap. Once the swap is committed, the other replicas have made it
-       or will make it. A stamp here would leave this replica on the old
-       index while its peers serve the new one, and the task would wait
-       forever for a swap this node refuses. Holding keeps the swap
-       possible. A write is refused because it would reach the live bucket
-       but not the staged copy, which has no mirror to keep it current.
-     - The swap counts as committed (`migrationSwapCommitted`) when any of
-       these holds:
-       - the local record shows the swap (it is past the flip);
-       - RAFT has decided the group's swap;
-       - this node has acked its prepare and the task is still active: the
-         swap is decided once every replica has acked, without asking this
-         node again, so its ack already promised the swap;
-       - this node cannot read its task list yet. Eager shards load while the
-         node restores its RAFT state at boot, before the task list is wired,
-         so an arm failure at boot holds even when no swap is owed. Once the
-         node has started, setting the shard READY retries the arm, and a
-         failure then stamps the record if no swap is owed.
-     - The answer comes from RAFT, not from the local record, because a
-       replica that was down when the swap was decided has no local trace
-       of it.
-     - A group is one tenant for a semantic migration on a multi-tenant
-       class. Every other migration has a single group for the whole class,
-       so these rules apply the same way to a class without multi-tenancy,
-       with one shard or many.
-     - The held migration's own prepare waits instead of failing, and
-       the scheduler runs it again on a later tick. A swap that a
-       `SWAPPING` task owes on a held shard fails the task instead,
-       whichever migration the hold is for, because a `SWAPPING` task
-       cannot be cancelled and only a status write ends a hold: the shard
-       stays READONLY and the swap stays owed, the node makes it once the
-       shard is set READY, and a resubmit then lands the schema change.
-       On a multi-tenant collection, a resubmit after the shard is READY
-       migrates every tenant again, since only a full run lands the
-       schema change; one sent while the swap is still owed reruns only
-       the tenants still owed, but its task waits on the held shard and
-       blocks deleting the collection, deleting or deactivating its
-       tenants and updating its properties until the shard is READY or
-       the task is cancelled.
-       Another migration's repair, rebuild or iteration unit, or prepare,
-       waits the same way as the own prepare. If the shard also holds an
+     - A swap is committed (`migrationSwapCommitted`) once the other
+       replicas made it or will make it. This node must then not give it
+       up: a stamp is permanent, so it would leave this replica on the old
+       index for good. That holds when the local record is past the flip,
+       when RAFT decided the group's swap, when this node acked its
+       prepare on a task that is still active, or when the node cannot
+       read its task list yet (eager loads at boot; setting the shard
+       READY later retries the arm with the list readable).
+     - The held migration's own prepare, and another migration's unit or
+       prepare on the shard, wait and run again on a later tick. A swap
+       that a `SWAPPING` task owes on a held shard fails the task instead,
+       because such a task cannot be cancelled: the swap stays owed, the
+       node makes it once the shard is set READY, and a resubmit then
+       lands the schema change (§8). If the shard also holds an
        unreadable record, a unit fails its migration, as on any shard; a
        prepare fails only when its migration has no task cached on the
        shard, and otherwise waits too.
@@ -1150,19 +1093,14 @@ Then, per shard load:
        command` Error and in `weaviate_cluster_store_fsm_apply_failures_total`.
        Here that does not mean the cluster state diverged.
      - The way out depends on what stopped the arm, which the hold log and
-       the refusal name. For a migration whose swap is not committed,
-       clearing what blocks the stamp also ends the hold: the stamp lands,
-       and the migration must be resubmitted. A
-       migration whose swap is committed has no such exit, because giving
-       up its swap on this node would leave this replica out of step with
-       the others; its mirror has to arm. While a migration with a committed
-       swap, or one already swapped in, is held on the shard, the hold covers
-       the whole shard: no other migration on it is stamped; their units and
-       prepares wait until the shard is repaired and set READY, and a
-       `SWAPPING` task that owes a swap on it fails with the swap still
-       owed. Until then the waiting tasks keep blocking deleting the
-       collection, deleting or deactivating its tenants, and updating the
-       properties they cover.
+       the refusal name. A migration whose swap is not committed leaves
+       the hold once what blocks its stamp is cleared: the stamp lands,
+       and it must be resubmitted. One whose swap is committed, or that
+       is already swapped in, has no such exit: its mirror has to arm, and
+       until then the hold covers the whole shard, so no other migration
+       on it is stamped either. The waiting tasks keep blocking deleting
+       the collection, deleting or deactivating its tenants, and updating
+       the properties they cover.
 
        | What stopped the arm | Way out |
        |---|---|
@@ -1197,21 +1135,19 @@ The post-completion barrier is split into two phases.
 **Semantic migrations (NeedsPreparationBarrier=true):**
 
 1. `OnGroupCompleted` (PHASE A) runs PREP per local shard of a group
-   (one group per tenant) as soon as that group's units are done, while
-   other groups still run. The scheduler emits
-   `RecordPreparationCompleteAck(group, Success=bool)` per node and group.
+   (one group per tenant) as soon as that group's units are done. The
+   scheduler emits `RecordPreparationCompleteAck(group, Success=bool)`.
 2. Once every node owning a unit of the group acked success, the FSM
-   records the group's swap as decided (`Task.SwapDecidedGroups`). That
-   RAFT fact is the group's point of no return: every replica of the
-   group owes its swap (`Task.SwapsOwed`), even if the task later fails
-   or is cancelled, and the task is kept until every replica paid.
-   `PREPARING → SWAPPING` happens once every group is decided.
+   records the group's swap as decided (`Task.SwapDecidedGroups`). From
+   then on every replica of the group owes its swap (`Task.SwapsOwed`),
+   even if the task later fails or is cancelled, and the task is kept
+   until every replica paid. `PREPARING → SWAPPING` happens once every
+   group is decided.
 3. `OnSwapRequested` (PHASE B) runs OVERLAY+SWAP per local shard of a
    group this node owes, in any task status, and retries a failed swap
-   every tick. The shard writes its `swapped` record before its first
-   pointer flip. The scheduler emits `RecordPostCompletionAck(group,
-   Success=bool)` per node and group; a success pays that debt, and a
-   failure in SWAPPING fails the task.
+   every tick. The scheduler emits `RecordPostCompletionAck(group,
+   Success=bool)`; a success pays that debt, and a failure in SWAPPING
+   fails the task.
 4. `OnTaskCompleted` fires → cluster-wide schema flip commits. The
    scheduler runs this phase (`runCompletedCallbackPhase`) before it
    proposes finalization.
@@ -1230,11 +1166,8 @@ PostCompletionAck barrier only.
 
 - A failed PREP ack, or a failed swap ack while `SWAPPING` → task flips to `FAILED`
   immediately → `OnTaskCompleted` early-returns, schema flip is
-  SKIPPED. Groups already decided stay decided and still swap, so the
-  collection is left partly migrated (`partial` on the indexes
-  endpoint); submitting the same migration again skips those tenants,
-  unless every replica already swapped every tenant: then it runs over
-  every tenant to land the schema flip.
+  SKIPPED. Groups already decided still swap, which leaves the collection
+  `partial` until the same migration is submitted again (§8).
 - Per-node swap failure can no longer let the cluster-wide schema flip
   propagate while one replica's bucket pointer never moved.
 - On node restart, the recovery path re-fires the appropriate phase
@@ -1243,18 +1176,12 @@ PostCompletionAck barrier only.
   rehydrate branch; if the per-shard work succeeds the second time,
   the ack lands and the task completes normally.
 
-**Cross-replica window:** The replicas of one tenant can be in
-mixed-tokenization state (some swapped, some not) while each node gets to
-its swap. A node runs its decided swaps before the same task's PREP in a
-tick, but in no fixed order among themselves, and a swap can also wait
-behind another semantic run's PREP on that node, or behind a decision that
-lands mid-batch. A node's decided swaps run one at a time, so each also
-waits for the others, and a failing swap is retried only on a later tick.
-So the window grows with the preparation work and swaps in flight on those
-nodes, and with retries; no fixed bound holds. In that window the replicas serve
-different BM25 and filter results; no data is lost.
-Different tenants are not coupled: each swaps when its own replicas are
-ready.
+**Cross-replica window:** The replicas of one tenant serve different BM25
+and filter results from the first replica's swap to the last; no data is
+lost. No fixed bound holds: a node runs its decided swaps one at a time,
+a swap can wait behind PREP work on that node, and a failing swap is
+retried only on a later tick. Different tenants are not coupled: each
+swaps when its own replicas are ready.
 
 **Why two phases instead of one** — the empirical anchor: at 1M-object
 scale on a 3-node × RF=1 × 5-shard cluster, QA observed a ~1-second
@@ -1325,10 +1252,8 @@ Under the two-phase barrier (semantic migrations), PREP and OVERLAY
 SET + ATOMIC SWAP fire from two different scheduler callbacks
 (`OnGroupCompleted` for PREP, `OnSwapRequested` for OVERLAY+SWAP) with
 the cluster-wide `RecordPreparationCompleteAck` barrier in between. The
-phase ordering on a single node is preserved; the cross-node skew between
-fastest-node and slowest-node SWAP grows with the preparation work and
-swaps in flight on those nodes, and with retries (see "Cross-replica
-window" in §6.3).
+phase ordering on a single node is preserved; for the cross-node skew see
+"Cross-replica window" in §6.3.
 
 ## 7. Concurrency model
 
@@ -1397,37 +1322,31 @@ tenant class. The handler validates:
 
 Per-tenant unit groups (Journey 4 from the DTM doc): one
 `UnitSpec.GroupID` per tenant, so `OnGroupCompleted` fires per-tenant
-as each tenant's replicas all finish. Tenant A has its new data
-immediately even while tenant B is still reindexing (what it serves
-before the flip depends on the migration type; see below).
+as each tenant's replicas all finish, and a tenant swaps once its own
+replicas have prepared (§6.3).
 
-That holds for semantic migrations too: a tenant swaps once its own
-replicas have prepared (§6.3), and its shards carry the migrated
+For a semantic migration, a swapped tenant's shards carry the migrated
 tokenization and index flags in their overlay (§10) until the
-collection-wide schema flip lands after the last tenant. A failure
-leaves the decided tenants migrated and the rest not: the indexes
-endpoint reads `partial` with `migratedTenants` / `totalTenants`, and
-the operator migrates forward by submitting the same migration again,
-which skips the tenants every replica already swapped (a tenant a replica
-still owes its swap is rerun), unless every replica already swapped every
-tenant, in which case it reruns every tenant to land the flip. Both count every run of that
-migration since the last finished flip, so a resubmit that stops partway
-too still reads `partial` over all tenants. A single-tenant collection
-whose swap was decided before it stopped reads `partial` too, with its
-one group counted as one tenant, and its resubmit reruns every shard.
-Migrating back, or on to another target, is not supported yet.
+collection-wide schema flip lands after the last tenant. After a
+tokenization change the tenant answers queries with the new index at
+once; an index a migration enables answers only once the migration
+finishes.
 
-While a partial run stands, one rule (`ReindexPartialRunConflict`) refuses,
-naming the resubmit: on its property, a `PUT` that would start any
-migration but that resubmit, a no-op `PUT` that names a tokenization, and a
-rebuild (`409`), and an index `DELETE` on the property (`422`). A `PUT`
-that repeats a running resubmit joins it. Resubmit it until it
-reads `ready` before changing the binary, up or down (see "Rolling back
-below this version"). What its migrated tenants serve depends on the
-migration type: after a tokenization change they answer queries with the new
-index; after enabling an index they answer with it only once the migration
-finishes; a replica that still owes a tenant's swap answers with the old
-index until its retry lands.
+A run that fails or is cancelled leaves the decided tenants migrated and
+the rest not. `GET .../indexes` then reads `partial`, with
+`migratedTenants` / `totalTenants` counted over every run of that
+migration since the last finished flip. Submit the same migration again
+until it reads `ready`, also before changing the binary (§14). The
+resubmit skips the tenants every replica already swapped; when that is
+all of them, it reruns every tenant to land the flip. A single-tenant
+collection whose swap was decided reads `partial` too, and its resubmit
+reruns every shard. Migrating back, or on to another target, is not
+supported yet.
+
+While a partial run stands on a property, `ReindexPartialRunConflict`
+refuses everything but that resubmit, and names it: a `PUT` that would
+start any other migration, a no-op `PUT` that names a tokenization and a
+rebuild (`409`), and an index `DELETE` (`422`).
 
 Status after cancelling a tenant-scoped task is reported at the
 collection level: `GET /v1/schema/{className}/indexes` renders
@@ -1601,11 +1520,11 @@ breaks two things:
   (weaviate/etienne-claude-issues#449).
 
 With per-tenant swaps (§6.3) the window lasts until the slowest tenant
-finishes, and forever after a failure. So the overlay is a cache of the
-shard's migration records, not the source of truth: every shard load
-re-installs it from each promoted record whose flip is decided while its
-owning task is listed and not FINISHED (or the task list is not readable
-yet), limited to what the live schema does not show, opens the bucket of an index a migration turned on, and the
+finishes, and forever after a failure. So every shard load re-installs
+the overlay from its promoted migration records: each one whose flip is
+decided while its task is listed and not FINISHED (or the task list is
+not readable yet), limited to what the live schema does not show. The
+load also opens the bucket of an index a migration turned on, and the
 schema's index-off sweeps leave that bucket alone.
 
 The overlay closes both. `Shard.SetPropertyOverlay(prop, overlay)`
@@ -1718,14 +1637,12 @@ source, the other is a copy that outlives it.
    verified to exist by the outer handler, so "nothing to cancel" is
    surfaced as a no-op rather than overloading 404 with two distinct
    meanings.
-2. If that task is in a status this build does not recognize (§4.2),
-   return 409 and stop: this build cannot tell whether the task has
-   swapped anywhere, so it refuses rather than guess. The mutation-refusal
-   guards agree: for this case they drop the "cancel it" advice and point
-   the operator at the nodes that do recognize the status
-   (`MutationRemedy`). A `SWAPPING` task answers 409 too: it finishes
-   on its own. Every other in-flight status
-   cancels (`TaskStatus.IsCancellable`): tenants whose swap is decided (§6.3)
+2. If that task is `SWAPPING`, or in a status this build does not
+   recognize (§4.2), return 409 and stop. A `SWAPPING` task finishes on
+   its own; for an unrecognized status this build cannot tell whether the
+   task has swapped anywhere, and the mutation-refusal guards agree
+   (`MutationRemedy`). Every other in-flight status cancels
+   (`TaskStatus.IsCancellable`): tenants whose swap is decided (§6.3)
    still swap, every other tenant stops. The
    REST pre-flight and `Manager.CancelTask` apply the same predicate, so a
    cancel that loses the race to a status transition is refused at the FSM
@@ -1787,53 +1704,35 @@ so no reader depends on FINISHED reindex tasks lingering.
 
 ### Upgrade assumptions
 
-Runtime reindex is a preview feature and comes without warranty. Upgrading to
-this version assumes two things about a cluster's history:
+Runtime reindex is a preview feature and comes without warranty. Upgrading
+to this version assumes two things:
 
-1. **No property was moved to BlockMax on its own on v1.38.** On v1.38, a
-   `PUT .../index/searchable` with `{"algorithm":"blockmax"}`, or enabling a
-   searchable index on a collection whose BlockMax flag (`usingBlockMaxWAND`)
-   is off, built BlockMax buckets but did not record that on the property.
-   v1.39.0 and later record it (`searchableBlockmax`) when the migration
-   finishes. This version reads only that record and the collection flag. It
-   no longer infers BlockMax from completed reindex tasks or from the buckets
-   on disk.
-2. **No migration is running or stopped partway when you upgrade.** Resubmit
-   every migration that reads `partial` until it reads `ready`, and let every
-   running one finish (see "Migration records, both directions" below).
+1. **No property was moved to BlockMax on its own on v1.38** (a
+   `{"algorithm":"blockmax"}` PUT, or enabling a searchable index, on a
+   collection whose `usingBlockMaxWAND` flag is off). v1.38 built BlockMax
+   buckets without recording it on the property. This version reads only
+   the `searchableBlockmax` record (written since v1.39.0) and the
+   collection flag, so it treats such a property as WAND: the indexes
+   endpoint reports `wand`, `{"algorithm":"blockmax"}` starts a migration
+   instead of answering `NO_OP`, a searchable rebuild is refused, and a
+   tokenization change rebuilds the index in WAND format. No objects are
+   lost, but BM25 scores change wherever an object repeats a word in the
+   property (WAND counts it once, BlockMax every time).
+2. **No migration is running or stopped partway.** Let every running one
+   finish, and resubmit every one that reads `partial` until it reads
+   `ready`.
 
-We accept these assumptions because, as far as we know, no customer ran
-runtime reindex on v1.38. The customers who ran it on v1.39 used only
-tokenization changes and enable-rangeable, which never build BlockMax buckets
-on a collection with the flag off. We cannot rule out other clusters.
+As far as we know, no customer ran runtime reindex on v1.38, and the
+customers on v1.39 ran only tokenization changes and enable-rangeable,
+which never build BlockMax buckets with the flag off.
 
-A cluster that breaks the first assumption sees this on the affected property:
-
-- `GET /v1/schema/{className}/indexes` reports `"algorithm": "wand"`,
-  although its buckets are BlockMax.
-- `{"algorithm":"blockmax"}` starts a new migration instead of answering
-  `NO_OP`.
-- A searchable rebuild is refused as a WAND index.
-- A tokenization change rebuilds the index in WAND format instead of BlockMax.
-  No objects are lost and an unlimited search matches the same objects, but
-  BM25 scores change, and so can the order of results and which objects a
-  search with a limit returns. When WAND measures the length of a
-  property value, it counts a word that repeats in that value once; BlockMax
-  counts every occurrence. If no object repeats a word in that property, the
-  scores are the same.
-
-**Status of an old run after upgrading from v1.39.15.** A node that replays a
-v1.39.15 reindex run from its RAFT log, instead of restoring it from a
-snapshot, can label that run `failed` or `cancelled` while the other nodes
-report it finished. This happens only to a run where a node acknowledged its
-swap twice, the second time with a failure, or where a cancel arrived as
-preparation was ending. `GET /v1/schema/{className}/indexes` on that node then
-reads `failed` or `cancelled`, and if the run enabled an index that was later
-deleted, that node keeps the deleted index's files; queries, data and the
-schema are not affected. A `cancelled` label clears when the completed-task
-TTL expires; a `failed` label clears once a node that reports the run as
-finished leads the cluster after the TTL, or when a newer migration of the
-same property replaces the run.
+**Status of an old run after upgrading from v1.39.15.** A node that
+replays such a run from its RAFT log, instead of restoring it from a
+snapshot, can label it `failed` or `cancelled` on the indexes endpoint
+while the other nodes report it finished, and keeps the files of an index
+the run enabled if that index was deleted since. Queries, data and the
+schema are not affected. The label clears with the completed-task TTL or
+when a newer migration of the same property replaces the run.
 
 **Downgrade:** the stamp is an additive `searchableBlockmax` property field;
 an older binary ignores it and derives blockmax from the class flag / task
@@ -1866,36 +1765,23 @@ derives its preserve set from the `tidied.mig` / `merged.mig` markers, which
 this build never writes, so **disabling the index to fix the empty results is
 what destroys the data**. Upgrade again instead and let reconciliation promote.
 
-**Rolling back below this version after a reindex run.** This build records a
-multi-tenant run's preparation per tenant, and accepts a cancel while a run is
-PREPARING. Older releases read neither as this build does. A node of an older
-release that replays a reindex run from its RAFT log can end it differently
-from the rest of the cluster:
+**Rolling back below this version after a reindex run.** Older releases
+read neither per-tenant preparation nor a cancel during PREPARING as this
+build does. An older node that replays a reindex run from its RAFT log can
+keep the run PREPARING for good, refusing every schema change on the
+collection, or run its swap and schema flip again. Before rolling back:
 
-- It can keep the run PREPARING, whether it finished, failed or was cancelled.
-  The node then refuses every schema change on the collection, deleting it
-  included, and refuses to cancel the run.
-- It can move the run to SWAPPING and run the swap and schema flip again, on a
-  run that already finished or on a failed or cancelled one.
-
-Which outcome a run gets depends on the order its acknowledgements landed, which
-an operator cannot see. Before rolling back below this version, make every node
-snapshot past its last reindex run: restart each node on this version with
-`RAFT_SNAPSHOT_THRESHOLD=1 RAFT_SNAPSHOT_INTERVAL=5`. At startup it logs
-`raft node constructed` with `last_store_applied_index_on_start`, the index of
-the last command in its RAFT log. Wait until that line's `last_snapshot_index`,
-or the `index` of a later `snapshot complete up to` line, is at least that
-value, then roll back with both variables removed. Compare against that value,
-not `raft_last_index`, which a snapshot may never reach on an idle cluster.
-Left set, the variables make the node snapshot every few seconds.
-
-Do this first, before the snapshot step: no entry of
-`GET /v1/schema/{className}/indexes` may read `partial`, in any collection,
-on any node. Submit each such migration again until it reads `ready`. An
-older release cannot tell which tenants a stopped run migrated. At each
-migrated tenant's next load it deletes an index the run turned on and reads
-a re-tokenized index with the old tokenization, and a replica that still
-owed a tenant's swap never swaps.
+1. Resubmit every migration that reads `partial`, in any collection on
+   any node, until it reads `ready`. An older release cannot tell which
+   tenants a stopped run migrated: at a migrated tenant's next load it
+   deletes an index the run turned on and reads a re-tokenized index with
+   the old tokenization.
+2. Make every node snapshot past its last reindex run. Restart it on this
+   version with `RAFT_SNAPSHOT_THRESHOLD=1 RAFT_SNAPSHOT_INTERVAL=5`. Its
+   `raft node constructed` line logs `last_store_applied_index_on_start`.
+   Wait until that line's `last_snapshot_index`, or the `index` of a later
+   `snapshot complete up to` line, is at least that value (not
+   `raft_last_index`), then roll back with both variables removed.
 
 ## 15. Files of interest
 
