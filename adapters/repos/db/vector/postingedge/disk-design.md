@@ -1,6 +1,6 @@
 # Índice posting+edges: notas para el diseño de la versión en disco
 
-**Estado:** semilla del design doc de disco. Tiene dos secciones: los tres layouts posibles del posting en disco, y el detalle del tercero, que es lo que dejó decidido el benchmark en memoria (v1.2, Fase B, 2026-11-11). El resto del diseño de disco no está escrito aquí.
+**Estado:** semilla del design doc de disco. Tiene dos secciones: los layouts posibles del posting y de los vectores exactos en disco, y el detalle del último, que es lo que dejó decidido el benchmark en memoria (v1.2, Fase B, 2026-11-11). El resto del diseño de disco no está escrito aquí.
 
 Las cifras son de `bench-report.md`: dbpedia-openai 1M (1536d), S=236, P=256, 1 thread, todo en RAM. Son cuentas de trabajo y recall, que no dependen de dónde vivan los postings. Los tiempos de I/O no están medidos en ninguna parte de este documento.
 
@@ -8,59 +8,95 @@ Las cifras son de `bench-report.md`: dbpedia-openai 1M (1536d), S=236, P=256, 1 
 
 ### El baseline: HFresh hoy
 
-Los postings de HFresh llevan códigos RQ1, no vectores crudos. Una query lee postings y los escanea por código, y el rescore final son lecturas aleatorias al store de vectores, una por candidato (rescoreLimit 350 por defecto).
+Los postings de HFresh llevan códigos RQ1, no vectores crudos. Una query lee postings y los escanea por código, y el rescore final son lecturas aleatorias, una por candidato (rescoreLimit 350 por defecto).
 
 Así que una query en disco paga dos términos distintos:
 
 1. **Cargas de posting:** lecturas de un posting entero cada una, que salen en lotes paralelos, una ronda por lote.
 2. **Rescore:** una lectura aleatoria por candidato, de un vector exacto cada una.
 
-El diseño posting+edges ataca el primero. Qué pasa con el segundo depende del layout.
+El rescore de hoy no lee de un store propio: lee del bucket de objetos compartido. Cada lectura paga tres cosas que no tienen que ver con el índice:
 
-### Las tres opciones
+- **Competencia con el resto del tráfico del nodo,** que usa ese mismo bucket.
+- **Deserialización del objeto entero** para sacar de él un vector.
+- **La cola de latencia del LSM:** segmentos, compactaciones y su caché.
 
-| | (a) solo códigos | (b) códigos y vectores exactos inline | (c) códigos capados, sidecar completo y refinado |
-|---|---|---|---|
-| qué lleva el posting en disco | id, código completo y aristas de cada miembro | lo de (a) más el vector exacto de cada miembro | id, código corto y aristas |
-| qué queda en RAM | el sidecar de códigos completos y los centroides | lo mismo | lo mismo |
-| cargas de posting | las de este índice | las mismas, cada una ~30 veces más pesada | las mismas, cada una entre 2.6 y 4.3 veces más ligera |
-| rescore | rescoreLimit lecturas aleatorias | ninguna lectura: el vector vino con su posting | rescoreLimit lecturas aleatorias, con el rescoreLimit del código completo |
-| estado | es el layout de HFresh y el del índice en memoria | sin construir | la celda desacoplada lo mide sin el refinado; el refinado está sin construir |
+Eso hace de **eliminar o aislar el rescore del bucket** un criterio de diseño de primer orden. Contar lecturas no basta: dos layouts con las mismas lecturas de rescore no cuestan lo mismo si unas van al bucket y otras a un fichero propio.
 
-**(a) Solo códigos, rescore aleatorio. Es el layout actual.**
+El diseño posting+edges ataca el primer término, las cargas. Qué pasa con el segundo depende del layout.
 
-- Hereda de HFresh el término de rescore tal cual: una lectura aleatoria por candidato.
+### Las cuatro opciones
+
+| | (a) solo códigos | (b) códigos y exactos inline | (b') exactos en store dedicado | (c) códigos capados, sidecar completo y refinado |
+|---|---|---|---|---|
+| qué lleva el posting | id, código completo y aristas | lo de (a) más el vector exacto de cada miembro | lo de (a) | id, código corto y aristas |
+| dónde viven los vectores exactos | en el bucket de objetos | dentro de los postings | en un fichero propio, en orden de posting | donde digan (a) o (b') |
+| qué queda en RAM | sidecar de códigos completos y centroides | lo mismo | lo mismo | lo mismo |
+| cargas de posting | las de este índice | las mismas, cada una ~30 veces más pesada | las de (a) | las mismas, cada una entre 2.6 y 4.3 veces más ligera |
+| rescore | rescoreLimit lecturas al bucket | ninguna lectura | rescoreLimit lecturas al fichero propio | rescoreLimit lecturas, con el rescoreLimit del código completo |
+| estado | layout de HFresh y del índice en memoria | sin construir | sin construir | medido sin el refinado (celda desacoplada); el refinado, sin construir |
+
+**(a) Solo códigos, rescore aleatorio al bucket. Es el layout actual.**
+
+- Hereda de HFresh el término de rescore tal cual: una lectura por candidato al bucket de objetos, con su competencia, su deserialización y su cola.
 - Mejora solo las cargas, del orden de 70 veces menos que HFresh. Esa cifra es de contexto, no está medida en este benchmark.
-- Medido aquí, a 1536d: 10 cargas a recall 0.95 y 53 a 0.99, en 2.3 y 12.9 rondas, más 64 lecturas aleatorias de rescore. A 768d el rescore son 200 o 400 lecturas, porque el código completo ya es de 768 bits.
+- Medido aquí, a 1536d: 10 cargas a recall 0.95 y 53 a 0.99, en 2.3 y 12.9 rondas, más 64 lecturas de rescore. A 768d el rescore son 200 o 400 lecturas, porque el código completo ya es de 768 bits.
 
 **(b) Códigos y vectores exactos en el posting.**
 
-- Elimina el rescore aleatorio: todo candidato del rescore es miembro de un posting que la query ya cargó, así que su vector exacto ya está leído.
+- Elimina el rescore: todo candidato es miembro de un posting que la query ya cargó, así que su vector exacto ya está leído. El bucket sale del camino de la query.
 - A cambio cada carga lleva los vectores exactos de todos los miembros. A 1536d un miembro pasa de 208 B (id y código) a 6 352 B: unas 30 veces más bytes por carga secuencial.
 - El tamaño de posting se vuelve en contra. En (a), un S mayor compra menos cargas a cambio de pocos bytes más. En (b) cada vector escaneado de más cuesta 6 KB, y la Fase C dice que los vectores escaneados crecen con S: 13 235 a recall 0.99 con S=236, y 30 814 con S=2048.
+
+**(b') Vectores exactos en un store dedicado, ordenado por posting.**
+
+- Es el layout por orden de posting primario del espectro de la iteración 4 de las simulaciones, aplicado a los vectores exactos: un fichero propio del índice con un vector por slot. Los slots ya van por posting, así que los miembros de un posting quedan contiguos.
+- El rescore sigue siendo una lectura por candidato, pero a un offset fijo de un fichero propio: sin bucket, sin deserializar un objeto y sin LSM.
+- Los postings no cambian: las cargas son las de (a).
+- La localidad da una segunda palanca. Los candidatos de un mismo posting están a menos de un posting de distancia en el fichero, así que varios se pueden servir con una lectura de rango. Cuánto vale depende de cuántos candidatos hay por posting cargado.
+- Cuesta una copia de los vectores en disco, y mantener el orden de posting cuando haya inserciones y splits. Lo segundo está abierto: este índice se construye de una vez.
 
 **(c) Códigos capados en el posting, sidecar completo en RAM, refinado antes del rescore.**
 
 - El posting lleva un código corto, que es lo que se lee de disco: con 256 bits un miembro son 48 B y con 512 bits 80 B, frente a los 208 B de (a).
 - El routing sigue con el código completo, que vive en el sidecar residente.
 - El refinado re-estima con el código completo los mejores candidatos del scan antes del rescore. Es lo que reduce las lecturas aleatorias: sin él, un código de 256 bits en el scan necesita 3 200 candidatos exactos para un techo de recall de 0.994, y el código completo llega a 0.996 con 64.
+- No aísla nada por sí solo: sus lecturas de rescore van a donde vivan los vectores. Reduce cuántas son y cuánto pesa cada carga, y se combina con (b').
 - Aquí es donde encuentran su papel la celda desacoplada y los códigos capados, que en el modo memoria pierden: en RAM un código corto ahorra poco, y en disco es lo que pesa cada carga.
 - El detalle está en la sección siguiente.
 
 ### Qué lee cada layout por query
 
-Con S=236 y el código completo de 1536d, del perfil de la Fase C. Los bytes de posting cuentan el id y el código de cada vector escaneado (208 B), sin las aristas, que son 36 B más por miembro en los tres layouts.
+Con S=236 y el código completo de 1536d, del perfil de la Fase C. Los bytes de posting cuentan el id y el código de cada vector escaneado (208 B), sin las aristas, que son 36 B más por miembro en todos los layouts.
 
-| recall | cargas | rondas | vectores escaneados | (a) bytes de posting | (a) lecturas de rescore | (b) bytes de posting | (b) lecturas de rescore |
-|---|---|---|---|---|---|---|---|
-| 0.95 | 10 | 2.3 | 2 563 | 0.5 MB | 64 | 16 MB | 0 |
-| 0.99 | 53 | 12.9 | 13 235 | 2.8 MB | 64 | 84 MB | 0 |
+| recall | cargas | rondas | vectores escaneados | (a) y (b'): bytes de posting | (a): lecturas al bucket | (b'): lecturas al store propio | (b): bytes de posting | (b): lecturas de rescore |
+|---|---|---|---|---|---|---|---|---|
+| 0.95 | 10 | 2.3 | 2 563 | 0.5 MB | 64 | 64, de 6 KB | 16 MB | 0 |
+| 0.99 | 53 | 12.9 | 13 235 | 2.8 MB | 64 | 64, de 6 KB | 84 MB | 0 |
 
 Para (c) las cargas y las rondas son las mismas si el refinado funciona, y los bytes de posting bajan a 0.12 MB y 0.64 MB con 256 bits, o a 0.21 MB y 1.1 MB con 512. Sin refinado, lo medido son 1.5 veces las cargas del control.
 
-### El comparador de (a) contra (b): candidatos por posting cargado
+### Por varianza y aislamiento
 
-(b) lee el vector exacto de todos los miembros de cada posting cargado para usar solo los que llegan al rescore. Lo que decide entre los dos layouts es cuántos son esos por posting cargado.
+Los bytes y las lecturas de arriba son cuentas. Esto otro es qué entra en el camino de una query, que es lo que decide su cola de latencia. No hay ninguna latencia de I/O medida: es una evaluación de qué componentes toca cada layout, no de cuánto tardan.
+
+| criterio | (a) | (b) | (b') | (c) |
+|---|---|---|---|---|
+| lecturas al bucket de objetos por query | rescoreLimit | 0 | 0 | las de (a), o 0 sobre (b') |
+| compite con el tráfico del nodo | sí, en el bucket | solo por el dispositivo | solo por el dispositivo | como el layout sobre el que vaya |
+| deserialización por candidato | el objeto entero | ninguna | ninguna: offset fijo | como el layout sobre el que vaya |
+| de qué depende la cola de latencia | del LSM y de lo que haga el resto del nodo | de lecturas secuenciales grandes, ~30 veces los bytes | de lecturas pequeñas a un fichero propio | de lo mismo que su base, con menos lecturas que un capado sin refinar |
+| lo que crece con la query | lecturas al bucket (64 a 400) | bytes leídos (16 a 84 MB) | lecturas pequeñas (64 a 400) | bytes de posting, a la baja |
+| disco de más | nada | una copia de los vectores, dentro de los postings | una copia de los vectores, en fichero aparte | nada |
+
+- **(b) aísla del todo y lo paga en ancho de banda.** Saca el bucket del camino, pero convierte cada query en decenas de megabytes secuenciales. Su latencia deja de depender del resto del nodo y pasa a depender de cuántos bytes lee, que son unas 30 veces más.
+- **(b') aísla sin tocar las cargas.** Mismas lecturas de rescore que (a) en número, pero a un fichero propio y de coste fijo. Es la única opción que quita las tres cosas que paga hoy el rescore sin encarecer las cargas.
+- **(c) no aísla: reduce.** Su efecto es sobre el número de lecturas y los bytes de cada carga. Sobre (a) deja el rescore en el bucket con el rescoreLimit del código completo; sobre (b') suma las dos cosas.
+- **La combinación a evaluar es (b') con (c):** cargas ligeras, rescore aislado, y el refinado manteniendo corto el rescore.
+
+### El comparador: candidatos por posting cargado
+
+(b) lee el vector exacto de todos los miembros de cada posting cargado para usar solo los que llegan al rescore. Lo que decide entre (a) y (b) es cuántos son esos por posting cargado. El mismo número dice si en (b') compensa leer por rangos.
 
 | caso | candidatos del rescore | postings cargados | candidatos por posting cargado | vectores exactos que (b) lee | de ellos, los que usa |
 |---|---|---|---|---|---|
@@ -68,11 +104,12 @@ Para (c) las cargas y las rondas son las mismas si el refinado funciona, y los b
 | 1536d, recall 0.99 | 64 | 53 | 1.2 | 13 235 | 0.5 % |
 | 768d (wiki-dpr 1M), recall 0.99 | 200 | 44.8 | 4.5 | 10 958 | 1.8 % |
 
-- **Con estas cifras (b) lee entre 40 y 200 vectores exactos por cada uno que usa.** A 1536d y recall 0.99 son 84 MB secuenciales para ahorrarse 64 lecturas aleatorias de 6 KB.
+- **Con estas cifras (b) lee entre 40 y 200 vectores exactos por cada uno que usa.** A 1536d y recall 0.99 son 84 MB secuenciales para ahorrarse 64 lecturas de 6 KB.
 - **(b) solo compensa si los candidatos se concentran:** muchos por posting cargado, en pocos postings.
+- **Para (b'), entre 1 y 6 candidatos por posting cargado es poco para leer postings enteros de vectores** (236 vectores por rango para usar esos pocos). Con estas medias, lo suyo son lecturas sueltas a offset fijo.
 - **El conteo fino sale de la proyección a disco del v1.4:** por query, media y p95, cuántos candidatos del rescore hay y en cuántos de los postings cargados viven. Las filas de arriba son medias de candidatos entre medias de cargas; ese conteo dirá además si están repartidos o agrupados. Queda por añadir aquí con los datos de 10M.
 
-Lo que no cambia con el layout: en los tres, ningún candidato del rescore necesita cargar un posting propio. Los candidatos solo salen de los scans de postings cargados; los endpoints de las aristas ordenan postings y nunca entran como candidatos.
+Lo que no cambia con el layout: en todos, ningún candidato del rescore necesita cargar un posting propio. Los candidatos solo salen de los scans de postings cargados; los endpoints de las aristas ordenan postings y nunca entran como candidatos.
 
 ## Layout (c) en detalle: refinar con el sidecar las estimaciones del scan
 
