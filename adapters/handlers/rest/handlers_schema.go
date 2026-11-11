@@ -298,7 +298,7 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // earlier in the request lifecycle for operator UX.
 //
 // "Same epistemics" is meant literally: it has to reject on the same arms
-// as [db.ReindexProvider.CheckPropertyUpdate], in the same order, or the
+// as [db.ReindexDetector.CheckPropertyUpdate], in the same order, or the
 // caller gets told ok here and FAILED at the apply.
 //
 // Per-node, in-memory: two REST handlers on different nodes can both

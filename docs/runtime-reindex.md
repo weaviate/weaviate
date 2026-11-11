@@ -618,14 +618,14 @@ Key types & contracts:
   `OnGroupCompleted` and `OnSwapRequested` for barrier-aware
   semantic migrations.
 - **`ConflictDetector`** — pluggable interface implemented per
-  namespace (here, by `ReindexProvider.CheckConflict`). Called under
+  namespace (here, by `ReindexDetector.CheckConflict`). Called under
   Manager's lock from the AddTask apply path, BEFORE the task is
   appended. FSM-deterministic.
 - **`SchemaMutationDetector`** — the other half of the conflict
   surface: gates external schema mutations
   (`UpdateProperty`/`DeleteClass`/`DeleteTenants`/`UpdateTenants`)
   while a reindex is in flight. Implementation:
-  `ReindexProvider.CheckPropertyUpdate` / `CheckClassMutation` /
+  `ReindexDetector.CheckPropertyUpdate` / `CheckClassMutation` /
   `CheckTenantMutation`. Uses `TaskStatus.IsActive()`, so every
   non-terminal status counts as "in flight" for mutation gating (see
   **Task status classification** below).
@@ -792,10 +792,10 @@ explicit opt-out signal that's set only by the provider's
 **`MutationGuard` (cross-FSM).** The schema FSM consults
 `distributedtask.SchemaMutationDetector` on every `UpdateProperty`,
 `DeleteClass`, `UpdateTenants(FROZEN)`, `DeleteTenants` apply.
-`ReindexProvider`'s implementation rejects any mutation overlapping the
+`ReindexDetector`'s implementation rejects any mutation overlapping the
 properties of an in-flight reindex task on the same collection. In flight
 means any non-terminal status, admitted via `TaskStatus.IsActive()` (see
-§4.2). The motivating failure mode is documented verbatim on
+§4.2). The motivating failure mode is summarized on
 `CheckPropertyUpdate`'s godoc: a `change-tokenization` migration spawns
 separate per-shard sub-tasks for searchable and filterable; a DELETE
 arrives mid-flight; the stale-sidecar sweep wipes the searchable
@@ -832,8 +832,8 @@ own scheduled completion flip still works. Class-wide
 - `OnTaskCompleted` (semantic only) → `flipSemanticMigrationSchema`
   via RAFT. It does not touch the property overlay: an entry describes
   this shard's buckets, and no task status changes those (§10).
-- `CheckConflict` / `CheckPropertyUpdate` / `CheckClassMutation` /
-  `CheckTenantMutation` — see §4.3 & §7.
+- The RAFT-apply checks are not provider hooks. They live on
+  `ReindexDetector` in `reindex_conflict.go`, below. See §4.3 & §7.
 
 **`ShardReindexTaskGeneric`** ([`inverted_reindex_task_generic.go`](../adapters/repos/db/inverted_reindex_task_generic.go))
 — the strategy-parameterized lifecycle. State machine, merge / swap /
@@ -848,7 +848,7 @@ the Add/Delete double-write callbacks, the optional `AnalyzerOverlay`
 (see §8), the `PreReindexHook`, and the `OnMigrationComplete` hook
 (see §4.5 phase contract).
 
-**`reindex_conflict.go`** — `CheckConflict` (FSM-deterministic),
+**`reindex_conflict.go`** — `ReindexDetector`: `CheckConflict` (FSM-deterministic),
 `CheckPropertyUpdate`, `CheckClassMutation`, `CheckTenantMutation`,
 plus the predicates `ReindexPropsOverlap`, `TouchesSearchable`,
 `TouchesFilterable`, `TypesConflictReason`. The exhaustive switches in

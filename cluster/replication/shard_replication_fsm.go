@@ -286,49 +286,63 @@ func (s *ShardReplicationFSM) HasActiveReplicationForCollection(collection strin
 // node's local FSM (bounded by RAFT apply lag), not a synchronization barrier. It is
 // polled on every hashbeat cycle of every shard and must stay allocation-free.
 func (s *ShardReplicationFSM) HasActiveTargetReplicationForShard(collection, shard, targetNode string) bool {
+	return s.hasActiveOpTargetingShard(collection, shard, targetNode, "")
+}
+
+// HasActiveSelfRecoveryTargetingShard: non-terminal SELF_RECOVERY op targeting the triple; local FSM read.
+func (s *ShardReplicationFSM) HasActiveSelfRecoveryTargetingShard(collection, shard, targetNode string) bool {
+	return s.hasActiveOpTargetingShard(collection, shard, targetNode, api.SELF_RECOVERY)
+}
+
+// HasActiveMoveTargetingShard reports whether a non-terminal MOVE op targets the
+// triple, read from this node's local FSM.
+func (s *ShardReplicationFSM) HasActiveMoveTargetingShard(collection, shard, targetNode string) bool {
+	return s.hasActiveOpTargetingShard(collection, shard, targetNode, api.MOVE)
+}
+
+// hasActiveOpTargetingShard reports whether a non-terminal op of transferType
+// targets the triple. An empty transferType matches every op.
+func (s *ShardReplicationFSM) hasActiveOpTargetingShard(collection, shard, targetNode string, transferType api.ShardReplicationTransferType) bool {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 
 	// The source-keyed bucket holds exactly the ops targeting (collection, shard):
 	// both op constructors build TargetShard from the source collection/shard.
 	for _, op := range s.opsByCollectionAndShard[collection][shard] {
-		if op.TargetShard.NodeId != targetNode {
-			continue
-		}
-		status, ok := s.statusById[op.ID]
-		if !ok {
-			continue
-		}
-		switch status.GetCurrentState() {
-		case api.READY, api.CANCELLED:
-			// terminal — does not block async-repl gating
-		default:
+		if op.TargetShard.NodeId == targetNode && (transferType == "" || op.TransferType == transferType) && s.opActiveLocked(op.ID) {
 			return true
 		}
 	}
 	return false
 }
 
-// HasActiveSelfRecoveryTargetingShard: non-terminal SELF_RECOVERY op targeting the triple; local FSM read.
-func (s *ShardReplicationFSM) HasActiveSelfRecoveryTargetingShard(collection, shard, targetNode string) bool {
+// HasActiveSourceReplicationForShard reads no change-capture registration, so
+// a force-deleted op no longer holds its source shard.
+func (s *ShardReplicationFSM) HasActiveSourceReplicationForShard(collection, shard, sourceNode string) bool {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 
 	for _, op := range s.opsByCollectionAndShard[collection][shard] {
-		if op.TargetShard.NodeId != targetNode || op.TransferType != api.SELF_RECOVERY {
-			continue
-		}
-		status, ok := s.statusById[op.ID]
-		if !ok {
-			continue
-		}
-		switch status.GetCurrentState() {
-		case api.READY, api.CANCELLED:
-		default:
+		if op.SourceShard.NodeId == sourceNode && s.opActiveLocked(op.ID) {
 			return true
 		}
 	}
 	return false
+}
+
+// opActiveLocked reports whether the FSM tracks the op in a state other than
+// READY or CANCELLED. The caller holds opsLock.
+func (s *ShardReplicationFSM) opActiveLocked(id uint64) bool {
+	status, ok := s.statusById[id]
+	if !ok {
+		return false
+	}
+	switch status.GetCurrentState() {
+	case api.READY, api.CANCELLED:
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *ShardReplicationFSM) getOpsWithStatus(ops []ShardReplicationOp) []ShardReplicationOpAndStatus {
