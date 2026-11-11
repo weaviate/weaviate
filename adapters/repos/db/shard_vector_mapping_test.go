@@ -719,6 +719,18 @@ func TestUnloadedVectorIndexStorageIDs(t *testing.T) {
 		assert.Equal(t, defaults, ids)
 	})
 
+	t.Run("records without a format version", func(t *testing.T) {
+		dir := t.TempDir()
+		db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		require.NoError(t, db.Namespace(vectorIndexMappingNamespace).Put([]byte(vectorIndexMappingKey("title")),
+			[]byte(`{"physical_id":"`+generated+`","index_type":"hnsw","state":"ready"}`)))
+		require.NoError(t, db.Close())
+		ids, _, err := unloadedVectorIndexStorageIDs(dir, names)
+		require.ErrorContains(t, err, "records without a format version")
+		assert.Equal(t, defaults, ids)
+	})
+
 	t.Run("invalid record", func(t *testing.T) {
 		dir := t.TempDir()
 		writeMapping(t, dir, "1", map[string]string{
