@@ -400,6 +400,21 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		assert.Equal(t, assignments, []byte(full.BuiltInRoleAssignments))
 	})
 
+	// The user snapshot holds every user, so the carried assignments must cover
+	// every user. Only the OIDC grants are limited to the narrowed namespaces.
+	t.Run("narrowed omitted roles still carry every user's built-in assignments", func(t *testing.T) {
+		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+		fs.schema.namespacesEnabled = true
+		fs.auth.(*mocks.FakeAuthorizer).Deny("backups/roles/*", "backups/roles/ns2:writer")
+		setup(fs)
+		fs.userLister.users = []string{"ns1:alice", "ns2:bob"}
+		fs.roleLister.roles = []string{"ns1:editor", "ns2:writer"}
+
+		require.NoError(t, run(t, fs, &BackupRequest{ID: backupID, Backend: backendName}))
+		assert.Equal(t, [][]string{{"ns1:alice", "ns2:bob"}}, fs.roleLister.carried)
+		assert.Equal(t, [][]string{{"ns1"}}, fs.roleLister.oidcCarried)
+	})
+
 	t.Run("a skipped RBAC snapshot carries the users' built-in assignments", func(t *testing.T) {
 		assignments := []byte(`{"version":1,"grouping_policies":[["db:alice","role:admin"]]}`)
 		tests := []struct {
@@ -672,6 +687,16 @@ type restorePrincipalsCase struct {
 	blobUsers, blobRoles []string
 	// userBlob and rbacBlob, when set, replace the snapshots built from the IDs.
 	userBlob, rbacBlob []byte
+	// noBlobs leaves both snapshots out of the backup.
+	noBlobs bool
+	// classless backs up no collection and restores without Include.
+	classless bool
+	// skipUsers and skipRoles are the backup descriptor's skip flags.
+	skipUsers, skipRoles bool
+	// status, when set, replaces the backup descriptor's Success status.
+	status backup.Status
+	// nilPrincipal restores as a nil principal instead of restoreCaller.
+	nilPrincipal bool
 	// currentUsers and currentRoles are what the restoring cluster holds.
 	currentUsers, currentRoles []string
 	// nilListers turns dynamic users and RBAC off on the restoring cluster.
@@ -685,7 +710,8 @@ type restorePrincipalsCase struct {
 	auth authorization.Authorizer
 }
 
-// restoreCaller is the principal runRestorePrincipals restores as.
+// restoreCaller is the principal runRestorePrincipals restores as, unless the
+// case sets nilPrincipal.
 var restoreCaller = &models.Principal{Username: "operator", UserType: models.UserTypeInputDb}
 
 type restorePrincipalsOutcome struct {
@@ -713,24 +739,35 @@ func runRestorePrincipals(t *testing.T, c restorePrincipalsCase) restorePrincipa
 		return nil
 	}
 	userBlob, rbacBlob := c.userBlob, c.rbacBlob
-	if userBlob == nil {
+	if userBlob == nil && !c.noBlobs {
 		userBlob = makeUserSnapshot(t, blobIDs(c.blobUsers, c.users, []string{"ns1:alice"})...)
 	}
-	if rbacBlob == nil {
+	if rbacBlob == nil && !c.noBlobs {
 		rbacBlob = makeRbacSnapshot(t, blobIDs(c.blobRoles, c.roles, []string{"ns1:editor"})...)
+	}
+	classes := []string{"Movies"}
+	var classDescs []backup.ClassDescriptor
+	if c.classless {
+		classes = nil
+	} else {
+		classDescs = []backup.ClassDescriptor{{Name: "Movies"}}
+	}
+	status := backup.Success
+	if c.status != "" {
+		status = c.status
 	}
 	nodeMeta, err := json.Marshal(backup.BackupDescriptor{
 		ID: backupID, Status: backup.Success, ServerVersion: "1.39.6",
-		Classes:     []backup.ClassDescriptor{{Name: "Movies"}},
+		Classes:     classDescs,
 		UserBackups: userBlob,
 		RbacBackups: rbacBlob,
 	})
 	require.NoError(t, err)
 	meta := backup.DistributedBackupDescriptor{
 		ID: backupID, StartedAt: time.Now().UTC(), Version: Version,
-		ServerVersion: "1.39.6", Status: backup.Success, Leader: node,
-		Nodes: map[string]*backup.NodeDescriptor{node: {Classes: []string{"Movies"}}},
-		Users: c.users, Roles: c.roles,
+		ServerVersion: "1.39.6", Status: status, Leader: node,
+		Nodes: map[string]*backup.NodeDescriptor{node: {Classes: classes}},
+		Users: c.users, Roles: c.roles, SkipUsers: c.skipUsers, SkipRoles: c.skipRoles,
 	}
 
 	fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
@@ -766,9 +803,13 @@ func runRestorePrincipals(t *testing.T, c restorePrincipalsCase) restorePrincipa
 		}
 		return o
 	}
+	pr := restoreCaller
+	if c.nilPrincipal {
+		pr = nil
+	}
 	s := fs.scheduler()
-	_, err = s.Restore(ctx, restoreCaller, &BackupRequest{
-		ID: backupID, Backend: "gcs", Include: []string{"Movies"},
+	_, err = s.Restore(ctx, pr, &BackupRequest{
+		ID: backupID, Backend: "gcs", Include: classes,
 		UserRestoreOption: opt(c.userOpt, models.RestoreConfigUsersOptionsAll),
 		RbacRestoreOption: opt(c.rbacOpt, models.RestoreConfigRolesOptionsAll),
 		IncludeUsers:      c.reqUsers, IncludeRoles: c.reqRoles,
@@ -954,6 +995,74 @@ func TestSchedulerRestorePrincipals(t *testing.T) {
 		require.NoError(t, out.err)
 		assert.Equal(t, []mocks.AuthZReq{collections}, out.calls)
 		assert.Empty(t, out.applied)
+	})
+
+	// A class-less backup has no collection check, so the users and roles
+	// checks alone stand between the caller and the restore slot.
+	t.Run("a class-less restore", func(t *testing.T) {
+		noRestore := models.RestoreConfigRolesOptionsNoRestore
+		tests := []struct {
+			name string
+			c    restorePrincipalsCase
+			// forbidden is the wildcard a Forbidden names; empty means a 422.
+			forbidden string
+			calls     []mocks.AuthZReq
+		}{
+			{
+				name: "that applies nothing is refused before any check, even for a nil principal",
+				c: restorePrincipalsCase{
+					classless: true, skipUsers: true, nilPrincipal: true, rbacOpt: noRestore,
+				},
+			},
+			{
+				name: "with no blobs is refused to a caller without grants",
+				c: restorePrincipalsCase{
+					classless: true, noBlobs: true, deny: wholeStores,
+				},
+				forbidden: "backups/users/*",
+				calls:     []mocks.AuthZReq{{Principal: caller, Verb: authorization.CREATE, Resources: wholeStores, Method: mocks.MethodAuthorize}},
+			},
+			{
+				name: "whose blobs leave nothing to apply is refused to a wildcard holder",
+				c: restorePrincipalsCase{
+					classless: true, noBlobs: true, rbacOpt: noRestore, deny: []string{"backups/roles/*"},
+				},
+				calls: []mocks.AuthZReq{{Principal: caller, Verb: authorization.CREATE, Resources: []string{"backups/users/*"}, Method: mocks.MethodAuthorize}},
+			},
+			{
+				name: "of a failed backup is refused without naming its path",
+				c: restorePrincipalsCase{
+					classless: true, status: backup.Failed, deny: wholeStores,
+				},
+				forbidden: "backups/users/*",
+				calls:     []mocks.AuthZReq{{Principal: caller, Verb: authorization.CREATE, Resources: wholeStores, Method: mocks.MethodAuthorize}},
+			},
+			{
+				name: "with dynamic users and RBAC disabled is refused before any check",
+				c:    restorePrincipalsCase{classless: true, nilListers: true},
+			},
+			{
+				name: "whose descriptor skips both stores is refused before any check",
+				c:    restorePrincipalsCase{classless: true, skipUsers: true, skipRoles: true},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				out := runRestorePrincipals(t, tt.c)
+				if tt.forbidden != "" {
+					require.ErrorAs(t, out.err, &authzerrors.Forbidden{})
+					assert.EqualError(t, out.err, authzerrors.NewForbidden(caller, authorization.CREATE, tt.forbidden).Error())
+				} else {
+					require.IsType(t, backup.ErrUnprocessable{}, out.err)
+					assert.ErrorContains(t, out.err, "nothing to restore")
+				}
+				assert.NotContains(t, out.err.Error(), "bucket/")
+				assert.Equal(t, tt.calls, out.calls)
+				out.fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
+				out.fs.backend.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.Anything)
+				assert.Empty(t, out.applied)
+			})
+		}
 	})
 
 	t.Run("a default restore makes no users or roles call and is pollable and cancellable without their grants", func(t *testing.T) {

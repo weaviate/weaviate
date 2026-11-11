@@ -45,6 +45,7 @@ import (
 var (
 	errLocalBackendDBRO = errors.New("local filesystem backend is not viable for backing up a node cluster, try s3 or gcs")
 	errIncludeExclude   = errors.New("malformed request: 'include' and 'exclude' cannot both contain values")
+	errNothingToRestore = errors.New("nothing to restore: backup has no collections and this restore applies no users or roles")
 	// errDedupePlannerMissing refuses dedupeReplicas on a licensed node whose planner was not wired.
 	errDedupePlannerMissing = errors.New("dedupeReplicas cannot run because this node has no dedupe planner")
 )
@@ -344,7 +345,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	}
 
 	// A nil lister means that subsystem is disabled. Its blob stays empty, so
-	// nothing is applied for it, and the restore proceeds.
+	// nothing is applied for it.
 	blobs := rolesAndUsersBlobs{}
 	if req.RbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
 		if s.roleLister != nil {
@@ -365,6 +366,11 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	// its status, and its cancellation all authorize from these flags.
 	meta.SkipUsers = len(blobs.users) == 0
 	meta.SkipRoles = len(blobs.roles) == 0
+	// A restore that applies nothing would authorize nothing below, yet still
+	// take the restore slot and overwrite the restore descriptor.
+	if len(meta.Classes()) == 0 && meta.SkipUsers && meta.SkipRoles {
+		return nil, backup.NewErrUnprocessable(errNothingToRestore)
+	}
 
 	// Authorize the blobs this restore applies before validateNamespaceStripping
 	// and validateNamespaceReferences parse them, because their errors name the
@@ -460,9 +466,9 @@ func (s *Scheduler) authorizeResources(ctx context.Context, pr *models.Principal
 	return s.authorizer.Authorize(ctx, pr, verb, resources...)
 }
 
-// authorizeWholeStore reports whether the caller may back up every user or
-// every role. Forbidden returns false. Any other authorizer error becomes
-// Unprocessable, as in filterBackupableClasses.
+// authorizeWholeStore reports whether the caller passes the kind-wildcard check,
+// which a pattern grant can pass without covering every ID. Forbidden returns
+// false. Any other authorizer error becomes Unprocessable, as in filterBackupableClasses.
 func (s *Scheduler) authorizeWholeStore(ctx context.Context, pr *models.Principal, wildcard []string) (bool, error) {
 	if err := s.authorizer.AuthorizeSilent(ctx, pr, authorization.CREATE, wildcard...); err != nil {
 		if errors.As(err, &authzerrors.Forbidden{}) {
@@ -559,7 +565,10 @@ func (s *Scheduler) permittedPrincipalIDs(ctx context.Context, pr *models.Princi
 // writes or deletes: per applied subsystem, the IDs this cluster holds now,
 // the IDs the snapshot carries, and the IDs meta names. A refusal names only
 // the kind wildcard, so the error does not reveal which ID exists. Built-in role names
-// in the snapshot rows count, since the restore writes their assignments.
+// in the snapshot rows count, since the restore writes their assignments. Of the
+// roles this cluster holds now, admin and viewer count too: they are API-managed,
+// and the restore replaces their API-made assignments. The env-configured
+// built-ins do not count: the restore re-applies their assignments from config.
 func (s *Scheduler) authorizeRestoredIDs(ctx context.Context, pr *models.Principal,
 	meta *backup.DistributedBackupDescriptor, blobs rolesAndUsersBlobs,
 ) error {
@@ -582,7 +591,10 @@ func (s *Scheduler) authorizeRestoredIDs(ctx context.Context, pr *models.Princip
 		if err != nil {
 			return fmt.Errorf("list all roles: %w", err)
 		}
-		names = slices.Concat(names, meta.RoleList(), customRoles(current))
+		current = slices.DeleteFunc(slices.Clone(current), func(r string) bool {
+			return slices.Contains(authorization.BuiltInRoles, r) && !slices.Contains(authorization.ApiManagedBuiltInRoles, r)
+		})
+		names = slices.Concat(names, meta.RoleList(), current)
 		if err := s.requirePermittedIDs(ctx, pr, names, authorization.BackupPrincipalRoles); err != nil {
 			return err
 		}
@@ -642,6 +654,11 @@ func literalIDs(include []string) []string {
 // replaces that subsystem's whole store, deleting every entry the snapshot
 // does not carry, so the IDs meta names never narrow it. A nil meta means it
 // could not be read; that requires both wildcards.
+//
+// FIXME: a pattern grant that matches the literal `*` passes the kind wildcard
+// that this function and backupPrincipalResources return. So status, list, and
+// cancel of a whole-store operation are not checked per ID. Deferred to a
+// follow-up.
 func restorePrincipalResources(meta *backup.DistributedBackupDescriptor) []string {
 	if meta == nil {
 		return append(authorization.BackupUsers(), authorization.BackupRoles()...)
@@ -660,6 +677,9 @@ func restorePrincipalResources(meta *backup.DistributedBackupDescriptor) []strin
 // of the backup descriptor meta requires: none for a skipped subsystem, the
 // named IDs, or the kind wildcard for an empty list. A nil meta means it could
 // not be read; that requires both wildcards.
+//
+// FIXME: a pattern grant that matches the literal `*` passes the kind wildcard
+// returned for an empty list. See restorePrincipalResources.
 func (s *Scheduler) backupPrincipalResources(meta *backup.DistributedBackupDescriptor) []string {
 	if meta == nil {
 		return append(authorization.BackupUsers(), authorization.BackupRoles()...)
@@ -1442,8 +1462,10 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 			Warn("caller may not back up all roles, backing up none: grant manage_backups on roles to include them")
 	}
 
-	// The namespaces the includeRoles selectors and the roles they resolve to
-	// name. They key the carried OIDC grants and bound an omitted includeUsers.
+	// The namespaces named by the includeRoles selectors and the roles they
+	// resolve to. An omitted includeRoles narrowed to the permitted roles counts
+	// too. These namespaces key the carried OIDC grants. Only a caller-set
+	// includeRoles limits which users an omitted includeUsers carries.
 	var namespaces []string
 	if includeRoles != nil {
 		for _, name := range slices.Concat(includeRoles, roles) {
@@ -1460,8 +1482,12 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 		if includeUsers == nil && s.userLister != nil {
 			// An omitted includeUsers backs up every dynamic user.
 			carried = s.userLister.ListAllUsers()
-			// If includeRoles specifies namespaces, only users from those namespaces are carried.
-			if len(namespaces) > 0 {
+			// If the caller set includeRoles and it names namespaces, only users
+			// from those namespaces are carried. An omitted includeRoles, even one
+			// narrowed to the permitted roles, carries every user: the user
+			// snapshot holds them all, and a roles restore replaces their
+			// admin/viewer assignments.
+			if req.IncludeRoles != nil && len(namespaces) > 0 {
 				carried = slices.DeleteFunc(slices.Clone(carried), func(id string) bool {
 					return !slices.Contains(namespaces, namespacing.NamespaceFromQualified(id))
 				})
@@ -1576,7 +1602,7 @@ func customRoles(roles []string) []string {
 //
 // Built-in roles are the exception. Naming one explicitly is rejected, and
 // wildcards expand over custom roles only, so '*' never picks up a built-in.
-// Restore re-applies the built-ins from env and code either way.
+// Restore re-applies only the env-configured built-in assignments.
 func resolveRoleSelectors(includeRoles, allRoles []string) ([]string, error) {
 	if dup := findDuplicate(includeRoles); dup != "" {
 		return nil, fmt.Errorf("role list 'includeRoles' contains duplicate: %s", dup)
@@ -1640,13 +1666,32 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		}
 		return nil, fmt.Errorf("find backup %s: %w", destPath, err)
 	}
-	// Authorize before the checks below, whose errors describe the backup.
+	// Authorize before the checks below, whose errors describe the backup. A
+	// class-less backup instead requires the users and roles wildcards, for each
+	// kind this restore can apply. Roles can apply when only carried built-in
+	// assignments exist, because Restore merges them into the roles blob.
 	cs := meta.Classes()
 	if (len(req.Include) == 0 || slices.ContainsFunc(req.Include, isWildcard)) && len(cs) > 0 {
 		if cs, err = s.filterBackupableClasses(ctx, pr, authorization.CREATE, cs); err != nil {
 			return nil, err
 		}
 		meta.Include(cs)
+	}
+	if len(cs) == 0 {
+		var wildcards []string
+		if req.UserRestoreOption != models.RestoreConfigUsersOptionsNoRestore && s.userLister != nil && !meta.SkipUsers {
+			wildcards = append(wildcards, authorization.BackupUsers()...)
+		}
+		if req.RbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore && s.roleLister != nil &&
+			(!meta.SkipRoles || len(meta.BuiltInRoleAssignments) > 0) {
+			wildcards = append(wildcards, authorization.BackupRoles()...)
+		}
+		if len(wildcards) == 0 {
+			return nil, errNothingToRestore
+		}
+		if err := s.authorizeResources(ctx, pr, authorization.CREATE, wildcards); err != nil {
+			return nil, err
+		}
 	}
 	if meta.ID != req.ID {
 		return nil, fmt.Errorf("wrong backup file: restore request asked for %q but the descriptor at %q reports its ID as %q (someone placed metadata from a different backup into this slot, or the backup_config.json was overwritten by an aborted operation; remove the slot and retry with the original backup ID)",
@@ -1679,10 +1724,6 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		}
 		if len(req.Exclude) > 0 {
 			return nil, fmt.Errorf("class-less backup cannot be restored with 'exclude': %v", req.Exclude)
-		}
-		if req.UserRestoreOption == models.RestoreConfigUsersOptionsNoRestore &&
-			req.RbacRestoreOption == models.RestoreConfigRolesOptionsNoRestore {
-			return nil, errors.New("nothing to restore: backup has no collections and both users and roles restore options are 'noRestore'")
 		}
 		if len(req.NodeMapping) > 0 {
 			meta.NodeMapping = req.NodeMapping

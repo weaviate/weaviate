@@ -2409,9 +2409,10 @@ func TestValidateRestoreRequest(t *testing.T) {
 		}, false)
 		require.Error(t, err)
 		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
-		require.Len(t, calls, 1)
+		require.Len(t, calls, 2)
 		assert.Equal(t, authorization.CREATE, calls[0].Verb)
 		assert.Equal(t, authorization.Backups("Books"), calls[0].Resources)
+		assert.Equal(t, wholeStores, calls[1].Resources, "the class-less wildcard check precedes the include 422")
 	})
 }
 
@@ -5230,7 +5231,10 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 		}, false)
 		require.NoError(t, err)
 		pr := &models.Principal{Username: "test-user"}
+		// validateRestoreRequest checks the wildcards before reading the
+		// descriptor's details, and Restore checks them again on the applied blobs.
 		assert.Equal(t, []mocks.AuthZReq{
+			{Principal: pr, Verb: authorization.CREATE, Resources: wholeStores, Method: mocks.MethodAuthorize},
 			{Principal: pr, Verb: authorization.CREATE, Resources: wholeStores, Method: mocks.MethodAuthorize},
 			{Principal: pr, Verb: authorization.CREATE, Resources: []string{"backups/users/alice"}, Method: mocks.MethodFilterAuthorizedResources},
 			{Principal: pr, Verb: authorization.CREATE, Resources: []string{"backups/roles/a"}, Method: mocks.MethodFilterAuthorizedResources},

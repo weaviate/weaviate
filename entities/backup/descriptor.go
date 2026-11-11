@@ -70,9 +70,10 @@ type DistributedBackupDescriptor struct {
 	// DedupeSkippedBytes: bytes attributed to skipping replicas; real archived ≈ PreCompressionSizeBytes − DedupeSkippedBytes.
 	DedupeSkippedBytes int64 `json:"dedupeSkippedBytes,omitempty"`
 	// SkipUsers/SkipRoles leave that subsystem out. Backup sets them when the
-	// subsystem is disabled, its include list matches nothing, or the caller lacks
-	// its wildcard. Restore discards any such blob and keeps BuiltInRoleAssignments.
-	// On a restore descriptor they mark a blob the restore does not apply.
+	// subsystem is disabled, its include list matches nothing, or the caller may
+	// back up none of its IDs. Restore discards any such blob and keeps
+	// BuiltInRoleAssignments. On a restore descriptor they mark a blob the restore
+	// does not apply.
 	SkipUsers bool `json:"skipUsers,omitempty"`
 	SkipRoles bool `json:"skipRoles,omitempty"`
 	// BuiltInRoleAssignments is an RBAC snapshot of the admin and viewer assignments the backup

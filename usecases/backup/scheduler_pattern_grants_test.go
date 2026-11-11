@@ -405,14 +405,28 @@ func TestSchedulerPatternGrants(t *testing.T) {
 			})
 		}
 
+		// The restore re-applies root's assignments from config, so a current
+		// root role needs no grant.
 		t.Run(". restores stores of single-character IDs", func(t *testing.T) {
+			out := runRestorePrincipals(t, restorePrincipalsCase{
+				auth:         patternGrantAuthorizer(t, ".", "."),
+				currentUsers: []string{"a", "b"}, blobUsers: []string{"a", "c"},
+				currentRoles: []string{"e", "w", authorization.Root}, rbacBlob: roleOnlySnapshot(t, "e", "r"),
+			})
+			require.NoError(t, out.err)
+			assert.Len(t, out.applied, 1)
+		})
+
+		t.Run("an API-managed built-in role on the cluster is checked", func(t *testing.T) {
 			out := runRestorePrincipals(t, restorePrincipalsCase{
 				auth:         patternGrantAuthorizer(t, ".", "."),
 				currentUsers: []string{"a", "b"}, blobUsers: []string{"a", "c"},
 				currentRoles: []string{"e", "w", authorization.Admin}, rbacBlob: roleOnlySnapshot(t, "e", "r"),
 			})
-			require.NoError(t, out.err)
-			assert.Len(t, out.applied, 1)
+			require.ErrorAs(t, out.err, &authzerrors.Forbidden{})
+			assert.EqualError(t, out.err, rolesDenial)
+			out.fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
+			assert.Empty(t, out.applied)
 		})
 
 		t.Run("built-in role rows in the snapshot are checked", func(t *testing.T) {

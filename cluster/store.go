@@ -1481,9 +1481,9 @@ func lastSnapshotIndex(snapshotStore *raft.FileSnapshotStore) uint64 {
 }
 
 // resetRBACIfNoSnapshot wipes the in-memory RBAC store, including any state
-// seeded from a legacy policy.csv, down to the predefined roles. It runs when
-// no raft snapshot exists: raft then replays the whole log, so replay rebuilds
-// exactly what the wipe removed.
+// seeded from a legacy policy.csv, down to the predefined roles. It runs only
+// when no raft snapshot exists and the log starts at index 1, so replaying the
+// whole log rebuilds exactly what the wipe removed.
 func (st *Store) resetRBACIfNoSnapshot() error {
 	if st.cfg.RBAC == nil {
 		return nil

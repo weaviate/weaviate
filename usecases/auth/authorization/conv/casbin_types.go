@@ -141,7 +141,7 @@ func CasbinBackups(class string) string {
 	return fmt.Sprintf("%s/collections/%s", authorization.BackupsDomain, class)
 }
 
-// The backups-domain path segments naming the non-collection backup targets.
+// The backups-domain path segments naming each backup target.
 const (
 	backupsCollectionsSegment = "collections"
 	backupsUsersSegment       = "users"
