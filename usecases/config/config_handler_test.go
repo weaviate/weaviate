@@ -530,7 +530,7 @@ func TestConfigValidation_Namespaces(t *testing.T) {
 
 // A config file is unmarshalled straight into Persistence, past every refusal
 // the environment parser makes.
-func TestPersistenceValidateIndexRangeableInMemoryProps(t *testing.T) {
+func TestPersistenceValidateIndexCollectionProps(t *testing.T) {
 	tests := []struct {
 		name   string
 		props  map[string][]string
@@ -548,6 +548,20 @@ func TestPersistenceValidateIndexRangeableInMemoryProps(t *testing.T) {
 			props: map[string][]string{"Foo": {AllProperties}},
 		},
 		{
+			name:  "every collection",
+			props: map[string][]string{AllCollections: {AllProperties}},
+		},
+		{
+			name:   "named properties of every collection are refused",
+			props:  map[string][]string{AllCollections: {"price"}},
+			errMsg: "every collection takes only",
+		},
+		{
+			name:   "every collection with no properties is refused",
+			props:  map[string][]string{AllCollections: {}},
+			errMsg: "every collection takes only",
+		},
+		{
 			name:   "a collection with no properties is refused",
 			props:  map[string][]string{"Foo": {}},
 			errMsg: "with no properties",
@@ -559,15 +573,33 @@ func TestPersistenceValidateIndexRangeableInMemoryProps(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			p := Persistence{DataPath: "./data", IndexRangeableInMemoryProps: tt.props}
-			err := p.Validate()
-			if tt.errMsg != "" {
-				require.ErrorContains(t, err, tt.errMsg)
-				return
-			}
-			require.NoError(t, err)
-		})
+	fields := []struct {
+		name string
+		set  func(*Persistence, map[string][]string)
+	}{
+		{
+			name: "persistence.indexRangeableInMemoryProps",
+			set:  func(p *Persistence, m map[string][]string) { p.IndexRangeableInMemoryProps = m },
+		},
+		{
+			name: "persistence.indexFilterableMMapProps",
+			set:  func(p *Persistence, m map[string][]string) { p.IndexFilterableMMapProps = m },
+		},
+	}
+
+	for _, field := range fields {
+		for _, tt := range tests {
+			t.Run(field.name+"/"+tt.name, func(t *testing.T) {
+				p := Persistence{DataPath: "./data"}
+				field.set(&p, tt.props)
+				err := p.Validate()
+				if tt.errMsg != "" {
+					require.ErrorContains(t, err, tt.errMsg)
+					require.ErrorContains(t, err, field.name)
+					return
+				}
+				require.NoError(t, err)
+			})
+		}
 	}
 }

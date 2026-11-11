@@ -671,12 +671,19 @@ func FromEnv(config *Config) error {
 	config.HFreshEnabled = true
 
 	if v := strings.TrimSpace(os.Getenv(indexRangeableInMemoryEnv)); v != "" {
-		all, props, err := parseIndexRangeableInMemory(cptParser, v)
+		props, err := parseIndexRangeableInMemory(cptParser, v)
 		if err != nil {
 			return err
 		}
-		config.Persistence.IndexRangeableInMemory = all
 		config.Persistence.IndexRangeableInMemoryProps = props
+	}
+
+	if v := strings.TrimSpace(os.Getenv(indexFilterableMMapEnv)); v != "" {
+		props, err := parseIndexCollectionProps(cptParser, indexFilterableMMapEnv, v)
+		if err != nil {
+			return err
+		}
+		config.Persistence.IndexFilterableMMapProps = props
 	}
 
 	if err := parseInt(
@@ -2236,46 +2243,57 @@ func parseClusterConfig() (cluster.Config, error) {
 	return cfg, nil
 }
 
-const indexRangeableInMemoryEnv = "INDEX_RANGEABLE_IN_MEMORY"
+const (
+	indexRangeableInMemoryEnv = "INDEX_RANGEABLE_IN_MEMORY"
+	indexFilterableMMapEnv    = "INDEX_FILTERABLE_MMAP"
+)
 
-// parseIndexRangeableInMemory reads INDEX_RANGEABLE_IN_MEMORY, which is either a
-// value [entcfg.Enabled] accepts or the "Col1:prop1,prop2;Col2:*" shape naming
-// the properties that get the index. [entcfg.Enabled] is asked first because
-// "True" matches [schema.ClassNameRegexCore]. A namespaced collection cannot be
-// named, since [schema.NamespaceSeparator] is the ":" a segment splits on.
+// parseIndexRangeableInMemory reads INDEX_RANGEABLE_IN_MEMORY as
+// parseIndexCollectionProps does, and also reads a value [entcfg.Enabled] accepts
+// as [AllCollections]. It asks first, since "True" matches [schema.ClassNameRegexCore].
 func parseIndexRangeableInMemory(p *collectionPropsTenantsParser, v string,
-) (all bool, props map[string][]string, err error) {
+) (map[string][]string, error) {
 	if entcfg.Enabled(v) {
-		return true, nil, nil
+		v = AllCollections
+	} else if v != AllCollections && !strings.ContainsAny(v, ":;") &&
+		!p.regexpCollection.MatchString(v) {
+		// Naming no collection leaves the index off, so "false" and "2" still start.
+		return nil, nil
 	}
-	// Naming no collection leaves the index off, so "false" and "2" still start.
-	if !strings.ContainsAny(v, ":;") && !p.regexpCollection.MatchString(v) {
-		return false, nil, nil
+	return parseIndexCollectionProps(p, indexRangeableInMemoryEnv, v)
+}
+
+// parseIndexCollectionProps parses v, the value of the variable env names, in the
+// shape "Col1:prop1,prop2;Col2:*" or as [AllCollections] alone. A namespaced collection
+// cannot be named, since [schema.NamespaceSeparator] is the ":" a segment splits on.
+func parseIndexCollectionProps(p *collectionPropsTenantsParser, env, v string,
+) (map[string][]string, error) {
+	if v == AllCollections {
+		return map[string][]string{AllCollections: {AllProperties}}, nil
 	}
 
 	cpts, err := p.parse(v)
 	if err != nil {
-		return false, nil, fmt.Errorf("parse %s as class with props: %w", indexRangeableInMemoryEnv, err)
+		return nil, fmt.Errorf("parse %s as class with props: %w", env, err)
 	}
 
-	// Refused rather than guessed at, since either reading costs memory for the
-	// life of the process. A tenant narrows nothing, because an index is built
-	// per shard. A bare collection means no properties to the reindex variable.
-	props = make(map[string][]string, len(cpts))
+	// A tenant is refused, since the setting is resolved per collection. A bare
+	// collection is refused rather than read as every property, since
+	// REINDEX_INDEXES_AT_STARTUP reads the same string as no properties.
+	props := make(map[string][]string, len(cpts))
 	for _, cpt := range cpts {
 		if len(cpt.Tenants) > 0 {
-			return false, nil, fmt.Errorf("%s takes no tenants, and %q names %d: the in-memory "+
-				"rangeable index is built per shard, so it covers every tenant of a "+
-				"collection or none", indexRangeableInMemoryEnv, cpt.Collection, len(cpt.Tenants))
+			return nil, fmt.Errorf("%s takes no tenants, and %q names %d: the setting "+
+				"applies to every shard, so it covers every tenant of a collection or none",
+				env, cpt.Collection, len(cpt.Tenants))
 		}
 		if len(cpt.Props) == 0 {
-			return false, nil, fmt.Errorf("%s names %q with no properties: list them, or write %q "+
-				"for every rangeable property it has", indexRangeableInMemoryEnv,
-				cpt.Collection, cpt.Collection+":"+AllProperties)
+			return nil, fmt.Errorf("%s names %q with no properties: list them, or write %q "+
+				"for every property it has", env, cpt.Collection, cpt.Collection+":"+AllProperties)
 		}
 		props[cpt.Collection] = cpt.Props
 	}
-	return false, props, nil
+	return props, nil
 }
 
 /*
@@ -2303,6 +2321,10 @@ of the collection or refuses it.
 // AllProperties stands for every property of the collection carrying it. No
 // property can be named this, so it is never ambiguous.
 const AllProperties = "*"
+
+// AllCollections, given as a whole value, stands for every property of every
+// collection, and is the key that value is stored under.
+const AllCollections = "*"
 
 type collectionPropsTenantsParser struct {
 	regexpCollection *regexp.Regexp
