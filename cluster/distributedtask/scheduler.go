@@ -128,6 +128,8 @@ const maxCompletedCallbackAttempts = 5
 type Scheduler struct {
 	mu           sync.Mutex
 	runningTasks map[string]map[TaskDescriptor]TaskHandle
+	// startLogged holds the started tasks whose first start was logged; pruned each tick, since some providers never report tasks for cleanup.
+	startLogged map[string]map[TaskDescriptor]struct{}
 
 	providers          map[string]Provider // namespace -> Provider
 	completionRecorder TaskCompletionRecorder
@@ -150,6 +152,7 @@ type Scheduler struct {
 	// sharing sampledLogger's budget would crowd out its one-off errors.
 	unrecognizedStatusLogger *logrusext.Sampler
 	postCompletionAckLogger  *logrusext.Sampler
+	relaunchLogger           *logrusext.Sampler
 
 	tasksRunning *prometheus.GaugeVec
 
@@ -242,6 +245,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 
 	return &Scheduler{
 		runningTasks: map[string]map[TaskDescriptor]TaskHandle{},
+		startLogged:  map[string]map[TaskDescriptor]struct{}{},
 
 		providers:          params.Providers,
 		completionRecorder: params.CompletionRecorder,
@@ -263,6 +267,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 
 		unrecognizedStatusLogger: logrusext.NewSampler(params.Logger, 3, unrecognizedStatusWarnWindow),
 		postCompletionAckLogger:  logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
+		relaunchLogger:           logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
 
 		tasksRunning: promauto.With(params.MetricsRegisterer).NewGaugeVec(prometheus.GaugeOpts{
 			Name: "weaviate_distributed_tasks_running",
@@ -856,6 +861,11 @@ func (s *Scheduler) reconcileRunningTasks(
 			}
 		}
 		startedTasks = s.filterStartedTasks(tasks)
+		for desc := range s.startLogged[namespace] {
+			if _, ok := startedTasks[desc]; !ok {
+				delete(s.startLogged[namespace], desc)
+			}
+		}
 		for _, activeTask := range startedTasks {
 			if _, alreadyLaunched := s.runningTasks[namespace][activeTask.TaskDescriptor]; alreadyLaunched {
 				continue
@@ -882,12 +892,25 @@ func (s *Scheduler) reconcileRunningTasks(
 			})
 			continue
 		}
-		func() {
+		relaunch := func() bool {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			s.recordRunningTaskHandleLocked(namespace, activeTask.TaskDescriptor, handle)
+			if s.startLogged[namespace] == nil {
+				s.startLogged[namespace] = map[TaskDescriptor]struct{}{}
+			}
+			_, logged := s.startLogged[namespace][activeTask.TaskDescriptor]
+			s.startLogged[namespace][activeTask.TaskDescriptor] = struct{}{}
+			return logged
 		}()
-		s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
+		if !relaunch {
+			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
+			continue
+		}
+		// A task whose unit waits on an operator is relaunched on every tick and wake.
+		s.relaunchLogger.WithSampling(func(logrus.FieldLogger) {
+			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
+		})
 	}
 	for _, kill := range toTerminate {
 		kill.handle.Terminate()
@@ -974,9 +997,10 @@ func (s *Scheduler) runPreparationPhase(
 			// context.Canceled is the provider's retryable signal; dropping the mark lets a retry happen.
 			if errors.Is(groupErr, context.Canceled) {
 				delete(state.preparationCallbackFired, w.groupID)
+				// This line is at Debug because a step that waits on an operator re-fires every tick, and the provider logs that wait itself.
 				s.loggerWithTask(namespace, desc).
 					WithField("groupID", w.groupID).
-					Info("PREP phase did not complete and is retryable; a later tick or the next boot re-fires it and emits the prep-complete ack")
+					Debugf("PREP phase did not complete and is retryable; a later tick or the next boot re-fires it and emits the prep-complete ack: %v", groupErr)
 				continue
 			}
 			if state.preparationCompletionGroupErrors == nil {
@@ -985,12 +1009,14 @@ func (s *Scheduler) runPreparationPhase(
 			state.preparationCompletionGroupErrors[w.groupID] = groupErr
 		}
 		prepState := s.perTaskStateLocked(desc)
-		if s.ackRecorder == nil ||
-			(prepState != nil && prepState.preparationAckEmitted) ||
-			!s.allLocalGroupsPreparationFiredLocked(task, desc) {
+		if s.ackRecorder == nil || (prepState != nil && prepState.preparationAckEmitted) {
 			return prepAckSnapshot{}
 		}
+		// A failure is acked at once; only a success waits for every group.
 		success, joined := s.aggregatePreparationAckErrorsLocked(task, desc)
+		if success && !s.allLocalGroupsPreparationFiredLocked(task, desc) {
+			return prepAckSnapshot{}
+		}
 		return prepAckSnapshot{eligible: true, success: success, joined: joined}
 	}()
 	if !ackSnap.eligible {
@@ -1124,7 +1150,7 @@ func (s *Scheduler) runSwapPhase(
 				delete(state.groupCallbackFired, w.groupID)
 				s.loggerWithTask(namespace, desc).
 					WithField("groupID", w.groupID).
-					Info("SWAP callback did not complete and is retryable; a later tick or the next boot re-fires it and emits the post-completion ack")
+					Debugf("SWAP callback did not complete and is retryable; a later tick or the next boot re-fires it and emits the post-completion ack: %v", groupErr)
 				continue
 			}
 			// Record nil too so the ack-emission gate can tell "fired and
@@ -1137,11 +1163,14 @@ func (s *Scheduler) runSwapPhase(
 		ackState := s.perTaskStateLocked(desc)
 		if s.ackRecorder == nil ||
 			(ackState != nil && ackState.postCompletionAckEmitted) ||
-			task.Status == TaskStatusStarted ||
-			!s.allLocalGroupsFiredLocked(task, desc) {
+			task.Status == TaskStatusStarted {
 			return swapAckSnapshot{}
 		}
+		// A failure is acked at once; only a success waits for every group.
 		success, joined := s.aggregateAckErrorsLocked(task, desc)
+		if success && !s.allLocalGroupsFiredLocked(task, desc) {
+			return swapAckSnapshot{}
+		}
 		return swapAckSnapshot{eligible: true, success: success, joined: joined}
 	}()
 	if !ackSnap.eligible {
@@ -1439,9 +1468,7 @@ func (s *Scheduler) loggerWithTask(namespace string, taskDesc TaskDescriptor) *l
 // OnGroupCompleted fire on THIS scheduler instance (i.e.
 // s.groupCallbackFired[desc][groupID] == true). Caller must hold s.mu.
 //
-// Used as the gating predicate for emitting the per-node post-completion
-// ack: we only ack after every relevant local group has fired, so the
-// aggregated success/error reflects the full local picture for the task.
+// Gates a successful per-node post-completion ack; a failure is acked without it.
 //
 // Groups in which this node has zero local units are skipped — those
 // groups' OnGroupCompleted only fires on the nodes that own units in
@@ -1461,7 +1488,7 @@ func (s *Scheduler) allLocalGroupsFiredLocked(task *Task, desc TaskDescriptor) b
 }
 
 // allLocalGroupsPreparationFiredLocked — PREP counterpart to allLocalGroupsFiredLocked.
-// Gates per-node RecordPreparationCompleteAck emission. Caller must hold s.mu.
+// Gates a successful RecordPreparationCompleteAck only. Caller must hold s.mu.
 func (s *Scheduler) allLocalGroupsPreparationFiredLocked(task *Task, desc TaskDescriptor) bool {
 	state := s.perTaskStateLocked(desc)
 	for _, groupID := range task.Groups() {

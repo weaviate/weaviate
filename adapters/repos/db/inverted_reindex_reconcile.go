@@ -152,14 +152,17 @@ func (r *migrationReconciler) freezeNotice() {
 
 func (r *migrationReconciler) WedgedCount() int { return len(r.wedgedKeys) }
 
-func (r *migrationReconciler) Reconcile(ctx context.Context) error {
+func (r *migrationReconciler) Load() error {
 	if err := r.store.Load(); err != nil {
 		// The load's own fault is recorded as unreadable, so the freeze this
 		// return causes is announced on this path too.
 		r.freezeNotice()
 		return fmt.Errorf("load migration records: %w", err)
 	}
+	return nil
+}
 
+func (r *migrationReconciler) Reconcile(ctx context.Context) {
 	someRecordsUnreadable := len(r.store.Unreadable()) > 0
 	if someRecordsUnreadable {
 		r.freezeNotice()
@@ -173,7 +176,7 @@ func (r *migrationReconciler) Reconcile(ctx context.Context) error {
 		// the RAFT apply loop, where every further apply queues behind it.
 		if err := ctx.Err(); err != nil {
 			r.logger.Errorf("stopping the migration-record pass on this shard: %v", err)
-			return nil
+			return
 		}
 		if err := r.reconcileOne(ctx, rec, someRecordsUnreadable); err != nil {
 			// One migration must not keep a shard from loading. Not marked on the
@@ -184,7 +187,6 @@ func (r *migrationReconciler) Reconcile(ctx context.Context) error {
 			r.logger.WithField("record", rec.Subject().Key.String()).Errorf("reconcile migration record: %v", err)
 		}
 	}
-	return nil
 }
 
 // someUnreadable: an unreadable record's properties count as unreadable, so
@@ -946,8 +948,8 @@ func (r *migrationReconciler) discard(ctx context.Context, subject MigrationSubj
 
 // Unlike the passes, returns what it could not discard: terminal cleanup reports it.
 func (r *migrationReconciler) DiscardTask(ctx context.Context, task *distributedtask.Task) error {
-	if len(r.store.Unreadable()) > 0 {
-		return errors.New("a migration record on this shard cannot be read, so no record is discarded")
+	if unreadable := r.store.Unreadable(); len(unreadable) > 0 {
+		return &cleanupWithheldError{faults: unreadable}
 	}
 	verdict, why := migrationVerdictForTask(task.StatusEntry())
 	if verdict != migrationVerdictDiscard {

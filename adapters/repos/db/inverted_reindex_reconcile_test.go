@@ -170,7 +170,8 @@ func (f *reconcileFixture) warned(want string) bool {
 func (f *reconcileFixture) reconcile() *migrationReconciler {
 	f.t.Helper()
 	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	require.NoError(f.t, r.Reconcile(context.Background()))
+	require.NoError(f.t, r.Load())
+	r.Reconcile(context.Background())
 	f.requireMigrationDirsTrackRecords()
 	return r
 }
@@ -848,8 +849,9 @@ func TestAnUnreadableRecordWithholdsEveryDestructiveArm(t *testing.T) {
 	// pass, and both have to withhold.
 	newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).RetireSuperseded(context.Background())
 	f.reconcile()
-	require.Error(t, newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
-		DiscardTask(context.Background(), f.tasks[0]), "terminal cleanup has to report what it withheld")
+	require.ErrorIs(t, newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
+		DiscardTask(context.Background(), f.tasks[0]), errCleanupShardWithheld,
+		"terminal cleanup has to report what it withheld")
 
 	require.True(t, f.exists("property_title__g42_ingest"), "a discard removes a directory an unreadable record may name")
 	require.True(t, f.exists("property_body__g50_ingest"), "a promotion renames over one")
@@ -868,7 +870,7 @@ func TestReconcileNotUnderstoodNamesTheDirectoryWhenItIsUnreadable(t *testing.T)
 
 	f := newReconcileFixtureAt(t, lsmPath)
 	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	require.Error(t, r.Reconcile(context.Background()))
+	require.Error(t, r.Load())
 
 	require.Len(t, f.logs.AllEntries(), 1)
 	notice := f.logs.AllEntries()[0]
@@ -878,6 +880,10 @@ func TestReconcileNotUnderstoodNamesTheDirectoryWhenItIsUnreadable(t *testing.T)
 	require.NotContains(t, notice.Message, "not understood", "no record was read, so none can be miscounted")
 	require.NotContains(t, notice.Message, "downgrade", "no older build reads a file that is not there")
 	require.NotContains(t, notice.Message, "remove the files", "there is no file to remove")
+
+	withheld := r.DiscardTask(context.Background(), testTask("T", 1, distributedtask.TaskStatusCancelled))
+	require.ErrorIs(t, withheld, errCleanupShardWithheld)
+	require.Contains(t, withheld.Error(), "not a directory", "terminal cleanup names the fault it withheld for")
 }
 
 // A pass that renamed nothing must not write a Promoted record, and must not
@@ -1717,8 +1723,8 @@ func TestACancelledPassRemovesNothing(t *testing.T) {
 	cancel()
 
 	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	require.NoError(t, r.Reconcile(ctx),
-		"a shard load must not fail because the activation that drove it was cancelled")
+	require.NoError(t, r.Load())
+	r.Reconcile(ctx)
 
 	_, present := f.state(subject.Key)
 	require.True(t, present, "a pass that stopped decided nothing")

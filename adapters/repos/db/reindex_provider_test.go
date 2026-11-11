@@ -279,8 +279,8 @@ func TestUniqueShardsFromPayload_SkipsEmptyShardName(t *testing.T) {
 // wording is the only place that difference reaches the operator.
 //
 // The two sweep paths look at the same disk, so the phase is the only thing
-// that may differ between their lines. A shard that could not be swept is the
-// one outcome that confirms state remains, so it alone is an Error.
+// that may differ between their lines. A shard that could not be swept and one
+// whose cleanup was withheld both need an operator, so both are Errors.
 func TestCleanupSweepSummary(t *testing.T) {
 	const (
 		unchecked = ": the sweep did not reach every shard, so what is on the ones it missed or did not finish is unverified"
@@ -319,6 +319,12 @@ func TestCleanupSweepSummary(t *testing.T) {
 			outcome:   CleanupSweepFailed,
 			wantLevel: logrus.ErrorLevel,
 			wantTail:  ": a shard could not be swept, so it is left partly swept with nothing scheduled to finish it",
+		},
+		{
+			name:      "a shard's cleanup was withheld",
+			outcome:   CleanupSweepWithheld,
+			wantLevel: logrus.ErrorLevel,
+			wantTail:  ": a shard has a migration record fault, so its cleanup is withheld. Fix that fault and restart the node (or deactivate and reactivate the tenant)",
 		},
 		{
 			// A new outcome nobody wired in here arrives through the max fold,
@@ -399,6 +405,13 @@ func TestClassifyCleanupSweep(t *testing.T) {
 			err:         errors.Join(shardFailed(diskFull), classifyIncompleteWalk(errIndexDropped)),
 			wantOutcome: CleanupSweepFailed,
 			wantFailure: diskFull,
+		},
+		{
+			name: "a shard's cleanup was withheld and then the collection was deleted",
+			err: errors.Join(fmt.Errorf("shard %q: %w", "tenant-1", errCleanupShardWithheld),
+				classifyIncompleteWalk(errIndexDropped)),
+			wantOutcome: CleanupSweepWithheld,
+			wantFailure: errCleanupShardWithheld,
 		},
 		{
 			name:        "a shard failed and the walk was cut short",

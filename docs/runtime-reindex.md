@@ -86,7 +86,8 @@ together into a small REST surface rooted at
 > The cancel verb and `GET .../indexes` keep working, so a task that was
 > already running stays observable and, for as long as it is still
 > `STARTED`, cancellable (§12). Everything below describes behavior with
-> the flag on.
+> the flag on, except recovery at shard load (§6.2), which re-arms or
+> stamps an in-flight migration whatever the flag says.
 
 A replica movement requested while a migration runs on its collection is
 refused with 409. One that reaches a shard still being cleaned up after a
@@ -856,12 +857,11 @@ the `Touches*` predicates intentionally panic on unknown migration
 types so a new `ReindexMigrationType` cannot silently be treated as
 "doesn't touch X" — it surfaces on the first request.
 
-**`reindex_recovery.go`** — `DiscoverInFlightReindexTasks`,
-`buildRecoveryTasks`, `NewShardReindexerV3FromRecovered`,
-`SeedReindexProviderFromRecovery`. Called from `MakeAppState` BEFORE
-`DB.WaitForStartup`, so reconstructed `ShardReindexTaskGeneric`
-instances are registered before any post-restart write can reach the
-shard. See §6 crash safety.
+**`reindex_recovery.go`** — `MigrationRecoveryReindexer`
+(`RecoverMigrations`, `AbandonUnarmed`) and `buildRecoveryTasks`.
+`MakeAppState` sets it as the DB's `ShardReindexerV3` before any shard
+loads, so each shard rebuilds its in-flight tasks and re-arms their
+double-write mirrors before it takes a write. See §6 crash safety.
 
 **`reindex_cancel_cleanup.go`** — `DB.NewStalePartialReindexSweep(tenants)`
 returns a `func(ctx, collection, prop, indexType) error` that fans out to
@@ -884,7 +884,7 @@ cached snapshot.
 `inverted_reindex_strategy_dir_names.go`). The finalize algorithm
 handles every shape defensively: tidied / merged-but-not-
 tidied / lower-gen sidecars / in-flight gens left alone for
-`DiscoverInFlightReindexTasks` to pick up.
+recovery at shard load (§6.2) to pick up.
 
 ### 4.5 Strategy implementations — `inverted_reindex_strategy_*.go`
 
@@ -1022,34 +1022,144 @@ transition rewrites it atomically:
 | `checkpoint` | The last processed key, while iterating. |
 | `flip` | The swapped properties and the directories they displaced. |
 
-### 6.2 Recovery — startup `DB` init
+### 6.2 Recovery — at shard load
 
-Sequence in `MakeAppState`:
+Recovery runs as each shard loads, not at boot, so a shard that never
+loads (a cold tenant) costs nothing. `MakeAppState` builds the reindex
+provider and the `MigrationRecoveryReindexer` before any shard loads.
+Then, per shard load:
 
-1. `DiscoverInFlightReindexTasks(rootPath)` reads every shard's migration
-   records. It runs before Raft opens, so the record is its only source. For
-   each record whose iteration finished and whose flip is not promoted, it
-   rebuilds a per-shard `ShardReindexTaskGeneric`: the generation is the
-   record's task version, and a change-tokenization half is chosen by the
-   record's strategy code. The narrow window — "iterated but not yet
-   promoted" — is exactly the recovery gap the design exists to close.
-2. `NewShardReindexerV3FromRecovered` wires the recovered tasks into
-   a stripped-down recovery-only `ShardReindexerV3` that fires
-   `OnAfterLsmInit` per shard load — re-installing the double-write
-   callbacks BEFORE any post-restart write can reach the shard.
-   Without this, writes that arrive between shard init and the swap
-   that completes a deferred reindex go only to the old main bucket
-   and are lost when the swap replaces it with the ingest bucket.
-3. `SeedReindexProviderFromRecovery` pre-populates the provider's
-   per-descriptor task cache so `OnGroupCompleted` reuses the same
-   instances rather than creating fresh ones and calling
-   `OnAfterLsmInit` a second time (which would attempt to load
-   already-loaded ingest buckets).
-4. `FinalizeCompletedMigrations` runs per shard before LSM init
-   reloads any buckets. For each `(prop, indexType)`, finds the
-   highest tidied (or merged-but-not-tidied) generation, promotes
-   its ingest dir to the canonical name, deletes lower-gen
-   sidecars. See §9 for the multi-gen algorithm.
+1. `Shard.finalizeLegacyMigrations` runs before any record is read and
+   before any bucket opens, because it renames bucket directories. It
+   finishes the migrations a previous version left finished, as named by
+   their tracker files. See §9 for the multi-gen algorithm.
+2. The shard loads its migration records once. A records directory that
+   cannot be read is reported by the load reconciler, and nothing is
+   recovered.
+3. `RecoverMigrations` reads those records. Raft may not be open yet, so
+   the record is its only source. For each record whose iteration
+   finished and whose flip is not promoted, it rebuilds a per-shard
+   `ShardReindexTaskGeneric`: the generation is the record's task
+   version, and a change-tokenization half is chosen by the record's
+   strategy code. The narrow window — "iterated but not yet promoted" —
+   is exactly the recovery gap the design exists to close. A record it
+   cannot build a task from is stamped `Unmirrored`, unless another record
+   on the shard is unreadable, which freezes the store and the load
+   reconciler instead. New tasks seed the
+   provider's per-descriptor task cache, so `OnGroupCompleted` reuses
+   the armed instances instead of calling `OnAfterLsmInit` a second
+   time (which would attempt to load already-loaded ingest buckets). A
+   reload of the same shard gets back the instances the provider holds,
+   which is their only owner. A load after the task ended still arms its
+   migration from the record but caches nothing, so an ended task's
+   instances are not kept; the provider keeps one descriptor per ended
+   task until restart.
+4. The load reconciler runs over the same records. It runs after the
+   stamp, because it must not promote stale staged data over the live
+   bucket.
+5. Once the shard's buckets are open, `Shard.armRecoveredMigrations`
+   calls `OnAfterLsmInit` on each recovered task, re-installing the
+   double-write callbacks before any post-restart write can reach the
+   shard. Without this, writes that arrive between shard init and the
+   swap that completes a deferred reindex go only to the old main bucket
+   and are lost when the swap replaces it with the ingest bucket. The arm
+   does not use the request's context, so a client that gives up on a
+   lazy load cannot fail it. The outcomes:
+   - **The mirror arms.** The migration continues.
+   - **The mirror fails to arm and the stamp lands.** The shard loads
+     writable. `AbandonUnarmed` stamps the record `Unmirrored` and drops
+     the unit's tasks from the provider's cache. `RunPrepareOnShard`
+     refuses an `Unmirrored` record. For a semantic migration, if this node
+     has not yet acked its prepare, its ack fails and the task goes `FAILED`
+     before any replica or sibling half swaps; once it has acked, other
+     replicas can swap before this node's swap phase refuses the unit and
+     fails the task. For a format-only migration (no prepare barrier), the
+     unit fails, and other replicas may already have swapped. Either way
+     it has to be resubmitted. Replicas that swapped before the refusal
+     keep the new tokenization while the schema keeps the old one. Their
+     queries use the new tokenization until a resubmitted migration
+     finishes, which is what repairs them. A task can already be past its prepare, as when
+     the node restarts mid-swap, so the swap phase checks every task of the
+     unit first and swaps none of them if any record is `Unmirrored`.
+   - **The mirror fails to arm and no stamp can be written.** This covers a
+     failing disk, an unreadable record on the shard (the store then
+     refuses every write), and a migration already swapped in (a stamp
+     would block the promotion that serves its new index). The shard loads
+     `READONLY` with its own status reason: it serves reads and takes no
+     writes, so the staged copy stays current.
+     - The held migration's own prepare and swap wait instead of
+       failing, and the scheduler runs them again on a later tick.
+       Another migration's repair, rebuild or iteration unit, prepare or
+       swap waits the same way. If the shard also holds an unreadable
+       record, a unit fails its migration, as on any shard; a prepare or
+       swap fails only when its migration has no task cached on the
+       shard, and otherwise waits too.
+     - The shard list (`GET /v1/schema/<class>/shards`) shows only
+       READONLY, with no reason, the same as under disk pressure. The
+       node's `reindex_held_shards` gauge counts its held shards, with no
+       labels; it drops when a hold is lifted or the shard shuts down or
+       is dropped.
+     - The owning node logs one Error line per hold, when it starts,
+       naming the shard, the cause and the way out. A waiting step's
+       retry line is at Debug and names the hold; with Debug on it
+       repeats once per held shard and waiting migration on every tick
+       and wake. A task whose unit waits is relaunched on every tick and
+       wake. A task's first "started distributed task execution" line is
+       always logged; the line for each relaunch is sampled on a budget
+       of its own: at most 5 a node per 5 ticks. A unit, prepare or swap that waits, including one of a
+       migration submitted after the hold began, logs a Warn naming its
+       task, unit and shard. These lines share one budget with the line
+       about a teardown holding a unit: at most 10 a minute per node.
+     - A refused write names the hold's status reason; a refused lift
+       names the cause, or that a recovery retry started.
+     - Of the status writers, only a manual status update starts a lift, and a restart retries too (below). A vector-index config
+       change is refused while the shard is READONLY, and disk-pressure
+       recovery lifts only its own reason.
+     - A lift never waits for the disk: it starts a retry of the arm in the
+       background and is refused at once. If the mirror arms, the retry makes the
+       shard writable once disk and memory pressure clears, and the migration continues; if only the stamp lands,
+       the migration must be
+       resubmitted; otherwise any bucket the retry opened is set back to
+       READONLY, the owning node logs the cause at Error level, and the
+       next lift starts another retry. Every refused
+       lift shows up on each replica where the shard is held as an `apply
+       command` Error and in `weaviate_cluster_store_fsm_apply_failures_total`.
+       Here that does not mean the cluster state diverged.
+     - The way out depends on what stopped the arm, which the hold log and
+       the refusal name. For a migration not yet swapped in, clearing what
+       blocks the stamp also ends the hold: the stamp lands, and the
+       migration must be resubmitted. That exit does not
+       apply when a migration already swapped in is held on the same shard:
+       the hold covers the whole shard, so the migration not yet swapped in
+       is not stamped and does not fail, and both wait until the shard is
+       repaired and set READY. Until then its task keeps blocking deleting
+       the collection, deleting or deactivating its tenants, and updating
+       the properties it covers.
+
+       | What stopped the arm | Way out |
+       |---|---|
+       | The disk fails reads or writes | Once it works, set the shard READY |
+       | A staged bucket cannot open because a segment file is damaged | Repair that file in place, then set the shard READY or restart the node. Never put back an older copy: compaction reuses segment file names, so an older copy silently lacks entries a later compaction merged in. If the migration is not yet swapped in and no migration already swapped in is held on the same shard, you can instead make the records dir writable (or repair the unreadable record and restart) and set READY: the migration then fails and must be resubmitted |
+       | A migration already swapped in whose segment cannot be repaired, while its promotion is blocked: by a second fault (an unwritable records dir or another unreadable record), or because this node loaded before applying the schema change the migration makes | No supported exit. While its task still runs, it blocks deleting the collection, deleting or deactivating its tenants, and updating the properties it covers, and so does any other migration whose unit, prepare or swap waits on this shard; a failed step on any node can move a SWAPPING task to FAILED, which lifts its block but not the hold. Once the task has FINISHED (a swapped-in record outlives its task until the shard's next load), only such another migration blocks those changes (cancel it first if it is STARTED), and this shard stays READONLY. The replica copy below is refused while any task on the collection is still running, including a migration that waits on this shard past STARTED, which cannot be cancelled. Clearing what blocks the promotion and restarting makes the shard fail to load. Once the task has FINISHED, look for a healthy copy first. With a replication factor above 1, it may be possible to rebuild the tenant from a healthy replica with the replication API: copy it to a node that does not hold it (`POST /v1/replication/replicate`, type `COPY`), then remove the broken replica with a scale plan (`POST /v1/replication/scale`, `removeNodes`), after making its records dir writable. Removing a held replica has not been verified, so confirm on a test cluster before relying on it. With a replication factor of 1 there is no healthy copy: restoring a backup replaces the whole collection (delete it, then restore it), and every write since the backup is lost on every tenant. Deleting the tenant also ends the hold, but it permanently deletes that tenant's data on every replica; use it only when no copy or backup can recover the tenant, and make the records dir writable first, or the delete leaves the record behind. Deactivating the tenant is not a way out: while the promotion is still blocked, reactivating holds the shard again; once nothing blocks it, reactivating makes the shard fail to load, as a restart does. |
+     - Reads are served while the retry runs, and a lift meanwhile is
+       refused. The owning node runs a lift inside its schema apply, which
+       therefore never waits on the disk. The shard's shutdown waits for a
+       running retry: a migration is stamped only because its arm failed,
+       never because the shard shut down. The migration's steps wait until
+       the shard is writable. A cancel or
+       failure that ends the migration while the retry runs waits up to
+       10 s for it; past that, cleanup on this node is skipped with a
+       Warn, and the next reconciliation pass (within a minute of the
+       retry ending) disarms the mirror and removes the staged data. A
+       lift that meets such a
+       cleanup leaves that migration held and is refused; set the status
+       again once the cleanup ends.
+     - On a multi-node cluster the status PUT can answer 200 while the
+       owning node refused the lift. Confirm whether the shard is still
+       READONLY with `GET /v1/schema/<class>/shards`, and read the cause in
+       the owning node's log.
+     - A restart retries too. An unreadable record stays unreadable until
+       it is repaired and the node restarted.
 
 ### 6.3 The two-phase ack barrier (PREPARING + SWAPPING)
 
@@ -1377,8 +1487,8 @@ Per namespace (strategy-prefix + props-suffix):
      **CRITICAL:** otherwise this node serves the old data under the
      new schema → divergence vs other replicas → #10675-shape bug.
 5. Remove every dir on disk with gen < effective.
-6. Leave gens > effective alone (in-flight; `DiscoverInFlightReindexTasks`
-   handles them).
+6. Leave gens > effective alone (in-flight; recovery at shard load
+   handles them, §6.2).
 
 ### 9.6 Hard rules
 
@@ -1677,7 +1787,7 @@ what destroys the data**. Upgrade again instead and let reconciliation promote.
 - [`adapters/repos/db/reindex_provider_payload.go`](../adapters/repos/db/reindex_provider_payload.go) — `ReindexTaskPayload`, migration type constants.
 - [`adapters/repos/db/reindex_conflict.go`](../adapters/repos/db/reindex_conflict.go) — `CheckConflict`, `CheckPropertyUpdate`, `CheckClassMutation`, `CheckTenantMutation`, `Touches*` predicates, `MutationRemedy`.
 - [`adapters/repos/db/reindex_activity_lookup.go`](../adapters/repos/db/reindex_activity_lookup.go) — `NewShardReindexActivityLookup`, the backup gate's snapshot.
-- [`adapters/repos/db/reindex_recovery.go`](../adapters/repos/db/reindex_recovery.go) — `DiscoverInFlightReindexTasks`, `buildRecoveryTasks`, recovery-only `ShardReindexerV3`.
+- [`adapters/repos/db/reindex_recovery.go`](../adapters/repos/db/reindex_recovery.go) — `MigrationRecoveryReindexer`, the shard-load recovery `ShardReindexerV3`, and `buildRecoveryTasks`.
 - [`adapters/repos/db/reindex_cancel_cleanup.go`](../adapters/repos/db/reindex_cancel_cleanup.go) — `DB.NewStalePartialReindexSweep`.
 - [`adapters/repos/db/reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go) — `Index.refuseIfReindexInFlight` and `newReindexGate`, the backup gate.
 
