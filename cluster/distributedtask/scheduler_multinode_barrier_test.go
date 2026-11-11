@@ -531,10 +531,7 @@ func TestBarrier_G3_LatePrepAckArrivesInSwapping(t *testing.T) {
 	decidedAt, decided := task.SwapDecidedGroups[""]
 	require.True(t, decided, "prerequisite: both nodes' prep acks decided the group by SWAPPING")
 
-	// Inject a duplicate prep ack on node-2 with Success=false — the
-	// shape a retried wire-call would land in if the PREP result was never
-	// cleared as sent. The Manager MUST drop
-	// it: status stays SWAPPING and the group's decision stands.
+	// A retried wire call's duplicate failed PREP ack must be dropped.
 	h.clock.Advance(time.Minute)
 	require.NoError(t, h.ackRecorder.RecordDistributedTaskPreparationCompleteAck(
 		context.Background(), h.namespace, taskID, 1, "", "node-2", false, "late duplicate prep ack with synthesized failure",
@@ -714,22 +711,14 @@ func TestBarrier_G6_RestartMidPhaseARecovery(t *testing.T) {
 	require.Equal(t, TaskStatusPreparing, tasks[0].Status)
 	require.Len(t, tasks[0].PreparedGroups[""], 1)
 
-	// Simulate node-2 restart: replace its scheduler with a new one
-	// bound to the same manager + same provider. The new scheduler's
-	// in-memory state (the pending group sets and PREP results) starts
-	// empty. The provider survives the restart (it's
-	// per-node and lives outside the scheduler instance, like a
-	// persistent on-disk reindex sentinel).
+	// Restart node-2: fresh scheduler state, same provider (stands for on-disk state).
 	freshScheduler := h.restart(1)
 
 	// node-3 also restarted; rebuild it the same way for completeness.
 	freshScheduler3 := h.restart(2)
 
-	// Fresh schedulers tick: their pending sets start with every group, so
-	// they MUST re-fire OnGroupCompleted (production rehydrate path), and
-	// the PHASE A.5 ack MUST be emitted. The Manager's idempotency on
-	// duplicate acks (manager.go:580-583) means even if node-2 had
-	// already acked pre-restart, the post-restart re-ack is harmless.
+	// Fresh schedulers start with every group pending, so they re-fire
+	// OnGroupCompleted; a duplicate re-ack is harmless.
 	freshScheduler.tick()
 	freshScheduler3.tick()
 

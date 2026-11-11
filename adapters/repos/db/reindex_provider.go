@@ -95,13 +95,8 @@ type ReindexProvider struct {
 
 	// activeWorkers tracks units that currently have a per-unit goroutine
 	// inside processOneUnit's iteration body. The re-entry guard reads
-	// this (not the reindexTasks cache) so a shard load's recovery — which
-	// seeds reindexTasks via [SeedReindexTaskCache] for OnGroupCompleted's
-	// callback preservation — does NOT short-circuit the resumed unit.
-	// weaviate/0-weaviate-issues#239 Mode 2.
-	//
-	// Guarded by [mu]. Set after the guard, cleared from a defer so any
-	// return path (failure, context.Canceled, panic) releases the slot.
+	// this, not the reindexTasks cache, so a shard load's seeding of that cache
+	// does not short-circuit the resumed unit. Guarded by [mu].
 	activeWorkers map[distributedtask.TaskDescriptor]map[string]bool
 
 	// liveUnits counts this node's workers per (task, unit), guarded by [mu]. A count, not a flag: two can hold one unit.
@@ -621,15 +616,8 @@ func (p *ReindexProvider) processOneUnit(
 	// ~70ms apart on the same unit in CI (acceptance large
 	// reindex-multinode-aj, MultiRoundRobin round 1).
 	//
-	// Guard signal is `activeWorkers` (per-unit "a goroutine is inside
-	// the iteration body right now"), NOT the `reindexTasks` cache.
-	// weaviate/0-weaviate-issues#239 Mode 2: a shard load's recovery
-	// seeds `reindexTasks` so OnGroupCompleted can reuse the in-flight
-	// task instances with their registered double-write callbacks —
-	// using the cache as the guard signal trapped the resumed unit
-	// forever after a leader restart (the QA c01-leader-postfix repro
-	// + the local TestMultiNode_GracefulLeaderRestartDuringReindex
-	// failure both surfaced this).
+	// Guard on `activeWorkers`, not the `reindexTasks` cache: a shard load's
+	// recovery seeds that cache, so guarding on it would trap the resumed unit.
 	if semantic {
 		if !p.claimActiveWorker(task.TaskDescriptor, unitID) {
 			logger.Info("reindex provider: skipping re-entered unit (concurrent worker)")
@@ -638,10 +626,8 @@ func (p *ReindexProvider) processOneUnit(
 		defer p.releaseActiveWorker(task.TaskDescriptor, unitID)
 	}
 
-	// Use cached task instances when present. Two populating paths land
-	// here: (a) a shard load's [SeedReindexTaskCache] for callback-preserving
-	// resume; (b) the FSM-lag re-entry case, where the cached instances
-	// still carry the registered double-write callbacks.
+	// Cached instances (from [SeedReindexTaskCache] or FSM-lag re-entry) keep
+	// their registered double-write callbacks.
 	var (
 		tasks  []*ShardReindexTaskGeneric
 		cached bool
@@ -708,9 +694,7 @@ func (p *ReindexProvider) processOneUnit(
 
 	// Cache task instances for semantic migrations so OnGroupCompleted can
 	// call RunSwapOnShard on the same instances (with callbacks registered).
-	// On the cached-tasks path (a shard load's recovery or FSM-lag re-entry)
-	// we already have these instances in the map; only write on the
-	// fresh-tasks path.
+	// Cached instances are already in the map; write only for fresh ones.
 	if semantic && !cached {
 		p.cacheReindexTasks(task.TaskDescriptor, unitID, tasks)
 	}

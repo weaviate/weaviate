@@ -21,10 +21,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
-// TestShouldDeferBlockmaxFlip_StampBreaksWedge pins the same-tick sibling
-// wedge fix: reading the durable stamp lets the
-// second of two siblings completing in the same tick flip the class flag,
-// instead of both wedging forever.
+// Pins that the durable stamp lets the second of two siblings completing in
+// one tick flip the class flag, instead of both deferring forever.
 func TestShouldDeferBlockmaxFlip_StampBreaksWedge(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	tr := true
