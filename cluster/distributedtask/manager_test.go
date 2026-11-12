@@ -1393,13 +1393,12 @@ func TestManager_SnapshotRestore_WithPostCompletionAcks(t *testing.T) {
 // fakeSchemaMutationDetector lets the manager-side CheckPropertyUpdate
 // dispatch test pin every branch with a scripted verdict. Records
 // arguments so we can assert the dispatch contract
-// (only the matching-namespace detector consulted, full FSM task list
-// passed in, etc.).
+// (only the matching-namespace detector consulted, etc.).
 type fakeSchemaMutationDetector struct {
 	called        int
 	lastClassName string
 	lastPropName  string
-	lastTaskCount int
+	lastTasks     []*Task
 	rejectWith    error
 }
 
@@ -1407,29 +1406,28 @@ func (f *fakeSchemaMutationDetector) CheckPropertyUpdate(className, propertyName
 	f.called++
 	f.lastClassName = className
 	f.lastPropName = propertyName
-	f.lastTaskCount = len(existingTasks)
+	f.lastTasks = existingTasks
 	return f.rejectWith
 }
 
 func (f *fakeSchemaMutationDetector) CheckClassMutation(className string, existingTasks []*Task) error {
 	f.called++
 	f.lastClassName = className
-	f.lastTaskCount = len(existingTasks)
+	f.lastTasks = existingTasks
 	return f.rejectWith
 }
 
 func (f *fakeSchemaMutationDetector) CheckTenantMutation(className string, tenants []string, existingTasks []*Task) error {
 	f.called++
 	f.lastClassName = className
-	f.lastTaskCount = len(existingTasks)
+	f.lastTasks = existingTasks
 	return f.rejectWith
 }
 
 // TestManager_CheckPropertyUpdate_DispatchToDetectors pins the cross-
 // FSM dispatch: the schema FSM's UpdateProperty apply consults this
 // method, which fans out to every registered
-// [SchemaMutationDetector] with the current FSM-stored task list for
-// each detector's namespace.
+// [SchemaMutationDetector].
 //
 // Motivating bug: https://github.com/weaviate/0-weaviate-issues/issues/218. Symmetric to the existing
 // TestManager_AddTask_ConflictDetector pattern.
@@ -1469,28 +1467,6 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 		require.Contains(t, err.Error(), "simulated conflict")
 	})
 
-	t.Run("detector receives full namespace-scoped task list at apply time", func(t *testing.T) {
-		h := newTestHarness(t)
-		detector := &fakeSchemaMutationDetector{rejectWith: nil}
-		h.schemaMutationDetectors = map[string]SchemaMutationDetector{
-			"test": detector,
-		}
-		h.init(t)
-
-		// Seed a task into the manager.
-		c := toCmd(t, &cmd.AddDistributedTaskRequest{
-			Namespace:             "test",
-			Id:                    "T1",
-			SubmittedAtUnixMillis: time.Now().UnixMilli(),
-			UnitIds:               []string{"su-1"},
-		})
-		require.NoError(t, h.manager.AddTask(c, 100))
-
-		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
-		require.Equal(t, 1, detector.lastTaskCount,
-			"detector MUST be passed the FSM-stored task list at apply time")
-	})
-
 	t.Run("nil detector entry → skipped gracefully", func(t *testing.T) {
 		h := newTestHarness(t)
 		h.schemaMutationDetectors = map[string]SchemaMutationDetector{
@@ -1503,8 +1479,7 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 
 // TestManager_CheckClassMutation_DispatchToDetectors pins the dispatch
 // for the class-wide guard. Symmetric to the CheckPropertyUpdate
-// dispatch suite — same nil-safety, same propagate-rejection,
-// same full-task-list semantics.
+// dispatch suite — same nil-safety, same propagate-rejection.
 func TestManager_CheckClassMutation_DispatchToDetectors(t *testing.T) {
 	t.Run("no detectors registered → nil", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
@@ -1558,7 +1533,11 @@ func TestManager_SchemaMutationChecks_SkipOtherCollections(t *testing.T) {
 			}
 
 			require.NoError(t, check(h.manager))
-			require.Equal(t, 2, detector.lastTaskCount, "only the task on Foo and the one with no known collection")
+			var ids []string
+			for _, task := range detector.lastTasks {
+				ids = append(ids, task.ID)
+			}
+			require.ElementsMatch(t, []string{"same", "unknown"}, ids, "only the task on Foo and the one with no known collection")
 		})
 	}
 }

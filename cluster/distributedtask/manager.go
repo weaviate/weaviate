@@ -74,8 +74,7 @@ type Manager struct {
 }
 
 // CheckPropertyUpdate consults every registered
-// [SchemaMutationDetector] against the current FSM-stored task list
-// and returns the first conflict reported. Called by the schema FSM's
+// [SchemaMutationDetector] and returns the first conflict reported. Called by the schema FSM's
 // UpdateProperty apply path BEFORE the merge is applied; returning a
 // non-nil error causes the apply to reject with that error.
 //
@@ -158,11 +157,9 @@ func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors, sha
 	return nil
 }
 
-// dispatchSchemaMutation is the shared body of CheckPropertyUpdate /
-// CheckClassMutation / CheckTenantMutation. Walks every registered
-// [SchemaMutationDetector], hands it the namespace's tasks on className
-// (plus those whose collection is unknown), returns the first conflict
-// the call closure reports.
+// dispatchSchemaMutation hands each registered [SchemaMutationDetector] the
+// namespace's tasks on className and those whose collection is unknown, and
+// returns the first conflict callDetector reports.
 func (m *Manager) dispatchSchemaMutation(className string, callDetector func(SchemaMutationDetector, []*Task) error) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -175,7 +172,9 @@ func (m *Manager) dispatchSchemaMutation(className string, callDetector func(Sch
 		}
 		var existing []*Task
 		for _, t := range m.tasks[namespace] {
-			// Decoding another collection's payload takes seconds at 1M tenants; an unknown one still reaches the detector, which refuses what it cannot parse.
+			// Another collection's payload takes seconds to decode at 1M tenants.
+			// A task whose collection is unknown still reaches the detector, which
+			// refuses a payload it cannot parse.
 			if t.collection != "" && !strings.EqualFold(t.collection, className) {
 				continue
 			}
@@ -242,6 +241,7 @@ func NewManager(params ManagerParameters) *Manager {
 // cascade. Extractor may run concurrently, with or without the Manager lock — must not block or recurse. Register
 // before the first task, which caches its answer; nil / empty arguments are silently dropped.
 // It also keeps this namespace's tasks and replica movements from running on the same collection at once (HasActiveTaskForCollection, CollectionOfTask).
+// The schema mutation and conflict checks skip tasks on other collections by its answer, so a wrong collection lets a mutation through.
 func (m *Manager) RegisterCollectionExtractor(namespace string, extractor CollectionExtractor) {
 	if namespace == "" || extractor == nil {
 		return
