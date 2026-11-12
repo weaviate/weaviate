@@ -3774,6 +3774,7 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 
 	var mu sync.Mutex
 	shardsStatus := make(map[string]string, len(shardNames))
+	var timedOut timedOutPeers
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
 	eg.SetLimit(min(len(shardNames), runtime.GOMAXPROCS(0)*4))
 	for _, shardName := range shardNames {
@@ -3788,7 +3789,7 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 			if err != nil {
 				return err
 			}
-			status := i.firstShardStatus(ctx, shardName, thisNode, replicas)
+			status := i.firstShardStatus(ctx, shardName, thisNode, replicas, &timedOut)
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -3804,20 +3805,38 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 	return shardsStatus, nil
 }
 
-func (i *Index) firstShardStatus(ctx context.Context, shardName, thisNode string, replicas []string) string {
+func (i *Index) firstShardStatus(ctx context.Context, shardName, thisNode string, replicas []string, timedOut *timedOutPeers) string {
 	for _, nodeName := range localFirst(replicas, thisNode) {
 		var status string
 		var err error
 		if nodeName == thisNode {
 			status, err = i.localShardStatus(ctx, shardName)
+		} else if timedOut.has(nodeName) {
+			continue
 		} else {
 			status, err = i.remote.GetShardStatus(ctx, shardName, nodeName)
+			timedOut.record(ctx, nodeName, err)
 		}
 		if err == nil && status != "" {
 			return status
 		}
 	}
 	return storagestate.StatusUnavailable.String()
+}
+
+// timedOutPeers holds the peers whose status read timed out during one listing, so later reads skip them.
+type timedOutPeers struct{ nodes sync.Map }
+
+func (p *timedOutPeers) has(node string) bool {
+	_, ok := p.nodes.Load(node)
+	return ok
+}
+
+// record keeps node only when its own call timed out while the listing's context is still live.
+func (p *timedOutPeers) record(ctx context.Context, node string, err error) {
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+		p.nodes.Store(node, struct{}{})
+	}
 }
 
 func localFirst(nodes []string, localNode string) []string {

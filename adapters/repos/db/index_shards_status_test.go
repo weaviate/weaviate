@@ -14,7 +14,10 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
+	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -370,4 +373,29 @@ func TestIndex_ShardsStatus_ReplicaFailures(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIndex_ShardsStatus_SkipPeerThatTimedOut(t *testing.T) {
+	limit := runtime.GOMAXPROCS(0) * 4
+	physical := make(map[string]sharding.Physical, 3*limit)
+	for n := range 3 * limit {
+		name := fmt.Sprintf("s%03d", n)
+		physical[name] = sharding.Physical{Name: name, BelongsToNodes: []string{"stuck", "node2"}}
+	}
+	client := &shardStatusRemoteClient{replies: map[string]statusReply{
+		"stuck": {err: fmt.Errorf("connect: %w", context.DeadlineExceeded)},
+		"node2": {status: "READY"},
+	}}
+	index, _ := newShardStatusIndex(t, false, physical, nil, []string{"stuck", "node2"}, client)
+
+	_, err := index.getShardsStatus(t.Context(), "")
+
+	require.NoError(t, err)
+	stuckCalls := 0
+	for _, call := range client.askedFor() {
+		if strings.HasPrefix(call, "stuck/") {
+			stuckCalls++
+		}
+	}
+	require.LessOrEqual(t, stuckCalls, limit, "calls to the peer that timed out")
 }
