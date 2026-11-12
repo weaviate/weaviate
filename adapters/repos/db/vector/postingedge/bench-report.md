@@ -6,7 +6,15 @@
 
 ## Coste por distancia: el kernel CRQ1 (2026-11-12)
 
-**Estado:** lectura de código y microbenchmarks hechos, con prototipos de los kernels en `postingedge/kernelproto`, sin integrar. La traducción a QPS es una estimación. No hay máquina x86 donde medir.
+**Estado:** lectura de código y microbenchmarks hechos, con prototipos de los kernels en `postingedge/kernelproto`. La traducción a QPS es una estimación. No hay máquina x86 donde medir.
+
+- **El kernel fusionado va en un PR aparte sobre main,** [weaviate/weaviate#13880](https://github.com/weaviate/weaviate/pull/13880): NEON en arm64 y AVX2 en amd64, con tests bit a bit.
+  - Lee los cinco planos de la query de sus slices, sin intercalar. Por eso, a 768 dimensiones da 14.2 ns frente a los 12.5 del prototipo, y la mitad del tiempo de las cinco llamadas.
+  - En los distanciadores, de 512 dimensiones en adelante es entre 1.6x y 2.0x más rápido, y por debajo 1.1x.
+  - El rendimiento solo está medido en arm64. La corrección en x86 la valida el CI, y el kernel AVX2 pasó además los tests bajo Rosetta.
+- **El despacho de AVX-512 y un camino con VPOPCNTQ** van en un issue aparte, sin implementar hasta tener dónde medirlos: [weaviate/weaviate#13879](https://github.com/weaviate/weaviate/issues/13879).
+- **FastScan no se integra en memoria.** Su sección está en `disk-design.md`.
+- **La próxima medición a 10M va con el kernel nuevo en los dos brazos,** en la misma sesión, cuando el PR esté listo. HNSW también lo usa, así que el ratio solo es justo si los dos lo llevan.
 
 ### Qué kernel corre hoy
 
@@ -119,6 +127,22 @@ Lo que dice:
 - **El gap sigue siendo de número de distancias.** A 10M y 0.95 posting-edge hace unas 10 200 distancias a código por query (6 878 endpoints y 3 306 escaneados), frente a unas 1 600–1 900 de HNSW. Es lo que ya decía dbpedia: unas diez veces más.
 - **El siguiente coste es el resto por endpoint.** En el índice cada endpoint cuesta 73 ns, frente a 48 ns del caso de endpoints sueltos. Esos 25 ns de contabilidad (visited set, aristas, posting de destino) pasan a ser, con el kernel fusionado, casi lo mismo que la distancia (28 ns).
 - **El scan puede quedar optimista:** el microbenchmark tiene el posting en caché, y en el índice viene de memoria, aunque en orden.
+
+### Las palancas, por lo que mueven el ratio
+
+Del perfil de 10M, 1 thread, rescoreLimit 200, con el ratio contra el build de HNSW de la tarde: 2.14x a 0.95 y 1.72x a 0.99. El tiempo de una query es 1 184 µs a 0.95 y 4 043 µs a 0.99. Por endpoint, 48 ns son kernel y memoria (el caso de endpoints sueltos) y unos 25 ns de contabilidad. Cada palanca va con lo que se supone que recorta, porque solo el kernel tiene un prototipo medido:
+
+| palanca | qué es | tiempo que toca, 0.95 / 0.99 | ¿gana también HNSW? | supuesto | ratio a 0.95 | ratio a 0.99 |
+|---|---|---|---|---|---|---|
+| número de distancias | menos endpoints y menos scan: el margen de fuente y el cap de grado (v1.5) | 670 µs (57 %) / 3 010 µs (74 %) | no | 30 % menos distancias | 1.78x | 1.34x |
+| kernel | los cinco planos en una pasada | ~440 µs (37 %) / ~2 020 µs (50 %), la distancia de endpoints y scan | sí, un 6 a 9 % | el prototipo fusionado con FastScan, estimado arriba | 1.87x a 1.91x | 1.37x a 1.41x |
+| centroides | la búsqueda en el grafo de 42 373 centroides, con ef fijo de 64 | 229 µs (19 %) / 247 µs (6 %) | no | la mitad | 1.93x | 1.67x |
+| contabilidad por endpoint | visited set, aristas, posting de destino: unos 25 ns por endpoint | 172 µs (15 %) / 846 µs (21 %) | no | la mitad | 1.98x | 1.54x |
+
+- **Por cada 10 % que se recorte de cada tiempo,** el ratio a 0.95 baja a 2.02x con las distancias, a 2.10x con los centroides y a 2.11x con la contabilidad. A 0.99 baja a 1.59x, 1.71x y 1.68x.
+- **El orden es el de 0.95, el titular.** A 0.99 la contabilidad pasa por delante de los centroides, que allí son solo un 6 % del tiempo.
+- **El kernel queda segundo, no el último:** con su prototipo medido mueve el ratio más que recortar a la mitad los centroides o la contabilidad, aun ganando también HNSW. Es la única palanca con número medido; las otras dependen de cuánto se consiga recortar.
+- **Las palancas se suman, y no del todo:** con un kernel más rápido, cada distancia que se ahorra vale menos.
 
 ### x86
 
