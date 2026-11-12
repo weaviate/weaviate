@@ -44,6 +44,7 @@ import (
 )
 
 func TestFilters(t *testing.T) {
+	t.Setenv("DEFAULT_TOKENIZATION", "")
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -82,6 +83,55 @@ func TestFilters(t *testing.T) {
 
 	migrator := NewMigrator(repo, logger, "node1")
 	t.Run("prepare test schema and data ", prepareCarTestSchemaAndData(repo, migrator, schemaGetter))
+	stopwordClass := &models.Class{
+		Class:               "StopwordFilterTestCar",
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Properties: []*models.Property{
+			{DataType: schema.DataTypeText.PropString(), Name: "defaultText", Tokenization: models.PropertyTokenizationWord},
+			{DataType: schema.DataTypeText.PropString(), Name: "fieldText", Tokenization: models.PropertyTokenizationField},
+		},
+	}
+	stopwordClass.InvertedIndexConfig.Stopwords = nil
+	schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, stopwordClass)
+	require.NoError(t, migrator.AddClass(context.Background(), stopwordClass))
+	for _, value := range []string{"a", "the", "alpha", "b"} {
+		value := value
+		stopwordID := strfmt.UUID(uuid.NewString())
+		require.NoError(t, repo.PutObject(context.Background(), &models.Object{
+			Class:      stopwordClass.Class,
+			ID:         stopwordID,
+			Properties: map[string]interface{}{"defaultText": value, "fieldText": value},
+		}, carVectors[0], nil, nil, nil, 0))
+		for _, test := range []struct {
+			name string
+			prop string
+		}{
+			{name: "default text", prop: "defaultText"},
+			{name: "field text", prop: "fieldText"},
+		} {
+			t.Run(fmt.Sprintf("equal %q with %s", value, test.name), func(t *testing.T) {
+				results, err := repo.Search(context.Background(), dto.GetParams{
+					ClassName:  stopwordClass.Class,
+					Pagination: &filters.Pagination{Limit: 10},
+					Filters:    buildFilter(test.prop, value, eq, dtText),
+				})
+				require.NoError(t, err)
+				require.Len(t, results, 1)
+				assert.Equal(t, stopwordID, results[0].ID)
+			})
+		}
+	}
+	t.Run("stopword-only contains any remains an error", func(t *testing.T) {
+		filter := buildFilter("defaultText", []string{"a"}, filters.ContainsAny, dtText)
+		filter.Root.On.Class = schema.ClassName(stopwordClass.Class)
+		_, err := repo.Search(context.Background(), dto.GetParams{
+			ClassName:  stopwordClass.Class,
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters:    filter,
+		})
+		require.ErrorContains(t, err, "only stopwords provided")
+	})
 
 	t.Run("primitive props without nesting", testPrimitiveProps(repo))
 
