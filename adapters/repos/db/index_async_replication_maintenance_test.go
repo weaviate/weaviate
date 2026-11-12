@@ -32,6 +32,7 @@ func TestAsyncReplicationBlockedByMaintenance(t *testing.T) {
 		maintenance  func() bool
 		globalConfig *entreplication.GlobalConfig
 		want         bool
+		wantRuns     bool
 	}{
 		{name: "no maintenance func, nil global config", maintenance: nil, globalConfig: nil, want: false},
 		{name: "no maintenance func, flag on", maintenance: nil, globalConfig: withFlag(true), want: false},
@@ -42,7 +43,7 @@ func TestAsyncReplicationBlockedByMaintenance(t *testing.T) {
 		{name: "maintenance on, nil global config", maintenance: on, globalConfig: nil, want: true},
 		{name: "maintenance on, nil flag", maintenance: on, globalConfig: &entreplication.GlobalConfig{}, want: true},
 		{name: "maintenance on, flag off", maintenance: on, globalConfig: withFlag(false), want: true},
-		{name: "maintenance on, flag on", maintenance: on, globalConfig: withFlag(true), want: false},
+		{name: "maintenance on, flag on", maintenance: on, globalConfig: withFlag(true), want: false, wantRuns: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -51,6 +52,7 @@ func TestAsyncReplicationBlockedByMaintenance(t *testing.T) {
 				globalreplicationConfig: tt.globalConfig,
 			}
 			require.Equal(t, tt.want, idx.asyncReplicationBlockedByMaintenance())
+			require.Equal(t, tt.wantRuns, idx.asyncReplicationRunsInMaintenance())
 		})
 	}
 
