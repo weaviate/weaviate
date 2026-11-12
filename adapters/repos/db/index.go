@@ -3758,38 +3758,80 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	return size, nil
 }
 
+// getShardsStatus returns each shard's status from its first answering replica, local first, and UNAVAILABLE when none answers.
 func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]string, error) {
+	if err := i.refuseIfClosed(); err != nil {
+		return nil, err
+	}
+
+	thisNode := i.getSchema.NodeName()
 	className := i.Config.ClassName.String()
 	shardNames, err := i.schemaReader.Shards(className)
 	if err != nil {
 		return nil, err
 	}
 
-	shardsStatus := make(map[string]string)
-
+	var mu sync.Mutex
+	shardsStatus := make(map[string]string, len(shardNames))
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	eg.SetLimit(min(len(shardNames), runtime.GOMAXPROCS(0)*4))
 	for _, shardName := range shardNames {
 		if tenant != "" && shardName != tenant {
 			continue
 		}
-		var status string
-		err := i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
-			func(shard ShardLike) error {
-				status = shard.GetStatus().String()
-				return nil
-			},
-			func() error {
-				var err error
-				status, err = i.remote.GetShardStatus(ctx, shardName)
+		eg.Go(func() error {
+			replicas, err := i.schemaReader.ShardReplicas(className, shardName)
+			if err != nil {
 				return err
-			})
-		if err != nil {
-			return nil, errors.Wrapf(err, "shard %s", shardName)
-		}
-
-		shardsStatus[shardName] = status
+			}
+			status := i.firstShardStatus(ctx, shardName, thisNode, replicas)
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			mu.Lock()
+			shardsStatus[shardName] = status
+			mu.Unlock()
+			return nil
+		}, shardName)
 	}
-
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
 	return shardsStatus, nil
+}
+
+func (i *Index) firstShardStatus(ctx context.Context, shardName, thisNode string, replicas []string) string {
+	for _, nodeName := range localFirst(replicas, thisNode) {
+		var status string
+		var err error
+		if nodeName == thisNode {
+			status, err = i.localShardStatus(ctx, shardName)
+		} else {
+			status, err = i.remote.GetShardStatus(ctx, shardName, nodeName)
+		}
+		if err == nil && status != "" {
+			return status
+		}
+	}
+	return storagestate.StatusUnavailable.String()
+}
+
+func localFirst(nodes []string, localNode string) []string {
+	idx := slices.Index(nodes, localNode)
+	if idx <= 0 {
+		return nodes
+	}
+	return slices.Concat([]string{localNode}, nodes[:idx], nodes[idx+1:])
+}
+
+// localShardStatus returns "" when the local shard can't serve reads.
+func (i *Index) localShardStatus(ctx context.Context, shardName string) (string, error) {
+	shard, release, err := i.GetShard(ctx, shardName)
+	defer release()
+	if err != nil || shard == nil {
+		return "", err
+	}
+	return shard.GetStatus().String(), nil
 }
 
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
@@ -4217,6 +4259,16 @@ func (i *Index) enterRead() error {
 }
 
 func (i *Index) exitRead() { i.inflight.Done() }
+
+// refuseIfClosed returns errAlreadyShutdown once closed, without enterRead, so a close never waits on peer calls.
+func (i *Index) refuseIfClosed() error {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+	if i.closed {
+		return errAlreadyShutdown
+	}
+	return nil
+}
 
 // beginClose closes the index and drains in-flight readers. It returns holding
 // no lock: teardown must not exclude readers, or a peer's RPC handler blocks
