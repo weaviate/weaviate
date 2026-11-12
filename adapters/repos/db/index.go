@@ -46,6 +46,7 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/executor"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
@@ -3781,6 +3782,9 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 		}
 		eg.Go(func() error {
 			replicas, err := i.schemaReader.ShardReplicas(className, shardName)
+			if errors.Is(err, clusterSchema.ErrShardNotFound) {
+				return nil // tenant deleted after listing
+			}
 			if err != nil {
 				return err
 			}

@@ -221,6 +221,7 @@ func TestIndex_ShardsStatus_ReplicaFailures(t *testing.T) {
 		name       string
 		mt         bool
 		physical   map[string]sharding.Physical
+		deleted    []string // listed by the schema, then gone
 		local      map[string]localShardKind
 		reachable  []string // nodes besides the coordinator that resolve to a host
 		replies    map[string]statusReply
@@ -300,6 +301,15 @@ func TestIndex_ShardsStatus_ReplicaFailures(t *testing.T) {
 			wantStatus: map[string]string{"hot": ready, "cold": readonly, "frozen": unavailable},
 		},
 		{
+			name:       "tenant deleted while listing is left out",
+			mt:         true,
+			physical:   map[string]sharding.Physical{"hot": {Name: "hot", BelongsToNodes: []string{"node1"}, Status: models.TenantActivityStatusHOT}},
+			deleted:    []string{"gone"},
+			reachable:  []string{"node1"},
+			replies:    map[string]statusReply{"node1": {status: ready, size: 0}},
+			wantStatus: map[string]string{"hot": ready},
+		},
+		{
 			name:       "listing a multi-tenant collection reads a local HOT tenant without a tenant status lookup",
 			mt:         true,
 			physical:   map[string]sharding.Physical{"hot": {Name: "hot", BelongsToNodes: []string{shardStatusLocalNode, "node1"}, Status: models.TenantActivityStatusHOT}},
@@ -313,7 +323,7 @@ func TestIndex_ShardsStatus_ReplicaFailures(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
 			client := &shardStatusRemoteClient{replies: tc.replies}
-			index, hook := newShardStatusIndex(t, tc.mt, tc.physical, tc.local, tc.reachable, client)
+			index, hook := newShardStatusIndex(t, tc.mt, tc.physical, tc.local, tc.reachable, client, tc.deleted...)
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 
