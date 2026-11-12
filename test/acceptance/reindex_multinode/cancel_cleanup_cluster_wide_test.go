@@ -470,9 +470,8 @@ func scanClassDirAllNodes(
 	return survivors
 }
 
-// createS3Backup posts to /v1/backups/s3 and waits for SUCCESS: an in-flight
-// backup sends Index.drop down the rename-aside keepFiles path, defeating the
-// post-delete "class dir removed" assertion. Budget sized for a starved VM.
+// createS3Backup posts to /v1/backups/s3 and waits for SUCCESS. Budget sized
+// for a starved VM.
 func createS3Backup(t *testing.T, restURI, className, backupID, bucket string) error {
 	t.Helper()
 	body := map[string]interface{}{

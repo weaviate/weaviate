@@ -60,7 +60,7 @@ func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec e
 				return removeErr
 			}
 
-			if err := shard.drop(false); err != nil {
+			if err := shard.drop(); err != nil {
 				ec.Add(err)
 			}
 			return nil

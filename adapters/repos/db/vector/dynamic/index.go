@@ -101,7 +101,7 @@ type VectorIndex interface {
 	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schemaconfig.VectorIndexConfig, callback func()) error
-	Drop(ctx context.Context, keepFiles bool) error
+	Drop(ctx context.Context) error
 	Shutdown(ctx context.Context) error
 	Flush() error
 	PrepareForBackup(ctx context.Context) error
@@ -740,12 +740,12 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 // it here (as this method once did) broke every sibling and made
 // DebugResetVectorIndex fail on re-init, which reuses the shard's handle.
 //
-// With keepFiles=false this index's own state key goes, so a re-created
-// vector of the same name starts from its flat stage instead of inheriting a
-// stale "already upgraded" verdict. A metadata DB that is already closed is
-// tolerated: that only happens when the shard was shut down first, and then
-// the whole shard directory — key included — is removed right after.
-func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
+// This index's own state key goes, so a re-created vector of the same name
+// starts from its flat stage instead of inheriting a stale "already upgraded"
+// verdict. A metadata DB that is already closed is tolerated: that only
+// happens when the shard was shut down first, and then the whole shard
+// directory — key included — is removed right after.
+func (dynamic *dynamic) Drop(ctx context.Context) error {
 	if dynamic.ctx.Err() != nil {
 		// already dropped
 		return nil
@@ -758,13 +758,11 @@ func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
 	dynamic.Lock()
 	defer dynamic.Unlock()
 
-	if !keepFiles {
-		if err := deleteState(dynamic.state, dynamic.id); err != nil && !shardmeta.IsClosed(err) {
-			return fmt.Errorf("delete dynamic state for %q: %w", dynamic.id, err)
-		}
+	if err := deleteState(dynamic.state, dynamic.id); err != nil && !shardmeta.IsClosed(err) {
+		return fmt.Errorf("delete dynamic state for %q: %w", dynamic.id, err)
 	}
 
-	return dynamic.index.Drop(ctx, keepFiles)
+	return dynamic.index.Drop(ctx)
 }
 
 // DropTargetVector removes ONE named vector's dynamic index, leaving the shard
@@ -791,9 +789,9 @@ func (dynamic *dynamic) DropTargetVector(ctx context.Context) error {
 		return fmt.Errorf("delete dynamic state for %q: %w", dynamic.id, err)
 	}
 
-	// keepFiles=false: the underlying index's own files go, but the SHARED
-	// state DB above is untouched by this path.
-	return dynamic.index.Drop(ctx, false)
+	// the underlying index's own files go, but the SHARED state DB above is
+	// untouched by this path
+	return dynamic.index.Drop(ctx)
 }
 
 func (dynamic *dynamic) Flush() error {
@@ -1092,7 +1090,7 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 			Errorf("clear dynamic upgrading marker after commit: %v", err)
 	}
 
-	dynamic.index.Drop(dynamic.ctx, false)
+	dynamic.index.Drop(dynamic.ctx)
 	dynamic.index = index
 	dynamic.status.Upgraded()
 
@@ -1142,7 +1140,7 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 // the rebuilt index. Uses a fresh context because the abort is typically
 // caused by dynamic.ctx being canceled.
 func (dynamic *dynamic) cleanupAbortedUpgrade(index VectorIndex) {
-	if err := index.Drop(context.Background(), false); err != nil {
+	if err := index.Drop(context.Background()); err != nil {
 		dynamic.logger.WithField("action", "dynamic_upgrade_abort").
 			Errorf("drop partially-built hnsw index: %v", err)
 	}

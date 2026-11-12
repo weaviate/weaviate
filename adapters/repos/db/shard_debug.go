@@ -75,7 +75,7 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return errors.Wrap(err, "mark vector index creating")
 	}
 
-	err = vidx.Drop(ctx, false)
+	err = vidx.Drop(ctx)
 	if err != nil {
 		return errors.Wrap(err, "drop vector index")
 	}
@@ -174,7 +174,7 @@ func (s *Shard) DebugResetGeoIndex(ctx context.Context, propName string) error {
 
 	// drop the graph, not the geo index: searches may still hold the geo index,
 	// and geo.Index.Drop leaves it with a nil graph
-	err := graph.Drop(ctx, false)
+	err := graph.Drop(ctx)
 	if err != nil {
 		return errors.Wrap(err, "drop geo index")
 	}

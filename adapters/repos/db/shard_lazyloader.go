@@ -581,7 +581,7 @@ func (l *LazyLoadShard) ID() string {
 	return shardId(l.shardOpts.index.ID(), l.shardOpts.name)
 }
 
-func (l *LazyLoadShard) drop(keepFiles bool) error {
+func (l *LazyLoadShard) drop() error {
 	// if not loaded, execute simplified drop without loading shard:
 	// - perform required actions
 	// - remove entire shard directory
@@ -617,21 +617,19 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 		// rename sync (must complete even if ctx is expired); RemoveAll async.
 		// Mirrors Shard.drop so the unloaded path doesn't reintroduce the
 		// blocking RemoveAll the loaded path was changed to avoid.
-		if !keepFiles {
-			path := shardPath(idx.path(), shardName)
-			deleted, err := renameForAsyncDelete(path, idx.logger)
-			if err != nil {
-				return fmt.Errorf("rename shard for async delete: %w", err)
-			}
-			if deleted != "" {
-				spawnAsyncDelete(deleted, idx.logger)
-			}
+		path := shardPath(idx.path(), shardName)
+		deleted, err := renameForAsyncDelete(path, idx.logger)
+		if err != nil {
+			return fmt.Errorf("rename shard for async delete: %w", err)
+		}
+		if deleted != "" {
+			spawnAsyncDelete(deleted, idx.logger)
 		}
 
 		return nil
 	}
 
-	return shard.drop(keepFiles)
+	return shard.drop()
 }
 
 func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector string) error {

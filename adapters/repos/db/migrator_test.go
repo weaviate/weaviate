@@ -195,7 +195,7 @@ func droppableShard(t *testing.T, idx *Index, name string, dropErr error) string
 
 	dir := shardDirWithData(t, idx, name)
 	shard := NewMockShardLike(t)
-	shard.EXPECT().drop(false).RunAndReturn(func(bool) error {
+	shard.EXPECT().drop().RunAndReturn(func() error {
 		if dropErr != nil {
 			return dropErr
 		}
@@ -936,7 +936,7 @@ func TestUpdateIndexAddsPropertiesDespiteShardFailure(t *testing.T) {
 			// fails; keep1 stays, so it is the shard the property add must reach.
 			gone := NewMockShardLike(t)
 			gone.EXPECT().Shutdown(mock.Anything).Return(errors.New("shutdown refused")).Maybe()
-			gone.EXPECT().drop(false).Return(errors.New("drop refused")).Maybe()
+			gone.EXPECT().drop().Return(errors.New("drop refused")).Maybe()
 			gone.EXPECT().ID().Return("gone1").Maybe()
 			// A shard whose removal failed is restored to the map, so the
 			// property-add probe reaches it too. It answers "has the index" so
@@ -1326,7 +1326,7 @@ func storeDroppableShard(t *testing.T, idx *Index, name string, dropErr error) {
 	t.Helper()
 	shard := NewMockShardLike(t)
 	shard.EXPECT().ID().Return(name).Maybe()
-	shard.EXPECT().drop(false).Return(dropErr).Once()
+	shard.EXPECT().drop().Return(dropErr).Once()
 	idx.shards.Store(name, shard)
 }
 

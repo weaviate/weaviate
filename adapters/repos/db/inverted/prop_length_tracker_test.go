@@ -854,19 +854,6 @@ func Test_JsonShardMetaData_Close(t *testing.T) {
 	}
 }
 
-func Test_JsonShardMetaData_DropKeepingFiles(t *testing.T) {
-	trackerPath := path.Join(t.TempDir(), "proplen")
-	tr, err := NewJsonShardMetaData(trackerPath, logrus.New())
-	require.NoError(t, err)
-	require.NoError(t, tr.TrackObjects(5))
-
-	require.NoError(t, tr.Drop(true))
-	require.Error(t, tr.TrackObjects(1), "use after drop")
-	fresh, err := NewJsonShardMetaData(trackerPath, logrus.New())
-	require.NoError(t, err)
-	require.Equal(t, 5, fresh.ObjectTally())
-}
-
 func Test_JsonShardMetaData_FailedFlushStaysDirty(t *testing.T) {
 	trackerPath := path.Join(t.TempDir(), "proplen")
 	tr, err := NewJsonShardMetaData(trackerPath, logrus.New())

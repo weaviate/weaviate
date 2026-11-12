@@ -457,15 +457,15 @@ type perVectorDropper interface {
 }
 
 // dropOneVectorIndex tears down a single named vector's index. Index types that
-// own nothing shard-wide fall through to Drop(keepFiles=false), which is the
-// same thing for them; the interface exists so a type that DOES own shared
-// state has somewhere to say so, rather than the caller having to know which
-// types are special.
+// own nothing shard-wide fall through to Drop, which is the same thing for
+// them; the interface exists so a type that DOES own shared state has
+// somewhere to say so, rather than the caller having to know which types are
+// special.
 func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 	if d, ok := index.(perVectorDropper); ok {
 		return d.DropTargetVector(ctx)
 	}
-	return index.Drop(ctx, false)
+	return index.Drop(ctx)
 }
 
 // removeVectorIndexArtifacts deletes every file name's index owns at
