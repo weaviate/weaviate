@@ -63,7 +63,7 @@ func TestMapSubmitTaskError(t *testing.T) {
 		assert.Contains(t, body.Error[0].Message, "resubmit it against the current state")
 	})
 
-	// A leader's refusal reaches a follower wrapped in gRPC text; the client
+	// A leader's refusal reaches a follower wrapped in gRPC text. The client
 	// sees only the public message and the status of its sentinel.
 	forwarded := func(err error) error {
 		return fmt.Errorf("executing command: rpc error: code = FailedPrecondition desc = %w\npermanent FSM rejection", err)

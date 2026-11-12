@@ -683,7 +683,8 @@ func (h *indexesHandlers) validateTenantScope(ctx context.Context, principal *mo
 func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *models.Principal, class *models.Class, collection, propertyName string, plan upsertPlan, tenants []string, reindexTasks []*distributedtask.Task) middleware.Responder {
 	// The one funnel both upsert and rebuild reach to start a task. A NO_OP
 	// returns before this and is deliberately not refused: it starts nothing.
-	// Checked first so a refused namespace never has its shards loaded.
+	// A submit into a namespace that is not active stops here, before the
+	// stale-state sweep below loads this node's shards.
 	if err := usecasesNamespaces.RequireActive(h.appState.NamespacesController,
 		namespacing.NamespaceFromQualified(collection)); err != nil {
 		return h.mapSubmitTaskError(principal, collection, "", err)
