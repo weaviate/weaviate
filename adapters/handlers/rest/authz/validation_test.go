@@ -369,6 +369,20 @@ func TestValidatePermissions(t *testing.T) {
 			expectedErr: "not a valid pattern",
 		},
 		{
+			name: "unbalanced parentheses in data tenant rejected",
+			permissions: []*models.Permission{
+				{Data: &models.PermissionData{Collection: String("Movies"), Tenant: String("x)|(*")}},
+			},
+			expectedErr: "not a valid pattern",
+		},
+		{
+			name: "unbalanced parentheses in users rejected",
+			permissions: []*models.Permission{
+				{Users: &models.PermissionUsers{Users: String("z)|(*")}},
+			},
+			expectedErr: "not a valid pattern",
+		},
+		{
 			name: "invalid regex in namespace rejected",
 			permissions: []*models.Permission{
 				{Namespaces: &models.PermissionNamespaces{Namespace: String("[")}},
