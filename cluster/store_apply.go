@@ -56,14 +56,18 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.collectionAddLocks.Unlock(ns)
 	}
 
-	// taskMovementLocks is held until the apply returns, so a second submit on the same collection is checked only after the first has applied. Like tenantAddLocks and collectionAddLocks it is taken before waitLeaderFSMCaughtUp, and none of them nest.
+	// taskMovementLocks is held until the apply returns, so a submit on a collection is checked only after an earlier submit, movement, tenant delete or tenant update there has applied. Tenant changes share it, so they do not wait on each other. Like tenantAddLocks and collectionAddLocks it is taken before waitLeaderFSMCaughtUp, and none of them nest.
 	collection, task, err := st.taskOrMovementCollection(req)
 	if err != nil {
 		return 0, err
 	}
-	if collection != "" {
+	switch {
+	case collection != "":
 		st.taskMovementLocks.Lock(collection)
 		defer st.taskMovementLocks.Unlock(collection)
+	case req.Type == api.ApplyRequest_TYPE_DELETE_TENANT || req.Type == api.ApplyRequest_TYPE_UPDATE_TENANT:
+		st.taskMovementLocks.RLock(req.Class)
+		defer st.taskMovementLocks.RUnlock(req.Class)
 	}
 
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
@@ -152,6 +156,7 @@ func (st *Store) admitPropose(req *api.ApplyRequest, collection string, task *ap
 }
 
 // admitTaskReplicas refuses a task whose units no longer match the current replicas of the shards they name, since a replica with no unit is never reindexed.
+// It also refuses a task naming a tenant that is no longer HOT, which the submit path refuses too; a deactivation leaves the replicas as they were.
 // A copy that finishes between the REST handler's read and this check has already changed the sharding state read here.
 // A payload the extractor cannot parse is admitted unchecked, because the reindex conflict check in Apply parses the same payload and rejects it.
 func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collection string) error {
@@ -170,7 +175,8 @@ func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collecti
 	changed := false
 	if err := st.schemaManager.NewSchemaReader().Read(collection, false, func(_ *models.Class, state *sharding.State) error {
 		for shard, nodes := range taskReplicas {
-			if !sameNodes(nodes, state.Physical[shard].BelongsToNodes) {
+			physical := state.Physical[shard]
+			if !sameNodes(nodes, physical.BelongsToNodes) || !isHot(physical.ActivityStatus()) {
 				changed = true
 				return nil
 			}
@@ -185,6 +191,10 @@ func (st *Store) admitTaskReplicas(task *api.AddDistributedTaskRequest, collecti
 		return distributedtask.NewReplicasChangedError(collection)
 	}
 	return nil
+}
+
+func isHot(status string) bool {
+	return status == models.TenantActivityStatusHOT || status == models.TenantActivityStatusACTIVE
 }
 
 func sameNodes(a, b []string) bool {
