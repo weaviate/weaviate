@@ -11,6 +11,8 @@
 
 package license
 
+import "time"
+
 // Edition is the product edition of a Weaviate instance: Community Edition
 // without a license key, Enterprise Edition with one.
 type Edition string
@@ -31,9 +33,7 @@ const (
 	// StatusUnlicensed means no well-formed license key is configured;
 	// community mode, no checks run.
 	StatusUnlicensed Status = "unlicensed"
-	// StatusValid means the last signed answer said valid and has not
-	// expired. Until server-side verification ships, a well-formed key is
-	// reported as valid.
+	// StatusValid means the last signed answer said valid and has not expired.
 	StatusValid Status = "valid"
 	// StatusExpired / StatusRevoked / StatusUnknown mean the last signed
 	// answer said so.
@@ -48,13 +48,26 @@ const (
 	StatusDegraded Status = "degraded"
 )
 
-// State is the license state derived once at startup from the configured
-// license key. LicenseID is the non-secret id embedded in the key; it is
-// empty when unlicensed. The key itself is never stored.
-type State struct {
-	Status    Status `json:"status" yaml:"status"`
-	LicenseID string `json:"licenseId" yaml:"licenseId"`
+// StateProvider supplies the latest license reporting state.
+type StateProvider interface {
+	Current() State
 }
+
+// State is the current license reporting state. LicenseID is the non-secret id
+// embedded in the key; it is empty when unlicensed. The key itself is never
+// stored.
+type State struct {
+	Status            Status    `json:"status" yaml:"status"`
+	LicenseID         string    `json:"licenseId" yaml:"licenseId"`
+	ExpiresAt         time.Time `json:"expiresAt" yaml:"expiresAt"`
+	LastCheckedAt     time.Time `json:"lastCheckedAt" yaml:"lastCheckedAt"`
+	GracePeriodEndsAt time.Time `json:"gracePeriodEndsAt" yaml:"gracePeriodEndsAt"`
+	ClusterMismatch   bool      `json:"clusterMismatch" yaml:"clusterMismatch"`
+}
+
+// Current returns the static state. Both State and *State satisfy
+// StateProvider.
+func (s State) Current() State { return s }
 
 // Edition derives the product edition from the license state: no well-formed
 // key means Community Edition, any well-formed key means Enterprise Edition.

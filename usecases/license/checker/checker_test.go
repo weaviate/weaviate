@@ -527,3 +527,28 @@ func TestSnapshotEntitlementsAreIsolated(t *testing.T) {
 		t.Fatalf("snapshot mutated checker state: %v", second.Entitlements)
 	}
 }
+
+func TestReportingOnlyPreservesVerificationStatus(t *testing.T) {
+	clk := &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
+	f := newFakeServer(t, clk.now)
+	c := newChecker(t, f, clk, "")
+	c.ReportingOnly = true
+	if s := c.Snapshot(); s.State != licensestate.StatusUnreachable {
+		t.Fatalf("fresh node: %+v", s)
+	}
+
+	f.status.Store(license.StatusRevoked)
+	if s := c.CheckNow(context.Background()); s.State != licensestate.StatusRevoked {
+		t.Fatalf("revoked without a previous valid answer: %+v", s)
+	}
+	f.status.Store(license.StatusValid)
+	if s := c.CheckNow(context.Background()); s.State != licensestate.StatusValid {
+		t.Fatalf("valid: %+v", s)
+	}
+
+	f.down.Store(true)
+	clk.advance(DefaultGracePeriod + time.Second)
+	if s := c.CheckNow(context.Background()); s.State != licensestate.StatusUnreachable {
+		t.Fatalf("outage beyond grace in reporting-only mode: %+v", s)
+	}
+}

@@ -5,6 +5,9 @@ services:
       context: .
       dockerfile: Dockerfile
       target: weaviate
+      args:
+        # Synthetic keys in tests must never contact the real license service.
+        LICENSE_SERVER_URL: http://127.0.0.1:1
     restart: on-failure:0
     ports:
       - "8080:8080"

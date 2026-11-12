@@ -109,7 +109,8 @@ const (
 	Ref2VecCentroid = "ref2vec-centroid"
 )
 
-// TestWeaviateLicenseKey is a well-formed test key; Weaviate only form-checks it.
+// TestWeaviateLicenseKey is a synthetic well-formed key for form-gated tests.
+// The test image points verification at an unreachable local address.
 const TestWeaviateLicenseKey = "wv8.lic_01ARZ3NDEKTSV4RRFFQ69G5FAV.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
 
 type Compose struct {

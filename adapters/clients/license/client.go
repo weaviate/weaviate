@@ -26,8 +26,9 @@ import (
 	protocol "github.com/weaviate/weaviate/entities/license"
 )
 
-// DefaultServerURL is the production license service.
-const DefaultServerURL = "https://license.weaviate.io"
+// DefaultServerURL is the production license service. It is a string variable
+// only so deliberately relinked test binaries can use a local service.
+var DefaultServerURL = "https://license.weaviate.io"
 
 // Client performs signed verify calls against the license service. It is the
 // piece Weaviate embeds.

@@ -400,11 +400,20 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.License = &appState.ServerConfig.Config.License
-	license.RegisterMetrics(metricsRegisterer, *appState.License)
-	licenseLogFields := logrus.Fields{"action": "license", "edition": appState.License.Edition()}
-	if appState.License.Edition() == license.EditionEnterprise {
-		licenseLogFields["status"] = appState.License.Status
-		licenseLogFields["license_id"] = appState.License.LicenseID
+	licenseChecker, err := newLicenseChecker(appState)
+	if err != nil {
+		appState.Logger.WithField("action", "startup").Fatalf("failed to configure license verification: %v", err)
+	}
+	if licenseChecker != nil {
+		licenseChecker.Start()
+		appState.License = licenseChecker
+	}
+	license.RegisterMetrics(metricsRegisterer, appState.License)
+	licenseState := appState.License.Current()
+	licenseLogFields := logrus.Fields{"action": "license", "edition": licenseState.Edition()}
+	if licenseState.Edition() == license.EditionEnterprise {
+		licenseLogFields["status"] = licenseState.Status
+		licenseLogFields["license_id"] = licenseState.LicenseID
 	}
 	appState.Logger.WithFields(licenseLogFields).Info("license state")
 
@@ -712,6 +721,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LoadLegacySchema:            schemaRepo.LoadLegacySchema,
 		SentryEnabled:               appState.ServerConfig.Config.Sentry.Enabled,
 		TelemetryEnabled:            telemetryEnabled(appState),
+		ClusterIDEnabled:            telemetryEnabled(appState) || appState.ServerConfig.Config.WeaviateLicense,
 		RBAC:                        appState.RBAC,
 		DynamicUserController:       appState.APIKey.Dynamic,
 		NamespacesController:        namespacesController,
@@ -756,6 +766,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.ClusterService = rCluster.New(rConfig, appState.GRPCServerMetrics)
 	migrator.SetCluster(appState.ClusterService.Raft)
 	appState.ClusterService.SetInflightDrainer(repo.WaitForLocalInflightWrites)
+	if licenseChecker != nil {
+		enterrors.GoWrapper(func() { runLicenseChecker(serverShutdownCtx, licenseChecker) }, appState.Logger)
+	}
 
 	// Docs links carry ?clusterid= only when telemetry is enabled. Installed
 	// before ClusterService.Open so links logged during restore-time shard
