@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
 	"maps"
 	"slices"
 	"strings"
@@ -283,27 +284,26 @@ type NamespaceSubject struct {
 // the two stay consistent by construction. Group assignments are global and so
 // are excluded — a namespace-named group can't block its namespace's removal.
 func (m *Manager) NamespaceLocalRBAC(namespace string) (roles []string, subjects []NamespaceSubject, err error) {
-	all, err := m.GetRoles()
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
+	policies, err := m.copyPolicies()
 	if err != nil {
-		return nil, nil, fmt.Errorf("GetRoles: %w", err)
+		return nil, nil, fmt.Errorf("GetFilteredNamedPolicy: %w", err)
 	}
-	for name := range all {
-		if namespacing.NamespaceFromQualified(name) == namespace {
-			roles = append(roles, name)
-		}
-	}
-	rows, err := m.ListGroupingSubjects()
+	groupings, err := m.copyGroupingPolicies()
 	if err != nil {
-		return nil, nil, fmt.Errorf("ListGroupingSubjects: %w", err)
+		return nil, nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
 	}
+	roles = namespaceRoleNames(namespace, policies, groupings)
 	seen := map[NamespaceSubject]struct{}{}
-	for _, s := range rows {
-		user, authType, ns, err := conv.SubjectNamespace(s)
+	for _, g := range groupings {
+		user, authType, ns, err := conv.SubjectNamespace(g[0])
 		if err != nil {
 			// A row we can't parse must not be silently dropped: an undercount
 			// here lets the removal-block gate read zero and remove a namespace
 			// while an assignment survives.
-			return nil, nil, fmt.Errorf("SubjectNamespace %q: %w", s, err)
+			return nil, nil, fmt.Errorf("SubjectNamespace %q: %w", g[0], err)
 		}
 		// A zero auth type marks a global group subject.
 		if authType == "" || ns != namespace {
@@ -317,6 +317,39 @@ func (m *Manager) NamespaceLocalRBAC(namespace string) (roles []string, subjects
 		subjects = append(subjects, subject)
 	}
 	return roles, subjects, nil
+}
+
+// namespaceRoleNames returns namespace's role names straight from the p and g
+// rows. GetRoles would miss a role whose every row conv.CasbinPolicies cannot
+// convert.
+func namespaceRoleNames(namespace string, policies, groupings [][]string) []string {
+	var names []string
+	seen := map[string]struct{}{}
+	for name := range roleNames(policies, groupings) {
+		if _, ok := seen[name]; ok || namespacing.NamespaceFromQualified(name) != namespace {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	return names
+}
+
+// roleNames yields the role name of every p row and every g row, so a role
+// whose last permission was removed still shows up through its g rows.
+func roleNames(policies, groupings [][]string) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for _, p := range policies {
+			if len(p) > 0 && !yield(conv.TrimRoleNamePrefix(p[0])) {
+				return
+			}
+		}
+		for _, g := range groupings {
+			if len(g) > 1 && !yield(conv.TrimRoleNamePrefix(g[1])) {
+				return
+			}
+		}
+	}
 }
 
 // CountNamespaceLocalRBAC returns the number of namespace-local roles plus
