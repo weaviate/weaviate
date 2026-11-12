@@ -284,7 +284,7 @@ var ErrTaskStillActiveForTargetVectors = errors.New("a task bound to these targe
 // inheritance — the caller must refuse the marker introduction and let the
 // client retry once the task settles. NOTE: SWAPPING normally lasts
 // milliseconds, but a node that dies before delivering its post-completion
-// ack holds SWAPPING until it acks.
+// ack holds SWAPPING until it acks; only DeleteClass clears such a wedge.
 //
 // Overlap semantics: a record is purged WHOLE when ANY of its target vectors
 // overlaps `targets` — records are atomic, so a multi-target record's
