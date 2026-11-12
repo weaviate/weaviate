@@ -6,7 +6,7 @@
 
 ## v1.4: 10M en wiki-dpr e5 (768d), en curso (2026-11-11)
 
-**Estado: medidos los dos brazos a 10M y a 1M, y la celda de 512 bits en las dos escalas. Pendiente: la repetición nocturna (12 de noviembre) del brazo HNSW y de la curva de 8 threads con rescoreLimit 400 de la celda de 512 bits, que marcaron deriva en su segunda ronda.** El pre-registro y el protocolo de abajo se escribieron antes de ver ningún dato de 10M; los resultados van en "Resultados a 10M".
+**Estado: medidos los dos brazos a 10M y a 1M, y la celda de 512 bits en las dos escalas. Pendiente: volver a cronometrar el brazo HNSW y la curva de 8 threads con rescoreLimit 400 de la celda de 512 bits, que marcaron deriva en su segunda ronda. La repetición de la noche del 12 de noviembre se perdió porque el Mac entró en reposo (ver "Deriva entre las dos rondas"), y se repite el 12 por la mañana con la máquina despierta.** El pre-registro y el protocolo de abajo se escribieron antes de ver ningún dato de 10M; los resultados van en "Resultados a 10M".
 
 La pregunta central: si el ~2x contra HNSW que se midió a 1M se mantiene plano a 10M, como las cargas de posting en las simulaciones.
 
@@ -166,7 +166,15 @@ Con cuatro candidatos por posting cargado no compensa leer los vectores de un po
 - **Posting-edge repite en las dos escalas;** ningún punto tiene pasadas con ruido.
 - **HNSW a 10M no repite.** Su segunda ronda (20:00 a 20:05) va entre un 6 y un 22 % más lenta en todos los puntos de 8 threads con rescoreLimit 512, y con 1 thread oscila hasta un 25 % en los dos sentidos. Es el mismo build medido dos veces, así que es la máquina, no el grafo. Yo no ejecutaba nada en esa ventana.
 - **HNSW a 1M repite con rescoreLimit 512;** su curva de 64 con 1 thread va entre un 5 y un 8 % lenta en seis puntos.
-- **Repetición de noche en cola,** desde las 00:30: el brazo HNSW de 10M entero (hay que reconstruirlo para volver a cronometrarlo), el de 1M, y la celda de posting-edge de 1M como ancla entre las dos sesiones. Si el ancla repite la tarde, los tiempos de posting-edge de 10M de esta tarde se leen junto al HNSW de la noche. Detrás van las dos curvas de 512 bits que no repitieron (ver "El código de 512 bits a 10M") y la curva de 8 threads del control de dbpedia (Fase C, "Ruido").
+- **La repetición de noche se perdió: el Mac estaba en reposo.** Desde las 22:56 del 11 de noviembre entró en reposo por inactividad, y solo despertaba en modo de mantenimiento, unos 45 a 60 segundos cada cuarto de hora (`pmset -g log`). La cola de las 00:30 corrió entera a trozos, en esos despertares: el ancla tardó casi tres horas, y el build de HNSW a 10M, 4 059 s en vez de 1 645. El reloj monotónico de Go no cuenta el reposo, así que ningún número lo delata por sí mismo, pero nada de esa cola sirve: ni el brazo HNSW ni el ancla. Es un fallo mío, por dejar la cola sin impedir el reposo. Las corridas antes de las 22:56 (los dos brazos de la tarde y la celda de 512 bits) no se ven afectadas.
+- **Repetición, el 12 por la mañana, con la máquina despierta (`caffeinate -i` durante toda la cadena):**
+  1. La celda de posting-edge de 1M como ancla con la tarde.
+  2. El brazo HNSW de 10M entero: hay que reconstruirlo para volver a cronometrarlo.
+  3. El brazo HNSW de 1M.
+  4. El control de dbpedia (Fase C, "Ruido").
+  5. Las dos curvas de 512 bits que no repitieron (ver "El código de 512 bits a 10M").
+
+  Si el ancla repite la tarde, los tiempos de posting-edge de 10M de la tarde se leen junto al HNSW de la mañana.
 - **El veredicto del pre-registro no depende de la ronda:** el ratio a 0.95 queda entre 1.78x y 2.24x, por debajo de 2.5x con las dos.
 
 ### El código de 512 bits a 10M
@@ -210,7 +218,7 @@ Lo que dice:
 - **Las otras tres curvas de cada celda repitieron:** con medianas dentro de ±2 % y ningún punto más allá de un 6 %.
 - **No es mío:** de 21:50 a 00:19 no ejecuté nada.
 
-Las dos curvas se vuelven a medir esta noche, detrás de HNSW, con la curva de 8 threads de 800 como ancla.
+Las dos curvas se vuelven a medir en la cadena de la mañana del 12, detrás de HNSW, con la curva de 8 threads de 800 como ancla.
 
 ### Recall de arista a 10M: con P=256 no se llega a 0.94
 
@@ -538,47 +546,41 @@ El modo disco tiene que re-derivar S con su presupuesto de I/O, y estos datos no
 
 El lote de 4 postings por ronda se fijó con S=236, donde una ronda escanea 944 vectores. Con S=512 la misma ronda escanea 2 048, y su búsqueda más barata, 2 560. La pregunta era si parte de lo que S=512 pierde en el extremo rápido es el tamaño de la ronda y no el del posting. Está fuera de la matriz registrada, donde los lotes iban fijos.
 
-**Respuesta: en parte, y no cambia el veredicto.** Las rondas cortas le dan a S=512 puntos más baratos, que no tenía. Pero también se los dan al control, que con ellas sigue por delante a recall 0.90. Entre 0.92 y 0.95 el control sigue por delante con sus rondas de 4, y de 0.92 en adelante las rondas de 4 son las buenas para los dos tamaños.
+**Respuesta: en parte, y no cambia el veredicto.** Las rondas cortas le dan a S=512 puntos más baratos, que no tenía, y con ellos empata con el control a recall 0.90. Entre 0.92 y 0.95 el control sigue por delante, y de 0.95 en adelante las rondas de 4 son las buenas para los dos tamaños.
 
 QPS a igual recall con 1 thread, rescoreLimit 64 y margen 0.06. Entre paréntesis, el recall del punto más barato de la curva donde el nivel queda por debajo de él:
 
 | recall | S=236, rondas de 4 | S=236, de 2 | S=236, de 1 | S=512, rondas de 4 | S=512, de 2 | S=512, de 1 |
 |---|---|---|---|---|---|---|
-| 0.88 | 1572 (0.9221) | 1766 (0.8955) | 1843 | 1306 (0.9408) | 1512 (0.9170) | 1604 (0.9015) |
-| 0.90 | 1572 (0.9221) | 1716 | 1614 | 1306 (0.9408) | 1512 (0.9170) | 1604 (0.9015) |
-| 0.92 | 1572 (0.9221) | 1512 | 1413 | 1306 (0.9408) | 1475 | 1409 |
-| 0.93 | 1469 | 1420 | 1322 | 1306 (0.9408) | 1356 | 1313 |
-| 0.95 | 1238 | 1151 | 1067 | 1171 | 1147 | 1118 |
-| 0.97 | 828 | 785 | 742 | 835 | 796 | 758 |
-| 0.99 | 301 | 290 | 282 | 299 | 278 | 272 |
+| 0.88 | 1572 (0.9221) | 1564 (0.8955) | 1617 | 1306 (0.9408) | 1512 (0.9170) | 1604 (0.9015) |
+| 0.90 | 1572 (0.9221) | 1522 | 1465 | 1306 (0.9408) | 1512 (0.9170) | 1604 (0.9015) |
+| 0.92 | 1572 (0.9221) | 1352 | 1328 | 1306 (0.9408) | 1475 | 1409 |
+| 0.93 | 1469 | 1274 | 1264 | 1306 (0.9408) | 1356 | 1313 |
+| 0.95 | 1238 | 1036 | 998 | 1171 | 1147 | 1118 |
+| 0.97 | 828 | 711 | 684 | 835 | 796 | 758 |
+| 0.99 | 301 | 268 | 258 | 299 | 278 | 272 |
 
-Las columnas no son todas de la misma corrida:
-
-- **S=236 con rondas de 4** es el control de la noche (01:35).
-- **S=512** es de 09:31 a 09:59, con la máquina libre.
-- **S=236 con rondas de 2 y de 1** es de la repetición de noche del 11 de noviembre (22:47 a 00:19). Su curva de rondas de 4 con 1 thread, medida en la misma corrida, repite la de 01:35: 7 de 8 puntos dentro de ±2 % y mediana de −0.1 %.
-
-La primera medida de esas dos columnas, de día (10:27 a 10:41), iba entre un 8 y un 10 % lenta con 1 thread, y no el 4 % que se había estimado (ver "Ruido").
+Las columnas no son todas de la misma hora. S=236 con rondas de 4 es el control de la noche (01:35). S=512 es de 09:31 a 09:59, con la máquina libre. S=236 con rondas de 2 y de 1 es de 10:27 a 10:41, con la máquina ya en uso: sus cifras van del orden de un 4 % lentas, que es lo que perdió con 1 thread la curva de rondas de 4 medida justo antes (ver "Ruido"). Esas dos columnas siguen siendo provisionales: su repetición de las 22:38 se cronometró con el Mac en reposo (ver "Ruido") y no sirve. Está otra vez en cola, con la máquina despierta.
 
 La búsqueda más barata de cada configuración (ef=10), que es lo que define el extremo rápido:
 
 | S | ronda | postings cargados | vectores escaneados | recall | QPS |
 |---|---|---|---|---|---|
 | 236 | 4 | 7.5 | 1 920 | 0.9221 | 1572 |
-| 236 | 2 | 5.3 | 1 371 | 0.8955 | 1766 |
-| 236 | 1 | 4.5 | 1 176 | 0.8776 | 1873 |
+| 236 | 2 | 5.3 | 1 371 | 0.8955 | 1564 |
+| 236 | 1 | 4.5 | 1 176 | 0.8776 | 1636 |
 | 512 | 4 | 6.7 | 3 698 | 0.9408 | 1306 |
 | 512 | 2 | 4.7 | 2 615 | 0.9170 | 1512 |
 | 512 | 1 | 4.0 | 2 240 | 0.9015 | 1604 |
 
 Lo que dice:
 
-- **A S=512 le faltaban puntos baratos, y la ronda corta se los da.** Con rondas de 4 no tenía nada por debajo de recall 0.94. Con rondas de 1 llega a 1604 QPS a recall 0.9015, y su mejor QPS a recall 0.90 pasa de 0.76x a 0.93x del mejor del control.
-- **Al control la ronda corta también le da puntos más baratos.** Con rondas de 2 da 1716 QPS a recall 0.90, un 9 % más que su punto de rondas de 4 (1572 a 0.9221). Con las cifras de día parecía que no ganaba nada, y que S=512 empataba con él a 0.90: era la hora.
-- **Entre 0.92 y 0.95 el control sigue por delante con rondas de 4:** 0.94x, 0.92x y 0.95x para el mejor lote de S=512 en cada nivel.
+- **A S=512 le faltaban puntos baratos, y la ronda corta se los da.** Con rondas de 4 no tenía nada por debajo de recall 0.94. Con rondas de 1 llega a 1604 QPS a recall 0.9015: su mejor QPS a recall 0.90 pasa de 0.83x a 1.02x del control.
+- **El control no gana nada equivalente.** Sus rondas de 2 y de 1 dan puntos más baratos con menos recall (0.896 y 0.878), pero a recall 0.90 no superan a su punto de rondas de 4, ni corrigiendo el 4 % de la hora.
+- **Entre 0.92 y 0.95 el control sigue por delante:** 0.94x, 0.92x y 0.95x para el mejor lote de S=512 en cada nivel.
 - **Lo que queda de diferencia sí es el tamaño del posting.** A igual trabajo, postings mayores dan menos recall: S=512 con rondas de 2 escanea 2 615 vectores para un recall de 0.917, y el control escanea 1 920 para 0.922.
-- **De 0.92 en adelante, rondas de 4, con los dos tamaños.** Para el control, de 0.95 a 0.99, las rondas de 2 cuestan entre un 4 y un 7 % de QPS, y las de 1 entre un 6 y un 14 %. A S=512 las rondas de 1 cuestan entre un 4 y un 9 %.
-- **El default de `LoadBatch` no se toca:** el tramo de operación empieza en 0.95, donde ganan las rondas de 4. Por debajo de 0.92 las rondas cortas dan más: un 9 % a recall 0.90 con rondas de 2, y un 17 % a 0.88 con rondas de 1. Para el modo disco este dato sí importa: la ronda es la profundidad serial de I/O, y a recall 0.99 S=512 hace 8 rondas de 4 postings donde el control hace 13.
+- **De 0.95 en adelante, rondas de 4.** A S=512 las rondas de 1 cuestan entre un 4 y un 9 % de QPS. Al control le cuestan más, entre un 14 y un 19 % en estas cifras, de las que unos 4 puntos son la hora.
+- **El default de `LoadBatch` no se toca.** Para el modo disco este dato sí importa: la ronda es la profundidad serial de I/O, y a recall 0.99 S=512 hace 8 rondas de 4 postings donde el control hace 13.
 
 ### Ruido
 
@@ -604,22 +606,19 @@ Es un sesgo parejo en toda la curva, sin picos, y por eso no salía en la disper
 - **Con 8 threads sí, y es un fallo mío.** Esa curva coincidió con los primeros comandos con que atendí un mensaje nuevo (búsquedas en disco y en el transcript de la sesión, de unos segundos cada una), lanzados sin prioridad de fondo en plena ventana cronometrada. No puedo separar su efecto del uso del escritorio.
 - **El criterio de pasadas marcó tres de esos ocho puntos de 8 threads.** Los otros cinco iban igual de lentos con las pasadas de acuerdo entre sí.
 
-**El control, repetido otra vez de noche (22:38 a 00:19), sin nada mío corriendo,** con el mismo binario y las rondas de 1, 2 y 4:
+Lo que deja. El punto dudoso del control con 8 threads (ef=40) sigue sin contraste, y las columnas de S=236 con rondas de 2 y de 1 de la tabla de arriba son de esa misma corrida, tomadas después (10:27 a 10:41) con el escritorio en uso y con lecturas y ediciones mías de ficheros de por medio; su escalado de 1 a 8 threads es el normal (6.2x), pero no son una medida limpia. Y cualquier cronometraje de día en esta máquina necesita una repetición de noche antes de publicarse, sobre todo con 8 threads.
 
-| threads | puntos dentro de ±2 % | cambio de la corrida de 01:35 contra la repetición |
-|---|---|---|
-| 1 | 7 de 8 | mediana −0.1 %, el peor +2.4 % |
-| 8 | 1 de 8 | de −6.4 a +17.3 %, mediana +3.3 % |
+**La repetición de la noche (desde las 22:38) no sirve, salvo su curva de 1 thread.** El Mac entró en reposo por inactividad a las 22:56:40 (`pmset -g log`). Desde entonces solo despertó en modo de mantenimiento, sin pantalla (DarkWake): de 45 a 60 segundos cada cuarto de hora, y una vez de 00:05 a 00:32. El reloj monotónico de Go no cuenta el reposo, así que ninguna pasada lo delata en su duración. Pero todo lo cronometrado después de las 22:56 corrió en esos despertares, junto a las tareas de mantenimiento del sistema. Cómo quedó cada parte:
 
-- **Con 1 thread repite:** la curva de 01:35 queda confirmada, y con ella las columnas de 1 thread de las Fases B y C.
-- **Con 8 threads no, y esta vez el ruido es de la repetición.** Tres de sus ocho puntos tienen pasadas a más de un 10 % de su mediana (6757, 9288 y 10025 QPS a ef=10), y los cambios van en los dos sentidos. No es una deriva sostenida de la curva de 01:35, pero tampoco la confirma.
-- **Las rondas de 1 y de 2 de día iban lentas:** contra la noche, entre un 8 y un 10 % con 1 thread y entre un 18 y un 21 % con 8. La tabla de "El tamaño de la ronda" lleva ya las cifras de la noche.
+- **Rondas de 4 con 1 thread (22:47 a 22:53): antes del reposo, vale.** Repite la corrida de 01:35, con 7 de 8 puntos dentro de ±2 % y mediana de −0.1 %. Con ella quedan confirmadas las columnas de 1 thread de las Fases B y C.
+- **Rondas de 4 con 8 threads: no vale.** Atraviesa el reposo, y tres de sus ocho puntos tienen pasadas a más de un 10 % de su mediana (6757, 9288 y 10025 QPS a ef=10).
+- **Rondas de 1 y de 2: no valen.** Salieron entre un 8 y un 10 % más rápidas que las de día con 1 thread, pero se cronometraron en reposo y no pueden sustituirlas.
 
-Lo que deja. La curva de 8 threads del control, en la que se apoyan los ratios de 8 threads de las Fases B y C, sigue sin una repetición limpia. Se vuelve a medir al final de la sesión nocturna del 12 de noviembre, con la de 1 thread como ancla. Y cualquier cronometraje de día en esta máquina necesita una repetición de noche antes de publicarse, sobre todo con 8 threads.
+**Fallo mío:** dejé cola para la noche sin impedir el reposo, que en esta máquina salta al minuto de inactividad. La cola nocturna del 12 de noviembre (el brazo HNSW de v1.4 y su ancla) se perdió igual. Todo lo afectado se vuelve a cronometrar bajo `caffeinate -i`, que mantiene la máquina despierta mientras dura la cadena: el ancla, los dos brazos HNSW, este control con sus rondas de 1, 2 y 4, y las curvas de 512 bits.
 
 ### Datos y reproducción
 
-Resultados en `testdata/bench/v1.2/`: `dbpedia-1m-posting-{512,1024,2048}.json` (el control es `dbpedia-1m-code-full.json`), `dbpedia-1m-posting-{236,512}-batches.json` (rondas de 1, 2 y 4, con la repetición de la curva registrada de cada una), `dbpedia-1m-posting-236-batches-repeat.json` (la repetición de noche del control, con sus rondas de 1, 2 y 4) y `edge-recall-posting-{512,1024,2048}{,-fine}.json` (la malla de P de cada S y su afinado). Las tablas salen de `TestCellReport`, con `-bench.report.cells.recalls` para los niveles de recall de más y `-bench.report.cells.repeats` para comparar dos corridas de una celda. La salida completa está en `testdata/bench/v1.2/cells-posting-size.md`.
+Resultados en `testdata/bench/v1.2/`: `dbpedia-1m-posting-{512,1024,2048}.json` (el control es `dbpedia-1m-code-full.json`), `dbpedia-1m-posting-{236,512}-batches.json` (rondas de 1, 2 y 4, con la repetición de la curva registrada de cada una), `dbpedia-1m-posting-236-batches-repeat.json` (la repetición del control de las 22:38, de la que solo vale la curva de rondas de 4 con 1 thread: ver "Ruido") y `edge-recall-posting-{512,1024,2048}{,-fine}.json` (la malla de P de cada S y su afinado). Las tablas salen de `TestCellReport`, con `-bench.report.cells.recalls` para los niveles de recall de más y `-bench.report.cells.repeats` para comparar dos corridas de una celda. La salida completa está en `testdata/bench/v1.2/cells-posting-size.md`.
 
 ```bash
 # las tablas
