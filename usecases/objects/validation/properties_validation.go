@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -396,7 +397,12 @@ func stringVal(val interface{}) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("not a string, but %T", val)
 	}
-
+	// Go's encoding/json silently replaces lone UTF-16 surrogate escapes
+	// (e.g. \ud800) with U+FFFD. Reject such strings so callers receive a
+	// 422 rather than silently storing corrupt data (see GitHub #11744).
+	if strings.ContainsRune(typed, '�') {
+		return "", fmt.Errorf("not a valid UTF-8 string (contains replacement character U+FFFD, likely from a lone UTF-16 surrogate in the input)")
+	}
 	return typed, nil
 }
 
