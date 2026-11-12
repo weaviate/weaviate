@@ -610,10 +610,13 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 	return size, c.retry(ctx, MAX_RETRIES, try)
 }
 
+// shardStatusTimeout bounds a status read, after which the caller asks the next replica.
+const shardStatusTimeout = 2 * time.Second
+
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.timeoutUnit*QUERY_TIMEOUT_VALUE)
+	ctx, cancel := context.WithTimeout(ctx, shardStatusTimeout)
 	defer cancel()
 	req, err := setupRequest(ctx, http.MethodGet, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName),

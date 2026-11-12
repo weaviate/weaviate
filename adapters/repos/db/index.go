@@ -3830,6 +3830,13 @@ func localFirst(nodes []string, localNode string) []string {
 
 // localShardStatus returns "" when the local shard can't serve reads.
 func (i *Index) localShardStatus(ctx context.Context, shardName string) (string, error) {
+	// Only a tenant's copy is checked for read eligibility, a single-tenant copy reports its storage status.
+	if r := i.getReplicationFSMReader(); r != nil && i.partitioningEnabled {
+		node := i.getSchema.NodeName()
+		if !slices.Contains(r.FilterOneShardReplicasRead(i.Config.ClassName.String(), shardName, []string{node}), node) {
+			return "", nil
+		}
+	}
 	shard, release, err := i.GetShard(ctx, shardName)
 	defer release()
 	if err != nil || shard == nil {

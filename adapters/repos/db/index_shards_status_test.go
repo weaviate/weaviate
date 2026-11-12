@@ -223,6 +223,7 @@ func TestIndex_ShardsStatus_ReplicaFailures(t *testing.T) {
 		physical   map[string]sharding.Physical
 		deleted    []string // listed by the schema, then gone
 		local      map[string]localShardKind
+		unreadable []string // replicas the replication FSM excludes from reads
 		reachable  []string // nodes besides the coordinator that resolve to a host
 		replies    map[string]statusReply
 		wantStatus map[string]string // the first replica that answers, local first
@@ -252,6 +253,25 @@ func TestIndex_ShardsStatus_ReplicaFailures(t *testing.T) {
 			reachable:  []string{"node2"},
 			replies:    map[string]statusReply{"node2": {status: ready, size: 0}},
 			wantStatus: map[string]string{"s1": ready, "s2": ready, "s3": unavailable},
+		},
+		{
+			name:       "a tenant copy on this node that does not serve reads falls over to a peer",
+			mt:         true,
+			physical:   map[string]sharding.Physical{"hot": {Name: "hot", BelongsToNodes: []string{shardStatusLocalNode, "node1"}, Status: models.TenantActivityStatusHOT}},
+			local:      map[string]localShardKind{"hot": localReady},
+			unreadable: []string{shardStatusLocalNode},
+			reachable:  []string{"node1"},
+			replies:    map[string]statusReply{"node1": {status: ready, size: 7}},
+			wantStatus: map[string]string{"hot": ready},
+		},
+		{
+			name:       "a single-tenant copy on this node that does not serve reads reports its storage status",
+			physical:   map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{shardStatusLocalNode, "node1"}}},
+			local:      map[string]localShardKind{"s1": localReady},
+			unreadable: []string{shardStatusLocalNode},
+			reachable:  []string{"node1"},
+			replies:    map[string]statusReply{"node1": {status: ready, size: 7}},
+			wantStatus: map[string]string{"s1": ready},
 		},
 		{
 			name:       "local replica answers without asking a peer listed first",
@@ -324,6 +344,15 @@ func TestIndex_ShardsStatus_ReplicaFailures(t *testing.T) {
 			// Arrange
 			client := &shardStatusRemoteClient{replies: tc.replies}
 			index, hook := newShardStatusIndex(t, tc.mt, tc.physical, tc.local, tc.reachable, client, tc.deleted...)
+			if tc.unreadable != nil {
+				fsmReader := replicationTypes.NewMockReplicationFSMReader(t)
+				fsmReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+					func(_, _ string, replicas []string) []string {
+						return slices.DeleteFunc(slices.Clone(replicas), func(n string) bool { return slices.Contains(tc.unreadable, n) })
+					}).Maybe()
+				var fsm replicationTypes.ReplicationFSMReader = fsmReader
+				index.replicationFSMReader.Store(&fsm)
+			}
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 
