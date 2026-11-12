@@ -177,21 +177,26 @@ func (h *replicationHandler) getRebalancePlan(params replication.GetRebalancePla
 		if plan == nil {
 			return replication.NewGetRebalancePlanNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errNoRebalancePlan))
 		}
-		return replication.NewGetRebalancePlanOK().WithPayload(rebalancePlanResponse(*plan, h.latestDraftTask(plan.ID)))
+		return replication.NewGetRebalancePlanOK().WithPayload(rebalancePlanResponse(*plan, h.latestDraftTask(*plan)))
 	}
 	plan, ok := h.rebalanceManager.ReadRebalancePlan()
 	if !ok {
 		return replication.NewGetRebalancePlanNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errNoRebalancePlan))
 	}
-	return replication.NewGetRebalancePlanOK().WithPayload(rebalancePlanResponse(plan, h.latestDraftTask(plan.ID)))
+	return replication.NewGetRebalancePlanOK().WithPayload(rebalancePlanResponse(plan, h.latestDraftTask(plan)))
 }
 
-// latestDraftTask returns the highest-version draft task of planID in this
-// node's FSM, or nil when it holds none.
-func (h *replicationHandler) latestDraftTask(planID string) *rebalance.DraftTask {
+// latestDraftTask returns the highest-version draft task of plan in this
+// node's FSM, or nil when it holds none. Outside PLANNING it returns nil
+// without reading the FSM. The read is costly: RebalanceDraftTasks clones
+// every distributed task on the node.
+func (h *replicationHandler) latestDraftTask(plan rebalance.Plan) *rebalance.DraftTask {
+	if plan.State != rebalance.PlanStatePlanning {
+		return nil
+	}
 	var latest *rebalance.DraftTask
 	for _, task := range h.rebalanceManager.RebalanceDraftTasks() {
-		if task.PlanID == planID && (latest == nil || task.Version > latest.Version) {
+		if task.PlanID == plan.ID && (latest == nil || task.Version > latest.Version) {
 			latest = &task
 		}
 	}
@@ -212,11 +217,11 @@ func draftingStatus(unit rebalance.DraftUnitStatus) string {
 }
 
 // rebalancePlanResponse builds the GET payload for plan. Drafting lists the
-// source and target nodes only while plan is PLANNING and task is plan's
-// draft task. Drafting is never nil, so its JSON is [] and not null.
+// source and target nodes only when task is non-nil. Callers pass the result
+// of latestDraftTask. Drafting is never nil, so its JSON is [] and not null.
 func rebalancePlanResponse(plan rebalance.Plan, task *rebalance.DraftTask) *models.ReplicationRebalancePlan {
 	drafting := make([]*models.ReplicationRebalancePlanDraftingItems0, 0)
-	if plan.State == rebalance.PlanStatePlanning && task != nil {
+	if task != nil {
 		for _, node := range slices.Concat(plan.SourceNodes, plan.TargetNodes) {
 			drafting = append(drafting, &models.ReplicationRebalancePlanDraftingItems0{
 				Node:   node,

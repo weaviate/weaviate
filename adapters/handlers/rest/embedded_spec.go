@@ -11299,7 +11299,7 @@ func init() {
           "format": "int64"
         },
         "drafting": {
-          "description": "The drafting status of each listed node, source nodes first, while the plan is ` + "`" + `PLANNING` + "`" + `. Empty in every other state.",
+          "description": "The drafting status of each listed node, source nodes first, while the plan is ` + "`" + `PLANNING` + "`" + `. The list is empty in every other state. It is also empty while the plan is ` + "`" + `PLANNING` + "`" + ` until the node serving the request holds the plan's drafting task.",
           "type": "array",
           "items": {
             "description": "One node's drafting status.",
@@ -24976,7 +24976,7 @@ func init() {
           "format": "int64"
         },
         "drafting": {
-          "description": "The drafting status of each listed node, source nodes first, while the plan is ` + "`" + `PLANNING` + "`" + `. Empty in every other state.",
+          "description": "The drafting status of each listed node, source nodes first, while the plan is ` + "`" + `PLANNING` + "`" + `. The list is empty in every other state. It is also empty while the plan is ` + "`" + `PLANNING` + "`" + ` until the node serving the request holds the plan's drafting task.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/ReplicationRebalancePlanDraftingItems0"

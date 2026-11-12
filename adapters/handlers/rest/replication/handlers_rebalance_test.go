@@ -64,10 +64,12 @@ type fakeRebalanceManager struct {
 	deleteErr  error
 
 	// calls counts every manager call. localReads counts ReadRebalancePlan
-	// calls. leaderReads counts QueryRebalancePlan calls.
+	// calls. leaderReads counts QueryRebalancePlan calls. draftReads counts
+	// RebalanceDraftTasks calls.
 	calls       int
 	localReads  int
 	leaderReads int
+	draftReads  int
 	created     *rebalance.CreatePlanRequest
 	stopped     []string
 	deleted     []string
@@ -111,6 +113,7 @@ func (m *fakeRebalanceManager) QueryRebalancePlan(context.Context) (*rebalance.P
 
 func (m *fakeRebalanceManager) RebalanceDraftTasks() []rebalance.DraftTask {
 	m.calls++
+	m.draftReads++
 	return m.draftTasks
 }
 
@@ -618,6 +621,7 @@ func TestRebalanceHandlers(t *testing.T) {
 
 					require.IsType(t, &replication.GetRebalancePlanOK{}, response)
 					assert.Equal(t, want, response.(*replication.GetRebalancePlanOK).Payload.Drafting)
+					assert.Equal(t, 1, manager.draftReads, "draft task reads")
 				})
 			}
 		}
@@ -625,25 +629,32 @@ func TestRebalanceHandlers(t *testing.T) {
 
 	t.Run("get renders an empty drafting list outside drafting", func(t *testing.T) {
 		populated := []rebalance.DraftTask{{PlanID: "plan-1", Version: 1, Units: allUnits(rebalance.DraftUnitCompleted)}}
+		localRead := readPaths[:1]
+		// Every non-PLANNING row holds the plan's draft task. Only the PLANNING
+		// check in latestDraftTask keeps its draft reads at zero. One
+		// non-PLANNING row also runs on consistency true, so both read paths
+		// cover that check.
 		tests := []struct {
-			name  string
-			state rebalance.PlanState
-			tasks []rebalance.DraftTask
+			name       string
+			state      rebalance.PlanState
+			tasks      []rebalance.DraftTask
+			paths      []readPath
+			draftReads int
 		}{
-			{"proposed", rebalance.PlanStateProposed, populated},
-			{"not needed", rebalance.PlanStateNotNeeded, populated},
-			{"no acceptable plan", rebalance.PlanStateNoAcceptablePlan, populated},
-			{"planning failed", rebalance.PlanStatePlanningFailed, populated},
-			{"running", rebalance.PlanStateRunning, populated},
-			{"stopping", rebalance.PlanStateStopping, populated},
-			{"stopped", rebalance.PlanStateStopped, populated},
-			{"completed", rebalance.PlanStateCompleted, populated},
-			{"failed", rebalance.PlanStateFailed, populated},
-			{"planning with no draft task", rebalance.PlanStatePlanning, nil},
-			{"planning with only another plan's draft task", rebalance.PlanStatePlanning, []rebalance.DraftTask{otherPlan}},
+			{"proposed", rebalance.PlanStateProposed, populated, localRead, 0},
+			{"not needed", rebalance.PlanStateNotNeeded, populated, localRead, 0},
+			{"no acceptable plan", rebalance.PlanStateNoAcceptablePlan, populated, localRead, 0},
+			{"planning failed", rebalance.PlanStatePlanningFailed, populated, localRead, 0},
+			{"running", rebalance.PlanStateRunning, populated, localRead, 0},
+			{"stopping", rebalance.PlanStateStopping, populated, localRead, 0},
+			{"stopped", rebalance.PlanStateStopped, populated, localRead, 0},
+			{"completed", rebalance.PlanStateCompleted, populated, readPaths, 0},
+			{"failed", rebalance.PlanStateFailed, populated, localRead, 0},
+			{"planning with no draft task", rebalance.PlanStatePlanning, nil, readPaths, 1},
+			{"planning with only another plan's draft task", rebalance.PlanStatePlanning, []rebalance.DraftTask{otherPlan}, readPaths, 1},
 		}
-		for _, path := range readPaths {
-			for _, tt := range tests {
+		for _, tt := range tests {
+			for _, path := range tt.paths {
 				t.Run(fmt.Sprintf("%s on %s", tt.name, path.name), func(t *testing.T) {
 					manager := path.manager(listedPlan(tt.state), tt.tasks)
 					handler, _, _ := createRebalanceHandlerWithFakes(t, true, true, manager, liveNodes)
@@ -656,6 +667,7 @@ func TestRebalanceHandlers(t *testing.T) {
 					var fields map[string]json.RawMessage
 					require.NoError(t, json.Unmarshal(body, &fields))
 					assert.Equal(t, `[]`, string(fields["drafting"]))
+					assert.Equal(t, tt.draftReads, manager.draftReads, "draft task reads")
 				})
 			}
 		}

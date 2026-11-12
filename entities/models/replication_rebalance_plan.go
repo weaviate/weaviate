@@ -41,7 +41,7 @@ type ReplicationRebalancePlan struct {
 	// The UNIX timestamp in ms when the plan was created.
 	CreatedAtUnixMs int64 `json:"createdAtUnixMs,omitempty"`
 
-	// The drafting status of each listed node, source nodes first, while the plan is `PLANNING`. Empty in every other state.
+	// The drafting status of each listed node, source nodes first, while the plan is `PLANNING`. The list is empty in every other state. It is also empty while the plan is `PLANNING` until the node serving the request holds the plan's drafting task.
 	Drafting []*ReplicationRebalancePlanDraftingItems0 `json:"drafting"`
 
 	// The unique identifier (ID) of the rebalance plan.
