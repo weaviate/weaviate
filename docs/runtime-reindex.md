@@ -1768,7 +1768,8 @@ derives its preserve set from the `tidied.mig` / `merged.mig` markers, which
 this build never writes, so **disabling the index to fix the empty results is
 what destroys the data**. Upgrade again instead and let reconciliation promote.
 
-**Rolling back below this version after a reindex run.** Older releases
+**Rolling back below this version after a reindex run.** Older releases,
+v1.40.0 to v1.40.5 included (upgrade to the latest v1.40 patch instead),
 read neither per-tenant preparation nor a cancel during PREPARING as this
 build does. An older node that replays a reindex run from its RAFT log can
 keep the run PREPARING for good, refusing every schema change on the
