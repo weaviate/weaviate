@@ -25,7 +25,9 @@ import (
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -517,7 +519,7 @@ type dropVectorReconcileClient interface {
 // upgrade with pre-existing markers, or a restore. Idempotent: the active-task
 // check + the ConflictDetector dedupe across nodes running it at startup.
 func reconcileDroppedVectorIndexes(ctx context.Context, classes []*models.Class,
-	enq dropVectorReconcileClient, logger logrus.FieldLogger,
+	enq dropVectorReconcileClient, logger logrus.FieldLogger, ns usecasesNamespaces.Exister,
 ) {
 	tasks, err := enq.ListDistributedTasks(ctx)
 	if err != nil {
@@ -526,6 +528,10 @@ func reconcileDroppedVectorIndexes(ctx context.Context, classes []*models.Class,
 	}
 	for _, class := range classes {
 		if class == nil {
+			continue
+		}
+		// The leader refuses the task until the namespace is active again.
+		if usecasesNamespaces.RequireActive(ns, namespacing.NamespaceFromQualified(class.Class)) != nil {
 			continue
 		}
 		for name, cfg := range class.VectorConfig {
@@ -555,7 +561,7 @@ type schemaLister interface {
 // goroutine.
 func runDropVectorIndexReconciliation(ctx context.Context, lister schemaLister,
 	enq dropVectorReconcileClient, logger logrus.FieldLogger, interval time.Duration,
-	isLeader func() bool, nudge <-chan struct{},
+	isLeader func() bool, nudge <-chan struct{}, ns usecasesNamespaces.Exister,
 ) {
 	const attempts = 30
 	for i := 0; i < attempts; i++ {
@@ -596,7 +602,7 @@ func runDropVectorIndexReconciliation(ctx context.Context, lister schemaLister,
 			}
 			sch := lister.GetSchemaSkipAuth()
 			if sch.Objects != nil && len(sch.Objects.Classes) > 0 {
-				reconcileDroppedVectorIndexes(ctx, sch.Objects.Classes, enq, logger)
+				reconcileDroppedVectorIndexes(ctx, sch.Objects.Classes, enq, logger, ns)
 			}
 		}()
 		select {

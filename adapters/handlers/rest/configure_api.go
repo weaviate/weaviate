@@ -1146,7 +1146,7 @@ func initReindexAndDistributedTasks(
 		runDropVectorIndexReconciliation(
 			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.Logger,
 			appState.ServerConfig.Config.DistributedTasks.DropVectorReconcileInterval,
-			appState.ClusterService.IsLeader, dropVectorReconcileNudge,
+			appState.ClusterService.IsLeader, dropVectorReconcileNudge, appState.NamespacesController,
 		)
 	}, appState.Logger)
 
