@@ -69,9 +69,8 @@ type barrierRecordingProvider struct {
 	taskCallsBy    map[string]int
 	groupCompErr   error
 	swapRequestErr error
-	// groupErrs and swapErrs override the errors above for one group.
+	// groupErrs overrides groupCompErr for one group.
 	groupErrs map[string]error
-	swapErrs  map[string]error
 	// Status each callback was handed: the provider's only view of the task.
 	swapStatuses []TaskStatus
 	taskStatuses []TaskStatus
@@ -113,9 +112,6 @@ func (p *barrierRecordingProvider) OnSwapRequested(task *Task, groupID string, _
 	p.calls = append(p.calls, "swap:"+groupID)
 	p.swapCallsBy[task.ID]++
 	p.swapStatuses = append(p.swapStatuses, task.Status)
-	if err, ok := p.swapErrs[groupID]; ok {
-		return err
-	}
 	if p.swapRequestErr != nil {
 		return p.swapRequestErr
 	}
@@ -144,10 +140,10 @@ func (p *barrierRecordingProvider) SetSwapRequestedError(err error) {
 	p.swapRequestErr = err
 }
 
-func (p *barrierRecordingProvider) SetGroupErrors(prep, swap map[string]error) {
+func (p *barrierRecordingProvider) SetGroupErrors(errs map[string]error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.groupErrs, p.swapErrs = prep, swap
+	p.groupErrs = errs
 }
 
 func (p *barrierRecordingProvider) swapCount(taskID string) int {
@@ -989,7 +985,7 @@ func TestBarrier_FailedPrepAckLeavesStatusToRaft(t *testing.T) {
 				}
 				h.tick(0)
 				complete(t, h, "b-2", "node-2")
-				h.nodes[1].provider.SetGroupErrors(map[string]error{"tenant-b": errors.New("synthetic EIO")}, nil)
+				h.nodes[1].provider.SetGroupErrors(map[string]error{"tenant-b": errors.New("synthetic EIO")})
 				h.tick(1)
 				h.tick(1)
 				require.Contains(t, h.nodes[1].provider.swapGroups, "tenant-a", "node-2 swaps the decided tenant")
@@ -1032,53 +1028,42 @@ func TestBarrier_FailedPrepAckLeavesStatusToRaft(t *testing.T) {
 // A failed local prepare must fail the task even while another local group
 // is still retryable (context.Canceled, for example a held shard).
 func TestBarrier_FailedGroupAcksWhileOtherGroupRetryable(t *testing.T) {
-	groupErrs := map[string]error{
+	defer leaktest.Check(t)()
+
+	h := newBarrierHarness(t, []string{"node-1"})
+	defer h.close()
+
+	taskID := "barrier-failed-group-acks"
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.namespace,
+		Id:                    taskID,
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitSpecs: []*cmd.UnitSpec{
+			{Id: "u-a", GroupId: "group-a"},
+			{Id: "u-b", GroupId: "group-b"},
+		},
+		NeedsPreparationBarrier: true,
+	}), 1))
+	for _, u := range []string{"u-a", "u-b"} {
+		require.NoError(t, h.completionRec.UpdateDistributedTaskUnitProgress(
+			context.Background(), h.namespace, taskID, 1, "node-1", u, 0.1))
+	}
+	h.tick(0)
+	for _, u := range []string{"u-a", "u-b"} {
+		require.NoError(t, h.completionRec.RecordDistributedTaskUnitCompletion(
+			context.Background(), h.namespace, taskID, 1, "node-1", u))
+	}
+	require.Equal(t, TaskStatusPreparing, h.getTask(t, taskID).Status)
+
+	h.nodes[0].provider.SetGroupErrors(map[string]error{
 		"group-a": fmt.Errorf("shard held: %w", context.Canceled),
 		"group-b": fmt.Errorf("synthetic EIO"),
-	}
-	tests := []struct {
-		name     string
-		prepErrs map[string]error
-	}{
-		{name: "prep", prepErrs: groupErrs},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			defer leaktest.Check(t)()
+	})
+	h.tick(0)
 
-			h := newBarrierHarness(t, []string{"node-1"})
-			defer h.close()
-
-			taskID := "barrier-failed-group-acks"
-			require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-				Namespace:             h.namespace,
-				Id:                    taskID,
-				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-				UnitSpecs: []*cmd.UnitSpec{
-					{Id: "u-a", GroupId: "group-a"},
-					{Id: "u-b", GroupId: "group-b"},
-				},
-				NeedsPreparationBarrier: true,
-			}), 1))
-			for _, u := range []string{"u-a", "u-b"} {
-				require.NoError(t, h.completionRec.UpdateDistributedTaskUnitProgress(
-					context.Background(), h.namespace, taskID, 1, "node-1", u, 0.1))
-			}
-			h.tick(0)
-			for _, u := range []string{"u-a", "u-b"} {
-				require.NoError(t, h.completionRec.RecordDistributedTaskUnitCompletion(
-					context.Background(), h.namespace, taskID, 1, "node-1", u))
-			}
-			require.Equal(t, TaskStatusPreparing, h.getTask(t, taskID).Status)
-
-			h.nodes[0].provider.SetGroupErrors(tt.prepErrs, nil)
-			h.tick(0)
-
-			task := h.getTask(t, taskID)
-			require.Equal(t, TaskStatusFailed, task.Status, "group-b's failure must be acked without waiting for group-a")
-			require.Contains(t, task.Error, `"group-b"`)
-		})
-	}
+	task := h.getTask(t, taskID)
+	require.Equal(t, TaskStatusFailed, task.Status, "group-b's failure must be acked without waiting for group-a")
+	require.Contains(t, task.Error, `"group-b"`)
 }
 
 func TestPerTenantSwap(t *testing.T) {

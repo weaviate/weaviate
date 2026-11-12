@@ -1402,8 +1402,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 		}
 	}
 
-	// The task error drops acks from nodes that fail after the first one, so
-	// this line is the only record such a node leaves.
+	// A swap failure never reaches the task, so this line is its only record.
 	if len(refused) > 0 {
 		logRefused := func(logrus.FieldLogger) {
 			logger.WithField("shards", reportedShardNames(refused)).

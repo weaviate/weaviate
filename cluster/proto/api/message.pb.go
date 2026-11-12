@@ -2217,9 +2217,9 @@ func (x *MarkTaskFailedRequest) GetFailedAtUnixMillis() int64 {
 // RecordDistributedTaskPostCompletionAckRequest captures one node's
 // SWAP-phase callback result (OnGroupCompleted for non-barrier tasks,
 // OnSwapRequested for barrier tasks) — i.e. did every local unit's
-// swap/finalize phase succeed? Emitted by every node that has local
-// units, after the SWAP callback returns, before the cluster-wide
-// MarkTaskFinalized commit lands.
+// swap/finalize phase succeed? Sent after the SWAP callback returns,
+// before the cluster-wide MarkTaskFinalized commit lands. For a barrier
+// task, only a success is sent; a failed swap stays owed and retries.
 //
 // The scheduler gates MarkTaskFinalized on having an ack from every
 // node with local units in the task. If any ack of a non-barrier task reports success=false,

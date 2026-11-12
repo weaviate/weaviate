@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -1398,6 +1399,7 @@ func TestAHeldCommittedSwapWaitsAndKeepsItsDebt(t *testing.T) {
 	require.Len(t, shard.migrationMirrors.heldUnarmed(), 1)
 	registerIndex(fx.idx, fx.className)
 
+	logs := test.NewLocal(fx.logger.(*logrus.Logger))
 	sched := distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: &heldStepOutcome{done: make(chan string, 16)},
 		AckRecorder:        managerAckRecorder{mgr},
@@ -1412,6 +1414,13 @@ func TestAHeldCommittedSwapWaitsAndKeepsItsDebt(t *testing.T) {
 		tasks, _ := mgr.ListDistributedTasks(fx.ctx)
 		return tasks[ReindexNamespace][0]
 	}
+	// Without a swap attempt, the Never below would pass vacuously.
+	require.Eventually(t, func() bool {
+		sched.Wake()
+		return slices.ContainsFunc(logs.AllEntries(), func(e *logrus.Entry) bool {
+			return e.Data["unit"] == unitID && strings.Contains(e.Message, "waits because its shard is held READONLY")
+		})
+	}, 5*time.Second, 20*time.Millisecond, "the swap must reach the held shard")
 	require.Never(t, func() bool { sched.Wake(); return task().Status != distributedtask.TaskStatusSwapping },
 		time.Second, 20*time.Millisecond, "the held swap must not fail the task")
 	require.Equal(t, []string{node}, task().SwapsOwed[fx.name], "the swap stays owed")

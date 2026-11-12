@@ -331,7 +331,7 @@ surfaces** — keep the distinction in mind reading top-to-bottom:
     completes the full lifecycle locally and there is no
     cluster-wide schema flip.
   - Either path may terminate at `FAILED` (a failed PREP ack, or a
-    format-only migration's failed swap ack) or `CANCELLED` (operator-initiated).
+    failed format-only unit) or `CANCELLED` (operator-initiated).
     `FINISHED` is the correct signal for "fully done".
 
 These are different Go types in the source —
@@ -608,17 +608,15 @@ Key types & contracts:
   post-completion callback had committed its bucket-pointer flip. For what
   a tenant's replicas serve meanwhile, see "Cross-replica window" in §6.3.
 - **Two-phase ack barrier** — `RecordPreparationCompleteAck` (semantic only)
-  + `RecordPostCompletionAck` (all paths). Every node's scheduler
-  records its phase outcome (success or error) on the task before the
-  cluster is allowed to advance: PREPARING → SWAPPING is gated on
-  every PreparationCompleteAck landing with Success=true; SWAPPING →
-  FINISHED is gated on every PostCompletionAck landing with
-  Success=true. A failed PreparationCompleteAck, or a format-only
-  migration's failed PostCompletionAck, flips the task to
-  `FAILED`, which makes `OnTaskCompleted` skip the cluster-wide
-  schema flip — the load-bearing invariant that prevents a per-node
-  swap failure from leaving the schema pointing at not-yet-swapped
-  buckets. Acks idempotent and rehydrate over restart.
+  + `RecordPostCompletionAck` (all paths). Each node acks its phase on
+  the task before the cluster is allowed to advance: PREPARING → SWAPPING
+  is gated on every PreparationCompleteAck landing with Success=true;
+  SWAPPING → FINISHED is gated on every PostCompletionAck landing with
+  Success=true. A failed PreparationCompleteAck flips the task to
+  `FAILED`. A failed semantic swap sends no ack and stays owed, so the
+  schema flip and SWAPPING → FINISHED wait until no replica owes a swap.
+  A format-only swap failure fails its unit. Acks idempotent and
+  rehydrate over restart.
 - **Permanent-rejection sentinels** —
   `ErrTaskNotRunning`/`ErrTaskDoesNotExist`/`ErrUnitAlreadyTerminal`/
   `ErrUnitWrongNode`/`ErrTaskNotInFinalizingState`, all matched by
@@ -1054,7 +1052,7 @@ Then, per shard load:
        read its task list yet (eager loads at boot; setting the shard
        READY later retries the arm with the list readable).
      - The held migration's own prepare and swap, and another migration's
-       unit or prepare on the shard, wait and run again on a later tick
+       unit, prepare or swap on the shard, wait and run again on a later tick
        (a waiting swap holds its task in `SWAPPING`, §6.3). If the shard also holds an
        unreadable record, a unit fails its migration, as on any shard; a
        prepare fails only when its migration has no task cached on the
@@ -1163,12 +1161,13 @@ PostCompletionAck barrier only.
 
 **Failure handling (both paths):**
 
-- A failed PREP ack, or a format-only migration's failed ack → task flips to `FAILED`
-  immediately → `OnTaskCompleted` early-returns, schema flip is
-  SKIPPED. Groups already decided still swap, which leaves the collection
-  `partial` until the same migration is submitted again (§8).
-- Per-node swap failure can no longer let the cluster-wide schema flip
-  propagate while one replica's bucket pointer never moved.
+- A failed PREP ack → task flips to `FAILED` immediately →
+  `OnTaskCompleted` early-returns, schema flip is SKIPPED. Groups already
+  decided still swap, which leaves the collection `partial` until the
+  same migration is submitted again (§8). A format-only swap failure
+  fails its unit, and so the task.
+- A failed semantic swap stays owed and is retried; the schema flip
+  waits until no replica owes a swap.
 - On node restart, the recovery path re-fires the appropriate phase
   callback (PHASE A for a group not yet decided, PHASE B for every group
   this node owes, in any status) via the
@@ -1636,8 +1635,8 @@ source, the other is a copy that outlives it.
    surfaced as a no-op rather than overloading 404 with two distinct
    meanings.
 2. If that task is `SWAPPING`, or in a status this build does not
-   recognize (§4.2), return 409 and stop. A `SWAPPING` task finishes on
-   its own; for an unrecognized status this build cannot tell whether the
+   recognize (§4.2), return 409 and stop. A `SWAPPING` task ends once
+   every replica that owes a swap has swapped; for an unrecognized status this build cannot tell whether the
    task has swapped anywhere, and the mutation-refusal guards agree
    (`MutationRemedy`). Every other in-flight status cancels
    (`TaskStatus.IsCancellable`): tenants whose swap is decided (§6.3)
