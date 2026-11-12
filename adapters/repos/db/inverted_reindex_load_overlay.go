@@ -44,7 +44,14 @@ func migrationOverridesSchema(rec MigrationRecord, tasks []distributedtask.TaskS
 		return true
 	}
 	task, found := findMigrationTask(rec.Subject(), tasks)
-	return found && task.Status != distributedtask.TaskStatusFinished
+	if found {
+		return task.Status != distributedtask.TaskStatusFinished
+	}
+	// With no task, as after a restore, the record decides: the tenant's data is
+	// already in the new format. An enabled index is the exception: an index-off
+	// update may have dropped it since, and without the record it is swept instead.
+	_, enables := migrationEnablesIndexType(rec.Subject().MigrationType)
+	return !enables
 }
 
 func (s *Shard) restoreMigratedOverlays(class *models.Class, unbuildableFaults *logrusext.Sampler) {

@@ -110,7 +110,7 @@ func (s *Shard) holdReadOnlyForUnarmed(unarmed []*ShardReindexTaskGeneric, cause
 		"unless a migration with a committed swap or already swapped in is held on the same shard. "+
 		"A committed swap cannot be given up on this node, because its other replicas made or will make it; "+
 		"if its staged data cannot be repaired, read the reindex recovery docs before deleting anything: "+
-		"recovering from a healthy replica or a backup comes first",
+		"recovering from a backup comes first",
 		storagestate.StatusReadOnly, cause, storagestate.StatusReady)
 	if err := s.SetStatusReadonly(statusReasonMirrorUnarmed); err != nil {
 		s.index.logger.WithField("shard", s.ID()).Errorf("mark shard %s: %v", storagestate.StatusReadOnly, err)
