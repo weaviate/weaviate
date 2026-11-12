@@ -33,11 +33,6 @@ const (
 	minPostingSizeFloor uint32 = 3   // Minimum vectors for split threshold
 )
 
-// BootstrapThreshold is the number of vectors an index keeps in a single
-// posting, without a centroid index, before the first split. Zero builds
-// the centroid index up front.
-var BootstrapThreshold uint32 = 100_000
-
 type Config struct {
 	Logger                       logrus.FieldLogger
 	Scheduler                    *queue.Scheduler
@@ -52,7 +47,7 @@ type Config struct {
 	MaxDistanceRatio             float32                                 `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
 	Store                        StoreConfig                             `json:"store"`                               // Configuration for the underlying LSMKV store
 	Centroids                    CentroidConfig                          `json:"centroids"`                           // Configuration for the centroid index
-	BootstrapThreshold           uint32                                  `json:"bootstrapThreshold,omitempty"`        // Vectors kept in one posting before the centroid index is built; 0 builds it up front
+	SinglePostingMaxSize         uint64                                  `json:"singlePostingMaxSize,omitempty"`      // Bytes kept in one posting before the centroid index is built; 0 builds it up front
 	TombstoneCallbacks           cyclemanager.CycleCallbackGroup         // Callbacks for handling tombstones
 	VectorForIDThunk             common.VectorForID[float32]             `json:"vectorForIDThunk,omitempty"`      // Function to get a vector by index ID
 	MultiVectorForIDThunk        common.VectorForID[[]float32]           `json:"multiVectorForIDThunk,omitempty"` // Function to get a multi-vector by index ID
@@ -167,13 +162,17 @@ func validateImmutableField(u immutableParameter,
 // Dims is the number of dimensions of the vector, after compression
 // if applicable.
 func (h *HFresh) computeMaxPostingSize(dims int) uint32 {
+	maxBytes := h.maxPostingSizeKB * 1024 // budget
+
+	return uint32(math.Ceil(float64(maxBytes) / postingEntryBytes(dims)))
+}
+
+// postingEntryBytes is the size of one posting entry with dims dimensions.
+func postingEntryBytes(dims int) float64 {
 	bytesPerDim := 0.125                                  // RQ1
-	maxBytes := h.maxPostingSizeKB * 1024                 // budget
 	metadata := 8 + 1 + compressionhelpers.RQMetadataSize // id + version + RQ metadata
 
-	vBytes := float64(dims)*bytesPerDim + float64(metadata)
-
-	return uint32(math.Ceil(float64(maxBytes) / vBytes))
+	return float64(dims)*bytesPerDim + float64(metadata)
 }
 
 func (h *HFresh) setMaxPostingSize(dims uint32) error {
@@ -181,6 +180,7 @@ func (h *HFresh) setMaxPostingSize(dims uint32) error {
 		return errors.New("unable to set max posting size")
 	}
 	h.maxPostingSize = max(h.computeMaxPostingSize(int(dims)), maxPostingSizeFloor)
+	h.bootstrapThreshold = uint32(min(float64(h.config.SinglePostingMaxSize)/postingEntryBytes(int(dims)), math.MaxUint32))
 	h.minPostingSize = max(h.maxPostingSize/3, minPostingSizeFloor)
 
 	if h.minPostingSize >= h.maxPostingSize {
@@ -194,6 +194,7 @@ func (h *HFresh) setMaxPostingSize(dims uint32) error {
 			"minPostingSize":   h.minPostingSize,
 			"maxPostingSize":   h.maxPostingSize,
 			"maxPostingSizeKB": h.maxPostingSizeKB,
+			"singlePostingMax": h.bootstrapThreshold,
 		},
 	).Warn("hfresh posting sizes configured")
 	return nil

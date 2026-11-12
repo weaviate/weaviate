@@ -132,8 +132,14 @@ func withDistanceProvider(provider distancer.Provider) testIndexOption {
 // first posting exceeds n vectors.
 func withBootstrapThreshold(n uint32) testIndexOption {
 	return func(cfg *Config) {
-		cfg.BootstrapThreshold = n
+		cfg.SinglePostingMaxSize = singlePostingSize(n)
 	}
+}
+
+// singlePostingSize is the byte budget that holds n vectors of
+// singlePostingDims dimensions.
+func singlePostingSize(n uint32) uint64 {
+	return uint64(float64(n) * postingEntryBytes(singlePostingDims))
 }
 
 // newTestIndex is the single index constructor behind every test fixture in

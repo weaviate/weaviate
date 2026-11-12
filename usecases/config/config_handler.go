@@ -1129,6 +1129,9 @@ type Persistence struct {
 	WriteMetadataFilesEnabled      bool                `json:"writeMetadataFilesEnabled" yaml:"writeMetadataFilesEnabled"`
 	MaxReuseWalSize                int64               `json:"MaxReuseWalSize" yaml:"MaxReuseWalSize"`
 	HNSWMaxLogSize                 int64               `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
+	// HFresh keeps an index in one posting, with no centroid graph, until the
+	// posting grows past this many bytes. Zero builds the graph up front.
+	HFreshSinglePostingMaxSize int64 `json:"hfreshSinglePostingMaxSize" yaml:"hfreshSinglePostingMaxSize"`
 
 	// HNSW snapshot settings below are deprecated no-ops. Kept for YAML/JSON
 	// back-compat so existing config files parse without error. No consumer
@@ -1160,6 +1163,8 @@ const DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0
 const DefaultPersistenceLSMCycleManagerRoutinesFactor = 2
 
 const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
+
+const DefaultHFreshSinglePostingMaxSize = 10 * 1024 * 1024 // 10MiB
 
 // MetadataServer is experimental.
 type MetadataServer struct {

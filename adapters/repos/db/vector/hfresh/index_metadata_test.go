@@ -161,7 +161,7 @@ func TestStartupDeletesLegacyReassignBucketKey(t *testing.T) {
 // vector store, so the bootstrap split can run after a restart.
 func singlePostingRestartConfig(t *testing.T, threshold uint32) (*Config, ent.UserConfig, *testVectorStore) {
 	cfg, uc := makeHFreshConfig(t)
-	cfg.BootstrapThreshold = threshold
+	cfg.SinglePostingMaxSize = singlePostingSize(threshold)
 	uc.MaxPostingSizeKB = ent.MaxPostingSizeKBFloor
 	vectors := &testVectorStore{m: make(map[uint64][]float32)}
 	cfg.VectorForIDThunk = vectors.get
@@ -324,7 +324,7 @@ func TestSinglePostingSurvivesRestartWithZeroThreshold(t *testing.T) {
 
 	// a threshold of zero builds the graph up front, which must take the
 	// restored single posting along
-	cfg.BootstrapThreshold = 0
+	cfg.SinglePostingMaxSize = 0
 	index = makeHFreshWithConfig(t, store, cfg, uc)
 	require.True(t, index.Centroids.Built())
 	requireSelfSearchExcept(t, index, all, -1)

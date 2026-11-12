@@ -571,6 +571,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		MaximumConcurrentShardLoads:   appState.ServerConfig.Config.MaximumConcurrentShardLoads,
 		MaximumConcurrentBucketLoads:  appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
 		HNSWMaxLogSize:                appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
+		HFreshSinglePostingMaxSize:    appState.ServerConfig.Config.Persistence.HFreshSinglePostingMaxSize,
 		HNSWWaitForCachePrefill:       appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
 		HNSWFlatSearchConcurrency:     appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
 		HNSWAcornFilterRatio:          appState.ServerConfig.Config.HNSWAcornFilterRatio,
