@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -53,6 +54,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const (
@@ -71,6 +73,10 @@ const (
 	logCacheCapacity = 512
 
 	nRetainedSnapShots = 3
+
+	// backupPrincipalMigrationInterval is how often the leader checks for the
+	// backup principal migration marker.
+	backupPrincipalMigrationInterval = 5 * time.Second
 )
 
 type Config struct {
@@ -285,6 +291,14 @@ type Store struct {
 	joinBarrier atomic.Uint64
 	// closed by watchWipedJoiner on exit; Close waits on it so shutdown can't race a reload.
 	wipedJoinerDone chan struct{}
+
+	// backupPrincipalMigrationMu is held for a whole migrateBackupPrincipalGrants
+	// call, so the loop and a direct call cannot both propose.
+	backupPrincipalMigrationMu sync.Mutex
+	// Close closes backupPrincipalMigrationStop to end the loop Open starts.
+	// The loop closes backupPrincipalMigrationDone on exit.
+	backupPrincipalMigrationStop chan struct{}
+	backupPrincipalMigrationDone chan struct{}
 
 	// raft implementation from external library
 	// raft is atomically published: Open assigns it while concurrently-served RPCs (JoinPeer/Leader) read it.
@@ -588,9 +602,6 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if err := st.init(); err != nil {
 		return fmt.Errorf("initialize raft store: %w", err)
 	}
-	if err := st.resetRBACIfNoSnapshot(); err != nil {
-		return err
-	}
 
 	li := st.lastIndex()
 	st.lastAppliedIndexToDB.Store(li)
@@ -617,6 +628,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 			return err
 		}
 	}
+
 	snapIndex := lastSnapshotIndex(st.snapshotStore)
 	if st.lastAppliedIndexToDB.Load() == 0 && snapIndex == 0 {
 		// Empty node reports ready immediately; readiness is NOT deferred.
@@ -648,6 +660,12 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	// However, we believe that 1 day should be more than sufficient.
 	f := func() { st.onLeaderFound(time.Hour * 24) }
 	enterrors.GoWrapper(f, st.log)
+	st.backupPrincipalMigrationStop = make(chan struct{})
+	st.backupPrincipalMigrationDone = make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(st.backupPrincipalMigrationDone)
+		st.backupPrincipalMigrationLoop(st.backupPrincipalMigrationStop)
+	}, st.log)
 	st.schemaManager.SetShouldLogSlowApply(st.shouldLogSlowApply)
 	return nil
 }
@@ -764,6 +782,10 @@ func (st *Store) Close(ctx context.Context) error {
 		return nil
 	}
 
+	if st.backupPrincipalMigrationStop != nil {
+		close(st.backupPrincipalMigrationStop)
+	}
+
 	// transfer leadership: it stops accepting client requests, ensures
 	// the target server is up to date and initiates the transfer
 	if rn := st.raft.Load(); st.IsLeader() && len(rn.GetConfiguration().Configuration().Servers) > 1 {
@@ -801,6 +823,14 @@ func (st *Store) Close(ctx context.Context) error {
 		case <-st.wipedJoinerDone:
 		case <-ctx.Done():
 			st.log.Warnf("wiped-joiner watcher still running at shutdown deadline; proceeding: %v", ctx.Err())
+		}
+	}
+	// This wait comes after raft shutdown. The shutdown makes any Execute call the loop is blocked in fail with ErrRaftShutdown.
+	if st.backupPrincipalMigrationDone != nil {
+		select {
+		case <-st.backupPrincipalMigrationDone:
+		case <-ctx.Done():
+			st.log.Warnf("backup principal migration loop still running at shutdown deadline; proceeding: %v", ctx.Err())
 		}
 	}
 
@@ -1469,35 +1499,6 @@ func lastSnapshotIndex(snapshotStore *raft.FileSnapshotStore) uint64 {
 	return ls[0].Index
 }
 
-// resetRBACIfNoSnapshot wipes the in-memory RBAC store, including any state
-// seeded from a legacy policy.csv, down to the predefined roles. It runs only
-// when no raft snapshot exists and the log starts at index 1, so replaying the
-// whole log rebuilds exactly what the wipe removed.
-func (st *Store) resetRBACIfNoSnapshot() error {
-	if st.cfg.RBAC == nil {
-		return nil
-	}
-	snaps, err := st.snapshotStore.List()
-	if err != nil {
-		return fmt.Errorf("list raft snapshots before rbac reset: %w", err)
-	}
-	if len(snaps) != 0 {
-		return nil
-	}
-	first, err := st.logStore.FirstIndex()
-	if err != nil {
-		return fmt.Errorf("read first raft log index before rbac reset: %w", err)
-	}
-	if first > 1 {
-		st.log.Warnf("rbac reset skipped: no raft snapshot but the log starts at index %d, keeping the seeded RBAC state", first)
-		return nil
-	}
-	if err := st.cfg.RBAC.ResetForReplay(); err != nil {
-		return fmt.Errorf("reset rbac before raft log replay: %w", err)
-	}
-	return nil
-}
-
 // recoverSingleNode is used to manually force a new configuration in order to
 // recover from a loss of quorum where the current configuration cannot be
 // WARNING! This operation implicitly commits all entries in the Raft log, so
@@ -1539,11 +1540,6 @@ func (st *Store) recoverSingleNode(force bool) error {
 
 	fut := st.raft.Load().Shutdown()
 	if err := fut.Error(); err != nil {
-		return err
-	}
-	// The Store started by Open may have applied entries onto a cleared store
-	// before Shutdown, so RecoverCluster's full replay needs a second clear.
-	if err := st.resetRBACIfNoSnapshot(); err != nil {
 		return err
 	}
 
@@ -1682,4 +1678,79 @@ func (st *Store) maybeCommitClusterID() {
 	if _, err := st.Execute(applyReq); err != nil {
 		st.log.WithFields(logrus.Fields{"cluster_id": id}).Warnf("commit cluster-id set command: %v", err)
 	}
+}
+
+// backupPrincipalMigrationLoop runs migrateBackupPrincipalGrants every
+// backupPrincipalMigrationInterval until stop closes. It keeps running after a
+// migration, because a roles restore can drop the marker.
+func (st *Store) backupPrincipalMigrationLoop(stop <-chan struct{}) {
+	t := time.NewTicker(backupPrincipalMigrationInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+		}
+		if _, err := st.migrateBackupPrincipalGrants(); err != nil {
+			st.log.WithField("action", "backup_principal_migration").Warnf("migrate backup principal grants, retrying in %s: %v", backupPrincipalMigrationInterval, err)
+		}
+	}
+}
+
+// migrateBackupPrincipalGrants acts only on the leader, and only when the
+// store lacks the conv.BackupPrincipalsMigratedRole marker. It proposes one
+// roles upsert. The upsert gives each custom role the two wildcards its
+// backups collections grants derive, backups/users/* and backups/roles/*.
+// It also writes the marker. Every released binary applies an entry of this
+// shape: an upsert at RBACLatestCommandPolicyVersion without RoleCreation.
+// proposed reports whether an entry was committed.
+//
+// cfg.RBAC is nil only for a Store built without an RBAC manager, as tests
+// build it. Production sets it whether or not RBAC is enabled
+// (configureAuthorizer), so a cluster with RBAC disabled also proposes the
+// entry.
+func (st *Store) migrateBackupPrincipalGrants() (proposed bool, err error) {
+	st.backupPrincipalMigrationMu.Lock()
+	defer st.backupPrincipalMigrationMu.Unlock()
+
+	if st.cfg.RBAC == nil || !st.IsLeader() {
+		return false, nil
+	}
+	// The marker check reads the applied state, which can lag this leader's log.
+	if err := st.waitLeaderFSMCaughtUp(); err != nil {
+		return false, err
+	}
+	migrated, err := st.cfg.RBAC.BackupPrincipalsMigrated()
+	if err != nil {
+		return false, err
+	}
+	if migrated {
+		return false, nil
+	}
+
+	roles, err := st.cfg.RBAC.BackupPrincipalMigration()
+	if err != nil {
+		return false, err
+	}
+	// admitPropose rejects the whole entry if any role's namespace is not
+	// active. Such roles are left out and stay without the wildcards.
+	for name := range roles {
+		if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(name)); err != nil {
+			st.log.WithField("action", "backup_principal_migration").WithField("role", name).
+				Warnf("skipping role whose namespace is not active: %v", err)
+			delete(roles, name)
+		}
+	}
+
+	subCmd, err := json.Marshal(&api.CreateRolesRequest{Roles: roles, Version: api.RBACLatestCommandPolicyVersion})
+	if err != nil {
+		return false, fmt.Errorf("marshal upsert-roles subcommand: %w", err)
+	}
+	if _, err := st.Execute(&api.ApplyRequest{Type: api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS, SubCommand: subCmd}); err != nil {
+		return false, fmt.Errorf("commit backup principal migration: %w", err)
+	}
+	st.log.WithField("action", "backup_principal_migration").WithField("roles", len(roles)-1).
+		Info("gave custom roles holding a backups collections grant the backups users and roles wildcards")
+	return true, nil
 }

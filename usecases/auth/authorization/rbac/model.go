@@ -114,8 +114,7 @@ func legacyRBACDir(raftDir string) string {
 // seedFromLegacyPolicyFile loads the policy.csv earlier releases wrote under
 // legacyDir, so an upgraded cluster keeps its roles until a RAFT snapshot
 // carries RBAC state. It never writes policy.csv or the version file, so the
-// <1.30 upgrade and the backup-principal migration read the same rows on every
-// boot.
+// <1.30 upgrade reads the same rows on every boot.
 func seedFromLegacyPolicyFile(enforcer *casbin.SyncedCachedEnforcer, legacyDir string, authNconf config.Authentication) error {
 	policyFile := filepath.Join(legacyDir, "policy.csv")
 	if _, err := os.Stat(policyFile); err != nil {
@@ -156,12 +155,6 @@ func seedFromLegacyPolicyFile(enforcer *casbin.SyncedCachedEnforcer, legacyDir s
 		if err := upgradeGroupingsFrom129(enforcer, authNconf); err != nil {
 			return err
 		}
-	}
-
-	// No release that wrote policy.csv knew backups/users or backups/roles, so
-	// every seeded file predates them.
-	if err := addBackupPrincipalGrants(enforcer); err != nil {
-		return fmt.Errorf("add backup principal grants: %w", err)
 	}
 	return nil
 }

@@ -28,6 +28,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
@@ -36,12 +37,17 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// Role data written before backups/users and backups/roles existed migrates
-// on replay, and the stateful removal means replaying that history onto later
-// state could re-grant what a later write removed. With no raft snapshot,
-// resetRBACIfNoSnapshot clears the store first and the replay stays exact. A
-// node whose latest snapshot lacks an RBAC section keeps policy.csv as the
-// base, so a marker-less tail replayed there can still re-grant.
+// Most tests in this file, store_backup_principal_migration_test.go and
+// store_rbac_replay_base_test.go build pre-migration history on a
+// NewMockStore. Its cfg.RBAC is unset, so it logs RBAC entries, applies them
+// as no-ops, and never runs the migration. These tests then reopen the same
+// raft directories with rbacMockStore.
+//
+// Tests that need no pre-migration history start on rbacMockStore.
+//
+// An rbacMockStore runs its migration loop alongside any direct
+// migrateBackupPrincipalGrants call. Every assertion holds no matter which of
+// the two proposed.
 
 // rbacMockStore is NewMockStore with a real RBAC store under rbacDir, built
 // as production builds it: NewFSM, then its address.
@@ -81,6 +87,16 @@ func openMockStore(t *testing.T, m MockStore) *Raft {
 	return srv
 }
 
+// reopenWithRBAC opens base's raft directories again with a real RBAC store
+// under rbacDir, and closes it when the test ends.
+func reopenWithRBAC(t *testing.T, base MockStore, rbacDir string) (MockStore, *Raft) {
+	t.Helper()
+	m := rbacMockStore(t, base, rbacDir)
+	srv := openMockStore(t, m)
+	t.Cleanup(func() { require.NoError(t, srv.Close(context.Background())) })
+	return m, srv
+}
+
 // executeRoleWrite commits a role write through raft, as a node on either
 // side of the upgrade would.
 func executeRoleWrite(t *testing.T, srv *Raft, typ cmd.ApplyRequest_Type, req any) {
@@ -91,6 +107,22 @@ func executeRoleWrite(t *testing.T, srv *Raft, typ cmd.ApplyRequest_Type, req an
 	require.NoError(t, err)
 }
 
+// leaderMigration builds the entry migrateBackupPrincipalGrants proposes for
+// roles, so a test can write it into a log by hand.
+func leaderMigration(roles map[string][]authorization.Policy) *cmd.CreateRolesRequest {
+	req := &cmd.CreateRolesRequest{Roles: map[string][]authorization.Policy{conv.BackupPrincipalsMigratedRole: {}}, Version: cmd.RBACLatestCommandPolicyVersion}
+	for name, policies := range roles {
+		req.Roles[name] = policies
+	}
+	return req
+}
+
+func runMigration(t *testing.T, st *Store) {
+	t.Helper()
+	_, err := st.migrateBackupPrincipalGrants()
+	require.NoError(t, err)
+}
+
 func backupsGrant(t *testing.T, b *models.PermissionBackups) authorization.Policy {
 	t.Helper()
 	ps, err := conv.PermissionToPolicies(&models.Permission{Action: authorization.String(authorization.ManageBackups), Backups: b})
@@ -98,52 +130,85 @@ func backupsGrant(t *testing.T, b *models.PermissionBackups) authorization.Polic
 	return *ps[0]
 }
 
-// History from before the upgrade, on a node with no raft snapshot: a grant
-// and a removal of Movies, both without the marker, then a grant of the Books
-// collection carrying it. The whole log replays on restart while policy.csv
-// already holds Books; Store.Open clears RBAC first, so the removal sees no
-// Books, drops the users and roles grants, and the role ends with Books alone.
-func TestRBACMigrationReplayAfterRestart(t *testing.T) {
+func readDataGrant(t *testing.T) authorization.Policy {
+	t.Helper()
+	ps, err := conv.PermissionToPolicies(&models.Permission{Action: authorization.String(authorization.ReadData), Data: authorization.AllData})
+	require.NoError(t, err)
+	return *ps[0]
+}
+
+// anchorSubject is the placeholder subject every role is assigned to.
+var anchorSubject = conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb)
+
+func csvPolicy(role string, p authorization.Policy) string {
+	return fmt.Sprintf("p, %s, %s, %s, %s", conv.PrefixRoleName(role), p.Resource, p.Verb, p.Domain)
+}
+
+func csvAnchor(role string) string {
+	return fmt.Sprintf("g, %s, %s", anchorSubject, conv.PrefixRoleName(role))
+}
+
+func rolePolicies(t *testing.T, authZ *rbac.Manager, role string) []authorization.Policy {
+	t.Helper()
+	roles, err := authZ.GetRoles(role)
+	require.NoError(t, err)
+	return roles[role]
+}
+
+func backupPrincipalsMigrated(t *testing.T, authZ *rbac.Manager) bool {
+	t.Helper()
+	ok, err := authZ.BackupPrincipalsMigrated()
+	require.NoError(t, err)
+	return ok
+}
+
+// A node is upgraded and the migration runs. An admin removes the roles
+// wildcard. The node is rolled back to a release that saves its rows in
+// policy.csv, then upgraded again. The removal must hold on that second boot.
+func TestRBACRollbackRoundTrip(t *testing.T) {
 	movies := backupsGrant(t, &models.PermissionBackups{Collection: authorization.String("Movies")})
-	books := backupsGrant(t, &models.PermissionBackups{Collection: authorization.String("Books")})
+	usersGrant := backupsGrant(t, authorization.AllBackupUsers)
+	rolesGrant := backupsGrant(t, authorization.AllBackupRoles)
 
-	rolePolicies := func(t *testing.T, authZ *rbac.Manager) []authorization.Policy {
-		t.Helper()
-		roles, err := authZ.GetRoles("operator")
-		require.NoError(t, err)
-		return roles["operator"]
+	for _, tt := range []struct {
+		name     string
+		snapshot bool
+	}{
+		{name: "post-upgrade policy.csv rows, no snapshot"},
+		{name: "post-upgrade policy.csv rows under a snapshot without an RBAC section", snapshot: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			base := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+			srv := openMockStore(t, base)
+			executeRoleWrite(t, srv, cmd.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS, &cmd.CreateRolesRequest{
+				Roles: map[string][]authorization.Policy{"operator": {movies}}, Version: cmd.RBACLatestCommandPolicyVersion, RoleCreation: true,
+			})
+			executeRoleWrite(t, srv, cmd.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS,
+				leaderMigration(map[string][]authorization.Policy{"operator": {usersGrant, rolesGrant}}))
+			executeRoleWrite(t, srv, cmd.ApplyRequest_TYPE_REMOVE_PERMISSIONS, &cmd.RemovePermissionsRequest{
+				Role: "operator", Permissions: []*authorization.Policy{&rolesGrant}, Version: cmd.RBACLatestCommandPolicyVersion,
+			})
+			if tt.snapshot {
+				require.NoError(t, srv.store.raft.Load().Snapshot().Error())
+				snaps, err := base.store.snapshotStore.List()
+				require.NoError(t, err)
+				require.Len(t, snaps, 1)
+				_, hasRBAC := snapshotRBACPolicies(t, base.store, snaps[0].ID)
+				require.False(t, hasRBAC)
+			}
+			require.NoError(t, srv.Close(ctx))
+			require.Equal(t, tt.snapshot, lastSnapshotIndex(base.store.snapshotStore) != 0)
+
+			rbacDir := t.TempDir()
+			writeLegacyPolicy(t, rbacDir, "1.39.6",
+				csvPolicy("operator", movies), csvPolicy("operator", usersGrant), csvAnchor("operator"),
+				csvAnchor(conv.BackupPrincipalsMigratedRole))
+			m, _ := reopenWithRBAC(t, base, rbacDir)
+			runMigration(t, m.store)
+
+			assert.ElementsMatch(t, []authorization.Policy{movies, usersGrant}, rolePolicies(t, m.cfg.RBAC, "operator"))
+			assert.True(t, backupPrincipalsMigrated(t, m.cfg.RBAC))
+		})
 	}
-
-	ctx := context.Background()
-	rbacDir := t.TempDir()
-	base := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
-	m := rbacMockStore(t, base, rbacDir)
-	srv := openMockStore(t, m)
-	require.Zero(t, lastSnapshotIndex(m.store.snapshotStore), "the node starts without a raft snapshot")
-
-	// These role writes carry no marker, as writes from before the upgrade do.
-	executeRoleWrite(t, srv, cmd.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS, &cmd.CreateRolesRequest{
-		Roles: map[string][]authorization.Policy{"operator": {movies}}, Version: cmd.RBACLatestCommandPolicyVersion,
-	})
-	executeRoleWrite(t, srv, cmd.ApplyRequest_TYPE_REMOVE_PERMISSIONS, &cmd.RemovePermissionsRequest{
-		Role: "operator", Permissions: []*authorization.Policy{&movies}, Version: cmd.RBACLatestCommandPolicyVersion,
-	})
-
-	// A write from after the upgrade goes through the production writer.
-	require.NoError(t, srv.UpdateRolesPermissions(map[string][]authorization.Policy{"operator": {books}}))
-	require.Equal(t, []authorization.Policy{books}, rolePolicies(t, m.cfg.RBAC))
-	require.NoError(t, srv.Close(ctx))
-	require.Zero(t, lastSnapshotIndex(m.store.snapshotStore), "the node closes without a raft snapshot")
-
-	// Restart: the fresh RBAC store seeds from a legacy policy.csv standing in
-	// for the file the last pre-upgrade boot wrote, which already holds Books.
-	writeLegacyPolicy(t, rbacDir, "1.39.6",
-		fmt.Sprintf("p, %s, %s, %s, %s", conv.PrefixRoleName("operator"), books.Resource, books.Verb, books.Domain))
-	base.indexer = m.indexer
-	m = rbacMockStore(t, base, rbacDir)
-	srv = openMockStore(t, m)
-	t.Cleanup(func() { require.NoError(t, srv.Close(ctx)) })
-	require.NoError(t, srv.store.raft.Load().Barrier(5*time.Second).Error())
-
-	assert.ElementsMatch(t, []authorization.Policy{books}, rolePolicies(t, m.cfg.RBAC))
 }

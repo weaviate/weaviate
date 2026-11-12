@@ -240,18 +240,18 @@ func TestSeedFromLegacyPolicyFile(t *testing.T) {
 			check:     requireUpgraded,
 		},
 		{
-			name:      "a backups collections grant gains the users and roles wildcards",
+			name:      "a backups collections grant loads without the users and roles wildcards",
 			policyCSV: csvRow(books),
 			version:   "1.39.6",
-			check:     requireOperatorRows(books, usersGrant, rolesGrant),
+			check:     requireOperatorRows(books),
 		},
 		{
-			name:      "a pre-1.30 file upgrades its rows and its backups grant gains the wildcards",
+			name:      "a pre-1.30 file upgrades its rows and keeps its backups grant alone",
 			policyCSV: rows129 + csvRow(books),
 			version:   "1.29.4",
 			check: func(t *testing.T, m *Manager) {
 				requireUpgraded(t, m)
-				requireOperatorRows(books, usersGrant, rolesGrant)(t, m)
+				requireOperatorRows(books)(t, m)
 			},
 		},
 		{

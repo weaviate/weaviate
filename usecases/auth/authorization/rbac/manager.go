@@ -38,7 +38,6 @@ import (
 
 const (
 	SnapshotVersionV0 = iota
-	SnapshotVersionV1
 	SnapshotVersionLatest
 )
 
@@ -239,6 +238,9 @@ func (m *Manager) getRoles(names ...string) (map[string][]authorization.Policy, 
 	if err != nil {
 		return nil, fmt.Errorf("CasbinPolicies: %w", err)
 	}
+	// The marker is bookkeeping, not a role. Dropping it here hides it from
+	// listings and from lookups by name alike.
+	delete(policies, conv.BackupPrincipalsMigratedRole)
 	return policies, nil
 }
 
@@ -791,6 +793,14 @@ func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 			policy = append(policy, ps...)
 			groupingPolicy = append(groupingPolicy, gs...)
 		}
+		// A restore replaces the whole store. Without the marker row the
+		// leader would rerun the migration and re-add grants that were removed
+		// after it first ran.
+		marker, err := m.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName(conv.BackupPrincipalsMigratedRole))
+		if err != nil {
+			return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
+		}
+		groupingPolicy = append(groupingPolicy, marker...)
 	}
 
 	// Use a buffer to stream the JSON encoding
@@ -875,37 +885,7 @@ func (m *Manager) RestoreRaftSnapshot(b []byte) error {
 	return m.replacePolicies(snapshot)
 }
 
-// ResetForReplay replaces the policy store with an empty snapshot at the
-// current version, so a raft log replay starts from an empty base instead of
-// from the results it is about to re-apply. It re-applies the predefined and
-// env-config roles, and logs the dropped custom role names at Warn.
-func (m *Manager) ResetForReplay() error {
-	if m == nil || m.casbin == nil {
-		return nil
-	}
-
-	roles, err := m.GetRoles()
-	if err != nil {
-		return fmt.Errorf("reset for replay: %w", err)
-	}
-	var custom []string
-	for name := range roles {
-		if !slices.Contains(authorization.BuiltInRoles, name) {
-			custom = append(custom, name)
-		}
-	}
-	if len(custom) > 0 {
-		slices.Sort(custom)
-		m.logger.WithField("action", "rbac_reset_for_replay").WithField("roles", custom).
-			Warn("clearing custom roles before raft log replay; the replay rebuilds those the log holds, recreate any other by hand")
-	}
-
-	return m.replacePolicies(snapshot{Version: SnapshotVersionLatest})
-}
-
-// replacePolicies clears the policy store and loads snapshot into it. A
-// snapshot that predates backups/users and backups/roles is migrated on the
-// way in.
+// replacePolicies clears the policy store and loads snapshot into it.
 func (m *Manager) replacePolicies(snapshot snapshot) error {
 	// Hold the write lock only for the casbin mutation and cache invalidation
 	// so that concurrent Enforce() calls (which hold RLock) are blocked.
@@ -942,14 +922,6 @@ func (m *Manager) replacePolicies(snapshot snapshot) error {
 		}
 	}
 
-	// applyPredefinedRoles saves and LoadPolicy reloads from that save, so the
-	// grants must be added before it or the reload discards them.
-	if snapshot.Version <= SnapshotVersionV1 {
-		if err := addBackupPrincipalGrants(m.casbin); err != nil {
-			return fmt.Errorf("add backup principal grants: %w", err)
-		}
-	}
-
 	// environment config needs to be applied again in case there were changes since the last snapshot
 	if err := applyPredefinedRoles(m.casbin, m.rbacConf, m.authNconf, m.namespacesEnabled); err != nil {
 		return fmt.Errorf("apply env config: %w", err)
@@ -965,76 +937,66 @@ func (m *Manager) replacePolicies(snapshot snapshot) error {
 	return nil
 }
 
-// addBackupPrincipalGrants gives every role the rows conv.BackupPrincipalGrants
-// derives from its backups collections grants. Casbin ignores a row it already
-// holds, so running it twice changes nothing.
-func addBackupPrincipalGrants(enforcer *casbin.SyncedCachedEnforcer) error {
-	// The filtered read is a copy; the loop adds rows while it iterates.
-	rows, err := enforcer.GetFilteredNamedPolicy("p", 0)
-	if err != nil {
-		return fmt.Errorf("GetFilteredNamedPolicy: %w", err)
-	}
-	for _, row := range rows {
-		if len(row) < 4 {
-			continue
-		}
-		for _, g := range conv.BackupPrincipalGrants(authorization.Policy{Resource: row[1], Verb: row[2], Domain: row[3]}) {
-			if _, err := enforcer.AddNamedPolicy("p", row[0], g.Resource, g.Verb, g.Domain); err != nil {
-				return fmt.Errorf("AddNamedPolicy: %w", err)
-			}
-		}
-	}
-	return nil
-}
-
-// OrphanedBackupPrincipalGrants returns the users/roles backup wildcards to
-// drop alongside the removed permissions. The migration derives each wildcard
-// from a role's collections backup grants with the same verb, so a wildcard
-// goes when the removal takes the last row deriving it, and stays while a
-// surviving row derives it. Replay then matches what migrating a later
-// snapshot derives. It judges raw casbin rows, so rows the permission
-// converter rejects cannot fail it.
-func (m *Manager) OrphanedBackupPrincipalGrants(role string, removing []*authorization.Policy) ([]*authorization.Policy, error) {
+// BackupPrincipalMigration returns the rows each custom role still lacks.
+// These are the rows conv.BackupPrincipalGrants derives from the role's
+// backups collections rows. Roles that need no rows are absent.
+// conv.BackupPrincipalsMigratedRole is always present with no rows, so
+// upserting the result also writes the marker. Built-in roles are left out,
+// because applyPredefinedRoles rewrites their rows on every load. It does not
+// change the store.
+func (m *Manager) BackupPrincipalMigration() (map[string][]authorization.Policy, error) {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
-	rows, err := m.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(role))
+	rows, err := m.copyPolicies()
 	if err != nil {
-		return nil, fmt.Errorf("GetFilteredNamedPolicy: %w", err)
+		return nil, fmt.Errorf("copyPolicies: %w", err)
 	}
-	removed := make(map[authorization.Policy]struct{}, len(removing))
-	for _, p := range removing {
-		if p != nil {
-			removed[*p] = struct{}{}
-		}
-	}
-
-	// keep holds every grant a surviving row derives, then each orphan once
-	// it is added.
-	keep := map[authorization.Policy]struct{}{}
-	var candidates []authorization.Policy
+	held := map[string]map[authorization.Policy]struct{}{}
 	for _, row := range rows {
 		if len(row) < 4 {
 			continue
 		}
-		held := authorization.Policy{Resource: row[1], Verb: row[2], Domain: row[3]}
-		grants := conv.BackupPrincipalGrants(held)
-		if _, ok := removed[held]; ok {
-			candidates = append(candidates, grants...)
+		if held[row[0]] == nil {
+			held[row[0]] = map[authorization.Policy]struct{}{}
+		}
+		held[row[0]][authorization.Policy{Resource: row[1], Verb: row[2], Domain: row[3]}] = struct{}{}
+	}
+
+	out := map[string][]authorization.Policy{conv.BackupPrincipalsMigratedRole: {}}
+	for _, row := range rows {
+		if len(row) < 4 {
 			continue
 		}
-		for _, g := range grants {
-			keep[g] = struct{}{}
+		name := conv.TrimRoleNamePrefix(row[0])
+		if slices.Contains(authorization.BuiltInRoles, name) || name == conv.BackupPrincipalsMigratedRole {
+			continue
+		}
+		for _, g := range conv.BackupPrincipalGrants(authorization.Policy{Resource: row[1], Verb: row[2], Domain: row[3]}) {
+			if _, ok := held[row[0]][g]; ok {
+				continue
+			}
+			held[row[0]][g] = struct{}{}
+			out[name] = append(out[name], g)
 		}
 	}
-	var orphaned []*authorization.Policy
-	for _, g := range candidates {
-		if _, ok := keep[g]; !ok {
-			keep[g] = struct{}{}
-			orphaned = append(orphaned, &g)
-		}
+	return out, nil
+}
+
+// BackupPrincipalsMigrated reports whether the store holds the placeholder
+// row of conv.BackupPrincipalsMigratedRole. Upserting the result of
+// BackupPrincipalMigration writes that row.
+func (m *Manager) BackupPrincipalsMigrated() (bool, error) {
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
+	ok, err := m.casbin.HasNamedGroupingPolicy("g",
+		conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb),
+		conv.PrefixRoleName(conv.BackupPrincipalsMigratedRole))
+	if err != nil {
+		return false, fmt.Errorf("HasNamedGroupingPolicy: %w", err)
 	}
-	return orphaned, nil
+	return ok, nil
 }
 
 func validateStorableRows(ptype string, rows [][]string) error {

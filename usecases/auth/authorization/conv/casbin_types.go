@@ -41,6 +41,11 @@ const (
 	VALID_VERBS = "(C)|(R)|(U)|(D)|(A)"
 	// InternalPlaceHolder is a place holder to mark empty roles
 	InternalPlaceHolder = "wv_internal_empty"
+	// BackupPrincipalsMigratedRole is an empty marker role. Its placeholder
+	// row records that the leader has given custom roles the rows
+	// BackupPrincipalGrants derives. The role-name regex rejects the leading
+	// '_', so no create-role request can use the name.
+	BackupPrincipalsMigratedRole = "_backup_principals_migrated"
 )
 
 // BuiltInWildcardVerb is the wildcard verb pattern Casbin registers for each

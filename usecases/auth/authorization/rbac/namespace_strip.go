@@ -370,7 +370,9 @@ func ReferencedNamespaces(blob []byte, staticAPIKeyUsers []string) ([]string, er
 
 // SnapshotRoleNames returns, sorted and without the role prefix, every role
 // name the rows of blob carry: p[0] of each policy row and g[1] of each
-// grouping row. Built-in roles are included.
+// grouping row. Built-in roles are included. The marker role
+// conv.BackupPrincipalsMigratedRole is not, so restoring a blob that carries
+// it needs no grant on that role.
 func SnapshotRoleNames(blob []byte) ([]string, error) {
 	if len(blob) == 0 {
 		return nil, nil
@@ -391,6 +393,7 @@ func SnapshotRoleNames(blob []byte) ([]string, error) {
 			seen[conv.TrimRoleNamePrefix(g[1])] = struct{}{}
 		}
 	}
+	delete(seen, conv.BackupPrincipalsMigratedRole)
 	return slices.Sorted(maps.Keys(seen)), nil
 }
 

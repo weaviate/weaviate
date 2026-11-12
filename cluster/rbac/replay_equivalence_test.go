@@ -31,8 +31,8 @@ import (
 
 // TestReplayEquivalence checks that a pre-1.30 raft log replayed onto an empty
 // store yields the rows the boot upgrade derives from the matching v1.29
-// policy.csv. Store.Open clears the store before replay on a node without a
-// raft snapshot, so the two paths must agree.
+// policy.csv. A node without a raft snapshot replays the log over the rows its
+// policy.csv seeded, so the two paths must agree.
 func TestReplayEquivalence(t *testing.T) {
 	authN := config.Authentication{
 		OIDC:   config.OIDC{Enabled: true},

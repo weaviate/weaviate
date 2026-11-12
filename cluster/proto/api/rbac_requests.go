@@ -49,10 +49,9 @@ const (
 )
 
 type CreateRolesRequest struct {
-	Roles                 map[string][]authorization.Policy
-	RoleCreation          bool
-	Version               int
-	BackupPrincipalsAware bool `json:"backupPrincipalsAware,omitempty"`
+	Roles        map[string][]authorization.Policy
+	RoleCreation bool
+	Version      int
 }
 
 type DeleteRolesRequest struct {
@@ -60,10 +59,9 @@ type DeleteRolesRequest struct {
 }
 
 type RemovePermissionsRequest struct {
-	Role                  string
-	Permissions           []*authorization.Policy
-	Version               int
-	BackupPrincipalsAware bool `json:"backupPrincipalsAware,omitempty"`
+	Role        string
+	Permissions []*authorization.Policy
+	Version     int
 }
 
 type AddRolesForUsersRequest struct {
