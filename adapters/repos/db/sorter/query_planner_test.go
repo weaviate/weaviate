@@ -276,3 +276,102 @@ func allowlistWithExactMatchCount(t *testing.T, count int) helpers.AllowList {
 	}
 	return helpers.NewAllowList(ids...)
 }
+
+func TestQueryPlannerSampledMatchPositions(t *testing.T) {
+	const objectCount = 2000
+	idsWhere := func(keep func(i int) bool) helpers.AllowList {
+		var ids []uint64
+		for i := 0; i < objectCount; i++ {
+			if keep(i) {
+				ids = append(ids, uint64(i))
+			}
+		}
+		return helpers.NewAllowList(ids...)
+	}
+	// each set holds 4% of the objects, at the top or bottom of the index or
+	// every 25th
+	top := idsWhere(func(i int) bool { return i >= objectCount-80 })
+	bottom := idsWhere(func(i int) bool { return i < 80 })
+	spread := idsWhere(func(i int) bool { return i%25 == 0 })
+	newestPerRow := idsWhere(func(i int) bool { return i%100 >= 96 })
+	topThird := idsWhere(func(i int) bool { return i >= objectCount*2/3 })
+
+	tests := []struct {
+		name                 string
+		ids                  helpers.AllowList
+		idsPerRow            int
+		sort                 []filters.Sort
+		shouldChooseInverted bool
+		skipsSampling        bool
+	}{
+		{
+			name: "matches spread through the index", ids: spread, idsPerRow: 1,
+			sort: sortsBy("int", "asc"), shouldChooseInverted: true,
+		},
+		{
+			// the match ratio alone predicts a 250-entry walk
+			name: "asc, matches at the far end of the walk", ids: top, idsPerRow: 1,
+			sort: sortsBy("int", "asc"), shouldChooseInverted: false,
+		},
+		{
+			name: "desc, matches at the far end of the walk", ids: bottom, idsPerRow: 1,
+			sort: sortsBy("int", "desc"), shouldChooseInverted: false,
+		},
+		{
+			name: "desc, matches at the start of the walk", ids: top, idsPerRow: 1,
+			sort: sortsBy("int", "desc"), shouldChooseInverted: true,
+		},
+		{
+			name: "multiple sort args, matches at the far end of the walk", ids: top, idsPerRow: 1,
+			sort: sortsBy("int", "asc", "text", "asc"), shouldChooseInverted: false,
+		},
+		{
+			// a row's oldest IDs miss, so only a whole-row check sees its matches
+			name: "matches only among the newest IDs of each row", ids: newestPerRow, idsPerRow: 100,
+			sort: sortsBy("int", "asc"), shouldChooseInverted: true,
+		},
+		{
+			// a walk over the whole index still beats reading a third of the objects
+			name: "asc, many matches at the far end of the walk", ids: topThird, idsPerRow: 1,
+			sort: sortsBy("int", "asc"), shouldChooseInverted: true, skipsSampling: true,
+		},
+	}
+
+	stores := map[int]*lsmkv.Store{}
+	var s *lsmSorter
+	for _, idsPerRow := range []int{1, 100} {
+		var store *lsmkv.Store
+		s, store = newCandidateTestSorter(t)
+		for _, r := range sortRows(objectCount, groupedRow(idsPerRow)) {
+			putSortRow(t, store, r)
+		}
+		flushSortBuckets(t, store)
+		stores[idsPerRow] = store
+	}
+
+	for _, tc := range tests {
+		allowLists := map[string]helpers.AllowList{
+			"bitmap allow list": tc.ids,
+			"other allow list":  tc.ids.WrapOnWrite(),
+		}
+		for alName, ids := range allowLists {
+			t.Run(tc.name+", "+alName, func(t *testing.T) {
+				ctx := helpers.InitSlowQueryDetails(context.Background())
+				qp := NewQueryPlanner(stores[tc.idsPerRow], s.dataTypesHelper, nil)
+				shouldUseInverted, err := qp.Do(ctx, ids, 10, tc.sort)
+				require.NoError(t, err)
+				assert.Equal(t, tc.shouldChooseInverted, shouldUseInverted)
+				plannerLog := fmt.Sprint(helpers.ExtractSlowQueryDetails(ctx)["sort_query_planner"])
+				assert.Equal(t, tc.skipsSampling, strings.Contains(plannerLog, "skipping sampling"), plannerLog)
+			})
+		}
+	}
+
+	t.Run("empty samples too few to trust", func(t *testing.T) {
+		bucket := stores[1].Bucket(helpers.BucketFromPropNameLSM("int"))
+		trusted := emptyWalkPrefix(context.Background(), bucket, top, 0.04, objectCount, false)
+		assert.Greater(t, trusted, float64(objectCount)*0.9)
+		// at this ratio ~1000 empty samples are expected to hold ~1 match
+		assert.Zero(t, emptyWalkPrefix(context.Background(), bucket, top, 0.001, objectCount, false))
+	})
+}
