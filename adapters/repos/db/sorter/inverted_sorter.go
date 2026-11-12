@@ -14,8 +14,9 @@ package sorter
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
-	"slices"
+	"math"
 	"time"
 
 	"github.com/weaviate/sroar"
@@ -23,6 +24,19 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 )
+
+// errTooManyCandidates is what Candidates returns past maxIDs. A descending
+// walk returns it only after reading its windows.
+var errTooManyCandidates = errors.New("too many sort candidates")
+
+// walkMode is how a walk collects IDs. keepTies keeps the whole row holding
+// the limit-th ID, and maxIDs caps the IDs it returns.
+type walkMode struct {
+	keepTies bool
+	maxIDs   int
+}
+
+var sortWalk = walkMode{maxIDs: math.MaxInt}
 
 type invertedSorter struct {
 	store           *lsmkv.Store
@@ -97,16 +111,18 @@ func (is *invertedSorter) SortDocIDs(
 	sort []filters.Sort,
 	ids helpers.AllowList,
 ) ([]uint64, error) {
-	return is.sortDocIDsWithNesting(ctx, limit, sort, ids, 0, false)
+	return is.sortDocIDsWithNesting(ctx, limit, sort, ids, 0, sortWalk)
 }
 
-// Candidates returns the IDs in ids that rank within limit by first alone, plus
-// every ID tying with the last of them. Any longer sort starting with first has
-// its top limit among them. IDs with no value for first are never returned.
+// Candidates returns the IDs in ids that rank within limit by first alone plus
+// those tying with the last, which hold the top limit of any longer sort. It
+// omits IDs with no value for first and fails with errTooManyCandidates past
+// maxIDs. An ascending walk counts whole rows, so pass math.MaxInt with ids.
 func (is *invertedSorter) Candidates(ctx context.Context, limit int, first filters.Sort,
-	ids helpers.AllowList,
+	ids helpers.AllowList, maxIDs int,
 ) ([]uint64, error) {
-	return is.sortDocIDsWithNesting(ctx, limit, []filters.Sort{first}, ids, 0, true)
+	return is.sortDocIDsWithNesting(ctx, limit, []filters.Sort{first}, ids, 0,
+		walkMode{keepTies: true, maxIDs: maxIDs})
 }
 
 // sortDocIDsWithNesting is the entrypoint into a (potentially recursive) sort,
@@ -120,7 +136,7 @@ func (is *invertedSorter) sortDocIDsWithNesting(
 	sort []filters.Sort,
 	ids helpers.AllowList,
 	nesting int,
-	keepTies bool,
+	mode walkMode,
 ) ([]uint64, error) {
 	if len(sort) < 1 {
 		// this should never happen, the query planner should already have chosen
@@ -150,9 +166,9 @@ func (is *invertedSorter) sortDocIDsWithNesting(
 
 	switch orders[0] {
 	case "asc":
-		return is.sortRoaringSetASC(ctx, bucket, limit, sort, ids, nesting, keepTies)
+		return is.sortRoaringSetASC(ctx, bucket, limit, sort, ids, nesting, mode)
 	case "desc":
-		return is.sortRoaringSetDESC(ctx, bucket, limit, sort, ids, nesting, keepTies)
+		return is.sortRoaringSetDESC(ctx, bucket, limit, sort, ids, nesting, mode)
 	default:
 		return nil, fmt.Errorf("unsupported sort order %s", orders[0])
 	}
@@ -164,10 +180,10 @@ func (is *invertedSorter) sortDocIDsWithNesting(
 // If only a single clause is provided, it will exist as soon as the limit is
 // reached. If a second clause is provided, it will make sure to finish reading
 // each row, then start a nested tie-breaker sort, to sort the duplicate IDs.
-// With keepTies it also finishes the row that reaches the limit and keeps all
-// of it.
+// With mode.keepTies it also finishes the row that reaches the limit and keeps
+// all of it.
 func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.Bucket,
-	limit int, sort []filters.Sort, ids helpers.AllowList, nesting int, keepTies bool,
+	limit int, sort []filters.Sort, ids helpers.AllowList, nesting int, mode walkMode,
 ) ([]uint64, error) {
 	startTime := time.Now()
 	hasMoreNesting := len(sort) > 1
@@ -180,9 +196,13 @@ func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.B
 
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 		rowsEvaluated++
+		card := v.GetCardinality()
+		if mode.maxIDs != math.MaxInt && len(foundIDs)+card > mode.maxIDs {
+			return nil, errTooManyCandidates
+		}
 
-		forbidEarlyExit := hasMoreNesting || keepTies
-		idsFoundInRow, earlyExit := is.extractDocIDsFromBitmap(ctx, limit, ids, v, len(foundIDs), forbidEarlyExit)
+		forbidEarlyExit := hasMoreNesting || mode.keepTies
+		idsFoundInRow, earlyExit := is.extractDocIDsFromBitmap(ctx, limit, ids, v, card, len(foundIDs), forbidEarlyExit)
 		if earlyExit {
 			foundIDs = append(foundIDs, idsFoundInRow...)
 			return foundIDs, nil
@@ -198,7 +218,7 @@ func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.B
 
 		foundIDs = append(foundIDs, idsFoundInRow...)
 		if len(foundIDs) >= limit {
-			if !keepTies {
+			if !mode.keepTies {
 				foundIDs = foundIDs[:limit]
 			}
 			break
@@ -224,8 +244,8 @@ func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.B
 // If more than one sort clause is provided, it will start a secondary (nested)
 // sort for all IDs that share the same value.
 //
-// With keepTies the cut-off falls at the end of the row holding the limit-th
-// ID instead of at the limit itself.
+// With mode.keepTies the cut-off falls at the end of the row holding the
+// limit-th ID instead of at the limit itself.
 func (is *invertedSorter) sortRoaringSetDESC(
 	ctx context.Context,
 	bucket *lsmkv.Bucket,
@@ -233,64 +253,88 @@ func (is *invertedSorter) sortRoaringSetDESC(
 	sort []filters.Sort,
 	ids helpers.AllowList,
 	nesting int,
-	keepTies bool,
+	mode walkMode,
 ) ([]uint64, error) {
 	startTime := time.Now()
 	hasMoreNesting := len(sort) > 1
 	qks := is.quantileKeysForDescSort(ctx, limit, ids, bucket, nesting)
 
-	foundIDs := make([]uint64, 0, limit)
-	var rowLens []int
+	// rows holds the rows read so far in ascending key order, so the best
+	// matches are at its end
+	var rows []descRow
 	seeksRequired := 0
 	idCountBeforeCutoff := 0
 	rowsEvaluated := 0
 	whenComplete := is.annotateDESC(ctx, nesting, len(qks), startTime, &rowsEvaluated, &idCountBeforeCutoff, &seeksRequired)
 	defer whenComplete()
 
+	// an unfiltered row's IDs are all matches, so its size is known without
+	// copying them out, and the cap can be checked first
+	deferIDs := mode.keepTies && ids == nil
 	for qkIndex := len(qks) - 1; qkIndex >= 0; qkIndex-- {
 		seeksRequired++
 		startKey, endKey := cursorKeysForDESCWindow(qks, qkIndex)
 
-		idsInWindow, rowLensInWindow, err := is.processDESCWindow(ctx, bucket,
-			startKey, endKey, ids, limit, nesting, hasMoreNesting, sort)
+		rowsInWindow, err := is.processDESCWindow(ctx, bucket,
+			startKey, endKey, ids, limit, nesting, hasMoreNesting, deferIDs, sort)
 		if err != nil {
 			return nil, fmt.Errorf("process descending window: %w", err)
 		}
 
-		rowsEvaluated += len(rowLensInWindow)
-
-		// prepend ids from window, the full list will be reversed at the end
-		foundIDs = append(idsInWindow, foundIDs...)
-		if keepTies {
-			rowLens = append(rowLensInWindow, rowLens...)
+		rowsEvaluated += len(rowsInWindow)
+		rows = append(rowsInWindow, rows...)
+		for _, row := range rowsInWindow {
+			idCountBeforeCutoff += row.card
 		}
-		if len(foundIDs) >= limit {
+		if idCountBeforeCutoff >= limit {
 			// we have enough ids, no need to continue
 			break
 		}
 	}
 
-	// the inverted index is in ASC order meaning our best matches are at the
-	// very end of the slice, we need to reverse it before applying the cut-off
-	slices.Reverse(foundIDs)
-	idCountBeforeCutoff = len(foundIDs)
-	if keepTies {
-		return foundIDs[:cutoffAfterRow(rowLens, limit)], nil
+	if !mode.keepTies {
+		return highestRowIDs(rows, limit), nil
 	}
-	if len(foundIDs) > limit {
-		foundIDs = foundIDs[:limit]
+	count := cutoffAfterRow(rows, limit)
+	if count > mode.maxIDs {
+		return nil, errTooManyCandidates
 	}
-	return foundIDs, nil
+	return highestRowIDs(rows, count), nil
+}
+
+// descRow is one index row sortRoaringSetDESC read. It holds the IDs the row
+// matched, or with bm set the whole row, whose IDs are copied only if it is kept.
+type descRow struct {
+	ids  []uint64
+	bm   *sroar.Bitmap
+	card int
 }
 
 // cutoffAfterRow returns how many IDs the highest rows hold, taking rows from
-// the end of rowLens until they reach limit.
-func cutoffAfterRow(rowLens []int, limit int) int {
+// the end of rows until they reach limit.
+func cutoffAfterRow(rows []descRow, limit int) int {
 	count := 0
-	for i := len(rowLens) - 1; i >= 0 && count < limit; i-- {
-		count += rowLens[i]
+	for i := len(rows) - 1; i >= 0 && count < limit; i-- {
+		count += rows[i].card
 	}
 	return count
+}
+
+// highestRowIDs returns the first n IDs of rows, highest row first.
+func highestRowIDs(rows []descRow, n int) []uint64 {
+	out := make([]uint64, 0, n)
+	for i := len(rows) - 1; i >= 0 && len(out) < n; i-- {
+		take := min(rows[i].card, n-len(out))
+		if rows[i].bm == nil {
+			out = append(out, rows[i].ids[:take]...)
+			continue
+		}
+		it := rows[i].bm.NewIterator()
+		for range take {
+			out = append(out, it.Next())
+		}
+	}
+	return out
 }
 
 func cursorKeysForDESCWindow(qks [][]byte, qkIndex int) ([]byte, []byte) {
@@ -316,10 +360,10 @@ func (is *invertedSorter) processDESCWindow(
 	limit int,
 	nesting int,
 	hasMoreNesting bool,
+	deferIDs bool,
 	sort []filters.Sort,
-) ([]uint64, []int, error) {
-	var rowLens []int
-	idsFoundInWindow := make([]uint64, 0, limit)
+) ([]descRow, error) {
+	var rows []descRow
 	cursor := bucket.CursorRoaringSetCtx(ctx)
 	defer cursor.Close()
 
@@ -328,27 +372,24 @@ func (is *invertedSorter) processDESCWindow(
 			break
 		}
 
+		card := v.GetCardinality()
+		if deferIDs {
+			rows = append(rows, descRow{bm: v, card: card})
+			continue
+		}
 		forbidEarlyExit := true // early exit is never possible on DESC order
-		idsFoundInRow, _ := is.extractDocIDsFromBitmap(ctx, limit, ids, v, 0, forbidEarlyExit)
+		idsFoundInRow, _ := is.extractDocIDsFromBitmap(ctx, limit, ids, v, card, 0, forbidEarlyExit)
 		if len(idsFoundInRow) > 1 && hasMoreNesting {
 			var err error
 			idsFoundInRow, err = is.startNestedSort(ctx, idsFoundInRow, sort[1:], nesting)
 			if err != nil {
-				return nil, rowLens, err
+				return rows, err
 			}
 		}
-
-		// we need to reverse the ids found in this chunk, because the inverted
-		// index is in ASC order, so we will reverse the full list at the end.
-		// However, for tie-breaker reasons we need to make sure that IDs with
-		// identical values appear in docID-ASC order. If we don't reverse them
-		// right now, they would end up in DESC order in the final list
-		slices.Reverse(idsFoundInRow)
-		idsFoundInWindow = append(idsFoundInWindow, idsFoundInRow...)
-		rowLens = append(rowLens, len(idsFoundInRow))
+		rows = append(rows, descRow{ids: idsFoundInRow, card: len(idsFoundInRow)})
 	}
 
-	return idsFoundInWindow, rowLens, nil
+	return rows, nil
 }
 
 // extractDocIDsFromBitmap extracts all the docIDs from the current row's
@@ -360,10 +401,10 @@ func (is *invertedSorter) extractDocIDsFromBitmap(
 	limit int,
 	ids helpers.AllowList,
 	bm *sroar.Bitmap,
+	card int,
 	totalCountBefore int,
 	forbidEarlyExit bool,
 ) (found []uint64, earlyExit bool) {
-	card := bm.GetCardinality()
 	found = make([]uint64, 0, card)
 	it := bm.NewIterator()
 	for i := 0; i < card; i++ {
@@ -400,7 +441,7 @@ func (is *invertedSorter) startNestedSort(
 	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 		helpers.SprintfWithNesting(nesting, "start sub-query for %d ids with identical value", len(ids)))
 
-	sortedIDs, err := is.sortDocIDsWithNesting(ctx, len(ids), remainingSort, helpers.NewAllowList(ids...), nesting+1, false)
+	sortedIDs, err := is.sortDocIDsWithNesting(ctx, len(ids), remainingSort, helpers.NewAllowList(ids...), nesting+1, sortWalk)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sort ids with identical value: %w", err)
 	}

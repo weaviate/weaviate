@@ -54,6 +54,11 @@ const (
 	// chance under 1% of the time.
 	minExpectedSampleHits = 5
 
+	// FullScanCandidateShare is the share of a shard's objects past which
+	// looking up each candidate costs more than reading every object with a
+	// cursor, which skips the index seek.
+	FullScanCandidateShare = float64(10*FixedCostRowRead+FixedCostJSONUnmarshal) / FixedCostObjectsBucketRow
+
 	// FixedCostInvertedBucketRow is the cost of reading the inverted index,
 	// since it is already sorted in ascending order, we can skip the index and
 	// start a cursor which has no cost other than reading the payload in each
@@ -203,21 +208,9 @@ func invertedBucketCost(walkedIDs, candidateReads float64, sort []filters.Sort) 
 	return cost
 }
 
-// Do is the public entry point that turns a query description into a binary
-// plan choice.  It returns *useInverted == true* when **all** of the following
-// hold:
-//
-//   - The first key’s logical type (date, int, number) preserves the same
-//     ordering at the byte level that the inverted index uses.
-//
-//   - The inverted-index strategy is cheaper according to EstimateCosts.
-//
-//   - The LSM bucket for that property is present; if not, the method
-//     opportunistically reminds the caller that marking the field as
-//     filterable would unlock the faster plan.
-//
-// When any pre-condition fails, Do silently falls back to the objects-bucket
-// scan and records the reason in the slow-query trace.
+// Do reports whether the inverted index of the first sort property serves this
+// sort more cheaply than the objects bucket. Each reason it says no is
+// recorded in the slow-query trace.
 func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int, sort []filters.Sort) (useInverted bool, err error) {
 	startTime := time.Now()
 	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner", "START PLANNING")
@@ -257,6 +250,15 @@ func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int,
 		// inverted strategy is more expensive, no need to plan further, just use
 		// objects strategy
 		return useInverted, err
+	}
+
+	if ids == nil && len(sort) > 1 {
+		if maxCandidates := int(FullScanCandidateShare * float64(countObjects(s.store))); limit > maxCandidates {
+			helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+				fmt.Sprintf("limit %d exceeds %d candidates, the share of objects worth a lookup each, "+
+					"using objects bucket strategy", limit, maxCandidates))
+			return useInverted, err
+		}
 	}
 
 	costSavings := float64(costObjectsBucket) / float64(costInvertedBucket)

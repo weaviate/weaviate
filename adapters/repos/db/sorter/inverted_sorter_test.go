@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"math/rand"
 	"reflect"
 	"runtime"
@@ -720,6 +721,48 @@ func TestLSMSorterRoutesMultiPropertySortThroughCandidates(t *testing.T) {
 	}
 }
 
+func TestLSMSorterFallsBackFromLargeTieGroup(t *testing.T) {
+	sameFirst := func(i int) sortRow {
+		r := groupedRow(1)(i)
+		five := int64(5)
+		r.int = &five
+		return r
+	}
+	sort := sortsBy("int", "asc", "text", "desc")
+
+	tests := []struct {
+		name      string
+		rows      []sortRow
+		filtered  bool
+		fallsBack bool
+	}{
+		{name: "unfiltered, every object ties", rows: sortRows(100, sameFirst), fallsBack: true},
+		{name: "unfiltered, small tie group", rows: sortRows(100, groupedRow(7))},
+		{name: "filtered, every object ties", rows: sortRows(100, sameFirst), filtered: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, store := newCandidateTestSorter(t)
+			for _, r := range tc.rows {
+				putSortRow(t, store, r)
+			}
+			flushSortBuckets(t, store)
+			var ids helpers.AllowList
+			if tc.filtered {
+				ids = everyNth(tc.rows, 1)
+			}
+
+			ctx := helpers.InitSlowQueryDetails(context.Background())
+			actual, err := s.sortInverted(ctx, 10, sort, ids)
+			require.NoError(t, err)
+			assert.Equal(t, sortByObjects(t, s, 10, sort, ids), actual)
+			fallback := strings.Contains(fmt.Sprint(helpers.ExtractSlowQueryDetails(ctx)["sort_query_planner"]),
+				"sorting all objects from objects bucket")
+			assert.Equal(t, tc.fallsBack, fallback)
+		})
+	}
+}
+
 func TestLSMSorterSortInvertedReturnsCandidatesError(t *testing.T) {
 	s, _ := newCandidateTestSorter(t)
 	_, err := s.sortInverted(context.Background(), 10, sortsBy("int_not_indexed", "asc", "text", "asc"), nil)
@@ -773,11 +816,13 @@ func TestInvertedSorterCandidates(t *testing.T) {
 		}
 	}
 	tests := []struct {
-		name  string
-		rows  []sortRow
-		ids   func(rows []sortRow) []uint64
-		order string
-		limit int
+		name    string
+		rows    []sortRow
+		ids     func(rows []sortRow) []uint64 // nil walks unfiltered
+		order   string
+		limit   int
+		maxIDs  int // 0 sets no cap
+		tooMany bool
 	}{
 		{
 			name: "asc, tie group straddles limit", rows: sortRows(100, groupedRow(7)),
@@ -806,6 +851,46 @@ func TestInvertedSorterCandidates(t *testing.T) {
 			}),
 			order: "desc", limit: 5,
 		},
+		{
+			// the candidates are the 14 IDs of the first two groups
+			name: "asc, cap at the candidate count", rows: sortRows(100, groupedRow(7)),
+			ids: rowsWhere(func(i int) bool { return true }), order: "asc", limit: 10, maxIDs: 14,
+		},
+		{
+			name: "asc, cap below the candidate count", rows: sortRows(100, groupedRow(7)),
+			ids: rowsWhere(func(i int) bool { return true }), order: "asc", limit: 10, maxIDs: 13, tooMany: true,
+		},
+		{
+			// the candidates are the top group's 2 IDs and the next group's 7
+			name: "desc, cap at the candidate count", rows: sortRows(100, groupedRow(7)),
+			ids: rowsWhere(func(i int) bool { return true }), order: "desc", limit: 5, maxIDs: 9,
+		},
+		{
+			name: "desc, cap below the candidate count", rows: sortRows(100, groupedRow(7)),
+			ids: rowsWhere(func(i int) bool { return true }), order: "desc", limit: 5, maxIDs: 8, tooMany: true,
+		},
+		{
+			name: "desc unfiltered, limit on a group boundary", rows: sortRows(1000, groupedRow(7)),
+			order: "desc", limit: 13,
+		},
+		{
+			name: "desc unfiltered, cap at the candidate count", rows: sortRows(100, groupedRow(7)),
+			order: "desc", limit: 5, maxIDs: 9,
+		},
+		{
+			name: "desc unfiltered, cap below the candidate count", rows: sortRows(100, groupedRow(7)),
+			order: "desc", limit: 5, maxIDs: 8, tooMany: true,
+		},
+		{
+			// fewer than 2*limit objects make one window, so the row of 0s is read with the 6 above it
+			name: "desc unfiltered, rows below the cut-off do not count toward the cap",
+			rows: sortRows(11, func(i int) sortRow {
+				r := groupedRow(1)(i)
+				*r.int = max(int64(i)-4, 0)
+				return r
+			}),
+			order: "desc", limit: 6, maxIDs: 6,
+		},
 	}
 
 	for _, tc := range tests {
@@ -815,15 +900,54 @@ func TestInvertedSorterCandidates(t *testing.T) {
 				putSortRow(t, store, r)
 			}
 			flushSortBuckets(t, store)
-			ids := tc.ids(tc.rows)
+			var allowList helpers.AllowList
+			ids := rowsWhere(func(i int) bool { return true })(tc.rows)
+			if tc.ids != nil {
+				ids = tc.ids(tc.rows)
+				allowList = helpers.NewAllowList(ids...)
+			}
+			maxIDs := tc.maxIDs
+			if maxIDs == 0 {
+				maxIDs = math.MaxInt
+			}
 
 			is := NewInvertedSorter(store, s.dataTypesHelper)
 			actual, err := is.Candidates(context.Background(), tc.limit,
-				filters.Sort{Path: []string{"int"}, Order: tc.order}, helpers.NewAllowList(ids...))
+				filters.Sort{Path: []string{"int"}, Order: tc.order}, allowList, maxIDs)
+			if tc.tooMany {
+				require.ErrorIs(t, err, errTooManyCandidates)
+				return
+			}
 			require.NoError(t, err)
 			assert.Equal(t, firstLimitWithTies(tc.rows, ids, tc.order, tc.limit), actual)
 		})
 	}
+}
+
+// An unfiltered descending walk must fail its cap before copying a large tie row's IDs out.
+func TestInvertedSorterCandidatesDescCapCopiesNoIDs(t *testing.T) {
+	const tieRow = 1 << 18
+	s, store := newCandidateTestSorter(t)
+	bucket := store.Bucket(helpers.BucketFromPropNameLSM("int"))
+	key, err := inverted.LexicographicallySortableInt64(1)
+	require.NoError(t, err)
+	docIDs := make([]uint64, tieRow)
+	for i := range docIDs {
+		docIDs[i] = uint64(i)
+	}
+	require.NoError(t, bucket.RoaringSetAddList(key, docIDs))
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	is := NewInvertedSorter(store, s.dataTypesHelper)
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err = is.Candidates(context.Background(), 10, filters.Sort{Path: []string{"int"}, Order: "desc"},
+		nil, tieRow-1)
+	runtime.ReadMemStats(&after)
+
+	require.ErrorIs(t, err, errTooManyCandidates)
+	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(tieRow*8/4),
+		"copying the row's IDs alone allocates 8 bytes per ID")
 }
 
 // firstLimitWithTies orders the rows in ids by int, then by doc ID, and keeps
@@ -849,4 +973,42 @@ func firstLimitWithTies(rows []sortRow, ids []uint64, order string, limit int) [
 		out = append(out, r.docID)
 	}
 	return out
+}
+
+// BenchmarkMultiPropertySortTieGroups compares, without a filter, reading all
+// objects with a cursor against looking up every candidate, as the first sort
+// property's tie group grows. FullScanCandidateShare is where the two should cross.
+func BenchmarkMultiPropertySortTieGroups(b *testing.B) {
+	const objectCount = 20_000
+	ctx := context.Background()
+	s, store := newCandidateTestSorter(b)
+	for _, r := range sortRows(objectCount, groupedRow(objectCount/10)) {
+		putSortRow(b, store, r)
+	}
+	flushSortBuckets(b, store)
+	const limit = 101
+
+	// a limit inside the k-th of 10 groups makes the first k groups, k/10 of
+	// the objects, candidates
+	for _, groups := range []int{1, 3, 5, 9} {
+		sort := sortsBy("int", "asc", "text", "asc")
+		limit := groups*objectCount/10 - objectCount/20 + limit
+		b.Run(fmt.Sprintf("share=%d0%%/objects", groups), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				_, err := s.sortAllByObjects(ctx, limit, sort)
+				require.NoError(b, err)
+			}
+		})
+		b.Run(fmt.Sprintf("share=%d0%%/candidates", groups), func(b *testing.B) {
+			is := NewInvertedSorter(store, s.dataTypesHelper)
+			for i := 0; i < b.N; i++ {
+				candidates, err := is.Candidates(ctx, limit, sort[0], nil, math.MaxInt)
+				require.NoError(b, err)
+				helper, err := s.createHelper(sort, validateLimit(limit, len(candidates)))
+				require.NoError(b, err)
+				_, err = helper.getSortedDocIDs(ctx, helpers.NewAllowList(candidates...))
+				require.NoError(b, err)
+			}
+		})
+	}
 }
