@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -640,7 +639,7 @@ type testHarness struct {
 	provider              *testTaskProvider
 	registeredProviders   map[string]Provider
 	testProviders         []*testTaskProvider
-	localTaskInspector    LocalTaskInspector
+	minWakeSpacing        time.Duration
 
 	conflictDetectors       map[string]ConflictDetector
 	schemaMutationDetectors map[string]SchemaMutationDetector
@@ -703,7 +702,6 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 		TaskCleaner:        h.cleaner,
 		TaskFinalizer:      newDirectFinalizer(t, h.manager, h.clock),
 		AckRecorder:        h.ackRecorder,
-		LocalTaskInspector: h.localTaskInspector,
 		Providers:          h.registeredProviders,
 		Clock:              h.clock,
 		Logger:             h.logger,
@@ -711,6 +709,7 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 		LocalNode:          h.localNodeID,
 		CompletedTaskTTL:   h.completedTaskTTL,
 		TickInterval:       h.schedulerTickInterval,
+		MinWakeSpacing:     h.minWakeSpacing,
 	})
 	return h
 }
@@ -1045,6 +1044,35 @@ func TestReactiveFiring_WakeIsCoalesced(t *testing.T) {
 	}
 	// If Wake() blocked on a full channel, the loop above would hang and
 	// the test would time out.
+}
+
+// Pins the minimum gap between a tick and the next woken one: a second
+// task submitted right after the first starts only once the gap passes.
+func TestReactiveFiring_WokenTicksKeepTheMinimumGap(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t)
+	h.minWakeSpacing = 2 * time.Second
+	h = h.init(t)
+	h.manager.SetSchedulerNotifier(h.scheduler)
+
+	h.startScheduler(t)
+	defer h.Close()
+
+	addTaskWithUnits(t, h, h.tasksNamespace, "first", 10, []string{"su-1"})
+	require.Equal(t, "first", recvWithTimeout(t, h.provider.startedCh).ID)
+
+	addTaskWithUnits(t, h, h.tasksNamespace, "second", 11, []string{"su-2"})
+	select {
+	case task := <-h.provider.startedCh:
+		t.Fatalf("%s started before the gap passed", task.ID)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// The loop's ticker plus the gap's timer.
+	require.NoError(t, h.clock.BlockUntilContext(context.Background(), 2))
+	h.clock.Advance(h.minWakeSpacing)
+	require.Equal(t, "second", recvWithTimeout(t, h.provider.startedCh).ID)
 }
 
 // TestReactiveFiring_NilNotifierIsSafe verifies that the Manager can be
@@ -1786,9 +1814,6 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 		name string
 		// tasks are seeded before the first tick.
 		tasks []taskSpec
-		// localTasks are this node's own FSM copies, which the
-		// scheduler reads on top of the leader-routed list.
-		localTasks []taskSpec
 		// wantNamed is the task list the single warn line must carry;
 		// empty means no warn line at all.
 		wantNamed string
@@ -1825,46 +1850,12 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 				"tasks-namespace/zeta@10=UNKNOWN_FUTURE_STATE",
 			wantGauges: map[string]float64{"tasks-namespace": 2, otherNamespace: 1},
 		},
-		{
-			// The ordinary case, not an edge case: production always
-			// wires the inspector, so such a task sits in the
-			// leader-routed list and in this node's own FSM at once.
-			name:       "the same task in both sources",
-			tasks:      []taskSpec{{"tasks-namespace", "wedged", 7, unknownFutureStatus}},
-			localTasks: []taskSpec{{"tasks-namespace", "wedged", 7, unknownFutureStatus}},
-			wantNamed:  "tasks-namespace/wedged@7=UNKNOWN_FUTURE_STATE",
-			wantGauges: map[string]float64{"tasks-namespace": 1},
-		},
-		{
-			// What a node one release behind sees: the leader finalized
-			// the task into a status this node cannot name, so its own
-			// copy is stuck there while the cluster considers it done.
-			// FINISHED rather than STARTED because that is the state the
-			// refused SWAPPING→FINISHED transition leaves behind.
-			name:       "the leader's copy is recognized and this node's is not",
-			tasks:      []taskSpec{{"tasks-namespace", "diverged", 7, TaskStatusFinished}},
-			localTasks: []taskSpec{{"tasks-namespace", "diverged", 7, unknownFutureStatus}},
-			wantNamed: "tasks-namespace/diverged@7=UNKNOWN_FUTURE_STATE " +
-				"(this node only; cluster reports FINISHED)",
-			wantGauges: map[string]float64{"tasks-namespace": 1},
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			defer leaktest.Check(t)()
 
 			h := newTestHarness(t)
 			h.registeredProviders[otherNamespace] = newTestTaskProvider(t, nil)
-			if len(tc.localTasks) > 0 {
-				inspector := localTaskInspectorStub{}
-				for _, spec := range tc.localTasks {
-					inspector[spec.namespace] = append(inspector[spec.namespace], &Task{
-						Namespace:      spec.namespace,
-						TaskDescriptor: TaskDescriptor{ID: spec.id, Version: spec.version},
-						Status:         spec.status,
-					})
-				}
-				h.localTaskInspector = inspector
-			}
 			h = h.init(t)
 
 			for _, spec := range tc.tasks {
@@ -1873,7 +1864,7 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 				task.Status = spec.status
 				// Terminal tasks need FinishedAt stamped, or the TTL sweep
 				// deletes them before assertions run; non-terminal tasks
-				// must stay unstamped, matching how localTasks seeds above.
+				// must stay unstamped.
 				if spec.status.IsTerminal() {
 					task.FinishedAt = h.clock.Now()
 				}
@@ -1910,41 +1901,6 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 			}
 		})
 	}
-}
-
-// Pins that a task list this node cannot get still updates the gauge.
-// The list is leader-routed; this node's own FSM copies are not, and a
-// task only this node still holds is exactly the one the leader has
-// stopped carrying. Returning early on the list error instead froze the
-// gauge at its last value for as long as the failure lasted.
-func TestSchedulerTick_UnrecognizedStatusGaugeSurvivesAFailingList(t *testing.T) {
-	const namespace = "tasks-namespace"
-	defer leaktest.Check(t)()
-
-	h := newTestHarness(t)
-	h.localTaskInspector = localTaskInspectorStub{
-		namespace: {{
-			Namespace:      namespace,
-			TaskDescriptor: TaskDescriptor{ID: "left-behind", Version: 3},
-			Status:         unknownFutureStatus,
-		}},
-	}
-	h = h.init(t)
-
-	h.scheduler.taskLister = &flappyTasksLister{
-		failsLeft: math.MaxInt,
-		err:       errors.New("raft unavailable"),
-		inner:     h.manager,
-	}
-
-	h.startScheduler(t)
-	defer h.Close()
-
-	h.advanceClock(h.schedulerTickInterval)
-
-	require.Equal(t, 1.0, testutil.ToFloat64(
-		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(namespace)),
-		"this node's own copy is what the gauge has to report while the list is down")
 }
 
 // alwaysFailingAckRecorder makes the post-completion ack fail on every
@@ -2072,193 +2028,25 @@ func (exitedHandle) Done() <-chan struct{} {
 	return done
 }
 
-// localTaskInspectorStub stands in for this node's own FSM copies of
-// tasks the leader-routed list no longer carries.
-type localTaskInspectorStub map[string][]*Task
-
-func (s localTaskInspectorStub) LocalUnrecognizedDistributedTasks() map[string][]*Task {
-	return s
-}
-
-// Pins the two halves of the unrecognized-status report that only exist
-// together: a task the peers already deleted is still named off this
-// node's own copy, and the metric is a state, so it falls back to zero
-// when nothing is stuck rather than accumulating.
-func TestWarnOnUnrecognizedStatuses_ReportsLocalOnlyTasksAsState(t *testing.T) {
+// The metric is a state: a namespace whose last task is gone stops
+// reporting altogether, or its last value would stand forever and page
+// someone about a task nobody can find.
+func TestWarnOnUnrecognizedStatuses_DropsANamespaceThatStoppedReporting(t *testing.T) {
 	const namespace = "tasks-namespace"
-	h := newTestHarness(t)
-	h.localTaskInspector = localTaskInspectorStub{
-		namespace: {{
+	h := newTestHarness(t).init(t)
+
+	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
+		namespace: {TaskDescriptor{ID: "stuck", Version: 1}: {
 			Namespace:      namespace,
-			TaskDescriptor: TaskDescriptor{ID: "left-behind", Version: 3},
+			TaskDescriptor: TaskDescriptor{ID: "stuck", Version: 1},
 			Status:         unknownFutureStatus,
 		}},
-	}
-	h.init(t)
-
-	clusterWide := map[string]map[TaskDescriptor]*Task{
-		namespace: {
-			TaskDescriptor{ID: "healthy", Version: 1}: {
-				Namespace:      namespace,
-				TaskDescriptor: TaskDescriptor{ID: "healthy", Version: 1},
-				Status:         TaskStatusStarted,
-			},
-		},
-	}
-	h.scheduler.warnOnUnrecognizedStatuses(clusterWide, true)
-
-	var warned string
-	for _, e := range h.loggerHook.AllEntries() {
-		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "unrecognized status") {
-			warned = e.Message
-		}
-	}
-	require.Contains(t, warned, "left-behind",
-		"a task only this node still holds must still be named")
-	require.Contains(t, warned, "this node only")
-	require.NotContains(t, warned, "healthy")
+	})
 	require.Equal(t, 1.0, testutil.ToFloat64(
 		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(namespace)))
 
-	// Every copy is gone, so the namespace stops reporting altogether.
-	// Without the reset its last value would stand forever and page
-	// someone about a task nobody can find.
-	h.scheduler.localTaskInspector = localTaskInspectorStub{}
-	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{}, true)
+	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{})
 	require.Zero(t, testutil.CollectAndCount(h.scheduler.tasksUnrecognizedStatus))
-}
-
-// Pins which tick may drop a series. This node's own unrecognized copies
-// say nothing about which namespaces exist, so a tick that saw no cluster
-// list has no basis to decide that a namespace stopped reporting —
-// dropping one there deletes the series sitting at a real count and the
-// ones sitting at zero alike. CollectAndCount as well as the values, for
-// the reason the sibling table documents: reading a child by label
-// creates it, so a value assertion cannot tell "written 0" from "never
-// written".
-func TestWarnOnUnrecognizedStatuses_OnlyAListedTickDropsASeries(t *testing.T) {
-	const (
-		stuckNamespace = "stuck-namespace"
-		cleanNamespace = "clean-namespace"
-	)
-	h := newTestHarness(t)
-	h.localTaskInspector = localTaskInspectorStub{}
-	h.init(t)
-
-	gauge := h.scheduler.tasksUnrecognizedStatus
-	valueOf := func(namespace string) float64 {
-		return testutil.ToFloat64(gauge.WithLabelValues(namespace))
-	}
-
-	// One namespace stuck, one clean, both from the cluster's list.
-	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
-		stuckNamespace: {TaskDescriptor{ID: "stuck", Version: 1}: {
-			Namespace:      stuckNamespace,
-			TaskDescriptor: TaskDescriptor{ID: "stuck", Version: 1},
-			Status:         unknownFutureStatus,
-		}},
-		cleanNamespace: {TaskDescriptor{ID: "healthy", Version: 1}: {
-			Namespace:      cleanNamespace,
-			TaskDescriptor: TaskDescriptor{ID: "healthy", Version: 1},
-			Status:         TaskStatusStarted,
-		}},
-	}, true)
-	require.Equal(t, 2, testutil.CollectAndCount(gauge))
-	require.Equal(t, 1.0, valueOf(stuckNamespace))
-	require.Equal(t, 0.0, valueOf(cleanNamespace))
-
-	// The list is gone. Both series have to read exactly as they did.
-	h.scheduler.warnOnUnrecognizedStatuses(nil, false)
-	require.Equal(t, 2, testutil.CollectAndCount(gauge),
-		"a tick without the cluster's list must not drop a series")
-	require.Equal(t, 1.0, valueOf(stuckNamespace),
-		"the series was firing at 1 and nothing said it stopped")
-	require.Equal(t, 0.0, valueOf(cleanNamespace))
-
-	// The list is back, the stuck task cleared, and the clean namespace
-	// is gone from the cluster altogether. Now the prune must run.
-	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
-		stuckNamespace: {TaskDescriptor{ID: "stuck", Version: 1}: {
-			Namespace:      stuckNamespace,
-			TaskDescriptor: TaskDescriptor{ID: "stuck", Version: 1},
-			Status:         TaskStatusFinished,
-		}},
-	}, true)
-	require.Equal(t, 1, testutil.CollectAndCount(gauge),
-		"a namespace the cluster stopped listing has to be dropped")
-	require.Equal(t, 0.0, valueOf(stuckNamespace))
-}
-
-// The wiring half of the above: tick's error path is what reports that
-// there was no list. The first tick establishes the series off the
-// cluster's list, the second gets no list, and the series stays.
-func TestSchedulerTick_UnrecognizedStatusSeriesSurvivesALaterFailingList(t *testing.T) {
-	defer leaktest.Check(t)()
-
-	h := newTestHarness(t)
-	h.localTaskInspector = localTaskInspectorStub{}
-	h = h.init(t)
-
-	// Two, because Start lists once to bootstrap before the tick loop runs
-	// at all: one for that, one for the first tick.
-	h.scheduler.taskLister = &flappyTasksLister{
-		succeedsLeft: 2,
-		failsLeft:    math.MaxInt,
-		err:          errors.New("raft unavailable"),
-		inner:        h.manager,
-	}
-
-	addTaskWithUnits(t, h, h.tasksNamespace, "stuck", 10, []string{"su-1"})
-	h.manager.tasks[h.tasksNamespace]["stuck"].Status = unknownFutureStatus
-
-	h.startScheduler(t)
-	defer h.Close()
-
-	h.advanceClock(h.schedulerTickInterval)
-	require.Equal(t, 1.0, testutil.ToFloat64(
-		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(h.tasksNamespace)),
-		"the first tick had the cluster's list and has to report off it")
-
-	h.advanceClock(h.schedulerTickInterval)
-	require.Equal(t, 1, testutil.CollectAndCount(h.scheduler.tasksUnrecognizedStatus),
-		"the list dropping out is not evidence that the namespace stopped reporting")
-	require.Equal(t, 1.0, testutil.ToFloat64(
-		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(h.tasksNamespace)))
-}
-
-// The ordinary case, not the edge case: a task in an unrecognized status
-// sits in both the leader-routed list and this node's own FSM at once, so
-// counting it twice would double the gauge and mislabel it as this node's own.
-func TestWarnOnUnrecognizedStatuses_CountsATaskInBothListsOnce(t *testing.T) {
-	const namespace = "tasks-namespace"
-	wedged := &Task{
-		Namespace:      namespace,
-		TaskDescriptor: TaskDescriptor{ID: "wedged", Version: 7},
-		Status:         unknownFutureStatus,
-	}
-
-	h := newTestHarness(t)
-	h.localTaskInspector = localTaskInspectorStub{namespace: {wedged.Clone()}}
-	h.init(t)
-
-	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
-		namespace: {wedged.TaskDescriptor: wedged},
-	}, true)
-
-	var warned string
-	for _, e := range h.loggerHook.AllEntries() {
-		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "unrecognized status") {
-			warned = e.Message
-		}
-	}
-	require.Equal(t, 1, strings.Count(warned, "tasks-namespace/wedged@7=UNKNOWN_FUTURE_STATE"),
-		"one task must be named once, not once per list it appears in")
-	require.Contains(t, warned, "1 distributed task(s)",
-		"the count must match the task set, not the number of sightings")
-	require.NotContains(t, warned, "this node only",
-		"a task the leader-routed list still carries is not this node's own leftover")
-	require.Equal(t, 1.0, testutil.ToFloat64(
-		h.scheduler.tasksUnrecognizedStatus.WithLabelValues(namespace)))
 }
 
 // The warn fires for exactly the task set the FSM will not cancel, so an
@@ -2283,7 +2071,7 @@ func TestWarnOnUnrecognizedStatuses_PointsAtTheTerminalStateNotACancel(t *testin
 		"the cancel has to be refused for the advice to be wrong")
 	h.scheduler.warnOnUnrecognizedStatuses(map[string]map[TaskDescriptor]*Task{
 		ns: {task.TaskDescriptor: task},
-	}, true)
+	})
 
 	var warned string
 	for _, e := range h.loggerHook.AllEntries() {

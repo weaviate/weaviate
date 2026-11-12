@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/rpc"
 	"github.com/weaviate/weaviate/cluster/utils"
@@ -67,6 +69,38 @@ func TestListDistributedTasksUnreachableLeader(t *testing.T) {
 			}
 			_, err := srv.ListDistributedTasks(ctx)
 			require.Equal(t, tt.wantCode, status.Code(err))
+		})
+	}
+}
+
+// The scheduler's lister reads this node's own copy, so it answers with no
+// leader at all, and it refuses until the log held at store open is replayed.
+func TestLocalTaskLister(t *testing.T) {
+	for _, tt := range []struct {
+		name            string
+		replayedThrough uint64
+		wantErr         bool
+	}{
+		{name: "log replayed", replayedThrough: 1},
+		{name: "log still replaying", replayedThrough: 2, wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewMockStore(t, "node-1", 0)
+			sub, err := json.Marshal(&cmd.AddDistributedTaskRequest{Namespace: "ns", Id: "t", UnitIds: []string{"u"}})
+			require.NoError(t, err)
+			require.NoError(t, m.store.distributedTasksManager.AddTask(&cmd.ApplyRequest{SubCommand: sub}, 1))
+			m.store.lastAppliedIndex.Store(1)
+			m.store.lastAppliedIndexToDB.Store(tt.replayedThrough)
+
+			tasks, err := NewRaft(mocks.NewMockNodeSelector(), m.store, nil).LocalTaskLister().
+				ListDistributedTasks(context.Background())
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, tasks["ns"], 1)
+			require.Equal(t, "t", tasks["ns"][0].ID)
 		})
 	}
 }
