@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/pkg/errors"
@@ -78,6 +79,10 @@ func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([
 	if useInverted {
 		return s.sortInverted(ctx, limit, sort, nil)
 	}
+	return s.sortAllByObjects(ctx, limit, sort)
+}
+
+func (s *lsmSorter) sortAllByObjects(ctx context.Context, limit int, sort []filters.Sort) ([]uint64, error) {
 	count, err := s.bucket.Count(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("count object: %w", err)
@@ -115,8 +120,9 @@ func (s *lsmSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.So
 	return helper.getSortedDocIDs(ctx, ids)
 }
 
-// For a multi-property sort, sortInverted orders through the objects bucket
-// only the candidates the inverted index yields for the first property.
+// sortInverted orders a multi-property sort through the objects bucket over only
+// the candidates the inverted index yields for the first property. Past
+// FullScanCandidateShare of the objects, an unfiltered sort reads them all instead.
 func (s *lsmSorter) sortInverted(ctx context.Context, limit int, sort []filters.Sort,
 	ids helpers.AllowList,
 ) ([]uint64, error) {
@@ -125,7 +131,20 @@ func (s *lsmSorter) sortInverted(ctx context.Context, limit int, sort []filters.
 		return is.SortDocIDs(ctx, limit, sort, ids)
 	}
 
-	candidates, err := is.Candidates(ctx, limit, sort[0], ids)
+	maxCandidates := math.MaxInt
+	if ids == nil {
+		count, err := s.bucket.CountApproximate()
+		if err != nil {
+			return nil, fmt.Errorf("count object: %w", err)
+		}
+		maxCandidates = int(FullScanCandidateShare * float64(count))
+	}
+	candidates, err := is.Candidates(ctx, limit, sort[0], ids, maxCandidates)
+	if errors.Is(err, errTooManyCandidates) {
+		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+			fmt.Sprintf("more than %d sort candidates, sorting all objects from objects bucket", maxCandidates))
+		return s.sortAllByObjects(ctx, limit, sort)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("collect sort candidates: %w", err)
 	}
