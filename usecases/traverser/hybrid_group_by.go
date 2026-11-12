@@ -103,6 +103,17 @@ func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, gr
 			hits[j] = props
 		}
 
+		minDistance := groupMembers[0].Dist
+		maxDistance := groupMembers[0].Dist
+		for _, member := range groupMembers[1:] {
+			if member.Dist < minDistance {
+				minDistance = member.Dist
+			}
+			if member.Dist > maxDistance {
+				maxDistance = member.Dist
+			}
+		}
+
 		group := &additional.Group{
 			ID: i,
 			GroupedBy: &additional.GroupedBy{
@@ -111,8 +122,8 @@ func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, gr
 			},
 			Count:       len(hits),
 			Hits:        hits,
-			MinDistance: first.Dist,
-			MaxDistance: first.Dist,
+			MinDistance: minDistance,
+			MaxDistance: maxDistance,
 		}
 
 		// add group

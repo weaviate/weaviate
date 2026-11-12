@@ -128,12 +128,16 @@ func TestExplorerGroupSearchResults(t *testing.T) {
 		assert.Equal(t, "A", group1.GroupedBy.Value)
 		assert.Equal(t, 2, group1.Count) // obj1 and obj3
 		assert.Len(t, group1.Hits, 2)
+		assert.Equal(t, float32(0.1), group1.MinDistance)
+		assert.Equal(t, float32(0.3), group1.MaxDistance)
 
 		// Check second group (B)
 		group2 := grouped[1].AdditionalProperties["group"].(*additional.Group)
 		assert.Equal(t, "B", group2.GroupedBy.Value)
 		assert.Equal(t, 1, group2.Count) // obj2
 		assert.Len(t, group2.Hits, 1)
+		assert.Equal(t, float32(0.2), group2.MinDistance)
+		assert.Equal(t, float32(0.2), group2.MaxDistance)
 	})
 
 	t.Run("array property grouping", func(t *testing.T) {
@@ -367,6 +371,39 @@ func TestExplorerGroupSearchResults(t *testing.T) {
 
 		// Should have only 2 groups: A and B (non-string properties skipped)
 		assert.Len(t, grouped, 2)
+	})
+
+	t.Run("min and max distance tracking", func(t *testing.T) {
+		// In hybrid search, results are ordered by score, so the first object
+		// might have a distance between or greater than later objects.
+		results := search.Results{
+			createSearchResult("obj1", map[string]interface{}{"category": "A"}, 0.4),
+			createSearchResult("obj2", map[string]interface{}{"category": "A"}, 0.1),
+			createSearchResult("obj3", map[string]interface{}{"category": "A"}, 0.9),
+			createSearchResult("obj4", map[string]interface{}{"category": "B"}, 0.25),
+		}
+
+		groupBy := &searchparams.GroupBy{
+			Property:        "category",
+			Groups:          10,
+			ObjectsPerGroup: 5,
+		}
+
+		grouped, err := explorer.groupSearchResults(ctx, results, groupBy)
+		require.NoError(t, err)
+		require.Len(t, grouped, 2)
+
+		groupA := grouped[0].AdditionalProperties["group"].(*additional.Group)
+		assert.Equal(t, "A", groupA.GroupedBy.Value)
+		assert.Equal(t, 3, groupA.Count)
+		assert.Equal(t, float32(0.1), groupA.MinDistance)
+		assert.Equal(t, float32(0.9), groupA.MaxDistance)
+
+		groupB := grouped[1].AdditionalProperties["group"].(*additional.Group)
+		assert.Equal(t, "B", groupB.GroupedBy.Value)
+		assert.Equal(t, 1, groupB.Count)
+		assert.Equal(t, float32(0.25), groupB.MinDistance)
+		assert.Equal(t, float32(0.25), groupB.MaxDistance)
 	})
 }
 
