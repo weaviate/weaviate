@@ -2651,22 +2651,13 @@ func (db *DB) ShardReplicaOwnership(ctx context.Context, className string) (map[
 }
 
 // lookupShardByName returns the named shard from the index, or an error
-// describing why the lookup failed. There is no Index.GetShardByName, so
-// callers walk ForEachShard; centralise that walk here so the two call
-// sites (processOneUnit and OnGroupCompleted) report the same shape of
-// error.
+// if it is absent or the index is closing. It runs once per unit per phase,
+// so it must not walk all shards.
 func lookupShardByName(idx *Index, shardName string) (ShardLike, error) {
-	var found ShardLike
-	if err := idx.ForEachShard(func(name string, s ShardLike) error {
-		if name == shardName {
-			found = s
+	if idx.closeCause() == nil {
+		if s := idx.shards.Load(shardName); s != nil {
+			return s, nil
 		}
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("iterating shards: %w", err)
 	}
-	if found == nil {
-		return nil, fmt.Errorf("shard %q not found", shardName)
-	}
-	return found, nil
+	return nil, fmt.Errorf("shard %q not found", shardName)
 }
