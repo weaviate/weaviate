@@ -110,3 +110,159 @@ func TestParseAcceptsOutOfBoundsMuvera(t *testing.T) {
 	require.Equal(t, 1_000_000, uc.Multivector.MuveraConfig.KSim)
 	require.Error(t, ValidateMuveraUpperBounds(uc), "the same config must fail the create/update bounds")
 }
+
+// TestParseMultiVectorModuleEnablesMuvera pins how hfresh reacts to a
+// multi-vector vectorizer module (isMultiVector == true). hfresh has exactly
+// one multi-vector mode, MUVERA, so a multi-vector module implies muvera the
+// same way it implies multivector.enabled on hnsw. Only an explicit
+// muvera.enabled=false is a contradiction and rejected.
+func TestParseMultiVectorModuleEnablesMuvera(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         interface{}
+		isMultiVector bool
+		wantEnabled   bool
+		wantMuvera    bool
+		wantErr       string
+	}{
+		{
+			name:          "multi-vector module, no config at all",
+			input:         nil,
+			isMultiVector: true,
+			wantEnabled:   true,
+			wantMuvera:    true,
+		},
+		{
+			name:          "multi-vector module, empty config map",
+			input:         map[string]interface{}{},
+			isMultiVector: true,
+			wantEnabled:   true,
+			wantMuvera:    true,
+		},
+		{
+			name: "multi-vector module, multivector enabled without muvera block",
+			input: map[string]interface{}{
+				"multivector": map[string]interface{}{"enabled": true},
+			},
+			isMultiVector: true,
+			wantEnabled:   true,
+			wantMuvera:    true,
+		},
+		{
+			name: "multi-vector module, multivector explicitly disabled is overridden like hnsw",
+			input: map[string]interface{}{
+				"multivector": map[string]interface{}{"enabled": false},
+			},
+			isMultiVector: true,
+			wantEnabled:   true,
+			wantMuvera:    true,
+		},
+		{
+			name: "multi-vector module, muvera explicitly enabled with params",
+			input: map[string]interface{}{
+				"multivector": map[string]interface{}{
+					"enabled": true,
+					"muvera":  map[string]interface{}{"enabled": true, "ksim": float64(3)},
+				},
+			},
+			isMultiVector: true,
+			wantEnabled:   true,
+			wantMuvera:    true,
+		},
+		{
+			name: "multi-vector module, muvera explicitly disabled is a contradiction",
+			input: map[string]interface{}{
+				"multivector": map[string]interface{}{
+					"enabled": true,
+					"muvera":  map[string]interface{}{"enabled": false},
+				},
+			},
+			isMultiVector: true,
+			wantErr:       "muvera",
+		},
+		{
+			// startup-safety: without a multi-vector module the parser must
+			// keep accepting this shape, a class persisted this way must load.
+			// Create/update rejects it via ValidateMultiVectorRequiresMuvera.
+			name: "no module, multivector enabled without muvera still parses",
+			input: map[string]interface{}{
+				"multivector": map[string]interface{}{"enabled": true},
+			},
+			isMultiVector: false,
+			wantEnabled:   true,
+			wantMuvera:    false,
+		},
+		{
+			name:          "no module, no config",
+			input:         nil,
+			isMultiVector: false,
+			wantEnabled:   false,
+			wantMuvera:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := ParseAndValidateConfig(tt.input, tt.isMultiVector)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			uc, ok := cfg.(UserConfig)
+			require.True(t, ok)
+			require.Equal(t, tt.wantEnabled, uc.Multivector.Enabled, "multivector.enabled")
+			require.Equal(t, tt.wantMuvera, uc.Multivector.MuveraConfig.Enabled, "muvera.enabled")
+			require.Equal(t, tt.wantMuvera, uc.IsMultiVector(), "IsMultiVector follows muvera")
+			if tt.wantMuvera {
+				require.Greater(t, uc.Multivector.MuveraConfig.KSim, 0, "muvera defaults must be populated")
+				require.Greater(t, uc.Multivector.MuveraConfig.DProjections, 0)
+				require.Greater(t, uc.Multivector.MuveraConfig.Repetitions, 0)
+			}
+		})
+	}
+}
+
+// TestValidateMultiVectorRequiresMuvera pins the create/update-only rule:
+// hfresh only takes multi-vectors MUVERA-encoded, so multivector.enabled
+// without muvera.enabled is a config that accepts no insert and must be
+// refused up front rather than stored.
+func TestValidateMultiVectorRequiresMuvera(t *testing.T) {
+	tests := []struct {
+		name    string
+		uc      UserConfig
+		wantErr string
+	}{
+		{name: "defaults, single vector", uc: NewDefaultUserConfig()},
+		{name: "multivector with muvera", uc: muveraConfig(0, 0, 0)},
+		{
+			name: "multivector without muvera",
+			uc: func() UserConfig {
+				uc := NewDefaultUserConfig()
+				uc.Multivector.Enabled = true
+				return uc
+			}(),
+			wantErr: "muvera",
+		},
+		{
+			// muvera on its own implies multivector; nothing to reject
+			name: "muvera without the multivector flag",
+			uc: func() UserConfig {
+				uc := NewDefaultUserConfig()
+				uc.Multivector.MuveraConfig.Enabled = true
+				return uc
+			}(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateMultiVectorRequiresMuvera(tt.uc)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

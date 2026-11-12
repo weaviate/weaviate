@@ -1301,3 +1301,31 @@ func TestUserConfigMuveraKSimBound(t *testing.T) {
 		})
 	}
 }
+
+// TestParseAndValidateConfig_MultiVectorModuleWithoutBlock pins that a
+// multi-vector vectorizer module yields a multi-vector index even when the
+// request carries no "multivector" block at all: the module emits
+// [][]float32, and an index parsed as single-vector would refuse every
+// insert.
+func TestParseAndValidateConfig_MultiVectorModuleWithoutBlock(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         interface{}
+		isMultiVector bool
+		want          bool
+	}{
+		{name: "module, nil config", input: nil, isMultiVector: true, want: true},
+		{name: "module, empty config", input: map[string]interface{}{}, isMultiVector: true, want: true},
+		{name: "module, unrelated keys only", input: map[string]interface{}{"ef": float64(64)}, isMultiVector: true, want: true},
+		{name: "module, explicit false is overridden", input: map[string]interface{}{"multivector": map[string]interface{}{"enabled": false}}, isMultiVector: true, want: true},
+		{name: "no module, nil config", input: nil, isMultiVector: false, want: false},
+		{name: "no module, empty config", input: map[string]interface{}{}, isMultiVector: false, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := ParseAndValidateConfig(tt.input, tt.isMultiVector)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, cfg.IsMultiVector())
+		})
+	}
+}

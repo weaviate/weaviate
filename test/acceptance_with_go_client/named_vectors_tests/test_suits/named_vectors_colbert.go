@@ -622,6 +622,73 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 				require.True(t, ok)
 				assert.True(t, mv["enabled"].(bool))
 			})
+			t.Run("multi vector index with hfresh vector index type", func(t *testing.T) {
+				// hfresh stores multi-vectors MUVERA-encoded, so a multi-vector
+				// vectorizer on hfresh is accepted without any explicit
+				// multivector config and comes back with muvera enabled.
+				cleanup()
+				class := &models.Class{
+					Class: "NamedVectorVectorizerWithMultiVectorIndex",
+					Properties: []*models.Property{
+						{
+							Name: "name", DataType: []string{schema.DataTypeText.String()},
+						},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"colbert": {
+							Vectorizer: map[string]interface{}{
+								"text2multivec-jinaai": map[string]interface{}{
+									"vectorizeClassName": false,
+								},
+							},
+							VectorIndexType: "hfresh",
+						},
+					},
+				}
+				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+				require.NoError(t, err)
+				cls, err := client.Schema().ClassGetter().WithClassName(class.Class).Do(ctx)
+				require.NoError(t, err)
+				require.NotNil(t, cls.VectorConfig["colbert"])
+				vsAsMap, ok := cls.VectorConfig["colbert"].VectorIndexConfig.(map[string]interface{})
+				require.True(t, ok)
+				mv, ok := vsAsMap["multivector"].(map[string]interface{})
+				require.True(t, ok)
+				assert.True(t, mv["enabled"].(bool))
+				muvera, ok := mv["muvera"].(map[string]interface{})
+				require.True(t, ok)
+				assert.True(t, muvera["enabled"].(bool))
+			})
+			t.Run("multi vector index with hfresh and muvera explicitly disabled", func(t *testing.T) {
+				cleanup()
+				class := &models.Class{
+					Class: "NamedVectorVectorizerWithMultiVectorIndex",
+					Properties: []*models.Property{
+						{
+							Name: "name", DataType: []string{schema.DataTypeText.String()},
+						},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"colbert": {
+							Vectorizer: map[string]interface{}{
+								"text2multivec-jinaai": map[string]interface{}{
+									"vectorizeClassName": false,
+								},
+							},
+							VectorIndexType: "hfresh",
+							VectorIndexConfig: map[string]interface{}{
+								"multivector": map[string]interface{}{
+									"enabled": true,
+									"muvera":  map[string]interface{}{"enabled": false},
+								},
+							},
+						},
+					},
+				}
+				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+				require.Error(t, err)
+				assert.ErrorContains(t, err, "muvera")
+			})
 			t.Run("multi vector index with flat vector index type", func(t *testing.T) {
 				cleanup()
 				class := &models.Class{
@@ -646,7 +713,7 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 				// Weaviate overrides the multivector setting if it finds that someone has enabled
 				// multi vector vectorizer
 				require.Error(t, err)
-				assert.ErrorContains(t, err, `parse vector index config: multi vector index is not supported for vector index type: \"flat\", only supported type is hnsw`)
+				assert.ErrorContains(t, err, `parse vector index config: multi vector index is not supported for vector index type: \"flat\", supported types are hnsw and hfresh`)
 			})
 			t.Run("multi vector index with dynamic vector index type", func(t *testing.T) {
 				cleanup()
@@ -674,7 +741,7 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 				require.Error(t, err)
 
 				if asyncIndexingEnabled {
-					assert.ErrorContains(t, err, `parse vector index config: multi vector index is not supported for vector index type: \"dynamic\", only supported type is hnsw`)
+					assert.ErrorContains(t, err, `parse vector index config: multi vector index is not supported for vector index type: \"dynamic\", supported types are hnsw and hfresh`)
 				} else {
 					assert.ErrorContains(t, err, `the dynamic index can only be created when async indexing is enabled`)
 				}

@@ -1528,6 +1528,15 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 		if parsed != nil && parsed.IsMultiVector() {
 			return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
 		}
+		// Create/update-only hard limits, mirroring the named-vector loop
+		// below. They must not live in the config parser itself: that also
+		// runs on startup/restore, where a persisted out-of-range class must
+		// not prevent the node from starting.
+		if parsed != nil {
+			if err := validateCreateUpdateOnlyBounds(parsed); err != nil {
+				return err
+			}
+		}
 		// Grandfather: same compression set ⇒ skip the policy check.
 		if parsed != nil && !legacyCompressionUnchanged(parsed, initial, h) {
 			if err := h.validateAllowedCompression(class.VectorIndexType, parsed); err != nil {
@@ -1595,6 +1604,9 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 // startup or during RAFT log replay.
 func validateCreateUpdateOnlyBounds(parsed schemaConfig.VectorIndexConfig) error {
 	if uc, ok := parsed.(enthfresh.UserConfig); ok {
+		if err := enthfresh.ValidateMultiVectorRequiresMuvera(uc); err != nil {
+			return err
+		}
 		return enthfresh.ValidateMuveraUpperBounds(uc)
 	}
 	return nil

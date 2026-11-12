@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
+	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
@@ -756,4 +757,61 @@ func TestParseClassUpdate_LegacyVectorReachesTheValidator(t *testing.T) {
 	initial, updated = classes()
 	_, err = p.ParseClassUpdate(initial, updated)
 	require.ErrorContains(t, err, `share "vectors_compressed"`)
+}
+
+// TestParseGivenVectorIndexConfig_MultiVectorIndexTypes pins which index
+// types accept a multi-vector vectorizer module. hfresh encodes multi-vectors
+// with MUVERA and must be allowed next to hnsw; flat and dynamic have no
+// multi-vector support and stay rejected.
+func TestParseGivenVectorIndexConfig_MultiVectorIndexTypes(t *testing.T) {
+	cs := fakes.NewFakeClusterState()
+	p := NewParser(cs, vectorindex.ParseAndValidateConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
+
+	tests := []struct {
+		indexType string
+		wantErr   string
+	}{
+		{indexType: vectorindex.VectorIndexTypeHNSW},
+		{indexType: vectorindex.VectorIndexTypeHFresh},
+		{indexType: vectorindex.VectorIndexTypeFLAT, wantErr: `multi vector index is not supported for vector index type: "flat"`},
+		{indexType: vectorindex.VectorIndexTypeDYNAMIC, wantErr: `multi vector index is not supported for vector index type: "dynamic"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.indexType, func(t *testing.T) {
+			parsed, err := p.parseGivenVectorIndexConfig(tt.indexType, nil, true, nil)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.True(t, parsed.IsMultiVector(), "a multi-vector module must yield a multi-vector index config")
+		})
+	}
+}
+
+// TestParseClass_MultiVectorModuleWithHFresh runs the full ParseClass path a
+// RAFT apply takes for a named vector backed by a multi-vector module on
+// hfresh: the stored config must come out MUVERA-enabled.
+func TestParseClass_MultiVectorModuleWithHFresh(t *testing.T) {
+	cs := fakes.NewFakeClusterState()
+	p := NewParser(cs, vectorindex.ParseAndValidateConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
+
+	class := &models.Class{
+		Class: "Test",
+		VectorConfig: map[string]models.VectorConfig{
+			"colbert": {
+				VectorIndexType: vectorindex.VectorIndexTypeHFresh,
+				// "colbert" satisfies both HasModule and IsMultiVector on fakeModulesProvider
+				Vectorizer: map[string]interface{}{"text2multivec-colbert": map[string]interface{}{}},
+			},
+		},
+	}
+	require.NoError(t, p.ParseClass(class))
+
+	uc, ok := class.VectorConfig["colbert"].VectorIndexConfig.(enthfresh.UserConfig)
+	require.True(t, ok, "expected a parsed hfresh config, got %T", class.VectorConfig["colbert"].VectorIndexConfig)
+	require.True(t, uc.Multivector.Enabled)
+	require.True(t, uc.Multivector.MuveraConfig.Enabled)
+	require.True(t, uc.IsMultiVector())
 }

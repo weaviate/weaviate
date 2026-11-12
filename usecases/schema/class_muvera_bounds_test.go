@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/vectorindex"
+	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -34,7 +35,7 @@ func newTestHandlerWithRealVectorConfigParser(t *testing.T) *Handler {
 	schemaManager := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
-		valid: []string{"text2vec-contextionary", "model1", "model2"},
+		valid: []string{"text2vec-contextionary", "model1", "model2", "text2multivec-colbert"},
 	}
 	cfg := config.Config{
 		DefaultVectorDistanceMetric: "cosine",
@@ -131,4 +132,90 @@ func TestMuveraUpperBoundsOnSchemaWrites(t *testing.T) {
 			})
 		})
 	}
+}
+
+func hfreshClassWithMultivector(muvera *bool) *models.Class {
+	multivector := map[string]interface{}{"enabled": true}
+	if muvera != nil {
+		multivector["muvera"] = map[string]interface{}{"enabled": *muvera}
+	}
+	return &models.Class{
+		Class: "HFreshMultiVector",
+		VectorConfig: map[string]models.VectorConfig{
+			"mv": {
+				VectorIndexType:   "hfresh",
+				Vectorizer:        map[string]interface{}{"none": nil},
+				VectorIndexConfig: map[string]interface{}{"multivector": multivector},
+			},
+		},
+	}
+}
+
+// TestHFreshMultiVectorRequiresMuveraOnSchemaWrites: hfresh only takes
+// multi-vectors MUVERA-encoded, so a BYO-vector class that enables
+// multivector without muvera would be stored and then refuse every
+// multi-vector insert. Create and update reject it; startup parsing keeps
+// accepting it so an already persisted class still loads.
+func TestHFreshMultiVectorRequiresMuveraOnSchemaWrites(t *testing.T) {
+	boolPtr := func(b bool) *bool { return &b }
+	tests := []struct {
+		name    string
+		muvera  *bool
+		wantErr string
+	}{
+		{name: "multivector without muvera block", muvera: nil, wantErr: "muvera"},
+		{name: "multivector with muvera disabled", muvera: boolPtr(false), wantErr: "muvera"},
+		{name: "multivector with muvera enabled", muvera: boolPtr(true)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := newTestHandlerWithRealVectorConfigParser(t)
+			class := hfreshClassWithMultivector(tt.muvera)
+
+			t.Run("create", func(t *testing.T) {
+				err := handler.validateVectorSettingsAgainst(class, nil)
+				if tt.wantErr != "" {
+					require.ErrorContains(t, err, tt.wantErr)
+					return
+				}
+				require.NoError(t, err)
+			})
+
+			t.Run("update", func(t *testing.T) {
+				initial := hfreshClassWithMultivector(boolPtr(true))
+				err := handler.validateVectorSettingsAgainst(class, initial)
+				if tt.wantErr != "" {
+					require.ErrorContains(t, err, tt.wantErr)
+					return
+				}
+				require.NoError(t, err)
+			})
+		})
+	}
+}
+
+// TestHFreshMultiVectorModuleOnSchemaWrites: a multi-vector vectorizer
+// module on an hfresh named vector is accepted on create without any
+// explicit multivector config, and the parsed config is MUVERA-enabled.
+func TestHFreshMultiVectorModuleOnSchemaWrites(t *testing.T) {
+	handler := newTestHandlerWithRealVectorConfigParser(t)
+	class := &models.Class{
+		Class: "HFreshColbert",
+		VectorConfig: map[string]models.VectorConfig{
+			"colbert": {
+				VectorIndexType: "hfresh",
+				// "colbert" is a multi-vector module on fakeModulesProvider
+				Vectorizer: map[string]interface{}{"text2multivec-colbert": map[string]interface{}{}},
+			},
+		},
+	}
+	require.NoError(t, handler.validateVectorSettingsAgainst(class, nil))
+
+	// the RAFT apply path parses the (here absent) raw config into its typed form
+	require.NoError(t, handler.parser.ParseClass(class))
+	parsed, ok := class.VectorConfig["colbert"].VectorIndexConfig.(enthfresh.UserConfig)
+	require.True(t, ok, "expected hfresh config, got %T", class.VectorConfig["colbert"].VectorIndexConfig)
+	require.True(t, parsed.IsMultiVector())
+	require.True(t, parsed.Multivector.MuveraConfig.Enabled)
 }
