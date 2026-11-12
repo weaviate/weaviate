@@ -165,6 +165,16 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	}
 }
 
+// SetCompressedVectorCacheMaxObjects is used by the dynamic index, whose hnsw
+// stage is compressed after it was built.
+func (h *hnsw) SetCompressedVectorCacheMaxObjects(maxObjects int) {
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
+	if h.compressed.Load() {
+		h.compressor.SetCacheMaxSize(int64(maxObjects))
+	}
+}
+
 func (h *hnsw) Upgrade(callback func()) error {
 	h.logger.WithFields(logrus.Fields{
 		"action":     "compress",

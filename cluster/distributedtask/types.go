@@ -104,8 +104,9 @@ type ForceTerminator interface {
 }
 
 // PostCompletionAckRecorder is the RAFT-apply hook the [Scheduler] uses
-// to publish one node's OnGroupCompleted result (success or failure)
-// after its callbacks have returned for every local group in a task.
+// to publish one node's OnGroupCompleted result: a success once its
+// callbacks have returned for every local group in a task, a failure as
+// soon as one local group fails.
 // The scheduler gates [TaskFinalizer.MarkDistributedTaskFinalized] on
 // having an ack from every node that has local units in the task, and
 // transitions the task to FAILED if any ack reports failure — which

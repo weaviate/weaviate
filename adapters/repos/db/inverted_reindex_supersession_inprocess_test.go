@@ -16,10 +16,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -185,4 +187,109 @@ func TestASwapLeavesADisplacedDirAnotherRecordStillNames(t *testing.T) {
 
 	require.DirExists(t, filepath.Join(shard.pathLSM(), held),
 		"the successor's flip must not remove the directory the predecessor names as its staged data")
+}
+
+// A resumed swap writes no record, so only runtimeSwap's own records check
+// can save a dir another record still needs.
+func TestAResumedSwapWithIncompleteRecordsKeepsOnlyASidecarNamedDisplacedDir(t *testing.T) {
+	plantFault := func(t *testing.T, shard *Shard, _ *ShardReindexTaskGeneric) {
+		plantUnreadableRecord(t, shard.migrationRecords.Dir())
+		require.NoError(t, shard.migrationRecords.Load())
+	}
+	tests := []struct {
+		name string
+		// backToBack makes the displaced dir a predecessor's staged dir, not the canonical one.
+		backToBack   bool
+		breakRecords func(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric)
+		wantKept     bool
+		wantWarn     []string
+		wantNotWarn  string
+	}{
+		{
+			name:         "the canonical dir is discarded under a fault",
+			breakRecords: plantFault,
+		},
+		{
+			name:         "a predecessor's staged dir is kept under a fault",
+			backToBack:   true,
+			breakRecords: plantFault,
+			wantKept:     true,
+			wantWarn:     []string{unreadableRecordFile, "fix that fault"},
+		},
+		{
+			name:       "a predecessor's staged dir is kept when the records cannot be read at all",
+			backToBack: true,
+			breakRecords: func(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric) {
+				task.onPropSwapped = func(string) { shard.migrationRecords = nil }
+			},
+			wantKept:    true,
+			wantWarn:    []string{"could not be read"},
+			wantNotWarn: "fault",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "SwapKeepsDirOnFault_" + uuid.NewString()[:8]
+			props := []string{"title", "body"}
+			class := newEnableFilterableTestClass(className, props...)
+
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
+
+			for _, obj := range makeConvergenceTestObjects(t, 10, className) {
+				require.NoError(t, shard.PutObject(ctx, obj))
+			}
+
+			generation := 1
+			if tc.backToBack {
+				predecessor, _ := newEnableFilterableTaskAtGeneration(t, idx, className, generation, shard.migrationUnit(), props...)
+				require.NoError(t, predecessor.RunReindexOnlyOnShard(ctx, shard))
+				require.NoError(t, predecessor.RunPrepareOnShard(ctx, shard))
+				require.NoError(t, predecessor.RunSwapOnShard(ctx, shard))
+				generation++
+			}
+			task, strategy := newEnableFilterableTaskAtGeneration(t, idx, className, generation, shard.migrationUnit(), props...)
+			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+			require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+
+			displaced := map[string]string{}
+			for _, prop := range props {
+				dir := filepath.Base(shard.store.Bucket(task.strategy.SourceBucketName(prop)).GetDir())
+				require.Equal(t, !tc.backToBack, dir == task.strategy.SourceBucketName(prop))
+				displaced[prop] = dir
+			}
+			subject, err := task.migrationSubjectNow(shard)
+			require.NoError(t, err)
+			require.NoError(t, task.putMigrationRecord(shard, NewMigrationRecordSwapped(subject, props, displaced)))
+			tc.breakRecords(t, shard, task)
+
+			logger, hook := test.NewNullLogger()
+			require.NoError(t, task.runtimeSwap(ctx, logger, shard, props))
+
+			for _, dir := range displaced {
+				require.Equal(t, tc.wantKept, dirExists(t, filepath.Join(shard.pathLSM(), dir)), dir)
+			}
+			var warned []string
+			for _, entry := range hook.AllEntries() {
+				if entry.Level == logrus.WarnLevel && strings.Contains(entry.Message, "displaced") {
+					warned = append(warned, entry.Message)
+				}
+			}
+			if !tc.wantKept {
+				require.Empty(t, warned)
+			} else {
+				require.Len(t, warned, 1)
+				for _, want := range tc.wantWarn {
+					require.Contains(t, warned[0], want)
+				}
+			}
+			if tc.wantNotWarn != "" {
+				require.NotContains(t, warned[0], tc.wantNotWarn, "the warning must not name a fault that does not exist")
+			}
+			require.True(t, strategy.migrationCompleted, "keeping the dirs must not cut the rest of the swap short")
+		})
+	}
 }

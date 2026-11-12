@@ -886,23 +886,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	bitmapBufPool, bitmapBufPoolClose := configureBitmapBufPool(appState)
 	repo.SetBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
-	// Discover in-flight runtime reindex tasks from disk so the static
-	// ShardReindexerV3 can re-register their double-write callbacks via
-	// OnAfterLsmInit during shard load — BEFORE any post-restart write
-	// reaches the shard. Without this, writes between shard init and the
-	// deferred swap go only to the old main bucket and are silently lost.
-	recoveredReindexes, recoveryErr := db.DiscoverInFlightReindexTasks(
-		appState.ServerConfig.Config.Persistence.DataPath,
-		appState.ServerConfig.Config.RuntimeReindexEnabled,
+	reindexProvider := db.NewReindexProvider(
+		repo, appState.SchemaManager, appState.ClusterService.Raft, appState.Logger,
+		appState.Cluster.LocalName(),
+		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
+		serverShutdownCtx,
+	)
+	// The reindexer is set before any shard loads, so each load re-arms its mirrors before its first write.
+	repo.SetReindexer(db.NewMigrationRecoveryReindexer(
 		appState.Logger,
 		appState.SchemaManager,
-	)
-	if recoveryErr != nil {
-		appState.Logger.WithError(recoveryErr).
-			Warn("reindex recovery: disk scan failed; writes during the swap-recovery window may be lost")
-	}
-	reindexer := configureReindexer(recoveredReindexes, appState.Logger)
-	repo.SetReindexer(reindexer)
+		reindexProvider,
+	))
 
 	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
@@ -1087,7 +1082,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		setupShardNoopDebugHandler(appState, shardNoopProvider)
 	}
 
-	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
+	initReindexAndDistributedTasks(appState, repo, providers, reindexProvider, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -1152,21 +1147,11 @@ func initReindexAndDistributedTasks(
 	appState *state.State,
 	repo *db.DB,
 	providers map[string]distributedtask.Provider,
-	recoveredReindexes []db.RecoveredReindex,
+	reindexProvider *db.ReindexProvider,
 	metricsRegisterer prometheus.Registerer,
 	serverShutdownCtx context.Context,
 	dropVectorEnqueuer *dropVectorIndexEnqueuer,
 ) {
-	reindexProvider := db.NewReindexProvider(
-		repo, appState.SchemaManager, appState.ClusterService.Raft, appState.Logger,
-		appState.Cluster.LocalName(),
-		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
-		serverShutdownCtx,
-	)
-	// Seed re-uses the SAME task instances ShardReindexerV3 registered, so
-	// OnGroupCompleted's swap phase doesn't take the rehydrate path and try
-	// to load already-loaded ingest buckets.
-	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
 
@@ -1238,22 +1223,6 @@ func initReindexAndDistributedTasks(
 	// Reactive notifier: without this, barriers stagger by up to the tick
 	// interval across nodes. See [distributedtask.SchedulerNotifier].
 	appState.ClusterService.SetDistributedTaskSchedulerNotifier(appState.DistributedTaskScheduler)
-}
-
-func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogger) db.ShardReindexerV3 {
-	// All reindex operations are now triggered via the REST API
-	// (DTM-based). The V3 startup reindexer is no longer used for
-	// kicking off new reindexes — but we still need it for restart
-	// recovery: in-flight runtime reindex tasks discovered on disk
-	// register here so that OnAfterLsmInit fires during shard load and
-	// re-installs the double-write callbacks before any post-restart
-	// write reaches the shard.
-	if len(recovered) == 0 {
-		return db.NewShardReindexerV3Noop()
-	}
-	logger.WithField("count", len(recovered)).
-		Info("reindex recovery: registering in-flight tasks discovered on disk")
-	return db.NewShardReindexerV3FromRecovered(recovered, logger)
 }
 
 // enforceNamespaceStartupInvariants decides whether the current cluster state

@@ -129,7 +129,7 @@ func TestGroupHandlersLogUnitCountNotUnitIDs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
 			logger.SetLevel(logrus.DebugLevel)
-			p := &ReindexProvider{logger: logger}
+			p := &ReindexProvider{logger: logger, endedTasks: map[distributedtask.TaskDescriptor]struct{}{}}
 
 			require.NoError(t, tc.call(p, &distributedtask.Task{
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T", Version: 1},
@@ -260,8 +260,9 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 		t.Run(tc.name, func(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
 			p := &ReindexProvider{
-				logger:    logger,
-				serverCtx: context.Background(),
+				logger:     logger,
+				serverCtx:  context.Background(),
+				endedTasks: map[distributedtask.TaskDescriptor]struct{}{},
 				// Terminal-status cleanup needs a DB; an empty one is a no-op.
 				db: &DB{},
 			}

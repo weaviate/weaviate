@@ -227,6 +227,11 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	}
 	concreteShard, logger := entry.shard, entry.logger
 
+	// With a prepare barrier, a failed prepare before this node's ack fails the task before any replica swaps.
+	if err := t.refuseUnmirrored(entry.rec.Subject()); err != nil {
+		return err
+	}
+
 	if entry.rec.StagedDataComplete() {
 		logger.Debug("RunPrepareOnShard: already merged on disk; no-op")
 		return nil
@@ -1120,6 +1125,9 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	if err := t.refuseUnmirrored(subject); err != nil {
+		return err
+	}
 	// Read here, not at the call sites: rewriting a decided record drops promotion marks.
 	if rec, ok := t.migrationRecord(shard); !ok || !rec.FlipDecided() {
 		displaced := make(map[string]string, len(props))
@@ -1165,12 +1173,18 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")
 
-	if concrete, err := unwrapShard(ctx, shard); err == nil {
+	concrete, err := unwrapShard(ctx, shard)
+	if err == nil {
 		concrete.migrations().RetireSuperseded(ctx)
 	} else {
 		logger.Warnf("runtime swap: cannot retire superseded migrations: %v", err)
 	}
 	dirs := shardBucketDirs(shard.pathLSM())
+	preserve, recordsComplete := migrationTrimPreserve{}, false
+	if err == nil {
+		preserve, recordsComplete = trimPreserveSetOf(concrete)
+	}
+	var kept []string
 	for _, propName := range props {
 		oldMainBucket, ok := oldMainBuckets[propName]
 		if !ok {
@@ -1180,8 +1194,13 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 			return fmt.Errorf("shutting down old main bucket for %q: %w", propName, err)
 		}
 		dir := filepath.Base(oldMainBucket.GetDir())
+		canonical := dir == t.strategy.SourceBucketName(propName)
+		if !recordsComplete && !canonical {
+			kept = append(kept, dir)
+			continue
+		}
 		if key, role, held := migrationDirHeldByAnotherRecord(
-			migrationRecordsOf(shard), subject, dir, migrationLiveDataRoles); held {
+			preserve.records, subject, dir, migrationLiveDataRoles); held && !canonical {
 			logger.WithField("dir", dir).Warnf(
 				"leaving the displaced directory of %q in place: record %s names it as its %s, "+
 					"and its retirement has not run yet", propName, key, role)
@@ -1191,8 +1210,19 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 			return fmt.Errorf("removing displaced dir for %q: %w", propName, err)
 		}
 	}
+	if len(kept) > 0 {
+		cause, remedy := "this shard's migration records could not be read, and one may name them", "restart"
+		if len(preserve.faults) > 0 {
+			cause = fmt.Sprintf("a migration record fault on this shard (first: %q) may name them",
+				preserve.faults[0].FileName)
+			remedy = "fix that fault and restart"
+		}
+		logger.WithField("dirs", strings.Join(migrationReportedNames(kept), ", ")).Warnf(
+			"leaving %d displaced directory/directories in place, because %s; %s the node (or deactivate "+
+				"and reactivate the tenant) to clear them", len(kept), cause, remedy)
+	}
 
-	logger.Debug("runtime swap: displaced dirs removed (staged→canonical rename deferred to next load)")
+	logger.Debug("runtime swap: displaced dirs settled (staged→canonical rename deferred to next load)")
 	swapCompleted = true
 
 	// Ordering contract: rebuild before OnMigrationComplete. The hook marks
@@ -1252,11 +1282,15 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 
 type migrationTrimPreserve struct {
 	records []MigrationRecord
+	faults  []MigrationRecordUnreadable
 }
 
 func trimPreserveSetOf(shard *Shard) (migrationTrimPreserve, bool) {
-	if shard.migrationRecords == nil || len(shard.migrationRecords.Unreadable()) > 0 {
+	if shard.migrationRecords == nil {
 		return migrationTrimPreserve{}, false
+	}
+	if faults := shard.migrationRecords.Unreadable(); len(faults) > 0 {
+		return migrationTrimPreserve{faults: faults}, false
 	}
 	return migrationTrimPreserve{records: shard.migrationRecords.Records()}, true
 }
@@ -1339,6 +1373,16 @@ func (t *ShardReindexTaskGeneric) setMigrationIdentity(desc distributedtask.Task
 	t.bucketStrategy = payload.BucketStrategy
 }
 
+// A migration's halves share one task, version and unit, and are held, armed or settled together.
+type taskMigration struct {
+	desc   distributedtask.TaskDescriptor
+	unitID string
+}
+
+func (t *ShardReindexTaskGeneric) migration() taskMigration {
+	return taskMigration{desc: distributedtask.TaskDescriptor{ID: t.taskID, Version: t.taskVersion}, unitID: t.unitID}
+}
+
 func (t *ShardReindexTaskGeneric) migrationRecordKey() MigrationRecordKey {
 	return MigrationRecordKey{
 		TaskVersion:  t.taskVersion,
@@ -1353,14 +1397,6 @@ func (t *ShardReindexTaskGeneric) migrationRecord(shard ShardLike) (MigrationRec
 		return nil, false
 	}
 	return store.Get(t.migrationRecordKey())
-}
-
-func migrationRecordsOf(shard ShardLike) []MigrationRecord {
-	store := shard.migrationRecordStore()
-	if store == nil {
-		return nil
-	}
-	return store.Records()
 }
 
 func (t *ShardReindexTaskGeneric) putMigrationRecord(shard ShardLike, rec MigrationRecord) error {
@@ -1402,6 +1438,15 @@ func (t *ShardReindexTaskGeneric) recordCheckpoint(shard ShardLike, subject Migr
 		LastProcessedKey: lastProcessedKey.Clone().Bytes(),
 		UpdatedAt:        time.Now(),
 	}))
+}
+
+func (t *ShardReindexTaskGeneric) refuseUnmirrored(subject MigrationSubject) error {
+	if !subject.Unmirrored {
+		return nil
+	}
+	return fmt.Errorf("migration %s: this shard took writes with no double-write mirror armed, so its "+
+		"staged data is stale and is not swapped in. This migration fails; once the cause is cleared, submit a "+
+		"new migration covering the same properties", t.migrationRecordKey())
 }
 
 func (t *ShardReindexTaskGeneric) migrationSubjectNow(shard ShardLike) (MigrationSubject, error) {

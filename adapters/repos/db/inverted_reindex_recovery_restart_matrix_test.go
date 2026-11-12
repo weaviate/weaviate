@@ -98,9 +98,7 @@ type migrationRestartFixture struct {
 // restart closes the shard and loads it again, which is the only way a test
 // reaches reconciliation's promotion and retirement.
 //
-// No reindexer is installed on the way back up: startup recovery re-arms a
-// migration it found in flight, and installing one would start a fresh
-// migration on a shard whose migration is already finished.
+// The index's no-op reindexer stays installed, so the reload re-arms no migration's mirror.
 func (f *migrationRestartFixture) restart(t *testing.T, ctx context.Context) {
 	t.Helper()
 	require.NoError(t, f.shard.Shutdown(ctx))
