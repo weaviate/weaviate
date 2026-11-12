@@ -362,24 +362,7 @@ func (d *CenteredBinaryRQDistancer) Distance(x []uint64) (float32, error) {
 		corr = h.dmu + d.corrQ
 	}
 
-	const hammingDistSIMDThreshold = 512
-	var dot float32
-	if d.cq.Dimension < hammingDistSIMDThreshold {
-		di := 31 * d.cq.Dimension
-		di -= HammingDist(d.cq.bits0, codeBits) << 1
-		di -= HammingDist(d.cq.bits1, codeBits) << 2
-		di -= HammingDist(d.cq.bits2, codeBits) << 3
-		di -= HammingDist(d.cq.bits3, codeBits) << 4
-		di -= HammingDist(d.cq.bits4, codeBits) << 5
-		dot = float32(di)
-	} else {
-		dot = float32(31 * d.cq.Dimension)
-		dot -= 2 * HammingDistSIMD(d.cq.bits0, codeBits)
-		dot -= 4 * HammingDistSIMD(d.cq.bits1, codeBits)
-		dot -= 8 * HammingDistSIMD(d.cq.bits2, codeBits)
-		dot -= 16 * HammingDistSIMD(d.cq.bits3, codeBits)
-		dot -= 32 * HammingDistSIMD(d.cq.bits4, codeBits)
-	}
+	dot := float32(31*d.cq.Dimension - 2*d.cq.weightedHamming(codeBits))
 	dotEstimate := d.cq.Step * h.step * dot
 	return d.rq.l2*(h.norm2+d.cq.SquaredNorm) + d.rq.cos - (1.0+d.rq.l2)*dotEstimate - corr, nil
 }
