@@ -12,6 +12,7 @@
 package opentelemetry
 
 import (
+	"errors"
 	"os"
 	"strconv"
 	"strings"
@@ -27,13 +28,22 @@ type Config struct {
 	Environment        string
 	ExporterEndpoint   string
 	ExporterProtocol   string // "http" or "grpc"
+	TLSConfig          *TLSConfig
+	Insecure           bool
 	SamplingRate       float64
 	BatchTimeout       time.Duration
 	MaxExportBatchSize int
 }
 
-// DefaultConfig returns the default OpenTelemetry configuration
-func DefaultConfig() *Config {
+// TLSConfig holds TLS configuration for OTLP exporters
+type TLSConfig struct {
+	CAFile   string // Path to CA certificate file
+	CertFile string // Path to client certificate file
+	KeyFile  string // Path to client private key file
+}
+
+// defaultConfig returns the default OpenTelemetry configuration
+func defaultConfig() *Config {
 	return &Config{
 		Enabled:            false,
 		ServiceName:        "weaviate",
@@ -47,13 +57,13 @@ func DefaultConfig() *Config {
 }
 
 // FromEnvironment creates a Config from environment variables
-func FromEnvironment() *Config {
-	cfg := DefaultConfig()
+func FromEnvironment() (*Config, error) {
+	cfg := defaultConfig()
 
 	// Basic configuration
 	cfg.Enabled = config.Enabled(os.Getenv("EXPERIMENTAL_OTEL_ENABLED"))
 	if !cfg.Enabled {
-		return cfg
+		return cfg, nil
 	}
 
 	// Service configuration
@@ -74,18 +84,9 @@ func FromEnvironment() *Config {
 		cfg.ExporterProtocol = protocol
 	}
 
-	// Ensure endpoint format matches protocol
-	if cfg.ExporterProtocol == "grpc" && (strings.HasPrefix(cfg.ExporterEndpoint, "http://") || strings.HasPrefix(cfg.ExporterEndpoint, "https://")) {
-		// Remove http/https prefix for gRPC
-		if strings.HasPrefix(cfg.ExporterEndpoint, "http://") {
-			cfg.ExporterEndpoint = strings.TrimPrefix(cfg.ExporterEndpoint, "http://")
-		} else if strings.HasPrefix(cfg.ExporterEndpoint, "https://") {
-			cfg.ExporterEndpoint = strings.TrimPrefix(cfg.ExporterEndpoint, "https://")
-		}
-	} else if cfg.ExporterProtocol == "http" && !strings.HasPrefix(cfg.ExporterEndpoint, "http://") && !strings.HasPrefix(cfg.ExporterEndpoint, "https://") {
-		// Add http prefix for HTTP if not present
-		cfg.ExporterEndpoint = "http://" + cfg.ExporterEndpoint
-	}
+	// Remove http/https prefix if present (is set via the protocol)
+	cfg.ExporterEndpoint = strings.TrimPrefix(cfg.ExporterEndpoint, "http://")
+	cfg.ExporterEndpoint = strings.TrimPrefix(cfg.ExporterEndpoint, "https://")
 
 	// Sampling configuration
 	if samplerArg := os.Getenv("EXPERIMENTAL_OTEL_TRACES_SAMPLER_ARG"); samplerArg != "" {
@@ -107,7 +108,25 @@ func FromEnvironment() *Config {
 		}
 	}
 
-	return cfg
+	// TLS configuration
+	if caFile := os.Getenv("EXPERIMENTAL_OTEL_TLS_CA_FILE"); caFile != "" {
+		cfg.TLSConfig = &TLSConfig{
+			CAFile: caFile,
+		}
+		if certFile := os.Getenv("EXPERIMENTAL_OTEL_TLS_CERT_FILE"); certFile != "" {
+			cfg.TLSConfig.CertFile = certFile
+		}
+		if keyFile := os.Getenv("EXPERIMENTAL_OTEL_TLS_KEY_FILE"); keyFile != "" {
+			cfg.TLSConfig.KeyFile = keyFile
+		}
+	} else if os.Getenv("EXPERIMENTAL_OTEL_TLS_INSECURE") == "true" {
+		// Insecure allows http/grpc without TLS
+		cfg.Insecure = true
+	} else {
+		return nil, errors.New("opentelemetry: no TLS or insecure mode configured in environment")
+	}
+
+	return cfg, nil
 }
 
 // IsValid checks if the configuration is valid
