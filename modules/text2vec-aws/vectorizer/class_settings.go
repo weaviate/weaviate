@@ -58,6 +58,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if err := ic.BaseClassSettings.Validate(class); err != nil {
 		errorMessages = append(errorMessages, err.Error())
 	}
+	if err := ic.BaseClassSettings.ValidateIntegers(dimensionsProperty); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
 
 	service := ic.Service()
 	if service == "" || !ic.validatAvailableAWSSetting(service, availableAWSServices) {

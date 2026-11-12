@@ -42,7 +42,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
-	return nil
+	return ic.propertyValuesHelper.ValidateIntegers(ic.cfg, topNProperty)
 }
 
 func (ic *classSettings) getStringProperty(name string, defaultValue string) *string {
