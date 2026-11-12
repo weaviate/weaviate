@@ -378,15 +378,10 @@ func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
 	return ri.client.DeleteObjectBatch(ctx, host, ri.class, shardName, uuids, deletionTime, dryRun, schemaVersion)
 }
 
-func (ri *RemoteIndex) GetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
-	if err != nil {
-		return 0, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
-	}
-
-	host, ok := ri.nodeResolver.NodeHostname(owner)
+func (ri *RemoteIndex) GetShardQueueSize(ctx context.Context, shardName, nodeName string) (int64, error) {
+	host, ok := ri.nodeResolver.NodeHostname(nodeName)
 	if !ok {
-		return 0, fmt.Errorf("resolve node name %q to host", owner)
+		return 0, fmt.Errorf("resolve node name %q to host", nodeName)
 	}
 
 	return ri.client.GetShardQueueSize(ctx, host, ri.class, shardName)

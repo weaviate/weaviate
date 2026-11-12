@@ -4489,45 +4489,106 @@ func waitForCycleStops(ctx context.Context, usecase string, stops []cycleStop) e
 	return stderrors.Join(errs...)
 }
 
+// getShardsQueueSize takes each shard's first answering replica, local first; 0 if none or not HOT.
 func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[string]int64, error) {
+	if err := i.refuseIfClosed(); err != nil {
+		return nil, err
+	}
+
+	thisNode := i.getSchema.NodeName()
 	className := i.Config.ClassName.String()
 	shardNames, err := i.schemaReader.Shards(className)
 	if err != nil {
 		return nil, err
 	}
 
-	shardsQueueSize := make(map[string]int64)
+	var mu sync.Mutex
+	shardsQueueSize := make(map[string]int64, len(shardNames))
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	eg.SetLimit(min(len(shardNames), runtime.GOMAXPROCS(0)*4))
 	for _, shardName := range shardNames {
 		if tenant != "" && shardName != tenant {
 			continue
 		}
-		cold, err := i.unloadedLazyShard(shardName)
-		if err != nil {
-			return nil, errors.Wrapf(err, "shard %s", shardName)
-		}
-		if cold != nil {
-			shardsQueueSize[shardName] = 0
-			continue
-		}
-		var size int64
-		err = i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
-			func(shard ShardLike) error {
-				size = shardQueueSize(shard)
-				return nil
-			},
-			func() error {
-				var err error
-				size, err = i.remote.GetShardQueueSize(ctx, shardName)
+		eg.Go(func() error {
+			if err := i.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
 				return err
-			})
-		if err != nil {
-			return nil, errors.Wrapf(err, "shard %s", shardName)
-		}
-
-		shardsQueueSize[shardName] = size
+			}
+			var size int64
+			if !i.inactiveTenant(shardName) {
+				replicas, err := i.schemaReader.ShardReplicas(className, shardName)
+				if err != nil {
+					return err
+				}
+				for _, nodeName := range localFirst(replicas, thisNode) {
+					var s int64
+					var err error
+					if nodeName == thisNode {
+						s, err = i.localShardQueueSize(ctx, shardName)
+					} else {
+						s, err = i.remote.GetShardQueueSize(ctx, shardName, nodeName)
+					}
+					if err == nil {
+						size = s
+						break
+					}
+				}
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			mu.Lock()
+			shardsQueueSize[shardName] = size
+			mu.Unlock()
+			return nil
+		}, shardName)
 	}
-
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
 	return shardsQueueSize, nil
+}
+
+func (i *Index) localShardQueueSize(ctx context.Context, shardName string) (int64, error) {
+	cold, err := i.unloadedLazyShard(shardName)
+	if err != nil || cold != nil {
+		return 0, err
+	}
+	shard, release, err := i.GetShard(ctx, shardName)
+	defer release()
+	if err != nil {
+		return 0, err
+	}
+	if shard == nil {
+		return 0, fmt.Errorf("local %s shard not found", shardName)
+	}
+	return shardQueueSize(shard), nil
+}
+
+// inactiveTenant reports a tenant that is not HOT in the local schema; no replica serves it.
+func (i *Index) inactiveTenant(shardName string) bool {
+	if !i.partitioningEnabled {
+		return false
+	}
+	var inactive bool
+	_ = i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return nil
+		}
+		if physical, ok := state.Physical[shardName]; ok {
+			inactive = physical.ActivityStatus() != models.TenantActivityStatusHOT
+		}
+		return nil
+	})
+	return inactive
+}
+
+func localFirst(nodes []string, localNode string) []string {
+	idx := slices.Index(nodes, localNode)
+	if idx <= 0 {
+		return nodes
+	}
+	return slices.Concat([]string{localNode}, nodes[:idx], nodes[idx+1:])
 }
 
 func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
@@ -4594,6 +4655,10 @@ func shardQueueSize(shard ShardLike) int64 {
 // where the status is returned based on the first replica to contain the shard,
 // preferably local.
 func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[string]map[string]string, map[string]string, error) {
+	if err := i.refuseIfClosed(); err != nil {
+		return nil, nil, err
+	}
+
 	thisNode := i.getSchema.NodeName()
 	className := i.Config.ClassName.String()
 	shardNames, err := i.schemaReader.Shards(className)
@@ -4622,12 +4687,15 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 			var (
 				oneNodeStatus atomic.Value
 				perNodeStatus = make(map[string]string, len(replicas))
+				inactive      = i.inactiveTenant(shardName)
 			)
 
 			for _, nodeName := range replicas {
 				perNodeStatus[nodeName] = storagestate.StatusUnavailable.String()
 				var err error
-				if nodeName == thisNode {
+				if inactive {
+					oneNodeStatus.CompareAndSwap(nil, storagestate.StatusUnavailable.String())
+				} else if nodeName == thisNode {
 					var status string
 					if status, err = i.localShardStatus(ctx, shardName); err == nil && status != "" {
 						oneNodeStatus.Store(status)
@@ -4643,10 +4711,6 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 					} else {
 						oneNodeStatus.CompareAndSwap(nil, storagestate.StatusUnavailable.String())
 					}
-				}
-
-				if errors.Is(err, errAlreadyShutdown) {
-					return err
 				}
 			}
 
@@ -4676,7 +4740,7 @@ func (i *Index) localShardStatus(ctx context.Context, shardName string) (string,
 	if cold != nil {
 		return cold.GetStatus().String(), nil
 	}
-	shard, release, err := i.getShardForDirectLocalOperation(ctx, shardName, shardName, localShardOperationRead, 0)
+	shard, release, err := i.GetShard(ctx, shardName)
 	defer release()
 	if err != nil || shard == nil {
 		return "", err
@@ -5138,6 +5202,16 @@ func (i *Index) enterRead() error {
 }
 
 func (i *Index) exitRead() { i.inflight.Done() }
+
+// refuseIfClosed checks without admitting: a close does not wait for the caller.
+func (i *Index) refuseIfClosed() error {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+	if i.closed {
+		return errAlreadyShutdown
+	}
+	return nil
+}
 
 // beginClose closes the index and drains in-flight readers. It returns holding
 // no lock: teardown must not exclude readers, or a peer's RPC handler blocks
