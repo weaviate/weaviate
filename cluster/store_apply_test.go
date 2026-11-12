@@ -869,3 +869,39 @@ func TestStore_Apply_NamespaceFactorNotCheckedAtApply(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, int64(3), got.ReplicationConfig.Factor)
 }
+
+// TestStore_Apply_NamespacedTenantAddFillsFromHomeNodes pins that NewFSM hands
+// the namespace controller to SchemaManager, which fills a tenant add sent with
+// no nodes from the namespace's home nodes.
+func TestStore_Apply_NamespacedTenantAddFillsFromHomeNodes(t *testing.T) {
+	const class = "alpha:Foo"
+	ms := newClassApplyTestStore(t)
+	ms.indexer.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
+
+	entries := [][]byte{
+		cmdAsBytes("", api.ApplyRequest_TYPE_ADD_NAMESPACE, api.AddNamespaceRequest{
+			Namespace: api.Namespace{Name: "alpha", HomeNodes: []string{"Node-2", "Node-1"}},
+			Version:   api.NamespaceLatestCommandPolicyVersion,
+		}, nil),
+		cmdAsBytes(class, api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+			Class: &models.Class{
+				Class:              class,
+				ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			},
+			State: &sharding.State{ReplicationFactor: 1, PartitioningEnabled: true, Physical: map[string]sharding.Physical{}},
+		}, nil),
+		cmdAsBytes(class, api.ApplyRequest_TYPE_ADD_TENANT, nil, &api.AddTenantsRequest{
+			Tenants: []*api.Tenant{{Name: "T1", Status: models.TenantActivityStatusHOT}},
+		}),
+	}
+	for i, data := range entries {
+		resp, ok := ms.store.Apply(&raft.Log{Index: uint64(i + 1), Type: raft.LogCommand, Data: data}).(Response)
+		require.True(t, ok)
+		require.NoError(t, resp.Error, "entry %d", i)
+	}
+
+	nodes, err := ms.store.SchemaReader().ShardReplicas(class, "T1")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Node-2"}, nodes)
+}
