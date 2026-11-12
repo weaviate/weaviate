@@ -1058,13 +1058,12 @@ func (m *Manager) LocalTaskStatuses(namespace, shard string) []TaskStatusEntry {
 	return out
 }
 
-// This is not reached through the [TaskLister] interface in production —
-// [cluster.Raft] is the concrete TaskLister the wiring hands out. It still
-// has two direct production callers: [Manager.Snapshot], on the RAFT FSM's
-// own snapshot path, and [Manager.ListDistributedTasksPayload], on the
-// leader-routed distributed-task-list query dispatch. The TaskLister-shaped
-// signature stays because six scheduler tests drive the Manager directly and
-// need it that way.
+// This is not reached through the [TaskLister] interface in production: the
+// scheduler gets [cluster.Raft.LocalTaskLister], which adds a boot-replay
+// gate. Its direct production callers are [Manager.Snapshot] and
+// [Manager.ListDistributedTasksPayload], on the leader's task-list query. The
+// TaskLister-shaped signature is for scheduler tests that drive the Manager
+// directly.
 func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, error) {
 	return m.LocalDistributedTasks(), nil
 }
@@ -1096,31 +1095,6 @@ func sortTasksForDisplay(tasks []*Task) {
 
 		return tasks[i].ID < tasks[j].ID
 	})
-}
-
-// LocalUnrecognizedDistributedTasks returns this node's own copies of tasks in a
-// status this build never declared, grouped by namespace.
-//
-// The leader-routed list stops carrying such a task once the peers clean
-// their copies up, which is exactly when a leftover local copy starts
-// silently refusing schema mutations.
-func (m *Manager) LocalUnrecognizedDistributedTasks() map[string][]*Task {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var result map[string][]*Task
-	for namespace, tasks := range m.tasks {
-		for _, task := range tasks {
-			if task.Status.IsRecognized() {
-				continue
-			}
-			if result == nil {
-				result = map[string][]*Task{}
-			}
-			result[namespace] = append(result[namespace], task.Clone())
-		}
-	}
-	return result
 }
 
 func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, error) {

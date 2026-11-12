@@ -70,13 +70,6 @@ type TaskCleaner interface {
 	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 }
 
-// LocalTaskInspector exposes the part of this node's own FSM state that
-// the leader-routed [TaskLister] cannot report: a task the rest of the
-// cluster has already deleted but this node still holds.
-type LocalTaskInspector interface {
-	LocalUnrecognizedDistributedTasks() map[string][]*Task
-}
-
 // TaskFinalizer is how the [Scheduler] transitions a task out of
 // [TaskStatusSwapping] once local [UnitAwareProvider.OnTaskCompleted] has
 // returned. Both methods are idempotent at the FSM layer: only the first

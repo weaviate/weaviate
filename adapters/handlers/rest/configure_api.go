@@ -1152,20 +1152,20 @@ func initReindexAndDistributedTasks(
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
-		TaskLister:         appState.ClusterService.Raft,
+		TaskLister:         appState.ClusterService.LocalTaskLister(),
 		TaskCleaner:        appState.ClusterService.Raft,
 		TaskFinalizer:      appState.ClusterService.Raft,
 		// AckRecorder gates MarkDistributedTaskFinalized on per-node acks
 		// after OnGroupCompleted, so a failed ack flips the task to FAILED
 		// before the cluster-wide schema flip can run.
-		AckRecorder:        appState.ClusterService.Raft,
-		LocalTaskInspector: appState.ClusterService.Raft,
-		Providers:          providers,
-		Logger:             appState.Logger,
-		MetricsRegisterer:  metricsRegisterer,
-		LocalNode:          appState.Cluster.LocalName(),
-		TickInterval:       appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
-		CompletedTaskTTL:   appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
+		AckRecorder:       appState.ClusterService.Raft,
+		Providers:         providers,
+		Logger:            appState.Logger,
+		MetricsRegisterer: metricsRegisterer,
+		LocalNode:         appState.Cluster.LocalName(),
+		TickInterval:      appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
+		CompletedTaskTTL:  appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
+		MinWakeSpacing:    distributedtask.DefaultMinWakeSpacing,
 	})
 	// Reactive notifier: without this, barriers stagger by up to the tick
 	// interval across nodes. See [distributedtask.SchedulerNotifier].
