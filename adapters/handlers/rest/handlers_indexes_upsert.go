@@ -702,8 +702,12 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	// One unit per shard per replica: each replica has its own local copy.
 	var shardOwnership map[string][]string
 	var err error
+	var paid map[string]struct{}
+	if isMT && semantic {
+		paid = paidTenants(collection, propertyName, plan, reindexTasks)
+	}
 	if isMT {
-		shardOwnership, err = h.appState.DB.ShardReplicaOwnershipForMT(ctx, collection, tenants)
+		shardOwnership, err = h.appState.DB.ShardReplicaOwnershipForMT(ctx, collection, tenants, paid)
 	} else {
 		shardOwnership, err = h.appState.DB.ShardReplicaOwnership(ctx, collection)
 	}
@@ -718,7 +722,7 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, "collection has no shards"))
 	}
 	if isMT && semantic {
-		shardOwnership = skipTenantsAlreadyMigrated(shardOwnership, collection, propertyName, plan, reindexTasks)
+		shardOwnership = skipTenantsAlreadyMigrated(shardOwnership, paid)
 	}
 
 	unitIDs, unitToShard, unitToNode := buildUnitMaps(shardOwnership)
@@ -774,13 +778,17 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	})
 }
 
-func skipTenantsAlreadyMigrated(ownership map[string][]string, collection, propertyName string,
-	plan upsertPlan, reindexTasks []*distributedtask.Task,
-) map[string][]string {
+// paidTenants returns the tenants an earlier partial run already migrated on
+// every replica.
+func paidTenants(collection, propertyName string, plan upsertPlan, reindexTasks []*distributedtask.Task) map[string]struct{} {
 	_, paid, _ := db.ReindexMigratedTenants(db.ReindexRuns(reindexTasks), propertyName, &db.ReindexTaskPayload{
 		Collection: collection, MigrationType: plan.migrationType,
 		TargetTokenization: plan.targetTok, BucketStrategy: plan.bucketStrategy,
 	})
+	return paid
+}
+
+func skipTenantsAlreadyMigrated(ownership map[string][]string, paid map[string]struct{}) map[string][]string {
 	if len(paid) == 0 {
 		return ownership
 	}

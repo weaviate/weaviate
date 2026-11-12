@@ -2554,9 +2554,13 @@ func (h *reindexTaskHandle) Done() <-chan struct{} {
 // ShardReplicaOwnershipForMT returns shard ownership for the named tenants
 // (all, if empty), or [ErrTenantsNotHot] if any isn't HOT: a COLD
 // tenant has no loaded shard, and a frozen or offloaded one holds a stale index.
-func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, tenantNames []string) (map[string][]string, error) {
+//
+// A COLD tenant in migrated needs no work and is left out of the result, unless
+// every tenant is migrated: the caller then reruns them all, so they must be HOT.
+func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, tenantNames []string, migrated map[string]struct{}) (map[string][]string, error) {
 	result := make(map[string][]string)
 	notHot := false
+	coldMigrated, owed := false, false
 	tenantSet := make(map[string]struct{}, len(tenantNames))
 	for _, tn := range tenantNames {
 		tenantSet[tn] = struct{}{}
@@ -2575,8 +2579,17 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 				}
 			}
 
+			_, isMigrated := migrated[shardName]
+			owed = owed || !isMigrated
 			switch entschema.ActivityStatus(shard.Status) {
 			case models.TenantActivityStatusHOT, models.TenantActivityStatusACTIVE:
+			case models.TenantActivityStatusCOLD, models.TenantActivityStatusINACTIVE:
+				if isMigrated {
+					coldMigrated = true
+					continue
+				}
+				notHot = true
+				continue
 			default:
 				notHot = true
 				continue
@@ -2594,7 +2607,7 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", className, err)
 	}
-	if notHot {
+	if notHot || (coldMigrated && !owed) {
 		return nil, ErrTenantsNotHot
 	}
 
