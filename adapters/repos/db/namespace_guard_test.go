@@ -1604,7 +1604,8 @@ func TestTwoPhaseCommitSkipsTheGuard(t *testing.T) {
 		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
 		idx.shards.Store(shardName, NewMockShardLike(t))
 
-		resp := idx.ReplicateObject(ctx, shardName, requestID, &storobj.Object{}, 0)
+		obj := &storobj.Object{Object: models.Object{Class: class}}
+		resp := idx.ReplicateObject(ctx, shardName, requestID, obj, 0)
 		require.Len(t, resp.Errors, 1)
 		require.ErrorIs(t, resp.Errors[0].Err, namespaces.ErrNamespaceSuspended)
 	})

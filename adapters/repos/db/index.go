@@ -1849,9 +1849,43 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		})
 }
 
+// checkIncomingClass refuses a write another node sent unless class names this
+// index, compared by indexID as DB routes writes. It catches a routing bug, not
+// a client that can reach the data port.
+func (i *Index) checkIncomingClass(class schema.ClassName) error {
+	if indexID(class) != i.ID() {
+		return fmt.Errorf("refusing data of class %q sent to index of class %q", class, i.Config.ClassName)
+	}
+	return nil
+}
+
+func (i *Index) checkIncomingObjectClasses(objs []*storobj.Object) error {
+	for _, obj := range objs {
+		if err := i.checkIncomingClass(obj.Class()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (i *Index) checkIncomingRefClasses(refs objects.BatchReferences) error {
+	for _, ref := range refs {
+		if ref.From == nil {
+			return fmt.Errorf("refusing reference without a source sent to index of class %q", i.Config.ClassName)
+		}
+		if err := i.checkIncomingClass(ref.From.Class); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	object *storobj.Object, schemaVersion uint64,
 ) error {
+	if err := i.checkIncomingClass(object.Class()); err != nil {
+		return err
+	}
 	// This is a bit hacky, the problem here is that storobj.Parse() currently
 	// misses date fields as it has no way of knowing that a date-formatted
 	// string was actually a date type. However, adding this functionality to
@@ -2501,6 +2535,9 @@ func duplicateErr(in error, count int) []error {
 func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 	objects []*storobj.Object, schemaVersion uint64,
 ) []error {
+	if err := i.checkIncomingObjectClasses(objects); err != nil {
+		return duplicateErr(err, len(objects))
+	}
 	// This is a bit hacky, the problem here is that storobj.Parse() currently
 	// misses date fields as it has no way of knowing that a date-formatted
 	// string was actually a date type. However, adding this functionality to
@@ -2607,6 +2644,10 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string,
 	refs objects.BatchReferences, schemaVersion uint64,
 ) []error {
+	if err := i.checkIncomingRefClasses(refs); err != nil {
+		return duplicateErr(err, len(refs))
+	}
+
 	i.backupLock.RLock(shardName)
 	defer i.backupLock.RUnlock(shardName)
 
@@ -4066,6 +4107,10 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 	mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {
+	if err := i.checkIncomingClass(schema.ClassName(mergeDoc.Class)); err != nil {
+		return err
+	}
+
 	i.backupLock.RLock(shardName)
 	defer i.backupLock.RUnlock(shardName)
 

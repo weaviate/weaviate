@@ -336,9 +336,8 @@ func (db *DB) replicatedIndex(ctx context.Context, name string) (idx *Index, res
 
 	idx, err := db.indexForRead(ctx, schema.ClassName(name))
 	if err != nil {
-		return nil, &replica.SimpleResponse{Errors: []replicaerrors.Error{{
-			Code: replicaerrors.StatusPreconditionFailed, Msg: err.Error(), Err: err,
-		}}}
+		refused := preconditionFailed(err)
+		return nil, &refused
 	}
 	if idx == nil {
 		return nil, &replica.SimpleResponse{Errors: []replicaerrors.Error{
@@ -387,13 +386,26 @@ func (i *Index) writableShard(ctx context.Context, name string, f func(shard rep
 	return f(preparer)
 }
 
+// preconditionFailed answers a replica request refused before it reached a shard.
+func preconditionFailed(err error) replica.SimpleResponse {
+	return replica.SimpleResponse{Errors: []replicaerrors.Error{{
+		Code: replicaerrors.StatusPreconditionFailed, Msg: err.Error(), Err: err,
+	}}}
+}
+
 func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, object *storobj.Object, _ uint64) replica.SimpleResponse {
+	if err := i.checkIncomingClass(object.Class()); err != nil {
+		return preconditionFailed(err)
+	}
 	return i.writableShard(ctx, shard, func(localShard replicaPreparer) replica.SimpleResponse {
 		return localShard.preparePutObject(ctx, requestID, object)
 	})
 }
 
 func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, doc *objects.MergeDocument, _ uint64) replica.SimpleResponse {
+	if err := i.checkIncomingClass(schema.ClassName(doc.Class)); err != nil {
+		return preconditionFailed(err)
+	}
 	return i.writableShard(ctx, shard, func(localShard replicaPreparer) replica.SimpleResponse {
 		return localShard.prepareMergeObject(ctx, requestID, doc)
 	})
@@ -406,6 +418,9 @@ func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, 
 }
 
 func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object, _ uint64) replica.SimpleResponse {
+	if err := i.checkIncomingObjectClasses(objects); err != nil {
+		return preconditionFailed(err)
+	}
 	return i.writableShard(ctx, shard, func(localShard replicaPreparer) replica.SimpleResponse {
 		return localShard.preparePutObjects(ctx, requestID, objects)
 	})
@@ -420,6 +435,9 @@ func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string,
 }
 
 func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string, refs []objects.BatchReference, _ uint64) replica.SimpleResponse {
+	if err := i.checkIncomingRefClasses(refs); err != nil {
+		return preconditionFailed(err)
+	}
 	return i.writableShard(ctx, shard, func(localShard replicaPreparer) replica.SimpleResponse {
 		return localShard.prepareAddReferences(ctx, requestID, refs)
 	})
