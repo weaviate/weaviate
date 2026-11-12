@@ -95,6 +95,9 @@ func TestLocalTaskLister(t *testing.T) {
 			require.NoError(t, m.store.distributedTasksManager.AddTask(&cmd.ApplyRequest{SubCommand: sub}, 1))
 			if tt.leader {
 				heartbeatFromLeader(t, m.store)
+			} else {
+				attachFollowerRaft(t, m.store)
+				require.Empty(t, m.store.Leader())
 			}
 
 			tasks, err := NewRaft(mocks.NewMockNodeSelector(), m.store, nil).LocalTaskLister().
