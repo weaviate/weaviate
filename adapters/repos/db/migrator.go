@@ -67,14 +67,22 @@ type Migrator struct {
 	localNodeName string
 
 	classLocks *esync.KeyLocker
+
+	unfreezeSourceRecheck time.Duration
+	unfreezeSourceMaxWait time.Duration
 }
+
+// unfreezeSourceMaxWait bounds the wait for an unfreeze that never ends; its sources then leak.
+const unfreezeSourceMaxWait = time.Hour
 
 func NewMigrator(db *DB, logger logrus.FieldLogger, localNodeName string) *Migrator {
 	return &Migrator{
-		db:            db,
-		logger:        logger,
-		classLocks:    esync.NewKeyLocker(),
-		localNodeName: localNodeName,
+		db:                    db,
+		logger:                logger,
+		classLocks:            esync.NewKeyLocker(),
+		localNodeName:         localNodeName,
+		unfreezeSourceRecheck: 5 * time.Second,
+		unfreezeSourceMaxWait: unfreezeSourceMaxWait,
 	}
 }
 
