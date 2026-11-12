@@ -2377,9 +2377,8 @@ func TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses(t *testing.T) {
 // in a status this build cannot name arrives by snapshot (a leader
 // running a newer release), survives the restart that replays it, and is
 // then still removable. Nothing else can remove it — every status
-// transition refuses a status it cannot name, and once the peers have
-// deleted their copies the sweep's leader-routed list no longer carries
-// it either.
+// transition refuses a status it cannot name, and the sweep on this node
+// reads the copy as active and proposes no cleanup for it.
 func TestManager_UnrecognizedStatusSurvivesRestartAndStaysCleanable(t *testing.T) {
 	h := newTestHarness(t).init(t)
 	ns, id, version := fixtureInStatus(t, h, unknownFutureStatus)

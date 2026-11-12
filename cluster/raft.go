@@ -98,16 +98,16 @@ func (s *Raft) Ready() bool {
 }
 
 // LocalTaskLister lists this node's own task copy for the scheduler, instead
-// of fetching the leader's full list every tick. It fails until the log held
-// at store open is replayed, so a restarting node never reads a task it has
-// not re-applied yet as removed.
+// of fetching the leader's full list every tick. It fails while this node
+// knows no leader, so a quorum loss skips the tick instead of spending the
+// completion callbacks' retries on proposals that cannot commit.
 func (s *Raft) LocalTaskLister() distributedtask.TaskLister { return localTaskLister{s} }
 
 type localTaskLister struct{ s *Raft }
 
 func (l localTaskLister) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
-	if !l.s.FSMHasCaughtUp() {
-		return nil, fmt.Errorf("this node is still replaying its RAFT log")
+	if l.s.store.Leader() == "" {
+		return nil, l.s.leaderErr()
 	}
 	return l.s.LocalDistributedTasks(), nil
 }

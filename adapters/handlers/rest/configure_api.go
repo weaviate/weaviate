@@ -1165,7 +1165,6 @@ func initReindexAndDistributedTasks(
 		LocalNode:         appState.Cluster.LocalName(),
 		TickInterval:      appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
 		CompletedTaskTTL:  appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
-		MinWakeSpacing:    distributedtask.DefaultMinWakeSpacing,
 	})
 	// Reactive notifier: without this, barriers stagger by up to the tick
 	// interval across nodes. See [distributedtask.SchedulerNotifier].

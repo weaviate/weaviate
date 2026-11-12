@@ -689,7 +689,8 @@ both active **and** recognized, so an unrecognized-status task is deleted
 once its `completedTaskTTL` has elapsed. That is sound because the
 `Scheduler` TTL sweep is the only proposer of `CLEAN_UP` (pinned by
 `TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer`) and it filters
-on `IsActive()` against the list it read from the leader. So a `CLEAN_UP`
+on `IsActive()` against this node's own task copy, where a terminal status
+never changes once applied. So a `CLEAN_UP`
 naming a status this build cannot classify can only come from a node that
 does recognize it and reads it as terminal, which is exactly when deleting
 the local copy is right. Without the exit the entry is unreachable

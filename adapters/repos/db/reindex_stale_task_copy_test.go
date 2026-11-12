@@ -30,6 +30,7 @@ import (
 // Pins that a trailing copy cannot revert a newer run's schema flip: the node
 // still sees an older run at SWAPPING after a newer run on the same property
 // finished, fires the older run's flip, and the flip check refuses it.
+// It passes without the local read too: it guards the property that read relies on.
 func TestReindexStaleTaskCopyCannotRevertANewerFlip(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	leader := distributedtask.NewManager(distributedtask.ManagerParameters{

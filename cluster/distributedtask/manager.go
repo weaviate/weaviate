@@ -1058,12 +1058,8 @@ func (m *Manager) LocalTaskStatuses(namespace, shard string) []TaskStatusEntry {
 	return out
 }
 
-// This is not reached through the [TaskLister] interface in production: the
-// scheduler gets [cluster.Raft.LocalTaskLister], which adds a boot-replay
-// gate. Its direct production callers are [Manager.Snapshot] and
-// [Manager.ListDistributedTasksPayload], on the leader's task-list query. The
-// TaskLister-shaped signature is for scheduler tests that drive the Manager
-// directly.
+// ListDistributedTasks returns [Manager.LocalDistributedTasks] in the
+// [TaskLister] shape.
 func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, error) {
 	return m.LocalDistributedTasks(), nil
 }

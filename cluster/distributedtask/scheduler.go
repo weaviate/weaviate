@@ -116,7 +116,6 @@ type Scheduler struct {
 	localNode        string
 	completedTaskTTL time.Duration
 	tickInterval     time.Duration
-	minWakeSpacing   time.Duration
 
 	logger        logrus.FieldLogger
 	sampledLogger *logrusext.Sampler
@@ -167,8 +166,9 @@ type Scheduler struct {
 
 	stopCh chan struct{}
 
-	// wakeCh signals the run loop to fire a scheduling cycle immediately
-	// instead of waiting for the next periodic tick. Sized 1 so concurrent
+	// wakeCh asks the run loop for a scheduling cycle before the next
+	// periodic tick, no sooner than minWakeSpacing after the last one.
+	// Sized 1 so concurrent
 	// callers coalesce — a pending wake-up is equivalent to any number of
 	// queued wake-ups, because the next loop iteration reads this node's
 	// task state from scratch.
@@ -178,8 +178,8 @@ type Scheduler struct {
 	// minute of "the followers haven't fired their OnGroupCompleted /
 	// OnTaskCompleted yet" — the FSM apply path knows the barrier is open,
 	// but the followers' scheduler loops are still asleep on their ticker.
-	// Wake() (called from the Manager's RAFT-apply paths) lets us collapse
-	// that gap to roughly one channel-send + one loop iteration.
+	// Wake() (called from the Manager's RAFT-apply paths) shortens that gap
+	// to at most minWakeSpacing.
 	wakeCh chan struct{}
 }
 
@@ -199,14 +199,11 @@ type SchedulerParams struct {
 	LocalNode        string
 	CompletedTaskTTL time.Duration
 	TickInterval     time.Duration
-	// MinWakeSpacing is the shortest gap between a tick and the next woken
-	// one; production passes [DefaultMinWakeSpacing].
-	MinWakeSpacing time.Duration
 }
 
-// DefaultMinWakeSpacing paces woken ticks. Each tick copies every task under
-// the task manager's lock, and during a run nearly every apply wakes the loop.
-const DefaultMinWakeSpacing = 2 * time.Second
+// minWakeSpacing paces woken ticks. Each tick copies every task under the
+// task manager's lock, and during a run nearly every apply wakes the loop.
+const minWakeSpacing = 2 * time.Second
 
 func NewScheduler(params SchedulerParams) *Scheduler {
 	if params.Clock == nil {
@@ -233,7 +230,6 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		localNode:        params.LocalNode,
 		completedTaskTTL: params.CompletedTaskTTL,
 		tickInterval:     params.TickInterval,
-		minWakeSpacing:   params.MinWakeSpacing,
 
 		logger:        params.Logger,
 		sampledLogger: logrusext.NewSampler(params.Logger, 5, 5*params.TickInterval),
@@ -258,7 +254,8 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 	}
 }
 
-// Wake requests an immediate scheduling cycle. Non-blocking: a pending
+// Wake requests a scheduling cycle no sooner than minWakeSpacing after the
+// last one. Non-blocking: a pending
 // wake-up coalesces additional calls (the next loop iteration sees the
 // latest task state regardless of how many wakes accumulated).
 // Safe to call from any goroutine, including RAFT-apply paths.
@@ -459,11 +456,12 @@ func (s *Scheduler) loop() {
 		case <-s.wakeCh:
 			// Reactive wake-up from a RAFT-apply path (typically the
 			// Manager observing a unit transition that opens a group
-			// barrier). Fire a tick immediately instead of waiting for
-			// the next ticker. The periodic ticker keeps running as a
+			// barrier). Fire a tick once minWakeSpacing has passed since
+			// the last one, instead of waiting for the next ticker. The
+			// periodic ticker keeps running as a
 			// fallback — late wake-ups, missed signals, and any state
 			// drift get cleaned up at the next periodic tick.
-			if wait := s.minWakeSpacing - s.clock.Since(lastTick); wait > 0 {
+			if wait := minWakeSpacing - s.clock.Since(lastTick); wait > 0 {
 				select {
 				case <-s.clock.After(wait):
 				case <-s.stopCh:

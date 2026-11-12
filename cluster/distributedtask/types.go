@@ -26,7 +26,7 @@ type TaskLister interface {
 }
 
 // SchedulerNotifier is implemented by the [Scheduler] and consumed by the
-// [Manager] to request an immediate scheduling cycle after a task-state
+// [Manager] to request an early scheduling cycle after a task-state
 // change applies via Raft. Without this hook the scheduler only reacts on
 // its periodic tick (default 1 minute, see
 // DefaultDistributedTasksSchedulerTickInterval), so a barrier opening from

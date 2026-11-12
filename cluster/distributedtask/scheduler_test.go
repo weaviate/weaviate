@@ -639,7 +639,6 @@ type testHarness struct {
 	provider              *testTaskProvider
 	registeredProviders   map[string]Provider
 	testProviders         []*testTaskProvider
-	minWakeSpacing        time.Duration
 
 	conflictDetectors       map[string]ConflictDetector
 	schemaMutationDetectors map[string]SchemaMutationDetector
@@ -709,7 +708,6 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 		LocalNode:          h.localNodeID,
 		CompletedTaskTTL:   h.completedTaskTTL,
 		TickInterval:       h.schedulerTickInterval,
-		MinWakeSpacing:     h.minWakeSpacing,
 	})
 	return h
 }
@@ -1051,9 +1049,7 @@ func TestReactiveFiring_WakeIsCoalesced(t *testing.T) {
 func TestReactiveFiring_WokenTicksKeepTheMinimumGap(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	h := newTestHarness(t)
-	h.minWakeSpacing = 2 * time.Second
-	h = h.init(t)
+	h := newTestHarness(t).init(t)
 	h.manager.SetSchedulerNotifier(h.scheduler)
 
 	h.startScheduler(t)
@@ -1071,7 +1067,7 @@ func TestReactiveFiring_WokenTicksKeepTheMinimumGap(t *testing.T) {
 
 	// The loop's ticker plus the gap's timer.
 	require.NoError(t, h.clock.BlockUntilContext(context.Background(), 2))
-	h.clock.Advance(h.minWakeSpacing)
+	h.clock.Advance(minWakeSpacing)
 	require.Equal(t, "second", recvWithTimeout(t, h.provider.startedCh).ID)
 }
 
@@ -1105,25 +1101,19 @@ func TestReactiveFiring_NilNotifierIsSafe(t *testing.T) {
 	require.Equal(t, "1234", recvWithTimeout(t, h.provider.startedCh).ID)
 }
 
-// flappyTasksLister proxies to inner for succeedsLeft calls, then fails
-// failsLeft of them, then proxies again. Covers both the post-restart
-// "RAFT not ready at Start() time, ready on next tick" scenario the
-// deferred bootstrap must handle, and a list that drops out after the
-// scheduler has already seen one.
+// flappyTasksLister fails failsLeft calls, then proxies to inner. Covers
+// the post-restart "RAFT not ready at Start() time, ready on next tick"
+// scenario the deferred bootstrap must handle.
 type flappyTasksLister struct {
-	mu           sync.Mutex
-	succeedsLeft int
-	failsLeft    int
-	err          error
-	inner        TaskLister
+	mu        sync.Mutex
+	failsLeft int
+	err       error
+	inner     TaskLister
 }
 
 func (f *flappyTasksLister) ListDistributedTasks(ctx context.Context) (map[string][]*Task, error) {
 	f.mu.Lock()
-	switch {
-	case f.succeedsLeft > 0:
-		f.succeedsLeft--
-	case f.failsLeft > 0:
+	if f.failsLeft > 0 {
 		f.failsLeft--
 		f.mu.Unlock()
 		return nil, f.err
