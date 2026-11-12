@@ -776,7 +776,7 @@ func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
 			http.StatusConflict, "cannot classify that status",
 		},
 		{"PREPARING", distributedtask.TaskStatusPreparing, payload.Properties, 0, ""},
-		// A SWAPPING task finishes on its own.
+		// A SWAPPING task ends once every replica that owes a swap has swapped.
 		{"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties, http.StatusConflict, "can no longer be cancelled"},
 		// The three terminal rows never reach the refusal logic: they
 		// are filtered out as cancel targets, so what they pin is that a
