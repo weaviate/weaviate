@@ -258,3 +258,35 @@ func TestBuildShareSurvivesTheCache(t *testing.T) {
 		})
 	}
 }
+
+// The edge recall of a cap is against the k nearest true edges of each
+// sampled vector: the edges a cap is meant to keep, and not the ones it drops
+// by design.
+func TestEdgeRecallOfNearest(t *testing.T) {
+	// Two sampled slots, their true edges nearest first.
+	truth := &edgeTruth{
+		slots:  []uint32{0, 1},
+		wanted: [][]uint32{{10, 11, 12, 13}, {20, 21}},
+	}
+	tests := []struct {
+		name  string
+		edges map[uint32][]uint32
+		k     int
+		want  float64
+	}{
+		{name: "every true edge, no cap", edges: map[uint32][]uint32{0: {10, 11, 12, 13}, 1: {20, 21}}, k: 0, want: 1},
+		{name: "a cap of two holding the two nearest", edges: map[uint32][]uint32{0: {10, 11}, 1: {20, 21}}, k: 2, want: 1},
+		{name: "the same edges against every true edge", edges: map[uint32][]uint32{0: {10, 11}, 1: {20, 21}}, k: 0, want: 4.0 / 6},
+		{name: "a cap of two holding a farther edge", edges: map[uint32][]uint32{0: {10, 13}, 1: {20, 21}}, k: 2, want: 3.0 / 4},
+		{name: "a cap above the true edges of a slot", edges: map[uint32][]uint32{0: {10, 11, 12}, 1: {21}}, k: 3, want: 4.0 / 5},
+		{name: "edges that are not true edges", edges: map[uint32][]uint32{0: {30, 31}, 1: {40}}, k: 2, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truth.recallOfNearest(func(slot uint32) []uint32 { return tt.edges[slot] }, tt.k)
+			require.InDelta(t, tt.want, got, 1e-12)
+		})
+	}
+	require.Equal(t, truth.recallOfNearest(func(slot uint32) []uint32 { return []uint32{10, 20} }, 0),
+		truth.recall(func(slot uint32) []uint32 { return []uint32{10, 20} }), "recall is the uncapped recall")
+}

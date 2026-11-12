@@ -41,6 +41,8 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
+	"maps"
 	"math"
 	"math/rand/v2"
 	"os"
@@ -124,6 +126,12 @@ var (
 	benchStreamTrain = flag.Bool("bench.streamtrain", false, "postingedge, full mode: hand the train set to the index straight from the dataset files "+
 		"and load the copy the benchmark reads from once the index is built. An index holds a copy of every vector while it builds, "+
 		"and a large train set does not fit in memory twice")
+
+	benchDegreeCaps = flag.String("bench.degreecaps", "", "postingedge, full mode: measure the plan once per cap of this list, in order, on the one build, "+
+		"every vector keeping its k nearest edges (0 = all of them). Each cap writes next to -bench.out as <name>-cap<k>.json, "+
+		"and as <name>-cap<k>-<n>.json the n-th time the list names it; -bench.out itself keeps the build and its diagnostics")
+	benchCapMaxDrop = flag.Float64("bench.capmaxdrop", 0.01, "postingedge, with -bench.degreecaps: a cap whose edge recall falls more than this "+
+		"below that of the full edges is reported and not measured. The recall of a cap is against the k nearest of the true edges")
 
 	benchSweeps sweepFlag
 )
@@ -559,7 +567,8 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 	require.NoError(t, index.UpdateUserConfig(uc, func() {}))
 	settle(t, data, search, result)
 
-	result.Diagnostics = postingEdgeDiagnostics(t, index, data, build, *benchSample)
+	var truth *edgeTruth
+	result.Diagnostics, truth = postingEdgeDiagnostics(t, index, data, build, *benchSample)
 	if *benchReach > 0 {
 		for key, value := range edgeReachDiagnostics(t, index, data, *benchReach) {
 			result.Diagnostics[key] = value
@@ -569,6 +578,99 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 	writeBenchResult(t, result)
 	if recall := result.Diagnostics["edgeRecall"]; recall < *benchMinEdgeRecall {
 		t.Fatalf("edge recall %.4f is below the required %.4f, not running the sweeps", recall, *benchMinEdgeRecall)
+	}
+
+	if *benchDegreeCaps == "" {
+		runPostingEdgePlan(t, index, data, uc, plan, result, *benchOut)
+		return
+	}
+	benchCappedDegrees(t, index, data, uc, plan, result, truth)
+}
+
+// benchCappedDegrees measures the plan once per cap of -bench.degreecaps on the
+// one build: the full edges of the build are capped to the k nearest of each
+// vector, published, and measured, in the order of the list. Every cap gets
+// a result of its own, with the build of the given one and the edge
+// diagnostics, memory and points of the cap.
+func benchCappedDegrees(t *testing.T, index *Index, data *benchData, uc UserConfig, plan []sweep,
+	result *benchResult, truth *edgeTruth,
+) {
+	require.NotEmpty(t, *benchOut, "-bench.degreecaps writes a result per cap next to -bench.out")
+	full := index.state.Load().postings
+	fullStart, fullEdges := full.edgeStart, full.edges
+	fullRecall := result.Diagnostics["edgeRecall"]
+	fullEdgeMB := result.Components["edges"]
+	n := full.vectors()
+
+	named := map[int]int{}
+	for _, k := range parseInts(t, *benchDegreeCaps) {
+		named[k]++
+		out := strings.TrimSuffix(*benchOut, ".json") + fmt.Sprintf("-cap%d", k)
+		if named[k] > 1 {
+			out += fmt.Sprintf("-%d", named[k])
+		}
+		out += ".json"
+
+		start, edges := capDegree(fullStart, fullEdges, k)
+		require.NoError(t, index.replaceEdges(start, edges))
+		edgesOf := index.state.Load().postings.edgesOf
+
+		cell := *result
+		cell.Points, cell.Calibration, cell.AutoMargins, cell.AutoMargin = nil, nil, nil, nil
+		cell.Config = maps.Clone(result.Config)
+		cell.Config["degreeCap"] = k
+		cell.Components = maps.Clone(result.Components)
+		cell.Diagnostics = maps.Clone(result.Diagnostics)
+		memory, _ := index.MemoryStats()
+		cell.Components["edges"] = float64(memory.EdgeBytes) / (1 << 20)
+		// The heap is read once, after the build: a cap frees what it drops.
+		cell.IndexHeapMB = result.IndexHeapMB - fullEdgeMB + cell.Components["edges"]
+		cut := 0
+		for slot := 0; slot < n; slot++ {
+			if k > 0 && fullStart[slot+1]-fullStart[slot] > uint32(k) {
+				cut++
+			}
+		}
+		recall := truth.recallOfNearest(edgesOf, k)
+		cell.Diagnostics["edgesPerVector"] = float64(len(edges)) / float64(n)
+		cell.Diagnostics["edgeRecall"] = recall
+		cell.Diagnostics["edgeRecallOfAllEdges"] = truth.recallOfNearest(edgesOf, 0)
+		cell.Diagnostics["vectorsCapped"] = float64(cut) / float64(n)
+		cell.Diagnostics["edgesDropped"] = 1 - float64(len(edges))/float64(len(fullEdges))
+		// The search settings of the diagnostics of the build, not those of
+		// the last point the cap before measured.
+		require.NoError(t, index.UpdateUserConfig(uc, func() {}))
+		if sample, found := selfRetrieval(t, index, data); sample > 0 {
+			cell.Diagnostics["selfSample"], cell.Diagnostics["selfFound"] = float64(sample), found
+		}
+		kept := "all the true edges"
+		if k > 0 {
+			kept = fmt.Sprintf("the %d nearest true edges", k)
+		}
+		t.Logf("cap %d: %.2f edges per vector (%.1f%% of the vectors capped, %.1f%% of the edges dropped), "+
+			"edge recall %.4f against %s and %.4f against all of them (full edges: %.4f), "+
+			"edges %.1f MB, self found %.4f",
+			k, cell.Diagnostics["edgesPerVector"], 100*cell.Diagnostics["vectorsCapped"], 100*cell.Diagnostics["edgesDropped"],
+			recall, kept, cell.Diagnostics["edgeRecallOfAllEdges"], fullRecall, cell.Components["edges"], cell.Diagnostics["selfFound"])
+		writeBenchResultTo(t, &cell, out)
+		if recall < fullRecall-*benchCapMaxDrop {
+			t.Logf("cap %d: edge recall %.4f is more than %.3f below the %.4f of the full edges, not measured",
+				k, recall, *benchCapMaxDrop, fullRecall)
+			continue
+		}
+		runPostingEdgePlan(t, index, data, uc, plan, &cell, out)
+	}
+	require.NoError(t, index.replaceEdges(fullStart, fullEdges))
+}
+
+// runPostingEdgePlan measures the plan on the index as it stands and writes
+// the result to out, the second round of -bench.repeat next to it.
+func runPostingEdgePlan(t *testing.T, index *Index, data *benchData, uc UserConfig, plan []sweep,
+	result *benchResult, out string,
+) {
+	search := func(ctx context.Context, query []float32) ([]uint64, error) {
+		ids, _, err := index.SearchByVector(ctx, query, *benchK, nil)
+		return ids, err
 	}
 
 	// margin=auto is calibrated once per rescore limit: how much recall a
@@ -581,7 +683,7 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 		}
 		for _, rescore := range sw.rescores {
 			if _, done := auto[rescore]; !done {
-				auto[rescore] = calibrateMargin(t, index, data, uc, sw, rescore, result)
+				auto[rescore] = calibrateMargin(t, index, data, uc, sw, rescore, result, out)
 			}
 		}
 	}
@@ -633,7 +735,7 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 			s.EdgesMean, s.InLoadedMean, s.RepeatedMean, s.EndpointsMean, s.RescoredMean,
 			s.RescoredPostingsMean, s.RescoredPostingsP95, s.RescoredElsewhereMax,
 			s.CentroidUs, s.ScanUs, s.ExpandUs, s.SelectUs, s.RescoreUs, s.TotalUs)
-		writeBenchResult(t, result)
+		writeBenchResultTo(t, result, out)
 		return point
 	}
 
@@ -681,7 +783,7 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 		})
 	}
 
-	repeatTimedPoints(t, result, func(first benchPoint) benchPoint {
+	repeatTimedPoints(t, result, out, func(first benchPoint) benchPoint {
 		uc.EF, uc.LoadBatch, uc.RescoreLimit = first.EF, first.LoadBatch, first.RescoreLimit
 		uc.SourceMargin = float32(first.SourceMargin)
 		require.NoError(t, index.UpdateUserConfig(uc, func() {}))
@@ -690,16 +792,16 @@ func benchPostingEdge(t *testing.T, ctx context.Context, data *benchData, result
 }
 
 // repeatTimedPoints times every timed point of the result once more, in the
-// order they were first taken, and writes the second round to a result file
-// of its own. again measures a point with the settings of the given one. It
-// does nothing without -bench.repeat.
-func repeatTimedPoints(t *testing.T, result *benchResult, again func(first benchPoint) benchPoint) {
-	if !*benchRepeat || *benchOut == "" {
+// order they were first taken, and writes the second round next to out, as
+// <name>-repeat.json. again measures a point with the settings of the given
+// one. It does nothing without -bench.repeat, or without out.
+func repeatTimedPoints(t *testing.T, result *benchResult, out string, again func(first benchPoint) benchPoint) {
+	if !*benchRepeat || out == "" {
 		return
 	}
 	second := *result
 	second.Points = nil
-	path := strings.TrimSuffix(*benchOut, ".json") + "-repeat.json"
+	path := strings.TrimSuffix(out, ".json") + "-repeat.json"
 	for _, first := range result.Points {
 		if first.Untimed {
 			continue
@@ -792,7 +894,7 @@ func findCeilings(t *testing.T, result *benchResult, target float64,
 // sweep, against no margin at the same ef. It runs untimed passes, which is
 // enough for recall, and falls back to no margin if none qualifies.
 func calibrateMargin(t *testing.T, index *Index, data *benchData, uc UserConfig, sw sweep, rescore int,
-	result *benchResult,
+	result *benchResult, out string,
 ) float64 {
 	efs := sw.efs
 	if *benchAutoEFs != "" {
@@ -811,7 +913,7 @@ func calibrateMargin(t *testing.T, index *Index, data *benchData, uc UserConfig,
 				SourceMargin: margin, Recall: recall, Stats: stats, Untimed: true,
 			})
 		}
-		writeBenchResult(t, result)
+		writeBenchResultTo(t, result, out)
 		return recalls
 	}
 
@@ -833,7 +935,7 @@ func calibrateMargin(t *testing.T, index *Index, data *benchData, uc UserConfig,
 		result.AutoMargins = map[int]float64{}
 	}
 	result.AutoMargins[rescore] = chosen
-	writeBenchResult(t, result)
+	writeBenchResultTo(t, result, out)
 	return chosen
 }
 
@@ -980,7 +1082,7 @@ func benchHNSW(t *testing.T, ctx context.Context, data *benchData, result *bench
 		}
 	}
 
-	repeatTimedPoints(t, result, func(first benchPoint) benchPoint {
+	repeatTimedPoints(t, result, *benchOut, func(first benchPoint) benchPoint {
 		uc.EF, uc.RQ.RescoreLimit = first.EF, first.RescoreLimit
 		updated := make(chan struct{})
 		require.NoError(t, index.UpdateUserConfig(uc, func() { close(updated) }))
@@ -1168,9 +1270,11 @@ func collectSearchStats(t *testing.T, index *Index, data *benchData, threads int
 
 // postingEdgeDiagnostics measures what the search cost depends on but no
 // operating point shows: how the postings turned out, how good the edges
-// are, and how often the centroid graph finds the true nearest centroid.
+// are, and how often the centroid graph finds the true nearest centroid. It
+// returns the true edges of the sample it measured the edges against, for the
+// edges a cap leaves (benchCappedDegrees).
 func postingEdgeDiagnostics(t *testing.T, index *Index, data *benchData, build BuildStats, sample int,
-) map[string]float64 {
+) (map[string]float64, *edgeTruth) {
 	st := index.state.Load()
 	store, side := st.postings, st.side
 	n := store.vectors()
@@ -1239,27 +1343,37 @@ func postingEdgeDiagnostics(t *testing.T, index *Index, data *benchData, build B
 	})
 	out["entryIsNearestCentroid"] = float64(exactEntry.Load()) / float64(len(data.queries))
 
-	// Self-retrieval: a vector searched for with itself as the query has to
-	// come back. It is in the posting of its nearest centroid, so it is
-	// found whenever the centroid graph enters there, and through an edge
-	// otherwise: this is the coverage above as a search sees it, with the
-	// search settings the index has now.
-	if selfSample := min(*benchSelf, n); selfSample > 0 {
-		var found atomic.Int64
-		parallelFor(selfSample, func(i int) {
-			docID := uint64(i) * uint64(n) / uint64(selfSample)
-			ids, _, err := index.SearchByVector(context.Background(), data.train[docID], *benchK, nil)
-			if err != nil {
-				panic(err)
-			}
-			if slices.Contains(ids, docID) {
-				found.Add(1)
-			}
-		})
-		out["selfSample"] = float64(selfSample)
-		out["selfFound"] = float64(found.Load()) / float64(selfSample)
+	if selfSample, found := selfRetrieval(t, index, data); selfSample > 0 {
+		out["selfSample"], out["selfFound"] = float64(selfSample), found
 	}
-	return out
+	return out, truth
+}
+
+// selfRetrieval searches for an evenly spread sample of -bench.selfsample
+// vectors with themselves as the query: each has to come back. It is in the
+// posting of its nearest centroid, so it is found whenever the centroid
+// graph enters there, and through an edge otherwise: the coverage of the
+// postings as a search sees it, with the search settings and the edges the
+// index has now. found is the share that came back.
+func selfRetrieval(t *testing.T, index *Index, data *benchData) (sample int, found float64) {
+	t.Helper()
+	n := len(data.train)
+	sample = min(*benchSelf, n)
+	if sample == 0 {
+		return 0, 0
+	}
+	var hits atomic.Int64
+	parallelFor(sample, func(i int) {
+		docID := uint64(i) * uint64(n) / uint64(sample)
+		ids, _, err := index.SearchByVector(context.Background(), data.train[docID], *benchK, nil)
+		if err != nil {
+			panic(err)
+		}
+		if slices.Contains(ids, docID) {
+			hits.Add(1)
+		}
+	})
+	return sample, float64(hits.Load()) / float64(sample)
 }
 
 // coverage counts how the vectors added to an index under the ids 0 to
@@ -1579,7 +1693,9 @@ func edgeReachDiagnostics(t *testing.T, index *Index, data *benchData, queries i
 // sampled slot, the slots of its exact nearest neighbors that live in another
 // posting.
 type edgeTruth struct {
-	slots  []uint32
+	slots []uint32
+	// wanted are the true edges of each sampled slot: its exact nearest
+	// neighbors that live in another posting, nearest first.
 	wanted [][]uint32
 	// ownPosting is the share of the exact nearest neighbors of the sample
 	// that live in the vector's own posting and so need no edge.
@@ -1617,7 +1733,7 @@ func sampleEdgeTruth(data *benchData, sample, neighbors int, slotOf, postingOf [
 			}
 			nearest.push(uint64(candidate), dist)
 		}
-		for _, nb := range nearest.items {
+		for _, nb := range nearest.sorted() {
 			if postingOf[slotOf[nb.id]] == postingOf[slotOf[doc]] {
 				same.Add(1)
 				continue
@@ -1632,10 +1748,21 @@ func sampleEdgeTruth(data *benchData, sample, neighbors int, slotOf, postingOf [
 
 // recall is the share of the wanted edges that the given edges hold.
 func (e *edgeTruth) recall(edgesOf func(slot uint32) []uint32) float64 {
+	return e.recallOfNearest(edgesOf, 0)
+}
+
+// recallOfNearest is recall against the k nearest wanted edges of every
+// sampled vector, all of them with k <= 0: the true edges of a cap on the
+// degree (capDegree).
+func (e *edgeTruth) recallOfNearest(edgesOf func(slot uint32) []uint32, k int) float64 {
 	captured, wanted := 0, 0
 	for i, slot := range e.slots {
 		edges := edgesOf(slot)
-		for _, want := range e.wanted[i] {
+		want := e.wanted[i]
+		if k > 0 {
+			want = want[:min(len(want), k)]
+		}
+		for _, want := range want {
 			wanted++
 			if slices.Contains(edges, want) {
 				captured++
@@ -1997,12 +2124,17 @@ func (d *benchData) loadTrain(t *testing.T) {
 }
 
 func writeBenchResult(t *testing.T, result *benchResult) {
-	if *benchOut == "" {
+	writeBenchResultTo(t, result, *benchOut)
+}
+
+// writeBenchResultTo writes the result to path, unless path is empty.
+func writeBenchResultTo(t *testing.T, result *benchResult, path string) {
+	if path == "" {
 		return
 	}
 	raw, err := json.MarshalIndent(result, "", "  ")
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(*benchOut, raw, 0o644))
+	require.NoError(t, os.WriteFile(path, raw, 0o644))
 }
 
 // takeMemSnapshot reads the process memory after returning everything
