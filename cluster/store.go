@@ -18,7 +18,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -613,6 +612,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		if err := st.recoverSingleNode(st.cfg.ForceOneNodeRecovery); err != nil {
 			return err
 		}
+		rn = st.raft.Load() // recoverSingleNode may replace the raft node
 	}
 
 	snapIndex := lastSnapshotIndex(st.snapshotStore)
@@ -1072,27 +1072,6 @@ func (st *Store) wipedJoinerRestoreReload(snapIndex uint64) bool {
 	return false
 }
 
-const wipedJoinerFSMSettleWindow = 200 * time.Millisecond
-
-// raft.AppliedIndex counts enqueued-not-consumed entries; reloading mid-drain would let queued ADD_CLASS full-apply post-reload (empty shard, no recovery).
-func (st *Store) wipedJoinerFSMCaughtUp(barrier uint64) bool {
-	if st.lastAppliedIndex.Load() >= barrier {
-		return true
-	}
-	before := st.lastAppliedIndex.Load()
-	time.Sleep(wipedJoinerFSMSettleWindow)
-	if st.lastAppliedIndex.Load() != before {
-		return false
-	}
-	rn := st.raft.Load()
-	if rn == nil {
-		return true
-	}
-	// stable FSM index + empty queue: only config/noop entries remain below the barrier
-	pending, err := strconv.ParseUint(rn.Stats()["fsm_pending"], 10, 64)
-	return err != nil || pending == 0
-}
-
 func (st *Store) wipedJoinerBarrierTimeout() time.Duration {
 	if st.cfg.WipedJoinerBarrierTimeout > 0 {
 		return st.cfg.WipedJoinerBarrierTimeout
@@ -1111,6 +1090,7 @@ func (st *Store) watchWipedJoiner() {
 	var zeroBarrierSince time.Time
 	// Treat open=false as shutdown only after seeing it true, else an early tick disables the fallbacks.
 	opened := false
+	var readErrSince time.Time
 	for range t.C {
 		if st.wipedJoinerReloaded.Load() {
 			return
@@ -1132,7 +1112,24 @@ func (st *Store) watchWipedJoiner() {
 
 		// Barrier reached but the entry there was a config/noop (no Apply-thread trigger); catch it here.
 		if wipedJoinerBarrierReached(st.wipedJoinerReloaded.Load(), barrier, applied) {
-			if !st.wipedJoinerFSMCaughtUp(barrier) {
+			// Reloading mid-drain would full-apply queued ADD_CLASS into empty shards.
+			caughtUp, err := st.fsmReachedIndex(barrier)
+			if err != nil {
+				if readErrSince.IsZero() {
+					readErrSince = time.Now()
+					st.log.WithField("join_barrier", barrier).
+						Warnf("wiped joiner: waiting, cannot read the log up to the join barrier: %v", err)
+				}
+				if time.Since(readErrSince) < timeout {
+					continue
+				}
+				st.log.WithField("join_barrier", barrier).
+					Warnf("wiped joiner: cannot read the log up to the join barrier before timeout; proceeding with eager load (some shards may start empty and rely on async replication / manual recovery): %v", err)
+				st.finishWipedJoinerReloadExclusive()
+				return
+			}
+			readErrSince = time.Time{}
+			if !caughtUp {
 				continue
 			}
 			st.log.WithField("applied_index", applied).
