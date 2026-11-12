@@ -102,6 +102,13 @@ func newMapTracker[K comparable](logger logrus.FieldLogger, initCap, maxKeys, ma
 // It owns the counts map exclusively, eliminating the need for locks.
 // Uses a priority select pattern to drain all tracking events before
 // handling Get/GetAndReset requests, ensuring consistent results.
+//
+// The leading priority select alone doesn't close the race: once parked in
+// the second select, a buffered trackChan event and an unbuffered
+// getChan/resetChan request can both be ready, and select picks at random.
+// Since Track is a non-blocking send, a sequential Track-then-Get could then
+// see Get served first and undercount. Get/GetAndReset call drainTrackChan
+// first to close this window.
 func (t *mapTracker[K]) run() {
 	counts := make(map[K]map[string]int64, t.initCap)
 	for {
@@ -123,13 +130,28 @@ func (t *mapTracker[K]) run() {
 			t.processEvent(counts, ev)
 
 		case respChan := <-t.getChan:
+			t.drainTrackChan(counts)
 			respChan <- t.deepCopy(counts)
 
 		case respChan := <-t.resetChan:
+			t.drainTrackChan(counts)
 			respChan <- t.deepCopy(counts)
 			counts = make(map[K]map[string]int64, t.initCap)
 
 		case <-t.stopChan:
+			return
+		}
+	}
+}
+
+// drainTrackChan flushes all events currently buffered in trackChan without
+// blocking. Called before Get/GetAndReset copy counts; see run for why.
+func (t *mapTracker[K]) drainTrackChan(counts map[K]map[string]int64) {
+	for {
+		select {
+		case ev := <-t.trackChan:
+			t.processEvent(counts, ev)
+		default:
 			return
 		}
 	}
