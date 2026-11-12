@@ -239,8 +239,8 @@ func NewManager(params ManagerParameters) *Manager {
 }
 
 // RegisterCollectionExtractor opts a task namespace into DeleteTasksForCollection's
-// cascade. Extractor may run concurrently, with or without the Manager lock — must not block or recurse. Last
-// write wins per namespace; nil / empty arguments are silently dropped.
+// cascade. Extractor may run concurrently, with or without the Manager lock — must not block or recurse. Register
+// before the first task, which caches its answer; nil / empty arguments are silently dropped.
 // It also keeps this namespace's tasks and replica movements from running on the same collection at once (HasActiveTaskForCollection, CollectionOfTask).
 func (m *Manager) RegisterCollectionExtractor(namespace string, extractor CollectionExtractor) {
 	if namespace == "" || extractor == nil {
@@ -372,7 +372,7 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 			continue
 		}
 		for taskID, task := range tasksByID {
-			c, ok := extractor(task.Payload)
+			c, ok := task.collection, task.collection != ""
 			// EqualFold, matching PurgeTasksForCollectionTargetVectors and every
 			// payload consumer: collection names are case-insensitive
 			// identifiers, and a byte-exact cascade would leak a case-twin

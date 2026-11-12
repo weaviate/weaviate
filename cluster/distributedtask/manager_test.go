@@ -1806,7 +1806,11 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 
 	t.Run("removes only tasks whose payload matches the collection", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
-		h.manager.RegisterCollectionExtractor("scoped", collectionExtractor)
+		decodes := 0
+		h.manager.RegisterCollectionExtractor("scoped", func(payload []byte) (string, bool) {
+			decodes++
+			return collectionExtractor(payload)
+		})
 
 		mkTask := func(id string, payload any) {
 			t.Helper()
@@ -1825,7 +1829,9 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 		mkTask("bar-1", map[string]string{"collection": "Bar"})
 		mkTask("nope", "opaque-string")
 
+		decodes = 0
 		removed := h.manager.DeleteTasksForCollection("Foo")
+		require.Zero(t, decodes, "a class delete must not decode payloads")
 		require.Len(t, removed, 2, "should remove both Foo tasks")
 
 		removedIDs := []string{removed[0].ID, removed[1].ID}
